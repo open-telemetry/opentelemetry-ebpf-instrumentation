@@ -1,0 +1,15 @@
+#####################################################
+#
+# List of approvers for the Project Infrastructure SIG
+#
+#####################################################
+#
+# Learn about membership in OpenTelemetry community:
+#   https://github.com/open-telemetry/community/blob/main/guides/contributor/membership.md
+#
+#
+# Learn about CODEOWNERS file format:
+#   https://help.github.com/en/articles/about-code-owners
+#
+
+* @open-telemetry/ebpf-instrumentation-approvers
