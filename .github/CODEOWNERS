@@ -13,3 +13,5 @@
 #
 
 * @open-telemetry/ebpf-instrumentation-approvers
+
+CODEOWNERS @open-telemetry/ebpf-instrumentation-maintainers
