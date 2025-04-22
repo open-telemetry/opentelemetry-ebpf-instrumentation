@@ -48,7 +48,7 @@ libraries belongs to the authors of the third party libraries.
 
 In the event that we accidentally failed to list a required notice, please
 bring it to our attention by opening a GitHub issue at 
-https://github.com/grafana/beyla/issues.
+https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues.
 
 
 License notice for OpenTelemetry Go Automatic Instrumentation

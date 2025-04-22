@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/beyla/v2/pkg/beyla"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 )
 
 // Tests fix for https://github.com/grafana/beyla/issues/926

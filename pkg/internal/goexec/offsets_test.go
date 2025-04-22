@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/beyla/v2/pkg/internal/testutil"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/testutil"
 )
 
 // TestProcessNotFound tests that InspectOffsets process exits on context cancellation

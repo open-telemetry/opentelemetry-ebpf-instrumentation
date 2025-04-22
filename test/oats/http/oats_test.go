@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/grafana/oats/yaml"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	"github.com/grafana/oats/yaml"
 )
 
 func TestYaml(t *testing.T) {

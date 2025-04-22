@@ -7,12 +7,12 @@ import (
 
 	"github.com/cilium/ebpf"
 
-	ebpfcommon "github.com/grafana/beyla/v2/pkg/internal/ebpf/common"
-	"github.com/grafana/beyla/v2/pkg/internal/exec"
-	"github.com/grafana/beyla/v2/pkg/internal/goexec"
-	"github.com/grafana/beyla/v2/pkg/internal/request"
-	"github.com/grafana/beyla/v2/pkg/internal/svc"
-	"github.com/grafana/beyla/v2/pkg/pipe/msg"
+	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/goexec"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
 type Instrumentable struct {

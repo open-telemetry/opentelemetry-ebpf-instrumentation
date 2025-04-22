@@ -3,16 +3,16 @@ package agent
 import (
 	"context"
 
-	"github.com/grafana/beyla/v2/pkg/export/otel"
-	"github.com/grafana/beyla/v2/pkg/export/prom"
-	"github.com/grafana/beyla/v2/pkg/filter"
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/ebpf"
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/export"
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/flow"
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/transform/cidr"
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/transform/k8s"
-	"github.com/grafana/beyla/v2/pkg/pipe/msg"
-	"github.com/grafana/beyla/v2/pkg/pipe/swarm"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/prom"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/filter"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/ebpf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/export"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/flow"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/transform/cidr"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/transform/k8s"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
 )
 
 // mockable functions for testing

@@ -25,13 +25,13 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 
-	attr "github.com/grafana/beyla/v2/pkg/export/attributes/names"
-	"github.com/grafana/beyla/v2/pkg/internal/kube"
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/ebpf"
-	"github.com/grafana/beyla/v2/pkg/kubecache/informer"
-	"github.com/grafana/beyla/v2/pkg/pipe/msg"
-	"github.com/grafana/beyla/v2/pkg/pipe/swarm"
-	"github.com/grafana/beyla/v2/pkg/transform"
+	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/kube"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/ebpf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/transform"
 )
 
 const (

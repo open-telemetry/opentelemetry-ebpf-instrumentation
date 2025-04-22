@@ -5,10 +5,10 @@ import (
 
 	"github.com/cilium/ebpf/link"
 
-	"github.com/grafana/beyla/v2/pkg/beyla"
-	"github.com/grafana/beyla/v2/pkg/internal/exec"
-	"github.com/grafana/beyla/v2/pkg/internal/request"
-	"github.com/grafana/beyla/v2/pkg/pipe/msg"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
 type instrumenter struct {

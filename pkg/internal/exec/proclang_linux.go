@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/grafana/beyla/v2/pkg/internal/svc"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
 )
 
 func FindProcLanguage(pid int32, elfF *elf.File, path string) svc.InstrumentableType {

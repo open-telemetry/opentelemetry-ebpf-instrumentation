@@ -3,7 +3,7 @@
 package ebpf
 
 import (
-	"github.com/grafana/beyla/v2/pkg/internal/ebpf/ringbuf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/ringbuf"
 )
 
 type SockFlowFetcher struct{}

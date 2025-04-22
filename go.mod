@@ -1,4 +1,4 @@
-module github.com/grafana/beyla/v2
+module github.com/open-telemetry/opentelemetry-ebpf-instrumentation
 
 go 1.24.1
 

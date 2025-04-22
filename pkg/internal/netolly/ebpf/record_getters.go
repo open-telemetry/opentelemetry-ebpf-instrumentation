@@ -3,9 +3,9 @@ package ebpf
 import (
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/grafana/beyla/v2/pkg/export/attributes"
-	attr "github.com/grafana/beyla/v2/pkg/export/attributes/names"
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/flow/transport"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
+	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/flow/transport"
 )
 
 const (

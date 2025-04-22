@@ -5,8 +5,8 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/grafana/beyla/v2/pkg/internal/ebpf/ringbuf"
-	"github.com/grafana/beyla/v2/pkg/internal/request"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/ringbuf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 )
 
 func ReadGoSaramaRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {

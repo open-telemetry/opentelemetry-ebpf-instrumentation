@@ -21,9 +21,9 @@ import (
 	"github.com/prometheus/procfs"
 	"golang.org/x/sys/unix"
 
-	ebpfcommon "github.com/grafana/beyla/v2/pkg/internal/ebpf/common"
-	"github.com/grafana/beyla/v2/pkg/internal/exec"
-	"github.com/grafana/beyla/v2/pkg/internal/goexec"
+	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/goexec"
 )
 
 func ilog() *slog.Logger {

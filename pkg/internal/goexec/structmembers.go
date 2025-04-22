@@ -9,9 +9,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/hashicorp/go-version"
-
 	"github.com/grafana/go-offsets-tracker/pkg/offsets"
+	"github.com/hashicorp/go-version"
 )
 
 func log() *slog.Logger {

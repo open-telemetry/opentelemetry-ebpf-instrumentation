@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/grafana/beyla/v2/pkg/internal/svc"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
 )
 
 func TestModuleDetection(t *testing.T) {

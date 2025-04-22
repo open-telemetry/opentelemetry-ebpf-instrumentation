@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/grafana/beyla/v2/pkg/buildinfo"
-	"github.com/grafana/beyla/v2/pkg/kubecache"
-	"github.com/grafana/beyla/v2/pkg/kubecache/instrument"
-	"github.com/grafana/beyla/v2/pkg/kubecache/meta"
-	"github.com/grafana/beyla/v2/pkg/kubecache/service"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/instrument"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/meta"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/service"
 )
 
 // main code of te Kubernetes K8s informer's metadata cache service, when it runs as a separate service and not

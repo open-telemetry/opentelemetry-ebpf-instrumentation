@@ -8,10 +8,10 @@ import (
 
 	"github.com/yl2chen/cidranger"
 
-	attr "github.com/grafana/beyla/v2/pkg/export/attributes/names"
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/ebpf"
-	"github.com/grafana/beyla/v2/pkg/pipe/msg"
-	"github.com/grafana/beyla/v2/pkg/pipe/swarm"
+	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/ebpf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
 )
 
 func glog() *slog.Logger {

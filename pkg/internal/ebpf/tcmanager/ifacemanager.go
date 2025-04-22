@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/ifaces"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/ifaces"
 )
 
 type IMIfaceMap map[int]*ifaces.Interface

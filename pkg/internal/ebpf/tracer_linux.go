@@ -16,13 +16,13 @@ import (
 	"github.com/cilium/ebpf/btf"
 	"github.com/cilium/ebpf/link"
 
-	"github.com/grafana/beyla/v2/pkg/beyla"
-	common "github.com/grafana/beyla/v2/pkg/internal/ebpf/common"
-	convenience "github.com/grafana/beyla/v2/pkg/internal/ebpf/convenience"
-	"github.com/grafana/beyla/v2/pkg/internal/exec"
-	"github.com/grafana/beyla/v2/pkg/internal/goexec"
-	"github.com/grafana/beyla/v2/pkg/internal/request"
-	"github.com/grafana/beyla/v2/pkg/pipe/msg"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
+	common "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
+	convenience "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/convenience"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/goexec"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
 const PinInternal = ebpf.PinType(100)

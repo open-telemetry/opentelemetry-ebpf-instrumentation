@@ -9,11 +9,11 @@ import (
 
 	"github.com/cilium/ebpf"
 
-	"github.com/grafana/beyla/v2/pkg/beyla"
-	"github.com/grafana/beyla/v2/pkg/config"
-	ebpfcommon "github.com/grafana/beyla/v2/pkg/internal/ebpf/common"
-	"github.com/grafana/beyla/v2/pkg/internal/ebpf/ringbuf"
-	"github.com/grafana/beyla/v2/pkg/internal/request"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
+	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/ringbuf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 )
 
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type watch_info_t -target amd64,arm64 bpf ../../../../bpf/watcher/watcher.c -- -I../../../../bpf

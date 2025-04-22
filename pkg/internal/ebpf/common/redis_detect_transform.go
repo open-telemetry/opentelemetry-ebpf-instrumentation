@@ -7,9 +7,9 @@ import (
 
 	trace2 "go.opentelemetry.io/otel/trace"
 
-	"github.com/grafana/beyla/v2/pkg/internal/ebpf/ringbuf"
-	"github.com/grafana/beyla/v2/pkg/internal/request"
-	"github.com/grafana/beyla/v2/pkg/internal/util"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/ringbuf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/util"
 )
 
 const minRedisFrameLen = 3

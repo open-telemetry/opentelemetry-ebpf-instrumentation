@@ -17,8 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/beyla/v2/test/integration/components/prom"
-	grpcclient "github.com/grafana/beyla/v2/test/integration/components/testserver/grpc/client"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
+	grpcclient "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/grpc/client"
 )
 
 const (

@@ -7,12 +7,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/grafana/beyla/v2/test/integration/components/docker"
-	"github.com/grafana/beyla/v2/test/integration/components/kube"
-	k8s "github.com/grafana/beyla/v2/test/integration/k8s/common"
-	"github.com/grafana/beyla/v2/test/integration/k8s/common/testpath"
-	otel "github.com/grafana/beyla/v2/test/integration/k8s/netolly_multizone"
-	"github.com/grafana/beyla/v2/test/tools"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/docker"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/kube"
+	k8s "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common/testpath"
+	otel "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/netolly_multizone"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/tools"
 )
 
 var cluster *kube.Kind

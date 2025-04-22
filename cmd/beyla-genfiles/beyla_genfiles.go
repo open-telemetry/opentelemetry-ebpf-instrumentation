@@ -27,9 +27,10 @@ type config struct {
 	ScanPath        string `env:"BEYLA_GENFILES_SCAN_PATH"        envDefault:"pkg"`
 	ContainerPrefix string `env:"BEYLA_GENFILES_CONTAINER_PREFIX" envDefault:"/__w/"`
 	HostPrefix      string `env:"BEYLA_GENFILES_HOST_PREFIX"      envDefault:"/home/runner/work/"`
-	Package         string `env:"BEYLA_GENFILES_PKG"              envDefault:"github.com/grafana/beyla/v2/pkg/beyla"`
+	Package         string `env:"BEYLA_GENFILES_PKG"              envDefault:"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"`
 	OCIBin          string `env:"BEYLA_GENFILES_OCI_BIN"          envDefault:"docker"`
-	GenImage        string `env:"BEYLA_GENFILES_GEN_IMG"          envDefault:"ghcr.io/grafana/beyla-ebpf-generator:main"`
+	//TODO: replace by OTEL image once we publish them
+	GenImage string `env:"BEYLA_GENFILES_GEN_IMG"          envDefault:"ghcr.io/grafana/beyla-ebpf-generator:main"`
 }
 
 var cfg config

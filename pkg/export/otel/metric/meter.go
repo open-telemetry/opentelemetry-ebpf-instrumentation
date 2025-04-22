@@ -11,9 +11,9 @@ import (
 	"go.opentelemetry.io/otel/metric/embedded"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 
-	"github.com/grafana/beyla/v2/pkg/export/otel/metric/api/metric"
-	"github.com/grafana/beyla/v2/pkg/export/otel/metric/global"
-	"github.com/grafana/beyla/v2/pkg/export/otel/metric/internal/aggregate"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/api/metric"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/global"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/internal/aggregate"
 )
 
 // ErrInstrumentName indicates the created instrument has an invalid name.

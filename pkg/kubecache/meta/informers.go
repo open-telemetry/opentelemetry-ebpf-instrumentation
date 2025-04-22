@@ -5,7 +5,7 @@ import (
 
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/grafana/beyla/v2/pkg/kubecache/informer"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
 )
 
 type Informers struct {

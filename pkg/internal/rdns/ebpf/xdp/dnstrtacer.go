@@ -8,7 +8,7 @@ import (
 
 	"github.com/cilium/ebpf/link"
 
-	"github.com/grafana/beyla/v2/pkg/internal/ebpf/ringbuf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/ringbuf"
 )
 
 // tracer represents the main structure for DNS response tracking.

@@ -31,8 +31,8 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 	"golang.org/x/sys/unix"
 
-	convenience "github.com/grafana/beyla/v2/pkg/internal/ebpf/convenience"
-	"github.com/grafana/beyla/v2/pkg/internal/ebpf/ringbuf"
+	convenience "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/convenience"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/ringbuf"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.

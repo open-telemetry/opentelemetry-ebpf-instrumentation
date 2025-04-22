@@ -29,9 +29,9 @@ import (
 
 	"github.com/cilium/ebpf/rlimit"
 
-	convenience "github.com/grafana/beyla/v2/pkg/internal/ebpf/convenience"
-	"github.com/grafana/beyla/v2/pkg/internal/ebpf/ringbuf"
-	"github.com/grafana/beyla/v2/pkg/internal/ebpf/tcmanager"
+	convenience "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/convenience"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/ringbuf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/tcmanager"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.

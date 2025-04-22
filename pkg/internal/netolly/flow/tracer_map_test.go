@@ -24,7 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/ebpf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/ebpf"
 )
 
 func TestPacketAggregation(t *testing.T) {

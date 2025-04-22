@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/grafana/beyla/v2/pkg/kubecache/informer"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
 )
 
 type fakeObserver struct {

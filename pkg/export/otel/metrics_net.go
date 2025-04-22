@@ -12,15 +12,15 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
 
-	"github.com/grafana/beyla/v2/pkg/buildinfo"
-	"github.com/grafana/beyla/v2/pkg/export/attributes"
-	"github.com/grafana/beyla/v2/pkg/export/expire"
-	"github.com/grafana/beyla/v2/pkg/export/otel/metric"
-	metric2 "github.com/grafana/beyla/v2/pkg/export/otel/metric/api/metric"
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/ebpf"
-	"github.com/grafana/beyla/v2/pkg/internal/pipe/global"
-	"github.com/grafana/beyla/v2/pkg/pipe/msg"
-	"github.com/grafana/beyla/v2/pkg/pipe/swarm"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/expire"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric"
+	metric2 "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/api/metric"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/ebpf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
 )
 
 // NetMetricsConfig extends MetricsConfig for Network Metrics

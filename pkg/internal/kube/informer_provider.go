@@ -15,8 +15,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/grafana/beyla/v2/pkg/kubecache/meta"
-	"github.com/grafana/beyla/v2/pkg/kubeflags"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/meta"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubeflags"
 )
 
 const (

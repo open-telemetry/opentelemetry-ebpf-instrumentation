@@ -3,7 +3,7 @@ package integration
 import (
 	"path"
 
-	"github.com/grafana/beyla/v2/test/tools"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/tools"
 )
 
 var (
