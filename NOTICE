@@ -1,7 +1,8 @@
-Grafana Beyla 
-Copyright Grafana Labs
+The Open Telemetry Foundation
 
-This product includes software developed at Grafana Labs (https://www.grafana.com/).
+The Initial Developer of some parts of the product, which are copied from, derived from, or
+inspired by Grafana Beyla (https://github.com/grafana/beyla).
+Copyright Grafana Labs.
 
 The Initial Developer of some parts of the product, which are copied from, derived from, or
 inspired by OpenTelemetry Go Automatic Instrumentation (https://github.com/open-telemetry/opentelemetry-go-instrumentation).
