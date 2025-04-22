@@ -12,11 +12,11 @@ First, you need to understand the protocol used by the application you want to t
 
 ## Add the new protocol to the BPF program
 
-In [pkg/internal/ebpf/common/tcp_detect_transform.go](https://github.com/grafana/beyla/blob/main/pkg/internal/ebpf/common/tcp_detect_transform.go) any TCP packet captured from BPF passes through the `ReadTCPRequestIntoSpan` function, and depending what's in the bytes, you can identify if the packet is SQL, Redis, etc. You need to add a new case to this function to identify the new protocol.
+In [pkg/internal/ebpf/common/tcp_detect_transform.go](https://https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/blob/main/pkg/internal/ebpf/common/tcp_detect_transform.go) any TCP packet captured from BPF passes through the `ReadTCPRequestIntoSpan` function, and depending what's in the bytes, you can identify if the packet is SQL, Redis, etc. You need to add a new case to this function to identify the new protocol.
 
-Once you have this done (the hard part!), you have to create a new `EventType` in [pkg/internal/request/span.go](https://github.com/grafana/beyla/blob/main/pkg/internal/request/span.go#L4). Look how other `EventTypes` are handled, and you probably need to edit every single file where the data is flowing. For example, to add a new OTEL trace you have to edit `traceAttributes` in [pkg/export/otel/traces.go](https://github.com/grafana/beyla/blob/main/pkg/export/otel/traces.go#L4)
+Once you have this done (the hard part!), you have to create a new `EventType` in [pkg/internal/request/span.go](https://https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/blob/main/pkg/internal/request/span.go#L4). Look how other `EventTypes` are handled, and you probably need to edit every single file where the data is flowing. For example, to add a new OTEL trace you have to edit `traceAttributes` in [pkg/export/otel/traces.go](https://https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/blob/main/pkg/export/otel/traces.go#L4)
 
-Take a look at this PR for an example of how to add a new Kafka protocol: https://github.com/grafana/beyla/pull/890
+Take a look at this PR for an example of how to add a new Kafka protocol: https://https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/pull/890
 
 ## Other considerations
 

@@ -10,11 +10,11 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
-	"github.com/grafana/beyla/v2/pkg/internal/netolly/ebpf"
-	"github.com/grafana/beyla/v2/pkg/internal/rdns/ebpf/xdp"
-	"github.com/grafana/beyla/v2/pkg/internal/rdns/store"
-	"github.com/grafana/beyla/v2/pkg/pipe/msg"
-	"github.com/grafana/beyla/v2/pkg/pipe/swarm"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/ebpf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/rdns/ebpf/xdp"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/rdns/store"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
 )
 
 const (

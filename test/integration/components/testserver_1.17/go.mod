@@ -1,4 +1,4 @@
-module github.com/grafana/beyla/v2/testserver_1.17
+module github.com/open-telemetry/opentelemetry-ebpf-instrumentation/testserver_1.17
 
 go 1.17
 

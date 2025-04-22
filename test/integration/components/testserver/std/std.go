@@ -14,8 +14,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/grafana/beyla/v2/test/integration/components/testserver/arg"
-	pb "github.com/grafana/beyla/v2/test/integration/components/testserver/grpc/routeguide"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/arg"
+	pb "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/grpc/routeguide"
 )
 
 func HTTPHandler(log *slog.Logger, echoPort int) http.HandlerFunc {

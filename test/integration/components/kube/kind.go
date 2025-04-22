@@ -30,9 +30,9 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envfuncs"
 	"sigs.k8s.io/e2e-framework/support/kind"
 
-	"github.com/grafana/beyla/v2/test/integration/components/jaeger"
-	"github.com/grafana/beyla/v2/test/integration/components/prom"
-	"github.com/grafana/beyla/v2/test/integration/k8s/common/testpath"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common/testpath"
 )
 
 const (

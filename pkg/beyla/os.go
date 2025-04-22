@@ -8,9 +8,9 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	ebpfcfg "github.com/grafana/beyla/v2/pkg/config"
-	ebpfcommon "github.com/grafana/beyla/v2/pkg/internal/ebpf/common"
-	"github.com/grafana/beyla/v2/pkg/internal/helpers"
+	ebpfcfg "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
+	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/helpers"
 )
 
 // Minimum required Kernel version: 4.18

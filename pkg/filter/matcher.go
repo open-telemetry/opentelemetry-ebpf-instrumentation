@@ -5,7 +5,7 @@ import (
 
 	"github.com/gobwas/glob"
 
-	"github.com/grafana/beyla/v2/pkg/export/attributes"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
 )
 
 // Matcher condition for a given field of the record type T.

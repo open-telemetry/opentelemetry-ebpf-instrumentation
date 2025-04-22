@@ -15,9 +15,9 @@ import (
 
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
-	"github.com/grafana/beyla/v2/pkg/beyla"
-	"github.com/grafana/beyla/v2/pkg/buildinfo"
-	"github.com/grafana/beyla/v2/pkg/components"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components"
 )
 
 func main() {

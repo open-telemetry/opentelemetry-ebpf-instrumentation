@@ -13,24 +13,24 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
 
-	"github.com/grafana/beyla/v2/pkg/beyla"
-	"github.com/grafana/beyla/v2/pkg/export/attributes"
-	attr "github.com/grafana/beyla/v2/pkg/export/attributes/names"
-	"github.com/grafana/beyla/v2/pkg/export/instrumentations"
-	"github.com/grafana/beyla/v2/pkg/export/otel"
-	"github.com/grafana/beyla/v2/pkg/filter"
-	"github.com/grafana/beyla/v2/pkg/internal/imetrics"
-	"github.com/grafana/beyla/v2/pkg/internal/kube"
-	"github.com/grafana/beyla/v2/pkg/internal/pipe/global"
-	"github.com/grafana/beyla/v2/pkg/internal/request"
-	"github.com/grafana/beyla/v2/pkg/internal/svc"
-	"github.com/grafana/beyla/v2/pkg/internal/testutil"
-	"github.com/grafana/beyla/v2/pkg/internal/traces"
-	"github.com/grafana/beyla/v2/pkg/kubeflags"
-	"github.com/grafana/beyla/v2/pkg/pipe/msg"
-	"github.com/grafana/beyla/v2/pkg/transform"
-	"github.com/grafana/beyla/v2/test/collector"
-	"github.com/grafana/beyla/v2/test/consumer"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
+	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/instrumentations"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/filter"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/kube"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/testutil"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/traces"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubeflags"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/transform"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/collector"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/consumer"
 )
 
 const testTimeout = 5 * time.Second
@@ -666,7 +666,7 @@ func matchTraceEvent(t require.TestingT, name string, event collector.TraceRecor
 			string(semconv.ServiceNamespaceKey):     "ns",
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "beyla",
-			string(semconv.OTelLibraryNameKey):      "github.com/grafana/beyla",
+			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)
@@ -690,7 +690,7 @@ func matchInnerTraceEvent(t require.TestingT, name string, event collector.Trace
 			string(semconv.ServiceNamespaceKey):     "ns",
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "beyla",
-			string(semconv.OTelLibraryNameKey):      "github.com/grafana/beyla",
+			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
 		},
 		Kind: ptrace.SpanKindInternal,
 	}, event)
@@ -718,7 +718,7 @@ func matchGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord)
 			string(semconv.ServiceNameKey):          "svc",
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "beyla",
-			string(semconv.OTelLibraryNameKey):      "github.com/grafana/beyla",
+			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)
@@ -740,7 +740,7 @@ func matchInnerGRPCTraceEvent(t *testing.T, name string, event collector.TraceRe
 			string(semconv.ServiceNameKey):          "svc",
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "beyla",
-			string(semconv.OTelLibraryNameKey):      "github.com/grafana/beyla",
+			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
 		},
 		Kind: ptrace.SpanKindInternal,
 	}, event)
@@ -798,7 +798,7 @@ func matchInfoEvent(t *testing.T, name string, event collector.TraceRecord) {
 			string(semconv.ServiceNameKey):          "comm",
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "beyla",
-			string(semconv.OTelLibraryNameKey):      "github.com/grafana/beyla",
+			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)

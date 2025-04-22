@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/beyla/v2/test/integration/components/jaeger"
-	"github.com/grafana/beyla/v2/test/integration/components/prom"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
 )
 
 func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string, port int, notraces bool) {
@@ -110,7 +110,7 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 	require.Truef(t, ok, "service.instance.id not found in tags: %v", process.Tags)
 	assert.Regexp(t, `^beyla:\d+$$`, serviceInstance.Value)
 	sd = jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.library.name", Type: "string", Value: "github.com/grafana/beyla"},
+		{Key: "otel.library.name", Type: "string", Value: "github.com/open-telemetry/opentelemetry-ebpf-instrumentation"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "rust"},
 		{Key: "telemetry.sdk.name", Type: "string", Value: "beyla"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},

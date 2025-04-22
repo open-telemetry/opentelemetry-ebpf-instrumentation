@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/beyla/v2/test/integration/components/docker"
-	"github.com/grafana/beyla/v2/test/integration/components/prom"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/docker"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
 )
 
 func TestMultiProcess(t *testing.T) {

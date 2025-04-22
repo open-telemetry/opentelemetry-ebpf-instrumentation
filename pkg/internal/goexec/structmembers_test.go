@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/beyla/v2/test/tools"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/tools"
 )
 
 var debugData *dwarf.Data

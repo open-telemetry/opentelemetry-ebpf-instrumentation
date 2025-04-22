@@ -14,7 +14,7 @@ PROTOC_IMAGE = docker.io/mariomac/protoc-go:latest
 # RELEASE_VERSION will contain the tag name, or the branch name if current commit is not a tag
 RELEASE_VERSION := $(shell git describe --all | cut -d/ -f2)
 RELEASE_REVISION := $(shell git rev-parse --short HEAD )
-BUILDINFO_PKG ?= github.com/grafana/beyla/v2/pkg/buildinfo
+BUILDINFO_PKG ?= github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo
 TEST_OUTPUT ?= ./testoutput
 
 IMG_REGISTRY ?= docker.io
@@ -109,7 +109,7 @@ ENVTEST_K8S_VERSION = 1.30.0
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-GOIMPORTS_REVISER_ARGS = -company-prefixes github.com/grafana -project-name github.com/grafana/beyla/
+GOIMPORTS_REVISER_ARGS = -company-prefixes github.com/open-telemetry -project-name github.com/open-telemetry/opentelemetry-ebpf-instrumentation
 
 define check_format
 	$(shell $(foreach FILE, $(shell find . -name "*.go" -not -path "**/vendor/*"), \

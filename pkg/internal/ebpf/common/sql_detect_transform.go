@@ -6,8 +6,8 @@ import (
 
 	trace2 "go.opentelemetry.io/otel/trace"
 
-	"github.com/grafana/beyla/v2/pkg/internal/request"
-	"github.com/grafana/beyla/v2/pkg/internal/sqlprune"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/sqlprune"
 )
 
 func sqlKind(b []byte) request.SQLKind {
