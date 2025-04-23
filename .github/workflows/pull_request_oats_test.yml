@@ -1,0 +1,40 @@
+name: PR OATS test
+
+on:
+  push:
+    branches: [ 'main', 'release-*' ]
+  pull_request:
+    branches: [ 'main', 'release-*' ]
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: [ '1.24' ]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Clean up disk space
+        run: |
+          docker system prune -af
+          docker volume prune -f
+      - name: Run oats tests
+        run: make oats-test
+      - name: Upload oats test logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Oats test logs
+          path: test/oats/*/build/*
+      - name: Report coverage
+        uses: codecov/codecov-action@v4
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          file: ./testoutput/itest-covdata.txt
+          flags: oats-test
