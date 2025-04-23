@@ -1,0 +1,23 @@
+name: Check third-party licenses
+
+on:
+  push:
+    branches: [ 'main', 'release-*' ]
+  pull_request:
+    branches: [ 'main', 'release-*' ]
+
+jobs:
+  check-licenses:
+    name: check-licenses
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: [ '1.24' ]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Check licenses
+        run: make check-licenses

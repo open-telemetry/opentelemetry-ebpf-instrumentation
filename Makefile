@@ -42,7 +42,7 @@ CLANG_TIDY ?= clang-tidy
 CILIUM_EBPF_VER ?= $(call gomod-version,cilium/ebpf)
 
 # regular expressions for excluded file patterns
-EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/beyla/v2/test/)|(/beyla/v2/configs/)|(/v2/examples/)|(.pb.go)|(/beyla/v2/pkg/export/otel/metric/)"
+EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(/v2/examples/)|(.pb.go)|(/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/)"
 
 .DEFAULT_GOAL := all
 
@@ -205,10 +205,10 @@ all: docker-generate build
 
 .PHONY: compile compile-cache
 compile:
-	@echo "### Compiling Beyla"
+	@echo "### Compiling OpenTelemetry eBPF Instrumentation"
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -mod vendor -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_FILE)
 compile-cache:
-	@echo "### Compiling Beyla K8s cache"
+	@echo "### Compiling OpenTelemetry eBPF Instrumentation K8s cache"
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -mod vendor -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
 .PHONY: debug
@@ -327,7 +327,7 @@ itest-coverage-data:
 	go tool covdata merge -i=$(TEST_OUTPUT) -o $(TEST_OUTPUT)/merge
 	go tool covdata textfmt -i=$(TEST_OUTPUT)/merge -o $(TEST_OUTPUT)/itest-covdata.raw.txt
 	# replace the unexpected /src/cmd/beyla/main.go file by the module path
-	sed 's/^\/src\/cmd\//github.com\/grafana\/beyla\/cmd\//' $(TEST_OUTPUT)/itest-covdata.raw.txt > $(TEST_OUTPUT)/itest-covdata.all.txt
+	sed 's/^\/src\/cmd\//github.com\/open-telemetry\/opentelemetry-ebpf-instrumentation\/cmd\//' $(TEST_OUTPUT)/itest-covdata.raw.txt > $(TEST_OUTPUT)/itest-covdata.all.txt
 	# exclude generated files from coverage data
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt
 
