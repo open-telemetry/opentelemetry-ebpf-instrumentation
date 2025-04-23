@@ -74,19 +74,19 @@ network:
   cidrs:
     - 10.244.0.0/16
 `)
-	require.NoError(t, os.Setenv("BEYLA_EXECUTABLE_NAME", "tras"))
-	require.NoError(t, os.Setenv("BEYLA_NETWORK_AGENT_IP", "1.2.3.4"))
-	require.NoError(t, os.Setenv("BEYLA_OPEN_PORT", "8080-8089"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_EXECUTABLE_NAME", "tras"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_NETWORK_AGENT_IP", "1.2.3.4"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_OPEN_PORT", "8080-8089"))
 	require.NoError(t, os.Setenv("OTEL_SERVICE_NAME", "svc-name"))
 	require.NoError(t, os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:3131"))
 	require.NoError(t, os.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "localhost:3232"))
-	require.NoError(t, os.Setenv("BEYLA_INTERNAL_METRICS_PROMETHEUS_PORT", "3210"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT", "3210"))
 	require.NoError(t, os.Setenv("GRAFANA_CLOUD_SUBMIT", "metrics,traces"))
 	require.NoError(t, os.Setenv("KUBECONFIG", "/foo/bar"))
-	require.NoError(t, os.Setenv("BEYLA_NAME_RESOLVER_SOURCES", "k8s,dns"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "k8s,dns"))
 	defer unsetEnv(t, envMap{
-		"KUBECONFIG":      "",
-		"BEYLA_OPEN_PORT": "", "BEYLA_EXECUTABLE_NAME": "", "OTEL_SERVICE_NAME": "",
+		"KUBECONFIG":          "",
+		"OTEL_EBPF_OPEN_PORT": "", "OTEL_EBPF_EXECUTABLE_NAME": "", "OTEL_SERVICE_NAME": "",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "", "GRAFANA_CLOUD_SUBMIT": "",
 	})
 
@@ -230,16 +230,16 @@ network:
 }
 
 func TestConfig_ServiceName(t *testing.T) {
-	// ServiceName property can be handled via two different env vars BEYLA_SERVICE_NAME and OTEL_SERVICE_NAME (for
+	// ServiceName property can be handled via two different env vars OTEL_EBPF_SERVICE_NAME and OTEL_SERVICE_NAME (for
 	// compatibility with OpenTelemetry)
-	require.NoError(t, os.Setenv("BEYLA_SERVICE_NAME", "some-svc-name"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_SERVICE_NAME", "some-svc-name"))
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.Equal(t, "some-svc-name", cfg.ServiceName)
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {
-	require.NoError(t, os.Setenv("BEYLA_SHUTDOWN_TIMEOUT", "1m"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_SHUTDOWN_TIMEOUT", "1m"))
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, cfg.ShutdownTimeout)
@@ -247,15 +247,15 @@ func TestConfig_ShutdownTimeout(t *testing.T) {
 
 func TestConfigValidate(t *testing.T) {
 	testCases := []envMap{
-		{"OTEL_EXPORTER_OTLP_ENDPOINT": "localhost:1234", "BEYLA_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
-		{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234", "BEYLA_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
-		{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "localhost:1234", "BEYLA_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
-		{"BEYLA_TRACE_PRINTER": "text", "BEYLA_SHUTDOWN_TIMEOUT": "1m", "BEYLA_EXECUTABLE_NAME": "foo"},
-		{"BEYLA_TRACE_PRINTER": "json", "BEYLA_EXECUTABLE_NAME": "foo"},
-		{"BEYLA_TRACE_PRINTER": "json_indent", "BEYLA_EXECUTABLE_NAME": "foo"},
-		{"BEYLA_TRACE_PRINTER": "counter", "BEYLA_EXECUTABLE_NAME": "foo"},
-		{"BEYLA_PROMETHEUS_PORT": "8080", "BEYLA_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
-		{"BEYLA_INTERNAL_OTEL_METRICS": "true", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234", "BEYLA_EXECUTABLE_NAME": "foo"},
+		{"OTEL_EXPORTER_OTLP_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
+		{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
+		{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
+		{"OTEL_EBPF_TRACE_PRINTER": "text", "OTEL_EBPF_SHUTDOWN_TIMEOUT": "1m", "OTEL_EBPF_EXECUTABLE_NAME": "foo"},
+		{"OTEL_EBPF_TRACE_PRINTER": "json", "OTEL_EBPF_EXECUTABLE_NAME": "foo"},
+		{"OTEL_EBPF_TRACE_PRINTER": "json_indent", "OTEL_EBPF_EXECUTABLE_NAME": "foo"},
+		{"OTEL_EBPF_TRACE_PRINTER": "counter", "OTEL_EBPF_EXECUTABLE_NAME": "foo"},
+		{"OTEL_EBPF_PROMETHEUS_PORT": "8080", "OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
+		{"OTEL_EBPF_INTERNAL_OTEL_METRICS": "true", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_NAME": "foo"},
 	}
 	for n, tc := range testCases {
 		t.Run(fmt.Sprint("case", n), func(t *testing.T) {
@@ -268,9 +268,9 @@ func TestConfigValidate(t *testing.T) {
 func TestConfigValidate_error(t *testing.T) {
 	testCases := []envMap{
 		{"OTEL_EXPORTER_OTLP_ENDPOINT": "localhost:1234", "INSTRUMENT_FUNC_NAME": "bar"},
-		{"BEYLA_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar", "BEYLA_TRACE_PRINTER": "disabled"},
-		{"BEYLA_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar", "BEYLA_TRACE_PRINTER": ""},
-		{"BEYLA_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar", "BEYLA_TRACE_PRINTER": "invalid"},
+		{"OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar", "OTEL_EBPF_TRACE_PRINTER": "disabled"},
+		{"OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar", "OTEL_EBPF_TRACE_PRINTER": ""},
+		{"OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar", "OTEL_EBPF_TRACE_PRINTER": "invalid"},
 	}
 	for n, tc := range testCases {
 		t.Run(fmt.Sprint("case", n), func(t *testing.T) {
@@ -343,11 +343,11 @@ func TestConfigValidate_TracePrinter(t *testing.T) {
 
 	testCases := []test{
 		{
-			env:      envMap{"BEYLA_EXECUTABLE_NAME": "foo", "BEYLA_TRACE_PRINTER": "invalid_printer"},
+			env:      envMap{"OTEL_EBPF_EXECUTABLE_NAME": "foo", "OTEL_EBPF_TRACE_PRINTER": "invalid_printer"},
 			errorMsg: "invalid value for trace_printer: 'invalid_printer'",
 		},
 		{
-			env:      envMap{"BEYLA_EXECUTABLE_NAME": "foo"},
+			env:      envMap{"OTEL_EBPF_EXECUTABLE_NAME": "foo"},
 			errorMsg: "you need to define at least one exporter: trace_printer, grafana, otel_metrics_export, otel_traces_export or prometheus_export",
 		},
 	}
@@ -363,7 +363,7 @@ func TestConfigValidate_TracePrinter(t *testing.T) {
 }
 
 func TestConfigValidate_TracePrinterFallback(t *testing.T) {
-	env := envMap{"BEYLA_EXECUTABLE_NAME": "foo", "BEYLA_TRACE_PRINTER": "text"}
+	env := envMap{"OTEL_EBPF_EXECUTABLE_NAME": "foo", "OTEL_EBPF_TRACE_PRINTER": "text"}
 
 	cfg := loadConfig(t, env)
 
@@ -411,29 +411,29 @@ routes:
 }
 
 func TestConfig_OtelGoAutoEnv(t *testing.T) {
-	// OTEL_GO_AUTO_TARGET_EXE is an alias to BEYLA_EXECUTABLE_NAME
+	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_NAME
 	// (Compatibility with OpenTelemetry)
 	require.NoError(t, os.Setenv("OTEL_GO_AUTO_TARGET_EXE", "testserver"))
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
-	assert.True(t, cfg.Exec.IsSet()) // Exec maps to BEYLA_EXECUTABLE_NAME
+	assert.True(t, cfg.Exec.IsSet()) // Exec maps to OTEL_EBPF_EXECUTABLE_NAME
 }
 
 func TestConfig_NetworkImplicit(t *testing.T) {
-	// OTEL_GO_AUTO_TARGET_EXE is an alias to BEYLA_EXECUTABLE_NAME
+	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_NAME
 	// (Compatibility with OpenTelemetry)
 	require.NoError(t, os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"))
-	require.NoError(t, os.Setenv("BEYLA_OTEL_METRIC_FEATURES", "network"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_OTEL_METRIC_FEATURES", "network"))
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.True(t, cfg.Enabled(FeatureNetO11y)) // Net o11y should be on
 }
 
 func TestConfig_NetworkImplicitProm(t *testing.T) {
-	// OTEL_GO_AUTO_TARGET_EXE is an alias to BEYLA_EXECUTABLE_NAME
+	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_NAME
 	// (Compatibility with OpenTelemetry)
-	require.NoError(t, os.Setenv("BEYLA_PROMETHEUS_PORT", "9090"))
-	require.NoError(t, os.Setenv("BEYLA_PROMETHEUS_FEATURES", "network"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_PROMETHEUS_PORT", "9090"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_PROMETHEUS_FEATURES", "network"))
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.True(t, cfg.Enabled(FeatureNetO11y)) // Net o11y should be on
@@ -518,31 +518,31 @@ func TestDefaultExclusionFilter(t *testing.T) {
 }
 
 func TestWillUseTC(t *testing.T) {
-	env := envMap{"BEYLA_BPF_ENABLE_CONTEXT_PROPAGATION": "true"}
+	env := envMap{"OTEL_EBPF_BPF_ENABLE_CONTEXT_PROPAGATION": "true"}
 	cfg := loadConfig(t, env)
 	assert.True(t, cfg.willUseTC())
 
-	env = envMap{"BEYLA_BPF_ENABLE_CONTEXT_PROPAGATION": "false"}
+	env = envMap{"OTEL_EBPF_BPF_ENABLE_CONTEXT_PROPAGATION": "false"}
 	cfg = loadConfig(t, env)
 	assert.False(t, cfg.willUseTC())
 
-	env = envMap{"BEYLA_BPF_CONTEXT_PROPAGATION": "disabled"}
+	env = envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "disabled"}
 	cfg = loadConfig(t, env)
 	assert.False(t, cfg.willUseTC())
 
-	env = envMap{"BEYLA_BPF_CONTEXT_PROPAGATION": "all"}
+	env = envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "all"}
 	cfg = loadConfig(t, env)
 	assert.True(t, cfg.willUseTC())
 
-	env = envMap{"BEYLA_BPF_CONTEXT_PROPAGATION": "headers"}
+	env = envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "headers"}
 	cfg = loadConfig(t, env)
 	assert.False(t, cfg.willUseTC())
 
-	env = envMap{"BEYLA_BPF_CONTEXT_PROPAGATION": "ip"}
+	env = envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "ip"}
 	cfg = loadConfig(t, env)
 	assert.True(t, cfg.willUseTC())
 
-	env = envMap{"BEYLA_BPF_CONTEXT_PROPAGATION": "disabled", "BEYLA_NETWORK_SOURCE": "tc", "BEYLA_NETWORK_METRICS": "true"}
+	env = envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "disabled", "OTEL_EBPF_NETWORK_SOURCE": "tc", "OTEL_EBPF_NETWORK_METRICS": "true"}
 	cfg = loadConfig(t, env)
 	assert.True(t, cfg.willUseTC())
 }

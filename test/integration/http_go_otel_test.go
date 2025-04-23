@@ -129,7 +129,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-otel.yml", path.Join(pathOutput, "test-suite-go-otel.log"))
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `BEYLA_EXECUTABLE_NAME=`, `BEYLA_OPEN_PORT=8080`, `APP_OTEL_ENDPOINT=http://localhost:1111`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_NAME=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_ENDPOINT=http://localhost:1111`)
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {
@@ -169,7 +169,7 @@ func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-otel.yml", path.Join(pathOutput, "test-suite-go-otel-avoids.log"))
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `BEYLA_EXECUTABLE_NAME=`, `BEYLA_OPEN_PORT=8080`, `APP_OTEL_METRICS_ENDPOINT=http://otelcol:4318`, `APP_OTEL_TRACES_ENDPOINT=http://jaeger:4318`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_NAME=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_METRICS_ENDPOINT=http://otelcol:4318`, `APP_OTEL_TRACES_ENDPOINT=http://jaeger:4318`)
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {
@@ -193,11 +193,11 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(
 		compose.Env,
-		`BEYLA_EXECUTABLE_NAME=`,
-		`BEYLA_OPEN_PORT=8080`,
+		`OTEL_EBPF_EXECUTABLE_NAME=`,
+		`OTEL_EBPF_OPEN_PORT=8080`,
 		`APP_OTEL_METRICS_ENDPOINT=http://otelcol:4318`,
 		`APP_OTEL_TRACES_ENDPOINT=http://jaeger:4318`,
-		`BEYLA_EXCLUDE_OTEL_INSTRUMENTED_SERVICES=false`,
+		`OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES=false`,
 	)
 
 	lockdown := KernelLockdownMode()
@@ -221,7 +221,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-grpc.log"))
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `BEYLA_EXECUTABLE_NAME=`, `BEYLA_OPEN_PORT=8080`, `APP_OTEL_ENDPOINT=http://localhost:1111`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_NAME=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_ENDPOINT=http://localhost:1111`)
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {
@@ -264,7 +264,7 @@ func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
 func TestHTTPGoOTelAvoidsInstrumentedAppGRPC(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-avoids-grpc.log"))
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `BEYLA_EXECUTABLE_NAME=`, `BEYLA_OPEN_PORT=8080`, `APP_OTEL_METRICS_ENDPOINT=http://otelcol:4317`, `APP_OTEL_TRACES_ENDPOINT=http://jaeger:4317`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_NAME=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_METRICS_ENDPOINT=http://otelcol:4317`, `APP_OTEL_TRACES_ENDPOINT=http://jaeger:4317`)
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {

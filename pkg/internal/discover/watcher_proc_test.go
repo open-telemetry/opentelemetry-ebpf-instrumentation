@@ -169,7 +169,7 @@ func TestProcessNotReady(t *testing.T) {
 
 func TestPortsFetchRequired(t *testing.T) {
 	userConfig := bytes.NewBufferString("channel_buffer_len: 33")
-	require.NoError(t, os.Setenv("BEYLA_OPEN_PORT", "8080-8089"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_OPEN_PORT", "8080-8089"))
 
 	cfg, err := beyla.LoadConfig(userConfig)
 	require.NoError(t, err)

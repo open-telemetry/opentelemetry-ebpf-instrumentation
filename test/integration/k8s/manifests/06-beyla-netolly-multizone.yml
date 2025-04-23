@@ -71,17 +71,17 @@ spec:
           env:
             - name: GOCOVERDIR
               value: "/testoutput"
-            - name: BEYLA_CONFIG_PATH
+            - name: OTEL_EBPF_CONFIG_PATH
               value: /config/beyla-config.yml
-            - name: BEYLA_NETWORK_METRICS
+            - name: OTEL_EBPF_NETWORK_METRICS
               value: "true"
-            - name: BEYLA_NETWORK_CACHE_ACTIVE_TIMEOUT
+            - name: OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT
               value: "100ms"
-            - name: BEYLA_NETWORK_CACHE_MAX_FLOWS
+            - name: OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS
               value: "20"
-            - name: BEYLA_METRICS_INTERVAL
+            - name: OTEL_EBPF_METRICS_INTERVAL
               value: "10ms"
-            - name: BEYLA_BPF_BATCH_TIMEOUT
+            - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
             - name: OTEL_METRIC_EXPORT_INTERVAL
               value: "5000"

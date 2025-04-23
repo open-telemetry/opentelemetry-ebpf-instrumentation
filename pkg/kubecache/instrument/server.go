@@ -10,9 +10,9 @@ const defaultMetricsPath = "/metrics"
 
 type InternalMetricsConfig struct {
 	// nolint:undoc
-	Port int `yaml:"port,omitempty" env:"BEYLA_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT"`
+	Port int `yaml:"port,omitempty" env:"OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT"`
 	// nolint:undoc
-	Path string `yaml:"path,omitempty" env:"BEYLA_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PATH"`
+	Path string `yaml:"path,omitempty" env:"OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PATH"`
 }
 
 type contextKey struct{}

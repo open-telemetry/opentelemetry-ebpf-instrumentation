@@ -25,7 +25,7 @@ func (t InternalMetricsExporter) Valid() bool {
 // Config options for the different metrics exporters
 type Config struct {
 	Prometheus PrometheusConfig        `yaml:"prometheus,omitempty"`
-	Exporter   InternalMetricsExporter `yaml:"exporter,omitempty" env:"BEYLA_INTERNAL_METRICS_EXPORTER"`
+	Exporter   InternalMetricsExporter `yaml:"exporter,omitempty" env:"OTEL_EBPF_INTERNAL_METRICS_EXPORTER"`
 }
 
 // Reporter of internal metrics

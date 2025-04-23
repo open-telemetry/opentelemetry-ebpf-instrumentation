@@ -78,7 +78,7 @@ TECHNICAL NOTES
 
     - The Beyla sources are mounted using an 9p filesystem to /beyla
 
-    - For backwards compatibility, $BEYLA_REPO_ROOT/testoutput is mounted
+    - For backwards compatibility, $OTEL_EBPF_REPO_ROOT/testoutput is mounted
       using an 9p filesystem to /overlay/upper/testoutput - as such, the test
       outputs are available back to the host in the respective directory
 

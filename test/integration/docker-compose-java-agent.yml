@@ -28,16 +28,16 @@ services:
     pid: "service:testserver"
     environment:
       GOCOVERDIR: "/coverage"
-      BEYLA_TRACE_PRINTER: "text"
-      BEYLA_OPEN_PORT: "8085"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OPEN_PORT: "8085"
       OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME}"
-      BEYLA_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_METRIC_EXPORT_INTERVAL: "10"
-      BEYLA_BPF_BATCH_TIMEOUT: "10ms"
-      BEYLA_LOG_LEVEL: "DEBUG"
-      BEYLA_BPF_DEBUG: "TRUE"
-      BEYLA_HOSTNAME: "beyla"
-      BEYLA_USE_OTEL_SDK_FOR_JAVA: "TRUE"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "beyla"
+      OTEL_EBPF_USE_OTEL_SDK_FOR_JAVA: "TRUE"
     depends_on:
       testserver:
         condition: service_started

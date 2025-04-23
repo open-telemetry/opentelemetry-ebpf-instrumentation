@@ -21,7 +21,7 @@ import (
 func TestMultiProcess(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec.yml", path.Join(pathOutput, "test-suite-multiexec.log"))
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `BEYLA_EXECUTABLE_NAME=`, `BEYLA_OPEN_PORT=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_NAME=`, `OTEL_EBPF_OPEN_PORT=`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
@@ -108,7 +108,7 @@ func TestMultiProcess(t *testing.T) {
 func TestMultiProcessAppCP(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-tc.log"))
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `BEYLA_BPF_DISABLE_BLACK_BOX_CP=1`, `BEYLA_BPF_CONTEXT_PROPAGATION=all`, `BEYLA_BPF_TRACK_REQUEST_HEADERS=1`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=all`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
@@ -123,7 +123,7 @@ func TestMultiProcessAppCP(t *testing.T) {
 func TestMultiProcessAppCPNoIP(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-tc.log"))
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `BEYLA_BPF_DISABLE_BLACK_BOX_CP=1`, `BEYLA_BPF_CONTEXT_PROPAGATION=headers`, `BEYLA_BPF_TRACK_REQUEST_HEADERS=1`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`)
 
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
@@ -139,7 +139,7 @@ func TestMultiProcessAppCPNoIP(t *testing.T) {
 func TestMultiProcessAppL7CP(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-tcl7.log"))
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `BEYLA_BPF_DISABLE_BLACK_BOX_CP=1`, `BEYLA_BPF_TC_L7_CP=1`, `BEYLA_BPF_TRACK_REQUEST_HEADERS=1`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_TC_L7_CP=1`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 

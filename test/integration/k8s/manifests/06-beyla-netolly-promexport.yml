@@ -78,16 +78,16 @@ spec:
           env:
             - name: GOCOVERDIR
               value: "/testoutput"
-            - name: BEYLA_CONFIG_PATH
+            - name: OTEL_EBPF_CONFIG_PATH
               value: /config/beyla-config.yml
               # network_inter_zone won't have effect on non-multizone kind clusters
-            - name: BEYLA_PROMETHEUS_FEATURES
+            - name: OTEL_EBPF_PROMETHEUS_FEATURES
               value: "network,network_inter_zone"
-            - name: BEYLA_NETWORK_CACHE_ACTIVE_TIMEOUT
+            - name: OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT
               value: "100ms"
-            - name: BEYLA_NETWORK_CACHE_MAX_FLOWS
+            - name: OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS
               value: "20"
-            - name: BEYLA_METRICS_INTERVAL
+            - name: OTEL_EBPF_METRICS_INTERVAL
               value: "10ms"
-            - name: BEYLA_BPF_BATCH_TIMEOUT
+            - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"

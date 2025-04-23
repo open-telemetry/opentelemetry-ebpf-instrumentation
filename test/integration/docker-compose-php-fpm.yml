@@ -52,14 +52,14 @@ services:
     pid: "host"
     environment:
       GOCOVERDIR: "/coverage"
-      BEYLA_TRACE_PRINTER: "text"
-      BEYLA_EXECUTABLE_NAME: "nginx|php-fpm"
-      BEYLA_SERVICE_NAMESPACE: "integration-test"
-      BEYLA_METRICS_INTERVAL: "10ms"
-      BEYLA_BPF_BATCH_TIMEOUT: "10ms"
-      BEYLA_LOG_LEVEL: "DEBUG"
-      BEYLA_BPF_DEBUG: "TRUE"
-      BEYLA_HOSTNAME: "beyla"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_EXECUTABLE_NAME: "nginx|php-fpm"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "beyla"
     depends_on:
       nginx:
         condition: service_started

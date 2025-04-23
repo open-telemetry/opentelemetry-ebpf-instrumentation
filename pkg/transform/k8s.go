@@ -21,40 +21,40 @@ func klog() *slog.Logger {
 }
 
 type KubernetesDecorator struct {
-	Enable kubeflags.EnableFlag `yaml:"enable" env:"BEYLA_KUBE_METADATA_ENABLE"`
+	Enable kubeflags.EnableFlag `yaml:"enable" env:"OTEL_EBPF_KUBE_METADATA_ENABLE"`
 
 	// ClusterName overrides cluster name. If empty, the NetO11y module will try to retrieve
 	// it from the Cloud Provider Metadata (EC2, GCP and Azure), and leave it empty if it fails to.
 	// nolint:undoc
-	ClusterName string `yaml:"cluster_name" env:"BEYLA_KUBE_CLUSTER_NAME"`
+	ClusterName string `yaml:"cluster_name" env:"OTEL_EBPF_KUBE_CLUSTER_NAME"`
 
 	// KubeconfigPath is optional. If unset, it will look in the usual location.
 	KubeconfigPath string `yaml:"kubeconfig_path" env:"KUBECONFIG"`
 
-	InformersSyncTimeout time.Duration `yaml:"informers_sync_timeout" env:"BEYLA_KUBE_INFORMERS_SYNC_TIMEOUT"`
+	InformersSyncTimeout time.Duration `yaml:"informers_sync_timeout" env:"OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT"`
 
 	// InformersResyncPeriod defaults to 30m. Higher values will reduce the load on the Kube API.
-	InformersResyncPeriod time.Duration `yaml:"informers_resync_period" env:"BEYLA_KUBE_INFORMERS_RESYNC_PERIOD"`
+	InformersResyncPeriod time.Duration `yaml:"informers_resync_period" env:"OTEL_EBPF_KUBE_INFORMERS_RESYNC_PERIOD"`
 
 	// DropExternal will drop, in NetO11y component, any flow where the source or destination
 	// IPs are not matched to any kubernetes entity, assuming they are cluster-external
 	// nolint:undoc
-	DropExternal bool `yaml:"drop_external" env:"BEYLA_NETWORK_DROP_EXTERNAL"`
+	DropExternal bool `yaml:"drop_external" env:"OTEL_EBPF_NETWORK_DROP_EXTERNAL"`
 
 	// DisableInformers allows selectively disabling some informers. Accepted value is a list
 	// that might contain node or service. Disabling any of them
 	// will cause metadata to be incomplete but will reduce the load of the Kube API.
 	// Pods informer can't be disabled. For that purpose, you should disable the whole
 	// kubernetes metadata decoration.
-	DisableInformers []string `yaml:"disable_informers" env:"BEYLA_KUBE_DISABLE_INFORMERS"`
+	DisableInformers []string `yaml:"disable_informers" env:"OTEL_EBPF_KUBE_DISABLE_INFORMERS"`
 
 	// MetaCacheAddress is the host:port address of the beyla-k8s-cache service instance
 	// nolint:undoc
-	MetaCacheAddress string `yaml:"meta_cache_address" env:"BEYLA_KUBE_META_CACHE_ADDRESS"`
+	MetaCacheAddress string `yaml:"meta_cache_address" env:"OTEL_EBPF_KUBE_META_CACHE_ADDRESS"`
 
 	// MetaRestrictLocalNode will download only the metadata from the Pods that are located in the same
 	// node as the Beyla instance. It will also restrict the Node information to the local node.
-	MetaRestrictLocalNode bool `yaml:"meta_restrict_local_node" env:"BEYLA_KUBE_META_RESTRICT_LOCAL_NODE"`
+	MetaRestrictLocalNode bool `yaml:"meta_restrict_local_node" env:"OTEL_EBPF_KUBE_META_RESTRICT_LOCAL_NODE"`
 
 	// MetaSourceLabels allows Beyla overriding the service name and namespace of an application from
 	// the given labels.
@@ -226,6 +226,6 @@ func KubeClusterName(ctx context.Context, cfg *KubernetesDecorator, k8sInformer 
 	}
 	log.Warn("can't fetch Kubernetes Cluster Name." +
 		" Network metrics won't contain k8s.cluster.name attribute unless you explicitly set " +
-		" the BEYLA_KUBE_CLUSTER_NAME environment variable")
+		" the OTEL_EBPF_KUBE_CLUSTER_NAME environment variable")
 	return ""
 }

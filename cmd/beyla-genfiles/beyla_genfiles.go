@@ -19,18 +19,18 @@ import (
 	"github.com/caarlos0/env/v9"
 )
 
-const envModuleRoot = "BEYLA_GENFILES_MODULE_ROOT"
+const envModuleRoot = "OTEL_EBPF_GENFILES_MODULE_ROOT"
 
 type config struct {
-	DebugEnabled    bool   `env:"BEYLA_GENFILES_DEBUG"            envDefault:"false"`
-	RunLocally      bool   `env:"BEYLA_GENFILES_RUN_LOCALLY"      envDefault:"false"`
-	ScanPath        string `env:"BEYLA_GENFILES_SCAN_PATH"        envDefault:"pkg"`
-	ContainerPrefix string `env:"BEYLA_GENFILES_CONTAINER_PREFIX" envDefault:"/__w/"`
-	HostPrefix      string `env:"BEYLA_GENFILES_HOST_PREFIX"      envDefault:"/home/runner/work/"`
-	Package         string `env:"BEYLA_GENFILES_PKG"              envDefault:"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"`
-	OCIBin          string `env:"BEYLA_GENFILES_OCI_BIN"          envDefault:"docker"`
+	DebugEnabled    bool   `env:"OTEL_EBPF_GENFILES_DEBUG"            envDefault:"false"`
+	RunLocally      bool   `env:"OTEL_EBPF_GENFILES_RUN_LOCALLY"      envDefault:"false"`
+	ScanPath        string `env:"OTEL_EBPF_GENFILES_SCAN_PATH"        envDefault:"pkg"`
+	ContainerPrefix string `env:"OTEL_EBPF_GENFILES_CONTAINER_PREFIX" envDefault:"/__w/"`
+	HostPrefix      string `env:"OTEL_EBPF_GENFILES_HOST_PREFIX"      envDefault:"/home/runner/work/"`
+	Package         string `env:"OTEL_EBPF_GENFILES_PKG"              envDefault:"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"`
+	OCIBin          string `env:"OTEL_EBPF_GENFILES_OCI_BIN"          envDefault:"docker"`
 	//TODO: replace by OTEL image once we publish them
-	GenImage string `env:"BEYLA_GENFILES_GEN_IMG"          envDefault:"ghcr.io/grafana/beyla-ebpf-generator:main"`
+	GenImage string `env:"OTEL_EBPF_GENFILES_GEN_IMG"          envDefault:"ghcr.io/grafana/beyla-ebpf-generator:main"`
 }
 
 var cfg config
