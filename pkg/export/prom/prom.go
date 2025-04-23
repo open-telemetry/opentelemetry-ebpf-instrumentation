@@ -98,26 +98,26 @@ var hostInfoLabelNames = []string{grafanaHostIDKey}
 
 // TODO: TLS
 type PrometheusConfig struct {
-	Port int    `yaml:"port" env:"BEYLA_PROMETHEUS_PORT"`
-	Path string `yaml:"path" env:"BEYLA_PROMETHEUS_PATH"`
+	Port int    `yaml:"port" env:"OTEL_EBPF_PROMETHEUS_PORT"`
+	Path string `yaml:"path" env:"OTEL_EBPF_PROMETHEUS_PATH"`
 
 	// nolint:undoc
-	DisableBuildInfo bool `yaml:"disable_build_info" env:"BEYLA_PROMETHEUS_DISABLE_BUILD_INFO"`
+	DisableBuildInfo bool `yaml:"disable_build_info" env:"OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"`
 
 	// Features of metrics that are can be exported. Accepted values are "application" and "network".
-	Features []string `yaml:"features" env:"BEYLA_PROMETHEUS_FEATURES" envSeparator:","`
+	Features []string `yaml:"features" env:"OTEL_EBPF_PROMETHEUS_FEATURES" envSeparator:","`
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
-	Instrumentations []string `yaml:"instrumentations" env:"BEYLA_PROMETHEUS_INSTRUMENTATIONS" envSeparator:","`
+	Instrumentations []string `yaml:"instrumentations" env:"OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS" envSeparator:","`
 
 	Buckets otel.Buckets `yaml:"buckets"`
 
 	// TTL is the time since a metric was updated for the last time until it is
 	// removed from the metrics set.
-	TTL time.Duration `yaml:"ttl" env:"BEYLA_PROMETHEUS_TTL"`
+	TTL time.Duration `yaml:"ttl" env:"OTEL_EBPF_PROMETHEUS_TTL"`
 	// nolint:undoc
 	SpanMetricsServiceCacheSize int `yaml:"service_cache_size"`
 
-	AllowServiceGraphSelfReferences bool `yaml:"allow_service_graph_self_references" env:"BEYLA_PROMETHEUS_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"`
+	AllowServiceGraphSelfReferences bool `yaml:"allow_service_graph_self_references" env:"OTEL_EBPF_PROMETHEUS_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"`
 
 	// Registry is only used for embedding Beyla within the Grafana Agent.
 	// It must be nil when Beyla runs as standalone
@@ -126,7 +126,7 @@ type PrometheusConfig struct {
 	// ExtraResourceLabels adds extra metadata labels to Prometheus metrics from sources whose availability can't be known
 	// beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute,
 	// you should add `deployment.environment`.
-	ExtraResourceLabels []string `yaml:"extra_resource_attributes" env:"BEYLA_PROMETHEUS_EXTRA_RESOURCE_ATTRIBUTES" envSeparator:","`
+	ExtraResourceLabels []string `yaml:"extra_resource_attributes" env:"OTEL_EBPF_PROMETHEUS_EXTRA_RESOURCE_ATTRIBUTES" envSeparator:","`
 }
 
 func (p *PrometheusConfig) SpanMetricsEnabled() bool {

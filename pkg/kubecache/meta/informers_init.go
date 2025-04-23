@@ -158,7 +158,7 @@ func InitInformers(ctx context.Context, opts ...InformerOption) (*Informers, err
 		case <-time.After(config.cacheSyncTimeout):
 			svc.log.Warn("Kubernetes cache has not been synced after timeout."+
 				" The Kubernetes attributes might be incomplete during an initial period."+
-				" Consider increasing the BEYLA_KUBE_INFORMERS_SYNC_TIMEOUT value", "timeout", config.cacheSyncTimeout)
+				" Consider increasing the OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT value", "timeout", config.cacheSyncTimeout)
 		}
 	}
 	svc.log.Debug("kubernetes informers started")

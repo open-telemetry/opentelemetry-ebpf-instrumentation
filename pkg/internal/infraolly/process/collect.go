@@ -38,7 +38,7 @@ type CollectConfig struct {
 
 	// Interval between harvests
 	// nolint:undoc
-	Interval time.Duration `yaml:"interval" env:"BEYLA_PROCESSES_INTERVAL"`
+	Interval time.Duration `yaml:"interval" env:"OTEL_EBPF_PROCESSES_INTERVAL"`
 }
 
 // Collector returns runtime information about the currently running processes.

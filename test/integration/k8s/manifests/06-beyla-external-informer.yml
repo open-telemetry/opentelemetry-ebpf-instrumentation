@@ -85,11 +85,11 @@ spec:
           env:
             - name: GOCOVERDIR
               value: "/testoutput"
-            - name: BEYLA_DISCOVERY_POLL_INTERVAL
+            - name: OTEL_EBPF_DISCOVERY_POLL_INTERVAL
               value: "500ms"
-            - name: BEYLA_METRICS_INTERVAL
+            - name: OTEL_EBPF_METRICS_INTERVAL
               value: "10ms"
-            - name: BEYLA_BPF_BATCH_TIMEOUT
+            - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
           ports:
             - containerPort: 8999
@@ -140,9 +140,9 @@ spec:
           image: beyla-k8s-cache:dev
           imagePullPolicy: Never # loaded into Kind from localhost
           env:
-            - name: BEYLA_K8S_CACHE_PORT
+            - name: OTEL_EBPF_K8S_CACHE_PORT
               value: "50055"
-            - name: BEYLA_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT
+            - name: OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT
               value: "8999"
             - name: GOCOVERDIR
               value: "/testoutput"

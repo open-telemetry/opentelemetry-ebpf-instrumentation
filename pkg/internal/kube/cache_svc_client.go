@@ -111,6 +111,6 @@ func (sc *cacheSvcClient) Subscribe(observer meta.Observer) {
 	case <-time.After(sc.syncTimeout):
 		sc.log.Warn("timed out while waiting for K8s metadata synchronization. Some metadata might be temporarily missing." +
 			" If this is expected due to the size of your cluster, you might want to increase the timeout via" +
-			" the BEYLA_KUBE_INFORMERS_SYNC_TIMEOUT configuration option")
+			" the OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT configuration option")
 	}
 }

@@ -161,43 +161,43 @@ type Config struct {
 	Metrics      otel.MetricsConfig            `yaml:"otel_metrics_export"`
 	Traces       otel.TracesConfig             `yaml:"otel_traces_export"`
 	Prometheus   prom.PrometheusConfig         `yaml:"prometheus_export"`
-	TracePrinter debug.TracePrinter            `yaml:"trace_printer" env:"BEYLA_TRACE_PRINTER"`
+	TracePrinter debug.TracePrinter            `yaml:"trace_printer" env:"OTEL_EBPF_TRACE_PRINTER"`
 
 	// Exec allows selecting the instrumented executable whose complete path contains the Exec value.
-	Exec services.RegexpAttr `yaml:"executable_name" env:"BEYLA_EXECUTABLE_NAME"`
+	Exec services.RegexpAttr `yaml:"executable_name" env:"OTEL_EBPF_EXECUTABLE_NAME"`
 	// nolint:undoc
 	ExecOtelGo services.RegexpAttr `env:"OTEL_GO_AUTO_TARGET_EXE"`
 	// Port allows selecting the instrumented executable that owns the Port value. If this value is set (and
 	// different to zero), the value of the Exec property won't take effect.
 	// It's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter
 	// will instrument all the service calls in all the ports, not only the port specified here.
-	Port services.PortEnum `yaml:"open_port" env:"BEYLA_OPEN_PORT"`
+	Port services.PortEnum `yaml:"open_port" env:"OTEL_EBPF_OPEN_PORT"`
 
-	// ServiceName is taken from either BEYLA_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility)
+	// ServiceName is taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility)
 	// Using env and envDefault is a trick to get the value either from one of either variables
-	ServiceName      string `yaml:"service_name" env:"OTEL_SERVICE_NAME,expand" envDefault:"${BEYLA_SERVICE_NAME}"`
-	ServiceNamespace string `yaml:"service_namespace" env:"BEYLA_SERVICE_NAMESPACE"`
+	ServiceName      string `yaml:"service_name" env:"OTEL_SERVICE_NAME,expand" envDefault:"${OTEL_EBPF_SERVICE_NAME}"`
+	ServiceNamespace string `yaml:"service_namespace" env:"OTEL_EBPF_SERVICE_NAMESPACE"`
 
 	// Discovery configuration
 	Discovery services.DiscoveryConfig `yaml:"discovery"`
 
-	LogLevel string `yaml:"log_level" env:"BEYLA_LOG_LEVEL"`
+	LogLevel string `yaml:"log_level" env:"OTEL_EBPF_LOG_LEVEL"`
 
 	// Timeout for a graceful shutdown
-	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"BEYLA_SHUTDOWN_TIMEOUT"`
+	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"OTEL_EBPF_SHUTDOWN_TIMEOUT"`
 
 	// Check for required system capabilities and bail if they are not
 	// present. If set to 'false', Beyla will still print a list of missing
 	// capabilities, but the execution will continue
-	EnforceSysCaps bool `yaml:"enforce_sys_caps" env:"BEYLA_ENFORCE_SYS_CAPS"`
+	EnforceSysCaps bool `yaml:"enforce_sys_caps" env:"OTEL_EBPF_ENFORCE_SYS_CAPS"`
 
 	// From this comment, the properties below will remain undocumented, as they
 	// are useful for development purposes. They might be helpful for customer support.
 
 	// nolint:undoc
-	ChannelBufferLen int `yaml:"channel_buffer_len" env:"BEYLA_CHANNEL_BUFFER_LEN"`
+	ChannelBufferLen int `yaml:"channel_buffer_len" env:"OTEL_EBPF_CHANNEL_BUFFER_LEN"`
 	// nolint:undoc
-	ProfilePort     int             `yaml:"profile_port" env:"BEYLA_PROFILE_PORT"`
+	ProfilePort     int             `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
 	InternalMetrics imetrics.Config `yaml:"internal_metrics"`
 
 	// Processes metrics for application. They will be only enabled if there is a metrics exporter enabled,
@@ -232,10 +232,10 @@ type Attributes struct {
 type HostIDConfig struct {
 	// Override allows overriding the reported host.id in Beyla
 	// nolint:undoc
-	Override string `yaml:"override" env:"BEYLA_HOST_ID"`
+	Override string `yaml:"override" env:"OTEL_EBPF_HOST_ID"`
 	// FetchTimeout specifies the timeout for trying to fetch the HostID from diverse Cloud Providers
 	// nolint:undoc
-	FetchTimeout time.Duration `yaml:"fetch_timeout" env:"BEYLA_HOST_ID_FETCH_TIMEOUT"`
+	FetchTimeout time.Duration `yaml:"fetch_timeout" env:"OTEL_EBPF_HOST_ID_FETCH_TIMEOUT"`
 }
 
 type ConfigError string
@@ -256,13 +256,13 @@ func (c *Config) Validate() error {
 		return ConfigError("missing to enable application discovery or network metrics. Check documentation")
 	}
 	if (c.Port.Len() > 0 || c.Exec.IsSet() || len(c.Discovery.Services) > 0) && c.Discovery.SystemWide {
-		return ConfigError("you can't use BEYLA_SYSTEM_WIDE if any of BEYLA_EXECUTABLE_NAME, BEYLA_OPEN_PORT or services (YAML) are set")
+		return ConfigError("you can't use OTEL_EBPF_SYSTEM_WIDE if any of OTEL_EBPF_EXECUTABLE_NAME, OTEL_EBPF_OPEN_PORT or services (YAML) are set")
 	}
 	if c.EBPF.BatchLength == 0 {
-		return ConfigError("BEYLA_BPF_BATCH_LENGTH must be at least 1")
+		return ConfigError("OTEL_EBPF_BPF_BATCH_LENGTH must be at least 1")
 	}
 	if !c.EBPF.TCBackend.Valid() {
-		return ConfigError("Invalid BEYLA_BPF_TC_BACKEND value")
+		return ConfigError("Invalid OTEL_EBPF_BPF_TC_BACKEND value")
 	}
 
 	// nolint:staticcheck
@@ -287,15 +287,15 @@ func (c *Config) Validate() error {
 	}
 
 	if c.Attributes.Kubernetes.InformersSyncTimeout == 0 {
-		return ConfigError("BEYLA_KUBE_INFORMERS_SYNC_TIMEOUT duration must be greater than 0s")
+		return ConfigError("OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT duration must be greater than 0s")
 	}
 
 	if c.Enabled(FeatureNetO11y) && !c.Grafana.OTLP.MetricsEnabled() && !c.Metrics.Enabled() &&
 		!c.Prometheus.Enabled() && !c.NetworkFlows.Print {
 		return ConfigError("enabling network metrics requires to enable at least the OpenTelemetry" +
 			" metrics exporter: grafana, otel_metrics_export or prometheus_export sections in the YAML configuration file; or the" +
-			" OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_METRICS_ENDPOINT or BEYLA_PROMETHEUS_PORT environment variables. For debugging" +
-			" purposes, you can also set BEYLA_NETWORK_PRINT_FLOWS=true")
+			" OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_METRICS_ENDPOINT or OTEL_EBPF_PROMETHEUS_PORT environment variables. For debugging" +
+			" purposes, you can also set OTEL_EBPF_NETWORK_PRINT_FLOWS=true")
 	}
 
 	if !c.TracePrinter.Valid() {
@@ -386,7 +386,7 @@ func LoadConfig(file io.Reader) (*Config, error) {
 		return nil, fmt.Errorf("reading env vars: %w", err)
 	}
 
-	// We support OTEL_GO_AUTO_TARGET_EXE as an alias to BEYLA_EXECUTABLE_NAME
+	// We support OTEL_GO_AUTO_TARGET_EXE as an alias to OTEL_EBPF_EXECUTABLE_NAME
 	if !cfg.Exec.IsSet() && cfg.ExecOtelGo.IsSet() {
 		cfg.Exec = cfg.ExecOtelGo
 	}

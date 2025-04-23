@@ -63,7 +63,7 @@ func TestSuiteNestedTraces(t *testing.T) {
 
 func TestSuiteClient(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-client.yml", path.Join(pathOutput, "test-suite-client.log"))
-	compose.Env = append(compose.Env, `BEYLA_EXECUTABLE_NAME=pingclient`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_NAME=pingclient`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Client RED metrics", testREDMetricsForClientHTTPLibrary)
@@ -72,7 +72,7 @@ func TestSuiteClient(t *testing.T) {
 
 func TestSuiteClientPromScrape(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-client.yml", path.Join(pathOutput, "test-suite-client-promscrape.log"))
-	compose.Env = append(compose.Env, `BEYLA_EXECUTABLE_NAME=pingclient`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_NAME=pingclient`)
 	compose.Env = append(compose.Env,
 		`INSTRUMENTER_CONFIG_SUFFIX=-promscrape`,
 		`PROM_CONFIG_SUFFIX=-promscrape`,
@@ -147,7 +147,7 @@ func TestSuite_UnsupportedGoVersion(t *testing.T) {
 func TestSuite_SkipGoTracers(t *testing.T) {
 	t.Skip("seems flaky, we need to look into this")
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-skip-go-tracers.log"))
-	compose.Env = append(compose.Env, `BEYLA_SKIP_GO_SPECIFIC_TRACERS=1`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS=1`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("RED metrics", testREDMetricsShortHTTP)
@@ -170,7 +170,7 @@ func TestSuite_GRPCExport(t *testing.T) {
 func TestSuite_GRPCExportKProbes(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-grpc-export-kprobes.log"))
 	compose.Env = append(compose.Env, "INSTRUMENTER_CONFIG_SUFFIX=-grpc-export")
-	compose.Env = append(compose.Env, `BEYLA_SKIP_GO_SPECIFIC_TRACERS=1`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS=1`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
@@ -185,7 +185,7 @@ func TestSuite_GRPCExportKProbes(t *testing.T) {
 // Same as Test suite, but searching the executable by port instead of executable name
 func TestSuite_OpenPort(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-openport.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=8080`, `BEYLA_EXECUTABLE_NAME=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_NAME=`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("RED metrics", testREDMetricsHTTP)
@@ -204,8 +204,8 @@ func TestSuite_PrometheusScrape(t *testing.T) {
 	compose.Env = append(compose.Env,
 		`INSTRUMENTER_CONFIG_SUFFIX=-promscrape`,
 		`PROM_CONFIG_SUFFIX=-promscrape`,
-		`BEYLA_EXECUTABLE_NAME=`,
-		`BEYLA_OPEN_PORT=8082,8999`, // force Beyla self-instrumentation to ensure we don't do it
+		`OTEL_EBPF_EXECUTABLE_NAME=`,
+		`OTEL_EBPF_OPEN_PORT=8082,8999`, // force Beyla self-instrumentation to ensure we don't do it
 	)
 
 	require.NoError(t, err)
@@ -251,7 +251,7 @@ func TestSuite_Java_PID(t *testing.T) {
 // TODO: Fix the service name, mimir seems to work with what we have, but not Prometheus
 func TestSuite_Java_SystemWide(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-system-wide.yml", path.Join(pathOutput, "test-suite-java-system-wide.log"))
-	compose.Env = append(compose.Env, `BEYLA_SYSTEM_WIDE=TRUE`, `JAVA_EXECUTABLE_NAME=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_SYSTEM_WIDE=TRUE`, `JAVA_EXECUTABLE_NAME=`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", testREDMetricsJavaHTTPSystemWide)
@@ -290,7 +290,7 @@ func TestSuite_JavaOTelSDK(t *testing.T) {
 
 func TestSuite_Rust(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-rust.yml", path.Join(pathOutput, "test-suite-rust.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=8090`, `BEYLA_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8091:8090`, `TESTSERVER_IMAGE_VERSION=0.0.3`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8090`, `OTEL_EBPF_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8091:8090`, `TESTSERVER_IMAGE_VERSION=0.0.3`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Rust RED metrics", testREDMetricsRustHTTP)
@@ -299,7 +299,7 @@ func TestSuite_Rust(t *testing.T) {
 
 func TestSuite_RustSSL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-rust.yml", path.Join(pathOutput, "test-suite-rust-tls.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=8490`, `BEYLA_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8491:8490`, `TESTSERVER_IMAGE_SUFFIX=-ssl`, `TESTSERVER_IMAGE_VERSION=0.0.3`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8490`, `OTEL_EBPF_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8491:8490`, `TESTSERVER_IMAGE_SUFFIX=-ssl`, `TESTSERVER_IMAGE_VERSION=0.0.3`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Rust RED metrics", testREDMetricsRustHTTPS)
@@ -311,7 +311,7 @@ func TestSuite_RustSSL(t *testing.T) {
 // client to attempt http connection.
 func TestSuite_RustHTTP2(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-rust.yml", path.Join(pathOutput, "test-suite-rust-http2.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=8490`, `BEYLA_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8491:8490`, `TESTSERVER_IMAGE_SUFFIX=-ssl`, `TESTSERVER_IMAGE_VERSION=0.0.1`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8490`, `OTEL_EBPF_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8491:8490`, `TESTSERVER_IMAGE_SUFFIX=-ssl`, `TESTSERVER_IMAGE_VERSION=0.0.1`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Rust RED metrics", testREDMetricsRustHTTP2)
@@ -320,7 +320,7 @@ func TestSuite_RustHTTP2(t *testing.T) {
 
 func TestSuite_NodeJS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-nodejs.yml", path.Join(pathOutput, "test-suite-nodejs.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=3030`, `BEYLA_EXECUTABLE_NAME=`, `NODE_APP=app`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_NAME=`, `NODE_APP=app`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("NodeJS RED metrics", testREDMetricsNodeJSHTTP)
@@ -330,7 +330,7 @@ func TestSuite_NodeJS(t *testing.T) {
 
 func TestSuite_NodeJSTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-nodejs.yml", path.Join(pathOutput, "test-suite-nodejs-tls.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=3033`, `BEYLA_EXECUTABLE_NAME=`, `NODE_APP=app_tls`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3033`, `OTEL_EBPF_EXECUTABLE_NAME=`, `NODE_APP=app_tls`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("NodeJS SSL RED metrics", testREDMetricsNodeJSHTTPS)
@@ -339,7 +339,7 @@ func TestSuite_NodeJSTLS(t *testing.T) {
 
 func TestSuite_Rails(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby.yml", path.Join(pathOutput, "test-suite-ruby.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=3040`, `BEYLA_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=3041:3040`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040`, `OTEL_EBPF_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=3041:3040`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
@@ -348,7 +348,7 @@ func TestSuite_Rails(t *testing.T) {
 
 func TestSuite_RailsTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby.yml", path.Join(pathOutput, "test-suite-ruby-tls.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=3043`, `BEYLA_EXECUTABLE_NAME=`, `TESTSERVER_IMAGE_SUFFIX=-ssl`, `TEST_SERVICE_PORTS=3044:3043`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_NAME=`, `TESTSERVER_IMAGE_SUFFIX=-ssl`, `TEST_SERVICE_PORTS=3044:3043`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Rails SSL RED metrics", testREDMetricsRailsHTTPS)
@@ -357,7 +357,7 @@ func TestSuite_RailsTLS(t *testing.T) {
 
 func TestSuite_DotNet(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-dotnet.yml", path.Join(pathOutput, "test-suite-dotnet.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=5266`, `BEYLA_EXECUTABLE_NAME=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=5266`, `OTEL_EBPF_EXECUTABLE_NAME=`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("DotNet RED metrics", testREDMetricsDotNetHTTP)
@@ -368,7 +368,7 @@ func TestSuite_DotNet(t *testing.T) {
 // Issue: https://github.com/grafana/beyla/issues/208
 func TestSuite_DotNetTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-dotnet.yml", path.Join(pathOutput, "test-suite-dotnet-tls.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=7033`, `BEYLA_EXECUTABLE_NAME=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=7033`, `OTEL_EBPF_EXECUTABLE_NAME=`)
 	// Add these above if you want to get the trace_pipe output in the test logs: `INSTRUMENT_DOCKERFILE_SUFFIX=_dbg`, `INSTRUMENT_COMMAND_SUFFIX=_wrapper.sh`
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
@@ -378,7 +378,7 @@ func TestSuite_DotNetTLS(t *testing.T) {
 
 func TestSuite_Python(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python.yml", path.Join(pathOutput, "test-suite-python.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=8380`, `BEYLA_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8381:8380`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8380`, `OTEL_EBPF_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8381:8380`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	// checking process metrics before any other test lets us verify that even if an application
@@ -397,7 +397,7 @@ func TestSuite_Python(t *testing.T) {
 // Uses both HTTP and SQL, but we want to see only SQL events, since we are filtering by SQL only
 func TestSuite_PythonSQL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-sql.yml", path.Join(pathOutput, "test-suite-python-sql.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=8080`, `BEYLA_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Python SQL metrics", testREDMetricsPythonSQLOnly)
@@ -406,7 +406,7 @@ func TestSuite_PythonSQL(t *testing.T) {
 
 func TestSuite_PythonSQLSSL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-sql-ssl.yml", path.Join(pathOutput, "test-suite-python-sql-ssl.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=8080`, `BEYLA_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Python SQL metrics", testREDMetricsPythonSQLSSL)
@@ -415,7 +415,7 @@ func TestSuite_PythonSQLSSL(t *testing.T) {
 
 func TestSuite_PythonTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python.yml", path.Join(pathOutput, "test-suite-python-tls.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=8380`, `BEYLA_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8381:8380`, `TESTSERVER_DOCKERFILE_SUFFIX=_tls`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8380`, `OTEL_EBPF_EXECUTABLE_NAME=`, `TEST_SERVICE_PORTS=8381:8380`, `TESTSERVER_DOCKERFILE_SUFFIX=_tls`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Python SSL RED metrics", testREDMetricsPythonHTTPS)
@@ -424,7 +424,7 @@ func TestSuite_PythonTLS(t *testing.T) {
 
 func TestSuite_PythonSelfReference(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-self.yml", path.Join(pathOutput, "test-suite-python-self.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=8081`, `BEYLA_EXECUTABLE_NAME=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8081`, `OTEL_EBPF_EXECUTABLE_NAME=`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Python Traces with self-references", testHTTPTracesNestedSelfCalls)
@@ -433,7 +433,7 @@ func TestSuite_PythonSelfReference(t *testing.T) {
 
 func TestSuite_NodeJSDist(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-nodejs-dist.yml", path.Join(pathOutput, "test-suite-nodejs-dist.log"))
-	compose.Env = append(compose.Env, `BEYLA_OPEN_PORT=`, `BEYLA_EXECUTABLE_NAME=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_NAME=`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("NodeJS Distributed Traces with multiple chained calls", testHTTPTracesNestedNodeJSDistCalls)
@@ -484,7 +484,7 @@ func TestSuiteNodeClient(t *testing.T) {
 	}
 
 	compose, err := docker.ComposeSuite("docker-compose-nodeclient.yml", path.Join(pathOutput, "test-suite-nodeclient.log"))
-	compose.Env = append(compose.Env, `BEYLA_EXECUTABLE_NAME=node`, `NODE_APP=client`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_NAME=node`, `NODE_APP=client`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {
@@ -500,7 +500,7 @@ func TestSuiteNodeClientTLS(t *testing.T) {
 	}
 
 	compose, err := docker.ComposeSuite("docker-compose-nodeclient.yml", path.Join(pathOutput, "test-suite-nodeclient-tls.log"))
-	compose.Env = append(compose.Env, `BEYLA_EXECUTABLE_NAME=node`, `NODE_APP=client_tls`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_NAME=node`, `NODE_APP=client_tls`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {

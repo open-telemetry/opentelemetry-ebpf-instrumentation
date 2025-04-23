@@ -74,20 +74,20 @@ spec:
           env:
             - name: GOCOVERDIR
               value: "/testoutput"
-            - name: BEYLA_DISCOVERY_POLL_INTERVAL
+            - name: OTEL_EBPF_DISCOVERY_POLL_INTERVAL
               value: "500ms"
-            - name: BEYLA_METRICS_INTERVAL
+            - name: OTEL_EBPF_METRICS_INTERVAL
               value: "10ms"
-            - name: BEYLA_BPF_BATCH_TIMEOUT
+            - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
-            - name: BEYLA_NAME_RESOLVER_SOURCES
+            - name: OTEL_EBPF_NAME_RESOLVER_SOURCES
               value: "dns,k8s"
-            - name: BEYLA_BPF_TC_L7_CP
+            - name: OTEL_EBPF_BPF_TC_L7_CP
               value: "true"
-            - name: BEYLA_BPF_TRACK_REQUEST_HEADERS
+            - name: OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS
               value: "true"
-            - name: BEYLA_BPF_DEBUG
+            - name: OTEL_EBPF_BPF_DEBUG
               value: "true"
-            - name: BEYLA_BPF_DISABLE_BLACK_BOX_CP
+            - name: OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP
               value: "true"
 

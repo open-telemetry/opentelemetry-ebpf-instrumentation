@@ -72,7 +72,7 @@ func TestRun_DontPanic(t *testing.T) {
 }
 
 func Test_NetworkEnabled(t *testing.T) {
-	require.NoError(t, os.Setenv("BEYLA_NETWORK_METRICS", "true"))
+	require.NoError(t, os.Setenv("OTEL_EBPF_NETWORK_METRICS", "true"))
 	cfg, err := beyla.LoadConfig(bytes.NewReader(nil))
 	assert.NoError(t, err)
 	assert.Equal(t, mustSkip(cfg), "")

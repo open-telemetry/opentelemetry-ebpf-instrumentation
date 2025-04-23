@@ -22,7 +22,7 @@ import (
 type NetPrometheusConfig struct {
 	Config             *PrometheusConfig
 	AttributeSelectors attributes.Selection
-	// Deprecated: to be removed in Beyla 3.0 with BEYLA_NETWORK_METRICS bool flag
+	// Deprecated: to be removed in Beyla 3.0 with OTEL_EBPF_NETWORK_METRICS bool flag
 	GloballyEnabled bool
 }
 
