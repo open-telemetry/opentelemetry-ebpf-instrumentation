@@ -9,10 +9,6 @@ data:
         enable: true
         resource_labels:
           deployment.environment: ["deployment.environment"]
-      select:
-        process_*:
-          include: ["*"]
-    trace_printer: text
     log_level: debug
     discovery:
       services:

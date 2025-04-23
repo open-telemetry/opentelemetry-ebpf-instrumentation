@@ -10,20 +10,6 @@ prometheus_export:
   extra_resource_attributes: ["deployment_environment"]
 attributes:
   select:
-    process_cpu_utilization:
-      include: ["*"]
-      exclude: ["cpu_mode"]
-    process_cpu_time:
-      include: ["*"]
-      exclude: ["cpu_mode"]
-    process_memory_usage:
-      include: ["*"]
-    process_memory_virtual:
-      include: ["*"]
-    process_disk_io:
-      include: ["*"]
-    process_network_io:
-      include: ["*"]
     "*":
       include: ["*"]
   kubernetes:

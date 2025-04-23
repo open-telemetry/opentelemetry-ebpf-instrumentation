@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v9"
-	otelconsumer "go.opentelemetry.io/collector/consumer"
 	"gopkg.in/yaml.v3"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
@@ -20,7 +19,6 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/filter"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/tcmanager"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/infraolly/process"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/kube"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/traces"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubeflags"
@@ -127,14 +125,11 @@ var DefaultConfig = Config{
 		WildcardChar: "*",
 	},
 	NetworkFlows: defaultNetworkConfig,
-	Processes: process.CollectConfig{
-		RunMode:  process.RunModePrivileged,
-		Interval: 5 * time.Second,
-	},
 	Discovery: services.DiscoveryConfig{
 		ExcludeOTelInstrumentedServices: true,
 		DefaultExcludeServices: services.DefinitionCriteria{
 			services.Attributes{
+				// TODO: add final name for opentelemetry-ebpf-instrument executable name
 				Path: services.NewPathRegexp(regexp.MustCompile("(?:^|/)(beyla$|alloy$|otelcol[^/]*$)")),
 			},
 		},
@@ -199,25 +194,6 @@ type Config struct {
 	// nolint:undoc
 	ProfilePort     int             `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
 	InternalMetrics imetrics.Config `yaml:"internal_metrics"`
-
-	// Processes metrics for application. They will be only enabled if there is a metrics exporter enabled,
-	// and both the "application" and "application_process" features are enabled
-	Processes process.CollectConfig `yaml:"processes"`
-
-	// Grafana Agent specific configuration
-	TracesReceiver TracesReceiverConfig `yaml:"-"`
-}
-
-type Consumer interface {
-	otelconsumer.Traces
-}
-
-type TracesReceiverConfig struct {
-	Traces []Consumer
-}
-
-func (t TracesReceiverConfig) Enabled() bool {
-	return len(t.Traces) > 0
 }
 
 // Attributes configures the decoration of some extra attributes that will be

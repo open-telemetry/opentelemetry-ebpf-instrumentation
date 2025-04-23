@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/alloy"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
 	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/debug"
@@ -86,13 +85,8 @@ func newGraphBuilder(config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh
 	swi.Add(otel.TracesReceiver(ctxInfo, config.Traces, config.Metrics.SpanMetricsEnabled(), config.Attributes.Select, exportableSpans))
 	swi.Add(prom.PrometheusEndpoint(ctxInfo, &config.Prometheus, config.Attributes.Select, exportableSpans))
 	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus))
-	swi.Add(alloy.TracesReceiver(ctxInfo, &config.TracesReceiver, config.Metrics.SpanMetricsEnabled(), config.Attributes.Select, exportableSpans))
 
 	swi.Add(debug.PrinterNode(config.TracePrinter, exportableSpans))
-
-	// process subpipeline optionally starts another pipeline only to collect and export data
-	// about the processes of an instrumented application
-	swi.Add(ProcessMetricsSwarmInstancer(ctxInfo, config, exportableSpans))
 
 	// The returned builder later invokes its "Build" function that, given
 	// the contents of the nodesMap struct, will instantiate

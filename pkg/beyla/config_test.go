@@ -23,7 +23,6 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/prom"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/tcmanager"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/infraolly/process"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/kube"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/transform/cidr"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/traces"
@@ -213,10 +212,6 @@ network:
 			Sources:  []string{"k8s", "dns"},
 			CacheLen: 1024,
 			CacheTTL: 5 * time.Minute,
-		},
-		Processes: process.CollectConfig{
-			RunMode:  process.RunModePrivileged,
-			Interval: 5 * time.Second,
 		},
 		Discovery: services.DiscoveryConfig{
 			ExcludeOTelInstrumentedServices: true,

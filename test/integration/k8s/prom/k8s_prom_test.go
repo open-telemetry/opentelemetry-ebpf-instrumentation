@@ -27,7 +27,3 @@ func TestPrometheus_MetricsDecoration_GRPC(t *testing.T) {
 		"service_instance_id": "",
 	}))
 }
-
-func TestPrometheus_ProcessMetrics(t *testing.T) {
-	cluster.TestEnv().Test(t, k8s.FeatureProcessMetricsDecoration(nil))
-}
