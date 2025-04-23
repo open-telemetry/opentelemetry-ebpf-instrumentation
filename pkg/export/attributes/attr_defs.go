@@ -175,40 +175,6 @@ func getDefinitions(groups AttrGroups) map[Section]AttrReportGroup {
 		},
 	}
 
-	// TODO: populate it with host resource attributes in https://opentelemetry.io/docs/specs/semconv/resource/host/
-	var hostAttributes = AttrReportGroup{
-		Attributes: map[attr.Name]Default{
-			attr.HostName: true,
-		},
-	}
-
-	// the following attributes are only reported as metric attributes in Prometheus,
-	// as the OTEL standard defines them as resource attributes.
-	var promProcessAttributes = AttrReportGroup{
-		Disabled: !promEnabled,
-		Attributes: map[attr.Name]Default{
-			attr.Instance:        true,
-			attr.Job:             true,
-			attr.ProcCommand:     true,
-			attr.ProcOwner:       true,
-			attr.ProcParentPid:   true,
-			attr.ProcPid:         true,
-			attr.ProcCommandLine: false,
-			attr.ProcCommandArgs: false,
-			attr.ProcExecName:    false,
-			attr.ProcExecPath:    false,
-		},
-	}
-
-	var processAttributes = AttrReportGroup{
-		SubGroups: []*AttrReportGroup{&appKubeAttributes, &hostAttributes, &promProcessAttributes},
-		Attributes: map[attr.Name]Default{
-			attr.ProcCPUMode:   true,
-			attr.ProcDiskIODir: true,
-			attr.ProcNetIODir:  true,
-		},
-	}
-
 	var messagingAttributes = AttrReportGroup{
 		SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
 		Attributes: map[attr.Name]Default{
@@ -277,12 +243,6 @@ func getDefinitions(groups AttrGroups) map[Section]AttrReportGroup {
 				attr.DBQueryText: false,
 			},
 		},
-		ProcessCPUUtilization.Section: {SubGroups: []*AttrReportGroup{&processAttributes}},
-		ProcessCPUTime.Section:        {SubGroups: []*AttrReportGroup{&processAttributes}},
-		ProcessMemoryUsage.Section:    {SubGroups: []*AttrReportGroup{&processAttributes}},
-		ProcessMemoryVirtual.Section:  {SubGroups: []*AttrReportGroup{&processAttributes}},
-		ProcessDiskIO.Section:         {SubGroups: []*AttrReportGroup{&processAttributes}},
-		ProcessNetIO.Section:          {SubGroups: []*AttrReportGroup{&processAttributes}},
 		GPUKernelLaunchCalls.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
 			Attributes: map[attr.Name]Default{

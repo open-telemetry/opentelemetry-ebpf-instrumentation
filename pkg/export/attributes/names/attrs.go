@@ -7,7 +7,6 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
-	semconv2 "go.opentelemetry.io/otel/semconv/v1.25.0"
 )
 
 // Name of an attribute. This is the common internal representation of a metric attribute name,
@@ -106,24 +105,6 @@ const (
 	K8sDstOwnerType = Name("k8s.dst.owner.type")
 	K8sDstNodeIP    = Name("k8s.dst.node.ip")
 	K8sDstNodeName  = Name("k8s.dst.node.name")
-)
-
-// Process Metrics following OTEL 1.26 experimental conventions
-// https://opentelemetry.io/docs/specs/semconv/resource/process/
-// https://opentelemetry.io/docs/specs/semconv/system/process-metrics/
-
-const (
-	ProcCommand     = Name(semconv.ProcessCommandKey)
-	ProcCommandLine = Name(semconv.ProcessCommandLineKey)
-	ProcCPUMode     = Name("cpu.mode")
-	ProcDiskIODir   = Name(semconv2.DiskIoDirectionKey)
-	ProcNetIODir    = Name(semconv2.NetworkIoDirectionKey)
-	ProcOwner       = Name(semconv.ProcessOwnerKey)
-	ProcParentPid   = Name(semconv.ProcessParentPIDKey)
-	ProcPid         = Name(semconv.ProcessPIDKey)
-	ProcCommandArgs = Name(semconv.ProcessCommandArgsKey)
-	ProcExecName    = Name(semconv.ProcessExecutableNameKey)
-	ProcExecPath    = Name(semconv.ProcessExecutablePathKey)
 )
 
 // other beyla-specific attributes

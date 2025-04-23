@@ -76,36 +76,6 @@ var (
 		Prom:    "db_client_operation_duration_seconds",
 		OTEL:    "db.client.operation.duration",
 	}
-	ProcessCPUTime = Name{
-		Section: "process.cpu.time",
-		Prom:    "process_cpu_time_seconds_total",
-		OTEL:    "process.cpu.time",
-	}
-	ProcessCPUUtilization = Name{
-		Section: "process.cpu.utilization",
-		Prom:    "process_cpu_utilization_ratio",
-		OTEL:    "process.cpu.utilization",
-	}
-	ProcessMemoryUsage = Name{
-		Section: "process.memory.usage",
-		Prom:    "process_memory_usage_bytes",
-		OTEL:    "process.memory.usage",
-	}
-	ProcessMemoryVirtual = Name{
-		Section: "process.memory.virtual",
-		Prom:    "process_memory_virtual_bytes",
-		OTEL:    "process.memory.virtual",
-	}
-	ProcessDiskIO = Name{
-		Section: "process.disk.io",
-		Prom:    "process_disk_io_bytes_total",
-		OTEL:    "process.disk.io",
-	}
-	ProcessNetIO = Name{
-		Section: "process.network.io",
-		Prom:    "process_network_io_bytes_total",
-		OTEL:    "process.network.io",
-	}
 	MessagingPublishDuration = Name{
 		Section: "messaging.publish.duration",
 		Prom:    "messaging_publish_duration_seconds",
