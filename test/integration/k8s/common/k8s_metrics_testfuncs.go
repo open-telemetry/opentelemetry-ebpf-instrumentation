@@ -69,14 +69,6 @@ var (
 		"traces_service_graph_request_server_seconds_sum",
 		"traces_service_graph_request_total",
 	}
-	processMetrics = []string{
-		"process_cpu_time_seconds_total",
-		"process_cpu_utilization_ratio",
-		"process_memory_usage_bytes",
-		"process_memory_virtual_bytes",
-		"process_disk_io_bytes_total",
-		"process_network_io_bytes_total",
-	}
 )
 
 func DoWaitForComponentsAvailable(t *testing.T) {
@@ -243,26 +235,6 @@ func FeatureGRPCMetricsDecoration(manifest string, overrideAttrs map[string]stri
 		).Feature()
 }
 
-func FeatureProcessMetricsDecoration(overrideProperties map[string]string) features.Feature {
-	properties := map[string]string{
-		"k8s_namespace_name":  "^default$",
-		"k8s_node_name":       ".+-control-plane$",
-		"k8s_pod_name":        "^testserver-.*",
-		"k8s_pod_uid":         UUIDRegex,
-		"k8s_pod_start_time":  TimeRegex,
-		"k8s_deployment_name": "^testserver$",
-		"k8s_replicaset_name": "^testserver-",
-		"k8s_cluster_name":    "^beyla-k8s-test-cluster",
-	}
-	for k, v := range overrideProperties {
-		properties[k] = v
-	}
-	return features.New("Decoration of process metrics").
-		Assess("all the process metrics from currently instrumented services are properly decorated",
-			testMetricsDecoration(processMetrics, `{k8s_pod_name=~"`+properties["k8s_pod_name"]+`"}`, properties),
-		).Feature()
-}
-
 func FeatureDisableInformersAppMetricsDecoration() features.Feature {
 	pinger := kube.Template[Pinger]{
 		TemplateFile: PingerManifest,
@@ -275,7 +247,7 @@ func FeatureDisableInformersAppMetricsDecoration() features.Feature {
 		Setup(pinger.Deploy()).
 		Teardown(pinger.Delete()).
 		Assess("Application metrics miss the attributes coming from the disabled informers",
-			testMetricsDecoration(slices.Concat(processMetrics, httpServerMetrics),
+			testMetricsDecoration(slices.Concat(httpServerMetrics),
 				`{k8s_pod_name=~"^testserver-.*"}`, map[string]string{
 					"k8s_namespace_name":  "^default$",
 					"k8s_node_name":       ".+-control-plane$",

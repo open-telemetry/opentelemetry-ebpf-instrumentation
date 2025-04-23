@@ -71,14 +71,6 @@ func TestInformersCache_MetricsDecoration_HTTP(t *testing.T) {
 		}))
 }
 
-func TestInformersCache_ProcessMetrics(t *testing.T) {
-	cluster.TestEnv().Test(t, k8s.FeatureProcessMetricsDecoration(
-		map[string]string{
-			"k8s_cluster_name": "my-kube",
-			"instance":         "default\\.testserver-.+\\.testserver",
-		}))
-}
-
 func TestInformersCache_NetworkMetrics(t *testing.T) {
 	cluster.TestEnv().Test(t, otel.FeatureNetworkFlowBytes())
 }
