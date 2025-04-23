@@ -30,7 +30,6 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/transform"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/collector"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/consumer"
 )
 
 const testTimeout = 5 * time.Second
@@ -149,35 +148,6 @@ func TestTracerPipeline(t *testing.T) {
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("bar-svc", "GET", "/foo/bar", "1.1.1.1:3456", 404))
 
-	pipe, err := gb.buildGraph(ctx)
-	require.NoError(t, err)
-
-	go pipe.Run(ctx)
-
-	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchInnerTraceEvent(t, "in queue", event)
-	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchInnerTraceEvent(t, "processing", event)
-	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchTraceEvent(t, "GET", event)
-}
-
-func TestTracerReceiverPipeline(t *testing.T) {
-	ctx := t.Context()
-
-	tc, err := collector.Start(ctx)
-	require.NoError(t, err)
-	consumer := consumer.MockTraceConsumer{Endpoint: tc.ServerEndpoint}
-	require.NoError(t, err)
-	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
-	gb := newGraphBuilder(&beyla.Config{
-		TracesReceiver: beyla.TracesReceiverConfig{
-			Traces: []beyla.Consumer{&consumer},
-		},
-		Attributes: beyla.Attributes{InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(0), tracesInput)
-	// Override eBPF tracer to send some fake data
-	tracesInput.Send(newRequest("bar-svc", "GET", "/foo/bar", "1.1.1.1:3456", 404))
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 

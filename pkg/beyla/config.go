@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v9"
-	otelconsumer "go.opentelemetry.io/collector/consumer"
 	"gopkg.in/yaml.v3"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
@@ -195,21 +194,6 @@ type Config struct {
 	// nolint:undoc
 	ProfilePort     int             `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
 	InternalMetrics imetrics.Config `yaml:"internal_metrics"`
-
-	// Grafana Agent specific configuration
-	TracesReceiver TracesReceiverConfig `yaml:"-"`
-}
-
-type Consumer interface {
-	otelconsumer.Traces
-}
-
-type TracesReceiverConfig struct {
-	Traces []Consumer
-}
-
-func (t TracesReceiverConfig) Enabled() bool {
-	return len(t.Traces) > 0
 }
 
 // Attributes configures the decoration of some extra attributes that will be
