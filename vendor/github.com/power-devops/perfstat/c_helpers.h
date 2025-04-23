@@ -1,25 +1,22 @@
 #ifndef C_HELPERS_H
 #define C_HELPERS_H
 
+#include <sys/types.h>
+#include <sys/mntctl.h>
+#include <sys/vmount.h>
+#include <sys/statfs.h>
 #include <libperfstat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mntctl.h>
-#include <sys/statfs.h>
-#include <sys/types.h>
-#include <sys/vmount.h>
 #include <utmpx.h>
 
-#define GETFUNC(TYPE)                                                          \
-  perfstat_##TYPE##_t *get_##TYPE##_stat(perfstat_##TYPE##_t *b, int n) {      \
-    if (!b)                                                                    \
-      return NULL;                                                             \
-    return &(b[n]);                                                            \
-  }
+#define GETFUNC(TYPE) perfstat_##TYPE##_t *get_##TYPE##_stat(perfstat_##TYPE##_t *b, int n) { \
+        if (!b) return NULL; \
+        return &(b[n]); \
+}
 
-#define GETFUNC_EXT(TYPE)                                                      \
-  extern perfstat_##TYPE##_t *get_##TYPE##_stat(perfstat_##TYPE##_t *, int);
+#define GETFUNC_EXT(TYPE) extern perfstat_##TYPE##_t *get_##TYPE##_stat(perfstat_##TYPE##_t *, int);
 
 GETFUNC_EXT(cpu)
 GETFUNC_EXT(disk)
@@ -37,14 +34,14 @@ GETFUNC_EXT(thread)
 GETFUNC_EXT(volumegroup)
 
 struct fsinfo {
-  char *devname;
-  char *fsname;
-  int flags;
-  int fstype;
-  unsigned long totalblks;
-  unsigned long freeblks;
-  unsigned long totalinodes;
-  unsigned long freeinodes;
+        char *devname;
+        char *fsname;
+	int flags;
+	int fstype;
+        unsigned long totalblks;
+        unsigned long freeblks;
+        unsigned long totalinodes;
+        unsigned long freeinodes;
 };
 
 extern double get_partition_mhz(perfstat_partition_config_t);
