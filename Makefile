@@ -154,7 +154,7 @@ lint-dashboard: prereqs
 .PHONY: lint
 lint: prereqs
 	@echo "### Linting code"
-	GOOS=linux $(GOLANGCI_LINT) run ./... --timeout=6m
+	$(GOLANGCI_LINT) run ./... --timeout=6m
 
 .PHONY: update-offsets
 update-offsets: prereqs

@@ -23,6 +23,7 @@ func NewProcessTracer(_ *beyla.Config, _ ProcessTracerType, _ []Tracer) *Process
 }
 
 func (pt *ProcessTracer) Init() error {
+	pt.log.Debug("avoiding linter complaints for not using log field")
 	return nil
 }
 

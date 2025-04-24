@@ -42,9 +42,6 @@ var freePort int
 
 func TestMain(m *testing.M) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true, Level: slog.LevelDebug})))
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(context.TODO())
-
 	// setup global testEnv instances and client classes. This will create a "fake kubernetes" API
 	// to integrate it within our informers' cache for unit testing without requiring
 	// spinning up a Kind K8s cluster
@@ -75,9 +72,13 @@ func TestMain(m *testing.M) {
 		slog.Error("getting a free TCP port", "error", err)
 		os.Exit(1)
 	}
+
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(context.TODO())
 	go func() {
 		if err := k8sManager.Start(ctx); err != nil {
 			slog.Error("starting manager", "error", err)
+			cancel()
 			os.Exit(1)
 		}
 	}()
@@ -215,7 +216,7 @@ func TestAsynchronousStartup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// generating some contents to force a new Beyla Cache service to take a while
+	// generating some contents to force a new Kube Cache service to take a while
 	// to synchronize during initialization
 	const createdPods = 20
 	for n := 0; n < createdPods; n++ {
@@ -232,7 +233,7 @@ func TestAsynchronousStartup(t *testing.T) {
 		}))
 	}
 
-	// creating a new Beyla cache service instance that will start synchronizing with
+	// creating a new Kube cache service instance that will start synchronizing with
 	// the previously generated amount of data (also from previous tests)
 	newFreePort, err := test.FreeTCPPort()
 	require.NoError(t, err)
@@ -243,9 +244,17 @@ func TestAsynchronousStartup(t *testing.T) {
 	cl1 := serviceClient{Address: addr}
 	cl2 := serviceClient{Address: addr}
 	cl3 := serviceClient{Address: addr}
-	test.Eventually(t, timeout, func(t require.TestingT) { require.NoError(t, cl1.Start(ctx)) })
-	test.Eventually(t, timeout, func(t require.TestingT) { require.NoError(t, cl2.Start(ctx)) })
-	test.Eventually(t, timeout, func(t require.TestingT) { require.NoError(t, cl3.Start(ctx)) })
+
+	start := func(sc *serviceClient) {
+		for {
+			if sc.Start(ctx) == nil {
+				return
+			}
+		}
+	}
+	go start(&cl1)
+	go start(&cl2)
+	go start(&cl3)
 
 	iConfig := kubecache.DefaultConfig
 	iConfig.Port = newFreePort
