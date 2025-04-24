@@ -94,9 +94,10 @@ func checkCapabilitiesForSetOptions(config *Config, caps *helpers.OSCapabilities
 	}
 
 	if config.Enabled(FeatureNetO11y) {
-		if config.NetworkFlows.Source == EbpfSourceSock {
+		switch config.NetworkFlows.Source {
+		case EbpfSourceSock:
 			testAndSet(caps, capError, unix.CAP_NET_RAW)
-		} else if config.NetworkFlows.Source == EbpfSourceTC {
+		case EbpfSourceTC:
 			testAndSet(caps, capError, unix.CAP_PERFMON)
 			testAndSet(caps, capError, unix.CAP_NET_ADMIN)
 		}
@@ -105,7 +106,6 @@ func checkCapabilitiesForSetOptions(config *Config, caps *helpers.OSCapabilities
 
 func CheckOSCapabilities(config *Config) error {
 	caps, err := helpers.GetCurrentProcCapabilities()
-
 	if err != nil {
 		return fmt.Errorf("unable to query OS capabilities: %w", err)
 	}

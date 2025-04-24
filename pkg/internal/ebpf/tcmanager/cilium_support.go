@@ -3,7 +3,7 @@
 package tcmanager
 
 import (
-	"fmt"
+	"errors"
 	"log/slog"
 	"math"
 	"net"
@@ -29,7 +29,6 @@ func hasCiliumTCX() bool {
 		defer link.Close()
 
 		info, err := link.Info()
-
 		if err != nil {
 			continue
 		}
@@ -39,7 +38,6 @@ func hasCiliumTCX() bool {
 		}
 
 		prog, err := ebpf.NewProgramFromID(info.Program)
-
 		if err != nil {
 			continue
 		}
@@ -47,7 +45,6 @@ func hasCiliumTCX() bool {
 		defer prog.Close()
 
 		progInfo, err := prog.Info()
-
 		if err != nil {
 			continue
 		}
@@ -66,12 +63,11 @@ const ciliumNotFound = uint16(math.MaxUint16)
 // or ciliumNotFound if no cilium link is present
 func ciliumLinkPriorities(link netlink.Link, parent uint32) (uint16, uint16) {
 	filters, err := netlink.FilterList(link, parent)
-
 	if err != nil {
 		return ciliumNotFound, 0
 	}
 
-	minPrio := uint16(ciliumNotFound)
+	minPrio := ciliumNotFound
 	maxPrio := uint16(0)
 
 	for _, filter := range filters {
@@ -94,17 +90,15 @@ func ciliumLinkPriorities(link netlink.Link, parent uint32) (uint16, uint16) {
 
 func ciliumTCPriorities() (uint16, uint16) {
 	ifaces, err := net.Interfaces()
-
 	if err != nil {
 		return ciliumNotFound, 0
 	}
 
-	minPrio := uint16(ciliumNotFound)
+	minPrio := ciliumNotFound
 	maxPrio := uint16(0)
 
 	for _, iface := range ifaces {
 		link, err := netlink.LinkByIndex(iface.Index)
-
 		if err != nil {
 			continue
 		}
@@ -145,7 +139,7 @@ func EnsureCiliumCompatibility(backend TCBackend) error {
 	// we are using TC/Netlink attachment (TCBackendTC)
 
 	if hasCiliumTCX() {
-		return fmt.Errorf("detected Cilium TCX attachment, but Beyla has been configured to use TC")
+		return errors.New("detected Cilium TCX attachment, but Beyla has been configured to use TC")
 	}
 
 	minPrio, maxPrio := ciliumTCPriorities()
@@ -165,5 +159,5 @@ func EnsureCiliumCompatibility(backend TCBackend) error {
 
 	// minPrio == maxPrio == 1 -> cilium should be reconfigured with
 	// bpf-filter-priority >= 2
-	return fmt.Errorf("detected Cilium TC with priority 1 - Cilium may clobber Beyla")
+	return errors.New("detected Cilium TC with priority 1 - Cilium may clobber Beyla")
 }

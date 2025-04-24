@@ -31,8 +31,10 @@ import (
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf_debug ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf -DBPF_DEBUG
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf_tp_debug ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf -DBPF_DEBUG -DBPF_TRACEPARENT
 
-var instrumentedLibs = make(ebpfcommon.InstrumentedLibsT)
-var libsMux sync.Mutex
+var (
+	instrumentedLibs = make(ebpfcommon.InstrumentedLibsT)
+	libsMux          sync.Mutex
+)
 
 type Tracer struct {
 	pidsFilter     ebpfcommon.ServiceFilter
@@ -85,7 +87,7 @@ func (p *Tracer) buildPidFilter() []uint64 {
 			// skip any pids that might've been added, but are not tracked by the kprobes
 			p.log.Debug("Reallowing pid", "pid", pid, "namespace", nsid)
 
-			k := uint64((uint64(nsid) << 32) | uint64(pid))
+			k := (uint64(nsid) << 32) | uint64(pid)
 
 			segment, bit := pidSegmentBit(k)
 
@@ -105,7 +107,7 @@ func (p *Tracer) rebuildValidPids() {
 		p.log.Debug("number of segments in pid filter cache", "len", len(v))
 
 		for i, segment := range v {
-			err := p.bpfObjects.ValidPids.Put(uint32(i), uint64(segment))
+			err := p.bpfObjects.ValidPids.Put(uint32(i), segment)
 			if err != nil {
 				p.log.Error("Error setting up pid in BPF space, sizes of Go and BPF maps don't match", "error", err, "i", i)
 			}
@@ -177,7 +179,6 @@ func (p *Tracer) SetupTailCalls() {
 		},
 	} {
 		err := p.bpfObjects.JumpTable.Update(uint32(tc.index), uint32(tc.prog.FD()), ebpf.UpdateAny)
-
 		if err != nil {
 			p.log.Error("error loading info tail call jump table", "error", err)
 		}

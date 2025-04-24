@@ -40,9 +40,9 @@ func qName(om *informer.ObjectMeta) qualifiedName {
 // MetaSourceLabels allow overriding some metadata from kubernetes labels
 // Deprecated. Left here for backwards-compatibility.
 type MetaSourceLabels struct {
-	// nolint:undoc
+	//nolint:undoc
 	ServiceName string `yaml:"service_name" env:"OTEL_EBPF_KUBE_META_SOURCE_LABEL_SERVICE_NAME"`
-	// nolint:undoc
+	//nolint:undoc
 	ServiceNamespace string `yaml:"service_namespace" env:"OTEL_EBPF_KUBE_META_SOURCE_LABEL_SERVICE_NAMESPACE"`
 }
 
@@ -194,7 +194,7 @@ func (s *Store) On(event *informer.Event) error {
 	case informer.EventType_DELETED:
 		s.deleteObjectMeta(event.Resource)
 	}
-	s.BaseNotifier.Notify(event)
+	s.Notify(event)
 	return nil
 }
 
@@ -508,7 +508,7 @@ func (s *Store) Subscribe(observer meta.Observer) {
 	for _, pod := range s.podsByContainer {
 		if err := observer.On(&informer.Event{Type: informer.EventType_CREATED, Resource: pod.Meta}); err != nil {
 			s.log.Debug("observer failed sending Pod info. Unsubscribing it", "observer", observer.ID(), "error", err)
-			s.BaseNotifier.Unsubscribe(observer)
+			s.Unsubscribe(observer)
 			return
 		}
 	}
@@ -518,7 +518,7 @@ func (s *Store) Subscribe(observer meta.Observer) {
 	for _, ips := range s.objectMetaByIP {
 		if err := observer.On(&informer.Event{Type: informer.EventType_CREATED, Resource: ips.Meta}); err != nil {
 			s.log.Debug("observer failed sending Object Meta. Unsubscribing it", "observer", observer.ID(), "error", err)
-			s.BaseNotifier.Unsubscribe(observer)
+			s.Unsubscribe(observer)
 			return
 		}
 	}

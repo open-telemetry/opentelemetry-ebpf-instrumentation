@@ -54,7 +54,6 @@ func HTTPHandler(echoPort int) http.HandlerFunc {
 
 func echoAsync(rw http.ResponseWriter, port int) {
 	duration, err := time.ParseDuration("10s")
-
 	if err != nil {
 		fmt.Printf("can't parse duration %w\n", err)
 		rw.WriteHeader(500)
@@ -64,7 +63,7 @@ func echoAsync(rw http.ResponseWriter, port int) {
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
-	results := make(chan interface{})
+	results := make(chan any)
 
 	go func() {
 		echo(rw, port)

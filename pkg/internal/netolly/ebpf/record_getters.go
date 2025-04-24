@@ -15,7 +15,8 @@ const (
 
 // RecordGetters returns the attributes.Getter function that returns the string value of a given
 // attribute name.
-// nolint:cyclop
+//
+//nolint:cyclop
 func RecordGetters(name attr.Name) (attributes.Getter[*Record, attribute.KeyValue], bool) {
 	var getter attributes.Getter[*Record, attribute.KeyValue]
 	switch name {

@@ -106,11 +106,11 @@ func TestDiff(t *testing.T) {
 	}
 	dr := Diff(expected, actual)
 	t.Log(dr.String())
-	assert.Equal(t, dr, DiffResult{
+	assert.Equal(t, DiffResult{
 		{ErrType: ErrTypeNotEqual, Expected: expected[0], Actual: actual[2]},
 		{ErrType: ErrTypeNotEqual, Expected: expected[1], Actual: actual[1]},
 		{ErrType: ErrTypeMissing, Expected: expected[3]},
-	})
+	}, dr)
 }
 
 func TestDiff_Matching(t *testing.T) {

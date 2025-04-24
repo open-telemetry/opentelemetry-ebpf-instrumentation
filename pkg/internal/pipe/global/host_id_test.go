@@ -1,7 +1,6 @@
 package global
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 func TestFetchTimeout(t *testing.T) {
 	ctxInfo := ContextInfo{}
 	start := time.Now()
-	ctxInfo.FetchHostID(context.Background(), time.Millisecond)
+	ctxInfo.FetchHostID(t.Context(), time.Millisecond)
 	elapsed := time.Since(start)
 
 	assert.Less(t, elapsed, time.Second)

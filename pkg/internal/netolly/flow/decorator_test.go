@@ -56,5 +56,4 @@ func TestDecoration(t *testing.T) {
 	assert.Equal(t, "3.3.3.3", decorated[1].Attrs.BeylaIP)
 	assert.Equal(t, "1.2.3.4", decorated[1].Attrs.SrcName)
 	assert.Equal(t, "destination", decorated[1].Attrs.DstName)
-
 }

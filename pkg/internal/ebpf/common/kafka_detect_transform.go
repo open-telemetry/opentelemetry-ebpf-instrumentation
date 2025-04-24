@@ -44,12 +44,14 @@ func (k Operation) String() string {
 	}
 }
 
-const KafkaMinLength = 14
-const KafkaMaxPayload = 20 * 1024 * 1024 // 20 MB max, 1MB is default for most Kafka installations
+const (
+	KafkaMinLength  = 14
+	KafkaMaxPayload = 20 * 1024 * 1024 // 20 MB max, 1MB is default for most Kafka installations
+)
 
 var topicRegex = regexp.MustCompile("\x02\t(.*)\x02")
 
-// ProcessKafkaRequest processes a TCP packet and returns error if the packet is not a valid Kafka request.
+// ProcessPossibleKafkaEvent processes a TCP packet and returns error if the packet is not a valid Kafka request.
 // Otherwise, return kafka.Info with the processed data.
 func ProcessPossibleKafkaEvent(event *TCPRequestInfo, pkt []byte, rpkt []byte) (*KafkaInfo, error) {
 	k, err := ProcessKafkaRequest(pkt)
@@ -64,7 +66,7 @@ func ProcessPossibleKafkaEvent(event *TCPRequestInfo, pkt []byte, rpkt []byte) (
 	return k, err
 }
 
-// https://kafka.apache.org/protocol.html
+// ProcessKafkaRequest according to https://kafka.apache.org/protocol.html
 func ProcessKafkaRequest(pkt []byte) (*KafkaInfo, error) {
 	k := &KafkaInfo{}
 	if len(pkt) < KafkaMinLength {
@@ -178,7 +180,7 @@ func processKafkaOperation(header *Header, pkt []byte, k *KafkaInfo, offset *int
 	return nil
 }
 
-// nolint:cyclop
+//nolint:cyclop
 func isValidKafkaString(buffer []byte, maxBufferSize, realSize int, printableOk bool) bool {
 	for j := 0; j < maxBufferSize; j++ {
 		if j >= realSize {
@@ -227,7 +229,7 @@ func getTopicName(pkt []byte, offset int, op Operation, apiVersion int16) (strin
 		// topic name has the following format: uuid\x00\x02\tTOPIC\x02\x00
 		topicName = []byte(extractTopic(string(topicName)))
 	}
-	if isValidKafkaString(topicName, len(topicName), int(topicNameSize), false) {
+	if isValidKafkaString(topicName, len(topicName), topicNameSize, false) {
 		if op == Fetch && apiVersion <= 11 && len(topicName) == 0 {
 			return "", errors.New("topic name must not be empty for api version <= 11")
 		}

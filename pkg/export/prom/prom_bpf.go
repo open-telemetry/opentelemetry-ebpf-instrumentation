@@ -270,8 +270,7 @@ var (
 )
 
 // discardEncoding implements encoding.BinaryMarshaler for eBPF map values such that everything is discarded.
-type discardEncoding struct {
-}
+type discardEncoding struct{}
 
 func (de *discardEncoding) UnmarshalBinary(_ []byte) error {
 	return nil

@@ -32,7 +32,7 @@ func (inf *Informers) Subscribe(observer Observer) {
 			Resource: pod.(*indexableEntity).EncodedMeta,
 		}); err != nil {
 			inf.log.Debug("error notifying observer. Unsubscribing", "observerID", observer.ID(), "error", err)
-			inf.BaseNotifier.Unsubscribe(observer)
+			inf.Unsubscribe(observer)
 			return
 		}
 	}
@@ -43,7 +43,7 @@ func (inf *Informers) Subscribe(observer Observer) {
 				Resource: node.(*indexableEntity).EncodedMeta,
 			}); err != nil {
 				inf.log.Debug("error notifying observer. Unsubscribing", "observerID", observer.ID(), "error", err)
-				inf.BaseNotifier.Unsubscribe(observer)
+				inf.Unsubscribe(observer)
 				return
 			}
 		}
@@ -81,7 +81,7 @@ func (inf *Informers) Subscribe(observer Observer) {
 			Type: informer.EventType_SYNC_FINISHED,
 		}); err != nil {
 			inf.log.Debug("error notifying observer. Unsubscribing", "observerID", observer.ID(), "error", err)
-			inf.BaseNotifier.Unsubscribe(observer)
+			inf.Unsubscribe(observer)
 			return
 		}
 	}()

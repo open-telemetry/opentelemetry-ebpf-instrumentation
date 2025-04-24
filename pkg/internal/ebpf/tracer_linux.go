@@ -29,8 +29,10 @@ const PinInternal = ebpf.PinType(100)
 
 var loadMux sync.Mutex
 
-var internalMaps = make(map[string]*ebpf.Map)
-var internalMapsMux sync.Mutex
+var (
+	internalMaps    = make(map[string]*ebpf.Map)
+	internalMapsMux sync.Mutex
+)
 
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
 
@@ -81,7 +83,6 @@ func resolveMaps(spec *ebpf.CollectionSpec) (*ebpf.CollectionOptions, error) {
 
 		if internalMap == nil {
 			internalMap, err = ebpf.NewMap(v)
-
 			if err != nil {
 				return nil, fmt.Errorf("failed to load shared map: %w", err)
 			}
@@ -141,13 +142,11 @@ func (pt *ProcessTracer) loadSpec(p Tracer) (*ebpf.CollectionSpec, error) {
 
 func (pt *ProcessTracer) loadAndAssign(p Tracer) error {
 	spec, err := pt.loadSpec(p)
-
 	if err != nil {
 		return err
 	}
 
 	collOpts, err := resolveMaps(spec)
-
 	if err != nil {
 		return err
 	}
@@ -221,7 +220,7 @@ func (pt *ProcessTracer) loadTracers() error {
 	loadMux.Lock()
 	defer loadMux.Unlock()
 
-	var log = ptlog()
+	log := ptlog()
 
 	for _, p := range pt.Programs {
 		if err := pt.loadTracer(p, log); err != nil {

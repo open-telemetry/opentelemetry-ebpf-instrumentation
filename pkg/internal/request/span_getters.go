@@ -12,7 +12,8 @@ import (
 
 // SpanOTELGetters returns the attributes.Getter function that returns the
 // OTEL attribute.KeyValue of a given attribute name.
-// nolint:cyclop
+//
+//nolint:cyclop
 func SpanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValue], bool) {
 	var getter attributes.Getter[*Span, attribute.KeyValue]
 	switch name {
@@ -62,7 +63,7 @@ func SpanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.Service:
 		getter = func(s *Span) attribute.KeyValue { return ServiceMetric(s.Service.UID.Name) }
 	case attr.ServiceInstanceID:
-		getter = func(s *Span) attribute.KeyValue { return semconv.ServiceInstanceID(string(s.Service.UID.Instance)) }
+		getter = func(s *Span) attribute.KeyValue { return semconv.ServiceInstanceID(s.Service.UID.Instance) }
 	case attr.ServiceName:
 		getter = func(s *Span) attribute.KeyValue { return semconv.ServiceName(s.Service.UID.Name) }
 	case attr.ServiceNamespace:
@@ -118,7 +119,8 @@ func SpanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 
 // SpanPromGetters returns the attributes.Getter function that returns the
 // Prometheus string value of a given attribute name.
-// nolint:cyclop
+//
+//nolint:cyclop
 func SpanPromGetters(attrName attr.Name) (attributes.Getter[*Span, string], bool) {
 	var getter attributes.Getter[*Span, string]
 	switch attrName {

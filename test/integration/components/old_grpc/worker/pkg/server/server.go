@@ -5,7 +5,7 @@ import (
 	"errors"
 	"math"
 	"math/big"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/mariomac/distributed-service-example/worker/pkg/gprc"
 )

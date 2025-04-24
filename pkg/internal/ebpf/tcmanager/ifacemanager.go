@@ -13,11 +13,15 @@ import (
 
 type IMIfaceMap map[int]*ifaces.Interface
 
-type InterfaceManagerCB func(iface *ifaces.Interface)
-type interfaceManagerCBMap map[uint64]InterfaceManagerCB
+type (
+	InterfaceManagerCB    func(iface *ifaces.Interface)
+	interfaceManagerCBMap map[uint64]InterfaceManagerCB
+)
 
-type InterfaceManagerErrorCB func(error)
-type interfaceManagerErrorCBMap map[uint64]InterfaceManagerErrorCB
+type (
+	InterfaceManagerErrorCB    func(error)
+	interfaceManagerErrorCBMap map[uint64]InterfaceManagerErrorCB
+)
 
 type InterfaceManager struct {
 	filter                *InterfaceFilter
@@ -77,7 +81,6 @@ func (im *InterfaceManager) Start(ctx context.Context) {
 	ctx, cancelFunc := context.WithCancel(ctx)
 
 	ifaceEvents, err := registerer.Subscribe(ctx)
-
 	if err != nil {
 		cancelFunc()
 		im.log.Error("instantiating interfaces' informer", "error", err)

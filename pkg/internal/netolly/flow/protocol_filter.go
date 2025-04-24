@@ -98,11 +98,11 @@ func excluder(excluded []string) (func(r *ebpf.Record) bool, error) {
 func protocolsMap(entries []string) (map[transport.Protocol]struct{}, error) {
 	protoMap := map[transport.Protocol]struct{}{}
 	for _, aStr := range entries {
-		if atp, err := transport.ParseProtocol(aStr); err == nil {
-			protoMap[atp] = struct{}{}
-		} else {
+		atp, err := transport.ParseProtocol(aStr)
+		if err != nil {
 			return nil, err
 		}
+		protoMap[atp] = struct{}{}
 	}
 	return protoMap, nil
 }

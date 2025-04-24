@@ -19,6 +19,7 @@
 package tcmanager
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -66,9 +67,10 @@ func (itf *InterfaceFilter) Deny(pattern string) error {
 }
 
 func (itf *InterfaceFilter) addPattern(pattern string,
-	regexps *[]*regexp.Regexp, matches *[]string) error {
+	regexps *[]*regexp.Regexp, matches *[]string,
+) error {
 	if regexps == nil || matches == nil {
-		return fmt.Errorf("logic error: addPattern has null params")
+		return errors.New("logic error: addPattern has null params")
 	}
 
 	pattern = strings.Trim(pattern, " ")
@@ -76,7 +78,6 @@ func (itf *InterfaceFilter) addPattern(pattern string,
 	// the user defined a /regexp/ between slashes: compile and store it as regular expression
 	if sm := itf.isRegexp.FindStringSubmatch(pattern); len(sm) > 1 {
 		re, err := regexp.Compile(sm[1])
-
 		if err != nil {
 			return fmt.Errorf("wrong interface regexp %q: %w", pattern, err)
 		}
@@ -100,7 +101,7 @@ func (itf *InterfaceFilter) IsAllowed(name string) bool {
 	}
 
 	for i := 0; !allowed && i < len(itf.allowedRegexpes); i++ {
-		allowed = allowed || itf.allowedRegexpes[i].MatchString(string(name))
+		allowed = allowed || itf.allowedRegexpes[i].MatchString(name)
 	}
 
 	if !allowed {
@@ -115,7 +116,7 @@ func (itf *InterfaceFilter) IsAllowed(name string) bool {
 	}
 
 	for _, re := range itf.excludedRegexpes {
-		if re.MatchString(string(name)) {
+		if re.MatchString(name) {
 			return false
 		}
 	}

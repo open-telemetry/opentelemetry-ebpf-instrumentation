@@ -144,7 +144,6 @@ func (tc *netlinkManager) attachProgramToIfaceLocked(prog *netlinkProg, iface *n
 	}
 
 	attachType, err := netlinkAttachType(prog.attachType)
-
 	if err != nil {
 		tc.emitError("Error attaching program", "error", err)
 		return
@@ -250,7 +249,6 @@ func (tc *netlinkManager) onIfaceManagerError(err error) {
 
 func (tc *netlinkManager) installQdisc(iface *ifaces.Interface) *netlink.GenericQdisc {
 	link, err := netlink.LinkByIndex(iface.Index)
-
 	if err != nil {
 		tc.emitError("failed to lookup link device", "index", iface.Index, "name", iface.Name, "error", err)
 		return nil
@@ -296,7 +294,6 @@ func (tc *netlinkManager) cleanupFiltersLocked(iface *netlinkIface) {
 		tc.log.Debug("deleting filter", "interface", iface, "name", filter.Name)
 
 		err := doIgnoreNoDev(netlink.FilterDel, netlink.Filter(filter))
-
 		if err != nil {
 			tc.emitError("deleting filter", "interface", iface,
 				"filter", filter.Name, "error", err)
@@ -326,13 +323,11 @@ func (tc *netlinkManager) cleanupQdiscLocked(iface *netlinkIface) {
 
 func ifaceHasFilters(iface *netlinkIface, parent uint32) bool {
 	link, err := netlink.LinkByIndex(iface.Index)
-
 	if err != nil {
 		return true // be conservative assume we have filters if we can't detect them
 	}
 
 	filters, err := netlink.FilterList(link, parent)
-
 	if err != nil {
 		return true // be conservative assume we have filters if we can't detect them
 	}

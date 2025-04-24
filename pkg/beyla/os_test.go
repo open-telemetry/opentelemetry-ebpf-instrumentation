@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
@@ -34,7 +35,7 @@ func TestCheckOSSupport_Supported(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%d.%d", tc.maj, tc.min), func(t *testing.T) {
 			overrideKernelVersion(tc)
-			assert.NoError(t, CheckOSSupport())
+			require.NoError(t, CheckOSSupport())
 		})
 	}
 }
@@ -48,7 +49,7 @@ func TestCheckOSSupport_Unsupported(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%d.%d", tc.maj, tc.min), func(t *testing.T) {
 			overrideKernelVersion(tc)
-			assert.Error(t, CheckOSSupport())
+			require.Error(t, CheckOSSupport())
 		})
 	}
 }
@@ -57,7 +58,7 @@ func TestOSCapabilitiesError_Empty(t *testing.T) {
 	var capErr osCapabilitiesError
 
 	assert.True(t, capErr.Empty())
-	assert.Equal(t, "", capErr.Error())
+	assert.Empty(t, capErr.Error())
 }
 
 func TestOSCapabilitiesError_Set(t *testing.T) {
@@ -75,7 +76,7 @@ func TestOSCapabilitiesError_Set(t *testing.T) {
 func TestOSCapabilitiesError_ErrorString(t *testing.T) {
 	var capErr osCapabilitiesError
 
-	assert.Equal(t, "", capErr.Error())
+	assert.Empty(t, capErr.Error())
 
 	capErr.Set(unix.CAP_BPF)
 
@@ -86,7 +87,6 @@ func TestOSCapabilitiesError_ErrorString(t *testing.T) {
 
 	// capabilities appear in ascending order (they are just numeric
 	// constants) separated by a comma
-	assert.True(t, unix.CAP_NET_RAW < unix.CAP_BPF)
 	assert.Equal(t, "the following capabilities are required: CAP_NET_RAW, CAP_BPF", capErr.Error())
 }
 
@@ -127,7 +127,7 @@ var capTests = []capTestData{
 func TestCheckOSCapabilities(t *testing.T) {
 	caps, err := helpers.GetCurrentProcCapabilities()
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// assume this proc doesn't have any caps set (which is usually the case
 	// for non privileged processes) instead of turning this into a privileged
@@ -154,9 +154,7 @@ func TestCheckOSCapabilities(t *testing.T) {
 
 		err := CheckOSCapabilities(&cfg)
 
-		if !assert.Error(t, err) {
-			assert.FailNow(t, "CheckOSCapabilities() should have returned an error")
-		}
+		require.Error(t, err, "CheckOSCapabilities() should have returned an error")
 
 		var osCapErr osCapabilitiesError
 
@@ -164,8 +162,8 @@ func TestCheckOSCapabilities(t *testing.T) {
 			assert.Fail(t, "CheckOSCapabilities failed", err)
 		}
 
-		assert.True(t, osCapErr.IsSet(data.osCap),
-			fmt.Sprintf("%s should be present in error", data.osCap.String()))
+		assert.Truef(t, osCapErr.IsSet(data.osCap),
+			"%s should be present in error", data.osCap.String())
 	}
 
 	for i := range capTests {

@@ -52,7 +52,7 @@ func TestRegisterer(t *testing.T) {
 
 	// initial set of fetched elements
 	for i := 0; i < 3; i++ {
-		getEvent(t, outputEvents, timeout)
+		getEvent(t, outputEvents)
 	}
 	assert.Equal(t, "foo", registry.ifaces[1])
 	assert.Equal(t, "bar", registry.ifaces[2])
@@ -62,7 +62,7 @@ func TestRegisterer(t *testing.T) {
 	inputLinks <- upAndRunning("bae", 4)
 	inputLinks <- down("bar", 2)
 	for i := 0; i < 2; i++ {
-		getEvent(t, outputEvents, timeout)
+		getEvent(t, outputEvents)
 	}
 
 	assert.Equal(t, "foo", registry.ifaces[1])
@@ -75,7 +75,7 @@ func TestRegisterer(t *testing.T) {
 	inputLinks <- upAndRunning("fiu", 1)
 	inputLinks <- down("foo", 1)
 	for i := 0; i < 2; i++ {
-		getEvent(t, outputEvents, timeout)
+		getEvent(t, outputEvents)
 	}
 
 	assert.Equal(t, "fiu", registry.ifaces[1])

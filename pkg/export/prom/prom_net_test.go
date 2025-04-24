@@ -48,10 +48,14 @@ func TestMetricsExpiration(t *testing.T) {
 
 	// WHEN it receives metrics
 	metrics.Send([]*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}}},
-		{Attrs: ebpf.RecordAttrs{SrcName: "baz", DstName: "bae"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}}},
+		{
+			Attrs:          ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
+			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}},
+		},
+		{
+			Attrs:          ebpf.RecordAttrs{SrcName: "baz", DstName: "bae"},
+			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}},
+		},
 	})
 
 	// THEN the metrics are exported
@@ -64,8 +68,10 @@ func TestMetricsExpiration(t *testing.T) {
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
 	now.Advance(2 * time.Minute)
 	metrics.Send([]*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}}},
+		{
+			Attrs:          ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
+			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}},
+		},
 	})
 	now.Advance(2 * time.Minute)
 
@@ -82,8 +88,10 @@ func TestMetricsExpiration(t *testing.T) {
 
 	// AND WHEN the metrics labels that disappeared are received again
 	metrics.Send([]*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{SrcName: "baz", DstName: "bae"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}}},
+		{
+			Attrs:          ebpf.RecordAttrs{SrcName: "baz", DstName: "bae"},
+			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}},
+		},
 	})
 	now.Advance(2 * time.Minute)
 

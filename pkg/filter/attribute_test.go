@@ -1,7 +1,6 @@
 package filter
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -25,56 +24,82 @@ func TestAttributeFilter(t *testing.T) {
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
 		"beyla.ip":          MatchDefinition{Match: "148.*"},
 		"k8s.src.namespace": MatchDefinition{NotMatch: "debug"},
-	}, ebpf.RecordStringGetters, input, output)(context.Background())
+	}, ebpf.RecordStringGetters, input, output)(t.Context())
 	require.NoError(t, err)
 
 	out := output.Subscribe()
-	go filterFunc(context.Background())
+	go filterFunc(t.Context())
 
 	// records not matching both the ip and src namespace will be dropped
 	input.Send([]*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "148.132.1.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "debug"}}},
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "128.132.1.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"}}},
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "148.132.1.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"}}},
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "148.133.2.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralar"}}},
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "141.132.1.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralari"}}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "148.132.1.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "debug"},
+		}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "128.132.1.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"},
+		}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "148.132.1.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"},
+		}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "148.133.2.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralar"},
+		}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "141.132.1.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralari"},
+		}},
 	})
 
 	// the whole batch will be dropped (won't go to the out channel)
 	input.Send([]*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "128.132.1.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"}}},
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "141.132.1.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralari"}}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "128.132.1.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"},
+		}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "141.132.1.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralari"},
+		}},
 	})
 
 	// no record will be dropped
 	input.Send([]*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "148.132.1.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"}}},
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "148.133.2.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralar"}}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "148.132.1.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"},
+		}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "148.133.2.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralar"},
+		}},
 	})
 
 	filtered := testutil.ReadChannel(t, out, timeout)
 	assert.Equal(t, []*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "148.132.1.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"}}},
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "148.133.2.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralar"}}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "148.132.1.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"},
+		}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "148.133.2.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralar"},
+		}},
 	}, filtered)
 
 	filtered = testutil.ReadChannel(t, out, timeout)
 	assert.Equal(t, []*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "148.132.1.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"}}},
-		{Attrs: ebpf.RecordAttrs{BeylaIP: "148.133.2.1",
-			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralar"}}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "148.132.1.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "foo"},
+		}},
+		{Attrs: ebpf.RecordAttrs{
+			BeylaIP:  "148.133.2.1",
+			Metadata: map[attr.Name]string{"k8s.src.namespace": "tralar"},
+		}},
 	}, filtered)
 
 	select {
@@ -83,7 +108,6 @@ func TestAttributeFilter(t *testing.T) {
 	default:
 		// ok!!
 	}
-
 }
 
 func TestAttributeFilter_VerificationError(t *testing.T) {
@@ -99,8 +123,8 @@ func TestAttributeFilter_VerificationError(t *testing.T) {
 		t.Run(fmt.Sprintf("%v", tc), func(t *testing.T) {
 			input := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
 			output := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
-			_, err := ByAttribute[*ebpf.Record](tc, ebpf.RecordStringGetters, input, output)(context.Background())
-			assert.Error(t, err)
+			_, err := ByAttribute[*ebpf.Record](tc, ebpf.RecordStringGetters, input, output)(t.Context())
+			require.Error(t, err)
 		})
 	}
 }
@@ -112,11 +136,11 @@ func TestAttributeFilter_SpanMetrics(t *testing.T) {
 	filterFunc, err := ByAttribute[*request.Span](AttributeFamilyConfig{
 		"client": MatchDefinition{NotMatch: "filtered"},
 		"server": MatchDefinition{NotMatch: "filtered"},
-	}, request.SpanPromGetters, input, output)(context.Background())
+	}, request.SpanPromGetters, input, output)(t.Context())
 	require.NoError(t, err)
 
 	out := output.Subscribe()
-	go filterFunc(context.Background())
+	go filterFunc(t.Context())
 
 	// will drop filtered events
 	input.Send([]*request.Span{
@@ -148,5 +172,4 @@ func TestAttributeFilter_SpanMetrics(t *testing.T) {
 	default:
 		// ok!!
 	}
-
 }

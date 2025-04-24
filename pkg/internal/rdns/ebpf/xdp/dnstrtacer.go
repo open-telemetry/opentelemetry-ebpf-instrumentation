@@ -52,17 +52,16 @@ func newTracer() (*tracer, error) {
 	ifaces := ifacesToAttach()
 
 	if len(ifaces) == 0 {
-		return nil, fmt.Errorf("no interfaces to attach")
+		return nil, errors.New("no interfaces to attach")
 	}
 
 	log := log()
 
 	for i := range ifaces {
 		link, err := link.AttachXDP(link.XDPOptions{
-			Program:   tracer.bpfObjects.BpfPrograms.DnsResponseTracker,
+			Program:   tracer.bpfObjects.DnsResponseTracker,
 			Interface: ifaces[i].Index,
 		})
-
 		if err != nil {
 			log.Debug("failed to attach XDP program to interface",
 				"interface", ifaces[i].Name, "error", err)

@@ -31,8 +31,10 @@ import (
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type gpu_kernel_launch_t -type gpu_malloc_t -target amd64,arm64 bpf ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type gpu_kernel_launch_t -type gpu_malloc_t -target amd64,arm64 bpf_debug ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf -DBPF_DEBUG
 
-const EventTypeKernelLaunch = 1 // EVENT_GPU_KERNEL_LAUNCH
-const EventTypeMalloc = 2       // EVENT_GPU_MALLOC
+const (
+	EventTypeKernelLaunch = 1 // EVENT_GPU_KERNEL_LAUNCH
+	EventTypeMalloc       = 2 // EVENT_GPU_MALLOC
+)
 
 type pidKey struct {
 	Pid int32
@@ -47,8 +49,10 @@ type modInfo struct {
 
 type moduleOffsets map[uint64]*SymbolTree
 
-type GPUKernelLaunchInfo bpfGpuKernelLaunchT
-type GPUMallocInfo bpfGpuMallocT
+type (
+	GPUKernelLaunchInfo bpfGpuKernelLaunchT
+	GPUMallocInfo       bpfGpuMallocT
+)
 
 // TODO: We have a way to bring ELF file information to this Tracer struct
 // via the newNonGoTracersGroup / newNonGoTracersGroupUProbes functions. Now,
@@ -348,7 +352,7 @@ func (p *Tracer) discoverModule(info *exec.FileInfo, maps []*procfs.ProcMap, sym
 }
 
 func (p *Tracer) processCudaFileInfo(info *exec.FileInfo) {
-	maps, err := exec.FindLibMaps(int32(info.Pid))
+	maps, err := exec.FindLibMaps(info.Pid)
 	if err != nil {
 		p.log.Error("failed to find pid maps", "error", err)
 		return
@@ -406,7 +410,6 @@ func (p *Tracer) establishCudaPID(pid uint32, fi *exec.FileInfo, mods []*procfs.
 	}
 
 	allPids, err := exec.FindNamespacedPids(int32(pid))
-
 	if err != nil {
 		p.log.Error("Error finding namespaced pids", "error", err)
 		return

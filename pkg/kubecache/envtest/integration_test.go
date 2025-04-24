@@ -111,7 +111,7 @@ func TestAPIs(t *testing.T) {
 		Messages: make(chan *informer.Event, 10),
 	}
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		svcClient.Start(ctx, t)
+		require.NoError(t, svcClient.Start(ctx))
 	})
 
 	// wait for the service to have sent the initial snapshot of entities
@@ -161,12 +161,12 @@ func TestBlockedClients(t *testing.T) {
 	stall5 := &serviceClient{Address: addr, stallAfterMessages: 5}
 	stall10 := &serviceClient{Address: addr, stallAfterMessages: 10}
 	stall15 := &serviceClient{Address: addr, stallAfterMessages: 15}
-	go stall15.Start(ctx, t)
-	go never1.Start(ctx, t)
-	go stall5.Start(ctx, t)
-	go never2.Start(ctx, t)
-	go stall10.Start(ctx, t)
-	go never3.Start(ctx, t)
+	require.NoError(t, stall15.Start(ctx))
+	require.NoError(t, never1.Start(ctx))
+	require.NoError(t, stall5.Start(ctx))
+	require.NoError(t, never2.Start(ctx))
+	require.NoError(t, stall10.Start(ctx))
+	require.NoError(t, never3.Start(ctx))
 
 	// generating a large number of notifications until the gRPC buffer of the
 	// server-to-client connections is full, so the "Send" operation is blocked
@@ -174,7 +174,7 @@ func TestBlockedClients(t *testing.T) {
 	const createdPods = 1500
 	go func() {
 		for n := 0; n < createdPods; n++ {
-			require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
+			if err := k8sClient.Create(ctx, &corev1.Pod{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      fmt.Sprintf("pod-%02d", n),
 					Namespace: "default",
@@ -184,7 +184,9 @@ func TestBlockedClients(t *testing.T) {
 						{Name: "test-container", Image: "nginx"},
 					},
 				},
-			}))
+			}); err != nil {
+				t.Error(err)
+			}
 		}
 		close(allSent)
 	}()
@@ -192,15 +194,14 @@ func TestBlockedClients(t *testing.T) {
 	test.Eventually(t, timeout, func(t require.TestingT) {
 		// the clients that got stalled, just received the expected number of messages
 		// before they got blocked
-		require.EqualValues(t, int32(5), stall5.readMessages.Load())
-		require.EqualValues(t, int32(10), stall10.readMessages.Load())
-		require.EqualValues(t, int32(15), stall15.readMessages.Load())
+		require.EqualValues(t, 5, stall5.readMessages.Load())
+		require.EqualValues(t, 10, stall10.readMessages.Load())
+		require.EqualValues(t, 15, stall15.readMessages.Load())
 
 		// but that did not block the rest of clients, which got all the expected messages
 		require.GreaterOrEqual(t, never1.readMessages.Load(), int32(createdPods))
 		require.GreaterOrEqual(t, never2.readMessages.Load(), int32(createdPods))
 		require.GreaterOrEqual(t, never3.readMessages.Load(), int32(createdPods))
-
 	})
 
 	// we don't exit until all the pods have been created, to avoid failing the
@@ -242,18 +243,20 @@ func TestAsynchronousStartup(t *testing.T) {
 	cl1 := serviceClient{Address: addr}
 	cl2 := serviceClient{Address: addr}
 	cl3 := serviceClient{Address: addr}
-	go func() { test.Eventually(t, timeout, func(t require.TestingT) { cl1.Start(ctx, t) }) }()
-	go func() { test.Eventually(t, timeout, func(t require.TestingT) { cl2.Start(ctx, t) }) }()
-	go func() { test.Eventually(t, timeout, func(t require.TestingT) { cl3.Start(ctx, t) }) }()
+	test.Eventually(t, timeout, func(t require.TestingT) { require.NoError(t, cl1.Start(ctx)) })
+	test.Eventually(t, timeout, func(t require.TestingT) { require.NoError(t, cl2.Start(ctx)) })
+	test.Eventually(t, timeout, func(t require.TestingT) { require.NoError(t, cl3.Start(ctx)) })
 
 	iConfig := kubecache.DefaultConfig
 	iConfig.Port = newFreePort
 	svc := service.InformersCache{Config: &iConfig, SendTimeout: time.Second}
 	go func() {
-		require.NoError(t, svc.Run(ctx,
+		if err := svc.Run(ctx,
 			meta.WithResyncPeriod(iConfig.InformerResyncPeriod),
 			meta.WithKubeClient(kubeAPIIface),
-		))
+		); err != nil {
+			t.Error(err)
+		}
 	}()
 
 	// The clients should have received the Sync complete signal even if they
@@ -274,7 +277,7 @@ func TestIgnoreHeadlessServices(t *testing.T) {
 		Messages: make(chan *informer.Event, 10),
 	}
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		svcClient.Start(ctx, t)
+		require.NoError(t, svcClient.Start(ctx))
 	})
 	// wait for the service to have sent the initial snapshot of entities
 	// (at the end, will send the "SYNC_FINISHED" event)
@@ -351,16 +354,20 @@ type serviceClient struct {
 	syncSignalOnMessage atomic.Int32
 }
 
-func (sc *serviceClient) Start(ctx context.Context, t require.TestingT) {
+func (sc *serviceClient) Start(ctx context.Context) error {
 	conn, err := grpc.NewClient(sc.Address,
 		grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
+	if err != nil {
+		return err
+	}
 
 	eventsClient := informer.NewEventStreamServiceClient(conn)
 
 	// Subscribe to the event stream.
 	stream, err := eventsClient.Subscribe(ctx, &informer.SubscribeMessage{})
-	require.NoError(t, err)
+	if err != nil {
+		return err
+	}
 
 	// Receive and print messages.
 	go func() {
@@ -391,4 +398,5 @@ func (sc *serviceClient) Start(ctx context.Context, t require.TestingT) {
 			}
 		}
 	}()
+	return nil
 }

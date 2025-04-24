@@ -294,7 +294,6 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 					assert.NotContains(t, exported, tt.unexpected[i])
 				}
 			})
-
 		})
 	}
 }
@@ -398,7 +397,7 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 	ok := false
 	select {
 	case sig := <-sigChan:
-		assert.Equal(t, sig, syscall.SIGINT)
+		assert.Equal(t, syscall.SIGINT, sig)
 		ok = true
 	case <-time.After(5 * time.Second):
 		ok = false

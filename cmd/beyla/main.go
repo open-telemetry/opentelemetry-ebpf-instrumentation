@@ -98,7 +98,7 @@ func loadConfig(configPath *string) *beyla.Config {
 	config, err := beyla.LoadConfig(configReader)
 	if err != nil {
 		slog.Error("wrong configuration", "error", err)
-		// nolint:gocritic
+		//nolint:gocritic
 		os.Exit(-1)
 	}
 	return config

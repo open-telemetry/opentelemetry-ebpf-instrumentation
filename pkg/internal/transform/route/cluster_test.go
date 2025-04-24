@@ -5,17 +5,19 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestURLClustering(t *testing.T) {
 	err := InitAutoClassifier()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	for _, tc := range []byte{'*', '#', '_', '-'} {
 		tcString := string(tc)
 
+		//nolint:perfsprint
 		t.Run(tcString, func(t *testing.T) {
-			assert.Equal(t, "", ClusterPath("", tc))
+			assert.Empty(t, ClusterPath("", tc))
 			assert.Equal(t, "/", ClusterPath("/", tc))
 			assert.Equal(t, fmt.Sprintf("/users/%[1]s/j4elk/%[1]s/job/%[1]s", tcString), ClusterPath("/users/fdklsd/j4elk/23993/job/2", tc))
 			assert.Equal(t, tcString, ClusterPath("123", tc))

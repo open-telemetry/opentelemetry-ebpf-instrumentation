@@ -26,7 +26,6 @@ type storage interface {
 // StartDNSPacketInspector in a backgound goroutine
 func StartDNSPacketInspector(ctx context.Context, storage storage) error {
 	tracer, err := newTracer()
-
 	if err != nil {
 		return fmt.Errorf("instantiating XDP tracer: %w", err)
 	}
@@ -59,7 +58,6 @@ func tracerLoop(ctx context.Context, storage storage, tracer *tracer) {
 		// in place by parseDNSMessage()
 		tracer.ringbuf.SetDeadline(time.Now().Add(time.Second))
 		err := tracer.ringbuf.ReadInto(&record)
-
 		if err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
 				log.Debug("ringbuf closed, exiting..")

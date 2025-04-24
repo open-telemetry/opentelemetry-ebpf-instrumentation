@@ -19,7 +19,7 @@
 package flow
 
 import (
-	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,7 +55,7 @@ func TestPacketAggregation(t *testing.T) {
 	}}
 	ft := MapTracer{}
 	for i, tc := range tcs {
-		t.Run(fmt.Sprint(i), func(t *testing.T) {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			assert.Equal(t,
 				tc.expected,
 				ft.aggregate(tc.input))

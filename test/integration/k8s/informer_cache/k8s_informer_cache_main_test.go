@@ -1,6 +1,6 @@
 //go:build integration_k8s
 
-package informer_cache
+package informercache
 
 import (
 	"fmt"

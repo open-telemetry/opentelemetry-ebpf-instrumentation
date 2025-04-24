@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
 
@@ -20,7 +21,7 @@ import (
 // of very well known paths.
 func TestIsMountFS(t *testing.T) {
 	mounted, matched, err := IsMountFS(unix.PROC_SUPER_MAGIC, "/proc")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, mounted)
 	assert.True(t, matched)
 }

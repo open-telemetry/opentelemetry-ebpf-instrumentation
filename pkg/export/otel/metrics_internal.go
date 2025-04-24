@@ -41,13 +41,8 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	res := newResourceInternal(ctxInfo.HostID)
-	provider, err := newInternalMeterProvider(res, &exporter, metrics.Interval)
+	provider := newInternalMeterProvider(res, &exporter, metrics.Interval)
 	meter := provider.Meter("beyla_internal")
-
-	if err != nil {
-		log.Error("can't instantiate meter provider", "error", err)
-		return nil, err
-	}
 	tracerFlushes, err := meter.Float64Histogram(
 		"beyla.ebpf.tracer.flushes",
 		instrument.WithDescription("Length of the groups of traces flushed from the eBPF tracer to the next pipeline stage"),
@@ -117,12 +112,11 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}, nil
 }
 
-func newInternalMeterProvider(res *resource.Resource, exporter *metric.Exporter, interval time.Duration) (*metric.MeterProvider, error) {
-	meterProvider := metric.NewMeterProvider(
+func newInternalMeterProvider(res *resource.Resource, exporter *metric.Exporter, interval time.Duration) *metric.MeterProvider {
+	return metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(*exporter, metric.WithInterval(interval))),
 	)
-	return meterProvider, nil
 }
 
 func (p *InternalMetricsReporter) Start(ctx context.Context) {

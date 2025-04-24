@@ -7,9 +7,11 @@ import (
 	"strings"
 )
 
-const kPostgresBind = byte('B')
-const kPostgresQuery = byte('Q')
-const kPostgresCommand = byte('C')
+const (
+	kPostgresBind    = byte('B')
+	kPostgresQuery   = byte('Q')
+	kPostgresCommand = byte('C')
+)
 
 func isPostgres(b []byte) bool {
 	op, ok := isValidPostgresPayload(b)
@@ -43,7 +45,7 @@ func isValidPostgresPayload(b []byte) (byte, bool) {
 	return b[0], true
 }
 
-// nolint:cyclop
+//nolint:cyclop
 func parsePostgresBindCommand(buf []byte) (string, string, []string, error) {
 	statement := []byte{}
 	portal := []byte{}
@@ -106,7 +108,7 @@ func parsePostgresBindCommand(buf []byte) (string, string, []string, error) {
 		argLen := int(binary.BigEndian.Uint32(buf[ptr : ptr+4]))
 		ptr += 4
 		arg := []byte{}
-		for j := 0; j < int(argLen); j++ {
+		for j := 0; j < argLen; j++ {
 			if ptr >= size {
 				break
 			}

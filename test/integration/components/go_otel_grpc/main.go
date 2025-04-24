@@ -17,7 +17,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -124,7 +124,7 @@ func initOTelProvider() {
 }
 
 func (s *Server) rolldice(w http.ResponseWriter, r *http.Request) {
-	n := s.rand.Intn(6) + 1
+	n := s.rand.IntN(6) + 1
 	logger.Info("rolldice called", zap.Int("dice", n))
 
 	fmt.Fprintf(w, "%v", n)

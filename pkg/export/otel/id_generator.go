@@ -21,14 +21,16 @@ package otel
 import (
 	"context"
 	"encoding/binary"
-	"math/rand"
+	"math/rand/v2"
 
 	"go.opentelemetry.io/otel/trace"
 )
 
-type BeylaIDGenerator struct{}
-type traceAndSpanKey struct{}
-type traceOnlyKey struct{}
+type (
+	BeylaIDGenerator struct{}
+	traceAndSpanKey  struct{}
+	traceOnlyKey     struct{}
+)
 
 type idPair struct {
 	traceID trace.TraceID
@@ -93,7 +95,7 @@ func RandomSpanID() trace.SpanID {
 
 func (e *BeylaIDGenerator) NewIDs(ctx context.Context) (trace.TraceID, trace.SpanID) {
 	pair := currentTraceAndSpan(ctx)
-	if pair == nil || !trace.TraceID(pair.traceID).IsValid() || !trace.SpanID(pair.spanID).IsValid() {
+	if pair == nil || !pair.traceID.IsValid() || !pair.spanID.IsValid() {
 		traceID := currentTrace(ctx)
 		if traceID != nil {
 			return *traceID, RandomSpanID()
@@ -101,14 +103,14 @@ func (e *BeylaIDGenerator) NewIDs(ctx context.Context) (trace.TraceID, trace.Spa
 		return RandomTraceID(), RandomSpanID()
 	}
 
-	return trace.TraceID(pair.traceID), trace.SpanID(pair.spanID)
+	return pair.traceID, pair.spanID
 }
 
 func (e *BeylaIDGenerator) NewSpanID(ctx context.Context, _ trace.TraceID) trace.SpanID {
 	pair := currentTraceAndSpan(ctx)
-	if pair == nil || !trace.SpanID(pair.spanID).IsValid() {
+	if pair == nil || !pair.spanID.IsValid() {
 		return RandomSpanID()
 	}
 
-	return trace.SpanID(pair.spanID)
+	return pair.spanID
 }
