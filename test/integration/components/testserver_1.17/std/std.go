@@ -63,7 +63,7 @@ func echoAsync(rw http.ResponseWriter, port int) {
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
-	results := make(chan any)
+	results := make(chan interface{})
 
 	go func() {
 		echo(rw, port)
