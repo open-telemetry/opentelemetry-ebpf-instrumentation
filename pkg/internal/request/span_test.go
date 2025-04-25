@@ -48,10 +48,10 @@ func TestEventTypeString(t *testing.T) {
 
 func TestIgnoreModeString(t *testing.T) {
 	modeStringMap := map[ignoreMode]string{
-		ignoreMetrics:                            "Metrics",
-		ignoreTraces:                             "Traces",
-		ignoreMode(0):                            "",
-		ignoreMode(ignoreTraces | ignoreMetrics): "MetricsTraces",
+		ignoreMetrics:                "Metrics",
+		ignoreTraces:                 "Traces",
+		ignoreMode(0):                "",
+		ignoreTraces | ignoreMetrics: "MetricsTraces",
 	}
 
 	for mode, str := range modeStringMap {
@@ -61,17 +61,17 @@ func TestIgnoreModeString(t *testing.T) {
 
 func TestKindString(t *testing.T) {
 	m := map[*Span]string{
-		&Span{Type: EventTypeHTTP}:                                  "SPAN_KIND_SERVER",
-		&Span{Type: EventTypeGRPC}:                                  "SPAN_KIND_SERVER",
-		&Span{Type: EventTypeKafkaServer}:                           "SPAN_KIND_SERVER",
-		&Span{Type: EventTypeRedisServer}:                           "SPAN_KIND_SERVER",
-		&Span{Type: EventTypeHTTPClient}:                            "SPAN_KIND_CLIENT",
-		&Span{Type: EventTypeGRPCClient}:                            "SPAN_KIND_CLIENT",
-		&Span{Type: EventTypeSQLClient}:                             "SPAN_KIND_CLIENT",
-		&Span{Type: EventTypeRedisClient}:                           "SPAN_KIND_CLIENT",
-		&Span{Type: EventTypeKafkaClient, Method: MessagingPublish}: "SPAN_KIND_PRODUCER",
-		&Span{Type: EventTypeKafkaClient, Method: MessagingProcess}: "SPAN_KIND_CONSUMER",
-		&Span{}: "SPAN_KIND_INTERNAL",
+		{Type: EventTypeHTTP}:                                  "SPAN_KIND_SERVER",
+		{Type: EventTypeGRPC}:                                  "SPAN_KIND_SERVER",
+		{Type: EventTypeKafkaServer}:                           "SPAN_KIND_SERVER",
+		{Type: EventTypeRedisServer}:                           "SPAN_KIND_SERVER",
+		{Type: EventTypeHTTPClient}:                            "SPAN_KIND_CLIENT",
+		{Type: EventTypeGRPCClient}:                            "SPAN_KIND_CLIENT",
+		{Type: EventTypeSQLClient}:                             "SPAN_KIND_CLIENT",
+		{Type: EventTypeRedisClient}:                           "SPAN_KIND_CLIENT",
+		{Type: EventTypeKafkaClient, Method: MessagingPublish}: "SPAN_KIND_PRODUCER",
+		{Type: EventTypeKafkaClient, Method: MessagingProcess}: "SPAN_KIND_CONSUMER",
+		{}: "SPAN_KIND_INTERNAL",
 	}
 
 	for span, str := range m {
@@ -79,7 +79,7 @@ func TestKindString(t *testing.T) {
 	}
 }
 
-type jsonObject = map[string]interface{}
+type jsonObject = map[string]any
 
 func deserializeJSONObject(data []byte) (jsonObject, error) {
 	var object jsonObject
@@ -95,7 +95,7 @@ func TestSerializeJSONSpans(t *testing.T) {
 	}
 
 	tData := []testData{
-		testData{
+		{
 			eventType: EventTypeHTTP,
 			attribs: map[string]any{
 				"method":      "method",
@@ -109,7 +109,7 @@ func TestSerializeJSONSpans(t *testing.T) {
 				"serverPort":  "5678",
 			},
 		},
-		testData{
+		{
 			eventType: EventTypeHTTPClient,
 			attribs: map[string]any{
 				"method":     "method",
@@ -120,7 +120,7 @@ func TestSerializeJSONSpans(t *testing.T) {
 				"serverPort": "5678",
 			},
 		},
-		testData{
+		{
 			eventType: EventTypeGRPC,
 			attribs: map[string]any{
 				"method":     "path",
@@ -130,7 +130,7 @@ func TestSerializeJSONSpans(t *testing.T) {
 				"serverPort": "5678",
 			},
 		},
-		testData{
+		{
 			eventType: EventTypeGRPCClient,
 			attribs: map[string]any{
 				"method":     "path",
@@ -139,7 +139,7 @@ func TestSerializeJSONSpans(t *testing.T) {
 				"serverPort": "5678",
 			},
 		},
-		testData{
+		{
 			eventType: EventTypeSQLClient,
 			attribs: map[string]any{
 				"serverAddr": "hostname",
@@ -149,15 +149,15 @@ func TestSerializeJSONSpans(t *testing.T) {
 				"statement":  "statement",
 			},
 		},
-		testData{
+		{
 			eventType: EventTypeRedisClient,
 			attribs:   map[string]any{},
 		},
-		testData{
+		{
 			eventType: EventTypeKafkaClient,
 			attribs:   map[string]any{},
 		},
-		testData{
+		{
 			eventType: EventTypeRedisServer,
 			attribs: map[string]any{
 				"serverAddr": "hostname",
@@ -167,7 +167,7 @@ func TestSerializeJSONSpans(t *testing.T) {
 				"query":      "path",
 			},
 		},
-		testData{
+		{
 			eventType: EventTypeKafkaServer,
 			attribs: map[string]any{
 				"serverAddr": "hostname",
@@ -291,7 +291,7 @@ func TestDetectsOTelExport(t *testing.T) {
 			exports: false,
 		},
 		{
-			name:    "Successfull GRPC /v1/metrics spans export",
+			name:    "Successful GRPC /v1/metrics spans export",
 			span:    Span{Type: EventTypeGRPCClient, Method: "GET", Path: "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export", RequestStart: 100, End: 200, Status: 0},
 			exports: true,
 		},
@@ -300,7 +300,7 @@ func TestDetectsOTelExport(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.exports, tt.span.IsExportMetricsSpan())
-			assert.Equal(t, false, tt.span.IsExportTracesSpan())
+			assert.False(t, tt.span.IsExportTracesSpan())
 		})
 	}
 
@@ -326,7 +326,7 @@ func TestDetectsOTelExport(t *testing.T) {
 			exports: false,
 		},
 		{
-			name:    "Successfull HTTP /v1/traces spans export",
+			name:    "Successful HTTP /v1/traces spans export",
 			span:    Span{Type: EventTypeHTTPClient, Method: "GET", Path: "/v1/traces", RequestStart: 100, End: 200, Status: 200},
 			exports: true,
 		},
@@ -346,15 +346,16 @@ func TestDetectsOTelExport(t *testing.T) {
 			exports: false,
 		},
 		{
-			name:    "Successfull GRPC /v1/traces spans export",
+			name:    "Successful GRPC /v1/traces spans export",
 			span:    Span{Type: EventTypeGRPCClient, Method: "GET", Path: "/opentelemetry.proto.collector.trace.v1.TraceService/Export", RequestStart: 100, End: 200, Status: 0},
 			exports: true,
-		}}
+		},
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.exports, tt.span.IsExportTracesSpan())
-			assert.Equal(t, false, tt.span.IsExportMetricsSpan())
+			assert.False(t, tt.span.IsExportMetricsSpan())
 		})
 	}
 }

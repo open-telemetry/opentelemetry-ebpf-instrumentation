@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -40,7 +41,7 @@ func TestHostnameResolver_Update(t *testing.T) {
 
 	// That has correctly resolved the hostnames
 	full, short, err := resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, fullName, full)
 	assert.Equal(t, shortName, short)
 
@@ -50,7 +51,7 @@ func TestHostnameResolver_Update(t *testing.T) {
 
 	// The hostname query return the hostnames
 	full, short, err = resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, fullName2, full)
 	assert.Equal(t, shortName2, short)
 }
@@ -62,7 +63,7 @@ func TestHostnameResolver_FullFails(t *testing.T) {
 	// When the names are queried
 	full, short, err := resolver.Query()
 	// The short name is fallen back as full name
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, shortName, full)
 	assert.Equal(t, shortName, short)
 
@@ -71,7 +72,7 @@ func TestHostnameResolver_FullFails(t *testing.T) {
 
 	// The hostname query return the real full hostname
 	full, short, err = resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, fullName, full)
 	assert.Equal(t, shortName, short)
 
@@ -80,7 +81,7 @@ func TestHostnameResolver_FullFails(t *testing.T) {
 
 	// The stored full hostname is returned anyway
 	full, short, err = resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, fullName, full)
 	assert.Equal(t, shortName, short)
 }
@@ -92,7 +93,7 @@ func TestHostnameResolver_FullFailsFallingBackInInternal(t *testing.T) {
 	// When the names are queried
 	full, short, err := resolver.Query()
 	// The internal name is fallen back as full name
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, internalName, full)
 	assert.Equal(t, shortName, short)
 
@@ -101,7 +102,7 @@ func TestHostnameResolver_FullFailsFallingBackInInternal(t *testing.T) {
 
 	// The hostname query return the real full hostname
 	full, short, err = resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, fullName, full)
 	assert.Equal(t, shortName, short)
 
@@ -110,7 +111,7 @@ func TestHostnameResolver_FullFailsFallingBackInInternal(t *testing.T) {
 
 	// The stored full hostname is returned anyway
 	full, short, err = resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, fullName, full)
 	assert.Equal(t, shortName, short)
 
@@ -119,7 +120,7 @@ func TestHostnameResolver_FullFailsFallingBackInInternal(t *testing.T) {
 
 	// The full hostname is updated
 	full, short, err = resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, fullName2, full)
 	assert.Equal(t, shortName, short)
 }
@@ -156,7 +157,7 @@ func TestHostnameResolver_FullIsLocalhost(t *testing.T) {
 			// When the names are queried
 			full, short, err := resolver.Query()
 			// The internal kernel name is fallen back as full name
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, fullName, full)
 			assert.Equal(t, shortName, short)
 
@@ -165,7 +166,7 @@ func TestHostnameResolver_FullIsLocalhost(t *testing.T) {
 
 			// The stored full kernel hostname is returned anyway
 			full, short, err = resolver.Query()
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, fullName, full)
 			assert.Equal(t, shortName, short)
 		})
@@ -179,7 +180,7 @@ func TestHostnameResolver_FullAndInternalAreLocalhost(t *testing.T) {
 	// When the names are queried
 	full, short, err := resolver.Query()
 	// The short name is fallen back as full name
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, shortName, full)
 	assert.Equal(t, shortName, short)
 
@@ -188,7 +189,7 @@ func TestHostnameResolver_FullAndInternalAreLocalhost(t *testing.T) {
 
 	// The short hostname is returned anyway
 	full, short, err = resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, shortName, full)
 	assert.Equal(t, shortName, short)
 
@@ -197,7 +198,7 @@ func TestHostnameResolver_FullAndInternalAreLocalhost(t *testing.T) {
 
 	// The stored full kernel hostname is returned
 	full, short, err = resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, internalName, full)
 	assert.Equal(t, shortName, short)
 
@@ -206,7 +207,7 @@ func TestHostnameResolver_FullAndInternalAreLocalhost(t *testing.T) {
 
 	// The full hostname is returned
 	full, short, err = resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, fullName, full)
 	assert.Equal(t, shortName, short)
 }
@@ -218,7 +219,7 @@ func TestHostnameResolver_FailureOnFistInvocation(t *testing.T) {
 		os            func() (string, error)
 		expectedFull  string
 		expectedShort string
-		expectedError func(t assert.TestingT, err error, msgAndArgs ...interface{}) bool
+		expectedError func(t assert.TestingT, err error, msgAndArgs ...any) bool
 	}{
 		{
 			"fails all the hostname resolution",
@@ -262,7 +263,7 @@ func TestHostnameResolver_FailureOnFistInvocation(t *testing.T) {
 
 			// The hostname query return the hostnames
 			full, short, err = resolver.Query()
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, fullName2, full)
 			assert.Equal(t, shortName2, short)
 		})
@@ -289,7 +290,7 @@ func TestHostnameResolver_FailureRelyingOnCachedValues(t *testing.T) {
 
 			// That has correctly resolved the hostnames
 			full, short, err := resolver.Query()
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, fullName, full)
 			assert.Equal(t, shortName, short)
 
@@ -299,7 +300,7 @@ func TestHostnameResolver_FailureRelyingOnCachedValues(t *testing.T) {
 
 			// The hostname query return the cached hostnames
 			full, short, err = resolver.Query()
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, fullName, full)
 			assert.Equal(t, shortName, short)
 		})
@@ -312,7 +313,7 @@ func TestDNSResolver(t *testing.T) {
 
 	// resolves host names to some non-null hostnames
 	full, short, err := resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, full)
 	assert.NotEmpty(t, short)
 }
@@ -323,7 +324,7 @@ func TestDNSResolver_Override(t *testing.T) {
 
 	// resolves host names to the overridden hostnames
 	full, short, err := resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "my-hostname.host.com", full)
 	assert.Equal(t, "my-hostname", short)
 }
@@ -334,7 +335,7 @@ func TestDNSResolver_OverrideLocalhost(t *testing.T) {
 
 	// anyway resolves host names to the overridden hostname
 	full, short, err := resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "localhost", full)
 	assert.NotEmpty(t, short)
 }
@@ -345,7 +346,7 @@ func TestInternalResolver(t *testing.T) {
 
 	// resolves host names to some non-null hostnames
 	full, short, err := resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, full)
 	assert.NotEmpty(t, short)
 }
@@ -356,7 +357,7 @@ func TestInternalResolver_Override(t *testing.T) {
 
 	// resolves host names to the overridden hostnames
 	full, short, err := resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "my-hostname.host.com", full)
 	assert.Equal(t, "my-hostname", short)
 }
@@ -367,7 +368,7 @@ func TestInternalResolver_OverrideLocalhost(t *testing.T) {
 
 	// anyway resolves host names to the overridden hostname
 	full, short, err := resolver.Query()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "localhost", full)
 	assert.NotEmpty(t, short)
 }

@@ -60,7 +60,7 @@ func metricValue(t require.TestingT, metricName string, labels map[string]string
 	require.Len(t, matchingMetrics, 1,
 		"labels set matched multiple metrics. You must refine the search to match only one")
 	val := getVal(matchingMetrics[0])
-	require.NotNilf(t, val, "original value", matchingMetrics[0])
+	require.NotNil(t, val, "original value", matchingMetrics[0])
 	return int(*val)
 }
 

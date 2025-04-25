@@ -37,7 +37,7 @@ func getDefinitions(groups AttrGroups) map[Section]AttrReportGroup {
 	cidrEnabled := groups.Has(GroupNetCIDR)
 
 	// attributes to be reported exclusively for prometheus exporters
-	var prometheusAttributes = AttrReportGroup{
+	prometheusAttributes := AttrReportGroup{
 		Disabled: !promEnabled,
 		Attributes: map[attr.Name]Default{
 			attr.Instance:         true,
@@ -48,7 +48,7 @@ func getDefinitions(groups AttrGroups) map[Section]AttrReportGroup {
 	// ServiceName and ServiceNamespace are reported both as resource and metric attributes, as
 	// the OTEL definition requires that it is reported as resource attribute,
 	// but Grafana Cloud takes it from the metric
-	var appAttributes = AttrReportGroup{
+	appAttributes := AttrReportGroup{
 		SubGroups: []*AttrReportGroup{&prometheusAttributes},
 		Attributes: map[attr.Name]Default{
 			attr.ServiceName:      true,
@@ -79,7 +79,7 @@ func getDefinitions(groups AttrGroups) map[Section]AttrReportGroup {
 
 	// attributes to be reported exclusively for network metrics when
 	// kubernetes metadata is enabled
-	var networkKubeAttributes = AttrReportGroup{
+	networkKubeAttributes := AttrReportGroup{
 		Disabled: !kubeEnabled,
 		Attributes: map[attr.Name]Default{
 			attr.K8sSrcOwnerName: true,
@@ -102,7 +102,7 @@ func getDefinitions(groups AttrGroups) map[Section]AttrReportGroup {
 
 	// network CIDR attributes are only enabled if the CIDRs configuration
 	// is defined
-	var networkCIDR = AttrReportGroup{
+	networkCIDR := AttrReportGroup{
 		Disabled: !cidrEnabled,
 		Attributes: map[attr.Name]Default{
 			attr.DstCIDR: true,
@@ -122,7 +122,7 @@ func getDefinitions(groups AttrGroups) map[Section]AttrReportGroup {
 
 	// attributes to be reported exclusively for application metrics when
 	// kubernetes metadata is enabled
-	var appKubeAttributes = AttrReportGroup{
+	appKubeAttributes := AttrReportGroup{
 		Disabled: !kubeEnabled,
 		Attributes: map[attr.Name]Default{
 			attr.K8sNamespaceName:   true,
@@ -140,33 +140,33 @@ func getDefinitions(groups AttrGroups) map[Section]AttrReportGroup {
 		},
 	}
 
-	var httpRoutes = AttrReportGroup{
+	httpRoutes := AttrReportGroup{
 		Disabled: !groups.Has(GroupHTTPRoutes),
 		Attributes: map[attr.Name]Default{
 			attr.HTTPRoute: true,
 		},
 	}
 
-	var serverInfo = AttrReportGroup{
+	serverInfo := AttrReportGroup{
 		Attributes: map[attr.Name]Default{
 			attr.ClientAddr: false,
 			attr.ServerAddr: true,
 			attr.ServerPort: true,
 		},
 	}
-	var httpClientInfo = AttrReportGroup{
+	httpClientInfo := AttrReportGroup{
 		Attributes: map[attr.Name]Default{
 			attr.ServerAddr: true,
 			attr.ServerPort: true,
 		},
 	}
-	var grpcClientInfo = AttrReportGroup{
+	grpcClientInfo := AttrReportGroup{
 		Attributes: map[attr.Name]Default{
 			attr.ServerAddr: true,
 		},
 	}
 
-	var httpCommon = AttrReportGroup{
+	httpCommon := AttrReportGroup{
 		SubGroups: []*AttrReportGroup{&httpRoutes},
 		Attributes: map[attr.Name]Default{
 			attr.HTTPRequestMethod:      true,
@@ -175,7 +175,7 @@ func getDefinitions(groups AttrGroups) map[Section]AttrReportGroup {
 		},
 	}
 
-	var messagingAttributes = AttrReportGroup{
+	messagingAttributes := AttrReportGroup{
 		SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
 		Attributes: map[attr.Name]Default{
 			attr.MessagingSystem:      true,
@@ -288,7 +288,7 @@ func getDefinitions(groups AttrGroups) map[Section]AttrReportGroup {
 }
 
 func copyDisabled(src AttrReportGroup) AttrReportGroup {
-	var dst = AttrReportGroup{
+	dst := AttrReportGroup{
 		Disabled:   src.Disabled,
 		Attributes: map[attr.Name]Default{},
 	}

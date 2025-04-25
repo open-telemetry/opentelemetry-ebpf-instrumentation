@@ -102,8 +102,8 @@ func getResourceAttrs(hostID string, service *svc.Attrs) []attribute.KeyValue {
 
 // getFilteredAttributesByPrefix applies attribute filtering based on selector patterns.
 func getFilteredAttributesByPrefix(baseAttrs []attribute.KeyValue, attrSelector attributes.Selection,
-	extraAttrs []attribute.KeyValue, prefixPatterns []string) []attribute.KeyValue {
-
+	extraAttrs []attribute.KeyValue, prefixPatterns []string,
+) []attribute.KeyValue {
 	result := make([]attribute.KeyValue, len(baseAttrs))
 	copy(result, baseAttrs)
 
@@ -423,7 +423,7 @@ func (l *LogrAdaptor) Enabled(level int) bool {
 	return l.inner.Enabled(context.TODO(), slog.LevelDebug)
 }
 
-func (l *LogrAdaptor) Info(level int, msg string, keysAndValues ...interface{}) {
+func (l *LogrAdaptor) Info(level int, msg string, keysAndValues ...any) {
 	if level > 1 {
 		l.inner.Debug(msg, keysAndValues...)
 	} else {
@@ -431,11 +431,11 @@ func (l *LogrAdaptor) Info(level int, msg string, keysAndValues ...interface{}) 
 	}
 }
 
-func (l *LogrAdaptor) Error(err error, msg string, keysAndValues ...interface{}) {
+func (l *LogrAdaptor) Error(err error, msg string, keysAndValues ...any) {
 	l.inner.Error(msg, append(keysAndValues, "error", err)...)
 }
 
-func (l *LogrAdaptor) WithValues(keysAndValues ...interface{}) logr.LogSink {
+func (l *LogrAdaptor) WithValues(keysAndValues ...any) logr.LogSink {
 	return &LogrAdaptor{inner: l.inner.With(keysAndValues...)}
 }
 

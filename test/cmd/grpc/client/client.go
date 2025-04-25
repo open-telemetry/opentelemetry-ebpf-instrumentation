@@ -22,7 +22,7 @@ import (
 	"io"
 	"log"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"time"
 
@@ -96,19 +96,21 @@ func printFeature(client pb.RouteGuideClient, point *pb.Point, counter int) {
 func printFeatureWrapper(client pb.RouteGuideClient, point *pb.Point) {
 	slog.Debug("Getting feature for point", "lat", point.Latitude, "long", point.Longitude)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	feature, err := client.GetFeatureWrapper(ctx, point)
 	if err != nil {
 		slog.Error("client.GetFeature failed", "error", err)
-		// nolint:gocritic
+		cancel()
 		os.Exit(-1)
 	}
+	defer cancel()
 	if slog.Default().Enabled(context.TODO(), slog.LevelDebug) {
 		log.Println(feature)
 	}
 }
 
 // printFeatures lists all the features within the given bounding Rectangle.
+//
+//nolint:gocritic
 func printFeatures(client pb.RouteGuideClient, rect *pb.Rectangle) {
 	slog.Info("Looking for features within", "rect", rect)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -116,7 +118,6 @@ func printFeatures(client pb.RouteGuideClient, rect *pb.Rectangle) {
 	stream, err := client.ListFeatures(ctx, rect)
 	if err != nil {
 		slog.Error("client.ListFeatures failed", "error", err)
-		// nolint:gocritic
 		os.Exit(-1)
 	}
 	for {
@@ -134,10 +135,12 @@ func printFeatures(client pb.RouteGuideClient, rect *pb.Rectangle) {
 }
 
 // runRecordRoute sends a sequence of points to server and expects to get a RouteSummary from server.
+//
+//nolint:gocritic
 func runRecordRoute(client pb.RouteGuideClient) {
 	// Create a random number of random points
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	pointCount := int(r.Int31n(100)) + 2 // Traverse at least two points
+	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0))
+	pointCount := int(r.Int32N(100)) + 2 // Traverse at least two points
 	var points []*pb.Point
 	for i := 0; i < pointCount; i++ {
 		points = append(points, randomPoint(r))
@@ -148,26 +151,25 @@ func runRecordRoute(client pb.RouteGuideClient) {
 	stream, err := client.RecordRoute(ctx)
 	if err != nil {
 		slog.Error("client.RecordRoute failed", "error", err)
-		// nolint:gocritic
 		os.Exit(-1)
 	}
 	for _, point := range points {
 		if err := stream.Send(point); err != nil {
 			slog.Error("client.RecordRoute: stream.Send failed", "error", err, "point", point)
-			// nolint:gocritic
 			os.Exit(-1)
 		}
 	}
 	reply, err := stream.CloseAndRecv()
 	if err != nil {
 		slog.Error("client.RecordRoute failed", "error", err)
-		// nolint:gocritic
 		os.Exit(-1)
 	}
 	slog.Info("Route summary", "reply", reply)
 }
 
 // runRouteChat receives a sequence of route notes, while sending notes for various locations.
+//
+//nolint:gocritic
 func runRouteChat(client pb.RouteGuideClient) {
 	notes := []*pb.RouteNote{
 		{Location: &pb.Point{Latitude: 0, Longitude: 1}, Message: "First message"},
@@ -182,7 +184,6 @@ func runRouteChat(client pb.RouteGuideClient) {
 	stream, err := client.RouteChat(ctx)
 	if err != nil {
 		slog.Error("client.RouteChat failed", "error", err)
-		// nolint:gocritic
 		os.Exit(-1)
 	}
 	waitc := make(chan struct{})
@@ -196,7 +197,6 @@ func runRouteChat(client pb.RouteGuideClient) {
 			}
 			if err != nil {
 				slog.Error("client.RouteChat failed", "error", err)
-				// nolint:gocritic
 				os.Exit(-1)
 			}
 			slog.Info("Got", "message", in.Message, "lat", in.Location.Latitude, "long", in.Location.Longitude)
@@ -211,15 +211,14 @@ func runRouteChat(client pb.RouteGuideClient) {
 	err = stream.CloseSend()
 	if err != nil {
 		slog.Error("client.CloseSend", "error", err)
-		// nolint:gocritic
 		os.Exit(-1)
 	}
 	<-waitc
 }
 
 func randomPoint(r *rand.Rand) *pb.Point {
-	lat := (r.Int31n(180) - 90) * 1e7
-	long := (r.Int31n(360) - 180) * 1e7
+	lat := (r.Int32N(180) - 90) * 1e7
+	long := (r.Int32N(360) - 180) * 1e7
 	return &pb.Point{Latitude: lat, Longitude: long}
 }
 

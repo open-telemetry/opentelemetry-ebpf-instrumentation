@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -29,7 +30,7 @@ type config struct {
 	HostPrefix      string `env:"OTEL_EBPF_GENFILES_HOST_PREFIX"      envDefault:"/home/runner/work/"`
 	Package         string `env:"OTEL_EBPF_GENFILES_PKG"              envDefault:"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"`
 	OCIBin          string `env:"OTEL_EBPF_GENFILES_OCI_BIN"          envDefault:"docker"`
-	//TODO: replace by OTEL image once we publish them
+	// TODO: replace by OTEL image once we publish them
 	GenImage string `env:"OTEL_EBPF_GENFILES_GEN_IMG"          envDefault:"ghcr.io/grafana/beyla-ebpf-generator:main"`
 }
 
@@ -77,7 +78,6 @@ func handleDirEntry(path string, d fs.DirEntry, err error, filesToGenerate fileS
 	}
 
 	file, err := os.Open(path)
-
 	if err != nil {
 		return err
 	}
@@ -87,7 +87,6 @@ func handleDirEntry(path string, d fs.DirEntry, err error, filesToGenerate fileS
 	fs := token.NewFileSet()
 
 	node, err := parser.ParseFile(fs, path, file, parser.ParseComments)
-
 	if err != nil {
 		return err
 	}
@@ -112,7 +111,6 @@ func gatherFilesToGenerate(moduleRoot string) ([]string, error) {
 	err := filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
 		return handleDirEntry(path, d, err, filesToGenerate)
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("error walking through the directory: %w", err)
 	}
@@ -122,13 +120,11 @@ func gatherFilesToGenerate(moduleRoot string) ([]string, error) {
 
 func getPipes(cmd *exec.Cmd) (io.ReadCloser, io.ReadCloser, error) {
 	stdout, err := cmd.StdoutPipe()
-
 	if err != nil {
 		return nil, nil, fmt.Errorf("error getting stdout pipe: %w", err)
 	}
 
 	stderr, err := cmd.StderrPipe()
-
 	if err != nil {
 		stdout.Close()
 		return nil, nil, fmt.Errorf("error getting stderr pipe: %w", err)
@@ -155,7 +151,6 @@ func adjustPathForGitHubActions(path string) string {
 func beylaPackageDir() (string, error) {
 	cmd := exec.Command("go", "list", "-f", "'{{.Dir}}'", cfg.Package)
 	out, err := cmd.Output()
-
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve beyla package dir: %w", err)
 	}
@@ -170,7 +165,6 @@ func moduleRoot() (string, error) {
 
 	if wd != "" {
 		info, err := os.Stat(wd)
-
 		if err != nil {
 			return "", err
 		}
@@ -183,7 +177,6 @@ func moduleRoot() (string, error) {
 	}
 
 	wd, err := beylaPackageDir()
-
 	if err != nil {
 		return "", err
 	}
@@ -195,12 +188,11 @@ func moduleRoot() (string, error) {
 		}
 		wd = filepath.Dir(wd)
 		if wd == "/" || wd == "." {
-			return "", fmt.Errorf("could not find module root")
+			return "", errors.New("could not find module root")
 		}
 	}
 
 	absPath, err := filepath.Abs(wd)
-
 	if err != nil {
 		return "", fmt.Errorf("error resolving absolute path: %w", err)
 	}
@@ -211,18 +203,17 @@ func moduleRoot() (string, error) {
 func ensureWritableImpl(path string, info os.FileInfo) error {
 	mode := info.Mode()
 
-	if mode&0200 != 0 {
+	if mode&0o200 != 0 {
 		return nil
 	}
 
-	mode |= 0200
+	mode |= 0o200
 
 	return os.Chmod(path, mode)
 }
 
 func ensureWritable(path string) error {
 	info, err := os.Stat(path)
-
 	if err != nil {
 		return fmt.Errorf("error stating file '%s': %w", path, err)
 	}
@@ -232,7 +223,6 @@ func ensureWritable(path string) error {
 
 func ensureDirWritable(path string) error {
 	info, err := os.Stat(path)
-
 	if err != nil {
 		return fmt.Errorf("error stating file '%s': %w", path, err)
 	}
@@ -282,7 +272,6 @@ func runInContainer(wd string) {
 	}
 
 	currentUser, err := user.Current()
-
 	if err != nil {
 		bail(fmt.Errorf("error getting current user id: %w", err))
 	}
@@ -291,7 +280,6 @@ func runInContainer(wd string) {
 		"--user", currentUser.Uid+":"+currentUser.Gid,
 		"-v", adjustedWD+":/src",
 		cfg.GenImage)
-
 	if err != nil {
 		bail(fmt.Errorf("error waiting for child process: %w", err))
 	}
@@ -305,7 +293,6 @@ func executeCommand(name string, args ...string) error {
 	}
 
 	stdoutPipe, stderrPipe, err := getPipes(cmd)
-
 	if err != nil {
 		return err
 	}
@@ -333,15 +320,14 @@ func genFiles(files []string) error {
 
 	wg.Add(len(files))
 
-	var errors []error
+	var errs []error
 
 	for _, file := range files {
 		go func() {
 			err := executeCommand("go", "generate", file)
-
 			if err != nil {
 				mu.Lock()
-				errors = append(errors, fmt.Errorf("%s: %w", file, err))
+				errs = append(errs, fmt.Errorf("%s: %w", file, err))
 				mu.Unlock()
 			}
 
@@ -351,14 +337,14 @@ func genFiles(files []string) error {
 
 	wg.Wait()
 
-	if len(errors) > 0 {
+	if len(errs) > 0 {
 		fmt.Fprintln(os.Stderr, "The following errors have occurred:")
 
-		for _, err := range errors {
+		for _, err := range errs {
 			fmt.Fprintln(os.Stderr, err)
 		}
 
-		return fmt.Errorf("failed to generate files")
+		return errors.New("failed to generate files")
 	}
 
 	return nil
@@ -366,7 +352,6 @@ func genFiles(files []string) error {
 
 func runLocally(wd string) {
 	files, err := gatherFilesToGenerate(wd)
-
 	if err != nil {
 		bail(err)
 	}
@@ -396,7 +381,6 @@ func main() {
 	}
 
 	wd, err := moduleRoot()
-
 	if err != nil {
 		bail(err)
 	}

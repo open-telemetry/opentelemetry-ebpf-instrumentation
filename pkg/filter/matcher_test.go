@@ -6,6 +6,7 @@ import (
 
 	"github.com/gobwas/glob"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMatches(t *testing.T) {
@@ -30,8 +31,8 @@ func TestMatches_Negated(t *testing.T) {
 }
 
 func TestMatchDefinition_Validate(t *testing.T) {
-	assert.NoError(t, (&MatchDefinition{Match: "foo"}).Validate())
-	assert.NoError(t, (&MatchDefinition{NotMatch: "foo"}).Validate())
-	assert.Error(t, (&MatchDefinition{Match: "foo", NotMatch: "foo"}).Validate())
-	assert.Error(t, (&MatchDefinition{}).Validate())
+	require.NoError(t, (&MatchDefinition{Match: "foo"}).Validate())
+	require.NoError(t, (&MatchDefinition{NotMatch: "foo"}).Validate())
+	require.Error(t, (&MatchDefinition{Match: "foo", NotMatch: "foo"}).Validate())
+	require.Error(t, (&MatchDefinition{}).Validate())
 }

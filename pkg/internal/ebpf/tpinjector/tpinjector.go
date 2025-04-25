@@ -4,6 +4,7 @@ package tpinjector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -43,19 +44,17 @@ func (p *Tracer) AllowPID(uint32, uint32, *svc.Attrs) {}
 func (p *Tracer) BlockPID(uint32, uint32) {}
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
-
 	if !ebpfcommon.HasHostPidAccess() {
-		return nil, fmt.Errorf("L4/L7 context-propagation requires host process ID access, e.g. hostPid:true")
+		return nil, errors.New("L4/L7 context-propagation requires host process ID access, e.g. hostPid:true")
 	}
 
 	hostNet, err := ebpfcommon.HasHostNetworkAccess()
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to check for host network access while enabling L7 context-propagation, error: %w", err)
 	}
 
 	if !hostNet {
-		return nil, fmt.Errorf("L7 context-propagation requires host network access, e.g. hostNetwork:true")
+		return nil, errors.New("L7 context-propagation requires host network access, e.g. hostNetwork:true")
 	}
 
 	if p.cfg.EBPF.BpfDebug {
@@ -76,7 +75,6 @@ func (p *Tracer) SetupTailCalls() {
 		},
 	} {
 		err := p.bpfObjects.ExtenderJumpTable.Update(uint32(tc.index), uint32(tc.prog.FD()), ebpf.UpdateAny)
-
 		if err != nil {
 			p.log.Error("error loading info tail call jump table", "error", err)
 		}
@@ -135,7 +133,7 @@ func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg {
 	return []ebpfcommon.SockMsg{
 		{
 			Program:  p.bpfObjects.BeylaPacketExtender,
-			MapFD:    p.bpfObjects.bpfMaps.SockDir.FD(),
+			MapFD:    p.bpfObjects.SockDir.FD(),
 			AttachAs: ebpf.AttachSkMsgVerdict,
 		},
 	}

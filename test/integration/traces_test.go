@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goccy/go-json"
+	json "github.com/goccy/go-json"
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -164,7 +164,7 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 	var tq jaeger.TracesQuery
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
 	traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/metrics"})
-	require.Len(t, traces, 0)
+	require.Empty(t, traces)
 }
 
 func testGRPCTraces(t *testing.T) {
@@ -647,7 +647,7 @@ func testHTTP2GRPCTracesNestedCallsWithContextPropagation(t *testing.T) {
 	testHTTP2GRPCTracesNestedCalls(t, true)
 }
 
-func testNestedHTTPTracesKProbes(t *testing.T, extended bool) {
+func testNestedHTTPTracesKProbes(t *testing.T) {
 	var traceID string
 
 	waitForTestComponents(t, "http://localhost:3031")                 // nodejs
@@ -806,16 +806,14 @@ func testNestedHTTPTracesKProbes(t *testing.T, extended bool) {
 		assert.Empty(t, sd, sd.String())
 	}
 
-	if extended {
-		// test now with a different version of Java thread pool
-		for i := 0; i < 10; i++ {
-			doHTTPGet(t, "http://localhost:8086/jtraceA", 200)
-		}
-
-		t.Run("Traces RestClient client /jtraceA", func(t *testing.T) {
-			ensureTracesMatch(t, "jtraceA")
-		})
+	// test now with a different version of Java thread pool
+	for i := 0; i < 10; i++ {
+		doHTTPGet(t, "http://localhost:8086/jtraceA", 200)
 	}
+
+	t.Run("Traces RestClient client /jtraceA", func(t *testing.T) {
+		ensureTracesMatch(t, "jtraceA")
+	})
 }
 
 func ensureTracesMatch(t *testing.T, urlPath string) {

@@ -8,13 +8,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
 
 const privilegedEnv = "PRIVILEGED_TESTS"
 
-var expectedProcCaps *OSCapabilities
-var errResetCaps error
+var (
+	expectedProcCaps *OSCapabilities
+	errResetCaps     error
+)
 
 // This needs to run in the main thread (called by TestMain() below)
 // capset() can fail with EPERM when called from a different thread. From the
@@ -60,7 +63,7 @@ func TestGetSetCurrentProcCaps(t *testing.T) {
 	}
 
 	caps, err := GetCurrentProcCapabilities()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, expectedProcCaps, caps)
 }
 

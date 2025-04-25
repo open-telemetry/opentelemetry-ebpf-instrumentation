@@ -1,10 +1,11 @@
 package meta
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -75,7 +76,7 @@ func TestSetEnvFromConfigMap(t *testing.T) {
 			},
 			key:      "TEST_KEY",
 			result:   "",
-			err:      fmt.Errorf("Whatever"),
+			err:      errors.New("whatever"),
 			hasError: true,
 		},
 	}
@@ -155,7 +156,7 @@ func TestSetEnvFromSecret(t *testing.T) {
 			},
 			key:      "TEST_KEY",
 			result:   "",
-			err:      fmt.Errorf("Whatever"),
+			err:      errors.New("whatever"),
 			hasError: true,
 		},
 	}
@@ -186,6 +187,6 @@ func TestFieldRef(t *testing.T) {
 	}
 
 	v, err := getFieldRef(obj, &source)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "kafka", v)
 }

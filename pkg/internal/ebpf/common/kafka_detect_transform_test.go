@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProcessKafkaRequest(t *testing.T) {
@@ -121,7 +122,7 @@ func TestGetTopicOffsetFromProduceOperation(t *testing.T) {
 	success, err := getTopicOffsetFromProduceOperation(header, pkt, &offset)
 
 	assert.True(t, success)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, 10, offset)
 
 	header.APIVersion = 2
@@ -131,7 +132,7 @@ func TestGetTopicOffsetFromProduceOperation(t *testing.T) {
 	success, err = getTopicOffsetFromProduceOperation(header, pkt, &offset)
 
 	assert.False(t, success)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, 0, offset)
 
 	pkt = []byte{0x00}
@@ -140,7 +141,7 @@ func TestGetTopicOffsetFromProduceOperation(t *testing.T) {
 	success, err = getTopicOffsetFromProduceOperation(header, pkt, &offset)
 
 	assert.False(t, success)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Equal(t, 0, offset)
 }
 
@@ -150,32 +151,32 @@ func TestGetTopicOffsetFromFetchOperation(t *testing.T) {
 	}
 
 	to, err := getTopicOffsetFromFetchOperation([]byte{}, 0, header)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	expectedOffset := 3*4 + 4
 	assert.Equal(t, expectedOffset, to)
 
 	header.APIVersion = 4
 	to, err = getTopicOffsetFromFetchOperation([]byte{0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x01}, 0, header)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	expectedOffset = 3*4 + 5
 	assert.Equal(t, expectedOffset, to)
 
 	header.APIVersion = 7
 	to, err = getTopicOffsetFromFetchOperation([]byte{0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x01}, 0, header)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	expectedOffset = 3*4 + 4 + 1 + 2*4
 	assert.Equal(t, expectedOffset, to)
 
 	header.APIVersion = 2
 	to, err = getTopicOffsetFromFetchOperation([]byte{0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x01}, 0, header)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	expectedOffset = 3 * 4
 	assert.Equal(t, expectedOffset, to)
 
 	// Isolation level is the last byte in the sequence, it can only be 0 and 1, nothing else.
 	header.APIVersion = 7
 	_, err = getTopicOffsetFromFetchOperation([]byte{0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x02}, 0, header)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestIsValidKafkaHeader(t *testing.T) {

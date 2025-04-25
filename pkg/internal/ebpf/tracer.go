@@ -65,7 +65,7 @@ type KprobesTracer interface {
 type Tracer interface {
 	PIDsAccounter
 	KprobesTracer
-	// Constants returns a map of constants to be overriden into the eBPF program.
+	// Constants returns a map of constants to be overridden into the eBPF program.
 	// The key is the constant name and the value is the value to overwrite.
 	Constants() map[string]any
 	// GoProbes returns a slice with the name of Go functions that need to be inspected
@@ -120,7 +120,7 @@ const (
 // so that the GPU kernel event listener can find symbols names from addresses
 // in the ELF file.
 type ProcessTracer struct {
-	log      *slog.Logger //nolint:unused
+	log      *slog.Logger
 	Programs []Tracer
 
 	SystemWide      bool

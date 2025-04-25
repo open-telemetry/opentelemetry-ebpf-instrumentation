@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"maps"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -73,25 +72,20 @@ network:
   cidrs:
     - 10.244.0.0/16
 `)
-	require.NoError(t, os.Setenv("OTEL_EBPF_EXECUTABLE_NAME", "tras"))
-	require.NoError(t, os.Setenv("OTEL_EBPF_NETWORK_AGENT_IP", "1.2.3.4"))
-	require.NoError(t, os.Setenv("OTEL_EBPF_OPEN_PORT", "8080-8089"))
-	require.NoError(t, os.Setenv("OTEL_SERVICE_NAME", "svc-name"))
-	require.NoError(t, os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:3131"))
-	require.NoError(t, os.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "localhost:3232"))
-	require.NoError(t, os.Setenv("OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT", "3210"))
-	require.NoError(t, os.Setenv("GRAFANA_CLOUD_SUBMIT", "metrics,traces"))
-	require.NoError(t, os.Setenv("KUBECONFIG", "/foo/bar"))
-	require.NoError(t, os.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "k8s,dns"))
-	defer unsetEnv(t, envMap{
-		"KUBECONFIG":          "",
-		"OTEL_EBPF_OPEN_PORT": "", "OTEL_EBPF_EXECUTABLE_NAME": "", "OTEL_SERVICE_NAME": "",
-		"OTEL_EXPORTER_OTLP_ENDPOINT": "", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "", "GRAFANA_CLOUD_SUBMIT": "",
-	})
+	t.Setenv("OTEL_EBPF_EXECUTABLE_NAME", "tras")
+	t.Setenv("OTEL_EBPF_NETWORK_AGENT_IP", "1.2.3.4")
+	t.Setenv("OTEL_EBPF_OPEN_PORT", "8080-8089")
+	t.Setenv("OTEL_SERVICE_NAME", "svc-name")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:3131")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "localhost:3232")
+	t.Setenv("OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT", "3210")
+	t.Setenv("GRAFANA_CLOUD_SUBMIT", "metrics,traces")
+	t.Setenv("KUBECONFIG", "/foo/bar")
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "k8s,dns")
 
 	cfg, err := LoadConfig(userConfig)
 	require.NoError(t, err)
-	assert.NoError(t, cfg.Validate())
+	require.NoError(t, cfg.Validate())
 
 	// first test executable, as we can't test equality on it
 	assert.True(t, cfg.Exec.MatchString("atrassss"))
@@ -174,7 +168,8 @@ network:
 				DurationHistogram:     otel.DefaultBuckets.DurationHistogram,
 				RequestSizeHistogram:  []float64{0, 10, 20, 22},
 				ResponseSizeHistogram: []float64{0, 10, 20, 22},
-			}},
+			},
+		},
 		InternalMetrics: imetrics.Config{
 			Exporter: imetrics.InternalMetricsExporterDisabled,
 			Prometheus: imetrics.PrometheusConfig{
@@ -227,14 +222,14 @@ network:
 func TestConfig_ServiceName(t *testing.T) {
 	// ServiceName property can be handled via two different env vars OTEL_EBPF_SERVICE_NAME and OTEL_SERVICE_NAME (for
 	// compatibility with OpenTelemetry)
-	require.NoError(t, os.Setenv("OTEL_EBPF_SERVICE_NAME", "some-svc-name"))
+	t.Setenv("OTEL_EBPF_SERVICE_NAME", "some-svc-name")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.Equal(t, "some-svc-name", cfg.ServiceName)
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {
-	require.NoError(t, os.Setenv("OTEL_EBPF_SHUTDOWN_TIMEOUT", "1m"))
+	t.Setenv("OTEL_EBPF_SHUTDOWN_TIMEOUT", "1m")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, cfg.ShutdownTimeout)
@@ -254,8 +249,7 @@ func TestConfigValidate(t *testing.T) {
 	}
 	for n, tc := range testCases {
 		t.Run(fmt.Sprint("case", n), func(t *testing.T) {
-			defer unsetEnv(t, tc)
-			assert.NoError(t, loadConfig(t, tc).Validate())
+			require.NoError(t, loadConfig(t, tc).Validate())
 		})
 	}
 }
@@ -269,8 +263,7 @@ func TestConfigValidate_error(t *testing.T) {
 	}
 	for n, tc := range testCases {
 		t.Run(fmt.Sprint("case", n), func(t *testing.T) {
-			defer unsetEnv(t, tc)
-			assert.Error(t, loadConfig(t, tc).Validate())
+			require.Error(t, loadConfig(t, tc).Validate())
 		})
 	}
 }
@@ -347,13 +340,14 @@ func TestConfigValidate_TracePrinter(t *testing.T) {
 		},
 	}
 
-	for i := range testCases {
-		cfg := loadConfig(t, testCases[i].env)
-		unsetEnv(t, testCases[i].env)
+	for _, tc := range testCases {
+		t.Run(tc.errorMsg, func(t *testing.T) {
+			cfg := loadConfig(t, tc.env)
 
-		err := cfg.Validate()
-		require.Error(t, err)
-		assert.Equal(t, err.Error(), testCases[i].errorMsg)
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Equal(t, err.Error(), tc.errorMsg)
+		})
 	}
 }
 
@@ -361,12 +355,9 @@ func TestConfigValidate_TracePrinterFallback(t *testing.T) {
 	env := envMap{"OTEL_EBPF_EXECUTABLE_NAME": "foo", "OTEL_EBPF_TRACE_PRINTER": "text"}
 
 	cfg := loadConfig(t, env)
-
-	unsetEnv(t, env)
-
 	err := cfg.Validate()
 	require.NoError(t, err)
-	assert.Equal(t, cfg.TracePrinter, debug.TracePrinterText)
+	assert.Equal(t, debug.TracePrinterText, cfg.TracePrinter)
 }
 
 func TestConfigValidateRoutes(t *testing.T) {
@@ -408,7 +399,7 @@ routes:
 func TestConfig_OtelGoAutoEnv(t *testing.T) {
 	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_NAME
 	// (Compatibility with OpenTelemetry)
-	require.NoError(t, os.Setenv("OTEL_GO_AUTO_TARGET_EXE", "testserver"))
+	t.Setenv("OTEL_GO_AUTO_TARGET_EXE", "testserver")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.True(t, cfg.Exec.IsSet()) // Exec maps to OTEL_EBPF_EXECUTABLE_NAME
@@ -417,8 +408,8 @@ func TestConfig_OtelGoAutoEnv(t *testing.T) {
 func TestConfig_NetworkImplicit(t *testing.T) {
 	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_NAME
 	// (Compatibility with OpenTelemetry)
-	require.NoError(t, os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"))
-	require.NoError(t, os.Setenv("OTEL_EBPF_OTEL_METRIC_FEATURES", "network"))
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+	t.Setenv("OTEL_EBPF_OTEL_METRIC_FEATURES", "network")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.True(t, cfg.Enabled(FeatureNetO11y)) // Net o11y should be on
@@ -427,8 +418,8 @@ func TestConfig_NetworkImplicit(t *testing.T) {
 func TestConfig_NetworkImplicitProm(t *testing.T) {
 	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_NAME
 	// (Compatibility with OpenTelemetry)
-	require.NoError(t, os.Setenv("OTEL_EBPF_PROMETHEUS_PORT", "9090"))
-	require.NoError(t, os.Setenv("OTEL_EBPF_PROMETHEUS_FEATURES", "network"))
+	t.Setenv("OTEL_EBPF_PROMETHEUS_PORT", "9090")
+	t.Setenv("OTEL_EBPF_PROMETHEUS_FEATURES", "network")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.True(t, cfg.Enabled(FeatureNetO11y)) // Net o11y should be on
@@ -544,15 +535,9 @@ func TestWillUseTC(t *testing.T) {
 
 func loadConfig(t *testing.T, env envMap) *Config {
 	for k, v := range env {
-		require.NoError(t, os.Setenv(k, v))
+		t.Setenv(k, v)
 	}
 	cfg, err := LoadConfig(nil)
 	require.NoError(t, err)
 	return cfg
-}
-
-func unsetEnv(t *testing.T, env envMap) {
-	for k := range env {
-		require.NoError(t, os.Unsetenv(k))
-	}
 }

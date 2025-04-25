@@ -20,7 +20,7 @@ import (
 
 func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string, port int, notraces bool) {
 	jsonBody, err := os.ReadFile(path.Join(pathRoot, "test", "integration", "components", "rusttestserver", "mid_data.json"))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(jsonBody), 100)
 
 	urlPath := "/greeting"
@@ -189,7 +189,7 @@ func testREDMetricsRustHTTPS(t *testing.T) {
 
 func checkReportedRustEvents(t *testing.T, comm, namespace string, numEvents int) {
 	jsonBody, err := os.ReadFile(path.Join(pathRoot, "test", "integration", "components", "rusttestserver", "mid_data.json"))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(jsonBody), 100)
 
 	urlPath := "/greeting"
@@ -219,7 +219,7 @@ func checkReportedRustEvents(t *testing.T, comm, namespace string, numEvents int
 
 func testREDMetricsForRustHTTP2Library(t *testing.T, url, comm, namespace string) {
 	jsonBody, err := os.ReadFile(path.Join(pathRoot, "test", "integration", "components", "rusttestserver", "mid_data.json"))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(jsonBody), 100)
 
 	urlPath := "/greeting"

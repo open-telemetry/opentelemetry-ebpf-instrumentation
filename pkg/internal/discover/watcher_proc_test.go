@@ -3,7 +3,6 @@ package discover
 import (
 	"bytes"
 	"context"
-	"os"
 	"slices"
 	"sync"
 	"testing"
@@ -29,7 +28,7 @@ func TestWatcher_Poll(t *testing.T) {
 	p4 := processAttrs{pid: 4, openPorts: []uint32{789}}
 	p5 := processAttrs{pid: 10}
 	invocation := 0
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	// GIVEN a pollAccounter
 	acc := pollAccounter{
 		interval: time.Microsecond,
@@ -146,37 +145,37 @@ func TestProcessNotReady(t *testing.T) {
 	}
 
 	procs, err := acc.listProcesses(true)
-	assert.NoError(t, err)
-	assert.Equal(t, 5, len(procs))
+	require.NoError(t, err)
+	assert.Len(t, procs, 5)
 	events := acc.snapshot(procs)
-	assert.Equal(t, 3, len(events))       // 2 are not ready
-	assert.Equal(t, 3, len(acc.pids))     // this should equal the first invocation of snapshot
-	assert.Equal(t, 2, len(acc.pidPorts)) // only 2 ports opened, p5 has no ports
+	assert.Len(t, events, 3)       // 2 are not ready
+	assert.Len(t, acc.pids, 3)     // this should equal the first invocation of snapshot
+	assert.Len(t, acc.pidPorts, 2) // only 2 ports opened, p5 has no ports
 
 	eventsNext := acc.snapshot(procs)
-	assert.Equal(t, 0, len(eventsNext)) // 0 new events
-	assert.Equal(t, 3, len(acc.pids))   // this should equal the first invocation of snapshot, no changes
+	assert.Empty(t, eventsNext) // 0 new events
+	assert.Len(t, acc.pids, 3)  // this should equal the first invocation of snapshot, no changes
 
 	acc.executableReady = func(pid PID) (string, bool) { // we change so that pid=1 becomes ready
 		return "", pid != 2
 	}
 
 	eventsNextNext := acc.snapshot(procs)
-	assert.Equal(t, 1, len(eventsNextNext)) // 1 net new event
-	assert.Equal(t, 4, len(acc.pids))       // this should increase by one since we have one more PID we are caching now
-	assert.Equal(t, 4, len(acc.pidPorts))   // this is now 4 because pid=1 has 2 port mappings
+	assert.Len(t, eventsNextNext, 1) // 1 net new event
+	assert.Len(t, acc.pids, 4)       // this should increase by one since we have one more PID we are caching now
+	assert.Len(t, acc.pidPorts, 4)   // this is now 4 because pid=1 has 2 port mappings
 }
 
 func TestPortsFetchRequired(t *testing.T) {
 	userConfig := bytes.NewBufferString("channel_buffer_len: 33")
-	require.NoError(t, os.Setenv("OTEL_EBPF_OPEN_PORT", "8080-8089"))
+	t.Setenv("OTEL_EBPF_OPEN_PORT", "8080-8089")
 
 	cfg, err := beyla.LoadConfig(userConfig)
 	require.NoError(t, err)
 
 	channelReturner := make(chan chan<- watcher.Event)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	acc := pollAccounter{
 		cfg:      cfg,

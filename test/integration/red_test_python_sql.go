@@ -44,7 +44,7 @@ func testREDMetricsForPythonSQLLibrary(t *testing.T, url, comm, namespace string
 	// Ensure we don't see any http requests
 	results, err = pq.Query(`http_server_request_duration_seconds_count{}`)
 	require.NoError(t, err)
-	require.Equal(t, len(results), 0)
+	require.Empty(t, results)
 
 	// Look for a trace with SELECT accounting.contacts
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -70,7 +70,7 @@ func testREDMetricsForPythonSQLLibrary(t *testing.T, url, comm, namespace string
 	var tq jaeger.TracesQuery
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
 	traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/query"})
-	require.Len(t, traces, 0)
+	require.Empty(t, traces)
 }
 
 func testREDMetricsPythonSQLOnly(t *testing.T) {

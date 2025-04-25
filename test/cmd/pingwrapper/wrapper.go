@@ -43,7 +43,6 @@ func serve(rw http.ResponseWriter, req *http.Request) {
 
 func pingAsync(rw http.ResponseWriter, req *http.Request) {
 	duration, err := time.ParseDuration("10s")
-
 	if err != nil {
 		slog.Error("can't parse duration", "error", err)
 		os.Exit(-1)
@@ -52,7 +51,7 @@ func pingAsync(rw http.ResponseWriter, req *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
-	results := make(chan interface{})
+	results := make(chan any)
 
 	go func() {
 		pingHandler(rw, req)
@@ -71,7 +70,7 @@ func pingAsync(rw http.ResponseWriter, req *http.Request) {
 }
 
 func pingHandler(rw http.ResponseWriter, req *http.Request) {
-	var delay = 0 * time.Second
+	delay := 0 * time.Second
 
 	if req.URL.Query().Has(delayArg) {
 		delay, _ = time.ParseDuration(req.URL.Query().Get(delayArg))
@@ -79,7 +78,7 @@ func pingHandler(rw http.ResponseWriter, req *http.Request) {
 
 	requestURL := "http://localhost:8080/ping"
 	if delay > 0 {
-		requestURL += fmt.Sprintf("?delay=%s", delay.String())
+		requestURL += "?delay=%s" + delay.String()
 	}
 
 	slog.Debug("calling", "url", requestURL)
@@ -126,13 +125,13 @@ func gpingHandler(rw http.ResponseWriter, _ *http.Request) {
 	feature, err := client.GetFeature(ctx, point)
 	if err != nil {
 		slog.Error("client.GetFeature failed", "error", err)
-		// nolint:gocritic
+		//nolint:gocritic
 		os.Exit(-1)
 	}
 	if slog.Default().Enabled(context.TODO(), slog.LevelDebug) {
 		log.Println(feature)
 	}
-	rw.WriteHeader(204)
+	rw.WriteHeader(http.StatusNoContent)
 }
 
 func main() {

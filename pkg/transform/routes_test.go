@@ -1,7 +1,6 @@
 package transform
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -21,11 +20,11 @@ func TestUnmatchedWildcard(t *testing.T) {
 			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 			output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 			router, err := RoutesProvider(&RoutesConfig{Unmatch: tc, Patterns: []string{"/user/:id"}},
-				input, output)(context.Background())
+				input, output)(t.Context())
 			require.NoError(t, err)
 			out := output.Subscribe()
 			defer input.Close()
-			go router(context.Background())
+			go router(t.Context())
 			input.Send([]request.Span{{Path: "/user/1234"}})
 			assert.Equal(t, []request.Span{{
 				Path:  "/user/1234",
@@ -44,11 +43,11 @@ func TestUnmatchedPath(t *testing.T) {
 	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	router, err := RoutesProvider(&RoutesConfig{Unmatch: UnmatchPath, Patterns: []string{"/user/:id"}},
-		input, output)(context.Background())
+		input, output)(t.Context())
 	require.NoError(t, err)
 	out := output.Subscribe()
 	defer input.Close()
-	go router(context.Background())
+	go router(t.Context())
 	input.Send([]request.Span{{Path: "/user/1234"}})
 	assert.Equal(t, []request.Span{{
 		Path:  "/user/1234",
@@ -65,11 +64,11 @@ func TestUnmatchedEmpty(t *testing.T) {
 	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	router, err := RoutesProvider(&RoutesConfig{Unmatch: UnmatchUnset, Patterns: []string{"/user/:id"}},
-		input, output)(context.Background())
+		input, output)(t.Context())
 	require.NoError(t, err)
 	out := output.Subscribe()
 	defer input.Close()
-	go router(context.Background())
+	go router(t.Context())
 	input.Send([]request.Span{{Path: "/user/1234"}})
 	assert.Equal(t, []request.Span{{
 		Path:  "/user/1234",
@@ -87,11 +86,11 @@ func TestUnmatchedAuto(t *testing.T) {
 			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 			output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 			router, err := RoutesProvider(&RoutesConfig{Unmatch: tc, Patterns: []string{"/user/:id"}, WildcardChar: "*"},
-				input, output)(context.Background())
+				input, output)(t.Context())
 			require.NoError(t, err)
 			out := output.Subscribe()
 			defer input.Close()
-			go router(context.Background())
+			go router(t.Context())
 			input.Send([]request.Span{{Path: "/user/1234"}})
 			assert.Equal(t, []request.Span{{
 				Path:  "/user/1234",
@@ -124,12 +123,13 @@ func TestIgnoreRoutes(t *testing.T) {
 	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	router, err := RoutesProvider(&RoutesConfig{
 		Unmatch: UnmatchPath, Patterns: []string{"/user/:id", "/v1/metrics"},
-		IgnorePatterns: []string{"/v1/metrics/*", "/v1/traces/*", "/exact"}},
-		input, output)(context.Background())
+		IgnorePatterns: []string{"/v1/metrics/*", "/v1/traces/*", "/exact"},
+	},
+		input, output)(t.Context())
 	require.NoError(t, err)
 	out := output.Subscribe()
 	defer input.Close()
-	go router(context.Background())
+	go router(t.Context())
 	input.Send([]request.Span{{Path: "/user/1234"}})
 	input.Send([]request.Span{{Path: "/v1/metrics"}}) // this is in routes and ignore, ignore takes precedence
 	input.Send([]request.Span{{Path: "/v1/traces/1234/test"}})
@@ -169,8 +169,7 @@ func benchProvider(b *testing.B, unmatch UnmatchType) {
 	router, err := RoutesProvider(&RoutesConfig{Unmatch: unmatch, Patterns: []string{
 		"/users/{id}",
 		"/users/{id}/product/{pid}",
-	}}, input, output)(context.Background())
-
+	}}, input, output)(b.Context())
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -183,7 +182,7 @@ func benchProvider(b *testing.B, unmatch UnmatchType) {
 		{Type: request.EventTypeHTTP, Path: "/products/34322"},
 		{Type: request.EventTypeHTTP, Path: "/users/123/delete"},
 	}
-	go router(context.Background())
+	go router(b.Context())
 	for i := 0; i < b.N; i++ {
 		inCh <- benchmarkInput
 		<-outCh

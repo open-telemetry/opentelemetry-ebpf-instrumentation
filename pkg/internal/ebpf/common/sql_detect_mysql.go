@@ -23,14 +23,14 @@ func isMySQL(b []byte) bool {
 	return isValidMySQLPayload(b)
 }
 
-func readMySQLHeader(b []byte) (mySQLHdr, error) {
+func readMySQLHeader(b []byte) mySQLHdr {
 	hdr := mySQLHdr{}
 
 	hdr.length = binary.LittleEndian.Uint32(b[:4])
 	hdr.length &= 0x00ffffff // remove the sequence id from the length
-	hdr.command = uint8(b[4])
+	hdr.command = b[4]
 
-	return hdr, nil
+	return hdr
 }
 
 func isValidMySQLPayload(b []byte) bool {
@@ -39,11 +39,7 @@ func isValidMySQLPayload(b []byte) bool {
 		return false
 	}
 
-	hdr, err := readMySQLHeader(b)
-	if err != nil {
-		return false
-	}
-
+	hdr := readMySQLHeader(b)
 	if hdr.length == 0 {
 		return false
 	}

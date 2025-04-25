@@ -17,7 +17,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -43,7 +43,7 @@ type Server struct {
 
 // NewServer creates a server struct after initialing rand.
 func NewServer() *Server {
-	rd := rand.New(rand.NewSource(time.Now().Unix()))
+	rd := rand.New(rand.NewPCG(uint64(time.Now().Unix()), 0))
 	return &Server{
 		rand: rd,
 	}
@@ -126,7 +126,7 @@ func initOTelProvider() {
 }
 
 func (s *Server) rolldice(w http.ResponseWriter, r *http.Request) {
-	n := s.rand.Intn(6) + 1
+	n := s.rand.IntN(6) + 1
 	logger.Info("rolldice called", zap.Int("dice", n))
 
 	fmt.Fprintf(w, "%v", n)

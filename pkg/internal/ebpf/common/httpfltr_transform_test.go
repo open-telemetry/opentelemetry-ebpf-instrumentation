@@ -1,7 +1,6 @@
 package ebpfcommon
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -40,8 +39,8 @@ func TestMethodURLParsing(t *testing.T) {
 		"GET /test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test/",
 	} {
 		i := makeBPFInfoWithBuf([]uint8(s))
-		assert.NotEmpty(t, i.url(), fmt.Sprintf("-%s-", s))
-		assert.NotEmpty(t, i.method(), fmt.Sprintf("-%s-", s))
+		assert.NotEmpty(t, i.url(), "-"+s+"-")
+		assert.NotEmpty(t, i.method(), "-"+s+"-")
 		assert.True(t, strings.HasPrefix(i.url(), "/test"))
 	}
 

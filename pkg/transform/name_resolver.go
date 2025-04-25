@@ -35,16 +35,16 @@ func resolverSources(str []string) maps.Bits {
 
 type NameResolverConfig struct {
 	// Sources for name resolving. Accepted values: dns, k8s
-	// nolint:undoc
+	//nolint:undoc
 	Sources []string `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:"," envDefault:"k8s"`
 	// CacheLen specifies the max size of the LRU cache that is checked before
 	// performing the name lookup. Default: 256
-	// nolint:undoc
+	//nolint:undoc
 	CacheLen int `yaml:"cache_len" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_LEN"`
 	// CacheTTL specifies the time-to-live of a cached IP->hostname entry. After the
 	// cached entry becomes older than this time, the IP->hostname entry will be looked
 	// up again.
-	// nolint:undoc
+	//nolint:undoc
 	CacheTTL time.Duration `yaml:"cache_expiry" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_TTL"`
 }
 
@@ -57,7 +57,8 @@ type NameResolver struct {
 }
 
 func NameResolutionProvider(ctxInfo *global.ContextInfo, cfg *NameResolverConfig,
-	input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
+	input, output *msg.Queue[[]request.Span],
+) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
 		if cfg == nil || len(cfg.Sources) == 0 {
 			// if no sources are configured, we just bypass the node
@@ -68,7 +69,8 @@ func NameResolutionProvider(ctxInfo *global.ContextInfo, cfg *NameResolverConfig
 }
 
 func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameResolverConfig,
-	input, output *msg.Queue[[]request.Span]) (swarm.RunFunc, error) {
+	input, output *msg.Queue[[]request.Span],
+) (swarm.RunFunc, error) {
 	sources := resolverSources(cfg.Sources)
 
 	var kubeStore *kube2.Store
@@ -216,7 +218,6 @@ func (nr *NameResolver) resolveIP(ip string) string {
 
 	var r *net.Resolver
 	addr, err := r.LookupAddr(context.Background(), ip)
-
 	if err != nil {
 		nr.cache.Add(ip, ip)
 		return ip

@@ -1,4 +1,4 @@
-// Package goexec provides the utilities to analyse the executable code
+// Package goexec provides the utilities to analyze the executable code
 package exec
 
 import (
@@ -68,7 +68,6 @@ func FindExecELF(p *services.ProcessInfo, svcID svc.Attrs, k8sEnabled bool) (*Fi
 	}
 
 	envVars, err := EnvVars(p.Pid)
-
 	if err != nil {
 		return nil, err
 	}

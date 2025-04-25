@@ -77,15 +77,15 @@ func TestPythonBasicTracing(t *testing.T) {
 					assert.True(t, found)
 
 					podID = tag.Value.(string)
-					assert.NotEqual(t, "", podID)
+					assert.NotEmpty(t, podID)
 				}, test.Interval(100*time.Millisecond))
 
 				// Let's take down our services, keeping Beyla alive and then redeploy them
 				err := kube.DeleteExistingManifestFile(cfg, testpath.Manifests+"/05-uninstrumented-service-python.yml")
-				assert.NoError(t, err, "we should see no error when deleting the uninstrumented service manifest file")
+				require.NoError(t, err, "we should see no error when deleting the uninstrumented service manifest file")
 
 				err = kube.DeployManifestFile(cfg, testpath.Manifests+"/05-uninstrumented-service-python.yml")
-				assert.NoError(t, err, "we should see no error when re-deploying the uninstrumented service manifest file")
+				require.NoError(t, err, "we should see no error when re-deploying the uninstrumented service manifest file")
 
 				// We now use /smoke instead of /greeting to ensure we see those APIs after a restart
 				test.Eventually(t, testTimeout, func(t require.TestingT) {

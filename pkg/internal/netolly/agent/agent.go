@@ -129,7 +129,6 @@ func FlowsAgent(ctxInfo *global.ContextInfo, cfg *beyla.Config) (*Flows, error) 
 	alog.Debug("acquiring Agent IP")
 
 	agentIP, err := fetchAgentIP(&cfg.NetworkFlows)
-
 	if err != nil {
 		return nil, fmt.Errorf("acquiring Agent IP: %w", err)
 	}
@@ -158,7 +157,7 @@ func newFetcher(cfg *beyla.Config, alog *slog.Logger, ifaceManager *tcmanager.In
 			ingress, egress, ifaceManager, cfg.EBPF.TCBackend)
 	}
 
-	return nil, fmt.Errorf("unknown network configuration eBPF source specified, allowed options are [tc, socket_filter]")
+	return nil, errors.New("unknown network configuration eBPF source specified, allowed options are [tc, socket_filter]")
 }
 
 func monitorMode(cfg *beyla.Config, alog *slog.Logger) tcmanager.MonitorMode {

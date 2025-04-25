@@ -34,7 +34,7 @@ func TestPoller(t *testing.T) {
 	// fake net.Interfaces implementation that returns two different sets of
 	// interfaces on successive invocations
 	firstInvocation := true
-	var fakeInterfaces = func() ([]Interface, error) {
+	fakeInterfaces := func() ([]Interface, error) {
 		if firstInvocation {
 			firstInvocation = false
 			return []Interface{{"foo", 1}, {"bar", 2}}, nil
@@ -49,17 +49,17 @@ func TestPoller(t *testing.T) {
 	// first poll: two interfaces are added
 	assert.Equal(t,
 		Event{Type: EventAdded, Interface: Interface{"foo", 1}},
-		getEvent(t, updates, timeout))
+		getEvent(t, updates))
 	assert.Equal(t,
 		Event{Type: EventAdded, Interface: Interface{"bar", 2}},
-		getEvent(t, updates, timeout))
+		getEvent(t, updates))
 	// second poll: one interface is added and another is removed
 	assert.Equal(t,
 		Event{Type: EventAdded, Interface: Interface{"bae", 3}},
-		getEvent(t, updates, timeout))
+		getEvent(t, updates))
 	assert.Equal(t,
 		Event{Type: EventDeleted, Interface: Interface{"bar", 2}},
-		getEvent(t, updates, timeout))
+		getEvent(t, updates))
 	// successive polls: no more events are forwarded
 	select {
 	case ev := <-updates:
@@ -69,7 +69,7 @@ func TestPoller(t *testing.T) {
 	}
 }
 
-func getEvent(t *testing.T, ch <-chan Event, timeout time.Duration) Event {
+func getEvent(t *testing.T, ch <-chan Event) Event {
 	t.Helper()
 	select {
 	case event := <-ch:

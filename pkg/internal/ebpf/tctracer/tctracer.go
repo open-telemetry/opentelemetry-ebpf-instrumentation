@@ -4,6 +4,7 @@ package tctracer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -46,9 +47,8 @@ func (p *Tracer) AllowPID(uint32, uint32, *svc.Attrs) {}
 func (p *Tracer) BlockPID(uint32, uint32) {}
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
-
 	if !ebpfcommon.HasHostPidAccess() {
-		return nil, fmt.Errorf("L4 context-propagation requires host process ID access, e.g. hostPid:true")
+		return nil, errors.New("L4 context-propagation requires host process ID access, e.g. hostPid:true")
 	}
 
 	hostNet, err := ebpfcommon.HasHostNetworkAccess()
@@ -57,7 +57,7 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 	}
 
 	if !hostNet {
-		return nil, fmt.Errorf("L4 context-propagation requires host network access, e.g. hostNetwork:true")
+		return nil, errors.New("L4 context-propagation requires host network access, e.g. hostNetwork:true")
 	}
 
 	if p.cfg.EBPF.BpfDebug {

@@ -90,7 +90,7 @@ func (wk *watcherKubeEnricher) On(event *informer.Event) error {
 	return nil
 }
 
-// enrich listens for any potential instrumentable process from three asyncronous sources:
+// enrich listens for any potential instrumentable process from three asynchronous sources:
 // ProcessWatcher, and the ReplicaSet and Pod informers from kube.Store.
 // We can't assume any order in the reception of the events, so we always keep an in-memory
 // snapshot of the process-pod tuple that is updated as long as each event
@@ -228,7 +228,6 @@ func (wk *watcherKubeEnricher) getContainerInfo(pid PID) (container.Info, error)
 
 // withMetadata returns a copy with a new map to avoid race conditions in later stages of the pipeline
 func withMetadata(pp processAttrs, info *informer.ObjectMeta) processAttrs {
-
 	ownerName := info.Name
 	if topOwner := kube.TopOwner(info.Pod); topOwner != nil {
 		ownerName = topOwner.Name

@@ -386,7 +386,7 @@ func SpanStatusCode(span *Span) string {
 	return StatusCodeUnset
 }
 
-// https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/http/#status
+// HTTPSpanStatusCode https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/http/#status
 func HTTPSpanStatusCode(span *Span) string {
 	if span.Status == 0 {
 		return StatusCodeError
@@ -413,7 +413,7 @@ var (
 	grpcStatusCodeDataLoss         = int(semconv.RPCGRPCStatusCodeDataLoss.Value.AsInt64())
 )
 
-// https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/rpc/#grpc-status
+// GrpcSpanStatusCode https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/rpc/#grpc-status
 func GrpcSpanStatusCode(span *Span) string {
 	if span.Status == grpcStatusCodeOK {
 		return StatusCodeOk

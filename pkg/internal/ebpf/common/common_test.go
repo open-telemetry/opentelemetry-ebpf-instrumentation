@@ -6,25 +6,26 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const privilegedEnv = "PRIVILEGED_TESTS"
 
 func setIntegrity(t *testing.T, path, text string) {
-	err := os.WriteFile(path, []byte(text), 0644)
-	assert.NoError(t, err)
+	err := os.WriteFile(path, []byte(text), 0o644)
+	require.NoError(t, err)
 }
 
 func setNotReadable(t *testing.T, path string) {
-	err := os.Chmod(path, 000)
-	assert.NoError(t, err)
+	err := os.Chmod(path, 0o00)
+	require.NoError(t, err)
 }
 
 func TestLockdownParsing(t *testing.T) {
-	noFile, err := os.CreateTemp("", "not_existent_fake_lockdown")
-	assert.NoError(t, err)
+	noFile, err := os.CreateTemp(t.TempDir(), "not_existent_fake_lockdown")
+	require.NoError(t, err)
 	notPath, err := filepath.Abs(noFile.Name())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	noFile.Close()
 	os.Remove(noFile.Name())
 
@@ -32,10 +33,10 @@ func TestLockdownParsing(t *testing.T) {
 	lockdownPath = notPath
 	assert.Equal(t, KernelLockdownNone, KernelLockdownMode())
 
-	tempFile, err := os.CreateTemp("", "fake_lockdown")
-	assert.NoError(t, err)
+	tempFile, err := os.CreateTemp(t.TempDir(), "fake_lockdown")
+	require.NoError(t, err)
 	path, err := filepath.Abs(tempFile.Name())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	tempFile.Close()
 
 	defer os.Remove(tempFile.Name())

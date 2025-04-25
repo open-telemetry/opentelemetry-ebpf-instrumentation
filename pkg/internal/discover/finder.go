@@ -33,7 +33,6 @@ func NewProcessFinder(cfg *beyla.Config, ctxInfo *global.ContextInfo, tracesInpu
 // Start the ProcessFinder pipeline in background. It returns a channel where each new discovered
 // ebpf.ProcessTracer will be notified.
 func (pf *ProcessFinder) Start(ctx context.Context) (<-chan Event[*ebpf.Instrumentable], error) {
-
 	tracerEvents := msg.NewQueue[Event[*ebpf.Instrumentable]](msg.ChannelBufferLen(pf.cfg.ChannelBufferLen))
 
 	swi := swarm.Instancer{}

@@ -60,14 +60,13 @@ var fixturesWithoutContainer = map[uint32]string{
 }
 
 func mountFixtures(t *testing.T) string {
-	dir, err := os.MkdirTemp("", "container_test_ids")
-	require.NoError(t, err)
+	dir := t.TempDir()
 
 	for _, fixtures := range []map[uint32]string{fixturesWithContainer, fixturesWithoutContainer} {
 		for pid, cgroup := range fixtures {
 			pdir := fmt.Sprintf("%s/%d", dir, pid)
-			require.NoError(t, os.Mkdir(pdir, 0777))
-			require.NoError(t, os.WriteFile(pdir+"/cgroup", []byte(cgroup), 0666))
+			require.NoError(t, os.Mkdir(pdir, 0o777))
+			require.NoError(t, os.WriteFile(pdir+"/cgroup", []byte(cgroup), 0o666))
 		}
 	}
 	return dir
@@ -93,5 +92,4 @@ func TestContainerID(t *testing.T) {
 
 	_, err := InfoForPID(12345)
 	require.Error(t, err)
-
 }

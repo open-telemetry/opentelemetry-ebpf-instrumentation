@@ -52,7 +52,7 @@ func TestYAMLParse_PathRegexp_Errors(t *testing.T) {
 }
 
 func TestYAMLParse_PortEnum(t *testing.T) {
-	var portEnumYAML = func(enum string) PortEnum {
+	portEnumYAML := func(enum string) PortEnum {
 		yf := yamlFile{}
 		err := yaml.Unmarshal([]byte(fmt.Sprintf("services:\n  - open_ports: %s\n", enum)), &yf)
 		require.NoError(t, err)
@@ -101,10 +101,10 @@ func TestYAMLParse_PortEnum(t *testing.T) {
 }
 
 func TestYAMLParse_PortEnum_Errors(t *testing.T) {
-	var assertError = func(desc, enum string) {
+	assertError := func(desc, enum string) {
 		t.Run(desc, func(t *testing.T) {
 			err := yaml.Unmarshal([]byte(fmt.Sprintf("services:\n  - open_ports: %s\n", enum)), &yamlFile{})
-			assert.Error(t, err)
+			require.Error(t, err)
 		})
 	}
 	assertError("only comma", ",")

@@ -139,24 +139,35 @@ func TestHTTPTracesEndpointHeaders(t *testing.T) {
 		Grafana         GrafanaOTLP
 	}
 	for _, tc := range []testCase{
-		{Description: "No headers",
-			ExpectedHeaders: map[string]string{}},
-		{Description: "defining common OTLP_HEADERS",
+		{
+			Description:     "No headers",
+			ExpectedHeaders: map[string]string{},
+		},
+		{
+			Description:     "defining common OTLP_HEADERS",
 			Env:             map[string]string{"OTEL_EXPORTER_OTLP_HEADERS": "Foo=Bar ==,Authorization=Base 2222=="},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 2222=="}},
-		{Description: "defining common OTLP_TRACES_HEADERS",
+			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 2222=="},
+		},
+		{
+			Description:     "defining common OTLP_TRACES_HEADERS",
 			Env:             map[string]string{"OTEL_EXPORTER_OTLP_TRACES_HEADERS": "Foo=Bar ==,Authorization=Base 1234=="},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1234=="}},
-		{Description: "OTLP_TRACES_HEADERS takes precedence over OTLP_HEADERS",
+			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1234=="},
+		},
+		{
+			Description: "OTLP_TRACES_HEADERS takes precedence over OTLP_HEADERS",
 			Env: map[string]string{
 				"OTEL_EXPORTER_OTLP_HEADERS":        "Foo=Bar ==,Authorization=Base 3210==",
 				"OTEL_EXPORTER_OTLP_TRACES_HEADERS": "Authorization=Base 1111==",
 			},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1111=="}},
-		{Description: "Legacy Grafana Cloud vars",
+			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1111=="},
+		},
+		{
+			Description:     "Legacy Grafana Cloud vars",
 			Grafana:         GrafanaOTLP{InstanceID: "123", APIKey: "456"},
-			ExpectedHeaders: map[string]string{"Authorization": "Basic MTIzOjQ1Ng=="}},
-		{Description: "OTLP en vars take precedence over legacy Grafana Cloud vars",
+			ExpectedHeaders: map[string]string{"Authorization": "Basic MTIzOjQ1Ng=="},
+		},
+		{
+			Description:     "OTLP en vars take precedence over legacy Grafana Cloud vars",
 			Grafana:         GrafanaOTLP{InstanceID: "123", APIKey: "456"},
 			Env:             map[string]string{"OTEL_EXPORTER_OTLP_HEADERS": "Foo=Bar ==,Authorization=Base 4321=="},
 			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 4321=="},
@@ -164,7 +175,7 @@ func TestHTTPTracesEndpointHeaders(t *testing.T) {
 	} {
 		// mutex to avoid running testcases in parallel so we don't mess up with env vars
 		mt := sync.Mutex{}
-		t.Run(fmt.Sprint(tc.Description), func(t *testing.T) {
+		t.Run(tc.Description, func(t *testing.T) {
 			mt.Lock()
 			restore := restoreEnvAfterExecution()
 			defer func() {
@@ -172,7 +183,7 @@ func TestHTTPTracesEndpointHeaders(t *testing.T) {
 				mt.Unlock()
 			}()
 			for k, v := range tc.Env {
-				require.NoError(t, os.Setenv(k, v))
+				t.Setenv(k, v)
 			}
 
 			opts, err := getHTTPTracesEndpointOptions(&TracesConfig{
@@ -190,7 +201,7 @@ func TestGRPCTracesEndpointOptions(t *testing.T) {
 	defer restoreEnvAfterExecution()()
 	t.Run("do not accept URLs without a scheme", func(t *testing.T) {
 		_, err := getGRPCTracesEndpointOptions(&TracesConfig{CommonEndpoint: "foo:3939", Instrumentations: []string{instrumentations.InstrumentationALL}})
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 	tcfg := TracesConfig{
 		CommonEndpoint:   "https://localhost:3131",
@@ -239,24 +250,32 @@ func TestGRPCTracesEndpointHeaders(t *testing.T) {
 		Grafana         GrafanaOTLP
 	}
 	for _, tc := range []testCase{
-		{Description: "No headers",
-			ExpectedHeaders: map[string]string{}},
-		{Description: "defining common OTLP_HEADERS",
+		{
+			Description:     "No headers",
+			ExpectedHeaders: map[string]string{},
+		},
+		{
+			Description:     "defining common OTLP_HEADERS",
 			Env:             map[string]string{"OTEL_EXPORTER_OTLP_HEADERS": "Foo=Bar ==,Authorization=Base 2222=="},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 2222=="}},
-		{Description: "defining common OTLP_TRACES_HEADERS",
+			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 2222=="},
+		},
+		{
+			Description:     "defining common OTLP_TRACES_HEADERS",
 			Env:             map[string]string{"OTEL_EXPORTER_OTLP_TRACES_HEADERS": "Foo=Bar ==,Authorization=Base 1234=="},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1234=="}},
-		{Description: "OTLP_TRACES_HEADERS takes precedence over OTLP_HEADERS",
+			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1234=="},
+		},
+		{
+			Description: "OTLP_TRACES_HEADERS takes precedence over OTLP_HEADERS",
 			Env: map[string]string{
 				"OTEL_EXPORTER_OTLP_HEADERS":        "Foo=Bar ==,Authorization=Base 3210==",
 				"OTEL_EXPORTER_OTLP_TRACES_HEADERS": "Authorization=Base 1111==",
 			},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1111=="}},
+			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1111=="},
+		},
 	} {
 		// mutex to avoid running testcases in parallel so we don't mess up with env vars
 		mt := sync.Mutex{}
-		t.Run(fmt.Sprint(tc.Description), func(t *testing.T) {
+		t.Run(tc.Description, func(t *testing.T) {
 			mt.Lock()
 			restore := restoreEnvAfterExecution()
 			defer func() {
@@ -264,7 +283,7 @@ func TestGRPCTracesEndpointHeaders(t *testing.T) {
 				mt.Unlock()
 			}()
 			for k, v := range tc.Env {
-				require.NoError(t, os.Setenv(k, v))
+				t.Setenv(k, v)
 			}
 
 			opts, err := getGRPCTracesEndpointOptions(&TracesConfig{
@@ -335,8 +354,8 @@ func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 	defer restoreEnvAfterExecution()()
 	t.Run("setting both variables", func(t *testing.T) {
 		defer restoreEnvAfterExecution()()
-		require.NoError(t, os.Setenv(envProtocol, "foo-proto"))
-		require.NoError(t, os.Setenv(envTracesProtocol, "bar-proto"))
+		t.Setenv(envProtocol, "foo-proto")
+		t.Setenv(envTracesProtocol, "bar-proto")
 		_, err := getHTTPTracesEndpointOptions(&TracesConfig{
 			CommonEndpoint:   "http://host:3333",
 			Protocol:         "foo",
@@ -349,7 +368,7 @@ func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 	})
 	t.Run("setting only proto env var", func(t *testing.T) {
 		defer restoreEnvAfterExecution()()
-		require.NoError(t, os.Setenv(envProtocol, "foo-proto"))
+		t.Setenv(envProtocol, "foo-proto")
 		_, err := getHTTPTracesEndpointOptions(&TracesConfig{
 			CommonEndpoint:   "http://host:3333",
 			Protocol:         "foo",
@@ -553,7 +572,6 @@ func TestGenerateTraces(t *testing.T) {
 		assert.NotEmpty(t, spans.At(0).SpanID().String())
 		assert.NotEmpty(t, spans.At(0).TraceID().String())
 	})
-
 }
 
 func TestGenerateTracesAttributes(t *testing.T) {
@@ -635,11 +653,10 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "process")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "important-topic")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "test")
-
 	})
 	t.Run("test env var resource attributes", func(t *testing.T) {
 		defer restoreEnvAfterExecution()()
-		require.NoError(t, os.Setenv(envResourceAttrs, "deployment.environment=productions,source.upstream=beyla"))
+		t.Setenv(envResourceAttrs, "deployment.environment=productions,source.upstream=beyla")
 		span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Route: "/test", Status: 200}
 		traces := GenerateTraces(&span, "host-id", map[attr.Name]struct{}{}, ResourceAttrsFromEnv(&span.Service))
 
@@ -655,7 +672,8 @@ func TestTraceSampling(t *testing.T) {
 	spans := []request.Span{}
 	start := time.Now()
 	for i := 0; i < 10; i++ {
-		span := request.Span{Type: request.EventTypeHTTP,
+		span := request.Span{
+			Type:         request.EventTypeHTTP,
 			RequestStart: start.UnixNano(),
 			Start:        start.Add(time.Second).UnixNano(),
 			End:          start.Add(3 * time.Second).UnixNano(),
@@ -682,8 +700,8 @@ func TestTraceSampling(t *testing.T) {
 			},
 		}
 
-		receiver.processSpans(context.Background(), exporter, spans, attrs, sampler)
-		assert.Equal(t, 10, len(tr))
+		receiver.processSpans(t.Context(), exporter, spans, attrs, sampler)
+		assert.Len(t, tr, 10)
 	})
 
 	t.Run("test sample nothing", func(t *testing.T) {
@@ -698,8 +716,8 @@ func TestTraceSampling(t *testing.T) {
 			},
 		}
 
-		receiver.processSpans(context.Background(), exporter, spans, attrs, sampler)
-		assert.Equal(t, 0, len(tr))
+		receiver.processSpans(t.Context(), exporter, spans, attrs, sampler)
+		assert.Empty(t, tr)
 	})
 
 	t.Run("test sample 1/10th", func(t *testing.T) {
@@ -714,7 +732,7 @@ func TestTraceSampling(t *testing.T) {
 			},
 		}
 
-		receiver.processSpans(context.Background(), exporter, spans, attrs, sampler)
+		receiver.processSpans(t.Context(), exporter, spans, attrs, sampler)
 		// The result is likely 0,1,2 with 1/10th, but since sampling
 		// it's a probabilistic matter, we don't want this test to become
 		// flaky as some of them could report even 4-5 samples
@@ -726,7 +744,8 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 	spans := []request.Span{}
 	start := time.Now()
 	for i := 0; i < 10; i++ {
-		span := request.Span{Type: request.EventTypeHTTP,
+		span := request.Span{
+			Type:         request.EventTypeHTTP,
 			RequestStart: start.UnixNano(),
 			Start:        start.Add(time.Second).UnixNano(),
 			End:          start.Add(3 * time.Second).UnixNano(),
@@ -744,7 +763,7 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 
 		sampler := sdktrace.AlwaysSample()
 		attrs, err := receiver.getConstantAttributes()
-		assert.Nil(t, err)
+		require.NoError(t, err)
 
 		tr := []ptrace.Traces{}
 
@@ -754,8 +773,8 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 			},
 		}
 
-		receiver.processSpans(context.Background(), exporter, spans, attrs, sampler)
-		assert.Equal(t, 10, len(tr))
+		receiver.processSpans(t.Context(), exporter, spans, attrs, sampler)
+		assert.Len(t, tr, 10)
 
 		for _, ts := range tr {
 			for i := 0; i < ts.ResourceSpans().Len(); i++ {
@@ -767,7 +786,7 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 						if strings.HasPrefix(span.Name(), "GET /test") {
 							v, ok := span.Attributes().Get(string(attr.SkipSpanMetrics.OTEL()))
 							assert.True(t, ok)
-							assert.Equal(t, true, v.Bool())
+							assert.True(t, v.Bool())
 						}
 					}
 				}
@@ -780,7 +799,7 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 
 		sampler := sdktrace.AlwaysSample()
 		attrs, err := receiver.getConstantAttributes()
-		assert.Nil(t, err)
+		require.NoError(t, err)
 
 		tr := []ptrace.Traces{}
 
@@ -790,8 +809,8 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 			},
 		}
 
-		receiver.processSpans(context.Background(), exporter, spans, attrs, sampler)
-		assert.Equal(t, 10, len(tr))
+		receiver.processSpans(t.Context(), exporter, spans, attrs, sampler)
+		assert.Len(t, tr, 10)
 
 		for _, ts := range tr {
 			for i := 0; i < ts.ResourceSpans().Len(); i++ {
@@ -924,8 +943,8 @@ func TestSpanHostPeer(t *testing.T) {
 
 	sp = request.Span{}
 
-	assert.Equal(t, "", request.SpanHost(&sp))
-	assert.Equal(t, "", request.SpanPeer(&sp))
+	assert.Empty(t, request.SpanHost(&sp))
+	assert.Empty(t, request.SpanPeer(&sp))
 }
 
 func TestTracesInstrumentations(t *testing.T) {
@@ -993,11 +1012,11 @@ func TestTracesInstrumentations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tr := makeTracesTestReceiver(tt.instr)
 			traces := generateTracesForSpans(t, tr, spans)
-			assert.Equal(t, len(traces), len(tt.expected), tt.name)
+			assert.Len(t, tt.expected, len(traces), tt.name)
 			for i := 0; i < len(tt.expected); i++ {
 				found := false
 				for j := 0; j < len(traces); j++ {
-					assert.Equal(t, traces[j].ResourceSpans().Len(), 1, tt.name+":"+tt.expected[i])
+					assert.Equal(t, 1, traces[j].ResourceSpans().Len(), tt.name+":"+tt.expected[i])
 					if traces[j].ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Name() == tt.expected[i] {
 						found = true
 						break
@@ -1039,10 +1058,10 @@ func TestTraces_InternalInstrumentation(t *testing.T) {
 		false,
 		attributes.Selection{},
 		exportTraces,
-	)(context.Background())
+	)(t.Context())
 	require.NoError(t, err)
 
-	go tracesReceiver(context.Background())
+	go tracesReceiver(t.Context())
 
 	exportTraces.Send([]request.Span{{Type: request.EventTypeHTTP}})
 	var previousSum, previousCount int
@@ -1202,8 +1221,11 @@ func restoreEnvAfterExecution() func() {
 		val    string
 		exists bool
 	}{
-		{name: envTracesProtocol}, {name: envMetricsProtocol}, {name: envProtocol},
-		{name: envHeaders}, {name: envTracesHeaders},
+		{name: envTracesProtocol},
+		{name: envMetricsProtocol},
+		{name: envProtocol},
+		{name: envHeaders},
+		{name: envTracesHeaders},
 	}
 	for _, v := range vals {
 		v.val, v.exists = os.LookupEnv(v.name)
@@ -1462,6 +1484,7 @@ func TestHostPeerAttributes(t *testing.T) {
 	}
 }
 
+//nolint:unparam
 func makeSQLRequestSpan(sql string) request.Span {
 	method, path := sqlprune.SQLParseOperationAndTable(sql)
 	return request.Span{Type: request.EventTypeSQLClient, Method: method, Path: path, Statement: sql}
@@ -1511,7 +1534,7 @@ func makeTracesTestReceiverWithSpanMetrics(instr []string) *tracesOTELReceiver {
 func generateTracesForSpans(t *testing.T, tr *tracesOTELReceiver, spans []request.Span) []ptrace.Traces {
 	res := []ptrace.Traces{}
 	traceAttrs, err := GetUserSelectedAttributes(tr.attributes)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	for i := range spans {
 		span := &spans[i]
 		if tr.spanDiscarded(span) {

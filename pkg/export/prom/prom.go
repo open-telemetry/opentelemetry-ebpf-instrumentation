@@ -93,15 +93,17 @@ const (
 )
 
 // not adding version, as it is a fixed value
-var beylaInfoLabelNames = []string{LanguageLabel}
-var hostInfoLabelNames = []string{grafanaHostIDKey}
+var (
+	beylaInfoLabelNames = []string{LanguageLabel}
+	hostInfoLabelNames  = []string{grafanaHostIDKey}
+)
 
 // TODO: TLS
 type PrometheusConfig struct {
 	Port int    `yaml:"port" env:"OTEL_EBPF_PROMETHEUS_PORT"`
 	Path string `yaml:"path" env:"OTEL_EBPF_PROMETHEUS_PATH"`
 
-	// nolint:undoc
+	//nolint:undoc
 	DisableBuildInfo bool `yaml:"disable_build_info" env:"OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"`
 
 	// Features of metrics that are can be exported. Accepted values are "application" and "network".
@@ -114,7 +116,7 @@ type PrometheusConfig struct {
 	// TTL is the time since a metric was updated for the last time until it is
 	// removed from the metrics set.
 	TTL time.Duration `yaml:"ttl" env:"OTEL_EBPF_PROMETHEUS_TTL"`
-	// nolint:undoc
+	//nolint:undoc
 	SpanMetricsServiceCacheSize int `yaml:"service_cache_size"`
 
 	AllowServiceGraphSelfReferences bool `yaml:"allow_service_graph_self_references" env:"OTEL_EBPF_PROMETHEUS_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"`
@@ -161,7 +163,7 @@ func (p *PrometheusConfig) EndpointEnabled() bool {
 	return p.Port != 0 || p.Registry != nil
 }
 
-// nolint:gocritic
+// Enabled returns whether the node needs to be activated
 func (p *PrometheusConfig) Enabled() bool {
 	return p.EndpointEnabled() && (p.OTelMetricsEnabled() || p.SpanMetricsEnabled() || p.ServiceGraphMetricsEnabled() || p.NetworkMetricsEnabled())
 }
@@ -256,7 +258,7 @@ func PrometheusEndpoint(
 	}
 }
 
-// nolint:cyclop
+//nolint:cyclop
 func newReporter(
 	ctxInfo *global.ContextInfo, cfg *PrometheusConfig, selector attributes.Selection, input *msg.Queue[[]request.Span],
 ) (*metricsReporter, error) {
@@ -734,7 +736,7 @@ func (r *metricsReporter) otelSpanFiltered(span *request.Span) bool {
 	return span.InternalSignal() || span.IgnoreMetrics()
 }
 
-// nolint:cyclop
+//nolint:cyclop
 func (r *metricsReporter) observe(span *request.Span) {
 	if r.otelSpanFiltered(span) {
 		return

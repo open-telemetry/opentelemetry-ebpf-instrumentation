@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"strings"
 	"testing"
 
@@ -26,15 +26,15 @@ func TestTCPReqSQLParsing(t *testing.T) {
 	sql := randomStringWithSub("SELECT * FROM accounts ")
 	r := makeTCPReq(sql, tcpSend, 343534, 8080, 2000)
 	op, table, sql := detectSQL(sql)
-	assert.Equal(t, op, "SELECT")
-	assert.Equal(t, table, "accounts")
+	assert.Equal(t, "SELECT", op)
+	assert.Equal(t, "accounts", table)
 	s := TCPToSQLToSpan(&r, op, table, sql, request.DBGeneric)
 	assert.NotNil(t, s)
 	assert.NotEmpty(t, s.Host)
 	assert.NotEmpty(t, s.Peer)
-	assert.Equal(t, s.HostPort, 8080)
+	assert.Equal(t, 8080, s.HostPort)
 	assert.Greater(t, s.End, s.Start)
-	assert.True(t, strings.Contains(s.Statement, "SELECT * FROM accounts "))
+	assert.Contains(t, s.Statement, "SELECT * FROM accounts ")
 	assert.Equal(t, "SELECT", s.Method)
 	assert.Equal(t, "accounts", s.Path)
 	assert.Equal(t, request.EventTypeSQLClient, s.Type)
@@ -156,12 +156,12 @@ func TestTCPReqKafkaParsing(t *testing.T) {
 	b := []byte{0, 0, 0, 94, 0, 1, 0, 11, 0, 0, 0, 224, 0, 6, 115, 97, 114, 97, 109, 97, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 6, 64, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0}
 	r := makeTCPReq(string(b), tcpSend, 343534, 8080, 2000)
 	k, err := ProcessKafkaRequest(b)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	s := TCPToKafkaToSpan(&r, k)
 	assert.NotNil(t, s)
 	assert.NotEmpty(t, s.Host)
 	assert.NotEmpty(t, s.Peer)
-	assert.Equal(t, s.HostPort, 8080)
+	assert.Equal(t, 8080, s.HostPort)
 	assert.Greater(t, s.End, s.Start)
 	assert.Equal(t, "process", s.Method)
 	assert.Equal(t, "important", s.Path)
@@ -174,13 +174,13 @@ const charset = "\\0\\1\\2abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01
 func randomString(length int) string {
 	b := make([]byte, length)
 	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))]
+		b[i] = charset[rand.IntN(len(charset))]
 	}
 	return string(b)
 }
 
 func randomStringWithSub(sub string) string {
-	return fmt.Sprintf("%s%s%s", randomString(rand.Intn(10)), sub, randomString(rand.Intn(20)))
+	return fmt.Sprintf("%s%s%s", randomString(rand.IntN(10)), sub, randomString(rand.IntN(20)))
 }
 
 func makeTCPReq(buf string, direction int, peerPort, hostPort uint32, durationMs uint64) TCPRequestInfo {

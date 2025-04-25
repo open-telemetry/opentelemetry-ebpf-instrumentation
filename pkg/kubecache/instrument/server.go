@@ -9,9 +9,9 @@ import (
 const defaultMetricsPath = "/metrics"
 
 type InternalMetricsConfig struct {
-	// nolint:undoc
+	//nolint:undoc
 	Port int `yaml:"port,omitempty" env:"OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT"`
-	// nolint:undoc
+	//nolint:undoc
 	Path string `yaml:"path,omitempty" env:"OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PATH"`
 }
 

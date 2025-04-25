@@ -55,23 +55,23 @@ func TestWatcher(t *testing.T) {
 	// initial set of fetched elements
 	assert.Equal(t,
 		Event{Type: EventAdded, Interface: Interface{"foo", 1}},
-		getEvent(t, outputEvents, timeout))
+		getEvent(t, outputEvents))
 	assert.Equal(t,
 		Event{Type: EventAdded, Interface: Interface{"bar", 2}},
-		getEvent(t, outputEvents, timeout))
+		getEvent(t, outputEvents))
 	assert.Equal(t,
 		Event{Type: EventAdded, Interface: Interface{"baz", 3}},
-		getEvent(t, outputEvents, timeout))
+		getEvent(t, outputEvents))
 
 	// updates
 	inputLinks <- upAndRunning("bae", 4)
 	inputLinks <- down("bar", 2)
 	assert.Equal(t,
 		Event{Type: EventAdded, Interface: Interface{"bae", 4}},
-		getEvent(t, outputEvents, timeout))
+		getEvent(t, outputEvents))
 	assert.Equal(t,
 		Event{Type: EventDeleted, Interface: Interface{"bar", 2}},
-		getEvent(t, outputEvents, timeout))
+		getEvent(t, outputEvents))
 
 	// repeated updates that do not involve a change in the current track of interfaces
 	// will be ignored

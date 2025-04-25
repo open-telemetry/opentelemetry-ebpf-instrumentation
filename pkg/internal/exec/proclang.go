@@ -7,8 +7,10 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
 )
 
-var rubyModule = regexp.MustCompile(`^(.*/)?ruby[\d.]*$`)
-var pythonModule = regexp.MustCompile(`^(.*/)?python[\d.]*$`)
+var (
+	rubyModule   = regexp.MustCompile(`^(.*/)?ruby[\d.]*$`)
+	pythonModule = regexp.MustCompile(`^(.*/)?python[\d.]*$`)
+)
 
 func instrumentableFromModuleMap(moduleName string) svc.InstrumentableType {
 	if strings.Contains(moduleName, "libcoreclr.so") {

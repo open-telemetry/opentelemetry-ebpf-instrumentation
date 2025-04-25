@@ -22,7 +22,7 @@ func isRedis(buf []uint8) bool {
 	return isRedisOp(buf)
 }
 
-// nolint:cyclop
+//nolint:cyclop
 func isRedisOp(buf []uint8) bool {
 	if len(buf) == 0 {
 		return false

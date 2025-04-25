@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
 
@@ -24,31 +25,29 @@ func TestIsMountFSbyMount(t *testing.T) {
 	if os.Getenv(privilegedEnv) == "" {
 		t.Skipf("Set %s to run this test", privilegedEnv)
 	}
-	tmpDir, err := os.MkdirTemp("", "IsMountFS_")
-	assert.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	mounted, matched, err := IsMountFS(unix.TMPFS_MAGIC, tmpDir)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.False(t, mounted)
 	assert.False(t, matched)
 
 	err = unix.Mount("tmpfs", tmpDir, "tmpfs", 0, "")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer func() {
 		err := unix.Unmount(tmpDir, unix.MNT_DETACH)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	}()
 
 	// deliberately check with wrong fstype
 	mounted, matched, err = IsMountFS(unix.PROC_SUPER_MAGIC, tmpDir)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, mounted)
 	assert.False(t, matched)
 
 	// now check with proper fstype
 	mounted, matched, err = IsMountFS(unix.TMPFS_MAGIC, tmpDir)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, mounted)
 	assert.True(t, matched)
 }

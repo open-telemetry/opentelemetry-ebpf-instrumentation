@@ -107,7 +107,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 			`http_route="` + route + `",` +
 			`url_path="` + route + `"}`)
 		require.NoError(t, err)
-		require.Equal(t, len(results), 0)
+		require.Empty(t, results)
 	})
 
 	slug := route[1:]
@@ -122,7 +122,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 		var tq jaeger.TracesQuery
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/" + slug})
-		require.Equal(t, len(traces), 0)
+		require.Empty(t, traces)
 	}, test.Interval(100*time.Millisecond))
 }
 
@@ -151,7 +151,7 @@ func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 	pq := prom.Client{HostPort: prometheusHostPort}
 	test.Eventually(t, 1*time.Minute, func(t require.TestingT) {
 		// first, verify that the test service endpoint is healthy
-		req, err := http.NewRequest("GET", url+subpath, nil)
+		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
 		require.NoError(t, err)
 		r, err := testHTTPClient.Do(req)
 		require.NoError(t, err)
@@ -242,7 +242,7 @@ func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
 func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
 	test.Eventually(t, 1*time.Minute, func(t require.TestingT) {
 		// first, verify that the test service endpoint is healthy
-		req, err := http.NewRequest("GET", url+subpath, nil)
+		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
 		require.NoError(t, err)
 		r, err := testHTTPClient.Do(req)
 		require.NoError(t, err)

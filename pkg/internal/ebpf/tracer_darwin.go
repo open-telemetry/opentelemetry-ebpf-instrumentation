@@ -11,11 +11,11 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
-type instrumenter struct {
-}
+type instrumenter struct{}
 
 // dummy implementations to avoid compilation errors in Darwin.
 // The tracer component is only usable in Linux.
+
 func (pt *ProcessTracer) Run(_ context.Context, _ *msg.Queue[[]request.Span]) {}
 
 func NewProcessTracer(_ *beyla.Config, _ ProcessTracerType, _ []Tracer) *ProcessTracer {
@@ -23,6 +23,7 @@ func NewProcessTracer(_ *beyla.Config, _ ProcessTracerType, _ []Tracer) *Process
 }
 
 func (pt *ProcessTracer) Init() error {
+	pt.log.Debug("avoiding linter complaints for not using log field")
 	return nil
 }
 
