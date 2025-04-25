@@ -1,4 +1,4 @@
-//go:generate go run beyla_genfiles.go
+//go:generate go run genfiles.go
 
 package main
 
