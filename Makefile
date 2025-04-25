@@ -8,7 +8,7 @@ CACHE_MAIN_GO_FILE ?= cmd/$(CACHE_CMD)/main.go
 GOOS ?= linux
 GOARCH ?= amd64
 
-# todo: upload to a grafana artifact
+# TODO: upload as a ghcr.io artifact
 PROTOC_IMAGE = docker.io/mariomac/protoc-go:latest
 
 # RELEASE_VERSION will contain the tag name, or the branch name if current commit is not a tag
@@ -27,7 +27,7 @@ IMG = $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/grafana/beyla-ebpf-generator:main
+GEN_IMG ?= ghcr.io/open-telemetry/ebpf-instrumentation-generator:main
 
 COMPOSE_ARGS ?= -f test/integration/docker-compose.yml
 
@@ -187,12 +187,12 @@ generate: export BPF_CFLAGS := $(CFLAGS)
 generate: export BPF2GO := $(BPF2GO)
 generate: bpf2go
 	@echo "### Generating files..."
-	@BEYLA_GENFILES_RUN_LOCALLY=1 go generate cmd/beyla-genfiles/beyla_genfiles.go
+	@OTEL_EBPF_GENFILES_RUN_LOCALLY=1 go generate cmd/ebpf-instrument-genfiles/genfiles.go
 
 .PHONY: docker-generate
 docker-generate:
 	@echo "### Generating files (docker)..."
-	@BEYLA_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/beyla-genfiles/beyla_genfiles.go
+	@OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/ebpf-instrument-genfiles/genfiles.go
 
 .PHONY: verify
 verify: prereqs lint-dashboard lint test
