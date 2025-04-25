@@ -91,7 +91,7 @@ func NewFlowFetcher(
 	if tlog.Enabled(context.TODO(), slog.LevelDebug) {
 		traceMsgs = 1
 	}
-	if err := convenience.RewriteConstants(spec, map[string]interface{}{
+	if err := convenience.RewriteConstants(spec, map[string]any{
 		constSampling:      uint32(sampling),
 		constTraceMessages: uint8(traceMsgs),
 	}); err != nil {

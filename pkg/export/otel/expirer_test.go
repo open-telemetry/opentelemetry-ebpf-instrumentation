@@ -55,47 +55,55 @@ func TestNetMetricsExpiration(t *testing.T) {
 
 	// WHEN it receives metrics
 	metrics.Send([]*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}}},
-		{Attrs: ebpf.RecordAttrs{SrcName: "baz", DstName: "bae"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}}},
+		{
+			Attrs:          ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
+			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}},
+		},
+		{
+			Attrs:          ebpf.RecordAttrs{SrcName: "baz", DstName: "bae"},
+			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}},
+		},
 	})
 
 	// THEN the metrics are exported
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		assert.Equal(t, map[string]string{"src.name": "foo", "dst.name": "bar"}, metric.Attributes)
-		assert.EqualValues(t, 123, metric.IntVal)
+		assert.InEpsilon(t, 123, metric.IntVal, 0.001)
 	})
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		assert.Equal(t, map[string]string{"src.name": "baz", "dst.name": "bae"}, metric.Attributes)
-		assert.EqualValues(t, 456, metric.IntVal)
+		assert.InEpsilon(t, 456, metric.IntVal, 0.001)
 	})
 	// AND WHEN it keeps receiving a subset of the initial metrics during the TTL
 	now.Advance(2 * time.Minute)
 	metrics.Send([]*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}}},
+		{
+			Attrs:          ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
+			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}},
+		},
 	})
 
 	// THEN THE metrics that have been received during the TTL period are still visible
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		assert.Equal(t, map[string]string{"src.name": "foo", "dst.name": "bar"}, metric.Attributes)
-		assert.EqualValues(t, 246, metric.IntVal)
+		assert.InEpsilon(t, 246, metric.IntVal, 0.001)
 	})
 
 	now.Advance(2 * time.Minute)
 	metrics.Send([]*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}}},
+		{
+			Attrs:          ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
+			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}},
+		},
 	})
 
 	// makes sure that the records channel is emptied and any remaining
 	// old metric is sent and then the channel is re-emptied
 	otlp.ResetRecords()
-	readChan(t, otlp.Records(), timeout)
+	readChan(t, otlp.Records())
 	otlp.ResetRecords()
 
 	// BUT not the metrics that haven't been received during that time.
@@ -103,23 +111,25 @@ func TestNetMetricsExpiration(t *testing.T) {
 	// If this test is flaky: it means it is actually failing
 	// repeating 10 times to make sure that only this metric is forwarded
 	for i := 0; i < 10; i++ {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		require.Equal(t, map[string]string{"src.name": "foo", "dst.name": "bar"}, metric.Attributes)
-		require.EqualValues(t, 369, metric.IntVal)
+		require.InEpsilon(t, 369, metric.IntVal, 0.001)
 	}
 
 	// AND WHEN the metrics labels that disappeared are received again
 	now.Advance(2 * time.Minute)
 	metrics.Send([]*ebpf.Record{
-		{Attrs: ebpf.RecordAttrs{SrcName: "baz", DstName: "bae"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}}},
+		{
+			Attrs:          ebpf.RecordAttrs{SrcName: "baz", DstName: "bae"},
+			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}},
+		},
 	})
 
 	// THEN they are reported again, starting from zero in the case of counters
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		assert.Equal(t, map[string]string{"src.name": "baz", "dst.name": "bae"}, metric.Attributes)
-		assert.EqualValues(t, 456, metric.IntVal)
+		assert.InEpsilon(t, 456, metric.IntVal, 0.001)
 	})
 }
 
@@ -166,18 +176,18 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 
 	// THEN the metrics are exported
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		assert.Equal(t, "http.server.request.duration", metric.Name)
 		assert.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
-		assert.EqualValues(t, 100/float64(time.Second), metric.FloatVal)
+		assert.InEpsilon(t, 100/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(t, 1, metric.Count)
 	})
 
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		require.Equal(t, "http.server.request.duration", metric.Name)
 		assert.Equal(t, map[string]string{"url.path": "/bar"}, metric.Attributes)
-		assert.EqualValues(t, 25/float64(time.Second), metric.FloatVal)
+		assert.InEpsilon(t, 25/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(t, 1, metric.Count)
 	})
 
@@ -189,10 +199,10 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 
 	// THEN THE metrics that have been received during the TTL period are still visible
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		require.Equal(t, "http.server.request.duration", metric.Name)
 		assert.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
-		assert.EqualValues(t, 130/float64(time.Second), metric.FloatVal)
+		assert.InEpsilon(t, 130/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(t, 2, metric.Count)
 	})
 
@@ -204,7 +214,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	// makes sure that the records channel is emptied and any remaining
 	// old metric is sent and then the channel is re-emptied
 	otlp.ResetRecords()
-	readChan(t, otlp.Records(), timeout)
+	readChan(t, otlp.Records())
 	otlp.ResetRecords()
 
 	// BUT not the metrics that haven't been received during that time.
@@ -212,14 +222,14 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	// If this test is flaky: it means it is actually failing
 	// repeating 10 times to make sure that only this metric is forwarded
 	for i := 0; i < 10; i++ {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		if metric.Name != "http.server.request.duration" {
 			// ignore other HTTP metrics (e.g. request size)
 			i--
 			continue
 		}
 		require.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
-		require.EqualValues(t, 140/float64(time.Second), metric.FloatVal)
+		require.InEpsilon(t, 140/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(t, 3, metric.Count)
 	}
 
@@ -231,10 +241,10 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 
 	// THEN they are reported again, starting from zero in the case of counters
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		require.Equal(t, "http.server.request.duration", metric.Name)
 		assert.Equal(t, map[string]string{"url.path": "/bar"}, metric.Attributes)
-		assert.EqualValues(t, 70/float64(time.Second), metric.FloatVal)
+		assert.InEpsilon(t, 70/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(t, 1, metric.Count)
 	})
 }
@@ -282,18 +292,18 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 
 	// THEN the metrics are exported
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		assert.Equal(t, "http.server.request.duration", metric.Name)
 		assert.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
-		assert.EqualValues(t, 100/float64(time.Second), metric.FloatVal)
+		assert.InEpsilon(t, 100/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(t, 1, metric.Count)
 	})
 
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		require.Equal(t, "http.server.request.duration", metric.Name)
 		assert.Equal(t, map[string]string{"url.path": "/bar"}, metric.Attributes)
-		assert.EqualValues(t, 25/float64(time.Second), metric.FloatVal)
+		assert.InEpsilon(t, 25/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(t, 1, metric.Count)
 	})
 
@@ -305,10 +315,10 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 
 	// THEN THE metrics that have been received during the TTL period are still visible
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		require.Equal(t, "http.server.request.duration", metric.Name)
 		require.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
-		assert.EqualValues(t, 130/float64(time.Second), metric.FloatVal)
+		assert.InEpsilon(t, 130/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(t, 2, metric.Count)
 	})
 
@@ -326,17 +336,17 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 		// makes sure that the records channel is emptied and any remaining
 		// old metric is sent and then the channel is re-emptied
 		otlp.ResetRecords()
-		readChan(t, otlp.Records(), timeout)
+		readChan(t, otlp.Records())
 		otlp.ResetRecords()
 		for i := 0; i < 10; i++ {
-			metric := readChan(t, otlp.Records(), timeout)
+			metric := readChan(t, otlp.Records())
 			if metric.Name != "http.server.request.duration" {
 				// ignore other HTTP metrics (e.g. request size)
 				i--
 				continue
 			}
 			require.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
-			require.EqualValues(t, 140/float64(time.Second), metric.FloatVal)
+			require.InEpsilon(t, 140/float64(time.Second), metric.FloatVal, 0.001)
 			assert.Equal(t, 3, metric.Count)
 		}
 	})
@@ -348,10 +358,10 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 
 	// THEN they are reported again, starting from zero in the case of counters
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metric := readChan(t, otlp.Records(), timeout)
+		metric := readChan(t, otlp.Records())
 		require.Equal(t, "http.server.request.duration", metric.Name)
 		assert.Equal(t, map[string]string{"url.path": "/bar"}, metric.Attributes)
-		assert.EqualValues(t, 70/float64(time.Second), metric.FloatVal)
+		assert.InEpsilon(t, 70/float64(time.Second), metric.FloatVal, 0.0001)
 		assert.Equal(t, 1, metric.Count)
 	})
 }
@@ -373,7 +383,7 @@ func (c *syncedClock) Advance(t time.Duration) {
 	c.now = c.now.Add(t)
 }
 
-func readChan(t require.TestingT, inCh <-chan collector.MetricRecord, timeout time.Duration) collector.MetricRecord {
+func readChan(t require.TestingT, inCh <-chan collector.MetricRecord) collector.MetricRecord {
 	select {
 	case item := <-inCh:
 		return item

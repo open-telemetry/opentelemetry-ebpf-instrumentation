@@ -1,5 +1,4 @@
 // line below avoids linter errors on Mac
-// nolint:unused
 package tcmanager
 
 import (
@@ -36,9 +35,11 @@ const (
 	MonitorWatch
 )
 
-const DefaultMonitorMode = MonitorMode(MonitorWatch)
-const DefaultChannelBufferLen = 10
-const DefaultPollPeriod = 10 * time.Second
+const (
+	DefaultMonitorMode      = MonitorWatch
+	DefaultChannelBufferLen = 10
+	DefaultPollPeriod       = 10 * time.Second
+)
 
 type TCManager interface {
 	Shutdown()
@@ -110,7 +111,6 @@ var IsTCXSupported = sync.OnceValue(func() bool {
 		},
 		License: "Apache-2.0",
 	})
-
 	if err != nil {
 		return false
 	}
@@ -123,7 +123,6 @@ var IsTCXSupported = sync.OnceValue(func() bool {
 		Interface: 1, // lo
 		Anchor:    link.Tail(),
 	})
-
 	if err != nil {
 		return false
 	}

@@ -2,7 +2,6 @@ package ebpfcommon
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"log/slog"
 	"sync/atomic"
@@ -41,10 +40,10 @@ func TestForwardRingbuf_CapacityFull(t *testing.T) {
 		slog.With("test", "TestForwardRingbuf_CapacityFull"),
 		metrics,
 		nil,
-	)(context.Background(), forwardedMessagesQueue)
+	)(t.Context(), forwardedMessagesQueue)
 
 	// WHEN it starts receiving trace events
-	var get = [7]byte{'G', 'E', 'T', 0, 0, 0, 0}
+	get := [7]byte{'G', 'E', 'T', 0, 0, 0, 0}
 	for i := 0; i < 20; i++ {
 		t := HTTPRequestTrace{Type: 1, Method: get, ContentLength: int64(i)}
 		t.Pid.HostPid = 1
@@ -92,10 +91,10 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 		ReadBPFTraceAsSpan,
 		slog.With("test", "TestForwardRingbuf_Deadline"),
 		metrics,
-	)(context.Background(), forwardedMessagesQueue)
+	)(t.Context(), forwardedMessagesQueue)
 
 	// WHEN it receives, after a timeout, less events than its internal buffer
-	var get = [7]byte{'G', 'E', 'T', 0, 0, 0, 0}
+	get := [7]byte{'G', 'E', 'T', 0, 0, 0, 0}
 	for i := 0; i < 7; i++ {
 		t := HTTPRequestTrace{Type: 1, Method: get, ContentLength: int64(i)}
 		t.Pid.HostPid = 1
@@ -132,7 +131,7 @@ func TestForwardRingbuf_Close(t *testing.T) {
 		slog.With("test", "TestForwardRingbuf_Close"),
 		metrics,
 		&closable,
-	)(context.Background(), msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100)))
+	)(t.Context(), msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100)))
 
 	assert.False(t, ringBuf.explicitClose.Load())
 	assert.False(t, closable.closed)
@@ -168,7 +167,8 @@ type fakeRingBufReader struct {
 
 func (f *fakeRingBufReader) Close() error {
 	f.explicitClose.Store(true)
-	close(f.events)
+	// we don't close the channel, as we want to only test
+	// that the ringbuf reader Close is invoked.
 	return nil
 }
 

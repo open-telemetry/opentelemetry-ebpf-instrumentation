@@ -8,10 +8,11 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 )
 
-// nolint:cyclop
+// ReadTCPRequestIntoSpan returns a request.Span from the provided ring buffer record
+//
+//nolint:cyclop
 func ReadTCPRequestIntoSpan(cfg *config.EBPFTracer, record *ringbuf.Record, filter ServiceFilter) (request.Span, bool, error) {
 	event, err := ReinterpretCast[TCPRequestInfo](record.RawSample)
-
 	if err != nil {
 		return request.Span{}, true, err
 	}

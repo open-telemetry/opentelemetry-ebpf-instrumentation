@@ -30,29 +30,29 @@ func TestCRLFMatching(t *testing.T) {
 }
 
 func TestRedisParsing(t *testing.T) {
-	proper := fmt.Sprintf("*2\r\n$3\r\nGET\r\n$5\r\n%s", "beyla")
+	proper := "*2\r\n$3\r\nGET\r\n$5\r\nbeyla"
 
 	op, text, ok := parseRedisRequest(proper)
 	assert.True(t, ok)
 	assert.Equal(t, "GET", op)
 	assert.Equal(t, "GET beyla ", text)
 
-	weird := fmt.Sprintf("*2\r\nGET\r\n%s", "beyla")
+	weird := "*2\r\nGET\r\nbeyla"
 	op, text, ok = parseRedisRequest(weird)
 	assert.True(t, ok)
-	assert.Equal(t, "", op)
-	assert.Equal(t, "", text)
+	assert.Empty(t, op)
+	assert.Empty(t, text)
 
-	unknown := fmt.Sprintf("2\r\nGET\r\n%s", "beyla")
+	unknown := "2\r\nGET\r\nbeyla"
 	op, text, ok = parseRedisRequest(unknown)
 	assert.True(t, ok)
-	assert.Equal(t, "", op)
-	assert.Equal(t, "", text)
+	assert.Empty(t, op)
+	assert.Empty(t, text)
 
 	op, text, ok = parseRedisRequest("2")
 	assert.False(t, ok)
-	assert.Equal(t, "", op)
-	assert.Equal(t, "", text)
+	assert.Empty(t, op)
+	assert.Empty(t, text)
 
 	multi := fmt.Sprintf("*4\r\n$6\r\nclient\r\n$7\r\nsetinfo\r\n$8\r\nLIB-NAME\r\n$19\r\n%s(,go1.22.2)\r\n*4\r\n$6\r\nclient\r\n$7\r\nsetinfo\r\n$7\r\nLIB-VER\r\n$5\r\n9.5.1\r\n", "go-redis")
 	op, text, ok = parseRedisRequest(multi)

@@ -47,10 +47,12 @@ type ringBufForwarder struct {
 	metrics imetrics.Reporter
 }
 
-var singleRbf *ringBufForwarder
-var singleRbfLock sync.Mutex
+var (
+	singleRbf     *ringBufForwarder
+	singleRbfLock sync.Mutex
+)
 
-// ForwardRingbuf returns a function reads HTTPRequestTraces from an input ring buffer, accumulates them into an
+// SharedRingbuf returns a function reads HTTPRequestTraces from an input ring buffer, accumulates them into an
 // internal buffer, and forwards them to an output events channel, previously converted to request.Span
 // instances.
 func SharedRingbuf(

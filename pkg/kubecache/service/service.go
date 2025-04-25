@@ -84,7 +84,7 @@ func (ic *InformersCache) Subscribe(_ *informer.SubscribeMessage, server informe
 	// extract peer information to identify it
 	p, ok := peer.FromContext(server.Context())
 	if !ok {
-		return fmt.Errorf("failed to extract peer information")
+		return errors.New("failed to extract peer information")
 	}
 	ic.metrics.ClientConnect()
 	connCtx, cancel := context.WithCancel(server.Context())

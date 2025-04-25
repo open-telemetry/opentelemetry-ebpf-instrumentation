@@ -19,15 +19,15 @@ func TestRunCommand(t *testing.T) {
 	// Can we run a ps command?
 	obtainedOutput[0], err = RunCommand("/bin/ps", "", "-ef")
 	require.NoError(t, err)
-	assert.NotEqual(t, "", obtainedOutput[0])
+	assert.NotEmpty(t, obtainedOutput[0])
 
 	// Can we run a grep command?
 	obtainedOutput[1], err = RunCommand("/bin/grep", obtainedOutput[0], "a")
 	require.NoError(t, err)
-	assert.NotEqual(t, "", obtainedOutput[1])
+	assert.NotEmpty(t, obtainedOutput[1])
 
 	// Can we run a foo command?
 	obtainedOutput[2], err = RunCommand("foo", "", "goo")
 	require.Error(t, err)
-	assert.Equal(t, "", obtainedOutput[2])
+	assert.Empty(t, obtainedOutput[2])
 }

@@ -101,7 +101,7 @@ func RegisterEventStreamServiceServer(s grpc.ServiceRegistrar, srv EventStreamSe
 	s.RegisterService(&EventStreamService_ServiceDesc, srv)
 }
 
-func _EventStreamService_Subscribe_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _EventStreamService_Subscribe_Handler(srv any, stream grpc.ServerStream) error {
 	m := new(SubscribeMessage)
 	if err := stream.RecvMsg(m); err != nil {
 		return err

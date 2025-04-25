@@ -63,7 +63,6 @@ func (p *Tracer) SetupTailCalls() {
 		},
 	} {
 		err := p.bpfObjects.TcL7JumpTable.Update(uint32(tc.index), uint32(tc.prog.FD()), ebpf.UpdateAny)
-
 		if err != nil {
 			p.log.Error("error loading info tail call jump table", "error", err)
 		}

@@ -44,7 +44,9 @@ const (
 //	MPTCP = Protocol(262)
 )
 
-// nolint:cyclop
+// String representation of the Protocol enum
+//
+//nolint:cyclop
 func (p Protocol) String() string {
 	switch p {
 	case IP:
@@ -105,7 +107,9 @@ func (p Protocol) String() string {
 	return strconv.Itoa(int(p))
 }
 
-// nolint:cyclop
+// ParseProtocol returns the Protocol enum from the provided string
+//
+//nolint:cyclop
 func ParseProtocol(str string) (Protocol, error) {
 	switch strings.ToUpper(str) {
 	case "IP":

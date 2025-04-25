@@ -8,7 +8,6 @@ import (
 )
 
 func TestModulePathMatching(t *testing.T) {
-
 	maps := makeProcFSMaps([]string{"/something/something/libssl.so.3", "anon_inode:[io_uring]"})
 
 	assert.Nil(t, LibPath("node", maps))

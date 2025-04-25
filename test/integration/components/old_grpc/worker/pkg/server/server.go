@@ -5,7 +5,7 @@ import (
 	"errors"
 	"math"
 	"math/big"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/mariomac/distributed-service-example/worker/pkg/gprc"
 )
@@ -19,7 +19,7 @@ type MultiplyServer struct {
 func (m *MultiplyServer) Loop(_ context.Context, request *gprc.LoopRequest) (*gprc.LoopResponse, error) {
 	start := &big.Int{}
 	start.SetBytes(request.From)
-	if rand.Int63n(int64(math.Max(10.0, float64(start.Int64()/10)))) == 0 {
+	if rand.Int64N(int64(math.Max(10.0, float64(start.Int64()/10)))) == 0 {
 		return nil, errors.New("boom!")
 	}
 	result := (&big.Int{}).Set(start)

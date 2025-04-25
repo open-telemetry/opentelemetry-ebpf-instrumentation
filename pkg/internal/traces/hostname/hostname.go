@@ -10,9 +10,7 @@ import (
 	"sync"
 )
 
-var (
-	fullHostnameResolver = getFqdnHostname
-)
+var fullHostnameResolver = getFqdnHostname
 
 func logger() *slog.Logger {
 	return slog.With("component", "HostnameResolver")
@@ -143,7 +141,7 @@ func (r *fallbackResolver) Query() (string, string, error) {
 			full, err = r.full(short)
 		}
 		// Fixes some wrong FQDN configurations that return "localhost". We bypass the FQDN resolution and cache
-		// and just return the full hostname as queried by the kernel (the old behaviour of the agent)
+		// and just return the full hostname as queried by the kernel (the old behavior of the agent)
 		if r.lastFull == "" && (full == "" || isLocalhost(full)) {
 			// In this edge case, the hostname could flip under some network name instability circumstances
 			log.Debug("using internal hostname")
@@ -187,7 +185,6 @@ func (r *fallbackResolver) updateAndGet(queriedFull, queriedShort string, cause 
 		} else {
 			what = Full
 		}
-
 	}
 
 	if r.lastFull == "" {

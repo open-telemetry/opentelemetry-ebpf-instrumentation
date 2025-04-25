@@ -45,13 +45,13 @@ func TestWatcherKubeEnricher(t *testing.T) {
 		steps []event
 	}
 	// test deployment functions
-	var process = func(input *msg.Queue[[]Event[processAttrs]], _ meta.Notifier) {
+	process := func(input *msg.Queue[[]Event[processAttrs]], _ meta.Notifier) {
 		newProcess(input, containerPID, []uint32{containerPort})
 	}
-	var pod = func(_ *msg.Queue[[]Event[processAttrs]], fInformer meta.Notifier) {
-		deployPod(fInformer, namespace, podName, containerID, nil)
+	pod := func(_ *msg.Queue[[]Event[processAttrs]], fInformer meta.Notifier) {
+		deployPod(fInformer, podName, containerID, nil)
 	}
-	var ownedPod = func(_ *msg.Queue[[]Event[processAttrs]], fInformer meta.Notifier) {
+	ownedPod := func(_ *msg.Queue[[]Event[processAttrs]], fInformer meta.Notifier) {
 		deployOwnedPod(fInformer, namespace, podName, replicaSetName, deploymentName, containerID)
 	}
 
@@ -61,7 +61,8 @@ func TestWatcherKubeEnricher(t *testing.T) {
 		{name: "process-pod", steps: []event{{fn: process, shouldNotify: true}, {fn: ownedPod, shouldNotify: true}}},
 		{name: "pod-process", steps: []event{{fn: ownedPod, shouldNotify: false}, {fn: process, shouldNotify: true}}},
 		{name: "process-pod (no owner)", steps: []event{{fn: process, shouldNotify: true}, {fn: pod, shouldNotify: true}}},
-		{name: "pod-process (no owner)", steps: []event{{fn: pod, shouldNotify: false}, {fn: process, shouldNotify: true}}}}
+		{name: "pod-process (no owner)", steps: []event{{fn: pod, shouldNotify: false}, {fn: process, shouldNotify: true}}},
+	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -175,7 +176,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("metadata-only match", func(t *testing.T) {
 		newProcess(inputQueue, 34, []uint32{8080})
-		deployPod(fInformer, namespace, "chichi", "container-34", nil)
+		deployPod(fInformer, "chichi", "container-34", nil)
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		m := matches[0]
@@ -186,7 +187,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("pod-label-only match", func(t *testing.T) {
 		newProcess(inputQueue, 42, []uint32{8080})
-		deployPod(fInformer, namespace, "labeltest", "container-42", map[string]string{"instrument": "beyla"})
+		deployPod(fInformer, "labeltest", "container-42", map[string]string{"instrument": "beyla"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		m := matches[0]
@@ -197,7 +198,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("pod-multi-label-only match", func(t *testing.T) {
 		newProcess(inputQueue, 43, []uint32{8080})
-		deployPod(fInformer, namespace, "multi-labeltest", "container-43", map[string]string{"instrument": "ebpf", "lang": "golang"})
+		deployPod(fInformer, "multi-labeltest", "container-43", map[string]string{"instrument": "ebpf", "lang": "golang"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		m := matches[0]
@@ -208,7 +209,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("pod-annotation-only match", func(t *testing.T) {
 		newProcess(inputQueue, 44, []uint32{8080})
-		deployPod(fInformer, namespace, "annotationtest", "container-44", nil, map[string]string{"deploy.type": "canary"})
+		deployPod(fInformer, "annotationtest", "container-44", nil, map[string]string{"deploy.type": "canary"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		m := matches[0]
@@ -219,7 +220,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("pod-multi-annotation-only match", func(t *testing.T) {
 		newProcess(inputQueue, 45, []uint32{8080})
-		deployPod(fInformer, namespace, "multi-annotationtest", "container-45", nil, map[string]string{"deploy.type": "prod", "version": "v1"})
+		deployPod(fInformer, "multi-annotationtest", "container-45", nil, map[string]string{"deploy.type": "prod", "version": "v1"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		m := matches[0]
@@ -280,7 +281,7 @@ func newProcess(input *msg.Queue[[]Event[processAttrs]], pid PID, ports []uint32
 	}})
 }
 
-func deployPod(fInformer meta.Notifier, ns, name, containerID string, labels map[string]string, annotations ...map[string]string) {
+func deployPod(fInformer meta.Notifier, name, containerID string, labels map[string]string, annotations ...map[string]string) {
 	var podAnnotations map[string]string
 	if len(annotations) > 0 {
 		podAnnotations = annotations[0]
@@ -288,7 +289,7 @@ func deployPod(fInformer meta.Notifier, ns, name, containerID string, labels map
 	fInformer.Notify(&informer.Event{
 		Type: informer.EventType_CREATED,
 		Resource: &informer.ObjectMeta{
-			Name: name, Namespace: ns, Labels: labels, Annotations: podAnnotations,
+			Name: name, Namespace: namespace, Labels: labels, Annotations: podAnnotations,
 			Kind: "Pod",
 			Pod: &informer.PodInfo{
 				Containers: []*informer.ContainerInfo{{Id: containerID}},
@@ -305,8 +306,10 @@ func deployOwnedPod(fInformer meta.Notifier, ns, name, replicaSetName, deploymen
 			Kind: "Pod",
 			Pod: &informer.PodInfo{
 				Containers: []*informer.ContainerInfo{{Id: containerID}},
-				Owners: []*informer.Owner{{Name: replicaSetName, Kind: "ReplicaSet"},
-					{Name: deploymentName, Kind: "Deployment"}},
+				Owners: []*informer.Owner{
+					{Name: replicaSetName, Kind: "ReplicaSet"},
+					{Name: deploymentName, Kind: "Deployment"},
+				},
 			},
 		},
 	})

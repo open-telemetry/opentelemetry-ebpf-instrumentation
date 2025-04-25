@@ -22,8 +22,10 @@ type GoOffset uint32
 
 const GoOffsetsTableSize = 30
 
-var grpcOneSixZero = version.Must(version.NewVersion("1.60.0"))
-var grpcOneSixNine = version.Must(version.NewVersion("1.69.0"))
+var (
+	grpcOneSixZero = version.Must(version.NewVersion("1.60.0"))
+	grpcOneSixNine = version.Must(version.NewVersion("1.69.0"))
+)
 
 const (
 	// go common

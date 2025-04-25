@@ -39,7 +39,8 @@ func TestCriteriaMatcher(t *testing.T) {
 	processInfo = func(pp processAttrs) (*services.ProcessInfo, error) {
 		exePath := map[PID]string{
 			1: "/bin/weird33", 2: "/bin/weird33", 3: "server",
-			4: "/bin/something", 5: "server", 6: "/bin/clientweird99"}[pp.pid]
+			4: "/bin/something", 5: "server", 6: "/bin/clientweird99",
+		}[pp.pid]
 		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: exePath, OpenPorts: pp.openPorts}, nil
 	}
 	discoveredProcesses.Send([]Event[processAttrs]{
@@ -56,7 +57,7 @@ func TestCriteriaMatcher(t *testing.T) {
 	m := matches[0]
 	assert.Equal(t, EventCreated, m.Type)
 	assert.Equal(t, "exec-only", m.Obj.Criteria.Name)
-	assert.Equal(t, "", m.Obj.Criteria.Namespace)
+	assert.Empty(t, m.Obj.Criteria.Namespace)
 	assert.Equal(t, services.ProcessInfo{Pid: 1, ExePath: "/bin/weird33", OpenPorts: []uint32{1, 2, 3}}, *m.Obj.Process)
 	m = matches[1]
 	assert.Equal(t, EventCreated, m.Type)
@@ -66,12 +67,12 @@ func TestCriteriaMatcher(t *testing.T) {
 	m = matches[2]
 	assert.Equal(t, EventCreated, m.Type)
 	assert.Equal(t, "both", m.Obj.Criteria.Name)
-	assert.Equal(t, "", m.Obj.Criteria.Namespace)
+	assert.Empty(t, m.Obj.Criteria.Namespace)
 	assert.Equal(t, services.ProcessInfo{Pid: 5, ExePath: "server", OpenPorts: []uint32{443}}, *m.Obj.Process)
 	m = matches[3]
 	assert.Equal(t, EventCreated, m.Type)
 	assert.Equal(t, "exec-only", m.Obj.Criteria.Name)
-	assert.Equal(t, "", m.Obj.Criteria.Namespace)
+	assert.Empty(t, m.Obj.Criteria.Namespace)
 	assert.Equal(t, services.ProcessInfo{Pid: 6, ExePath: "/bin/clientweird99"}, *m.Obj.Process)
 }
 
@@ -103,7 +104,8 @@ func TestCriteriaMatcher_Exclude(t *testing.T) {
 	processInfo = func(pp processAttrs) (*services.ProcessInfo, error) {
 		exePath := map[PID]string{
 			1: "/bin/weird33", 2: "/bin/weird33", 3: "server",
-			4: "/bin/something", 5: "server", 6: "/bin/clientweird99"}[pp.pid]
+			4: "/bin/something", 5: "server", 6: "/bin/clientweird99",
+		}[pp.pid]
 		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: exePath, OpenPorts: pp.openPorts}, nil
 	}
 	discoveredProcesses.Send([]Event[processAttrs]{
@@ -120,12 +122,12 @@ func TestCriteriaMatcher_Exclude(t *testing.T) {
 	m := matches[0]
 	assert.Equal(t, EventCreated, m.Type)
 	assert.Equal(t, "exec-only", m.Obj.Criteria.Name)
-	assert.Equal(t, "", m.Obj.Criteria.Namespace)
+	assert.Empty(t, m.Obj.Criteria.Namespace)
 	assert.Equal(t, services.ProcessInfo{Pid: 1, ExePath: "/bin/weird33", OpenPorts: []uint32{1, 2, 3}}, *m.Obj.Process)
 	m = matches[1]
 	assert.Equal(t, EventCreated, m.Type)
 	assert.Equal(t, "exec-only", m.Obj.Criteria.Name)
-	assert.Equal(t, "", m.Obj.Criteria.Namespace)
+	assert.Empty(t, m.Obj.Criteria.Namespace)
 	assert.Equal(t, services.ProcessInfo{Pid: 6, ExePath: "/bin/clientweird99"}, *m.Obj.Process)
 }
 
@@ -150,7 +152,8 @@ func TestCriteriaMatcher_Exclude_Metadata(t *testing.T) {
 	processInfo = func(pp processAttrs) (*services.ProcessInfo, error) {
 		exePath := map[PID]string{
 			1: "/bin/weird33", 2: "/bin/weird33", 3: "server",
-			4: "/bin/something", 5: "server", 6: "/bin/clientweird99"}[pp.pid]
+			4: "/bin/something", 5: "server", 6: "/bin/clientweird99",
+		}[pp.pid]
 		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: exePath, OpenPorts: pp.openPorts}, nil
 	}
 	nodeFoo := map[string]string{"k8s_node_name": "foo"}
@@ -199,7 +202,8 @@ func TestCriteriaMatcher_MustMatchAllAttributes(t *testing.T) {
 	processInfo = func(pp processAttrs) (*services.ProcessInfo, error) {
 		exePath := map[PID]string{
 			1: "/bin/foo", 2: "/bin/faa", 3: "foo",
-			4: "foool", 5: "thefoool", 6: "foo"}[pp.pid]
+			4: "foool", 5: "thefoool", 6: "foo",
+		}[pp.pid]
 		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: exePath, OpenPorts: pp.openPorts}, nil
 	}
 	allMeta := map[string]string{
@@ -259,7 +263,8 @@ func TestCriteriaMatcherMissingPort(t *testing.T) {
 			Exe  string
 			PPid int32
 		}{
-			1: {Exe: "/bin/weird33", PPid: 0}, 2: {Exe: "/bin/weird33", PPid: 16}, 3: {Exe: "/bin/weird33", PPid: 1}}[pp.pid]
+			1: {Exe: "/bin/weird33", PPid: 0}, 2: {Exe: "/bin/weird33", PPid: 16}, 3: {Exe: "/bin/weird33", PPid: 1},
+		}[pp.pid]
 		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
 	}
 	discoveredProcesses.Send([]Event[processAttrs]{

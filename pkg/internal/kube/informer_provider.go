@@ -2,6 +2,7 @@ package kube
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -213,7 +214,7 @@ func (mp *MetadataProvider) fetchClusterNameFromNodeLabels(ctx context.Context) 
 			return name, nil
 		}
 	}
-	return "", fmt.Errorf("no cluster name found in node labels")
+	return "", errors.New("no cluster name found in node labels")
 }
 
 func currentNamespace(log *slog.Logger) string {

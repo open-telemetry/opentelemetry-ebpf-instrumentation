@@ -2,6 +2,7 @@ package discover
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -137,7 +138,7 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 		}
 
 		if err == nil {
-			err = fmt.Errorf("identified as a Go proxy")
+			err = errors.New("identified as a Go proxy")
 		}
 
 		log.Debug("identified as a Go proxy")
@@ -153,7 +154,6 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 		// to avoid wrongly instrumenting process launcher such as systemd or containerd-shimd
 		// when they launch an instrumentable service
 		execElf.CmdExePath == parent.CmdExePath {
-
 		log.Debug("replacing executable by its parent", "ppid", execElf.Ppid)
 		child = append(child, uint32(execElf.Pid))
 		execElf = parent

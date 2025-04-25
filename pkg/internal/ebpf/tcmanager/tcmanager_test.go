@@ -4,7 +4,6 @@ package tcmanager
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"os"
 	"testing"
@@ -13,6 +12,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vishvananda/netlink"
 )
 
@@ -21,7 +21,7 @@ const privilegedEnv = "PRIVILEGED_TESTS"
 func TestTCXManagerTcxAttachType(t *testing.T) {
 	test := func(in AttachmentType, out ebpf.AttachType) {
 		r, err := tcxAttachType(in)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, out, r)
 	}
 
@@ -35,7 +35,6 @@ func isBpfProgLoaded(name string) (bool, error) {
 
 	for {
 		id, err = ebpf.ProgramGetNextID(id)
-
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				break
@@ -45,7 +44,6 @@ func isBpfProgLoaded(name string) (bool, error) {
 		}
 
 		prog, err := ebpf.NewProgramFromID(id)
-
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				// the program has been closed in the meantime, continue
@@ -58,7 +56,6 @@ func isBpfProgLoaded(name string) (bool, error) {
 		defer prog.Close()
 
 		info, err := prog.Info()
-
 		if err != nil {
 			return false, err
 		}
@@ -79,13 +76,11 @@ func isBpfProgLinked(name string) (bool, error) {
 		defer link.Close()
 
 		info, err := link.Info()
-
 		if err != nil {
 			return false, err
 		}
 
 		prog, err := ebpf.NewProgramFromID(info.Program)
-
 		if err != nil {
 			return false, err
 		}
@@ -93,7 +88,6 @@ func isBpfProgLinked(name string) (bool, error) {
 		defer prog.Close()
 
 		progInfo, err := prog.Info()
-
 		if err != nil {
 			return false, err
 		}
@@ -112,19 +106,19 @@ type Progs struct {
 }
 
 func loadProgs(t *testing.T) Progs {
-	reader := bytes.NewReader(tc_program)
+	reader := bytes.NewReader(tcProgram)
 	assert.NotNil(t, reader)
 
 	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	coll, err := ebpf.NewCollection(spec)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, coll)
 
 	var progs Progs
 	err = coll.Assign(&progs)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, progs.Ingress)
 	assert.NotNil(t, progs.Egress)
 
@@ -143,7 +137,7 @@ func TestTCXManagerAddRemove(t *testing.T) {
 	tcx.SetInterfaceManager(ifaceManager)
 	assert.NotNil(t, tcx)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	ifaceManager.Start(ctx)
 
@@ -154,7 +148,7 @@ func TestTCXManagerAddRemove(t *testing.T) {
 		time.Sleep(5 * time.Second)
 
 		linked, err := isBpfProgLinked(progName)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.True(t, linked)
 
 		tcx.RemoveProgram(progName)
@@ -162,11 +156,11 @@ func TestTCXManagerAddRemove(t *testing.T) {
 		prog.Close()
 
 		linked, err = isBpfProgLinked(progName)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.False(t, linked)
 
 		loaded, err := isBpfProgLoaded(progName)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.False(t, loaded)
 	}
 
@@ -177,7 +171,7 @@ func TestTCXManagerAddRemove(t *testing.T) {
 func TestNetlinkManagerNetlinkAttachType(t *testing.T) {
 	test := func(in AttachmentType, out uint32) {
 		r, err := netlinkAttachType(in)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, out, r)
 	}
 
@@ -190,19 +184,16 @@ func isNetlinkFilterPresent(filterName string, attachType AttachmentType, netMan
 
 	for ifaceIndex := range netManager.interfaces {
 		link, err := netlink.LinkByIndex(ifaceIndex)
-
 		if err != nil {
 			return false, err
 		}
 
 		aType, err := netlinkAttachType(attachType)
-
 		if err != nil {
 			return false, err
 		}
 
 		filters, err := netlink.FilterList(link, aType)
-
 		if err != nil {
 			return false, err
 		}
@@ -241,7 +232,7 @@ func TestNetlinkManagerAddRemove(t *testing.T) {
 
 	netManager := tc.(*netlinkManager)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	ifaceManager.Start(ctx)
 
@@ -252,7 +243,7 @@ func TestNetlinkManagerAddRemove(t *testing.T) {
 		time.Sleep(5 * time.Second)
 
 		linked, err := isNetlinkFilterPresent(progName, attachType, netManager)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.True(t, linked)
 
 		tc.RemoveProgram(progName)
@@ -262,11 +253,11 @@ func TestNetlinkManagerAddRemove(t *testing.T) {
 		time.Sleep(5 * time.Second)
 
 		linked, err = isNetlinkFilterPresent(progName, attachType, netManager)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.False(t, linked)
 
 		loaded, err := isBpfProgLoaded(progName)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.False(t, loaded)
 	}
 
@@ -296,8 +287,8 @@ clang -c -target bpf -O2 -o tc_program.o tc_program.c
 xxd --include tc_program.o > tc_program.c
 */
 
-// nolint: stylecheck,revive
-var tc_program = []byte{
+//nolint:stylecheck
+var tcProgram = []byte{
 	0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0xf7, 0x00, 0x01, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

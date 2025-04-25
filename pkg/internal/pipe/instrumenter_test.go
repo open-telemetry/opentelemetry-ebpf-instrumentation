@@ -1,8 +1,8 @@
 package pipe
 
 import (
+	"net/http"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -77,7 +77,7 @@ func TestBasicPipeline(t *testing.T) {
 	}, gctx(0), tracesInput)
 
 	// Override eBPF tracer to send some fake data
-	tracesInput.Send(newRequest("foo-svc", "GET", "/foo/bar", "1.1.1.1:3456", 404))
+	tracesInput.Send(newRequest("foo-svc", "/foo/bar", 404))
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
@@ -125,7 +125,6 @@ func TestBasicPipeline(t *testing.T) {
 		FloatVal: 2 / float64(time.Second),
 		Count:    1,
 	}, event)
-
 }
 
 func TestTracerPipeline(t *testing.T) {
@@ -146,7 +145,7 @@ func TestTracerPipeline(t *testing.T) {
 	}, gctx(0), tracesInput)
 
 	// Override eBPF tracer to send some fake data
-	tracesInput.Send(newRequest("bar-svc", "GET", "/foo/bar", "1.1.1.1:3456", 404))
+	tracesInput.Send(newRequest("bar-svc", "/foo/bar", 404))
 
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
@@ -177,7 +176,7 @@ func TestTracerPipelineBadTimestamps(t *testing.T) {
 		},
 	}, gctx(0), tracesInput)
 	// Override eBPF tracer to send some fake data
-	tracesInput.Send(newRequestWithTiming("svc1", request.EventTypeHTTP, "GET", "/attach", "2.2.2.2:1234", 200, 60000, 59999, 70000))
+	tracesInput.Send(newRequestWithTiming("svc1", request.EventTypeHTTP, "GET", "/attach", 200, 60000, 59999, 70000))
 	// closing prematurely the input node would finish the whole graph processing
 	// and OTEL exporters could be closed, so we wait.
 	pipe, err := gb.buildGraph(ctx)
@@ -211,9 +210,9 @@ func TestRouteConsolidation(t *testing.T) {
 		Attributes: beyla.Attributes{Select: allMetricsBut("client.address", "url.path"), InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(attributes.GroupHTTPRoutes), tracesInput)
 	// Override eBPF tracer to send some fake data
-	tracesInput.Send(newRequest("svc-1", "GET", "/user/1234", "1.1.1.1:3456", 200))
-	tracesInput.Send(newRequest("svc-1", "GET", "/products/3210/push", "1.1.1.1:3456", 200))
-	tracesInput.Send(newRequest("svc-1", "GET", "/attach", "1.1.1.1:3456", 200))
+	tracesInput.Send(newRequest("svc-1", "/user/1234", 200))
+	tracesInput.Send(newRequest("svc-1", "/products/3210/push", 200))
+	tracesInput.Send(newRequest("svc-1", "/attach", 200))
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
@@ -510,10 +509,10 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 	}, gctx(0), tracesInput)
 
 	// Override eBPF tracer to send some fake data
-	tracesInput.Send(newRequest("svc-0", "GET", "/products/3210/push", "1.1.1.1:3456", 200))
-	tracesInput.Send(newRequest("svc-1", "GET", "/user/1234", "1.1.1.1:3456", 201))
-	tracesInput.Send(newRequest("svc-2", "GET", "/products/3210/push", "1.1.1.1:3456", 202))
-	tracesInput.Send(newRequest("svc-3", "GET", "/user/4321", "1.1.1.1:3456", 203))
+	tracesInput.Send(newRequest("svc-0", "/products/3210/push", 200))
+	tracesInput.Send(newRequest("svc-1", "/user/1234", 201))
+	tracesInput.Send(newRequest("svc-2", "/products/3210/push", 202))
+	tracesInput.Send(newRequest("svc-3", "/user/4321", 203))
 
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
@@ -555,11 +554,11 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 	}, events)
 }
 
-func newRequest(serviceName string, method, path, peer string, status int) []request.Span {
+func newRequest(serviceName string, path string, status int) []request.Span {
 	return []request.Span{{
 		Path:         path,
-		Method:       method,
-		Peer:         strings.Split(peer, ":")[0],
+		Method:       http.MethodGet,
+		Peer:         "1.1.1.1",
 		Host:         getHostname(),
 		HostPort:     8080,
 		Status:       status,
@@ -571,11 +570,11 @@ func newRequest(serviceName string, method, path, peer string, status int) []req
 	}}
 }
 
-func newRequestWithTiming(svcName string, kind request.EventType, method, path, peer string, status int, goStart, start, end uint64) []request.Span {
+func newRequestWithTiming(svcName string, kind request.EventType, method, path string, status int, goStart, start, end uint64) []request.Span {
 	return []request.Span{{
 		Path:         path,
 		Method:       method,
-		Peer:         strings.Split(peer, ":")[0],
+		Peer:         "2.2.2.2",
 		Host:         getHostname(),
 		HostPort:     8080,
 		Type:         kind,

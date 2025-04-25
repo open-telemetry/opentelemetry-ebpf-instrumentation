@@ -51,8 +51,10 @@ type PIDsFilter struct {
 	detectOtel bool
 }
 
-var commonPIDsFilter *PIDsFilter
-var commonLock sync.Mutex
+var (
+	commonPIDsFilter *PIDsFilter
+	commonLock       sync.Mutex
+)
 
 func newPIDsFilter(c *services.DiscoveryConfig, log *slog.Logger) *PIDsFilter {
 	return &PIDsFilter{
@@ -179,7 +181,6 @@ func (pf *PIDsFilter) addPID(pid, nsid uint32, s *svc.Attrs, t PIDType) {
 	}
 
 	allPids, err := readNamespacePIDs(int32(pid))
-
 	if err != nil {
 		pf.log.Error("Error looking up namespaced pids", "pid", pid, "error", err)
 		return

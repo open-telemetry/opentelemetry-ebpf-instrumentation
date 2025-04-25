@@ -29,7 +29,7 @@ func (s *SockOps) Close() error {
 	return s.SockopsCgroup.Close()
 }
 
-// Copied from https://github.com/golang/go/blob/go1.21.3/src/internal/syscall/unix/kernel_version_linux.go
+// KernelVersion from https://github.com/golang/go/blob/go1.21.3/src/internal/syscall/unix/kernel_version_linux.go
 func KernelVersion() (major, minor int) {
 	var uname syscall.Utsname
 	if err := syscall.Uname(&uname); err != nil {
@@ -70,7 +70,6 @@ func HasHostPidAccess() bool {
 func FindNetworkNamespace(pid int32) (string, error) {
 	netPath := fmt.Sprintf("/proc/%d/ns/net", pid)
 	f, err := os.Open(netPath)
-
 	if err != nil {
 		return "", fmt.Errorf("failed to open(/proc/%d/ns/net): %w", pid, err)
 	}

@@ -16,10 +16,12 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/tools"
 )
 
-var debugData *dwarf.Data
-var grpcElf *dwarf.Data
-var smallELF *elf.File
-var smallGRPCElf *elf.File
+var (
+	debugData    *dwarf.Data
+	grpcElf      *dwarf.Data
+	smallELF     *elf.File
+	smallGRPCElf *elf.File
+)
 
 func compileELF(source string, extraArgs ...string) *elf.File {
 	tempDir := os.TempDir()
@@ -131,18 +133,20 @@ func TestGoOffsetsFromDwarf_ErrorIfConstantNotFound(t *testing.T) {
 
 func TestReadMembers_UnsupportedLocationType(t *testing.T) {
 	fdr := &fakeDwarfReader{
-		entries: []*dwarf.Entry{{
-			Tag: dwarf.TagStructType,
-			Field: []dwarf.Field{
-				{Attr: dwarf.AttrName, Val: "supported_loc"},
-				{Attr: dwarf.AttrDataMemberLoc, Val: int64(33)},
+		entries: []*dwarf.Entry{
+			{
+				Tag: dwarf.TagStructType,
+				Field: []dwarf.Field{
+					{Attr: dwarf.AttrName, Val: "supported_loc"},
+					{Attr: dwarf.AttrDataMemberLoc, Val: int64(33)},
+				},
+			}, {
+				Tag: dwarf.TagStructType,
+				Field: []dwarf.Field{
+					{Attr: dwarf.AttrName, Val: "unsupported_loc"},
+					{Attr: dwarf.AttrDataMemberLoc, Val: []byte("#\x00")},
+				},
 			},
-		}, {
-			Tag: dwarf.TagStructType,
-			Field: []dwarf.Field{
-				{Attr: dwarf.AttrName, Val: "unsupported_loc"},
-				{Attr: dwarf.AttrDataMemberLoc, Val: []byte("#\x00")},
-			}},
 		},
 	}
 	notFoundFields := map[GoOffset]struct{}{

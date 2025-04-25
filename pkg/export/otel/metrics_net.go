@@ -62,12 +62,11 @@ func createFilteredNetworkResource(hostID string, attrSelector attributes.Select
 	return resource.NewWithAttributes(semconv.SchemaURL, attrs...)
 }
 
-func newMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, interval time.Duration) (*metric.MeterProvider, error) {
-	meterProvider := metric.NewMeterProvider(
+func newMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, interval time.Duration) *metric.MeterProvider {
+	return metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(*exporter, metric.WithInterval(interval))),
 	)
-	return meterProvider, nil
 }
 
 type netMetricsExporter struct {
@@ -109,12 +108,7 @@ func newMetricsExporter(
 	}
 
 	resource := createFilteredNetworkResource(ctxInfo.HostID, cfg.AttributeSelectors)
-	provider, err := newMeterProvider(resource, &exporter, cfg.Metrics.Interval)
-
-	if err != nil {
-		log.Error("can't instantiate meter provider", "error", err)
-		return nil, err
-	}
+	provider := newMeterProvider(resource, &exporter, cfg.Metrics.Interval)
 
 	attrProv, err := attributes.NewAttrSelector(ctxInfo.MetricAttributeGroups, cfg.AttributeSelectors)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"unsafe"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/ringbuf"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
@@ -21,7 +22,7 @@ func TestURL(t *testing.T) {
 	}
 	assert.Equal(t, "/path?query=1234", event.url())
 	event = BPFHTTPInfo{}
-	assert.Equal(t, "", event.url())
+	assert.Empty(t, event.url())
 }
 
 func TestMethod(t *testing.T) {
@@ -31,7 +32,7 @@ func TestMethod(t *testing.T) {
 
 	assert.Equal(t, "GET", event.method())
 	event = BPFHTTPInfo{}
-	assert.Equal(t, "", event.method())
+	assert.Empty(t, event.method())
 }
 
 func TestHostInfo(t *testing.T) {
@@ -65,8 +66,8 @@ func TestHostInfo(t *testing.T) {
 
 	source, target = (*BPFConnInfo)(unsafe.Pointer(&event.ConnInfo)).reqHostInfo()
 
-	assert.Equal(t, "", source)
-	assert.Equal(t, "", target)
+	assert.Empty(t, source)
+	assert.Empty(t, target)
 }
 
 func TestCstr(t *testing.T) {
@@ -101,10 +102,10 @@ func TestToRequestTrace(t *testing.T) {
 
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.LittleEndian, &record)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	result, _, err := ReadHTTPInfoIntoSpan(&ringbuf.Record{RawSample: buf.Bytes()}, &fltr)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	expected := request.Span{
 		Host:         "8.8.8.8",
@@ -137,10 +138,10 @@ func TestToRequestTraceNoConnection(t *testing.T) {
 
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.LittleEndian, &record)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	result, _, err := ReadHTTPInfoIntoSpan(&ringbuf.Record{RawSample: buf.Bytes()}, &fltr)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// change the expected port just before testing
 	expected := request.Span{
@@ -176,10 +177,10 @@ func TestToRequestTrace_BadHost(t *testing.T) {
 
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.LittleEndian, &record)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	result, _, err := ReadHTTPInfoIntoSpan(&ringbuf.Record{RawSample: buf.Bytes()}, &fltr)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	expected := request.Span{
 		Host:         "",
@@ -205,20 +206,20 @@ func TestToRequestTrace_BadHost(t *testing.T) {
 	copy(record1.Buf[:], "GET /hello HTTP/1.1\r\nHost: example.c:23")
 
 	s, p = record1.hostFromBuf()
-	assert.Equal(t, s, "example.c")
-	assert.Equal(t, p, 23)
+	assert.Equal(t, "example.c", s)
+	assert.Equal(t, 23, p)
 
 	var record2 BPFHTTPInfo
 	copy(record2.Buf[:], "GET /hello HTTP/1.1\r\nHost: ")
 
 	s, p = record2.hostFromBuf()
-	assert.Equal(t, s, "")
-	assert.Equal(t, p, -1)
+	assert.Empty(t, s)
+	assert.Equal(t, -1, p)
 
 	var record3 BPFHTTPInfo
 	copy(record3.Buf[:], "GET /hello HTTP/1.1\r\nHost")
 
 	s, p = record3.hostFromBuf()
-	assert.Equal(t, s, "")
-	assert.Equal(t, p, -1)
+	assert.Empty(t, s)
+	assert.Equal(t, -1, p)
 }

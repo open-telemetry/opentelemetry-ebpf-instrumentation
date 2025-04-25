@@ -2,6 +2,7 @@ package meta
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -85,7 +86,7 @@ func extractConfigMapRefValue(configMap *v1.ConfigMap, err error, configMapSelec
 		return "", err
 	}
 	if data, ok := configMap.Data[configMapSelector.Key]; ok {
-		return string(data), nil
+		return data, nil
 	}
 	return "", fmt.Errorf("key %s not found in config map %s", configMapSelector.Key, configMapSelector.Name)
 }
@@ -110,7 +111,7 @@ func getSecretRefValue(client kubernetes.Interface, namespace string, secretSele
 	return extractSecretRefValue(secret, err, secretSelector)
 }
 
-// Code adopted from https://github.com/kubernetes/kubectl/blob/master/pkg/cmd/set/env/env_resolve.go#L248
+// GetEnvVarRefValue code adopted from https://github.com/kubernetes/kubectl/blob/master/pkg/cmd/set/env/env_resolve.go#L248
 func GetEnvVarRefValue(kc kubernetes.Interface, ns string, from *v1.EnvVarSource, obj metav1.ObjectMeta) (string, error) {
 	if from.SecretKeyRef != nil {
 		return getSecretRefValue(kc, ns, from.SecretKeyRef)
@@ -124,5 +125,5 @@ func GetEnvVarRefValue(kc kubernetes.Interface, ns string, from *v1.EnvVarSource
 		return getFieldRef(obj, from)
 	}
 
-	return "", fmt.Errorf("invalid valueFrom")
+	return "", errors.New("invalid valueFrom")
 }

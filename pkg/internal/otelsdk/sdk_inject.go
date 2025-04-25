@@ -7,6 +7,7 @@ package otelsdk
 import (
 	"bufio"
 	_ "embed"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -60,7 +61,7 @@ func (i *SDKInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string,
 		return tmpDir, nil
 	}
 
-	return "", fmt.Errorf("couldn't find suitable temp directory for injection")
+	return "", errors.New("couldn't find suitable temp directory for injection")
 }
 
 func (i *SDKInjector) Enabled() bool {
@@ -69,11 +70,10 @@ func (i *SDKInjector) Enabled() bool {
 
 func (i *SDKInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	if ie.Type == svc.InstrumentableJava {
-
 		ok := i.verifyJVMVersion(ie.FileInfo.Pid)
 		if !ok {
 			i.log.Info("unsupported Java version for OpenTelemetry Java instrumentation")
-			return fmt.Errorf("unsupported Java VM version")
+			return errors.New("unsupported Java VM version")
 		}
 
 		loaded, err := i.jdkAgentAlreadyLoaded(ie.FileInfo.Pid)
@@ -83,13 +83,12 @@ func (i *SDKInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 
 		if loaded {
 			i.log.Info("OpenTelemetry Java SDK Agent already loaded, not instrumenting.")
-			return fmt.Errorf("OpenTelemetry Java SDK Agent already loaded")
+			return errors.New("OpenTelemetry Java SDK Agent already loaded")
 		}
 
 		i.log.Info("injecting OpenTelemetry SDK instrumentation for Java process", "pid", ie.FileInfo.Pid)
 
 		agentPath, err := i.extractAgent(ie)
-
 		if err != nil {
 			i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid, "error", err)
 			return err
@@ -103,13 +102,12 @@ func (i *SDKInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 		return nil
 	}
 
-	return fmt.Errorf("OpenTelemetry SDK instrumentation not possible")
+	return errors.New("OpenTelemetry SDK instrumentation not possible")
 }
 
 func (i *SDKInjector) extractAgent(ie *ebpf.Instrumentable) (string, error) {
 	root := ebpfcommon.RootDirectoryForPID(ie.FileInfo.Pid)
 	tempDir, err := i.findTempDir(root, ie)
-
 	if err != nil {
 		return "", fmt.Errorf("error accessing temp directory: %w", err)
 	}
@@ -122,7 +120,7 @@ func (i *SDKInjector) extractAgent(ie *ebpf.Instrumentable) (string, error) {
 
 	agentPathHost := filepath.Join(fullTempDir, agentFile)
 
-	if err = os.WriteFile(agentPathHost, _agentBytes, 0644); err != nil {
+	if err = os.WriteFile(agentPathHost, _agentBytes, 0o644); err != nil {
 		return "", fmt.Errorf("error writing file: %w", err)
 	}
 
@@ -149,7 +147,7 @@ func otlpOptions(cfg *beyla.Config) (map[string]string, error) {
 
 	if tracesCommon || metricsCommon {
 		if tracesEndpoint != metricsEndpoint {
-			return nil, fmt.Errorf("metrics and traces endpoint definition mismatch, either use OTEL_EXPORTER_OTLP_ENDPOINT for both" +
+			return nil, errors.New("metrics and traces endpoint definition mismatch, either use OTEL_EXPORTER_OTLP_ENDPOINT for both" +
 				" or specify OTEL_EXPORTER_OTLP_TRACES_ENDPOINT and OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
 		}
 		options["otel.exporter.otlp.endpoint"] = tracesEndpoint
@@ -205,7 +203,7 @@ func (i *SDKInjector) attachJDKAgent(pid int32, path string, cfg *beyla.Config) 
 	opts, err := otlpOptions(cfg)
 	if err != nil {
 		i.log.Error("error parsing OTLP options", "err", err)
-		return fmt.Errorf("error parsing OTLP options")
+		return errors.New("error parsing OTLP options")
 	}
 
 	// this option needs to appear first in the list

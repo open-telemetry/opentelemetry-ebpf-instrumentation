@@ -20,8 +20,8 @@ func TestSwarm_BuildWithError(t *testing.T) {
 	inst.Add(func(_ context.Context) (RunFunc, error) {
 		return nil, errors.New("creation error")
 	})
-	_, err := inst.Instance(context.Background())
-	assert.Error(t, err)
+	_, err := inst.Instance(t.Context())
+	require.Error(t, err)
 }
 
 func TestSwarm_StartTwice(t *testing.T) {
@@ -29,15 +29,15 @@ func TestSwarm_StartTwice(t *testing.T) {
 	inst.Add(func(_ context.Context) (RunFunc, error) {
 		return func(_ context.Context) {}, nil
 	})
-	s, err := inst.Instance(context.Background())
+	s, err := inst.Instance(t.Context())
 	require.NoError(t, err)
-	s.Start(context.Background())
+	s.Start(t.Context())
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatalf("expected panic, got none")
 		}
 	}()
-	s.Start(context.Background())
+	s.Start(t.Context())
 }
 
 func TestSwarm_RunnerExecution(t *testing.T) {
@@ -46,9 +46,9 @@ func TestSwarm_RunnerExecution(t *testing.T) {
 	inst.Add(DirectInstance(func(_ context.Context) {
 		runnerExecuted.Store(true)
 	}))
-	s, err := inst.Instance(context.Background())
+	s, err := inst.Instance(t.Context())
 	require.NoError(t, err)
-	s.Start(context.Background())
+	s.Start(t.Context())
 	test.Eventually(t, 5*time.Second, func(t require.TestingT) {
 		assert.True(t, runnerExecuted.Load(), "runner was not executed")
 	})
@@ -78,7 +78,7 @@ func TestSwarm_CreatorFailure(t *testing.T) {
 	})
 
 	// second creator fails, so the first one should be cancelled and the third one should not be instantiated
-	_, err := inst.Instance(context.Background())
+	_, err := inst.Instance(t.Context())
 	require.Error(t, err)
 	test.Eventually(t, 5*time.Second, func(t require.TestingT) {
 		assert.True(t, c1cancel.Load(), "c1 was not cancelled")
@@ -101,8 +101,8 @@ func TestSwarm_ContextPassed(t *testing.T) {
 	inst.Add(func(_ context.Context) (RunFunc, error) { return innerRunner, nil })
 	inst.Add(func(_ context.Context) (RunFunc, error) { return innerRunner, nil })
 	inst.Add(func(_ context.Context) (RunFunc, error) { return innerRunner, nil })
-	ctx, cancel := context.WithCancel(context.Background())
-	s, err := inst.Instance(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
+	s, err := inst.Instance(t.Context())
 	require.NoError(t, err)
 	s.Start(ctx)
 	test.Eventually(t, 5*time.Second, func(_ require.TestingT) {
@@ -133,7 +133,7 @@ func TestSwarm_CancelInstancerCtx(t *testing.T) {
 			<-stopRunFunc
 		}, nil
 	})
-	run, err := swi.Instance(context.Background())
+	run, err := swi.Instance(t.Context())
 	require.NoError(t, err)
 	run.Start(t.Context())
 

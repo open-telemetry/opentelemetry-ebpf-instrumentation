@@ -104,7 +104,6 @@ func (m *MapTracer) evictionSynchronization(ctx context.Context, out *msg.Queue[
 			m.evictFlows(ctx, out)
 		}
 		m.evictionCond.L.Unlock()
-
 	}
 }
 

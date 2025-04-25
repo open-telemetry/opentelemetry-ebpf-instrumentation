@@ -84,7 +84,7 @@ type MetricsConfig struct {
 	Interval time.Duration `yaml:"interval" env:"OTEL_EBPF_METRICS_INTERVAL"`
 	// OTELIntervalMS supports metric intervals as specified by the standard OTEL definition.
 	// OTEL_EBPF_METRICS_INTERVAL takes precedence over it.
-	// nolint:undoc
+	//nolint:undoc
 	OTELIntervalMS int `env:"OTEL_METRIC_EXPORT_INTERVAL"`
 
 	CommonEndpoint  string `yaml:"-" env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
@@ -99,12 +99,12 @@ type MetricsConfig struct {
 	Buckets              Buckets `yaml:"buckets"`
 	HistogramAggregation string  `yaml:"histogram_aggregation" env:"OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION"`
 
-	// nolint:undoc
+	//nolint:undoc
 	ReportersCacheLen int `yaml:"reporters_cache_len" env:"OTEL_EBPF_METRICS_REPORT_CACHE_LEN"`
 
 	// SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode
 	// and the Info messages leak internal details that are not usually valuable for the final user.
-	// nolint:undoc
+	//nolint:undoc
 	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_OTEL_SDK_LOG_LEVEL"`
 
 	// Features of metrics that are can be exported. Accepted values are "application" and "network".
@@ -116,7 +116,7 @@ type MetricsConfig struct {
 
 	// TTL is the time since a metric was updated for the last time until it is
 	// removed from the metrics set.
-	// nolint:undoc
+	//nolint:undoc
 	TTL time.Duration `yaml:"ttl" env:"OTEL_EBPF_OTEL_METRICS_TTL"`
 
 	AllowServiceGraphSelfReferences bool `yaml:"allow_service_graph_self_references" env:"OTEL_EBPF_OTEL_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"`
@@ -167,7 +167,6 @@ func (m *MetricsConfig) OTLPMetricsEndpoint() (string, bool) {
 // If not enabled, this node won't be instantiated
 // Reason to disable linting: it requires to be a value despite it is considered a "heavy struct".
 // This method is invoked only once during startup time so it doesn't have a noticeable performance impact.
-// nolint:gocritic
 func (m *MetricsConfig) EndpointEnabled() bool {
 	return m.CommonEndpoint != "" || m.MetricsEndpoint != "" || m.Grafana.MetricsEnabled()
 }
@@ -459,7 +458,7 @@ func (mr *MetricsReporter) graphMetricOptions(mlog *slog.Logger) []metric.Option
 	}
 }
 
-// nolint: cyclop
+//nolint:cyclop
 func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) error {
 	if !mr.cfg.OTelMetricsEnabled() {
 		return nil
@@ -856,7 +855,6 @@ func otelHistogramConfig(metricName string, buckets []float64, useExponentialHis
 				Boundaries: buckets,
 			},
 		})
-
 }
 
 func (mr *MetricsReporter) metricResourceAttributes(service *svc.Attrs) attribute.Set {
@@ -927,7 +925,7 @@ func otelSpanAccepted(span *request.Span, mr *MetricsReporter) bool {
 	return mr.cfg.OTelMetricsEnabled() && !span.Service.ExportsOTelMetrics()
 }
 
-// nolint:cyclop
+//nolint:cyclop
 func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 	t := span.Timings()
 	duration := t.End.Sub(t.RequestStart).Seconds()

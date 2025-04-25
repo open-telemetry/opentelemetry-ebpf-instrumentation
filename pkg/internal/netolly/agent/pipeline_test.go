@@ -102,7 +102,6 @@ func TestFilter(t *testing.T) {
 			{Name: "promhttp_metric_handler_errors_total", Labels: map[string]string{"cause": "encoding"}},
 			{Name: "promhttp_metric_handler_errors_total", Labels: map[string]string{"cause": "gathering"}},
 		}, metrics)
-
 	})
 }
 

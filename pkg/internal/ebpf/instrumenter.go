@@ -43,7 +43,6 @@ func (i *instrumenter) goprobes(p Tracer) error {
 	i.gatherGoOffsets(goProbes)
 
 	closers, err := i.instrumentProbes(i.exe, goProbes)
-
 	if err != nil {
 		return err
 	}
@@ -162,7 +161,7 @@ func (i *instrumenter) uprobeModules(p Tracer, pid int32, maps []*procfs.ProcMap
 		// We didn't find this library in the shared libraries, look up for the symbols in the executable directly
 		if instrumentedIno == exeIno { // default executable instrumented path
 			// E.g. NodeJS uses OpenSSL but they ship it as statically linked in the node binary
-			log.Debug(fmt.Sprintf("%s not linked, attempting to instrument executable", lib), "path", instrPath)
+			log.Debug(lib+" not linked, attempting to instrument executable", "path", instrPath)
 		}
 
 		mod, ok := modules[instrumentedIno]
@@ -180,7 +179,6 @@ func resolveExePath(pid int32) (string, uint64, error) {
 	exePath := fmt.Sprintf("/proc/%d/exe", pid)
 
 	info, err := os.Stat(exePath)
-
 	if err != nil {
 		return "", 0, err
 	}
@@ -188,7 +186,7 @@ func resolveExePath(pid int32) (string, uint64, error) {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 
 	if !ok {
-		return "", 0, fmt.Errorf("can't extract executable stats")
+		return "", 0, errors.New("can't extract executable stats")
 	}
 
 	return exePath, stat.Ino, nil
@@ -206,7 +204,6 @@ func (i *instrumenter) uprobes(pid int32, p Tracer) error {
 	}
 
 	exePath, exeIno, err := resolveExePath(pid)
-
 	if err != nil {
 		return err
 	}
@@ -231,7 +228,6 @@ func (i *instrumenter) uprobes(pid int32, p Tracer) error {
 		}
 
 		libExe, err := link.OpenExecutable(m.instrPath)
-
 		if err != nil {
 			log.Debug("can't open executable for inspection", "error", err)
 			continue
@@ -244,7 +240,6 @@ func (i *instrumenter) uprobes(pid int32, p Tracer) error {
 			}
 
 			closers, err := i.instrumentProbes(libExe, m.probes[j])
-
 			if err != nil {
 				log.Debug("error instrumenting probes", "error", err)
 				continue
@@ -268,7 +263,6 @@ func uprobe(exe *link.Executable, probe *ebpfcommon.ProbeDesc) ([]io.Closer, err
 		up, err := exe.Uprobe("", probe.Start, &link.UprobeOptions{
 			Address: probe.StartOffset,
 		})
-
 		if err != nil {
 			return closers, fmt.Errorf("setting uprobe (offset): %w", err)
 		}
@@ -278,14 +272,13 @@ func uprobe(exe *link.Executable, probe *ebpfcommon.ProbeDesc) ([]io.Closer, err
 
 	if probe.End != nil {
 		if len(probe.ReturnOffsets) == 0 {
-			return closers, fmt.Errorf("setting uretprobe (attaching to offset): missing return offsets")
+			return closers, errors.New("setting uretprobe (attaching to offset): missing return offsets")
 		}
 
 		for _, offset := range probe.ReturnOffsets {
 			up, err := exe.Uprobe("", probe.End, &link.UprobeOptions{
 				Address: offset,
 			})
-
 			if err != nil {
 				return closers, fmt.Errorf("setting uretprobe (attaching to offset): %w", err)
 			}
@@ -331,7 +324,6 @@ func (i *instrumenter) sockmsgs(p Tracer) error {
 			Program: sockmsg.Program,
 			Attach:  sockmsg.AttachAs,
 		})
-
 		if err != nil {
 			return fmt.Errorf("attaching sock_msg program: %w", err)
 		}
@@ -345,7 +337,6 @@ func (i *instrumenter) sockmsgs(p Tracer) error {
 func (i *instrumenter) sockops(p Tracer) error {
 	for _, sockops := range p.SockOps() {
 		cgroupPath, err := getCgroupPath()
-
 		if err != nil {
 			return fmt.Errorf("error getting cgroup path for sockops: %w", err)
 		}
@@ -357,7 +348,6 @@ func (i *instrumenter) sockops(p Tracer) error {
 			Attach:  sockops.AttachAs,
 			Program: sockops.Program,
 		})
-
 		if err != nil {
 			return fmt.Errorf("attaching sockops program: %w", err)
 		}
@@ -384,7 +374,7 @@ func (i *instrumenter) tracepoints(p KprobesTracer) error {
 func (i *instrumenter) tracepoint(funcName string, programs ebpfcommon.ProbeDesc) error {
 	if programs.Start != nil {
 		if !strings.Contains(funcName, "/") {
-			return fmt.Errorf("invalid tracepoint type, must contain / in the name to separate the type and function name")
+			return errors.New("invalid tracepoint type, must contain / in the name to separate the type and function name")
 		}
 		parts := strings.Split(funcName, "/")
 		kp, err := link.Tracepoint(parts[0], parts[1], programs.Start, nil)
@@ -453,7 +443,6 @@ func symbolNames(m map[string][]*ebpfcommon.ProbeDesc) []string {
 
 func gatherOffsets(instrPath string, probes map[string][]*ebpfcommon.ProbeDesc, log *slog.Logger) error {
 	elfFile, err := elf.Open(instrPath)
-
 	if err != nil {
 		return fmt.Errorf("failed to open elf file %s: %w", instrPath, err)
 	}
@@ -464,9 +453,9 @@ func gatherOffsets(instrPath string, probes map[string][]*ebpfcommon.ProbeDesc, 
 }
 
 func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeDesc,
-	instrPath string, log *slog.Logger) error {
+	instrPath string, log *slog.Logger,
+) error {
 	syms, err := exec.FindExeSymbols(elfFile, symbolNames(probes))
-
 	if err != nil {
 		return fmt.Errorf("failed to lookup symbols for %s: %w", instrPath, err)
 	}
@@ -486,7 +475,6 @@ func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeD
 			}
 
 			returns, err := goexec.FindReturnOffsets(sym.Off, progData)
-
 			if err != nil {
 				log.Debug("Error finding return offsets", "symbol", sym)
 				continue
@@ -527,7 +515,6 @@ func readSymbolData(sym *exec.Sym) []byte {
 	data := make([]byte, sym.Len)
 
 	_, err := sym.Prog.ReadAt(data, int64(sym.Off-sym.Prog.Off))
-
 	if err != nil {
 		fmt.Printf("Error loading symbol data: %v\n", err)
 		return nil

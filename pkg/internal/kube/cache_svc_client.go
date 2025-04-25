@@ -91,7 +91,7 @@ func (sc *cacheSvcClient) connect(ctx context.Context) error {
 			close(sc.waitForSynchronization)
 			sc.waitForSyncClosed = true
 		}
-		sc.BaseNotifier.Notify(event)
+		sc.Notify(event)
 	}
 }
 

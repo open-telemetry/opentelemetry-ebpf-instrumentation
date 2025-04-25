@@ -2,7 +2,6 @@ package otel
 
 import (
 	"fmt"
-	"os"
 	"reflect"
 	"testing"
 
@@ -29,7 +28,7 @@ func TestOtlpOptions_AsMetricHTTP(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprint(tc), func(t *testing.T) {
-			assert.Equal(t, tc.len, len(tc.in.AsMetricHTTP()))
+			assert.Len(t, tc.in.AsMetricHTTP(), tc.len)
 		})
 	}
 }
@@ -47,7 +46,7 @@ func TestOtlpOptions_AsMetricGRPC(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprint(tc), func(t *testing.T) {
-			assert.Equal(t, tc.len, len(tc.in.AsMetricGRPC()))
+			assert.Len(t, tc.in.AsMetricGRPC(), tc.len)
 		})
 	}
 }
@@ -68,7 +67,7 @@ func TestOtlpOptions_AsTraceHTTP(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprint(tc), func(t *testing.T) {
-			assert.Equal(t, tc.len, len(tc.in.AsTraceHTTP()))
+			assert.Len(t, tc.in.AsTraceHTTP(), tc.len)
 		})
 	}
 }
@@ -86,7 +85,7 @@ func TestOtlpOptions_AsTraceGRPC(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprint(tc), func(t *testing.T) {
-			assert.Equal(t, tc.len, len(tc.in.AsTraceGRPC()))
+			assert.Len(t, tc.in.AsTraceGRPC(), tc.len)
 		})
 	}
 }
@@ -123,17 +122,11 @@ func TestParseOTELEnvVar(t *testing.T) {
 				actual[k] = v
 			}
 
-			err := os.Setenv(dummyVar, tc.envVar)
-
-			assert.NoError(t, err)
+			t.Setenv(dummyVar, tc.envVar)
 
 			parseOTELEnvVar(nil, dummyVar, apply)
 
 			assert.True(t, reflect.DeepEqual(actual, tc.expected))
-
-			err = os.Unsetenv(dummyVar)
-
-			assert.NoError(t, err)
 		})
 	}
 }
@@ -244,8 +237,6 @@ func TestGetFilteredResourceAttrs(t *testing.T) {
 
 	testMetric := attributes.Name{
 		Section: "test.metric",
-		Prom:    "test_metric",
-		OTEL:    "test.metric",
 	}
 
 	testCases := []testCase{

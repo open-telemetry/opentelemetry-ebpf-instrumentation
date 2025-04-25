@@ -28,7 +28,7 @@ type data struct {
 // Result structure assumes that resultType is always == "vector"
 type Result struct {
 	Metric map[string]string `json:"metric"`
-	Value  []interface{}
+	Value  []any
 }
 
 type Client struct {

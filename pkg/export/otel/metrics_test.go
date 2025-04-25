@@ -80,12 +80,13 @@ func TestHTTPMetricsEndpointOptions(t *testing.T) {
 
 func TestHTTPMetricsWithGrafanaOptions(t *testing.T) {
 	defer restoreEnvAfterExecution()
-	mcfg := MetricsConfig{Grafana: &GrafanaOTLP{
-		Submit:     []string{submitMetrics, submitTraces},
-		CloudZone:  "eu-west-23",
-		InstanceID: "12345",
-		APIKey:     "affafafaafkd",
-	}, Instrumentations: []string{instrumentations.InstrumentationHTTP},
+	mcfg := MetricsConfig{
+		Grafana: &GrafanaOTLP{
+			Submit:     []string{submitMetrics, submitTraces},
+			CloudZone:  "eu-west-23",
+			InstanceID: "12345",
+			APIKey:     "affafafaafkd",
+		}, Instrumentations: []string{instrumentations.InstrumentationHTTP},
 	}
 	t.Run("testing basic Grafana Cloud options", func(t *testing.T) {
 		testMetricsHTTPOptions(t, otlpOptions{
@@ -153,9 +154,9 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 		CommonEndpoint: coll.URL, Interval: 10 * time.Millisecond, ReportersCacheLen: 16,
 		Features: []string{FeatureApplication}, Instrumentations: []string{instrumentations.InstrumentationHTTP},
 	}, attributes.Selection{}, exportMetrics,
-	)(context.Background())
+	)(t.Context())
 	require.NoError(t, err)
-	go reporter(context.Background())
+	go reporter(t.Context())
 
 	// send some dummy traces
 	exportMetrics.Send([]request.Span{{Type: request.EventTypeHTTP}})
@@ -225,7 +226,7 @@ func TestGRPCMetricsEndpointOptions(t *testing.T) {
 	defer restoreEnvAfterExecution()()
 	t.Run("do not accept URLs without a scheme", func(t *testing.T) {
 		_, err := getGRPCMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo:3939"})
-		assert.Error(t, err)
+		require.Error(t, err)
 	})
 
 	mcfg := MetricsConfig{
@@ -323,8 +324,8 @@ func TestMetricsSetupHTTP_Protocol(t *testing.T) {
 func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 	t.Run("setting both variables", func(t *testing.T) {
 		defer restoreEnvAfterExecution()()
-		require.NoError(t, os.Setenv(envProtocol, "foo-proto"))
-		require.NoError(t, os.Setenv(envMetricsProtocol, "bar-proto"))
+		t.Setenv(envProtocol, "foo-proto")
+		t.Setenv(envMetricsProtocol, "bar-proto")
 		_, err := getHTTPMetricEndpointOptions(&MetricsConfig{
 			CommonEndpoint: "http://host:3333", Protocol: "foo", MetricsProtocol: "bar", Instrumentations: []string{instrumentations.InstrumentationHTTP},
 		})
@@ -334,7 +335,7 @@ func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 	})
 	t.Run("setting only proto env var", func(t *testing.T) {
 		defer restoreEnvAfterExecution()()
-		require.NoError(t, os.Setenv(envProtocol, "foo-proto"))
+		t.Setenv(envProtocol, "foo-proto")
 		_, err := getHTTPMetricEndpointOptions(&MetricsConfig{
 			CommonEndpoint: "http://host:3333", Protocol: "foo", Instrumentations: []string{instrumentations.InstrumentationHTTP},
 		})
@@ -496,7 +497,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 					m = append(m, r)
 				}
 			}
-			assert.Equal(t, len(tt.expected), len(m))
+			assert.Len(t, m, len(tt.expected))
 
 			for i := 0; i < len(tt.expected); i++ {
 				assert.Equal(t, tt.expected[i], m[i].Name)
@@ -505,13 +506,12 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			restoreEnvAfterExecution()
 		})
 	}
-
 }
 
 func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	defer restoreEnvAfterExecution()()
 
-	require.NoError(t, os.Setenv(envResourceAttrs, "deployment.environment=production,source=upstream.beyla"))
+	t.Setenv(envResourceAttrs, "deployment.environment=production,source=upstream.beyla")
 
 	ctx := t.Context()
 

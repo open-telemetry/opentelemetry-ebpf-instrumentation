@@ -25,5 +25,5 @@ func TestBitPositionCalculation(t *testing.T) {
 }
 
 func makeKey(first, second uint32) uint64 {
-	return uint64((uint64(first) << 32) | uint64(second))
+	return (uint64(first) << 32) | uint64(second)
 }

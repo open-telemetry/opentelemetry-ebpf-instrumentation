@@ -13,6 +13,6 @@ func TestSymbolTree(t *testing.T) {
 	tr.Insert(Symbol{Low: 200, High: 300, Symbol: "test2"})
 
 	r := tr.Search(200)
-	assert.Equal(t, 1, len(r))
+	assert.Len(t, r, 1)
 	assert.Equal(t, "test2", r[0].Symbol)
 }

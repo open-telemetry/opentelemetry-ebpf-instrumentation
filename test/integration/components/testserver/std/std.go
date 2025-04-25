@@ -68,17 +68,16 @@ func HTTPHandler(log *slog.Logger, echoPort int) http.HandlerFunc {
 
 func echoAsync(rw http.ResponseWriter, port int) {
 	duration, err := time.ParseDuration("10s")
-
 	if err != nil {
 		slog.Error("can't parse duration", "error", err)
-		rw.WriteHeader(500)
+		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 
-	results := make(chan interface{})
+	results := make(chan any)
 
 	go func() {
 		echo(rw, port)
@@ -91,7 +90,7 @@ func echoAsync(rw http.ResponseWriter, port int) {
 			return
 		case <-ctx.Done():
 			slog.Warn("timeout while waiting for test to complete")
-			rw.WriteHeader(500)
+			rw.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 	}
@@ -105,7 +104,7 @@ func echo(rw http.ResponseWriter, port int) {
 	res, err := http.Get(requestURL)
 	if err != nil {
 		slog.Error("error making http request", "error", err)
-		rw.WriteHeader(500)
+		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -113,17 +112,18 @@ func echo(rw http.ResponseWriter, port int) {
 	rw.WriteHeader(res.StatusCode)
 }
 
-var addrLowPort = net.TCPAddr{Port: 7000}
-var transport = &http.Transport{
-	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	DialContext: (&net.Dialer{
-		LocalAddr: &addrLowPort,
-	}).DialContext,
-}
+var (
+	addrLowPort = net.TCPAddr{Port: 7000}
+	transport   = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		DialContext: (&net.Dialer{
+			LocalAddr: &addrLowPort,
+		}).DialContext,
+	}
+)
 var httpClient = &http.Client{Transport: transport}
 
 func echoLowPort(rw http.ResponseWriter) {
-
 	requestURL := os.Getenv("TARGET_URL")
 
 	slog.Debug("calling", "url", requestURL)
@@ -131,7 +131,7 @@ func echoLowPort(rw http.ResponseWriter) {
 	res, err := httpClient.Get(requestURL)
 	if err != nil {
 		slog.Error("error making http request", "error", err)
-		rw.WriteHeader(500)
+		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -147,7 +147,7 @@ func echoDist(rw http.ResponseWriter) {
 	res, err := http.Get(requestURL)
 	if err != nil {
 		slog.Error("error making http request", "error", err)
-		rw.WriteHeader(500)
+		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -160,7 +160,7 @@ func echoCall(rw http.ResponseWriter) {
 	conn, err := grpc.NewClient("localhost:5051", opts...)
 	if err != nil {
 		slog.Error("fail to dial", "error", err)
-		rw.WriteHeader(500)
+		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	defer conn.Close()
@@ -174,10 +174,10 @@ func echoCall(rw http.ResponseWriter) {
 	_, err = client.GetFeature(ctx, point)
 	if err != nil {
 		slog.Error("client.GetFeature failed", "error", err)
-		rw.WriteHeader(500)
+		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	rw.WriteHeader(204)
+	rw.WriteHeader(http.StatusNoContent)
 }
 
 func Setup(port int) {

@@ -13,17 +13,21 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
-var srcIP = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 140, 82, 121, 4}
-var dstIP = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 127, 0, 0, 1}
+var (
+	srcIP = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 140, 82, 121, 4}
+	dstIP = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 127, 0, 0, 1}
+)
 
 func TestReverseDNS(t *testing.T) {
 	netLookupAddr = func(addr string) (names []string, err error) {
-		if addr == "140.82.121.4" {
+		switch addr {
+		case "140.82.121.4":
 			return []string{"foo.github.com"}, nil
-		} else if addr == "127.0.0.1" {
+		case "127.0.0.1":
 			return []string{"localhost.localdomain"}, nil
+		default:
+			return []string{"unknown"}, nil
 		}
-		return []string{"unknown"}, nil
 	}
 	// Given a Reverse DNS node
 	in := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))

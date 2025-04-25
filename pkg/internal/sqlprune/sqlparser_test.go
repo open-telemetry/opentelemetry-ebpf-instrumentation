@@ -76,7 +76,7 @@ func TestSQLExtraction(t *testing.T) {
 
 		for q, r := range tests {
 			op, tab := SQLParseOperationAndTable(q)
-			assert.Equal(t, r, result{op: op, table: tab})
+			assert.Equal(t, result{op: op, table: tab}, r)
 		}
 	})
 
@@ -93,7 +93,7 @@ func TestSQLExtraction(t *testing.T) {
 
 		for q, r := range tests {
 			op, tab := SQLParseOperationAndTable(q)
-			assert.Equal(t, r, result{op: op, table: tab})
+			assert.Equal(t, result{op: op, table: tab}, r)
 		}
 	})
 
@@ -108,7 +108,7 @@ func TestSQLExtraction(t *testing.T) {
 
 		for q, r := range tests {
 			op, tab := SQLParseOperationAndTable(q)
-			assert.Equal(t, r, result{op: op, table: tab})
+			assert.Equal(t, result{op: op, table: tab}, r)
 		}
 	})
 
@@ -122,7 +122,7 @@ func TestSQLExtraction(t *testing.T) {
 
 		for q, r := range tests {
 			op, tab := SQLParseOperationAndTable(q)
-			assert.Equal(t, r, result{op: op, table: tab})
+			assert.Equal(t, result{op: op, table: tab}, r)
 		}
 	})
 
@@ -136,7 +136,7 @@ func TestSQLExtraction(t *testing.T) {
 
 		for q, r := range tests {
 			op, tab := SQLParseOperationAndTable(q)
-			assert.Equal(t, r, result{op: op, table: tab})
+			assert.Equal(t, result{op: op, table: tab}, r)
 		}
 	})
 }

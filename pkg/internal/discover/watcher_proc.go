@@ -247,7 +247,6 @@ func executableReady(pid PID) (string, bool) {
 		return "", false
 	}
 	exePath, err := proc.Exe()
-
 	if err != nil {
 		return exePath, errors.Is(err, os.ErrNotExist)
 	}

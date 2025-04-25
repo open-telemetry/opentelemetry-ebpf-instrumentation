@@ -3,6 +3,7 @@ package ebpfcommon
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -11,11 +12,13 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 )
 
-const fastCGIRequestHeaderLen = 8
-const requestMethodKey = "REQUEST_METHOD"
-const requestURIKey = "REQUEST_URI"
-const responseError = 7 // FCGI_STDERR
-const responseStatusKey = "Status: "
+const (
+	fastCGIRequestHeaderLen = 8
+	requestMethodKey        = "REQUEST_METHOD"
+	requestURIKey           = "REQUEST_URI"
+	responseError           = 7 // FCGI_STDERR
+	responseStatusKey       = "Status: "
+)
 
 const fcgiFrameTypeParams = 4
 
@@ -115,19 +118,19 @@ func parseHeader(b []byte) ([]byte, error) {
 	for {
 		hdr, err := readFastCGIHeader(b)
 		if err != nil {
-			return nil, fmt.Errorf("payload too short")
+			return nil, errors.New("payload too short")
 		}
 
 		if hdr.Type == fcgiFrameTypeParams {
 			if len(b) <= fastCGIRequestHeaderLen {
-				return nil, fmt.Errorf("payload too short")
+				return nil, errors.New("payload too short")
 			}
 			b = b[fastCGIRequestHeaderLen:]
 			break
 		}
 		payloadOffset := int(fastCGIRequestHeaderLen + hdr.ContentLength + uint16(hdr.PaddingLength))
 		if len(b) <= payloadOffset {
-			return nil, fmt.Errorf("payload too short")
+			return nil, errors.New("payload too short")
 		}
 		b = b[payloadOffset:]
 	}

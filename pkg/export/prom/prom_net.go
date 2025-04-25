@@ -26,7 +26,7 @@ type NetPrometheusConfig struct {
 	GloballyEnabled bool
 }
 
-// nolint:gocritic
+// Enabled returns whether the node needs to be activated
 func (p NetPrometheusConfig) Enabled() bool {
 	return p.Config != nil && p.Config.EndpointEnabled() && (p.Config.NetworkMetricsEnabled() || p.GloballyEnabled)
 }

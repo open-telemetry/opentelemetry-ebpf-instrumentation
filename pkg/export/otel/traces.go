@@ -72,30 +72,30 @@ type TracesConfig struct {
 
 	// Configuration options below this line will remain undocumented at the moment,
 	// but can be useful for performance-tuning of some customers.
-	// nolint:undoc
+	//nolint:undoc
 	MaxExportBatchSize int `yaml:"max_export_batch_size" env:"OTEL_EBPF_OTLP_TRACES_MAX_EXPORT_BATCH_SIZE"`
-	// nolint:undoc
+	//nolint:undoc
 	MaxQueueSize int `yaml:"max_queue_size" env:"OTEL_EBPF_OTLP_TRACES_MAX_QUEUE_SIZE"`
-	// nolint:undoc
+	//nolint:undoc
 	BatchTimeout time.Duration `yaml:"batch_timeout" env:"OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT"`
 
 	// Configuration options for BackOffConfig of the traces exporter.
 	// See https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go
 	// BackOffInitialInterval the time to wait after the first failure before retrying.
-	// nolint:undoc
+	//nolint:undoc
 	BackOffInitialInterval time.Duration `yaml:"backoff_initial_interval" env:"OTEL_EBPF_BACKOFF_INITIAL_INTERVAL"`
 	// BackOffMaxInterval is the upper bound on backoff interval.
-	// nolint:undoc
+	//nolint:undoc
 	BackOffMaxInterval time.Duration `yaml:"backoff_max_interval" env:"OTEL_EBPF_BACKOFF_MAX_INTERVAL"`
 	// BackOffMaxElapsedTime is the maximum amount of time (including retries) spent trying to send a request/batch.
-	// nolint:undoc
+	//nolint:undoc
 	BackOffMaxElapsedTime time.Duration `yaml:"backoff_max_elapsed_time" env:"OTEL_EBPF_BACKOFF_MAX_ELAPSED_TIME"`
-	// nolint:undoc
+	//nolint:undoc
 	ReportersCacheLen int `yaml:"reporters_cache_len" env:"OTEL_EBPF_TRACES_REPORT_CACHE_LEN"`
 
 	// SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode
 	// and the Info messages leak internal details that are not usually valuable for the final user.
-	// nolint:undoc
+	//nolint:undoc
 	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_OTEL_SDK_LOG_LEVEL"`
 
 	// Grafana configuration needs to be explicitly set up before building the graph
@@ -105,7 +105,7 @@ type TracesConfig struct {
 // Enabled specifies that the OTEL traces node is enabled if and only if
 // either the OTEL endpoint and OTEL traces endpoint is defined.
 // If not enabled, this node won't be instantiated
-func (m *TracesConfig) Enabled() bool { //nolint:gocritic
+func (m *TracesConfig) Enabled() bool {
 	return m.CommonEndpoint != "" || m.TracesEndpoint != "" || m.Grafana.TracesEnabled()
 }
 
@@ -275,7 +275,7 @@ func (tr *tracesOTELReceiver) provideLoop(ctx context.Context) {
 	}
 }
 
-// nolint:cyclop
+//nolint:cyclop
 func getTracesExporter(ctx context.Context, cfg TracesConfig, ctxInfo *global.ContextInfo) (exporter.Traces, error) {
 	switch proto := cfg.GetProtocol(); proto {
 	case ProtocolHTTPJSON, ProtocolHTTPProtobuf, "": // zero value defaults to HTTP for backwards-compatibility
@@ -298,7 +298,7 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig, ctxInfo *global.Co
 		// See: https://github.com/open-telemetry/opentelemetry-collector/issues/8122
 		batchCfg := exporterbatcher.NewDefaultConfig()
 		if cfg.MaxQueueSize > 0 {
-			batchCfg.SizeConfig.MaxSize = cfg.MaxExportBatchSize
+			batchCfg.MaxSize = cfg.MaxExportBatchSize
 		}
 		if cfg.BatchTimeout > 0 {
 			batchCfg.FlushTimeout = cfg.BatchTimeout
@@ -312,7 +312,7 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig, ctxInfo *global.Co
 			},
 			Headers: convertHeaders(opts.Headers),
 		}
-		slog.Debug("getTracesExporter: confighttp.ClientConfig created", "endpoint", config.ClientConfig.Endpoint)
+		slog.Debug("getTracesExporter: confighttp.ClientConfig created", "endpoint", config.Endpoint)
 		set := getTraceSettings(ctxInfo, factory.Type(), t, &batchCfg)
 		exporter, err := factory.CreateTraces(ctx, set, config)
 		if err != nil {
@@ -352,7 +352,7 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig, ctxInfo *global.Co
 		// See: https://github.com/open-telemetry/opentelemetry-collector/issues/8122
 		if cfg.MaxExportBatchSize > 0 {
 			config.BatcherConfig.Enabled = true
-			config.BatcherConfig.SizeConfig.MaxSize = cfg.MaxExportBatchSize
+			config.BatcherConfig.MaxSize = cfg.MaxExportBatchSize
 		}
 		if cfg.BatchTimeout > 0 {
 			config.BatcherConfig.FlushTimeout = cfg.BatchTimeout
@@ -373,7 +373,6 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig, ctxInfo *global.Co
 			proto, ProtocolGRPC, ProtocolHTTPJSON, ProtocolHTTPProtobuf))
 		return nil, fmt.Errorf("invalid protocol value: %q", proto)
 	}
-
 }
 
 func internalMetricsEnabled(ctxInfo *global.ContextInfo) bool {
@@ -624,10 +623,12 @@ func (tr *tracesOTELReceiver) acceptSpan(span *request.Span) bool {
 }
 
 // TODO use semconv.DBSystemRedis when we update to OTEL semantic conventions library 1.30
-var dbSystemRedis = attribute.String(string(attr.DBSystemName), semconv.DBSystemRedis.Value.AsString())
-var spanMetricsSkip = attribute.Bool(string(attr.SkipSpanMetrics), true)
+var (
+	dbSystemRedis   = attribute.String(string(attr.DBSystemName), semconv.DBSystemRedis.Value.AsString())
+	spanMetricsSkip = attribute.Bool(string(attr.SkipSpanMetrics), true)
+)
 
-// nolint:cyclop
+//nolint:cyclop
 func traceAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 

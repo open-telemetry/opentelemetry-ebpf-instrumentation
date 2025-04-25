@@ -2,7 +2,6 @@ package ebpfcommon
 
 import (
 	"testing"
-	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 
@@ -65,8 +64,8 @@ func assertMatches(
 	assert.Equal(t, status, span.Status)
 	assert.Equal(t, contentLength, span.ContentLength)
 	assert.Equal(t, responseLength, span.ResponseLength)
-	assert.Equal(t, int64(durationMs*1000000), int64(span.End-span.Start))
-	assert.Equal(t, int64(durationMs*1000000), int64(span.Start-span.RequestStart))
+	assert.Equal(t, int64(durationMs*1000000), span.End-span.Start)
+	assert.Equal(t, int64(durationMs*1000000), span.Start-span.RequestStart)
 }
 
 func TestRequestTraceParsing(t *testing.T) {
@@ -134,8 +133,8 @@ func TestSpanNesting(t *testing.T) {
 
 func Test_EmptyHostInfo(t *testing.T) {
 	tr := HTTPRequestTrace{}
-	src, dest := (*BPFConnInfo)(unsafe.Pointer(&tr.Conn)).reqHostInfo()
+	src, dest := (*BPFConnInfo)(&tr.Conn).reqHostInfo()
 
-	assert.Equal(t, src, "")
-	assert.Equal(t, dest, "")
+	assert.Empty(t, src)
+	assert.Empty(t, dest)
 }

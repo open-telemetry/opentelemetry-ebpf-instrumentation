@@ -151,7 +151,7 @@ type Config struct {
 	Attributes Attributes `yaml:"attributes"`
 	// Routes is an optional node. If not set, data will be directly forwarded to exporters.
 	Routes *transform.RoutesConfig `yaml:"routes"`
-	// nolint:undoc
+	//nolint:undoc
 	NameResolver *transform.NameResolverConfig `yaml:"name_resolver"`
 	Metrics      otel.MetricsConfig            `yaml:"otel_metrics_export"`
 	Traces       otel.TracesConfig             `yaml:"otel_traces_export"`
@@ -160,7 +160,7 @@ type Config struct {
 
 	// Exec allows selecting the instrumented executable whose complete path contains the Exec value.
 	Exec services.RegexpAttr `yaml:"executable_name" env:"OTEL_EBPF_EXECUTABLE_NAME"`
-	// nolint:undoc
+	//nolint:undoc
 	ExecOtelGo services.RegexpAttr `env:"OTEL_GO_AUTO_TARGET_EXE"`
 	// Port allows selecting the instrumented executable that owns the Port value. If this value is set (and
 	// different to zero), the value of the Exec property won't take effect.
@@ -189,9 +189,9 @@ type Config struct {
 	// From this comment, the properties below will remain undocumented, as they
 	// are useful for development purposes. They might be helpful for customer support.
 
-	// nolint:undoc
+	//nolint:undoc
 	ChannelBufferLen int `yaml:"channel_buffer_len" env:"OTEL_EBPF_CHANNEL_BUFFER_LEN"`
-	// nolint:undoc
+	//nolint:undoc
 	ProfilePort     int             `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
 	InternalMetrics imetrics.Config `yaml:"internal_metrics"`
 }
@@ -207,10 +207,10 @@ type Attributes struct {
 
 type HostIDConfig struct {
 	// Override allows overriding the reported host.id in Beyla
-	// nolint:undoc
+	//nolint:undoc
 	Override string `yaml:"override" env:"OTEL_EBPF_HOST_ID"`
 	// FetchTimeout specifies the timeout for trying to fetch the HostID from diverse Cloud Providers
-	// nolint:undoc
+	//nolint:undoc
 	FetchTimeout time.Duration `yaml:"fetch_timeout" env:"OTEL_EBPF_HOST_ID_FETCH_TIMEOUT"`
 }
 
@@ -220,13 +220,15 @@ func (e ConfigError) Error() string {
 	return string(e)
 }
 
-// nolint:cyclop
+// Validate configuration
+//
+//nolint:cyclop
 func (c *Config) Validate() error {
 	if err := c.Discovery.Services.Validate(); err != nil {
-		return ConfigError(fmt.Sprintf("error in services YAML property: %s", err.Error()))
+		return ConfigError("error in services YAML property: " + err.Error())
 	}
 	if err := c.Discovery.ExcludeServices.Validate(); err != nil {
-		return ConfigError(fmt.Sprintf("error in exclude_services YAML property: %s", err.Error()))
+		return ConfigError("error in exclude_services YAML property: " + err.Error())
 	}
 	if !c.Enabled(FeatureNetO11y) && !c.Enabled(FeatureAppO11y) {
 		return ConfigError("missing to enable application discovery or network metrics. Check documentation")
@@ -241,14 +243,14 @@ func (c *Config) Validate() error {
 		return ConfigError("Invalid OTEL_EBPF_BPF_TC_BACKEND value")
 	}
 
-	// nolint:staticcheck
+	//nolint:staticcheck
 	// remove after deleting ContextPropagationEnabled
 	if c.EBPF.ContextPropagationEnabled && c.EBPF.ContextPropagation != config.ContextPropagationDisabled {
 		return ConfigError("context_propagation_enabled and context_propagation are mutually exclusive")
 	}
 
 	// TODO deprecated (REMOVE)
-	// nolint:staticcheck
+	//nolint:staticcheck
 	// remove after deleting ContextPropagationEnabled
 	if c.EBPF.ContextPropagationEnabled {
 		slog.Warn("DEPRECATION NOTICE: 'context_propagation_enabled' configuration option has been " +
@@ -258,7 +260,7 @@ func (c *Config) Validate() error {
 
 	if c.willUseTC() {
 		if err := tcmanager.EnsureCiliumCompatibility(c.EBPF.TCBackend); err != nil {
-			return ConfigError(fmt.Sprintf("Cilium compatibility error: %s", err.Error()))
+			return ConfigError("Cilium compatibility error: " + err.Error())
 		}
 	}
 
@@ -309,7 +311,7 @@ func (c *Config) otelNetO11yEnabled() bool {
 }
 
 func (c *Config) willUseTC() bool {
-	// nolint:staticcheck
+	//nolint:staticcheck
 	// remove after deleting ContextPropagationEnabled
 	return c.EBPF.ContextPropagation == config.ContextPropagationAll ||
 		c.EBPF.ContextPropagation == config.ContextPropagationIPOptionsOnly ||

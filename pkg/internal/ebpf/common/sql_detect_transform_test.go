@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type bindParseResult struct {
@@ -102,9 +103,9 @@ func TestPostgresBindParsing(t *testing.T) {
 			if ok {
 				statement, portal, args, err := parsePostgresBindCommand(ts.bytes)
 				if ts.result.hasErr {
-					assert.True(t, err != nil)
+					require.Error(t, err)
 				} else {
-					assert.True(t, err == nil)
+					require.NoError(t, err)
 				}
 				assert.Equal(t, ts.result.statement, statement)
 				assert.Equal(t, ts.result.portal, portal)

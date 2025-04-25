@@ -3,7 +3,7 @@ package ebpfcommon
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
+	"errors"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -269,7 +269,7 @@ func (event *BPFHTTP2Info) eventType(protocol Protocol) request.EventType {
 
 func readFrameHeader(buf []byte) (http2.FrameHeader, error) {
 	if len(buf) < frameHeaderLen {
-		return http2.FrameHeader{}, fmt.Errorf("EOF")
+		return http2.FrameHeader{}, errors.New("EOF")
 	}
 	return http2.FrameHeader{
 		Length:   (uint32(buf[0])<<16 | uint32(buf[1])<<8 | uint32(buf[2])),
@@ -279,7 +279,7 @@ func readFrameHeader(buf []byte) (http2.FrameHeader, error) {
 	}, nil
 }
 
-// nolint:cyclop
+//nolint:cyclop
 func http2FromBuffers(event *BPFHTTP2Info) (request.Span, bool, error) {
 	bLen := len(event.Data)
 	if event.Len < int32(bLen) {
@@ -302,7 +302,6 @@ func http2FromBuffers(event *BPFHTTP2Info) (request.Span, bool, error) {
 
 	for {
 		f, err := framer.ReadFrame()
-
 		if err != nil {
 			fail := true
 			// We could have read incomplete buffer from eBPF, if the grpc request was
@@ -346,7 +345,6 @@ func http2FromBuffers(event *BPFHTTP2Info) (request.Span, bool, error) {
 
 			for {
 				retF, err := retFramer.ReadFrame()
-
 				if err != nil {
 					break
 				}
@@ -385,7 +383,6 @@ func http2FromBuffers(event *BPFHTTP2Info) (request.Span, bool, error) {
 
 func ReadHTTP2InfoIntoSpan(record *ringbuf.Record, filter ServiceFilter) (request.Span, bool, error) {
 	event, err := ReinterpretCast[BPFHTTP2Info](record.RawSample)
-
 	if err != nil {
 		return request.Span{}, true, err
 	}
@@ -497,7 +494,6 @@ func isHTTP2(data []uint8, eventLen int) bool {
 
 	for {
 		f, err := framer.ReadFrame()
-
 		if err != nil {
 			break
 		}

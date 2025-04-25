@@ -164,7 +164,6 @@ func InitInformers(ctx context.Context, opts ...InformerOption) (*Informers, err
 	svc.log.Debug("kubernetes informers started")
 
 	return svc, nil
-
 }
 
 func (inf *Informers) initInformers(ctx context.Context, config *informersConfig) ([]informers.SharedInformerFactory, error) {
@@ -268,7 +267,7 @@ func (inf *Informers) initPodInformer(ctx context.Context, informerFactory infor
 
 	// Transform any *v1.Pod instance into a *PodInfo instance to save space
 	// in the informer's cache
-	if err := pods.SetTransform(func(i interface{}) (interface{}, error) {
+	if err := pods.SetTransform(func(i any) (any, error) {
 		pod, ok := i.(*v1.Pod)
 		if !ok {
 			// it's Ok. The K8s library just informed from an entity
@@ -298,7 +297,7 @@ func (inf *Informers) initPodInformer(ctx context.Context, informerFactory infor
 	return nil
 }
 
-func (inf *Informers) podToIndexableEntity(pod *v1.Pod) (interface{}, error) {
+func (inf *Informers) podToIndexableEntity(pod *v1.Pod) (any, error) {
 	containers := make([]*informer.ContainerInfo, 0,
 		len(pod.Status.ContainerStatuses)+
 			len(pod.Status.InitContainerStatuses)+
@@ -419,7 +418,7 @@ func (inf *Informers) initNodeIPInformer(ctx context.Context, informerFactory in
 	nodes := informerFactory.Core().V1().Nodes().Informer()
 	// Transform any *v1.Node instance into an *indexableEntity instance to save space
 	// in the informer's cache
-	if err := nodes.SetTransform(func(i interface{}) (interface{}, error) {
+	if err := nodes.SetTransform(func(i any) (any, error) {
 		node, ok := i.(*v1.Node)
 		// todo: move to generic function
 		if !ok {
@@ -471,7 +470,7 @@ func (inf *Informers) initServiceIPInformer(ctx context.Context, informerFactory
 	services := informerFactory.Core().V1().Services().Informer()
 	// Transform any *v1.Service instance into a *indexableEntity instance to save space
 	// in the informer's cache
-	if err := services.SetTransform(func(i interface{}) (interface{}, error) {
+	if err := services.SetTransform(func(i any) (any, error) {
 		svc, ok := i.(*v1.Service)
 		if !ok {
 			// it's Ok. The K8s library just informed from an entity
@@ -520,7 +519,7 @@ func (inf *Informers) ipInfoEventHandler(ctx context.Context) *cache.ResourceEve
 	metrics := instrument.FromContext(ctx)
 	log := inf.log.With("func", "ipInfoEventHandler")
 	return &cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			metrics.InformerNew()
 			em := obj.(*indexableEntity).EncodedMeta
 			log.Debug("AddFunc", "kind", em.Kind, "name", em.Name, "ips", em.Ips)
@@ -533,7 +532,7 @@ func (inf *Informers) ipInfoEventHandler(ctx context.Context) *cache.ResourceEve
 				Resource: em,
 			})
 		},
-		UpdateFunc: func(oldObj, newObj interface{}) {
+		UpdateFunc: func(oldObj, newObj any) {
 			metrics.InformerUpdate()
 			newEM := newObj.(*indexableEntity).EncodedMeta
 			oldEM := oldObj.(*indexableEntity).EncodedMeta
@@ -551,7 +550,7 @@ func (inf *Informers) ipInfoEventHandler(ctx context.Context) *cache.ResourceEve
 				Resource: newObj.(*indexableEntity).EncodedMeta,
 			})
 		},
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			// this type is received when an object was deleted but the watch deletion event was missed
 			// while disconnected from the API server. In this case we don't know the final "resting"
 			// state of the object, so there's a chance the included `Obj` is stale.

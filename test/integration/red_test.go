@@ -6,7 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -35,7 +35,7 @@ const (
 )
 
 func rndStr() string {
-	return strconv.Itoa(rand.Intn(10000))
+	return strconv.Itoa(rand.IntN(10000))
 }
 
 func waitForTestComponents(t *testing.T, url string) {
@@ -96,12 +96,12 @@ func testREDMetricsShortHTTP(t *testing.T) {
 func testExemplarsExist(t *testing.T) {
 	url := "http://" + prometheusHostPort + "/api/v1/query_exemplars?query=http_server_request_duration_seconds_bucket"
 
-	var qtr = &http.Transport{
+	qtr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
-	var qClient = &http.Client{Transport: qtr}
+	qClient := &http.Client{Transport: qtr}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	require.NoError(t, err)
 	r, err := qClient.Do(req)
 	require.NoError(t, err)
@@ -742,7 +742,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	// Check that we never recorded any /metrics calls
 	results, err = pq.Query(`http_server_request_duration_seconds_count{http_route="/metrics"}`)
 	require.NoError(t, err)
-	require.Equal(t, len(results), 0)
+	require.Empty(t, results)
 }
 
 func testREDMetricsHTTPNoRoute(t *testing.T) {
@@ -857,6 +857,6 @@ func testPrometheusNoBeylaEvents(t *testing.T) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{service_name="beyla"}`)
 		require.NoError(t, err)
-		require.Equal(t, 0, len(results))
+		require.Empty(t, results)
 	})
 }

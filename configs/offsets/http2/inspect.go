@@ -19,7 +19,7 @@ func checkErr(err error, msg string) {
 }
 
 func roundTripExample() {
-	req, err := http.NewRequestWithContext(context.Background(), "GET", os.Getenv("TARGET_URL")+"/pingrt", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, os.Getenv("TARGET_URL")+"/pingrt", nil)
 	checkErr(err, "during new request")
 
 	tr := &http2.Transport{

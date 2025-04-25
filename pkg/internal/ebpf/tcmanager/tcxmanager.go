@@ -179,7 +179,6 @@ func (tcx *tcxManager) attachProgramToIfaceLocked(prog *attachedProg, iface int)
 	}
 
 	attachType, err := tcxAttachType(prog.attachType)
-
 	if err != nil {
 		tcx.emitError("Error attaching program", "program", prog.name, "error", err)
 		return
@@ -191,7 +190,6 @@ func (tcx *tcxManager) attachProgramToIfaceLocked(prog *attachedProg, iface int)
 		Interface: iface,
 		Anchor:    link.Head(),
 	})
-
 	if err != nil {
 		tcx.emitError("Error attaching tcx", "error", err)
 		return
