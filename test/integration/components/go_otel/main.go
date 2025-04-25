@@ -43,7 +43,7 @@ type Server struct {
 
 // NewServer creates a server struct after initialing rand.
 func NewServer() *Server {
-	rd := rand.New(rand.NewSource(time.Now().Unix()))
+	rd := rand.New(rand.NewPCG(uint64(time.Now().Unix()), 0))
 	return &Server{
 		rand: rd,
 	}
