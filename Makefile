@@ -18,16 +18,16 @@ BUILDINFO_PKG ?= github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pk
 TEST_OUTPUT ?= ./testoutput
 
 IMG_REGISTRY ?= docker.io
-# Set your registry username. CI will set 'otel' but you mustn't use it for manual pushing.
+# Set your registry username. CI will set 'grafana' but you mustn't use it for manual pushing.
 IMG_ORG ?=
-IMG_NAME ?= autoinstrumentation-ebpf
+IMG_NAME ?= beyla
 # Container image creation creation
 VERSION ?= dev
 IMG = $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/opent-telemetry/ebpf-instrumentation-generator:main
+GEN_IMG ?= ghcr.io/grafana/beyla-ebpf-generator:main
 
 COMPOSE_ARGS ?= -f test/integration/docker-compose.yml
 
@@ -128,7 +128,6 @@ install-hooks:
 bpf2go:
 	$(call go-install-tool,$(BPF2GO),github.com/cilium/ebpf/cmd/bpf2go,$(call gomod-version,cilium/ebpf))
 
-# TODO: replace github.com/grafana/go-offsets-tracker by otel repo
 .PHONY: prereqs
 prereqs: install-hooks bpf2go
 	@echo "### Check if prerequisites are met, and installing missing dependencies"
@@ -175,12 +174,12 @@ generate: export BPF_CFLAGS := $(CFLAGS)
 generate: export BPF2GO := $(BPF2GO)
 generate: bpf2go
 	@echo "### Generating files..."
-	@OTEL_EBPF_GENFILES_RUN_LOCALLY=1 go generate cmd/ebpf-instrument-genfiles/genfiles.go
+	@BEYLA_GENFILES_RUN_LOCALLY=1 go generate cmd/beyla-genfiles/beyla_genfiles.go
 
 .PHONY: docker-generate
 docker-generate:
 	@echo "### Generating files (docker)..."
-	@OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/ebpf-instrument-genfiles/genfiles.go
+	@BEYLA_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/beyla-genfiles/beyla_genfiles.go
 
 .PHONY: verify
 verify: prereqs lint test

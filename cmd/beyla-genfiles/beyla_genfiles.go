@@ -1,4 +1,4 @@
-//go:generate go run genfiles.go
+//go:generate go run beyla_genfiles.go
 
 package main
 
@@ -30,7 +30,7 @@ type config struct {
 	Package         string `env:"OTEL_EBPF_GENFILES_PKG"              envDefault:"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"`
 	OCIBin          string `env:"OTEL_EBPF_GENFILES_OCI_BIN"          envDefault:"docker"`
 	//TODO: replace by OTEL image once we publish them
-	GenImage string `env:"OTEL_EBPF_GENFILES_GEN_IMG"          envDefault:"ghcr.io/opent-telemetry/ebpf-instrumentation-generator:main"`
+	GenImage string `env:"OTEL_EBPF_GENFILES_GEN_IMG"          envDefault:"ghcr.io/grafana/beyla-ebpf-generator:main"`
 }
 
 var cfg config
@@ -139,7 +139,7 @@ func getPipes(cmd *exec.Cmd) (io.ReadCloser, io.ReadCloser, error) {
 
 // when a GH action job is executed inside a container, the host workspace in
 // the host gets mounted in the '/__w'  target directory. However, because the
-// ebpf-instrumentation-generator image runs as a sibling container (it shares the same
+// beyla-ebpf-generator image runs as a sibling container (it shares the same
 // docker socket), we need to pass the host path to the '/src' volume rather
 // than the detected container path
 func adjustPathForGitHubActions(path string) string {
@@ -157,7 +157,7 @@ func beylaPackageDir() (string, error) {
 	out, err := cmd.Output()
 
 	if err != nil {
-		return "", fmt.Errorf("cannot resolve autoinstrumenter package dir: %w", err)
+		return "", fmt.Errorf("cannot resolve beyla package dir: %w", err)
 	}
 
 	ret := strings.Trim(string(out), "'\n")

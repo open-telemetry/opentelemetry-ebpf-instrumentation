@@ -1,5 +1,6 @@
 # Build the autoinstrumenter binary
-FROM ghcr.io/opent-telemetry/ebpf-instrumentation-generator:main AS builder
+# TODO: replace by OTEL image once they are uploaded
+FROM ghcr.io/grafana/beyla-ebpf-generator:main AS builder
 
 # TODO: embed software version in executable
 

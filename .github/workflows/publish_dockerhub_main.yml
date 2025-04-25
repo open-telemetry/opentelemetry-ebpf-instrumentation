@@ -1,0 +1,43 @@
+# TODO: trigger only if testing or any other checks previously succeeded
+name: Push to DockerHub (main)
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-multiarch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - id: checkout
+        uses: actions/checkout@v4
+
+      - id: push-instrumenter-to-dockerhub
+        uses: grafana/shared-workflows/actions/build-push-to-dockerhub@main
+        with:
+          repository: otel/autoinstrumentation-ebpf
+          context: .
+          platforms: |-
+            "linux/amd64"
+            "linux/arm64"
+          tags: |-
+            "main"
+          push: true
+
+      - id: push-k8s-cache-to-dockerhub
+        uses: grafana/shared-workflows/actions/build-push-to-dockerhub@main
+        with:
+          repository: otel/k8s-cache
+          file: k8scache.Dockerfile
+          context: .
+          platforms: |-
+            "linux/amd64"
+            "linux/arm64"
+          tags: |-
+            "main"
+          push: true
