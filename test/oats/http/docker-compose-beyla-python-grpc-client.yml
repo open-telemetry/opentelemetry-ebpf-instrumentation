@@ -19,7 +19,7 @@ services:
   autoinstrumenter:
     build:
       context: ../../..
-      dockerfile: ./test/integration/components/beyla/Dockerfile
+      dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile
     command:
       - --config=/configs/instrumenter-config-python-grpc.yml
     volumes:
