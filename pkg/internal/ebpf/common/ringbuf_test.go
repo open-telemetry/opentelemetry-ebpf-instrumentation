@@ -167,7 +167,8 @@ type fakeRingBufReader struct {
 
 func (f *fakeRingBufReader) Close() error {
 	f.explicitClose.Store(true)
-	close(f.events)
+	// we don't close the channel, as we want to only test
+	// that the ringbuf reader Close is invoked.
 	return nil
 }
 
