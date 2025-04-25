@@ -1,5 +1,5 @@
 # Main binary configuration
-CMD ?= beyla
+CMD ?= ebpf-instrument
 MAIN_GO_FILE ?= cmd/$(CMD)/main.go
 
 CACHE_CMD ?= k8s-cache
@@ -8,7 +8,7 @@ CACHE_MAIN_GO_FILE ?= cmd/$(CACHE_CMD)/main.go
 GOOS ?= linux
 GOARCH ?= amd64
 
-# todo: upload to a grafana artifact
+# TODO: upload as a ghcr.io artifact
 PROTOC_IMAGE = docker.io/mariomac/protoc-go:latest
 
 # RELEASE_VERSION will contain the tag name, or the branch name if current commit is not a tag
@@ -18,16 +18,16 @@ BUILDINFO_PKG ?= github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pk
 TEST_OUTPUT ?= ./testoutput
 
 IMG_REGISTRY ?= docker.io
-# Set your registry username. CI will set 'grafana' but you mustn't use it for manual pushing.
+# Set your registry username. CI will set 'otel' but you mustn't use it for manual pushing.
 IMG_ORG ?=
-IMG_NAME ?= beyla
+IMG_NAME ?= autoinstrumentation-ebpf
 # Container image creation creation
 VERSION ?= dev
 IMG = $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/grafana/beyla-ebpf-generator:main
+GEN_IMG ?= ghcr.io/opent-telemetry/ebpf-instrumentation-generator:main
 
 COMPOSE_ARGS ?= -f test/integration/docker-compose.yml
 
@@ -42,7 +42,7 @@ CLANG_TIDY ?= clang-tidy
 CILIUM_EBPF_VER ?= $(call gomod-version,cilium/ebpf)
 
 # regular expressions for excluded file patterns
-EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(/v2/examples/)|(.pb.go)|(/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/)"
+EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)|(/cmd/ebpf-instrument-genfiles)"
 
 .DEFAULT_GOAL := all
 
@@ -96,7 +96,6 @@ GO_OFFSETS_TRACKER = $(TOOLS_DIR)/go-offsets-tracker
 GOIMPORTS_REVISER = $(TOOLS_DIR)/goimports-reviser
 GO_LICENSES = $(TOOLS_DIR)/go-licenses
 KIND = $(TOOLS_DIR)/kind
-DASHBOARD_LINTER = $(TOOLS_DIR)/dashboard-linter
 GINKGO = $(TOOLS_DIR)/ginkgo
 
 # Required for k8s-cache unit tests
@@ -129,6 +128,7 @@ install-hooks:
 bpf2go:
 	$(call go-install-tool,$(BPF2GO),github.com/cilium/ebpf/cmd/bpf2go,$(call gomod-version,cilium/ebpf))
 
+# TODO: replace github.com/grafana/go-offsets-tracker by otel repo
 .PHONY: prereqs
 prereqs: install-hooks bpf2go
 	@echo "### Check if prerequisites are met, and installing missing dependencies"
@@ -138,7 +138,6 @@ prereqs: install-hooks bpf2go
 	$(call go-install-tool,$(GOIMPORTS_REVISER),github.com/incu6us/goimports-reviser/v3,v3.6.4)
 	$(call go-install-tool,$(GO_LICENSES),github.com/google/go-licenses,v1.6.0)
 	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,v0.20.0)
-	$(call go-install-tool,$(DASHBOARD_LINTER),github.com/grafana/dashboard-linter,latest)
 	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,latest)
 
 .PHONY: fmt
@@ -160,17 +159,6 @@ checkfmt:
 clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" | xargs clang-tidy
 
-.PHONY: lint-dashboard
-lint-dashboard: prereqs
-	@echo "### Linting dashboard";
-	@if [ "$(shell sh -c 'git ls-files --modified | grep grafana/*.json ')" != "" ]; then \
-		for file in grafana/*.json; do \
-			$(DASHBOARD_LINTER) lint --strict $$file; \
-		done; \
-	else \
-		echo '(no git changes detected. Skipping)'; \
-	fi
-
 .PHONY: lint
 lint: prereqs checkfmt
 	@echo "### Linting code"
@@ -187,15 +175,15 @@ generate: export BPF_CFLAGS := $(CFLAGS)
 generate: export BPF2GO := $(BPF2GO)
 generate: bpf2go
 	@echo "### Generating files..."
-	@BEYLA_GENFILES_RUN_LOCALLY=1 go generate cmd/beyla-genfiles/beyla_genfiles.go
+	@OTEL_EBPF_GENFILES_RUN_LOCALLY=1 go generate cmd/ebpf-instrument-genfiles/genfiles.go
 
 .PHONY: docker-generate
 docker-generate:
 	@echo "### Generating files (docker)..."
-	@BEYLA_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/beyla-genfiles/beyla_genfiles.go
+	@OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/ebpf-instrument-genfiles/genfiles.go
 
 .PHONY: verify
-verify: prereqs lint-dashboard lint test
+verify: prereqs lint test
 
 .PHONY: build
 build: docker-generate verify compile
@@ -326,7 +314,7 @@ itest-coverage-data:
 	mkdir -p $(TEST_OUTPUT)/merge
 	go tool covdata merge -i=$(TEST_OUTPUT) -o $(TEST_OUTPUT)/merge
 	go tool covdata textfmt -i=$(TEST_OUTPUT)/merge -o $(TEST_OUTPUT)/itest-covdata.raw.txt
-	# replace the unexpected /src/cmd/beyla/main.go file by the module path
+	# replace the unexpected /src/cmd/ebpf-instrument/main.go file by the module path
 	sed 's/^\/src\/cmd\//github.com\/open-telemetry\/opentelemetry-ebpf-instrumentation\/cmd\//' $(TEST_OUTPUT)/itest-covdata.raw.txt > $(TEST_OUTPUT)/itest-covdata.all.txt
 	# exclude generated files from coverage data
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt
@@ -384,7 +372,7 @@ artifact: docker-generate compile
 	cp LICENSE ./bin
 	cp NOTICE ./bin
 	cp third_party_licenses.csv ./bin
-	tar -C ./bin -cvzf bin/beyla.tar.gz beyla LICENSE NOTICE third_party_licenses.csv
+	tar -C ./bin -cvzf bin/opentelemetry-ebpf-instrumentation.tar.gz ebpf-instrument LICENSE NOTICE third_party_licenses.csv
 
 .PHONY: clean-testoutput
 clean-testoutput:
