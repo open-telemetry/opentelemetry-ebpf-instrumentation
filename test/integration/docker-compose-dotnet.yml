@@ -18,7 +18,7 @@ services:
       context: ../..
       dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile${INSTRUMENT_DOCKERFILE_SUFFIX}
     entrypoint:
-      - /beyla${INSTRUMENT_COMMAND_SUFFIX}
+      - /ebpf-instrument${INSTRUMENT_COMMAND_SUFFIX}
     command:
       - --config=/configs/instrumenter-config-java.yml
     volumes:
