@@ -13,7 +13,7 @@ jobs:
   build-and-push-image:
     runs-on: ubuntu-latest
     env:
-      IMAGE_NAME: autoinstrumentation-ebpf
+      IMAGE_NAME: ebpf-instrument
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
