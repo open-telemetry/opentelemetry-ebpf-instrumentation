@@ -1,5 +1,5 @@
 # Main binary configuration
-CMD ?= beyla
+CMD ?= ebpf-instrument
 MAIN_GO_FILE ?= cmd/$(CMD)/main.go
 
 CACHE_CMD ?= k8s-cache
@@ -8,7 +8,7 @@ CACHE_MAIN_GO_FILE ?= cmd/$(CACHE_CMD)/main.go
 GOOS ?= linux
 GOARCH ?= amd64
 
-# todo: upload to a grafana artifact
+# TODO: upload as a ghcr.io artifact
 PROTOC_IMAGE = docker.io/mariomac/protoc-go:latest
 
 # RELEASE_VERSION will contain the tag name, or the branch name if current commit is not a tag
@@ -42,7 +42,7 @@ CLANG_TIDY ?= clang-tidy
 CILIUM_EBPF_VER ?= $(call gomod-version,cilium/ebpf)
 
 # regular expressions for excluded file patterns
-EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(/v2/examples/)|(.pb.go)|(/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/)"
+EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)|(/cmd/ebpf-instrument-genfiles)"
 
 .DEFAULT_GOAL := all
 
@@ -95,7 +95,6 @@ BPF2GO = $(TOOLS_DIR)/bpf2go
 GO_OFFSETS_TRACKER = $(TOOLS_DIR)/go-offsets-tracker
 GO_LICENSES = $(TOOLS_DIR)/go-licenses
 KIND = $(TOOLS_DIR)/kind
-DASHBOARD_LINTER = $(TOOLS_DIR)/dashboard-linter
 GINKGO = $(TOOLS_DIR)/ginkgo
 
 # Required for k8s-cache unit tests
@@ -128,7 +127,6 @@ prereqs: install-hooks bpf2go
 	$(call go-install-tool,$(GO_OFFSETS_TRACKER),github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker,$(call gomod-version,grafana/go-offsets-tracker))
 	$(call go-install-tool,$(GO_LICENSES),github.com/google/go-licenses,v1.6.0)
 	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,v0.20.0)
-	$(call go-install-tool,$(DASHBOARD_LINTER),github.com/grafana/dashboard-linter,latest)
 	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,latest)
 
 .PHONY: fmt
@@ -139,17 +137,6 @@ fmt: prereqs
 .PHONY: clang-tidy
 clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" | xargs clang-tidy
-
-.PHONY: lint-dashboard
-lint-dashboard: prereqs
-	@echo "### Linting dashboard";
-	@if [ "$(shell sh -c 'git ls-files --modified | grep grafana/*.json ')" != "" ]; then \
-		for file in grafana/*.json; do \
-			$(DASHBOARD_LINTER) lint --strict $$file; \
-		done; \
-	else \
-		echo '(no git changes detected. Skipping)'; \
-	fi
 
 .PHONY: lint
 lint: prereqs
@@ -175,7 +162,7 @@ docker-generate:
 	@BEYLA_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/beyla-genfiles/beyla_genfiles.go
 
 .PHONY: verify
-verify: prereqs lint-dashboard lint test
+verify: prereqs lint test
 
 .PHONY: build
 build: docker-generate verify compile
@@ -306,7 +293,7 @@ itest-coverage-data:
 	mkdir -p $(TEST_OUTPUT)/merge
 	go tool covdata merge -i=$(TEST_OUTPUT) -o $(TEST_OUTPUT)/merge
 	go tool covdata textfmt -i=$(TEST_OUTPUT)/merge -o $(TEST_OUTPUT)/itest-covdata.raw.txt
-	# replace the unexpected /src/cmd/beyla/main.go file by the module path
+	# replace the unexpected /src/cmd/ebpf-instrument/main.go file by the module path
 	sed 's/^\/src\/cmd\//github.com\/open-telemetry\/opentelemetry-ebpf-instrumentation\/cmd\//' $(TEST_OUTPUT)/itest-covdata.raw.txt > $(TEST_OUTPUT)/itest-covdata.all.txt
 	# exclude generated files from coverage data
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt
@@ -364,7 +351,7 @@ artifact: docker-generate compile
 	cp LICENSE ./bin
 	cp NOTICE ./bin
 	cp third_party_licenses.csv ./bin
-	tar -C ./bin -cvzf bin/beyla.tar.gz beyla LICENSE NOTICE third_party_licenses.csv
+	tar -C ./bin -cvzf bin/opentelemetry-ebpf-instrumentation.tar.gz ebpf-instrument LICENSE NOTICE third_party_licenses.csv
 
 .PHONY: clean-testoutput
 clean-testoutput:

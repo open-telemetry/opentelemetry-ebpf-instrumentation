@@ -32,15 +32,15 @@ RUN make compile
 # Create final image from minimal + built binary
 FROM scratch
 
-LABEL maintainer="Grafana Labs <hello@grafana.com>"
+LABEL maintainer="The OpenTelemetry Authors"
 
 WORKDIR /
 
-COPY --from=builder /src/bin/beyla .
+COPY --from=builder /src/bin/ebpf-instrument .
 COPY --from=builder /src/LICENSE .
 COPY --from=builder /src/NOTICE .
 COPY --from=builder /src/third_party_licenses.csv .
 
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
-ENTRYPOINT [ "/beyla" ]
+ENTRYPOINT [ "/ebpf-instrument" ]

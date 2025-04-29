@@ -7,10 +7,6 @@ ARG TARGETARCH
 
 ENV GOARCH=$TARGETARCH
 
-WORKDIR /
-
-COPY test/integration/components/beyla/beyla_wrapper.sh /beyla_wrapper.sh
-
 WORKDIR /src
 
 # Copy the go manifests and source
@@ -26,12 +22,10 @@ COPY Makefile Makefile
 # Build
 RUN make compile-for-coverage
 
+# Create final image from minimal + built binary
 FROM scratch
 
-# Copy the native executable into the containers
-COPY --from=builder /src/bin/beyla /beyla
-COPY --from=builder /beyla_wrapper.sh /beyla_wrapper.sh
-
 WORKDIR /
+COPY --from=builder /src/bin/ebpf-instrument .
 
-ENTRYPOINT [ "/beyla_wrapper.sh" ]
+ENTRYPOINT [ "/ebpf-instrument" ]

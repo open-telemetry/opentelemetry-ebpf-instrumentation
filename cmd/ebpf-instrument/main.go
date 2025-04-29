@@ -27,10 +27,10 @@ func main() {
 		Level: &lvl,
 	})))
 
-	slog.Info("Grafana Beyla", "Version", buildinfo.Version, "Revision", buildinfo.Revision, "OpenTelemetry SDK Version", otelsdk.Version())
+	slog.Info("OpenTelemetry eBPF Instrumentation", "Version", buildinfo.Version, "Revision", buildinfo.Revision, "OpenTelemetry SDK Version", otelsdk.Version())
 
 	if err := beyla.CheckOSSupport(); err != nil {
-		slog.Error("can't start Beyla", "error", err)
+		slog.Error("can't start OpenTelemetry eBPF Instrumentation", "error", err)
 		os.Exit(-1)
 	}
 
@@ -43,7 +43,7 @@ func main() {
 
 	config := loadConfig(configPath)
 	if err := config.Validate(); err != nil {
-		slog.Error("wrong Beyla configuration", "error", err)
+		slog.Error("wrong configuration", "error", err)
 		os.Exit(-1)
 	}
 
@@ -54,11 +54,11 @@ func main() {
 
 	if err := beyla.CheckOSCapabilities(config); err != nil {
 		if config.EnforceSysCaps {
-			slog.Error("can't start Beyla", "error", err)
+			slog.Error("can't start OpenTelemetry eBPF Instrumentation", "error", err)
 			os.Exit(-1)
 		}
 
-		slog.Warn("Required system capabilities not present, Beyla may malfunction", "error", err)
+		slog.Warn("Required system capabilities not present, OpenTelemetry eBPF Instrumentation may malfunction", "error", err)
 	}
 
 	if config.ProfilePort != 0 {
@@ -75,7 +75,7 @@ func main() {
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	if err := components.RunBeyla(ctx, config); err != nil {
-		slog.Error("Beyla ran with errors", "error", err)
+		slog.Error("OpenTelemetry eBPF Instrumentation ran with errors", "error", err)
 		os.Exit(-1)
 	}
 
