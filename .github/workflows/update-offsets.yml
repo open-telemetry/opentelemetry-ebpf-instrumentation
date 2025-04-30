@@ -3,21 +3,29 @@ on:
   schedule:
     - cron: '1 1 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: write  # Required for creating PRs
+  pull-requests: write  # Required for creating PRs
+
 jobs:
   UpdateOffsets:
     runs-on: ubuntu-latest
     steps:
     - name: "Checkout repo"
-      uses: actions/checkout@v3
-    - name: "Update Go"
-      uses: actions/setup-go@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       with:
+        persist-credentials: false
+    - name: "Update Go"
+      uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
+      with:
+        cache: 'false'
         go-version: '>=1.24'
         check-latest: true
     - name: "Update offsets"
       run: make update-offsets
     - name: "Create/update PR"
-      uses: peter-evans/create-pull-request@v5
+      uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5
       with:
         commit-message: Automatic update of offsets.json
         title: Automatic update of offsets.json
