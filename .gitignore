@@ -1204,3 +1204,4 @@ test/integration/components/testserver_1.17/vendor/gopkg.in/yaml.v2/yamlprivateh
 *_bpfel.go
 *_bpfel.o
 pkg/internal/otelsdk/grafana-opentelemetry-java.jar
+opentelemetry-ebpf-instrumentation.sln
