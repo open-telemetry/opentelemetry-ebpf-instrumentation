@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gobwas/glob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -71,8 +72,11 @@ network:
   enable: true
   cidrs:
     - 10.244.0.0/16
+discovery:
+  default_exclude_services:
+    - exe_path: "*foo*"
 `)
-	t.Setenv("OTEL_EBPF_EXECUTABLE_NAME", "tras")
+	t.Setenv("OTEL_EBPF_EXECUTABLE_NAME", "*tras*")
 	t.Setenv("OTEL_EBPF_NETWORK_AGENT_IP", "1.2.3.4")
 	t.Setenv("OTEL_EBPF_OPEN_PORT", "8080-8089")
 	t.Setenv("OTEL_SERVICE_NAME", "svc-name")
@@ -212,7 +216,7 @@ network:
 			ExcludeOTelInstrumentedServices: true,
 			DefaultExcludeServices: services.DefinitionCriteria{
 				services.Attributes{
-					Path: services.NewPathRegexp(regexp.MustCompile("(?:^|/)(beyla$|alloy$|otelcol[^/]*$)")),
+					Path: services.NewGlob(glob.MustCompile("*foo*")),
 				},
 			},
 		},

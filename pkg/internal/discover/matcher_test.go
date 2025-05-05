@@ -21,10 +21,10 @@ func TestCriteriaMatcher(t *testing.T) {
     namespace: foo
     open_ports: 80,8080-8089
   - name: exec-only
-    exe_path: weird\d
+    exe_path: "*weird[0-9]*"
   - name: both
     open_ports: 443
-    exe_path_regexp: "server"
+    exe_path: "*server*"
 `), &pipeConfig))
 
 	discoveredProcesses := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(10))
@@ -84,12 +84,12 @@ func TestCriteriaMatcher_Exclude(t *testing.T) {
     namespace: foo
     open_ports: 80,8080-8089
   - name: exec-only
-    exe_path: weird\d
+    exe_path: "*weird*"
   - name: both
     open_ports: 443
-    exe_path_regexp: "server"
+    exe_path: "*server*"
   exclude_services:
-  - exe_path: s
+  - exe_path: "*s*"
 `), &pipeConfig))
 
 	discoveredProcesses := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(10))
@@ -135,7 +135,7 @@ func TestCriteriaMatcher_Exclude_Metadata(t *testing.T) {
 	pipeConfig := beyla.Config{}
 	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
   services:
-  - k8s_node_name: .
+  - k8s_node_name: "*"
   exclude_services:
   - k8s_node_name: bar
 `), &pipeConfig))
@@ -184,11 +184,11 @@ func TestCriteriaMatcher_MustMatchAllAttributes(t *testing.T) {
   - name: all-attributes-must-match
     namespace: foons
     open_ports: 80,8080-8089
-    exe_path: foo
-    k8s_namespace: thens
-    k8s_pod_name: thepod
-    k8s_deployment_name: thedepl
-    k8s_replicaset_name: thers
+    exe_path: "*foo*"
+    k8s_namespace: "*thens*"
+    k8s_pod_name: "*thepod*"
+    k8s_deployment_name: "*thedepl*"
+    k8s_replicaset_name: "*thers*"
 `), &pipeConfig))
 
 	discoveredProcesses := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(10))

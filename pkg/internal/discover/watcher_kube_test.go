@@ -132,21 +132,21 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
     k8s_pod_name: chichi
   - name: both
     open_ports: 443
-    k8s_deployment_name: chacha
+    k8s_deployment_name: chacha*
   - name: pod-label-only
     k8s_pod_labels:
       instrument: "beyla"
   - name: pod-multi-label-only
     k8s_pod_labels:
       instrument: "ebpf"
-      lang: "go.*"
+      lang: "go*"
   - name: pod-annotation-only
     k8s_pod_annotations:
       deploy.type: "canary"
   - name: pod-multi-annotation-only
     k8s_pod_annotations:
       deploy.type: "prod"
-      version: "v\\d+"
+      version: "v[0-9]*"
 `), &pipeConfig))
 
 	swi.Add(CriteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue))
