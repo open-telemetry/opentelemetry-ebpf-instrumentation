@@ -6,7 +6,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
 )
 
-func FindProcLanguage(_ int32, _ *elf.File, _ string) svc.InstrumentableType {
+func FindProcLanguage(_ int32) svc.InstrumentableType {
 	return svc.InstrumentableGeneric
 }
 
