@@ -13,7 +13,7 @@ data:
     discovery:
       services:
         # name and namespace will be automatically set from the K8s metadata
-        - k8s_deployment_name: (otherinstance|testserver)
+        - k8s_deployment_name: "{otherinstance,testserver}"
         # used in the k8s_owners_*_test.go
         - k8s_statefulset_name: statefulservice
         - k8s_daemonset_name: dsservice
