@@ -127,7 +127,7 @@ func testGRPCGoClientFailsToConnect(t *testing.T) {
 func TestSuiteOtherGRPCGo(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-other-grpc.yml", path.Join(pathOutput, "test-suite-other-grpc.log"))
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_NAME=`, `OTEL_EBPF_OPEN_PORT=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {

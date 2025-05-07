@@ -21,7 +21,7 @@ import (
 
 func TestNetwork_Deduplication(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly.yml", path.Join(pathOutput, "test-suite-netolly-dedupe.log"))
-	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_NAME=")
+	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_PATH=")
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
@@ -36,7 +36,7 @@ func TestNetwork_Deduplication(t *testing.T) {
 
 func TestNetwork_Deduplication_Use_Socket_Filter(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly.yml", path.Join(pathOutput, "test-suite-netolly-dedupe-no-tc.log"))
-	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_NAME=", "OTEL_EBPF_NETWORK_SOURCE=socket_filter")
+	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_PATH=", "OTEL_EBPF_NETWORK_SOURCE=socket_filter")
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
@@ -51,7 +51,7 @@ func TestNetwork_Deduplication_Use_Socket_Filter(t *testing.T) {
 
 func TestNetwork_NoDeduplication(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly.yml", path.Join(pathOutput, "test-suite-netolly-nodedupe.log"))
-	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=none", "OTEL_EBPF_EXECUTABLE_NAME=")
+	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=none", "OTEL_EBPF_EXECUTABLE_PATH=")
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
@@ -69,7 +69,7 @@ func TestNetwork_NoDeduplication(t *testing.T) {
 
 func TestNetwork_AllowedAttributes(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly.yml", path.Join(pathOutput, "test-suite-netolly-allowed-attrs.log"))
-	compose.Env = append(compose.Env, "OTEL_EBPF_EXECUTABLE_NAME=", `OTEL_EBPF_CONFIG_SUFFIX=-disallowattrs`)
+	compose.Env = append(compose.Env, "OTEL_EBPF_EXECUTABLE_PATH=", `OTEL_EBPF_CONFIG_SUFFIX=-disallowattrs`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
@@ -118,7 +118,7 @@ func TestNetwork_ReverseDNS(t *testing.T) {
 
 func TestNetwork_Direction(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly-direction.yml", path.Join(pathOutput, "test-suite-netolly-direction.log"))
-	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_NETWORK_SOURCE=tc", "OTEL_EBPF_EXECUTABLE_NAME=", `OTEL_EBPF_CONFIG_SUFFIX=-direction`)
+	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_NETWORK_SOURCE=tc", "OTEL_EBPF_EXECUTABLE_PATH=", `OTEL_EBPF_CONFIG_SUFFIX=-direction`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
@@ -145,7 +145,7 @@ func TestNetwork_Direction(t *testing.T) {
 
 func TestNetwork_IfaceDirection_Use_Socket_Filter(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly-direction.yml", path.Join(pathOutput, "test-suite-netolly-direction-no-tc.log"))
-	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_NAME=", "OTEL_EBPF_NETWORK_SOURCE=socket_filter", `OTEL_EBPF_CONFIG_SUFFIX=-direction`)
+	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_PATH=", "OTEL_EBPF_NETWORK_SOURCE=socket_filter", `OTEL_EBPF_CONFIG_SUFFIX=-direction`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 

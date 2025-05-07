@@ -44,7 +44,7 @@ type ProcessInfo struct {
 
 // DiscoveryConfig for the discover.ProcessFinder pipeline
 type DiscoveryConfig struct {
-	// Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_NAME or OTEL_EBPF_OPEN_PORT variables, they will be automatically
+	// Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically
 	// added to the services definition criteria, with the lowest preference.
 	Services DefinitionCriteria `yaml:"services"`
 
@@ -124,6 +124,7 @@ type Attributes struct {
 	// list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089)
 	OpenPorts PortEnum `yaml:"open_ports"`
 	// Path allows defining the regular expression matching the full executable path.
+	// TODO: setup an exe_name property that only cares about the executable name, ignoring the path
 	Path GlobAttr `yaml:"exe_path"`
 
 	// Metadata stores other attributes, such as Kubernetes object metadata

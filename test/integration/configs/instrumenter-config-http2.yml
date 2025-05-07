@@ -11,10 +11,10 @@ discovery:
   services:
     - namespace: http2-go
       name: client
-      exe_path: http2client
+      exe_path: "*http2client"
     - namespace: http2-go
       name: server
-      exe_path: http2srv
+      exe_path: "*http2srv"
 attributes:
   select:
     "*":
