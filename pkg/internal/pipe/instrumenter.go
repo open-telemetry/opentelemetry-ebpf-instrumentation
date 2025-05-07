@@ -78,10 +78,8 @@ func newGraphBuilder(config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh
 	swi.Add(filter.ByAttribute(config.Filters.Application, spanPtrPromGetters,
 		nameResolverToAttrFilter, exportableSpans))
 
-	config.Metrics.Grafana = &gb.config.Grafana.OTLP
 	swi.Add(otel.ReportMetrics(ctxInfo, &config.Metrics, config.Attributes.Select, exportableSpans))
 
-	config.Traces.Grafana = &gb.config.Grafana.OTLP
 	swi.Add(otel.TracesReceiver(ctxInfo, config.Traces, config.Metrics.SpanMetricsEnabled(), config.Attributes.Select, exportableSpans))
 	swi.Add(prom.PrometheusEndpoint(ctxInfo, &config.Prometheus, config.Attributes.Select, exportableSpans))
 	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus))

@@ -97,16 +97,13 @@ type TracesConfig struct {
 	// and the Info messages leak internal details that are not usually valuable for the final user.
 	//nolint:undoc
 	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_OTEL_SDK_LOG_LEVEL"`
-
-	// Grafana configuration needs to be explicitly set up before building the graph
-	Grafana *GrafanaOTLP `yaml:"-"`
 }
 
 // Enabled specifies that the OTEL traces node is enabled if and only if
 // either the OTEL endpoint and OTEL traces endpoint is defined.
 // If not enabled, this node won't be instantiated
 func (m *TracesConfig) Enabled() bool {
-	return m.CommonEndpoint != "" || m.TracesEndpoint != "" || m.Grafana.TracesEnabled()
+	return m.CommonEndpoint != "" || m.TracesEndpoint != ""
 }
 
 func (m *TracesConfig) GetProtocol() Protocol {
@@ -120,7 +117,7 @@ func (m *TracesConfig) GetProtocol() Protocol {
 }
 
 func (m *TracesConfig) OTLPTracesEndpoint() (string, bool) {
-	return ResolveOTLPEndpoint(m.TracesEndpoint, m.CommonEndpoint, m.Grafana)
+	return ResolveOTLPEndpoint(m.TracesEndpoint, m.CommonEndpoint)
 }
 
 func (m *TracesConfig) guessProtocol() Protocol {
@@ -810,7 +807,6 @@ func getHTTPTracesEndpointOptions(cfg *TracesConfig) (otlpOptions, error) {
 		opts.SkipTLSVerify = true
 	}
 
-	cfg.Grafana.setupOptions(&opts)
 	maps.Copy(opts.Headers, HeadersFromEnv(envHeaders))
 	maps.Copy(opts.Headers, HeadersFromEnv(envTracesHeaders))
 
@@ -838,7 +834,6 @@ func getGRPCTracesEndpointOptions(cfg *TracesConfig) (otlpOptions, error) {
 		opts.SkipTLSVerify = true
 	}
 
-	cfg.Grafana.setupOptions(&opts)
 	maps.Copy(opts.Headers, HeadersFromEnv(envHeaders))
 	maps.Copy(opts.Headers, HeadersFromEnv(envTracesHeaders))
 	return opts, nil

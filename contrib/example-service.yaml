@@ -5,13 +5,6 @@ trace_printer: text
 ebpf:
   wakeup_len: 100
 
-grafana:
-  otlp:
-    cloud_zone: <my-cloud-zone>
-    cloud_instance_id: <my-instance-id>
-    cloud_submit:
-      - metrics
-      - traces
 routes:
   unmatched: heuristic
 
