@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gobwas/glob"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,7 +44,7 @@ type ProcessInfo struct {
 
 // DiscoveryConfig for the discover.ProcessFinder pipeline
 type DiscoveryConfig struct {
-	// Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_NAME or OTEL_EBPF_OPEN_PORT variables, they will be automatically
+	// Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically
 	// added to the services definition criteria, with the lowest preference.
 	Services DefinitionCriteria `yaml:"services"`
 
@@ -87,7 +88,6 @@ func (dc DefinitionCriteria) Validate() error {
 	for i := range dc {
 		if dc[i].OpenPorts.Len() == 0 &&
 			!dc[i].Path.IsSet() &&
-			!dc[i].PathRegexp.IsSet() &&
 			len(dc[i].Metadata) == 0 &&
 			len(dc[i].PodLabels) == 0 &&
 			len(dc[i].PodAnnotations) == 0 {
@@ -124,19 +124,17 @@ type Attributes struct {
 	// list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089)
 	OpenPorts PortEnum `yaml:"open_ports"`
 	// Path allows defining the regular expression matching the full executable path.
-	Path RegexpAttr `yaml:"exe_path"`
-	// PathRegexp is deprecated but kept here for backwards compatibility with Beyla 1.0.x.
-	// Deprecated. Please use Path (exe_path YAML attribute)
-	PathRegexp RegexpAttr `yaml:"exe_path_regexp"`
+	// TODO: setup an exe_name property that only cares about the executable name, ignoring the path
+	Path GlobAttr `yaml:"exe_path"`
 
 	// Metadata stores other attributes, such as Kubernetes object metadata
-	Metadata map[string]*RegexpAttr `yaml:",inline"`
+	Metadata map[string]*GlobAttr `yaml:",inline"`
 
 	// PodLabels allows matching against the labels of a pod
-	PodLabels map[string]*RegexpAttr `yaml:"k8s_pod_labels"`
+	PodLabels map[string]*GlobAttr `yaml:"k8s_pod_labels"`
 
 	// PodAnnotations allows matching against the annotations of a pod
-	PodAnnotations map[string]*RegexpAttr `yaml:"k8s_pod_annotations"`
+	PodAnnotations map[string]*GlobAttr `yaml:"k8s_pod_annotations"`
 }
 
 // PortEnum defines an enumeration of ports. It allows defining a set of single ports as well a set of
@@ -199,52 +197,53 @@ func (p *PortEnum) Matches(port int) bool {
 	return false
 }
 
-// RegexpAttr stores a regular expression representing an executable file path.
-type RegexpAttr struct {
-	re *regexp.Regexp
+// GlobAttr provides a YAML handler for glob.Glob so the type can be parsed from YAML or environment variables
+type GlobAttr struct {
+	glob glob.Glob
 }
 
-func NewPathRegexp(re *regexp.Regexp) RegexpAttr {
-	return RegexpAttr{re: re}
+func NewGlob(g glob.Glob) GlobAttr {
+	return GlobAttr{glob: g}
 }
 
-func (p *RegexpAttr) IsSet() bool {
-	return p.re != nil
+func (p *GlobAttr) IsSet() bool {
+	return p.glob != nil
 }
 
-func (p *RegexpAttr) UnmarshalYAML(value *yaml.Node) error {
+func (p *GlobAttr) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.ScalarNode {
-		return fmt.Errorf("RegexpAttr: unexpected YAML node kind %d", value.Kind)
+		return fmt.Errorf("GlobAttr: unexpected YAML node kind %d", value.Kind)
 	}
 	if len(value.Value) == 0 {
-		p.re = nil
+		p.glob = nil
 		return nil
 	}
-	re, err := regexp.Compile(value.Value)
+
+	re, err := glob.Compile(value.Value)
 	if err != nil {
 		return fmt.Errorf("invalid regular expression in node %s: %w", value.Tag, err)
 	}
-	p.re = re
+	p.glob = re
 	return nil
 }
 
-func (p *RegexpAttr) UnmarshalText(text []byte) error {
+func (p *GlobAttr) UnmarshalText(text []byte) error {
 	if len(text) == 0 {
-		p.re = nil
+		p.glob = nil
 		return nil
 	}
-	re, err := regexp.Compile(string(text))
+	re, err := glob.Compile(string(text))
 	if err != nil {
 		return fmt.Errorf("invalid regular expression %q: %w", string(text), err)
 	}
-	p.re = re
+	p.glob = re
 	return nil
 }
 
-func (p *RegexpAttr) MatchString(input string) bool {
-	// no regexp means "empty regexp", so anything will match it
-	if p.re == nil {
+func (p *GlobAttr) MatchString(input string) bool {
+	// no glob means "empty glob", so anything will match it
+	if p.glob == nil {
 		return true
 	}
-	return p.re.MatchString(input)
+	return p.glob.Match(input)
 }

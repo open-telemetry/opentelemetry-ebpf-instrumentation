@@ -11,7 +11,7 @@ discovery:
   services:
     - namespace: grpc-http2-go
       name: server
-      exe_path: testserver
+      exe_path: "*testserver*"
 attributes:
   select:
     "*":

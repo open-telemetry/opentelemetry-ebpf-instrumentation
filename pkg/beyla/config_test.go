@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gobwas/glob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -71,8 +72,11 @@ network:
   enable: true
   cidrs:
     - 10.244.0.0/16
+discovery:
+  default_exclude_services:
+    - exe_path: "*foo*"
 `)
-	t.Setenv("OTEL_EBPF_EXECUTABLE_NAME", "tras")
+	t.Setenv("OTEL_EBPF_EXECUTABLE_PATH", "*tras*")
 	t.Setenv("OTEL_EBPF_NETWORK_AGENT_IP", "1.2.3.4")
 	t.Setenv("OTEL_EBPF_OPEN_PORT", "8080-8089")
 	t.Setenv("OTEL_SERVICE_NAME", "svc-name")
@@ -212,7 +216,7 @@ network:
 			ExcludeOTelInstrumentedServices: true,
 			DefaultExcludeServices: services.DefinitionCriteria{
 				services.Attributes{
-					Path: services.NewPathRegexp(regexp.MustCompile("(?:^|/)(beyla$|alloy$|otelcol[^/]*$)")),
+					Path: services.NewGlob(glob.MustCompile("*foo*")),
 				},
 			},
 		},
@@ -237,15 +241,15 @@ func TestConfig_ShutdownTimeout(t *testing.T) {
 
 func TestConfigValidate(t *testing.T) {
 	testCases := []envMap{
-		{"OTEL_EXPORTER_OTLP_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
-		{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
-		{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
-		{"OTEL_EBPF_TRACE_PRINTER": "text", "OTEL_EBPF_SHUTDOWN_TIMEOUT": "1m", "OTEL_EBPF_EXECUTABLE_NAME": "foo"},
-		{"OTEL_EBPF_TRACE_PRINTER": "json", "OTEL_EBPF_EXECUTABLE_NAME": "foo"},
-		{"OTEL_EBPF_TRACE_PRINTER": "json_indent", "OTEL_EBPF_EXECUTABLE_NAME": "foo"},
-		{"OTEL_EBPF_TRACE_PRINTER": "counter", "OTEL_EBPF_EXECUTABLE_NAME": "foo"},
-		{"OTEL_EBPF_PROMETHEUS_PORT": "8080", "OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
-		{"OTEL_EBPF_INTERNAL_OTEL_METRICS": "true", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_NAME": "foo"},
+		{"OTEL_EXPORTER_OTLP_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_PATH": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
+		{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_PATH": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
+		{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_PATH": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
+		{"OTEL_EBPF_TRACE_PRINTER": "text", "OTEL_EBPF_SHUTDOWN_TIMEOUT": "1m", "OTEL_EBPF_EXECUTABLE_PATH": "foo"},
+		{"OTEL_EBPF_TRACE_PRINTER": "json", "OTEL_EBPF_EXECUTABLE_PATH": "foo"},
+		{"OTEL_EBPF_TRACE_PRINTER": "json_indent", "OTEL_EBPF_EXECUTABLE_PATH": "foo"},
+		{"OTEL_EBPF_TRACE_PRINTER": "counter", "OTEL_EBPF_EXECUTABLE_PATH": "foo"},
+		{"OTEL_EBPF_PROMETHEUS_PORT": "8080", "OTEL_EBPF_EXECUTABLE_PATH": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
+		{"OTEL_EBPF_INTERNAL_OTEL_METRICS": "true", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_PATH": "foo"},
 	}
 	for n, tc := range testCases {
 		t.Run(fmt.Sprint("case", n), func(t *testing.T) {
@@ -257,9 +261,9 @@ func TestConfigValidate(t *testing.T) {
 func TestConfigValidate_error(t *testing.T) {
 	testCases := []envMap{
 		{"OTEL_EXPORTER_OTLP_ENDPOINT": "localhost:1234", "INSTRUMENT_FUNC_NAME": "bar"},
-		{"OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar", "OTEL_EBPF_TRACE_PRINTER": "disabled"},
-		{"OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar", "OTEL_EBPF_TRACE_PRINTER": ""},
-		{"OTEL_EBPF_EXECUTABLE_NAME": "foo", "INSTRUMENT_FUNC_NAME": "bar", "OTEL_EBPF_TRACE_PRINTER": "invalid"},
+		{"OTEL_EBPF_EXECUTABLE_PATH": "foo", "INSTRUMENT_FUNC_NAME": "bar", "OTEL_EBPF_TRACE_PRINTER": "disabled"},
+		{"OTEL_EBPF_EXECUTABLE_PATH": "foo", "INSTRUMENT_FUNC_NAME": "bar", "OTEL_EBPF_TRACE_PRINTER": ""},
+		{"OTEL_EBPF_EXECUTABLE_PATH": "foo", "INSTRUMENT_FUNC_NAME": "bar", "OTEL_EBPF_TRACE_PRINTER": "invalid"},
 	}
 	for n, tc := range testCases {
 		t.Run(fmt.Sprint("case", n), func(t *testing.T) {
@@ -331,11 +335,11 @@ func TestConfigValidate_TracePrinter(t *testing.T) {
 
 	testCases := []test{
 		{
-			env:      envMap{"OTEL_EBPF_EXECUTABLE_NAME": "foo", "OTEL_EBPF_TRACE_PRINTER": "invalid_printer"},
+			env:      envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo", "OTEL_EBPF_TRACE_PRINTER": "invalid_printer"},
 			errorMsg: "invalid value for trace_printer: 'invalid_printer'",
 		},
 		{
-			env:      envMap{"OTEL_EBPF_EXECUTABLE_NAME": "foo"},
+			env:      envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo"},
 			errorMsg: "you need to define at least one exporter: trace_printer, grafana, otel_metrics_export, otel_traces_export or prometheus_export",
 		},
 	}
@@ -352,7 +356,7 @@ func TestConfigValidate_TracePrinter(t *testing.T) {
 }
 
 func TestConfigValidate_TracePrinterFallback(t *testing.T) {
-	env := envMap{"OTEL_EBPF_EXECUTABLE_NAME": "foo", "OTEL_EBPF_TRACE_PRINTER": "text"}
+	env := envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo", "OTEL_EBPF_TRACE_PRINTER": "text"}
 
 	cfg := loadConfig(t, env)
 	err := cfg.Validate()
@@ -361,7 +365,7 @@ func TestConfigValidate_TracePrinterFallback(t *testing.T) {
 }
 
 func TestConfigValidateRoutes(t *testing.T) {
-	userConfig := bytes.NewBufferString(`executable_name: foo
+	userConfig := bytes.NewBufferString(`executable_path: foo
 trace_printer: text
 routes:
   unmatched: heuristic
@@ -374,12 +378,12 @@ routes:
 
 func TestConfigValidateRoutes_Errors(t *testing.T) {
 	for _, tc := range []string{
-		`executable_name: foo
+		`executable_path: foo
 trace_printer: text
 routes:
   unmatched: heuristic
   wildcard_char: "##"
-`, `executable_name: foo
+`, `executable_path: foo
 trace_printer: text
 routes:
   unmatched: heuristic
@@ -397,16 +401,16 @@ routes:
 }
 
 func TestConfig_OtelGoAutoEnv(t *testing.T) {
-	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_NAME
+	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_PATH
 	// (Compatibility with OpenTelemetry)
 	t.Setenv("OTEL_GO_AUTO_TARGET_EXE", "testserver")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
-	assert.True(t, cfg.Exec.IsSet()) // Exec maps to OTEL_EBPF_EXECUTABLE_NAME
+	assert.True(t, cfg.Exec.IsSet()) // Exec maps to OTEL_EBPF_EXECUTABLE_PATH
 }
 
 func TestConfig_NetworkImplicit(t *testing.T) {
-	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_NAME
+	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_PATH
 	// (Compatibility with OpenTelemetry)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
 	t.Setenv("OTEL_EBPF_OTEL_METRIC_FEATURES", "network")
@@ -416,7 +420,7 @@ func TestConfig_NetworkImplicit(t *testing.T) {
 }
 
 func TestConfig_NetworkImplicitProm(t *testing.T) {
-	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_NAME
+	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_PATH
 	// (Compatibility with OpenTelemetry)
 	t.Setenv("OTEL_EBPF_PROMETHEUS_PORT", "9090")
 	t.Setenv("OTEL_EBPF_PROMETHEUS_FEATURES", "network")

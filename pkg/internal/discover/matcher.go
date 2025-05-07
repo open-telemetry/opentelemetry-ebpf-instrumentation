@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"regexp"
 	"slices"
 
+	"github.com/gobwas/glob"
 	"github.com/shirou/gopsutil/v3/process"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
@@ -145,8 +145,8 @@ func (m *matcher) matchProcess(obj *processAttrs, p *services.ProcessInfo, a *se
 		log.Debug("no Kube metadata, no local selection criteria. Ignoring")
 		return false
 	}
-	if (a.Path.IsSet() || a.PathRegexp.IsSet()) && !m.matchByExecutable(p, a) {
-		log.Debug("executable path does not match", "path", a.Path, "pathregexp", a.PathRegexp)
+	if a.Path.IsSet() && !m.matchByExecutable(p, a) {
+		log.Debug("executable path does not match", "path", a.Path)
 		return false
 	}
 	if a.OpenPorts.Len() > 0 && !m.matchByPort(p, a) {
@@ -169,10 +169,7 @@ func (m *matcher) matchByPort(p *services.ProcessInfo, a *services.Attributes) b
 }
 
 func (m *matcher) matchByExecutable(p *services.ProcessInfo, a *services.Attributes) bool {
-	if a.Path.IsSet() {
-		return a.Path.MatchString(p.ExePath)
-	}
-	return a.PathRegexp.MatchString(p.ExePath)
+	return a.Path.MatchString(p.ExePath)
 }
 
 func (m *matcher) matchByAttributes(actual *processAttrs, required *services.Attributes) bool {
@@ -215,7 +212,7 @@ func FindingCriteria(cfg *beyla.Config) services.DefinitionCriteria {
 		return services.DefinitionCriteria{
 			services.Attributes{
 				Namespace: cfg.ServiceNamespace,
-				Path:      services.NewPathRegexp(regexp.MustCompile(".")),
+				Path:      services.NewGlob(glob.MustCompile("**")),
 			},
 		}
 	}
@@ -238,7 +235,7 @@ func FindingCriteria(cfg *beyla.Config) services.DefinitionCriteria {
 		fc := &finderCriteria[i]
 		if !fc.Path.IsSet() && fc.OpenPorts.Len() == 0 && (len(fc.Metadata) > 0 || len(fc.PodLabels) > 0 || len(fc.PodAnnotations) > 0) {
 			// match any executable path
-			if err := fc.Path.UnmarshalText([]byte(".")); err != nil {
+			if err := fc.Path.UnmarshalText([]byte("**")); err != nil {
 				panic("bug! " + err.Error())
 			}
 		}

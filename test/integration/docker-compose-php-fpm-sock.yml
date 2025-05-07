@@ -61,7 +61,7 @@ services:
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
-      OTEL_EBPF_EXECUTABLE_NAME: "nginx|php-fpm"
+      OTEL_EBPF_EXECUTABLE_PATH: "*{nginx,php-fpm}"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_EBPF_METRICS_INTERVAL: "10ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"

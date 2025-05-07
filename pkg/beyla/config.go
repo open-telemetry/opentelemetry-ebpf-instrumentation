@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"regexp"
 	"time"
 
 	"github.com/caarlos0/env/v9"
+	"github.com/gobwas/glob"
 	"gopkg.in/yaml.v3"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
@@ -129,8 +129,8 @@ var DefaultConfig = Config{
 		ExcludeOTelInstrumentedServices: true,
 		DefaultExcludeServices: services.DefinitionCriteria{
 			services.Attributes{
-				// TODO: add final name for opentelemetry-ebpf-instrument executable name
-				Path: services.NewPathRegexp(regexp.MustCompile("(?:^|/)(beyla$|alloy$|otelcol[^/]*$)")),
+				// excluding telemetry components from being instrumented
+				Path: services.NewGlob(glob.MustCompile("{*beyla,*alloy,*ebpf-instrument,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}")),
 			},
 		},
 	},
@@ -159,9 +159,11 @@ type Config struct {
 	TracePrinter debug.TracePrinter            `yaml:"trace_printer" env:"OTEL_EBPF_TRACE_PRINTER"`
 
 	// Exec allows selecting the instrumented executable whose complete path contains the Exec value.
-	Exec services.RegexpAttr `yaml:"executable_name" env:"OTEL_EBPF_EXECUTABLE_NAME"`
+	// TODO: setup an EXECUTABLE_NAME property that only cares about the executable name, ignoring the path
+	Exec services.GlobAttr `yaml:"executable_path" env:"OTEL_EBPF_EXECUTABLE_PATH"`
+
 	//nolint:undoc
-	ExecOtelGo services.RegexpAttr `env:"OTEL_GO_AUTO_TARGET_EXE"`
+	ExecOtelGo services.GlobAttr `env:"OTEL_GO_AUTO_TARGET_EXE"`
 	// Port allows selecting the instrumented executable that owns the Port value. If this value is set (and
 	// different to zero), the value of the Exec property won't take effect.
 	// It's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter
@@ -234,7 +236,7 @@ func (c *Config) Validate() error {
 		return ConfigError("missing to enable application discovery or network metrics. Check documentation")
 	}
 	if (c.Port.Len() > 0 || c.Exec.IsSet() || len(c.Discovery.Services) > 0) && c.Discovery.SystemWide {
-		return ConfigError("you can't use OTEL_EBPF_SYSTEM_WIDE if any of OTEL_EBPF_EXECUTABLE_NAME, OTEL_EBPF_OPEN_PORT or services (YAML) are set")
+		return ConfigError("you can't use OTEL_EBPF_SYSTEM_WIDE if any of OTEL_EBPF_EXECUTABLE_PATH, OTEL_EBPF_OPEN_PORT or services (YAML) are set")
 	}
 	if c.EBPF.BatchLength == 0 {
 		return ConfigError("OTEL_EBPF_BPF_BATCH_LENGTH must be at least 1")
@@ -364,7 +366,7 @@ func LoadConfig(file io.Reader) (*Config, error) {
 		return nil, fmt.Errorf("reading env vars: %w", err)
 	}
 
-	// We support OTEL_GO_AUTO_TARGET_EXE as an alias to OTEL_EBPF_EXECUTABLE_NAME
+	// We support OTEL_GO_AUTO_TARGET_EXE as an alias to OTEL_EBPF_EXECUTABLE_PATH
 	if !cfg.Exec.IsSet() && cfg.ExecOtelGo.IsSet() {
 		cfg.Exec = cfg.ExecOtelGo
 	}

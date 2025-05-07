@@ -17,7 +17,7 @@ func TestYAMLParse_PathRegexp(t *testing.T) {
 	inputFile := `
 services:
   - name: foo
-    exe_path: "^abc$"
+    exe_path: "abc"
 `
 	yf := yamlFile{}
 	require.NoError(t, yaml.Unmarshal([]byte(inputFile), &yf))
@@ -33,9 +33,9 @@ services:
 }
 
 func TestYAMLParse_PathRegexp_Errors(t *testing.T) {
-	t.Run("wrong regular expression", func(t *testing.T) {
+	t.Run("wrong glob expression", func(t *testing.T) {
 		require.Error(t, yaml.Unmarshal([]byte(`services:
-  - exe_path: "$a\("`), &yamlFile{}))
+  - exe_path: "{a\("`), &yamlFile{}))
 	})
 	t.Run("wrong regular pathregexp type", func(t *testing.T) {
 		require.Error(t, yaml.Unmarshal([]byte(`services:
@@ -121,10 +121,10 @@ func TestYAMLParse_OtherAttrs(t *testing.T) {
 	inputFile := `
 services:
   - name: foo
-    k8s_namespace: "^aaa$"
-    k8s_pod_name: "^abc$"
-    k8s_deployment_name: "^bbb$"
-    k8s_replicaset_name: "^bbc$"
+    k8s_namespace: "aaa"
+    k8s_pod_name: "abc"
+    k8s_deployment_name: "bbb"
+    k8s_replicaset_name: "bbc"
 `
 	yf := yamlFile{}
 	require.NoError(t, yaml.Unmarshal([]byte(inputFile), &yf))

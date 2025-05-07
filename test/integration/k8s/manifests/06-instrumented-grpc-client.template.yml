@@ -67,8 +67,8 @@ spec:
           value: "500ms"
         - name: OTEL_EBPF_TRACE_PRINTER
           value: "json_indent"
-        - name: OTEL_EBPF_EXECUTABLE_NAME
-          value: "grpcpinger"
+        - name: OTEL_EBPF_EXECUTABLE_PATH
+          value: "*grpcpinger"
         - name: OTEL_EBPF_METRICS_INTERVAL
           value: "10ms"
         - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
