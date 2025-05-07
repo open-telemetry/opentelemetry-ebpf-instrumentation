@@ -66,8 +66,6 @@ func traceFuncHelper(t *testing.T, tracePrinter TracePrinter) string {
 		Statement:      "statement",
 	}
 
-	fakeSpan.SetIgnoreMetrics()
-
 	// redirect the TracePrinter function stdout to a pipe so that we can
 	// capture and return its output
 	r, w, err := os.Pipe()
@@ -115,7 +113,7 @@ func TestTracePrinterResolve_PrinterCounter(t *testing.T) {
 func TestTracePrinterResolve_PrinterJSON(t *testing.T) {
 	// test as separate chunks to exclude timestamps (start, handlerStart, end)
 
-	prefix := `[{"type":"HTTP","ignoreSpan":"Metrics","peer":"peer","peerPort":"1234",` +
+	prefix := `[{"type":"HTTP","peer":"peer","peerPort":"1234",` +
 		`"host":"host","hostPort":"5678","traceID":"01020300000000000000000000000000",` +
 		`"spanID":"0102030000000000","parentSpanID":"0102040000000000","flags":"1",` +
 		`"peerName":"peername","hostName":"hostname","kind":"SPAN_KIND_SERVER","`
@@ -136,7 +134,6 @@ func TestTracePrinterResolve_PrinterJSONIndent(t *testing.T) {
 	prefix := `[
  {
   "type": "HTTP",
-  "ignoreSpan": "Metrics",
   "peer": "peer",
   "peerPort": "1234",
   "host": "host",
