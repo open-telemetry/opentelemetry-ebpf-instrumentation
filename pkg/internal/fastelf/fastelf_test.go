@@ -9,7 +9,6 @@ import (
 
 func writeTempFile(data []byte) (name string, cleanup func(), err error) {
 	tmpFile, err := os.CreateTemp("", "tempdata-*.bin")
-
 	if err != nil {
 		return "", nil, err
 	}
@@ -58,7 +57,7 @@ func TestFastElf_File(t *testing.T) {
 	testFastElf(t, ctx)
 }
 
-// nolint: stylecheck,revive
+//nolint:stylecheck,revive,staticcheck,ST1003
 var libbsd_so_0_12_2 = []byte{
 	0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x3e, 0x00, 0x01, 0x00, 0x00, 0x00,

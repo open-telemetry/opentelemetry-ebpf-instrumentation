@@ -1,6 +1,7 @@
 package fastelf
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -14,7 +15,7 @@ import (
 
 const InvalidAddr = ^uint64(0)
 
-//nolint:revive,stylecheck
+//nolint:revive,stylecheck,staticcheck,ST1003
 const (
 	STT_NOTYPE  uint8 = 0  /* Unspecified type. */
 	STT_OBJECT  uint8 = 1  /* Data object. */
@@ -34,13 +35,13 @@ const (
 	STT_GNU_IFUNC uint8 = 10 /* Indirect code object. */
 )
 
-//nolint:revive,stylecheck
+//nolint:revive,stylecheck,staticcheck,ST1003
 const (
 	SHT_NULL           uint32 = 0          /* inactive */
 	SHT_PROGBITS       uint32 = 1          /* program defined information */
 	SHT_SYMTAB         uint32 = 2          /* symbol table section */
 	SHT_STRTAB         uint32 = 3          /* string table section */
-	SHT_RELA           uint32 = 4          /* relocation section with addends */
+	SHT_RELA           uint32 = 4          /* relocation section with addends */ //nolint:misspell
 	SHT_HASH           uint32 = 5          /* symbol hash table section */
 	SHT_DYNAMIC        uint32 = 6          /* dynamic section */
 	SHT_NOTE           uint32 = 7          /* note section */
@@ -68,7 +69,7 @@ const (
 	SHT_HIUSER         uint32 = 0xffffffff /* specific indexes */
 )
 
-//nolint:revive,stylecheck
+//nolint:revive,stylecheck,staticcheck,ST1003
 const (
 	PT_NULL    uint32 = 0 /* Unused entry. */
 	PT_LOAD    uint32 = 1 /* Loadable segment. */
@@ -118,7 +119,7 @@ const (
 	PT_HIPROC uint32 = 0x7fffffff /* Last processor-specific type. */
 )
 
-//nolint:revive,stylecheck
+//nolint:revive,stylecheck,staticcheck,ST1003
 const (
 	PF_X        uint32 = 0x1        /* Executable. */
 	PF_W        uint32 = 0x2        /* Writable. */
@@ -127,7 +128,7 @@ const (
 	PF_MASKPROC uint32 = 0xf0000000 /* Processor-specific. */
 )
 
-//nolint:revive,stylecheck
+//nolint:revive,stylecheck,staticcheck,ST1003
 type Elf64_Ehdr struct {
 	Ident     [16]byte
 	Type      uint16
@@ -145,7 +146,7 @@ type Elf64_Ehdr struct {
 	Shstrndx  uint16
 }
 
-//nolint:revive,stylecheck
+//nolint:revive,stylecheck,staticcheck,ST1003
 type Elf64_Phdr struct {
 	Type   uint32
 	Flags  uint32
@@ -157,7 +158,7 @@ type Elf64_Phdr struct {
 	Align  uint64
 }
 
-//nolint:revive,stylecheck
+//nolint:revive,stylecheck,staticcheck,ST1003
 type Elf64_Shdr struct {
 	Name      uint32
 	Type      uint32
@@ -171,7 +172,7 @@ type Elf64_Shdr struct {
 	Entsize   uint64
 }
 
-//nolint:revive,stylecheck
+//nolint:revive,stylecheck,staticcheck,ST1003
 type Elf64_Sym struct {
 	Name  uint32
 	Info  uint8
@@ -224,20 +225,17 @@ type ElfContext struct {
 
 func NewElfContextFromFile(filePath string) (*ElfContext, error) {
 	file, err := os.Open(filePath)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to open %s: %w", filePath, err)
 	}
 
 	info, err := file.Stat()
-
 	if err != nil {
 		file.Close()
 		return nil, fmt.Errorf("failed to stat %s: %w", filePath, err)
 	}
 
 	ctx, err := NewElfContextFromFileHandle(file, info.Size())
-
 	if err != nil {
 		file.Close()
 		return nil, err
@@ -250,17 +248,15 @@ func NewElfContextFromFile(filePath string) (*ElfContext, error) {
 
 func NewElfContextFromFileHandle(file *os.File, fileSize int64) (*ElfContext, error) {
 	if fileSize < math.MinInt || fileSize > math.MaxInt {
-		return nil, fmt.Errorf("file size is too big")
+		return nil, errors.New("file size is too big")
 	}
 
 	data, err := unix.Mmap(int(file.Fd()), 0, int(fileSize), unix.PROT_READ, unix.MAP_PRIVATE)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to mmap file: %w", err)
 	}
 
 	ctx, err := NewElfContextFromData(data)
-
 	if err != nil {
 		_ = unix.Munmap(data)
 
@@ -276,11 +272,11 @@ func NewElfContextFromData(data []byte) (*ElfContext, error) {
 	hdr := ReadStruct[Elf64_Ehdr](data, 0)
 
 	if hdr == nil {
-		return nil, fmt.Errorf("invalid ELF file")
+		return nil, errors.New("invalid ELF file")
 	}
 
 	if unsafeString(hdr.Ident[:4]) != "\x7fELF" {
-		return nil, fmt.Errorf("invalid ELF signature")
+		return nil, errors.New("invalid ELF signature")
 	}
 
 	ctx := ElfContext{Hdr: hdr, Data: data}
