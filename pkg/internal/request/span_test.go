@@ -46,19 +46,6 @@ func TestEventTypeString(t *testing.T) {
 	}
 }
 
-func TestIgnoreModeString(t *testing.T) {
-	modeStringMap := map[ignoreMode]string{
-		ignoreMetrics:                "Metrics",
-		ignoreTraces:                 "Traces",
-		ignoreMode(0):                "",
-		ignoreTraces | ignoreMetrics: "MetricsTraces",
-	}
-
-	for mode, str := range modeStringMap {
-		assert.Equal(t, mode.String(), str)
-	}
-}
-
 func TestKindString(t *testing.T) {
 	m := map[*Span]string{
 		{Type: EventTypeHTTP}:                                  "SPAN_KIND_SERVER",
@@ -181,7 +168,6 @@ func TestSerializeJSONSpans(t *testing.T) {
 	test := func(t *testing.T, tData *testData) {
 		span := Span{
 			Type:           tData.eventType,
-			IgnoreSpan:     ignoreMetrics,
 			Method:         "method",
 			Path:           "path",
 			Route:          "route",
@@ -216,7 +202,6 @@ func TestSerializeJSONSpans(t *testing.T) {
 		assert.Equal(t, map[string]any{
 			"type":                tData.eventType.String(),
 			"kind":                span.ServiceGraphKind(),
-			"ignoreSpan":          "Metrics",
 			"peer":                "peer",
 			"peerPort":            "1234",
 			"host":                "host",

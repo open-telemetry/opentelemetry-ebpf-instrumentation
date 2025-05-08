@@ -92,30 +92,6 @@ func (t EventType) MarshalText() ([]byte, error) {
 	return []byte(t.String()), nil
 }
 
-type ignoreMode uint8
-
-const (
-	ignoreMetrics ignoreMode = 0x1
-	ignoreTraces  ignoreMode = 0x2
-)
-
-func (m ignoreMode) String() string {
-	result := ""
-
-	if (m & ignoreMetrics) == ignoreMetrics {
-		result += "Metrics"
-	}
-	if (m & ignoreTraces) == ignoreTraces {
-		result += "Traces"
-	}
-
-	return result
-}
-
-func (m ignoreMode) MarshalText() ([]byte, error) {
-	return []byte(m.String()), nil
-}
-
 const (
 	MessagingPublish = "publish"
 	MessagingProcess = "process"
@@ -145,7 +121,6 @@ type PidInfo struct {
 // SpanPromGetters and getDefinitions in pkg/export/attributes/attr_defs.go
 type Span struct {
 	Type           EventType      `json:"type"`
-	IgnoreSpan     ignoreMode     `json:"ignoreSpan"`
 	Method         string         `json:"-"`
 	Path           string         `json:"-"`
 	Route          string         `json:"-"`
@@ -339,30 +314,6 @@ func (s *Span) IsClientSpan() bool {
 	}
 
 	return false
-}
-
-func (s *Span) setIgnoreFlag(flag ignoreMode) {
-	s.IgnoreSpan |= flag
-}
-
-func (s *Span) isIgnored(flag ignoreMode) bool {
-	return (s.IgnoreSpan & flag) == flag
-}
-
-func (s *Span) SetIgnoreMetrics() {
-	s.setIgnoreFlag(ignoreMetrics)
-}
-
-func (s *Span) SetIgnoreTraces() {
-	s.setIgnoreFlag(ignoreTraces)
-}
-
-func (s *Span) IgnoreMetrics() bool {
-	return s.isIgnored(ignoreMetrics)
-}
-
-func (s *Span) IgnoreTraces() bool {
-	return s.isIgnored(ignoreTraces)
 }
 
 const (
