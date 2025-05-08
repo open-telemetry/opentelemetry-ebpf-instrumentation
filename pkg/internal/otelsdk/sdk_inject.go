@@ -129,14 +129,6 @@ func (i *SDKInjector) extractAgent(ie *ebpf.Instrumentable) (string, error) {
 	return agentPathContainer, nil
 }
 
-func expandHeadersWithAuth(options map[string]string, key string, value string) {
-	if existing, ok := options[key]; ok {
-		options[key] = existing + ",Authorization=" + value
-	} else {
-		options[key] = "Authorization=" + value
-	}
-}
-
 func otlpOptions(cfg *beyla.Config) (map[string]string, error) {
 	options := map[string]string{}
 	var tracesEndpoint, metricsEndpoint string
