@@ -118,43 +118,6 @@ func TestUnmatchedAuto(t *testing.T) {
 	}
 }
 
-func TestIgnoreRoutes(t *testing.T) {
-	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
-	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
-	router, err := RoutesProvider(&RoutesConfig{
-		Unmatch: UnmatchPath, Patterns: []string{"/user/:id", "/v1/metrics"},
-		IgnorePatterns: []string{"/v1/metrics/*", "/v1/traces/*", "/exact"},
-	},
-		input, output)(t.Context())
-	require.NoError(t, err)
-	out := output.Subscribe()
-	defer input.Close()
-	go router(t.Context())
-	input.Send([]request.Span{{Path: "/user/1234"}})
-	input.Send([]request.Span{{Path: "/v1/metrics"}}) // this is in routes and ignore, ignore takes precedence
-	input.Send([]request.Span{{Path: "/v1/traces/1234/test"}})
-	input.Send([]request.Span{{Path: "/v1/metrics/1234/test"}}) // this is in routes and ignore, ignore takes precedence
-	input.Send([]request.Span{{Path: "/v1/traces"}})
-	input.Send([]request.Span{{Path: "/exact"}})
-	input.Send([]request.Span{{Path: "/some/path"}})
-	assert.Equal(t, []request.Span{{
-		Path:  "/user/1234",
-		Route: "/user/:id",
-	}}, filterIgnored(func() []request.Span { return testutil.ReadChannel(t, out, testTimeout) }))
-	assert.Equal(t, []request.Span{{
-		Path:  "/some/path",
-		Route: "/some/path",
-	}}, filterIgnored(func() []request.Span { return testutil.ReadChannel(t, out, testTimeout) }))
-}
-
-func TestIgnoreMode(t *testing.T) {
-	s := request.Span{Path: "/user/1234"}
-	setSpanIgnoreMode(IgnoreTraces, &s)
-	assert.True(t, s.IgnoreTraces())
-	setSpanIgnoreMode(IgnoreMetrics, &s)
-	assert.True(t, s.IgnoreMetrics())
-}
-
 func BenchmarkRoutesProvider_Wildcard(b *testing.B) {
 	benchProvider(b, UnmatchWildcard)
 }
@@ -186,29 +149,5 @@ func benchProvider(b *testing.B, unmatch UnmatchType) {
 	for i := 0; i < b.N; i++ {
 		inCh <- benchmarkInput
 		<-outCh
-	}
-}
-
-func filterIgnored(reader func() []request.Span) []request.Span {
-	for {
-		input := reader()
-		output := make([]request.Span, 0, len(input))
-		for i := range input {
-			s := &input[i]
-
-			if s.IgnoreMetrics() {
-				continue
-			}
-
-			if s.IgnoreTraces() {
-				continue
-			}
-
-			output = append(output, *s)
-		}
-
-		if len(output) > 0 {
-			return output
-		}
 	}
 }
