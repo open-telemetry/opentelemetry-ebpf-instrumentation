@@ -318,7 +318,16 @@ func (ctx *ElfContext) HasSymbol(symbol string) bool {
 			continue
 		}
 
+		if int(sec.Link) >= len(ctx.Sections) {
+			continue
+		}
+
 		strtab := ctx.Sections[sec.Link]
+
+		if int(strtab.Offset) >= len(ctx.Data) {
+			continue
+		}
+
 		strs := ctx.Data[strtab.Offset:]
 
 		symCount := int(sec.Size / sec.Entsize)
@@ -342,7 +351,16 @@ func (ctx *ElfContext) HasSymbol(symbol string) bool {
 }
 
 func (ctx *ElfContext) HasSection(section string) bool {
+	if int(ctx.Hdr.Shstrndx) >= len(ctx.Sections) {
+		return false
+	}
+
 	shstrtab := ctx.Sections[ctx.Hdr.Shstrndx]
+
+	if int(shstrtab.Offset) >= len(ctx.Data) {
+		return false
+	}
+
 	shstrtabData := ctx.Data[shstrtab.Offset:]
 
 	for _, sec := range ctx.Sections {
