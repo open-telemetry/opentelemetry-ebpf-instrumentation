@@ -1040,10 +1040,6 @@ func (mr *MetricsReporter) reportMetrics(_ context.Context) {
 			if s.InternalSignal() {
 				continue
 			}
-			// If we are ignoring this span because of route patterns, don't do anything
-			if s.IgnoreMetrics() {
-				continue
-			}
 			reporter, err := mr.reporters.For(&s.Service)
 			if err != nil {
 				mlog().Error("unexpected error creating OTEL resource. Ignoring metric",

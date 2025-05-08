@@ -204,7 +204,7 @@ func (tr *tracesOTELReceiver) getConstantAttributes() (map[attr.Name]struct{}, e
 }
 
 func (tr *tracesOTELReceiver) spanDiscarded(span *request.Span) bool {
-	return span.IgnoreTraces() || span.Service.ExportsOTelTraces() || !tr.acceptSpan(span)
+	return span.Service.ExportsOTelTraces() || !tr.acceptSpan(span)
 }
 
 func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Traces, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler) {
