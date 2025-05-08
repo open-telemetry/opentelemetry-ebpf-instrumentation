@@ -53,12 +53,6 @@ var DefaultConfig = Config{
 		ContextPropagationEnabled: false,
 		ContextPropagation:        config.ContextPropagationDisabled,
 	},
-	Grafana: otel.GrafanaConfig{
-		OTLP: otel.GrafanaOTLP{
-			// by default we will only submit traces, assuming span2metrics will do the metrics conversion
-			Submit: []string{"traces"},
-		},
-	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources:  []string{"k8s"},
 		CacheLen: 1024,
@@ -141,10 +135,6 @@ type Config struct {
 
 	// NetworkFlows configuration for Network Observability feature
 	NetworkFlows NetworkConfig `yaml:"network"`
-
-	// Grafana overrides some values of the otel.MetricsConfig and otel.TracesConfig below
-	// for a simpler submission of OTEL metrics to Grafana Cloud
-	Grafana otel.GrafanaConfig `yaml:"grafana"`
 
 	Filters filter.AttributesConfig `yaml:"filter"`
 
@@ -270,10 +260,10 @@ func (c *Config) Validate() error {
 		return ConfigError("OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT duration must be greater than 0s")
 	}
 
-	if c.Enabled(FeatureNetO11y) && !c.Grafana.OTLP.MetricsEnabled() && !c.Metrics.Enabled() &&
+	if c.Enabled(FeatureNetO11y) && !c.Metrics.Enabled() &&
 		!c.Prometheus.Enabled() && !c.NetworkFlows.Print {
 		return ConfigError("enabling network metrics requires to enable at least the OpenTelemetry" +
-			" metrics exporter: grafana, otel_metrics_export or prometheus_export sections in the YAML configuration file; or the" +
+			" metrics exporter: otel_metrics_export or prometheus_export sections in the YAML configuration file; or the" +
 			" OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_METRICS_ENDPOINT or OTEL_EBPF_PROMETHEUS_PORT environment variables. For debugging" +
 			" purposes, you can also set OTEL_EBPF_NETWORK_PRINT_FLOWS=true")
 	}
@@ -283,11 +273,10 @@ func (c *Config) Validate() error {
 	}
 
 	if c.Enabled(FeatureAppO11y) && !c.TracePrinter.Enabled() &&
-		!c.Grafana.OTLP.MetricsEnabled() && !c.Grafana.OTLP.TracesEnabled() &&
 		!c.Metrics.Enabled() && !c.Traces.Enabled() &&
 		!c.Prometheus.Enabled() && !c.TracePrinter.Enabled() {
 		return ConfigError("you need to define at least one exporter: trace_printer," +
-			" grafana, otel_metrics_export, otel_traces_export or prometheus_export")
+			" otel_metrics_export, otel_traces_export or prometheus_export")
 	}
 
 	if len(c.Routes.WildcardChar) > 1 {
@@ -297,7 +286,7 @@ func (c *Config) Validate() error {
 	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && c.InternalMetrics.Prometheus.Port != 0 {
 		return ConfigError("you can't enable both OTEL and Prometheus internal metrics")
 	}
-	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && !c.Metrics.Enabled() && !c.Grafana.OTLP.MetricsEnabled() {
+	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && !c.Metrics.Enabled() {
 		return ConfigError("you can't enable OTEL internal metrics without enabling OTEL metrics")
 	}
 
@@ -309,7 +298,7 @@ func (c *Config) promNetO11yEnabled() bool {
 }
 
 func (c *Config) otelNetO11yEnabled() bool {
-	return (c.Metrics.Enabled() || c.Grafana.OTLP.MetricsEnabled()) && c.Metrics.NetworkMetricsEnabled()
+	return c.Metrics.Enabled() && c.Metrics.NetworkMetricsEnabled()
 }
 
 func (c *Config) willUseTC() bool {

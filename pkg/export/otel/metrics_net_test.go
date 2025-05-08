@@ -138,21 +138,18 @@ func TestNetMetricsConfig_Enabled(t *testing.T) {
 	assert.True(t, NetMetricsConfig{Metrics: &MetricsConfig{
 		Features: []string{FeatureNetwork, FeatureApplication}, MetricsEndpoint: "foo",
 	}}.Enabled())
-	assert.True(t, NetMetricsConfig{Metrics: &MetricsConfig{
-		Features: []string{FeatureNetwork}, Grafana: &GrafanaOTLP{Submit: []string{"traces", "metrics"}, InstanceID: "33221"},
-	}}.Enabled())
 }
 
 func TestNetMetricsConfig_Disabled(t *testing.T) {
 	fa := []string{FeatureApplication}
 	fn := []string{FeatureNetwork}
 	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{Features: fn}}.Enabled())
-	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{Features: fn, Grafana: &GrafanaOTLP{Submit: []string{"traces"}, InstanceID: "33221"}}}.Enabled())
-	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{Features: fn, Grafana: &GrafanaOTLP{Submit: []string{"metrics"}}}}.Enabled())
+	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{Features: fn}}.Enabled())
+	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{Features: fn}}.Enabled())
 	// network feature is not enabled
 	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{CommonEndpoint: "foo"}}.Enabled())
 	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{MetricsEndpoint: "foo", Features: fa}}.Enabled())
-	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{Grafana: &GrafanaOTLP{Submit: []string{"traces", "metrics"}, InstanceID: "33221"}}}.Enabled())
+	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{}}.Enabled())
 }
 
 func TestGetFilteredNetworkResourceAttrs(t *testing.T) {

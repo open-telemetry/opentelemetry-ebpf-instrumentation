@@ -77,40 +77,6 @@ func TestHTTPTracesEndpoint(t *testing.T) {
 	})
 }
 
-func TestHTTPTracesWithGrafanaOptions(t *testing.T) {
-	defer restoreEnvAfterExecution()
-	mcfg := TracesConfig{Grafana: &GrafanaOTLP{
-		Submit:     []string{submitMetrics, submitTraces},
-		CloudZone:  "eu-west-23",
-		InstanceID: "12345",
-		APIKey:     "affafafaafkd",
-	}, Instrumentations: []string{instrumentations.InstrumentationALL}}
-	t.Run("testing basic Grafana Cloud options", func(t *testing.T) {
-		testHTTPTracesOptions(t, otlpOptions{
-			Scheme:      "https",
-			Endpoint:    "otlp-gateway-eu-west-23.grafana.net",
-			BaseURLPath: "/otlp",
-			URLPath:     "/otlp/v1/traces",
-			Headers: map[string]string{
-				// Basic + output of: echo -n 12345:affafafaafkd | gbase64 -w 0
-				"Authorization": "Basic MTIzNDU6YWZmYWZhZmFhZmtk",
-			},
-		}, &mcfg)
-	})
-	mcfg.CommonEndpoint = "https://localhost:3939"
-	t.Run("Overriding endpoint URL", func(t *testing.T) {
-		testHTTPTracesOptions(t, otlpOptions{
-			Scheme:   "https",
-			Endpoint: "localhost:3939",
-			URLPath:  "/v1/traces",
-			Headers: map[string]string{
-				// Base64 representation of 12345:affafafaafkd
-				"Authorization": "Basic MTIzNDU6YWZmYWZhZmFhZmtk",
-			},
-		}, &mcfg)
-	})
-}
-
 func testHTTPTracesOptions(t *testing.T, expected otlpOptions, tcfg *TracesConfig) {
 	defer restoreEnvAfterExecution()()
 	opts, err := getHTTPTracesEndpointOptions(tcfg)
@@ -136,7 +102,6 @@ func TestHTTPTracesEndpointHeaders(t *testing.T) {
 		Description     string
 		Env             map[string]string
 		ExpectedHeaders map[string]string
-		Grafana         GrafanaOTLP
 	}
 	for _, tc := range []testCase{
 		{
@@ -161,17 +126,6 @@ func TestHTTPTracesEndpointHeaders(t *testing.T) {
 			},
 			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1111=="},
 		},
-		{
-			Description:     "Legacy Grafana Cloud vars",
-			Grafana:         GrafanaOTLP{InstanceID: "123", APIKey: "456"},
-			ExpectedHeaders: map[string]string{"Authorization": "Basic MTIzOjQ1Ng=="},
-		},
-		{
-			Description:     "OTLP en vars take precedence over legacy Grafana Cloud vars",
-			Grafana:         GrafanaOTLP{InstanceID: "123", APIKey: "456"},
-			Env:             map[string]string{"OTEL_EXPORTER_OTLP_HEADERS": "Foo=Bar ==,Authorization=Base 4321=="},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 4321=="},
-		},
 	} {
 		// mutex to avoid running testcases in parallel so we don't mess up with env vars
 		mt := sync.Mutex{}
@@ -188,7 +142,6 @@ func TestHTTPTracesEndpointHeaders(t *testing.T) {
 
 			opts, err := getHTTPTracesEndpointOptions(&TracesConfig{
 				TracesEndpoint:   "https://localhost:1234/v1/traces",
-				Grafana:          &tc.Grafana,
 				Instrumentations: []string{instrumentations.InstrumentationALL},
 			})
 			require.NoError(t, err)
@@ -247,7 +200,6 @@ func TestGRPCTracesEndpointHeaders(t *testing.T) {
 		Description     string
 		Env             map[string]string
 		ExpectedHeaders map[string]string
-		Grafana         GrafanaOTLP
 	}
 	for _, tc := range []testCase{
 		{
@@ -288,7 +240,6 @@ func TestGRPCTracesEndpointHeaders(t *testing.T) {
 
 			opts, err := getGRPCTracesEndpointOptions(&TracesConfig{
 				TracesEndpoint:   "https://localhost:1234/v1/traces",
-				Grafana:          &tc.Grafana,
 				Instrumentations: []string{instrumentations.InstrumentationALL},
 			})
 			require.NoError(t, err)
@@ -913,13 +864,10 @@ func TestCodeToStatusCode(t *testing.T) {
 func TestTracesConfig_Enabled(t *testing.T) {
 	assert.True(t, (&TracesConfig{CommonEndpoint: "foo"}).Enabled())
 	assert.True(t, (&TracesConfig{TracesEndpoint: "foo"}).Enabled())
-	assert.True(t, (&TracesConfig{Grafana: &GrafanaOTLP{Submit: []string{"traces", "metrics"}, InstanceID: "33221"}}).Enabled())
 }
 
 func TestTracesConfig_Disabled(t *testing.T) {
 	assert.False(t, (&TracesConfig{}).Enabled())
-	assert.False(t, (&TracesConfig{Grafana: &GrafanaOTLP{Submit: []string{"metrics"}, InstanceID: "33221"}}).Enabled())
-	assert.False(t, (&TracesConfig{Grafana: &GrafanaOTLP{Submit: []string{"traces"}}}).Enabled())
 }
 
 func TestSpanHostPeer(t *testing.T) {

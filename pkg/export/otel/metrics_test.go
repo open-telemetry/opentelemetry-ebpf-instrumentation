@@ -78,39 +78,6 @@ func TestHTTPMetricsEndpointOptions(t *testing.T) {
 	})
 }
 
-func TestHTTPMetricsWithGrafanaOptions(t *testing.T) {
-	defer restoreEnvAfterExecution()
-	mcfg := MetricsConfig{
-		Grafana: &GrafanaOTLP{
-			Submit:     []string{submitMetrics, submitTraces},
-			CloudZone:  "eu-west-23",
-			InstanceID: "12345",
-			APIKey:     "affafafaafkd",
-		}, Instrumentations: []string{instrumentations.InstrumentationHTTP},
-	}
-	t.Run("testing basic Grafana Cloud options", func(t *testing.T) {
-		testMetricsHTTPOptions(t, otlpOptions{
-			Endpoint: "otlp-gateway-eu-west-23.grafana.net",
-			URLPath:  "/otlp/v1/metrics",
-			Headers: map[string]string{
-				// Basic + output of: echo -n 12345:affafafaafkd | gbase64 -w 0
-				"Authorization": "Basic MTIzNDU6YWZmYWZhZmFhZmtk",
-			},
-		}, &mcfg)
-	})
-	mcfg.CommonEndpoint = "https://localhost:3939"
-	t.Run("Overriding endpoint URL", func(t *testing.T) {
-		testMetricsHTTPOptions(t, otlpOptions{
-			Endpoint: "localhost:3939",
-			URLPath:  "/v1/metrics",
-			Headers: map[string]string{
-				// Basic + output of: echo -n 12345:affafafaafkd | gbase64 -w 0
-				"Authorization": "Basic MTIzNDU6YWZmYWZhZmFhZmtk",
-			},
-		}, &mcfg)
-	})
-}
-
 func testMetricsHTTPOptions(t *testing.T, expected otlpOptions, mcfg *MetricsConfig) {
 	defer restoreEnvAfterExecution()()
 	opts, err := getHTTPMetricEndpointOptions(mcfg)
@@ -540,17 +507,16 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 func TestMetricsConfig_Enabled(t *testing.T) {
 	assert.True(t, (&MetricsConfig{Features: []string{FeatureApplication, FeatureNetwork}, CommonEndpoint: "foo"}).Enabled())
 	assert.True(t, (&MetricsConfig{Features: []string{FeatureApplication}, MetricsEndpoint: "foo"}).Enabled())
-	assert.True(t, (&MetricsConfig{Features: []string{FeatureNetwork, FeatureApplication}, Grafana: &GrafanaOTLP{Submit: []string{"traces", "metrics"}, InstanceID: "33221"}}).Enabled())
 	assert.True(t, (&MetricsConfig{MetricsEndpoint: "foo", Features: []string{FeatureNetwork}}).Enabled())
 }
 
 func TestMetricsConfig_Disabled(t *testing.T) {
 	assert.False(t, (&MetricsConfig{Features: []string{FeatureApplication}}).Enabled())
-	assert.False(t, (&MetricsConfig{Features: []string{FeatureApplication}, Grafana: &GrafanaOTLP{Submit: []string{"traces"}, InstanceID: "33221"}}).Enabled())
-	assert.False(t, (&MetricsConfig{Features: []string{FeatureApplication}, Grafana: &GrafanaOTLP{Submit: []string{"metrics"}}}).Enabled())
+	assert.False(t, (&MetricsConfig{Features: []string{FeatureNetwork, FeatureApplication}}).Enabled())
+	assert.False(t, (&MetricsConfig{Features: []string{FeatureNetwork}}).Enabled())
 	// application feature is not enabled
 	assert.False(t, (&MetricsConfig{CommonEndpoint: "foo"}).Enabled())
-	assert.False(t, (&MetricsConfig{Grafana: &GrafanaOTLP{Submit: []string{"traces", "metrics"}, InstanceID: "33221"}}).Enabled())
+	assert.False(t, (&MetricsConfig{}).Enabled())
 }
 
 func TestSpanMetricsDiscarded(t *testing.T) {
