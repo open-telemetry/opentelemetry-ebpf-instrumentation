@@ -489,17 +489,13 @@ func ResourceAttrsFromEnv(svc *svc.Attrs) []attribute.KeyValue {
 	return otelResourceAttrs
 }
 
-func ResolveOTLPEndpoint(endpoint, common string, grafana *GrafanaOTLP) (string, bool) {
+func ResolveOTLPEndpoint(endpoint, common string) (string, bool) {
 	if endpoint != "" {
 		return endpoint, false
 	}
 
 	if common != "" {
 		return common, true
-	}
-
-	if grafana != nil && grafana.CloudZone != "" && grafana.Endpoint() != "" {
-		return grafana.Endpoint(), true
 	}
 
 	return "", false

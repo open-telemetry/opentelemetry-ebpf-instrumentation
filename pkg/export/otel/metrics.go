@@ -120,9 +120,6 @@ type MetricsConfig struct {
 	TTL time.Duration `yaml:"ttl" env:"OTEL_EBPF_OTEL_METRICS_TTL"`
 
 	AllowServiceGraphSelfReferences bool `yaml:"allow_service_graph_self_references" env:"OTEL_EBPF_OTEL_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"`
-
-	// Grafana configuration needs to be explicitly set up before building the graph
-	Grafana *GrafanaOTLP `yaml:"-"`
 }
 
 func (m *MetricsConfig) GetProtocol() Protocol {
@@ -159,7 +156,7 @@ func (m *MetricsConfig) GuessProtocol() Protocol {
 }
 
 func (m *MetricsConfig) OTLPMetricsEndpoint() (string, bool) {
-	return ResolveOTLPEndpoint(m.MetricsEndpoint, m.CommonEndpoint, m.Grafana)
+	return ResolveOTLPEndpoint(m.MetricsEndpoint, m.CommonEndpoint)
 }
 
 // EndpointEnabled specifies that the OTEL metrics node is enabled if and only if
@@ -168,7 +165,7 @@ func (m *MetricsConfig) OTLPMetricsEndpoint() (string, bool) {
 // Reason to disable linting: it requires to be a value despite it is considered a "heavy struct".
 // This method is invoked only once during startup time so it doesn't have a noticeable performance impact.
 func (m *MetricsConfig) EndpointEnabled() bool {
-	return m.CommonEndpoint != "" || m.MetricsEndpoint != "" || m.Grafana.MetricsEnabled()
+	return m.CommonEndpoint != "" || m.MetricsEndpoint != ""
 }
 
 func (m *MetricsConfig) SpanMetricsEnabled() bool {
@@ -1085,7 +1082,6 @@ func getHTTPMetricEndpointOptions(cfg *MetricsConfig) (otlpOptions, error) {
 		opts.SkipTLSVerify = cfg.InsecureSkipVerify
 	}
 
-	cfg.Grafana.setupOptions(&opts)
 	maps.Copy(opts.Headers, HeadersFromEnv(envHeaders))
 	maps.Copy(opts.Headers, HeadersFromEnv(envMetricsHeaders))
 
@@ -1113,7 +1109,6 @@ func getGRPCMetricEndpointOptions(cfg *MetricsConfig) (otlpOptions, error) {
 		opts.SkipTLSVerify = true
 	}
 
-	cfg.Grafana.setupOptions(&opts)
 	maps.Copy(opts.Headers, HeadersFromEnv(envHeaders))
 	maps.Copy(opts.Headers, HeadersFromEnv(envMetricsHeaders))
 

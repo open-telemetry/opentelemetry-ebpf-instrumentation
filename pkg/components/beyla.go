@@ -159,7 +159,6 @@ func buildCommonContextInfo(
 	switch {
 	case config.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL:
 		var err error
-		config.Metrics.Grafana = &config.Grafana.OTLP
 		slog.Debug("reporting internal metrics as OpenTelemetry")
 		ctxInfo.Metrics, err = otel.NewInternalMetricsReporter(ctx, ctxInfo, &config.Metrics)
 		if err != nil {

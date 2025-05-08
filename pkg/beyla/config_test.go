@@ -83,7 +83,6 @@ discovery:
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:3131")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "localhost:3232")
 	t.Setenv("OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT", "3210")
-	t.Setenv("GRAFANA_CLOUD_SUBMIT", "metrics,traces")
 	t.Setenv("KUBECONFIG", "/foo/bar")
 	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "k8s,dns")
 
@@ -124,11 +123,6 @@ discovery:
 			TCBackend:                 tcmanager.TCBackendAuto,
 			ContextPropagationEnabled: false,
 			ContextPropagation:        config.ContextPropagationDisabled,
-		},
-		Grafana: otel.GrafanaConfig{
-			OTLP: otel.GrafanaOTLP{
-				Submit: []string{"metrics", "traces"},
-			},
 		},
 		NetworkFlows: nc,
 		Metrics: otel.MetricsConfig{
@@ -340,7 +334,7 @@ func TestConfigValidate_TracePrinter(t *testing.T) {
 		},
 		{
 			env:      envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo"},
-			errorMsg: "you need to define at least one exporter: trace_printer, grafana, otel_metrics_export, otel_traces_export or prometheus_export",
+			errorMsg: "you need to define at least one exporter: trace_printer, otel_metrics_export, otel_traces_export or prometheus_export",
 		},
 	}
 

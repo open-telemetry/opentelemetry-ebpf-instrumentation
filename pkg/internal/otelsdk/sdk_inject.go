@@ -129,14 +129,6 @@ func (i *SDKInjector) extractAgent(ie *ebpf.Instrumentable) (string, error) {
 	return agentPathContainer, nil
 }
 
-func expandHeadersWithAuth(options map[string]string, key string, value string) {
-	if existing, ok := options[key]; ok {
-		options[key] = existing + ",Authorization=" + value
-	} else {
-		options[key] = "Authorization=" + value
-	}
-}
-
 func otlpOptions(cfg *beyla.Config) (map[string]string, error) {
 	options := map[string]string{}
 	var tracesEndpoint, metricsEndpoint string
@@ -154,17 +146,11 @@ func otlpOptions(cfg *beyla.Config) (map[string]string, error) {
 		options["otel.exporter.otlp.protocol"] = string(cfg.Traces.GetProtocol())
 		options["otel.metric.export.interval"] = strconv.Itoa(int(cfg.Metrics.GetInterval().Milliseconds()))
 		maps.Copy(options, otel.HeadersFromEnv("OTEL_EXPORTER_OTLP_HEADERS"))
-		if cfg.Traces.Grafana.HasAuth() {
-			expandHeadersWithAuth(options, "OTEL_EXPORTER_OTLP_HEADERS", cfg.Traces.Grafana.AuthHeader())
-		}
 	} else {
 		if cfg.Traces.Enabled() {
 			options["otel.exporter.otlp.traces.endpoint"] = tracesEndpoint
 			options["otel.exporter.otlp.traces.protocol"] = string(cfg.Traces.GetProtocol())
 			maps.Copy(options, otel.HeadersFromEnv("OTEL_EXPORTER_OTLP_TRACES_HEADERS"))
-			if cfg.Traces.Grafana.HasAuth() {
-				expandHeadersWithAuth(options, "OTEL_EXPORTER_OTLP_TRACES_HEADERS", cfg.Traces.Grafana.AuthHeader())
-			}
 		} else {
 			options["otel.traces.exporter"] = "none"
 		}
@@ -174,9 +160,6 @@ func otlpOptions(cfg *beyla.Config) (map[string]string, error) {
 			options["otel.exporter.otlp.metrics.protocol"] = string(cfg.Metrics.GetProtocol())
 			options["otel.metric.export.interval"] = strconv.Itoa(int(cfg.Metrics.GetInterval().Milliseconds()))
 			maps.Copy(options, otel.HeadersFromEnv("OTEL_EXPORTER_OTLP_METRICS_HEADERS"))
-			if cfg.Metrics.Grafana.HasAuth() {
-				expandHeadersWithAuth(options, "OTEL_EXPORTER_OTLP_METRICS_HEADERS", cfg.Metrics.Grafana.AuthHeader())
-			}
 		} else {
 			options["otel.metrics.exporter"] = "none"
 		}
