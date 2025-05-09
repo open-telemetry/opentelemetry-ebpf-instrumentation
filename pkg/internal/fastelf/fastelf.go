@@ -350,37 +350,46 @@ func (ctx *ElfContext) HasSymbol(symbol string) bool {
 	return false
 }
 
-func (ctx *ElfContext) HasSection(section string) bool {
+func (ctx *ElfContext) HasSection(sectionName string) bool {
+	return ctx.section(sectionName) != nil
+}
+
+func (ctx *ElfContext) SectionAddress(sectionName string) uint64 {
+	s := ctx.section(sectionName)
+
+	if s == nil {
+		return InvalidAddr
+	}
+
+	return s.Addr
+}
+
+func (ctx *ElfContext) shstrtabData() []byte {
 	if int(ctx.Hdr.Shstrndx) >= len(ctx.Sections) {
-		return false
+		return nil
 	}
 
 	shstrtab := ctx.Sections[ctx.Hdr.Shstrndx]
 
 	if int(shstrtab.Offset) >= len(ctx.Data) {
-		return false
+		return nil
 	}
 
-	shstrtabData := ctx.Data[shstrtab.Offset:]
-
-	for _, sec := range ctx.Sections {
-		if GetCStringUnsafe(shstrtabData, sec.Name) == section {
-			return true
-		}
-	}
-
-	return false
+	return ctx.Data[shstrtab.Offset:]
 }
 
-func (ctx *ElfContext) SectionAddress(section string) uint64 {
-	shstrtab := ctx.Sections[ctx.Hdr.Shstrndx]
-	shstrtabData := ctx.Data[shstrtab.Offset:]
+func (ctx *ElfContext) section(sectionName string) *Elf64_Shdr {
+	shstrtabData := ctx.shstrtabData()
+
+	if shstrtabData == nil {
+		return nil
+	}
 
 	for _, sec := range ctx.Sections {
-		if GetCStringUnsafe(shstrtabData, sec.Name) == section {
-			return sec.Addr
+		if GetCStringUnsafe(shstrtabData, sec.Name) == sectionName {
+			return sec
 		}
 	}
 
-	return InvalidAddr
+	return nil
 }
