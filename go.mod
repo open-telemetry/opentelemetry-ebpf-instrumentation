@@ -21,7 +21,7 @@ require (
 	github.com/hashicorp/go-version v1.7.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/ianlancetaylor/demangle v0.0.0-20250417193237-f615e6bd150b
-	github.com/mariomac/guara v0.0.0-20230621100729-42bd7716e524
+	github.com/mariomac/guara v0.0.0-20250408105519-1e4dbdfb7136
 	github.com/prometheus/client_golang v1.20.1
 	github.com/prometheus/client_model v0.6.1
 	github.com/prometheus/common v0.55.0
