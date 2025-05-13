@@ -1,4 +1,4 @@
-FROM golang:1.24.1-alpine AS base
+FROM golang:1.24.1-alpine@sha256:43c094ad24b6ac0546c62193baeb3e6e49ce14d3250845d166c77c25f64b0386 AS base
 FROM base AS builder
 
 WORKDIR /build
