@@ -36,7 +36,7 @@ jobs:
         title: Automatic update of offsets.json
         body: The offsets have been updated by go-offsets-tracker
         base: main
-        branch: offset-content-auto-update
+        branch: otelbot/offset-content-auto-update
         labels: automated-pr
         delete-branch: true
         committer: otelbot <197425009+otelbot@users.noreply.github.com>
