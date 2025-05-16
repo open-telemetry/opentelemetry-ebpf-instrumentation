@@ -12,7 +12,7 @@ require (
 	github.com/go-logr/logr v1.4.2
 	github.com/go-logr/stdr v1.2.2
 	github.com/gobwas/glob v0.2.3
-	github.com/goccy/go-json v0.10.2
+	github.com/goccy/go-json v0.10.5
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
@@ -23,12 +23,12 @@ require (
 	github.com/ianlancetaylor/demangle v0.0.0-20250417193237-f615e6bd150b
 	github.com/mariomac/guara v0.0.0-20250408105519-1e4dbdfb7136
 	github.com/prometheus/client_golang v1.20.1
-	github.com/prometheus/client_model v0.6.1
+	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.55.0
 	github.com/prometheus/procfs v0.15.1
-	github.com/shirou/gopsutil/v3 v3.24.4
+	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/stretchr/testify v1.10.0
-	github.com/vishvananda/netlink v1.3.0
+	github.com/vishvananda/netlink v1.3.1
 	github.com/vladimirvivien/gexe v0.3.0
 	github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2
 	github.com/yl2chen/cidranger v1.0.2
@@ -64,7 +64,7 @@ require (
 	golang.org/x/sync v0.12.0
 	golang.org/x/sys v0.31.0
 	google.golang.org/grpc v1.71.0
-	google.golang.org/protobuf v1.36.5
+	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.29.4
 	k8s.io/apimachinery v0.29.4
@@ -139,7 +139,7 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.11 // indirect
-	github.com/vishvananda/netns v0.0.4 // indirect
+	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/collector v0.122.1 // indirect
