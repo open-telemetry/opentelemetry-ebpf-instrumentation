@@ -17,6 +17,8 @@ data:
         # used in the k8s_owners_*_test.go
         - k8s_statefulset_name: statefulservice
         - k8s_daemonset_name: dsservice
+        - k8s_job_name: jobservice
+        - k8s_cronjob_name: cronjobservice
       exclude_services:
         # testing service exclusion, by expecting that K8s discovery only picks the "otherinstance"
         # deployment (ignoring the "testserver" in the other pod)
