@@ -385,17 +385,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
         }
     }
 
-    if (info->type == EVENT_HTTP_REQUEST) {
-        trace_key_t t_key = {0};
-        t_key.extra_id = info->extra_id;
-        t_key.p_key.ns = info->pid.ns;
-        t_key.p_key.tid = info->task_tid;
-        t_key.p_key.pid = info->pid.user_pid;
-        delete_server_trace(&t_key);
-    } else {
-        delete_client_trace_info(pid_conn);
-    }
-    bpf_map_delete_elem(&active_ssl_connections, pid_conn);
+    cleanup_http_request_data(pid_conn, info);
 }
 
 // k_tail_protocol_http
