@@ -1,0 +1,8 @@
+diff a/pkg/internal/ebpf/tctracer/tctracer_notlinux.go b/pkg/internal/ebpf/tctracer/tctracer_notlinux.go	(rejected hunks)
+@@ -43,5 +43,4 @@ func (p *Tracer) Constants() map[string]any                              { retur
+ func (p *Tracer) SetupTailCalls()                                        {}
+ func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets)    {}
+ func (p *Tracer) ProcessBinary(_ *exec.FileInfo)                         {}
+-
+-func CanRun() bool { return false }
++func (p *Tracer) Required() bool                                         { return false }
