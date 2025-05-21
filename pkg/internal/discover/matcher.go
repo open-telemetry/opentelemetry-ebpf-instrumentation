@@ -41,9 +41,11 @@ type matcher struct {
 	// processHistory keeps track of the processes that have been already matched and submitted for
 	// instrumentation.
 	// This avoids keep inspecting again and again client processes each time they open a new connection port
-	processHistory map[PID]*services.ProcessInfo
-	input          <-chan []Event[processAttrs]
-	output         *msg.Queue[[]Event[ProcessMatch]]
+	processHistory   map[PID]*services.ProcessInfo
+	input            <-chan []Event[processAttrs]
+	output           *msg.Queue[[]Event[ProcessMatch]]
+	beylaNamespace   string
+	hasHostPidAccess bool
 }
 
 // ProcessMatch matches a found process with the first selection criteria it fulfilled.
@@ -152,6 +154,14 @@ func (m *matcher) matchProcess(obj *processAttrs, p *services.ProcessInfo, a *se
 	if a.OpenPorts.Len() > 0 && !m.matchByPort(p, a) {
 		log.Debug("open ports do not match", "openPorts", a.OpenPorts)
 		return false
+	}
+	if a.ContainersOnly {
+		ns, _ := namespaceFetcherFunc(p.Pid)
+		if ns == m.beylaNamespace && m.hasHostPidAccess {
+			log.Debug("not in a container", "namespace", ns)
+			return false
+		}
+		log.Debug("app is in a container", "namespace", ns, "beyla namespace", m.beylaNamespace)
 	}
 	// after matching by process basic information, we check if it matches
 	// by metadata.
