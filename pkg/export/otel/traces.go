@@ -1,3 +1,5 @@
+// TODO: remove this after batching API becomes stable
+// nolint:staticcheck
 package otel
 
 import (
@@ -19,7 +21,6 @@ import (
 	"go.opentelemetry.io/collector/config/configtls"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/exporter"
-	"go.opentelemetry.io/collector/exporter/exporterbatcher"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/exporter/otlpexporter"
 	"go.opentelemetry.io/collector/exporter/otlphttpexporter"
@@ -398,7 +399,7 @@ func getTraceSettings(
 	ctxInfo *global.ContextInfo,
 	dataTypeMetrics component.Type,
 	in trace.SpanExporter,
-	batcherCfg *exporterbatcher.Config,
+	batcherCfg *exporterhelper.BatcherConfig,
 ) exporter.Settings {
 	var traceProvider trace2.TracerProvider
 	traceProvider = tracenoop.NewTracerProvider()
@@ -424,13 +425,13 @@ func getTraceSettings(
 	}
 }
 
-func getInternalBatchSpanOpts(cfg *exporterbatcher.Config) []trace.BatchSpanProcessorOption {
+func getInternalBatchSpanOpts(cfg *exporterhelper.BatcherConfig) []trace.BatchSpanProcessorOption {
 	var opts []trace.BatchSpanProcessorOption
 	if cfg.FlushTimeout > 0 {
 		opts = append(opts, trace.WithBatchTimeout(cfg.FlushTimeout))
 	}
 	if cfg.MaxSize > 0 {
-		opts = append(opts, trace.WithMaxQueueSize(cfg.MaxSize))
+		opts = append(opts, trace.WithMaxQueueSize(int(cfg.MaxSize)))
 	}
 	return opts
 }

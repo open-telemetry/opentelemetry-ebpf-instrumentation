@@ -32,17 +32,17 @@ require (
 	github.com/vladimirvivien/gexe v0.3.0
 	github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2
 	github.com/yl2chen/cidranger v1.0.2
-	go.opentelemetry.io/collector/component v1.28.1
-	go.opentelemetry.io/collector/config/configgrpc v0.122.1
-	go.opentelemetry.io/collector/config/confighttp v0.122.1
-	go.opentelemetry.io/collector/config/configopaque v1.28.1
-	go.opentelemetry.io/collector/config/configretry v1.28.1
-	go.opentelemetry.io/collector/config/configtls v1.28.1
-	go.opentelemetry.io/collector/consumer v1.28.1
-	go.opentelemetry.io/collector/exporter v0.122.1
-	go.opentelemetry.io/collector/exporter/otlpexporter v0.122.1
-	go.opentelemetry.io/collector/exporter/otlphttpexporter v0.122.1
-	go.opentelemetry.io/collector/pdata v1.28.1
+	go.opentelemetry.io/collector/component v1.31.0
+	go.opentelemetry.io/collector/config/configgrpc v0.125.0
+	go.opentelemetry.io/collector/config/confighttp v0.125.0
+	go.opentelemetry.io/collector/config/configopaque v1.31.0
+	go.opentelemetry.io/collector/config/configretry v1.31.0
+	go.opentelemetry.io/collector/config/configtls v1.31.0
+	go.opentelemetry.io/collector/consumer v1.31.0
+	go.opentelemetry.io/collector/exporter v0.125.0
+	go.opentelemetry.io/collector/exporter/otlpexporter v0.125.0
+	go.opentelemetry.io/collector/exporter/otlphttpexporter v0.125.0
+	go.opentelemetry.io/collector/pdata v1.31.0
 	go.opentelemetry.io/contrib/detectors/aws/ec2 v1.28.0
 	go.opentelemetry.io/contrib/detectors/aws/eks v1.28.0
 	go.opentelemetry.io/contrib/detectors/azure/azurevm v0.0.1
@@ -75,7 +75,7 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.6.0 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.25.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.26.0 // indirect
 	github.com/aws/aws-sdk-go v1.54.13 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/sonic v1.9.1 // indirect
@@ -87,7 +87,7 @@ require (
 	github.com/emicklei/go-restful/v3 v3.12.1 // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/fsnotify/fsnotify v1.8.0 // indirect
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.2 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
@@ -112,9 +112,9 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
-	github.com/knadh/koanf/maps v0.1.1 // indirect
-	github.com/knadh/koanf/providers/confmap v0.1.0 // indirect
-	github.com/knadh/koanf/v2 v2.1.2 // indirect
+	github.com/knadh/koanf/maps v0.1.2 // indirect
+	github.com/knadh/koanf/providers/confmap v1.0.0 // indirect
+	github.com/knadh/koanf/v2 v2.2.0 // indirect
 	github.com/leodido/go-urn v1.2.4 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
