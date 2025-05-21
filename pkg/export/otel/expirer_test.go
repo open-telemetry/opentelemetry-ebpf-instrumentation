@@ -148,6 +148,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	timeNow = now.Now
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	otelExporter, err := ReportMetrics(
 		&global.ContextInfo{}, &MetricsConfig{
 			Interval:          50 * time.Millisecond,
@@ -163,7 +164,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 			attributes.HTTPServerDuration.Section: attributes.InclusionLists{
 				Include: []string{"url.path"},
 			},
-		}, metrics)(ctx)
+		}, metrics, processEvents)(ctx)
 	require.NoError(t, err)
 
 	go otelExporter(ctx)
@@ -264,6 +265,7 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	timeNow = now.Now
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	otelExporter, err := ReportMetrics(
 		&global.ContextInfo{}, &MetricsConfig{
 			Interval:          50 * time.Millisecond,
@@ -279,7 +281,7 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 			attributes.HTTPServerDuration.Section: attributes.InclusionLists{
 				Include: []string{"url.path"},
 			},
-		}, metrics)(ctx)
+		}, metrics, processEvents)(ctx)
 	require.NoError(t, err)
 
 	go otelExporter(ctx)
