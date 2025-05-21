@@ -8,6 +8,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/transform"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 )
@@ -37,4 +38,5 @@ func TestServiceNameTemplate(t *testing.T) {
 	temp, err = buildServiceNameTemplate(cfg)
 	require.NoError(t, err)
 	assert.Nil(t, temp)
+	assert.NoError(t, err)
 }

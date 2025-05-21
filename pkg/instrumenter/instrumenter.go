@@ -23,10 +23,7 @@ import (
 
 // Run in the foreground process. This is a blocking function and won't exit
 // until both the AppO11y and NetO11y components end
-func Run(
-	ctx context.Context, cfg *beyla.Config,
-	opts ...Option,
-) error {
+func Run(ctx context.Context, cfg *beyla.Config, opts ...Option) error {
 	ctxInfo, err := buildCommonContextInfo(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("can't build common context info: %w", err)
@@ -129,7 +126,6 @@ func buildServiceNameTemplate(config *beyla.Config) (*template.Template, error) 
 
 	if config.Attributes.Kubernetes.ServiceNameTemplate != "" {
 		var err error
-
 		templ, err = template.New("serviceNameTemplate").Parse(config.Attributes.Kubernetes.ServiceNameTemplate)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse service name template: %w", err)
@@ -141,9 +137,7 @@ func buildServiceNameTemplate(config *beyla.Config) (*template.Template, error) 
 
 // BuildContextInfo populates some globally shared components and properties
 // from the user-provided configuration
-func buildCommonContextInfo(
-	ctx context.Context, config *beyla.Config,
-) (*global.ContextInfo, error) {
+func buildCommonContextInfo(ctx context.Context, config *beyla.Config) (*global.ContextInfo, error) {
 	// merging deprecated resource labels definition for backwards compatibility
 	resourceLabels := config.Attributes.Kubernetes.ResourceLabels
 	if resourceLabels == nil {
