@@ -1,6 +1,6 @@
 //go:build linux
 
-package components
+package instrumenter
 
 import (
 	"bytes"
@@ -64,7 +64,7 @@ func TestRun_DontPanic(t *testing.T) {
 			require.NoError(t, cfg.Validate())
 
 			require.NotPanics(t, func() {
-				_ = RunBeyla(t.Context(), &cfg)
+				_ = Run(t.Context(), &cfg)
 			})
 		})
 	}
