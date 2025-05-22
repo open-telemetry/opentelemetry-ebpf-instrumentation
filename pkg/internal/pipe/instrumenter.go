@@ -3,6 +3,7 @@ package pipe
 import (
 	"context"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
 	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
@@ -12,7 +13,6 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/filter"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/traces"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
@@ -74,7 +74,12 @@ func newGraphBuilder(config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh
 	swi.Add(transform.NameResolutionProvider(ctxInfo, config.NameResolver,
 		kubeDecoratorToNameResolver, nameResolverToAttrFilter))
 
-	exportableSpans := newQueue()
+	// In vendored mode, the invoker might want to override the export queue for connecting their
+	// own exporters, otherwise we create a new queue
+	exportableSpans := ctxInfo.OverrideAppExportQueue
+	if exportableSpans == nil {
+		exportableSpans = newQueue()
+	}
 	swi.Add(filter.ByAttribute(config.Filters.Application, spanPtrPromGetters,
 		nameResolverToAttrFilter, exportableSpans))
 
