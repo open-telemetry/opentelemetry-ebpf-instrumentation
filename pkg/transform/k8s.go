@@ -198,6 +198,10 @@ func OwnerLabelName(kind string) attr.Name {
 		return attr.K8sDaemonSetName
 	case "ReplicaSet":
 		return attr.K8sReplicaSetName
+	case "Job":
+		return attr.K8sJobName
+	case "CronJob":
+		return attr.K8sCronJobName
 	default:
 		return ""
 	}
