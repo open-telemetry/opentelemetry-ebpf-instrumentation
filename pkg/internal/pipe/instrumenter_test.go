@@ -19,6 +19,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/instrumentations"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/filter"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/kube"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
@@ -64,7 +65,6 @@ func TestBasicPipeline(t *testing.T) {
 
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-
 	gb := newGraphBuilder(&beyla.Config{
 		Metrics: otel.MetricsConfig{
 			Features:        []string{otel.FeatureApplication},
@@ -76,7 +76,7 @@ func TestBasicPipeline(t *testing.T) {
 			},
 		},
 		Attributes: beyla.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(0), tracesInput)
+	}, gctx(0), tracesInput, processEvents)
 
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("foo-svc", "/foo/bar", 404))
@@ -147,7 +147,7 @@ func TestTracerPipeline(t *testing.T) {
 			Instrumentations:  []string{instrumentations.InstrumentationALL},
 		},
 		Attributes: beyla.Attributes{InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(0), tracesInput)
+	}, gctx(0), tracesInput, processEvents)
 
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("bar-svc", "/foo/bar", 404))
@@ -180,7 +180,7 @@ func TestTracerPipelineBadTimestamps(t *testing.T) {
 			ReportersCacheLen: 16,
 			Instrumentations:  []string{instrumentations.InstrumentationALL},
 		},
-	}, gctx(0), tracesInput)
+	}, gctx(0), tracesInput, processEvents)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequestWithTiming("svc1", request.EventTypeHTTP, "GET", "/attach", 200, 60000, 59999, 70000))
 	// closing prematurely the input node would finish the whole graph processing
@@ -216,7 +216,7 @@ func TestRouteConsolidation(t *testing.T) {
 		},
 		Routes:     &transform.RoutesConfig{Patterns: []string{"/user/{id}", "/products/{id}/push"}},
 		Attributes: beyla.Attributes{Select: allMetricsBut("client.address", "url.path"), InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(attributes.GroupHTTPRoutes), tracesInput)
+	}, gctx(attributes.GroupHTTPRoutes), tracesInput, processEvents)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("svc-1", "/user/1234", 200))
 	tracesInput.Send(newRequest("svc-1", "/products/3210/push", 200))
@@ -530,7 +530,7 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 			Application: map[string]filter.MatchDefinition{"url.path": {Match: "/user/*"}},
 		},
 		Attributes: beyla.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(0), tracesInput)
+	}, gctx(0), tracesInput, processEvents)
 
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("svc-0", "/products/3210/push", 200))
@@ -659,6 +659,8 @@ func matchTraceEvent(t require.TestingT, name string, event collector.TraceRecor
 			string(semconv.ServiceNamespaceKey):     "ns",
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "beyla",
+			string(semconv.ProcessPIDKey):           "0",
+			string(semconv.OSTypeKey):               "linux",
 			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
 		},
 		Kind: ptrace.SpanKindServer,
@@ -683,6 +685,8 @@ func matchInnerTraceEvent(t require.TestingT, name string, event collector.Trace
 			string(semconv.ServiceNamespaceKey):     "ns",
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "beyla",
+			string(semconv.ProcessPIDKey):           "0",
+			string(semconv.OSTypeKey):               "linux",
 			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
 		},
 		Kind: ptrace.SpanKindInternal,
@@ -711,6 +715,8 @@ func matchGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord)
 			string(semconv.ServiceNameKey):          "svc",
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "beyla",
+			string(semconv.ProcessPIDKey):           "0",
+			string(semconv.OSTypeKey):               "linux",
 			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
 		},
 		Kind: ptrace.SpanKindServer,
@@ -733,6 +739,8 @@ func matchInnerGRPCTraceEvent(t *testing.T, name string, event collector.TraceRe
 			string(semconv.ServiceNameKey):          "svc",
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "beyla",
+			string(semconv.ProcessPIDKey):           "0",
+			string(semconv.OSTypeKey):               "linux",
 			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
 		},
 		Kind: ptrace.SpanKindInternal,
@@ -791,6 +799,8 @@ func matchInfoEvent(t *testing.T, name string, event collector.TraceRecord) {
 			string(semconv.ServiceNameKey):          "comm",
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "beyla",
+			string(semconv.ProcessPIDKey):           "0",
+			string(semconv.OSTypeKey):               "linux",
 			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
 		},
 		Kind: ptrace.SpanKindServer,

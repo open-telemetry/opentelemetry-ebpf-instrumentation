@@ -10,6 +10,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/prom"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/filter"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
@@ -78,10 +79,10 @@ func newGraphBuilder(config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh
 	swi.Add(filter.ByAttribute(config.Filters.Application, spanPtrPromGetters,
 		nameResolverToAttrFilter, exportableSpans))
 
-	swi.Add(otel.ReportMetrics(ctxInfo, &config.Metrics, config.Attributes.Select, exportableSpans))
+	swi.Add(otel.ReportMetrics(ctxInfo, &config.Metrics, config.Attributes.Select, exportableSpans, processEventsCh))
 
 	swi.Add(otel.TracesReceiver(ctxInfo, config.Traces, config.Metrics.SpanMetricsEnabled(), config.Attributes.Select, exportableSpans))
-	swi.Add(prom.PrometheusEndpoint(ctxInfo, &config.Prometheus, config.Attributes.Select, exportableSpans))
+	swi.Add(prom.PrometheusEndpoint(ctxInfo, &config.Prometheus, config.Attributes.Select, exportableSpans, processEventsCh))
 	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus))
 
 	swi.Add(debug.PrinterNode(config.TracePrinter, exportableSpans))

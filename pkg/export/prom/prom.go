@@ -3,12 +3,13 @@ package prom
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo"
@@ -18,6 +19,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/instrumentations"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/connector"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
@@ -131,6 +133,10 @@ type PrometheusConfig struct {
 	// beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute,
 	// you should add `deployment.environment`.
 	ExtraResourceLabels []string `yaml:"extra_resource_attributes" env:"OTEL_EBPF_PROMETHEUS_EXTRA_RESOURCE_ATTRIBUTES" envSeparator:","`
+}
+
+func mlog() *slog.Logger {
+	return slog.With("component", "prom.MetricsReporter")
 }
 
 func (p *PrometheusConfig) SpanMetricsEnabled() bool {
@@ -264,7 +270,11 @@ func PrometheusEndpoint(
 
 //nolint:cyclop
 func newReporter(
-	ctxInfo *global.ContextInfo, cfg *PrometheusConfig, selector attributes.Selection, input *msg.Queue[[]request.Span],
+	ctxInfo *global.ContextInfo,
+	cfg *PrometheusConfig,
+	selector attributes.Selection,
+	input *msg.Queue[[]request.Span],
+	processEventCh *msg.Queue[exec.ProcessEvent],
 ) (*metricsReporter, error) {
 	groups := ctxInfo.MetricAttributeGroups
 	groups.Add(attributes.GroupPrometheus)
