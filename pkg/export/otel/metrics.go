@@ -25,6 +25,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/instrumentations"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric"
 	instrument "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/api/metric"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
@@ -462,7 +463,17 @@ func (mr *MetricsReporter) graphMetricOptions(mlog *slog.Logger) []metric.Option
 	}
 }
 
-//nolint:cyclop
+func (mr *MetricsReporter) setupTargetInfo(m *Metrics, meter instrument.Meter) error {
+	var err error
+	m.targetInfo, err = meter.Int64UpDownCounter(TargetInfo)
+	if err != nil {
+		return fmt.Errorf("creating span metric traces target info: %w", err)
+	}
+
+	return nil
+}
+
+// nolint: cyclop
 func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) error {
 	if !mr.cfg.OTelMetricsEnabled() {
 		return nil
@@ -866,7 +877,10 @@ func otelHistogramConfig(metricName string, buckets []float64, useExponentialHis
 		})
 }
 
-func (mr *MetricsReporter) metricResourceAttributes(service *svc.Attrs) attribute.Set {
+func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribute.Set {
+	if service == nil {
+		return *attribute.EmptySet()
+	}
 	baseAttrs := []attribute.KeyValue{
 		request.ServiceMetric(service.UID.Name),
 		semconv.ServiceInstanceID(service.UID.Instance),
