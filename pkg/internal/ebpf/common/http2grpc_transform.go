@@ -12,9 +12,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/net/http2"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/bhpack"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/ringbuf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 )
 
 type BPFHTTP2Info bpfHttp2GrpcRequestT

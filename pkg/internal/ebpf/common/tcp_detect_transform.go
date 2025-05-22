@@ -3,9 +3,9 @@ package ebpfcommon
 import (
 	"fmt"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/ringbuf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 )
 
 // ReadTCPRequestIntoSpan returns a request.Span from the provided ring buffer record
