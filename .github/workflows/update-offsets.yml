@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: write  # Required for creating PRs
-  pull-requests: write  # Required for creating PRs
 
 jobs:
   UpdateOffsets:
@@ -15,7 +14,7 @@ jobs:
     - name: "Checkout repo"
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       with:
-        persist-credentials: false
+        persist-credentials: true
     - name: "Update Go"
       uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
       with:
@@ -30,16 +29,20 @@ jobs:
         app-id: ${{ vars.OTELBOT_APP_ID }}
         private-key: ${{ secrets.OTELBOT_PRIVATE_KEY }}
     - name: "Create/update PR"
-      uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7
-      with:
-        commit-message: Automatic update of offsets.json
-        title: Automatic update of offsets.json
-        body: The offsets have been updated by go-offsets-tracker
-        base: main
-        branch: otelbot/offset-content-auto-update
-        labels: automated-pr
-        delete-branch: true
-        committer: otelbot <197425009+otelbot@users.noreply.github.com>
-        author: otelbot <197425009+otelbot@users.noreply.github.com>
-        token: ${{ steps.generate-token.outputs.token }}
-        sign-commits: true
+      env:
+        # not using secrets.GITHUB_TOKEN since pull requests from that token do not run workflows
+        GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+      run: |
+        message="Automatic update of offsets.json
+        body="The offsets have been updated by go-offsets-tracker"
+        branch="otelbot/offset-content-auto-update"
+
+        git config user.name otelbot
+        git config user.email 197425009+otelbot@users.noreply.github.com
+  
+        git checkout -b $branch
+        git commit -a -m "$message"
+        git push --set-upstream origin $branch
+        gh pr create --title "$message" \
+                     --body "$body" \
+                     --base main
