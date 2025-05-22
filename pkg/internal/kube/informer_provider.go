@@ -273,6 +273,7 @@ func (mp *MetadataProvider) initLocalInformers(ctx context.Context) (*meta.Infor
 		// we don't want that the informer starts decorating spans and flows
 		// before getting all the existing K8s metadata
 		meta.WaitForCacheSync(),
+		meta.LocalInstance(),
 		meta.WithCacheSyncTimeout(mp.cfg.SyncTimeout),
 	)
 	if mp.cfg.RestrictLocalNode {

@@ -130,6 +130,8 @@ func getDefinitions(groups AttrGroups) map[Section]AttrReportGroup {
 			attr.K8sContainerName:   true,
 			attr.K8sDeploymentName:  true,
 			attr.K8sReplicaSetName:  true,
+			attr.K8sJobName:         true,
+			attr.K8sCronJobName:     true,
 			attr.K8sDaemonSetName:   true,
 			attr.K8sStatefulSetName: true,
 			attr.K8sNodeName:        true,
