@@ -78,10 +78,14 @@ func TestDaemonSetMetadata(t *testing.T) {
 					sd = jaeger.DiffAsRegexp([]jaeger.Tag{
 						{Key: "k8s.deployment.name", Type: "string"},
 						{Key: "k8s.statefulset.name", Type: "string"},
+						{Key: "k8s.job.name", Type: "string"},
+						{Key: "k8s.cronjob.name", Type: "string"},
 					}, trace.Processes[parent.ProcessID].Tags)
 					require.Equal(t, jaeger.DiffResult{
 						{ErrType: jaeger.ErrTypeMissing, Expected: jaeger.Tag{Key: "k8s.deployment.name", Type: "string"}},
 						{ErrType: jaeger.ErrTypeMissing, Expected: jaeger.Tag{Key: "k8s.statefulset.name", Type: "string"}},
+						{ErrType: jaeger.ErrTypeMissing, Expected: jaeger.Tag{Key: "k8s.job.name", Type: "string"}},
+						{ErrType: jaeger.ErrTypeMissing, Expected: jaeger.Tag{Key: "k8s.cronjob.name", Type: "string"}},
 					}, sd)
 				}, test.Interval(100*time.Millisecond))
 				return ctx
