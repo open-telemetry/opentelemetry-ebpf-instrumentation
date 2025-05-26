@@ -310,7 +310,7 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig, ctxInfo *global.Co
 			},
 			Headers: convertHeaders(opts.Headers),
 		}
-		slog.Debug("getTracesExporter: confighttp.ClientConfig created", "endpoint", config.Endpoint)
+		slog.Debug("getTracesExporter: confighttp.ClientConfig created", "endpoint", config.ClientConfig.Endpoint)
 		set := getTraceSettings(ctxInfo, factory.Type(), t, &batchCfg)
 		exporter, err := factory.CreateTraces(ctx, set, config)
 		if err != nil {
