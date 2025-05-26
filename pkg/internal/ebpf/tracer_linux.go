@@ -234,7 +234,7 @@ func (pt *ProcessTracer) loadTracers() error {
 	btf.FlushKernelSpec()
 
 	if !anyLoaded {
-		return fmt.Errorf("failed to load all tracers for this program type")
+		return errors.New("failed to load all tracers for this program type")
 	}
 
 	return nil

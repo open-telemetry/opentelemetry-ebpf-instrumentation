@@ -330,7 +330,8 @@ func TestCriteriaMatcherContainersOnly(t *testing.T) {
 			Exe  string
 			PPid int32
 		}{
-			1: {Exe: "/bin/weird33", PPid: 0}, 2: {Exe: "/bin/weird33", PPid: 0}, 3: {Exe: "/bin/weird33", PPid: 1}}[pp.pid]
+			1: {Exe: "/bin/weird33", PPid: 0}, 2: {Exe: "/bin/weird33", PPid: 0}, 3: {Exe: "/bin/weird33", PPid: 1},
+		}[pp.pid]
 		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
 	}
 	discoveredProcesses.Send([]Event[processAttrs]{

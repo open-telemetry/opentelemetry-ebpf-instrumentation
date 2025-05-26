@@ -18,9 +18,11 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
 )
 
-var namespaceFetcherFunc = ebpfcommon.FindNetworkNamespace
-var hasHostPidAccess = ebpfcommon.HasHostPidAccess
-var osPidFunc = os.Getpid
+var (
+	namespaceFetcherFunc = ebpfcommon.FindNetworkNamespace
+	hasHostPidAccess     = ebpfcommon.HasHostPidAccess
+	osPidFunc            = os.Getpid
+)
 
 // CriteriaMatcherProvider filters the processes that match the discovery criteria.
 func CriteriaMatcherProvider(
