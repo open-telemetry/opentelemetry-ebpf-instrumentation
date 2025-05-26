@@ -14,6 +14,7 @@
 #include <generictracer/protocol_common.h>
 #include <generictracer/protocol_http.h>
 #include <generictracer/protocol_http2.h>
+#include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_tcp.h>
 
 #include <pid/pid.h>
@@ -43,6 +44,13 @@ static __always_inline void handle_buf_with_args(void *ctx, call_protocol_args_t
             data.flags |= http2_conn_flag_ssl;
         }
         bpf_map_update_elem(&ongoing_http2_connections, &args->pid_conn, &data, BPF_ANY);
+    } else if (is_mysql(&args->pid_conn.conn,
+                        (const unsigned char *)args->u_buf,
+                        args->bytes_len,
+                        &args->packet_type,
+                        &args->protocol_type)) {
+        bpf_dbg_printk("Found mysql connection");
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_mysql);
     } else {
         http2_conn_info_data_t *h2g =
             bpf_map_lookup_elem(&ongoing_http2_connections, &args->pid_conn);
