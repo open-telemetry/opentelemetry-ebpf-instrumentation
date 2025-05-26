@@ -1,5 +1,6 @@
 // TODO: remove this after batching API becomes stable
-// nolint:staticcheck
+//
+//nolint:staticcheck
 package otel
 
 import (
