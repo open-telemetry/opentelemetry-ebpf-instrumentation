@@ -294,9 +294,9 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig, ctxInfo *global.Co
 		config := factory.CreateDefaultConfig().(*otlphttpexporter.Config)
 		// Experimental API for batching
 		// See: https://github.com/open-telemetry/opentelemetry-collector/issues/8122
-		batchCfg := exporterbatcher.NewDefaultConfig()
+		batchCfg := exporterhelper.NewDefaultBatcherConfig()
 		if cfg.MaxQueueSize > 0 {
-			batchCfg.MaxSize = cfg.MaxExportBatchSize
+			batchCfg.SizeConfig.MaxSize = int64(cfg.MaxExportBatchSize)
 		}
 		if cfg.BatchTimeout > 0 {
 			batchCfg.FlushTimeout = cfg.BatchTimeout
@@ -350,7 +350,7 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig, ctxInfo *global.Co
 		// See: https://github.com/open-telemetry/opentelemetry-collector/issues/8122
 		if cfg.MaxExportBatchSize > 0 {
 			config.BatcherConfig.Enabled = true
-			config.BatcherConfig.MaxSize = cfg.MaxExportBatchSize
+			config.BatcherConfig.SizeConfig.MaxSize = int64(cfg.MaxExportBatchSize)
 		}
 		if cfg.BatchTimeout > 0 {
 			config.BatcherConfig.FlushTimeout = cfg.BatchTimeout
