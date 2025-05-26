@@ -17,7 +17,7 @@ import (
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/instrumenter"
 )
 
 func main() {
@@ -74,7 +74,7 @@ func main() {
 	// child process isn't found.
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-	if err := components.RunBeyla(ctx, config); err != nil {
+	if err := instrumenter.Run(ctx, config); err != nil {
 		slog.Error("OpenTelemetry eBPF Instrumentation ran with errors", "error", err)
 		os.Exit(-1)
 	}

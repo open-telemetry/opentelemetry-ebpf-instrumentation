@@ -14,6 +14,7 @@ import (
 	"github.com/gavv/monotime"
 	"github.com/vishvananda/netlink"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
 	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
@@ -21,7 +22,6 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/goexec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/netolly/ifaces"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
@@ -132,7 +132,6 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 	}
 
 	if p.cfg.EBPF.TrackRequestHeaders ||
-		p.cfg.EBPF.UseTCForL7CP ||
 		p.cfg.EBPF.ContextPropagation != config.ContextPropagationDisabled {
 		if ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled) {
 			p.log.Info("Found compatible Linux kernel, enabling trace information parsing")
@@ -201,7 +200,6 @@ func (p *Tracer) Constants() map[string]any {
 	}
 
 	if p.cfg.EBPF.TrackRequestHeaders ||
-		p.cfg.EBPF.UseTCForL7CP ||
 		p.cfg.EBPF.ContextPropagation != config.ContextPropagationDisabled {
 		m["capture_header_buffer"] = int32(1)
 	} else {

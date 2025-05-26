@@ -36,6 +36,15 @@ func ownersFrom(meta *metav1.ObjectMeta) []*informer.Owner {
 				return owners
 			}
 		}
+		if or.APIVersion == "batch/v1" && or.Kind == "Job" {
+			// we heuristically extract the CronJob name from the Job name
+			if idx := strings.LastIndexByte(or.Name, '-'); idx > 0 {
+				owners = append(owners, &informer.Owner{Kind: "CronJob", Name: or.Name[:idx]})
+				// we already have what we need for decoration and selection. Ignoring any other owner
+				// it might hypothetically have (it would be a rare case)
+				return owners
+			}
+		}
 	}
 	return owners
 }

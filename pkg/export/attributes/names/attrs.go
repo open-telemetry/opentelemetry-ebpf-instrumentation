@@ -59,6 +59,8 @@ const (
 	K8sContainerName   = Name("k8s.container.name")
 	K8sDeploymentName  = Name("k8s.deployment.name")
 	K8sReplicaSetName  = Name("k8s.replicaset.name")
+	K8sJobName         = Name("k8s.job.name")
+	K8sCronJobName     = Name("k8s.cronjob.name")
 	K8sDaemonSetName   = Name("k8s.daemonset.name")
 	K8sStatefulSetName = Name("k8s.statefulset.name")
 	K8sOwnerName       = Name("k8s.owner.name")

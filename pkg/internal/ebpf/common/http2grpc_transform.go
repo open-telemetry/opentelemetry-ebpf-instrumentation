@@ -12,9 +12,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/net/http2"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/bhpack"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/ringbuf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 )
 
 type BPFHTTP2Info bpfHttp2GrpcRequestT
@@ -94,18 +94,23 @@ func knownFrameKeys(fr *http2.Framer, hf *http2.HeadersFrame) bool {
 	defer commonHDec.SetEmitFunc(func(_ bhpack.HeaderField) {})
 	defer commonHDec.Close()
 
+	frag := hf.HeaderBlockFragment()
 	for {
-		frag := hf.HeaderBlockFragment()
 		if _, err := commonHDec.Write(frag); err != nil {
 			break
 		}
-
 		if hf.HeadersEnded() {
 			break
 		}
-		if _, err := fr.ReadFrame(); err != nil {
+		hff, err := fr.ReadFrame()
+		if err != nil {
 			break
 		}
+		cf, ok := hff.(*http2.ContinuationFrame)
+		if !ok {
+			break
+		}
+		frag = cf.HeaderBlockFragment()
 	}
 
 	return known
@@ -144,18 +149,23 @@ func readMetaFrame(connID uint64, fr *http2.Framer, hf *http2.HeadersFrame) (str
 	defer h2c.hdec.SetEmitFunc(func(_ bhpack.HeaderField) {})
 	defer h2c.hdec.Close()
 
+	frag := hf.HeaderBlockFragment()
 	for {
-		frag := hf.HeaderBlockFragment()
 		if _, err := h2c.hdec.Write(frag); err != nil {
 			return method, path, contentType, ok
 		}
-
 		if hf.HeadersEnded() {
 			break
 		}
-		if _, err := fr.ReadFrame(); err != nil {
-			return method, path, contentType, ok
+		hff, err := fr.ReadFrame()
+		if err != nil {
+			break
 		}
+		cf, ok := hff.(*http2.ContinuationFrame)
+		if !ok {
+			break
+		}
+		frag = cf.HeaderBlockFragment()
 	}
 
 	return method, path, contentType, ok

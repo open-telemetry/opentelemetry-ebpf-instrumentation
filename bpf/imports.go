@@ -8,7 +8,6 @@ import (
 	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/generictracer"
 	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/gotracer"
 	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/gpuevent"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/httptracer"
 	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/logger"
 	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/maps"
 	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/netolly"

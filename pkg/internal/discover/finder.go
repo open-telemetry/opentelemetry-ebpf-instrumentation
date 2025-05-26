@@ -4,18 +4,17 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/generictracer"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/gotracer"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/gpuevent"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/httptracer"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/tctracer"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/tpinjector"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
 )
@@ -77,10 +76,6 @@ func (pf *ProcessFinder) Start(ctx context.Context) (<-chan Event[*ebpf.Instrume
 
 // the common tracer group should get loaded for any tracer group, only once
 func newCommonTracersGroup(cfg *beyla.Config) []ebpf.Tracer {
-	if cfg.EBPF.UseTCForL7CP {
-		return []ebpf.Tracer{httptracer.New(cfg)}
-	}
-
 	switch cfg.EBPF.ContextPropagation {
 	case config.ContextPropagationAll:
 		return []ebpf.Tracer{tctracer.New(cfg), tpinjector.New(cfg)}
