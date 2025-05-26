@@ -311,7 +311,6 @@ static __always_inline void finish_possible_delayed_http_request(pid_connection_
 
 static __always_inline void cleanup_http_request_data(pid_connection_info_t *pid_conn,
                                                       http_info_t *info) {
-    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info) {
         if (info->type == EVENT_HTTP_REQUEST) {
             trace_key_t t_key = {0};
