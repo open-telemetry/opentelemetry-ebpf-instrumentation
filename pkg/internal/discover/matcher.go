@@ -12,10 +12,15 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
+	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
 )
+
+var namespaceFetcherFunc = ebpfcommon.FindNetworkNamespace
+var hasHostPidAccess = ebpfcommon.HasHostPidAccess
+var osPidFunc = os.Getpid
 
 // CriteriaMatcherProvider filters the processes that match the discovery criteria.
 func CriteriaMatcherProvider(
@@ -23,13 +28,16 @@ func CriteriaMatcherProvider(
 	input *msg.Queue[[]Event[processAttrs]],
 	output *msg.Queue[[]Event[ProcessMatch]],
 ) swarm.InstanceFunc {
+	beylaNamespace, _ := namespaceFetcherFunc(int32(osPidFunc()))
 	m := &matcher{
-		log:             slog.With("component", "discover.CriteriaMatcher"),
-		criteria:        FindingCriteria(cfg),
-		excludeCriteria: append(cfg.Discovery.ExcludeServices, cfg.Discovery.DefaultExcludeServices...),
-		processHistory:  map[PID]*services.ProcessInfo{},
-		input:           input.Subscribe(),
-		output:          output,
+		log:              slog.With("component", "discover.CriteriaMatcher"),
+		criteria:         FindingCriteria(cfg),
+		excludeCriteria:  append(cfg.Discovery.ExcludeServices, cfg.Discovery.DefaultExcludeServices...),
+		processHistory:   map[PID]*services.ProcessInfo{},
+		input:            input.Subscribe(),
+		output:           output,
+		beylaNamespace:   beylaNamespace,
+		hasHostPidAccess: hasHostPidAccess(),
 	}
 	return swarm.DirectInstance(m.run)
 }

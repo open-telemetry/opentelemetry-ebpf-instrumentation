@@ -1,9 +1,0 @@
-diff a/pkg/internal/discover/finder.go b/pkg/internal/discover/finder.go	(rejected hunks)
-@@ -3,6 +3,7 @@ package discover
- import (
- 	"context"
- 	"fmt"
-+	"log/slog"
- 
- 	"github.com/grafana/beyla/v2/pkg/beyla"
- 	"github.com/grafana/beyla/v2/pkg/config"
