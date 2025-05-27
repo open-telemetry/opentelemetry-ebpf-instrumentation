@@ -168,7 +168,6 @@ func parseBPF2GOGenLine(goFile string, line string) *bpf2goGenContext {
 
 func isFileStale(ts time.Time, file string) bool {
 	info, err := os.Stat(file)
-
 	if err != nil {
 		return true
 	}
@@ -178,7 +177,6 @@ func isFileStale(ts time.Time, file string) bool {
 
 func bpf2goFileNeedsGenerate(ctx *bpf2goGenContext) (bool, error) {
 	info, err := os.Stat(ctx.srcFile)
-
 	if err != nil {
 		return false, fmt.Errorf("cannot stat source file '%s': %w", ctx.srcFile, err)
 	}
@@ -266,7 +264,6 @@ func handleDirEntry(path string, d fs.DirEntry, err error, filesToGenerate fileS
 	for _, commentGroup := range node.Comments {
 		for _, comment := range commentGroup.List {
 			generate, err := mustGenerate(path, comment.Text)
-
 			if err != nil {
 				return err
 			}
