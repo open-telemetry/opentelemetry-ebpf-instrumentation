@@ -366,16 +366,12 @@ var (
 
 // GrpcSpanStatusCode https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/rpc/#grpc-status
 func GrpcSpanStatusCode(span *Span) string {
-	if span.Status == grpcStatusCodeOK {
-		return StatusCodeOk
-	}
-
-	if span.Type == EventTypeGRPCClient {
+	if span.Type == EventTypeGRPCClient && span.Status != grpcStatusCodeOK {
 		return StatusCodeError
 	}
 	switch span.Status {
 	case grpcStatusCodeOK:
-		return StatusCodeOk
+		return StatusCodeUnset
 	case grpcStatusCodeUnknown, grpcStatusCodeDeadlineExceeded, grpcStatusCodeUnimplemented,
 		grpcStatusCodeInternal, grpcStatusCodeUnavailable, grpcStatusCodeDataLoss:
 		return StatusCodeError
