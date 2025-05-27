@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"regexp"
 	"time"
 
 	"github.com/caarlos0/env/v9"
-	"github.com/gobwas/glob"
 	"gopkg.in/yaml.v3"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
@@ -121,10 +121,9 @@ var DefaultConfig = Config{
 	NetworkFlows: defaultNetworkConfig,
 	Discovery: services.DiscoveryConfig{
 		ExcludeOTelInstrumentedServices: true,
-		DefaultExcludeServices: services.DefinitionCriteria{
-			services.Attributes{
-				// excluding telemetry components from being instrumented
-				Path: services.NewGlob(glob.MustCompile("{*beyla,*alloy,*ebpf-instrument,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}")),
+		DefaultExcludeServices: services.RegexDefinitionCriteria{
+			services.RegexSelector{
+				Path: services.NewPathRegexp(regexp.MustCompile("(?:^|/)(beyla$|alloy$|otelcol[^/]*$)")),
 			},
 		},
 	},
@@ -150,10 +149,10 @@ type Config struct {
 
 	// Exec allows selecting the instrumented executable whose complete path contains the Exec value.
 	// TODO: setup an EXECUTABLE_NAME property that only cares about the executable name, ignoring the path
-	Exec services.GlobAttr `yaml:"executable_path" env:"OTEL_EBPF_EXECUTABLE_PATH"`
+	Exec services.RegexpAttr `yaml:"executable_path" env:"OTEL_EBPF_EXECUTABLE_PATH"`
 
 	//nolint:undoc
-	ExecOtelGo services.GlobAttr `env:"OTEL_GO_AUTO_TARGET_EXE"`
+	ExecOtelGo services.RegexpAttr `env:"OTEL_GO_AUTO_TARGET_EXE"`
 	// Port allows selecting the instrumented executable that owns the Port value. If this value is set (and
 	// different to zero), the value of the Exec property won't take effect.
 	// It's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter

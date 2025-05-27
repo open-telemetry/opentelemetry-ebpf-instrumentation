@@ -170,7 +170,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		require.Len(t, matches, 1)
 		m := matches[0]
 		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "port-only", m.Obj.Criteria.Name)
+		assert.Equal(t, "port-only", m.Obj.Criteria.GetName())
 		assert.EqualValues(t, 12, m.Obj.Process.Pid)
 	})
 
@@ -181,7 +181,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		require.Len(t, matches, 1)
 		m := matches[0]
 		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "metadata-only", m.Obj.Criteria.Name)
+		assert.Equal(t, "metadata-only", m.Obj.Criteria.GetName())
 		assert.EqualValues(t, 34, m.Obj.Process.Pid)
 	})
 
@@ -192,7 +192,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		require.Len(t, matches, 1)
 		m := matches[0]
 		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "pod-label-only", m.Obj.Criteria.Name)
+		assert.Equal(t, "pod-label-only", m.Obj.Criteria.GetName())
 		assert.EqualValues(t, 42, m.Obj.Process.Pid)
 	})
 
@@ -203,7 +203,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		require.Len(t, matches, 1)
 		m := matches[0]
 		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "pod-multi-label-only", m.Obj.Criteria.Name)
+		assert.Equal(t, "pod-multi-label-only", m.Obj.Criteria.GetName())
 		assert.EqualValues(t, 43, m.Obj.Process.Pid)
 	})
 
@@ -214,7 +214,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		require.Len(t, matches, 1)
 		m := matches[0]
 		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "pod-annotation-only", m.Obj.Criteria.Name)
+		assert.Equal(t, "pod-annotation-only", m.Obj.Criteria.GetName())
 		assert.EqualValues(t, 44, m.Obj.Process.Pid)
 	})
 
@@ -225,7 +225,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		require.Len(t, matches, 1)
 		m := matches[0]
 		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "pod-multi-annotation-only", m.Obj.Criteria.Name)
+		assert.Equal(t, "pod-multi-annotation-only", m.Obj.Criteria.GetName())
 		assert.EqualValues(t, 45, m.Obj.Process.Pid)
 	})
 
@@ -236,7 +236,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		require.Len(t, matches, 1)
 		m := matches[0]
 		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "both", m.Obj.Criteria.Name)
+		assert.Equal(t, "both", m.Obj.Criteria.GetName())
 		assert.EqualValues(t, 56, m.Obj.Process.Pid)
 	})
 

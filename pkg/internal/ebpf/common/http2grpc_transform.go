@@ -348,7 +348,7 @@ func http2FromBuffers(event *BPFHTTP2Info) (request.Span, bool, error) {
 			method, path, contentType, ok := readMetaFrame(connID, framer, ff)
 
 			if path == "" {
-				path = "*"
+				path = "."
 			}
 
 			grpcInStatus := false
