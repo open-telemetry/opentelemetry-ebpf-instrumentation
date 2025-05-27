@@ -14,7 +14,8 @@
 #include <maps/active_ssl_write_args.h>
 #include <maps/ssl_to_conn.h>
 
-static __always_inline void set_active_ssl_connection(pid_connection_info_t *conn, void *ssl) {
+static __always_inline void set_active_ssl_connection(ssl_pid_connection_info_t *ssl_conn,
+                                                      void *ssl) {
     bpf_dbg_printk("Correlating SSL %llx to connection", ssl);
     dbg_print_http_connection_info(&ssl_conn->p_conn.conn);
 
@@ -58,7 +59,7 @@ static __always_inline void connect_ssl_to_sock(u64 id, struct sock *sock, u8 di
 }
 
 static __always_inline void
-connect_ssl_to_connection(u64 id, pid_connection_info_t *conn, u8 direction) {
+connect_ssl_to_connection(u64 id, pid_connection_info_t *conn, u8 direction, u16 orig_dport) {
     void *ssl = unconnected_ssl_from_args(id, direction);
     if (!ssl) {
         return;
