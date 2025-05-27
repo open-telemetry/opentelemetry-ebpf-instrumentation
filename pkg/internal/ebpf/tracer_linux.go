@@ -222,13 +222,20 @@ func (pt *ProcessTracer) loadTracers() error {
 
 	log := ptlog()
 
+	anyLoaded := false
 	for _, p := range pt.Programs {
 		if err := pt.loadTracer(p, log); err != nil {
-			return err
+			log.Warn("couldn't load tracer", "error", err)
+		} else {
+			anyLoaded = true
 		}
 	}
 
 	btf.FlushKernelSpec()
+
+	if !anyLoaded {
+		return errors.New("failed to load all tracers for this program type")
+	}
 
 	return nil
 }
