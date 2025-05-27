@@ -28,6 +28,7 @@ const envModuleRoot = "OTEL_EBPF_GENFILES_MODULE_ROOT"
 type config struct {
 	DebugEnabled    bool   `env:"OTEL_EBPF_GENFILES_DEBUG"            envDefault:"false"`
 	RunLocally      bool   `env:"OTEL_EBPF_GENFILES_RUN_LOCALLY"      envDefault:"false"`
+	GenModifiedOnly bool   `env:"BEYLA_GENFILES_MODIFIED_ONLY"    envDefault:"false"`
 	ScanPath        string `env:"OTEL_EBPF_GENFILES_SCAN_PATH"        envDefault:"pkg"`
 	ContainerPrefix string `env:"OTEL_EBPF_GENFILES_CONTAINER_PREFIX" envDefault:"/__w/"`
 	HostPrefix      string `env:"OTEL_EBPF_GENFILES_HOST_PREFIX"      envDefault:"/home/runner/work/"`
@@ -456,6 +457,7 @@ func runInContainer(wd string) {
 	err = executeCommand(cfg.OCIBin, "run", "--rm",
 		"--user", currentUser.Uid+":"+currentUser.Gid,
 		"-v", adjustedWD+":/src",
+		"-e", "BEYLA_GENFILES_MODIFIED_ONLY="+strconv.FormatBool(cfg.GenModifiedOnly),
 		cfg.GenImage)
 	if err != nil {
 		bail(fmt.Errorf("error waiting for child process: %w", err))
