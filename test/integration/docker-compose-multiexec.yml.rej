@@ -1,9 +1,0 @@
-diff a/test/integration/docker-compose-multiexec.yml b/test/integration/docker-compose-multiexec.yml	(rejected hunks)
-@@ -141,7 +141,6 @@ services:
-       BEYLA_INTERNAL_METRICS_PROMETHEUS_PATH: /metrics
-       BEYLA_BPF_DISABLE_BLACK_BOX_CP: "${BEYLA_BPF_DISABLE_BLACK_BOX_CP}"
-       BEYLA_BPF_CONTEXT_PROPAGATION: "${BEYLA_BPF_CONTEXT_PROPAGATION}"
--      BEYLA_BPF_TC_L7_CP: "${BEYLA_BPF_TC_L7_CP}"
-       BEYLA_BPF_TRACK_REQUEST_HEADERS: "${BEYLA_BPF_TRACK_REQUEST_HEADERS}"
-       BEYLA_BPF_HIGH_REQUEST_VOLUME: 1
-     ports:

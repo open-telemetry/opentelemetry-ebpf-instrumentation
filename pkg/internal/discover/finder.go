@@ -10,7 +10,6 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/generictracer"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/gotracer"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/gpuevent"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/httptracer"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/tctracer"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/tpinjector"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
