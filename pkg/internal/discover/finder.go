@@ -76,7 +76,6 @@ func (pf *ProcessFinder) Start(ctx context.Context) (<-chan Event[*ebpf.Instrume
 
 // the common tracer group should get loaded for any tracer group, only once
 func newCommonTracersGroup(cfg *beyla.Config) []ebpf.Tracer {
-
 	switch cfg.EBPF.ContextPropagation {
 	case config.ContextPropagationAll:
 		return []ebpf.Tracer{tctracer.New(cfg), tpinjector.New(cfg)}
