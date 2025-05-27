@@ -1,3 +1,6 @@
+// TODO: remove this after batching API becomes stable
+//
+//nolint:staticcheck
 package otel
 
 import (
@@ -19,7 +22,6 @@ import (
 	"go.opentelemetry.io/collector/config/configtls"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/exporter"
-	"go.opentelemetry.io/collector/exporter/exporterbatcher"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/exporter/otlpexporter"
 	"go.opentelemetry.io/collector/exporter/otlphttpexporter"
@@ -293,9 +295,9 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig, ctxInfo *global.Co
 		config := factory.CreateDefaultConfig().(*otlphttpexporter.Config)
 		// Experimental API for batching
 		// See: https://github.com/open-telemetry/opentelemetry-collector/issues/8122
-		batchCfg := exporterbatcher.NewDefaultConfig()
+		batchCfg := exporterhelper.NewDefaultBatcherConfig()
 		if cfg.MaxQueueSize > 0 {
-			batchCfg.MaxSize = cfg.MaxExportBatchSize
+			batchCfg.SizeConfig.MaxSize = int64(cfg.MaxExportBatchSize)
 		}
 		if cfg.BatchTimeout > 0 {
 			batchCfg.FlushTimeout = cfg.BatchTimeout
@@ -309,7 +311,7 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig, ctxInfo *global.Co
 			},
 			Headers: convertHeaders(opts.Headers),
 		}
-		slog.Debug("getTracesExporter: confighttp.ClientConfig created", "endpoint", config.Endpoint)
+		slog.Debug("getTracesExporter: confighttp.ClientConfig created", "endpoint", config.ClientConfig.Endpoint)
 		set := getTraceSettings(ctxInfo, factory.Type(), t, &batchCfg)
 		exporter, err := factory.CreateTraces(ctx, set, config)
 		if err != nil {
@@ -349,7 +351,7 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig, ctxInfo *global.Co
 		// See: https://github.com/open-telemetry/opentelemetry-collector/issues/8122
 		if cfg.MaxExportBatchSize > 0 {
 			config.BatcherConfig.Enabled = true
-			config.BatcherConfig.MaxSize = cfg.MaxExportBatchSize
+			config.BatcherConfig.SizeConfig.MaxSize = int64(cfg.MaxExportBatchSize)
 		}
 		if cfg.BatchTimeout > 0 {
 			config.BatcherConfig.FlushTimeout = cfg.BatchTimeout
@@ -398,7 +400,7 @@ func getTraceSettings(
 	ctxInfo *global.ContextInfo,
 	dataTypeMetrics component.Type,
 	in trace.SpanExporter,
-	batcherCfg *exporterbatcher.Config,
+	batcherCfg *exporterhelper.BatcherConfig,
 ) exporter.Settings {
 	var traceProvider trace2.TracerProvider
 	traceProvider = tracenoop.NewTracerProvider()
@@ -424,13 +426,13 @@ func getTraceSettings(
 	}
 }
 
-func getInternalBatchSpanOpts(cfg *exporterbatcher.Config) []trace.BatchSpanProcessorOption {
+func getInternalBatchSpanOpts(cfg *exporterhelper.BatcherConfig) []trace.BatchSpanProcessorOption {
 	var opts []trace.BatchSpanProcessorOption
 	if cfg.FlushTimeout > 0 {
 		opts = append(opts, trace.WithBatchTimeout(cfg.FlushTimeout))
 	}
 	if cfg.MaxSize > 0 {
-		opts = append(opts, trace.WithMaxQueueSize(cfg.MaxSize))
+		opts = append(opts, trace.WithMaxQueueSize(int(cfg.MaxSize)))
 	}
 	return opts
 }
