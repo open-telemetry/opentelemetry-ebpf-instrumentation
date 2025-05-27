@@ -152,3 +152,7 @@ func (p *Tracer) Run(ctx context.Context, _ *msg.Queue[[]request.Span]) {
 
 	p.log.Debug("tpinjector terminated")
 }
+
+func (p *Tracer) Required() bool {
+	return false
+}
