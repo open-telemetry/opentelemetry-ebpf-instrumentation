@@ -7,10 +7,10 @@ import (
 	"maps"
 	"time"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/kube"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubeflags"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
@@ -198,6 +198,10 @@ func OwnerLabelName(kind string) attr.Name {
 		return attr.K8sDaemonSetName
 	case "ReplicaSet":
 		return attr.K8sReplicaSetName
+	case "Job":
+		return attr.K8sJobName
+	case "CronJob":
+		return attr.K8sCronJobName
 	default:
 		return ""
 	}

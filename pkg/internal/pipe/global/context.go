@@ -1,10 +1,12 @@
 package global
 
 import (
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/connector"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
 	kube2 "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/kube"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
 // ContextInfo stores some context information that must be shared across some nodes of the
@@ -26,6 +28,9 @@ type ContextInfo struct {
 	MetricAttributeGroups attributes.AttrGroups
 	// K8sInformer enables direct access to the Kubernetes API
 	K8sInformer *kube2.MetadataProvider
+
+	// OverrideAppExportQueue
+	OverrideAppExportQueue *msg.Queue[[]request.Span]
 }
 
 // AppO11y stores context information that is only required for application observability.

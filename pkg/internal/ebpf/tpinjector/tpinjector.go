@@ -4,18 +4,16 @@ package tpinjector
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 
 	"github.com/cilium/ebpf"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/goexec"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
@@ -44,19 +42,6 @@ func (p *Tracer) AllowPID(uint32, uint32, *svc.Attrs) {}
 func (p *Tracer) BlockPID(uint32, uint32) {}
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
-	if !ebpfcommon.HasHostPidAccess() {
-		return nil, errors.New("L4/L7 context-propagation requires host process ID access, e.g. hostPid:true")
-	}
-
-	hostNet, err := ebpfcommon.HasHostNetworkAccess()
-	if err != nil {
-		return nil, fmt.Errorf("failed to check for host network access while enabling L7 context-propagation, error: %w", err)
-	}
-
-	if !hostNet {
-		return nil, errors.New("L7 context-propagation requires host network access, e.g. hostNetwork:true")
-	}
-
 	if p.cfg.EBPF.BpfDebug {
 		return loadBpf_debug()
 	}

@@ -1,4 +1,4 @@
-package components
+package instrumenter
 
 import (
 	"context"
@@ -20,12 +20,18 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
 )
 
-// RunBeyla in the foreground process. This is a blocking function and won't exit
+// Run in the foreground process. This is a blocking function and won't exit
 // until both the AppO11y and NetO11y components end
-func RunBeyla(ctx context.Context, cfg *beyla.Config) error {
+func Run(
+	ctx context.Context, cfg *beyla.Config,
+	opts ...Option,
+) error {
 	ctxInfo, err := buildCommonContextInfo(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("can't build common context info: %w", err)
+	}
+	for _, opt := range opts {
+		opt(ctxInfo)
 	}
 
 	app := cfg.Enabled(beyla.FeatureAppO11y)
@@ -60,7 +66,7 @@ func RunBeyla(ctx context.Context, cfg *beyla.Config) error {
 }
 
 func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *beyla.Config) error {
-	slog.Info("starting Beyla in Application Observability mode")
+	slog.Info("starting Application Observability mode")
 
 	instr, err := appolly.New(ctx, ctxInfo, config)
 	if err != nil {

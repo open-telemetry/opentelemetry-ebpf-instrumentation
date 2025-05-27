@@ -18,6 +18,8 @@ const (
 	AttrReplicaSetName  = "k8s_replicaset_name"
 	AttrDaemonSetName   = "k8s_daemonset_name"
 	AttrStatefulSetName = "k8s_statefulset_name"
+	AttrJobName         = "k8s_job_name"
+	AttrCronJobName     = "k8s_cronjob_name"
 	// AttrOwnerName would be a generic search criteria that would
 	// match against deployment, replicaset, daemonset and statefulset names
 	AttrOwnerName = "k8s_owner_name"
@@ -31,6 +33,8 @@ var allowedAttributeNames = map[string]struct{}{
 	AttrReplicaSetName:  {},
 	AttrDaemonSetName:   {},
 	AttrStatefulSetName: {},
+	AttrJobName:         {},
+	AttrCronJobName:     {},
 	AttrOwnerName:       {},
 }
 
@@ -135,6 +139,9 @@ type Attributes struct {
 
 	// PodAnnotations allows matching against the annotations of a pod
 	PodAnnotations map[string]*GlobAttr `yaml:"k8s_pod_annotations"`
+
+	// Restrict the discovery to processes which are running inside a container
+	ContainersOnly bool `yaml:"containers_only"`
 }
 
 // PortEnum defines an enumeration of ports. It allows defining a set of single ports as well a set of

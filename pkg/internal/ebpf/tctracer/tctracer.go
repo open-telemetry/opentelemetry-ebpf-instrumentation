@@ -11,12 +11,12 @@ import (
 
 	"github.com/cilium/ebpf"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/tcmanager"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/goexec"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
@@ -40,6 +40,11 @@ func New(cfg *beyla.Config) *Tracer {
 		log: log,
 		cfg: cfg,
 	}
+}
+
+func CanRun() bool {
+	hostNet, err := ebpfcommon.HasHostNetworkAccess()
+	return err == nil && hostNet && ebpfcommon.HasHostPidAccess()
 }
 
 func (p *Tracer) AllowPID(uint32, uint32, *svc.Attrs) {}

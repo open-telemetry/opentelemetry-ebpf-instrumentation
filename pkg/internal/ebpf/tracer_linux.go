@@ -16,12 +16,12 @@ import (
 	"github.com/cilium/ebpf/btf"
 	"github.com/cilium/ebpf/link"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	common "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
 	convenience "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/convenience"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/goexec"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
@@ -222,13 +222,20 @@ func (pt *ProcessTracer) loadTracers() error {
 
 	log := ptlog()
 
+	anyLoaded := false
 	for _, p := range pt.Programs {
 		if err := pt.loadTracer(p, log); err != nil {
-			return err
+			log.Warn("couldn't load tracer", "error", err)
+		} else {
+			anyLoaded = true
 		}
 	}
 
 	btf.FlushKernelSpec()
+
+	if !anyLoaded {
+		return errors.New("failed to load all tracers for this program type")
+	}
 
 	return nil
 }
