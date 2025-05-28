@@ -63,7 +63,7 @@ func TestSuiteNestedTraces(t *testing.T) {
 
 func TestSuiteClient(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-client.yml", path.Join(pathOutput, "test-suite-client.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=*pingclient`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=pingclient`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Client RED metrics", testREDMetricsForClientHTTPLibrary)
@@ -72,7 +72,7 @@ func TestSuiteClient(t *testing.T) {
 
 func TestSuiteClientPromScrape(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-client.yml", path.Join(pathOutput, "test-suite-client-promscrape.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=*pingclient`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=pingclient`)
 	compose.Env = append(compose.Env,
 		`INSTRUMENTER_CONFIG_SUFFIX=-promscrape`,
 		`PROM_CONFIG_SUFFIX=-promscrape`,
@@ -462,7 +462,7 @@ func TestSuiteNodeClient(t *testing.T) {
 	}
 
 	compose, err := docker.ComposeSuite("docker-compose-nodeclient.yml", path.Join(pathOutput, "test-suite-nodeclient.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=*node`, `NODE_APP=client`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {
@@ -478,7 +478,7 @@ func TestSuiteNodeClientTLS(t *testing.T) {
 	}
 
 	compose, err := docker.ComposeSuite("docker-compose-nodeclient.yml", path.Join(pathOutput, "test-suite-nodeclient-tls.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=*node`, `NODE_APP=client_tls`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client_tls`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {

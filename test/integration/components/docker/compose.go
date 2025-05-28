@@ -18,8 +18,8 @@ type Compose struct {
 
 func defaultEnv() []string {
 	env := os.Environ()
-	env = append(env, "OTEL_EBPF_EXECUTABLE_PATH=*testserver")
-	env = append(env, "JAVA_EXECUTABLE_PATH=*greeting")
+	env = append(env, "OTEL_EBPF_EXECUTABLE_PATH=testserver")
+	env = append(env, "JAVA_EXECUTABLE_PATH=greeting")
 	return env
 }
 
