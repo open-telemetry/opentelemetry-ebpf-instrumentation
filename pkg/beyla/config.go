@@ -2,6 +2,7 @@ package beyla
 
 import (
 	"fmt"
+	"github.com/gobwas/glob"
 	"io"
 	"log/slog"
 	"regexp"
@@ -126,6 +127,11 @@ var DefaultConfig = Config{
 				Path: services.NewPathRegexp(regexp.MustCompile("(?:^|/)(beyla$|alloy$|otelcol[^/]*$)")),
 			},
 		},
+		DefaultExcludeInstrument: services.GlobDefinitionCriteria{
+			services.GlobAttributes{
+				Path: services.NewGlob(glob.MustCompile("{*beyla,*alloy,*ebpf-instrument,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}")),
+			},
+		},
 	},
 }
 
@@ -149,10 +155,15 @@ type Config struct {
 
 	// Exec allows selecting the instrumented executable whose complete path contains the Exec value.
 	// TODO: setup an EXECUTABLE_NAME property that only cares about the executable name, ignoring the path
+	// Deprecated. Use OTEL_EBPF_AUTO_TARGET_EXE
 	Exec services.RegexpAttr `yaml:"executable_path" env:"OTEL_EBPF_EXECUTABLE_PATH"`
 
+	// AutoTargetExe selects the executable to instrument matching a Glob against the executable path.
+	// To set this value via YAML, use discovery > instrument.
+	// It also accepts OTEL_GO_AUTO_TARGET_EXE for compatibility with opentelemetry-go-instrumentation
 	//nolint:undoc
-	ExecOtelGo services.RegexpAttr `env:"OTEL_GO_AUTO_TARGET_EXE"`
+	AutoTargetExe services.GlobAttr `env:"OTEL_EBPF_AUTO_TARGET_EXE" envDefault:"${OTEL_GO_AUTO_TARGET_EXE}"`
+
 	// Port allows selecting the instrumented executable that owns the Port value. If this value is set (and
 	// different to zero), the value of the Exec property won't take effect.
 	// It's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter
@@ -215,12 +226,10 @@ func (e ConfigError) Error() string {
 //
 //nolint:cyclop
 func (c *Config) Validate() error {
-	if err := c.Discovery.Services.Validate(); err != nil {
-		return ConfigError("error in services YAML property: " + err.Error())
+	if err := c.Discovery.Validate() ; err != nil {
+		return ConfigError(err.Error())
 	}
-	if err := c.Discovery.ExcludeServices.Validate(); err != nil {
-		return ConfigError("error in exclude_services YAML property: " + err.Error())
-	}
+
 	if !c.Enabled(FeatureNetO11y) && !c.Enabled(FeatureAppO11y) {
 		return ConfigError("missing to enable application discovery or network metrics. Check documentation")
 	}
@@ -357,8 +366,8 @@ func LoadConfig(file io.Reader) (*Config, error) {
 	}
 
 	// We support OTEL_GO_AUTO_TARGET_EXE as an alias to OTEL_EBPF_EXECUTABLE_PATH
-	if !cfg.Exec.IsSet() && cfg.ExecOtelGo.IsSet() {
-		cfg.Exec = cfg.ExecOtelGo
+	if !cfg.Exec.IsSet() && cfg.AutoTargetExe.IsSet() {
+		cfg.Exec = cfg.AutoTargetExe
 	}
 
 	return &cfg, nil

@@ -3,6 +3,7 @@ package beyla
 import (
 	"bytes"
 	"fmt"
+	"github.com/gobwas/glob"
 	"io"
 	"log/slog"
 	"maps"
@@ -207,6 +208,11 @@ network:
 			DefaultExcludeServices: services.RegexDefinitionCriteria{
 				services.RegexSelector{
 					Path: services.NewPathRegexp(regexp.MustCompile("(?:^|/)(beyla$|alloy$|otelcol[^/]*$)")),
+				},
+			},
+			DefaultExcludeInstrument: services.GlobDefinitionCriteria{
+				services.GlobAttributes{
+					Path: services.NewGlob(glob.MustCompile("{*beyla,*alloy,*ebpf-instrument,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}")),
 				},
 			},
 		},
@@ -476,7 +482,29 @@ time=\S+ level=DEBUG msg=debug arg=debug$`),
 	}
 }
 
+
 func TestDefaultExclusionFilter(t *testing.T) {
+	c := DefaultConfig.Discovery.DefaultExcludeInstrument
+
+	assert.True(t, c[0].Path.MatchString("beyla"))
+	assert.True(t, c[0].Path.MatchString("alloy"))
+	assert.True(t, c[0].Path.MatchString("otelcol-contrib"))
+
+	assert.False(t, c[0].Path.MatchString("/usr/bin/beyla/test"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/alloy/test"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib/test"))
+
+	assert.True(t, c[0].Path.MatchString("/beyla"))
+	assert.True(t, c[0].Path.MatchString("/alloy"))
+	assert.True(t, c[0].Path.MatchString("/otelcol-contrib"))
+
+	assert.True(t, c[0].Path.MatchString("/usr/bin/beyla"))
+	assert.True(t, c[0].Path.MatchString("/usr/bin/alloy"))
+	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib"))
+	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib123"))
+}
+
+func TestDefaultLegacyExclusionFilter(t *testing.T) {
 	c := DefaultConfig.Discovery.DefaultExcludeServices
 
 	assert.True(t, c[0].Path.MatchString("beyla"))

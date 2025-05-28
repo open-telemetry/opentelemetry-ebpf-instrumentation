@@ -257,6 +257,24 @@ func FindingCriteria(cfg *beyla.Config) []services.Selector {
 			},
 		}
 	}
+
+	if len(cfg.Discovery.Services) > 0 {
+		if len(c.Instrument) > 0 {
+			slog.Warn("both discovery > instrument and legacy discovery > services YAML sections are defined. Using" +
+				" discovery > instrument and ignoring discovery > services (also ignoring discovery > exclude_services)")
+		} else {
+			slog.Warn("discovery > services YAML property is deprecated and will be removed in a future version. Use" +
+				" discovery > instrument instead. See documentation for more details")
+		}
+	}
+	if len(c.ExcludeServices) > 0 {
+		if len(c.Instrument) > 0 {
+			slog.Warn("discovery > exclude_services will be ignored. Use discovery > exclude_instrument instead")
+		} else {
+			slog.Warn("discovery > exclude_services YAML property is deprecated and will be removed in a future version. Use" +
+				" discovery > exclude_instrument instead. See documentation for more details")
+		}
+	}
 	finderCriteria := cfg.Discovery.Services
 	// Merge the old, individual single-service selector,
 	// with the new, map-based multi-services selector.

@@ -22,11 +22,11 @@ func (dc RegexDefinitionCriteria) Validate() error {
 			len(dc[i].Metadata) == 0 &&
 			len(dc[i].PodLabels) == 0 &&
 			len(dc[i].PodAnnotations) == 0 {
-			return fmt.Errorf("discovery.services[%d] should define at least one selection criteria", i)
+			return fmt.Errorf("index [%d] should define at least one selection criteria", i)
 		}
 		for k := range dc[i].Metadata {
 			if _, ok := allowedAttributeNames[k]; !ok {
-				return fmt.Errorf("unknown attribute in discovery.services[%d]: %s", i, k)
+				return fmt.Errorf("unknown attribute in index [%d]: %s", i, k)
 			}
 		}
 	}
