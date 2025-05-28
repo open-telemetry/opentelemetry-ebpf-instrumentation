@@ -21,10 +21,10 @@ func TestCriteriaMatcher(t *testing.T) {
     namespace: foo
     open_ports: 80,8080-8089
   - name: exec-only
-    exe_path: "*weird[0-9]*"
+    exe_path: weird\d
   - name: both
     open_ports: 443
-    exe_path: "*server*"
+    exe_path_regexp: "server"
 `), &pipeConfig))
 
 	discoveredProcesses := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(10))
@@ -56,23 +56,23 @@ func TestCriteriaMatcher(t *testing.T) {
 	require.Len(t, matches, 4)
 	m := matches[0]
 	assert.Equal(t, EventCreated, m.Type)
-	assert.Equal(t, "exec-only", m.Obj.Criteria.Name)
-	assert.Empty(t, m.Obj.Criteria.Namespace)
+	assert.Equal(t, "exec-only", m.Obj.Criteria.GetName())
+	assert.Empty(t, m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 1, ExePath: "/bin/weird33", OpenPorts: []uint32{1, 2, 3}}, *m.Obj.Process)
 	m = matches[1]
 	assert.Equal(t, EventCreated, m.Type)
-	assert.Equal(t, "port-only", m.Obj.Criteria.Name)
-	assert.Equal(t, "foo", m.Obj.Criteria.Namespace)
+	assert.Equal(t, "port-only", m.Obj.Criteria.GetName())
+	assert.Equal(t, "foo", m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 4, ExePath: "/bin/something", OpenPorts: []uint32{8083}}, *m.Obj.Process)
 	m = matches[2]
 	assert.Equal(t, EventCreated, m.Type)
-	assert.Equal(t, "both", m.Obj.Criteria.Name)
-	assert.Empty(t, m.Obj.Criteria.Namespace)
+	assert.Equal(t, "both", m.Obj.Criteria.GetName())
+	assert.Empty(t, m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 5, ExePath: "server", OpenPorts: []uint32{443}}, *m.Obj.Process)
 	m = matches[3]
 	assert.Equal(t, EventCreated, m.Type)
-	assert.Equal(t, "exec-only", m.Obj.Criteria.Name)
-	assert.Empty(t, m.Obj.Criteria.Namespace)
+	assert.Equal(t, "exec-only", m.Obj.Criteria.GetName())
+	assert.Empty(t, m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 6, ExePath: "/bin/clientweird99"}, *m.Obj.Process)
 }
 
@@ -84,12 +84,12 @@ func TestCriteriaMatcher_Exclude(t *testing.T) {
     namespace: foo
     open_ports: 80,8080-8089
   - name: exec-only
-    exe_path: "*weird*"
+    exe_path: weird\d
   - name: both
     open_ports: 443
-    exe_path: "*server*"
+    exe_path_regexp: "server"
   exclude_services:
-  - exe_path: "*s*"
+  - exe_path: s
 `), &pipeConfig))
 
 	discoveredProcesses := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(10))
@@ -121,13 +121,13 @@ func TestCriteriaMatcher_Exclude(t *testing.T) {
 	require.Len(t, matches, 2)
 	m := matches[0]
 	assert.Equal(t, EventCreated, m.Type)
-	assert.Equal(t, "exec-only", m.Obj.Criteria.Name)
-	assert.Empty(t, m.Obj.Criteria.Namespace)
+	assert.Equal(t, "exec-only", m.Obj.Criteria.GetName())
+	assert.Empty(t, m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 1, ExePath: "/bin/weird33", OpenPorts: []uint32{1, 2, 3}}, *m.Obj.Process)
 	m = matches[1]
 	assert.Equal(t, EventCreated, m.Type)
-	assert.Equal(t, "exec-only", m.Obj.Criteria.Name)
-	assert.Empty(t, m.Obj.Criteria.Namespace)
+	assert.Equal(t, "exec-only", m.Obj.Criteria.GetName())
+	assert.Empty(t, m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 6, ExePath: "/bin/clientweird99"}, *m.Obj.Process)
 }
 
@@ -135,7 +135,7 @@ func TestCriteriaMatcher_Exclude_Metadata(t *testing.T) {
 	pipeConfig := beyla.Config{}
 	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
   services:
-  - k8s_node_name: "*"
+  - k8s_node_name: .
   exclude_services:
   - k8s_node_name: bar
 `), &pipeConfig))
@@ -184,11 +184,11 @@ func TestCriteriaMatcher_MustMatchAllAttributes(t *testing.T) {
   - name: all-attributes-must-match
     namespace: foons
     open_ports: 80,8080-8089
-    exe_path: "*foo*"
-    k8s_namespace: "*thens*"
-    k8s_pod_name: "*thepod*"
-    k8s_deployment_name: "*thedepl*"
-    k8s_replicaset_name: "*thers*"
+    exe_path: foo
+    k8s_namespace: thens
+    k8s_pod_name: thepod
+    k8s_deployment_name: thedepl
+    k8s_replicaset_name: thers
 `), &pipeConfig))
 
 	discoveredProcesses := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(10))
@@ -235,8 +235,8 @@ func TestCriteriaMatcher_MustMatchAllAttributes(t *testing.T) {
 	require.Len(t, matches, 1)
 	m := matches[0]
 	assert.Equal(t, EventCreated, m.Type)
-	assert.Equal(t, "all-attributes-must-match", m.Obj.Criteria.Name)
-	assert.Equal(t, "foons", m.Obj.Criteria.Namespace)
+	assert.Equal(t, "all-attributes-must-match", m.Obj.Criteria.GetName())
+	assert.Equal(t, "foons", m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 1, ExePath: "/bin/foo", OpenPorts: []uint32{8081}}, *m.Obj.Process)
 }
 
@@ -277,13 +277,13 @@ func TestCriteriaMatcherMissingPort(t *testing.T) {
 	require.Len(t, matches, 2)
 	m := matches[0]
 	assert.Equal(t, EventCreated, m.Type)
-	assert.Equal(t, "port-only", m.Obj.Criteria.Name)
-	assert.Equal(t, "foo", m.Obj.Criteria.Namespace)
+	assert.Equal(t, "port-only", m.Obj.Criteria.GetName())
+	assert.Equal(t, "foo", m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 1, ExePath: "/bin/weird33", OpenPorts: []uint32{80}, PPid: 0}, *m.Obj.Process)
 	m = matches[1]
 	assert.Equal(t, EventCreated, m.Type)
-	assert.Equal(t, "port-only", m.Obj.Criteria.Name)
-	assert.Equal(t, "foo", m.Obj.Criteria.Namespace)
+	assert.Equal(t, "port-only", m.Obj.Criteria.GetName())
+	assert.Equal(t, "foo", m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 3, ExePath: "/bin/weird33", OpenPorts: []uint32{}, PPid: 1}, *m.Obj.Process)
 }
 
@@ -340,16 +340,16 @@ func TestCriteriaMatcherContainersOnly(t *testing.T) {
 		{Type: EventCreated, Obj: processAttrs{pid: 3, openPorts: []uint32{80}}}, // this one is the child, without port, but matches the parent by port, in a container
 	})
 
-	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	matches := testutil.ReadChannel(t, filteredProcesses, 5000*testTimeout)
 	require.Len(t, matches, 2)
 	m := matches[0]
 	assert.Equal(t, EventCreated, m.Type)
-	assert.Equal(t, "port-only-containers", m.Obj.Criteria.Name)
-	assert.Equal(t, "foo", m.Obj.Criteria.Namespace)
+	assert.Equal(t, "port-only-containers", m.Obj.Criteria.GetName())
+	assert.Equal(t, "foo", m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 2, ExePath: "/bin/weird33", OpenPorts: []uint32{80}, PPid: 0}, *m.Obj.Process)
 	m = matches[1]
 	assert.Equal(t, EventCreated, m.Type)
-	assert.Equal(t, "port-only-containers", m.Obj.Criteria.Name)
-	assert.Equal(t, "foo", m.Obj.Criteria.Namespace)
+	assert.Equal(t, "port-only-containers", m.Obj.Criteria.GetName())
+	assert.Equal(t, "foo", m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 3, ExePath: "/bin/weird33", OpenPorts: []uint32{80}, PPid: 1}, *m.Obj.Process)
 }

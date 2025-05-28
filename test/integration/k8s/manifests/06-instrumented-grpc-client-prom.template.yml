@@ -67,7 +67,7 @@ spec:
         - name: OTEL_EBPF_TRACE_PRINTER
           value: "counter"
         - name: OTEL_EBPF_EXECUTABLE_PATH
-          value: "*grpcpinger"
+          value: "grpcpinger"
         - name: OTEL_EBPF_METRICS_INTERVAL
           value: "10ms"
         - name: OTEL_EBPF_BPF_BATCH_TIMEOUT

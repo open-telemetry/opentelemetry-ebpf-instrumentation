@@ -10,14 +10,14 @@ import (
 )
 
 type yamlFile struct {
-	Services DefinitionCriteria `yaml:"services"`
+	Services RegexDefinitionCriteria `yaml:"services"`
 }
 
 func TestYAMLParse_PathRegexp(t *testing.T) {
 	inputFile := `
 services:
   - name: foo
-    exe_path: "abc"
+    exe_path: "^abc$"
 `
 	yf := yamlFile{}
 	require.NoError(t, yaml.Unmarshal([]byte(inputFile), &yf))
@@ -33,7 +33,7 @@ services:
 }
 
 func TestYAMLParse_PathRegexp_Errors(t *testing.T) {
-	t.Run("wrong glob expression", func(t *testing.T) {
+	t.Run("wrong regex expression", func(t *testing.T) {
 		require.Error(t, yaml.Unmarshal([]byte(`services:
   - exe_path: "{a\("`), &yamlFile{}))
 	})

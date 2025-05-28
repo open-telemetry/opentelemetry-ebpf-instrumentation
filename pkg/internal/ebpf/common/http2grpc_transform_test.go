@@ -251,7 +251,7 @@ func TestDynamicTableUpdates(t *testing.T) {
 	s, ignore, _ = http2FromBuffers(&info)
 	assert.False(t, ignore)
 	assert.Equal(t, "POST", s.Method)
-	assert.Equal(t, "*", s.Path) // this value is the same I just changed the first character from r to p
+	assert.Equal(t, ".", s.Path) // this value is the same I just changed the first character from r to p
 }
 
 func makeBPFHTTP2Info(buf, rbuf []byte, length int) BPFHTTP2Info {
