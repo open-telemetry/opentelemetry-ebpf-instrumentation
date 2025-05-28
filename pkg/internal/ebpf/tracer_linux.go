@@ -17,7 +17,6 @@ import (
 	"github.com/cilium/ebpf/link"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	common "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
 	convenience "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/convenience"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
@@ -97,10 +96,9 @@ func resolveMaps(spec *ebpf.CollectionSpec) (*ebpf.CollectionOptions, error) {
 	return &collOpts, nil
 }
 
-func NewProcessTracer(cfg *beyla.Config, tracerType ProcessTracerType, programs []Tracer) *ProcessTracer {
+func NewProcessTracer(tracerType ProcessTracerType, programs []Tracer) *ProcessTracer {
 	return &ProcessTracer{
 		Programs:        programs,
-		SystemWide:      cfg.Discovery.SystemWide,
 		Type:            tracerType,
 		Instrumentables: map[uint64]*instrumenter{},
 	}

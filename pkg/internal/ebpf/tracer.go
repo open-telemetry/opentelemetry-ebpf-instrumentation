@@ -30,7 +30,7 @@ type Instrumentable struct {
 
 type PIDsAccounter interface {
 	// AllowPID notifies the tracer to accept traces from the process with the
-	// provided PID. Unless system-wide instrumentation, the Tracer should discard
+	// provided PID. The Tracer should discard
 	// traces from processes whose PID has not been allowed before
 	// We must use a pointer for svc.Attrs so that all child processes share the same
 	// object. This is important when we tag a service as exporting traces or metrics.
@@ -124,7 +124,6 @@ type ProcessTracer struct {
 	log      *slog.Logger
 	Programs []Tracer
 
-	SystemWide      bool
 	Type            ProcessTracerType
 	Instrumentables map[uint64]*instrumenter
 }
