@@ -9,7 +9,7 @@ require (
 	github.com/containers/common v0.61.0
 	github.com/gavv/monotime v0.0.0-20190418164738-30dba4353424
 	github.com/gin-gonic/gin v1.9.1
-	github.com/go-logr/logr v1.4.2
+	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/stdr v1.2.2
 	github.com/gobwas/glob v0.2.3
 	github.com/goccy/go-json v0.10.5
