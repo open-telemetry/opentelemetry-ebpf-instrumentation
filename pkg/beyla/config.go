@@ -224,9 +224,6 @@ func (c *Config) Validate() error {
 	if !c.Enabled(FeatureNetO11y) && !c.Enabled(FeatureAppO11y) {
 		return ConfigError("missing to enable application discovery or network metrics. Check documentation")
 	}
-	if (c.Port.Len() > 0 || c.Exec.IsSet() || len(c.Discovery.Services) > 0) && c.Discovery.SystemWide {
-		return ConfigError("you can't use OTEL_EBPF_SYSTEM_WIDE if any of OTEL_EBPF_EXECUTABLE_PATH, OTEL_EBPF_OPEN_PORT or services (YAML) are set")
-	}
 	if c.EBPF.BatchLength == 0 {
 		return ConfigError("OTEL_EBPF_BPF_BATCH_LENGTH must be at least 1")
 	}
@@ -315,7 +312,7 @@ func (c *Config) Enabled(feature Feature) bool {
 	case FeatureNetO11y:
 		return c.NetworkFlows.Enable || c.promNetO11yEnabled() || c.otelNetO11yEnabled()
 	case FeatureAppO11y:
-		return c.Port.Len() > 0 || c.Exec.IsSet() || len(c.Discovery.Services) > 0 || c.Discovery.SystemWide
+		return c.Port.Len() > 0 || c.Exec.IsSet() || len(c.Discovery.Services) > 0
 	}
 	return false
 }
