@@ -26,6 +26,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/instrumentations"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric"
 	instrument "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/api/metric"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
@@ -47,6 +48,7 @@ const (
 	SpanMetricsRequestSizes  = "traces_spanmetrics_size_total"
 	SpanMetricsResponseSizes = "traces_spanmetrics_response_size_total"
 	TracesTargetInfo         = "traces_target_info"
+	TargetInfo               = "target_info"
 	TracesHostInfo           = "traces_host_info"
 	ServiceGraphClient       = "traces_service_graph_request_client"
 	ServiceGraphServer       = "traces_service_graph_request_server"
@@ -225,14 +227,17 @@ type MetricsReporter struct {
 	attrGPUMemoryAllocations   []attributes.Field[*request.Span, attribute.KeyValue]
 	userAttribSelection        attributes.Selection
 	input                      <-chan []request.Span
+	processEvents              <-chan exec.ProcessEvent
 }
 
 // Metrics is a set of metrics associated to a given OTEL MeterProvider.
 // There is a Metrics instance for each service/process instrumented by Beyla.
 type Metrics struct {
-	ctx      context.Context
-	service  *svc.Attrs
-	provider *metric.MeterProvider
+	ctx                      context.Context
+	service                  *svc.Attrs
+	provider                 *metric.MeterProvider
+	resourceAttributes       []attribute.KeyValue
+	tracesResourceAttributes attribute.Set
 
 	// IMPORTANT! Don't forget to clean each Expirer in cleanupAllMetricsInstances method
 	httpDuration           *Expirer[*request.Span, instrument.Float64Histogram, float64]
@@ -255,6 +260,7 @@ type Metrics struct {
 	serviceGraphServer           *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	serviceGraphFailed           *Expirer[*request.Span, instrument.Int64Counter, int64]
 	serviceGraphTotal            *Expirer[*request.Span, instrument.Int64Counter, int64]
+	targetInfo                   instrument.Int64UpDownCounter
 	tracesTargetInfo             instrument.Int64UpDownCounter
 	gpuKernelCallsTotal          *Expirer[*request.Span, instrument.Int64Counter, int64]
 	gpuMemoryAllocsTotal         *Expirer[*request.Span, instrument.Int64Counter, int64]
@@ -267,6 +273,7 @@ func ReportMetrics(
 	cfg *MetricsConfig,
 	userAttribSelection attributes.Selection,
 	input *msg.Queue[[]request.Span],
+	processEventCh *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
 		if !cfg.Enabled() {
@@ -274,7 +281,7 @@ func ReportMetrics(
 		}
 		SetupInternalOTELSDKLogger(cfg.SDKLogLevel)
 
-		mr, err := newMetricsReporter(ctx, ctxInfo, cfg, userAttribSelection, input)
+		mr, err := newMetricsReporter(ctx, ctxInfo, cfg, userAttribSelection, input, processEventCh)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating OTEL metrics reporter: %w", err)
 		}
@@ -298,6 +305,7 @@ func newMetricsReporter(
 	cfg *MetricsConfig,
 	userAttribSelection attributes.Selection,
 	input *msg.Queue[[]request.Span],
+	processEventCh *msg.Queue[exec.ProcessEvent],
 ) (*MetricsReporter, error) {
 	log := mlog()
 
@@ -315,6 +323,7 @@ func newMetricsReporter(
 		attributes:          attribProvider,
 		hostID:              ctxInfo.HostID,
 		input:               input.Subscribe(),
+		processEvents:       processEventCh.Subscribe(),
 		userAttribSelection: userAttribSelection,
 	}
 	// initialize attribute getters
@@ -364,14 +373,13 @@ func newMetricsReporter(
 
 	mr.reporters = NewReporterPool[*svc.Attrs, *Metrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
 		func(id svc.UID, v *expirable[*Metrics]) {
-			if mr.cfg.SpanMetricsEnabled() {
-				attrOpt := instrument.WithAttributeSet(mr.metricResourceAttributes(v.value.service))
-				v.value.tracesTargetInfo.Add(ctx, 1, attrOpt)
-			}
-
 			llog := log.With("service", id)
 			llog.Debug("evicting metrics reporter from cache")
 			v.value.cleanupAllMetricsInstances()
+
+			mr.deleteTracesTargetInfo(v.value)
+			mr.deleteTargetInfo(v.value)
+
 			go func() {
 				if err := v.value.provider.ForceFlush(ctx); err != nil {
 					llog.Warn("error flushing evicted metrics provider", "error", err)
@@ -455,7 +463,17 @@ func (mr *MetricsReporter) graphMetricOptions(mlog *slog.Logger) []metric.Option
 	}
 }
 
-//nolint:cyclop
+func (mr *MetricsReporter) setupTargetInfo(m *Metrics, meter instrument.Meter) error {
+	var err error
+	m.targetInfo, err = meter.Int64UpDownCounter(TargetInfo)
+	if err != nil {
+		return fmt.Errorf("creating span metric traces target info: %w", err)
+	}
+
+	return nil
+}
+
+// nolint: cyclop
 func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) error {
 	if !mr.cfg.OTelMetricsEnabled() {
 		return nil
@@ -703,8 +721,10 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 	opts = append(opts, mr.graphMetricOptions(mlog)...)
 
 	return Metrics{
-		ctx:     mr.ctx,
-		service: service,
+		ctx:                      mr.ctx,
+		service:                  service,
+		resourceAttributes:       resourceAttributes,
+		tracesResourceAttributes: mr.tracesResourceAttributes(service),
 		provider: metric.NewMeterProvider(
 			opts...,
 		),
@@ -714,11 +734,18 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 func (mr *MetricsReporter) newMetricSet(service *svc.Attrs) (*Metrics, error) {
 	m := mr.newMetricsInstance(service)
 
+	mlog().Debug("creating new metric set", "service", service)
 	// time units for HTTP and GRPC durations are in seconds, according to the OTEL specification:
 	// https://github.com/open-telemetry/opentelemetry-specification/tree/main/specification/metrics/semantic_conventions
 	// TODO: set ExplicitBucketBoundaries here and in prometheus from the previous specification
 	meter := m.provider.Meter(reporterName)
 	var err error
+
+	// Target info is created for every type of OTel metrics
+	if err = mr.setupTargetInfo(&m, meter); err != nil {
+		return nil, err
+	}
+
 	if mr.cfg.OTelMetricsEnabled() {
 		err = mr.setupOtelMeters(&m, meter)
 		if err != nil {
@@ -731,8 +758,6 @@ func (mr *MetricsReporter) newMetricSet(service *svc.Attrs) (*Metrics, error) {
 		if err != nil {
 			return nil, err
 		}
-		attrOpt := instrument.WithAttributeSet(mr.metricResourceAttributes(service))
-		m.tracesTargetInfo.Add(mr.ctx, 1, attrOpt)
 	}
 
 	if mr.cfg.ServiceGraphMetricsEnabled() {
@@ -740,8 +765,6 @@ func (mr *MetricsReporter) newMetricSet(service *svc.Attrs) (*Metrics, error) {
 		if err != nil {
 			return nil, err
 		}
-		attrOpt := instrument.WithAttributeSet(mr.metricResourceAttributes(service))
-		m.tracesTargetInfo.Add(mr.ctx, 1, attrOpt)
 	}
 
 	return &m, nil
@@ -854,7 +877,10 @@ func otelHistogramConfig(metricName string, buckets []float64, useExponentialHis
 		})
 }
 
-func (mr *MetricsReporter) metricResourceAttributes(service *svc.Attrs) attribute.Set {
+func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribute.Set {
+	if service == nil {
+		return *attribute.EmptySet()
+	}
 	baseAttrs := []attribute.KeyValue{
 		request.ServiceMetric(service.UID.Name),
 		semconv.ServiceInstanceID(service.UID.Instance),
@@ -862,6 +888,7 @@ func (mr *MetricsReporter) metricResourceAttributes(service *svc.Attrs) attribut
 		semconv.TelemetrySDKLanguageKey.String(service.SDKLanguage.String()),
 		semconv.TelemetrySDKNameKey.String("beyla"),
 		request.SourceMetric("beyla"),
+		semconv.OSTypeKey.String("linux"),
 	}
 
 	extraAttrs := []attribute.KeyValue{
@@ -1030,7 +1057,59 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 	}
 }
 
+func (mr *MetricsReporter) createTargetInfo(reporter *Metrics) {
+	mlog().Debug("Creating target_info")
+	attrOpt := instrument.WithAttributeSet(attribute.NewSet(reporter.resourceAttributes...))
+	reporter.targetInfo.Add(mr.ctx, 1, attrOpt)
+}
+
+func (mr *MetricsReporter) deleteTargetInfo(reporter *Metrics) {
+	mlog().Debug("Deleting target_info for", "attrs", reporter.resourceAttributes)
+	attrOpt := instrument.WithAttributeSet(attribute.NewSet(reporter.resourceAttributes...))
+	reporter.targetInfo.Remove(mr.ctx, attrOpt)
+}
+
+func (mr *MetricsReporter) createTracesTargetInfo(reporter *Metrics) {
+	if !mr.cfg.SpanMetricsEnabled() && !mr.cfg.ServiceGraphMetricsEnabled() {
+		return
+	}
+	mlog().Debug("Creating traces_target_info")
+	attrOpt := instrument.WithAttributeSet(reporter.tracesResourceAttributes)
+	reporter.tracesTargetInfo.Add(mr.ctx, 1, attrOpt)
+}
+
+func (mr *MetricsReporter) deleteTracesTargetInfo(reporter *Metrics) {
+	if !mr.cfg.SpanMetricsEnabled() && !mr.cfg.ServiceGraphMetricsEnabled() {
+		return
+	}
+	mlog().Debug("Deleting traces_target_info for", "attrs", reporter.resourceAttributes)
+	attrOpt := instrument.WithAttributeSet(reporter.tracesResourceAttributes)
+	reporter.tracesTargetInfo.Remove(mr.ctx, attrOpt)
+}
+
+func (mr *MetricsReporter) watchForProcessEvents() {
+	for pe := range mr.processEvents {
+		mlog().Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
+
+		reporter, err := mr.reporters.For(&pe.File.Service)
+		if err != nil {
+			mlog().Error("unexpected error creating OTEL resource. Ignoring metric",
+				"error", err, "service", pe.File.Service.UID)
+			continue
+		}
+
+		if pe.Type == exec.ProcessEventCreated {
+			mr.createTargetInfo(reporter)
+			mr.createTracesTargetInfo(reporter)
+		} else {
+			mr.deleteTracesTargetInfo(reporter)
+			mr.deleteTargetInfo(reporter)
+		}
+	}
+}
+
 func (mr *MetricsReporter) reportMetrics(_ context.Context) {
+	go mr.watchForProcessEvents()
 	for spans := range mr.input {
 		for i := range spans {
 			s := &spans[i]

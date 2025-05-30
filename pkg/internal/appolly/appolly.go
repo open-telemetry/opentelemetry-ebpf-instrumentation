@@ -12,9 +12,14 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/discover"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/traces"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/transform"
 )
 
 var errShutdownTimeout = errors.New("graceful shutdown has timed out")
@@ -33,7 +38,9 @@ type Instrumenter struct {
 
 	// tracesInput is used to communicate the found traces between the ProcessFinder and
 	// the ProcessTracer.
-	tracesInput *msg.Queue[[]request.Span]
+	tracesInput       *msg.Queue[[]request.Span]
+	processEventInput *msg.Queue[exec.ProcessEvent]
+	peGraphBuilder    *swarm.Instancer
 }
 
 // New Instrumenter, given a Config
@@ -42,17 +49,42 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *beyla.Config)
 
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen))
 
-	bp, err := pipe.Build(ctx, config, ctxInfo, tracesInput)
+	newEventQueue := func() *msg.Queue[exec.ProcessEvent] {
+		return msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(config.ChannelBufferLen), msg.NotBlockIfNoSubscribers())
+	}
+
+	swi := &swarm.Instancer{}
+
+	processEventsInput := newEventQueue()
+	processEventsHostDecorated := newEventQueue()
+
+	swi.Add(traces.HostProcessEventDecoratorProvider(
+		&config.Attributes.InstanceID,
+		processEventsInput,
+		processEventsHostDecorated,
+	))
+
+	processEventsKubeDecorated := newEventQueue()
+	swi.Add(transform.KubeProcessEventDecoratorProvider(
+		ctxInfo,
+		&config.Attributes.Kubernetes,
+		processEventsHostDecorated,
+		processEventsKubeDecorated,
+	))
+
+	bp, err := pipe.Build(ctx, config, ctxInfo, tracesInput, processEventsKubeDecorated)
 	if err != nil {
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}
 
 	return &Instrumenter{
-		config:      config,
-		ctxInfo:     ctxInfo,
-		tracersWg:   &sync.WaitGroup{},
-		tracesInput: tracesInput,
-		bp:          bp,
+		config:            config,
+		ctxInfo:           ctxInfo,
+		tracersWg:         &sync.WaitGroup{},
+		tracesInput:       tracesInput,
+		processEventInput: processEventsInput,
+		bp:                bp,
+		peGraphBuilder:    swi,
 	}, nil
 }
 
@@ -67,43 +99,58 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 		return fmt.Errorf("couldn't start Process Finder: %w", err)
 	}
 
+	// In the background process any process found events and annotate them with
+	// the Host or Kubernetes metadata
+	graph, err := i.peGraphBuilder.Instance(ctx)
+	if err == nil {
+		go i.processEventsPipeline(ctx, graph)
+	} else {
+		return fmt.Errorf("couldn't start Process Event pipeline: %w", err)
+	}
+
 	// In background, listen indefinitely for each new process and run its
 	// associated ebpf.ProcessTracer once it is found.
-	go func() {
-		log := log()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case ev := <-processEvents:
-				switch ev.Type {
-				case discover.EventCreated:
-					pt := ev.Obj
-					log.Debug("running tracer for new process",
-						"inode", pt.FileInfo.Ino, "pid", pt.FileInfo.Pid, "exec", pt.FileInfo.CmdExePath)
-					if pt.Tracer != nil {
-						i.tracersWg.Add(1)
-						go func() {
-							defer i.tracersWg.Done()
-							pt.Tracer.Run(ctx, i.tracesInput)
-						}()
-					}
-				case discover.EventDeleted:
-					dp := ev.Obj
-					log.Debug("stopping ProcessTracer because there are no more instances of such process",
-						"inode", dp.FileInfo.Ino, "pid", dp.FileInfo.Pid, "exec", dp.FileInfo.CmdExePath)
-					if dp.Tracer != nil {
-						dp.Tracer.UnlinkExecutable(dp.FileInfo)
-					}
-				default:
-					log.Error("BUG ALERT! unknown event type", "type", ev.Type)
-				}
-			}
-		}
-	}()
+	go i.instrumentedEventLoop(ctx, processEvents)
 
 	// TODO: wait until all the resources have been freed/unmounted
 	return nil
+}
+
+func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents <-chan discover.Event[*ebpf.Instrumentable]) {
+	log := log()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev := <-processEvents:
+			switch ev.Type {
+			case discover.EventCreated:
+				pt := ev.Obj
+				log.Debug("running tracer for new process",
+					"inode", pt.FileInfo.Ino, "pid", pt.FileInfo.Pid, "exec", pt.FileInfo.CmdExePath)
+				if pt.Tracer != nil {
+					i.tracersWg.Add(1)
+					go func() {
+						defer i.tracersWg.Done()
+						pt.Tracer.Run(ctx, i.tracesInput)
+					}()
+				}
+				i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: pt.FileInfo})
+			case discover.EventDeleted:
+				dp := ev.Obj
+				log.Debug("stopping ProcessTracer because there are no more instances of such process",
+					"inode", dp.FileInfo.Ino, "pid", dp.FileInfo.Pid, "exec", dp.FileInfo.CmdExePath)
+				if dp.Tracer != nil {
+					dp.Tracer.UnlinkExecutable(dp.FileInfo)
+				}
+				i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: dp.FileInfo})
+			case discover.EventInstanceDeleted:
+				i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: ev.Obj.FileInfo})
+			default:
+				log.Error("BUG ALERT! unknown event type", "type", ev.Type)
+			}
+		}
+	}
 }
 
 // ReadAndForward keeps listening for traces in the BPF map, then reads,
@@ -147,6 +194,10 @@ func (i *Instrumenter) stop() error {
 	}
 }
 
+func (i *Instrumenter) handleAndDispatchProcessEvent(pe exec.ProcessEvent) {
+	i.processEventInput.Send(pe)
+}
+
 func setupFeatureContextInfo(ctx context.Context, ctxInfo *global.ContextInfo, config *beyla.Config) {
 	ctxInfo.AppO11y.ReportRoutes = config.Routes != nil
 	setupKubernetes(ctx, ctxInfo)
@@ -171,4 +222,13 @@ func refreshK8sInformerCache(ctx context.Context, ctxInfo *global.ContextInfo) e
 	// force the cache to be populated and cached
 	_, err := ctxInfo.K8sInformer.Get(ctx)
 	return err
+}
+
+func (i *Instrumenter) processEventsPipeline(ctx context.Context, graph *swarm.Runner) {
+	graph.Start(ctx)
+	// run until either the graph is finished or the context is cancelled
+	select {
+	case <-graph.Done():
+	case <-ctx.Done():
+	}
 }

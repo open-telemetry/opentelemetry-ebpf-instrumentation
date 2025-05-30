@@ -19,6 +19,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
 	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/instrumentations"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
@@ -114,13 +115,14 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 
 	// Run the metrics reporter node standalone
 	exportMetrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	internalMetrics := &fakeInternalMetrics{}
 	reporter, err := ReportMetrics(&global.ContextInfo{
 		Metrics: internalMetrics,
 	}, &MetricsConfig{
 		CommonEndpoint: coll.URL, Interval: 10 * time.Millisecond, ReportersCacheLen: 16,
 		Features: []string{FeatureApplication}, Instrumentations: []string{instrumentations.InstrumentationHTTP},
-	}, attributes.Selection{}, exportMetrics,
+	}, attributes.Selection{}, exportMetrics, processEvents,
 	)(t.Context())
 	require.NoError(t, err)
 	go reporter(t.Context())
@@ -620,6 +622,8 @@ func makeExporter(
 	ctx context.Context, t *testing.T, instrumentations []string, otlp *collector.TestCollector,
 	input *msg.Queue[[]request.Span],
 ) swarm.RunFunc {
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+
 	otelExporter, err := ReportMetrics(
 		&global.ContextInfo{}, &MetricsConfig{
 			Interval:          50 * time.Millisecond,
@@ -633,7 +637,7 @@ func makeExporter(
 			attributes.HTTPServerDuration.Section: attributes.InclusionLists{
 				Include: []string{"url.path"},
 			},
-		}, input)(ctx)
+		}, input, processEvents)(ctx)
 
 	require.NoError(t, err)
 
@@ -808,7 +812,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 				userAttribSelection: tc.attributeSelect,
 			}
 
-			attrSet := mr.metricResourceAttributes(tc.service)
+			attrSet := mr.tracesResourceAttributes(tc.service)
 
 			attrs := attrSet.ToSlice()
 			attrMap := make(map[string]string)
