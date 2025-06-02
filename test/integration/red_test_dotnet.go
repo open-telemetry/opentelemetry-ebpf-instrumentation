@@ -5,6 +5,8 @@ package integration
 import (
 	"testing"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/tools"
+
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +38,7 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 		require.NoError(t, err)
 		enoughPromResults(t, results)
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		assert.LessOrEqual(t, 3, val, "received:", tools.ToJSON(val))
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]

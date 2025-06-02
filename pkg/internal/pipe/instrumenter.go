@@ -11,6 +11,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/prom"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/filter"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/traces"
@@ -28,13 +29,13 @@ type graphFunctions struct {
 
 // Build instantiates the whole instrumentation --> processing --> submit
 // pipeline graph and returns it as a startable item
-func Build(ctx context.Context, config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh *msg.Queue[[]request.Span]) (*Instrumenter, error) {
-	return newGraphBuilder(config, ctxInfo, tracesCh).buildGraph(ctx)
+func Build(ctx context.Context, config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh *msg.Queue[[]request.Span], processEventsCh *msg.Queue[exec.ProcessEvent]) (*Instrumenter, error) {
+	return newGraphBuilder(config, ctxInfo, tracesCh, processEventsCh).buildGraph(ctx)
 }
 
 // private constructor that can be instantiated from tests to override the node providers
 // and offsets inspector
-func newGraphBuilder(config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh *msg.Queue[[]request.Span]) *graphFunctions {
+func newGraphBuilder(config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh *msg.Queue[[]request.Span], processEventsCh *msg.Queue[exec.ProcessEvent]) *graphFunctions {
 	// First, we create a graph builder
 	swi := &swarm.Instancer{}
 	gb := &graphFunctions{
@@ -83,10 +84,10 @@ func newGraphBuilder(config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh
 	swi.Add(filter.ByAttribute(config.Filters.Application, spanPtrPromGetters,
 		nameResolverToAttrFilter, exportableSpans))
 
-	swi.Add(otel.ReportMetrics(ctxInfo, &config.Metrics, config.Attributes.Select, exportableSpans))
+	swi.Add(otel.ReportMetrics(ctxInfo, &config.Metrics, config.Attributes.Select, exportableSpans, processEventsCh))
 
 	swi.Add(otel.TracesReceiver(ctxInfo, config.Traces, config.Metrics.SpanMetricsEnabled(), config.Attributes.Select, exportableSpans))
-	swi.Add(prom.PrometheusEndpoint(ctxInfo, &config.Prometheus, config.Attributes.Select, exportableSpans))
+	swi.Add(prom.PrometheusEndpoint(ctxInfo, &config.Prometheus, config.Attributes.Select, exportableSpans, processEventsCh))
 	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus))
 
 	swi.Add(debug.PrinterNode(config.TracePrinter, exportableSpans))

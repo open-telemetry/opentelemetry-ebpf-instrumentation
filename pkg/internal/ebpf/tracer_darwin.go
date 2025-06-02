@@ -6,7 +6,6 @@ import (
 	"github.com/cilium/ebpf/link"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
@@ -18,7 +17,7 @@ type instrumenter struct{}
 
 func (pt *ProcessTracer) Run(_ context.Context, _ *msg.Queue[[]request.Span]) {}
 
-func NewProcessTracer(_ *beyla.Config, _ ProcessTracerType, _ []Tracer) *ProcessTracer {
+func NewProcessTracer(_ ProcessTracerType, _ []Tracer) *ProcessTracer {
 	return nil
 }
 

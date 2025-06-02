@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"regexp"
 	"slices"
 
 	"github.com/shirou/gopsutil/v3/process"
@@ -248,17 +247,8 @@ func normalizeRegexCriteria(finderCriteria services.RegexDefinitionCriteria) []s
 }
 
 func FindingCriteria(cfg *beyla.Config) []services.Selector {
-	if cfg.Discovery.SystemWide {
-		// will return all the executables in the system
-		return []services.Selector{
-			&services.RegexSelector{
-				Namespace: cfg.ServiceNamespace,
-				Path:      services.NewPathRegexp(regexp.MustCompile(".")),
-			},
-		}
-	}
-
-	if len(cfg.Discovery.Services) > 0 {
+	c := &cfg.Discovery
+	if len(c.Services) > 0 {
 		if len(c.Instrument) > 0 {
 			slog.Warn("both discovery > instrument and legacy discovery > services YAML sections are defined. Using" +
 				" discovery > instrument and ignoring discovery > services (also ignoring discovery > exclude_services)")
@@ -275,6 +265,7 @@ func FindingCriteria(cfg *beyla.Config) []services.Selector {
 				" discovery > exclude_instrument instead. See documentation for more details")
 		}
 	}
+
 	finderCriteria := cfg.Discovery.Services
 	// Merge the old, individual single-service selector,
 	// with the new, map-based multi-services selector.

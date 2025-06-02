@@ -13,7 +13,6 @@ import (
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/helpers"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
 )
 
 type testCase struct {
@@ -148,8 +147,11 @@ func TestCheckOSCapabilities(t *testing.T) {
 
 		cfg := Config{
 			NetworkFlows: NetworkConfig{Enable: data.class == capNet, Source: netSource(data.useTC)},
-			Discovery:    services.DiscoveryConfig{SystemWide: data.class == capApp},
 			EBPF:         config.EBPFTracer{ContextPropagationEnabled: data.useTC},
+		}
+		if data.class == capApp {
+			// activates app o11y feature
+			require.NoError(t, cfg.Exec.UnmarshalText([]byte(".")))
 		}
 
 		err := CheckOSCapabilities(&cfg)
