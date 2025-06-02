@@ -47,11 +47,15 @@ const (
 	IoWriterBufPtrPos
 	IoWriterNPos
 	CcNextStreamIDPos
+	CcNextStreamIDVendoredPos
+	CcFramerPos
+	CcFramerVendoredPos
 	FramerWPos
 	PcConnPos
 	PcTLSPos
 	NetConnPos
 	CcTconnPos
+	CcTconnVendoredPos
 	ScConnPos
 	CRwcPos
 	CTlsPos
@@ -65,9 +69,10 @@ const (
 	GrpcStConnPos
 	GrpcTConnPos
 	GrpcTSchemePos
-	HTTP2ClientNextIDPos
+	GrpcTransportStreamIDPos
 	GrpcTransportBufWriterBufPos
 	GrpcTransportBufWriterOffsetPos
+	GrpcTransportBufWriterConnPos
 	// redis
 	RedisConnBwPos
 	// kafka go
@@ -85,6 +90,7 @@ const (
 	// grpc 1.69
 	GrpcServerStreamStream
 	GrpcServerStreamStPtr
+	GrpcClientStreamStream
 )
 
 //go:embed offsets.json
@@ -131,6 +137,7 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"st":     GrpcStreamStPtrPos,
 			"method": GrpcStreamMethodPtrPos,
+			"id":     GrpcTransportStreamIDPos,
 		},
 	},
 	"google.golang.org/grpc/internal/transport.ServerStream": {
@@ -138,6 +145,12 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"Stream": GrpcServerStreamStream,
 			"st":     GrpcServerStreamStPtr,
+		},
+	},
+	"google.golang.org/grpc/internal/transport.ClientStream": {
+		lib: "google.golang.org/grpc",
+		fields: map[string]GoOffset{
+			"Stream": GrpcClientStreamStream,
 		},
 	},
 	"google.golang.org/grpc/internal/status.Status": {
@@ -181,7 +194,6 @@ var structMembers = map[string]structInfo{
 	"google.golang.org/grpc/internal/transport.http2Client": {
 		lib: "google.golang.org/grpc",
 		fields: map[string]GoOffset{
-			"nextID": HTTP2ClientNextIDPos,
 			"conn":   GrpcTConnPos,
 			"scheme": GrpcTSchemePos,
 		},
@@ -191,6 +203,7 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"nextStreamID": CcNextStreamIDPos,
 			"tconn":        CcTconnPos,
+			"fr":           CcFramerPos,
 		},
 	},
 	"net/http.http2Framer": {
@@ -226,8 +239,9 @@ var structMembers = map[string]structInfo{
 	"net/http.http2ClientConn": {
 		lib: "go",
 		fields: map[string]GoOffset{
-			"nextStreamID": CcNextStreamIDPos,
-			"tconn":        CcTconnPos,
+			"nextStreamID": CcNextStreamIDVendoredPos,
+			"tconn":        CcTconnVendoredPos,
+			"fr":           CcFramerVendoredPos,
 		},
 	},
 	"net/http.http2serverConn": {
@@ -274,6 +288,7 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"buf":    GrpcTransportBufWriterBufPos,
 			"offset": GrpcTransportBufWriterOffsetPos,
+			"conn":   GrpcTransportBufWriterConnPos,
 		},
 	},
 	"github.com/IBM/sarama.Broker": {
@@ -434,7 +449,7 @@ func structMemberPreFetchedOffsets(elfFile *elf.File, fieldOffsets FieldOffsets)
 					"lib", strInfo.lib, "name", strName, "field", fieldName, "version", version)
 				continue
 			}
-			log.Debug("found offset", "constantName", constantName, "offset", offset)
+			log.Debug("found offset", "fieldName", fieldName, "constantOffset", constantName, "offset", offset)
 			fieldOffsets[constantName] = offset
 		}
 	}
