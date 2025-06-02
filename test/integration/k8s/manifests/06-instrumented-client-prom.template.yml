@@ -65,8 +65,8 @@ spec:
           value: "500ms"
         - name: OTEL_EBPF_TRACE_PRINTER
           value: "text"
-        - name: OTEL_EBPF_EXECUTABLE_PATH
-          value: "httppinger"
+        - name: OTEL_EBPF_AUTO_TARGET_EXE
+          value: "*httppinger"
         - name: OTEL_EBPF_METRICS_INTERVAL
           value: "10ms"
         - name: OTEL_EBPF_BPF_BATCH_TIMEOUT

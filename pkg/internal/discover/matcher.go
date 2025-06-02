@@ -228,6 +228,24 @@ func (m *matcher) matchByAttributes(actual *processAttrs, required services.Sele
 	return true
 }
 
+func normalizeGlobCriteria(finderCriteria services.GlobDefinitionCriteria) []services.Selector {
+	// normalize criteria that only define metadata (e.g. k8s)
+	// but do neither define executable name nor port: configure them to match
+	// any executable in the matched k8s entities
+	criteria := make([]services.Selector, 0, len(finderCriteria))
+	for i := range finderCriteria {
+		fc := &finderCriteria[i]
+		if !fc.Path.IsSet() && fc.OpenPorts.Len() == 0 && (len(fc.Metadata) > 0 || len(fc.PodLabels) > 0 || len(fc.PodAnnotations) > 0) {
+			// match any executable path
+			if err := fc.Path.UnmarshalText([]byte("*")); err != nil {
+				panic("bug! " + err.Error())
+			}
+		}
+		criteria = append(criteria, fc)
+	}
+	return criteria
+}
+
 func normalizeRegexCriteria(finderCriteria services.RegexDefinitionCriteria) []services.Selector {
 	// normalize criteria that only define metadata (e.g. k8s)
 	// but do neither define executable name nor port: configure them to match
@@ -247,39 +265,87 @@ func normalizeRegexCriteria(finderCriteria services.RegexDefinitionCriteria) []s
 }
 
 func FindingCriteria(cfg *beyla.Config) []services.Selector {
+	logDeprecationAndConflicts(cfg)
+
+	if len(cfg.Discovery.Instrument) > 0 {
+		finderCriteria := cfg.Discovery.Instrument
+		if cfg.AutoTargetExe.IsSet() || cfg.Port.Len() > 0 {
+			finderCriteria = slices.Clone(cfg.Discovery.Instrument)
+			finderCriteria = append(finderCriteria, services.GlobAttributes{
+				Name:      cfg.ServiceName,
+				Namespace: cfg.ServiceNamespace,
+				Path:      cfg.AutoTargetExe,
+				OpenPorts: cfg.Port,
+			})
+		}
+		return normalizeGlobCriteria(finderCriteria)
+	}
+
+	// deprecated use case. Supporting the old discovery > services section when the
+	// newest discovery > instrument is not set
+
+	if len(cfg.Discovery.Services) > 0 {
+		finderCriteria := cfg.Discovery.Services
+		// Merge the old, individual single-service selector,
+		// with the new, map-based multi-services selector.
+		if cfg.Exec.IsSet() || cfg.Port.Len() > 0 {
+			finderCriteria = slices.Clone(cfg.Discovery.Services)
+			finderCriteria = append(finderCriteria, services.RegexSelector{
+				Name:      cfg.ServiceName,
+				Namespace: cfg.ServiceNamespace,
+				Path:      cfg.Exec,
+				OpenPorts: cfg.Port,
+			})
+		}
+		return normalizeRegexCriteria(finderCriteria)
+	}
+
+	// edge use case: when neither discovery > services nor discovery > instrument sections are set
+	// we will prioritize the newer OTEL_EBPF_AUTO_TARGET_EXE/OTEL_GO_AUTO_TARGET_EXE property
+	// over the old, deprecated OTEL_EBPF_EXECUTABLE_PATH
+	if !cfg.Exec.IsSet() {
+		return []services.Selector{
+			&services.GlobAttributes{
+				Name:      cfg.ServiceName,
+				Namespace: cfg.ServiceNamespace,
+				Path:      cfg.AutoTargetExe,
+				OpenPorts: cfg.Port,
+			},
+		}
+	}
+
+	return []services.Selector{
+		&services.RegexSelector{
+			Name:      cfg.ServiceName,
+			Namespace: cfg.ServiceNamespace,
+			Path:      cfg.Exec,
+			OpenPorts: cfg.Port,
+		},
+	}
+}
+
+func logDeprecationAndConflicts(cfg *beyla.Config) {
 	c := &cfg.Discovery
 	if len(c.Services) > 0 {
 		if len(c.Instrument) > 0 {
 			slog.Warn("both discovery > instrument and legacy discovery > services YAML sections are defined. Using" +
 				" discovery > instrument and ignoring discovery > services (also ignoring discovery > exclude_services)")
+		} else if cfg.Exec.IsSet() {
+			slog.Warn("both discovery > instrument and legacy OTEL_EBPF_EXECUTABLE_NAME are defined. Using" +
+				" discovery > instrument and ignoring OTEL_EBPF_EXECUTABLE_NAME")
 		} else {
 			slog.Warn("discovery > services YAML property is deprecated and will be removed in a future version. Use" +
 				" discovery > instrument instead. See documentation for more details")
 		}
 	}
 	if len(c.ExcludeServices) > 0 {
-		if len(c.Instrument) > 0 {
+		if len(c.ExcludeInstrument) > 0 {
 			slog.Warn("discovery > exclude_services will be ignored. Use discovery > exclude_instrument instead")
 		} else {
 			slog.Warn("discovery > exclude_services YAML property is deprecated and will be removed in a future version. Use" +
 				" discovery > exclude_instrument instead. See documentation for more details")
 		}
 	}
-
-	finderCriteria := cfg.Discovery.Services
-	// Merge the old, individual single-service selector,
-	// with the new, map-based multi-services selector.
-	if cfg.Exec.IsSet() || cfg.Port.Len() > 0 {
-		finderCriteria = slices.Clone(cfg.Discovery.Services)
-		finderCriteria = append(finderCriteria, services.RegexSelector{
-			Name:      cfg.ServiceName,
-			Namespace: cfg.ServiceNamespace,
-			Path:      cfg.Exec,
-			OpenPorts: cfg.Port,
-		})
-	}
-
-	return normalizeRegexCriteria(finderCriteria)
 }
 
 // replaceable function to allow unit tests with faked processes

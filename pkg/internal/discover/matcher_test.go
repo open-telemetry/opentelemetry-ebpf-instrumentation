@@ -353,3 +353,31 @@ func TestCriteriaMatcherContainersOnly(t *testing.T) {
 	assert.Equal(t, "foo", m.Obj.Criteria.GetNamespace())
 	assert.Equal(t, services.ProcessInfo{Pid: 3, ExePath: "/bin/weird33", OpenPorts: []uint32{80}, PPid: 1}, *m.Obj.Process)
 }
+
+func TestDeprecatedFindingCriteria(t *testing.T) {
+	// setup conflicting criteria and see how some of them are ignored and others not
+	type testCase struct {
+		name string
+		cfg  beyla.Config
+	}
+
+	for _, tc := range []testCase{
+		{name: "discovery > instrument", cfg: beyla.Config{}},
+		{name: "discovery > instrument with discovery > exclude_instrument"},
+		{name: "discovery > instrument with discovery > default_exclude_instrument"},
+		{name: "discovery > instrument with deprecated discovery > services"},
+		{name: "discovery > instrument with top-level path option"},
+		{name: "discovery > instrument with top-level port option"},
+		{name: "deprecated discovery > services", cfg: beyla.Config{}},
+		{name: "deprecated discovery > services with discovery > exclude_services"},
+		{name: "deprecated discovery > services with discovery > default_exclude_services"},
+		{name: "deprecated discovery > services with top-level deprecated exec option"},
+		{name: "deprecated discovery > services with top-level deprecated port option"},
+		{name: "no YAML discovery section, using top-level discovery sections"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Fail() // TODO
+		})
+	}
+
+}

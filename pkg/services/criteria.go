@@ -3,7 +3,6 @@ package services
 import (
 	"fmt"
 	"iter"
-	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
@@ -51,19 +50,18 @@ type ProcessInfo struct {
 type DiscoveryConfig struct {
 	// Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically
 	// added to the services definition criteria, with the lowest preference.
-	// Deprecated. Use Instrument instead
+	// Deprecated: Use Instrument instead
 	Services RegexDefinitionCriteria `yaml:"services"`
 
 	// ExcludeServices works analogously to Services, but the applications matching this section won't be instrumented
 	// even if they match the Services selection.
-	// Deprecated. Use InstrumentExclude instead
+	// Deprecated: Use ExcludeInstrument instead
 	ExcludeServices RegexDefinitionCriteria `yaml:"exclude_services"`
 
 	// DefaultExcludeServices by default prevents self-instrumentation of Beyla as well as related services (Alloy and OpenTelemetry collector)
 	// It must be set to an empty string or a different value if self-instrumentation is desired.
-	// Deprecated. Use DefaultExcludeInstrument instead
+	// Deprecated: Use DefaultExcludeInstrument instead
 	DefaultExcludeServices RegexDefinitionCriteria `yaml:"default_exclude_services"`
-
 
 	// Instrument selects the services to instrument via Globs. If this section is set,
 	// both the Services and ExcludeServices section is ignored.
@@ -71,9 +69,9 @@ type DiscoveryConfig struct {
 	// automatically added to the instrument criteria, with the lowest preference.
 	Instrument GlobDefinitionCriteria `yaml:"instrument"`
 
-	// InstrumentExclude works analogously to Instrument, but the applications matching this section won't be instrumented
+	// ExcludeInstrument works analogously to Instrument, but the applications matching this section won't be instrumented
 	// even if they match the Instrument selection.
-	InstrumentExclude GlobDefinitionCriteria `yaml:"exclude_instrument"`
+	ExcludeInstrument GlobDefinitionCriteria `yaml:"exclude_instrument"`
 
 	// DefaultExcludeInstrument by default prevents self-instrumentation of OBI as well as related services (Beyla, Alloy and OpenTelemetry collector)
 	// It must be set to an empty string or a different value if self-instrumentation is desired.
@@ -105,14 +103,17 @@ func (c *DiscoveryConfig) Validate() error {
 	if err := c.Instrument.Validate(); err != nil {
 		return fmt.Errorf("error in instrument YAML property: %w", err)
 	}
-	if err := c.InstrumentExclude.Validate(); err != nil {
+	if err := c.ExcludeInstrument.Validate(); err != nil {
 		return fmt.Errorf("error in exclude_instrument YAML property: %w", err)
 	}
+	return nil
 }
 
 // Selector defines a generic interface for selecting service processes based on different criteria.
 type Selector interface {
+	// Deprecated: Name should be set in the instrumentation target via kube metadata or standard env vars
 	GetName() string
+	// Deprecated: Namespace should be set in the instrumentation target via kube metadata or standard env vars
 	GetNamespace() string
 	GetPath() StringMatcher
 	GetPathRegexp() StringMatcher

@@ -3,7 +3,6 @@ package beyla
 import (
 	"bytes"
 	"fmt"
-	"github.com/gobwas/glob"
 	"io"
 	"log/slog"
 	"maps"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gobwas/glob"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -481,7 +482,6 @@ time=\S+ level=DEBUG msg=debug arg=debug$`),
 		})
 	}
 }
-
 
 func TestDefaultExclusionFilter(t *testing.T) {
 	c := DefaultConfig.Discovery.DefaultExcludeInstrument
