@@ -47,7 +47,6 @@ type GlobAttributes struct {
 	// Deprecated: Name should be set in the instrumentation target via kube metadata or standard env vars.
 	// To be kept undocumented until we remove it.
 	Name string `yaml:"name"`
-
 	// Namespace will define a namespace for the matching service. If unset, it will be left empty.
 	// Deprecated: Namespace should be set in the instrumentation target via kube metadata or standard env vars.
 	// To be kept undocumented until we remove it.

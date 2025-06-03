@@ -52,12 +52,10 @@ type RegexSelector struct {
 	// Deprecated: Name should be set in the instrumentation target via kube metadata or standard env vars.
 	// To be kept undocumented until we remove it.
 	Name string `yaml:"name"`
-
 	// Namespace will define a namespace for the matching service. If unset, it will be left empty.
 	// Deprecated: Namespace should be set in the instrumentation target via kube metadata or standard env vars.
 	// To be kept undocumented until we remove it.
 	Namespace string `yaml:"namespace"`
-
 	// OpenPorts allows defining a group of ports that this service could open. It accepts a comma-separated
 	// list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089)
 	OpenPorts PortEnum `yaml:"open_ports"`

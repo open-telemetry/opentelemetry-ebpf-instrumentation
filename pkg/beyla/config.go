@@ -7,9 +7,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/gobwas/glob"
-
 	"github.com/caarlos0/env/v9"
+	"github.com/gobwas/glob"
 	"gopkg.in/yaml.v3"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
@@ -162,7 +161,7 @@ type Config struct {
 	// To set this value via YAML, use discovery > instrument.
 	// It also accepts OTEL_GO_AUTO_TARGET_EXE for compatibility with opentelemetry-go-instrumentation
 	//nolint:undoc
-	AutoTargetExe services.GlobAttr `env:"OTEL_EBPF_AUTO_TARGET_EXE" envDefault:"${OTEL_GO_AUTO_TARGET_EXE}"`
+	AutoTargetExe services.GlobAttr `env:"OTEL_EBPF_AUTO_TARGET_EXE,expand" envDefault:"${OTEL_GO_AUTO_TARGET_EXE}"`
 
 	// Port allows selecting the instrumented executable that owns the Port value. If this value is set (and
 	// different to zero), the value of the Exec property won't take effect.

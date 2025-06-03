@@ -359,13 +359,14 @@ func regexAsSelector(in services.RegexDefinitionCriteria) []services.Selector {
 func logDeprecationAndConflicts(cfg *beyla.Config) {
 	c := &cfg.Discovery
 	if len(c.Services) > 0 {
-		if len(c.Instrument) > 0 {
+		switch {
+		case len(c.Instrument) > 0:
 			slog.Warn("both discovery > instrument and legacy discovery > services YAML sections are defined. Using" +
 				" discovery > instrument and ignoring discovery > services (also ignoring discovery > exclude_services)")
-		} else if cfg.Exec.IsSet() {
+		case cfg.Exec.IsSet():
 			slog.Warn("both discovery > instrument and legacy OTEL_EBPF_EXECUTABLE_NAME are defined. Using" +
 				" discovery > instrument and ignoring OTEL_EBPF_EXECUTABLE_NAME")
-		} else {
+		default:
 			slog.Warn("discovery > services YAML property is deprecated and will be removed in a future version. Use" +
 				" discovery > instrument instead. See documentation for more details")
 		}

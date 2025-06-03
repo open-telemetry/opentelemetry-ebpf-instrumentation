@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gobwas/glob"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -398,17 +397,15 @@ routes:
 }
 
 func TestConfig_OtelGoAutoEnv(t *testing.T) {
-	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_PATH
+	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_AUTO_TARGET_EXE
 	// (Compatibility with OpenTelemetry)
-	t.Setenv("OTEL_GO_AUTO_TARGET_EXE", "testserver")
+	t.Setenv("OTEL_GO_AUTO_TARGET_EXE", "*testserver")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
-	assert.True(t, cfg.Exec.IsSet()) // Exec maps to OTEL_EBPF_EXECUTABLE_PATH
+	assert.True(t, cfg.AutoTargetExe.MatchString("/bin/testserver"))
 }
 
 func TestConfig_NetworkImplicit(t *testing.T) {
-	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_PATH
-	// (Compatibility with OpenTelemetry)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
 	t.Setenv("OTEL_EBPF_OTEL_METRIC_FEATURES", "network")
 	cfg, err := LoadConfig(bytes.NewReader(nil))

@@ -1,10 +1,10 @@
 package discover
 
 import (
-	"github.com/gobwas/glob"
 	"regexp"
 	"testing"
 
+	"github.com/gobwas/glob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -379,52 +379,72 @@ func TestInstrumentation_CoexistingWithDeprecatedServices(t *testing.T) {
 		{name: "discovery > instrument", cfg: beyla.Config{Discovery: services.DiscoveryConfig{
 			Instrument: services.GlobDefinitionCriteria{{Path: pass}, {OpenPorts: passPort}},
 		}}},
-		{name: "discovery > instrument with discovery > exclude_instrument && default_exclude_instrument",
+		{
+			name: "discovery > instrument with discovery > exclude_instrument && default_exclude_instrument",
 			cfg: beyla.Config{Discovery: services.DiscoveryConfig{
 				Instrument:               services.GlobDefinitionCriteria{{OpenPorts: allPorts}},
 				ExcludeInstrument:        services.GlobDefinitionCriteria{{Path: notPass}},
 				DefaultExcludeInstrument: services.GlobDefinitionCriteria{{Path: neitherPass}},
-			}}},
-		{name: "discovery > instrument with deprecated discovery > services",
+			}},
+		},
+		{
+			name: "discovery > instrument with deprecated discovery > services",
 			cfg: beyla.Config{Discovery: services.DiscoveryConfig{
 				Instrument: services.GlobDefinitionCriteria{{Path: pass}, {OpenPorts: passPort}},
 				// To be ignored
 				Services: services.RegexDefinitionCriteria{{OpenPorts: allPorts}},
-			}}},
-		{name: "discovery > instrument with top-level auto-target-exec option",
+			}},
+		},
+		{
+			name: "discovery > instrument with top-level auto-target-exec option",
 			cfg: beyla.Config{Discovery: services.DiscoveryConfig{
 				Instrument: services.GlobDefinitionCriteria{{OpenPorts: passPort}},
-			}, AutoTargetExe: pass}},
-		{name: "discovery > instrument with top-level ports option",
+			}, AutoTargetExe: pass},
+		},
+		{
+			name: "discovery > instrument with top-level ports option",
 			cfg: beyla.Config{Discovery: services.DiscoveryConfig{
 				Instrument: services.GlobDefinitionCriteria{{Path: pass}},
-			}, Port: passPort}},
-		{name: "discovery > instrument ignoring deprecated path option",
+			}, Port: passPort},
+		},
+		{
+			name: "discovery > instrument ignoring deprecated path option",
 			cfg: beyla.Config{Discovery: services.DiscoveryConfig{
 				Instrument: services.GlobDefinitionCriteria{{Path: pass}, {OpenPorts: passPort}},
-			}, Exec: services.NewPathRegexp(regexp.MustCompile("dont-pass"))}},
+			}, Exec: services.NewPathRegexp(regexp.MustCompile("dont-pass"))},
+		},
 		// cases below would be removed if the deprecated discovery > services options are removed,
 		{name: "deprecated discovery > services", cfg: beyla.Config{Discovery: services.DiscoveryConfig{
 			Services: services.RegexDefinitionCriteria{{Path: passRE}, {OpenPorts: passPort}},
 		}}},
-		{name: "deprecated discovery > services with discovery > exclude_services && default_exclude_services",
+		{
+			name: "deprecated discovery > services with discovery > exclude_services && default_exclude_services",
 			cfg: beyla.Config{Discovery: services.DiscoveryConfig{
 				Services:               services.RegexDefinitionCriteria{{OpenPorts: allPorts}},
 				ExcludeServices:        services.RegexDefinitionCriteria{{Path: notPassRE}},
 				DefaultExcludeServices: services.RegexDefinitionCriteria{{Path: neitherPassRE}},
-			}}},
-		{name: "deprecated discovery > services with top-level deprecated exec option",
+			}},
+		},
+		{
+			name: "deprecated discovery > services with top-level deprecated exec option",
 			cfg: beyla.Config{Discovery: services.DiscoveryConfig{
 				Services: services.RegexDefinitionCriteria{{OpenPorts: passPort}},
-			}, Exec: passRE}},
-		{name: "deprecated discovery > services with top-level deprecated port option",
+			}, Exec: passRE},
+		},
+		{
+			name: "deprecated discovery > services with top-level deprecated port option",
 			cfg: beyla.Config{Discovery: services.DiscoveryConfig{
 				Services: services.RegexDefinitionCriteria{{Path: passRE}},
-			}, Port: passPort}},
-		{name: "no YAML discovery section, using top-level AutoTargetExe variable",
-			cfg: beyla.Config{AutoTargetExe: bothPass}},
-		{name: "no YAML discovery section, using deprecated top-level discovery variables",
-			cfg: beyla.Config{Exec: bothPassRE}},
+			}, Port: passPort},
+		},
+		{
+			name: "no YAML discovery section, using top-level AutoTargetExe variable",
+			cfg:  beyla.Config{AutoTargetExe: bothPass},
+		},
+		{
+			name: "no YAML discovery section, using deprecated top-level discovery variables",
+			cfg:  beyla.Config{Exec: bothPassRE},
+		},
 		{name: "prioritizing top-level AutoTarget variable over deprecated exec", cfg: beyla.Config{
 			AutoTargetExe: bothPass,
 			// to be ignored
@@ -470,5 +490,4 @@ func TestInstrumentation_CoexistingWithDeprecatedServices(t *testing.T) {
 			assert.Equal(t, services.ProcessInfo{Pid: 2, ExePath: "/bin/also-pass", OpenPorts: []uint32{80}}, *m.Obj.Process)
 		})
 	}
-
 }
