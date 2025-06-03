@@ -49,6 +49,13 @@ linters:
           - govet
         text: shadow
 
+      # exclude deprecated API usage errors. If we deprecate some properties is because we don't want to remove them
+      # (hide/undocument them, but keep supporting them until the next major version)
+      - path: .*
+        linters:
+          - staticcheck
+        text: "SA1019:"
+
       # TODO: enable
       - path: .*
         linters:

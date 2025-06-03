@@ -50,15 +50,32 @@ type ProcessInfo struct {
 type DiscoveryConfig struct {
 	// Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically
 	// added to the services definition criteria, with the lowest preference.
+	// Deprecated: Use Instrument instead
 	Services RegexDefinitionCriteria `yaml:"services"`
 
 	// ExcludeServices works analogously to Services, but the applications matching this section won't be instrumented
 	// even if they match the Services selection.
+	// Deprecated: Use ExcludeInstrument instead
 	ExcludeServices RegexDefinitionCriteria `yaml:"exclude_services"`
 
 	// DefaultExcludeServices by default prevents self-instrumentation of Beyla as well as related services (Alloy and OpenTelemetry collector)
 	// It must be set to an empty string or a different value if self-instrumentation is desired.
+	// Deprecated: Use DefaultExcludeInstrument instead
 	DefaultExcludeServices RegexDefinitionCriteria `yaml:"default_exclude_services"`
+
+	// Instrument selects the services to instrument via Globs. If this section is set,
+	// both the Services and ExcludeServices section is ignored.
+	// If the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be
+	// automatically added to the instrument criteria, with the lowest preference.
+	Instrument GlobDefinitionCriteria `yaml:"instrument"`
+
+	// ExcludeInstrument works analogously to Instrument, but the applications matching this section won't be instrumented
+	// even if they match the Instrument selection.
+	ExcludeInstrument GlobDefinitionCriteria `yaml:"exclude_instrument"`
+
+	// DefaultExcludeInstrument by default prevents self-instrumentation of OBI as well as related services (Beyla, Alloy and OpenTelemetry collector)
+	// It must be set to an empty string or a different value if self-instrumentation is desired.
+	DefaultExcludeInstrument GlobDefinitionCriteria `yaml:"default_exclude_instrument"`
 
 	// PollInterval specifies, for the poll service watcher, the interval time between
 	// process inspections
@@ -76,9 +93,27 @@ type DiscoveryConfig struct {
 	ExcludeOTelInstrumentedServices bool `yaml:"exclude_otel_instrumented_services" env:"OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES"`
 }
 
+func (c *DiscoveryConfig) Validate() error {
+	if err := c.Services.Validate(); err != nil {
+		return fmt.Errorf("error in services YAML property: %w", err)
+	}
+	if err := c.ExcludeServices.Validate(); err != nil {
+		return fmt.Errorf("error in exclude_services YAML property: %w", err)
+	}
+	if err := c.Instrument.Validate(); err != nil {
+		return fmt.Errorf("error in instrument YAML property: %w", err)
+	}
+	if err := c.ExcludeInstrument.Validate(); err != nil {
+		return fmt.Errorf("error in exclude_instrument YAML property: %w", err)
+	}
+	return nil
+}
+
 // Selector defines a generic interface for selecting service processes based on different criteria.
 type Selector interface {
+	// Deprecated: Name should be set in the instrumentation target via kube metadata or standard env vars
 	GetName() string
+	// Deprecated: Namespace should be set in the instrumentation target via kube metadata or standard env vars
 	GetNamespace() string
 	GetPath() StringMatcher
 	GetPathRegexp() StringMatcher

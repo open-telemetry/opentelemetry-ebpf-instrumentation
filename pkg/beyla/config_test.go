@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gobwas/glob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -209,6 +210,11 @@ network:
 					Path: services.NewPathRegexp(regexp.MustCompile("(?:^|/)(beyla$|alloy$|otelcol[^/]*$)")),
 				},
 			},
+			DefaultExcludeInstrument: services.GlobDefinitionCriteria{
+				services.GlobAttributes{
+					Path: services.NewGlob(glob.MustCompile("{*beyla,*alloy,*ebpf-instrument,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}")),
+				},
+			},
 		},
 	}, cfg)
 }
@@ -391,17 +397,15 @@ routes:
 }
 
 func TestConfig_OtelGoAutoEnv(t *testing.T) {
-	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_PATH
+	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_AUTO_TARGET_EXE
 	// (Compatibility with OpenTelemetry)
-	t.Setenv("OTEL_GO_AUTO_TARGET_EXE", "testserver")
+	t.Setenv("OTEL_GO_AUTO_TARGET_EXE", "*testserver")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
-	assert.True(t, cfg.Exec.IsSet()) // Exec maps to OTEL_EBPF_EXECUTABLE_PATH
+	assert.True(t, cfg.AutoTargetExe.MatchString("/bin/testserver"))
 }
 
 func TestConfig_NetworkImplicit(t *testing.T) {
-	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_PATH
-	// (Compatibility with OpenTelemetry)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
 	t.Setenv("OTEL_EBPF_OTEL_METRIC_FEATURES", "network")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
@@ -477,6 +481,27 @@ time=\S+ level=DEBUG msg=debug arg=debug$`),
 }
 
 func TestDefaultExclusionFilter(t *testing.T) {
+	c := DefaultConfig.Discovery.DefaultExcludeInstrument
+
+	assert.True(t, c[0].Path.MatchString("beyla"))
+	assert.True(t, c[0].Path.MatchString("alloy"))
+	assert.True(t, c[0].Path.MatchString("otelcol-contrib"))
+
+	assert.False(t, c[0].Path.MatchString("/usr/bin/beyla/test"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/alloy/test"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib/test"))
+
+	assert.True(t, c[0].Path.MatchString("/beyla"))
+	assert.True(t, c[0].Path.MatchString("/alloy"))
+	assert.True(t, c[0].Path.MatchString("/otelcol-contrib"))
+
+	assert.True(t, c[0].Path.MatchString("/usr/bin/beyla"))
+	assert.True(t, c[0].Path.MatchString("/usr/bin/alloy"))
+	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib"))
+	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib123"))
+}
+
+func TestDefaultLegacyExclusionFilter(t *testing.T) {
 	c := DefaultConfig.Discovery.DefaultExcludeServices
 
 	assert.True(t, c[0].Path.MatchString("beyla"))
