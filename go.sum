@@ -26,6 +26,8 @@ github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 h1:qSGYFH7+jGhD
 github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311/go.mod h1:b583jCggY9gE99b6G5LEC39OIiVsWj+R97kbl5odCEk=
 github.com/cilium/ebpf v0.17.3 h1:FnP4r16PWYSE4ux6zN+//jMcW4nMVRvuTLVTvCjyyjg=
 github.com/cilium/ebpf v0.17.3/go.mod h1:G5EDHij8yiLzaqn0WjyfJHvRa+3aDlReIaLVRMvOyJk=
+github.com/cilium/ebpf v0.18.0 h1:OsSwqS4y+gQHxaKgg2U/+Fev834kdnsQbtzRnbVC6Gs=
+github.com/cilium/ebpf v0.18.0/go.mod h1:vmsAT73y4lW2b4peE+qcOqw6MxvWQdC+LiU5gd/xyo4=
 github.com/containers/common v0.61.0 h1:j/84PTqZIKKYy42OEJsZmjZ4g4Kq2ERuC3tqp2yWdh4=
 github.com/containers/common v0.61.0/go.mod h1:NGRISq2vTFPSbhNqj6MLwyes4tWSlCnqbJg7R77B8xc=
 github.com/containers/common v0.63.0 h1:ox6vgUYX5TSvt4W+bE36sYBVz/aXMAfRGVAgvknSjBg=
