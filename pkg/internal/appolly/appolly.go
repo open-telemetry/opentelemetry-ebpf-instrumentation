@@ -22,7 +22,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/transform"
 )
 
-var errShutdownTimeout = errors.New("graceful shutdown has timed out")
+var errShutdownTimeout = errors.New("graceful shutdown has timed out while waiting for eBPF tracers to finish")
 
 func log() *slog.Logger {
 	return slog.With("component", "beyla.Instrumenter")

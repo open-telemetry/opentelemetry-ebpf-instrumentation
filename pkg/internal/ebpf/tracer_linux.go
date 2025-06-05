@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/btf"
@@ -104,26 +106,49 @@ func NewProcessTracer(tracerType ProcessTracerType, programs []Tracer) *ProcessT
 	}
 }
 
+type tracerInstance struct {
+	implType string
+	done     atomic.Bool
+}
+
 func (pt *ProcessTracer) Run(ctx context.Context, out *msg.Queue[[]request.Span]) {
 	pt.log = ptlog().With("type", pt.Type)
 
 	pt.log.Debug("starting process tracer")
 	// Searches for traceable functions
 	trcrs := pt.Programs
-
 	wg := sync.WaitGroup{}
-
-	for _, t := range trcrs {
+	runningTracers := make([]tracerInstance, 0, len(trcrs))
+	for i := range trcrs {
+		idx := i
+		t := trcrs[idx]
 		wg.Add(1)
+		runningTracers = append(runningTracers, tracerInstance{
+			implType: reflect.TypeOf(t).String(),
+		})
 		go func() {
 			defer wg.Done()
 			t.Run(ctx, out)
+			runningTracers[idx].done.Store(true)
 		}()
 	}
 
 	<-ctx.Done()
 
-	wg.Wait()
+	tracersEnded := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(tracersEnded)
+	}()
+
+	for {
+		select {
+		case <-tracersEnded:
+			return
+		case <-time.After(time.Second):
+			pt.log.Warn("some process tracers did not finish", "tracers", runningTracers)
+		}
+	}
 }
 
 func (pt *ProcessTracer) loadSpec(p Tracer) (*ebpf.CollectionSpec, error) {
