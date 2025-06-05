@@ -23,7 +23,8 @@ func NewProcessTracer(_ ProcessTracerType, _ []Tracer, _ time.Duration) *Process
 }
 
 func (pt *ProcessTracer) Init() error {
-	pt.log.Debug("avoiding linter complaints for not using log field")
+	pt.log.Debug("avoiding linter complaints for not using log and shutdownTimeout fields",
+		"v", pt.shutdownTimeout)
 	return nil
 }
 

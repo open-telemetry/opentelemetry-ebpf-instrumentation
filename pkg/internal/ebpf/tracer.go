@@ -125,7 +125,6 @@ type ProcessTracer struct {
 	log      *slog.Logger
 	Programs []Tracer
 
-	//nolint:unused
 	shutdownTimeout time.Duration
 
 	Type            ProcessTracerType
