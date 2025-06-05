@@ -85,7 +85,7 @@ func (s Status) String() string {
 	}
 }
 
-var errShutdownTimeout = errors.New("graceful shutdown has timed out")
+var errShutdownTimeout = errors.New("graceful shutdown has timed out while waiting for eBPF network infrastructure to finish")
 
 // Flows reporting agent
 type Flows struct {
@@ -249,16 +249,14 @@ func (f *Flows) Run(ctx context.Context) error {
 
 	f.ifaceManager.Start(ctx)
 
-	f.graph.Start(ctx)
-
+	f.graph.Start(ctx, swarm.WithCancelTimeout(f.cfg.ShutdownTimeout))
 	f.status = StatusStarted
 
 	alog.Info("Flows agent successfully started")
 
 	<-ctx.Done()
 
-	err = f.stop()
-	if err != nil {
+	if err := f.stop(); err != nil {
 		return fmt.Errorf("failed to stop Flows agent: %w", err)
 	}
 
@@ -268,7 +266,7 @@ func (f *Flows) Run(ctx context.Context) error {
 func (f *Flows) stop() error {
 	alog := alog()
 
-	stopped := make(chan struct{})
+	stopped := make(chan error)
 	go func() {
 		f.status = StatusStopping
 		alog.Info("stopping Flows agent")
@@ -282,7 +280,10 @@ func (f *Flows) stop() error {
 		<-f.graph.Done()
 		f.status = StatusStopped
 
-		stopped <- struct{}{}
+		if err := <-f.graph.Done(); err != nil {
+			stopped <- err
+		}
+		close(stopped)
 
 		alog.Info("Flows agent stopped")
 	}()
@@ -290,8 +291,9 @@ func (f *Flows) stop() error {
 	select {
 	case <-time.After(f.cfg.ShutdownTimeout):
 		return errShutdownTimeout
-	case <-stopped:
-		return nil
+	case err := <-stopped:
+		// err might be nil
+		return err
 	}
 }
 

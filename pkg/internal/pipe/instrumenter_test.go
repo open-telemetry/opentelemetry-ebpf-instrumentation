@@ -1,6 +1,7 @@
 package pipe
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"testing"
@@ -58,7 +59,7 @@ func allMetricsBut(patterns ...string) attributes.Selection {
 }
 
 func TestBasicPipeline(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 
 	tc, err := collector.Start(ctx)
 	require.NoError(t, err)
@@ -83,7 +84,7 @@ func TestBasicPipeline(t *testing.T) {
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
-	go pipe.Run(ctx)
+	done := pipe.Start(ctx)
 
 	start := time.Now()
 	var event collector.MetricRecord
@@ -128,10 +129,13 @@ func TestBasicPipeline(t *testing.T) {
 		FloatVal: 2 / float64(time.Second),
 		Count:    1,
 	}, event)
+
+	cancel()
+	require.NoError(t, <-done)
 }
 
 func TestTracerPipeline(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 
 	tc, err := collector.Start(ctx)
 	require.NoError(t, err)
@@ -154,7 +158,7 @@ func TestTracerPipeline(t *testing.T) {
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
-	go pipe.Run(ctx)
+	done := pipe.Start(ctx)
 
 	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchInnerTraceEvent(t, "in queue", event)
@@ -162,10 +166,13 @@ func TestTracerPipeline(t *testing.T) {
 	matchInnerTraceEvent(t, "processing", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchTraceEvent(t, "GET", event)
+
+	cancel()
+	require.NoError(t, <-done)
 }
 
 func TestTracerPipelineBadTimestamps(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 
 	tc, err := collector.Start(ctx)
 	require.NoError(t, err)
@@ -187,14 +194,17 @@ func TestTracerPipelineBadTimestamps(t *testing.T) {
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
-	go pipe.Run(ctx)
+	done := pipe.Start(ctx)
 
 	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchNestedEvent(t, "GET", "GET", "/attach", "200", ptrace.SpanKindServer, event)
+
+	cancel()
+	require.NoError(t, <-done)
 }
 
 func TestRouteConsolidation(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 
 	tc, err := collector.Start(ctx)
 	require.NoError(t, err)
@@ -223,7 +233,7 @@ func TestRouteConsolidation(t *testing.T) {
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
-	go pipe.Run(ctx)
+	done := pipe.Start(ctx)
 
 	start := time.Now()
 	// expect to receive 3 events without any guaranteed order
@@ -322,10 +332,13 @@ func TestRouteConsolidation(t *testing.T) {
 		FloatVal: 2 / float64(time.Second),
 		Count:    1,
 	}, events["/**"])
+
+	cancel()
+	require.NoError(t, <-done)
 }
 
 func TestGRPCPipeline(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 
 	tc, err := collector.Start(ctx)
 	require.NoError(t, err)
@@ -350,7 +363,7 @@ func TestGRPCPipeline(t *testing.T) {
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
-	go pipe.Run(ctx)
+	done := pipe.Start(ctx)
 
 	event := testutil.ReadChannel(t, tc.Records(), testTimeout)
 	assert.NotEmpty(t, event.ResourceAttributes, string(semconv.ServiceInstanceIDKey))
@@ -383,10 +396,13 @@ func TestGRPCPipeline(t *testing.T) {
 		FloatVal: 2 / float64(time.Second),
 		Count:    1,
 	}, event)
+
+	cancel()
+	require.NoError(t, <-done)
 }
 
 func TestTraceGRPCPipeline(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 
 	tc, err := collector.Start(ctx)
 	require.NoError(t, err)
@@ -406,7 +422,7 @@ func TestTraceGRPCPipeline(t *testing.T) {
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
-	go pipe.Run(ctx)
+	done := pipe.Start(ctx)
 
 	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchInnerGRPCTraceEvent(t, "in queue", event)
@@ -414,10 +430,13 @@ func TestTraceGRPCPipeline(t *testing.T) {
 	matchInnerGRPCTraceEvent(t, "processing", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchGRPCTraceEvent(t, "foo.bar", event)
+
+	cancel()
+	require.NoError(t, <-done)
 }
 
 func TestBasicPipelineInfo(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 
 	tc, err := collector.Start(ctx)
 	require.NoError(t, err)
@@ -444,7 +463,7 @@ func TestBasicPipelineInfo(t *testing.T) {
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
-	go pipe.Run(ctx)
+	done := pipe.Start(ctx)
 
 	event := testutil.ReadChannel(t, tc.Records(), testTimeout)
 	assert.NotEmpty(t, event.ResourceAttributes, string(semconv.ServiceInstanceIDKey))
@@ -477,10 +496,13 @@ func TestBasicPipelineInfo(t *testing.T) {
 		FloatVal: 1 / float64(time.Second),
 		Count:    1,
 	}, event)
+
+	cancel()
+	require.NoError(t, <-done)
 }
 
 func TestTracerPipelineInfo(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 
 	tc, err := collector.Start(ctx)
 	require.NoError(t, err)
@@ -496,14 +518,17 @@ func TestTracerPipelineInfo(t *testing.T) {
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
-	go pipe.Run(ctx)
+	done := pipe.Start(ctx)
 
 	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchInfoEvent(t, "PATCH", event)
+
+	cancel()
+	require.NoError(t, <-done)
 }
 
 func TestSpanAttributeFilterNode(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 
 	tc, err := collector.Start(ctx)
 	require.NoError(t, err)
@@ -535,7 +560,7 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
-	go pipe.Run(ctx)
+	done := pipe.Start(ctx)
 
 	// expect to receive only the records matching the Filters criteria
 	events := map[string]map[string]string{}
@@ -570,6 +595,9 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 			string(attr.ServerAddr):             events["/user/1234"]["server.address"],
 		},
 	}, events)
+
+	cancel()
+	require.NoError(t, <-done)
 }
 
 func newRequest(serviceName string, path string, status int) []request.Span {

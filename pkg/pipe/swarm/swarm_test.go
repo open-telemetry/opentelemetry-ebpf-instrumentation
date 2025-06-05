@@ -150,11 +150,50 @@ func TestSwarm_CancelInstancerCtx(t *testing.T) {
 	testutil.ReadChannel(t, instancerCtxCancelled, 5*time.Second)
 }
 
+func TestSwarm_CancelTimeout_Ok(t *testing.T) {
+	runnerWaiter := func(ctx context.Context) { <-ctx.Done() }
+	swi := Instancer{}
+	swi.Add(DirectInstance(runnerWaiter))
+	swi.Add(DirectInstance(runnerWaiter))
+	swi.Add(DirectInstance(runnerWaiter))
+	runner, err := swi.Instance(t.Context())
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	runner.Start(ctx, WithCancelTimeout(5*time.Second))
+	testutil.ChannelEmpty(t, runner.Done(), 10*time.Millisecond)
+	cancel()
+	assertDone(t, runner)
+}
+
+func TestSwarm_CancelTimeout_DontExit(t *testing.T) {
+	runnerWaiter := func(ctx context.Context) { <-ctx.Done() }
+	zombieRunner := func(_ context.Context) { <-make(chan struct{}) }
+
+	swi := Instancer{}
+	swi.Add(DirectInstance(runnerWaiter))
+	swi.Add(DirectInstance(zombieRunner))
+	swi.Add(DirectInstance(runnerWaiter), WithID("runnerWaiter"))
+	swi.Add(DirectInstance(zombieRunner), WithID("zombieRunner"))
+
+	runner, err := swi.Instance(t.Context())
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	runner.Start(ctx, WithCancelTimeout(50*time.Millisecond))
+	cancel()
+	err = testutil.ReadChannel(t, runner.Done(), 5*time.Second)
+	require.Error(t, err)
+	cerr := CancelTimeoutError{}
+	require.ErrorAs(t, err, &cerr)
+	assert.Len(t, cerr.runningIDs, 2)
+	assert.Contains(t, cerr.runningIDs, "#1")
+	assert.Contains(t, cerr.runningIDs, "zombieRunner")
+}
+
 func assertDone(t *testing.T, s *Runner) {
 	timeout := time.After(5 * time.Second)
 	select {
-	case <-s.Done():
-		// ok!!!
+	case err := <-s.Done():
+		require.NoError(t, err)
 	case <-timeout:
 		t.Fatal("Runner instance did not properly finish")
 	}

@@ -23,6 +23,7 @@ type ProcessFinder struct {
 	cfg         *beyla.Config
 	ctxInfo     *global.ContextInfo
 	tracesInput *msg.Queue[[]request.Span]
+	doneChan    <-chan error
 }
 
 func NewProcessFinder(cfg *beyla.Config, ctxInfo *global.ContextInfo, tracesInput *msg.Queue[[]request.Span]) *ProcessFinder {
@@ -67,8 +68,13 @@ func (pf *ProcessFinder) Start(ctx context.Context) (<-chan Event[*ebpf.Instrume
 		return nil, fmt.Errorf("can't instantiate discovery.ProcessFinder pipeline: %w", err)
 	}
 	tracerEventsCh := tracerEvents.Subscribe()
-	pipeline.Start(ctx)
+	pipeline.Start(ctx, swarm.WithCancelTimeout(pf.cfg.ShutdownTimeout))
+	pf.doneChan = pipeline.Done()
 	return tracerEventsCh, nil
+}
+
+func (pf *ProcessFinder) Done() <-chan error {
+	return pf.doneChan
 }
 
 // auxiliary functions to instantiate the go and non-go tracers on diverse steps of the
