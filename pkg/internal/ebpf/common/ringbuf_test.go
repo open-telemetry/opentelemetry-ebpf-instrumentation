@@ -134,7 +134,7 @@ func TestForwardRingbuf_Close(t *testing.T) {
 	)(t.Context(), msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100)))
 
 	assert.False(t, ringBuf.explicitClose.Load())
-	assert.False(t, closable.closed)
+	assert.False(t, closable.closed.Load())
 
 	// WHEN the ring buffer is closed
 	close(ringBuf.closeCh)
@@ -143,7 +143,7 @@ func TestForwardRingbuf_Close(t *testing.T) {
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		assert.True(t, ringBuf.explicitClose.Load())
 	})
-	assert.True(t, closable.closed)
+	assert.True(t, closable.closed.Load())
 
 	// AND metrics haven't been updated
 	assert.Equal(t, 0, metrics.flushes)
@@ -195,11 +195,11 @@ func (f *fakeRingBufReader) ReadInto(record *ringbuf.Record) error {
 }
 
 type closableObject struct {
-	closed bool
+	closed atomic.Bool
 }
 
 func (c *closableObject) Close() error {
-	c.closed = true
+	c.closed.Store(true)
 	return nil
 }
 

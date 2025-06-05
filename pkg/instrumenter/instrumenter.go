@@ -61,7 +61,7 @@ func Run(
 	if err := g.Wait(); err != nil {
 		return err
 	}
-
+	slog.Debug("OBI main node finished")
 	return nil
 }
 
@@ -89,6 +89,7 @@ func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *beyl
 		return err
 	}
 
+	slog.Debug("Application O11y pipeline finished")
 	return nil
 }
 

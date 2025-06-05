@@ -2,6 +2,7 @@ package ebpf
 
 import (
 	"context"
+	"time"
 
 	"github.com/cilium/ebpf/link"
 
@@ -17,7 +18,7 @@ type instrumenter struct{}
 
 func (pt *ProcessTracer) Run(_ context.Context, _ *msg.Queue[[]request.Span]) {}
 
-func NewProcessTracer(_ ProcessTracerType, _ []Tracer) *ProcessTracer {
+func NewProcessTracer(_ ProcessTracerType, _ []Tracer, _ time.Duration) *ProcessTracer {
 	return nil
 }
 

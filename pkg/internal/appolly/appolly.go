@@ -69,7 +69,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *beyla.Config)
 		&config.Attributes.InstanceID,
 		processEventsInput,
 		processEventsHostDecorated,
-	))
+	), swarm.WithID("HostProcessEventDecoratorProvider"))
 
 	processEventsKubeDecorated := newEventQueue()
 	swi.Add(transform.KubeProcessEventDecoratorProvider(
@@ -77,7 +77,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *beyla.Config)
 		&config.Attributes.Kubernetes,
 		processEventsHostDecorated,
 		processEventsKubeDecorated,
-	))
+	), swarm.WithID("KubeProcessEventDecoratorProvider"))
 
 	bp, err := pipe.Build(ctx, config, ctxInfo, tracesInput, processEventsKubeDecorated)
 	if err != nil {
@@ -130,7 +130,7 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 func (i *Instrumenter) WaitUntilFinished() error {
 	for _, f := range i.finishers {
 		if err := <-f.done; err != nil {
-			return fmt.Errorf("node %s couldn't finish: %w", f.name, err)
+			return fmt.Errorf("node %q couldn't finish: %w", f.name, err)
 		}
 	}
 	return nil
@@ -189,8 +189,7 @@ func (i *Instrumenter) ReadAndForward(ctx context.Context) error {
 
 	log.Info("exiting auto-instrumenter")
 
-	err := i.stop()
-	if err != nil {
+	if err := i.stop(); err != nil {
 		return fmt.Errorf("failed to stop auto-instrumenter: %w", err)
 	}
 
@@ -204,7 +203,7 @@ func (i *Instrumenter) stop() error {
 	go func() {
 		log.Debug("stopped searching for new processes to instrument. Waiting for the eBPF tracers to be unloaded")
 		i.tracersWg.Wait()
-		stopped <- struct{}{}
+		close(stopped)
 		log.Debug("tracers unloaded, exiting FindAndInstrument")
 	}()
 

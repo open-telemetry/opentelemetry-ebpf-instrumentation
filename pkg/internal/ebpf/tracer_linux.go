@@ -98,11 +98,12 @@ func resolveMaps(spec *ebpf.CollectionSpec) (*ebpf.CollectionOptions, error) {
 	return &collOpts, nil
 }
 
-func NewProcessTracer(tracerType ProcessTracerType, programs []Tracer) *ProcessTracer {
+func NewProcessTracer(tracerType ProcessTracerType, programs []Tracer, shutdownTimeout time.Duration) *ProcessTracer {
 	return &ProcessTracer{
 		Programs:        programs,
 		Type:            tracerType,
 		Instrumentables: map[uint64]*instrumenter{},
+		shutdownTimeout: shutdownTimeout,
 	}
 }
 
@@ -141,12 +142,18 @@ func (pt *ProcessTracer) Run(ctx context.Context, out *msg.Queue[[]request.Span]
 		close(tracersEnded)
 	}()
 
+	hasWarned := false
 	for {
 		select {
-		case <-tracersEnded:
-			return
-		case <-time.After(time.Second):
+		// notifyng before OBI times out on finish
+		case <-time.After(3 * pt.shutdownTimeout / 4):
 			pt.log.Warn("some process tracers did not finish", "tracers", runningTracers)
+			hasWarned = true
+		case <-tracersEnded:
+			if hasWarned {
+				pt.log.Info("all process tracers finished")
+			}
+			return
 		}
 	}
 }

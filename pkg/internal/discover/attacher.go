@@ -182,7 +182,7 @@ func (ta *TraceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 		return false
 	}
 
-	tracer := ebpf.NewProcessTracer(tracerType, programs)
+	tracer := ebpf.NewProcessTracer(tracerType, programs, ta.Cfg.ShutdownTimeout)
 
 	if err := tracer.Init(); err != nil {
 		ta.log.Error("couldn't trace process. Stopping process tracer", "error", err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/cilium/ebpf"
 
@@ -123,6 +124,9 @@ const (
 type ProcessTracer struct {
 	log      *slog.Logger
 	Programs []Tracer
+
+	//nolint:unused
+	shutdownTimeout time.Duration
 
 	Type            ProcessTracerType
 	Instrumentables map[uint64]*instrumenter

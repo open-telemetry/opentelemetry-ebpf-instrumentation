@@ -148,24 +148,35 @@ func (md *metadataDecorator) nodeLoop(_ context.Context) {
 	klog().Debug("stopping kubernetes span decoration loop")
 }
 
-func (md *procEventMetadataDecorator) k8sLoop(_ context.Context) {
+func (md *procEventMetadataDecorator) k8sLoop(ctx context.Context) {
 	// output channel must be closed so later stages in the pipeline can finish in cascade
 	defer md.output.Close()
-	klog().Debug("starting kubernetes process event decoration loop")
-	for pe := range md.input {
-		klog().Debug("annotating process event", "event", pe)
 
-		if podMeta, containerName := md.db.PodContainerByPIDNs(pe.File.Ns); podMeta != nil {
-			appendMetadata(md.db, &pe.File.Service, podMeta, md.clusterName, containerName)
-		} else {
-			// do not leave the service attributes map as nil
-			pe.File.Service.Metadata = map[attr.Name]string{}
+	log := klog()
+	log.Debug("starting kubernetes process event decoration loop")
+mainLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			break mainLoop
+		case pe, ok := <-md.input:
+			if !ok {
+				break mainLoop
+			}
+			log.Debug("annotating process event", "event", pe)
+
+			if podMeta, containerName := md.db.PodContainerByPIDNs(pe.File.Ns); podMeta != nil {
+				appendMetadata(md.db, &pe.File.Service, podMeta, md.clusterName, containerName)
+			} else {
+				// do not leave the service attributes map as nil
+				pe.File.Service.Metadata = map[attr.Name]string{}
+			}
+
+			// in-place decoration and forwarding
+			md.output.Send(pe)
 		}
-
-		// in-place decoration and forwarding
-		md.output.Send(pe)
 	}
-	klog().Debug("stopping kubernetes process event decoration loop")
+	log.Debug("stopping kubernetes process event decoration loop")
 }
 
 func (md *metadataDecorator) do(span *request.Span) {

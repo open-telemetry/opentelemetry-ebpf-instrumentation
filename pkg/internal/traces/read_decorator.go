@@ -96,12 +96,19 @@ func HostProcessEventDecoratorProvider(
 ) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {
 		decorate := hostNamePIDDecorator(cfg)
-
+		in := input.Subscribe()
 		// if kubernetes decoration is disabled, we just bypass the node
-		return func(_ context.Context) {
-			for pe := range input.Subscribe() {
-				decorate(&pe.File.Service, int(pe.File.Pid))
-				output.Send(pe)
+		return func(ctx context.Context) {
+			defer output.Close()
+			for {
+				select {
+				case pe := <-in:
+					decorate(&pe.File.Service, int(pe.File.Pid))
+					output.Send(pe)
+				case <-ctx.Done():
+					rlog().Debug("context canceled. Exiting HostProcessEventDecorator")
+					return
+				}
 			}
 		}, nil
 	}
