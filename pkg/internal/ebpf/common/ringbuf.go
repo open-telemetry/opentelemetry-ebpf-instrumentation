@@ -229,16 +229,38 @@ func (rbf *ringBufForwarder) bgListenContextCancelation(ctx context.Context, eve
 
 func (rbf *ringBufForwarder) bgListenSharedContextCancelation(ctx context.Context, closers []io.Closer, eventsReader ringBufReader) {
 	<-ctx.Done()
-	rbf.logger.Debug("context is cancelled. Closing eBPF resources")
-	for _, c := range closers {
-		_ = c.Close()
+	rbf.logger.Debug("context is cancelled. Closing eBPF resources", "len", len(closers))
+	// Often there are hundreds of closers, and don't have time to sequentially close within the
+	// shutdown grace period. Closing them in parallel
+	wg := sync.WaitGroup{}
+	wg.Add(len(closers))
+	for i := range closers {
+		c := closers[i]
+		go func() {
+			defer wg.Done()
+			_ = c.Close()
+		}()
 	}
+	wg.Wait()
+	rbf.logger.Debug("closing events reader")
 	_ = eventsReader.Close()
+	rbf.logger.Debug("the eBPF resources are closed")
 }
 
 func (rbf *ringBufForwarder) closeAllResources() {
-	rbf.logger.Debug("closing eBPF resources")
-	for _, c := range rbf.closers {
-		_ = c.Close()
+	rbf.logger.Debug("closing eBPF resources", "len", len(rbf.closers))
+	// Often there are hundreds of closers, and don't have time to sequentially close within the
+	// shutdowm grace period. Closing them in parallel
+	wg := sync.WaitGroup{}
+	wg.Add(len(rbf.closers))
+	for i := range rbf.closers {
+		c := rbf.closers[i]
+		go func() {
+			defer wg.Done()
+			_ = c.Close()
+			rbf.logger.Debug("eBPF resource closed", "num", i)
+		}()
 	}
+	wg.Wait()
+	rbf.logger.Debug("the eBPF resources are closed")
 }

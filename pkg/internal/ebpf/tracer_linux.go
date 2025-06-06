@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/btf"
@@ -96,12 +98,18 @@ func resolveMaps(spec *ebpf.CollectionSpec) (*ebpf.CollectionOptions, error) {
 	return &collOpts, nil
 }
 
-func NewProcessTracer(tracerType ProcessTracerType, programs []Tracer) *ProcessTracer {
+func NewProcessTracer(tracerType ProcessTracerType, programs []Tracer, shutdownTimeout time.Duration) *ProcessTracer {
 	return &ProcessTracer{
 		Programs:        programs,
 		Type:            tracerType,
 		Instrumentables: map[uint64]*instrumenter{},
+		shutdownTimeout: shutdownTimeout,
 	}
+}
+
+type tracerInstance struct {
+	implType string
+	done     atomic.Bool
 }
 
 func (pt *ProcessTracer) Run(ctx context.Context, out *msg.Queue[[]request.Span]) {
@@ -110,20 +118,44 @@ func (pt *ProcessTracer) Run(ctx context.Context, out *msg.Queue[[]request.Span]
 	pt.log.Debug("starting process tracer")
 	// Searches for traceable functions
 	trcrs := pt.Programs
-
 	wg := sync.WaitGroup{}
-
-	for _, t := range trcrs {
+	runningTracers := make([]tracerInstance, 0, len(trcrs))
+	for i := range trcrs {
+		idx := i
+		t := trcrs[idx]
 		wg.Add(1)
+		runningTracers = append(runningTracers, tracerInstance{
+			implType: reflect.TypeOf(t).String(),
+		})
 		go func() {
 			defer wg.Done()
 			t.Run(ctx, out)
+			runningTracers[idx].done.Store(true)
 		}()
 	}
 
 	<-ctx.Done()
 
-	wg.Wait()
+	tracersEnded := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(tracersEnded)
+	}()
+
+	hasWarned := false
+	for {
+		select {
+		// notifyng before OBI times out on finish
+		case <-time.After(3 * pt.shutdownTimeout / 4):
+			pt.log.Warn("some process tracers did not finish", "tracers", runningTracers)
+			hasWarned = true
+		case <-tracersEnded:
+			if hasWarned {
+				pt.log.Info("all process tracers finished")
+			}
+			return
+		}
+	}
 }
 
 func (pt *ProcessTracer) loadSpec(p Tracer) (*ebpf.CollectionSpec, error) {

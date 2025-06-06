@@ -2,6 +2,7 @@ package pipe
 
 import (
 	"context"
+	"time"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
@@ -110,22 +111,20 @@ func (gb *graphFunctions) buildGraph(ctx context.Context) (*Instrumenter, error)
 	return &Instrumenter{
 		internalMetrics: gb.ctxInfo.Metrics,
 		graph:           grp,
+		cancelTimeout:   gb.config.ShutdownTimeout,
 	}, nil
 }
 
 type Instrumenter struct {
 	internalMetrics imetrics.Reporter
+	cancelTimeout   time.Duration
 	graph           *swarm.Runner
 }
 
-func (i *Instrumenter) Run(ctx context.Context) {
+func (i *Instrumenter) Start(ctx context.Context) <-chan error {
 	go i.internalMetrics.Start(ctx)
-	i.graph.Start(ctx)
-	// run until either the graph is finished or the context is cancelled
-	select {
-	case <-i.graph.Done():
-	case <-ctx.Done():
-	}
+	i.graph.Start(ctx, swarm.WithCancelTimeout(i.cancelTimeout))
+	return i.graph.Done()
 }
 
 // spanPtrPromGetters adapts the invocation of SpanPromGetters to work with a request.Span value

@@ -22,7 +22,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/transform"
 )
 
-var errShutdownTimeout = errors.New("graceful shutdown has timed out")
+var errShutdownTimeout = errors.New("graceful shutdown has timed out while waiting for eBPF tracers to finish")
 
 func log() *slog.Logger {
 	return slog.With("component", "beyla.Instrumenter")
@@ -41,6 +41,13 @@ type Instrumenter struct {
 	tracesInput       *msg.Queue[[]request.Span]
 	processEventInput *msg.Queue[exec.ProcessEvent]
 	peGraphBuilder    *swarm.Instancer
+
+	finishers []finisher
+}
+
+type finisher struct {
+	name string
+	done <-chan error
 }
 
 // New Instrumenter, given a Config
@@ -62,7 +69,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *beyla.Config)
 		&config.Attributes.InstanceID,
 		processEventsInput,
 		processEventsHostDecorated,
-	))
+	), swarm.WithID("HostProcessEventDecoratorProvider"))
 
 	processEventsKubeDecorated := newEventQueue()
 	swi.Add(transform.KubeProcessEventDecoratorProvider(
@@ -70,7 +77,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *beyla.Config)
 		&config.Attributes.Kubernetes,
 		processEventsHostDecorated,
 		processEventsKubeDecorated,
-	))
+	), swarm.WithID("KubeProcessEventDecoratorProvider"))
 
 	bp, err := pipe.Build(ctx, config, ctxInfo, tracesInput, processEventsKubeDecorated)
 	if err != nil {
@@ -103,16 +110,29 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 	// the Host or Kubernetes metadata
 	graph, err := i.peGraphBuilder.Instance(ctx)
 	if err == nil {
-		go i.processEventsPipeline(ctx, graph)
+		i.processEventsPipeline(ctx, graph)
 	} else {
 		return fmt.Errorf("couldn't start Process Event pipeline: %w", err)
 	}
+
+	// registers resources that must be done before exiting OBI
+	i.finishers = append(i.finishers,
+		finisher{name: "process finder", done: finder.Done()},
+		finisher{name: "process instrumenter", done: graph.Done()})
 
 	// In background, listen indefinitely for each new process and run its
 	// associated ebpf.ProcessTracer once it is found.
 	go i.instrumentedEventLoop(ctx, processEvents)
 
-	// TODO: wait until all the resources have been freed/unmounted
+	return nil
+}
+
+func (i *Instrumenter) WaitUntilFinished() error {
+	for _, f := range i.finishers {
+		if err := <-f.done; err != nil {
+			return fmt.Errorf("node %q couldn't finish: %w", f.name, err)
+		}
+	}
 	return nil
 }
 
@@ -161,14 +181,15 @@ func (i *Instrumenter) ReadAndForward(ctx context.Context) error {
 
 	log.Info("Starting main node")
 
-	i.bp.Run(ctx)
-
+	i.finishers = append(i.finishers, finisher{
+		name: "Instrumenter Pipeline",
+		done: i.bp.Start(ctx),
+	})
 	<-ctx.Done()
 
 	log.Info("exiting auto-instrumenter")
 
-	err := i.stop()
-	if err != nil {
+	if err := i.stop(); err != nil {
 		return fmt.Errorf("failed to stop auto-instrumenter: %w", err)
 	}
 
@@ -182,7 +203,7 @@ func (i *Instrumenter) stop() error {
 	go func() {
 		log.Debug("stopped searching for new processes to instrument. Waiting for the eBPF tracers to be unloaded")
 		i.tracersWg.Wait()
-		stopped <- struct{}{}
+		close(stopped)
 		log.Debug("tracers unloaded, exiting FindAndInstrument")
 	}()
 
@@ -225,10 +246,5 @@ func refreshK8sInformerCache(ctx context.Context, ctxInfo *global.ContextInfo) e
 }
 
 func (i *Instrumenter) processEventsPipeline(ctx context.Context, graph *swarm.Runner) {
-	graph.Start(ctx)
-	// run until either the graph is finished or the context is cancelled
-	select {
-	case <-graph.Done():
-	case <-ctx.Done():
-	}
+	graph.Start(ctx, swarm.WithCancelTimeout(i.config.ShutdownTimeout)) // zurulao
 }

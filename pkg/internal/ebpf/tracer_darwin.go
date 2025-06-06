@@ -2,6 +2,7 @@ package ebpf
 
 import (
 	"context"
+	"time"
 
 	"github.com/cilium/ebpf/link"
 
@@ -17,12 +18,13 @@ type instrumenter struct{}
 
 func (pt *ProcessTracer) Run(_ context.Context, _ *msg.Queue[[]request.Span]) {}
 
-func NewProcessTracer(_ ProcessTracerType, _ []Tracer) *ProcessTracer {
+func NewProcessTracer(_ ProcessTracerType, _ []Tracer, _ time.Duration) *ProcessTracer {
 	return nil
 }
 
 func (pt *ProcessTracer) Init() error {
-	pt.log.Debug("avoiding linter complaints for not using log field")
+	pt.log.Debug("avoiding linter complaints for not using log and shutdownTimeout fields",
+		"v", pt.shutdownTimeout)
 	return nil
 }
 
