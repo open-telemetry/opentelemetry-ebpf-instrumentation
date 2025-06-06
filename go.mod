@@ -6,7 +6,7 @@ require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
 	github.com/caarlos0/env/v9 v9.0.0
 	github.com/cilium/ebpf v0.18.0
-	github.com/containers/common v0.63.0
+	github.com/containers/common v0.63.1
 	github.com/gavv/monotime v0.0.0-20190418164738-30dba4353424
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-logr/logr v1.4.3
