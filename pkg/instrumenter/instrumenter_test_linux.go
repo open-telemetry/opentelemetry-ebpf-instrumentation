@@ -4,7 +4,6 @@ package instrumenter
 
 import (
 	"bytes"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,7 +12,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 )
 
-// Tests fix for https://github.com/grafana/beyla/issues/926
+// TestRunDontPanic tests the fix for https://github.com/grafana/beyla/issues/926
 func TestRunDontPanic(t *testing.T) {
 	type testCase struct {
 		description    string
@@ -72,8 +71,8 @@ func TestRunDontPanic(t *testing.T) {
 }
 
 func TestNetworkEnabled(t *testing.T) {
-	require.NoError(t, os.Setenv("BEYLA_NETWORK_METRICS", "true"))
+	t.Setenv("BEYLA_NETWORK_METRICS", "true")
 	cfg, err := beyla.LoadConfig(bytes.NewReader(nil))
-	assert.NoError(t, err)
-	assert.Equal(t, mustSkip(cfg), "")
+	require.NoError(t, err)
+	assert.Empty(t, mustSkip(cfg))
 }
