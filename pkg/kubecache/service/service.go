@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/helpers/sync"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/helpers/sync"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
