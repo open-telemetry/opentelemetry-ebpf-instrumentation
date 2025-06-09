@@ -8,9 +8,9 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/common"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/helpers"
 	ebpfcfg "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
-	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/ebpf/common"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/helpers"
 )
 
 // Minimum required Kernel version: 4.18

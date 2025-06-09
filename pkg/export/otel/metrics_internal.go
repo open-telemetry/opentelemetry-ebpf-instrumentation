@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/pipe/global"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
 )
 
 // InternalMetricsReporter is an internal metrics Reporter that exports to OTEL

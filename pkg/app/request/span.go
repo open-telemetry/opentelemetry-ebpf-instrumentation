@@ -13,8 +13,8 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	trace2 "go.opentelemetry.io/otel/trace"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
 	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/internal/svc"
 )
 
 type EventType uint8
