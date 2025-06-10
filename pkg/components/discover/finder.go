@@ -22,14 +22,20 @@ import (
 )
 
 type ProcessFinder struct {
-	cfg         *beyla.Config
-	ctxInfo     *global.ContextInfo
-	tracesInput *msg.Queue[[]request.Span]
-	doneChan    <-chan error
+	cfg              *beyla.Config
+	ctxInfo          *global.ContextInfo
+	tracesInput      *msg.Queue[[]request.Span]
+	ebpfEventContext *ebpfcommon.EBPFEventContext
+	doneChan         <-chan error
 }
 
-func NewProcessFinder(cfg *beyla.Config, ctxInfo *global.ContextInfo, tracesInput *msg.Queue[[]request.Span]) *ProcessFinder {
-	return &ProcessFinder{cfg: cfg, ctxInfo: ctxInfo, tracesInput: tracesInput}
+func NewProcessFinder(
+	cfg *beyla.Config,
+	ctxInfo *global.ContextInfo,
+	tracesInput *msg.Queue[[]request.Span],
+	ebpfEventContext *ebpfcommon.EBPFEventContext,
+) *ProcessFinder {
+	return &ProcessFinder{cfg: cfg, ctxInfo: ctxInfo, tracesInput: tracesInput, ebpfEventContext: ebpfEventContext}
 }
 
 // Start the ProcessFinder pipeline in background. It returns a channel where each new discovered
@@ -63,6 +69,7 @@ func (pf *ProcessFinder) Start(ctx context.Context) (<-chan Event[*ebpf.Instrume
 		SpanSignalsShortcut: pf.tracesInput,
 
 		InputInstrumentables: storedExecutableTypes,
+		ebpfEventContext:     pf.ebpfEventContext,
 	}))
 
 	pipeline, err := swi.Instance(ctx)

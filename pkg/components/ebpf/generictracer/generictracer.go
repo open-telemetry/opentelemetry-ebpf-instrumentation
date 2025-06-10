@@ -440,8 +440,7 @@ func (p *Tracer) AlreadyInstrumentedLib(id uint64) bool {
 	return module != nil
 }
 
-func (p *Tracer) Run(ctx context.Context, eventsChan *msg.Queue[[]request.Span]) {
-	// At this point we now have loaded the bpf objects, which means we should insert any
+func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) { // At this point we now have loaded the bpf objects, which means we should insert any
 	// pids that are allowed into the bpf map
 	if p.bpfObjects.ValidPids != nil {
 		p.rebuildValidPids()
@@ -458,6 +457,7 @@ func (p *Tracer) Run(ctx context.Context, eventsChan *msg.Queue[[]request.Span])
 	p.log.Info("Launching p.Tracer")
 
 	ebpfcommon.SharedRingbuf(
+		ebpfEventContext,
 		&p.cfg.EBPF,
 		p.pidsFilter,
 		p.bpfObjects.Events,
