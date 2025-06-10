@@ -38,9 +38,10 @@ func (p *Tracer) RecordInstrumentedLib(_ uint64, _ []io.Closer)          {}
 func (p *Tracer) AddInstrumentedLibRef(_ uint64)                         {}
 func (p *Tracer) UnlinkInstrumentedLib(_ uint64)                         {}
 func (p *Tracer) AlreadyInstrumentedLib(_ uint64) bool                   { return false }
-func (p *Tracer) Run(_ context.Context, _ *msg.Queue[[]request.Span])    {}
-func (p *Tracer) Constants() map[string]any                              { return nil }
-func (p *Tracer) SetupTailCalls()                                        {}
-func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets)    {}
-func (p *Tracer) ProcessBinary(_ *exec.FileInfo)                         {}
-func (p *Tracer) Required() bool                                         { return false }
+func (p *Tracer) Run(_ context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg.Queue[[]request.Span]) {
+}
+func (p *Tracer) Constants() map[string]any                           { return nil }
+func (p *Tracer) SetupTailCalls()                                     {}
+func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
+func (p *Tracer) ProcessBinary(_ *exec.FileInfo)                      {}
+func (p *Tracer) Required() bool                                      { return false }

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
+	"go.opentelemetry.io/otel/attribute"
+
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configgrpc"
 	"go.opentelemetry.io/collector/config/confighttp"
@@ -27,7 +29,6 @@ import (
 	"go.opentelemetry.io/collector/exporter/otlphttpexporter"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -54,8 +55,6 @@ func tlog() *slog.Logger {
 }
 
 const reporterName = "github.com/open-telemetry/opentelemetry-ebpf-instrumentation"
-
-var serviceAttrCache = expirable2.NewLRU[svc.UID, []attribute.KeyValue](1024, nil, 5*time.Minute)
 
 type TracesConfig struct {
 	CommonEndpoint string `yaml:"-" env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
@@ -149,6 +148,7 @@ func makeTracesReceiver(
 		is:                 instrumentations.NewInstrumentationSelection(cfg.Instrumentations),
 		spanMetricsEnabled: spanMetricsEnabled,
 		input:              input.Subscribe(),
+		attributeCache:     expirable2.NewLRU[svc.UID, []attribute.KeyValue](1024, nil, 5*time.Minute),
 	}
 }
 
@@ -172,6 +172,7 @@ type tracesOTELReceiver struct {
 	attributes         attributes.Selection
 	is                 instrumentations.InstrumentationSelection
 	spanMetricsEnabled bool
+	attributeCache     *expirable2.LRU[svc.UID, []attribute.KeyValue]
 	input              <-chan []request.Span
 }
 
@@ -231,7 +232,7 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 		}
 
 		envResourceAttrs := ResourceAttrsFromEnv(&span.Service)
-		traces := GenerateTracesWithAttributes(span, tr.ctxInfo.HostID, finalAttrs, envResourceAttrs)
+		traces := GenerateTracesWithAttributes(tr.attributeCache, span, tr.ctxInfo.HostID, finalAttrs, envResourceAttrs)
 		err := exp.ConsumeTraces(ctx, traces)
 		if err != nil {
 			slog.Error("error sending trace to consumer", "error", err)
@@ -451,30 +452,33 @@ func getRetrySettings(cfg TracesConfig) configretry.BackOffConfig {
 	return backOffCfg
 }
 
-func traceAppResourceAttrs(hostID string, service *svc.Attrs) []attribute.KeyValue {
+func traceAppResourceAttrs(cache *expirable2.LRU[svc.UID, []attribute.KeyValue], hostID string, service *svc.Attrs) []attribute.KeyValue {
 	// TODO: remove?
 	if service.UID == emptyUID {
 		return getAppResourceAttrs(hostID, service)
 	}
 
-	attrs, ok := serviceAttrCache.Get(service.UID)
+	attrs, ok := cache.Get(service.UID)
 	if ok {
 		return attrs
 	}
 	attrs = getAppResourceAttrs(hostID, service)
-	serviceAttrCache.Add(service.UID, attrs)
+	cache.Add(service.UID, attrs)
 
 	return attrs
 }
 
-func GenerateTracesWithAttributes(span *request.Span, hostID string, attrs []attribute.KeyValue, envResourceAttrs []attribute.KeyValue) ptrace.Traces {
+func GenerateTracesWithAttributes(
+	cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
+	span *request.Span, hostID string, attrs []attribute.KeyValue, envResourceAttrs []attribute.KeyValue,
+) ptrace.Traces {
 	t := span.Timings()
 	start := spanStartTime(t)
 	hasSubSpans := t.Start.After(start)
 	traces := ptrace.NewTraces()
 	rs := traces.ResourceSpans().AppendEmpty()
 	ss := rs.ScopeSpans().AppendEmpty()
-	resourceAttrs := traceAppResourceAttrs(hostID, &span.Service)
+	resourceAttrs := traceAppResourceAttrs(cache, hostID, &span.Service)
 	resourceAttrs = append(resourceAttrs, envResourceAttrs...)
 	resourceAttrsMap := attrsToMap(resourceAttrs)
 	resourceAttrsMap.PutStr(string(semconv.OTelLibraryNameKey), reporterName)
@@ -518,8 +522,8 @@ func GenerateTracesWithAttributes(span *request.Span, hostID string, attrs []att
 }
 
 // GenerateTraces creates a ptrace.Traces from a request.Span
-func GenerateTraces(span *request.Span, hostID string, userAttrs map[attr.Name]struct{}, envResourceAttrs []attribute.KeyValue) ptrace.Traces {
-	return GenerateTracesWithAttributes(span, hostID, traceAttributes(span, userAttrs), envResourceAttrs)
+func GenerateTraces(cache *expirable2.LRU[svc.UID, []attribute.KeyValue], span *request.Span, hostID string, userAttrs map[attr.Name]struct{}, envResourceAttrs []attribute.KeyValue) ptrace.Traces {
+	return GenerateTracesWithAttributes(cache, span, hostID, traceAttributes(span, userAttrs), envResourceAttrs)
 }
 
 // createSubSpans creates the internal spans for a request.Span

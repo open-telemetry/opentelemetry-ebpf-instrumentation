@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/common"
+
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf"
@@ -20,14 +22,20 @@ import (
 )
 
 type ProcessFinder struct {
-	cfg         *beyla.Config
-	ctxInfo     *global.ContextInfo
-	tracesInput *msg.Queue[[]request.Span]
-	doneChan    <-chan error
+	cfg              *beyla.Config
+	ctxInfo          *global.ContextInfo
+	tracesInput      *msg.Queue[[]request.Span]
+	ebpfEventContext *ebpfcommon.EBPFEventContext
+	doneChan         <-chan error
 }
 
-func NewProcessFinder(cfg *beyla.Config, ctxInfo *global.ContextInfo, tracesInput *msg.Queue[[]request.Span]) *ProcessFinder {
-	return &ProcessFinder{cfg: cfg, ctxInfo: ctxInfo, tracesInput: tracesInput}
+func NewProcessFinder(
+	cfg *beyla.Config,
+	ctxInfo *global.ContextInfo,
+	tracesInput *msg.Queue[[]request.Span],
+	ebpfEventContext *ebpfcommon.EBPFEventContext,
+) *ProcessFinder {
+	return &ProcessFinder{cfg: cfg, ctxInfo: ctxInfo, tracesInput: tracesInput, ebpfEventContext: ebpfEventContext}
 }
 
 // Start the ProcessFinder pipeline in background. It returns a channel where each new discovered
@@ -61,6 +69,7 @@ func (pf *ProcessFinder) Start(ctx context.Context) (<-chan Event[*ebpf.Instrume
 		SpanSignalsShortcut: pf.tracesInput,
 
 		InputInstrumentables: storedExecutableTypes,
+		ebpfEventContext:     pf.ebpfEventContext,
 	}))
 
 	pipeline, err := swi.Instance(ctx)
@@ -94,13 +103,13 @@ func newCommonTracersGroup(cfg *beyla.Config) []ebpf.Tracer {
 	return []ebpf.Tracer{}
 }
 
-func newGoTracersGroup(cfg *beyla.Config, metrics imetrics.Reporter) []ebpf.Tracer {
-	return []ebpf.Tracer{gotracer.New(cfg, metrics)}
+func newGoTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *beyla.Config, metrics imetrics.Reporter) []ebpf.Tracer {
+	return []ebpf.Tracer{gotracer.New(pidFilter, cfg, metrics)}
 }
 
-func newGenericTracersGroup(cfg *beyla.Config, metrics imetrics.Reporter) []ebpf.Tracer {
+func newGenericTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *beyla.Config, metrics imetrics.Reporter) []ebpf.Tracer {
 	if cfg.EBPF.InstrumentGPU {
-		return []ebpf.Tracer{generictracer.New(cfg, metrics), gpuevent.New(cfg, metrics)}
+		return []ebpf.Tracer{generictracer.New(pidFilter, cfg, metrics), gpuevent.New(pidFilter, cfg, metrics)}
 	}
-	return []ebpf.Tracer{generictracer.New(cfg, metrics)}
+	return []ebpf.Tracer{generictracer.New(pidFilter, cfg, metrics)}
 }
