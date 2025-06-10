@@ -98,15 +98,21 @@ func HostProcessEventDecoratorProvider(
 		decorate := hostNamePIDDecorator(cfg)
 		in := input.Subscribe()
 		// if kubernetes decoration is disabled, we just bypass the node
+		log := rlog().With("function", "HostProcessEventDecoratorProvider")
 		return func(ctx context.Context) {
 			defer output.Close()
 			for {
 				select {
-				case pe := <-in:
+				case pe, ok := <-in:
+					if !ok {
+						return
+					}
 					decorate(&pe.File.Service, int(pe.File.Pid))
+					decorate(&pe.File.Service, int(pe.File.Pid))
+					log.Debug("host decorating event", "event", pe, "ns", pe.File.Ns, "procPID", pe.File.Pid, "procPPID", pe.File.Ppid, "service", pe.File.Service.UID)
 					output.Send(pe)
 				case <-ctx.Done():
-					rlog().Debug("context canceled. Exiting HostProcessEventDecorator")
+					log.Debug("context canceled. Exiting HostProcessEventDecorator")
 					return
 				}
 			}

@@ -733,17 +733,25 @@ func optionalDirectGaugeProvider(enable bool, provider func() *prometheus.GaugeV
 
 func (r *metricsReporter) reportMetrics(ctx context.Context) {
 	go r.promConnect.StartHTTP(ctx)
-	go r.watchForProcessEvents()
 	r.collectMetrics(ctx)
 }
 
-func (r *metricsReporter) collectMetrics(_ context.Context) {
-	for spans := range r.input {
-		// clock needs to be updated to let the expirer
-		// remove the old metrics
-		r.clock.Update()
-		for i := range spans {
-			r.observe(&spans[i])
+func (r *metricsReporter) collectMetrics(ctx context.Context) {
+	go r.watchForProcessEvents(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case spans, ok := <-r.input:
+			if !ok {
+				return
+			}
+			// clock needs to be updated to let the expirer
+			// remove the old metrics
+			r.clock.Update()
+			for i := range spans {
+				r.observe(&spans[i])
+			}
 		}
 	}
 }
@@ -1038,19 +1046,30 @@ func (r *metricsReporter) deleteTracesTargetInfo(uid svc.UID, service *svc.Attrs
 	r.tracesTargetInfo.DeleteLabelValues(targetInfoLabelValues...)
 }
 
-func (r *metricsReporter) watchForProcessEvents() {
-	for pe := range r.processEvents {
-		mlog().Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
-		uid := pe.File.Service.UID
+func (r *metricsReporter) watchForProcessEvents(ctx context.Context) {
+	log := mlog().With("function", "watchForProcessEvents")
+	for {
+		select {
+		case pe, ok := <-r.processEvents:
+			if !ok {
+				log.Debug("process channel closed. Exiting")
+				return
+			}
+			log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
+			uid := pe.File.Service.UID
 
-		if pe.Type == exec.ProcessEventCreated {
-			r.createTargetInfo(&pe.File.Service)
-			r.createTracesTargetInfo(&pe.File.Service)
-			r.serviceMap[uid] = pe.File.Service
-		} else {
-			r.deleteTargetInfo(uid, &pe.File.Service)
-			r.deleteTracesTargetInfo(uid, &pe.File.Service)
-			delete(r.serviceMap, uid)
+			if pe.Type == exec.ProcessEventCreated {
+				r.createTargetInfo(&pe.File.Service)
+				r.createTracesTargetInfo(&pe.File.Service)
+				r.serviceMap[uid] = pe.File.Service
+			} else {
+				r.deleteTargetInfo(uid, &pe.File.Service)
+				r.deleteTracesTargetInfo(uid, &pe.File.Service)
+				delete(r.serviceMap, uid)
+			}
+		case <-ctx.Done():
+			log.Debug("Context done. Exiting")
+			return
 		}
 	}
 }

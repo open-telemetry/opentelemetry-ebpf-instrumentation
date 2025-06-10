@@ -4,8 +4,6 @@ import (
 	"log/slog"
 	"sync"
 
-	lru "github.com/hashicorp/golang-lru/v2"
-
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
@@ -19,8 +17,6 @@ const (
 	PIDTypeKProbes PIDType = iota + 1
 	PIDTypeGo
 )
-
-var activePids, _ = lru.New[uint32, *svc.Attrs](1024)
 
 // injectable functions (can be replaced in tests). It reads the
 // current process namespace from the /proc filesystem. It is required to
@@ -51,11 +47,6 @@ type PIDsFilter struct {
 	detectOtel bool
 }
 
-var (
-	commonPIDsFilter *PIDsFilter
-	commonLock       sync.Mutex
-)
-
 func newPIDsFilter(c *services.DiscoveryConfig, log *slog.Logger) *PIDsFilter {
 	return &PIDsFilter{
 		log:        log,
@@ -66,14 +57,7 @@ func newPIDsFilter(c *services.DiscoveryConfig, log *slog.Logger) *PIDsFilter {
 }
 
 func CommonPIDsFilter(c *services.DiscoveryConfig) ServiceFilter {
-	commonLock.Lock()
-	defer commonLock.Unlock()
-
-	if commonPIDsFilter == nil {
-		commonPIDsFilter = newPIDsFilter(c, slog.With("component", "ebpfCommon.CommonPIDsFilter"))
-	}
-
-	return commonPIDsFilter
+	return newPIDsFilter(c, slog.With("component", "ebpfCommon.CommonPIDsFilter"))
 }
 
 func (pf *PIDsFilter) AllowPID(pid, ns uint32, svc *svc.Attrs, pidType PIDType) {
@@ -205,9 +189,7 @@ func (pf *PIDsFilter) removePID(pid, nsid uint32) {
 
 // IdentityPidsFilter is a PIDsFilter that does not filter anything. It is feasible
 // for concrete cases like GPU tracer
-type IdentityPidsFilter struct {
-	detectOTel bool
-}
+type IdentityPidsFilter struct{}
 
 func (pf *IdentityPidsFilter) AllowPID(_ uint32, _ uint32, _ *svc.Attrs, _ PIDType) {}
 
@@ -222,30 +204,7 @@ func (pf *IdentityPidsFilter) CurrentPIDs(_ PIDType) map[uint32]map[uint32]svc.A
 }
 
 func (pf *IdentityPidsFilter) Filter(inputSpans []request.Span) []request.Span {
-	for i := range inputSpans {
-		s := &inputSpans[i]
-		svc := serviceInfo(s.Pid.HostPID)
-		if pf.detectOTel {
-			checkIfExportsOTel(svc, s)
-		}
-		s.Service = *svc
-	}
 	return inputSpans
-}
-
-func serviceInfo(pid uint32) *svc.Attrs {
-	cached, ok := activePids.Get(pid)
-	if ok {
-		return cached
-	}
-
-	name := commName(pid)
-	lang := exec.FindProcLanguage(int32(pid))
-	result := svc.Attrs{UID: svc.UID{Name: name}, SDKLanguage: lang, ProcPID: int32(pid)}
-
-	activePids.Add(pid, &result)
-
-	return &result
 }
 
 func checkIfExportsOTel(svc *svc.Attrs, span *request.Span) {
