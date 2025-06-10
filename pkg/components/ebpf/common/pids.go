@@ -159,7 +159,6 @@ func (pf *PIDsFilter) addPID(pid, nsid uint32, s *svc.Attrs, t PIDType) {
 	}
 
 	allPids, err := readNamespacePIDs(int32(pid))
-
 	if err != nil {
 		pf.log.Debug("Error looking up namespaced pids", "pid", pid, "error", err)
 		return
