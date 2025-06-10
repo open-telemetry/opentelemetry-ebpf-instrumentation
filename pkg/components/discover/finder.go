@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/common"
+
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf"
@@ -94,13 +96,13 @@ func newCommonTracersGroup(cfg *beyla.Config) []ebpf.Tracer {
 	return []ebpf.Tracer{}
 }
 
-func newGoTracersGroup(cfg *beyla.Config, metrics imetrics.Reporter) []ebpf.Tracer {
-	return []ebpf.Tracer{gotracer.New(cfg, metrics)}
+func newGoTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *beyla.Config, metrics imetrics.Reporter) []ebpf.Tracer {
+	return []ebpf.Tracer{gotracer.New(pidFilter, cfg, metrics)}
 }
 
-func newGenericTracersGroup(cfg *beyla.Config, metrics imetrics.Reporter) []ebpf.Tracer {
+func newGenericTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *beyla.Config, metrics imetrics.Reporter) []ebpf.Tracer {
 	if cfg.EBPF.InstrumentGPU {
-		return []ebpf.Tracer{generictracer.New(cfg, metrics), gpuevent.New(cfg, metrics)}
+		return []ebpf.Tracer{generictracer.New(pidFilter, cfg, metrics), gpuevent.New(pidFilter, cfg, metrics)}
 	}
-	return []ebpf.Tracer{generictracer.New(cfg, metrics)}
+	return []ebpf.Tracer{generictracer.New(pidFilter, cfg, metrics)}
 }

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
+
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +37,8 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/instrumentations"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
+
+var cache = expirable2.NewLRU[svc.UID, []attribute.KeyValue](1024, nil, 5*time.Minute)
 
 func TestHTTPTracesEndpoint(t *testing.T) {
 	defer restoreEnvAfterExecution()()
@@ -350,7 +354,7 @@ func TestGenerateTraces(t *testing.T) {
 			TraceID:      traceID,
 			SpanID:       spanID,
 		}
-		traces := GenerateTraces(span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
+		traces := GenerateTraces(cache, span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -395,7 +399,7 @@ func TestGenerateTraces(t *testing.T) {
 			SpanID:       spanID,
 			TraceID:      traceID,
 		}
-		traces := GenerateTraces(span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
+		traces := GenerateTraces(cache, span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -431,7 +435,7 @@ func TestGenerateTraces(t *testing.T) {
 			Route:        "/test",
 			Status:       200,
 		}
-		traces := GenerateTraces(span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
+		traces := GenerateTraces(cache, span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -468,7 +472,7 @@ func TestGenerateTraces(t *testing.T) {
 			SpanID:       spanID,
 			TraceID:      traceID,
 		}
-		traces := GenerateTraces(span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
+		traces := GenerateTraces(cache, span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -493,7 +497,7 @@ func TestGenerateTraces(t *testing.T) {
 			ParentSpanID: parentSpanID,
 			TraceID:      traceID,
 		}
-		traces := GenerateTraces(span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
+		traces := GenerateTraces(cache, span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -513,7 +517,7 @@ func TestGenerateTraces(t *testing.T) {
 			Method:       "GET",
 			Route:        "/test",
 		}
-		traces := GenerateTraces(span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
+		traces := GenerateTraces(cache, span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -528,7 +532,7 @@ func TestGenerateTraces(t *testing.T) {
 func TestGenerateTracesAttributes(t *testing.T) {
 	t.Run("test SQL trace generation, no statement", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
-		traces := GenerateTraces(&span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
+		traces := GenerateTraces(cache, &span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -549,7 +553,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
-		traces := GenerateTraces(&span, "host-id", map[attr.Name]struct{}{"db.operation.name": {}}, []attribute.KeyValue{})
+		traces := GenerateTraces(cache, &span, "host-id", map[attr.Name]struct{}{"db.operation.name": {}}, []attribute.KeyValue{})
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -570,7 +574,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
-		traces := GenerateTraces(&span, "host-id", map[attr.Name]struct{}{attr.DBQueryText: {}}, []attribute.KeyValue{})
+		traces := GenerateTraces(cache, &span, "host-id", map[attr.Name]struct{}{attr.DBQueryText: {}}, []attribute.KeyValue{})
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -590,7 +594,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 	t.Run("test Kafka trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeKafkaClient, Method: "process", Path: "important-topic", Statement: "test"}
-		traces := GenerateTraces(&span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
+		traces := GenerateTraces(cache, &span, "host-id", map[attr.Name]struct{}{}, []attribute.KeyValue{})
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -609,7 +613,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		defer restoreEnvAfterExecution()()
 		t.Setenv(envResourceAttrs, "deployment.environment=productions,source.upstream=beyla")
 		span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Route: "/test", Status: 200}
-		traces := GenerateTraces(&span, "host-id", map[attr.Name]struct{}{}, ResourceAttrsFromEnv(&span.Service))
+		traces := GenerateTraces(cache, &span, "host-id", map[attr.Name]struct{}{}, ResourceAttrsFromEnv(&span.Service))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		rs := traces.ResourceSpans().At(0)
@@ -1088,8 +1092,8 @@ func TestTracesAttrReuse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			attr1 := traceAppResourceAttrs("123", &tt.span.Service)
-			attr2 := traceAppResourceAttrs("123", &tt.span.Service)
+			attr1 := traceAppResourceAttrs(cache, "123", &tt.span.Service)
+			attr2 := traceAppResourceAttrs(cache, "123", &tt.span.Service)
 			assert.Equal(t, tt.same, &attr1[0] == &attr2[0], tt.name)
 		})
 	}
@@ -1488,7 +1492,7 @@ func generateTracesForSpans(t *testing.T, tr *tracesOTELReceiver, spans []reques
 		if tr.spanDiscarded(span) {
 			continue
 		}
-		res = append(res, GenerateTraces(span, "host-id", traceAttrs, []attribute.KeyValue{}))
+		res = append(res, GenerateTraces(cache, span, "host-id", traceAttrs, []attribute.KeyValue{}))
 	}
 
 	return res

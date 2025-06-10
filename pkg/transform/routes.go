@@ -85,7 +85,6 @@ func (rn *routerNode) provideRoutes(_ context.Context) (swarm.RunFunc, error) {
 	return func(_ context.Context) {
 		// output channel must be closed so later stages in the pipeline can finish in cascade
 		defer rn.output.Close()
-
 		for spans := range in {
 			for i := range spans {
 				s := &spans[i]
