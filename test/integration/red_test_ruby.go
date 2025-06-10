@@ -3,12 +3,17 @@
 package integration
 
 import (
+	"encoding/json"
+	"net/http"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
 )
 
@@ -122,7 +127,7 @@ func testREDMetricsRailsHTTPS(t *testing.T) {
 // Assumes we've run the metics tests
 func testHTTPTracesNestedNginx(t *testing.T) {
 	for i := 1; i <= 4; i++ {
-		go doHTTPGet(t, "https://localhost:8443/users/"+strconv.Itoa(i), 200)
+		doHTTPGet(t, "https://localhost:8443/users/"+strconv.Itoa(i), 200)
 	}
 
 	for i := 1; i <= 4; i++ {
@@ -155,7 +160,6 @@ func testHTTPTracesNestedNginx(t *testing.T) {
 			require.NotEmpty(t, client.TraceID)
 			require.Equal(t, server.TraceID, client.TraceID)
 			require.NotEmpty(t, client.SpanID)
-
 		}, test.Interval(100*time.Millisecond))
 	}
 }
