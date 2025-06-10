@@ -16,14 +16,13 @@
 #include <bpfcore/bpf_core_read.h>
 
 #include <common/pin_internal.h>
-#include <common/connection_info.h>
 
 #ifdef BPF_DEBUG
 
 typedef struct log_info {
     u64 pid;
-    char log[80];
-    char comm[20];
+    unsigned char log[80];
+    unsigned char comm[20];
     u8 _pad[4];
 } log_info_t;
 
@@ -44,7 +43,7 @@ enum bpf_func_id___x { BPF_FUNC_snprintf___x = 42 /* avoid zero */ };
         log_info_t *__trace__ = bpf_ringbuf_reserve(&debug_events, sizeof(log_info_t), 0);         \
         if (__trace__) {                                                                           \
             if (bpf_core_enum_value_exists(enum bpf_func_id___x, BPF_FUNC_snprintf___x)) {         \
-                BPF_SNPRINTF(__trace__->log, sizeof(__trace__->log), fmt, ##args);                 \
+                BPF_SNPRINTF((char *)__trace__->log, sizeof(__trace__->log), fmt, ##args);         \
             } else {                                                                               \
                 __builtin_memcpy(__trace__->log, fmt, sizeof(__trace__->log));                     \
             }                                                                                      \
@@ -57,7 +56,7 @@ enum bpf_func_id___x { BPF_FUNC_snprintf___x = 42 /* avoid zero */ };
         log_info_t *__trace__ = bpf_ringbuf_reserve(&debug_events, sizeof(log_info_t), 0);         \
         if (__trace__) {                                                                           \
             if (bpf_core_enum_value_exists(enum bpf_func_id___x, BPF_FUNC_snprintf___x)) {         \
-                BPF_SNPRINTF(__trace__->log, sizeof(__trace__->log), fmt, ##args);                 \
+                BPF_SNPRINTF((char *)__trace__->log, sizeof(__trace__->log), fmt, ##args);         \
             } else {                                                                               \
                 __builtin_memcpy(__trace__->log, fmt, sizeof(__trace__->log));                     \
             }                                                                                      \
@@ -81,32 +80,4 @@ enum bpf_func_id___x { BPF_FUNC_snprintf___x = 42 /* avoid zero */ };
 #else
 #define bpf_dbg_printk(fmt, args...)
 #define bpf_d_printk(fmt, args...)
-#endif
-
-#ifdef BPF_DEBUG
-static __always_inline void dbg_print_http_connection_info(connection_info_t *info) {
-    bpf_dbg_printk("[conn] s_h = %llx, s_l = %llx, s_port=%d",
-                   *(u64 *)(&info->s_addr),
-                   *(u64 *)(&info->s_addr[8]),
-                   info->s_port);
-    bpf_dbg_printk("[conn] d_h = %llx, d_l = %llx, d_port=%d",
-                   *(u64 *)(&info->d_addr),
-                   *(u64 *)(&info->d_addr[8]),
-                   info->d_port);
-}
-static __always_inline void d_print_http_connection_info(connection_info_t *info) {
-    bpf_d_printk("[conn] s_h = %llx, s_l = %llx, s_port=%d",
-                 *(u64 *)(&info->s_addr),
-                 *(u64 *)(&info->s_addr[8]),
-                 info->s_port);
-    bpf_d_printk("[conn] d_h = %llx, d_l = %llx, d_port=%d",
-                 *(u64 *)(&info->d_addr),
-                 *(u64 *)(&info->d_addr[8]),
-                 info->d_port);
-}
-#else
-static __always_inline void dbg_print_http_connection_info(connection_info_t *info) {
-}
-static __always_inline void d_print_http_connection_info(connection_info_t *info) {
-}
 #endif
