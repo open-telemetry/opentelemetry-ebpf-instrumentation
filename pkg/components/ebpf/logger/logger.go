@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -86,6 +87,11 @@ func (p *BPFLogger) processLogEvent(_ *ebpfcommon.EBPFParseContext, _ *config.EB
 	return request.Span{}, true, nil
 }
 
-func readString(data []int8) string {
-	return *(*string)(unsafe.Pointer(&data))
+func readString(data []uint8) string {
+	l := bytes.IndexByte(data, 0)
+	if l < 0 {
+		l = len(data)
+	}
+
+	return (*(*string)(unsafe.Pointer(&data)))[:l]
 }

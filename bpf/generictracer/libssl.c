@@ -1,3 +1,5 @@
+//go:build obi_bpf_ignore
+
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
