@@ -22,6 +22,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/traces"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
+	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/debug"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/instrumentations"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
@@ -68,6 +69,8 @@ attributes:
     beyla.network.flow:
       include: ["foo", "bar"]
       exclude: ["baz", "bae"]
+  extra_group_attributes:
+    k8s_app_meta: ["k8s.app.version"]	  
 network:
   enable: true
   cidrs:
@@ -192,6 +195,9 @@ network:
 					Include: []string{"foo", "bar"},
 					Exclude: []string{"baz", "bae"},
 				},
+			},
+			ExtraGroupAttributes: map[string][]attr.Name{
+				"k8s_app_meta": {"k8s.app.version"},
 			},
 		},
 		Routes: &transform.RoutesConfig{

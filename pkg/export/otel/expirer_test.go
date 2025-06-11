@@ -15,6 +15,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
+	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/instrumentations"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/collector"
@@ -44,9 +45,11 @@ func TestNetMetricsExpiration(t *testing.T) {
 				Instrumentations: []string{
 					instrumentations.InstrumentationALL,
 				},
-			}, AttributeSelectors: attributes.Selection{
-				attributes.BeylaNetworkFlow.Section: attributes.InclusionLists{
-					Include: []string{"src.name", "dst.name"},
+			}, SelectorCfg: &attributes.SelectorConfig{
+				SelectionCfg: attributes.Selection{
+					attributes.BeylaNetworkFlow.Section: attributes.InclusionLists{
+						Include: []string{"src.name", "dst.name"},
+					},
 				},
 			},
 		}, metrics)(ctx)
@@ -148,10 +151,15 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	now := syncedClock{now: time.Now()}
 	timeNow = now.Now
 
+	var g attributes.AttrGroups
+	g.Add(attributes.GroupKubernetes)
+
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	otelExporter, err := ReportMetrics(
-		&global.ContextInfo{}, &MetricsConfig{
+		&global.ContextInfo{
+			MetricAttributeGroups: g,
+		}, &MetricsConfig{
 			Interval:          50 * time.Millisecond,
 			CommonEndpoint:    otlp.ServerEndpoint,
 			MetricsProtocol:   ProtocolHTTPProtobuf,
@@ -161,9 +169,14 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 			Instrumentations: []string{
 				instrumentations.InstrumentationALL,
 			},
-		}, attributes.Selection{
-			attributes.HTTPServerDuration.Section: attributes.InclusionLists{
-				Include: []string{"url.path"},
+		}, &attributes.SelectorConfig{
+			SelectionCfg: attributes.Selection{
+				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
+					Include: []string{"url.path", "k8s.app.version"},
+				},
+			},
+			ExtraGroupAttributesCfg: map[string][]attr.Name{
+				"k8s_app_meta": {"k8s.app.version"},
 			},
 		}, metrics, processEvents)(ctx)
 	require.NoError(t, err)
@@ -172,7 +185,18 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 
 	// WHEN it receives metrics
 	metrics.Send([]request.Span{
-		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
+		{
+			Service: svc.Attrs{
+				UID: svc.UID{Instance: "foo"},
+				Metadata: map[attr.Name]string{
+					"k8s.app.version": "v0.0.1",
+				},
+			},
+			Type:         request.EventTypeHTTP,
+			Path:         "/foo",
+			RequestStart: 100,
+			End:          200,
+		},
 		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/bar", RequestStart: 150, End: 175},
 	})
 
@@ -180,6 +204,8 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	test.Eventually(t, timeout, func(t require.TestingT) {
 		metric := readChan(t, otlp.Records())
 		assert.Equal(t, "http.server.request.duration", metric.Name)
+		// k8s.app.version attribute is missing because the otel exporter
+		// does not read values from span metadata
 		assert.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
 		assert.InEpsilon(t, 100/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(t, 1, metric.Count)
@@ -278,9 +304,11 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 			Instrumentations: []string{
 				instrumentations.InstrumentationALL,
 			},
-		}, attributes.Selection{
-			attributes.HTTPServerDuration.Section: attributes.InclusionLists{
-				Include: []string{"url.path"},
+		}, &attributes.SelectorConfig{
+			SelectionCfg: attributes.Selection{
+				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
+					Include: []string{"url.path"},
+				},
 			},
 		}, metrics, processEvents)(ctx)
 	require.NoError(t, err)
