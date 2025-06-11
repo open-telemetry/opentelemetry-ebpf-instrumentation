@@ -46,6 +46,7 @@ func byteFramer(data []uint8) *http2.Framer {
 // not all requests for a given stream specify the protocol, but one must
 // we remember if we see grpc mentioned and tag the rest of the streams for
 // a given connection as grpc. default assumes plain HTTP2
+// this is why we need the h2c cache
 func getOrInitH2Conn(activeGRPCConnections *lru.Cache[uint64, h2Connection], connID uint64) *h2Connection {
 	v, ok := activeGRPCConnections.Get(connID)
 
@@ -198,10 +199,21 @@ func readRetMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.F
 		// end up first in the headers list.
 		switch hfKey {
 		case ":status":
-			status, _ = strconv.Atoi(hf.Value)
+			if !grpc { // only set the HTTP status if we didn't find grpc status
+				status, _ = strconv.Atoi(hf.Value)
+			}
 			ok = true
 		case "grpc-status":
 			status, _ = strconv.Atoi(hf.Value)
+			protocolIsGRPC(parseContext.h2c, connID)
+			grpc = true
+			ok = true
+		case "grpc-message":
+			if hf.Value != "" {
+				if !grpc { // unset or we have the HTTP status
+					status = 2
+				}
+			}
 			protocolIsGRPC(parseContext.h2c, connID)
 			grpc = true
 			ok = true
@@ -346,7 +358,7 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 			method, path, contentType, ok := readMetaFrame(parseContext, connID, framer, ff)
 
 			if path == "" {
-				path = "."
+				path = "*"
 			}
 
 			grpcInStatus := false
