@@ -17,13 +17,13 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type log_info_t -target amd64,arm64 bpf_debug ../../../../bpf/logger/logger.c -- -I../../../../bpf -DBPF_DEBUG
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type log_info_t -target amd64,arm64 BpfDebug ../../../../bpf/logger/logger.c -- -I../../../../bpf -DBPF_DEBUG
 
-type BPFLogInfo bpf_debugLogInfoT
+type BPFLogInfo BpfDebugLogInfoT
 
 type BPFLogger struct {
 	cfg        *beyla.Config
-	bpfObjects bpf_debugObjects
+	bpfObjects BpfDebugObjects
 	closers    []io.Closer
 	log        *slog.Logger
 }
@@ -42,7 +42,7 @@ func New(cfg *beyla.Config) *BPFLogger {
 
 func (p *BPFLogger) Load() (*ebpf.CollectionSpec, error) {
 	if p.cfg.EBPF.BpfDebug {
-		return loadBpf_debug()
+		return LoadBpfDebug()
 	}
 	return nil, errors.New("BPF debug is not enabled")
 }

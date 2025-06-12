@@ -26,16 +26,16 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf_tp ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf -DBPF_TRACEPARENT
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf_debug ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf -DBPF_DEBUG
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf_tp_debug ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf -DBPF_DEBUG -DBPF_TRACEPARENT
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 Bpf ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfTP ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf -DBPF_TRACEPARENT
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfDebug ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf -DBPF_DEBUG
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfTPDebug ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf -DBPF_DEBUG -DBPF_TRACEPARENT
 
 type Tracer struct {
 	pidsFilter       ebpfcommon.ServiceFilter
 	cfg              *beyla.Config
 	metrics          imetrics.Reporter
-	bpfObjects       bpfObjects
+	bpfObjects       BpfObjects
 	closers          []io.Closer
 	log              *slog.Logger
 	qdiscs           map[ifaces.Interface]*netlink.GenericQdisc
@@ -125,18 +125,18 @@ func (p *Tracer) BlockPID(pid, ns uint32) {
 }
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
-	loader := loadBpf
+	loader := LoadBpf
 	if p.cfg.EBPF.BpfDebug {
-		loader = loadBpf_debug
+		loader = LoadBpfDebug
 	}
 
 	if p.cfg.EBPF.TrackRequestHeaders ||
 		p.cfg.EBPF.ContextPropagation != config.ContextPropagationDisabled {
 		if ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled) {
 			p.log.Info("Found compatible Linux kernel, enabling trace information parsing")
-			loader = loadBpf_tp
+			loader = LoadBpfTP
 			if p.cfg.EBPF.BpfDebug {
-				loader = loadBpf_tp_debug
+				loader = LoadBpfTPDebug
 			}
 		} else {
 			p.log.Info("Found incompatible Linux kernel, disabling trace information parsing")
@@ -495,8 +495,8 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, ticker *time.Ticker, event
 		case t := <-ticker.C:
 			if p.bpfObjects.OngoingHttp != nil {
 				i := p.bpfObjects.OngoingHttp.Iterate()
-				var k bpfPidConnectionInfoT
-				var v bpfHttpInfoT
+				var k BpfPidConnectionInfoT
+				var v BpfHttpInfoT
 				for i.Next(&k, &v) {
 					// Check if we have a lingering request which we've completed, as in it has EndMonotimeNs
 					// but it hasn't been posted yet, likely missed by the logic that looks at finishing requests
@@ -545,8 +545,8 @@ func (p *Tracer) watchForMisclassifedEvents(ctx context.Context) {
 			if e.EventType == ebpfcommon.EventTypeKHTTP2 {
 				if p.bpfObjects.OngoingHttp2Connections != nil {
 					err := p.bpfObjects.OngoingHttp2Connections.Put(
-						&bpfPidConnectionInfoT{Conn: bpfConnectionInfoT(e.TCPInfo.ConnInfo), Pid: e.TCPInfo.Pid.HostPid},
-						bpfHttp2ConnInfoDataT{Flags: e.TCPInfo.Ssl, Id: 0}, // no new connection flag (0x3)
+						&BpfPidConnectionInfoT{Conn: BpfConnectionInfoT(e.TCPInfo.ConnInfo), Pid: e.TCPInfo.Pid.HostPid},
+						BpfHttp2ConnInfoDataT{Flags: e.TCPInfo.Ssl, Id: 0}, // no new connection flag (0x3)
 					)
 					if err != nil {
 						p.log.Debug("error writing HTTP2/gRPC connection info", "error", err)

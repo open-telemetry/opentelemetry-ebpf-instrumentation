@@ -17,7 +17,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/ringbuf"
 )
 
-type BPFHTTP2Info bpfHttp2GrpcRequestT
+type BPFHTTP2Info BpfHttp2GrpcRequestT
 
 type Protocol uint8
 
