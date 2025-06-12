@@ -218,7 +218,7 @@ func TestSerializeJSONSpans(t *testing.T) {
 			"traceID":             "01020300000000000000000000000000",
 			"spanID":              "0102030000000000",
 			"parentSpanID":        "0102030000000000",
-			"flags":               "1",
+			"traceFlags":          "1",
 			"attributes":          tData.attribs,
 		}, s)
 	}
