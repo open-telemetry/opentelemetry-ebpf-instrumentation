@@ -106,6 +106,20 @@ func NewAttrSelector(
 	}, nil
 }
 
+func NewCustomAttrSelector(
+	groups AttrGroups,
+	cfg *SelectorConfig,
+	definitionsProvider func(groups AttrGroups, extraGroupAttributes GroupAttributes) map[Section]AttrReportGroup,
+) (*AttrSelector, error) {
+	cfg.SelectionCfg.Normalize()
+	extraGroupAttributes := NewGroupAttributes(cfg.ExtraGroupAttributesCfg)
+	// TODO: validate
+	return &AttrSelector{
+		selector:   cfg.SelectionCfg,
+		definition: definitionsProvider(groups, extraGroupAttributes),
+	}, nil
+}
+
 // For returns the list of enabled attribute names for a given metric
 func (p *AttrSelector) For(metricName Name) []attr.Name {
 	attributeNames, ok := p.definition[metricName.Section]
