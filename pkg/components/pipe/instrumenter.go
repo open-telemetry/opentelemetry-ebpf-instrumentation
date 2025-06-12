@@ -45,6 +45,11 @@ func newGraphBuilder(config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh
 		ctxInfo: ctxInfo,
 	}
 
+	selectorCfg := &attributes.SelectorConfig{
+		SelectionCfg:            config.Attributes.Select,
+		ExtraGroupAttributesCfg: config.Attributes.ExtraGroupAttributes,
+	}
+
 	newQueue := func() *msg.Queue[[]request.Span] {
 		return msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen))
 	}
@@ -82,13 +87,19 @@ func newGraphBuilder(config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh
 	if exportableSpans == nil {
 		exportableSpans = newQueue()
 	}
-	swi.Add(filter.ByAttribute(config.Filters.Application, spanPtrPromGetters,
+	swi.Add(filter.ByAttribute(config.Filters.Application, selectorCfg.ExtraGroupAttributesCfg, spanPtrPromGetters,
 		nameResolverToAttrFilter, exportableSpans))
 
-	swi.Add(otel.ReportMetrics(ctxInfo, &config.Metrics, config.Attributes.Select, exportableSpans, processEventsCh))
+	swi.Add(otel.ReportMetrics(
+		ctxInfo,
+		&config.Metrics,
+		selectorCfg,
+		exportableSpans,
+		processEventsCh,
+	))
 
-	swi.Add(otel.TracesReceiver(ctxInfo, config.Traces, config.Metrics.SpanMetricsEnabled(), config.Attributes.Select, exportableSpans))
-	swi.Add(prom.PrometheusEndpoint(ctxInfo, &config.Prometheus, config.Attributes.Select, exportableSpans, processEventsCh))
+	swi.Add(otel.TracesReceiver(ctxInfo, config.Traces, config.Metrics.SpanMetricsEnabled(), selectorCfg, exportableSpans))
+	swi.Add(prom.PrometheusEndpoint(ctxInfo, &config.Prometheus, selectorCfg, exportableSpans, processEventsCh))
 	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus))
 
 	swi.Add(debug.PrinterNode(config.TracePrinter, exportableSpans))

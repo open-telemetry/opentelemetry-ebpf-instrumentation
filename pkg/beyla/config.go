@@ -17,6 +17,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/traces"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
+	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/debug"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/instrumentations"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
@@ -204,10 +205,11 @@ type Config struct {
 // Attributes configures the decoration of some extra attributes that will be
 // added to each span
 type Attributes struct {
-	Kubernetes transform.KubernetesDecorator `yaml:"kubernetes"`
-	InstanceID traces.InstanceIDConfig       `yaml:"instance_id"`
-	Select     attributes.Selection          `yaml:"select"`
-	HostID     HostIDConfig                  `yaml:"host_id"`
+	Kubernetes           transform.KubernetesDecorator `yaml:"kubernetes"`
+	InstanceID           traces.InstanceIDConfig       `yaml:"instance_id"`
+	Select               attributes.Selection          `yaml:"select"`
+	HostID               HostIDConfig                  `yaml:"host_id"`
+	ExtraGroupAttributes map[string][]attr.Name        `yaml:"extra_group_attributes"`
 }
 
 type HostIDConfig struct {
