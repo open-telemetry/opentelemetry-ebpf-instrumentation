@@ -674,7 +674,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 			},
 			attributeSelect: attributes.Selection{},
 			expectedAttrs: []string{
-				"service",
+				"service.name",
 				"service.instance.id",
 				"service.namespace",
 				"telemetry.sdk.language",
@@ -712,7 +712,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 				},
 			},
 			expectedAttrs: []string{
-				"service",
+				"service.name",
 				"service.instance.id",
 				"service.namespace",
 				"telemetry.sdk.language",
@@ -751,7 +751,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 				},
 			},
 			expectedAttrs: []string{
-				"service",
+				"service.name",
 				"service.instance.id",
 				"service.namespace",
 				"telemetry.sdk.language",
@@ -790,7 +790,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 				},
 			},
 			expectedAttrs: []string{
-				"service",
+				"service.name",
 				"service.instance.id",
 				"service.namespace",
 				"telemetry.sdk.language",
