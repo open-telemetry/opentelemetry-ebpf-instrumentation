@@ -18,12 +18,12 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf ../../../../bpf/tpinjector/tpinjector.c -- -I../../../../bpf -I../../../../bpf
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf_debug ../../../../bpf/tpinjector/tpinjector.c -- -I../../../../bpf -I../../../../bpf -DBPF_DEBUG -DBPF_DEBUG_TC
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 Bpf ../../../../bpf/tpinjector/tpinjector.c -- -I../../../../bpf -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfDebug ../../../../bpf/tpinjector/tpinjector.c -- -I../../../../bpf -I../../../../bpf -DBPF_DEBUG -DBPF_DEBUG_TC
 
 type Tracer struct {
 	cfg        *beyla.Config
-	bpfObjects bpfObjects
+	bpfObjects BpfObjects
 	closers    []io.Closer
 	log        *slog.Logger
 }
@@ -43,10 +43,10 @@ func (p *Tracer) BlockPID(uint32, uint32) {}
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 	if p.cfg.EBPF.BpfDebug {
-		return loadBpf_debug()
+		return LoadBpfDebug()
 	}
 
-	return loadBpf()
+	return LoadBpf()
 }
 
 func (p *Tracer) SetupTailCalls() {

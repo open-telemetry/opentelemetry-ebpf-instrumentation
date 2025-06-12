@@ -16,14 +16,14 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type watch_info_t -target amd64,arm64 bpf ../../../../bpf/watcher/watcher.c -- -I../../../../bpf
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type watch_info_t -target amd64,arm64 bpf_debug ../../../../bpf/watcher/watcher.c -- -I../../../../bpf -DBPF_DEBUG
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type watch_info_t -target amd64,arm64 Bpf ../../../../bpf/watcher/watcher.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type watch_info_t -target amd64,arm64 BpfDebug ../../../../bpf/watcher/watcher.c -- -I../../../../bpf -DBPF_DEBUG
 
-type BPFWatchInfo bpfWatchInfoT
+type BPFWatchInfo BpfWatchInfoT
 
 type Watcher struct {
 	cfg        *beyla.Config
-	bpfObjects bpfObjects
+	bpfObjects BpfObjects
 	closers    []io.Closer
 	log        *slog.Logger
 	events     chan<- Event
@@ -51,9 +51,9 @@ func New(cfg *beyla.Config, events chan<- Event) *Watcher {
 }
 
 func (p *Watcher) Load() (*ebpf.CollectionSpec, error) {
-	loader := loadBpf
+	loader := LoadBpf
 	if p.cfg.EBPF.BpfDebug {
-		loader = loadBpf_debug
+		loader = LoadBpfDebug
 	}
 
 	return loader()

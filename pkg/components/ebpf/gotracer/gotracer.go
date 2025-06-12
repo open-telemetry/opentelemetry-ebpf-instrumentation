@@ -33,17 +33,17 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf -DNO_HEADER_PROPAGATION
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf_debug ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf -DBPF_DEBUG -DNO_HEADER_PROPAGATION
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf_tp ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 bpf_tp_debug ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf -DBPF_DEBUG
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 Bpf ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf -DNO_HEADER_PROPAGATION
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfDebug ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf -DBPF_DEBUG -DNO_HEADER_PROPAGATION
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfTP ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfTPDebug ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf -DBPF_DEBUG
 
 type Tracer struct {
 	log        *slog.Logger
 	pidsFilter ebpfcommon.ServiceFilter
 	cfg        *config.EBPFTracer
 	metrics    imetrics.Reporter
-	bpfObjects bpfObjects
+	bpfObjects BpfObjects
 	closers    []io.Closer
 }
 
@@ -70,15 +70,15 @@ func (p *Tracer) supportsContextPropagation() bool {
 }
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
-	loader := loadBpf
+	loader := LoadBpf
 	if p.cfg.BpfDebug {
-		loader = loadBpf_debug
+		loader = LoadBpfDebug
 	}
 
 	if p.supportsContextPropagation() {
-		loader = loadBpf_tp
+		loader = LoadBpfTP
 		if p.cfg.BpfDebug {
-			loader = loadBpf_tp_debug
+			loader = LoadBpfTPDebug
 		}
 	} else {
 		p.log.Info("Kernel in lockdown mode or missing CAP_SYS_ADMIN.")
@@ -101,7 +101,7 @@ func (p *Tracer) Constants() map[string]any {
 }
 
 func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
-	offTable := bpfOffTableT{}
+	offTable := BpfOffTableT{}
 	// Set the field offsets and the logLevel for the Go BPF program in a map
 	for _, field := range []goexec.GoOffset{
 		goexec.ConnFdPos,

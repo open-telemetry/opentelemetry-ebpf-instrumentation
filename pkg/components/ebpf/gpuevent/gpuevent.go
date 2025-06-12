@@ -28,8 +28,8 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type gpu_kernel_launch_t -type gpu_malloc_t -target amd64,arm64 bpf ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type gpu_kernel_launch_t -type gpu_malloc_t -target amd64,arm64 bpf_debug ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf -DBPF_DEBUG
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type gpu_kernel_launch_t -type gpu_malloc_t -target amd64,arm64 Bpf ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type gpu_kernel_launch_t -type gpu_malloc_t -target amd64,arm64 BpfDebug ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf -DBPF_DEBUG
 
 const (
 	EventTypeKernelLaunch = 1 // EVENT_GPU_KERNEL_LAUNCH
@@ -50,8 +50,8 @@ type modInfo struct {
 type moduleOffsets map[uint64]*SymbolTree
 
 type (
-	GPUKernelLaunchInfo bpfGpuKernelLaunchT
-	GPUMallocInfo       bpfGpuMallocT
+	GPUKernelLaunchInfo BpfGpuKernelLaunchT
+	GPUMallocInfo       BpfGpuMallocT
 )
 
 // TODO: We have a way to bring ELF file information to this Tracer struct
@@ -62,7 +62,7 @@ type Tracer struct {
 	pidsFilter       ebpfcommon.ServiceFilter
 	cfg              *beyla.Config
 	metrics          imetrics.Reporter
-	bpfObjects       bpfObjects
+	bpfObjects       BpfObjects
 	closers          []io.Closer
 	log              *slog.Logger
 	instrumentedLibs ebpfcommon.InstrumentedLibsT
@@ -98,9 +98,9 @@ func (p *Tracer) BlockPID(pid, ns uint32) {
 }
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
-	loader := loadBpf
+	loader := LoadBpf
 	if p.cfg.EBPF.BpfDebug {
-		loader = loadBpf_debug
+		loader = LoadBpfDebug
 	}
 
 	return loader()

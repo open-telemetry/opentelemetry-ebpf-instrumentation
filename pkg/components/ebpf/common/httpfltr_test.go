@@ -37,7 +37,7 @@ func TestMethod(t *testing.T) {
 
 func TestHostInfo(t *testing.T) {
 	event := BPFHTTPInfo{
-		ConnInfo: bpfConnectionInfoT{
+		ConnInfo: BpfConnectionInfoT{
 			S_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1},
 			D_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 8, 8, 8, 8},
 		},
@@ -49,7 +49,7 @@ func TestHostInfo(t *testing.T) {
 	assert.Equal(t, "8.8.8.8", target)
 
 	event = BPFHTTPInfo{
-		ConnInfo: bpfConnectionInfoT{
+		ConnInfo: BpfConnectionInfoT{
 			S_addr: [16]byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1},
 			D_addr: [16]byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 8, 8, 8, 8},
 		},
@@ -61,7 +61,7 @@ func TestHostInfo(t *testing.T) {
 	assert.Equal(t, "100::ffff:808:808", target)
 
 	event = BPFHTTPInfo{
-		ConnInfo: bpfConnectionInfoT{},
+		ConnInfo: BpfConnectionInfoT{},
 	}
 
 	source, target = (*BPFConnInfo)(unsafe.Pointer(&event.ConnInfo)).reqHostInfo()

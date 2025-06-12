@@ -22,19 +22,19 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace -type sql_request_trace -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t  -type redis_client_req_t bpf ../../../../bpf/common/common.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace -type sql_request_trace -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t  -type redis_client_req_t Bpf ../../../../bpf/common/common.c -- -I../../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
 type (
-	HTTPRequestTrace    bpfHttpRequestTrace
-	SQLRequestTrace     bpfSqlRequestTrace
-	BPFHTTPInfo         bpfHttpInfoT
-	BPFConnInfo         bpfConnectionInfoT
-	TCPRequestInfo      bpfTcpReqT
-	GoSaramaClientInfo  bpfKafkaClientReqT
-	GoRedisClientInfo   bpfRedisClientReqT
-	GoKafkaGoClientInfo bpfKafkaGoReqT
+	HTTPRequestTrace    BpfHttpRequestTrace
+	SQLRequestTrace     BpfSqlRequestTrace
+	BPFHTTPInfo         BpfHttpInfoT
+	BPFConnInfo         BpfConnectionInfoT
+	TCPRequestInfo      BpfTcpReqT
+	GoSaramaClientInfo  BpfKafkaClientReqT
+	GoRedisClientInfo   BpfRedisClientReqT
+	GoKafkaGoClientInfo BpfKafkaGoReqT
 )
 
 const (
