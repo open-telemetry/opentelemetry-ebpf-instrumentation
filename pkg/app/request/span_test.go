@@ -184,7 +184,7 @@ func TestSerializeJSONSpans(t *testing.T) {
 			TraceID:        trace2.TraceID{0x1, 0x2, 0x3},
 			SpanID:         trace2.SpanID{0x1, 0x2, 0x3},
 			ParentSpanID:   trace2.SpanID{0x1, 0x2, 0x3},
-			Flags:          1,
+			TraceFlags:     1,
 			PeerName:       "peername",
 			HostName:       "hostname",
 			OtherNamespace: "otherns",
@@ -218,7 +218,7 @@ func TestSerializeJSONSpans(t *testing.T) {
 			"traceID":             "01020300000000000000000000000000",
 			"spanID":              "0102030000000000",
 			"parentSpanID":        "0102030000000000",
-			"flags":               "1",
+			"traceFlags":          "1",
 			"attributes":          tData.attribs,
 		}, s)
 	}
