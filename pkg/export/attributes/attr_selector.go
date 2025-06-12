@@ -97,13 +97,7 @@ func NewAttrSelector(
 	groups AttrGroups,
 	cfg *SelectorConfig,
 ) (*AttrSelector, error) {
-	cfg.SelectionCfg.Normalize()
-	extraGroupAttributes := NewGroupAttributes(cfg.ExtraGroupAttributesCfg)
-	// TODO: validate
-	return &AttrSelector{
-		selector:   cfg.SelectionCfg,
-		definition: getDefinitions(groups, extraGroupAttributes),
-	}, nil
+	return NewCustomAttrSelector(groups, cfg, getDefinitions)
 }
 
 func NewCustomAttrSelector(
