@@ -59,7 +59,7 @@ func traceFuncHelper(t *testing.T, tracePrinter TracePrinter) string {
 		TraceID:        trace2.TraceID{0x1, 0x2, 0x3},
 		SpanID:         trace2.SpanID{0x1, 0x2, 0x3},
 		ParentSpanID:   trace2.SpanID{0x1, 0x2, 0x4},
-		Flags:          1,
+		TraceFlags:     1,
 		PeerName:       "peername",
 		HostName:       "hostname",
 		OtherNamespace: "otherns",
@@ -115,7 +115,7 @@ func TestTracePrinterResolve_PrinterJSON(t *testing.T) {
 
 	prefix := `[{"type":"HTTP","peer":"peer","peerPort":"1234",` +
 		`"host":"host","hostPort":"5678","traceID":"01020300000000000000000000000000",` +
-		`"spanID":"0102030000000000","parentSpanID":"0102040000000000","flags":"1",` +
+		`"spanID":"0102030000000000","parentSpanID":"0102040000000000","traceFlags":"1",` +
 		`"peerName":"peername","hostName":"hostname","kind":"SPAN_KIND_SERVER","`
 
 	suffix := `duration":"25µs","durationUSec":"25","handlerDuration":"20µs",` +
@@ -141,7 +141,7 @@ func TestTracePrinterResolve_PrinterJSONIndent(t *testing.T) {
   "traceID": "01020300000000000000000000000000",
   "spanID": "0102030000000000",
   "parentSpanID": "0102040000000000",
-  "flags": "1",
+  "traceFlags": "1",
   "peerName": "peername",
   "hostName": "hostname",
   "kind": "SPAN_KIND_SERVER",`

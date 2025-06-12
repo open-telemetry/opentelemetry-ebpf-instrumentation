@@ -138,7 +138,7 @@ type Span struct {
 	TraceID        trace2.TraceID `json:"traceID"`
 	SpanID         trace2.SpanID  `json:"spanID"`
 	ParentSpanID   trace2.SpanID  `json:"parentSpanID"`
-	Flags          uint8          `json:"flags,string"`
+	TraceFlags     uint8          `json:"traceFlags,string"`
 	Pid            PidInfo        `json:"-"`
 	PeerName       string         `json:"peerName"`
 	HostName       string         `json:"hostName"`
