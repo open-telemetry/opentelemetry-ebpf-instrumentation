@@ -121,6 +121,7 @@ type PidInfo struct {
 // SpanPromGetters and getDefinitions in pkg/export/attributes/attr_defs.go
 type Span struct {
 	Type           EventType      `json:"type"`
+	Flags          uint8          `json:"-"`
 	Method         string         `json:"-"`
 	Path           string         `json:"-"`
 	Route          string         `json:"-"`
