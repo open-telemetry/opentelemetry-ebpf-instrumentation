@@ -36,6 +36,7 @@ OCI_BIN ?= docker
 # BPF code generator dependencies
 CLANG ?= clang
 CFLAGS := -O2 -g -Wunaligned-access -Wpacked -Wpadded -Wall -Werror $(CFLAGS)
+LLVM_STRIP ?= llvm-strip
 
 CLANG_TIDY ?= clang-tidy
 
