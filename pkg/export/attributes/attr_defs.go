@@ -28,8 +28,6 @@ const (
 	GroupGRPCClientInfo
 	GroupHTTPCommon
 	GroupHost
-	GroupPromProcess
-	GroupProcess
 	GroupMessaging
 )
 
