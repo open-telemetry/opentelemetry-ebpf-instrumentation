@@ -2,11 +2,11 @@ FROM node:20-slim
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY test/integration/components/nodemultiproc/package*.json ./
 RUN npm install
 
-COPY service.js .
-COPY start-all.js .
+COPY test/integration/components/nodemultiproc/service.js .
+COPY test/integration/components/nodemultiproc/start-all.js .
 
 EXPOSE 5000 5001 5002 5003
 

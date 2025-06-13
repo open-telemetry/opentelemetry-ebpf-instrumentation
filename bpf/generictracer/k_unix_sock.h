@@ -226,7 +226,6 @@ int BPF_KPROBE(beyla_kprobe_unix_stream_sendmsg,
     }
 
     bpf_printk("=== unix_stream sendmsg %d ===", id);
-    bpf_printk("sock = %llx", sock);
 
     struct sock *sk;
     BPF_CORE_READ_INTO(&sk, sock, sk);
@@ -249,7 +248,6 @@ int BPF_KPROBE(beyla_kprobe_unix_stream_sendmsg,
     u8 *buf = iovec_memory();
     if (buf) {
         size = read_msghdr_buf(msg, buf, size);
-
         if (size) {
             bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
 

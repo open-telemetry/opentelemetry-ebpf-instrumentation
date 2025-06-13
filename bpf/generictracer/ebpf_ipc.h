@@ -8,8 +8,6 @@
 
 #include <maps/nodejs_fd_map.h>
 
-static const char k_otel_ipc_sock_prefix[] = "otel-ebpf-ipc";
-
 enum { k_ebpf_ipc_magic = 0xbe14be14 };
 
 typedef enum ev_type : u8 {

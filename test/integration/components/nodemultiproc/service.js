@@ -28,3 +28,6 @@ app.listen(port, () => {
   console.log(upstream ? `Forwarding to: ${upstream}` : `No upstream; responding directly`);
 });
 
+app.get("/smoke", (req, res, next) => {
+    res.sendStatus(200)
+});
