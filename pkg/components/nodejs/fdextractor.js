@@ -1,19 +1,47 @@
-const FD_MARK = Symbol.for('fdextractor.already_loaded');
+const STORE = Symbol.for("otel-ebpf-instrumentation.fdextractor");
 
-if (global[FD_MARK]) {
-	return;
+const net = require("net");
+const fs = require("fs");
+
+if (!global[STORE]) {
+  global[STORE] = {
+    serverEmit:    net.Server.prototype.emit,
+    socketConnect: net.Socket.prototype.connect,
+    socketWrite:   net.Socket.prototype.write,
+  };
 }
 
-global[FD_MARK] = true;
+const orig = global[STORE];
+net.Server.prototype.emit  = orig.serverEmit;
+net.Socket.prototype.connect = orig.socketConnect;
+net.Socket.prototype.write = orig.socketWrite;
 
 const { AsyncLocalStorage } = require('async_hooks');
-const net = require('net');
-const ipcSockName = '\0otel-ebpf-ipc'
 
-const debug_enabled = true;
+const debug_enabled = false;
+
+function crc8(data) {
+	let crc = 0x00;
+	const polynomial = 0x07;
+
+	for (let i = 0; i < data.length; i++) {
+		crc ^= data[i];
+
+		for (let bit = 0; bit < 8; bit++) {
+			if (crc & 0x80) {
+				crc = ((crc << 1) ^ polynomial) & 0xFF;
+			} else {
+				crc = (crc << 1) & 0xFF;
+			}
+		}
+	}
+
+	return crc;
+}
 
 const ipcServer = net.createServer();
-ipcServer.listen(ipcSockName, () => {
+
+ipcServer.listen(0, '127.0.0.1', () => {
 	if (!debug_enabled) return;
 
 	const addr = ipcServer.address();
@@ -21,9 +49,10 @@ ipcServer.listen(ipcSockName, () => {
 });
 
 let ipcClient;
+
 ipcServer.on('listening', () => {
 	const { port, address } = ipcServer.address();
-	ipcClient = net.connect(ipcSockName, () => {
+	ipcClient = net.connect(port, address, () => {
 		ipcClient.setNoDelay(true)
 		if (debug_enabled)
 			console.log(`[ipc] client connected to server`);
@@ -32,13 +61,14 @@ ipcServer.on('listening', () => {
 
 ipcServer.on('connection', socket => {
 	socket.on('data', data => {
-		// Expect 12-byte message: [marker][inFd][outFd]
-		if (!debug_enabled || data.length < 12) return;
+		if (!debug_enabled || data.length < 20) return;
 		const marker = data.readUInt32BE(0);
-		const inFd   = data.readUInt32BE(4);
-		const outFd  = data.readUInt32BE(8);
+		const evType = data.readUInt8(4);
+		const len = data.readUInt8(5);
+		const inFd   = data.readUInt32BE(8);
+		const outFd  = data.readUInt32BE(12);
 		console.log(
-			`[ipc] marker=0x${marker.toString(16)}, inFd=${inFd}, outFd=${outFd}`
+			`[ipc] marker=0x${marker.toString(16)}, t=${evType} len=${len} inFd=${inFd}, outFd=${outFd}`
 		);
 	});
 });
@@ -49,7 +79,6 @@ const MARKER = 0xBE14BE14;
 // ALS store holds only incomingFd
 const als = new AsyncLocalStorage();
 
-const origServerEmit = net.Server.prototype.emit;
 net.Server.prototype.emit = function(event, ...args) {
 	if (event === 'connection') {
 		const socket = args[0];
@@ -62,15 +91,16 @@ net.Server.prototype.emit = function(event, ...args) {
 		}
 
 		return als.run({ incomingFd }, () =>
-			origServerEmit.call(this, event, ...args)
+			orig.serverEmit.call(this, event, ...args)
 		);
 	}
-	return origServerEmit.call(this, event, ...args);
+	return orig.serverEmit.call(this, event, ...args);
 };
 
 function correlate(incomingFd, outFd, socket) {
-	// skip invalid or same
-	if (incomingFd < 0 || outFd < 0 || incomingFd === outFd) return;
+	if (incomingFd < 0 || outFd < 0 || incomingFd === outFd) {
+		return Promise.resolve();
+	}
 
 	const addr = socket.remoteAddress || 'unknown';
 	const port = socket.remotePort || 'unknown';
@@ -81,26 +111,29 @@ function correlate(incomingFd, outFd, socket) {
 		);
 	}
 
-	const buf = Buffer.alloc(12);
+	const nodeJSEventType = 0;
+	const buf = Buffer.alloc(20);
 	buf.writeUInt32BE(MARKER, 0);
-	buf.writeUInt32BE(incomingFd, 4);
-	buf.writeUInt32BE(outFd, 8);
+	buf.writeUInt8(nodeJSEventType, 4);
+	buf.writeUInt8(buf.length, 5);
+	buf.writeUInt8(0, 6);
+	buf.writeUInt8(0, 7);
+	buf.writeUInt32BE(incomingFd, 8);
+	buf.writeUInt32BE(outFd, 12);
+	buf.writeUInt32BE(0, 16);
+
+	const crc = crc8(buf.slice(0, -1))
+	buf.writeUInt8(crc, 19);
 
 	if (ipcClient && ipcClient.writable) {
-	    ipcClient.cork();
 		ipcClient.write(buf);
-		process.nextTick(() => {
-			// flushes all buffered writes immediately
-			ipcClient.uncork();
-		});
     }
 }
 
-const origSocketConnect = net.Socket.prototype.connect;
 net.Socket.prototype.connect = function(...args) {
 	const store = als.getStore();
 	const sock = this;
-	const result = origSocketConnect.apply(this, args);
+	const result = orig.socketConnect.apply(this, args);
 
 	if (store) {
 		sock.once('connect', () => {
@@ -112,19 +145,20 @@ net.Socket.prototype.connect = function(...args) {
 	return result;
 };
 
-const origSocketWrite = net.Socket.prototype.write;
 net.Socket.prototype.write = function(data, ...rest) {
+	const doWrite = () => orig.socketWrite.apply(this, [data, ...rest]);
+
 	// skip ipc writes
 	if (this === ipcClient || this === ipcServer || this === process.stdout || this === process.stderr) {
-		return origSocketWrite.apply(this, [data, ...rest]);
+		return doWrite()
 	}
 
 	const store = als.getStore();
 
 	if (store) {
 		const outFd = this._handle && this._handle.fd;
-		correlate(store.incomingFd, outFd, this);
+		correlate(store.incomingFd, outFd, this)
 	}
 
-	return origSocketWrite.apply(this, [data, ...rest]);
+	return doWrite();
 };

@@ -250,10 +250,6 @@ int BPF_KPROBE(beyla_kprobe_unix_stream_sendmsg,
     if (buf) {
         size = read_msghdr_buf(msg, buf, size);
 
-        if (handle_ebpf_ipc(sk, buf, size)) {
-            return 0;
-        }
-
         if (size) {
             bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
 

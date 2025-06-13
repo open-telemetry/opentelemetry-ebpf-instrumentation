@@ -204,14 +204,18 @@ func (i *NodeInjector) injectFileWS(wsConn *websocket.Conn, file string) error {
 		}
 	}()
 
-	send := func(id int, method string, params map[string]any) (map[string]any, error) {
+	idCount := 0
+
+	send := func(method string, params map[string]any) (map[string]any, error) {
 		ch := make(chan map[string]any, 1)
 
+		idCount++
+
 		mu.Lock()
-		respMap[id] = ch
+		respMap[idCount] = ch
 		mu.Unlock()
 
-		if err := wsConn.WriteJSON(message{ID: id, Method: method, Params: params}); err != nil {
+		if err := wsConn.WriteJSON(message{ID: idCount, Method: method, Params: params}); err != nil {
 			return nil, err
 		}
 
@@ -219,22 +223,23 @@ func (i *NodeInjector) injectFileWS(wsConn *websocket.Conn, file string) error {
 		case resp := <-ch:
 			return resp, nil
 		case <-ctx.Done():
-			return nil, fmt.Errorf("timeout waiting for response to %d", id)
+			return nil, fmt.Errorf("timeout waiting for response to %d", idCount)
 		}
 	}
 
-	if _, err := send(1, "Runtime.enable", nil); err != nil {
+	if _, err := send("Runtime.enable", nil); err != nil {
 		return fmt.Errorf("failed to enable runtime: %w", err)
 	}
 
-	expr := fmt.Sprintf("delete require.cache[require.resolve(%q)]; require(%q);", file, file)
+	sendEvaluate := func(expr string) (map[string]any, error) {
+		return send("Runtime.evaluate", map[string]any{
+			"expression":            expr,
+			"includeCommandLineAPI": true,
+			"silent":                false,
+		})
+	}
 
-	res, err := send(2, "Runtime.evaluate", map[string]any{
-		"expression":            expr,
-		"includeCommandLineAPI": true,
-		"silent":                false,
-	})
-
+	res, err := sendEvaluate(fmt.Sprintf("require(%q);", file))
 	if err != nil {
 		return fmt.Errorf("evaluation error: %w", err)
 	}
@@ -246,6 +251,8 @@ func (i *NodeInjector) injectFileWS(wsConn *websocket.Conn, file string) error {
 	} else {
 		return errors.New("injection failed")
 	}
+
+	_, _ = sendEvaluate("process._debugEnd();")
 
 	i.log.Info("Script successfully injected")
 
