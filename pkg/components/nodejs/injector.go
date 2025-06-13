@@ -227,13 +227,14 @@ func (i *NodeInjector) injectFileWS(wsConn *websocket.Conn, file string) error {
 		return fmt.Errorf("failed to enable runtime: %w", err)
 	}
 
-	expr := fmt.Sprintf("require(%q)", file)
+	expr := fmt.Sprintf("delete require.cache[require.resolve(%q)]; require(%q);", file, file)
 
 	res, err := send(2, "Runtime.evaluate", map[string]any{
 		"expression":            expr,
 		"includeCommandLineAPI": true,
 		"silent":                false,
 	})
+
 	if err != nil {
 		return fmt.Errorf("evaluation error: %w", err)
 	}

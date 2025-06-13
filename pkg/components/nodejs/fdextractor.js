@@ -8,24 +8,25 @@ global[FD_MARK] = true;
 
 const { AsyncLocalStorage } = require('async_hooks');
 const net = require('net');
+const ipcSockName = '\0otel-ebpf-ipc'
 
-const debug_enabled = false;
+const debug_enabled = true;
 
 const ipcServer = net.createServer();
-ipcServer.listen(0, '127.0.0.1', () => {
+ipcServer.listen(ipcSockName, () => {
 	if (!debug_enabled) return;
 
 	const addr = ipcServer.address();
-	console.log(`[ipc] server listening on ${addr.address}:${addr.port}`);
+	console.log(`[ipc] server listening`);
 });
 
 let ipcClient;
 ipcServer.on('listening', () => {
 	const { port, address } = ipcServer.address();
-	ipcClient = net.connect(port, address, () => {
+	ipcClient = net.connect(ipcSockName, () => {
 		ipcClient.setNoDelay(true)
 		if (debug_enabled)
-			console.log(`[ipc] client connected to server on ${address}:${port}`);
+			console.log(`[ipc] client connected to server`);
 	});
 });
 
@@ -44,8 +45,6 @@ ipcServer.on('connection', socket => {
 
 // ebpf ipc marker constant (32-bit)
 const MARKER = 0xBE14BE14;
-
-const lastIncomingForOut = new Map();
 
 // ALS store holds only incomingFd
 const als = new AsyncLocalStorage();
@@ -73,10 +72,6 @@ function correlate(incomingFd, outFd, socket) {
 	// skip invalid or same
 	if (incomingFd < 0 || outFd < 0 || incomingFd === outFd) return;
 
-	const prev = lastIncomingForOut.get(outFd);
-	if (prev === incomingFd) return;
-	lastIncomingForOut.set(outFd, incomingFd);
-
 	const addr = socket.remoteAddress || 'unknown';
 	const port = socket.remotePort || 'unknown';
 
@@ -90,7 +85,15 @@ function correlate(incomingFd, outFd, socket) {
 	buf.writeUInt32BE(MARKER, 0);
 	buf.writeUInt32BE(incomingFd, 4);
 	buf.writeUInt32BE(outFd, 8);
-	if (ipcClient && ipcClient.writable) ipcClient.write(buf);
+
+	if (ipcClient && ipcClient.writable) {
+	    ipcClient.cork();
+		ipcClient.write(buf);
+		process.nextTick(() => {
+			// flushes all buffered writes immediately
+			ipcClient.uncork();
+		});
+    }
 }
 
 const origSocketConnect = net.Socket.prototype.connect;
