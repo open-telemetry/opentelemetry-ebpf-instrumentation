@@ -97,7 +97,7 @@ func NewAttrSelector(
 	groups AttrGroups,
 	cfg *SelectorConfig,
 ) (*AttrSelector, error) {
-	return NewCustomAttrSelector(groups, cfg, getDefinitions)
+	return NewCustomAttrSelector(groups, cfg, GetDefinitions)
 }
 
 func NewCustomAttrSelector(

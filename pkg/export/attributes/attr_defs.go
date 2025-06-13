@@ -41,7 +41,7 @@ func (e *AttrGroups) Add(groups AttrGroups) {
 
 // Any new metric and attribute must be added here to be matched from the user-provided wildcard
 // selectors of the attributes.select section
-func getDefinitions(
+func GetDefinitions(
 	groups AttrGroups,
 	extraGroupAttributes GroupAttributes,
 ) map[Section]AttrReportGroup {
@@ -345,11 +345,13 @@ func copyDisabled(src AttrReportGroup) AttrReportGroup {
 
 // AllAttributeNames returns a set with all the names in the attributes database
 // as returned by the getDefinitions function
-func AllAttributeNames(extraGroupAttributesCfg map[string][]attr.Name) map[attr.Name]struct{} {
+func AllAttributeNames(
+	definitionsProvider func(groups AttrGroups, extraGroupAttributes GroupAttributes) map[Section]AttrReportGroup,
+	extraGroupAttributesCfg map[string][]attr.Name) map[attr.Name]struct{} {
 	extraGroupAttributes := NewGroupAttributes(extraGroupAttributesCfg)
 	names := map[attr.Name]struct{}{}
 	// -1 to enable all the metric group flags
-	for _, section := range getDefinitions(-1, extraGroupAttributes) {
+	for _, section := range definitionsProvider(-1, extraGroupAttributes) {
 		maps.Copy(names, section.All())
 	}
 	return names
