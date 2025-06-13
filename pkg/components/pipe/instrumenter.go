@@ -87,7 +87,7 @@ func newGraphBuilder(config *beyla.Config, ctxInfo *global.ContextInfo, tracesCh
 	if exportableSpans == nil {
 		exportableSpans = newQueue()
 	}
-	swi.Add(filter.ByAttribute(config.Filters.Application, selectorCfg.ExtraGroupAttributesCfg, spanPtrPromGetters,
+	swi.Add(filter.ByAttribute(config.Filters.Application, nil, selectorCfg.ExtraGroupAttributesCfg, spanPtrPromGetters,
 		nameResolverToAttrFilter, exportableSpans))
 
 	swi.Add(otel.ReportMetrics(

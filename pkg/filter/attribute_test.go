@@ -25,7 +25,7 @@ func TestAttributeFilter(t *testing.T) {
 		"beyla.ip":          MatchDefinition{Match: "148.*"},
 		"k8s.src.namespace": MatchDefinition{NotMatch: "debug"},
 		"k8s.app.version":   MatchDefinition{Match: "*"},
-	}, map[string][]attr.Name{
+	}, nil, map[string][]attr.Name{
 		"k8s_app_meta": {"k8s.app.version"},
 	}, ebpf.RecordStringGetters, input, output)(t.Context())
 	require.NoError(t, err)
@@ -191,7 +191,7 @@ func TestAttributeFilter_VerificationError(t *testing.T) {
 		t.Run(fmt.Sprintf("%v", tc), func(t *testing.T) {
 			input := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
 			output := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
-			_, err := ByAttribute[*ebpf.Record](tc, map[string][]attr.Name{}, ebpf.RecordStringGetters, input, output)(t.Context())
+			_, err := ByAttribute[*ebpf.Record](tc, nil, map[string][]attr.Name{}, ebpf.RecordStringGetters, input, output)(t.Context())
 			assert.Error(t, err)
 		})
 	}
@@ -204,7 +204,7 @@ func TestAttributeFilter_SpanMetrics(t *testing.T) {
 	filterFunc, err := ByAttribute[*request.Span](AttributeFamilyConfig{
 		"client": MatchDefinition{NotMatch: "filtered"},
 		"server": MatchDefinition{NotMatch: "filtered"},
-	}, map[string][]attr.Name{}, request.SpanPromGetters, input, output)(t.Context())
+	}, nil, map[string][]attr.Name{}, request.SpanPromGetters, input, output)(t.Context())
 	require.NoError(t, err)
 
 	out := output.Subscribe()
