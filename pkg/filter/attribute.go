@@ -26,7 +26,7 @@ type AttributeFamilyConfig map[string]MatchDefinition
 // that do not match the provided AttributeFamilyConfig.
 func ByAttribute[T any](
 	config AttributeFamilyConfig,
-	definitionsProvider func(groups attributes.AttrGroups, extraGroupAttributes attributes.GroupAttributes) map[attributes.Section]attributes.AttrReportGroup,
+	extraDefinitionsProvider func(groups attributes.AttrGroups, extraGroupAttributes attributes.GroupAttributes) map[attributes.Section]attributes.AttrReportGroup,
 	extraGroupAttributeCfg map[string][]attr.Name,
 	getters attributes.NamedGetters[T, string],
 	input, output *msg.Queue[[]T],
@@ -36,7 +36,7 @@ func ByAttribute[T any](
 			// No filter configuration provided. The node will be ignored
 			return swarm.Bypass(input, output)
 		}
-		f, err := newFilter(config, definitionsProvider, extraGroupAttributeCfg, getters, input, output)
+		f, err := newFilter(config, extraDefinitionsProvider, extraGroupAttributeCfg, getters, input, output)
 		if err != nil {
 			return nil, err
 		}
@@ -52,7 +52,7 @@ type filter[T any] struct {
 
 func newFilter[T any](
 	config AttributeFamilyConfig,
-	definitionsProvider func(groups attributes.AttrGroups, extraGroupAttributes attributes.GroupAttributes) map[attributes.Section]attributes.AttrReportGroup,
+	extraDefinitionsProvider func(groups attributes.AttrGroups, extraGroupAttributes attributes.GroupAttributes) map[attributes.Section]attributes.AttrReportGroup,
 	extraGroupAttributesCfg map[string][]attr.Name,
 	getters attributes.NamedGetters[T, string],
 	input, output *msg.Queue[[]T],
@@ -64,7 +64,7 @@ func newFilter[T any](
 	// Then, to validate the user-provided input, we map the prom-like attributes to
 	// our internal representation.
 	attrProm2Normal := map[string]attr.Name{}
-	for normalizedName := range attributes.AllAttributeNames(definitionsProvider, extraGroupAttributesCfg) {
+	for normalizedName := range attributes.AllAttributeNames(extraDefinitionsProvider, extraGroupAttributesCfg) {
 		attrProm2Normal[normalizedName.Prom()] = normalizedName
 	}
 	// Validate and build Matcher implementations for the user-provided attributes.
