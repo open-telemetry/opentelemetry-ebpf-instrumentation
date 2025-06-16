@@ -165,7 +165,7 @@ type connectionContext struct {
 	log     *slog.Logger
 }
 
-func newConnectionContext(wsConn *websocket.Conn, context context.Context, log *slog.Logger) *connectionContext {
+func newConnectionContext(context context.Context, wsConn *websocket.Conn, log *slog.Logger) *connectionContext {
 	return &connectionContext{
 		idCount: 0,
 		respMap: responseMap{},
@@ -256,7 +256,7 @@ func (i *NodeInjector) injectFileWS(wsConn *websocket.Conn, file string) error {
 		)
 	}()
 
-	connCtx := newConnectionContext(wsConn, ctx, i.log)
+	connCtx := newConnectionContext(ctx, wsConn, i.log)
 
 	connCtx.start()
 
