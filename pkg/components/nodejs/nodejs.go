@@ -57,10 +57,15 @@ func writeFile(data []byte, path string) (cleanup func(), err error) {
 }
 
 func (i *NodeInjector) Enabled() bool {
-	return i.cfg.Traces.Enabled() || i.cfg.Metrics.Enabled()
+	return i.cfg.Traces.Enabled() || i.cfg.TracePrinter.Enabled()
 }
 
 func (i *NodeInjector) NewExecutable(ie *ebpf.Instrumentable) {
+	if !i.Enabled() {
+		i.log.Debug("Node Injector is disabled")
+		return
+	}
+
 	if ie.Type != svc.InstrumentableNodejs {
 		i.log.Debug("not a NodeJS executable")
 		return
