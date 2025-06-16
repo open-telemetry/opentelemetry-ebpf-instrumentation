@@ -1,5 +1,3 @@
-//go:generate go run beyla_genfiles.go
-
 package main
 
 import (
