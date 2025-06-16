@@ -58,13 +58,10 @@ func TestMain(m *testing.M) {
 // Run it alphabetically first (AA-prefix), with a longer timeout, to wait until all the components are up and
 // traces/metrics are flowing normally
 func TestInformersCache_MetricsDecoration_AA_WaitForComponents(t *testing.T) {
-	t.Skip("Skipping this test because it's broken, needs to be investigated")
-
 	k8s.DoWaitForComponentsAvailable(t)
 }
 
 func TestInformersCache_MetricsDecoration_HTTP(t *testing.T) {
-	t.Skip("Skipping this test because it's broken, needs to be investigated")
 	cluster.TestEnv().Test(t, k8s.FeatureHTTPMetricsDecoration(k8s.UninstrumentedPingerManifest,
 		map[string]string{
 			"server_service_namespace": "overridden-testserver-namespace",
@@ -75,12 +72,10 @@ func TestInformersCache_MetricsDecoration_HTTP(t *testing.T) {
 }
 
 func TestInformersCache_NetworkMetrics(t *testing.T) {
-	t.Skip("Skipping this test because it's broken, needs to be investigated")
 	cluster.TestEnv().Test(t, otel.FeatureNetworkFlowBytes())
 }
 
 func TestInformersCache_InternalMetrics(t *testing.T) {
-	t.Skip("Skipping this test because it's broken, needs to be investigated")
 	require.NotZero(t, metricVal(t, `beyla_kube_cache_client_messages_total{status="submit"}`))
 	require.NotZero(t, metricVal(t, `beyla_kube_cache_connected_clients`))
 	require.NotZero(t, metricVal(t, `beyla_kube_cache_informer_events_total{type="new"}`))

@@ -877,7 +877,6 @@ func ensureTracesMatch(t *testing.T, urlPath string) {
 }
 
 func testNestedHTTPSTracesKProbes(t *testing.T) {
-	t.Skip("Skipping this test because it's flaky, needs to be investigated")
 	var traceID string
 
 	waitForTestComponents(t, "https://localhost:8381")
