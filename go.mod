@@ -28,7 +28,7 @@ require (
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/stretchr/testify v1.10.0
 	github.com/vishvananda/netlink v1.3.1
-	github.com/vladimirvivien/gexe v0.3.0
+	github.com/vladimirvivien/gexe v0.5.0
 	github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2
 	github.com/yl2chen/cidranger v1.0.2
 	go.opentelemetry.io/collector/component v1.34.0
