@@ -1,0 +1,53 @@
+name: Auto-generate and commit BPF files
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write  # Required for creating PRs
+
+jobs:
+  generate-and-commit:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: "Checkout repo"
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          persist-credentials: true
+      - name: "Checkout PR using GH"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr checkout ${{ github.event.pull_request.number }}
+      - name: Run docker-generate
+        run: make docker-generate
+
+      - name: Add generated files
+        run: |
+          find . -name "*_bpfel*" -not -path "**/vendor/*" | xargs git add -f
+
+      - name: "Create/update PR"
+        id: git-check
+        env:
+          GITHUB_TOKEN: ${secrets.GITHUB_TOKEN}
+        run: |
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected"
+            echo "changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: "Create/update PR"
+        if: steps.git-check.outputs.changes == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+  
+          git commit -m "Auto-generate BPF files"
+          branch="${GITHUB_HEAD_REF}"
+          git push --force-with-lease origin HEAD:$branch
