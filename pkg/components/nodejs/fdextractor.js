@@ -1,7 +1,7 @@
-const STORE = Symbol.for("otel-ebpf-instrumentation.fdextractor");
+const STORE = Symbol.for('otel-ebpf-instrumentation.fdextractor');
 
-const net = require("net");
-const fs = require("fs");
+const net = require('net');
+const fs = require('fs');
 
 if (!global[STORE]) {
   global[STORE] = {
@@ -16,7 +16,7 @@ net.Server.prototype.emit = orig.serverEmit;
 net.Socket.prototype.connect = orig.socketConnect;
 net.Socket.prototype.write = orig.socketWrite;
 
-const { AsyncLocalStorage } = require("async_hooks");
+const { AsyncLocalStorage } = require('async_hooks');
 
 const debug_enabled = false;
 
@@ -41,7 +41,7 @@ function crc8(data) {
 
 const ipcServer = net.createServer();
 
-ipcServer.listen(0, "127.0.0.1", () => {
+ipcServer.listen(0, '127.0.0.1', () => {
   if (!debug_enabled) return;
 
   const addr = ipcServer.address();
@@ -50,7 +50,7 @@ ipcServer.listen(0, "127.0.0.1", () => {
 
 let ipcClient;
 
-ipcServer.on("listening", () => {
+ipcServer.on('listening', () => {
   const { port, address } = ipcServer.address();
   ipcClient = net.connect(port, address, () => {
     ipcClient.setNoDelay(true);
@@ -60,9 +60,14 @@ ipcServer.on("listening", () => {
   });
 });
 
-ipcServer.on("connection", (socket) => {
-  socket.on("data", (data) => {
-    if (!debug_enabled || data.length < 20) return;
+ipcServer.on('connection', (socket) => {
+  socket.on('data', (data) => {
+    // even when debug_enabled is false, we still need this handler attached
+    // so that the data is consumed from the socket buffer
+    if (!debug_enabled || data.length < 20) {
+      return;
+    }
+
     const marker = data.readUInt32BE(0);
     const evType = data.readUInt8(4);
     const len = data.readUInt8(5);
@@ -81,7 +86,7 @@ const MARKER = 0xbe14be14;
 const als = new AsyncLocalStorage();
 
 net.Server.prototype.emit = function (event, ...args) {
-  if (event === "connection") {
+  if (event === 'connection') {
     const socket = args[0];
     const incomingFd = socket._handle && socket._handle.fd;
 
@@ -104,8 +109,8 @@ function correlate(incomingFd, outFd, socket) {
   }
 
   if (debug_enabled) {
-    const addr = socket.remoteAddress || "unknown";
-    const port = socket.remotePort || "unknown";
+    const addr = socket.remoteAddress || 'unknown';
+    const port = socket.remotePort || 'unknown';
 
     console.log(
       `[outgoing TCP] inFd:${incomingFd}, outFd:${outFd}, to=${addr}:${port}`,
@@ -137,7 +142,7 @@ net.Socket.prototype.connect = function (...args) {
   const result = orig.socketConnect.apply(this, args);
 
   if (store) {
-    sock.once("connect", () => {
+    sock.once('connect', () => {
       const outFd = sock._handle && sock._handle.fd;
       correlate(store.incomingFd, outFd, sock);
     });
