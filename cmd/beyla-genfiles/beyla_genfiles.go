@@ -28,7 +28,7 @@ const envModuleRoot = "OTEL_EBPF_GENFILES_MODULE_ROOT"
 type config struct {
 	DebugEnabled    bool   `env:"OTEL_EBPF_GENFILES_DEBUG"            envDefault:"false"`
 	RunLocally      bool   `env:"OTEL_EBPF_GENFILES_RUN_LOCALLY"      envDefault:"false"`
-	GenModifiedOnly bool   `env:"BEYLA_GENFILES_MODIFIED_ONLY"    envDefault:"false"`
+	GenModifiedOnly bool   `env:"OTEL_EBPF_GENFILES_MODIFIED_ONLY"    envDefault:"false"`
 	ScanPath        string `env:"OTEL_EBPF_GENFILES_SCAN_PATH"        envDefault:"pkg"`
 	ContainerPrefix string `env:"OTEL_EBPF_GENFILES_CONTAINER_PREFIX" envDefault:"/__w/"`
 	HostPrefix      string `env:"OTEL_EBPF_GENFILES_HOST_PREFIX"      envDefault:"/home/runner/work/"`
@@ -220,7 +220,7 @@ func mustGenerate(path string, comment string) (bool, error) {
 	}
 
 	// if not a bpf2go generation, we always regenerate the file
-	// for bpf2go, we always generate unless BEYLA_GENFILES_MODIFIED_ONLY is
+	// for bpf2go, we always generate unless OTEL_EBPF_GENFILES_MODIFIED_ONLY is
 	// set to true
 	if !strings.Contains(comment, "$BPF2GO") || !cfg.GenModifiedOnly {
 		return true, nil
@@ -454,7 +454,7 @@ func runInContainer(wd string) {
 	err = executeCommand(cfg.OCIBin, "run", "--rm",
 		"--user", currentUser.Uid+":"+currentUser.Gid,
 		"-v", adjustedWD+":/src",
-		"-e", "BEYLA_GENFILES_MODIFIED_ONLY="+strconv.FormatBool(cfg.GenModifiedOnly),
+		"-e", "OTEL_EBPF_GENFILES_MODIFIED_ONLY="+strconv.FormatBool(cfg.GenModifiedOnly),
 		cfg.GenImage)
 	if err != nil {
 		bail(fmt.Errorf("error waiting for child process: %w", err))
