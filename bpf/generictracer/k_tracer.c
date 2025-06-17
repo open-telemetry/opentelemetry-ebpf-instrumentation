@@ -345,6 +345,11 @@ int BPF_KPROBE(beyla_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, si
                 u8 *buf = iovec_memory();
                 if (buf) {
                     size = read_msghdr_buf(msg, buf, size);
+
+                    if (handle_ebpf_ipc(buf, size)) {
+                        return 0;
+                    }
+
                     // If a sock_msg program is installed, this kprobe will fail to
                     // read anything, because the data is in bvec physical pages. However,
                     // the sock_msg will setup a buffer for us if this is the case. We
