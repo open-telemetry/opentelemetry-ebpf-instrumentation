@@ -38,7 +38,7 @@ services:
       OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT: 8999
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_HOSTNAME: "beyla"
-      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span,application_process,application_service_graph"
+      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span,application_process,application_service_graph,application_host"
       OTEL_EBPF_OTEL_METRIC_FEATURES: "application,application_process"
     ports:
       - "8999:8999" # Prometheus scrape port, if enabled via config

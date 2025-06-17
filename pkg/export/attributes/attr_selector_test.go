@@ -207,6 +207,8 @@ func TestExtraGroupAttributes(t *testing.T) {
 		"k8s.container.name",
 		"k8s.daemonset.name",
 		"k8s.deployment.name",
+		"k8s.job.name",
+		"k8s.cronjob.name",
 		"k8s.kind",
 		"k8s.namespace.name",
 		"k8s.node.name",
