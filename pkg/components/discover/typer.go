@@ -101,7 +101,7 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 				ProcPID: ev.Obj.Process.Pid,
 			}
 			if elfFile, err := exec.FindExecELF(ev.Obj.Process, svcID, t.k8sInformer.IsKubeEnabled()); err != nil {
-				t.log.Warn("error finding process ELF. Ignoring", "error", err)
+				t.log.Debug("error finding process ELF. Ignoring", "error", err)
 			} else {
 				t.currentPids[ev.Obj.Process.Pid] = elfFile
 				elfs = append(elfs, elfFile)
@@ -121,6 +121,7 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 		inst := t.asInstrumentable(elfs[i])
 		t.log.Debug(
 			"found an instrumentable process",
+			"UID", inst.FileInfo.Service.UID,
 			"type", inst.Type.String(),
 			"exec", inst.FileInfo.CmdExePath, "pid", inst.FileInfo.Pid)
 		out = append(out, Event[ebpf.Instrumentable]{Type: EventCreated, Obj: inst})
