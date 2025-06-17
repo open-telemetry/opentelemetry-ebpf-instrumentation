@@ -49,10 +49,12 @@ ipcServer.listen(0, '127.0.0.1', () => {
 });
 
 let ipcClient;
+let ipcFd = null;
 
 ipcServer.on('listening', () => {
   const { port, address } = ipcServer.address();
   ipcClient = net.connect(port, address, () => {
+    ipcFd = ipcClient._handle.fd;
     ipcClient.setNoDelay(true);
     if (debug_enabled) {
       console.log(`[ipc] client connected to server`);
@@ -131,8 +133,8 @@ function correlate(incomingFd, outFd, socket) {
   const crc = crc8(buf.slice(0, -1));
   buf.writeUInt8(crc, 19);
 
-  if (ipcClient && ipcClient.writable) {
-    ipcClient.write(buf);
+  if (ipcFd != null) {
+    fs.writeSync(ipcFd, buf);
   }
 }
 
