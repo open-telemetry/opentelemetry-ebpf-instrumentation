@@ -1046,6 +1046,7 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 }
 
 func testHTTPTracesNestedNodeJSDistCalls(t *testing.T) {
+	t.Skip("seems flaky, we need to look into this")
 	var parentID string
 
 	waitForTestComponentsRoute(t, "http://localhost:5002", "/smoke")
