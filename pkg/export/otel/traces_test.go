@@ -672,6 +672,26 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key("deployment.environment"), "productions")
 		ensureTraceStrAttr(t, attrs, attribute.Key("source.upstream"), "beyla")
 	})
+	t.Run("override resource attributes", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Route: "/test", Status: 200}
+
+		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{})
+		traces := GenerateTraces(cache, &span.Service,
+			ResourceAttrsFromEnv(&span.Service), "host-id",
+			groupFromSpanAndAttributes(&span, tAttrs),
+			OverrideResourceAttrs(
+				attribute.String("deployment.environment", "productions"),
+				attribute.String("source.upstream", "OBI"),
+				semconv.OTelLibraryName("my-reporter"),
+			))
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		rs := traces.ResourceSpans().At(0)
+		attrs := rs.Resource().Attributes()
+		ensureTraceStrAttr(t, attrs, "deployment.environment", "productions")
+		ensureTraceStrAttr(t, attrs, "source.upstream", "OBI")
+		ensureTraceStrAttr(t, attrs, "otel.library.name", "my-reporter")
+	})
 }
 
 func TestTraceSampling(t *testing.T) {
