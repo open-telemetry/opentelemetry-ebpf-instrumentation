@@ -20,7 +20,9 @@
 // Temporary tracking of tcp_recvmsg arguments
 typedef struct recv_args {
     u64 sock_ptr; // linux sock or socket address
-    u8 iovec_ctx[sizeof(iovec_iter_ctx)];
+    // this is done because bpf2go cannot generate the go bindings of this
+    // struct containing a 'iovec_iter_ctx iovec_ctx' member
+    unsigned char iovec_ctx[sizeof(iovec_iter_ctx)];
 } recv_args_t;
 
 static __always_inline void handle_buf_with_args(void *ctx, call_protocol_args_t *args) {
@@ -64,7 +66,7 @@ static __always_inline void handle_buf_with_args(void *ctx, call_protocol_args_t
                     if (is_traceparent(args->small_buf)) {
                         unsigned char *buf = tp_char_buf();
                         if (buf) {
-                            bpf_probe_read(buf, EXTEND_SIZE, (u8 *)args->u_buf);
+                            bpf_probe_read(buf, EXTEND_SIZE, (unsigned char *)args->u_buf);
                             bpf_dbg_printk("Found traceparent %s", buf);
                             unsigned char *t_id = extract_trace_id(buf);
                             unsigned char *s_id = extract_span_id(buf);

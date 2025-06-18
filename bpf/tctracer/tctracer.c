@@ -96,11 +96,13 @@ static __always_inline struct bpf_sock *lookup_sock_from_tuple(struct __sk_buff 
                                                                struct bpf_sock_tuple *tuple,
                                                                enum protocol proto,
                                                                const void *data_end) {
-    if (proto == protocol_ip4 && (u64)((u8 *)tuple + sizeof(tuple->ipv4)) < (u64)data_end) {
+    if (proto == protocol_ip4 &&
+        (u64)((unsigned char *)tuple + sizeof(tuple->ipv4)) < (u64)data_end) {
         // Lookup to see if you can find a socket for this tuple in the
         // kernel socket tracking. We look up in all namespaces (-1).
         return bpf_sk_lookup_tcp(skb, tuple, sizeof(tuple->ipv4), BPF_F_CURRENT_NETNS, 0);
-    } else if (proto == protocol_ip6 && (u64)((u8 *)tuple + sizeof(tuple->ipv6)) < (u64)data_end) {
+    } else if (proto == protocol_ip6 &&
+               (u64)((unsigned char *)tuple + sizeof(tuple->ipv6)) < (u64)data_end) {
         return bpf_sk_lookup_tcp(skb, tuple, sizeof(tuple->ipv6), BPF_F_CURRENT_NETNS, 0);
     }
 

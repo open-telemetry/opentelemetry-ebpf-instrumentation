@@ -569,7 +569,7 @@ int beyla_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
 
     if (t_ptr) {
         void *conn_ptr = t_ptr + go_offset_of(ot, (go_offset){.v = _grpc_t_conn_pos}) + 8;
-        u8 buf[16];
+        unsigned char buf[16];
         u64 is_secure = 0;
 #ifndef NO_HEADER_PROPAGATION
         void *conn_ptr_key = 0;

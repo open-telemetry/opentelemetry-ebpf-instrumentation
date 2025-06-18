@@ -162,7 +162,7 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
 
 static __always_inline frame_header_t next_frame(const grpc_frames_ctx_t *g_ctx) {
     // read next frame
-    const void *offset = (u8 *)g_ctx->args.u_buf + g_ctx->pos;
+    const void *offset = (const unsigned char *)g_ctx->args.u_buf + g_ctx->pos;
 
     frame_header_t header;
 
@@ -257,7 +257,7 @@ int beyla_protocol_http2_grpc_handle_start_frame(void *ctx) {
 
     const call_protocol_args_t *args = &g_ctx->args;
 
-    void *offset = (u8 *)args->u_buf + g_ctx->pos;
+    void *offset = (unsigned char *)args->u_buf + g_ctx->pos;
 
     http2_grpc_start(
         &g_ctx->stream, offset, args->bytes_len, args->direction, args->ssl, args->orig_dport);
@@ -283,7 +283,7 @@ int beyla_protocol_http2_grpc_handle_end_frame(void *ctx) {
 
         bpf_clamp_umax(buf_pos, IO_VEC_MAX_LEN);
 
-        void *offset = (u8 *)g_ctx->args.u_buf + buf_pos;
+        void *offset = (unsigned char *)g_ctx->args.u_buf + buf_pos;
         http2_grpc_end(&g_ctx->stream, &g_ctx->prev_info, offset);
 
         bpf_map_delete_elem(&active_ssl_connections, &g_ctx->args.pid_conn);

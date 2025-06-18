@@ -445,7 +445,7 @@ static __always_inline void process_meta_frame_headers(void *frame, tp_info_t *t
             //bpf_dbg_printk("grpc header %s:%s", field.key_ptr, field.val_ptr);
             //bpf_dbg_printk("grpc sizes %d:%d", field.key_len, field.val_len);
             if (field.key_len == W3C_KEY_LENGTH && field.val_len == W3C_VAL_LENGTH) {
-                u8 temp[W3C_VAL_LENGTH];
+                unsigned char temp[W3C_VAL_LENGTH];
 
                 bpf_probe_read(&temp, W3C_KEY_LENGTH, field.key_ptr);
                 if (!bpf_memicmp((const char *)temp, "traceparent", W3C_KEY_LENGTH)) {
