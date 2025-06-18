@@ -592,9 +592,15 @@ int beyla_uprobe_writeSubset(struct pt_regs *ctx) {
 
     void *header_addr = GO_PARAM1(ctx);
     void *io_writer_addr = GO_PARAM3(ctx);
-    off_table_t *ot = get_offsets_table();
 
     bpf_dbg_printk("goroutine_addr %lx, header ptr %llx", GOROUTINE_PTR(ctx), header_addr);
+
+    // we don't want to run this code when we header or the buffer is nil
+    if (!header_addr || !io_writer_addr) {
+        goto done;
+    }
+
+    off_table_t *ot = get_offsets_table();
 
     u64 *request_goaddr = bpf_map_lookup_elem(&header_req_map, &header_addr);
 
@@ -619,6 +625,13 @@ int beyla_uprobe_writeSubset(struct pt_regs *ctx) {
 
     void *buf_ptr = 0;
     u64 io_writer_buf_ptr_pos = go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos});
+    u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
+
+    // writing with bad offsets can crash the application, be defensive here
+    if (!io_writer_buf_ptr_pos || !io_writer_n_pos) {
+        goto done;
+    }
+
     bpf_probe_read(&buf_ptr, sizeof(buf_ptr), (void *)(io_writer_addr + io_writer_buf_ptr_pos));
     if (!buf_ptr) {
         goto done;
@@ -629,10 +642,8 @@ int beyla_uprobe_writeSubset(struct pt_regs *ctx) {
         &size, sizeof(s64), (void *)(io_writer_addr + io_writer_buf_ptr_pos + 8)); // grab size
 
     s64 len = 0;
-    bpf_probe_read(&len,
-                   sizeof(s64),
-                   (void *)(io_writer_addr +
-                            go_offset_of(ot, (go_offset){.v = _io_writer_n_pos}))); // grab len
+    bpf_probe_read(&len, sizeof(s64),
+                   (void *)(io_writer_addr + io_writer_n_pos)); // grab len
 
     bpf_dbg_printk("buf_ptr %llx, len=%d, size=%d", (void *)buf_ptr, len, size);
 
@@ -646,10 +657,7 @@ int beyla_uprobe_writeSubset(struct pt_regs *ctx) {
         len += TP_MAX_VAL_LENGTH;
         bpf_probe_write_user(buf_ptr + (len & 0x0ffff), end, sizeof(end));
         len += 2;
-        bpf_probe_write_user(
-            (void *)(io_writer_addr + go_offset_of(ot, (go_offset){.v = _io_writer_n_pos})),
-            &len,
-            sizeof(len));
+        bpf_probe_write_user((void *)(io_writer_addr + io_writer_n_pos), &len, sizeof(len));
 
         // For Go we support two types of HTTP context propagation for now.
         //   1. The one that this code does, which uses the locked down bpf_probe_write_user.
@@ -911,6 +919,12 @@ SEC("uprobe/http2FramerWriteHeaders")
 int beyla_uprobe_http2FramerWriteHeaders(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/proc http2 Framer writeHeaders === ");
     void *framer = GO_PARAM1(ctx);
+
+    if (!framer) {
+        bpf_dbg_printk("framer is nil");
+        return 0;
+    }
+
     u64 stream_id = (u64)GO_PARAM2(ctx);
 
     off_table_t *ot = get_offsets_table();
@@ -1001,17 +1015,18 @@ int beyla_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
 
     if (f_info) {
         void *w_ptr = 0;
-        bpf_probe_read(
-            &w_ptr,
-            sizeof(w_ptr),
-            (void *)(f_info->framer_ptr + go_offset_of(ot, (go_offset){.v = _framer_w_pos}) + 8));
-
-        bpf_dbg_printk("framer_ptr %llx, w_ptr %llx, w_pos %d",
-                       f_info->framer_ptr,
-                       w_ptr,
-                       go_offset_of(ot, (go_offset){.v = _framer_w_pos}) + 8);
-
+        u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
         u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
+
+        // being defensive here if we can't find the offsets
+        if (!framer_w_pos || !io_writer_n_pos) {
+            goto done;
+        }
+
+        bpf_probe_read(&w_ptr, sizeof(w_ptr), (void *)(f_info->framer_ptr + framer_w_pos + 8));
+
+        bpf_dbg_printk(
+            "framer_ptr %llx, w_ptr %llx, w_pos %d", f_info->framer_ptr, w_ptr, framer_w_pos + 8);
 
         if (w_ptr) {
             void *buf_arr = 0;
@@ -1094,6 +1109,7 @@ int beyla_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
         }
     }
 
+done:
     bpf_map_delete_elem(&framer_invocation_map, &g_key);
     return 0;
 }
