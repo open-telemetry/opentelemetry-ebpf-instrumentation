@@ -844,10 +844,6 @@ int beyla_socket__http_filter(struct __sk_buff *skb) {
         //d_print_http_connection_info(&conn);
 
         if (packet_type == PACKET_TYPE_REQUEST) {
-            u32 full_len = skb->len - tcp.hdr_len;
-            if (full_len > FULL_BUF_SIZE) {
-                full_len = FULL_BUF_SIZE;
-            }
             u64 cookie = bpf_get_socket_cookie(skb);
             //bpf_printk("=== http_filter cookie = %llx, len=%d %s ===", cookie, len, buf);
             //dbg_print_http_connection_info(&conn);

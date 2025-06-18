@@ -711,7 +711,6 @@ int beyla_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
             go_addr_key_t p_key = {};
             go_addr_key_from_id(&p_key, parent_go);
             invocation = bpf_map_lookup_elem(&ongoing_http_server_requests, &p_key);
-            goroutine_addr = parent_go;
         }
         if (!invocation) {
             bpf_dbg_printk("can't read http invocation metadata");
