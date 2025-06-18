@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -150,7 +152,8 @@ func TestTracerPipeline(t *testing.T) {
 			Instrumentations:  []string{instrumentations.InstrumentationALL},
 		},
 		Attributes: beyla.Attributes{InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(0), tracesInput, processEvents)
+	}, gctx(0), tracesInput, processEvents,
+		otel.OverrideResourceAttrs(attribute.String("overridden", "attr")))
 
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("bar-svc", "/foo/bar", 404))
@@ -683,6 +686,7 @@ func matchTraceEvent(t require.TestingT, name string, event collector.TraceRecor
 			string(semconv.TelemetrySDKNameKey):     "beyla",
 			string(semconv.OSTypeKey):               "linux",
 			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
+			"overridden":                            "attr",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)
@@ -708,6 +712,7 @@ func matchInnerTraceEvent(t require.TestingT, name string, event collector.Trace
 			string(semconv.TelemetrySDKNameKey):     "beyla",
 			string(semconv.OSTypeKey):               "linux",
 			string(semconv.OTelLibraryNameKey):      "github.com/open-telemetry/opentelemetry-ebpf-instrumentation",
+			"overridden":                            "attr",
 		},
 		Kind: ptrace.SpanKindInternal,
 	}, event)
