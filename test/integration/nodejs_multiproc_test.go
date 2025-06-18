@@ -24,6 +24,12 @@ func testNestedTraces(t *testing.T) {
 	waitForTestComponents(t, "http://localhost:5002")
 	waitForTestComponents(t, "http://localhost:5003")
 
+	// give enough time for the NodeJS injector to finish
+	// TODO: once we implement the instrumentation status query API, replace
+	// this with  a proper check to see if the target process has finished
+	// being instrumented
+	time.Sleep(60 * time.Second)
+
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be
 	// stuck because of our tracking of full request times
