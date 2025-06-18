@@ -47,9 +47,11 @@ type RoutesConfig struct {
 	// Unmatch specifies what to do when a route pattern is not matched
 	Unmatch UnmatchType `yaml:"unmatched"`
 	// Patterns of the paths that will match to a route
-	Patterns       []string   `yaml:"patterns"`
-	IgnorePatterns []string   `yaml:"ignored_patterns"`
-	IgnoredEvents  IgnoreMode `yaml:"ignore_mode"`
+	Patterns []string `yaml:"patterns"`
+	// Deprecated. To be removed and replaced by a collector-like filtering mechanism
+	IgnorePatterns []string `yaml:"ignored_patterns"`
+	// Deprecated. To be removed and replaced by a collector-like filtering mechanism
+	IgnoredEvents IgnoreMode `yaml:"ignore_mode"`
 	// Character that will be used to replace route segments
 	WildcardChar string `yaml:"wildcard_char,omitempty"`
 }
@@ -179,6 +181,7 @@ func classifyFromPath(rc *RoutesConfig, s *request.Span) {
 		s.Route = route.ClusterPath(s.Path, rc.WildcardChar[0])
 	}
 }
+
 func setSpanIgnoreMode(mode IgnoreMode, s *request.Span) {
 	switch mode {
 	case IgnoreMetrics:

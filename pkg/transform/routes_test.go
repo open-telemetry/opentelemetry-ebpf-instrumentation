@@ -1,7 +1,6 @@
 package transform
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -124,12 +123,12 @@ func TestIgnoreRoutes(t *testing.T) {
 	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	router, err := RoutesProvider(&RoutesConfig{
 		Unmatch: UnmatchPath, Patterns: []string{"/user/:id", "/v1/metrics"},
-		IgnorePatterns: []string{"/v1/metrics/*", "/v1/traces/*", "/exact"}},
-		input, output)(context.Background())
+		IgnorePatterns: []string{"/v1/metrics/*", "/v1/traces/*", "/exact"},
+	}, input, output)(t.Context())
 	require.NoError(t, err)
 	out := output.Subscribe()
 	defer input.Close()
-	go router(context.Background())
+	go router(t.Context())
 	input.Send([]request.Span{{Path: "/user/1234"}})
 	input.Send([]request.Span{{Path: "/v1/metrics"}}) // this is in routes and ignore, ignore takes precedence
 	input.Send([]request.Span{{Path: "/v1/traces/1234/test"}})
