@@ -26,7 +26,7 @@ var (
 // CriteriaMatcherProvider filters the processes that match the discovery criteria.
 func CriteriaMatcherProvider(
 	cfg *beyla.Config,
-	input *msg.Queue[[]Event[processAttrs]],
+	input *msg.Queue[[]Event[ProcessAttrs]],
 	output *msg.Queue[[]Event[ProcessMatch]],
 ) swarm.InstanceFunc {
 	beylaNamespace, _ := namespaceFetcherFunc(int32(osPidFunc()))
@@ -51,7 +51,7 @@ type matcher struct {
 	// instrumentation.
 	// This avoids keep inspecting again and again client processes each time they open a new connection port
 	processHistory   map[PID]*services.ProcessInfo
-	input            <-chan []Event[processAttrs]
+	input            <-chan []Event[ProcessAttrs]
 	output           *msg.Queue[[]Event[ProcessMatch]]
 	beylaNamespace   string
 	hasHostPidAccess bool
@@ -86,7 +86,7 @@ func (m *matcher) run(ctx context.Context) {
 	}
 }
 
-func (m *matcher) filter(events []Event[processAttrs]) []Event[ProcessMatch] {
+func (m *matcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMatch] {
 	var matches []Event[ProcessMatch]
 	for _, ev := range events {
 		if ev.Type == EventDeleted {
@@ -102,7 +102,7 @@ func (m *matcher) filter(events []Event[processAttrs]) []Event[ProcessMatch] {
 	return matches
 }
 
-func (m *matcher) filterCreated(obj processAttrs) (Event[ProcessMatch], bool) {
+func (m *matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 	if _, ok := m.processHistory[obj.pid]; ok {
 		// this was already matched and submitted for inspection. Ignoring!
 		return Event[ProcessMatch]{}, false
@@ -136,7 +136,7 @@ func (m *matcher) filterCreated(obj processAttrs) (Event[ProcessMatch], bool) {
 	return Event[ProcessMatch]{}, false
 }
 
-func (m *matcher) filterDeleted(obj processAttrs) (Event[ProcessMatch], bool) {
+func (m *matcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 	proc, ok := m.processHistory[obj.pid]
 	if !ok {
 		m.log.Debug("deleted untracked process. Ignoring", "pid", obj.pid)
@@ -150,7 +150,7 @@ func (m *matcher) filterDeleted(obj processAttrs) (Event[ProcessMatch], bool) {
 	}, true
 }
 
-func (m *matcher) isExcluded(obj *processAttrs, proc *services.ProcessInfo) bool {
+func (m *matcher) isExcluded(obj *ProcessAttrs, proc *services.ProcessInfo) bool {
 	for i := range m.excludeCriteria {
 		m.log.Debug("checking exclusion criteria", "pid", proc.Pid, "comm", proc.ExePath)
 		if m.matchProcess(obj, proc, m.excludeCriteria[i]) {
@@ -160,7 +160,7 @@ func (m *matcher) isExcluded(obj *processAttrs, proc *services.ProcessInfo) bool
 	return false
 }
 
-func (m *matcher) matchProcess(obj *processAttrs, p *services.ProcessInfo, a services.Selector) bool {
+func (m *matcher) matchProcess(obj *ProcessAttrs, p *services.ProcessInfo, a services.Selector) bool {
 	log := m.log.With("pid", p.Pid, "exe", p.ExePath)
 	if !a.GetPath().IsSet() && a.GetOpenPorts().Len() == 0 && len(obj.metadata) == 0 {
 		log.Debug("no Kube metadata, no local selection criteria. Ignoring")
@@ -204,7 +204,7 @@ func (m *matcher) matchByExecutable(p *services.ProcessInfo, a services.Selector
 	return a.GetPathRegexp().MatchString(p.ExePath)
 }
 
-func (m *matcher) matchByAttributes(actual *processAttrs, required services.Selector) bool {
+func (m *matcher) matchByAttributes(actual *ProcessAttrs, required services.Selector) bool {
 	if required == nil {
 		return true
 	}
@@ -392,7 +392,7 @@ func logDeprecationAndConflicts(cfg *beyla.Config) {
 }
 
 // replaceable function to allow unit tests with faked processes
-var processInfo = func(pp processAttrs) (*services.ProcessInfo, error) {
+var processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 	proc, err := process.NewProcess(int32(pp.pid))
 	if err != nil {
 		return nil, fmt.Errorf("can't read process: %w", err)

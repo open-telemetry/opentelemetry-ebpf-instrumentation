@@ -37,7 +37,7 @@ const (
 
 func TestWatcherKubeEnricher(t *testing.T) {
 	type event struct {
-		fn           func(input *msg.Queue[[]Event[processAttrs]], fInformer meta.Notifier)
+		fn           func(input *msg.Queue[[]Event[ProcessAttrs]], fInformer meta.Notifier)
 		shouldNotify bool
 	}
 	type testCase struct {
@@ -45,13 +45,13 @@ func TestWatcherKubeEnricher(t *testing.T) {
 		steps []event
 	}
 	// test deployment functions
-	process := func(input *msg.Queue[[]Event[processAttrs]], _ meta.Notifier) {
+	process := func(input *msg.Queue[[]Event[ProcessAttrs]], _ meta.Notifier) {
 		newProcess(input, containerPID, []uint32{containerPort})
 	}
-	pod := func(_ *msg.Queue[[]Event[processAttrs]], fInformer meta.Notifier) {
+	pod := func(_ *msg.Queue[[]Event[ProcessAttrs]], fInformer meta.Notifier) {
 		deployPod(fInformer, podName, containerID, nil)
 	}
-	ownedPod := func(_ *msg.Queue[[]Event[processAttrs]], fInformer meta.Notifier) {
+	ownedPod := func(_ *msg.Queue[[]Event[ProcessAttrs]], fInformer meta.Notifier) {
 		deployOwnedPod(fInformer, namespace, podName, replicaSetName, deploymentName, containerID)
 	}
 
@@ -71,9 +71,9 @@ func TestWatcherKubeEnricher(t *testing.T) {
 			// Setup a fake K8s API connected to the watcherKubeEnricher
 			fInformer := &fakeInformer{}
 			store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil)
-			input := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(10))
+			input := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 			defer input.Close()
-			output := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(10))
+			output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 			outputCh := output.Subscribe()
 			wkeNodeFunc, err := WatcherKubeEnricherProvider(&fakeMetadataProvider{store: store}, input, output)(t.Context())
 			require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestWatcherKubeEnricher(t *testing.T) {
 
 			// deploy all the involved elements where the metadata are composed of
 			// in different orders to test that watcherKubeEnricher will eventually handle everything
-			var events []Event[processAttrs]
+			var events []Event[ProcessAttrs]
 			for _, step := range tc.steps {
 				step.fn(input, fInformer)
 				if step.shouldNotify {
@@ -114,9 +114,9 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 	// Setup a fake K8s API connected to the watcherKubeEnricher
 	fInformer := &fakeInformer{}
 	store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil)
-	inputQueue := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(10))
+	inputQueue := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	defer inputQueue.Close()
-	connectQueue := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(10))
+	connectQueue := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	outputQueue := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 	outputCh := outputQueue.Subscribe()
 	swi := swarm.Instancer{}
@@ -241,18 +241,18 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 	})
 
 	t.Run("process deletion", func(t *testing.T) {
-		inputQueue.Send([]Event[processAttrs]{
-			{Type: EventDeleted, Obj: processAttrs{pid: 123}},
-			{Type: EventDeleted, Obj: processAttrs{pid: 456}},
-			{Type: EventDeleted, Obj: processAttrs{pid: 789}},
-			{Type: EventDeleted, Obj: processAttrs{pid: 1011}},
-			{Type: EventDeleted, Obj: processAttrs{pid: 12}},
-			{Type: EventDeleted, Obj: processAttrs{pid: 34}},
-			{Type: EventDeleted, Obj: processAttrs{pid: 42}},
-			{Type: EventDeleted, Obj: processAttrs{pid: 43}},
-			{Type: EventDeleted, Obj: processAttrs{pid: 44}},
-			{Type: EventDeleted, Obj: processAttrs{pid: 45}},
-			{Type: EventDeleted, Obj: processAttrs{pid: 56}},
+		inputQueue.Send([]Event[ProcessAttrs]{
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 123}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 456}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 789}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 1011}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 12}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 34}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 42}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 43}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 44}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 45}},
+			{Type: EventDeleted, Obj: ProcessAttrs{pid: 56}},
 		})
 		// only forwards the deletion of the processes that were already matched
 		matches := testutil.ReadChannel(t, outputCh, timeout)
@@ -274,10 +274,10 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 	})
 }
 
-func newProcess(input *msg.Queue[[]Event[processAttrs]], pid PID, ports []uint32) {
-	input.Send([]Event[processAttrs]{{
+func newProcess(input *msg.Queue[[]Event[ProcessAttrs]], pid PID, ports []uint32) {
+	input.Send([]Event[ProcessAttrs]{{
 		Type: EventCreated,
-		Obj:  processAttrs{pid: pid, openPorts: ports},
+		Obj:  ProcessAttrs{pid: pid, openPorts: ports},
 	}})
 }
 
@@ -319,7 +319,7 @@ func fakeContainerInfo(pid uint32) (container.Info, error) {
 	return container.Info{ContainerID: fmt.Sprintf("container-%d", pid)}, nil
 }
 
-func fakeProcessInfo(pp processAttrs) (*services.ProcessInfo, error) {
+func fakeProcessInfo(pp ProcessAttrs) (*services.ProcessInfo, error) {
 	return &services.ProcessInfo{
 		Pid:       int32(pp.pid),
 		OpenPorts: pp.openPorts,

@@ -44,10 +44,10 @@ func (pf *ProcessFinder) Start(ctx context.Context) (<-chan Event[*ebpf.Instrume
 	tracerEvents := msg.NewQueue[Event[*ebpf.Instrumentable]](msg.ChannelBufferLen(pf.cfg.ChannelBufferLen))
 
 	swi := swarm.Instancer{}
-	processEvents := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(pf.cfg.ChannelBufferLen))
+	processEvents := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(pf.cfg.ChannelBufferLen))
 	swi.Add(swarm.DirectInstance(ProcessWatcherFunc(pf.cfg, pf.ebpfEventContext, processEvents)))
 
-	kubeEnrichedEvents := msg.NewQueue[[]Event[processAttrs]](msg.ChannelBufferLen(pf.cfg.ChannelBufferLen))
+	kubeEnrichedEvents := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(pf.cfg.ChannelBufferLen))
 	swi.Add(WatcherKubeEnricherProvider(pf.ctxInfo.K8sInformer, processEvents, kubeEnrichedEvents))
 
 	criteriaFilteredEvents := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(pf.cfg.ChannelBufferLen))
