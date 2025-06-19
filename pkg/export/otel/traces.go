@@ -103,6 +103,13 @@ type TracesConfig struct {
 	// and the Info messages leak internal details that are not usually valuable for the final user.
 	//nolint:undoc
 	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_OTEL_SDK_LOG_LEVEL"`
+
+	// OTLPEndpointProvider allows overriding the OTLP Endpoint. It needs to return an endpoint and
+	// a boolean indicating if the endpoint is common for both traces and metrics
+	OTLPEndpointProvider func() (string, bool) `yaml:"-" env:"-"`
+
+	// InjectHeaders allows injecting custom headers to the HTTP OTLP exporter
+	InjectHeaders func(dst map[string]string) `yaml:"-" env:"-"`
 }
 
 // Enabled specifies that the OTEL traces node is enabled if and only if
@@ -123,6 +130,9 @@ func (m *TracesConfig) GetProtocol() Protocol {
 }
 
 func (m *TracesConfig) OTLPTracesEndpoint() (string, bool) {
+	if m.OTLPEndpointProvider != nil {
+		return m.OTLPEndpointProvider()
+	}
 	return ResolveOTLPEndpoint(m.TracesEndpoint, m.CommonEndpoint)
 }
 
@@ -486,14 +496,14 @@ func getRetrySettings(cfg TracesConfig) configretry.BackOffConfig {
 func traceAppResourceAttrs(cache *expirable2.LRU[svc.UID, []attribute.KeyValue], hostID string, service *svc.Attrs) []attribute.KeyValue {
 	// TODO: remove?
 	if service.UID == emptyUID {
-		return getAppResourceAttrs(hostID, service)
+		return GetAppResourceAttrs(hostID, service)
 	}
 
 	attrs, ok := cache.Get(service.UID)
 	if ok {
 		return attrs
 	}
-	attrs = getAppResourceAttrs(hostID, service)
+	attrs = GetAppResourceAttrs(hostID, service)
 	cache.Add(service.UID, attrs)
 
 	return attrs
@@ -868,6 +878,9 @@ func getHTTPTracesEndpointOptions(cfg *TracesConfig) (otlpOptions, error) {
 		opts.SkipTLSVerify = true
 	}
 
+	if cfg.InjectHeaders != nil {
+		cfg.InjectHeaders(opts.Headers)
+	}
 	maps.Copy(opts.Headers, HeadersFromEnv(envHeaders))
 	maps.Copy(opts.Headers, HeadersFromEnv(envTracesHeaders))
 
@@ -895,6 +908,9 @@ func getGRPCTracesEndpointOptions(cfg *TracesConfig) (otlpOptions, error) {
 		opts.SkipTLSVerify = true
 	}
 
+	if cfg.InjectHeaders != nil {
+		cfg.InjectHeaders(opts.Headers)
+	}
 	maps.Copy(opts.Headers, HeadersFromEnv(envHeaders))
 	maps.Copy(opts.Headers, HeadersFromEnv(envTracesHeaders))
 	return opts, nil
