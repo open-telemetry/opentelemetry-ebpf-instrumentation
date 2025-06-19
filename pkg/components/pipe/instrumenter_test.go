@@ -144,6 +144,9 @@ func TestTracerPipeline(t *testing.T) {
 
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	gCtx := gctx(0)
+	gCtx.ExtraResourceAttributes = []attribute.KeyValue{attribute.String("overridden", "attr")}
+
 	gb := newGraphBuilder(&beyla.Config{
 		Traces: otel.TracesConfig{
 			BatchTimeout:      10 * time.Millisecond,
@@ -152,8 +155,7 @@ func TestTracerPipeline(t *testing.T) {
 			Instrumentations:  []string{instrumentations.InstrumentationALL},
 		},
 		Attributes: beyla.Attributes{InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(0), tracesInput, processEvents,
-		otel.OverrideResourceAttrs(attribute.String("overridden", "attr")))
+	}, gCtx, tracesInput, processEvents)
 
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("bar-svc", "/foo/bar", 404))
