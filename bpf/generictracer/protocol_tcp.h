@@ -10,21 +10,8 @@
 
 #include <generictracer/protocol_common.h>
 
-// Keeps track of tcp buffers for unknown protocols
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, pid_connection_info_t);
-    __type(value, tcp_req_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
-} ongoing_tcp_req SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, int);
-    __type(value, tcp_req_t);
-    __uint(max_entries, 1);
-} tcp_req_mem SEC(".maps");
+#include <generictracer/maps/ongoing_tcp_req.h>
+#include <generictracer/maps/tcp_req_mem.h>
 
 static __always_inline tcp_req_t *empty_tcp_req() {
     int zero = 0;

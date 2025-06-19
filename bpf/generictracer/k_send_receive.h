@@ -5,26 +5,9 @@
 
 #include <generictracer/k_tracer_defs.h>
 
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __type(key, u64);
-    __type(value, recv_args_t);
-} active_recv_args SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __type(key, u64);           // pid_tid
-    __type(value, send_args_t); // size to be sent
-} active_send_args SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __type(key, u64);           // *sock
-    __type(value, send_args_t); // size to be sent
-} active_send_sock_args SEC(".maps");
+#include <generictracer/maps/active_recv_args.h>
+#include <generictracer/maps/active_send_args.h>
+#include <generictracer/maps/active_send_sock_args.h>
 
 static __always_inline void ensure_sent_event(u64 id, u64 *sock_p) {
     if (high_request_volume) {

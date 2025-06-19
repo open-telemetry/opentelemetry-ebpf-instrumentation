@@ -9,21 +9,13 @@
 #include <common/runtime.h>
 #include <common/trace_common.h>
 
+#include <generictracer/maps/http_info_mem.h>
 #include <generictracer/protocol_common.h>
 
 #include <maps/active_ssl_connections.h>
 #include <maps/ongoing_http.h>
 
 volatile const u32 high_request_volume;
-
-// http_info_t became too big to be declared as a variable in the stack.
-// We use a percpu array to keep a reusable copy of it
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, int);
-    __type(value, http_info_t);
-    __uint(max_entries, 1);
-} http_info_mem SEC(".maps");
 
 // empty_http_info zeroes and return the unique percpu copy in the map
 // this function assumes that a given thread is not trying to use many
