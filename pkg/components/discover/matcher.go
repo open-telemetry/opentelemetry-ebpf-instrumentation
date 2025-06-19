@@ -169,11 +169,11 @@ func (m *Matcher) matchProcess(obj *ProcessAttrs, p *services.ProcessInfo, a ser
 		return false
 	}
 	if (a.GetPath().IsSet() || a.GetPathRegexp().IsSet()) && !m.matchByExecutable(p, a) {
-		log.Debug("executable path does not match", "path", a.GetPath())
+		log.Debug("executable path does not match", "path", a.GetPath(), "pathregexp", a.GetPathRegexp())
 		return false
 	}
 	if a.GetOpenPorts().Len() > 0 && !m.matchByPort(p, a) {
-		log.Debug("open ports do not match", "openPorts", a.GetOpenPorts())
+		log.Debug("open ports do not match", "openPorts", a.GetOpenPorts(), "process ports", p.OpenPorts)
 		return false
 	}
 	if a.IsContainersOnly() {
