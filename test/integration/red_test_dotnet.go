@@ -38,7 +38,7 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 		require.NoError(t, err)
 		enoughPromResults(t, results)
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val, "received:", tools.ToJSON(val))
+		assert.LessOrEqual(t, 2, val, "received:", tools.ToJSON(val))
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]

@@ -3,6 +3,7 @@ package discover
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -272,6 +273,87 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		assert.Equal(t, EventDeleted, matches[6].Type)
 		assert.EqualValues(t, 56, matches[6].Obj.Process.Pid)
 	})
+}
+
+func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
+	// Setup a fake K8s API connected to the watcherKubeEnricher
+	fInformer := &fakeInformer{}
+	store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil)
+	input := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	defer input.Close()
+	output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	outputCh := output.Subscribe()
+	defer output.Close()
+
+	wk := watcherKubeEnricher{
+		log:                slog.With("component", "discover.watcherKubeEnricher"),
+		store:              store,
+		containerByPID:     map[PID]container.Info{},
+		processByContainer: map[string][]ProcessAttrs{},
+		podsInfoCh:         make(chan Event[*informer.ObjectMeta], 10),
+		input:              input.Subscribe(),
+		output:             output,
+	}
+
+	const containerAll = "container-contains-all"
+
+	// Fake container info function that returns the same container string
+	// for any PID we ask for
+	containerInfoForPID = func(_ uint32) (container.Info, error) {
+		return container.Info{ContainerID: containerAll}, nil
+	}
+
+	// Send two PID event, there will be no container information for them yet
+	wk.enrichProcessEvent([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 2}},
+	})
+
+	events := testutil.ReadChannel(t, outputCh, timeout)
+
+	assert.Len(t, events, 2)
+
+	// Ensure we didn't add any container properties to these events, they should be as they were sent, not
+	// enriched
+	for _, event := range events {
+		assert.Equal(t, Event[ProcessAttrs]{Type: EventCreated, Obj: ProcessAttrs{pid: event.Obj.pid}}, event)
+	}
+
+	podEvent := &informer.ObjectMeta{
+		Name: "myservice", Namespace: namespace, Labels: map[string]string{"instrument": "ebpf", "lang": "golang"}, Annotations: map[string]string{"deploy.type": "prod"},
+		Kind: "Pod",
+		Pod: &informer.PodInfo{
+			Containers: []*informer.ContainerInfo{{Id: containerAll}},
+		},
+	}
+
+	// Let's add pod metadata now
+	wk.enrichPodEvent(Event[*informer.ObjectMeta]{Type: EventCreated, Obj: podEvent})
+
+	// We should see us notified about two matched processes, pid 1 and pid 2
+	events = testutil.ReadChannel(t, outputCh, timeout)
+	assert.Len(t, events, 2)
+
+	for _, event := range events {
+		assert.Equal(t, Event[ProcessAttrs]{
+			Type: EventCreated,
+			Obj: ProcessAttrs{
+				pid: event.Obj.pid,
+				metadata: map[string]string{
+					"k8s_namespace":  "test-ns",
+					"k8s_owner_name": "myservice",
+					"k8s_pod_name":   "myservice",
+				},
+				podLabels: map[string]string{
+					"instrument": "ebpf",
+					"lang":       "golang",
+				},
+				podAnnotations: map[string]string{
+					"deploy.type": "prod",
+				},
+			},
+		}, event)
+	}
 }
 
 func newProcess(input *msg.Queue[[]Event[ProcessAttrs]], pid PID, ports []uint32) {
