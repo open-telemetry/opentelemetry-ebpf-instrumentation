@@ -2,10 +2,9 @@ routes:
   patterns:
     - /basic/:rnd
   unmatched: path
-filter:
-  application:
-    url_path:
-      not_match: /metrics
+  ignored_patterns:
+    - /metrics
+  ignore_mode: traces
 otel_metrics_export:
   endpoint: http://otelcol:4317
   protocol: grpc

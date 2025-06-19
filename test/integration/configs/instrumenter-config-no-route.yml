@@ -1,9 +1,7 @@
 routes:
+  ignored_patterns:
+    - /metrics
   unmatched: heuristic
-filter:
-  application:
-    url_path:
-      not_match: /metrics
 otel_metrics_export:
   endpoint: http://otelcol:4318
 otel_traces_export:
