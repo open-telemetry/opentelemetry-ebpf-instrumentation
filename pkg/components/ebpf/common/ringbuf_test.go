@@ -143,6 +143,9 @@ func TestForwardRingbuf_Close(t *testing.T) {
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		assert.True(t, ringBuf.explicitClose.Load())
 	})
+	// Wait a bit for the defer to close resources
+	time.Sleep(time.Second)
+
 	assert.True(t, closable.closed.Load())
 
 	// AND metrics haven't been updated
