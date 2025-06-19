@@ -679,11 +679,10 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		traces := GenerateTraces(cache, &span.Service,
 			ResourceAttrsFromEnv(&span.Service), "host-id",
 			groupFromSpanAndAttributes(&span, tAttrs),
-			OverrideResourceAttrs(
-				attribute.String("deployment.environment", "productions"),
-				attribute.String("source.upstream", "OBI"),
-				semconv.OTelLibraryName("my-reporter"),
-			))
+			attribute.String("deployment.environment", "productions"),
+			attribute.String("source.upstream", "OBI"),
+			semconv.OTelLibraryName("my-reporter"),
+		)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		rs := traces.ResourceSpans().At(0)
