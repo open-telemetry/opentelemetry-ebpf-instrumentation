@@ -7,6 +7,8 @@
 #include <common/connection_info.h>
 #include <common/sockaddr.h>
 
+#include <generictracer/maps/upstream_init_args.h>
+
 #include <logger/bpf_dbg.h>
 
 #include <maps/nginx_upstream.h>
@@ -19,14 +21,6 @@ volatile const s32 ngx_http_upstream_s_conn = 0x10;
 volatile const s32 ngx_connection_s_fd = 0x18;
 volatile const s32 ngx_http_rev_s_conn = 0x8;
 volatile const s32 ngx_connection_s_sockaddr = 0x68;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64);   // the pid_tid
-    __type(value, u64); // the req ptr
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
-} upstream_init_args SEC(".maps");
 
 SEC("uprobe/nginx:ngx_http_upstream_init")
 int beyla_ngx_http_upstream_init(struct pt_regs *ctx) {

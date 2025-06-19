@@ -11,30 +11,12 @@
 
 #include <generictracer/k_tracer_defs.h>
 
+#include <generictracer/maps/pid_tid_to_conn.h>
+#include <generictracer/maps/ssl_to_pid_tid.h>
+
 #include <maps/ssl_to_conn.h>
 
 #include <logger/bpf_dbg.h>
-
-// LRU map, we don't clean-it up at the moment, which holds onto the mapping
-// of the pid-tid and the current connection. It's setup by tcp_rcv_established
-// in case we miss SSL_do_handshake
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64);                         // the pid-tid pair
-    __type(value, ssl_pid_connection_info_t); // the pointer to the file descriptor matching ssl
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
-} pid_tid_to_conn SEC(".maps");
-
-// LRU map which holds onto the mapping of an ssl pointer to pid-tid,
-// we clean-it up when we lookup by ssl. It's setup by SSL_read for cases where frameworks
-// process SSL requests on separate thread pools, e.g. Ruby on Rails
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64);   // the ssl pointer
-    __type(value, u64); // the pid tid of the thread in ssl read
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ssl_to_pid_tid SEC(".maps");
 
 static __always_inline void cleanup_ssl_trace_info(http_info_t *info, void *ssl) {
     if (info->type == EVENT_HTTP_REQUEST) {

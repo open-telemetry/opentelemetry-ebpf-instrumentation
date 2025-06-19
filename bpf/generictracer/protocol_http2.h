@@ -8,65 +8,20 @@
 #include <common/ringbuf.h>
 
 #include <generictracer/http2_grpc.h>
+#include <generictracer/iovec_len.h>
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>
+#include <generictracer/types/http2_conn_info_data.h>
+
+#include <generictracer/maps/grpc_frames_ctx_mem.h>
+#include <generictracer/maps/http2_info_mem.h>
+#include <generictracer/maps/ongoing_http2_connections.h>
+#include <generictracer/maps/ongoing_http2_grpc.h>
 
 #include <maps/active_ssl_connections.h>
 
 // These are bit flags, if you add any use power of 2 values
 enum { http2_conn_flag_ssl = WITH_SSL, http2_conn_flag_new = 0x2 };
-
-typedef struct http2_conn_info_data {
-    u64 id;
-    u8 flags;
-    u8 _pad[7];
-} http2_conn_info_data_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, pid_connection_info_t);
-    __type(value, http2_conn_info_data_t); // flags and id
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_http2_connections SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, http2_conn_stream_t);
-    __type(value, http2_grpc_request_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
-} ongoing_http2_grpc SEC(".maps");
-
-typedef struct grpc_frames_ctx {
-    http2_grpc_request_t prev_info;
-    u8 has_prev_info;
-    u8 found_data_frame;
-    u8 iterations;
-    u8 terminate_search;
-
-    int pos; //FIXME should be size_t equivalent
-    int saved_buf_pos;
-    u32 saved_stream_id;
-    call_protocol_args_t args;
-    http2_conn_stream_t stream;
-
-    u8 _pad[4];
-} grpc_frames_ctx_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, int);
-    __type(value, grpc_frames_ctx_t);
-    __uint(max_entries, 1);
-} grpc_frames_ctx_mem SEC(".maps");
-
-// We want to be able to collect larger amount of data for the grpc/http headers
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, int);
-    __type(value, http2_grpc_request_t);
-    __uint(max_entries, 1);
-} http2_info_mem SEC(".maps");
 
 static __always_inline grpc_frames_ctx_t *grpc_ctx() {
     int zero = 0;
@@ -281,7 +236,7 @@ int beyla_protocol_http2_grpc_handle_end_frame(void *ctx) {
     if (req_type == g_ctx->prev_info.type) {
         u32 buf_pos = g_ctx->saved_buf_pos;
 
-        bpf_clamp_umax(buf_pos, IO_VEC_MAX_LEN);
+        bpf_clamp_umax(buf_pos, k_iovec_max_len);
 
         void *offset = (unsigned char *)g_ctx->args.u_buf + buf_pos;
         http2_grpc_end(&g_ctx->stream, &g_ctx->prev_info, offset);

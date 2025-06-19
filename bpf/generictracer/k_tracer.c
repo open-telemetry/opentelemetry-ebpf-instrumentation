@@ -9,10 +9,13 @@
 #include <common/ssl_helpers.h>
 #include <common/tcp_info.h>
 
-#include <generictracer/k_tracer_defs.h>
-#include <generictracer/ssl_defs.h>
 #include <generictracer/k_send_receive.h>
+#include <generictracer/k_tracer_defs.h>
 #include <generictracer/k_unix_sock.h>
+#include <generictracer/maps/active_accept_args.h>
+#include <generictracer/maps/active_connect_args.h>
+#include <generictracer/maps/tcp_connection_map.h>
+#include <generictracer/ssl_defs.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -22,32 +25,6 @@
 #include <maps/sk_buffers.h>
 
 #include <pid/pid.h>
-
-// Temporary tracking of accept arguments
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __type(key, u64);
-    __type(value, sock_args_t);
-} active_accept_args SEC(".maps");
-
-// Temporary tracking of connect arguments
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __type(key, u64);
-    __type(value, sock_args_t);
-} active_connect_args SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(
-        key,
-        partial_connection_info_t); // key: the connection info without the destination address, but with the tcp sequence
-    __type(value, connection_info_t); // value: traceparent info
-    __uint(max_entries, 1024);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
-} tcp_connection_map SEC(".maps");
 
 // Used by accept to grab the sock details
 SEC("kretprobe/sock_alloc")
