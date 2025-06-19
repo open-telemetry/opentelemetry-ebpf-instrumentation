@@ -299,7 +299,7 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 
 	// Fake container info function that returns the same container string
 	// for any PID we ask for
-	containerInfoForPID = func(pid uint32) (container.Info, error) {
+	containerInfoForPID = func(_ uint32) (container.Info, error) {
 		return container.Info{ContainerID: containerAll}, nil
 	}
 
