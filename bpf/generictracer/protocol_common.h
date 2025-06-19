@@ -26,7 +26,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, int);
-    __type(value, u8[(IO_VEC_MAX_LEN * 2)]);
+    __type(value, unsigned char[(IO_VEC_MAX_LEN * 2)]);
     __uint(max_entries, 1);
 } iovec_mem SEC(".maps");
 
@@ -42,8 +42,8 @@ static __always_inline http_connection_metadata_t *empty_connection_meta() {
     return bpf_map_lookup_elem(&connection_meta_mem, &zero);
 }
 
-static __always_inline u8 *iovec_memory() {
-    int zero = 0;
+static __always_inline unsigned char *iovec_memory() {
+    const u32 zero = 0;
     return bpf_map_lookup_elem(&iovec_mem, &zero);
 }
 
@@ -127,7 +127,7 @@ static __always_inline void get_iovec_ctx(iovec_iter_ctx *ctx, struct msghdr *ms
     ctx->nr_segs = BPF_CORE_READ((struct iov_iter___dummy *)&msg->msg_iter, nr_segs);
 }
 
-static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, u8 *buf, size_t max_len) {
+static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *buf, size_t max_len) {
     if (max_len == 0) {
         return 0;
     }
@@ -198,7 +198,7 @@ static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, u8 *buf, size_t m
     return tot_len;
 }
 
-static __always_inline int read_msghdr_buf(struct msghdr *msg, u8 *buf, size_t max_len) {
+static __always_inline int read_msghdr_buf(struct msghdr *msg, unsigned char *buf, size_t max_len) {
     if (max_len == 0) {
         return 0;
     }

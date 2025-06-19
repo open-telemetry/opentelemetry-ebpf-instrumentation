@@ -37,10 +37,10 @@
 typedef struct http_client_data {
     s64 content_length;
     pid_info pid;
-    u8 path[PATH_MAX_LEN];
-    u8 host[HOST_MAX_LEN];
-    u8 scheme[SCHEME_MAX_LEN];
-    u8 method[METHOD_MAX_LEN];
+    unsigned char path[PATH_MAX_LEN];
+    unsigned char host[HOST_MAX_LEN];
+    unsigned char scheme[SCHEME_MAX_LEN];
+    unsigned char method[METHOD_MAX_LEN];
     u8 _pad[3];
 } http_client_data_t;
 
@@ -64,8 +64,8 @@ typedef struct server_http_func_invocation {
     u64 response_length;
     u64 status;
     tp_info_t tp;
-    u8 method[METHOD_MAX_LEN];
-    u8 path[PATH_MAX_LEN];
+    unsigned char method[METHOD_MAX_LEN];
+    unsigned char path[PATH_MAX_LEN];
     u8 _pad[5];
 } server_http_func_invocation_t;
 
@@ -268,10 +268,10 @@ int beyla_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     u64 len = (u64)GO_PARAM2(ctx);
-    u8 *buf = (u8 *)GO_PARAM1(ctx);
+    const unsigned char *buf = (const unsigned char *)GO_PARAM1(ctx);
 
     if (len >= (W3C_KEY_LENGTH + W3C_VAL_LENGTH + 2)) {
-        u8 temp[W3C_KEY_LENGTH + W3C_VAL_LENGTH + 2];
+        unsigned char temp[W3C_KEY_LENGTH + W3C_VAL_LENGTH + 2];
         bpf_probe_read(temp, sizeof(temp), buf);
         bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
         go_addr_key_t g_key = {};

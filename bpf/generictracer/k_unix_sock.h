@@ -185,7 +185,7 @@ static __always_inline int return_unix_recvmsg(void *ctx, u64 id, int copied_len
 
     bpf_map_delete_elem(&active_recv_args, &id);
 
-    u8 *buf = iovec_memory();
+    unsigned char *buf = iovec_memory();
     if (buf) {
         // We may read less than copied_len, iovec iterators are limited
         // to const iterations in our BPF code.
@@ -245,7 +245,7 @@ int BPF_KPROBE(beyla_kprobe_unix_stream_sendmsg,
 
     pid_connection_info_for_inode(id, &s_args.p_conn, inode_number, peer_inode_number);
 
-    u8 *buf = iovec_memory();
+    unsigned char *buf = iovec_memory();
     if (buf) {
         size = read_msghdr_buf(msg, buf, size);
         if (size) {

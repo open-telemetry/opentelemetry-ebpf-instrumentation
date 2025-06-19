@@ -342,7 +342,7 @@ int BPF_KPROBE(beyla_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, si
         void *ssl = is_ssl_connection(&s_args.p_conn);
         if (size > 0) {
             if (!ssl) {
-                u8 *buf = iovec_memory();
+                unsigned char *buf = iovec_memory();
                 if (buf) {
                     size = read_msghdr_buf(msg, buf, size);
 
@@ -445,7 +445,7 @@ int BPF_KPROBE(beyla_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
         if (!ssl) {
             msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
             if (m_buf) {
-                u8 *buf = m_buf->buf;
+                unsigned char *buf = m_buf->buf;
                 // The buffer setup for us by a sock_msg program is always the
                 // full buffer, but when we extend a packet to be able to inject
                 // a Traceparent field, it will actually be split in 3 chunks:
@@ -695,7 +695,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         return 0;
     }
 
-    u8 *buf = 0;
+    unsigned char *buf = 0;
     if (args) {
         iovec_iter_ctx *iov_ctx = (iovec_iter_ctx *)&args->iovec_ctx;
 

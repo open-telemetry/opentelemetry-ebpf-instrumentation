@@ -37,16 +37,16 @@ typedef struct http_request_trace_t {
     u8 type; // Must be first
     u8 _pad0[1];
     u16 status;
-    u8 method[METHOD_MAX_LEN];
-    u8 scheme[SCHEME_MAX_LEN];
+    unsigned char method[METHOD_MAX_LEN];
+    unsigned char scheme[SCHEME_MAX_LEN];
     u8 _pad1[11];
     u64 go_start_monotime_ns;
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     s64 content_length;
     s64 response_length;
-    u8 path[PATH_MAX_LEN];
-    u8 host[HOST_MAX_LEN];
+    unsigned char path[PATH_MAX_LEN];
+    unsigned char host[HOST_MAX_LEN];
     tp_info_t tp;
     connection_info_t conn;
     pid_info pid;
@@ -61,7 +61,7 @@ typedef struct sql_request_trace_t {
     u64 end_monotime_ns;
     tp_info_t tp;
     connection_info_t conn;
-    u8 sql[SQL_MAX_LEN];
+    unsigned char sql[SQL_MAX_LEN];
 } sql_request_trace;
 
 typedef struct kafka_client_req {
@@ -69,7 +69,7 @@ typedef struct kafka_client_req {
     u8 _pad[7];
     u64 start_monotime_ns;
     u64 end_monotime_ns;
-    u8 buf[KAFKA_MAX_LEN];
+    unsigned char buf[KAFKA_MAX_LEN];
     connection_info_t conn;
     pid_info pid;
 } kafka_client_req_t;
@@ -84,7 +84,7 @@ typedef struct kafka_go_req {
     tp_info_t tp;
     u64 start_monotime_ns;
     u64 end_monotime_ns;
-    u8 topic[MAX_TOPIC_NAME_LEN];
+    unsigned char topic[MAX_TOPIC_NAME_LEN];
 } kafka_go_req_t;
 
 typedef struct redis_client_req {
@@ -94,7 +94,7 @@ typedef struct redis_client_req {
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     pid_info pid;
-    u8 buf[REDIS_MAX_LEN];
+    unsigned char buf[REDIS_MAX_LEN];
     connection_info_t conn;
     tp_info_t tp;
 } redis_client_req_t;

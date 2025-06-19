@@ -12,7 +12,7 @@
 #include <logger/bpf_dbg.h>
 
 typedef struct sk_msg_buffer {
-    u8 buf[k_kprobes_http2_buf_size];
+    unsigned char buf[k_kprobes_http2_buf_size];
     u16 size;
     u8 inactive;
     u8 _pad[1];
@@ -37,7 +37,7 @@ struct {
 // this function assumes that a given thread is not trying to use many
 // instances at the same time
 static __always_inline sk_msg_buffer_t *empty_sk_buffer() {
-    int zero = 0;
+    const u32 zero = 0;
     sk_msg_buffer_t *value = bpf_map_lookup_elem(&sk_buffer_mem, &zero);
     if (value) {
         __builtin_memset(value, 0, sizeof(sk_msg_buffer_t));

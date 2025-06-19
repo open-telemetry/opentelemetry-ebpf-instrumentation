@@ -111,8 +111,8 @@ typedef struct http2_grpc_request {
     connection_info_t conn_info;
     u64 start_monotime_ns;
     u64 end_monotime_ns;
-    u8 data[k_kprobes_http2_buf_size];
-    u8 ret_data[k_kprobes_http2_ret_buf_size];
+    unsigned char data[k_kprobes_http2_buf_size];
+    unsigned char ret_data[k_kprobes_http2_ret_buf_size];
     int len;
     // we need this to filter traces from unsolicited processes that share the executable
     // with other instrumented processes
