@@ -30,31 +30,33 @@ func CriteriaMatcherProvider(
 	output *msg.Queue[[]Event[ProcessMatch]],
 ) swarm.InstanceFunc {
 	beylaNamespace, _ := namespaceFetcherFunc(int32(osPidFunc()))
-	m := &matcher{
-		log:              slog.With("component", "discover.CriteriaMatcher"),
-		criteria:         FindingCriteria(cfg),
-		excludeCriteria:  ExcludingCriteria(cfg),
-		processHistory:   map[PID]*services.ProcessInfo{},
-		input:            input.Subscribe(),
-		output:           output,
-		beylaNamespace:   beylaNamespace,
-		hasHostPidAccess: hasHostPidAccess(),
+	m := &Matcher{
+		Log:              slog.With("component", "discover.CriteriaMatcher"),
+		Criteria:         FindingCriteria(cfg),
+		ExcludeCriteria:  ExcludingCriteria(cfg),
+		ProcessHistory:   map[PID]*services.ProcessInfo{},
+		Input:            input.Subscribe(),
+		Output:           output,
+		Namespace:        beylaNamespace,
+		HasHostPidAccess: hasHostPidAccess(),
 	}
-	return swarm.DirectInstance(m.run)
+	return swarm.DirectInstance(m.Run)
 }
 
-type matcher struct {
-	log             *slog.Logger
-	criteria        []services.Selector
-	excludeCriteria []services.Selector
-	// processHistory keeps track of the processes that have been already matched and submitted for
+// Matcher is the component that matches the processes against the discovery criteria.
+// It filters the processes that match the discovery criteria and sends them to the output channel.
+type Matcher struct {
+	Log             *slog.Logger
+	Criteria        []services.Selector
+	ExcludeCriteria []services.Selector
+	// ProcessHistory keeps track of the processes that have been already matched and submitted for
 	// instrumentation.
 	// This avoids keep inspecting again and again client processes each time they open a new connection port
-	processHistory   map[PID]*services.ProcessInfo
-	input            <-chan []Event[ProcessAttrs]
-	output           *msg.Queue[[]Event[ProcessMatch]]
-	beylaNamespace   string
-	hasHostPidAccess bool
+	ProcessHistory   map[PID]*services.ProcessInfo
+	Input            <-chan []Event[ProcessAttrs]
+	Output           *msg.Queue[[]Event[ProcessMatch]]
+	Namespace        string
+	HasHostPidAccess bool
 }
 
 // ProcessMatch matches a found process with the first selection criteria it fulfilled.
@@ -63,30 +65,30 @@ type ProcessMatch struct {
 	Process  *services.ProcessInfo
 }
 
-func (m *matcher) run(ctx context.Context) {
-	defer m.output.Close()
-	m.log.Debug("starting criteria matcher node")
+func (m *Matcher) Run(ctx context.Context) {
+	defer m.Output.Close()
+	m.Log.Debug("starting criteria matcher node")
 	for {
 		select {
 		case <-ctx.Done():
-			m.log.Debug("context cancelled, stopping criteria matcher node")
+			m.Log.Debug("context cancelled, stopping criteria matcher node")
 			return
-		case i, ok := <-m.input:
+		case i, ok := <-m.Input:
 			if !ok {
-				m.log.Debug("input channel closed, stopping criteria matcher node")
+				m.Log.Debug("input channel closed, stopping criteria matcher node")
 				return
 			}
-			m.log.Debug("filtering processes", "len", len(i))
+			m.Log.Debug("filtering processes", "len", len(i))
 			o := m.filter(i)
-			m.log.Debug("processes matching selection criteria", "len", len(o))
+			m.Log.Debug("processes matching selection criteria", "len", len(o))
 			if len(o) > 0 {
-				m.output.Send(o)
+				m.Output.Send(o)
 			}
 		}
 	}
 }
 
-func (m *matcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMatch] {
+func (m *Matcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMatch] {
 	var matches []Event[ProcessMatch]
 	for _, ev := range events {
 		if ev.Type == EventDeleted {
@@ -102,66 +104,66 @@ func (m *matcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMatch] {
 	return matches
 }
 
-func (m *matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
-	if _, ok := m.processHistory[obj.pid]; ok {
+func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
+	if _, ok := m.ProcessHistory[obj.pid]; ok {
 		// this was already matched and submitted for inspection. Ignoring!
 		return Event[ProcessMatch]{}, false
 	}
 	proc, err := processInfo(obj)
 	if err != nil {
-		m.log.Debug("can't get information for process", "pid", obj.pid, "error", err)
+		m.Log.Debug("can't get information for process", "pid", obj.pid, "error", err)
 		return Event[ProcessMatch]{}, false
 	}
-	for i := range m.criteria {
-		if m.matchProcess(&obj, proc, m.criteria[i]) && !m.isExcluded(&obj, proc) {
-			m.log.Debug("found process", "pid", proc.Pid, "comm", proc.ExePath, "metadata", obj.metadata, "podLabels", obj.podLabels, "criteria", m.criteria[i])
-			m.processHistory[obj.pid] = proc
+	for i := range m.Criteria {
+		if m.matchProcess(&obj, proc, m.Criteria[i]) && !m.isExcluded(&obj, proc) {
+			m.Log.Debug("found process", "pid", proc.Pid, "comm", proc.ExePath, "metadata", obj.metadata, "podLabels", obj.podLabels, "criteria", m.Criteria[i])
+			m.ProcessHistory[obj.pid] = proc
 			return Event[ProcessMatch]{
 				Type: EventCreated,
-				Obj:  ProcessMatch{Criteria: m.criteria[i], Process: proc},
+				Obj:  ProcessMatch{Criteria: m.Criteria[i], Process: proc},
 			}, true
 		}
 	}
 
 	// We didn't match the process, but let's see if the parent PID is tracked, it might be the child hasn't opened the port yet
-	if _, ok := m.processHistory[PID(proc.PPid)]; ok {
-		m.log.Debug("found process by matching the process parent id", "pid", proc.Pid, "ppid", proc.PPid, "comm", proc.ExePath, "metadata", obj.metadata)
-		m.processHistory[obj.pid] = proc
+	if _, ok := m.ProcessHistory[PID(proc.PPid)]; ok {
+		m.Log.Debug("found process by matching the process parent id", "pid", proc.Pid, "ppid", proc.PPid, "comm", proc.ExePath, "metadata", obj.metadata)
+		m.ProcessHistory[obj.pid] = proc
 		return Event[ProcessMatch]{
 			Type: EventCreated,
-			Obj:  ProcessMatch{Criteria: m.criteria[0], Process: proc},
+			Obj:  ProcessMatch{Criteria: m.Criteria[0], Process: proc},
 		}, true
 	}
 
 	return Event[ProcessMatch]{}, false
 }
 
-func (m *matcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], bool) {
-	proc, ok := m.processHistory[obj.pid]
+func (m *Matcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], bool) {
+	proc, ok := m.ProcessHistory[obj.pid]
 	if !ok {
-		m.log.Debug("deleted untracked process. Ignoring", "pid", obj.pid)
+		m.Log.Debug("deleted untracked process. Ignoring", "pid", obj.pid)
 		return Event[ProcessMatch]{}, false
 	}
-	delete(m.processHistory, obj.pid)
-	m.log.Debug("stopped process", "pid", proc.Pid, "comm", proc.ExePath)
+	delete(m.ProcessHistory, obj.pid)
+	m.Log.Debug("stopped process", "pid", proc.Pid, "comm", proc.ExePath)
 	return Event[ProcessMatch]{
 		Type: EventDeleted,
 		Obj:  ProcessMatch{Process: proc},
 	}, true
 }
 
-func (m *matcher) isExcluded(obj *ProcessAttrs, proc *services.ProcessInfo) bool {
-	for i := range m.excludeCriteria {
-		m.log.Debug("checking exclusion criteria", "pid", proc.Pid, "comm", proc.ExePath)
-		if m.matchProcess(obj, proc, m.excludeCriteria[i]) {
+func (m *Matcher) isExcluded(obj *ProcessAttrs, proc *services.ProcessInfo) bool {
+	for i := range m.ExcludeCriteria {
+		m.Log.Debug("checking exclusion criteria", "pid", proc.Pid, "comm", proc.ExePath)
+		if m.matchProcess(obj, proc, m.ExcludeCriteria[i]) {
 			return true
 		}
 	}
 	return false
 }
 
-func (m *matcher) matchProcess(obj *ProcessAttrs, p *services.ProcessInfo, a services.Selector) bool {
-	log := m.log.With("pid", p.Pid, "exe", p.ExePath)
+func (m *Matcher) matchProcess(obj *ProcessAttrs, p *services.ProcessInfo, a services.Selector) bool {
+	log := m.Log.With("pid", p.Pid, "exe", p.ExePath)
 	if !a.GetPath().IsSet() && a.GetOpenPorts().Len() == 0 && len(obj.metadata) == 0 {
 		log.Debug("no Kube metadata, no local selection criteria. Ignoring")
 		return false
@@ -176,11 +178,11 @@ func (m *matcher) matchProcess(obj *ProcessAttrs, p *services.ProcessInfo, a ser
 	}
 	if a.IsContainersOnly() {
 		ns, _ := namespaceFetcherFunc(p.Pid)
-		if ns == m.beylaNamespace && m.hasHostPidAccess {
+		if ns == m.Namespace && m.HasHostPidAccess {
 			log.Debug("not in a container", "namespace", ns)
 			return false
 		}
-		log.Debug("app is in a container", "namespace", ns, "beyla namespace", m.beylaNamespace)
+		log.Debug("app is in a container", "namespace", ns, "beyla namespace", m.Namespace)
 	}
 	// after matching by process basic information, we check if it matches
 	// by metadata.
@@ -188,7 +190,7 @@ func (m *matcher) matchProcess(obj *ProcessAttrs, p *services.ProcessInfo, a ser
 	return m.matchByAttributes(obj, a)
 }
 
-func (m *matcher) matchByPort(p *services.ProcessInfo, a services.Selector) bool {
+func (m *Matcher) matchByPort(p *services.ProcessInfo, a services.Selector) bool {
 	for _, c := range p.OpenPorts {
 		if a.GetOpenPorts().Matches(int(c)) {
 			return true
@@ -197,21 +199,21 @@ func (m *matcher) matchByPort(p *services.ProcessInfo, a services.Selector) bool
 	return false
 }
 
-func (m *matcher) matchByExecutable(p *services.ProcessInfo, a services.Selector) bool {
+func (m *Matcher) matchByExecutable(p *services.ProcessInfo, a services.Selector) bool {
 	if a.GetPath().IsSet() {
 		return a.GetPath().MatchString(p.ExePath)
 	}
 	return a.GetPathRegexp().MatchString(p.ExePath)
 }
 
-func (m *matcher) matchByAttributes(actual *ProcessAttrs, required services.Selector) bool {
+func (m *Matcher) matchByAttributes(actual *ProcessAttrs, required services.Selector) bool {
 	if required == nil {
 		return true
 	}
 	if actual == nil {
 		return false
 	}
-	log := m.log.With("pid", actual.pid)
+	log := m.Log.With("pid", actual.pid)
 	// match metadata
 	for attrName, criteriaRegexp := range required.RangeMetadata() {
 		if attrValue, ok := actual.metadata[attrName]; !ok || !criteriaRegexp.MatchString(attrValue) {
@@ -238,7 +240,7 @@ func (m *matcher) matchByAttributes(actual *ProcessAttrs, required services.Sele
 	return true
 }
 
-func normalizeGlobCriteria(finderCriteria services.GlobDefinitionCriteria) []services.Selector {
+func NormalizeGlobCriteria(finderCriteria services.GlobDefinitionCriteria) []services.Selector {
 	// normalize criteria that only define metadata (e.g. k8s)
 	// but do neither define executable name nor port: configure them to match
 	// any executable in the matched k8s entities
@@ -277,7 +279,7 @@ func normalizeRegexCriteria(finderCriteria services.RegexDefinitionCriteria) []s
 func FindingCriteria(cfg *beyla.Config) []services.Selector {
 	logDeprecationAndConflicts(cfg)
 
-	if onlyDefinesDeprecatedServiceSelection(cfg) {
+	if OnlyDefinesDeprecatedServiceSelection(cfg) {
 		// deprecated use case. Supporting the old discovery > services section when the
 		// newest discovery > instrument is not set
 		finderCriteria := cfg.Discovery.Services
@@ -306,7 +308,7 @@ func FindingCriteria(cfg *beyla.Config) []services.Selector {
 				OpenPorts: cfg.Port,
 			})
 		}
-		return normalizeGlobCriteria(finderCriteria)
+		return NormalizeGlobCriteria(finderCriteria)
 	}
 
 	// edge use case: when neither discovery > services nor discovery > instrument sections are set
@@ -336,21 +338,21 @@ func FindingCriteria(cfg *beyla.Config) []services.Selector {
 func ExcludingCriteria(cfg *beyla.Config) []services.Selector {
 	// deprecated options: supporting them only if the user neither defines
 	// the instrument nor exclude_instrument sections
-	if onlyDefinesDeprecatedServiceSelection(cfg) {
-		return append(regexAsSelector(cfg.Discovery.ExcludeServices),
-			regexAsSelector(cfg.Discovery.DefaultExcludeServices)...)
+	if OnlyDefinesDeprecatedServiceSelection(cfg) {
+		return append(RegexAsSelector(cfg.Discovery.ExcludeServices),
+			RegexAsSelector(cfg.Discovery.DefaultExcludeServices)...)
 	}
-	return append(globsAsSelector(cfg.Discovery.ExcludeInstrument),
-		globsAsSelector(cfg.Discovery.DefaultExcludeInstrument)...)
+	return append(GlobsAsSelector(cfg.Discovery.ExcludeInstrument),
+		GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument)...)
 }
 
-func onlyDefinesDeprecatedServiceSelection(cfg *beyla.Config) bool {
+func OnlyDefinesDeprecatedServiceSelection(cfg *beyla.Config) bool {
 	c := &cfg.Discovery
 	return (len(c.Services) > 0 || len(c.ExcludeServices) > 0) &&
 		len(c.Instrument) == 0 && len(c.ExcludeInstrument) == 0
 }
 
-func globsAsSelector(in services.GlobDefinitionCriteria) []services.Selector {
+func GlobsAsSelector(in services.GlobDefinitionCriteria) []services.Selector {
 	out := make([]services.Selector, 0, len(in))
 	for i := range in {
 		out = append(out, &in[i])
@@ -358,7 +360,7 @@ func globsAsSelector(in services.GlobDefinitionCriteria) []services.Selector {
 	return out
 }
 
-func regexAsSelector(in services.RegexDefinitionCriteria) []services.Selector {
+func RegexAsSelector(in services.RegexDefinitionCriteria) []services.Selector {
 	out := make([]services.Selector, 0, len(in))
 	for i := range in {
 		out = append(out, &in[i])

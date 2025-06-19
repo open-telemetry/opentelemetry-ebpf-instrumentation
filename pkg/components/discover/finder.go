@@ -69,7 +69,7 @@ func (pf *ProcessFinder) Start(ctx context.Context) (<-chan Event[*ebpf.Instrume
 		SpanSignalsShortcut: pf.tracesInput,
 
 		InputInstrumentables: storedExecutableTypes,
-		ebpfEventContext:     pf.ebpfEventContext,
+		EbpfEventContext:     pf.ebpfEventContext,
 	}))
 
 	pipeline, err := swi.Instance(ctx)

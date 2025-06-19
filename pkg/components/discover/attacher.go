@@ -59,8 +59,8 @@ type TraceAttacher struct {
 	// This queue will forward any newly discovered process to the instrumentation pipeline.
 	OutputTracerEvents *msg.Queue[Event[*ebpf.Instrumentable]]
 
-	// The common PID filter that's used to filter out events we don't need
-	ebpfEventContext *ebpfcommon.EBPFEventContext
+	// EbpfEventContext allows to set the common PID filter that's used to filter out events we don't need
+	EbpfEventContext *ebpfcommon.EBPFEventContext
 }
 
 func TraceAttacherProvider(ta *TraceAttacher) swarm.InstanceFunc {
@@ -74,7 +74,7 @@ func (ta *TraceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	ta.nodeInjector = nodejs.NewNodeInjector(ta.Cfg)
 	ta.processInstances = maps.MultiCounter[uint64]{}
 	ta.beylaPID = os.Getpid()
-	ta.ebpfEventContext.CommonPIDsFilter = ebpfcommon.CommonPIDsFilter(&ta.Cfg.Discovery)
+	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.CommonPIDsFilter(&ta.Cfg.Discovery)
 
 	if err := ta.init(); err != nil {
 		ta.log.Error("cant start process tracer. Stopping it", "error", err)
@@ -177,20 +177,20 @@ func (ta *TraceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 				// instance of the executable has different DLLs loaded, e.g. libssl.so.
 				return ta.reuseTracer(ta.reusableTracer, ie)
 			} else {
-				programs = ta.withCommonTracersGroup(newGenericTracersGroup(ta.ebpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
+				programs = ta.withCommonTracersGroup(newGenericTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
 			}
 		} else {
 			if ta.reusableGoTracer != nil {
 				return ta.reuseTracer(ta.reusableGoTracer, ie)
 			}
 			tracerType = ebpf.Go
-			programs = ta.withCommonTracersGroup(newGoTracersGroup(ta.ebpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
+			programs = ta.withCommonTracersGroup(newGoTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
 		}
 	case svc.InstrumentableNodejs, svc.InstrumentableJava, svc.InstrumentableRuby, svc.InstrumentablePython, svc.InstrumentableDotnet, svc.InstrumentableGeneric, svc.InstrumentableRust, svc.InstrumentablePHP:
 		if ta.reusableTracer != nil {
 			return ta.reuseTracer(ta.reusableTracer, ie)
 		}
-		programs = ta.withCommonTracersGroup(newGenericTracersGroup(ta.ebpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
+		programs = ta.withCommonTracersGroup(newGenericTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
 	default:
 		ta.log.Warn("unexpected instrumentable type. This is basically a bug", "type", ie.Type)
 	}
@@ -210,7 +210,7 @@ func (ta *TraceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 
 	tracer := ebpf.NewProcessTracer(tracerType, programs, ta.Cfg.ShutdownTimeout)
 
-	if err := tracer.Init(ta.ebpfEventContext); err != nil {
+	if err := tracer.Init(ta.EbpfEventContext); err != nil {
 		ta.log.Error("couldn't trace process. Stopping process tracer", "error", err)
 		return false
 	}
