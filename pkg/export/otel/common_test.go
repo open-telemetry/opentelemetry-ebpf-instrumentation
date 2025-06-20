@@ -369,7 +369,7 @@ func TestGetFilteredResourceAttrs(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := getFilteredAttributesByPrefix(tc.baseAttrs, tc.attrSelector, tc.extraAttrs, tc.prefixPatterns)
+			result := GetFilteredAttributesByPrefix(tc.baseAttrs, tc.attrSelector, tc.extraAttrs, tc.prefixPatterns)
 
 			attrMap := make(map[string]attribute.Value)
 			for _, attr := range result {
