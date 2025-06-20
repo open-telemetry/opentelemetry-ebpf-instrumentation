@@ -1,8 +1,0 @@
-diff a/bpf/generictracer/generictracer.c b/bpf/generictracer/generictracer.c	(rejected hunks)
-@@ -2,5 +2,6 @@
- #include "k_tracer.c"
- #include "libssl.c"
- #include "nodejs.c"
-+#include "nginx.c"
- 
- char __license[] SEC("license") = "Dual MIT/GPL";
