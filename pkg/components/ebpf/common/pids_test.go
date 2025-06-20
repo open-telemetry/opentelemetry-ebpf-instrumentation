@@ -119,6 +119,7 @@ func TestFilter_ExportsOTelDetection(t *testing.T) {
 	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/random/server/span", RequestStart: 100, End: 200, Status: 200}
 
 	checkIfExportsOTel(&s, &span)
+	assert.False(t, s.ExportsOTelMetricsSpan())
 	assert.False(t, s.ExportsOTelMetrics())
 	assert.False(t, s.ExportsOTelTraces())
 
@@ -126,6 +127,7 @@ func TestFilter_ExportsOTelDetection(t *testing.T) {
 	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/metrics", RequestStart: 100, End: 200, Status: 200}
 
 	checkIfExportsOTel(&s, &span)
+	assert.False(t, s.ExportsOTelMetricsSpan())
 	assert.True(t, s.ExportsOTelMetrics())
 	assert.False(t, s.ExportsOTelTraces())
 
@@ -133,7 +135,36 @@ func TestFilter_ExportsOTelDetection(t *testing.T) {
 	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces", RequestStart: 100, End: 200, Status: 200}
 
 	checkIfExportsOTel(&s, &span)
+	assert.False(t, s.ExportsOTelMetricsSpan())
 	assert.False(t, s.ExportsOTelMetrics())
+	assert.True(t, s.ExportsOTelTraces())
+}
+
+func TestFilter_ExportsOTelSpanDetection(t *testing.T) {
+	s := svc.Attrs{}
+	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/random/server/span", RequestStart: 100, End: 200, Status: 200}
+
+	checkIfExportsOTelSpanMetrics(&s, &span)
+	assert.False(t, s.ExportsOTelMetricsSpan())
+	assert.False(t, s.ExportsOTelMetrics())
+	assert.False(t, s.ExportsOTelTraces())
+
+	s = svc.Attrs{}
+	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/metrics", RequestStart: 100, End: 200, Status: 200}
+
+	checkIfExportsOTelSpanMetrics(&s, &span)
+	assert.False(t, s.ExportsOTelMetricsSpan())
+	assert.False(t, s.ExportsOTelMetrics())
+	assert.False(t, s.ExportsOTelTraces())
+
+	s = svc.Attrs{}
+	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces", RequestStart: 100, End: 200, Status: 200}
+
+	checkIfExportsOTelSpanMetrics(&s, &span)
+	assert.False(t, s.ExportsOTelMetrics())
+	assert.True(t, s.ExportsOTelMetricsSpan())
+	assert.False(t, s.ExportsOTelTraces())
+	checkIfExportsOTel(&s, &span)
 	assert.True(t, s.ExportsOTelTraces())
 }
 
