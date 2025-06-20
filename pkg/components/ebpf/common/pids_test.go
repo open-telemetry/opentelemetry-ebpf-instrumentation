@@ -14,6 +14,15 @@ import (
 )
 
 var spanSet = []request.Span{
+	{Pid: request.PidInfo{UserPID: 33, HostPID: 123, Namespace: 33}},
+	{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
+	{Pid: request.PidInfo{UserPID: 66, HostPID: 456, Namespace: 33}},
+	{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
+	{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
+	{Pid: request.PidInfo{UserPID: 1000, HostPID: 1234, Namespace: 44}},
+}
+
+var spanSetWithPaths = []request.Span{
 	{Pid: request.PidInfo{UserPID: 33, HostPID: 123, Namespace: 33}, Path: "/something"},
 	{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/traces"},
 	{Pid: request.PidInfo{UserPID: 66, HostPID: 456, Namespace: 33}, Path: "/v1/metrics"},
@@ -34,7 +43,7 @@ func TestFilter_SameNS(t *testing.T) {
 	// with the same namespace, it filters by user PID, as it is the PID
 	// that is seen by Beyla's process discovery
 	assert.Equal(t, []request.Span{
-		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/traces"},
+		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 	}, resetTraceContext(pf.Filter(spanSet)))
@@ -84,16 +93,16 @@ func TestFilter_NewNSLater(t *testing.T) {
 	// with the same namespace, it filters by user PID, as it is the PID
 	// that is seen by Beyla's process discovery
 	assert.Equal(t, []request.Span{
-		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/metrics"},
-		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}, Path: "/v1/traces"},
+		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
+		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 	}, resetTraceContext(pf.Filter(spanSet)))
 
 	pf.AllowPID(1000, 44, &svc.Attrs{}, PIDTypeGo)
 
 	assert.Equal(t, []request.Span{
-		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/metrics"},
-		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}, Path: "/v1/traces"},
+		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
+		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 1000, HostPID: 1234, Namespace: 44}},
 	}, resetTraceContext(pf.Filter(spanSet)))
@@ -101,7 +110,7 @@ func TestFilter_NewNSLater(t *testing.T) {
 	pf.BlockPID(456, 33)
 
 	assert.Equal(t, []request.Span{
-		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/metrics"},
+		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 1000, HostPID: 1234, Namespace: 44}},
 	}, resetTraceContext(pf.Filter(spanSet)))
@@ -109,7 +118,7 @@ func TestFilter_NewNSLater(t *testing.T) {
 	pf.BlockPID(1000, 44)
 
 	assert.Equal(t, []request.Span{
-		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/metrics"},
+		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 	}, resetTraceContext(pf.Filter(spanSet)))
 }
@@ -181,12 +190,12 @@ func TestFilter_TriggersOTelFiltering(t *testing.T) {
 	pf.AllowPID(66, 33, &commonSvc, PIDTypeGo)
 	pf.AllowPID(789, 33, &commonSvc, PIDTypeGo)
 
-	testSpans := make([]request.Span, len(spanSet))
+	testSpans := make([]request.Span, len(spanSetWithPaths))
 
 	service := svc.Attrs{}
 
-	for i := range spanSet {
-		testSpans[i] = spanSet[i]
+	for i := range spanSetWithPaths {
+		testSpans[i] = spanSetWithPaths[i]
 		testSpans[i].Service = service
 		testSpans[i].Status = 200
 		testSpans[i].Type = request.EventTypeHTTPClient
@@ -226,12 +235,12 @@ func TestFilter_TriggersOTelSpanFiltering(t *testing.T) {
 	pf.AllowPID(66, 33, &commonSvc, PIDTypeGo)
 	pf.AllowPID(789, 33, &commonSvc, PIDTypeGo)
 
-	testSpans := make([]request.Span, len(spanSet))
+	testSpans := make([]request.Span, len(spanSetWithPaths))
 
 	service := svc.Attrs{}
 
-	for i := range spanSet {
-		testSpans[i] = spanSet[i]
+	for i := range spanSetWithPaths {
+		testSpans[i] = spanSetWithPaths[i]
 		testSpans[i].Service = service
 		testSpans[i].Status = 200
 		testSpans[i].Type = request.EventTypeHTTPClient
