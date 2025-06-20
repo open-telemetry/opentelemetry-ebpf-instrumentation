@@ -1,6 +1,6 @@
 # Build the autoinstrumenter binary
 # TODO: replace by OTEL image once they are uploaded
-FROM ghcr.io/grafana/beyla-ebpf-generator:main@sha256:f3eb4736726899ac853e29d30a8cbb36669da2e2c07cacf9a9582f3971558c8b AS builder
+FROM ghcr.io/grafana/beyla-ebpf-generator:main@sha256:5b4bcbcfcecda0d6e869e03f7ccffc940bcab4c34cee6995bb5f31083f9e3fcc AS builder
 
 # TODO: embed software version in executable
 
