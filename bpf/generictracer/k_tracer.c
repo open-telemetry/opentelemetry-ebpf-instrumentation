@@ -175,6 +175,29 @@ int BPF_KPROBE(beyla_kprobe_sys_connect) {
     return 0;
 }
 
+SEC("kprobe/sys_connect")
+int BPF_KPROBE(beyla_kprobe_sys_connect) {
+    u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    // unwrap fd because of sys call
+    int fd;
+    struct pt_regs *__ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
+    bpf_probe_read(&fd, sizeof(int), (void *)&PT_REGS_PARM1(__ctx));
+
+    bpf_dbg_printk("=== connect id=%d, fd=%d ===", id, fd);
+
+    sock_args_t args = {0};
+    args.fd = fd;
+
+    bpf_map_update_elem(&active_connect_args, &id, &args, BPF_ANY);
+
+    return 0;
+}
+
 // Used by connect so that we can grab the sock details
 SEC("kprobe/tcp_connect")
 int BPF_KPROBE(beyla_kprobe_tcp_connect, struct sock *sk) {
