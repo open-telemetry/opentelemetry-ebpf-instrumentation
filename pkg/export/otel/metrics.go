@@ -517,7 +517,7 @@ func (mr *MetricsReporter) graphMetricOptions(mlog *slog.Logger) []metric.Option
 
 func (mr *MetricsReporter) setupTargetInfo(m *Metrics, meter instrument.Meter) error {
 	var err error
-	m.targetInfo, err = meter.Int64UpDownCounter(TargetInfo)
+	m.targetInfo, err = meter.Int64UpDownCounter(TargetInfo, instrument.WithDescription("Target metadata"))
 	if err != nil {
 		return fmt.Errorf("creating target info: %w", err)
 	}
