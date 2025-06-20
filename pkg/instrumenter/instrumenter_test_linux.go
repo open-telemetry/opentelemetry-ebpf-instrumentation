@@ -74,5 +74,5 @@ func TestNetworkEnabled(t *testing.T) {
 	t.Setenv("BEYLA_NETWORK_METRICS", "true")
 	cfg, err := beyla.LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
-	assert.Empty(t, mustSkip(cfg))
+	assert.True(t, cfg.Enabled(beyla.FeatureNetO11y))
 }
