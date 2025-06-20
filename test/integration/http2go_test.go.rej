@@ -1,0 +1,9 @@
+diff a/test/integration/http2go_test.go b/test/integration/http2go_test.go	(rejected hunks)
+@@ -11,7 +11,6 @@ import (
+ 	"time"
+ 
+ 	"github.com/mariomac/guara/pkg/test"
+-	"github.com/stretchr/testify/assert"
+ 	"github.com/stretchr/testify/require"
+ 
+ 	"github.com/grafana/beyla/v2/test/integration/components/docker"
