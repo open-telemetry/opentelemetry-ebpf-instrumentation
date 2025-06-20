@@ -14,9 +14,9 @@ import (
 )
 
 var spanSet = []request.Span{
-	{Pid: request.PidInfo{UserPID: 33, HostPID: 123, Namespace: 33}},
-	{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
-	{Pid: request.PidInfo{UserPID: 66, HostPID: 456, Namespace: 33}},
+	{Pid: request.PidInfo{UserPID: 33, HostPID: 123, Namespace: 33}, Path: "/something"},
+	{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/traces"},
+	{Pid: request.PidInfo{UserPID: 66, HostPID: 456, Namespace: 33}, Path: "/v1/metrics"},
 	{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
 	{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 	{Pid: request.PidInfo{UserPID: 1000, HostPID: 1234, Namespace: 44}},
@@ -34,7 +34,7 @@ func TestFilter_SameNS(t *testing.T) {
 	// with the same namespace, it filters by user PID, as it is the PID
 	// that is seen by Beyla's process discovery
 	assert.Equal(t, []request.Span{
-		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
+		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/traces"},
 		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 	}, resetTraceContext(pf.Filter(spanSet)))
@@ -84,16 +84,16 @@ func TestFilter_NewNSLater(t *testing.T) {
 	// with the same namespace, it filters by user PID, as it is the PID
 	// that is seen by Beyla's process discovery
 	assert.Equal(t, []request.Span{
-		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
-		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
+		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/metrics"},
+		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}, Path: "/v1/traces"},
 		{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 	}, resetTraceContext(pf.Filter(spanSet)))
 
 	pf.AllowPID(1000, 44, &svc.Attrs{}, PIDTypeGo)
 
 	assert.Equal(t, []request.Span{
-		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
-		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
+		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/metrics"},
+		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}, Path: "/v1/traces"},
 		{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 1000, HostPID: 1234, Namespace: 44}},
 	}, resetTraceContext(pf.Filter(spanSet)))
@@ -101,7 +101,7 @@ func TestFilter_NewNSLater(t *testing.T) {
 	pf.BlockPID(456, 33)
 
 	assert.Equal(t, []request.Span{
-		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
+		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/metrics"},
 		{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 1000, HostPID: 1234, Namespace: 44}},
 	}, resetTraceContext(pf.Filter(spanSet)))
@@ -109,7 +109,7 @@ func TestFilter_NewNSLater(t *testing.T) {
 	pf.BlockPID(1000, 44)
 
 	assert.Equal(t, []request.Span{
-		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
+		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}, Path: "/v1/metrics"},
 		{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 	}, resetTraceContext(pf.Filter(spanSet)))
 }
@@ -166,6 +166,96 @@ func TestFilter_ExportsOTelSpanDetection(t *testing.T) {
 	assert.False(t, s.ExportsOTelTraces())
 	checkIfExportsOTel(&s, &span)
 	assert.True(t, s.ExportsOTelTraces())
+}
+
+func TestFilter_TriggersOTelFiltering(t *testing.T) {
+	readNamespacePIDs = func(pid int32) ([]uint32, error) {
+		return []uint32{uint32(pid)}, nil
+	}
+	pf := newPIDsFilter(&services.DiscoveryConfig{ExcludeOTelInstrumentedServices: true, ExcludeOTelInstrumentedServicesSpanMetrics: true}, slog.With("env", "testing"))
+
+	commonSvc := svc.Attrs{}
+	pf.AllowPID(33, 33, &commonSvc, PIDTypeGo)
+	pf.AllowPID(123, 33, &commonSvc, PIDTypeGo)
+	pf.AllowPID(456, 33, &commonSvc, PIDTypeGo)
+	pf.AllowPID(66, 33, &commonSvc, PIDTypeGo)
+	pf.AllowPID(789, 33, &commonSvc, PIDTypeGo)
+
+	testSpans := make([]request.Span, len(spanSet))
+
+	service := svc.Attrs{}
+
+	for i := range spanSet {
+		testSpans[i] = spanSet[i]
+		testSpans[i].Service = service
+		testSpans[i].Status = 200
+		testSpans[i].Type = request.EventTypeHTTPClient
+	}
+
+	filtered := filterService(pf.Filter(testSpans))
+	assert.Len(t, filtered, 5)
+
+	// the first one didn't see any of the /v1/metrics, /v1/traces URLs in traffic
+	assert.False(t, filtered[0].ExportsOTelMetrics())
+	assert.False(t, filtered[0].ExportsOTelMetricsSpan())
+	assert.False(t, filtered[0].ExportsOTelTraces())
+
+	// second one saw /v1/traces so we marked both traces and span metrics as exported
+	assert.False(t, filtered[1].ExportsOTelMetrics())
+	assert.True(t, filtered[1].ExportsOTelMetricsSpan())
+	assert.True(t, filtered[1].ExportsOTelTraces())
+
+	// after the third, which has url /v1/metrics, we detected everything exported
+	for i := 2; i < 5; i++ {
+		assert.True(t, filtered[i].ExportsOTelMetrics())
+		assert.True(t, filtered[i].ExportsOTelMetricsSpan())
+		assert.True(t, filtered[i].ExportsOTelTraces())
+	}
+}
+
+func TestFilter_TriggersOTelSpanFiltering(t *testing.T) {
+	readNamespacePIDs = func(pid int32) ([]uint32, error) {
+		return []uint32{uint32(pid)}, nil
+	}
+	pf := newPIDsFilter(&services.DiscoveryConfig{ExcludeOTelInstrumentedServices: true}, slog.With("env", "testing"))
+
+	commonSvc := svc.Attrs{}
+	pf.AllowPID(33, 33, &commonSvc, PIDTypeGo)
+	pf.AllowPID(123, 33, &commonSvc, PIDTypeGo)
+	pf.AllowPID(456, 33, &commonSvc, PIDTypeGo)
+	pf.AllowPID(66, 33, &commonSvc, PIDTypeGo)
+	pf.AllowPID(789, 33, &commonSvc, PIDTypeGo)
+
+	testSpans := make([]request.Span, len(spanSet))
+
+	service := svc.Attrs{}
+
+	for i := range spanSet {
+		testSpans[i] = spanSet[i]
+		testSpans[i].Service = service
+		testSpans[i].Status = 200
+		testSpans[i].Type = request.EventTypeHTTPClient
+	}
+
+	filtered := filterService(pf.Filter(testSpans))
+	assert.Len(t, filtered, 5)
+
+	// the first one didn't see any of the /v1/metrics, /v1/traces URLs in traffic
+	assert.False(t, filtered[0].ExportsOTelMetrics())
+	assert.False(t, filtered[0].ExportsOTelMetricsSpan())
+	assert.False(t, filtered[0].ExportsOTelTraces())
+
+	// second one saw /v1/traces so we marked traces as exported, but not span metrics because the default config is false
+	assert.False(t, filtered[1].ExportsOTelMetrics())
+	assert.False(t, filtered[1].ExportsOTelMetricsSpan())
+	assert.True(t, filtered[1].ExportsOTelTraces())
+
+	// after the third, which has url /v1/metrics, we detected everything exported, but not span metrics
+	for i := 2; i < 5; i++ {
+		assert.True(t, filtered[i].ExportsOTelMetrics())
+		assert.False(t, filtered[i].ExportsOTelMetricsSpan())
+		assert.True(t, filtered[i].ExportsOTelTraces())
+	}
 }
 
 func TestFilter_Cleanup(t *testing.T) {
@@ -232,4 +322,13 @@ func resetTraceContext(spans []request.Span) []request.Span {
 	}
 
 	return spans
+}
+
+func filterService(spans []request.Span) []svc.Attrs {
+	result := []svc.Attrs{}
+	for i := range spans {
+		result = append(result, spans[i].Service)
+	}
+
+	return result
 }
