@@ -125,6 +125,8 @@ func testREDMetricsRailsHTTPS(t *testing.T) {
 }
 
 // Assumes we've run the metrics tests
+//
+//nolint:testifylint
 func testHTTPTracesNestedNginx(t *testing.T) {
 	for i := 1; i <= 4; i++ {
 		go doHTTPGet(t, "https://localhost:8443/users/"+strconv.Itoa(i), 200)
@@ -160,7 +162,6 @@ func testHTTPTracesNestedNginx(t *testing.T) {
 			require.NotEmpty(t, client.TraceID)
 			require.Equal(t, server.TraceID, client.TraceID)
 			require.NotEmpty(t, client.SpanID)
-
 		}, test.Interval(100*time.Millisecond))
 	}
 }
