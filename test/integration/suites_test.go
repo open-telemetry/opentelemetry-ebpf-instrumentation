@@ -315,10 +315,11 @@ func TestSuite_NodeJSTLS(t *testing.T) {
 
 func TestSuite_Rails(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby.yml", path.Join(pathOutput, "test-suite-ruby.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
 	require.NoError(t, compose.Close())
 }
 
