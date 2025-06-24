@@ -3,6 +3,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_endian.h>
 #include <bpfcore/bpf_helpers.h>
+#include <bpfcore/utils.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -29,6 +30,11 @@ struct nodejs_ev_t {
     u8 crc;
 };
 
+union ipc_buffer {
+    struct ipc_header_t hdr;
+    struct nodejs_ev_t njs;
+};
+
 static __always_inline uint8_t crc8(const unsigned char *data, u8 size) {
     const u8 polynomial = 0x07;
 
@@ -50,18 +56,16 @@ static __always_inline uint8_t crc8(const unsigned char *data, u8 size) {
     return crc;
 }
 
-static __always_inline int handle_ev_nodejs(const struct ipc_header_t *hdr, size_t buf_size) {
+static __always_inline int handle_ev_nodejs(const union ipc_buffer *ev) {
     const size_t ev_size = sizeof(struct nodejs_ev_t);
 
-    bpf_dbg_printk("checking for node ipc event size=%u, buf_size=%u", hdr->size, buf_size);
+    bpf_dbg_printk("checking for node ipc event size=%u, expected = %llu", ev->hdr.size, ev_size);
 
-    if (hdr->size != ev_size || buf_size < ev_size) {
+    if (ev->hdr.size != ev_size) {
         return 0;
     }
 
-    const struct nodejs_ev_t *ev = (const struct nodejs_ev_t *)hdr;
-
-    const u8 crc = crc8((const unsigned char *)ev, sizeof(*ev));
+    const u8 crc = crc8((const unsigned char *)ev, ev_size);
 
     bpf_dbg_printk("calculated CRC = %u", crc);
 
@@ -69,8 +73,8 @@ static __always_inline int handle_ev_nodejs(const struct ipc_header_t *hdr, size
         return 0;
     }
 
-    const s32 serverFD = bpf_ntohl(ev->serverFD);
-    const s32 clientFD = bpf_ntohl(ev->clientFD);
+    const s32 serverFD = bpf_ntohl(ev->njs.serverFD);
+    const s32 clientFD = bpf_ntohl(ev->njs.clientFD);
     const u64 pid_tgid = bpf_get_current_pid_tgid();
     const u64 key = (pid_tgid << 32) | clientFD;
 
@@ -86,20 +90,30 @@ static __always_inline int handle_ev_nodejs(const struct ipc_header_t *hdr, size
 // communicate the file descriptors of the incoming and outgoing calls - this
 // could be extended in the future (and potentially become a tail call target)
 static __always_inline int handle_ebpf_ipc(const void *buf, size_t buf_size) {
-    if (buf_size < sizeof(struct ipc_header_t)) {
+    // events don't usually share buffers with other traffic, so the following
+    // sanity check ensures we bail early if the buffer is unlikely to contain
+    // an event
+    if (buf_size < sizeof(struct ipc_header_t) || buf_size > sizeof(union ipc_buffer)) {
         return 0;
     }
 
-    const struct ipc_header_t *hdr = (const struct ipc_header_t *)buf;
-    const u32 marker = bpf_ntohl(hdr->marker);
+    union ipc_buffer ev;
+
+    bpf_clamp_umax(buf_size, sizeof(union ipc_buffer));
+
+    if (bpf_probe_read(&ev, buf_size, buf) != 0) {
+        return 0;
+    }
+
+    const u32 marker = bpf_ntohl(ev.hdr.marker);
 
     if (marker != k_ebpf_ipc_magic) {
         return 0;
     }
 
-    switch (hdr->type) {
+    switch (ev.hdr.type) {
     case IPC_EV_NODEJS:
-        return handle_ev_nodejs(hdr, buf_size);
+        return handle_ev_nodejs(&ev);
     }
 
     return 0;
