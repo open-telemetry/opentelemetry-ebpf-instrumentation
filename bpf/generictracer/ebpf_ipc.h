@@ -5,6 +5,8 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
+#include <common/scratch_mem.h>
+
 #include <logger/bpf_dbg.h>
 
 #include <maps/nodejs_fd_map.h>
@@ -15,25 +17,27 @@ typedef enum ev_type : u8 {
     IPC_EV_NODEJS,
 } ev_type;
 
-struct ipc_header_t {
+typedef struct ipc_header_t {
     u32 marker;
     ev_type type;
     u8 size;
     u8 _pad[2];
-};
+} ipc_header;
 
-struct nodejs_ev_t {
-    struct ipc_header_t hdr;
+typedef struct nodejs_ev_t {
+    ipc_header hdr;
     u32 serverFD;
     u32 clientFD;
     u8 _pad[3];
     u8 crc;
-};
+} nodejs_ev;
 
-union ipc_buffer {
-    struct ipc_header_t hdr;
-    struct nodejs_ev_t njs;
-};
+typedef union ipc_buffer_t {
+    ipc_header hdr;
+    nodejs_ev njs;
+} ipc_buffer;
+
+SCRATCH_MEM(ipc_buffer)
 
 static __always_inline uint8_t crc8(const unsigned char *data, u8 size) {
     const u8 polynomial = 0x07;
@@ -56,8 +60,8 @@ static __always_inline uint8_t crc8(const unsigned char *data, u8 size) {
     return crc;
 }
 
-static __always_inline int handle_ev_nodejs(const union ipc_buffer *ev) {
-    const size_t ev_size = sizeof(struct nodejs_ev_t);
+static __always_inline int handle_ev_nodejs(const ipc_buffer *ev) {
+    const size_t ev_size = sizeof(nodejs_ev);
 
     bpf_dbg_printk("checking for node ipc event size=%u, expected = %llu", ev->hdr.size, ev_size);
 
@@ -93,27 +97,31 @@ static __always_inline int handle_ebpf_ipc(const void *buf, size_t buf_size) {
     // events don't usually share buffers with other traffic, so the following
     // sanity check ensures we bail early if the buffer is unlikely to contain
     // an event
-    if (buf_size < sizeof(struct ipc_header_t) || buf_size > sizeof(union ipc_buffer)) {
+    if (buf_size < sizeof(ipc_header) || buf_size > sizeof(ipc_buffer)) {
         return 0;
     }
 
-    union ipc_buffer ev;
+    ipc_buffer *ev = (ipc_buffer *)ipc_buffer_mem();
 
-    bpf_clamp_umax(buf_size, sizeof(union ipc_buffer));
-
-    if (bpf_probe_read(&ev, buf_size, buf) != 0) {
+    if (!ev) {
         return 0;
     }
 
-    const u32 marker = bpf_ntohl(ev.hdr.marker);
+    bpf_clamp_umax(buf_size, sizeof(ipc_buffer));
+
+    if (bpf_probe_read(ev, buf_size, buf) != 0) {
+        return 0;
+    }
+
+    const u32 marker = bpf_ntohl(ev->hdr.marker);
 
     if (marker != k_ebpf_ipc_magic) {
         return 0;
     }
 
-    switch (ev.hdr.type) {
+    switch (ev->hdr.type) {
     case IPC_EV_NODEJS:
-        return handle_ev_nodejs(&ev);
+        return handle_ev_nodejs(ev);
     }
 
     return 0;
