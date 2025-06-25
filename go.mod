@@ -15,7 +15,7 @@ require (
 	github.com/goccy/go-json v0.10.5
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
-	github.com/gorilla/websocket v1.5.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/grafana/go-offsets-tracker v0.1.7
 	github.com/grafana/jvmtools v0.0.3
 	github.com/hashicorp/go-version v1.7.0
