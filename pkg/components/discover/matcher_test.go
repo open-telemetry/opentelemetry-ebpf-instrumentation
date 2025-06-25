@@ -1,10 +1,8 @@
 package discover
 
 import (
-	"regexp"
 	"testing"
 
-	"github.com/gobwas/glob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -362,18 +360,18 @@ func TestInstrumentation_CoexistingWithDeprecatedServices(t *testing.T) {
 		name string
 		cfg  beyla.Config
 	}
-	pass := services.NewGlob(glob.MustCompile("*/must-pass"))
-	notPass := services.NewGlob(glob.MustCompile("*/dont-pass"))
-	neitherPass := services.NewGlob(glob.MustCompile("*/neither-pass"))
-	bothPass := services.NewGlob(glob.MustCompile("*/{must,also}-pass"))
+	pass := services.NewGlob("*/must-pass")
+	notPass := services.NewGlob("*/dont-pass")
+	neitherPass := services.NewGlob("*/neither-pass")
+	bothPass := services.NewGlob("*/{must,also}-pass")
 
 	passPort := services.PortEnum{Ranges: []services.PortRange{{Start: 80}}}
 	allPorts := services.PortEnum{Ranges: []services.PortRange{{Start: 1, End: 65535}}}
 
-	passRE := services.NewPathRegexp(regexp.MustCompile("must-pass"))
-	notPassRE := services.NewPathRegexp(regexp.MustCompile("dont-pass"))
-	neitherPassRE := services.NewPathRegexp(regexp.MustCompile("neither-pass"))
-	bothPassRE := services.NewPathRegexp(regexp.MustCompile("(must|also)-pass"))
+	passRE := services.NewRegexp("must-pass")
+	notPassRE := services.NewRegexp("dont-pass")
+	neitherPassRE := services.NewRegexp("neither-pass")
+	bothPassRE := services.NewRegexp("(must|also)-pass")
 
 	for _, tc := range []testCase{
 		{name: "discovery > instrument", cfg: beyla.Config{Discovery: services.DiscoveryConfig{
@@ -411,7 +409,7 @@ func TestInstrumentation_CoexistingWithDeprecatedServices(t *testing.T) {
 			name: "discovery > instrument ignoring deprecated path option",
 			cfg: beyla.Config{Discovery: services.DiscoveryConfig{
 				Instrument: services.GlobDefinitionCriteria{{Path: pass}, {OpenPorts: passPort}},
-			}, Exec: services.NewPathRegexp(regexp.MustCompile("dont-pass"))},
+			}, Exec: services.NewRegexp("dont-pass")},
 		},
 		// cases below would be removed if the deprecated discovery > services options are removed,
 		{name: "deprecated discovery > services", cfg: beyla.Config{Discovery: services.DiscoveryConfig{

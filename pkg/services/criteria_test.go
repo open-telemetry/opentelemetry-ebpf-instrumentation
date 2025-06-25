@@ -141,3 +141,34 @@ services:
 	assert.True(t, other["k8s_replicaset_name"].MatchString("bbc"))
 	assert.False(t, other["k8s_replicaset_name"].MatchString("aa"))
 }
+
+func TestYAMLMarshal_CustomTypes(t *testing.T) {
+	type tc struct {
+		PortEnum    PortEnum
+		Regex       RegexpAttr
+		Glob        GlobAttr
+		PortEnumPtr *PortEnum
+		RegexPtr    *RegexpAttr
+		GlobPtr     *GlobAttr
+	}
+	cases := &tc{
+		PortEnum: PortEnum{
+			Ranges: []PortRange{{Start: 80}, {Start: 8080, End: 8099}, {Start: 443}},
+		},
+		Regex: NewRegexp("^foo.*$"),
+		Glob:  NewGlob("bar*"),
+	}
+	cases.RegexPtr = &cases.Regex
+	cases.GlobPtr = &cases.Glob
+	cases.PortEnumPtr = &cases.PortEnum
+
+	yamlOut, err := yaml.Marshal(cases)
+	require.NoError(t, err)
+	assert.YAMLEq(t, `portenum: 80,8080-8099,443
+regex: ^foo.*$
+glob: bar*
+portenumptr: 80,8080-8099,443
+regexptr: ^foo.*$
+globptr: bar*
+`, string(yamlOut))
+}
