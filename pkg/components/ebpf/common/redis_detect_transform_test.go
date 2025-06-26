@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/hashicorp/golang-lru/v2/simplelru"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -73,4 +75,49 @@ func TestIsRedis(t *testing.T) {
 	rbuf := []byte{36, 45, 49, 13, 10, 1, 0, 15, 0, 3, 89, 130, 0, 32, 99, 111, 110, 115, 117, 109, 101, 114, 45, 102, 114, 97, 117, 100, 100, 101, 116, 101, 99, 116, 105, 111, 110, 115, 101, 114, 118, 105, 99, 101, 45, 49, 0, 0, 0, 1, 244, 0, 0, 0, 1, 3, 32, 0, 0, 0, 17, 170, 173, 222, 0, 0, 141, 2, 1, 1, 1, 0, 101, 112, 116, 45, 114, 97, 110, 103, 101, 115, 58, 32, 98, 121, 116, 101, 115, 13, 10, 108, 97, 115, 116, 45, 109, 111, 100, 105, 102, 105, 101, 100, 58, 32, 70, 114, 105, 44, 32, 48, 55, 32, 74, 117, 110, 32, 50, 48, 50, 52, 32, 48, 48, 58, 53, 55}
 	assert.True(t, isRedis(buf))
 	assert.True(t, isRedis(rbuf))
+}
+
+func TestGetRedisDb(t *testing.T) {
+	cache, _ := simplelru.NewLRU[BpfConnectionInfoT, int](1000, nil)
+	connInfo := BpfConnectionInfoT{
+		S_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1},
+		D_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 8, 8, 8, 8},
+		S_port: 6379,
+		D_port: 6379,
+	}
+	var db int
+	var found bool
+
+	_, found = getRedisDB(connInfo, "GET", "GET obi", cache)
+	assert.False(t, found, "Expected Redis DB to not be found for non tracked connection")
+
+	_, found = getRedisDB(connInfo, "SELECT", "SELECT 0", cache)
+	assert.False(t, found, "Expected Redis DB to be when selecting a db")
+	db, found = getRedisDB(connInfo, "GET", "GET obi", cache)
+	assert.True(t, found, "Expected Redis DB to be 0 after selecting db 0")
+	assert.Equal(t, 0, db, "Expected Redis DB to be 0 after selecting db 0")
+
+	db, found = getRedisDB(connInfo, "SELECT", "SELECT 1", cache)
+	assert.True(t, found, "Expected Redis DB to be 0 after selecting a db")
+	assert.Equal(t, 0, db, "Expected Redis DB to be 0 after selecting a db")
+
+	db, found = getRedisDB(connInfo, "GET", "GET obi", cache)
+	assert.True(t, found, "Expected Redis DB to be 1 after selecting a db 1")
+	assert.Equal(t, 1, db, "Expected Redis DB to be 1 after selecting a db 1")
+
+	connInfo2 := BpfConnectionInfoT{
+		S_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1},
+		D_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 8, 8, 8, 8},
+		S_port: 6380,
+		D_port: 6380,
+	}
+	_, found = getRedisDB(connInfo2, "GET", "GET obi", cache)
+	assert.False(t, found, "Expected Redis DB to not be found for different connection")
+
+	db, found = getRedisDB(connInfo, "QUIT", "QUIT", cache)
+	assert.True(t, found, "Expected Redis DB to be found when quitting the connection")
+	assert.Equal(t, 1, db, "Expected Redis DB to be 1 when quitting the connection")
+	// After quitting the connection, the db should be removed from the cache
+	_, found = getRedisDB(connInfo, "GET", "GET OBI", cache)
+	assert.False(t, found, "Expected Redis DB to not be found after quitting the connection")
 }

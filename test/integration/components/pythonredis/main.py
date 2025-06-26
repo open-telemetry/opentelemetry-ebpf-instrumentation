@@ -69,6 +69,21 @@ def redis_error_test():
     # try to eval a script with an invalid SHA
     try_redis_command(redis_cli, 'EVALSHA', 'INVALID_SHA', '0')
     return 'done', 200
+
+@app.get("/redis-db")
+def redis_error_test():
+    db1_redis_cli = redis.Redis(
+        host='redis',
+        port=6379,
+        decode_responses=True,
+        db=1  # Use a different database
+    )
+
+    db1_redis_cli.set('obi-db-1', 'rocks')
+    db1_redis_cli.get('obi-db-1')
+
+    return 'done', 200
+
 if __name__ == "__main__":
     print(f"Server running: port={8080} process_id={os.getpid()}")
     uvicorn.run(app, host="0.0.0.0", port=8080)

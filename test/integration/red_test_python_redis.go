@@ -114,7 +114,6 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 	redisCommonAttributes := []attribute.KeyValue{
 		attribute.String("db.system.name", "redis"),
 		attribute.String("span.kind", "client"),
-		// TODO for some reason finding integer attributes is not working
 		attribute.Int("server.port", 6379),
 	}
 	testCases := []TestCase{
@@ -195,6 +194,37 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 						attribute.Bool("error", true),
 						attribute.String("db.response.status_code", "NOSCRIPT"),
 						attribute.String("otel.status_description", "NOSCRIPT No matching script. Please use EVAL."),
+					},
+				},
+			},
+		},
+		{
+			Route:     "http://localhost:8381",
+			Subpath:   "redis-db",
+			Comm:      "python3.12",
+			Namespace: "integration-test",
+			Spans: []TestCaseSpan{
+				{
+					Name: "SELECT",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "SELECT"),
+						attribute.String("db.query.text", "SELECT 1"),
+					},
+				},
+				{
+					Name: "SET",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "SET"),
+						attribute.String("db.query.text", "SET obi-db-1 rocks"),
+						attribute.String("db.namespace", "1"),
+					},
+				},
+				{
+					Name: "GET",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "GET"),
+						attribute.String("db.query.text", "GET obi-db-1"),
+						attribute.String("db.namespace", "1"),
 					},
 				},
 			},

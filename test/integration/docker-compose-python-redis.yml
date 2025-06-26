@@ -33,7 +33,7 @@ services:
     network_mode: "service:testserver"
     pid: "service:testserver"
     environment:
-      OTEL_EBPF_CONFIG_PATH: "/configs/instrumenter-config.yml"
+      OTEL_EBPF_CONFIG_PATH: "/configs/instrumenter-config-redis.yml"
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
