@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,7 +24,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/sqlprune"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
@@ -1118,30 +1116,6 @@ func TestTracesSkipsInstrumented(t *testing.T) {
 			assert.Equal(t, tt.filtered, len(traces) == 0, tt.name)
 		})
 	}
-}
-
-type fakeInternalTraces struct {
-	imetrics.NoopReporter
-	sum  atomic.Int32
-	cnt  atomic.Int32
-	errs atomic.Int32
-}
-
-func (f *fakeInternalTraces) OTELTraceExport(length int) {
-	f.cnt.Add(1)
-	f.sum.Add(int32(length))
-}
-
-func (f *fakeInternalTraces) OTELTraceExportError(_ error) {
-	f.errs.Add(1)
-}
-
-func (f *fakeInternalTraces) Errors() int {
-	return int(f.errs.Load())
-}
-
-func (f *fakeInternalTraces) SumCount() (sum, count int) {
-	return int(f.sum.Load()), int(f.cnt.Load())
 }
 
 // stores the values of some modified env vars to avoid
