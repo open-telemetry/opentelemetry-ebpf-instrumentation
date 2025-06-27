@@ -482,12 +482,12 @@ func (mr *MetricsReporter) otelMetricOptions(mlog *slog.Logger) []metric.Option 
 	return opts
 }
 
-func (mr *MetricsReporter) usesOTelSpanNames() bool {
+func (mr *MetricsReporter) usesLegacySpanNames() bool {
 	return slices.Contains(mr.cfg.Features, FeatureSpan)
 }
 
 func (mr *MetricsReporter) spanMetricsLatencyName() string {
-	if mr.usesOTelSpanNames() {
+	if mr.usesLegacySpanNames() {
 		return SpanMetricsLatency
 	}
 
@@ -654,7 +654,7 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 }
 
 func (mr *MetricsReporter) spanMetricsCallsName() string {
-	if mr.usesOTelSpanNames() {
+	if mr.usesLegacySpanNames() {
 		return SpanMetricsCalls
 	}
 
@@ -709,7 +709,7 @@ func (mr *MetricsReporter) setupSpanMeters(m *Metrics, meter instrument.Meter) e
 
 	instrumentOpts := []instrument.Float64HistogramOption{}
 
-	if mr.usesOTelSpanNames() {
+	if !mr.usesLegacySpanNames() {
 		instrumentOpts = append(instrumentOpts, instrument.WithUnit("s"))
 	}
 
