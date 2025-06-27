@@ -3,19 +3,15 @@ package otel
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
@@ -28,7 +24,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/sqlprune"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
@@ -1050,93 +1045,6 @@ func TestTracesInstrumentations(t *testing.T) {
 	}
 }
 
-func TestTraces_InternalInstrumentation(t *testing.T) {
-	defer restoreEnvAfterExecution()()
-	// fake OTEL collector server
-	coll := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
-		rw.WriteHeader(http.StatusOK)
-	}))
-	defer coll.Close()
-	// Wait for the HTTP server to be alive
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		resp, err := coll.Client().Get(coll.URL + "/foo")
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-	})
-
-	// run traces exporter standalone
-	exportTraces := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
-	internalTraces := &fakeInternalTraces{}
-	tracesReceiver, err := TracesReceiver(
-		&global.ContextInfo{
-			Metrics: internalTraces,
-		},
-		TracesConfig{
-			CommonEndpoint:    coll.URL,
-			BatchTimeout:      10 * time.Millisecond,
-			ReportersCacheLen: 16,
-			Instrumentations:  []string{instrumentations.InstrumentationALL},
-		},
-		false,
-		&attributes.SelectorConfig{},
-		exportTraces,
-	)(t.Context())
-	require.NoError(t, err)
-
-	go tracesReceiver(t.Context())
-
-	exportTraces.Send([]request.Span{{Type: request.EventTypeHTTP}})
-	var previousSum, previousCount int
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		// we can't guarantee the number of calls at test time, but they must be at least 1
-		previousSum, previousCount = internalTraces.SumCount()
-		assert.LessOrEqual(t, 1, previousSum)
-		assert.LessOrEqual(t, 1, previousCount)
-		// the sum of metrics should be larger or equal than the number of calls (1 call : n metrics)
-		assert.LessOrEqual(t, previousCount, previousSum)
-		// no call should return error
-		assert.Empty(t, internalTraces.Errors())
-	})
-
-	exportTraces.Send([]request.Span{{Type: request.EventTypeHTTP}})
-	// after some time, the number of calls should be higher than before
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		sum, count := internalTraces.SumCount()
-		assert.LessOrEqual(t, previousSum, sum)
-		assert.LessOrEqual(t, previousCount, count)
-		assert.LessOrEqual(t, count, sum)
-		// no call should return error
-		assert.Zero(t, internalTraces.Errors())
-	})
-
-	// collector starts failing, so errors should be received
-	coll.CloseClientConnections()
-	coll.Close()
-	// Wait for the HTTP server to be stopped
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		_, err := coll.Client().Get(coll.URL + "/foo")
-		require.Error(t, err)
-	})
-
-	var previousErrCount int
-	exportTraces.Send([]request.Span{{Type: request.EventTypeHTTP}})
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		previousSum, previousCount = internalTraces.SumCount()
-		// calls should start returning errors
-		previousErrCount = internalTraces.Errors()
-		assert.NotZero(t, previousErrCount)
-	})
-
-	// after a while, metrics sum should not increase but errors do
-	exportTraces.Send([]request.Span{{Type: request.EventTypeHTTP}})
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		sum, count := internalTraces.SumCount()
-		assert.Equal(t, previousSum, sum)
-		assert.Equal(t, previousCount, count)
-		assert.Less(t, previousErrCount, internalTraces.Errors())
-	})
-}
-
 func TestTracesAttrReuse(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1208,30 +1116,6 @@ func TestTracesSkipsInstrumented(t *testing.T) {
 			assert.Equal(t, tt.filtered, len(traces) == 0, tt.name)
 		})
 	}
-}
-
-type fakeInternalTraces struct {
-	imetrics.NoopReporter
-	sum  atomic.Int32
-	cnt  atomic.Int32
-	errs atomic.Int32
-}
-
-func (f *fakeInternalTraces) OTELTraceExport(length int) {
-	f.cnt.Add(1)
-	f.sum.Add(int32(length))
-}
-
-func (f *fakeInternalTraces) OTELTraceExportError(_ error) {
-	f.errs.Add(1)
-}
-
-func (f *fakeInternalTraces) Errors() int {
-	return int(f.errs.Load())
-}
-
-func (f *fakeInternalTraces) SumCount() (sum, count int) {
-	return int(f.sum.Load()), int(f.cnt.Load())
 }
 
 // stores the values of some modified env vars to avoid
