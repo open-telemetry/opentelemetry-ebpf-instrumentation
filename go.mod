@@ -20,7 +20,7 @@ require (
 	github.com/grafana/jvmtools v0.0.3
 	github.com/hashicorp/go-version v1.7.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/ianlancetaylor/demangle v0.0.0-20250625212726-86fd2c0a1a74
+	github.com/ianlancetaylor/demangle v0.0.0-20250627041026-21d72be3e3a1
 	github.com/mariomac/guara v0.0.0-20250408105519-1e4dbdfb7136
 	github.com/prometheus/client_golang v1.22.0
 	github.com/prometheus/client_model v0.6.2
