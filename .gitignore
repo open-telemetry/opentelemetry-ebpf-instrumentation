@@ -91,3 +91,4 @@ test/integration/components/testserver_1.17/vendor/*
 *_bpfel.o
 pkg/internal/otelsdk/grafana-opentelemetry-java.jar
 opentelemetry-ebpf-instrumentation.sln
+obi.sln

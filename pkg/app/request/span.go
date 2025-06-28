@@ -35,6 +35,7 @@ const (
 	EventTypeKafkaServer
 	EventTypeGPUKernelLaunch
 	EventTypeGPUMalloc
+	EventTypeManualSpan
 )
 
 const (
@@ -83,6 +84,8 @@ func (t EventType) String() string {
 		return "CUDALaunch"
 	case EventTypeGPUMalloc:
 		return "CUDAMalloc"
+	case EventTypeManualSpan:
+		return "CUSTOM"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}

@@ -369,6 +369,14 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"github.com/Shopify/sarama.(*Broker).sendInternal": {{
 			Start: p.bpfObjects.BeylaUprobeSaramaSendInternal,
 		}},
+		// Go OTel SDK
+		"go.opentelemetry.io/otel/internal/global.(*tracer).Start": {{
+			Start: p.bpfObjects.BeylaUprobeTracerStart,
+			End:   p.bpfObjects.BeylaUprobeTracerStartReturns,
+		}},
+		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).End": {{
+			Start: p.bpfObjects.BeylaUprobeNonRecordingSpanEnd,
+		}},
 	}
 
 	if p.supportsContextPropagation() {

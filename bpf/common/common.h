@@ -31,6 +31,9 @@
 #define HOST_MAX_LEN 100
 #define SCHEME_MAX_LEN 10
 
+#define MAX_SPAN_NAME_LEN 64
+#define MAX_STATUS_DESCRIPTION_LEN 64
+
 // Trace of an HTTP call invocation. It is instantiated by the return uprobe and forwarded to the
 // user space through the events ringbuffer.
 typedef struct http_request_trace_t {
@@ -98,3 +101,20 @@ typedef struct redis_client_req {
     connection_info_t conn;
     tp_info_t tp;
 } redis_client_req_t;
+
+typedef struct span_name {
+    unsigned char buf[MAX_SPAN_NAME_LEN];
+} span_name_t;
+
+typedef struct otel_span {
+    u8 type; // Must be first
+    u8 _pad[7];
+    u64 start_time;
+    u64 end_time;
+    u64 parent_go;
+    tp_info_t tp;
+    tp_info_t prev_tp;
+    u32 status;
+    span_name_t span_name;
+    pid_info pid;
+} otel_span_t;

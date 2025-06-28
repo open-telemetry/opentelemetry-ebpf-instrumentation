@@ -612,6 +612,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return is.RedisEnabled()
 	case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
 		return is.KafkaEnabled()
+	case request.EventTypeManualSpan:
+		return true
 	}
 
 	return false
@@ -726,6 +728,8 @@ func TraceAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) [
 			semconv.MessagingClientID(span.Statement),
 			operation,
 		}
+	case request.EventTypeManualSpan:
+		attrs = []attribute.KeyValue{}
 	}
 
 	if _, ok := optionalAttrs[attr.SkipSpanMetrics]; ok {

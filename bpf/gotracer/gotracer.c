@@ -20,3 +20,4 @@
 #include "go_redis.c"
 #include "go_kafka_go.c"
 #include "go_sarama.c"
+#include "go_sdk.c"
