@@ -150,6 +150,8 @@ github.com/ianlancetaylor/demangle v0.0.0-20250625212726-86fd2c0a1a74 h1:j+XHk/I
 github.com/ianlancetaylor/demangle v0.0.0-20250625212726-86fd2c0a1a74/go.mod h1:gx7rwoVhcfuVKG5uya9Hs3Sxj7EIvldVofAWIUtGouw=
 github.com/ianlancetaylor/demangle v0.0.0-20250627041026-21d72be3e3a1 h1:Iln3iII6vUAoyEQzpJvvVEWy+RTHGtGvOLoUlTCNCBo=
 github.com/ianlancetaylor/demangle v0.0.0-20250627041026-21d72be3e3a1/go.mod h1:gx7rwoVhcfuVKG5uya9Hs3Sxj7EIvldVofAWIUtGouw=
+github.com/ianlancetaylor/demangle v0.0.0-20250628045327-2d64ad6b7ec5 h1:QCtizt3VTaANvnsd8TtD/eonx7JLIVdEKW1//ZNPZ9A=
+github.com/ianlancetaylor/demangle v0.0.0-20250628045327-2d64ad6b7ec5/go.mod h1:gx7rwoVhcfuVKG5uya9Hs3Sxj7EIvldVofAWIUtGouw=
 github.com/imdario/mergo v0.3.15 h1:M8XP7IuFNsqUx6VPK2P9OSmsYsI/YFaGil0uD21V3dM=
 github.com/imdario/mergo v0.3.15/go.mod h1:WBLT9ZmE3lPoWsEzCh9LPo3TiwVN+ZKEjmz+hD27ysY=
 github.com/jessevdk/go-flags v1.4.0/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=

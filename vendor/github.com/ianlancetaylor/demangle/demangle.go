@@ -1157,7 +1157,8 @@ var operators = map[string]operator{
 	"cl": {"()", 2, precPostfix},
 	// cp is not in the ABI but is used by clang "when the call
 	// would use ADL except for being parenthesized."
-	"cp": {"()", 2, precPostfix},
+	// The trailing space indicates this to the printer.
+	"cp": {"() ", 2, precPostfix},
 	"cm": {",", 2, precComma},
 	"co": {"~", 1, precUnary},
 	"dV": {"/=", 2, precAssign},
@@ -1728,6 +1729,26 @@ func (st *state) demangleType(isCast bool) AST {
 		addSubst = false
 		c2 := st.str[0]
 		st.advance(1)
+
+		fixedPrefix := func(c byte) (string, bool) {
+			switch c {
+			case 's':
+				return "short ", true
+			case 't':
+				return "unsigned short ", true
+			case 'i':
+				return "", true
+			case 'j':
+				return "unsigned ", true
+			case 'l':
+				return "long ", true
+			case 'm':
+				return "unsigned long ", true
+			default:
+				return "", false
+			}
+		}
+
 		switch c2 {
 		case 'T', 't':
 			// decltype(expression)
@@ -1826,6 +1847,7 @@ func (st *state) demangleType(isCast bool) AST {
 			}
 			st.advance(1)
 			ret = &BitIntType{Size: size, Signed: signed}
+			addSubst = true
 
 		case 'k':
 			constraint, _ := st.name()
@@ -1840,6 +1862,52 @@ func (st *state) demangleType(isCast bool) AST {
 				Base:   constraint,
 				Suffix: "decltype(auto)",
 			}
+
+		case 'A', 'R':
+			if len(st.str) == 0 {
+				st.fail("missing D{A,R} code in type")
+			}
+			prefix, ok := fixedPrefix(st.str[0])
+			if !ok {
+				st.fail("unrecognized D{A,R} code in type")
+			}
+			st.advance(1)
+
+			switch c2 {
+			case 'A':
+				ret = &BuiltinType{Name: prefix + "_Accum"}
+			case 'R':
+				ret = &BuiltinType{Name: prefix + "_Fract"}
+			default:
+				panic("internal error")
+			}
+
+		case 'S':
+			if len(st.str) < 3 {
+				st.fail("missing DS code in type")
+			}
+			if st.str[0] != 'D' {
+				st.fail("unrecognized DS code in type")
+			}
+
+			var suffix string
+			switch st.str[1] {
+			case 'A':
+				suffix = "_Accum"
+			case 'R':
+				suffix = "_Fract"
+			default:
+				st.fail("unrecognized DSD code in type")
+			}
+
+			prefix, ok := fixedPrefix(st.str[2])
+			if !ok {
+				st.fail("unrecognized DSD{A,R} code in type")
+			}
+
+			st.advance(3)
+
+			ret = &BuiltinType{Name: "_Sat " + prefix + suffix}
 
 		default:
 			st.fail("unrecognized D code in type")
