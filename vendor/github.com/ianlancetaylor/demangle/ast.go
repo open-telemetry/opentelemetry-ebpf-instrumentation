@@ -6,6 +6,7 @@ package demangle
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -3195,19 +3196,21 @@ func (b *Binary) print(ps *printState) {
 
 	// For a function call in an expression, don't print the types
 	// of the arguments unless there is a return type.
-	if op != nil && op.Name == "()" {
+	if op != nil && strings.HasPrefix(op.Name, "()") {
 		if ty, ok := b.Left.(*Typed); ok {
 			if ft, ok := ty.Type.(*FunctionType); ok {
 				if ft.Return == nil {
 					left = ty.Name
 				} else {
-					skipParens = true
+					if op.Name != "() " {
+						skipParens = true
+					}
 				}
 			} else {
 				left = ty.Name
 			}
 		}
-		if ps.llvmStyle {
+		if ps.llvmStyle && op.Name != "() " {
 			skipParens = true
 		}
 	}
@@ -3219,7 +3222,7 @@ func (b *Binary) print(ps *printState) {
 		if p, ok := left.(hasPrec); ok {
 			prec = p.prec()
 		}
-		needsParen := false
+		needsParen := op.Name == "() "
 		if prec > b.prec() {
 			needsParen = true
 		}
@@ -3244,7 +3247,7 @@ func (b *Binary) print(ps *printState) {
 	}
 
 	if op != nil {
-		if op.Name != "()" {
+		if !strings.HasPrefix(op.Name, "()") {
 			if addSpaces && op.Name != "," {
 				ps.writeByte(' ')
 			}
@@ -4120,11 +4123,102 @@ type InitializerList struct {
 
 func (il *InitializerList) print(ps *printState) {
 	if il.Type != nil {
+		if array, ok := il.Type.(*ArrayType); ok {
+			if builtin, ok := array.Element.(*BuiltinType); ok && builtin.Name == "char" {
+				if il.printAsString(ps) {
+					return
+				}
+			}
+		}
+	}
+
+	if il.Type != nil {
 		ps.print(il.Type)
 	}
 	ps.writeByte('{')
 	ps.print(il.Exprs)
 	ps.writeByte('}')
+}
+
+// printAsString tries to print a char array initializer as a string.
+// It reports whether it succeeded.
+func (il *InitializerList) printAsString(ps *printState) bool {
+	exprList, ok := il.Exprs.(*ExprList)
+	if !ok {
+		return false
+	}
+
+	var sb strings.Builder
+	sb.WriteByte('"')
+	inNumericEscape := false
+	for _, e := range exprList.Exprs {
+		lit, ok := e.(*Literal)
+		if !ok {
+			return false
+		}
+		if lit.Neg {
+			return false
+		}
+		val, err := strconv.Atoi(lit.Val)
+		if err != nil || val > 255 {
+			return false
+		}
+
+		// If we just added a numeric escape,
+		// make sure it doesn't get accidentally extended
+		// (numeric escapes here are C++ syntax, not Go syntax).
+		if inNumericEscape {
+			if (val >= '0' && val <= '9') ||
+				(val >= 'a' && val <= 'f') ||
+				(val >= 'A' && val <= 'F') {
+				sb.WriteString(`""`)
+			}
+		}
+		inNumericEscape = false
+
+		switch val {
+		case '\a':
+			sb.WriteString(`\a`)
+		case '\b':
+			sb.WriteString(`\b`)
+		case '\f':
+			sb.WriteString(`\f`)
+		case '\n':
+			sb.WriteString(`\n`)
+		case '\r':
+			sb.WriteString(`\r`)
+		case '\t':
+			sb.WriteString(`\t`)
+		case '\v':
+			sb.WriteString(`\v`)
+
+		case '"':
+			sb.WriteString(`\"`)
+		case '\\':
+			sb.WriteString(`\\`)
+
+		default:
+			if val < 32 || val == 127 {
+				const hex = "0123456789ABCDEF"
+				sb.WriteByte('\\')
+				if val > 7 {
+					sb.WriteByte('x')
+				}
+				if val >= 16 {
+					sb.WriteByte(hex[val>>4])
+				}
+				sb.WriteByte(hex[val&0xf])
+				inNumericEscape = true
+				break
+			}
+
+			sb.WriteByte(byte(val))
+		}
+	}
+	sb.WriteByte('"')
+
+	ps.writeString(sb.String())
+	return true
 }
 
 func (il *InitializerList) Traverse(fn func(AST) bool) {
