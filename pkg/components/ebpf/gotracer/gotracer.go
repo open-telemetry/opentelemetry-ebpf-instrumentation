@@ -374,7 +374,14 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.BeylaUprobeTracerStart,
 			End:   p.bpfObjects.BeylaUprobeTracerStartReturns,
 		}},
+		"go.opentelemetry.io/auto/sdk.(*tracer).Start": {{
+			Start: p.bpfObjects.BeylaUprobeTracerStart,
+			End:   p.bpfObjects.BeylaUprobeTracerStartReturns,
+		}},
 		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).End": {{
+			Start: p.bpfObjects.BeylaUprobeNonRecordingSpanEnd,
+		}},
+		"go.opentelemetry.io/auto/sdk.(*span).End": {{
 			Start: p.bpfObjects.BeylaUprobeNonRecordingSpanEnd,
 		}},
 	}
