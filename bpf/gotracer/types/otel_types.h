@@ -14,17 +14,17 @@
 
 #include <logger/bpf_dbg.h>
 
-volatile const u64 attr_type_invalid = 0;
+volatile const u64 attr_type_invalid;
 
-volatile const u64 attr_type_bool = 1;
-volatile const u64 attr_type_int64 = 2;
-volatile const u64 attr_type_float64 = 3;
-volatile const u64 attr_type_string = 4;
+volatile const u64 attr_type_bool;
+volatile const u64 attr_type_int64;
+volatile const u64 attr_type_float64;
+volatile const u64 attr_type_string;
 
-volatile const u64 attr_type_boolslice = 5;
-volatile const u64 attr_type_int64slice = 6;
-volatile const u64 attr_type_float64slice = 7;
-volatile const u64 attr_type_stringslice = 8;
+volatile const u64 attr_type_boolslice;
+volatile const u64 attr_type_int64slice;
+volatile const u64 attr_type_float64slice;
+volatile const u64 attr_type_stringslice;
 
 static __always_inline bool set_attr_value(otel_attirbute_t *attr,
                                            go_otel_attr_value_t *go_attr_value) {

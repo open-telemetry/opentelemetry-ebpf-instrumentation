@@ -187,5 +187,14 @@
         "topic"
       ]
     }
+  },
+  "go.opentelemetry.io/otel": {
+    "inspect": "./configs/offsets/otelsdk/inspect.go",
+    "versions": ">= v1.10.0",
+    "fields": {
+      "go.opentelemetry.io/otel/internal/global.tracer": [
+        "delegate"
+      ]
+    }
   }
 }

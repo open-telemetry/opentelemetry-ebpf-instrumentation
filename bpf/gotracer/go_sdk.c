@@ -82,17 +82,23 @@ read_span_name(unsigned char *buf, const u64 span_name_len, void *span_name_ptr)
     bpf_probe_read(buf, span_name_size, span_name_ptr);
 }
 
-SEC("uprobe/tracer_Start")
-int beyla_uprobe_tracer_Start(struct pt_regs *ctx) {
+static __always_inline int tracer_start(struct pt_regs *ctx, u8 check_delegate) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
     bpf_dbg_printk("=== uprobe/tracer.Start [%lx]=== ", goroutine_addr);
     void *tracer_ptr = GO_PARAM1(ctx);
-    void *delegate_ptr = NULL;
-    bpf_probe_read(&delegate_ptr, sizeof(delegate_ptr), (void *)(tracer_ptr + 64));
-    if (delegate_ptr != NULL) {
-        // Delegate is set, so we should not instrument this call
-        return 0;
+    if (check_delegate) {
+        off_table_t *ot = get_offsets_table();
+
+        void *delegate_ptr = NULL;
+        bpf_probe_read(
+            &delegate_ptr,
+            sizeof(delegate_ptr),
+            (void *)(tracer_ptr + go_offset_of(ot, (go_offset){.v = _tracer_delegate_pos})));
+        if (delegate_ptr != NULL) {
+            // Delegate is set, so we should not instrument this call
+            return 0;
+        }
     }
     span_name_t span_name = {0};
 
@@ -108,6 +114,16 @@ int beyla_uprobe_tracer_Start(struct pt_regs *ctx) {
 
     bpf_map_update_elem(&span_names, &g_key, &span_name, 0);
     return 0;
+}
+
+SEC("uprobe/tracer_Start")
+int beyla_uprobe_tracer_Start(struct pt_regs *ctx) {
+    return tracer_start(ctx, 0);
+}
+
+SEC("uprobe/tracer_Start_global")
+int beyla_uprobe_tracer_Start_global(struct pt_regs *ctx) {
+    return tracer_start(ctx, 1);
 }
 
 // This instrumentation attaches uprobe to the following function:
@@ -140,17 +156,10 @@ int beyla_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
     tp_info_t *tp = tp_info_from_parent_go(&g_key, &span->parent_go);
     if (tp) {
         __builtin_memcpy(&span->prev_tp, tp, sizeof(tp_info_t));
-        make_tp_string(tp_buf, &span->prev_tp);
-        bpf_printk("prev tp: %s", tp_buf);
-
         tp_from_parent(&span->tp, tp);
         span->tp.flags = tp->flags;
         urand_bytes(span->tp.span_id, SPAN_ID_SIZE_BYTES);
-        make_tp_string(tp_buf, &span->tp);
-        bpf_printk("tp: %s", tp_buf);
         encode_hex(tp_buf, span->tp.parent_id, SPAN_ID_SIZE_BYTES);
-        tp_buf[SPAN_ID_CHAR_LEN] = '\0';
-        bpf_printk("parent: %s", tp_buf);
 
         if (span->parent_go) {
             go_addr_key_t gp_key = {};

@@ -91,6 +91,8 @@ const (
 	GrpcServerStreamStream
 	GrpcServerStreamStPtr
 	GrpcClientStreamStream
+	// go manual spans
+	GoTracerDelegatePos
 )
 
 //go:embed offsets.json
@@ -353,6 +355,12 @@ var structMembers = map[string]structInfo{
 		lib: "github.com/segmentio/kafka-go",
 		fields: map[string]GoOffset{
 			"topic": KafkaGoReaderTopicPos,
+		},
+	},
+	"go.opentelemetry.io/otel/internal/global.tracer": {
+		lib: "go.opentelemetry.io/otel",
+		fields: map[string]GoOffset{
+			"delegate": GoTracerDelegatePos,
 		},
 	},
 }

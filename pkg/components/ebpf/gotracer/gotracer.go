@@ -21,6 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/cilium/ebpf"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
@@ -95,8 +96,17 @@ func (p *Tracer) Constants() map[string]any {
 	}
 
 	return map[string]any{
-		"wakeup_data_bytes":    uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
-		"disable_black_box_cp": blackBoxCP,
+		"wakeup_data_bytes":      uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
+		"disable_black_box_cp":   blackBoxCP,
+		"attr_type_invalid":      uint64(attribute.INVALID),
+		"attr_type_bool":         uint64(attribute.BOOL),
+		"attr_type_int64":        uint64(attribute.INT64),
+		"attr_type_float64":      uint64(attribute.FLOAT64),
+		"attr_type_string":       uint64(attribute.STRING),
+		"attr_type_boolslice":    uint64(attribute.BOOLSLICE),
+		"attr_type_int64slice":   uint64(attribute.INT64SLICE),
+		"attr_type_float64slice": uint64(attribute.FLOAT64SLICE),
+		"attr_type_stringslice":  uint64(attribute.STRINGSLICE),
 	}
 }
 
@@ -165,6 +175,8 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.GrpcServerStreamStream,
 		goexec.GrpcServerStreamStPtr,
 		goexec.GrpcClientStreamStream,
+		// go manual spans
+		goexec.GoTracerDelegatePos,
 	} {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
@@ -371,7 +383,7 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		// Go OTel SDK
 		"go.opentelemetry.io/otel/internal/global.(*tracer).Start": {{
-			Start: p.bpfObjects.BeylaUprobeTracerStart,
+			Start: p.bpfObjects.BeylaUprobeTracerStartGlobal,
 			End:   p.bpfObjects.BeylaUprobeTracerStartReturns,
 		}},
 		"go.opentelemetry.io/auto/sdk.(*tracer).Start": {{
