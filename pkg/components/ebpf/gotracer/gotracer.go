@@ -384,6 +384,24 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"go.opentelemetry.io/auto/sdk.(*span).End": {{
 			Start: p.bpfObjects.BeylaUprobeNonRecordingSpanEnd,
 		}},
+		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).SetStatus": {{
+			Start: p.bpfObjects.BeylaUprobeSetStatus,
+		}},
+		"go.opentelemetry.io/auto/sdk.(*span).SetStatus": {{
+			Start: p.bpfObjects.BeylaUprobeSetStatus,
+		}},
+		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).SetAttributes": {{
+			Start: p.bpfObjects.BeylaUprobeSetAttributes,
+		}},
+		"go.opentelemetry.io/auto/sdk.(*span).SetAttributes": {{
+			Start: p.bpfObjects.BeylaUprobeSetAttributes,
+		}},
+		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).SetName": {{
+			Start: p.bpfObjects.BeylaUprobeSetName,
+		}},
+		"go.opentelemetry.io/auto/sdk.(*span).SetName": {{
+			Start: p.bpfObjects.BeylaUprobeSetName,
+		}},
 	}
 
 	if p.supportsContextPropagation() {

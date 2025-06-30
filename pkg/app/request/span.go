@@ -10,6 +10,7 @@ import (
 
 	"github.com/gavv/monotime"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	trace2 "go.opentelemetry.io/otel/trace"
 
@@ -344,6 +345,14 @@ func SpanStatusCode(span *Span) string {
 			return StatusCodeError
 		}
 		return StatusCodeUnset
+	case EventTypeManualSpan:
+		switch span.Status {
+		case int(codes.Error):
+			return StatusCodeError
+		case int(codes.Ok):
+			return StatusCodeOk
+		}
+		return StatusCodeUnset
 	}
 	return StatusCodeUnset
 }
@@ -354,6 +363,8 @@ func SpanStatusMessage(span *Span) string {
 		if span.Status != 0 && span.DBError.Description != "" {
 			return span.DBError.Description
 		}
+	case EventTypeManualSpan:
+		return span.Path
 	}
 	return ""
 }
@@ -467,6 +478,8 @@ func (s *Span) TraceName() string {
 			return s.Method
 		}
 		return fmt.Sprintf("%s %s", s.Path, s.Method)
+	case EventTypeManualSpan:
+		return s.Method
 	}
 	return ""
 }

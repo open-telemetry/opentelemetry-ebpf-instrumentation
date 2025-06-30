@@ -5,9 +5,12 @@ package otel
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"net/url"
 	"os"
 	"strings"
@@ -35,6 +38,7 @@ import (
 	trace2 "go.opentelemetry.io/otel/trace"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
+	"golang.org/x/sys/unix"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
@@ -106,6 +110,14 @@ type TracesConfig struct {
 
 	// InjectHeaders allows injecting custom headers to the HTTP OTLP exporter
 	InjectHeaders func(dst map[string]string) `yaml:"-" env:"-"`
+}
+
+type SpanAttr struct {
+	ValLength uint16
+	Vtype     uint8
+	Reserved  uint8
+	Key       [32]uint8
+	Value     [128]uint8
 }
 
 // Enabled specifies that the OTEL traces node is enabled if and only if
@@ -729,7 +741,7 @@ func TraceAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) [
 			operation,
 		}
 	case request.EventTypeManualSpan:
-		attrs = []attribute.KeyValue{}
+		attrs = manualSpanAttributes(span)
 	}
 
 	if _, ok := optionalAttrs[attr.SkipSpanMetrics]; ok {
@@ -875,4 +887,38 @@ func setTracesProtocol(cfg *TracesConfig) {
 	}
 	// unset. Guessing it
 	os.Setenv(envTracesProtocol, string(cfg.guessProtocol()))
+}
+
+func manualSpanAttributes(span *request.Span) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{}
+
+	if span.Statement == "" {
+		return attrs
+	}
+
+	var unmarshaledAttrs []SpanAttr
+	err := json.Unmarshal([]byte(span.Statement), &unmarshaledAttrs)
+	if err != nil {
+		fmt.Println(err)
+		return attrs
+	}
+
+	for i := range unmarshaledAttrs {
+		akv := unmarshaledAttrs[i]
+		key := unix.ByteSliceToString(akv.Key[:])
+		switch akv.Vtype {
+		case uint8(attribute.BOOL):
+			attrs = append(attrs, attribute.Bool(key, akv.Value[0] != 0))
+		case uint8(attribute.INT64):
+			v := binary.LittleEndian.Uint64(akv.Value[:8])
+			attrs = append(attrs, attribute.Int(key, int(v))) // nolint: gosec  // Raw value decode.
+		case uint8(attribute.FLOAT64):
+			v := math.Float64frombits(binary.LittleEndian.Uint64(akv.Value[:8]))
+			attrs = append(attrs, attribute.Float64(key, v))
+		case uint8(attribute.STRING):
+			attrs = append(attrs, attribute.String(key, unix.ByteSliceToString(akv.Value[:])))
+		}
+	}
+
+	return attrs
 }

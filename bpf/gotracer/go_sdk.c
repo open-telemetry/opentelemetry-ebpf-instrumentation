@@ -27,6 +27,8 @@
 
 #include <gotracer/go_common.h>
 
+#include <gotracer/types/otel_types.h>
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // goroutine
@@ -42,6 +44,36 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, BEYLA_PIN_INTERNAL);
 } active_spans SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, int);
+    __type(value, otel_span_t);
+    __uint(max_entries, 2);
+} span_mem SEC(".maps");
+
+static __always_inline otel_span_t *span_zero_memory() {
+    const u32 zero = 0;
+    return bpf_map_lookup_elem(&span_mem, &zero);
+}
+
+static __always_inline otel_span_t *span_memory() {
+    const u32 one = 1;
+    return bpf_map_lookup_elem(&span_mem, &one);
+}
+
+static __always_inline otel_span_t *zero_initialised_span() {
+    otel_span_t *zero_span = span_zero_memory();
+
+    if (!zero_span) {
+        return 0;
+    }
+
+    const u32 one = 1;
+    bpf_map_update_elem(&span_mem, &one, zero_span, BPF_ANY);
+
+    return span_memory();
+}
 
 static __always_inline void
 read_span_name(unsigned char *buf, const u64 span_name_len, void *span_name_ptr) {
@@ -95,35 +127,40 @@ int beyla_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
         return 0;
     }
 
-    otel_span_t span = {0};
-    span.span_name = *span_name;
-    span.start_time = bpf_ktime_get_ns();
+    otel_span_t *span = zero_initialised_span();
+
+    if (!span) {
+        return 0;
+    }
+
+    span->span_name = *span_name;
+    span->start_time = bpf_ktime_get_ns();
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    tp_info_t *tp = tp_info_from_parent_go(&g_key, &span.parent_go);
+    tp_info_t *tp = tp_info_from_parent_go(&g_key, &span->parent_go);
     if (tp) {
-        __builtin_memcpy(&span.prev_tp, tp, sizeof(tp_info_t));
-        make_tp_string(tp_buf, &span.prev_tp);
+        __builtin_memcpy(&span->prev_tp, tp, sizeof(tp_info_t));
+        make_tp_string(tp_buf, &span->prev_tp);
         bpf_printk("prev tp: %s", tp_buf);
 
-        tp_from_parent(&span.tp, tp);
-        span.tp.flags = tp->flags;
-        urand_bytes(span.tp.span_id, SPAN_ID_SIZE_BYTES);
-        make_tp_string(tp_buf, &span.tp);
+        tp_from_parent(&span->tp, tp);
+        span->tp.flags = tp->flags;
+        urand_bytes(span->tp.span_id, SPAN_ID_SIZE_BYTES);
+        make_tp_string(tp_buf, &span->tp);
         bpf_printk("tp: %s", tp_buf);
-        encode_hex(tp_buf, span.tp.parent_id, SPAN_ID_SIZE_BYTES);
+        encode_hex(tp_buf, span->tp.parent_id, SPAN_ID_SIZE_BYTES);
         tp_buf[SPAN_ID_CHAR_LEN] = '\0';
         bpf_printk("parent: %s", tp_buf);
 
-        if (span.parent_go) {
+        if (span->parent_go) {
             go_addr_key_t gp_key = {};
-            go_addr_key_from_id(&gp_key, (void *)span.parent_go);
-            update_tp_parent_go(&gp_key, &span.tp);
+            go_addr_key_from_id(&gp_key, (void *)span->parent_go);
+            update_tp_parent_go(&gp_key, &span->tp);
 
             // reusing gp_key to save stack space
             go_addr_key_from_id(&gp_key, (void *)span_ptr);
 
-            bpf_map_update_elem(&active_spans, &gp_key, &span, BPF_ANY);
+            bpf_map_update_elem(&active_spans, &gp_key, span, BPF_ANY);
         }
     }
 
@@ -138,10 +175,10 @@ int beyla_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
                    (void *)GOROUTINE_PTR(ctx),
                    span_ptr);
 
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, span_ptr);
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, span_ptr);
 
-    otel_span_t *span = bpf_map_lookup_elem(&active_spans, &g_key);
+    otel_span_t *span = bpf_map_lookup_elem(&active_spans, &s_key);
     if (span == NULL) {
         return 0;
     }
@@ -156,15 +193,94 @@ int beyla_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
         update_tp_parent_go(&gp_key, &span->prev_tp);
     }
 
-    otel_span_t *trace = bpf_ringbuf_reserve(&events, sizeof(otel_span_t), 0);
-    if (!trace) {
-        bpf_dbg_printk("can't reserve space in the ringbuffer");
-        goto done;
+    bpf_ringbuf_output(&events, span, sizeof(otel_span_t), get_flags());
+    bpf_dbg_printk("submitted manual span trace");
+
+    bpf_map_delete_elem(&active_spans, &s_key);
+
+    return 0;
+}
+
+SEC("uprobe/span_SetStatus")
+int beyla_uprobe_SetStatus(struct pt_regs *ctx) {
+    void *span_ptr = (void *)GO_PARAM1(ctx);
+    bpf_dbg_printk(
+        "=== uprobe/span.SetStatus [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, span_ptr);
+
+    otel_span_t *span = (otel_span_t *)bpf_map_lookup_elem(&active_spans, &s_key);
+    if (span == NULL) {
+        return 0;
     }
 
-    __builtin_memcpy(trace, span, sizeof(otel_span_t));
-    bpf_ringbuf_submit(trace, get_flags());
-    bpf_dbg_printk("submitted manual span trace") done : bpf_map_delete_elem(&active_spans, &g_key);
+    u64 status_code = (u64)GO_PARAM2(ctx);
+
+    void *description_ptr = GO_PARAM3(ctx);
+    if (description_ptr == NULL) {
+        return 0;
+    }
+
+    // Getting span description
+    u64 description_len = (u64)GO_PARAM4(ctx);
+    u64 description_size =
+        MAX_STATUS_DESCRIPTION_LEN < description_len ? MAX_STATUS_DESCRIPTION_LEN : description_len;
+    bpf_probe_read(span->span_description.buf, description_size, description_ptr);
+
+    span->status = (u32)status_code;
+
+    return 0;
+}
+
+SEC("uprobe/span_SetAttributes")
+int beyla_uprobe_SetAttributes(struct pt_regs *ctx) {
+    void *span_ptr = (void *)GO_PARAM1(ctx);
+    bpf_dbg_printk(
+        "=== uprobe/span.SetAttributes [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, span_ptr);
+
+    otel_span_t *span = (otel_span_t *)bpf_map_lookup_elem(&active_spans, &s_key);
+    if (span == NULL) {
+        return 0;
+    }
+
+    void *attributes_usr_buf = GO_PARAM2(ctx);
+    u64 attributes_len = (u64)GO_PARAM3(ctx);
+    convert_go_otel_attributes(attributes_usr_buf, attributes_len, &span->span_attrs);
+
+    return 0;
+}
+
+SEC("uprobe/span_SetName")
+int beyla_uprobe_SetName(struct pt_regs *ctx) {
+    void *span_ptr = (void *)GO_PARAM1(ctx);
+    bpf_dbg_printk(
+        "=== uprobe/span.SetName [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, span_ptr);
+
+    otel_span_t *span = (otel_span_t *)bpf_map_lookup_elem(&active_spans, &s_key);
+    if (span == NULL) {
+        return 0;
+    }
+
+    void *span_name_ptr = GO_PARAM2(ctx);
+    if (span_name_ptr == NULL) {
+        return 0;
+    }
+
+    void *span_name_len_ptr = GO_PARAM3(ctx);
+    if (span_name_len_ptr == NULL) {
+        return 0;
+    }
+
+    u64 span_name_len = (u64)span_name_len_ptr;
+
+    read_span_name(span->span_name.buf, span_name_len, span_name_ptr);
 
     return 0;
 }

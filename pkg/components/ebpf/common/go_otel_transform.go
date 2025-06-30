@@ -1,6 +1,8 @@
 package ebpfcommon
 
 import (
+	"encoding/json"
+
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
@@ -14,12 +16,18 @@ func ReadGoOTelEventIntoSpan(record *ringbuf.Record) (request.Span, bool, error)
 	}
 
 	name := cstr(event.SpanName.Buf[:])
+	descr := cstr(event.SpanDescription.Buf[:])
+
+	attrs := ""
+	if a, err := encodedAttrs(event); err == nil {
+		attrs = string(a)
+	}
 
 	return request.Span{
 		Type:          request.EventTypeManualSpan,
 		Method:        name,
-		Statement:     "",
-		Path:          "",
+		Statement:     attrs,
+		Path:          descr,
 		Peer:          "",
 		PeerPort:      0,
 		Host:          "",
@@ -31,11 +39,20 @@ func ReadGoOTelEventIntoSpan(record *ringbuf.Record) (request.Span, bool, error)
 		TraceID:       trace.TraceID(event.Tp.TraceId),
 		SpanID:        trace.SpanID(event.Tp.SpanId),
 		ParentSpanID:  trace.SpanID(event.Tp.ParentId),
-		Status:        0,
+		Status:        int(event.Status),
 		Pid: request.PidInfo{
 			HostPID:   event.Pid.HostPid,
 			UserPID:   event.Pid.UserPid,
 			Namespace: event.Pid.Ns,
 		},
 	}, false, nil
+}
+
+func encodedAttrs(event *GoOTelSpanTrace) ([]byte, error) {
+	size := int(event.SpanAttrs.ValidAttrs)
+	if size == 0 {
+		return nil, nil
+	}
+	attrs := event.SpanAttrs.Attrs[:size]
+	return json.Marshal(attrs)
 }
