@@ -91,7 +91,7 @@ func detectSQL(buf string) (string, string, string) {
 	return "", "", ""
 }
 
-func TCPToSQLToSpan(trace *TCPRequestInfo, op, table, sql string, kind request.SQLKind, _, responseBuffer []byte, sqlCommand string) request.Span {
+func TCPToSQLToSpan(trace *TCPRequestInfo, op, table, sql string, kind request.SQLKind, sqlCommand string, sqlError *request.SQLError) request.Span {
 	var (
 		peer, hostname             string
 		peerPort, hostPort, status int
@@ -103,7 +103,6 @@ func TCPToSQLToSpan(trace *TCPRequestInfo, op, table, sql string, kind request.S
 		hostPort = int(trace.ConnInfo.D_port)
 	}
 
-	sqlError := sqlprune.SQLParseError(responseBuffer)
 	if sqlError != nil {
 		status = 1
 	}

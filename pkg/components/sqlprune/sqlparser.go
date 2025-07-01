@@ -154,3 +154,12 @@ func SQLParseCommandID(kind request.SQLKind, buf []byte) string {
 		return ""
 	}
 }
+
+func SQLParseStatementID(kind request.SQLKind, buf []byte) uint32 {
+	switch kind {
+	case request.DBMySQL:
+		return mysqlParseStatementID(buf)
+	default:
+		return 0
+	}
+}

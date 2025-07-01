@@ -74,6 +74,7 @@ var DefaultConfig = Config{
 		BufferSizes: config.EBPFBufferSizes{
 			MySQL: 0,
 		},
+		MySQLPreparedStatementsCacheSize: 1024,
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources:  []string{"k8s"},
