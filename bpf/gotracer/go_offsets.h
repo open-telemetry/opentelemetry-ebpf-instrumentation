@@ -73,6 +73,7 @@ typedef enum {
     _grpc_client_stream_stream,
     // go manual spans
     _tracer_delegate_pos,
+    _tracer_apply_span_start_off,
     _last_go_offset,
 } go_offset_const;
 

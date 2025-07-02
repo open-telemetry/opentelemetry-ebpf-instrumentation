@@ -183,6 +183,14 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		}
 	}
 
+	for name, fOff := range offsets.Funcs {
+		if fOff.Start != 0 {
+			if name == "go.opentelemetry.io/otel/trace.(*attributeOption).applySpanStart" {
+				offTable.Table[goexec.GoTracerDelegatePos] = fOff.ModStart
+			}
+		}
+	}
+
 	if err := p.bpfObjects.GoOffsetsMap.Put(fileInfo.Ino, offTable); err != nil {
 		p.log.Error("error setting offset in map for", "pid", fileInfo.Pid, "ino", fileInfo.Ino)
 	}
@@ -414,6 +422,8 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"go.opentelemetry.io/auto/sdk.(*span).SetName": {{
 			Start: p.bpfObjects.BeylaUprobeSetName,
 		}},
+		// Dummy function, we need it for its offset
+		"go.opentelemetry.io/otel/trace.(*attributeOption).applySpanStart": {{}},
 	}
 
 	if p.supportsContextPropagation() {

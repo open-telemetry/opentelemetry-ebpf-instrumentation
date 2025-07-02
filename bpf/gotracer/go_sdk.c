@@ -29,10 +29,16 @@
 
 #include <gotracer/types/otel_types.h>
 
+typedef struct span_info {
+    span_name_t name;
+    u64 opts_ptr;
+    u64 opts_len;
+} span_info_t;
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // goroutine
-    __type(value, span_name_t);
+    __type(value, span_info_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, BEYLA_PIN_INTERNAL);
 } span_names SEC(".maps");
@@ -100,19 +106,22 @@ static __always_inline int tracer_start(struct pt_regs *ctx, u8 check_delegate) 
             return 0;
         }
     }
-    span_name_t span_name = {0};
+    span_info_t span_info = {0};
 
     // Getting span name
     void *span_name_ptr = GO_PARAM4(ctx);
     u64 span_name_len = (u64)GO_PARAM5(ctx);
-    read_span_name(span_name.buf, span_name_len, span_name_ptr);
+    read_span_name(span_info.name.buf, span_name_len, span_name_ptr);
+
+    span_info.opts_ptr = (u64)GO_PARAM6(ctx);
+    span_info.opts_len = (u64)GO_PARAM7(ctx);
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    bpf_dbg_printk("span name %s", span_name.buf);
+    bpf_dbg_printk("span name %s", span_info.name.buf);
 
-    bpf_map_update_elem(&span_names, &g_key, &span_name, 0);
+    bpf_map_update_elem(&span_names, &g_key, &span_info, 0);
     return 0;
 }
 
@@ -124,6 +133,57 @@ int beyla_uprobe_tracer_Start(struct pt_regs *ctx) {
 SEC("uprobe/tracer_Start_global")
 int beyla_uprobe_tracer_Start_global(struct pt_regs *ctx) {
     return tracer_start(ctx, 1);
+}
+
+static __always_inline void read_opts(otel_span_t *span, void *opts_ptr, u64 len) {
+    u64 count = len;
+    bpf_clamp_umax(count, 5);
+    off_table_t *ot = get_offsets_table();
+    u64 off = go_offset_of(ot, (go_offset){.v = _tracer_delegate_pos});
+    bpf_printk("Lookup off %llx", off);
+
+    if (!off) {
+        return;
+    }
+
+    int read_from = -1;
+
+    for (int i = 0; i < count; i++) {
+        void *type = 0;
+        bpf_probe_read(&type, sizeof(void *), opts_ptr + i * 0x10);
+        if (type) {
+            void *func = 0;
+            bpf_probe_read(&func, sizeof(void *), type + 0x18);
+            bpf_printk("func addr %llx", func);
+            if (func == (void *)off) {
+                u64 check = -1;
+                bpf_probe_read(&check, sizeof(u64), type + 0x10);
+                if (!check) {
+                    read_from = i;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (read_from >= 0) {
+        void *attrs_arg = 0;
+        bpf_probe_read(&attrs_arg, sizeof(void *), opts_ptr + (read_from) * 0x10 + 8);
+
+        if (attrs_arg) {
+            void *attributes_usr_buf = 0;
+            u64 attributes_len = 0;
+
+            bpf_probe_read(&attributes_usr_buf, sizeof(void *), attrs_arg);
+            bpf_probe_read(&attributes_len, sizeof(u64), attrs_arg + 8);
+
+            bpf_printk("attr_ptr %llx, attr_len %d", attributes_usr_buf, attributes_len);
+
+            if (attributes_usr_buf && attributes_len && attributes_len < 100) {
+                convert_go_otel_attributes(attributes_usr_buf, attributes_len, &span->span_attrs);
+            }
+        }
+    }
 }
 
 // This instrumentation attaches uprobe to the following function:
@@ -138,8 +198,8 @@ int beyla_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    span_name_t *span_name = bpf_map_lookup_elem(&span_names, &g_key);
-    if (!span_name) {
+    span_info_t *span_info = bpf_map_lookup_elem(&span_names, &g_key);
+    if (!span_info) {
         return 0;
     }
 
@@ -149,8 +209,12 @@ int beyla_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
         return 0;
     }
 
-    span->span_name = *span_name;
+    span->span_name = span_info->name;
     span->start_time = bpf_ktime_get_ns();
+
+    if (span_info->opts_ptr && span_info->opts_len) {
+        read_opts(span, (void *)span_info->opts_ptr, span_info->opts_len);
+    }
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
     tp_info_t *tp = tp_info_from_parent_go(&g_key, &span->parent_go);

@@ -93,6 +93,7 @@ const (
 	GrpcClientStreamStream
 	// go manual spans
 	GoTracerDelegatePos
+	GoTracerSDKApplySpanStartOffset
 )
 
 //go:embed offsets.json
