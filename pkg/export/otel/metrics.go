@@ -1138,9 +1138,9 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				} else {
 					sgs, attrs := r.serviceGraphServer.ForRecord(span)
 					sgs.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+					sgt, attrs := r.serviceGraphTotal.ForRecord(span)
+					sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 				}
-				sgt, attrs := r.serviceGraphTotal.ForRecord(span)
-				sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 				if request.SpanStatusCode(span) == request.StatusCodeError {
 					sgf, attrs := r.serviceGraphFailed.ForRecord(span)
 					sgf.Add(ctx, 1, instrument.WithAttributeSet(attrs))

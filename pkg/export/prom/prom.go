@@ -922,8 +922,8 @@ func (r *metricsReporter) observe(span *request.Span) {
 					r.serviceGraphClient.WithLabelValues(lvg...).Metric.Observe(duration)
 				} else {
 					r.serviceGraphServer.WithLabelValues(lvg...).Metric.Observe(duration)
+					r.serviceGraphTotal.WithLabelValues(lvg...).Metric.Add(1)
 				}
-				r.serviceGraphTotal.WithLabelValues(lvg...).Metric.Add(1)
 				if request.SpanStatusCode(span) == request.StatusCodeError {
 					r.serviceGraphFailed.WithLabelValues(lvg...).Metric.Add(1)
 				}
