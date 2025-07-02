@@ -233,10 +233,9 @@ int beyla_protocol_tcp(void *ctx) {
         return 0;
     }
 
-    bpf_dbg_printk("=== tcp_event len=%d pid=%d direction=%d protocol_type=%d ===",
+    bpf_dbg_printk("=== tcp_event len=%d pid=%d protocol_type=%d ===",
                    args->bytes_len,
                    args->pid_conn.pid,
-                   args->direction,
                    args->protocol_type);
 
     handle_unknown_tcp_connection(&args->pid_conn,

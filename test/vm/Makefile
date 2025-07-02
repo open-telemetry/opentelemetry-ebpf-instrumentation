@@ -56,4 +56,3 @@ change-owner:
 
 clean:
 	rm -f $(ROOT_IMG) $(ROOT_IMAGE_RAW) $(TARBALL)
-

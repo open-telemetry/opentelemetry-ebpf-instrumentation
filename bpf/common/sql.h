@@ -22,8 +22,7 @@ enum {
 // Define SQL operations that we want to detect in SQL queries.
 // NOTE: when adding a new operation, make sure to update the `k_max_sql_op_len`
 // constant if needed.
-#define FOREACH_OP(fn)                                                                             \
-    fn(WITH) fn(DROP) fn(ALTER) fn(SELECT) fn(INSERT) fn(UPDATE) fn(DELETE) fn(CREATE)
+#define FOREACH_OP(fn) fn(WITH) fn(ALTER) fn(SELECT) fn(INSERT) fn(UPDATE) fn(DELETE) fn(CREATE)
 
 FOREACH_OP(DEFINE_OP)
 
@@ -46,7 +45,7 @@ static __always_inline bool is_sql_query_stmt(void *data) {
 // Some SQL packets contain some flags which are not a part of the SQL query.
 // Returns -1 if the buffer doesn't contain an SQL query.
 static __always_inline int find_sql_query(void *data) {
-    for (u16 i = 0; i < k_max_query_offset; i++) {
+    for (u8 i = 0; i < k_max_query_offset; i++) {
         if (is_sql_query_stmt(data + i)) {
             return i;
         }

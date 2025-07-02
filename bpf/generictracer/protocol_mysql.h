@@ -69,8 +69,6 @@ static __always_inline int mysql_store_state_data(const connection_info_t *conn_
                                                   const unsigned char *data,
                                                   size_t data_len) {
     if (data_len != k_mysql_hdr_without_command_size) {
-        bpf_dbg_printk("mysql_store_state_data: data_len is not equal to %d, skipping",
-                       k_mysql_hdr_without_command_size);
         return 0;
     }
 
@@ -121,7 +119,6 @@ static __always_inline int mysql_read_fixup_buffer(const connection_info_t *conn
     if (state_data != NULL) {
         bpf_probe_read(buf, k_mysql_hdr_without_command_size, (const void *)state_data);
         offset += k_mysql_hdr_without_command_size;
-        bpf_dbg_printk("mysql_read_fixup_buffer: deleting state data");
         bpf_map_delete_elem(&mysql_state, conn_info);
     } else {
         if (data_len < k_mysql_hdr_size) {

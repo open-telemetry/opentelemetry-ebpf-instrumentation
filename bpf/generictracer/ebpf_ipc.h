@@ -5,6 +5,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
+#include <common/crc8.h>
 #include <common/scratch_mem.h>
 
 #include <logger/bpf_dbg.h>
@@ -38,27 +39,6 @@ typedef union ipc_buffer_t {
 } ipc_buffer;
 
 SCRATCH_MEM(ipc_buffer)
-
-static __always_inline uint8_t crc8(const unsigned char *data, u8 size) {
-    const u8 polynomial = 0x07;
-
-    u8 crc = 0x0;
-
-#pragma clang loop unroll(full)
-    for (u8 i = 0; i < size; ++i) {
-        crc ^= data[i];
-
-        for (u8 bit = 0; bit < 8; ++bit) {
-            if (crc & 0x80) {
-                crc = (crc << 1) ^ polynomial;
-            } else {
-                crc <<= 1;
-            }
-        }
-    }
-
-    return crc;
-}
 
 static __always_inline int handle_ev_nodejs(const ipc_buffer *ev) {
     const size_t ev_size = sizeof(nodejs_ev);

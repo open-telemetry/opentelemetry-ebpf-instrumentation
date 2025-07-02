@@ -18,6 +18,7 @@
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
+#include <common/strings.h>
 #include <common/trace_util.h>
 #include <common/tracing.h>
 
@@ -118,18 +119,6 @@ typedef struct grpc_header_field {
     u64 val_len;
     u64 sensitive;
 } grpc_header_field_t;
-
-// assumes s2 is all lowercase
-static __always_inline int bpf_memicmp(const char *s1, const char *s2, s32 size) {
-    for (int i = 0; i < size; i++) {
-        if (s1[i] != s2[i] && s1[i] != (s2[i] - 32)) // compare with each uppercase character
-        {
-            return i + 1;
-        }
-    }
-
-    return 0;
-}
 
 static __always_inline u8 valid_trace(const unsigned char *trace_id) {
     return *((u64 *)trace_id) != 0 || *((u64 *)(trace_id + 8)) != 0;
@@ -448,7 +437,7 @@ static __always_inline void process_meta_frame_headers(void *frame, tp_info_t *t
                 unsigned char temp[W3C_VAL_LENGTH];
 
                 bpf_probe_read(&temp, W3C_KEY_LENGTH, field.key_ptr);
-                if (!bpf_memicmp((const char *)temp, "traceparent", W3C_KEY_LENGTH)) {
+                if (stricmp((const char *)temp, "traceparent", W3C_KEY_LENGTH)) {
                     //bpf_dbg_printk("found grpc traceparent header");
                     bpf_probe_read(&temp, W3C_VAL_LENGTH, field.val_ptr);
                     decode_go_traceparent(temp, tp->trace_id, tp->parent_id, &tp->flags);
