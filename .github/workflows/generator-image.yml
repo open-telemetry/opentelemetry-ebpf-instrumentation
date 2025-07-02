@@ -1,0 +1,98 @@
+name: Publish OBI Docker Generator Image
+on:
+  workflow_dispatch:
+    inputs:
+      override_image_tag:
+        type: string
+        description: Override image tag (empty for current timestamp)
+
+# Set restrictive permissions at workflow level
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: open-telemetry/obi-generator
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          persist-credentials: 'false'
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
+        with:
+          images: "${{ env.REGISTRY }}/${{ env.IMAGE }}"
+
+      - name: Set image tag
+        id: image_tag
+        env:
+          OVERRIDE_IMG_TAG: ${{ github.event.inputs.override_image_tag }}
+        run: |
+          if [[ "$OVERRIDE_IMG_TAG" == "" ]]; then
+            echo "Fetching latest version from $${{ env.REGISTRY }}/{{ env.IMAGE }}..."
+          
+            # Get authentication token for GHCR
+            TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64)
+          
+            # Fetch tags from GHCR API
+            LATEST_VERSION=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://${{ env.REGISTRY }}/v2/${{ env.IMAGE }}/tags/list" | \
+              jq -r '.tags[]' | \
+              grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
+              sort -V | \
+              tail -n 1)
+          
+            if [[ -z "$LATEST_VERSION" ]]; then
+              echo "No semantic version found, starting with 0.1.0"
+              NEW_VERSION="0.1.0"
+            else
+              echo "Latest version found: $LATEST_VERSION"
+              # Parse version components
+              IFS='.' read -r major minor patch <<< "$LATEST_VERSION"
+              # Increment minor version
+              NEW_PATCH=$((patch + 1))
+              NEW_VERSION="${major}.${minor}.0"
+            fi
+          
+            echo "New version: $NEW_VERSION"
+            echo "imgtag=$NEW_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "imgtag=$OVERRIDE_IMG_TAG" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push Docker image
+        id: push
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
+        with:
+          context: .
+          file: ./generator.Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            "${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ steps.image_tag.outputs.imgtag }}"
