@@ -1,7 +1,7 @@
 # This dockerfile generates the container image that is required to run "make protoc-gen"
 
 # Use an official Golang runtime as a parent image
-FROM golang:1.24@sha256:a92f3b1ea096cefbe8ec9b51ec11e52f1dc2a728112228411de8970eb3fe7bda
+FROM golang:1.24@sha256:764d7e0ce1df1e4a1bddc6d1def5f3516fdc045c5fad88e61f67fdbd1857282f
 
 ARG TARGETARCH
 
