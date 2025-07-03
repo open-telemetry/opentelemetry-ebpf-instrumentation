@@ -3,7 +3,7 @@
 This repository provides eBPF instrumentation based on the OpenTelemetry standard.
 It provides a lightweight and efficient way to collect telemetry data using eBPF for user-space applications.
 
-**O**penTelemetry e-**B**PF **I**nstrumentation is commonly referred to as OBIgo.
+**O**penTelemetry e-**B**PF **I**nstrumentation is commonly referred to as OBI.
 
 :construction: This project is currently work in progress.
 
