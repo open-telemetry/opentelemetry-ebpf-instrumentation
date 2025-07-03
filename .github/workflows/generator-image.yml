@@ -54,14 +54,17 @@ jobs:
           OVERRIDE_IMG_TAG: ${{ github.event.inputs.override_image_tag }}
         run: |
           if [[ "$OVERRIDE_IMG_TAG" == "" ]]; then
-            echo "Fetching latest version from $${{ env.REGISTRY }}/{{ env.IMAGE }}..."
+            echo "Fetching latest version from ${{ env.REGISTRY }}/${{ env.IMAGE }}..."
           
             # Get authentication token for GHCR
             TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64)
           
             # Fetch tags from GHCR API
-            LATEST_VERSION=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "https://${{ env.REGISTRY }}/v2/${{ env.IMAGE }}/tags/list" | \
+            TAGS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://${{ env.REGISTRY }}/v2/${{ env.IMAGE }}/tags/list")
+            echo "Image tags: ${TAGS}"
+          
+            LATEST_VERSION=$(echo "${TAGS}" | \
               jq -r '.tags[]' | \
               grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
               sort -V | \
@@ -76,7 +79,7 @@ jobs:
               IFS='.' read -r major minor patch <<< "$LATEST_VERSION"
               # Increment minor version
               NEW_PATCH=$((patch + 1))
-              NEW_VERSION="${major}.${minor}.0"
+              NEW_VERSION="${major}.${minor}.${NEW_PATCH}"
             fi
           
             echo "New version: $NEW_VERSION"
