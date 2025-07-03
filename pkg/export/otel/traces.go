@@ -911,7 +911,7 @@ func manualSpanAttributes(span *request.Span) []attribute.KeyValue {
 			attrs = append(attrs, attribute.Bool(key, akv.Value[0] != 0))
 		case uint8(attribute.INT64):
 			v := binary.LittleEndian.Uint64(akv.Value[:8])
-			attrs = append(attrs, attribute.Int(key, int(v))) // nolint: gosec  // Raw value decode.
+			attrs = append(attrs, attribute.Int(key, int(v))) //nolint: gosec  // Raw value decode.
 		case uint8(attribute.FLOAT64):
 			v := math.Float64frombits(binary.LittleEndian.Uint64(akv.Value[:8]))
 			attrs = append(attrs, attribute.Float64(key, v))
