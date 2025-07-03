@@ -29,6 +29,12 @@
 
 #include <gotracer/types/otel_types.h>
 
+enum { k_go_sdk_type_func_offset = 24 };
+enum { k_go_ptr_arr_size = 16 };
+
+const char ERROR_KEY[] = "error";
+const u32 ERROR_KEY_SIZE = sizeof(ERROR_KEY) - 1;
+
 typedef struct span_info {
     span_name_t name;
     u64 opts_ptr;
@@ -135,12 +141,13 @@ int beyla_uprobe_tracer_Start_global(struct pt_regs *ctx) {
     return tracer_start(ctx, 1);
 }
 
-static __always_inline void read_opts(otel_span_t *span, void *opts_ptr, u64 len) {
+static __always_inline void
+read_attrs_from_opts(otel_span_t *span, void *opts_ptr, u64 len, go_offset_const table_offset) {
     u64 count = len;
     bpf_clamp_umax(count, 5);
     off_table_t *ot = get_offsets_table();
-    u64 off = go_offset_of(ot, (go_offset){.v = _tracer_delegate_pos});
-    bpf_printk("Lookup off %llx", off);
+    u64 off = go_offset_of(ot, (go_offset){.v = table_offset});
+    bpf_dbg_printk("lookup func off %llx", off);
 
     if (!off) {
         return;
@@ -150,25 +157,21 @@ static __always_inline void read_opts(otel_span_t *span, void *opts_ptr, u64 len
 
     for (int i = 0; i < count; i++) {
         void *type = 0;
-        bpf_probe_read(&type, sizeof(void *), opts_ptr + i * 0x10);
+        bpf_probe_read(&type, sizeof(void *), opts_ptr + (i * k_go_ptr_arr_size));
         if (type) {
             void *func = 0;
-            bpf_probe_read(&func, sizeof(void *), type + 0x18);
-            bpf_printk("func addr %llx", func);
-            if (func == (void *)off) {
-                u64 check = -1;
-                bpf_probe_read(&check, sizeof(u64), type + 0x10);
-                if (!check) {
-                    read_from = i;
-                    break;
-                }
+            bpf_probe_read(&func, sizeof(void *), type + k_go_sdk_type_func_offset);
+            if (func && (func == (void *)off)) {
+                read_from = i;
             }
         }
     }
 
+    bpf_dbg_printk("read_from %d", read_from);
+
     if (read_from >= 0) {
         void *attrs_arg = 0;
-        bpf_probe_read(&attrs_arg, sizeof(void *), opts_ptr + (read_from) * 0x10 + 8);
+        bpf_probe_read(&attrs_arg, sizeof(void *), opts_ptr + (read_from * k_go_ptr_arr_size) + 8);
 
         if (attrs_arg) {
             void *attributes_usr_buf = 0;
@@ -177,13 +180,21 @@ static __always_inline void read_opts(otel_span_t *span, void *opts_ptr, u64 len
             bpf_probe_read(&attributes_usr_buf, sizeof(void *), attrs_arg);
             bpf_probe_read(&attributes_len, sizeof(u64), attrs_arg + 8);
 
-            bpf_printk("attr_ptr %llx, attr_len %d", attributes_usr_buf, attributes_len);
+            bpf_dbg_printk("attr_ptr %llx, attr_len %d", attributes_usr_buf, attributes_len);
 
             if (attributes_usr_buf && attributes_len && attributes_len < 100) {
                 convert_go_otel_attributes(attributes_usr_buf, attributes_len, &span->span_attrs);
             }
         }
     }
+}
+
+static __always_inline void read_start_attrs(otel_span_t *span, void *opts_ptr, u64 len) {
+    read_attrs_from_opts(span, opts_ptr, len, _tracer_apply_span_start_off);
+}
+
+static __always_inline void read_event_attrs(otel_span_t *span, void *opts_ptr, u64 len) {
+    read_attrs_from_opts(span, opts_ptr, len, _tracer_apply_event_off);
 }
 
 // This instrumentation attaches uprobe to the following function:
@@ -213,7 +224,7 @@ int beyla_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
     span->start_time = bpf_ktime_get_ns();
 
     if (span_info->opts_ptr && span_info->opts_len) {
-        read_opts(span, (void *)span_info->opts_ptr, span_info->opts_len);
+        read_start_attrs(span, (void *)span_info->opts_ptr, span_info->opts_len);
     }
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
@@ -354,6 +365,64 @@ int beyla_uprobe_SetName(struct pt_regs *ctx) {
     u64 span_name_len = (u64)span_name_len_ptr;
 
     read_span_name(span->span_name.buf, span_name_len, span_name_ptr);
+
+    return 0;
+}
+
+SEC("uprobe/span_RecordError")
+int beyla_uprobe_RecordError(struct pt_regs *ctx) {
+    void *span_ptr = (void *)GO_PARAM1(ctx);
+    bpf_dbg_printk(
+        "=== uprobe/span.RecordError [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, span_ptr);
+
+    otel_span_t *span = (otel_span_t *)bpf_map_lookup_elem(&active_spans, &s_key);
+    if (span == NULL) {
+        return 0;
+    }
+
+    void *opts_ptr = (void *)GO_PARAM4(ctx);
+    u64 opts_len = (u64)GO_PARAM5(ctx);
+
+    if (opts_ptr && opts_len) {
+        read_event_attrs(span, opts_ptr, opts_len);
+    }
+
+    void *err_type = (void *)GO_PARAM2(ctx);
+
+    void *func = 0;
+    bpf_probe_read(&func, sizeof(void *), err_type + k_go_sdk_type_func_offset);
+    bpf_dbg_printk("func addr %llx", func);
+
+    off_table_t *ot = get_offsets_table();
+    u64 off = go_offset_of(ot, (go_offset){.v = _error_string_off});
+    bpf_dbg_printk("err lookup off %llx", off);
+
+    if (func && (func == (void *)off)) {
+        void *str_err = (void *)GO_PARAM3(ctx);
+        bpf_dbg_printk("str_err %llx", str_err);
+        if (str_err) {
+            struct go_string go_str = {0};
+            bpf_probe_read(&go_str, sizeof(struct go_string), str_err);
+            u8 valid_attrs = span->span_attrs.valid_attrs;
+            bpf_dbg_printk(
+                "valid_attrs %d, len %d, go_str %s", valid_attrs, go_str.len, go_str.str);
+
+            if ((go_str.len < OTEL_ATTRIBUTE_KEY_MAX_LEN) &&
+                (valid_attrs < OTEL_ATTRUBUTE_MAX_COUNT)) {
+                __builtin_memcpy(
+                    span->span_attrs.attrs[valid_attrs].key, ERROR_KEY, ERROR_KEY_SIZE);
+                bpf_probe_read_user(span->span_attrs.attrs[valid_attrs].value,
+                                    go_str.len & (OTEL_ATTRIBUTE_KEY_MAX_LEN - 1),
+                                    go_str.str);
+                span->span_attrs.attrs[valid_attrs].val_length = go_str.len;
+                span->span_attrs.attrs[valid_attrs].vtype = attr_type_string;
+                span->span_attrs.valid_attrs = valid_attrs + 1;
+            }
+        }
+    }
 
     return 0;
 }

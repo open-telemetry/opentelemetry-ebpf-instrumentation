@@ -185,8 +185,13 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 
 	for name, fOff := range offsets.Funcs {
 		if fOff.Start != 0 {
-			if name == "go.opentelemetry.io/otel/trace.(*attributeOption).applySpanStart" {
-				offTable.Table[goexec.GoTracerDelegatePos] = fOff.ModStart
+			switch name {
+			case "go.opentelemetry.io/otel/trace.(*attributeOption).applySpanStart":
+				offTable.Table[goexec.GoTracerSDKApplySpanStartOffset] = fOff.ModStart
+			case "go.opentelemetry.io/otel/trace.(*attributeOption).applyEvent":
+				offTable.Table[goexec.GoTracerSDKApplyEventOffset] = fOff.ModStart
+			case "errors.(*errorString).Error":
+				offTable.Table[goexec.GoErrorStringOffset] = fOff.ModStart
 			}
 		}
 	}
@@ -422,8 +427,16 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"go.opentelemetry.io/auto/sdk.(*span).SetName": {{
 			Start: p.bpfObjects.BeylaUprobeSetName,
 		}},
-		// Dummy function, we need it for its offset
+		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).RecordError": {{
+			Start: p.bpfObjects.BeylaUprobeRecordError,
+		}},
+		"go.opentelemetry.io/auto/sdk.(*span).RecordError": {{
+			Start: p.bpfObjects.BeylaUprobeRecordError,
+		}},
+		// Dummy functions, we need them for their offsets to compare in eBPF
 		"go.opentelemetry.io/otel/trace.(*attributeOption).applySpanStart": {{}},
+		"go.opentelemetry.io/otel/trace.(*attributeOption).applyEvent":     {{}},
+		"errors.(*errorString).Error":                                      {{}},
 	}
 
 	if p.supportsContextPropagation() {

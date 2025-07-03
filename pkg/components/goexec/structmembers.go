@@ -94,6 +94,8 @@ const (
 	// go manual spans
 	GoTracerDelegatePos
 	GoTracerSDKApplySpanStartOffset
+	GoTracerSDKApplyEventOffset
+	GoErrorStringOffset
 )
 
 //go:embed offsets.json

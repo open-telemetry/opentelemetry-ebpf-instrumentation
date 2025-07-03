@@ -74,6 +74,8 @@ typedef enum {
     // go manual spans
     _tracer_delegate_pos,
     _tracer_apply_span_start_off,
+    _tracer_apply_event_off,
+    _error_string_off,
     _last_go_offset,
 } go_offset_const;
 
