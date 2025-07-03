@@ -28,6 +28,7 @@ IMG = $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
 GEN_IMG ?= ghcr.io/grafana/beyla-ebpf-generator:main
+#TODO: GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:latest
 
 COMPOSE_ARGS ?= -f test/integration/docker-compose.yml
 
@@ -42,7 +43,7 @@ CLANG_TIDY ?= clang-tidy
 CILIUM_EBPF_VER ?= $(call gomod-version,cilium/ebpf)
 
 # regular expressions for excluded file patterns
-EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)|(/cmd/ebpf-instrument-genfiles)"
+EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)|(/cmd/obi-genfiles)"
 
 .DEFAULT_GOAL := all
 
@@ -154,12 +155,12 @@ generate: export BPF_CFLAGS := $(CFLAGS)
 generate: export BPF2GO := $(BPF2GO)
 generate: bpf2go
 	@echo "### Generating files..."
-	@OTEL_EBPF_GENFILES_RUN_LOCALLY=1 go generate cmd/beyla-genfiles/beyla_genfiles.go
+	@OTEL_EBPF_GENFILES_RUN_LOCALLY=1 go generate cmd/obi-genfiles/obi_genfiles.go
 
 .PHONY: docker-generate
 docker-generate:
 	@echo "### Generating files (docker)..."
-	@OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/beyla-genfiles/beyla_genfiles.go
+	@OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/obi-genfiles/obi_genfiles.go
 
 .PHONY: verify
 verify: prereqs lint test
@@ -218,16 +219,18 @@ coverage-report-html: cov-exclude-generated
 	@echo "### Generating HTML coverage report"
 	go tool cover --html=$(TEST_OUTPUT)/cover.txt
 
+# image-build is only used for local development. GH actions that build and publish the image don't make use of it
 .PHONY: image-build
 image-build:
 	@echo "### Building and pushing the auto-instrumenter image"
 	$(call check_defined, IMG_ORG, Your Docker repository user name)
-	$(OCI_BIN) buildx build --platform linux/amd64,linux/arm64 -t ${IMG} .
+	$(OCI_BIN) buildx build --load -t ${IMG} .
 
+# generator-image-build is only used for local development. GH actions that build and publish the image don't make use of it
 .PHONY: generator-image-build
 generator-image-build:
 	@echo "### Creating the image that generates the eBPF binaries"
-	$(OCI_BIN) buildx build --build-arg EBPF_VER="$(CILIUM_EBPF_VER)" --platform linux/amd64,linux/arm64 -t $(GEN_IMG) -f generator.Dockerfile  .
+	$(OCI_BIN) buildx build --load -t $(GEN_IMG) -f generator.Dockerfile  .
 
 
 .PHONY: prepare-integration-test

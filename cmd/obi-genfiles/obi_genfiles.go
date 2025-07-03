@@ -1,4 +1,4 @@
-//go:generate go run beyla_genfiles.go
+//go:generate go run obi_genfiles.go
 
 package main
 
@@ -34,8 +34,7 @@ type config struct {
 	HostPrefix      string `env:"OTEL_EBPF_GENFILES_HOST_PREFIX"      envDefault:"/home/runner/work/"`
 	Package         string `env:"OTEL_EBPF_GENFILES_PKG"              envDefault:"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"`
 	OCIBin          string `env:"OTEL_EBPF_GENFILES_OCI_BIN"          envDefault:"docker"`
-	// TODO: replace by OTEL image once we publish them
-	GenImage string `env:"OTEL_EBPF_GENFILES_GEN_IMG"          envDefault:"ghcr.io/grafana/beyla-ebpf-generator:main"`
+	GenImage        string `env:"OTEL_EBPF_GENFILES_GEN_IMG"`
 }
 
 var cfg config
