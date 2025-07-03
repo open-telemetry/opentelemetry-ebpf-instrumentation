@@ -18,19 +18,17 @@ BUILDINFO_PKG ?= github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pk
 TEST_OUTPUT ?= ./testoutput
 
 IMG_REGISTRY ?= docker.io
-# Set your registry username. CI will set 'grafana' but you mustn't use it for manual pushing.
+# Set your registry username. CI will set 'otel' but you mustn't use it for manual pushing.
 IMG_ORG ?=
-IMG_NAME ?= beyla
+IMG_NAME ?= ebpf-instrument
+
 # Container image creation creation
 VERSION ?= dev
 IMG = $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/grafana/beyla-ebpf-generator:main
-#TODO: GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:latest
-
-COMPOSE_ARGS ?= -f test/integration/docker-compose.yml
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.1.0
 
 OCI_BIN ?= docker
 
@@ -244,8 +242,6 @@ cleanup-integration-test:
 	@echo "### Removing integration test clusters"
 	$(KIND) delete cluster -n test-kind-cluster || true
 	@echo "### Removing docker containers and images"
-	$(OCI_BIN) compose $(COMPOSE_ARGS) stop || true
-	$(OCI_BIN) compose $(COMPOSE_ARGS) rm -f || true
 	$(OCI_BIN) rm -f $(shell $(OCI_BIN) ps --format '{{.Names}}' | grep 'integration-') || true
 	$(OCI_BIN) rmi -f $(shell $(OCI_BIN) images --format '{{.Repository}}:{{.Tag}}' | grep 'hatest-') || true
 
