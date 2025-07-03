@@ -12,7 +12,7 @@ FROM base AS dist
 
 WORKDIR /src
 
-ARG EBPF_VER
+ENV EBPF_VER=v0.19.0
 
 RUN apk add clang llvm19 wget
 RUN apk cache purge
