@@ -102,7 +102,7 @@ func handleStaticSymbol(fName string, allOffsets map[string]FuncOffsets, allSyms
 			ilog.Error("error finding returns for symbol", "symbol", fName, "offset", s.Off-s.Prog.Off, "size", s.Len, "error", err)
 			return
 		}
-		allOffsets[fName] = FuncOffsets{Start: s.Off, Returns: returns, ModStart: s.Off}
+		allOffsets[fName] = FuncOffsets{Start: s.Off, Returns: returns}
 	} else {
 		ilog.Debug("can't find in elf symbol table", "symbol", fName, "ok", ok, "prog", s.Prog)
 	}
@@ -130,7 +130,7 @@ func findFuncOffset(f *gosym.Func, elfF *elf.File) (FuncOffsets, bool, error) {
 			if err != nil {
 				return FuncOffsets{}, false, fmt.Errorf("finding function return: %w", err)
 			}
-			return FuncOffsets{Start: off, Returns: returns, ModStart: f.Value}, true, nil
+			return FuncOffsets{Start: off, Returns: returns}, true, nil
 		}
 	}
 

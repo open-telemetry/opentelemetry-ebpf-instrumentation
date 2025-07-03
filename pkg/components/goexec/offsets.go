@@ -16,9 +16,8 @@ type Offsets struct {
 }
 
 type FuncOffsets struct {
-	ModStart uint64
-	Start    uint64
-	Returns  []uint64
+	Start   uint64
+	Returns []uint64
 }
 
 type FieldOffsets map[GoOffset]any

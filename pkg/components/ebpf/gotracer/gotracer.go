@@ -438,10 +438,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"go.opentelemetry.io/auto/sdk.(*span).RecordError": {{
 			Start: p.bpfObjects.BeylaUprobeRecordError,
 		}},
-		// Dummy functions, we need them for their offsets to compare in eBPF
-		"go.opentelemetry.io/otel/trace.(*attributeOption).applySpanStart": {{}},
-		"go.opentelemetry.io/otel/trace.(*attributeOption).applyEvent":     {{}},
-		"errors.(*errorString).Error":                                      {{}},
 	}
 
 	if p.supportsContextPropagation() {
