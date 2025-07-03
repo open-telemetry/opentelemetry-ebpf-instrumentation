@@ -194,9 +194,9 @@ SEC("uprobe/serverHandlerTransport_HandleStreams")
 int beyla_uprobe_server_handler_transport_handle_streams(struct pt_regs *ctx) {
     void *tr = GO_PARAM1(ctx);
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_printk("=== uprobe/serverHandlerTransport_HandleStreams tr %llx goroutine %lx === ",
-               tr,
-               goroutine_addr);
+    bpf_dbg_printk("=== uprobe/serverHandlerTransport_HandleStreams tr %llx goroutine %lx === ",
+                   tr,
+                   goroutine_addr);
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
