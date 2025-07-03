@@ -183,16 +183,21 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		}
 	}
 
-	for name, fOff := range offsets.Funcs {
-		if fOff.Start != 0 {
-			switch name {
-			case "go.opentelemetry.io/otel/trace.(*attributeOption).applySpanStart":
-				offTable.Table[goexec.GoTracerSDKApplySpanStartOffset] = fOff.ModStart
-			case "go.opentelemetry.io/otel/trace.(*attributeOption).applyEvent":
-				offTable.Table[goexec.GoTracerSDKApplyEventOffset] = fOff.ModStart
-			case "errors.(*errorString).Error":
-				offTable.Table[goexec.GoErrorStringOffset] = fOff.ModStart
-			}
+	for _, iType := range []struct {
+		symbol string
+		field  goexec.GoOffset
+	}{
+		{
+			symbol: "go.opentelemetry.io/otel/trace.attributeOption",
+			field:  goexec.GoTracerAttributeOptOffset,
+		},
+		{
+			symbol: "*errors.errorString",
+			field:  goexec.GoErrorStringOffset,
+		},
+	} {
+		if offset, ok := offsets.ITypes[iType.symbol]; ok {
+			offTable.Table[iType.field] = offset
 		}
 	}
 

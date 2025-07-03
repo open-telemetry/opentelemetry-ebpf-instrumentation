@@ -29,7 +29,7 @@
 
 #include <gotracer/types/otel_types.h>
 
-enum { k_go_sdk_type_func_offset = 24 };
+enum { k_go_interface_type_offset = 8 };
 enum { k_go_ptr_arr_size = 16 };
 
 const char ERROR_KEY[] = "error";
@@ -141,17 +141,25 @@ int beyla_uprobe_tracer_Start_global(struct pt_regs *ctx) {
     return tracer_start(ctx, 1);
 }
 
-static __always_inline void
-read_attrs_from_opts(otel_span_t *span, void *opts_ptr, u64 len, go_offset_const table_offset) {
+static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_ptr, u64 len) {
     u64 count = len;
     bpf_clamp_umax(count, 5);
     off_table_t *ot = get_offsets_table();
-    u64 off = go_offset_of(ot, (go_offset){.v = table_offset});
-    bpf_dbg_printk("lookup func off %llx", off);
+    u64 sym_addr = go_offset_of(ot, (go_offset){.v = _tracer_attribute_opt_off});
+    bpf_dbg_printk("lookup type off %llx", sym_addr);
 
-    if (!off) {
+    if (!sym_addr) {
         return;
     }
+
+    void *type_off = 0;
+    bpf_probe_read_user(&type_off, sizeof(void *), (void *)sym_addr + k_go_interface_type_offset);
+
+    if (!type_off) {
+        return;
+    }
+
+    bpf_dbg_printk("lookup itype %llx", type_off);
 
     int read_from = -1;
 
@@ -159,10 +167,11 @@ read_attrs_from_opts(otel_span_t *span, void *opts_ptr, u64 len, go_offset_const
         void *type = 0;
         bpf_probe_read(&type, sizeof(void *), opts_ptr + (i * k_go_ptr_arr_size));
         if (type) {
-            void *func = 0;
-            bpf_probe_read(&func, sizeof(void *), type + k_go_sdk_type_func_offset);
-            if (func && (func == (void *)off)) {
+            void *itype = 0;
+            bpf_probe_read(&itype, sizeof(void *), type + k_go_interface_type_offset);
+            if (itype && (itype == type_off)) {
                 read_from = i;
+                break;
             }
         }
     }
@@ -187,14 +196,6 @@ read_attrs_from_opts(otel_span_t *span, void *opts_ptr, u64 len, go_offset_const
             }
         }
     }
-}
-
-static __always_inline void read_start_attrs(otel_span_t *span, void *opts_ptr, u64 len) {
-    read_attrs_from_opts(span, opts_ptr, len, _tracer_apply_span_start_off);
-}
-
-static __always_inline void read_event_attrs(otel_span_t *span, void *opts_ptr, u64 len) {
-    read_attrs_from_opts(span, opts_ptr, len, _tracer_apply_event_off);
 }
 
 // This instrumentation attaches uprobe to the following function:
@@ -224,7 +225,7 @@ int beyla_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
     span->start_time = bpf_ktime_get_ns();
 
     if (span_info->opts_ptr && span_info->opts_len) {
-        read_start_attrs(span, (void *)span_info->opts_ptr, span_info->opts_len);
+        read_attrs_from_opts(span, (void *)span_info->opts_ptr, span_info->opts_len);
     }
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
@@ -387,20 +388,35 @@ int beyla_uprobe_RecordError(struct pt_regs *ctx) {
     u64 opts_len = (u64)GO_PARAM5(ctx);
 
     if (opts_ptr && opts_len) {
-        read_event_attrs(span, opts_ptr, opts_len);
+        read_attrs_from_opts(span, opts_ptr, opts_len);
     }
 
     void *err_type = (void *)GO_PARAM2(ctx);
 
-    void *func = 0;
-    bpf_probe_read(&func, sizeof(void *), err_type + k_go_sdk_type_func_offset);
-    bpf_dbg_printk("func addr %llx", func);
+    void *itype = 0;
+    bpf_probe_read(&itype, sizeof(void *), err_type + k_go_interface_type_offset);
+    bpf_dbg_printk("itype err %llx", itype);
+
+    if (!itype) {
+        return 0;
+    }
 
     off_table_t *ot = get_offsets_table();
-    u64 off = go_offset_of(ot, (go_offset){.v = _error_string_off});
-    bpf_dbg_printk("err lookup off %llx", off);
+    u64 sym_addr = go_offset_of(ot, (go_offset){.v = _error_string_off});
+    bpf_dbg_printk("err lookup off %llx", sym_addr);
 
-    if (func && (func == (void *)off)) {
+    if (!sym_addr) {
+        return 0;
+    }
+
+    void *type_off = 0;
+    bpf_probe_read_user(&type_off, sizeof(void *), (void *)sym_addr + k_go_interface_type_offset);
+
+    if (!type_off) {
+        return 0;
+    }
+
+    if (itype == type_off) {
         void *str_err = (void *)GO_PARAM3(ctx);
         bpf_dbg_printk("str_err %llx", str_err);
         if (str_err) {

@@ -93,8 +93,7 @@ const (
 	GrpcClientStreamStream
 	// go manual spans
 	GoTracerDelegatePos
-	GoTracerSDKApplySpanStartOffset
-	GoTracerSDKApplyEventOffset
+	GoTracerAttributeOptOffset
 	GoErrorStringOffset
 )
 
