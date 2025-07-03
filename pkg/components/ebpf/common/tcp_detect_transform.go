@@ -61,8 +61,8 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 
 		sqlCommand := sqlprune.SQLParseCommandID(request.DBMySQL, requestBuffer)
 		if sqlCommand == "" {
-			slog.Warn("MySQL command ID unhandled, falling back to generic handler", "commandID", requestBuffer[sqlprune.MySQLHdrSize])
-			break
+			slog.Warn("MySQL command ID unhandled", "commandID", requestBuffer[sqlprune.MySQLHdrSize])
+			return request.Span{}, true, nil
 		}
 
 		var op, table string

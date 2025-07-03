@@ -72,7 +72,7 @@ var DefaultConfig = Config{
 			MaxSize: 1000,
 		},
 		BufferSizes: config.EBPFBufferSizes{
-			MySQL: 1024,
+			MySQL: 0,
 		},
 	},
 	NameResolver: &transform.NameResolverConfig{

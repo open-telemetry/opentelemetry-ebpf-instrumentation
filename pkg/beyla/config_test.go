@@ -127,7 +127,7 @@ network:
 				MaxSize: 1000,
 			},
 			BufferSizes: config.EBPFBufferSizes{
-				MySQL: 1024,
+				MySQL: 0,
 			},
 		},
 		NetworkFlows: nc,

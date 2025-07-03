@@ -274,6 +274,13 @@ func (s *Span) SQLErrorDescription() string {
 		return ""
 	}
 
+	if s.SQLCommand == "" {
+		return fmt.Sprintf(
+			"SQL Server errored: error_code=%d sql_state=%s message=%s",
+			s.SQLError.Code, s.SQLError.SQLState, s.SQLError.Message,
+		)
+	}
+
 	return fmt.Sprintf(
 		"SQL Server errored for command 'COM_%s': error_code=%d sql_state=%s message=%s",
 		s.SQLCommand, s.SQLError.Code, s.SQLError.SQLState, s.SQLError.Message,

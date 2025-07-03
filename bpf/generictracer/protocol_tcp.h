@@ -104,7 +104,9 @@ static __always_inline void tcp_send_large_buffer(tcp_req_t *req,
                                                   enum protocol_type protocol_type) {
     switch (protocol_type) {
     case k_protocol_type_mysql:
-        mysql_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction);
+        if (mysql_buffer_size > 0) {
+            mysql_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction);
+        }
         break;
     case k_protocol_type_unknown:
         break;

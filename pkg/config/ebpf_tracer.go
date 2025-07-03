@@ -97,8 +97,10 @@ type EBPFTracer struct {
 
 type EBPFBufferSizes struct {
 	// MySQL data buffer size in bytes.
-	// Min: 128 bytes, Max: 8192 bytes, Default: 1024 bytes.
-	// Use only powers of 2: 128, 256, 512, 1024, 2048, 4096, 8192.
+	// Min: 128 bytes, Max: 8192 bytes.
+	// Valid values: 0, 128, 256, 512, 1024, 2048, 4096, 8192.
+	//
+	// Default: 0 (disabled).
 	MySQL uint32 `yaml:"mysql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL"`
 }
 
@@ -106,10 +108,10 @@ func (c *EBPFTracer) Validate() error {
 	// TODO(matt): validate all the existing attributes
 
 	switch c.BufferSizes.MySQL {
-	case 128, 256, 512, 1024, 2048, 4096, 8192:
+	case 0, 128, 256, 512, 1024, 2048, 4096, 8192:
 		// valid sizes
 	default:
-		return fmt.Errorf("invalid MySQL buffer size: %d, must be one of 128, 256, 512, 1024, 2048, 4096, 8192", c.BufferSizes.MySQL)
+		return fmt.Errorf("invalid MySQL buffer size: %d, must be one of 0, 128, 256, 512, 1024, 2048, 4096, 8192", c.BufferSizes.MySQL)
 	}
 
 	return nil
