@@ -96,9 +96,7 @@ github.com/cenkalti/backoff/v5
 # github.com/cespare/xxhash/v2 v2.3.0
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2
-# github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311
-## explicit; go 1.15
-# github.com/cilium/ebpf v0.18.0
+# github.com/cilium/ebpf v0.19.0
 ## explicit; go 1.23.0
 github.com/cilium/ebpf
 github.com/cilium/ebpf/asm
@@ -302,7 +300,7 @@ github.com/hashicorp/golang-lru/v2
 github.com/hashicorp/golang-lru/v2/expirable
 github.com/hashicorp/golang-lru/v2/internal
 github.com/hashicorp/golang-lru/v2/simplelru
-# github.com/ianlancetaylor/demangle v0.0.0-20250625212726-86fd2c0a1a74
+# github.com/ianlancetaylor/demangle v0.0.0-20250628045327-2d64ad6b7ec5
 ## explicit; go 1.13
 github.com/ianlancetaylor/demangle
 # github.com/imdario/mergo v0.3.15
@@ -420,7 +418,7 @@ github.com/prometheus/client_golang/prometheus/promhttp/internal
 # github.com/prometheus/client_model v0.6.2
 ## explicit; go 1.22.0
 github.com/prometheus/client_model/go
-# github.com/prometheus/common v0.64.0
+# github.com/prometheus/common v0.65.0
 ## explicit; go 1.23.0
 github.com/prometheus/common/expfmt
 github.com/prometheus/common/model

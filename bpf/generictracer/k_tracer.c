@@ -15,6 +15,10 @@
 #include <generictracer/maps/active_accept_args.h>
 #include <generictracer/maps/active_connect_args.h>
 #include <generictracer/maps/tcp_connection_map.h>
+#include <generictracer/protocol_http.h>
+#include <generictracer/protocol_http2.h>
+#include <generictracer/protocol_mysql.h>
+#include <generictracer/protocol_tcp.h>
 #include <generictracer/ssl_defs.h>
 
 #include <logger/bpf_dbg.h>
@@ -907,6 +911,101 @@ int BPF_KPROBE(beyla_kprobe_sys_exit, int status) {
     // This won't delete trace ids for traces with extra_id, like NodeJS. But,
     // we expect that it doesn't matter, since NodeJS main thread won't exit.
     bpf_map_delete_elem(&server_traces, &task);
+
+    return 0;
+}
+
+// k_tail_handle_buf_with_args
+SEC("kprobe")
+int beyla_handle_buf_with_args(void *ctx) {
+    call_protocol_args_t *args = protocol_args();
+    if (!args) {
+        return 0;
+    }
+
+    bpf_dbg_printk(
+        "buf=[%s], pid=%d, len=%d", args->small_buf, args->pid_conn.pid, args->bytes_len);
+
+    if (is_http(args->small_buf, MIN_HTTP_SIZE, &args->packet_type)) {
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_http);
+    } else if (is_http2_or_grpc(args->small_buf, MIN_HTTP2_SIZE)) {
+        bpf_dbg_printk("Found HTTP2 or gRPC connection");
+        http2_conn_info_data_t data = {
+            .id = 0,
+            .flags = http2_conn_flag_new,
+        };
+        data.id = uniqueHTTP2ConnId(&args->pid_conn);
+        if (args->ssl) {
+            data.flags |= http2_conn_flag_ssl;
+        }
+        bpf_map_update_elem(&ongoing_http2_connections, &args->pid_conn, &data, BPF_ANY);
+    } else if (is_mysql(&args->pid_conn.conn,
+                        (const unsigned char *)args->u_buf,
+                        args->bytes_len,
+                        &args->packet_type,
+                        &args->protocol_type)) {
+        bpf_dbg_printk("Found mysql connection");
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_mysql);
+    } else {
+        http2_conn_info_data_t *h2g =
+            bpf_map_lookup_elem(&ongoing_http2_connections, &args->pid_conn);
+        if (h2g && (http2_flag_ssl(h2g->flags) == args->ssl)) {
+            bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2);
+        } else { // large request tracking
+            http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
+
+            if (info) {
+                // Still reading checks if we are processing buffers of a HTTP request
+                // that has started, but we haven't seen a response yet.
+                if (still_reading(info)) {
+                    // Packets are split into chunks if Beyla injected the Traceparent
+                    // Make sure you look for split packets containing the real Traceparent.
+                    // Essentially, when a packet is extended by our sock_msg program and
+                    // passed down another service, the receiving side may reassemble the
+                    // packets into one buffer or not. If they are reassembled, then the
+                    // call to bpf_tail_call(ctx, &jump_table, k_tail_protocol_http); will
+                    // scan for the incoming 'Traceparent' header. If they are not reassembled
+                    // we'll see something like this:
+                    // [before the injected header],[70 bytes for 'Traceparent...'],[the rest].
+                    if (is_traceparent(args->small_buf)) {
+                        unsigned char *buf = tp_char_buf();
+                        if (buf) {
+                            bpf_probe_read(buf, EXTEND_SIZE, (unsigned char *)args->u_buf);
+                            bpf_dbg_printk("Found traceparent %s", buf);
+                            unsigned char *t_id = extract_trace_id(buf);
+                            unsigned char *s_id = extract_span_id(buf);
+                            unsigned char *f_id = extract_flags(buf);
+
+                            decode_hex(info->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
+                            decode_hex((unsigned char *)&info->tp.flags, f_id, FLAGS_CHAR_LEN);
+                            decode_hex(info->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
+
+                            trace_key_t t_key = {0};
+                            trace_key_from_pid_tid(&t_key);
+
+                            tp_info_pid_t *existing = bpf_map_lookup_elem(&server_traces, &t_key);
+                            if (existing) {
+                                __builtin_memcpy(&existing->tp, &info->tp, sizeof(tp_info_t));
+                                set_trace_info_for_connection(
+                                    &args->pid_conn.conn, TRACE_TYPE_SERVER, existing);
+                            } else {
+                                bpf_dbg_printk("Didn't find existing trace, this might be a bug!");
+                            }
+                        }
+                    }
+                } else if (still_responding(info)) {
+                    info->end_monotime_ns = bpf_ktime_get_ns();
+                }
+            } else if (!info) {
+                // SSL requests will see both TCP traffic and text traffic, ignore the TCP if
+                // we are processing SSL request. HTTP2 is already checked in handle_buf_with_connection.
+                http_info_t *http_info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
+                if (!http_info) {
+                    bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
+                }
+            }
+        }
+    }
 
     return 0;
 }

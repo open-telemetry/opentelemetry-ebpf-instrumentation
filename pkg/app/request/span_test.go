@@ -129,11 +129,16 @@ func TestSerializeJSONSpans(t *testing.T) {
 		{
 			eventType: EventTypeSQLClient,
 			attribs: map[string]any{
-				"serverAddr": "hostname",
-				"serverPort": "5678",
-				"operation":  "method",
-				"table":      "path",
-				"statement":  "statement",
+				"serverAddr":       "hostname",
+				"serverPort":       "5678",
+				"operation":        "method",
+				"table":            "path",
+				"statement":        "statement",
+				"errorCode":        "123",
+				"errorDescription": "SQL Server errored for command 'COM_QUERY': error_code=123 sql_state=s123 message=err123",
+				"errorMessage":     "err123",
+				"sqlCommand":       "QUERY",
+				"sqlState":         "s123",
 			},
 		},
 		{
@@ -189,6 +194,12 @@ func TestSerializeJSONSpans(t *testing.T) {
 			HostName:       "hostname",
 			OtherNamespace: "otherns",
 			Statement:      "statement",
+			SQLCommand:     "QUERY",
+			SQLError: &SQLError{
+				SQLState: "s123",
+				Message:  "err123",
+				Code:     123,
+			},
 		}
 
 		data, err := json.MarshalIndent(span, "", " ")

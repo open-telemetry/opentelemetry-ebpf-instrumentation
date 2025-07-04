@@ -3,12 +3,14 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/common.h>
 #include <common/http_types.h>
 #include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/trace_common.h>
 
 #include <generictracer/protocol_common.h>
+#include <generictracer/protocol_mysql.h>
 
 #include <generictracer/maps/ongoing_tcp_req.h>
 #include <generictracer/maps/tcp_req_mem.h>
@@ -94,13 +96,32 @@ static __always_inline void cleanup_tcp_trace_info_if_needed(pid_connection_info
     }
 }
 
+static __always_inline void tcp_send_large_buffer(tcp_req_t *req,
+                                                  pid_connection_info_t *pid_conn,
+                                                  void *u_buf,
+                                                  int bytes_len,
+                                                  u8 direction,
+                                                  enum protocol_type protocol_type) {
+    switch (protocol_type) {
+    case k_protocol_type_mysql:
+        if (mysql_buffer_size > 0) {
+            mysql_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction);
+        }
+        break;
+    case k_protocol_type_unknown:
+        break;
+    }
+}
+
 static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t *pid_conn,
                                                           void *u_buf,
                                                           int bytes_len,
                                                           u8 direction,
                                                           u8 ssl,
-                                                          u16 orig_dport) {
+                                                          u16 orig_dport,
+                                                          enum protocol_type protocol_type) {
     tcp_req_t *existing = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
+
     if (existing) {
         if (existing->direction == direction && existing->end_monotime_ns != 0) {
             bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
@@ -149,18 +170,26 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             req->len = bytes_len;
             req->req_len = req->len;
             req->extra_id = extra_runtime_id();
+            req->protocol_type = protocol_type;
             task_pid(&req->pid);
             bpf_probe_read(req->buf, bytes_len, u_buf);
 
             req->tp.ts = bpf_ktime_get_ns();
 
-            bpf_dbg_printk("TCP request start, direction = %d, ssl = %d", direction, ssl);
+            bpf_dbg_printk("TCP request start, direction = %d, ssl = %d, protocol = %d",
+                           direction,
+                           ssl,
+                           protocol_type);
 
             tcp_get_or_set_trace_info(req, pid_conn, ssl, orig_dport);
+
+            tcp_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, protocol_type);
 
             bpf_map_update_elem(&ongoing_tcp_req, pid_conn, req, BPF_ANY);
         }
     } else if (existing->direction != direction) {
+        tcp_send_large_buffer(existing, pid_conn, u_buf, bytes_len, direction, protocol_type);
+
         if (existing->end_monotime_ns == 0) {
             bpf_clamp_umax(bytes_len, K_TCP_RES_LEN);
             existing->end_monotime_ns = bpf_ktime_get_ns();
@@ -172,6 +201,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
                 __builtin_memcpy(trace, existing, sizeof(tcp_req_t));
                 bpf_probe_read(trace->rbuf, bytes_len, u_buf);
+
                 bpf_ringbuf_submit(trace, get_flags());
             } else {
                 bpf_printk("failed to reserve space on the ringbuf");
@@ -189,6 +219,8 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         bpf_probe_read(existing->buf + off, (K_TCP_MAX_LEN / 2), u_buf);
         existing->len += bytes_len;
         existing->req_len = existing->len;
+        existing->protocol_type = protocol_type;
+        tcp_send_large_buffer(existing, pid_conn, u_buf, bytes_len, direction, protocol_type);
     } else {
         existing->req_len += bytes_len;
     }
@@ -203,12 +235,18 @@ int beyla_protocol_tcp(void *ctx) {
         return 0;
     }
 
+    bpf_dbg_printk("=== tcp_event len=%d pid=%d protocol_type=%d ===",
+                   args->bytes_len,
+                   args->pid_conn.pid,
+                   args->protocol_type);
+
     handle_unknown_tcp_connection(&args->pid_conn,
                                   (void *)args->u_buf,
                                   args->bytes_len,
                                   args->direction,
                                   args->ssl,
-                                  args->orig_dport);
+                                  args->orig_dport,
+                                  args->protocol_type);
 
     return 0;
 }

@@ -17,4 +17,6 @@ enum {
     k_tail_protocol_http2_grpc_frames = 3,
     k_tail_protocol_http2_grpc_handle_start_frame = 4,
     k_tail_protocol_http2_grpc_handle_end_frame = 5,
+    k_tail_protocol_mysql = 6,
+    k_tail_handle_buf_with_args = 7,
 };

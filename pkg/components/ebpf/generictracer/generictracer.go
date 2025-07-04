@@ -175,6 +175,14 @@ func (p *Tracer) SetupTailCalls() {
 			index: 5,
 			prog:  p.bpfObjects.BeylaProtocolHttp2GrpcHandleEndFrame,
 		},
+		{
+			index: 6,
+			prog:  p.bpfObjects.BeylaProtocolMysql,
+		},
+		{
+			index: 7,
+			prog:  p.bpfObjects.BeylaHandleBufWithArgs,
+		},
 	} {
 		err := p.bpfObjects.JumpTable.Update(uint32(tc.index), uint32(tc.prog.FD()), ebpf.UpdateAny)
 		if err != nil {
@@ -216,6 +224,8 @@ func (p *Tracer) Constants() map[string]any {
 	} else {
 		m["disable_black_box_cp"] = uint32(0)
 	}
+
+	m["mysql_buffer_size"] = p.cfg.EBPF.BufferSizes.MySQL
 
 	return m
 }
@@ -516,7 +526,7 @@ func (p *Tracer) watchForMisclassifedEvents(ctx context.Context) {
 			if e.EventType == ebpfcommon.EventTypeKHTTP2 {
 				if p.bpfObjects.OngoingHttp2Connections != nil {
 					err := p.bpfObjects.OngoingHttp2Connections.Put(
-						&BpfPidConnectionInfoT{Conn: BpfConnectionInfoT(e.TCPInfo.ConnInfo), Pid: e.TCPInfo.Pid.HostPid},
+						&BpfPidConnectionInfoT{Conn: bpfConnInfoT(e.TCPInfo.ConnInfo), Pid: e.TCPInfo.Pid.HostPid},
 						BpfHttp2ConnInfoDataT{Flags: e.TCPInfo.Ssl, Id: 0}, // no new connection flag (0x3)
 					)
 					if err != nil {
@@ -526,6 +536,16 @@ func (p *Tracer) watchForMisclassifedEvents(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// Cilium 0.19.0+ is adding a new private field to all the BpfConnectionInfoT
+// implementations, so we can't directly do a type cast
+func bpfConnInfoT(src ebpfcommon.BpfConnectionInfoT) (dst BpfConnectionInfoT) {
+	dst.D_port = src.D_port
+	dst.D_addr = src.D_addr
+	dst.S_addr = src.S_addr
+	dst.S_port = src.S_port
+	return
 }
 
 func (p *Tracer) Required() bool {

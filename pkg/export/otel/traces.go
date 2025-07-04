@@ -13,6 +13,7 @@ import (
 	"math"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -707,6 +708,10 @@ func TraceAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) [
 			if table != "" {
 				attrs = append(attrs, request.DBCollectionName(table))
 			}
+		}
+		if span.Status == 1 {
+			attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(int(span.SQLError.Code))))
+			attrs = append(attrs, request.ErrorType(span.SQLError.SQLState))
 		}
 	case request.EventTypeRedisServer, request.EventTypeRedisClient:
 		attrs = []attribute.KeyValue{
