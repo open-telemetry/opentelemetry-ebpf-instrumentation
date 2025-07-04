@@ -281,7 +281,7 @@ static __always_inline tp_info_t *tp_info_from_parent_go(go_addr_key_t *g_key, u
     if (tp) {
         bpf_dbg_printk("Found parent request trace_parent %llx", tp);
         if (parent_found) {
-            *parent_found = (u64)parent_id;
+            *parent_found = parent_id;
         }
     }
 

@@ -243,7 +243,7 @@ int beyla_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
             update_tp_parent_go(&gp_key, &span->tp);
 
             // reusing gp_key to save stack space
-            go_addr_key_from_id(&gp_key, (void *)span_ptr);
+            go_addr_key_from_id(&gp_key, span_ptr);
 
             bpf_map_update_elem(&active_spans, &gp_key, span, BPF_ANY);
         }
