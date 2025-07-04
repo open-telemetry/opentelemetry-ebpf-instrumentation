@@ -60,7 +60,7 @@ jobs:
             TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64)
           
             # Fetch tags from GHCR API
-            TAGS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" \
               "https://${{ env.REGISTRY }}/v2/${{ env.IMAGE }}/tags/list")
             echo "Image tags: ${TAGS}"
           
