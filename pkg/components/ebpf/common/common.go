@@ -40,7 +40,7 @@ type (
 	GoRedisClientInfo    BpfRedisClientReqT
 	GoKafkaGoClientInfo  BpfKafkaGoReqT
 	TCPLargeBufferHeader BpfTcpLargeBufferT
-	GoOTelSpanTrace     BpfOtelSpanT
+	GoOTelSpanTrace      BpfOtelSpanT
 )
 
 const (
@@ -52,7 +52,7 @@ const (
 	EventTypeGoRedis        = 10 // Redis client for Go
 	EventTypeGoKafkaGo      = 11 // Kafka-Go client from Segment-io
 	EventTypeTCPLargeBuffer = 12 // Dynamically sized TCP buffers
-	EventOTelSDKGo     = 13 // OTel SDK manual span
+	EventOTelSDKGo          = 13 // OTel SDK manual span
 
 )
 
