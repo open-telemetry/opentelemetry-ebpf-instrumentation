@@ -32,7 +32,7 @@
 enum { k_go_interface_type_offset = 8 };
 enum { k_go_ptr_arr_size = 16 };
 
-const char ERROR_KEY[] = "error";
+const char ERROR_KEY[] = "error message";
 const u32 ERROR_KEY_SIZE = sizeof(ERROR_KEY) - 1;
 
 typedef struct span_info {

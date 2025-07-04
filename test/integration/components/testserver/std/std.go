@@ -3,6 +3,7 @@ package std
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -174,7 +175,7 @@ func manual(rw http.ResponseWriter) {
 
 	span.SetStatus(codes.Error, "application error")
 	span.RecordError(
-		fmt.Errorf("some unknown error"),
+		errors.New("some unknown error"),
 		trace.WithTimestamp(y2k.Add(2*time.Second)),
 		trace.WithStackTrace(true),
 		trace.WithAttributes(attribute.Int("impact", 11)),
