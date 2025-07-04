@@ -24,6 +24,7 @@ func kprobeTracesEnabled() bool {
 func TestSuite(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite.log"))
 	require.NoError(t, err)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=(pingclient|testserver)`)
 	require.NoError(t, compose.Up())
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("HTTP traces", testHTTPTraces)
@@ -34,6 +35,7 @@ func TestSuite(t *testing.T) {
 	t.Run("Internal Prometheus metrics", testInternalPrometheusExport)
 	t.Run("Exemplars exist", testExemplarsExist)
 	t.Run("Testing Host Info metric", testHostInfo)
+	t.Run("Client RED metrics", testREDMetricsForClientHTTPLibrary)
 
 	require.NoError(t, compose.Close())
 }
@@ -58,15 +60,6 @@ func TestSuiteNestedTraces(t *testing.T) {
 		t.Run("HTTP traces (nested client span)", testHTTPTracesNestedClient)
 		t.Run("HTTP -> gRPC traces (nested client span)", testHTTP2GRPCTracesNestedCallsNoPropagation)
 	}
-	require.NoError(t, compose.Close())
-}
-
-func TestSuiteClient(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-client.yml", path.Join(pathOutput, "test-suite-client.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=pingclient`)
-	require.NoError(t, err)
-	require.NoError(t, compose.Up())
-	t.Run("Client RED metrics", testREDMetricsForClientHTTPLibrary)
 	require.NoError(t, compose.Close())
 }
 
@@ -173,21 +166,6 @@ func TestSuite_GRPCExportKProbes(t *testing.T) {
 
 	t.Run("trace GRPC service and export as GRPC traces - kprobes", testGRPCKProbeTraces)
 	t.Run("GRPC RED metrics - kprobes", testREDMetricsGRPC)
-
-	require.NoError(t, compose.Close())
-}
-
-// Same as Test suite, but searching the executable by port instead of executable name
-func TestSuite_OpenPort(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-openport.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`)
-	require.NoError(t, err)
-	require.NoError(t, compose.Up())
-	t.Run("RED metrics", testREDMetricsHTTP)
-	t.Run("HTTP traces", testHTTPTraces)
-	t.Run("GRPC traces", testGRPCTraces)
-	t.Run("GRPC RED metrics", testREDMetricsGRPC)
-	t.Run("Internal Prometheus metrics", testInternalPrometheusExport)
 
 	require.NoError(t, compose.Close())
 }

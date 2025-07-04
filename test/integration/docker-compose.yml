@@ -18,6 +18,14 @@ services:
     environment:
       LOG_LEVEL: DEBUG
 
+  pingclient:
+    build:
+      context: ../..
+      dockerfile: test/integration/components/pingclient/Dockerfile
+    image: hatest-pingclient
+    environment:
+      LOG_LEVEL: DEBUG
+
   autoinstrumenter:
     build:
       context: ../..
@@ -31,7 +39,7 @@ services:
       - ../../testoutput/run-base${TESTSERVER_DOCKERFILE_SUFFIX}:/var/run/beyla
     image: hatest-autoinstrumenter
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
-    pid: "service:testserver"
+    pid: "host"
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "json"
