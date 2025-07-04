@@ -12,6 +12,22 @@ const (
 	prefixLen = len(prefixNew)
 )
 
+func isITabEntry(sym string) bool {
+	return strings.Contains(sym, prefixNew) || strings.Contains(sym, prefixOld)
+}
+
+func iTabType(sym string) string {
+	if len(sym) <= prefixLen {
+		return ""
+	}
+	parts := strings.Split(sym[prefixLen:], ",")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	return parts[0]
+}
+
 func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
 	implementations := map[string]uint64{}
 	symbols, err := ef.Symbols()
@@ -20,14 +36,13 @@ func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
 	}
 	for _, s := range symbols {
 		// Name is in format: go:itab.*net/http.response,net/http.ResponseWriter or go.itab.*net/http.response,net/http.ResponseWriter on old versions
-		if !strings.Contains(s.Name, prefixNew) && !strings.Contains(s.Name, prefixOld) {
+		if !isITabEntry(s.Name) {
 			continue
 		}
-		parts := strings.Split(s.Name[prefixLen:], ",")
-		if len(parts) < 2 {
-			continue
+		iType := iTabType(s.Name)
+		if iType != "" {
+			implementations[iType] = s.Value
 		}
-		implementations[parts[0]] = s.Value
 	}
 	return implementations, nil
 }
