@@ -126,6 +126,7 @@ func TestSuite_OldestGoVersion(t *testing.T) {
 	t.Run("HTTP traces", testHTTPTraces)
 	t.Run("GRPC traces", testGRPCTraces)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
+	t.Run("HTTP traces (manual spans)", testHTTPTracesNestedManualSpans)
 	t.Run("Internal Prometheus metrics", testInternalPrometheusExport)
 
 	require.NoError(t, compose.Close())
