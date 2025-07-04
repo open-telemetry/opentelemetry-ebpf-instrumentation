@@ -27,9 +27,6 @@
 // 100K and above we try to track the response actual time with kretprobes
 #define KPROBES_LARGE_RESPONSE_LEN 100000
 
-#define K_TCP_MAX_LEN 256
-#define K_TCP_RES_LEN 128
-
 // Max of HTTP, HTTP2/GRPC and TCP buffers. Used in sk_msg
 #define MAX_PROTOCOL_BUF_SIZE 256
 
@@ -45,37 +42,25 @@
 // Preface PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n https://datatracker.ietf.org/doc/html/rfc7540#section-3.5
 #define MIN_HTTP2_SIZE 24
 
-// Here we track unknown TCP requests that are not HTTP, HTTP2 or gRPC
-typedef struct tcp_req {
-    u8 flags; // Must be fist we use it to tell what kind of packet we have on the ring buffer
-    u8 ssl;
-    u8 direction;
-    u8 _pad[1];
-    connection_info_t conn_info;
-    u64 start_monotime_ns;
-    u64 end_monotime_ns;
-    u64 extra_id;
-    u32 len;
-    u32 req_len;
-    u32 resp_len;
-    unsigned char buf[K_TCP_MAX_LEN];
-    unsigned char rbuf[K_TCP_RES_LEN];
-    // we need this to filter traces from unsolicited processes that share the executable
-    // with other instrumented processes
-    pid_info pid;
-    tp_info_t tp;
-} tcp_req_t;
+enum protocol_type : u8 {
+    // Default value, used when the protocol is not known or will be determined/classified
+    // in userspace.
+    k_protocol_type_unknown = 0,
+    k_protocol_type_mysql = 1,
+};
 
 typedef struct call_protocol_args {
     pid_connection_info_t pid_conn;
-    unsigned char small_buf[MIN_HTTP2_SIZE];
-    u64 u_buf;
-    int bytes_len;
+    enum protocol_type protocol_type;
     u8 ssl;
     u8 direction;
-    u16 orig_dport;
     u8 packet_type;
-    u8 _pad[7];
+    unsigned char small_buf[MIN_HTTP2_SIZE];
+    u8 pad[4];
+    int bytes_len;
+    u16 orig_dport;
+    u16 _pad2;
+    u64 u_buf;
 } call_protocol_args_t;
 
 // Here we keep information on the packets passing through the socket filter

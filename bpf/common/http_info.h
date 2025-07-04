@@ -11,7 +11,7 @@
 
 // Here we keep the information that is sent on the ring buffer
 typedef struct http_info {
-    u8 flags; // Must be fist we use it to tell what kind of packet we have on the ring buffer
+    u8 flags; // Must be first we use it to tell what kind of packet we have on the ring buffer
     u8 type;
     u8 ssl;
     u8 delayed;

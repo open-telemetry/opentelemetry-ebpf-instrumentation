@@ -126,6 +126,9 @@ network:
 				Enabled: false,
 				MaxSize: 1000,
 			},
+			BufferSizes: config.EBPFBufferSizes{
+				MySQL: 0,
+			},
 		},
 		NetworkFlows: nc,
 		Metrics: otel.MetricsConfig{

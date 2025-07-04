@@ -3,7 +3,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-#include <common/http_types.h>
+#include <common/common.h>
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
