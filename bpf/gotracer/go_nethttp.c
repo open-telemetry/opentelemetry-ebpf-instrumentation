@@ -19,6 +19,7 @@
 
 #include <common/http_types.h>
 #include <common/ringbuf.h>
+#include <common/strings.h>
 #include <common/tracing.h>
 
 #include <gotracer/go_byte_arr.h>
@@ -279,7 +280,7 @@ int beyla_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
 
         connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
         if (existing) {
-            if (!bpf_memicmp((const char *)temp, "traceparent: ", W3C_KEY_LENGTH + 2)) {
+            if (stricmp((const char *)temp, "traceparent: ", W3C_KEY_LENGTH + 2)) {
                 server_http_func_invocation_t inv = {};
                 decode_go_traceparent(
                     temp + W3C_KEY_LENGTH + 2, inv.tp.trace_id, inv.tp.parent_id, &inv.tp.flags);

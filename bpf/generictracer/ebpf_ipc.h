@@ -101,7 +101,7 @@ static __always_inline int handle_ebpf_ipc(const void *buf, size_t buf_size) {
         return 0;
     }
 
-    ipc_buffer *ev = ipc_buffer_mem();
+    ipc_buffer *ev = (ipc_buffer *)ipc_buffer_mem();
 
     if (!ev) {
         return 0;
