@@ -4,6 +4,7 @@ package goexec
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
 )
@@ -46,7 +47,7 @@ func InspectOffsets(execElf *exec.FileInfo, funcs []string) (*Offsets, error) {
 
 	itypes, err := findInterfaceImpls(execElf.ELF)
 	if err != nil {
-		return nil, fmt.Errorf("checking interface types in file %s: %w", execElf.ProExeLinkPath, err)
+		slog.Warn("error reading itab section in Go program, manual spans will not work", "error", err)
 	}
 
 	return &Offsets{
