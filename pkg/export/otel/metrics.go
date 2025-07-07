@@ -1145,12 +1145,19 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				if span.IsClientSpan() {
 					sgc, attrs := r.serviceGraphClient.ForRecord(span)
 					sgc.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+					if span.HostName != "" {
+						n := svc.ServiceNameNamespace{Name: span.HostName, Namespace: span.OtherNamespace}
+						if !mr.pidTracker.IsTrackingServerService(n) {
+							sgt, attrs := r.serviceGraphTotal.ForRecord(span)
+							sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
+						}
+					}
 				} else {
 					sgs, attrs := r.serviceGraphServer.ForRecord(span)
 					sgs.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+					sgt, attrs := r.serviceGraphTotal.ForRecord(span)
+					sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 				}
-				sgt, attrs := r.serviceGraphTotal.ForRecord(span)
-				sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 				if request.SpanStatusCode(span) == request.StatusCodeError {
 					sgf, attrs := r.serviceGraphFailed.ForRecord(span)
 					sgf.Add(ctx, 1, instrument.WithAttributeSet(attrs))
