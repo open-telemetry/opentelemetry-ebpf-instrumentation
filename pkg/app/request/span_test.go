@@ -38,6 +38,7 @@ func TestEventTypeString(t *testing.T) {
 		EventTypeKafkaClient: "KafkaClient",
 		EventTypeRedisServer: "RedisServer",
 		EventTypeKafkaServer: "KafkaServer",
+		EventTypeMongoClient: "MongoClient",
 		EventType(99):        "UNKNOWN (99)",
 	}
 
@@ -56,6 +57,7 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeGRPCClient}:                            "SPAN_KIND_CLIENT",
 		{Type: EventTypeSQLClient}:                             "SPAN_KIND_CLIENT",
 		{Type: EventTypeRedisClient}:                           "SPAN_KIND_CLIENT",
+		{Type: EventTypeMongoClient}:                           "SPAN_KIND_CLIENT",
 		{Type: EventTypeKafkaClient, Method: MessagingPublish}: "SPAN_KIND_PRODUCER",
 		{Type: EventTypeKafkaClient, Method: MessagingProcess}: "SPAN_KIND_CONSUMER",
 		{}: "SPAN_KIND_INTERNAL",
@@ -166,6 +168,15 @@ func TestSerializeJSONSpans(t *testing.T) {
 				"serverPort": "5678",
 				"operation":  "method",
 				"clientId":   "otherns",
+			},
+		},
+		{
+			eventType: EventTypeMongoClient,
+			attribs: map[string]any{
+				"serverAddr": "hostname",
+				"serverPort": "5678",
+				"operation":  "method",
+				"table":      "path",
 			},
 		},
 	}
@@ -484,6 +495,18 @@ func TestHostPeerClientServer(t *testing.T) {
 			span:   Span{Type: EventTypeRedisServer, PeerName: "client", HostName: "server", OtherNamespace: "far", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
 			client: "client.far",
 			server: "server",
+		},
+		{
+			name:   "Same namespaces for Mongo client",
+			span:   Span{Type: EventTypeMongoClient, PeerName: "client", HostName: "server", OtherNamespace: "same", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
+			client: "client",
+			server: "server",
+		},
+		{
+			name:   "Server in different namespace Mongo",
+			span:   Span{Type: EventTypeMongoClient, PeerName: "client", HostName: "server", OtherNamespace: "far", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
+			client: "client",
+			server: "server.far",
 		},
 	}
 

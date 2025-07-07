@@ -32,6 +32,7 @@ require (
 	github.com/vladimirvivien/gexe v0.5.0
 	github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2
 	github.com/yl2chen/cidranger v1.0.2
+	go.mongodb.org/mongo-driver/v2 v2.2.2
 	go.opentelemetry.io/collector/component v1.34.0
 	go.opentelemetry.io/collector/config/configgrpc v0.128.0
 	go.opentelemetry.io/collector/config/confighttp v0.128.0

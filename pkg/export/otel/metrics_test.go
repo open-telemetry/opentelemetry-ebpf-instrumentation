@@ -335,9 +335,10 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"http.client.request.duration",
 				"rpc.server.duration",
 				"rpc.client.duration",
-				"db.client.operation.duration",
-				"db.client.operation.duration",
-				"db.client.operation.duration",
+				"db.client.operation.duration", // SQL client SELECT
+				"db.client.operation.duration", // REDIS client SET
+				"db.client.operation.duration", // Redis server GET (TODO is this a bug?)
+				"db.client.operation.duration", // MongoDB client find
 				"messaging.publish.duration",
 				"messaging.process.duration",
 			},
@@ -453,6 +454,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Path: "SELECT", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 			})

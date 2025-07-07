@@ -35,6 +35,7 @@ const (
 	EventTypeKafkaServer
 	EventTypeGPUKernelLaunch
 	EventTypeGPUMalloc
+	EventTypeMongoClient
 )
 
 const (
@@ -83,6 +84,8 @@ func (t EventType) String() string {
 		return "CUDALaunch"
 	case EventTypeGPUMalloc:
 		return "CUDAMalloc"
+	case EventTypeMongoClient:
+		return "MongoClient"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}
@@ -264,6 +267,13 @@ func spanAttributes(s *Span) SpanAttributes {
 		return SpanAttributes{
 			"size": strconv.FormatInt(s.ContentLength, 10),
 		}
+	case EventTypeMongoClient:
+		return SpanAttributes{
+			"serverAddr": SpanHost(s),
+			"serverPort": strconv.Itoa(s.HostPort),
+			"operation":  s.Method,
+			"table":      s.Path,
+		}
 	}
 
 	return SpanAttributes{}
@@ -359,7 +369,7 @@ func (s *Span) IsValid() bool {
 
 func (s *Span) IsClientSpan() bool {
 	switch s.Type {
-	case EventTypeGRPCClient, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeSQLClient:
+	case EventTypeGRPCClient, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeSQLClient, EventTypeMongoClient:
 		return true
 	}
 
@@ -378,7 +388,7 @@ func SpanStatusCode(span *Span) string {
 		return HTTPSpanStatusCode(span)
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return GrpcSpanStatusCode(span)
-	case EventTypeSQLClient, EventTypeRedisClient, EventTypeRedisServer:
+	case EventTypeSQLClient, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient:
 		if span.Status != 0 {
 			return StatusCodeError
 		}
@@ -389,7 +399,7 @@ func SpanStatusCode(span *Span) string {
 
 func SpanStatusMessage(span *Span) string {
 	switch span.Type {
-	case EventTypeRedisClient, EventTypeRedisServer:
+	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient:
 		if span.Status != 0 && span.DBError.Description != "" {
 			return span.DBError.Description
 		}
@@ -467,7 +477,7 @@ func (s *Span) ServiceGraphKind() string {
 	switch s.Type {
 	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeRedisServer:
 		return "SPAN_KIND_SERVER"
-	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient:
+	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient:
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient:
 		switch s.Method {
@@ -510,6 +520,18 @@ func (s *Span) TraceName() string {
 			return s.Method
 		}
 		return fmt.Sprintf("%s %s", s.Path, s.Method)
+	case EventTypeMongoClient:
+		if s.Path != "" && s.Method != "" {
+			// TODO for database operations like listCollections, we need to use s.DbNamespace instead of s.Path
+			return fmt.Sprintf("%s %s", s.Method, s.Path)
+		}
+		if s.Path != "" {
+			return s.Path
+		}
+		if s.Method != "" {
+			return s.Method
+		}
+		return semconv.DBSystemMongoDB.Value.AsString()
 	}
 	return ""
 }

@@ -361,6 +361,15 @@ func TestSuite_PythonRedis(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonMongo(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-mongo.yml", path.Join(pathOutput, "test-suite-python-mongo.log"))
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Python Mongo metrics", testREDMetricsPythonMongoOnly)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonSQLSSL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-sql-ssl.yml", path.Join(pathOutput, "test-suite-python-sql-ssl.log"))
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)

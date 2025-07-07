@@ -613,6 +613,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return is.RedisEnabled()
 	case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
 		return is.KafkaEnabled()
+	case request.EventTypeMongoClient:
+		return is.MongoEnabled()
 	}
 
 	return false
@@ -621,6 +623,7 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 // TODO use semconv.DBSystemRedis when we update to OTEL semantic conventions library 1.30
 var (
 	dbSystemRedis   = attribute.String(string(attr.DBSystemName), semconv.DBSystemRedis.Value.AsString())
+	dbSystemMongo   = attribute.String(string(attr.DBSystemName), semconv.DBSystemMongoDB.Value.AsString())
 	spanMetricsSkip = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
 
@@ -731,6 +734,25 @@ func TraceAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) [
 			semconv.MessagingClientID(span.Statement),
 			operation,
 		}
+	case request.EventTypeMongoClient:
+		attrs = []attribute.KeyValue{
+			request.ServerAddr(request.HostAsServer(span)),
+			request.ServerPort(span.HostPort),
+			dbSystemMongo,
+		}
+		operation := span.Method
+		if operation != "" {
+			attrs = append(attrs, request.DBOperationName(operation))
+		}
+		if span.Path != "" {
+			attrs = append(attrs, request.DBCollectionName(span.Path))
+		}
+		if span.Status == 1 {
+			attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
+		}
+		if span.DBNamespace != "" {
+			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
+		}
 	}
 
 	if _, ok := optionalAttrs[attr.SkipSpanMetrics]; ok {
@@ -744,7 +766,7 @@ func SpanKind(span *request.Span) trace2.SpanKind {
 	switch span.Type {
 	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer:
 		return trace2.SpanKindServer
-	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient:
+	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient:
 		return trace2.SpanKindClient
 	case request.EventTypeKafkaClient:
 		switch span.Method {

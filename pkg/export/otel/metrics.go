@@ -1088,7 +1088,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				httpClientResponseSize, attrs := r.httpClientResponseSize.ForRecord(span)
 				httpClientResponseSize.Record(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attrs))
 			}
-		case request.EventTypeRedisServer, request.EventTypeRedisClient, request.EventTypeSQLClient:
+		case request.EventTypeRedisServer, request.EventTypeRedisClient, request.EventTypeSQLClient, request.EventTypeMongoClient:
 			if mr.is.DBEnabled() {
 				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
 				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))

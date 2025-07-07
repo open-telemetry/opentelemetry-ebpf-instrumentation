@@ -54,7 +54,8 @@ func (tq *TracesQuery) FindBySpan(tags ...Tag) []Trace {
 	var matches []Trace
 	for _, trace := range tq.Data {
 		for _, span := range trace.Spans {
-			if len(span.Diff(tags...)) == 0 {
+			diff := span.Diff(tags...)
+			if len(diff) == 0 {
 				matches = append(matches, trace)
 				break
 			}
