@@ -181,14 +181,14 @@ static __always_inline u64 find_parent_goroutine_in_chain(go_addr_key_t *current
     return 0;
 }
 
-static __always_inline void decode_go_traceparent(unsigned char *buf,
+static __always_inline void decode_go_traceparent(const unsigned char *buf,
                                                   unsigned char *trace_id,
                                                   unsigned char *span_id,
                                                   unsigned char *flags) {
-    unsigned char *t_id = buf + 2 + 1; // strlen(ver) + strlen("-")
-    unsigned char *s_id =
+    const unsigned char *t_id = buf + 2 + 1; // strlen(ver) + strlen("-")
+    const unsigned char *s_id =
         buf + 2 + 1 + 32 + 1; // strlen(ver) + strlen("-") + strlen(trace_id) + strlen("-")
-    unsigned char *f_id =
+    const unsigned char *f_id =
         buf + 2 + 1 + 32 + 1 + 16 +
         1; // strlen(ver) + strlen("-") + strlen(trace_id) + strlen("-") + strlen(span_id) + strlen("-")
 

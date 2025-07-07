@@ -7,7 +7,8 @@ services:
       dockerfile: test/integration/components/testserver/Dockerfile
     image: hatest-testserver
     ports:
-      - "8080:8080"
+      - "8080:8080" # std http server
+      - "8088:8088" # jsonrpc server
     environment:
       LOG_LEVEL: DEBUG
     depends_on:

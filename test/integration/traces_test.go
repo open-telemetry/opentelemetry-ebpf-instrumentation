@@ -656,6 +656,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 	waitForRubyTestComponents(t, "http://localhost:3041")             // ruby
 	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting") // java
 	waitForTestComponents(t, "http://localhost:8091")                 // rust
+	waitForTestComponents(t, instrumentedServiceJSONRPCURL)           // go jsonrpc
 
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be
@@ -664,8 +665,8 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 		doHTTPGet(t, "http://localhost:8091/dist", 200)
 	}
 
-	// rust   -> java     -> nodejs   -> go            -> python      -> rails
-	// /dist2 -> /jtrace2 -> /traceme -> /gotracemetoo -> /tracemetoo -> /users
+	// rust   -> java     -> nodejs   -> go            -> go jsonrpc -> python      -> rails
+	// /dist2 -> /jtrace2 -> /traceme -> /gotracemetoo -> /jsonrpc   -> /tracemetoo -> /users
 
 	// Get the first 5 traces
 	var multipleTraces []jaeger.Trace
@@ -761,6 +762,26 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 			jaeger.Tag{Key: "url.path", Type: "string", Value: "/gotracemetoo"},
 			jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},
 			jaeger.Tag{Key: "http.route", Type: "string", Value: "/gotracemetoo"},
+			jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		)
+		assert.Empty(t, sd, sd.String())
+
+		// Check the information of the go jsonrpc parent span
+		res = trace.FindByOperationName("Arith.T /jsonrpc", "server")
+		require.Len(t, res, 1)
+		parent = res[0]
+		require.NotEmpty(t, parent.TraceID)
+		require.Equal(t, traceID, parent.TraceID)
+		require.NotEmpty(t, parent.SpanID)
+		// check duration is at least 2us
+		assert.Less(t, (2 * time.Microsecond).Microseconds(), parent.Duration)
+		// check span attributes
+		sd = parent.Diff(
+			jaeger.Tag{Key: "http.request.method", Type: "string", Value: "Arith.T"},
+			jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+			jaeger.Tag{Key: "url.path", Type: "string", Value: "/jsonrpc"},
+			jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8088)},
+			jaeger.Tag{Key: "http.route", Type: "string", Value: "/jsonrpc"},
 			jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 		)
 		assert.Empty(t, sd, sd.String())

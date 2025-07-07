@@ -1,6 +1,7 @@
 package std
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -140,11 +141,11 @@ func echoLowPort(rw http.ResponseWriter) {
 }
 
 func echoDist(rw http.ResponseWriter) {
-	requestURL := "http://pytestserver:8083/tracemetoo"
+	requestURL := "http://testserver:8088/jsonrpc"
 
 	slog.Debug("calling", "url", requestURL)
 
-	res, err := http.Get(requestURL)
+	res, err := http.Post(requestURL, "application/json", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"Arith.Traceme","params":[{"A":1,"B":2}],"id":1}`)))
 	if err != nil {
 		slog.Error("error making http request", "error", err)
 		rw.WriteHeader(http.StatusInternalServerError)

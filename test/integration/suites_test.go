@@ -27,6 +27,7 @@ func TestSuite(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=(pingclient|testserver)`)
 	require.NoError(t, compose.Up())
 	t.Run("RED metrics", testREDMetricsHTTP)
+	t.Run("RED JSON RPC metrics", testREDMetricsJSONRPCHTTP)
 	t.Run("HTTP traces", testHTTPTraces)
 	t.Run("HTTP traces (no traceID)", testHTTPTracesNoTraceID)
 	t.Run("GRPC traces", testGRPCTraces)
