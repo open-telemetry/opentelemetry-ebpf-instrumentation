@@ -9,7 +9,7 @@ GOOS ?= linux
 GOARCH ?= amd64
 
 # TODO: upload as a ghcr.io artifact
-PROTOC_IMAGE = docker.io/mariomac/protoc-go:latest
+PROTOC_IMAGE ?= docker.io/mariomac/protoc-go:latest
 
 # RELEASE_VERSION will contain the tag name, or the branch name if current commit is not a tag
 RELEASE_VERSION := $(shell git describe --all | cut -d/ -f2)
@@ -24,7 +24,7 @@ IMG_NAME ?= ebpf-instrument
 
 # Container image creation creation
 VERSION ?= dev
-IMG = $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
+IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
@@ -89,16 +89,16 @@ __check_defined = \
 	  $(error Undefined $1$(if $2, ($2))))
 
 # prereqs binary dependencies
-GOLANGCI_LINT = $(TOOLS_DIR)/golangci-lint
-BPF2GO = $(TOOLS_DIR)/bpf2go
-GO_OFFSETS_TRACKER = $(TOOLS_DIR)/go-offsets-tracker
-GO_LICENSES = $(TOOLS_DIR)/go-licenses
-KIND = $(TOOLS_DIR)/kind
-GINKGO = $(TOOLS_DIR)/ginkgo
+GOLANGCI_LINT ?= $(TOOLS_DIR)/golangci-lint
+BPF2GO ?= $(TOOLS_DIR)/bpf2go
+GO_OFFSETS_TRACKER ?= $(TOOLS_DIR)/go-offsets-tracker
+GO_LICENSES ?= $(TOOLS_DIR)/go-licenses
+KIND ?= $(TOOLS_DIR)/kind
+GINKGO ?= $(TOOLS_DIR)/ginkgo
 
 # Required for k8s-cache unit tests
-ENVTEST = $(TOOLS_DIR)/setup-envtest
-ENVTEST_K8S_VERSION = 1.30.0
+ENVTEST ?= $(TOOLS_DIR)/setup-envtest
+ENVTEST_K8S_VERSION ?= 1.30.0
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
