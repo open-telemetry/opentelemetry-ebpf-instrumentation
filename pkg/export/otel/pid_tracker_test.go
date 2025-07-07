@@ -57,7 +57,7 @@ func TestPidServiceTracker_AddAndRemovePID(t *testing.T) {
 
 func TestPidServiceTracker_RemovePID_NotLast(t *testing.T) {
 	tracker := NewPidServiceTracker()
-	uid := makeUID("foo", "bar")
+	uid := makeUID("foo1", "bar1")
 	pid1 := int32(1)
 	pid2 := int32(2)
 	tracker.AddPID(pid1, uid)
