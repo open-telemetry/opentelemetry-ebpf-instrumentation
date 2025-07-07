@@ -11,6 +11,6 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, fd_key); // key: fd
     __type(value, connection_info_t);
-    __uint(max_entries, 1024);
+    __uint(max_entries, 20000);
     __uint(pinning, BEYLA_PIN_INTERNAL);
 } fd_to_connection SEC(".maps");
