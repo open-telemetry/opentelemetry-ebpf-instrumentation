@@ -8,6 +8,8 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"os"
+	"path"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,6 +30,7 @@ const (
 	instrumentedServiceGorillaMidURL  = "http://localhost:8083"
 	instrumentedServiceGorillaMid2URL = "http://localhost:8087"
 	instrumentedServiceStdTLSURL      = "https://localhost:8383"
+	instrumentedServiceJSONRPCURL     = "http://localhost:8088"
 	prometheusHostPort                = "localhost:9090"
 	jaegerQueryURL                    = "http://localhost:16686/api/traces"
 
@@ -89,6 +92,18 @@ func testREDMetricsShortHTTP(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
 			testREDMetricsForHTTPLibrary(t, testCaseURL, "testserver", "integration-test")
 			testSpanMetricsForHTTPLibraryOTelFormat(t, "testserver", "integration-test")
+		})
+	}
+}
+
+func testREDMetricsJSONRPCHTTP(t *testing.T) {
+	for _, testCaseURL := range []string{
+		instrumentedServiceJSONRPCURL,
+	} {
+		t.Run(testCaseURL, func(t *testing.T) {
+			waitForTestComponents(t, testCaseURL)
+			testREDMetricsForJSONRPCHTTP(t, testCaseURL, "testserver", "integration-test")
+			testSpanMetricsForJSONRPCHTTP(t, "testserver", "integration-test")
 		})
 	}
 }
@@ -222,6 +237,60 @@ func testSpanMetricsForHTTPLibrary(t *testing.T, svcName, svcNs string) {
 	})
 }
 
+// **IMPORTANT** Tests must first call -> func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
+func testSpanMetricsForJSONRPCHTTP(t *testing.T, svcName, svcNs string) {
+	pq := prom.Client{HostPort: prometheusHostPort}
+	var results []prom.Result
+
+	expectedSpanName := "Arith.M /jsonrpc"
+
+	// Test span metrics
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		var err error
+		results, err = pq.Query(`traces_span_metrics_duration_seconds_count{` +
+			`span_kind="SPAN_KIND_SERVER",` +
+			`status_code="STATUS_CODE_UNSET",` + // 404 is OK for server spans
+			`service_namespace="` + svcNs + `",` +
+			`service_name="` + svcName + `",` +
+			`span_name="` + expectedSpanName + `"` +
+			`}`)
+		require.NoError(t, err)
+		// check span metric latency exists
+		enoughPromResults(t, results)
+		val := totalPromCount(t, results)
+		assert.LessOrEqual(t, 3, val)
+	})
+
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		var err error
+		results, err = pq.Query(`traces_span_metrics_calls_total{` +
+			`span_kind="SPAN_KIND_SERVER",` +
+			`status_code="STATUS_CODE_UNSET",` + // 404 is OK for server spans
+			`service_namespace="` + svcNs + `",` +
+			`service_name="` + svcName + `",` +
+			`span_name="` + expectedSpanName + `"` +
+			`}`)
+		require.NoError(t, err)
+		// check calls total exists
+		enoughPromResults(t, results)
+		val := totalPromCount(t, results)
+		assert.LessOrEqual(t, 3, val)
+	})
+
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		var err error
+		results, err = pq.Query(`traces_target_info{` +
+			`service_namespace="` + svcNs + `",` +
+			`service_name="` + svcName + `",` +
+			`telemetry_sdk_language="go"` +
+			`}`)
+		require.NoError(t, err)
+		enoughPromResults(t, results)
+		val := totalPromCount(t, results)
+		assert.LessOrEqual(t, 1, val) // we report this count for each service, doesn't matter how many calls
+	})
+}
+
 // **IMPORTANT** Tests must first call -> func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 func testServiceGraphMetricsForHTTPLibrary(t *testing.T, svcNs string) {
 	pq := prom.Client{HostPort: prometheusHostPort}
@@ -259,6 +328,39 @@ func testServiceGraphMetricsForHTTPLibrary(t *testing.T, svcNs string) {
 	// check calls total to 0, no self references
 	val = totalPromCount(t, results)
 	assert.Equal(t, 0, val)
+}
+
+func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
+	jsonBody, err := os.ReadFile(path.Join(pathRoot, "test", "integration", "components", "testserver", "jsonrpc", "body", "formated.json"))
+	require.NoError(t, err)
+	urlPath := "/jsonrpc"
+	expectedMethod := "Arith.M"
+
+	for i := 0; i < 4; i++ {
+		doHTTPPost(t, url+urlPath, 200, jsonBody)
+	}
+
+	// Eventually, Prometheus would make this query visible
+	pq := prom.Client{HostPort: prometheusHostPort}
+	var results []prom.Result
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		var err error
+		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
+			`http_request_method="` + expectedMethod + `",` +
+			`http_response_status_code="200",` +
+			`service_namespace="` + svcNs + `",` +
+			`service_name="` + svcName + `",` +
+			`url_path="` + urlPath + `"}`)
+		require.NoError(t, err)
+		enoughPromResults(t, results)
+		val := totalPromCount(t, results)
+		assert.LessOrEqual(t, 3, val)
+		if len(results) > 0 {
+			res := results[0]
+			addr := res.Metric["client_address"]
+			assert.NotNil(t, addr)
+		}
+	})
 }
 
 func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
