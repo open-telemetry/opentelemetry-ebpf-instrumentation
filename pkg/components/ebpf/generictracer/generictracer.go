@@ -286,7 +286,7 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Required: true,
 			Start:    p.bpfObjects.BeylaKprobeTcpClose,
 		},
-		"tcp_sendmsg_locked": {
+		"tcp_sendmsg": {
 			Required: true,
 			Start:    p.bpfObjects.BeylaKprobeTcpSendmsg,
 			End:      p.bpfObjects.BeylaKretprobeTcpSendmsg,
