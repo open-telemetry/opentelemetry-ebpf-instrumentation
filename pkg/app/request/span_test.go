@@ -141,6 +141,7 @@ func TestSerializeJSONSpans(t *testing.T) {
 				"errorMessage":     "err123",
 				"sqlCommand":       "QUERY",
 				"sqlState":         "s123",
+				"status":           "200",
 			},
 		},
 		{

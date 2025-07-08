@@ -177,10 +177,6 @@ func (p *Tracer) SetupTailCalls() {
 		},
 		{
 			index: 6,
-			prog:  p.bpfObjects.BeylaProtocolMysql,
-		},
-		{
-			index: 7,
 			prog:  p.bpfObjects.BeylaHandleBufWithArgs,
 		},
 	} {

@@ -234,6 +234,7 @@ func spanAttributes(s *Span) SpanAttributes {
 		}
 
 		return SpanAttributes{
+			"status":           strconv.Itoa(s.Status),
 			"serverAddr":       SpanHost(s),
 			"serverPort":       strconv.Itoa(s.HostPort),
 			"operation":        s.Method,

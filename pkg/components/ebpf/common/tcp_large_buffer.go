@@ -19,6 +19,9 @@ type (
 )
 
 func setTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (request.Span, bool, error) {
+	parseCtx.largeBuffersMU.Lock()
+	defer parseCtx.largeBuffersMU.Unlock()
+
 	hdrSize := uint32(unsafe.Sizeof(TCPLargeBufferHeader{}))
 
 	event, err := ReinterpretCast[TCPLargeBufferHeader](record.RawSample[:hdrSize])
@@ -27,6 +30,7 @@ func setTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (requ
 	}
 	hdrSize -= uint32(unsafe.Sizeof(uintptr(0))) // Remove `buf` placeholder
 	newBuffer := record.RawSample[hdrSize:]
+	newLen := int(event.Len)
 
 	key := largeBufferKey{
 		traceID:   event.Tp.TraceId,
@@ -34,7 +38,19 @@ func setTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (requ
 		direction: event.Direction,
 	}
 
-	copiedBuffer := make([]byte, event.Len)
+	switch event.Action {
+	case 1: // LargeBufActionAppend
+		// If this is an append action, we need to check if the buffer already exists
+		if lb, ok := parseCtx.largeBuffers.Get(key); ok {
+			// If it exists, we can append to it
+			newBuffer = append(lb.buf, newBuffer...)
+			newLen += len(lb.buf)
+			parseCtx.largeBuffers.Remove(key)
+		}
+	default: // LargeBufActionInit
+	}
+
+	copiedBuffer := make([]byte, newLen)
 	copy(copiedBuffer, newBuffer)
 	parseCtx.largeBuffers.Add(key, largeBuffer{
 		buf: copiedBuffer,
@@ -44,6 +60,9 @@ func setTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (requ
 }
 
 func getTCPLargeBuffer(parseCtx *EBPFParseContext, traceID [16]uint8, spanID [8]uint8, direction uint8) ([]byte, bool) {
+	parseCtx.largeBuffersMU.RLock()
+	defer parseCtx.largeBuffersMU.RUnlock()
+
 	key := largeBufferKey{
 		spanID:    spanID,
 		traceID:   traceID,

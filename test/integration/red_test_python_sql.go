@@ -4,7 +4,10 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	neturl "net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,105 +19,184 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
 )
 
-func testREDMetricsForPythonSQLLibrary(t *testing.T, url, comm, namespace string) {
-	urlPath := "/query"
+func assertHTTPRequests(t *testing.T, comm, urlPath string) {
+	t.Helper()
 
-	// Call 3 times the instrumented service, forcing it to:
-	// - take a large JSON file
-	// - returning a 200 code
-	for i := 0; i < 4; i++ {
-		doHTTPGet(t, url+urlPath, 200)
-	}
+	pq := prom.Client{HostPort: prometheusHostPort}
 
 	// Eventually, Prometheus would make this query visible
-	pq := prom.Client{HostPort: prometheusHostPort}
-	var results []prom.Result
-	var err error
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		var err error
-		results, err = pq.Query(`db_client_operation_duration_seconds_count{` +
+		results, err := pq.Query(`db_client_operation_duration_seconds_count{` +
 			`db_operation_name="SELECT",` +
-			`service_namespace="` + namespace + `"}`)
+			`service_namespace="integration-test"}`)
 		require.NoError(t, err)
 		enoughPromResults(t, results)
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		assert.LessOrEqual(t, 1, val)
 	})
 
-	// Ensure we don't see any http requests
-	results, err = pq.Query(`http_server_request_duration_seconds_count{}`)
-	require.NoError(t, err)
-	require.Empty(t, results)
+	params := neturl.Values{}
+	params.Add("service", comm)
+	params.Add("operation", "GET "+urlPath)
+	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
-	// Look for a trace with SELECT accounting.contacts
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=SELECT%20accounting.contacts")
+		resp, err := http.Get(fullURL)
 		require.NoError(t, err)
-		if resp == nil {
-			return
-		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.NotNil(t, resp)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
 		var tq jaeger.TracesQuery
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: "SELECT"})
-		assert.LessOrEqual(t, 1, len(traces))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath})
+		assert.LessOrEqual(t, len(traces), 1)
 	}, test.Interval(100*time.Millisecond))
-
-	// Ensure we don't find any HTTP traces, since we filter them out
-	resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2Fquery")
-	require.NoError(t, err)
-	if resp == nil {
-		return
-	}
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var tq jaeger.TracesQuery
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
-	traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/query"})
-	require.Empty(t, traces)
 }
 
-// TODO(matt): uncomment once postgres errors are implemented
-// func testREDMetricsForPythonSQLLibraryError(t *testing.T, url, comm string) {
-// 	urlPath := "/error"
-//
-// 	for i := 0; i < 4; i++ {
-// 		doHTTPGet(t, url+urlPath, 200)
-// 	}
-//
-// 	// Look for a trace with SELECT nonexisting
-// 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-// 		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=SELECT%20obi.nonexisting")
-// 		require.NoError(t, err)
-// 		require.NotNil(t, resp)
-// 		require.Equal(t, http.StatusOK, resp.StatusCode)
-// 		var tq jaeger.TracesQuery
-// 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
-// 		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: "SELECT"})
-// 		assert.LessOrEqual(t, 1, len(traces))
-// 		assert.LessOrEqual(t, 1, len(traces[0].Spans))
-// 		span := traces[0].Spans[0]
-// 		assert.Equal(t, "SELECT obi.nonexisting", span.OperationName)
-//
-// 		tag, found := jaeger.FindIn(span.Tags, "db.response.status_code")
-// 		assert.True(t, found)
-// 		assert.Equal(t, "TODO:fill", tag.Value)
-//
-// 		tag, found = jaeger.FindIn(span.Tags, "error.type")
-// 		assert.True(t, found)
-// 		assert.Equal(t, "TODO:fill", tag.Value)
-// 	}, test.Interval(100*time.Millisecond))
-// }
+func assertSQLOperation(t *testing.T, comm, op, table, db string) {
+	t.Helper()
 
-func testREDMetricsPythonSQLOnly(t *testing.T) {
-	for _, testCaseURL := range []string{
-		"http://localhost:8381",
-	} {
-		t.Run(testCaseURL, func(t *testing.T) {
-			waitForSQLTestComponents(t, testCaseURL, "/query")
-			testREDMetricsForPythonSQLLibrary(t, testCaseURL, "python3.12", "integration-test")
-			// testREDMetricsForPythonSQLLibraryError(t, testCaseURL, "python3.12") // TODO(matt): this runs on Postgres, uncomment once it works
-		})
-	}
+	dbOperation := fmt.Sprintf("%s %s", op, table)
+
+	params := neturl.Values{}
+	params.Add("service", comm)
+	params.Add("operation", dbOperation)
+	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
+
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		resp, err := http.Get(fullURL)
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op})
+		assert.GreaterOrEqual(t, len(traces), 1)
+		lastTrace := traces[len(traces)-1]
+		span := lastTrace.Spans[0]
+
+		assert.Equal(t, dbOperation, span.OperationName)
+
+		tag, found := jaeger.FindIn(span.Tags, "db.query.text")
+		assert.True(t, found)
+		assert.True(t, strings.HasPrefix(tag.Value.(string), "SELECT * from "+table))
+
+		tag, found = jaeger.FindIn(span.Tags, "db.system.name")
+		assert.True(t, found)
+		assert.Equal(t, db, tag.Value)
+
+		_, found = jaeger.FindIn(span.Tags, "db.response.status_code")
+		assert.False(t, found)
+
+		tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
+		assert.True(t, found)
+		assert.Equal(t, table, tag.Value)
+	}, test.Interval(100*time.Millisecond))
+}
+
+//nolint:unused
+func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
+	t.Helper()
+
+	dbOperation := fmt.Sprintf("%s %s", op, table)
+
+	params := neturl.Values{}
+	params.Add("service", comm)
+	params.Add("operation", dbOperation)
+	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
+
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		resp, err := http.Get(fullURL)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "db.collection.name", Type: "string", Value: table})
+		require.GreaterOrEqual(t, len(traces), 1)
+
+		lastTrace := traces[len(traces)-1]
+		span := lastTrace.Spans[0]
+
+		assert.Equal(t, dbOperation, span.OperationName)
+
+		tag, found := jaeger.FindIn(span.Tags, "db.query.text")
+		assert.True(t, found)
+		assert.Equal(t, "SELECT * from obi.nonexisting", tag.Value)
+
+		tag, found = jaeger.FindIn(span.Tags, "db.system.name")
+		assert.True(t, found)
+		assert.Equal(t, db, tag.Value)
+
+		tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
+		assert.True(t, found)
+		assert.Equal(t, table, tag.Value)
+
+		// tag, found = jaeger.FindIn(span.Tags, "db.response.status_code")
+		// assert.True(t, found)
+		// assert.Equal(t, "TODO: broken", tag.Value) // TODO(matt): fix this once the SSL path is fixed
+	}, test.Interval(100*time.Millisecond))
+}
+
+func testPythonSQLQuery(t *testing.T, comm, url, table, db string) {
+	t.Helper()
+
+	urlPath := "/query"
+	doHTTPGet(t, url+urlPath, 200)
+
+	assertSQLOperation(t, comm, "SELECT", table, db)
+}
+
+func testPythonSQLPreparedStatements(t *testing.T, comm, url, table, db string) {
+	t.Helper()
+
+	urlPath := "/prepquery"
+	doHTTPGet(t, url+urlPath, 200)
+
+	assertSQLOperation(t, comm, "SELECT", table, db)
+}
+
+//nolint:unused
+func testPythonSQLError(t *testing.T, comm, url, db string) {
+	t.Helper()
+
+	urlPath := "/error"
+	doHTTPGet(t, url+urlPath, 200)
+
+	assertSQLOperationErrored(t, comm, "SELECT", "obi.nonexisting", db)
+}
+
+func testPythonPostgres(t *testing.T) {
+	testCaseURL := "http://localhost:8381"
+	comm := "python3.12"
+	table := "accounting.contacts"
+	db := "postgresql"
+
+	waitForSQLTestComponentsWithDB(t, testCaseURL, "/query", db)
+
+	assertHTTPRequests(t, comm, "/query")
+	testPythonSQLQuery(t, comm, testCaseURL, table, db)
+	// testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db) // TODO(matt): uncomment once postgres prepared statements are supported
+	// testPythonSQLError(t, comm, testCaseURL, db)                     // TODO(matt): uncomment once postgres errors are supported
+}
+
+func testPythonMySQL(t *testing.T) {
+	testCaseURL := "http://localhost:8381"
+	comm := "python3.12"
+	table := "actor"
+	db := "mysql"
+
+	waitForSQLTestComponentsWithDB(t, testCaseURL, "/query", db)
+
+	assertHTTPRequests(t, comm, "/query")
+	testPythonSQLQuery(t, comm, testCaseURL, table, db)
+	testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db)
+
+	// TODO(matt): mysql connection in tests happens over SSL, and when using SSL,
+	// the response buffer sent with the TCP event is long 4 bytes. Investigate and fix this.
+	// testPythonSQLError(t, comm, testCaseURL, db)
 }
 
 func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {

@@ -53,7 +53,6 @@ const (
 	EventTypeGoKafkaGo      = 11 // Kafka-Go client from Segment-io
 	EventTypeTCPLargeBuffer = 12 // Dynamically sized TCP buffers
 	EventOTelSDKGo          = 13 // OTel SDK manual span
-
 )
 
 // Kernel-side classification
@@ -121,6 +120,7 @@ type EBPFParseContext struct {
 	h2c                     *lru.Cache[uint64, h2Connection]
 	redisDBCache            *simplelru.LRU[BpfConnectionInfoT, int]
 	largeBuffers            *expirable.LRU[largeBufferKey, largeBuffer]
+	largeBuffersMU          sync.RWMutex
 	mongoRequestCache       PendingMongoDBRequests
 	mysqlPreparedStatements *simplelru.LRU[mysqlPreparedStatementsKey, string]
 }

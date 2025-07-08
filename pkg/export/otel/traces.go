@@ -713,6 +713,10 @@ func TraceAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) [
 			request.ServerPort(span.HostPort),
 			span.DBSystemName(), // We can distinguish in the future for MySQL, Postgres etc
 		}
+		if span.Status == 1 && span.SQLError != nil {
+			attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(int(span.SQLError.Code))))
+			attrs = append(attrs, request.ErrorType(span.SQLError.SQLState))
+		}
 		if _, ok := optionalAttrs[attr.DBQueryText]; ok {
 			attrs = append(attrs, request.DBQueryText(span.Statement))
 		}
@@ -723,10 +727,6 @@ func TraceAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) [
 			if table != "" {
 				attrs = append(attrs, request.DBCollectionName(table))
 			}
-		}
-		if span.Status == 1 {
-			attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(int(span.SQLError.Code))))
-			attrs = append(attrs, request.ErrorType(span.SQLError.SQLState))
 		}
 	case request.EventTypeRedisServer, request.EventTypeRedisClient:
 		attrs = []attribute.KeyValue{

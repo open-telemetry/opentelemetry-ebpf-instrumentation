@@ -945,7 +945,7 @@ int beyla_handle_buf_with_args(void *ctx) {
                         &args->packet_type,
                         &args->protocol_type)) {
         bpf_dbg_printk("Found mysql connection");
-        bpf_tail_call(ctx, &jump_table, k_tail_protocol_mysql);
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
     } else {
         http2_conn_info_data_t *h2g =
             bpf_map_lookup_elem(&ongoing_http2_connections, &args->pid_conn);
