@@ -1145,12 +1145,19 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				if span.IsClientSpan() {
 					sgc, attrs := r.serviceGraphClient.ForRecord(span)
 					sgc.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+					// If we managed to resolve the remote name only, we check to see
+					// we are not instrumenting the server service, then and only then,
+					// we generate client span count for service graph total
+					if ClientSpanToUninstrumentedService(&mr.pidTracker, span) {
+						sgt, attrs := r.serviceGraphTotal.ForRecord(span)
+						sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
+					}
 				} else {
 					sgs, attrs := r.serviceGraphServer.ForRecord(span)
 					sgs.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+					sgt, attrs := r.serviceGraphTotal.ForRecord(span)
+					sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 				}
-				sgt, attrs := r.serviceGraphTotal.ForRecord(span)
-				sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 				if request.SpanStatusCode(span) == request.StatusCodeError {
 					sgf, attrs := r.serviceGraphFailed.ForRecord(span)
 					sgf.Add(ctx, 1, instrument.WithAttributeSet(attrs))
@@ -1158,6 +1165,18 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			}
 		}
 	}
+}
+
+func ClientSpanToUninstrumentedService(tracker *PidServiceTracker, span *request.Span) bool {
+	if span.HostName != "" {
+		n := svc.ServiceNameNamespace{Name: span.HostName, Namespace: span.OtherNamespace}
+		return !tracker.IsTrackingServerService(n)
+	}
+	// If we haven't resolved a hostname, don't add this node to the service graph
+	// it will appear only in client requests. Essentially, in this case we have no
+	// idea if the service is instrumented or not, therefore we take the conservative
+	// approach to avoid double counting.
+	return false
 }
 
 func (mr *MetricsReporter) createTargetInfo(reporter *Metrics) {

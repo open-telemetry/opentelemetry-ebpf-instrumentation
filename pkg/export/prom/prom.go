@@ -920,10 +920,16 @@ func (r *metricsReporter) observe(span *request.Span) {
 				lvg := r.labelValuesServiceGraph(span)
 				if span.IsClientSpan() {
 					r.serviceGraphClient.WithLabelValues(lvg...).Metric.Observe(duration)
+					// If we managed to resolve the remote name only, we check to see
+					// we are not instrumenting the server service, then and only then,
+					// we generate client span count for service graph total
+					if otel.ClientSpanToUninstrumentedService(&r.pidsTracker, span) {
+						r.serviceGraphTotal.WithLabelValues(lvg...).Metric.Add(1)
+					}
 				} else {
 					r.serviceGraphServer.WithLabelValues(lvg...).Metric.Observe(duration)
+					r.serviceGraphTotal.WithLabelValues(lvg...).Metric.Add(1)
 				}
-				r.serviceGraphTotal.WithLabelValues(lvg...).Metric.Add(1)
 				if request.SpanStatusCode(span) == request.StatusCodeError {
 					r.serviceGraphFailed.WithLabelValues(lvg...).Metric.Add(1)
 				}

@@ -947,3 +947,33 @@ func getKeys(m map[string]string) []string {
 	}
 	return keys
 }
+
+func TestClientSpanToUninstrumentedService(t *testing.T) {
+	tracker := NewPidServiceTracker()
+	uid := svc.UID{Name: "foo", Namespace: "bar"}
+	tracker.AddPID(1, uid)
+
+	spanInstrumented := &request.Span{
+		HostName:       "foo",
+		OtherNamespace: "bar",
+	}
+	if ClientSpanToUninstrumentedService(&tracker, spanInstrumented) {
+		t.Errorf("Expected false for instrumented service, got true")
+	}
+
+	spanUninstrumented := &request.Span{
+		HostName:       "baz",
+		OtherNamespace: "qux",
+	}
+	if !ClientSpanToUninstrumentedService(&tracker, spanUninstrumented) {
+		t.Errorf("Expected true for uninstrumented service, got false")
+	}
+
+	spanNoHost := &request.Span{
+		HostName:       "",
+		OtherNamespace: "bar",
+	}
+	if ClientSpanToUninstrumentedService(&tracker, spanNoHost) {
+		t.Errorf("Expected false for span with no HostName, got true")
+	}
+}
