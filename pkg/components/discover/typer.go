@@ -84,6 +84,7 @@ type typer struct {
 func makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	var name string
 	var namespace string
+	var exportModes services.ExportModes
 
 	for _, s := range processMatch.Criteria {
 		if n := s.GetName(); n != "" {
@@ -93,6 +94,10 @@ func makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		if n := s.GetNamespace(); n != "" {
 			namespace = n
 		}
+
+		if m := s.GetExportModes(); m != nil {
+			exportModes = m
+		}
 	}
 
 	return svc.Attrs{
@@ -100,7 +105,8 @@ func makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 			Name:      name,
 			Namespace: namespace,
 		},
-		ProcPID:    processMatch.Process.Pid,
+		ProcPID:     processMatch.Process.Pid,
+		ExportModes: exportModes,
 	}
 }
 
