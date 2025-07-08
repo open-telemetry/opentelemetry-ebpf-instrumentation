@@ -395,7 +395,7 @@ int beyla_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/ServeHTTP_ret")
-int beyla_uprobe_ServeHTTPReturns(struct pt_regs *ctx) {
+int serve_http_returns(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/ServeHTTP returns === ");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -420,6 +420,11 @@ int beyla_uprobe_ServeHTTPReturns(struct pt_regs *ctx) {
             bpf_dbg_printk("can't read http invocation metadata");
             goto done;
         }
+    }
+
+    if (!invocation->status) {
+        invocation->status = -1;
+        return 0;
     }
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
@@ -480,6 +485,11 @@ done:
     bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
     bpf_map_delete_elem(&go_trace_map, &g_key);
     return 0;
+}
+
+SEC("uprobe/ServeHTTP_ret")
+int beyla_uprobe_ServeHTTPReturns(struct pt_regs *ctx) {
+    return serve_http_returns(ctx);
 }
 
 #ifndef NO_HEADER_PROPAGATION
@@ -820,7 +830,14 @@ int beyla_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
         }
     }
 
-    invocation->status = status;
+    // Strange case when the HTTP server response is empty, the writeHeader
+    // is called on defer after the ServeHTTP returns.
+    if (invocation->status == -1) {
+        invocation->status = status;
+        serve_http_returns(ctx);
+    } else {
+        invocation->status = status;
+    }
 
     return 0;
 }

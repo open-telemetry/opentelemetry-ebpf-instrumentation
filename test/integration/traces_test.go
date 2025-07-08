@@ -1157,3 +1157,143 @@ func testHTTPTracesNestedNodeJSDistCalls(t *testing.T) {
 	assert.True(t, seenQ)
 	assert.True(t, seenR)
 }
+
+func testHTTPTracesNestedManualSpans(t *testing.T) {
+	waitForTestComponents(t, "http://localhost:8080")
+
+	doHTTPGet(t, "http://localhost:8080/manual", 200)
+	// Do some requests to make sure we see all events
+	for i := 0; i < 10; i++ {
+		doHTTPGet(t, "http://localhost:8082/metrics", 200)
+	}
+
+	var trace jaeger.Trace
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual")
+		require.NoError(t, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/manual"})
+		require.Len(t, traces, 1)
+		trace = traces[0]
+	}, test.Interval(100*time.Millisecond))
+
+	// Check the information of the parent span
+	res := trace.FindByOperationName("GET /manual", "server")
+	require.Len(t, res, 1)
+	server := res[0]
+	require.NotEmpty(t, server.TraceID)
+	traceID := server.TraceID
+	parentSpanID := server.SpanID
+
+	// check span attributes
+	sd := server.Diff(
+		jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+		jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+		jaeger.Tag{Key: "url.path", Type: "string", Value: "/manual"},
+		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},
+		jaeger.Tag{Key: "http.route", Type: "string", Value: "/manual"},
+		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		jaeger.Tag{Key: "span.metrics.skip", Type: "bool", Value: bool(true)},
+	)
+	assert.Empty(t, sd, sd.String())
+
+	// Check the information of the "in queue" span
+	res = trace.FindByOperationName("in queue", "internal")
+	require.GreaterOrEqual(t, len(res), 1)
+
+	var queue *jaeger.Span
+
+	for i := range res {
+		r := &res[i]
+		// Check parenthood
+		p, ok := trace.ParentOf(r)
+
+		if ok {
+			if p.TraceID == traceID && p.SpanID == parentSpanID {
+				queue = r
+				break
+			}
+		}
+	}
+	require.NotNil(t, queue)
+	// check span attributes
+	sd = queue.Diff(
+		jaeger.Tag{Key: "span.kind", Type: "string", Value: "internal"},
+	)
+	assert.Empty(t, sd, sd.String())
+
+	// Check the information of the "processing" span
+	res = trace.FindByOperationName("processing", "internal")
+	require.GreaterOrEqual(t, len(res), 1)
+
+	var processing *jaeger.Span
+
+	for i := range res {
+		r := &res[i]
+		// Check parenthood
+		p, ok := trace.ParentOf(r)
+
+		if ok {
+			if p.TraceID == traceID && p.SpanID == parentSpanID {
+				processing = r
+				break
+			}
+		}
+	}
+
+	require.NotNil(t, processing)
+	sd = queue.Diff(
+		jaeger.Tag{Key: "span.kind", Type: "string", Value: "internal"},
+	)
+	assert.Empty(t, sd, sd.String())
+
+	res = trace.FindByOperationName("sig", "internal")
+	require.Len(t, res, 1)
+	sig := res[0]
+	// Check parenthood
+	p, ok := trace.ParentOf(&sig)
+	require.True(t, ok)
+	assert.Equal(t, processing.TraceID, p.TraceID)
+	assert.Equal(t, processing.SpanID, p.SpanID)
+	sd = sig.Diff(
+		jaeger.Tag{Key: "error", Type: "bool", Value: bool(true)},
+		jaeger.Tag{Key: "error message", Type: "string", Value: "some unknown error"},
+		jaeger.Tag{Key: "otel.status_code", Type: "string", Value: "ERROR"},
+		jaeger.Tag{Key: "impact", Type: "int64", Value: float64(11)},
+	)
+	assert.Empty(t, sd, sd.String())
+
+	res = trace.FindByOperationName("sig_inner 1", "internal")
+	require.Len(t, res, 1)
+	sigInner1 := res[0]
+	// Check parenthood
+	p, ok = trace.ParentOf(&sigInner1)
+	require.True(t, ok)
+	assert.Equal(t, sig.TraceID, p.TraceID)
+	assert.Equal(t, sig.SpanID, p.SpanID)
+	sd = sigInner1.Diff(
+		jaeger.Tag{Key: "user", Type: "string", Value: "user1"},
+		jaeger.Tag{Key: "admin", Type: "bool", Value: bool(true)},
+	)
+	assert.Empty(t, sd, sd.String())
+
+	res = trace.FindByOperationName("changed name", "internal")
+	require.Len(t, res, 1)
+	sigInner2 := res[0]
+	// Check parenthood
+	p, ok = trace.ParentOf(&sigInner2)
+	require.True(t, ok)
+	assert.Equal(t, sig.TraceID, p.TraceID)
+	assert.Equal(t, sig.SpanID, p.SpanID)
+	sd = sigInner2.Diff(
+		jaeger.Tag{Key: "test", Type: "string", Value: "append"},
+		jaeger.Tag{Key: "user", Type: "string", Value: "user2"},
+		jaeger.Tag{Key: "admin", Type: "bool", Value: bool(true)},
+	)
+	assert.Empty(t, sd, sd.String())
+}

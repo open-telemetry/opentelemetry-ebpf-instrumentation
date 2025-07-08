@@ -144,8 +144,8 @@ lint: prereqs
 
 .PHONY: update-offsets
 update-offsets: prereqs
-	@echo "### Updating pkg/internal/goexec/offsets.json"
-	$(GO_OFFSETS_TRACKER) -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
+	@echo "### Updating pkg/components/goexec/offsets.json"
+	$(GO_OFFSETS_TRACKER) -i configs/offsets/tracker_input.json pkg/components/goexec/offsets.json
 
 .PHONY: generate
 generate: export BPF_CLANG := $(CLANG)

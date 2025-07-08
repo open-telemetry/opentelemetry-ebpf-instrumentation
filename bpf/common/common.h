@@ -47,6 +47,9 @@ enum {
     k_mysql_error_message_max_mask = k_mysql_error_message_max - 1
 };
 
+#define MAX_SPAN_NAME_LEN 64
+#define MAX_STATUS_DESCRIPTION_LEN 64
+
 // Trace of an HTTP call invocation. It is instantiated by the return uprobe and forwarded to the
 // user space through the events ringbuffer.
 // TODO(matt): fix naming
@@ -149,3 +152,75 @@ typedef struct tcp_large_buffer {
     tp_info_t tp;
     u8 buf[];
 } tcp_large_buffer_t;
+
+typedef struct span_name {
+    unsigned char buf[MAX_SPAN_NAME_LEN];
+} span_name_t;
+
+typedef struct span_description {
+    unsigned char buf[MAX_STATUS_DESCRIPTION_LEN];
+} span_description_t;
+
+typedef struct go_string {
+    char *str;
+    s64 len;
+} go_string_t;
+
+typedef struct go_slice {
+    void *array;
+    s64 len;
+    s64 cap;
+} go_slice_t;
+
+typedef struct go_iface {
+    void *type;
+    void *data;
+} go_iface_t;
+
+/* Definitions should mimic structs defined in go.opentelemetry.io/otel/attribute */
+
+typedef struct go_otel_attr_value {
+    u64 vtype;
+    u64 numeric;
+    struct go_string string;
+    struct go_iface slice;
+} go_otel_attr_value_t;
+
+typedef struct go_otel_key_value {
+    struct go_string key;
+    go_otel_attr_value_t value;
+} go_otel_key_value_t;
+
+#define OTEL_ATTRIBUTE_KEY_MAX_LEN (32)
+#define OTEL_ATTRIBUTE_VALUE_MAX_LEN (128)
+#define OTEL_ATTRUBUTE_MAX_COUNT (16)
+
+typedef struct otel_attirbute {
+    u16 val_length;
+    u8 vtype;
+    u8 reserved;
+    unsigned char key[OTEL_ATTRIBUTE_KEY_MAX_LEN];
+    unsigned char value[OTEL_ATTRIBUTE_VALUE_MAX_LEN];
+} otel_attirbute_t;
+
+typedef struct otel_attributes {
+    otel_attirbute_t attrs[OTEL_ATTRUBUTE_MAX_COUNT];
+    u8 valid_attrs;
+    u8 _apad;
+} otel_attributes_t;
+
+typedef struct otel_span {
+    u8 type; // Must be first
+    u8 _pad[7];
+    u64 start_time;
+    u64 end_time;
+    u64 parent_go;
+    tp_info_t tp;
+    tp_info_t prev_tp;
+    u32 status;
+    span_name_t span_name;
+    span_description_t span_description;
+    pid_info pid;
+    otel_attributes_t span_attrs;
+    u8 _epad[6];
+} otel_span_t;

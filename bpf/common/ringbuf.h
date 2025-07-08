@@ -18,6 +18,7 @@
 #define EVENT_GO_REDIS 10
 #define EVENT_GO_KAFKA_SEG 11 // the segment-io version (kafka-go) has different format
 #define EVENT_TCP_LARGE_BUFFER 12
+#define EVENT_GO_SPAN 13
 
 // setting here the following map definitions without pinning them to a global namespace
 // would lead that services running both HTTP and GRPC server would duplicate

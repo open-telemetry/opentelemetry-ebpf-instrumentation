@@ -152,7 +152,7 @@
       "bw": {
         "versions": {
           "oldest": "9.0.0",
-          "newest": "9.10.0"
+          "newest": "9.11.0"
         },
         "offsets": [
           {
@@ -208,6 +208,24 @@
           {
             "offset": 8,
             "since": "0.4.11"
+          }
+        ]
+      }
+    },
+    "go.opentelemetry.io/otel/internal/global.tracer": {
+      "delegate": {
+        "versions": {
+          "oldest": "1.10.0",
+          "newest": "1.37.0"
+        },
+        "offsets": [
+          {
+            "offset": 48,
+            "since": "1.10.0"
+          },
+          {
+            "offset": 64,
+            "since": "1.20.0"
           }
         ]
       }
