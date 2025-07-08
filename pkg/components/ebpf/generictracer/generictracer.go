@@ -383,6 +383,12 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				End:      p.bpfObjects.BeylaNgxEventConnectPeerRet,
 			}},
 		},
+		"node": {
+			"uv_fs_access": {{
+				Required: false,
+				Start:    p.bpfObjects.BeylaUvFsAccess,
+			}},
+		},
 	}
 }
 
