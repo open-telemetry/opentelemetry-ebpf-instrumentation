@@ -116,7 +116,7 @@ type MetricsConfig struct {
 
 	// Features of metrics that are can be exported. Accepted values are "application" and "network".
 	// envDefault is provided to avoid breaking changes
-	Features []string `yaml:"features" env:"OTEL_EBPF_METRICS_FEATURES,expand" envDefault:"${OTEL_EBPF_OTEL_METRIC_FEATURES}"  envSeparator:","`
+	Features []string `yaml:"features" env:"OTEL_EBPF_METRICS_FEATURES,expand" envDefault:"${OTEL_EBPF_METRIC_FEATURES}"  envSeparator:","`
 
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
 	Instrumentations []string `yaml:"instrumentations" env:"OTEL_EBPF_METRICS_INSTRUMENTATIONS" envSeparator:","`
