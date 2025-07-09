@@ -49,7 +49,7 @@ services:
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_OTEL_TRACES_INSTRUMENTATIONS: "mongo"
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "mongo"
-      OTEL_EBPF_OTEL_METRICS_FEATURES: "application"
+      OTEL_EBPF_METRICS_FEATURES: "application"
       OTEL_EBPF_PROTOCOL_DEBUG_PRINT: "true"
     depends_on:
       testserver:
