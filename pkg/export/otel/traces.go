@@ -73,7 +73,7 @@ type TracesConfig struct {
 	Instrumentations []string `yaml:"instrumentations" env:"OTEL_EBPF_OTEL_TRACES_INSTRUMENTATIONS" envSeparator:","`
 
 	// InsecureSkipVerify is not standard, so we don't follow the same naming convention
-	InsecureSkipVerify bool `yaml:"insecure_skip_verify" env:"OTEL_EBPF_OTEL_INSECURE_SKIP_VERIFY"`
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify" env:"OTEL_EBPF_INSECURE_SKIP_VERIFY"`
 
 	Sampler Sampler `yaml:"sampler"`
 
