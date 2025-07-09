@@ -425,7 +425,7 @@ func TestConfig_OtelGoAutoEnv(t *testing.T) {
 
 func TestConfig_NetworkImplicit(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
-	t.Setenv("OTEL_EBPF_OTEL_METRIC_FEATURES", "network")
+	t.Setenv("OTEL_EBPF_METRIC_FEATURES", "network")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.True(t, cfg.Enabled(FeatureNetO11y)) // Net o11y should be on

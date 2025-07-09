@@ -263,7 +263,7 @@ func (c *Config) Validate() error {
 
 	if !c.Enabled(FeatureNetO11y) && !c.Enabled(FeatureAppO11y) {
 		return ConfigError("at least one of 'network' or 'application' features must be enabled. " +
-			"Enable OpenTelemetry export features using the 'OTEL_EBPF_OTEL_METRIC_FEATURES=network,application' environment variable " +
+			"Enable OpenTelemetry export features using the 'OTEL_EBPF_METRIC_FEATURES=network,application' environment variable " +
 			"or 'otel_metrics_export: { features: [network,application] }' in the YAML configuration file. " +
 			"Enable Prometheus export features using the 'OTEL_EBPF_PROMETHEUS_FEATURES=network,application' environment variable " +
 			"or 'prometheus_export: { features: [network,application] }' in the YAML configuration file.")

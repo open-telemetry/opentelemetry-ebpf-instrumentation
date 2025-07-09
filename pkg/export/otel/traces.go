@@ -70,10 +70,10 @@ type TracesConfig struct {
 	TracesProtocol Protocol `yaml:"-" env:"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"`
 
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
-	Instrumentations []string `yaml:"instrumentations" env:"OTEL_EBPF_OTEL_TRACES_INSTRUMENTATIONS" envSeparator:","`
+	Instrumentations []string `yaml:"instrumentations" env:"OTEL_EBPF_TRACES_INSTRUMENTATIONS" envSeparator:","`
 
 	// InsecureSkipVerify is not standard, so we don't follow the same naming convention
-	InsecureSkipVerify bool `yaml:"insecure_skip_verify" env:"OTEL_EBPF_OTEL_INSECURE_SKIP_VERIFY"`
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify" env:"OTEL_EBPF_INSECURE_SKIP_VERIFY"`
 
 	Sampler Sampler `yaml:"sampler"`
 
@@ -103,7 +103,7 @@ type TracesConfig struct {
 	// SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode
 	// and the Info messages leak internal details that are not usually valuable for the final user.
 	//nolint:undoc
-	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_OTEL_SDK_LOG_LEVEL"`
+	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_SDK_LOG_LEVEL"`
 
 	// OTLPEndpointProvider allows overriding the OTLP Endpoint. It needs to return an endpoint and
 	// a boolean indicating if the endpoint is common for both traces and metrics

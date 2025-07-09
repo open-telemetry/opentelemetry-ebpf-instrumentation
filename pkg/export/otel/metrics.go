@@ -101,7 +101,7 @@ type MetricsConfig struct {
 	MetricsProtocol Protocol `yaml:"-" env:"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL"`
 
 	// InsecureSkipVerify is not standard, so we don't follow the same naming convention
-	InsecureSkipVerify bool `yaml:"insecure_skip_verify" env:"OTEL_EBPF_OTEL_INSECURE_SKIP_VERIFY"`
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify" env:"OTEL_EBPF_INSECURE_SKIP_VERIFY"`
 
 	Buckets              Buckets `yaml:"buckets"`
 	HistogramAggregation string  `yaml:"histogram_aggregation" env:"OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION"`
@@ -112,21 +112,21 @@ type MetricsConfig struct {
 	// SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode
 	// and the Info messages leak internal details that are not usually valuable for the final user.
 	//nolint:undoc
-	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_OTEL_SDK_LOG_LEVEL"`
+	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_SDK_LOG_LEVEL"`
 
 	// Features of metrics that are can be exported. Accepted values are "application" and "network".
 	// envDefault is provided to avoid breaking changes
-	Features []string `yaml:"features" env:"OTEL_EBPF_OTEL_METRICS_FEATURES,expand" envDefault:"${OTEL_EBPF_OTEL_METRIC_FEATURES}"  envSeparator:","`
+	Features []string `yaml:"features" env:"OTEL_EBPF_METRICS_FEATURES,expand" envDefault:"${OTEL_EBPF_METRIC_FEATURES}"  envSeparator:","`
 
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
-	Instrumentations []string `yaml:"instrumentations" env:"OTEL_EBPF_OTEL_METRICS_INSTRUMENTATIONS" envSeparator:","`
+	Instrumentations []string `yaml:"instrumentations" env:"OTEL_EBPF_METRICS_INSTRUMENTATIONS" envSeparator:","`
 
 	// TTL is the time since a metric was updated for the last time until it is
 	// removed from the metrics set.
 	//nolint:undoc
-	TTL time.Duration `yaml:"ttl" env:"OTEL_EBPF_OTEL_METRICS_TTL"`
+	TTL time.Duration `yaml:"ttl" env:"OTEL_EBPF_METRICS_TTL"`
 
-	AllowServiceGraphSelfReferences bool `yaml:"allow_service_graph_self_references" env:"OTEL_EBPF_OTEL_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"`
+	AllowServiceGraphSelfReferences bool `yaml:"allow_service_graph_self_references" env:"OTEL_EBPF_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"`
 
 	// OTLPEndpointProvider allows overriding the OTLP Endpoint. It needs to return an endpoint and
 	// a boolean indicating if the endpoint is common for both traces and metrics
