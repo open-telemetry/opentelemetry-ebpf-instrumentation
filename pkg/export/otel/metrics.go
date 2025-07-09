@@ -112,7 +112,7 @@ type MetricsConfig struct {
 	// SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode
 	// and the Info messages leak internal details that are not usually valuable for the final user.
 	//nolint:undoc
-	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_OTEL_SDK_LOG_LEVEL"`
+	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_SDK_LOG_LEVEL"`
 
 	// Features of metrics that are can be exported. Accepted values are "application" and "network".
 	// envDefault is provided to avoid breaking changes
