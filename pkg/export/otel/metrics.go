@@ -124,7 +124,7 @@ type MetricsConfig struct {
 	// TTL is the time since a metric was updated for the last time until it is
 	// removed from the metrics set.
 	//nolint:undoc
-	TTL time.Duration `yaml:"ttl" env:"OTEL_EBPF_OTEL_METRICS_TTL"`
+	TTL time.Duration `yaml:"ttl" env:"OTEL_EBPF_METRICS_TTL"`
 
 	AllowServiceGraphSelfReferences bool `yaml:"allow_service_graph_self_references" env:"OTEL_EBPF_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"`
 
