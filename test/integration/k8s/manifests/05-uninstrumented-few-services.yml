@@ -22,7 +22,7 @@ spec:
   selector:
     app: pytestserver
   ports:
-    - port: 8083
+    - port: 7773
       name: http1
       targetPort: http1
 ---
@@ -72,8 +72,8 @@ spec:
           image: pythontestserver:dev
           imagePullPolicy: Never # loaded into Kind from localhost
           ports:
-            - containerPort: 8083
-              hostPort: 8083
+            - containerPort: 7773
+              hostPort: 7773
               name: http1
           env:
             - name: LOG_LEVEL
@@ -162,4 +162,4 @@ spec:
       volumes:
       - name: tmp-rails
         emptyDir: {}      
----          
+---
