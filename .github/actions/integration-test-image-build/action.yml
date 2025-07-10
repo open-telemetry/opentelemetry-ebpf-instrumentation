@@ -1,0 +1,36 @@
+name: Build Integration Test Image
+description: 'Builds a Docker image for integration tests'
+
+inputs:
+  registry:
+    description: 'Image registry (e.g. ghcr.io)'
+    required: false
+    default: ghcr.io
+  tag-id:
+    description: 'Image ID to be pretended to the tag (e.g. nodeserver)'
+    required: true
+  tag-version:
+    description: 'Image version to be appended to the tag (e.g. 2.1.0)'
+    required: true
+  file:
+    description: 'override name of the Dockerfile'
+    required: false
+    default: "Dockerfile"
+  labels:
+    description: 'Image metadata labels'
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Build and push Docker image
+      id: push
+      uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
+      with:
+        context: .
+        file: ${{ inputs.file }}
+        push: true
+        platforms: linux/amd64,linux/arm64
+        labels: ${{ inputs.labels }}
+        tags: |
+          "${{ inputs.registry }}/obi-testimg:${{ inputs.tag-id }}-${{ inputs.tag-version }}"

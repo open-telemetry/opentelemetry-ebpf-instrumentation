@@ -1,0 +1,139 @@
+name: Publish integration testing images
+on:
+  workflow_dispatch:
+    inputs:
+      override_image_tag:
+        type: string
+        description: "Override image tag (empty: SemVer patch + 1)"
+
+# Set restrictive permissions at workflow level
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: open-telemetry/obi-testimg
+
+jobs:
+  build-and-push-image:
+    runs-on: oracle-16cpu-64gb-x86-64
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          persist-credentials: 'false'
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
+        with:
+          images: "${{ env.REGISTRY }}/${{ env.IMAGE }}"
+
+      - name: Set image tag
+        id: image_tag
+        env:
+          OVERRIDE_IMG_TAG: ${{ github.event.inputs.override_image_tag }}
+        run: |
+          if [[ "$OVERRIDE_IMG_TAG" == "" ]]; then
+            echo "Fetching latest version from ${{ env.REGISTRY }}/${{ env.IMAGE }}..."
+
+            # Get authentication token for GHCR
+            TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64)
+
+            # Fetch tags from GHCR API
+            TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" \
+              "https://${{ env.REGISTRY }}/v2/${{ env.IMAGE }}/tags/list")
+            echo "Image tags: ${TAGS}"
+
+            # tags are in the form rustserver-0.1.0, so we use "tr" to split and later remove any prefix
+            LATEST_VERSION=$(echo "${TAGS}" | \
+              jq -r '.tags[]' | \
+              tr "-" "\n" | \ 
+              grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
+              sort -V | \
+              tail -n 1)
+
+            if [[ -z "$LATEST_VERSION" ]]; then
+              echo "No semantic version found, starting with 0.1.0"
+              NEW_VERSION="0.1.0"
+            else
+              echo "Latest version found: $LATEST_VERSION"
+              # Parse version components
+              IFS='.' read -r major minor patch <<< "$LATEST_VERSION"
+              # Increment minor version
+              NEW_PATCH=$((patch + 1))
+              NEW_VERSION="${major}.${minor}.${NEW_PATCH}"
+            fi
+
+            echo "New version: $NEW_VERSION"
+            echo "imgtag=$NEW_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "imgtag=$OVERRIDE_IMG_TAG" >> $GITHUB_OUTPUT
+          fi
+
+      - name: rust
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: rust
+          file: test/integration/components/rusttestserver/Dockerfile
+
+      - name: rust-ssl
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: rust-ssl
+          file: test/integration/components/rustssltestserver/Dockerfile
+
+      - name: rails
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: rails-ssl
+          file: test/integration/components/rubytestserver/testapi/Dockerfile
+
+      - name: rails-ssl
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: rails-ssl
+          file: test/integration/components/rubytestserver/testapi/Dockerfile_tls
+
+      - name: java-jar
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: java-jar
+          file: test/integration/components/javatestserver/Dockerfile_jar
+
+      - name: java-native
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: java-native
+          file: test/integration/components/javatestserver/Dockerfile
