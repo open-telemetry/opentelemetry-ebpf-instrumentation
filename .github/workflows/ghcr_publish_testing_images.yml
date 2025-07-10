@@ -129,7 +129,6 @@ jobs:
     needs: prepare-env
     steps:
     - name: rust
-      needs: prepare-env
       uses: ./.github/actions/integration-test-image-build
       with:
         labels: ${{ needs.prepare-env.outputs.labels }}
@@ -146,7 +145,6 @@ jobs:
     needs: prepare-env
     steps:
     - name: rust-ssl
-      needs: prepare-env
       uses: ./.github/actions/integration-test-image-build
       with:
         labels: ${{ needs.prepare-env.outputs.labels }}
@@ -163,7 +161,6 @@ jobs:
     needs: prepare-env
     steps:
     - name: rails
-      needs: prepare-env
       uses: ./.github/actions/integration-test-image-build
       with:
         labels: ${{ needs.prepare-env.outputs.labels }}
@@ -180,7 +177,6 @@ jobs:
     needs: prepare-env
     steps:
     - name: rails-ssl
-      needs: prepare-env
       uses: ./.github/actions/integration-test-image-build
       with:
         labels: ${{ needs.prepare-env.outputs.labels }}
