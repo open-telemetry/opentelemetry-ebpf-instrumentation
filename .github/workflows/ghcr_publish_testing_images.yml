@@ -100,8 +100,8 @@ jobs:
     steps:
     - uses: ./.github/actions/integration-test-image-build
       with:
-        labels: ${{ jobs.prepare-env.outputs.labels }}
-        tag-version: ${{ jobs.prepare-env.outputs.imgtag }}
+        labels: ${{ needs.prepare-env.outputs.labels }}
+        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
         tag-id: java-native
         file: test/integration/components/javatestserver/Dockerfile
 
@@ -115,8 +115,8 @@ jobs:
     steps:
     - uses: ./.github/actions/integration-test-image-build
       with:
-        labels: ${{ jobs.prepare-env.outputs.labels }}
-        tag-version: ${{ jobs.prepare-env.outputs.imgtag }}
+        labels: ${{ needs.prepare-env.outputs.labels }}
+        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
         tag-id: java-jar
         file: test/integration/components/javatestserver/Dockerfile_jar
 
@@ -132,8 +132,8 @@ jobs:
       needs: prepare-env
       uses: ./.github/actions/integration-test-image-build
       with:
-        labels: ${{ jobs.prepare-env.outputs.labels }}
-        tag-version: ${{ jobs.prepare-env.outputs.imgtag }}
+        labels: ${{ needs.prepare-env.outputs.labels }}
+        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
         tag-id: rust
         file: test/integration/components/rusttestserver/Dockerfile
 
@@ -149,8 +149,8 @@ jobs:
       needs: prepare-env
       uses: ./.github/actions/integration-test-image-build
       with:
-        labels: ${{ jobs.prepare-env.outputs.labels }}
-        tag-version: ${{ jobs.prepare-env.outputs.imgtag }}
+        labels: ${{ needs.prepare-env.outputs.labels }}
+        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
         tag-id: rust-ssl
         file: test/integration/components/rustssltestserver/Dockerfile
 
@@ -166,8 +166,8 @@ jobs:
       needs: prepare-env
       uses: ./.github/actions/integration-test-image-build
       with:
-        labels: ${{ jobs.prepare-env.outputs.labels }}
-        tag-version: ${{ jobs.prepare-env.outputs.imgtag }}
+        labels: ${{ needs.prepare-env.outputs.labels }}
+        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
         tag-id: rails-ssl
         file: test/integration/components/rubytestserver/testapi/Dockerfile
 
@@ -183,7 +183,7 @@ jobs:
       needs: prepare-env
       uses: ./.github/actions/integration-test-image-build
       with:
-        labels: ${{ jobs.prepare-env.outputs.labels }}
-        tag-version: ${{ jobs.prepare-env.outputs.imgtag }}
+        labels: ${{ needs.prepare-env.outputs.labels }}
+        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
         tag-id: rails-ssl
         file: test/integration/components/rubytestserver/testapi/Dockerfile_tls
