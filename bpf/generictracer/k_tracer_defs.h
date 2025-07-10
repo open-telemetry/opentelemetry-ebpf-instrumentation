@@ -9,7 +9,6 @@
 #include <common/tc_common.h>
 #include <common/trace_common.h>
 
-#include <generictracer/ebpf_ipc.h>
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/protocol_http.h>
@@ -48,10 +47,6 @@ static __always_inline void handle_buf_with_connection(void *ctx,
                                                        u8 ssl,
                                                        u8 direction,
                                                        u16 orig_dport) {
-    if (handle_ebpf_ipc(u_buf, bytes_len)) {
-        return;
-    }
-
     call_protocol_args_t *args = make_protocol_args(u_buf, bytes_len, ssl, direction, orig_dport);
     if (!args) {
         return;

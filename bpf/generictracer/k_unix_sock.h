@@ -7,7 +7,6 @@
 #include <common/tc_common.h>
 #include <common/tracing.h>
 
-#include <generictracer/ebpf_ipc.h>
 #include <generictracer/k_send_receive.h>
 #include <generictracer/k_tracer_defs.h>
 #include <generictracer/protocol_http.h>

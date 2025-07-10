@@ -1,8 +1,10 @@
 package std
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -14,13 +16,23 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"go.opentelemetry.io/auto/sdk"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/arg"
 	pb "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/grpc/routeguide"
 )
 
+var y2k = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
+var tracer = otel.Tracer("trace-example")
+
 func HTTPHandler(log *slog.Logger, echoPort int) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
-		log.Debug("received request", "url", req.RequestURI)
+		log.Info("received request", "url", req.RequestURI)
 
 		if req.RequestURI == "/echo" {
 			echoAsync(rw, echoPort)
@@ -39,6 +51,11 @@ func HTTPHandler(log *slog.Logger, echoPort int) http.HandlerFunc {
 
 		if req.RequestURI == "/echoLowPort" {
 			echoLowPort(rw)
+			return
+		}
+
+		if req.RequestURI == "/manual" {
+			manual(rw)
 			return
 		}
 
@@ -112,6 +129,62 @@ func echo(rw http.ResponseWriter, port int) {
 	rw.WriteHeader(res.StatusCode)
 }
 
+func inner(id int) {
+	ctx := context.Background()
+	ts := y2k.Add(10 * time.Microsecond)
+
+	t := tracer
+
+	opts := []trace.SpanStartOption{
+		trace.WithAttributes(
+			attribute.String("user", "user"+strconv.Itoa(id)),
+			attribute.Bool("admin", true),
+		),
+		trace.WithTimestamp(y2k.Add(500 * time.Microsecond)),
+		trace.WithSpanKind(trace.SpanKindServer),
+	}
+
+	_, span := t.Start(ctx, fmt.Sprintf("sig_inner %d", id), opts...)
+	defer span.End(trace.WithTimestamp(ts.Add(100 * time.Microsecond)))
+
+	if id == 2 {
+		span.SetName("changed name")
+		span.SetAttributes(
+			attribute.String("test", "append"),
+		)
+	}
+}
+
+func manual(rw http.ResponseWriter) {
+	slog.Debug("manual spans")
+
+	ctx := context.Background()
+	ts := y2k.Add(10 * time.Microsecond)
+
+	provider := sdk.TracerProvider()
+	t := provider.Tracer(
+		"main",
+		trace.WithInstrumentationVersion("v0.0.1"),
+		trace.WithSchemaURL("https://some_schema"),
+	)
+
+	_, span := t.Start(ctx, "sig", trace.WithTimestamp(ts))
+	defer span.End(trace.WithTimestamp(ts.Add(100 * time.Microsecond)))
+
+	inner(1)
+	inner(2)
+
+	span.SetStatus(codes.Error, "application error")
+	span.RecordError(
+		errors.New("some unknown error"),
+		trace.WithTimestamp(y2k.Add(2*time.Second)),
+		trace.WithStackTrace(true),
+		trace.WithAttributes(attribute.Int("impact", 11)),
+	)
+
+	rw.WriteHeader(http.StatusOK)
+}
+
 var (
 	addrLowPort = net.TCPAddr{Port: 7000}
 	transport   = &http.Transport{
@@ -140,11 +213,11 @@ func echoLowPort(rw http.ResponseWriter) {
 }
 
 func echoDist(rw http.ResponseWriter) {
-	requestURL := "http://pytestserver:8083/tracemetoo"
+	requestURL := "http://testserver:8088/jsonrpc"
 
 	slog.Debug("calling", "url", requestURL)
 
-	res, err := http.Get(requestURL)
+	res, err := http.Post(requestURL, "application/json", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"Arith.Traceme","params":[{"A":1,"B":2}],"id":1}`)))
 	if err != nil {
 		slog.Error("error making http request", "error", err)
 		rw.WriteHeader(http.StatusInternalServerError)

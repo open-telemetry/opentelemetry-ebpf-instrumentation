@@ -27,6 +27,8 @@
 #include <gotracer/go_str.h>
 #include <gotracer/go_stream_key.h>
 #include <gotracer/hpack.h>
+#include <gotracer/protocol_jsonrpc.h>
+#include <gotracer/maps/jsonrpc_jump_table.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -34,6 +36,10 @@
 #include <maps/go_ongoing_http_client_requests.h>
 
 #include <pid/pid_helpers.h>
+
+enum { k_tail_jsonrpc = 0 };
+static const char traceparent[] = "traceparent: ";
+static const char content_type[] = "content-type: ";
 
 typedef struct http_client_data {
     s64 content_length;
@@ -64,10 +70,13 @@ typedef struct server_http_func_invocation {
     u64 content_length;
     u64 response_length;
     u64 status;
+    u64 body_addr; // pointer to the body buffer
     tp_info_t tp;
-    unsigned char method[METHOD_MAX_LEN];
-    unsigned char path[PATH_MAX_LEN];
-    u8 _pad[5];
+    unsigned char content_type[HTTP_CONTENT_TYPE_MAX_LEN];
+    u8 method[METHOD_MAX_LEN];
+    u8 path[PATH_MAX_LEN];
+    u8 json_content_type;
+    u8 _pad[4];
 } server_http_func_invocation_t;
 
 struct {
@@ -76,6 +85,30 @@ struct {
     __type(value, server_http_func_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_http_server_requests SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, u32);
+    __type(value, unsigned char[HTTP_HEADER_MAX_LEN]);
+    __uint(max_entries, 1);
+} temp_header_mem_store SEC(".maps");
+
+static __always_inline unsigned char *temp_header_mem() {
+    const u32 zero = 0;
+    return bpf_map_lookup_elem(&temp_header_mem_store, &zero);
+}
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, u32);
+    __type(value, unsigned char[HTTP_BODY_MAX_LEN]);
+    __uint(max_entries, 1);
+} temp_body_mem_store SEC(".maps");
+
+static __always_inline unsigned char *temp_body_mem() {
+    const u32 zero = 0;
+    return bpf_map_lookup_elem(&temp_body_mem_store, &zero);
+}
 
 /* HTTP Server */
 
@@ -94,12 +127,12 @@ int beyla_uprobe_ServeHTTP(struct pt_regs *ctx) {
 
     off_table_t *ot = get_offsets_table();
 
-    // Lookup any traceparent information setup for us by readContinuedLineSlice
-    server_http_func_invocation_t *tp_inv =
+    // Lookup any header information setup for us by readContinuedLineSlice
+    server_http_func_invocation_t *header_inv =
         bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
     tp_info_t *decoded_tp = 0;
-    if (tp_inv && valid_trace(tp_inv->tp.trace_id)) {
-        decoded_tp = &tp_inv->tp;
+    if (header_inv && valid_trace(header_inv->tp.trace_id)) {
+        decoded_tp = &header_inv->tp;
     }
 
     server_http_func_invocation_t invocation = {
@@ -117,6 +150,15 @@ int beyla_uprobe_ServeHTTP(struct pt_regs *ctx) {
         server_trace_parent(goroutine_addr, &invocation.tp, decoded_tp);
         // TODO: if context propagation is supported, overwrite the header value in the map with the
         // new span context and the same thread id.
+
+        // get content-type from readContinuedLineSlice
+        if (header_inv && header_inv->content_type[0]) {
+            bpf_dbg_printk("Found content type in ongoing request: %s", header_inv->content_type);
+            if (is_json_content_type((void *)header_inv->content_type,
+                                     sizeof(header_inv->content_type))) {
+                invocation.json_content_type = 1;
+            }
+        }
 
         // Get method from Request.Method
         if (!read_go_str("method",
@@ -263,38 +305,97 @@ int beyla_uprobe_http2Server_processHeaders(struct pt_regs *ctx) {
     return 0;
 }
 
+static __always_inline void update_traceparent(server_http_func_invocation_t *inv,
+                                               const unsigned char *header_start) {
+    decode_go_traceparent(header_start, inv->tp.trace_id, inv->tp.parent_id, &inv->tp.flags);
+    bpf_dbg_printk("Found traceparent in header %s", header_start);
+}
+
+static __always_inline void update_content_type(server_http_func_invocation_t *inv,
+                                                const unsigned char *header_start) {
+    __builtin_memset(inv->content_type, 0, sizeof(inv->content_type));
+    __builtin_memcpy(inv->content_type, header_start, sizeof(inv->content_type));
+    bpf_dbg_printk("Found content-type in header %s", inv->content_type);
+}
+
+static __always_inline void handle_traceparent_header(server_http_func_invocation_t *inv,
+                                                      go_addr_key_t *g_key,
+                                                      unsigned char *traceparent_start) {
+    if (inv) {
+        update_traceparent(inv, traceparent_start);
+    } else {
+        server_http_func_invocation_t minimal_inv = {};
+        update_traceparent(&minimal_inv, traceparent_start);
+        bpf_map_update_elem(&ongoing_http_server_requests, g_key, &minimal_inv, BPF_ANY);
+    }
+}
+
+static __always_inline void handle_content_type_header(server_http_func_invocation_t *inv,
+                                                       go_addr_key_t *g_key,
+                                                       unsigned char *content_type_start) {
+    if (inv) {
+        update_content_type(inv, content_type_start);
+    } else {
+        server_http_func_invocation_t minimal_inv = {};
+        update_content_type(&minimal_inv, content_type_start);
+        bpf_map_update_elem(&ongoing_http_server_requests, g_key, &minimal_inv, BPF_ANY);
+    }
+}
+
+// Matches the header in the buffer and returns a pointer to the value part of the header.
+static __always_inline unsigned char *match_header(
+    const unsigned char *buf, u32 safe_len, const char *header, u32 header_len, u32 value_len) {
+    if (safe_len >= header_len + value_len && stricmp((const char *)buf, header, header_len)) {
+        return (unsigned char *)(buf + header_len);
+    }
+    return NULL;
+}
+
 SEC("uprobe/readContinuedLineSlice")
 int beyla_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/proc readContinuedLineSlice returns === ");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+    connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    if (!existing) {
+        return 0;
+    }
+
     u64 len = (u64)GO_PARAM2(ctx);
     const unsigned char *buf = (const unsigned char *)GO_PARAM1(ctx);
 
-    if (len >= (W3C_KEY_LENGTH + W3C_VAL_LENGTH + 2)) {
-        unsigned char temp[W3C_KEY_LENGTH + W3C_VAL_LENGTH + 2];
-        bpf_probe_read(temp, sizeof(temp), buf);
-        bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
-        go_addr_key_t g_key = {};
-        go_addr_key_from_id(&g_key, goroutine_addr);
+    unsigned char *temp = temp_header_mem();
+    const u32 safe_len = len > HTTP_HEADER_MAX_LEN ? HTTP_HEADER_MAX_LEN : len;
+    if (!temp || bpf_probe_read_user(temp, safe_len, buf) != 0) {
+        bpf_dbg_printk("failed to read buffer");
+        return 0;
+    };
 
-        connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
-        if (existing) {
-            if (stricmp((const char *)temp, "traceparent: ", W3C_KEY_LENGTH + 2)) {
-                server_http_func_invocation_t inv = {};
-                decode_go_traceparent(
-                    temp + W3C_KEY_LENGTH + 2, inv.tp.trace_id, inv.tp.parent_id, &inv.tp.flags);
-                bpf_dbg_printk("Found traceparent in header %s", temp);
-                bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &inv, BPF_ANY);
-            }
-        }
+    const u32 w3c_value_start = sizeof(traceparent) - 1;
+    const u32 content_type_value_start = sizeof(content_type) - 1;
+
+    server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+
+    unsigned char *traceparent_start =
+        match_header(temp, safe_len, traceparent, w3c_value_start, W3C_VAL_LENGTH);
+    if (traceparent_start) {
+        handle_traceparent_header(inv, &g_key, traceparent_start);
+    }
+
+    unsigned char *content_type_start = match_header(
+        temp, safe_len, content_type, content_type_value_start, HTTP_CONTENT_TYPE_MAX_LEN);
+    if (content_type_start) {
+        handle_content_type_header(inv, &g_key, content_type_start);
     }
 
     return 0;
 }
 
 SEC("uprobe/ServeHTTP_ret")
-int beyla_uprobe_ServeHTTPReturns(struct pt_regs *ctx) {
+int serve_http_returns(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/ServeHTTP returns === ");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -319,6 +420,11 @@ int beyla_uprobe_ServeHTTPReturns(struct pt_regs *ctx) {
             bpf_dbg_printk("can't read http invocation metadata");
             goto done;
         }
+    }
+
+    if (!invocation->status) {
+        invocation->status = -1;
+        return 0;
     }
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
@@ -379,6 +485,11 @@ done:
     bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
     bpf_map_delete_elem(&go_trace_map, &g_key);
     return 0;
+}
+
+SEC("uprobe/ServeHTTP_ret")
+int beyla_uprobe_ServeHTTPReturns(struct pt_regs *ctx) {
+    return serve_http_returns(ctx);
 }
 
 #ifndef NO_HEADER_PROPAGATION
@@ -719,7 +830,14 @@ int beyla_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
         }
     }
 
-    invocation->status = status;
+    // Strange case when the HTTP server response is empty, the writeHeader
+    // is called on defer after the ServeHTTP returns.
+    if (invocation->status == -1) {
+        invocation->status = status;
+        serve_http_returns(ctx);
+    } else {
+        invocation->status = status;
+    }
 
     return 0;
 }
@@ -1179,6 +1297,102 @@ int beyla_uprobe_netFdRead(struct pt_regs *ctx) {
                               &sql_conn->conn); // ok to not check the result, we leave it as 0
     }
 
+    return 0;
+}
+
+SEC("uprobe/bodyRead")
+int beyla_uprobe_bodyRead(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("=== uprobe/proc body read goroutine === ");
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    // Get the address of the slice struct (p)
+    u64 body_addr = (u64)GO_PARAM2(ctx);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    if (!invocation) {
+        return 0;
+    }
+    invocation->body_addr = body_addr;
+
+    return 0;
+}
+
+SEC("uprobe/bodyReadRet")
+int beyla_uprobe_bodyReadReturn(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/proc body read returns goroutine === ");
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    u64 n = (u64)GO_PARAM1(ctx);
+    bpf_dbg_printk("n is %llu", n);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    if (!invocation) {
+        return 0;
+    }
+    if (n <= 0 || !invocation->body_addr) {
+        return 0;
+    }
+    // json_content-type is set in invocation in ServeHTTP
+    if (invocation->json_content_type != 1) {
+        bpf_dbg_printk("content type is not json, skipping");
+        return 0;
+    }
+
+    unsigned char *body_buf = temp_body_mem();
+    if (!body_buf) {
+        return 0;
+    }
+
+    const u32 safe_len = n > HTTP_BODY_MAX_LEN ? HTTP_BODY_MAX_LEN : n;
+    if (!read_go_str_n("http body", (void *)invocation->body_addr, n, body_buf, safe_len)) {
+        bpf_dbg_printk("failed to read body, n=%llu, body_addr=%llx", n, invocation->body_addr);
+        return 0;
+    }
+    // bpf_dbg_printk("body is %s", body_buf);
+    bpf_tail_call(ctx, &jsonrpc_jump_table, k_tail_jsonrpc);
+    return 0;
+}
+
+//k_tail_jsonrpc
+SEC("uprobe/readJsonrpcMethod")
+int beyla_read_jsonrpc_method(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/proc read jsonrpc method === ");
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    if (!invocation) {
+        bpf_dbg_printk("can't find invocation info for server call");
+        return 0;
+    }
+
+    // tail call is guaranteed to run on the same CPU as its caller
+    // so we can shared the same buffer via a per-CPU map
+    unsigned char *body_buf = temp_body_mem();
+    if (!body_buf) {
+        return 0;
+    }
+    if (is_jsonrpc2_body((const unsigned char *)body_buf, HTTP_BODY_MAX_LEN)) {
+        unsigned char method_buf[JSONRPC_METHOD_BUF_SIZE] = {};
+        u32 method_len = extract_jsonrpc2_method(
+            (const unsigned char *)body_buf, HTTP_BODY_MAX_LEN, method_buf, sizeof(method_buf));
+        if (method_len > 0) {
+            bpf_dbg_printk("JSON-RPC method: %s", method_buf);
+            read_go_str_n("JSON-RPC method",
+                          (void *)method_buf,
+                          method_len,
+                          invocation->method,
+                          sizeof(invocation->method));
+        }
+    }
     return 0;
 }
 

@@ -286,7 +286,7 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Required: true,
 			Start:    p.bpfObjects.BeylaKprobeTcpClose,
 		},
-		"tcp_sendmsg_locked": {
+		"tcp_sendmsg": {
 			Required: true,
 			Start:    p.bpfObjects.BeylaKprobeTcpSendmsg,
 			End:      p.bpfObjects.BeylaKretprobeTcpSendmsg,
@@ -381,6 +381,12 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			"ngx_event_connect_peer": {{
 				Required: false,
 				End:      p.bpfObjects.BeylaNgxEventConnectPeerRet,
+			}},
+		},
+		"node": {
+			"uv_fs_access": {{
+				Required: false,
+				Start:    p.bpfObjects.BeylaUvFsAccess,
 			}},
 		},
 	}

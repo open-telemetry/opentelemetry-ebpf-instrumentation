@@ -300,6 +300,21 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"db_client_operation_duration_seconds",
 			},
 		},
+		{
+			name:  "mongo",
+			instr: []string{instrumentations.InstrumentationMongo},
+			expected: []string{
+				"db_client_operation_duration_seconds",
+			},
+			unexpected: []string{
+				"http_server_request_duration_seconds",
+				"http_client_request_duration_seconds",
+				"rpc_server_duration_seconds",
+				"rpc_client_duration_seconds",
+				"messaging_publish_duration_seconds",
+				"messaging_process_duration_seconds",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -326,6 +341,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
 			})
 
 			var exported string

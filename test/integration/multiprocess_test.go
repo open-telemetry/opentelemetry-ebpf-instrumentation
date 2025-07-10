@@ -39,6 +39,13 @@ func TestMultiProcess(t *testing.T) {
 		// it doesn't instrument too the process from the other container
 		checkReportedOnlyOnce(t, "http://localhost:8900", "rename1")
 	})
+	t.Run("Go RED metrics: JSON RPC", func(t *testing.T) {
+		waitForTestComponents(t, instrumentedServiceJSONRPCURL)
+		testREDMetricsForJSONRPCHTTP(t, instrumentedServiceJSONRPCURL, "testserver", "initial-set")
+		// checks that, instrumenting the process from this container,
+		// it doesn't instrument too the process from the other container
+		checkReportedOnlyOnce(t, instrumentedServiceJSONRPCURL, "rename1")
+	})
 
 	t.Run("Go RED metrics: rust service ssl", func(t *testing.T) {
 		waitForTestComponents(t, "https://localhost:8491")
@@ -89,7 +96,7 @@ func TestMultiProcess(t *testing.T) {
 	})
 
 	if kprobeTracesEnabled() {
-		t.Run("Nested traces with kprobes: rust -> java -> node -> go -> python -> rails", func(t *testing.T) {
+		t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
 			testNestedHTTPTracesKProbes(t)
 		})
 
@@ -113,7 +120,7 @@ func TestMultiProcessAppCP(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	if kprobeTracesEnabled() {
-		t.Run("Nested traces with kprobes: rust -> java -> node -> go -> python -> rails", func(t *testing.T) {
+		t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
 			testNestedHTTPTracesKProbes(t)
 		})
 	}
@@ -129,7 +136,7 @@ func TestMultiProcessAppCPNoIP(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	if kprobeTracesEnabled() {
-		t.Run("Nested traces with kprobes: rust -> java -> node -> go -> python -> rails", func(t *testing.T) {
+		t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
 			testNestedHTTPTracesKProbes(t)
 		})
 	}
