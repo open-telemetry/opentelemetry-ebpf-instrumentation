@@ -17,11 +17,13 @@ env:
   IMAGE: open-telemetry/obi-testimg
 
 jobs:
-  prepare-env:
-    runs-on: ubuntu-latest
-    outputs:
-      labels: ${{ steps.meta.outputs.labels }}
-      imgtag: ${{ steps.image_tag.outputs.imgtag }}
+  build-and-push-image:
+    runs-on: oracle-16cpu-64gb-x86-64
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
 
     steps:
       - name: Checkout repository
@@ -90,96 +92,50 @@ jobs:
             echo "imgtag=$OVERRIDE_IMG_TAG" >> $GITHUB_OUTPUT
           fi
 
-  java-native-image:
-    permissions:
-      contents: read
-      packages: write
-      attestations: write
-    runs-on: oracle-8cpu-32gb-x86-64
-    needs: prepare-env
-    steps:
-    - uses: ./.github/actions/integration-test-image-build
-      with:
-        labels: ${{ needs.prepare-env.outputs.labels }}
-        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
-        tag-id: java-native
-        file: test/integration/components/javatestserver/Dockerfile
+      - name: rust
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: rust
+          file: test/integration/components/rusttestserver/Dockerfile
 
-  java-jar-image:
-    permissions:
-      contents: read
-      packages: write
-      attestations: write
-    runs-on: ubuntu-latest
-    needs: prepare-env
-    steps:
-    - uses: ./.github/actions/integration-test-image-build
-      with:
-        labels: ${{ needs.prepare-env.outputs.labels }}
-        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
-        tag-id: java-jar
-        file: test/integration/components/javatestserver/Dockerfile_jar
+      - name: rust-ssl
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: rust-ssl
+          file: test/integration/components/rustssltestserver/Dockerfile
 
-  rust-image:
-    permissions:
-      contents: read
-      packages: write
-      attestations: write
-    runs-on: ubuntu-latest
-    needs: prepare-env
-    steps:
-    - name: rust
-      uses: ./.github/actions/integration-test-image-build
-      with:
-        labels: ${{ needs.prepare-env.outputs.labels }}
-        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
-        tag-id: rust
-        file: test/integration/components/rusttestserver/Dockerfile
+      - name: rails
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: rails-ssl
+          file: test/integration/components/rubytestserver/testapi/Dockerfile
 
-  rust-ssl-image:
-    permissions:
-      contents: read
-      packages: write
-      attestations: write
-    runs-on: ubuntu-latest
-    needs: prepare-env
-    steps:
-    - name: rust-ssl
-      uses: ./.github/actions/integration-test-image-build
-      with:
-        labels: ${{ needs.prepare-env.outputs.labels }}
-        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
-        tag-id: rust-ssl
-        file: test/integration/components/rustssltestserver/Dockerfile
+      - name: rails-ssl
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: rails-ssl
+          file: test/integration/components/rubytestserver/testapi/Dockerfile_tls
 
-  rails-image:
-    permissions:
-      contents: read
-      packages: write
-      attestations: write
-    runs-on: ubuntu-latest
-    needs: prepare-env
-    steps:
-    - name: rails
-      uses: ./.github/actions/integration-test-image-build
-      with:
-        labels: ${{ needs.prepare-env.outputs.labels }}
-        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
-        tag-id: rails-ssl
-        file: test/integration/components/rubytestserver/testapi/Dockerfile
+      - name: java-jar
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: java-jar
+          file: test/integration/components/javatestserver/Dockerfile_jar
 
-  rails-ssl-image:
-    permissions:
-      contents: read
-      packages: write
-      attestations: write
-    runs-on: ubuntu-latest
-    needs: prepare-env
-    steps:
-    - name: rails-ssl
-      uses: ./.github/actions/integration-test-image-build
-      with:
-        labels: ${{ needs.prepare-env.outputs.labels }}
-        tag-version: ${{ needs.prepare-env.outputs.imgtag }}
-        tag-id: rails-ssl
-        file: test/integration/components/rubytestserver/testapi/Dockerfile_tls
+      - name: java-native
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: java-native
+          file: test/integration/components/javatestserver/Dockerfile
