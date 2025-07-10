@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -1067,9 +1068,25 @@ func labelNames[T any](getters []attributes.Field[T, string]) []string {
 func labelValues[T any](s T, getters []attributes.Field[T, string]) []string {
 	values := make([]string, 0, len(getters))
 	for _, getter := range getters {
-		values = append(values, getter.Get(s))
+		rawValue := getter.Get(s)
+		validatedValue := validateUTF8ForPrometheus(rawValue, getter.ExposedName)
+		values = append(values, validatedValue)
 	}
 	return values
+}
+
+// validateUTF8ForPrometheus checks if a string contains valid UTF-8 characters.
+func validateUTF8ForPrometheus(s, labelName string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+
+	// Log error and return empty string for invalid UTF-8
+	mlog().Error("invalid UTF-8 string detected in Prometheus label",
+		"label_name", labelName,
+		"invalid_value", s,
+		"length", len(s))
+	return ""
 }
 
 func (r *metricsReporter) createTargetInfo(service *svc.Attrs) {
