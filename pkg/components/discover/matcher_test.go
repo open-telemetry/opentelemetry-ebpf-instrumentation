@@ -453,3 +453,125 @@ func TestInstrumentation_CoexistingWithDeprecatedServices(t *testing.T) {
 		})
 	}
 }
+
+func TestCriteriaMatcher_Granular(t *testing.T) {
+	pipeConfig := obi.Config{}
+
+	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
+  instrument:
+  - k8s_namespace: default
+    exports: [metrics]
+  - k8s_deployment_name: planet-service
+    exports: [traces]
+  - k8s_deployment_name: satellite-service
+    exports: []
+  - k8s_deployment_name: star-service
+  - k8s_deployment_name: asteroid-service
+    exports: [metrics, traces]
+`), &pipeConfig))
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+
+	filteredProcesses := filteredProcessesQu.Subscribe()
+
+	matcherFunc, err := CriteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu)(t.Context())
+
+	require.NoError(t, err)
+
+	go matcherFunc(t.Context())
+	defer filteredProcessesQu.Close()
+
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		exePath := map[PID]string{
+			1: "/bin/planet-service",
+			2: "/bin/satellite-service",
+			3: "/bin/star-service",
+			4: "/bin/asteroid-service",
+		}[pp.pid]
+
+		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: exePath, OpenPorts: pp.openPorts}, nil
+	}
+
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{
+			Type: EventCreated,
+			Obj: ProcessAttrs{
+				pid: 1,
+				metadata: map[string]string{
+					"k8s_namespace":       "default",
+					"k8s_deployment_name": "planet-service",
+				},
+			},
+		},
+		{
+			Type: EventCreated,
+			Obj: ProcessAttrs{
+				pid: 2,
+				metadata: map[string]string{
+					"k8s_namespace":       "default",
+					"k8s_deployment_name": "satellite-service",
+				},
+			},
+		},
+		{
+			Type: EventCreated,
+			Obj: ProcessAttrs{
+				pid: 3,
+				metadata: map[string]string{
+					"k8s_namespace":       "default",
+					"k8s_deployment_name": "star-service",
+				},
+			},
+		},
+		{
+			Type: EventCreated,
+			Obj: ProcessAttrs{
+				pid: 4,
+				metadata: map[string]string{
+					"k8s_namespace":       "default",
+					"k8s_deployment_name": "asteroid-service",
+				},
+			},
+		},
+	})
+
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 4)
+
+	planetMatch := matches[0].Obj
+
+	require.Len(t, planetMatch.Criteria, 2)
+
+	planetAttrs := makeServiceAttrs(&planetMatch)
+
+	assert.True(t, planetAttrs.ExportModes.CanExportTraces())
+	assert.False(t, planetAttrs.ExportModes.CanExportMetrics())
+
+	satelliteMatch := matches[1].Obj
+
+	require.Len(t, satelliteMatch.Criteria, 2)
+
+	satelliteAttrs := makeServiceAttrs(&satelliteMatch)
+
+	assert.False(t, satelliteAttrs.ExportModes.CanExportTraces())
+	assert.False(t, satelliteAttrs.ExportModes.CanExportMetrics())
+
+	starMatch := matches[2].Obj
+
+	require.Len(t, starMatch.Criteria, 2)
+
+	starAttrs := makeServiceAttrs(&starMatch)
+
+	assert.False(t, starAttrs.ExportModes.CanExportTraces())
+	assert.True(t, starAttrs.ExportModes.CanExportMetrics())
+
+	asteroidMatch := matches[3].Obj
+
+	require.Len(t, asteroidMatch.Criteria, 2)
+
+	asteroidAttrs := makeServiceAttrs(&asteroidMatch)
+
+	assert.True(t, asteroidAttrs.ExportModes.CanExportTraces())
+	assert.True(t, asteroidAttrs.ExportModes.CanExportMetrics())
+}
