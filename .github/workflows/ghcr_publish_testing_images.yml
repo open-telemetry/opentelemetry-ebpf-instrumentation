@@ -5,8 +5,6 @@ on:
       override_image_tag:
         type: string
         description: "Override image tag (empty: SemVer patch + 1)"
-  pull_request:
-    branches: [ 'main' ] # temporary test
 
 # Set restrictive permissions at workflow level
 permissions:

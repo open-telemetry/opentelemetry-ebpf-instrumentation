@@ -29,7 +29,7 @@ runs:
       with:
         context: .
         file: ${{ inputs.file }}
-        push: false # disabled for PR testing TODO: set true
+        push: true
         platforms: linux/amd64,linux/arm64
         labels: ${{ inputs.labels }}
         tags: |
