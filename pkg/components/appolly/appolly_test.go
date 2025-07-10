@@ -5,13 +5,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/connector"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/discover"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
 )
 
 func TestProcessEventsLoopDoesntBlock(t *testing.T) {
@@ -20,7 +20,7 @@ func TestProcessEventsLoopDoesntBlock(t *testing.T) {
 		&global.ContextInfo{
 			Prometheus: &connector.PrometheusManager{},
 		},
-		&beyla.Config{
+		&obi.Config{
 			ChannelBufferLen: 1,
 			Traces: otel.TracesConfig{
 				TracesEndpoint: "http://something",

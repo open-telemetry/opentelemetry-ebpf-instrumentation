@@ -1,4 +1,4 @@
-package beyla
+package obi
 
 import (
 	"fmt"
@@ -370,7 +370,7 @@ func (c *Config) Enabled(feature Feature) bool {
 	return false
 }
 
-// ExternalLogger sets the logging capabilities of Beyla.
+// ExternalLogger sets the logging capabilities of OBI.
 // Used for integrating Beyla with an external logging system (for example Alloy)
 // TODO: maybe this method has too many responsibilities, as it affects the global logger.
 func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {

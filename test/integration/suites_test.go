@@ -11,12 +11,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/docker"
 )
 
 func kprobeTracesEnabled() bool {
-	major, minor := beyla.KernelVersion()
+	major, minor := obi.KernelVersion()
 
 	return major > 5 || (major == 5 && minor >= 17)
 }

@@ -9,8 +9,8 @@ import (
 	"syscall"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/instrumenter"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
 )
@@ -25,7 +25,7 @@ func main() {
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	// you can override here default configuration before passing it to Run
-	config := beyla.DefaultConfig
+	config := obi.DefaultConfig
 	// for example, we override the instrumentation ports from the PORT env, otherwise we provide some defaults
 	if err := config.Port.UnmarshalText([]byte(os.Getenv("PORT"))); err != nil {
 		log.Println("Error parsing PORT environment variable. Defaulting to 80,8080,443,8443: " + err.Error())
@@ -46,7 +46,7 @@ func main() {
 	<-ctx.Done()
 }
 
-func runVendoredInstrumenter(ctx context.Context, config beyla.Config, exportedSpans *msg.Queue[[]request.Span]) {
+func runVendoredInstrumenter(ctx context.Context, config obi.Config, exportedSpans *msg.Queue[[]request.Span]) {
 	log.Print("starting eBPF instrumentation in vendored mode...")
 	if err := instrumenter.Run(ctx, &config,
 		// very important!! The exporter queue needs to be overridden here

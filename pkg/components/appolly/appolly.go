@@ -12,13 +12,13 @@ import (
 	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/common"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/discover"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/traces"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/transform"
@@ -27,13 +27,13 @@ import (
 var errShutdownTimeout = errors.New("graceful shutdown has timed out while waiting for eBPF tracers to finish")
 
 func log() *slog.Logger {
-	return slog.With("component", "beyla.Instrumenter")
+	return slog.With("component", "obi.Instrumenter")
 }
 
 // Instrumenter finds and instrument a service/process, and forwards the traces as
 // configured by the user
 type Instrumenter struct {
-	config    *beyla.Config
+	config    *obi.Config
 	ctxInfo   *global.ContextInfo
 	tracersWg *sync.WaitGroup
 	bp        *pipe.Instrumenter
@@ -56,7 +56,7 @@ type finisher struct {
 }
 
 // New Instrumenter, given a Config
-func New(ctx context.Context, ctxInfo *global.ContextInfo, config *beyla.Config) (*Instrumenter, error) {
+func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (*Instrumenter, error) {
 	setupFeatureContextInfo(ctx, ctxInfo, config)
 
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen))
@@ -225,7 +225,7 @@ func (i *Instrumenter) handleAndDispatchProcessEvent(pe exec.ProcessEvent) {
 	i.processEventInput.Send(pe)
 }
 
-func setupFeatureContextInfo(ctx context.Context, ctxInfo *global.ContextInfo, config *beyla.Config) {
+func setupFeatureContextInfo(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) {
 	ctxInfo.AppO11y.ReportRoutes = config.Routes != nil
 	setupKubernetes(ctx, ctxInfo)
 }

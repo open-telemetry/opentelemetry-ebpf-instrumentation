@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/connector"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/ebpf"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/flow/transport"
@@ -20,6 +19,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/prom"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/filter"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
 	prom2 "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
@@ -39,7 +39,7 @@ func TestFilter(t *testing.T) {
 		ctxInfo: &global.ContextInfo{
 			Prometheus: &connector.PrometheusManager{},
 		},
-		cfg: &beyla.Config{
+		cfg: &obi.Config{
 			Prometheus: prom.PrometheusConfig{
 				Path:     "/metrics",
 				Port:     promPort,
@@ -49,7 +49,7 @@ func TestFilter(t *testing.T) {
 			Filters: filter.AttributesConfig{
 				Network: map[string]filter.MatchDefinition{"transport": {Match: "TCP"}},
 			},
-			Attributes: beyla.Attributes{Select: attributes.Selection{
+			Attributes: obi.Attributes{Select: attributes.Selection{
 				attributes.BeylaNetworkFlow.Section: attributes.InclusionLists{
 					Include: []string{"beyla_ip", "iface.direction", "dst_port", "iface", "src_port", "transport"},
 				},

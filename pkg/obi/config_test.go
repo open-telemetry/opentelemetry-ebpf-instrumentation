@@ -1,4 +1,4 @@
-package beyla
+package obi
 
 import (
 	"bytes"
