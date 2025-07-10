@@ -12,10 +12,6 @@ inputs:
   tag-version:
     description: 'Image version to be appended to the tag (e.g. 2.1.0)'
     required: true
-  context:
-    description: 'root context of the docker build'
-    required: false
-    default: '.'
   file:
     description: 'override name of the Dockerfile'
     required: false
@@ -31,7 +27,7 @@ runs:
       id: push
       uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
       with:
-        context: ${{ inputs.context }}
+        context: .
         file: ${{ inputs.file }}
         push: false # disabled for PR testing TODO: set true
         platforms: linux/amd64,linux/arm64
