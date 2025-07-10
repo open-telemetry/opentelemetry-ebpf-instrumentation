@@ -264,7 +264,7 @@ type MetricsReporter struct {
 }
 
 // Metrics is a set of metrics associated to a given OTEL MeterProvider.
-// There is a Metrics instance for each service/process instrumented by Beyla.
+// There is a Metrics instance for each service/process instrumented by OBI.
 type Metrics struct {
 	ctx                      context.Context
 	service                  *svc.Attrs

@@ -9,12 +9,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
 )
 
 func TestServiceNameTemplate(t *testing.T) {
-	cfg := &beyla.Config{
-		Attributes: beyla.Attributes{
+	cfg := &obi.Config{
+		Attributes: obi.Attributes{
 			Kubernetes: transform.KubernetesDecorator{
 				ServiceNameTemplate: "{{asdf}}",
 			},

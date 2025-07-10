@@ -9,19 +9,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
 )
 
 // TestRunDontPanic tests the fix for https://github.com/grafana/beyla/issues/926
 func TestRunDontPanic(t *testing.T) {
 	type testCase struct {
 		description    string
-		configProvider func() beyla.Config
+		configProvider func() obi.Config
 	}
 	testCases := []testCase{{
 		description: "otel endpoint but feature excluded",
-		configProvider: func() beyla.Config {
-			cfg := beyla.DefaultConfig
+		configProvider: func() obi.Config {
+			cfg := obi.DefaultConfig
 			cfg.Metrics.Features = []string{"application"}
 			cfg.NetworkFlows.Enable = true
 			cfg.Metrics.CommonEndpoint = "http://localhost"
@@ -29,8 +29,8 @@ func TestRunDontPanic(t *testing.T) {
 		},
 	}, {
 		description: "prom endpoint but feature excluded",
-		configProvider: func() beyla.Config {
-			cfg := beyla.DefaultConfig
+		configProvider: func() obi.Config {
+			cfg := obi.DefaultConfig
 			cfg.Prometheus.Features = []string{"application"}
 			cfg.NetworkFlows.Enable = true
 			cfg.Prometheus.Port = 9090
@@ -38,8 +38,8 @@ func TestRunDontPanic(t *testing.T) {
 		},
 	}, {
 		description: "otel endpoint, otel feature excluded, but prom enabled",
-		configProvider: func() beyla.Config {
-			cfg := beyla.DefaultConfig
+		configProvider: func() obi.Config {
+			cfg := obi.DefaultConfig
 			cfg.Metrics.Features = []string{"application"}
 			cfg.NetworkFlows.Enable = true
 			cfg.Metrics.CommonEndpoint = "http://localhost"
@@ -48,8 +48,8 @@ func TestRunDontPanic(t *testing.T) {
 		},
 	}, {
 		description: "all endpoints, all features excluded",
-		configProvider: func() beyla.Config {
-			cfg := beyla.DefaultConfig
+		configProvider: func() obi.Config {
+			cfg := obi.DefaultConfig
 			cfg.NetworkFlows.Enable = true
 			cfg.Prometheus.Port = 9090
 			cfg.Prometheus.Features = []string{"application"}
@@ -72,7 +72,7 @@ func TestRunDontPanic(t *testing.T) {
 
 func TestNetworkEnabled(t *testing.T) {
 	t.Setenv("BEYLA_NETWORK_METRICS", "true")
-	cfg, err := beyla.LoadConfig(bytes.NewReader(nil))
+	cfg, err := obi.LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
-	assert.True(t, cfg.Enabled(beyla.FeatureNetO11y))
+	assert.True(t, cfg.Enabled(obi.FeatureNetO11y))
 }

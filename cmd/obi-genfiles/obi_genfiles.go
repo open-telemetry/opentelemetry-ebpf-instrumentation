@@ -32,7 +32,7 @@ type config struct {
 	ScanPath        string `env:"OTEL_EBPF_GENFILES_SCAN_PATH"        envDefault:"pkg"`
 	ContainerPrefix string `env:"OTEL_EBPF_GENFILES_CONTAINER_PREFIX" envDefault:"/__w/"`
 	HostPrefix      string `env:"OTEL_EBPF_GENFILES_HOST_PREFIX"      envDefault:"/home/runner/work/"`
-	Package         string `env:"OTEL_EBPF_GENFILES_PKG"              envDefault:"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"`
+	Package         string `env:"OTEL_EBPF_GENFILES_PKG"              envDefault:"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"`
 	OCIBin          string `env:"OTEL_EBPF_GENFILES_OCI_BIN"          envDefault:"docker"`
 	GenImage        string `env:"OTEL_EBPF_GENFILES_GEN_IMG"`
 }

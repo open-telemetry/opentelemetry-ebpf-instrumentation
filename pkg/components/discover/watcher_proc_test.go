@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/common"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/watcher"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/testutil"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 )
 
@@ -33,7 +33,7 @@ func TestWatcher_Poll(t *testing.T) {
 	// GIVEN a pollAccounter
 	acc := pollAccounter{
 		interval: time.Microsecond,
-		cfg:      &beyla.Config{},
+		cfg:      &obi.Config{},
 		pidPorts: map[pidPort]ProcessAttrs{},
 		listProcesses: func(bool) (map[PID]ProcessAttrs, error) {
 			invocation++
@@ -53,10 +53,10 @@ func TestWatcher_Poll(t *testing.T) {
 		executableReady: func(PID) (string, bool) {
 			return "", true
 		},
-		loadBPFWatcher: func(context.Context, *ebpfcommon.EBPFEventContext, *beyla.Config, chan<- watcher.Event) error {
+		loadBPFWatcher: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config, chan<- watcher.Event) error {
 			return nil
 		},
-		loadBPFLogger: func(context.Context, *ebpfcommon.EBPFEventContext, *beyla.Config) error {
+		loadBPFLogger: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config) error {
 			return nil
 		},
 		output: msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(1)),
@@ -129,7 +129,7 @@ func TestProcessNotReady(t *testing.T) {
 
 	acc := pollAccounter{
 		interval: time.Microsecond,
-		cfg:      &beyla.Config{},
+		cfg:      &obi.Config{},
 		pidPorts: map[pidPort]ProcessAttrs{},
 		listProcesses: func(bool) (map[PID]ProcessAttrs, error) {
 			return map[PID]ProcessAttrs{p1.pid: p1, p5.pid: p5, p2.pid: p2, p3.pid: p3, p4.pid: p4}, nil
@@ -137,10 +137,10 @@ func TestProcessNotReady(t *testing.T) {
 		executableReady: func(pid PID) (string, bool) {
 			return "", pid >= 3
 		},
-		loadBPFWatcher: func(context.Context, *ebpfcommon.EBPFEventContext, *beyla.Config, chan<- watcher.Event) error {
+		loadBPFWatcher: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config, chan<- watcher.Event) error {
 			return nil
 		},
-		loadBPFLogger: func(context.Context, *ebpfcommon.EBPFEventContext, *beyla.Config) error {
+		loadBPFLogger: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config) error {
 			return nil
 		},
 	}
@@ -171,7 +171,7 @@ func TestPortsFetchRequired(t *testing.T) {
 	userConfig := bytes.NewBufferString("channel_buffer_len: 33")
 	t.Setenv("OTEL_EBPF_OPEN_PORT", "8080-8089")
 
-	cfg, err := beyla.LoadConfig(userConfig)
+	cfg, err := obi.LoadConfig(userConfig)
 	require.NoError(t, err)
 
 	channelReturner := make(chan chan<- watcher.Event)
@@ -188,11 +188,11 @@ func TestPortsFetchRequired(t *testing.T) {
 		executableReady: func(_ PID) (string, bool) {
 			return "", true
 		},
-		loadBPFWatcher: func(_ context.Context, _ *ebpfcommon.EBPFEventContext, _ *beyla.Config, events chan<- watcher.Event) error {
+		loadBPFWatcher: func(_ context.Context, _ *ebpfcommon.EBPFEventContext, _ *obi.Config, events chan<- watcher.Event) error {
 			channelReturner <- events
 			return nil
 		},
-		loadBPFLogger: func(context.Context, *ebpfcommon.EBPFEventContext, *beyla.Config) error {
+		loadBPFLogger: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config) error {
 			return nil
 		},
 		stateMux:          sync.Mutex{},

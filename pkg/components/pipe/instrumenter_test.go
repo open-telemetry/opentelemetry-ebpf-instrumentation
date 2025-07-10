@@ -17,7 +17,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/imetrics"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/kube"
@@ -31,6 +30,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/filter"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubeflags"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/transform"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/collector"
@@ -68,7 +68,7 @@ func TestBasicPipeline(t *testing.T) {
 
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	gb := newGraphBuilder(&beyla.Config{
+	gb := newGraphBuilder(&obi.Config{
 		Metrics: otel.MetricsConfig{
 			Features:        []string{otel.FeatureApplication},
 			MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
@@ -78,7 +78,7 @@ func TestBasicPipeline(t *testing.T) {
 				instrumentations.InstrumentationALL,
 			},
 		},
-		Attributes: beyla.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
+		Attributes: obi.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0), tracesInput, processEvents)
 
 	// Override eBPF tracer to send some fake data
@@ -147,14 +147,14 @@ func TestTracerPipeline(t *testing.T) {
 	gCtx := gctx(0)
 	gCtx.ExtraResourceAttributes = []attribute.KeyValue{attribute.String("overridden", "attr")}
 
-	gb := newGraphBuilder(&beyla.Config{
+	gb := newGraphBuilder(&obi.Config{
 		Traces: otel.TracesConfig{
 			BatchTimeout:      10 * time.Millisecond,
 			TracesEndpoint:    tc.ServerEndpoint,
 			ReportersCacheLen: 16,
 			Instrumentations:  []string{instrumentations.InstrumentationALL},
 		},
-		Attributes: beyla.Attributes{InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
+		Attributes: obi.Attributes{InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gCtx, tracesInput, processEvents)
 
 	// Override eBPF tracer to send some fake data
@@ -184,7 +184,7 @@ func TestTracerPipelineBadTimestamps(t *testing.T) {
 
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	gb := newGraphBuilder(&beyla.Config{
+	gb := newGraphBuilder(&obi.Config{
 		Traces: otel.TracesConfig{
 			BatchTimeout:      10 * time.Millisecond,
 			TracesEndpoint:    tc.ServerEndpoint,
@@ -217,7 +217,7 @@ func TestRouteConsolidation(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 
-	gb := newGraphBuilder(&beyla.Config{
+	gb := newGraphBuilder(&obi.Config{
 		Metrics: otel.MetricsConfig{
 			SDKLogLevel:     "debug",
 			Features:        []string{otel.FeatureApplication},
@@ -229,7 +229,7 @@ func TestRouteConsolidation(t *testing.T) {
 			},
 		},
 		Routes:     &transform.RoutesConfig{Patterns: []string{"/user/{id}", "/products/{id}/push"}},
-		Attributes: beyla.Attributes{Select: allMetricsBut("client.address", "url.path"), InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
+		Attributes: obi.Attributes{Select: allMetricsBut("client.address", "url.path"), InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(attributes.GroupHTTPRoutes), tracesInput, processEvents)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("svc-1", "/user/1234", 200))
@@ -351,7 +351,7 @@ func TestGRPCPipeline(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 
-	gb := newGraphBuilder(&beyla.Config{
+	gb := newGraphBuilder(&obi.Config{
 		Metrics: otel.MetricsConfig{
 			Features:        []string{otel.FeatureApplication},
 			MetricsEndpoint: tc.ServerEndpoint, Interval: time.Millisecond,
@@ -361,7 +361,7 @@ func TestGRPCPipeline(t *testing.T) {
 				instrumentations.InstrumentationALL,
 			},
 		},
-		Attributes: beyla.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
+		Attributes: obi.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0), tracesInput, processEvents)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newGRPCRequest("grpc-svc", "/foo/bar", 3))
@@ -414,13 +414,13 @@ func TestTraceGRPCPipeline(t *testing.T) {
 
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	gb := newGraphBuilder(&beyla.Config{
+	gb := newGraphBuilder(&obi.Config{
 		Traces: otel.TracesConfig{
 			TracesEndpoint: tc.ServerEndpoint,
 			BatchTimeout:   time.Millisecond, ReportersCacheLen: 16,
 			Instrumentations: []string{instrumentations.InstrumentationALL},
 		},
-		Attributes: beyla.Attributes{InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
+		Attributes: obi.Attributes{InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0), tracesInput, processEvents)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newGRPCRequest("svc", "foo.bar", 3))
@@ -448,7 +448,7 @@ func TestBasicPipelineInfo(t *testing.T) {
 
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	gb := newGraphBuilder(&beyla.Config{
+	gb := newGraphBuilder(&obi.Config{
 		Metrics: otel.MetricsConfig{
 			Features:        []string{otel.FeatureApplication},
 			MetricsEndpoint: tc.ServerEndpoint,
@@ -458,7 +458,7 @@ func TestBasicPipelineInfo(t *testing.T) {
 				instrumentations.InstrumentationALL,
 			},
 		},
-		Attributes: beyla.Attributes{
+		Attributes: obi.Attributes{
 			Select:     allMetrics,
 			InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"},
 		},
@@ -514,9 +514,9 @@ func TestTracerPipelineInfo(t *testing.T) {
 
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	gb := newGraphBuilder(&beyla.Config{
+	gb := newGraphBuilder(&obi.Config{
 		Traces:     otel.TracesConfig{TracesEndpoint: tc.ServerEndpoint, ReportersCacheLen: 16, Instrumentations: []string{instrumentations.InstrumentationALL}},
-		Attributes: beyla.Attributes{InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
+		Attributes: obi.Attributes{InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0), tracesInput, processEvents)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newHTTPInfo("PATCH", "/aaa/bbb", "1.1.1.1", 204))
@@ -541,7 +541,7 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 	// Application pipeline that will let only pass spans whose url.path matches /user/*
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	gb := newGraphBuilder(&beyla.Config{
+	gb := newGraphBuilder(&obi.Config{
 		Metrics: otel.MetricsConfig{
 			SDKLogLevel:     "debug",
 			Features:        []string{otel.FeatureApplication},
@@ -553,7 +553,7 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 		Filters: filter.AttributesConfig{
 			Application: map[string]filter.MatchDefinition{"url.path": {Match: "/user/*"}},
 		},
-		Attributes: beyla.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
+		Attributes: obi.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0), tracesInput, processEvents)
 
 	// Override eBPF tracer to send some fake data

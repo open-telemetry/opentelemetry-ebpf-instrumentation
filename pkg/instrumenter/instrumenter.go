@@ -9,7 +9,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/appolly"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/connector"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/imetrics"
@@ -19,12 +18,13 @@ import (
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
 )
 
 // Run in the foreground process. This is a blocking function and won't exit
 // until both the AppO11y and NetO11y components end
 func Run(
-	ctx context.Context, cfg *beyla.Config,
+	ctx context.Context, cfg *obi.Config,
 	opts ...Option,
 ) error {
 	ctxInfo, err := buildCommonContextInfo(ctx, cfg)
@@ -35,8 +35,8 @@ func Run(
 		opt(ctxInfo)
 	}
 
-	app := cfg.Enabled(beyla.FeatureAppO11y)
-	net := cfg.Enabled(beyla.FeatureNetO11y)
+	app := cfg.Enabled(obi.FeatureAppO11y)
+	net := cfg.Enabled(obi.FeatureNetO11y)
 
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
@@ -66,7 +66,7 @@ func Run(
 	return nil
 }
 
-func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *beyla.Config) error {
+func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) error {
 	slog.Info("starting Application Observability mode")
 
 	instr, err := appolly.New(ctx, ctxInfo, config)
@@ -94,7 +94,7 @@ func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *beyl
 	return nil
 }
 
-func setupNetO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *beyla.Config) error {
+func setupNetO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *obi.Config) error {
 	slog.Info("starting Beyla in Network metrics mode")
 	flowsAgent, err := agent.FlowsAgent(ctxInfo, cfg)
 	if err != nil {
@@ -111,7 +111,7 @@ func setupNetO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *beyla.C
 	return nil
 }
 
-func buildServiceNameTemplate(config *beyla.Config) (*template.Template, error) {
+func buildServiceNameTemplate(config *obi.Config) (*template.Template, error) {
 	var templ *template.Template
 
 	if config.Attributes.Kubernetes.ServiceNameTemplate != "" {
@@ -129,7 +129,7 @@ func buildServiceNameTemplate(config *beyla.Config) (*template.Template, error) 
 // BuildContextInfo populates some globally shared components and properties
 // from the user-provided configuration
 func buildCommonContextInfo(
-	ctx context.Context, config *beyla.Config,
+	ctx context.Context, config *obi.Config,
 ) (*global.ContextInfo, error) {
 	// merging deprecated resource labels definition for backwards compatibility
 	resourceLabels := config.Attributes.Kubernetes.ResourceLabels
@@ -204,7 +204,7 @@ func buildCommonContextInfo(
 
 // attributeGroups specifies, based in the provided configuration, which groups of attributes
 // need to be enabled by default for the diverse metrics
-func attributeGroups(config *beyla.Config, ctxInfo *global.ContextInfo) {
+func attributeGroups(config *obi.Config, ctxInfo *global.ContextInfo) {
 	if ctxInfo.K8sInformer.IsKubeEnabled() {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupKubernetes)
 	}

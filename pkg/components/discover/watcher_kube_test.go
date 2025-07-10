@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/beyla"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/helpers/container"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/kube"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/testutil"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/meta"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
@@ -123,7 +123,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 	swi := swarm.Instancer{}
 	swi.Add(WatcherKubeEnricherProvider(&fakeMetadataProvider{store: store}, inputQueue, connectQueue))
 
-	pipeConfig := beyla.Config{}
+	pipeConfig := obi.Config{}
 	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
   services:
   - name: port-only
