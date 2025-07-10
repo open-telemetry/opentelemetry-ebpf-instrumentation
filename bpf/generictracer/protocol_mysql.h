@@ -267,7 +267,12 @@ static __always_inline u8 is_mysql(connection_info_t *conn_info,
         // +------------+-------------+----------------------+
         // |    3B      |     1B      |     1B     | 4B      |
         // +------------+-------------+----------------------+
-        *packet_type = PACKET_TYPE_REQUEST;
+        if (*protocol_type == k_protocol_type_mysql) {
+            // Already identified, mark this as a request.
+            // NOTE: Trying to classify the connection based on this command
+            // would be unreliable, as the check is too shallow.
+            *packet_type = PACKET_TYPE_REQUEST;
+        }
         break;
     default:
         if (*protocol_type == k_protocol_type_mysql) {

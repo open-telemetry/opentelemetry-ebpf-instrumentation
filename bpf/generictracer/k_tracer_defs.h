@@ -36,6 +36,7 @@ make_protocol_args(void *u_buf, int bytes_len, u8 ssl, u8 direction, u16 orig_dp
     args->direction = direction;
     args->orig_dport = orig_dport;
     args->u_buf = (u64)u_buf;
+    args->protocol_type = k_protocol_type_unknown;
 
     return args;
 }
