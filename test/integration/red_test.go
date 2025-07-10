@@ -1009,7 +1009,7 @@ func testPrometheusNoBeylaEvents(t *testing.T) {
 	var results []prom.Result
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		var err error
-		results, err = pq.Query(`http_server_request_duration_seconds_count{service_name="beyla"}`)
+		results, err = pq.Query(`http_server_request_duration_seconds_count{service_name="opentelemetry-ebpf-instrumentation"}`)
 		require.NoError(t, err)
 		require.Empty(t, results)
 	})

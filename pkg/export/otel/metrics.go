@@ -981,7 +981,7 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 		semconv.ServiceInstanceID(service.UID.Instance),
 		semconv.ServiceNamespace(service.UID.Namespace),
 		semconv.TelemetrySDKLanguageKey.String(service.SDKLanguage.String()),
-		semconv.TelemetrySDKNameKey.String("beyla"),
+		semconv.TelemetrySDKNameKey.String("opentelemetry-ebpf-instrumentation"),
 		request.SourceMetric("beyla"),
 		semconv.OSTypeKey.String("linux"),
 	}
