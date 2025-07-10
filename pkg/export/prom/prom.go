@@ -1069,24 +1069,19 @@ func labelValues[T any](s T, getters []attributes.Field[T, string]) []string {
 	values := make([]string, 0, len(getters))
 	for _, getter := range getters {
 		rawValue := getter.Get(s)
-		validatedValue := validateUTF8ForPrometheus(rawValue, getter.ExposedName)
-		values = append(values, validatedValue)
+		sanitizedValue := sanitizeUTF8ForPrometheus(rawValue)
+		values = append(values, sanitizedValue)
 	}
 	return values
 }
 
-// validateUTF8ForPrometheus checks if a string contains valid UTF-8 characters.
-func validateUTF8ForPrometheus(s, labelName string) string {
+// sanitizeUTF8ForPrometheus sanitizes a string to ensure it contains only valid UTF-8 characters.
+// Invalid UTF-8 sequences are removed entirely.
+func sanitizeUTF8ForPrometheus(s string) string {
 	if utf8.ValidString(s) {
 		return s
 	}
-
-	// Log error and return empty string for invalid UTF-8
-	mlog().Error("invalid UTF-8 string detected in Prometheus label",
-		"label_name", labelName,
-		"invalid_value", s,
-		"length", len(s))
-	return ""
+	return strings.ToValidUTF8(s, "")
 }
 
 func (r *metricsReporter) createTargetInfo(service *svc.Attrs) {

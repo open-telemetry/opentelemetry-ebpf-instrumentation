@@ -610,47 +610,43 @@ func makePromExporter(
 	return exporter
 }
 
-func TestValidateUTF8ForPrometheus(t *testing.T) {
+func TestSanitizeUTF8ForPrometheus(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     string
 		labelName string
 		expected  string
-		shouldLog bool
 	}{
 		{
-			name:      "valid UTF-8 string",
-			input:     "valid-string",
-			labelName: "test_label",
-			expected:  "valid-string",
-			shouldLog: false,
+			name:     "valid UTF-8 string",
+			input:    "valid-string",
+			expected: "valid-string",
 		},
 		{
-			name:      "empty string",
-			input:     "",
-			labelName: "test_label",
-			expected:  "",
-			shouldLog: false,
+			name:     "empty string",
+			input:    "",
+			expected: "",
 		},
 		{
-			name:      "binary data with null bytes",
-			input:     "deb.debian.or 1498318199  0     0     100644  828       `\n\x1f\x8b\b",
-			labelName: "metadata_field",
-			expected:  "",
-			shouldLog: true,
+			name:     "binary data with null bytes",
+			input:    "deb.debian.or 1498318199  0     0     100644  828       `\n\x1f\x8b\b",
+			expected: "deb.debian.or 1498318199  0     0     100644  828       `\n\x1f\b",
 		},
 		{
-			name:      "string with invalid UTF-8 sequence",
-			input:     "test\xff\xfe",
-			labelName: "invalid_field",
-			expected:  "",
-			shouldLog: true,
+			name:     "string with invalid UTF-8 sequence",
+			input:    "test\xff\xfe",
+			expected: "test",
+		},
+		{
+			name:     "mixed valid and invalid UTF-8",
+			input:    "hello\xff\xfeworld",
+			expected: "helloworld",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := validateUTF8ForPrometheus(tt.input, tt.labelName)
+			result := sanitizeUTF8ForPrometheus(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
