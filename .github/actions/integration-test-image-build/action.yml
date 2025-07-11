@@ -33,4 +33,4 @@ runs:
         platforms: linux/amd64,linux/arm64
         labels: ${{ inputs.labels }}
         tags: |
-          "${{ inputs.registry }}/obi-testimg:${{ inputs.tag-id }}-${{ inputs.tag-version }}"
+          "${{ inputs.registry }}/open-telemetry/obi-testimg:${{ inputs.tag-id }}-${{ inputs.tag-version }}"
