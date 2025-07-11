@@ -394,8 +394,7 @@ int beyla_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
     return 0;
 }
 
-SEC("uprobe/ServeHTTP_ret")
-int serve_http_returns(struct pt_regs *ctx) {
+static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/ServeHTTP returns === ");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
