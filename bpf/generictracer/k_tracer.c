@@ -111,8 +111,6 @@ int BPF_KRETPROBE(beyla_kretprobe_sys_accept4, s32 fd) {
         return 0;
     }
 
-    //bpf_dbg_printk("=== accept 4 ret id=%d ===", id);
-
     bpf_dbg_printk("=== accept 4 ret id=%d, fd=%d ===", id, fd);
 
     // The file descriptor is the value returned from the accept4 syscall.
