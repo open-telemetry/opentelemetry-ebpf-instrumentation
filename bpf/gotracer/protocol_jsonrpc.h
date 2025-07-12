@@ -87,12 +87,11 @@ static __always_inline u32 extract_json_string(
         return 0;
     }
 
-    const u32 copy_len = value_len < (buf_len - 1) ? value_len : (buf_len - 1);
+    const u32 max_copy =
+        (str_start + value_len <= HTTP_BODY_MAX_LEN) ? value_len : (HTTP_BODY_MAX_LEN - str_start);
+    const u32 copy_len = max_copy < (buf_len - 1) ? max_copy : (buf_len - 1);
 
-    for (u32 i = 0; i < buf_len; i++) {
-        if (i >= copy_len) {
-            break;
-        }
+    for (u32 i = 0; i < copy_len; i++) {
         buf[i] = body[str_start + i];
     }
     buf[copy_len] = '\0';
