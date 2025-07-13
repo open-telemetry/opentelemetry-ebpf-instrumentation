@@ -86,10 +86,15 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_http_server_requests SEC(".maps");
 
+typedef struct http_body {
+    unsigned char buf[HTTP_BODY_MAX_LEN];
+    u32 len;
+} http_body_t;
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, unsigned char[HTTP_BODY_MAX_LEN]);
+    __type(value, http_body_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } http_body_store SEC(".maps");
 
@@ -1351,18 +1356,15 @@ int obi_uprobe_bodyReadReturn(struct pt_regs *ctx) {
         return 0;
     }
 
-    unsigned char *body_buf = temp_body_mem();
-    if (!body_buf) {
-        return 0;
-    }
+    http_body_t body = {.len = n};
 
     const u32 safe_len = n > HTTP_BODY_MAX_LEN ? HTTP_BODY_MAX_LEN : n;
-    if (!read_go_str_n("http body", (void *)invocation->body_addr, n, body_buf, safe_len)) {
+    if (!read_go_str_n("http body", (void *)invocation->body_addr, n, body.buf, safe_len)) {
         bpf_dbg_printk("failed to read body, n=%llu, body_addr=%llx", n, invocation->body_addr);
         return 0;
     }
     // bpf_dbg_printk("body is %s", body_buf);
-    bpf_map_update_elem(&http_body_store, &g_key, body_buf, BPF_ANY);
+    bpf_map_update_elem(&http_body_store, &g_key, &body, BPF_ANY);
     bpf_tail_call(ctx, &jsonrpc_jump_table, k_tail_jsonrpc);
     return 0;
 }
@@ -1382,14 +1384,14 @@ int obi_read_jsonrpc_method(struct pt_regs *ctx) {
         return 0;
     }
 
-    unsigned char *body_buf = bpf_map_lookup_elem(&http_body_store, &g_key);
-    if (!body_buf) {
+    http_body_t *body = bpf_map_lookup_elem(&http_body_store, &g_key);
+    if (!body) {
         return 0;
     }
-    if (is_jsonrpc2_body((const unsigned char *)body_buf, HTTP_BODY_MAX_LEN)) {
+    if (is_jsonrpc2_body((const unsigned char *)body->buf, HTTP_BODY_MAX_LEN)) {
         unsigned char method_buf[JSONRPC_METHOD_BUF_SIZE] = {};
         u32 method_len = extract_jsonrpc2_method(
-            (const unsigned char *)body_buf, HTTP_BODY_MAX_LEN, method_buf, sizeof(method_buf));
+            (const unsigned char *)body->buf, HTTP_BODY_MAX_LEN, method_buf, sizeof(method_buf));
         if (method_len > 0) {
             bpf_dbg_printk("JSON-RPC method: %s", method_buf);
             read_go_str_n("JSON-RPC method",
