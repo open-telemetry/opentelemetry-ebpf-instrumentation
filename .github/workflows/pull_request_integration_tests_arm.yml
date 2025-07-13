@@ -13,8 +13,8 @@ jobs:
   test:
     permissions:
       # Required for codecov
-      checks: write # required for codecov
-      pull-requests: write # required for codecov
+      checks: write
+      pull-requests: write
       # Required for uploading artifacts
       actions: write
     name: test
