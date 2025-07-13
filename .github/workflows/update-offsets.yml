@@ -5,10 +5,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # Required for creating PRs
+  contents: read
 
 jobs:
   UpdateOffsets:
+    permissions:
+      contents: write  # Required for creating PRs
     runs-on: ubuntu-latest
     steps:
     - name: "Checkout repo"

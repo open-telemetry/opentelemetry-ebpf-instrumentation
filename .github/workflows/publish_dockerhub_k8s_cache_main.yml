@@ -7,11 +7,12 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  packages: write
 
 jobs:
   build-and-push-image:
+    permissions:
+      id-token: write
+      packages: write
     runs-on: ubuntu-latest
     env:
       IMAGE_NAME: opentelemetry-ebpf-k8s-cache

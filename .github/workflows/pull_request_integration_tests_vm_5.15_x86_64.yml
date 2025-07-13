@@ -10,12 +10,14 @@ on:
 
 permissions:
   contents: read
-  checks: write
-  pull-requests: write
-  actions: write
 
 jobs:
   test:
+    permissions: # required by the reusable workflow
+      contents: read
+      checks: write
+      pull-requests: write
+      actions: write
     uses: ./.github/workflows/workflow_integration_tests_vm.yml
     with:
       arch: x86_64
