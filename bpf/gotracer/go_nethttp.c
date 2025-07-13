@@ -87,6 +87,13 @@ struct {
 } ongoing_http_server_requests SEC(".maps");
 
 struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: pointer to the request goroutine
+    __type(value, unsigned char[HTTP_BODY_MAX_LEN]);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} http_body_store SEC(".maps");
+
+struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, u32);
     __type(value, unsigned char[HTTP_HEADER_MAX_LEN]);
@@ -1325,6 +1332,7 @@ int obi_uprobe_bodyReadReturn(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
 
     u64 n = (u64)GO_PARAM1(ctx);
     bpf_dbg_printk("n is %llu", n);
@@ -1354,6 +1362,7 @@ int obi_uprobe_bodyReadReturn(struct pt_regs *ctx) {
         return 0;
     }
     // bpf_dbg_printk("body is %s", body_buf);
+    bpf_map_update_elem(&http_body_store, &g_key, body_buf, BPF_ANY);
     bpf_tail_call(ctx, &jsonrpc_jump_table, k_tail_jsonrpc);
     return 0;
 }
@@ -1373,9 +1382,7 @@ int obi_read_jsonrpc_method(struct pt_regs *ctx) {
         return 0;
     }
 
-    // tail call is guaranteed to run on the same CPU as its caller
-    // so we can shared the same buffer via a per-CPU map
-    unsigned char *body_buf = temp_body_mem();
+    unsigned char *body_buf = bpf_map_lookup_elem(&http_body_store, &g_key);
     if (!body_buf) {
         return 0;
     }
@@ -1392,6 +1399,7 @@ int obi_read_jsonrpc_method(struct pt_regs *ctx) {
                           sizeof(invocation->method));
         }
     }
+    bpf_map_delete_elem(&http_body_store, &g_key);
     return 0;
 }
 
