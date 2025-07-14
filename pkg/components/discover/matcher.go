@@ -139,9 +139,7 @@ func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 		return Event[ProcessMatch]{}, false
 	}
 
-	processMatch := m.matchCriteria(obj, proc)
-
-	if processMatch != nil {
+	if processMatch := m.matchCriteria(obj, proc); processMatch != nil {
 		m.ProcessHistory[obj.pid] = *processMatch
 
 		return Event[ProcessMatch]{
