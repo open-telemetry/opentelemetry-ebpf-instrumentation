@@ -111,7 +111,7 @@ jobs:
         with:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: rails-ssl
+          tag-id: rails
           file: test/integration/components/rubytestserver/testapi/Dockerfile
 
       - name: rails-ssl
