@@ -11,7 +11,7 @@ data:
         resource_labels:
           deployment.environment: ["${DEPLOYMENT_ENVIRONMENT:-error-not-replaced}"]
       select:
-        beyla.network.flow.bytes:
+        obi.network.flow.bytes:
           include:
           - src.name
           - dst.name

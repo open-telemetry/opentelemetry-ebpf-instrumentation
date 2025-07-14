@@ -42,7 +42,7 @@ func TestMetricAttributes(t *testing.T) {
 		&global.ContextInfo{MetricAttributeGroups: attributes.GroupKubernetes},
 		&NetMetricsConfig{SelectorCfg: &attributes.SelectorConfig{
 			SelectionCfg: map[attributes.Section]attributes.InclusionLists{
-				attributes.BeylaNetworkFlow.Section: {Include: []string{"*"}},
+				attributes.NetworkFlow.Section: {Include: []string{"*"}},
 			},
 		}, Metrics: &MetricsConfig{
 			MetricsEndpoint:   "http://foo",
@@ -100,7 +100,7 @@ func TestMetricAttributes_Filter(t *testing.T) {
 		&global.ContextInfo{MetricAttributeGroups: attributes.GroupKubernetes},
 		&NetMetricsConfig{SelectorCfg: &attributes.SelectorConfig{
 			SelectionCfg: map[attributes.Section]attributes.InclusionLists{
-				attributes.BeylaNetworkFlow.Section: {Include: []string{
+				attributes.NetworkFlow.Section: {Include: []string{
 					"src.address",
 					"k8s.src.name",
 					"k8s.dst.name",
@@ -159,7 +159,7 @@ func TestNetMetricsConfig_Disabled(t *testing.T) {
 func TestGetFilteredNetworkResourceAttrs(t *testing.T) {
 	hostID := "test-host-id"
 	attrSelector := attributes.Selection{
-		attributes.BeylaNetworkFlow.Section: attributes.InclusionLists{
+		attributes.NetworkFlow.Section: attributes.InclusionLists{
 			Include: []string{"*"},
 			Exclude: []string{"host.*"},
 		},

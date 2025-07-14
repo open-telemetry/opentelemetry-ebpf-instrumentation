@@ -33,6 +33,7 @@ require (
 	github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2
 	github.com/yl2chen/cidranger v1.0.2
 	go.mongodb.org/mongo-driver/v2 v2.2.2
+	go.opentelemetry.io/auto/sdk v1.1.0
 	go.opentelemetry.io/collector/component v1.34.0
 	go.opentelemetry.io/collector/config/configgrpc v0.128.0
 	go.opentelemetry.io/collector/config/confighttp v0.128.0
@@ -145,7 +146,6 @@ require (
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/collector v0.128.0 // indirect
 	go.opentelemetry.io/collector/client v1.34.0 // indirect
 	go.opentelemetry.io/collector/config/configauth v0.128.0 // indirect

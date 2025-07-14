@@ -24,7 +24,7 @@ data:
         resource_labels:
           deployment.environment: ["${DEPLOYMENT_ENVIRONMENT:-error-not-replaced}"]
       select:
-        beyla.network.flow.bytes:
+        obi.network.flow.bytes:
           # assured cardinality explosion. Don't try in production!
           include: ["*"]
           exclude: ["src_port"]
