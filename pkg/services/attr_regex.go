@@ -108,7 +108,10 @@ func (p *RegexpAttr) UnmarshalYAML(value *yaml.Node) error {
 }
 
 func (p RegexpAttr) MarshalYAML() (any, error) {
-	return p.re.String(), nil
+	if p.re != nil {
+		return p.re.String(), nil
+	}
+	return "", nil
 }
 
 func (p *RegexpAttr) UnmarshalText(text []byte) error {

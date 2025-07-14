@@ -136,6 +136,13 @@ type MetricsConfig struct {
 	InjectHeaders func(dst map[string]string) `yaml:"-" env:"-"`
 }
 
+func (m MetricsConfig) MarshalYAML() (any, error) {
+	omit := map[string]struct{}{
+		"endpoint": {},
+	}
+	return omitFieldsForYAML(m, omit), nil
+}
+
 func (m *MetricsConfig) GetProtocol() Protocol {
 	if m.MetricsProtocol != "" {
 		return m.MetricsProtocol

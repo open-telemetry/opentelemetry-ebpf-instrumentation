@@ -113,6 +113,13 @@ type TracesConfig struct {
 	InjectHeaders func(dst map[string]string) `yaml:"-" env:"-"`
 }
 
+func (m TracesConfig) MarshalYAML() (any, error) {
+	omit := map[string]struct{}{
+		"endpoint": {},
+	}
+	return omitFieldsForYAML(m, omit), nil
+}
+
 type SpanAttr struct {
 	ValLength uint16
 	Vtype     uint8
