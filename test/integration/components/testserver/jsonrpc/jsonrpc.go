@@ -28,7 +28,7 @@ func (t *Arith) Multiply(args *Args, reply *int) error {
 
 func (t *Arith) Traceme(args *Args, reply *int) error {
 	t.Logger.Debug("calling", "method", "Arith.Traceme")
-	requestURL := "http://pytestserver:8083/tracemetoo"
+	requestURL := "http://pytestserver:7773/tracemetoo"
 
 	t.Logger.Debug("calling", "url", requestURL)
 

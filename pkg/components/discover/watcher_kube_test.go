@@ -36,6 +36,13 @@ const (
 	podName        = "the-deployment-123456789-abcde"
 )
 
+func testKubeMatch(t *testing.T, m Event[ProcessMatch], name string, pid int32) {
+	assert.Equal(t, EventCreated, m.Type)
+	require.Len(t, m.Obj.Criteria, 1)
+	assert.Equal(t, name, m.Obj.Criteria[0].GetName())
+	assert.Equal(t, pid, m.Obj.Process.Pid)
+}
+
 func TestWatcherKubeEnricher(t *testing.T) {
 	type event struct {
 		fn           func(input *msg.Queue[[]Event[ProcessAttrs]], fInformer meta.Notifier)
@@ -169,10 +176,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		newProcess(inputQueue, 12, []uint32{80})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
-		m := matches[0]
-		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "port-only", m.Obj.Criteria.GetName())
-		assert.EqualValues(t, 12, m.Obj.Process.Pid)
+		testKubeMatch(t, matches[0], "port-only", 12)
 	})
 
 	t.Run("metadata-only match", func(t *testing.T) {
@@ -180,10 +184,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		deployPod(fInformer, "chichi", "container-34", nil)
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
-		m := matches[0]
-		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "metadata-only", m.Obj.Criteria.GetName())
-		assert.EqualValues(t, 34, m.Obj.Process.Pid)
+		testKubeMatch(t, matches[0], "metadata-only", 34)
 	})
 
 	t.Run("pod-label-only match", func(t *testing.T) {
@@ -191,10 +192,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		deployPod(fInformer, "labeltest", "container-42", map[string]string{"instrument": "beyla"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
-		m := matches[0]
-		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "pod-label-only", m.Obj.Criteria.GetName())
-		assert.EqualValues(t, 42, m.Obj.Process.Pid)
+		testKubeMatch(t, matches[0], "pod-label-only", 42)
 	})
 
 	t.Run("pod-multi-label-only match", func(t *testing.T) {
@@ -202,10 +200,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		deployPod(fInformer, "multi-labeltest", "container-43", map[string]string{"instrument": "ebpf", "lang": "golang"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
-		m := matches[0]
-		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "pod-multi-label-only", m.Obj.Criteria.GetName())
-		assert.EqualValues(t, 43, m.Obj.Process.Pid)
+		testKubeMatch(t, matches[0], "pod-multi-label-only", 43)
 	})
 
 	t.Run("pod-annotation-only match", func(t *testing.T) {
@@ -213,10 +208,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		deployPod(fInformer, "annotationtest", "container-44", nil, map[string]string{"deploy.type": "canary"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
-		m := matches[0]
-		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "pod-annotation-only", m.Obj.Criteria.GetName())
-		assert.EqualValues(t, 44, m.Obj.Process.Pid)
+		testKubeMatch(t, matches[0], "pod-annotation-only", 44)
 	})
 
 	t.Run("pod-multi-annotation-only match", func(t *testing.T) {
@@ -224,10 +216,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		deployPod(fInformer, "multi-annotationtest", "container-45", nil, map[string]string{"deploy.type": "prod", "version": "v1"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
-		m := matches[0]
-		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "pod-multi-annotation-only", m.Obj.Criteria.GetName())
-		assert.EqualValues(t, 45, m.Obj.Process.Pid)
+		testKubeMatch(t, matches[0], "pod-multi-annotation-only", 45)
 	})
 
 	t.Run("both process and metadata match", func(t *testing.T) {
@@ -235,10 +224,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 		deployOwnedPod(fInformer, namespace, "chacha-rsid-podid", "chacha-rsid", "chacha", "container-56")
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
-		m := matches[0]
-		assert.Equal(t, EventCreated, m.Type)
-		assert.Equal(t, "both", m.Obj.Criteria.GetName())
-		assert.EqualValues(t, 56, m.Obj.Process.Pid)
+		testKubeMatch(t, matches[0], "both", 56)
 	})
 
 	t.Run("process deletion", func(t *testing.T) {
