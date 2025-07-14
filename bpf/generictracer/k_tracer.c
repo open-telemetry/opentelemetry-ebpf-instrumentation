@@ -56,6 +56,32 @@ int BPF_KRETPROBE(beyla_kretprobe_sock_alloc, struct socket *sock) {
     return 0;
 }
 
+// Used by accept to grab the sock details
+SEC("kprobe/lock_sock_nested")
+int BPF_KPROBE(beyla_kprobe_lock_sock_nested, struct socket *sock, struct socket *newsock) {
+    u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== lock_sock_nested %llx ===", id);
+
+    u64 addr = (u64)newsock;
+
+    sock_args_t args = {};
+
+    args.addr = addr;
+    args.accept_time = bpf_ktime_get_ns();
+
+    // The socket->sock is not valid until accept finishes, therefore
+    // we don't extract ->sock here, we remember the address of socket
+    // and parse in sys_accept
+    bpf_map_update_elem(&active_accept_args, &id, &args, BPF_ANY);
+
+    return 0;
+}
+
 // We tap into accept and connect to figure out if a request is inbound or
 // outbound. However, in some cases servers can optimise the accept path if
 // the same request is sent over and over. For that reason, in case we miss the
@@ -135,7 +161,7 @@ int BPF_KRETPROBE(beyla_kretprobe_sys_accept4, s32 fd) {
         store_accept_fd_info(host_pid, fd, &info.p_conn.conn);
 
         u16 orig_dport = info.p_conn.conn.d_port;
-        //dbg_print_http_connection_info(&info.conn);
+        dbg_print_http_connection_info(&info.p_conn.conn);
         sort_connection_info(&info.p_conn.conn);
         info.p_conn.pid = pid_from_pid_tgid(id);
         info.orig_dport = orig_dport;
@@ -149,6 +175,8 @@ int BPF_KRETPROBE(beyla_kretprobe_sys_accept4, s32 fd) {
         // find_nodejs_parent_trace() for usage
         // TODO: try to merge with store_accept_fd_info() above
         bpf_map_update_elem(&fd_to_connection, &key, &info.p_conn.conn, BPF_ANY);
+    } else {
+        bpf_dbg_printk("Failed to parse accept socket info");
     }
 
 cleanup:
