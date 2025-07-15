@@ -259,10 +259,6 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Required: true,
 			End:      p.bpfObjects.BeylaKretprobeSysAccept4,
 		},
-		"sock_alloc": {
-			Required: true,
-			End:      p.bpfObjects.BeylaKretprobeSockAlloc,
-		},
 		"security_socket_accept": {
 			Required: true,
 			Start:    p.bpfObjects.BeylaKprobeLockSockNested,
