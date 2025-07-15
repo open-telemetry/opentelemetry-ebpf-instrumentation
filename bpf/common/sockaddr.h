@@ -17,8 +17,7 @@ typedef struct accept_args {
 
 static __always_inline bool parse_sock_info(struct sock *s, connection_info_t *info) {
     short unsigned int skc_family;
-    int err = BPF_CORE_READ_INTO(&skc_family, s, __sk_common.skc_family);
-    bpf_printk("skc_family %d, err %d\n", skc_family, err);
+    BPF_CORE_READ_INTO(&skc_family, s, __sk_common.skc_family);
 
     // We always store the IP addresses in IPV6 format, simplifies the code and
     // it matches natively what our Golang userspace processing will require.
@@ -68,7 +67,6 @@ static __always_inline bool parse_accept_socket_info(sock_args_t *args, connecti
 
     struct socket *sock = (struct socket *)(args->addr);
     BPF_CORE_READ_INTO(&s, sock, sk);
-    // struct sock *s = (struct sock *)(args->addr);
 
     return parse_sock_info(s, info);
 }
