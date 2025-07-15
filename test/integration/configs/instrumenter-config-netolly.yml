@@ -1,8 +1,8 @@
 attributes:
   select:
-    beyla_network_flow_bytes:
+    obi_network_flow_bytes:
       include:
-      - beyla.ip
+      - obi.ip
       - src.address
       - dst.address
       - src.name

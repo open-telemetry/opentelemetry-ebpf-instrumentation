@@ -22,7 +22,7 @@ func TestAttributeFilter(t *testing.T) {
 	output := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
 
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
-		"beyla.ip":          MatchDefinition{Match: "148.*"},
+		"obi.ip":            MatchDefinition{Match: "148.*"},
 		"k8s.src.namespace": MatchDefinition{NotMatch: "debug"},
 		"k8s.app.version":   MatchDefinition{Match: "*"},
 	}, nil, map[string][]attr.Name{
@@ -37,7 +37,7 @@ func TestAttributeFilter(t *testing.T) {
 	input.Send([]*ebpf.Record{
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "148.132.1.1",
+				OBIIP: "148.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "debug",
 					"k8s.app.version":   "v0.0.1",
@@ -46,7 +46,7 @@ func TestAttributeFilter(t *testing.T) {
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "128.132.1.1",
+				OBIIP: "128.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
@@ -55,7 +55,7 @@ func TestAttributeFilter(t *testing.T) {
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "148.132.1.1",
+				OBIIP: "148.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
@@ -64,7 +64,7 @@ func TestAttributeFilter(t *testing.T) {
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "148.133.2.1",
+				OBIIP: "148.133.2.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
 					"k8s.app.version":   "v0.0.1",
@@ -73,7 +73,7 @@ func TestAttributeFilter(t *testing.T) {
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "141.132.1.1",
+				OBIIP: "141.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralari",
 					"k8s.app.version":   "v0.0.1",
@@ -86,7 +86,7 @@ func TestAttributeFilter(t *testing.T) {
 	input.Send([]*ebpf.Record{
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "128.132.1.1",
+				OBIIP: "128.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
@@ -95,7 +95,7 @@ func TestAttributeFilter(t *testing.T) {
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "141.132.1.1",
+				OBIIP: "141.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralari",
 					"k8s.app.version":   "v0.0.1",
@@ -108,7 +108,7 @@ func TestAttributeFilter(t *testing.T) {
 	input.Send([]*ebpf.Record{
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "148.132.1.1",
+				OBIIP: "148.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
@@ -117,7 +117,7 @@ func TestAttributeFilter(t *testing.T) {
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "148.133.2.1",
+				OBIIP: "148.133.2.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
 					"k8s.app.version":   "v0.0.1",
@@ -130,7 +130,7 @@ func TestAttributeFilter(t *testing.T) {
 	assert.Equal(t, []*ebpf.Record{
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "148.132.1.1",
+				OBIIP: "148.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
@@ -139,7 +139,7 @@ func TestAttributeFilter(t *testing.T) {
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "148.133.2.1",
+				OBIIP: "148.133.2.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
 					"k8s.app.version":   "v0.0.1",
@@ -152,7 +152,7 @@ func TestAttributeFilter(t *testing.T) {
 	assert.Equal(t, []*ebpf.Record{
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "148.132.1.1",
+				OBIIP: "148.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
@@ -161,7 +161,7 @@ func TestAttributeFilter(t *testing.T) {
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
-				BeylaIP: "148.133.2.1",
+				OBIIP: "148.133.2.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
 					"k8s.app.version":   "v0.0.1",
@@ -183,9 +183,9 @@ func TestAttributeFilter_VerificationError(t *testing.T) {
 		// non-existing attribute
 		{"super-attribute": MatchDefinition{Match: "foo"}},
 		// valid attribute without match definition
-		{"beyla.ip": MatchDefinition{}},
+		{"obi.ip": MatchDefinition{}},
 		// valid attribute with double match definition
-		{"beyla.ip": MatchDefinition{Match: "foo", NotMatch: "foo"}},
+		{"obi.ip": MatchDefinition{Match: "foo", NotMatch: "foo"}},
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("%v", tc), func(t *testing.T) {

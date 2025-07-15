@@ -48,12 +48,12 @@ func TestDecoration(t *testing.T) {
 	require.Len(t, decorated, 2)
 
 	assert.Equal(t, "eth1", decorated[0].Attrs.Interface)
-	assert.Equal(t, "3.3.3.3", decorated[0].Attrs.BeylaIP)
+	assert.Equal(t, "3.3.3.3", decorated[0].Attrs.OBIIP)
 	assert.Equal(t, "source", decorated[0].Attrs.SrcName)
 	assert.Equal(t, "4.3.2.1", decorated[0].Attrs.DstName)
 
 	assert.Equal(t, "eth2", decorated[1].Attrs.Interface)
-	assert.Equal(t, "3.3.3.3", decorated[1].Attrs.BeylaIP)
+	assert.Equal(t, "3.3.3.3", decorated[1].Attrs.OBIIP)
 	assert.Equal(t, "1.2.3.4", decorated[1].Attrs.SrcName)
 	assert.Equal(t, "destination", decorated[1].Attrs.DstName)
 }

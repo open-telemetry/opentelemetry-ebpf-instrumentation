@@ -71,7 +71,7 @@ func TestRunDontPanic(t *testing.T) {
 }
 
 func TestNetworkEnabled(t *testing.T) {
-	t.Setenv("BEYLA_NETWORK_METRICS", "true")
+	t.Setenv("obi_network_METRICS", "true")
 	cfg, err := obi.LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.True(t, cfg.Enabled(obi.FeatureNetO11y))

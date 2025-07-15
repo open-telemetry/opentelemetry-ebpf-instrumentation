@@ -39,7 +39,7 @@ func TestMetricsExpiration(t *testing.T) {
 			Features:                    []string{otel.FeatureNetwork},
 		}, SelectorCfg: &attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
-				attributes.BeylaNetworkFlow.Section: attributes.InclusionLists{
+				attributes.NetworkFlow.Section: attributes.InclusionLists{
 					Include: []string{"src_name", "dst_name"},
 				},
 			},
@@ -63,8 +63,8 @@ func TestMetricsExpiration(t *testing.T) {
 	// THEN the metrics are exported
 	test.Eventually(t, timeout, func(t require.TestingT) {
 		exported := getMetrics(t, promURL)
-		assert.Contains(t, exported, `beyla_network_flow_bytes_total{dst_name="bar",src_name="foo"} 123`)
-		assert.Contains(t, exported, `beyla_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
+		assert.Contains(t, exported, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"} 123`)
+		assert.Contains(t, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
 	})
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
@@ -81,11 +81,11 @@ func TestMetricsExpiration(t *testing.T) {
 	var exported string
 	test.Eventually(t, timeout, func(t require.TestingT) {
 		m := getMetrics(t, promURL)
-		assert.Contains(t, exported, `beyla_network_flow_bytes_total{dst_name="bar",src_name="foo"} 246`)
+		assert.Contains(t, exported, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"} 246`)
 		exported = m
 	})
 	// BUT not the metrics that haven't been received during that time
-	assert.NotContains(t, exported, `beyla_network_flow_bytes_total{dst_name="bae",src_name="baz"}`)
+	assert.NotContains(t, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"}`)
 	now.Advance(2 * time.Minute)
 
 	// AND WHEN the metrics labels that disappeared are received again
@@ -100,8 +100,8 @@ func TestMetricsExpiration(t *testing.T) {
 	// THEN they are reported again, starting from zero in the case of counters
 	test.Eventually(t, timeout, func(t require.TestingT) {
 		m := getMetrics(t, promURL)
-		assert.Contains(t, exported, `beyla_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
+		assert.Contains(t, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
 		exported = m
 	})
-	assert.NotContains(t, exported, `beyla_network_flow_bytes_total{dst_name="bar",src_name="foo"}`)
+	assert.NotContains(t, exported, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"}`)
 }
