@@ -115,7 +115,7 @@ static __always_inline void bpf_sock_ops_establish_cb(struct bpf_sock_ops *skops
 // Tracks all outgoing sockets (BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB)
 // We don't track incoming, those would be BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB
 SEC("sockops")
-int beyla_sockmap_tracker(struct bpf_sock_ops *skops) {
+int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
     switch (skops->op) {
     case BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB:
         bpf_sock_ops_establish_cb(skops);
@@ -295,7 +295,7 @@ make_tp_string_skb(unsigned char *buf, const tp_info_t *tp, const unsigned char 
     *buf++ = '\r';
     *buf++ = '\n';
 
-    bpf_dbg_printk("beyla_packet_extender: %s", tp_string);
+    bpf_dbg_printk("obi_packet_extender: %s", tp_string);
 }
 
 static __always_inline bool
@@ -423,7 +423,7 @@ static __always_inline bool handle_go_request(struct sk_msg_md *msg,
 // the 'Traceparent' string. It extends the HTTP header and writes the
 // Traceparent string.
 SEC("sk_msg")
-int beyla_packet_extender(struct sk_msg_md *msg) {
+int obi_packet_extender(struct sk_msg_md *msg) {
     const u64 id = bpf_get_current_pid_tgid();
     const connection_info_t conn = get_connection_info(msg);
     const egress_key_t e_key = make_key(&conn);
@@ -488,7 +488,7 @@ int beyla_packet_extender(struct sk_msg_md *msg) {
 
 //k_tail_write_msg_traceparent
 SEC("sk_msg")
-int beyla_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
+int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
     bpf_dbg_printk("== %s ==", __FUNCTION__);
 
     tp_info_pid_t *tp_p = tp_buf();

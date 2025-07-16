@@ -32,7 +32,7 @@
 
 // Used by accept to grab the sock details
 SEC("kretprobe/sock_alloc")
-int BPF_KRETPROBE(beyla_kretprobe_sock_alloc, struct socket *sock) {
+int BPF_KRETPROBE(obi_kretprobe_sock_alloc, struct socket *sock) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -63,7 +63,7 @@ int BPF_KRETPROBE(beyla_kretprobe_sock_alloc, struct socket *sock) {
 // sets the type to be server HTTP, in client mode we'll overwrite the
 // data in the map, since those cannot be optimised.
 SEC("kprobe/tcp_rcv_established")
-int BPF_KPROBE(beyla_kprobe_tcp_rcv_established, struct sock *sk, struct sk_buff *skb) {
+int BPF_KPROBE(obi_kprobe_tcp_rcv_established, struct sock *sk, struct sk_buff *skb) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -104,7 +104,7 @@ int BPF_KPROBE(beyla_kprobe_tcp_rcv_established, struct sock *sk, struct sk_buff
 // Note: A current limitation is that likely we won't capture the first accept request. The
 // process may have already reached accept, before the instrumenter has launched.
 SEC("kretprobe/sys_accept4")
-int BPF_KRETPROBE(beyla_kretprobe_sys_accept4, s32 fd) {
+int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -157,7 +157,7 @@ cleanup:
 }
 
 SEC("kprobe/sys_connect")
-int BPF_KPROBE(beyla_kprobe_sys_connect) {
+int BPF_KPROBE(obi_kprobe_sys_connect) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -181,7 +181,7 @@ int BPF_KPROBE(beyla_kprobe_sys_connect) {
 
 // Used by connect so that we can grab the sock details
 SEC("kprobe/tcp_connect")
-int BPF_KPROBE(beyla_kprobe_tcp_connect, struct sock *sk) {
+int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -224,7 +224,7 @@ static __always_inline void setup_cp_support_conn_info(pid_connection_info_t *p_
 // We tap into sys_connect so we can track properly the processes doing
 // HTTP client calls
 SEC("kretprobe/sys_connect")
-int BPF_KRETPROBE(beyla_kretprobe_sys_connect, int res) {
+int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -294,7 +294,7 @@ tcp_send_ssl_check(u64 id, void *ssl, pid_connection_info_t *p_conn, u16 orig_dp
 // finish the request on the return of tcp_sendmsg. Therefore for any request less
 // than 1MB we just finish the request on the kprobe path.
 SEC("kprobe/tcp_sendmsg")
-int BPF_KPROBE(beyla_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size_t size) {
+int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size_t size) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -393,7 +393,7 @@ int BPF_KPROBE(beyla_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, si
 // This is a backup path kprobe in case tcp_sendmsg doesn't fire, which
 // happens on certain kernels if sk_msg is attached.
 SEC("kprobe/tcp_rate_check_app_limited")
-int BPF_KPROBE(beyla_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
+int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -461,7 +461,7 @@ int BPF_KPROBE(beyla_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
 // delayed. The code under the `if (size < KPROBES_LARGE_RESPONSE_LEN) {` block should do it
 // but it's possible that the kernel sends the data in smaller chunks.
 SEC("kretprobe/tcp_sendmsg")
-int BPF_KRETPROBE(beyla_kretprobe_tcp_sendmsg, int sent_len) {
+int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg, int sent_len) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -508,7 +508,7 @@ int BPF_KRETPROBE(beyla_kretprobe_tcp_sendmsg, int sent_len) {
 }
 
 SEC("kprobe/tcp_close")
-int BPF_KPROBE(beyla_kprobe_tcp_close, struct sock *sk, long timeout) {
+int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -558,7 +558,7 @@ static __always_inline void setup_recvmsg(u64 id, struct sock *sk, struct msghdr
 
 //int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int flags, int *addr_len)
 SEC("kprobe/tcp_recvmsg")
-int BPF_KPROBE(beyla_kprobe_tcp_recvmsg,
+int BPF_KPROBE(obi_kprobe_tcp_recvmsg,
                struct sock *sk,
                struct msghdr *msg,
                size_t len,
@@ -583,7 +583,7 @@ int BPF_KPROBE(beyla_kprobe_tcp_recvmsg,
 // the context propagation. This probe happens before tcp_recvmsg and wraps it
 // so if tcp_recvmsg happens, it will overwrite the data in the args.
 SEC("kprobe/sock_recvmsg")
-int BPF_KPROBE(beyla_kprobe_sock_recvmsg, struct socket *sock, struct msghdr *msg, int flags) {
+int BPF_KPROBE(obi_kprobe_sock_recvmsg, struct socket *sock, struct msghdr *msg, int flags) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -607,7 +607,7 @@ int BPF_KPROBE(beyla_kprobe_sock_recvmsg, struct socket *sock, struct msghdr *ms
 // the context propagation. When tcp_recvmsg happened, the args would be
 // cleaned up by that probe and this kprobe won't do anything.
 SEC("kretprobe/sock_recvmsg")
-int BPF_KRETPROBE(beyla_kretprobe_sock_recvmsg, int copied_len) {
+int BPF_KRETPROBE(obi_kretprobe_sock_recvmsg, int copied_len) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -741,7 +741,7 @@ done:
 }
 
 SEC("kprobe/tcp_cleanup_rbuf")
-int BPF_KPROBE(beyla_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
+int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -763,7 +763,7 @@ int BPF_KPROBE(beyla_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
 }
 
 SEC("kretprobe/tcp_recvmsg")
-int BPF_KRETPROBE(beyla_kretprobe_tcp_recvmsg, int copied_len) {
+int BPF_KRETPROBE(obi_kretprobe_tcp_recvmsg, int copied_len) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -777,7 +777,7 @@ int BPF_KRETPROBE(beyla_kretprobe_tcp_recvmsg, int copied_len) {
 
 // Fall-back in case we don't see kretprobe on tcp_recvmsg in high network volume situations
 SEC("socket/http_filter")
-int beyla_socket__http_filter(struct __sk_buff *skb) {
+int obi_socket__http_filter(struct __sk_buff *skb) {
     protocol_info_t tcp = {};
     connection_info_t conn = {};
 
@@ -871,7 +871,7 @@ int beyla_socket__http_filter(struct __sk_buff *skb) {
     and server_traces are keyed off the namespace:pid.
 */
 SEC("kretprobe/sys_clone")
-int BPF_KRETPROBE(beyla_kretprobe_sys_clone, int tid) {
+int BPF_KRETPROBE(obi_kretprobe_sys_clone, int tid) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id) || tid < 0) {
@@ -894,7 +894,7 @@ int BPF_KRETPROBE(beyla_kretprobe_sys_clone, int tid) {
 }
 
 SEC("kprobe/sys_exit")
-int BPF_KPROBE(beyla_kprobe_sys_exit, int status) {
+int BPF_KPROBE(obi_kprobe_sys_exit, int status) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -917,7 +917,7 @@ int BPF_KPROBE(beyla_kprobe_sys_exit, int status) {
 
 // k_tail_handle_buf_with_args
 SEC("kprobe")
-int beyla_handle_buf_with_args(void *ctx) {
+int obi_handle_buf_with_args(void *ctx) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;

@@ -23,7 +23,7 @@ volatile const s32 ngx_http_rev_s_conn = 0x8;
 volatile const s32 ngx_connection_s_sockaddr = 0x68;
 
 SEC("uprobe/nginx:ngx_http_upstream_init")
-int beyla_ngx_http_upstream_init(struct pt_regs *ctx) {
+int obi_ngx_http_upstream_init(struct pt_regs *ctx) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -53,7 +53,7 @@ static __always_inline void get_sock_info(u64 id, void *conn_ptr, connection_inf
 }
 
 SEC("uprobe/nginx:ngx_event_connect_peer_ret")
-int beyla_ngx_event_connect_peer_ret(struct pt_regs *ctx) {
+int obi_ngx_event_connect_peer_ret(struct pt_regs *ctx) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
