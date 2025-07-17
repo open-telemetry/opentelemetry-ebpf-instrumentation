@@ -31,15 +31,15 @@
 #include <pid/pid.h>
 
 // Used by accept to grab the sock details
-SEC("kprobe/lock_sock_nested")
-int BPF_KPROBE(beyla_kprobe_lock_sock_nested, struct socket *sock, struct socket *newsock) {
+SEC("kprobe/security_socket_accept")
+int BPF_KPROBE(beyla_kprobe_security_socket_accept, struct socket *sock, struct socket *newsock) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
     }
 
-    bpf_dbg_printk("=== lock_sock_nested %llx ===", id);
+    bpf_dbg_printk("=== security_socket_accept %llx ===", id);
 
     u64 addr = (u64)newsock;
 

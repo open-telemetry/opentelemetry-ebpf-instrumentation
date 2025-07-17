@@ -261,7 +261,7 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 		},
 		"security_socket_accept": {
 			Required: true,
-			Start:    p.bpfObjects.BeylaKprobeLockSockNested,
+			Start:    p.bpfObjects.BeylaKprobeSecuritySocketAccept,
 		},
 		"tcp_rcv_established": {
 			Required: true,
