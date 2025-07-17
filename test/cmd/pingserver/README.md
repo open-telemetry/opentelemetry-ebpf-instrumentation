@@ -6,7 +6,7 @@
 go build -o server server.go
 ```
 
-### Running 
+### Running
 
 ```bash
 ./server

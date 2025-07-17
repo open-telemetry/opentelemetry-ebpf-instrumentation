@@ -6,7 +6,7 @@
 go build -o wrapper wrapper.go
 ```
 
-### Running 
+### Running
 
 ```bash
 ./wrapper

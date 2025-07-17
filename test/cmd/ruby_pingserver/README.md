@@ -4,7 +4,7 @@
 
 - Install ruby (CRuby) for your system
 
-### Running 
+### Running
 
 ```bash
 ruby pingserver.rb
