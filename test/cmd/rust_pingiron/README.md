@@ -1,3 +1,5 @@
+# Rust Pint Iron
+
 ## Build and run instructions
 
 ### Installing pre-requisites

@@ -1,3 +1,5 @@
+# Ping Server
+
 ## Build and run instructions
 
 ### Building

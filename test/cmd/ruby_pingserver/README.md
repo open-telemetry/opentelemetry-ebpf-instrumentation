@@ -1,3 +1,5 @@
+# Ruby Ping Server
+
 ## Build and run instructions
 
 ### Installing pre-requisites
