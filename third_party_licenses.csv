@@ -70,7 +70,6 @@ github.com/modern-go/reflect2,https://github.com/open-telemetry/opentelemetry-eb
 github.com/mostynb/go-grpc-compression,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/mostynb/go-grpc-compression/LICENSE,Apache-2.0
 github.com/munnerz/goautoneg,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/munnerz/goautoneg/LICENSE,BSD-3-Clause
 github.com/mxk/go-flowrate/flowrate,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/mxk/go-flowrate/LICENSE,BSD-3-Clause
-github.com/open-telemetry/opentelemetry-ebpf-instrumentation,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/LICENSE,Apache-2.0
 github.com/pelletier/go-toml/v2,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/pelletier/go-toml/v2/LICENSE,MIT
 github.com/pierrec/lz4/v4,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/pierrec/lz4/v4/LICENSE,BSD-3-Clause
 github.com/pkg/errors,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/pkg/errors/LICENSE,BSD-2-Clause
@@ -133,6 +132,7 @@ go.opentelemetry.io/contrib/detectors/azure/azurevm,https://github.com/open-tele
 go.opentelemetry.io/contrib/detectors/gcp,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/go.opentelemetry.io/contrib/detectors/gcp/LICENSE,Apache-2.0
 go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/LICENSE,Apache-2.0
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/LICENSE,Apache-2.0
+go.opentelemetry.io/obi,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/LICENSE,Apache-2.0
 go.opentelemetry.io/otel,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/go.opentelemetry.io/otel/LICENSE,Apache-2.0
 go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc/LICENSE,Apache-2.0
 go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp/LICENSE,Apache-2.0
