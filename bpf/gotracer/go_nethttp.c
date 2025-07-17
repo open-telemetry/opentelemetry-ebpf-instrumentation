@@ -166,8 +166,10 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
         // get content-type from readContinuedLineSlice
         if (header_inv && header_inv->content_type[0]) {
             bpf_dbg_printk("Found content type in ongoing request: %s", header_inv->content_type);
-            if (is_json_content_type((void *)header_inv->content_type,
+            if (header_inv->json_content_type ||
+                is_json_content_type((void *)header_inv->content_type,
                                      sizeof(header_inv->content_type))) {
+
                 invocation.json_content_type = 1;
             }
         }
