@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
+	"go.opentelemetry.io/obi/pkg/components/exec"
 )
 
 // injectable values for testing

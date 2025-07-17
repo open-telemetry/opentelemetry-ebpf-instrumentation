@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	grpcclient "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/grpc/client"
+	grpcclient "go.opentelemetry.io/obi/test/integration/components/testserver/grpc/client"
 )
 
 func main() {

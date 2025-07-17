@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 )
 
 // Observer can be subscribed to a Notifier to receive events

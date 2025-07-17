@@ -31,7 +31,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 
-	pb "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/cmd/grpc/routeguide"
+	pb "go.opentelemetry.io/obi/test/cmd/grpc/routeguide"
 )
 
 var (

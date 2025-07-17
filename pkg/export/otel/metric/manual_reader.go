@@ -13,7 +13,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdkmetricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/global"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/global"
 )
 
 // ManualReader is a simple Reader that allows an application to

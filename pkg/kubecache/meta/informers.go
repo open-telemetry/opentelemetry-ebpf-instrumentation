@@ -7,7 +7,7 @@ import (
 
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 )
 
 type Informers struct {

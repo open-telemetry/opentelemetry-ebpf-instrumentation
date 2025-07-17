@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/common"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 )
 
 type probeDescMap map[string][]*ebpfcommon.ProbeDesc
