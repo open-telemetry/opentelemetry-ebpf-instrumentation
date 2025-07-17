@@ -116,6 +116,7 @@ type EBPFParseContext struct {
 	h2c               *lru.Cache[uint64, h2Connection]
 	redisDBCache      *simplelru.LRU[BpfConnectionInfoT, int]
 	largeBuffers      *expirable.LRU[largeBufferKey, largeBuffer]
+	largeBuffersMU    sync.RWMutex
 	mongoRequestCache *PendingMongoDBRequests
 }
 

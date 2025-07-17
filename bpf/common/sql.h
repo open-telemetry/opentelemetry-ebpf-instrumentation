@@ -6,7 +6,7 @@
 #include <common/strings.h>
 
 enum {
-    k_max_query_offset = 4,
+    k_max_query_offset = 8,
 
     k_max_sql_op_len = 6, // Maximum length of SQL operation names (e.g., "SELECT")
 };

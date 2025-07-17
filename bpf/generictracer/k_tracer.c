@@ -945,18 +945,18 @@ int obi_handle_buf_with_args(void *ctx) {
         if (has_preface(args->small_buf, args->bytes_len) && args->bytes_len > MIN_HTTP2_SIZE) {
             args->u_buf = args->u_buf + MIN_HTTP2_SIZE;
         }
-    }
-
-    http2_conn_info_data_t *h2g = bpf_map_lookup_elem(&ongoing_http2_connections, &args->pid_conn);
-    if (h2g && (http2_flag_ssl(h2g->flags) == args->ssl)) {
-        bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2);
     } else if (is_mysql(&args->pid_conn.conn,
                         (const unsigned char *)args->u_buf,
                         args->bytes_len,
                         &args->packet_type,
                         &args->protocol_type)) {
         bpf_dbg_printk("Found mysql connection");
-        bpf_tail_call(ctx, &jump_table, k_tail_protocol_mysql);
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
+    }
+
+    http2_conn_info_data_t *h2g = bpf_map_lookup_elem(&ongoing_http2_connections, &args->pid_conn);
+    if (h2g && (http2_flag_ssl(h2g->flags) == args->ssl)) {
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2);
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
 

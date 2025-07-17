@@ -59,6 +59,50 @@ func TestTCPLargeBuffers(t *testing.T) {
 	_, ok = getTCPLargeBuffer(pctx, firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, 3)
 	require.False(t, ok, "Expected to not find large buffer for this direction")
 	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, firstEvent.Direction, firstBuf)
+
+	// Test append to existing buffer
+	firstEvent.Len = 10
+	_, _, err = setTCPLargeBuffer(pctx, toRingbufRecord(t, firstEvent, firstBuf))
+	require.NoError(t, err)
+
+	appendEvent := TCPLargeBufferHeader{
+		Type:      firstEvent.Type,
+		Direction: firstEvent.Direction,
+		Len:       6,
+		Action:    1, // LargeBufActionAppend
+	}
+	appendEvent.Tp.TraceId = firstEvent.Tp.TraceId
+	appendEvent.Tp.SpanId = firstEvent.Tp.SpanId
+	appendBuf := "append"
+
+	_, _, err = setTCPLargeBuffer(pctx, toRingbufRecord(t, appendEvent, appendBuf))
+	require.NoError(t, err)
+	// The buffer should now be firstBuf + appendBuf
+	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, firstEvent.Direction, firstBuf+appendBuf)
+
+	// Test append to non-existing buffer (should just add a new one)
+	newTraceID := [16]uint8{'3'}
+	newSpanID := [8]uint8{'4'}
+	appendEvent.Tp.TraceId = newTraceID
+	appendEvent.Tp.SpanId = newSpanID
+	_, _, err = setTCPLargeBuffer(pctx, toRingbufRecord(t, appendEvent, appendBuf))
+	require.NoError(t, err)
+	verifyLargeBuffer(newTraceID, newSpanID, firstEvent.Direction, appendBuf)
+
+	// Test multiple appends
+	appendEvent.Tp.TraceId = firstEvent.Tp.TraceId
+	appendEvent.Tp.SpanId = firstEvent.Tp.SpanId
+	// Re-init buffer
+	firstEvent.Len = uint32(len(firstBuf))
+	_, _, err = setTCPLargeBuffer(pctx, toRingbufRecord(t, firstEvent, firstBuf))
+	require.NoError(t, err)
+	// Append twice
+	appendEvent.Len = 3
+	_, _, err = setTCPLargeBuffer(pctx, toRingbufRecord(t, appendEvent, "foo"))
+	require.NoError(t, err)
+	_, _, err = setTCPLargeBuffer(pctx, toRingbufRecord(t, appendEvent, "bar"))
+	require.NoError(t, err)
+	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, firstEvent.Direction, firstBuf+"foobar")
 }
 
 func toRingbufRecord(t *testing.T, event TCPLargeBufferHeader, buf string) *ringbuf.Record {
