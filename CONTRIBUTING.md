@@ -25,9 +25,11 @@ OpenTelemetry standards and strives to be compatible with that ecosystem.
 ### What this project is not
 
 * **A replacement for manual instrumentation**: Manual or SDK-based instrumentation can achieve a level of granularity that is beyond the scope of this project. For example, SDK instrumentation enables you to instrument the _inner machinery_ of a service, capturing highly detailed span information. In contrast, this project focuses on instrumenting incoming (server) and outgoing (client) service requests, without necessarily reporting internal spans.
+
 ## Development
 
 ### Compiling the project
+
 #### Requirements
 
 - OBI requires Linux with Kernel 5.8 or higher with BPF Type Format [(BTF)](https://www.kernel.org/doc/html/latest/bpf/btf.html) enabled. BTF became enabled by default on most Linux distributions with kernel 5.14 or higher. You can check if your kernel has BTF enabled by verifying if `/sys/kernel/btf/vmlinux` exists on your system. If you need to recompile your kernel to enable BTF, the configuration option `CONFIG_DEBUG_INFO_BTF=y` must be set.
@@ -43,6 +45,7 @@ In addition, use the latest versions of the following components:
 - `make`
 - `clang-format`
 - `clang-tidy`
+
 #### Compilation steps
 
 Compiling OBI is a two-tier process: first, we need to build the eBPF code (written in C) and generate the Go bindings. There are two `Makefile` targets for that, `generate` and `docker-generate`. The difference between them is that `generate` will attempt to use the local clang/LLVM toolchain, whereas `docker-generate` pulls a Docker image containing all of the tooling required - this is also the target used by OBI's GitHub CI.
@@ -54,6 +57,7 @@ make compile
 ```
 
 A convenience `Makefile` target called `dev` which invokes both the generation and compilation step is also provided:
+
 ```
 make dev
 ```
@@ -73,25 +77,31 @@ make clang-format
 ```
 
 #### Linting the C code
+
 ```
 make clang-tidy
 ```
+
 #### Formatting the Go code
+
 ```
 make fmt
 ```
 
 #### Linting the Go code
+
 ```
 make lint
 ```
 
 #### Running unit tests
+
 ```
 make test
 ```
 
 #### Running integration tests
+
 ```
 make integration-test
 ```
@@ -120,7 +130,6 @@ repo:
 git clone https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation
 ```
 
-
 This would put the project in the `opentelemetry-ebpf-instrumentation` directory in
 current working directory.
 
@@ -143,7 +152,8 @@ git commit
 git push <YOUR_FORK> <YOUR_BRANCH_NAME>
 ```
 
-Open a pull request against the main `opentelemetry-ebpf-instrumentation` repo. 
+Open a pull request against the main `opentelemetry-ebpf-instrumentation` repo.
+
 ### How to Receive Comments
 
 * If the PR is not ready for review, please put `[WIP]` in the title or mark it as
@@ -179,7 +189,7 @@ A PR is considered **ready to merge** when:
     across changes. This includes changes resulting from other feedback.
     [Approver]s and [Maintainer]s can help in clearing reviews and they should
     be consulted if there are any questions.
-	
+
 >[!NOTE]
 It’s often helpful to let the reporter resolve a comment or issue themselves, rather than resolving it on their behalf. This reduces back-and-forth and makes it easier to track which feedback is still pending.
 
