@@ -25,7 +25,6 @@ linters:
   exclusions:
     paths:
       - ^configs
-      - ^docs
       # this is temporarily imported code that does not rely on us
       - ^pkg/export/otel/metric
     presets:
