@@ -106,7 +106,7 @@ services:
       - 3041:3040
 
   utestserverssl:
-    image: gghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.0
+    image: ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.0
     ports:
       - 3044:3043
 
