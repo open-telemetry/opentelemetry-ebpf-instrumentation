@@ -188,7 +188,7 @@ static __always_inline u32 mysql_command_offset(struct mysql_hdr *hdr) {
 
 // k_tail_protocol_mysql
 SEC("kprobe/mysql")
-int beyla_protocol_mysql(void *ctx) {
+int obi_protocol_mysql(void *ctx) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;

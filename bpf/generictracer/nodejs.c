@@ -7,7 +7,7 @@
 #include <maps/nodejs_fd_map.h>
 
 SEC("uprobe/node:uv_fs_access")
-int BPF_KPROBE(beyla_uv_fs_access, void *loop, void *req, const char *path) {
+int BPF_KPROBE(obi_uv_fs_access, void *loop, void *req, const char *path) {
     (void)loop;
     (void)req;
 

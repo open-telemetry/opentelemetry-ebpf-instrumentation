@@ -132,12 +132,12 @@ static __always_inline int tracer_start(struct pt_regs *ctx, u8 check_delegate) 
 }
 
 SEC("uprobe/tracer_Start")
-int beyla_uprobe_tracer_Start(struct pt_regs *ctx) {
+int obi_uprobe_tracer_Start(struct pt_regs *ctx) {
     return tracer_start(ctx, 0);
 }
 
 SEC("uprobe/tracer_Start_global")
-int beyla_uprobe_tracer_Start_global(struct pt_regs *ctx) {
+int obi_uprobe_tracer_Start_global(struct pt_regs *ctx) {
     return tracer_start(ctx, 1);
 }
 
@@ -202,7 +202,7 @@ static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_p
 // func (t *tracer) Start(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span)
 // https://github.com/open-telemetry/opentelemetry-go/blob/98b32a6c3a87fbee5d34c063b9096f416b250897/internal/global/trace.go#L149
 SEC("uprobe/tracer_Start_ret")
-int beyla_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
+int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     void *span_ptr = (void *)GO_PARAM4(ctx);
     bpf_dbg_printk("=== uretprobe/tracer.Start [%lx] span %lx === ", goroutine_addr, span_ptr);
@@ -254,7 +254,7 @@ int beyla_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/nonRecordingSpan_End")
-int beyla_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
+int obi_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk("=== uprobe/nonRecordingSpan.End [%lx] span %lx === ",
                    (void *)GOROUTINE_PTR(ctx),
@@ -287,7 +287,7 @@ int beyla_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/span_SetStatus")
-int beyla_uprobe_SetStatus(struct pt_regs *ctx) {
+int obi_uprobe_SetStatus(struct pt_regs *ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk(
         "=== uprobe/span.SetStatus [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
@@ -319,7 +319,7 @@ int beyla_uprobe_SetStatus(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/span_SetAttributes")
-int beyla_uprobe_SetAttributes(struct pt_regs *ctx) {
+int obi_uprobe_SetAttributes(struct pt_regs *ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk(
         "=== uprobe/span.SetAttributes [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
@@ -340,7 +340,7 @@ int beyla_uprobe_SetAttributes(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/span_SetName")
-int beyla_uprobe_SetName(struct pt_regs *ctx) {
+int obi_uprobe_SetName(struct pt_regs *ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk(
         "=== uprobe/span.SetName [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
@@ -371,7 +371,7 @@ int beyla_uprobe_SetName(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/span_RecordError")
-int beyla_uprobe_RecordError(struct pt_regs *ctx) {
+int obi_uprobe_RecordError(struct pt_regs *ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk(
         "=== uprobe/span.RecordError [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
