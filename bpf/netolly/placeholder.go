@@ -1,3 +1,3 @@
-//go:build beyla_bpf
+//go:build obi_bpf
 
 package netolly

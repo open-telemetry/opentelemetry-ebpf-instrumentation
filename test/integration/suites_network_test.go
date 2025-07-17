@@ -76,10 +76,10 @@ func TestNetwork_AllowedAttributes(t *testing.T) {
 	// When there flow deduplication, results must only include
 	// the attributes under the attributes.allow section
 	for _, f := range getNetFlows(t) {
-		require.Contains(t, f.Metric, "beyla_ip")
+		require.Contains(t, f.Metric, "obi_ip")
 		require.Contains(t, f.Metric, "src_name")
 		require.Contains(t, f.Metric, "dst_port")
-		assert.NotEmpty(t, f.Metric["beyla_ip"])
+		assert.NotEmpty(t, f.Metric["obi_ip"])
 		assert.NotEmpty(t, f.Metric["src_name"])
 		assert.NotEmpty(t, f.Metric["dst_port"])
 
@@ -104,7 +104,7 @@ func TestNetwork_ReverseDNS(t *testing.T) {
 		pq := prom.Client{HostPort: prometheusHostPort}
 		test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
 			// now, verify that the network metric has been reported.
-			results, err := pq.Query(`beyla_network_flow_bytes_total` + query)
+			results, err := pq.Query(`obi_network_flow_bytes_total` + query)
 			require.NoError(t, err)
 			require.NotEmpty(t, results)
 		})
@@ -182,7 +182,7 @@ func getNetFlows(t *testing.T) []prom.Result {
 		require.Equal(t, http.StatusOK, r.StatusCode)
 
 		// now, verify that the network metric has been reported.
-		results, err = pq.Query(`beyla_network_flow_bytes_total`)
+		results, err = pq.Query(`obi_network_flow_bytes_total`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
 	}, test.Interval(time.Second))
@@ -195,7 +195,7 @@ func getDirectionNetFlows(t *testing.T) []prom.Result {
 
 	// wait for first network flow metrics
 	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total`)
+		results, err := pq.Query(`obi_network_flow_bytes_total`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
 	}, test.Interval(time.Second))
@@ -209,7 +209,7 @@ func getDirectionNetFlows(t *testing.T) []prom.Result {
 
 	// verify that the correct network metric has been reported.
 	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
-		results, err = pq.Query(`beyla_network_flow_bytes_total{src_port="7000", dst_port="8080"} or beyla_network_flow_bytes_total{src_port="8080", dst_port="7000"}`)
+		results, err = pq.Query(`obi_network_flow_bytes_total{src_port="7000", dst_port="8080"} or obi_network_flow_bytes_total{src_port="8080", dst_port="7000"}`)
 		require.NoError(t, err)
 		require.Len(t, results, 2)
 		require.NotEmpty(t, results)
@@ -227,7 +227,7 @@ func callAndCheckMetrics(t *testing.T, req *http.Request, pq prom.Client, previo
 
 	// wait for fetching aggregated flows in beyla about this call
 	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total{src_port="7000", dst_port="8080"} or beyla_network_flow_bytes_total{src_port="8080", dst_port="7000"}`)
+		results, err := pq.Query(`obi_network_flow_bytes_total{src_port="7000", dst_port="8080"} or obi_network_flow_bytes_total{src_port="8080", dst_port="7000"}`)
 		require.NoError(t, err)
 		require.Len(t, results, 2)
 		require.NotEmpty(t, results)

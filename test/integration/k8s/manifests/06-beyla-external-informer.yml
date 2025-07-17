@@ -22,7 +22,7 @@ data:
       select:
         "*":
           include: [ "*" ]
-        beyla.network.flow.bytes:
+        obi.network.flow.bytes:
           include: [ "*" ]
           exclude: [ "src_port" ]
     network:
