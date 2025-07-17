@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo"
@@ -67,6 +69,15 @@ func main() {
 			err := http.ListenAndServe(fmt.Sprintf(":%d", config.ProfilePort), nil)
 			slog.Error("PProf HTTP listener stopped working", "error", err)
 		}()
+	}
+
+	if config.LogConfig {
+		configYaml, err := yaml.Marshal(config)
+		if err != nil {
+			slog.Warn("can't marshal configuration to YAML", "error", err)
+		}
+		slog.Info("Running OpenTelemetry eBPF Instrumentation with configuration")
+		fmt.Println(string(configYaml))
 	}
 
 	// Adding shutdown hook for graceful stop.

@@ -386,7 +386,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
 
 // k_tail_protocol_http
 SEC("kprobe/http")
-int beyla_protocol_http(void *ctx) {
+int obi_protocol_http(void *ctx) {
     call_protocol_args_t *args = protocol_args();
 
     if (!args) {

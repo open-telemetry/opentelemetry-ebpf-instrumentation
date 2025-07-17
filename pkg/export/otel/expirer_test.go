@@ -47,7 +47,7 @@ func TestNetMetricsExpiration(t *testing.T) {
 				},
 			}, SelectorCfg: &attributes.SelectorConfig{
 				SelectionCfg: attributes.Selection{
-					attributes.BeylaNetworkFlow.Section: attributes.InclusionLists{
+					attributes.NetworkFlow.Section: attributes.InclusionLists{
 						Include: []string{"src.name", "dst.name"},
 					},
 				},

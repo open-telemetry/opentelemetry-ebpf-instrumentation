@@ -31,7 +31,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 
 	// checking pod-to-pod node communication (request)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total{` +
+		results, err := pq.Query(`obi_network_flow_bytes_total{` +
 			`k8s_src_name="httppinger",k8s_dst_name=~"testserver.*",` +
 			`k8s_src_type="Pod",k8s_dst_type="Pod"` +
 			`}`)
@@ -48,7 +48,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 	})
 	// checking pod-to-pod node communication (response)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total{` +
+		results, err := pq.Query(`obi_network_flow_bytes_total{` +
 			`k8s_dst_name="httppinger",k8s_src_name=~"testserver.*",` +
 			`k8s_src_type="Pod",k8s_dst_type="Pod"` +
 			`}`)
@@ -66,7 +66,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 
 	// checking node-to-node communication (e.g between control plane and workers)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total{` +
+		results, err := pq.Query(`obi_network_flow_bytes_total{` +
 			`src_zone="server-zone",dst_zone="control-plane-zone",` +
 			`k8s_src_type="Node",k8s_dst_type="Node"` +
 			`}`)
@@ -78,7 +78,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 		require.GreaterOrEqual(t, len(results), 2)
 	})
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total{` +
+		results, err := pq.Query(`obi_network_flow_bytes_total{` +
 			`dst_zone="server-zone",src_zone="control-plane-zone",` +
 			`k8s_src_type="Node",k8s_dst_type="Node"` +
 			`}`)
@@ -90,7 +90,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 		require.GreaterOrEqual(t, len(results), 2)
 	})
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total{` +
+		results, err := pq.Query(`obi_network_flow_bytes_total{` +
 			`src_zone="client-zone",dst_zone="control-plane-zone",` +
 			`k8s_src_type="Node",k8s_dst_type="Node"` +
 			`}`)
@@ -102,7 +102,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 		require.GreaterOrEqual(t, len(results), 2)
 	})
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total{` +
+		results, err := pq.Query(`obi_network_flow_bytes_total{` +
 			`dst_zone="client-zone",src_zone="control-plane-zone",` +
 			`k8s_src_type="Node",k8s_dst_type="Node"` +
 			`}`)
@@ -121,13 +121,13 @@ func testInterZoneMetric(ctx context.Context, t *testing.T, _ *envconf.Config) c
 
 	// inter-zone bytes are reported
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_inter_zone_bytes_total{` +
+		results, err := pq.Query(`obi_network_inter_zone_bytes_total{` +
 			`src_zone="client-zone", dst_zone="server-zone"}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
 	})
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_inter_zone_bytes_total{` +
+		results, err := pq.Query(`obi_network_inter_zone_bytes_total{` +
 			`dst_zone="client-zone", src_zone="server-zone"}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
@@ -137,11 +137,11 @@ func testInterZoneMetric(ctx context.Context, t *testing.T, _ *envconf.Config) c
 	})
 
 	// BUT same-zone bytes are not reported in this metric
-	results, err := pq.Query(`beyla_network_inter_zone_bytes_total{` +
+	results, err := pq.Query(`obi_network_inter_zone_bytes_total{` +
 		`src_zone="client-zone", dst_zone="client-zone"}`)
 	require.NoError(t, err)
 	require.Empty(t, results)
-	results, err = pq.Query(`beyla_network_inter_zone_bytes_total{` +
+	results, err = pq.Query(`obi_network_inter_zone_bytes_total{` +
 		`src_zone="server-zone", dst_zone="server-zone"}`)
 	require.NoError(t, err)
 	require.Empty(t, results)

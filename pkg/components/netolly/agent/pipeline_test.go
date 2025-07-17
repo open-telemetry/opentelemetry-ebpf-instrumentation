@@ -50,8 +50,8 @@ func TestFilter(t *testing.T) {
 				Network: map[string]filter.MatchDefinition{"transport": {Match: "TCP"}},
 			},
 			Attributes: obi.Attributes{Select: attributes.Selection{
-				attributes.BeylaNetworkFlow.Section: attributes.InclusionLists{
-					Include: []string{"beyla_ip", "iface.direction", "dst_port", "iface", "src_port", "transport"},
+				attributes.NetworkFlow.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "iface.direction", "dst_port", "iface", "src_port", "transport"},
 				},
 			}},
 		},
@@ -92,11 +92,11 @@ func TestFilter(t *testing.T) {
 
 		// assuming metrics returned alphabetically ordered
 		assert.Equal(t, []prom2.ScrapedMetric{
-			{Name: "beyla_network_flow_bytes_total", Labels: map[string]string{
-				"beyla_ip": "1.2.3.4", "iface_direction": "ingress", "dst_port": "1011", "iface": "fakeiface", "src_port": "789", "transport": "TCP",
+			{Name: "obi_network_flow_bytes_total", Labels: map[string]string{
+				"obi_ip": "1.2.3.4", "iface_direction": "ingress", "dst_port": "1011", "iface": "fakeiface", "src_port": "789", "transport": "TCP",
 			}},
-			{Name: "beyla_network_flow_bytes_total", Labels: map[string]string{
-				"beyla_ip": "1.2.3.4", "iface_direction": "ingress", "dst_port": "1415", "iface": "fakeiface", "src_port": "1213", "transport": "TCP",
+			{Name: "obi_network_flow_bytes_total", Labels: map[string]string{
+				"obi_ip": "1.2.3.4", "iface_direction": "ingress", "dst_port": "1415", "iface": "fakeiface", "src_port": "1213", "transport": "TCP",
 			}},
 			// standard prometheus metrics. Leaving them here to simplify test verification
 			{Name: "promhttp_metric_handler_errors_total", Labels: map[string]string{"cause": "encoding"}},

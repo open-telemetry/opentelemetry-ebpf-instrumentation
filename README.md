@@ -28,21 +28,7 @@ the [test/integration](./test/integration) and [test/integration/k8s](./test/int
 
 ## Contributing
 
-### Maintainers
-
-* [Mario Macias](https/github.com/mariomac), Grafana
-* [Mike Dame](https/github.com/damemi), Odigos
-* [Nikola Grcevski](https/github.com/grcevski), Grafana
-* [Tyler Yahn](https/github.com/MrAlias), Splunk
-
-For more information about the maintainer role, see the [community repository](https://github.com/open-telemetry/community/blob/main/guides/contributor/membership.md#maintainer).
-
-### Approvers
-
-* [Marc Tudurí](https://github.com/marctc), Grafana
-* [Rafael Roquetto](https://github.com/rafaelroquetto), Grafana
-
-For more information about the approver role, see the [community repository](https://github.com/open-telemetry/community/blob/main/guides/contributor/membership.md#approver).
+See [CONTRIBUTING](contributing.md)
 
 ## License
 

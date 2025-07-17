@@ -50,7 +50,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 	pq := prom.Client{HostPort: prometheusHostPort}
 	// testing request flows (to testserver as Service)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total{src_name="internal-pinger-net",dst_name="testserver"}`)
+		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-net",dst_name="testserver"}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
 
@@ -60,7 +60,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assertIsIP(t, metric["src_address"])
 		assertIsIP(t, metric["dst_address"])
 		assert.Regexp(t,
-			"^beyla-network-flows",
+			"^obi-network-flows",
 			metric["job"])
 		assert.Equal(t, "my-kube", metric["k8s_cluster_name"])
 		assert.Equal(t, "default", metric["k8s_src_namespace"])
@@ -83,7 +83,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 	})
 	// testing request flows (to testserver as Pod)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total{src_name="internal-pinger-net",dst_name=~"testserver-.*"}`)
+		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-net",dst_name=~"testserver-.*"}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
 
@@ -93,7 +93,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assertIsIP(t, metric["src_address"])
 		assertIsIP(t, metric["dst_address"])
 		assert.Regexp(t,
-			"^beyla-network-flows",
+			"^obi-network-flows",
 			metric["job"])
 		assert.Equal(t, "default", metric["k8s_src_namespace"])
 		assert.Equal(t, "internal-pinger-net", metric["k8s_src_name"])
@@ -120,7 +120,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 
 	// testing response flows (from testserver Pod)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total{src_name=~"testserver-.*",dst_name="internal-pinger-net"}`)
+		results, err := pq.Query(`obi_network_flow_bytes_total{src_name=~"testserver-.*",dst_name="internal-pinger-net"}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
 
@@ -130,7 +130,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assertIsIP(t, metric["src_address"])
 		assertIsIP(t, metric["dst_address"])
 		assert.Regexp(t,
-			"^beyla-network-flows",
+			"^obi-network-flows",
 			metric["job"])
 		assert.Equal(t, "default", metric["k8s_src_namespace"])
 		assert.Regexp(t, "^testserver-", metric["k8s_src_name"])
@@ -157,7 +157,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 
 	// testing response flows (from testserver Service)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		results, err := pq.Query(`beyla_network_flow_bytes_total{src_name="testserver",dst_name="internal-pinger-net"}`)
+		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="testserver",dst_name="internal-pinger-net"}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
 
@@ -167,7 +167,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assertIsIP(t, metric["src_address"])
 		assertIsIP(t, metric["dst_address"])
 		assert.Regexp(t,
-			"^beyla-network-flows",
+			"^obi-network-flows",
 			metric["job"])
 		assert.Equal(t, "default", metric["k8s_src_namespace"])
 		assert.Equal(t, "testserver", metric["k8s_src_name"])
@@ -189,12 +189,12 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 	})
 
 	// check that there aren't captured flows if there is no communication
-	results, err := pq.Query(`beyla_network_flow_bytes_total{src_name="internal-pinger-net",dst_name="otherinstance"}`)
+	results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-net",dst_name="otherinstance"}`)
 	require.NoError(t, err)
 	require.Empty(t, results)
 
 	// check that only TCP traffic is captured, according to the Protocols configuration option
-	results, err = pq.Query(`beyla_network_flow_bytes_total`)
+	results, err = pq.Query(`obi_network_flow_bytes_total`)
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 	for _, result := range results {
@@ -210,7 +210,7 @@ func testNetFlowBytesForExternalTraffic(ctx context.Context, t *testing.T, _ *en
 	// test external traffic (this test --> prometheus)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		// checks that at least one source without src kubernetes label is there
-		results, err := pq.Query(`beyla_network_flow_bytes_total{k8s_dst_owner_name="prometheus",k8s_src_owner_name=""}`)
+		results, err := pq.Query(`obi_network_flow_bytes_total{k8s_dst_owner_name="prometheus",k8s_src_owner_name=""}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
 	})
@@ -218,7 +218,7 @@ func testNetFlowBytesForExternalTraffic(ctx context.Context, t *testing.T, _ *en
 	// test external traffic (prometheus --> this test)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		// checks that at least one source without dst kubernetes label is there
-		results, err := pq.Query(`beyla_network_flow_bytes_total{k8s_src_owner_name="prometheus",k8s_dst_owner_name=""}`)
+		results, err := pq.Query(`obi_network_flow_bytes_total{k8s_src_owner_name="prometheus",k8s_dst_owner_name=""}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
 	})

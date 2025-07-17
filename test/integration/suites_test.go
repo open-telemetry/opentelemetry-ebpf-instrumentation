@@ -392,7 +392,7 @@ func TestSuite_PythonTLS(t *testing.T) {
 
 func TestSuite_PythonSelfReference(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-self.yml", path.Join(pathOutput, "test-suite-python-self.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8081`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=7771`, `OTEL_EBPF_EXECUTABLE_PATH=`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Python Traces with self-references", testHTTPTracesNestedSelfCalls)

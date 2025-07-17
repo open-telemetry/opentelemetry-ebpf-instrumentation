@@ -266,12 +266,12 @@ cleanup:
 }
 
 SEC("tc_ingress")
-int beyla_ingress_flow_parse(struct __sk_buff *skb) {
+int obi_ingress_flow_parse(struct __sk_buff *skb) {
     return flow_monitor(skb);
 }
 
 SEC("tc_egress")
-int beyla_egress_flow_parse(struct __sk_buff *skb) {
+int obi_egress_flow_parse(struct __sk_buff *skb) {
     return flow_monitor(skb);
 }
 
