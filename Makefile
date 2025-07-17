@@ -153,6 +153,11 @@ lint-markdown:
 	@echo "### Linting markdown"
 	@docker run --rm -u $(DOCKER_USER) -v "$(CURDIR):$(WORKDIR)" -w "$(WORKDIR)" $(MARKDOWNIMAGE) -c $(WORKDIR)/.markdownlint.yaml $(WORKDIR)/**/*.md
 
+.PHONY: lint-markdown-fix
+lint-markdown-fix:
+	@echo "### Formatting markdown"
+	@docker run --rm -u $(DOCKER_USER) -v "$(CURDIR):$(WORKDIR)" -w "$(WORKDIR)" $(MARKDOWNIMAGE) -c $(WORKDIR)/.markdownlint.yaml --fix $(WORKDIR)/**/*.md
+
 .PHONY: update-offsets
 update-offsets: prereqs
 	@echo "### Updating pkg/components/goexec/offsets.json"
