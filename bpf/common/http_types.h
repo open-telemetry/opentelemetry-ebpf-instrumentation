@@ -42,13 +42,6 @@
 // Preface PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n https://datatracker.ietf.org/doc/html/rfc7540#section-3.5
 #define MIN_HTTP2_SIZE 24
 
-enum protocol_type : u8 {
-    // Default value, used when the protocol is not known or will be determined/classified
-    // in userspace.
-    k_protocol_type_unknown = 0,
-    k_protocol_type_mysql = 1,
-};
-
 typedef struct call_protocol_args {
     pid_connection_info_t pid_conn;
     enum protocol_type protocol_type;
