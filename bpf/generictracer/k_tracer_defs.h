@@ -26,6 +26,12 @@ typedef struct recv_args {
     unsigned char iovec_ctx[sizeof(iovec_iter_ctx)];
 } recv_args_t;
 
+static __always_inline enum protocol_type
+protocol_type_for_conn_info(const connection_info_t *info) {
+    const enum protocol_type *cached_protocol_type = bpf_map_lookup_elem(&protocol_cache, info);
+    return cached_protocol_type ? *cached_protocol_type : k_protocol_type_unknown;
+}
+
 static __always_inline call_protocol_args_t *make_protocol_args(
     connection_info_t *info, void *u_buf, int bytes_len, u8 ssl, u8 direction, u16 orig_dport) {
     call_protocol_args_t *args = protocol_args();
@@ -33,18 +39,12 @@ static __always_inline call_protocol_args_t *make_protocol_args(
         return 0;
     }
 
-    enum protocol_type protocol_type = k_protocol_type_unknown;
-    enum protocol_type *cached_protocol_type = bpf_map_lookup_elem(&protocol_cache, info);
-    if (cached_protocol_type != NULL) {
-        protocol_type = *cached_protocol_type;
-    }
-
     args->ssl = ssl;
     args->bytes_len = bytes_len;
     args->direction = direction;
     args->orig_dport = orig_dport;
     args->u_buf = (u64)u_buf;
-    args->protocol_type = protocol_type;
+    args->protocol_type = protocol_type_for_conn_info(info);
 
     return args;
 }
