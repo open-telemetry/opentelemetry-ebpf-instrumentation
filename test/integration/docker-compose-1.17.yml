@@ -16,17 +16,17 @@ services:
     environment:
       LOG_LEVEL: DEBUG
 
-  autoinstrumenter:
+  obi:
     build:
       context: ../..
       dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile
     command:
-      - --config=/configs/instrumenter-config${INSTRUMENTER_CONFIG_SUFFIX}.yml
+      - --config=/configs/obi-config${INSTRUMENTER_CONFIG_SUFFIX}.yml
     volumes:
       - ./configs/:/configs
       - ../../testoutput:/coverage
       - ../../testoutput/run-1.17:/var/run/beyla
-    image: hatest-autoinstrumenter
+    image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     pid: "service:testserver"
     environment:
@@ -64,7 +64,7 @@ services:
       - "9464" # Prometheus exporter
       - "8888" # metrics endpoint
     depends_on:
-      autoinstrumenter:
+      obi:
         condition: service_started
       prometheus:
         condition: service_started

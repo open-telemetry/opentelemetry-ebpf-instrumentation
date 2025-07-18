@@ -13,18 +13,18 @@ services:
       OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "${APP_OTEL_METRICS_ENDPOINT}"
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "${APP_OTEL_TRACES_ENDPOINT}"
 
-  autoinstrumenter:
+  obi:
     build:
       context: ../..
       dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile
     command:
-      - --config=/configs/instrumenter-config-go-otel-grpc.yml
+      - --config=/configs/obi-config-go-otel-grpc.yml
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
       - ../../testoutput:/coverage
       - ../../testoutput/run-otel-grpc:/var/run/beyla
-    image: hatest-autoinstrumenter
+    image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     pid: "service:testserver"
     environment:
@@ -64,7 +64,7 @@ services:
       - "9464" # Prometheus exporter
       - "8888" # metrics endpoint
     depends_on:
-      autoinstrumenter:
+      obi:
         condition: service_started
       prometheus:
         condition: service_started

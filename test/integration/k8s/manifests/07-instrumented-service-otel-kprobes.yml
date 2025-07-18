@@ -95,7 +95,7 @@ spec:
       imagePullPolicy: Never # loaded into Kind from localhost
       securityContext:
         privileged: true
-      args: ["--config=/configs/instrumenter-config.yml"]
+      args: ["--config=/configs/obi-config.yml"]
       volumeMounts:
         - mountPath: /configs
           name: configs
