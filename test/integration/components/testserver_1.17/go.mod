@@ -1,6 +1,6 @@
 module github.com/open-telemetry/opentelemetry-ebpf-instrumentation/testserver_1.17
 
-go 1.17
+go 1.24
 
 require (
 	github.com/caarlos0/env/v9 v9.0.0

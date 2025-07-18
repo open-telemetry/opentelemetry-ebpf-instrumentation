@@ -1,6 +1,6 @@
 module otel_sdk_off
 
-go 1.24.2
+go 1.24
 
 require go.opentelemetry.io/otel v1.37.0
 
