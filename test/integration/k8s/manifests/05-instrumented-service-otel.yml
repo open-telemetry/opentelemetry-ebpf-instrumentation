@@ -81,7 +81,7 @@ spec:
           imagePullPolicy: Never # loaded into Kind from localhost
           securityContext:
             privileged: true
-          args: ["--config=/configs/instrumenter-config.yml"]
+          args: ["--config=/configs/obi-config.yml"]
           volumeMounts:
             - mountPath: /configs
               name: configs
@@ -89,7 +89,7 @@ spec:
               name: testoutput
           env:
             - name: OTEL_EBPF_CONFIG_PATH
-              value: "/configs/instrumenter-config.yml"
+              value: "/configs/obi-config.yml"
             - name: GOCOVERDIR
               value: "/testoutput"
             - name: OTEL_EBPF_TRACE_PRINTER

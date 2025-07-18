@@ -6,8 +6,8 @@ mount -t debugfs nodev /sys/kernel/debug
 # Start the trace pipe reader
 cat /sys/kernel/debug/tracing/trace_pipe &
 
-# Start the instrumenter
-./beyla "$@" &
+# Start OBI
+./ebpf-instrument "$@" &
 
 # Wait for any process to exit
 wait -n
