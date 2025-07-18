@@ -72,7 +72,7 @@ func TestMultiProcess(t *testing.T) {
 	})
 
 	// do some requests to the server at port 18090, which must not be instrumented
-	// as the instrumenter-config-multiexec.yml file only selects the process with port 18080.
+	// as the obi-config-multiexec.yml file only selects the process with port 18080.
 	// Doing it early to give time to generate the traces (in case the test failed)
 	// while doing another test in between for the same container
 	test.Eventually(t, testTimeout, func(t require.TestingT) {

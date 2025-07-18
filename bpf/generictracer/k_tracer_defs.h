@@ -3,6 +3,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/ringbuf.h>
 #include <common/send_args.h>
@@ -12,6 +13,8 @@
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/protocol_http.h>
+
+#include <generictracer/maps/protocol_cache.h>
 
 #include <pid/pid.h>
 
@@ -23,10 +26,15 @@ typedef struct recv_args {
     unsigned char iovec_ctx[sizeof(iovec_iter_ctx)];
 } recv_args_t;
 
-static __always_inline call_protocol_args_t *
-make_protocol_args(void *u_buf, int bytes_len, u8 ssl, u8 direction, u16 orig_dport) {
-    call_protocol_args_t *args = protocol_args();
+static __always_inline enum protocol_type
+protocol_type_for_conn_info(const connection_info_t *info) {
+    const enum protocol_type *cached_protocol_type = bpf_map_lookup_elem(&protocol_cache, info);
+    return cached_protocol_type ? *cached_protocol_type : k_protocol_type_unknown;
+}
 
+static __always_inline call_protocol_args_t *make_protocol_args(
+    connection_info_t *info, void *u_buf, int bytes_len, u8 ssl, u8 direction, u16 orig_dport) {
+    call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
     }
@@ -36,7 +44,7 @@ make_protocol_args(void *u_buf, int bytes_len, u8 ssl, u8 direction, u16 orig_dp
     args->direction = direction;
     args->orig_dport = orig_dport;
     args->u_buf = (u64)u_buf;
-    args->protocol_type = k_protocol_type_unknown;
+    args->protocol_type = protocol_type_for_conn_info(info);
 
     return args;
 }
@@ -48,7 +56,8 @@ static __always_inline void handle_buf_with_connection(void *ctx,
                                                        u8 ssl,
                                                        u8 direction,
                                                        u16 orig_dport) {
-    call_protocol_args_t *args = make_protocol_args(u_buf, bytes_len, ssl, direction, orig_dport);
+    call_protocol_args_t *args =
+        make_protocol_args(&pid_conn->conn, u_buf, bytes_len, ssl, direction, orig_dport);
     if (!args) {
         return;
     }

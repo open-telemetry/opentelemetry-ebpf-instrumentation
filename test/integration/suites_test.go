@@ -173,7 +173,7 @@ func TestSuite_GRPCExportKProbes(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
-// Instead of submitting metrics via OTEL, exposes them as an autoinstrumenter:8999/metrics endpoint
+// Instead of submitting metrics via OTEL, exposes them as an obi:8999/metrics endpoint
 // that is scraped by the Prometheus server
 func TestSuite_PrometheusScrape(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-promscrape.log"))
