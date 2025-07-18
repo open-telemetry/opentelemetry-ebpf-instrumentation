@@ -49,7 +49,7 @@ spec:
       imagePullPolicy: Never # loaded into Kind from localhost
       securityContext:
         privileged: true
-      args: ["--config=/configs/instrumenter-config-promscrape.yml" ]
+      args: ["--config=/configs/obi-config-promscrape.yml" ]
       volumeMounts:
         - mountPath: /configs
           name: configs

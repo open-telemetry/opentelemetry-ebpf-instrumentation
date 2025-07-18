@@ -101,7 +101,7 @@ spec:
               name: testoutput
           env:
             - name: OTEL_EBPF_CONFIG_PATH
-              value: "/configs/instrumenter-config-promscrape.yml"
+              value: "/configs/obi-config-promscrape.yml"
             - name: GOCOVERDIR
               value: "/testoutput"
             - name: OTEL_EBPF_DISCOVERY_POLL_INTERVAL

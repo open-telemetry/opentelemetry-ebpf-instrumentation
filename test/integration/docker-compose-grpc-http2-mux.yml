@@ -25,18 +25,18 @@ services:
       jaeger:
         condition: service_started
       
-  autoinstrumenter:
+  obi:
     build:
       context: ../..
       dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile
     command:
-      - --config=/configs/instrumenter-config-grpc-http2-mux.yml
+      - --config=/configs/obi-config-grpc-http2-mux.yml
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
       - ../../testoutput:/coverage
       - ../../testoutput/run-http2-mux:/var/run/beyla
-    image: hatest-autoinstrumenter
+    image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     pid: "host"
     environment:

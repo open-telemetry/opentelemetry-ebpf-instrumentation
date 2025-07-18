@@ -8,7 +8,7 @@ services:
       - -c
       - "while true; do curl -s https://github.com/; sleep 5; done"
 
-  autoinstrumenter:
+  obi:
     build:
       context: ../..
       dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile
@@ -17,11 +17,11 @@ services:
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../testoutput:/coverage
       - ../../testoutput/run-netolly:/var/run/beyla
-    image: hatest-autoinstrumenter
+    image: hatest-obi
     privileged: true
     network_mode: host
     environment:
-      OTEL_EBPF_CONFIG_PATH: /configs/instrumenter-config-netolly.yml
+      OTEL_EBPF_CONFIG_PATH: /configs/obi-config-netolly.yml
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_NETWORK_METRICS: "true" # explicitly enabling network metrics
       OTEL_EBPF_NETWORK_PRINT_FLOWS: "true"
