@@ -116,7 +116,6 @@ type EBPFParseContext struct {
 	h2c               *lru.Cache[uint64, h2Connection]
 	redisDBCache      *simplelru.LRU[BpfConnectionInfoT, int]
 	largeBuffers      *expirable.LRU[largeBufferKey, largeBuffer]
-	largeBuffersMU    sync.RWMutex
 	mongoRequestCache *PendingMongoDBRequests
 }
 
@@ -187,7 +186,7 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 	case EventTypeGoKafkaGo:
 		return ReadGoKafkaGoRequestIntoSpan(record)
 	case EventTypeTCPLargeBuffer:
-		return setTCPLargeBuffer(parseCtx, record)
+		return appendTCPLargeBuffer(parseCtx, record)
 	case EventOTelSDKGo:
 		return ReadGoOTelEventIntoSpan(record)
 	}

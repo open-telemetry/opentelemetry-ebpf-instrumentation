@@ -18,17 +18,13 @@ type (
 	}
 )
 
-func setTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (request.Span, bool, error) {
-	parseCtx.largeBuffersMU.Lock()
-	defer parseCtx.largeBuffersMU.Unlock()
+func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (request.Span, bool, error) {
+	hdrSize := uint32(unsafe.Sizeof(TCPLargeBufferHeader{})) - uint32(unsafe.Sizeof(uintptr(0))) // Remove `buf` placeholder
 
-	hdrSize := uint32(unsafe.Sizeof(TCPLargeBufferHeader{}))
-
-	event, err := ReinterpretCast[TCPLargeBufferHeader](record.RawSample[:hdrSize])
+	event, err := ReinterpretCast[TCPLargeBufferHeader](record.RawSample)
 	if err != nil {
 		return request.Span{}, true, err
 	}
-	hdrSize -= uint32(unsafe.Sizeof(uintptr(0))) // Remove `buf` placeholder
 	newBuffer := record.RawSample[hdrSize:]
 	newLen := int(event.Len)
 
@@ -45,7 +41,6 @@ func setTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (requ
 			// If it exists, we can append to it
 			newBuffer = append(lb.buf, newBuffer...)
 			newLen += len(lb.buf)
-			parseCtx.largeBuffers.Remove(key)
 		}
 	default: // LargeBufActionInit
 	}
@@ -59,10 +54,7 @@ func setTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (requ
 	return request.Span{}, true, nil
 }
 
-func getTCPLargeBuffer(parseCtx *EBPFParseContext, traceID [16]uint8, spanID [8]uint8, direction uint8) ([]byte, bool) {
-	parseCtx.largeBuffersMU.RLock()
-	defer parseCtx.largeBuffersMU.RUnlock()
-
+func extractTCPLargeBuffer(parseCtx *EBPFParseContext, traceID [16]uint8, spanID [8]uint8, direction uint8) ([]byte, bool) {
 	key := largeBufferKey{
 		spanID:    spanID,
 		traceID:   traceID,

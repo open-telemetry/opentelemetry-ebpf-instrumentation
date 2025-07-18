@@ -209,17 +209,12 @@ static __always_inline u8 is_mysql(connection_info_t *conn_info,
         return 0;
     }
 
-    if (data_len < (k_mysql_hdr_size + 1)) {
-        bpf_dbg_printk("is_mysql: data_len is too short: %d", data_len);
-        return 0;
-    }
-
     struct mysql_hdr hdr = {};
     if (mysql_parse_fixup_header(conn_info, &hdr, data, data_len) != 0) {
         bpf_dbg_printk("is_mysql: failed to parse mysql header");
         return 0;
     }
-    u32 payload_len = mysql_payload_length(hdr.payload_length);
+    const u32 payload_len = mysql_payload_length(hdr.payload_length);
 
     if (payload_len > k_mysql_payload_length_max) {
         bpf_dbg_printk("is_mysql: payload length is too large: %d", payload_len);
