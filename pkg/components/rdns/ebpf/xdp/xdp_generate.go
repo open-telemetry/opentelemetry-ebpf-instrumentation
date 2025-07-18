@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package xdp
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
