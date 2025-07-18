@@ -31,17 +31,17 @@
 #include <pid/pid.h>
 
 // Used by accept to grab the sock details
-SEC("kretprobe/sock_alloc")
-int BPF_KRETPROBE(obi_kretprobe_sock_alloc, struct socket *sock) {
+SEC("kprobe/security_socket_accept")
+int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct socket *newsock) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
     }
 
-    bpf_dbg_printk("=== sock alloc %llx ===", id);
+    bpf_dbg_printk("=== security_socket_accept %llx ===", id);
 
-    u64 addr = (u64)sock;
+    u64 addr = (u64)newsock;
 
     sock_args_t args = {};
 
@@ -135,7 +135,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
         store_accept_fd_info(host_pid, fd, &info.p_conn.conn);
 
         u16 orig_dport = info.p_conn.conn.d_port;
-        //dbg_print_http_connection_info(&info.conn);
+        //dbg_print_http_connection_info(&info.p_conn.conn);
         sort_connection_info(&info.p_conn.conn);
         info.p_conn.pid = pid_from_pid_tgid(id);
         info.orig_dport = orig_dport;
@@ -149,6 +149,8 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
         // find_nodejs_parent_trace() for usage
         // TODO: try to merge with store_accept_fd_info() above
         bpf_map_update_elem(&fd_to_connection, &key, &info.p_conn.conn, BPF_ANY);
+    } else {
+        bpf_dbg_printk("Failed to parse accept socket info");
     }
 
 cleanup:
