@@ -4,8 +4,8 @@ on:
   push:
   pull_request:
 
-# Declare default permissions as read only.
-permissions: read-all
+permissions:
+  contents: read
 
 jobs:
   changedfiles:
@@ -18,10 +18,27 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Get changed files
         id: changes
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
         run: |
-          echo "md=$(git diff --name-only --diff-filter=ACMRTUXB origin/${{ github.event.pull_request.base.ref }} ${{ github.event.pull_request.head.sha }} | grep .md$ | xargs)" >> $GITHUB_OUTPUT
+          echo "PR_HEAD_SHA=$PR_HEAD_SHA"
+
+          base="$(git merge-base origin/main $PR_HEAD_SHA)"
+          echo "BASE_REF=$base"
+
+          changed="$(git diff --name-only --diff-filter=ACMRTUXB $base $PR_HEAD_SHA)"
+          echo "CHANGED=$changed"
+
+          filtered="$(grep '.md$' <<<"$changed" || true)"
+          echo "filtered=$filtered"
+
+          md="$(echo $filtered | xargs -d '\n' echo)"
+          echo "md=$md"
+          echo "md=$md" >> $GITHUB_OUTPUT
 
   lint:
     name: lint markdown files
@@ -31,6 +48,8 @@ jobs:
     steps:
       - name: Checkout Repo
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - name: Run linter
         uses: docker://avtodev/markdown-lint:v1@sha256:6aeedc2f49138ce7a1cd0adffc1b1c0321b841dc2102408967d9301c031949ee
         with:
