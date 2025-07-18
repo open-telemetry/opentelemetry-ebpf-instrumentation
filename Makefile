@@ -242,8 +242,10 @@ cleanup-integration-test:
 	@echo "### Removing integration test clusters"
 	$(KIND) delete cluster -n test-kind-cluster || true
 	@echo "### Removing docker containers and images"
-	$(OCI_BIN) rm -f $(shell $(OCI_BIN) ps --format '{{.Names}}' | grep 'integration-') || true
-	$(OCI_BIN) rmi -f $(shell $(OCI_BIN) images --format '{{.Repository}}:{{.Tag}}' | grep 'hatest-') || true
+	$(eval CONTAINERS := $(shell $(OCI_BIN) ps --format '{{.Names}}' | grep 'integration-'))
+	$(if $(strip $(CONTAINERS)),$(OCI_BIN) rm -f $$CONTAINERS,@echo "No integration test containers to remove")
+	$(eval IMAGES := $(shell $(OCI_BIN) images --format '{{.Repository}}:{{.Tag}}' | grep 'hatest-'))
+	$(if $(strip $(CONTAINERS)),$(OCI_BIN) rmi -f $$IMAGES,@echo "No integration test images to remove")
 
 .PHONY: run-integration-test
 run-integration-test:

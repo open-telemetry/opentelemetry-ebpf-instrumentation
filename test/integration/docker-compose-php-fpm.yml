@@ -35,18 +35,18 @@ services:
       PM_MAX_SPARE_SERVERS: 20
       PM_PROCESS_IDLE_TIMEOUT: 10s
 
-  autoinstrumenter:
+  obi:
     build:
       context: ../..
       dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile
     command:
-      - --config=/configs/instrumenter-config-php.yml
+      - --config=/configs/obi-config-php.yml
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../testoutput:/coverage
       - ../../testoutput/run-php:/var/run/beyla
-    image: hatest-javaautoinstrumenter
+    image: hatest-javaobi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     network_mode: "host"
     pid: "host"
