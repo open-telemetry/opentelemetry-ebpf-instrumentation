@@ -13,7 +13,7 @@ services:
     environment:
       LOG_LEVEL: DEBUG
 
-  autoinstrumenter:
+  obi:
     build:
       context: ../..
       dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile
@@ -21,11 +21,11 @@ services:
       - ./configs/:/configs
       - ../../testoutput:/coverage
       - ../../testoutput/run-1.16:/var/run/beyla
-    image: hatest-autoinstrumenter
+    image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     pid: "service:testserver"
     environment:
-      OTEL_EBPF_CONFIG_PATH: "/configs/instrumenter-config-java.yml"
+      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-java.yml"
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_METRICS_FEATURES: "application,application_span"
       OTEL_EBPF_TRACE_PRINTER: "text"
@@ -59,7 +59,7 @@ services:
       - "9464" # Prometheus exporter
       - "8888" # metrics endpoint
     depends_on:
-      autoinstrumenter:
+      obi:
         condition: service_started
       prometheus:
         condition: service_started

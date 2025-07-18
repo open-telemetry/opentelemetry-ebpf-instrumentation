@@ -25,7 +25,7 @@ services:
       testserver:
         condition: service_started
 
-  autoinstrumenter:
+  obi:
     build:
       context: ../..
       dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile
@@ -34,11 +34,11 @@ services:
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../testoutput:/coverage
       - ../../testoutput/run-netolly-direction:/var/run/beyla
-    image: hatest-autoinstrumenter
+    image: hatest-obi
     privileged: true
     network_mode: service:testserver
     environment:
-      OTEL_EBPF_CONFIG_PATH: /configs/instrumenter-config-netolly${OTEL_EBPF_CONFIG_SUFFIX}.yml
+      OTEL_EBPF_CONFIG_PATH: /configs/obi-config-netolly${OTEL_EBPF_CONFIG_SUFFIX}.yml
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_NETWORK_SOURCE: ${OTEL_EBPF_NETWORK_SOURCE}
       OTEL_EBPF_METRICS_FEATURES: "network" # implicitly enabling network metrics without a global enable

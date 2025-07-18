@@ -27,7 +27,7 @@ services:
       otelcol:
         condition: service_started
 
-  autoinstrumenter:
+  obi:
     build:
       context: ../..
       dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile
@@ -37,12 +37,12 @@ services:
       - /sys/fs/cgroup:/sys/fs/cgroup
       - ../../testoutput:/coverage
       - ../../testoutput/run-nodejsdist:/var/run/beyla
-    image: hatest-autoinstrumenter-b
+    image: hatest-obi-b
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     network_mode: "host"
     pid: "host"
     environment:
-      OTEL_EBPF_CONFIG_PATH: "/configs/instrumenter-config-with-jaeger-host.yml"
+      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-with-jaeger-host.yml"
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "5001,5006"
