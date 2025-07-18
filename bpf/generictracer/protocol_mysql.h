@@ -260,8 +260,9 @@ static __always_inline u8 is_mysql(connection_info_t *conn_info,
             // NOTE: Trying to classify the connection based on this command
             // would be unreliable, as the check is too shallow.
             *packet_type = PACKET_TYPE_REQUEST;
+            break;
         }
-        break;
+        return 0;
     default:
         if (*protocol_type == k_protocol_type_mysql) {
             // Check sequence ID and make sure we are processing a response.
