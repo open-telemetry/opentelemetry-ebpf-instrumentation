@@ -28,10 +28,10 @@ var cluster *kube.Kind
 
 func TestMain(m *testing.M) {
 	if err := docker.Build(os.Stdout, tools.ProjectDir(),
-		docker.ImageBuild{Tag: "beyla:dev", Dockerfile: k8s.DockerfileBeyla},
+		docker.ImageBuild{Tag: "obi:dev", Dockerfile: k8s.DockerfileOBI},
 		docker.ImageBuild{Tag: "testserver:dev", Dockerfile: k8s.DockerfileTestServer},
 		docker.ImageBuild{Tag: "httppinger:dev", Dockerfile: k8s.DockerfileHTTPPinger},
-		docker.ImageBuild{Tag: "beyla-k8s-cache:dev", Dockerfile: k8s.DockerfileBeylaK8sCache},
+		docker.ImageBuild{Tag: "obi-k8s-cache:dev", Dockerfile: k8s.DockerfileK8sCache},
 		docker.ImageBuild{Tag: "quay.io/prometheus/prometheus:v2.55.1"},
 	); err != nil {
 		slog.Error("can't build docker images", "error", err)
@@ -40,16 +40,16 @@ func TestMain(m *testing.M) {
 
 	cluster = kube.NewKind("test-kind-cluster-external-cache",
 		kube.KindConfig(testpath.Manifests+"/00-kind.yml"),
-		kube.LocalImage("beyla:dev"),
+		kube.LocalImage("obi:dev"),
 		kube.LocalImage("testserver:dev"),
 		kube.LocalImage("httppinger:dev"),
-		kube.LocalImage("beyla-k8s-cache:dev"),
+		kube.LocalImage("obi-k8s-cache:dev"),
 		kube.LocalImage("quay.io/prometheus/prometheus:v2.55.1"),
 		kube.Deploy(testpath.Manifests+"/01-volumes.yml"),
 		kube.Deploy(testpath.Manifests+"/01-serviceaccount.yml"),
 		kube.Deploy(testpath.Manifests+"/02-prometheus-promscrape.yml"),
 		kube.Deploy(testpath.Manifests+"/05-uninstrumented-service.yml"),
-		kube.Deploy(testpath.Manifests+"/06-beyla-external-informer.yml"),
+		kube.Deploy(testpath.Manifests+"/06-obi-external-informer.yml"),
 	)
 
 	cluster.Run(m)
@@ -76,11 +76,11 @@ func TestInformersCache_NetworkMetrics(t *testing.T) {
 }
 
 func TestInformersCache_InternalMetrics(t *testing.T) {
-	require.NotZero(t, metricVal(t, `beyla_kube_cache_client_messages_total{status="submit"}`))
-	require.NotZero(t, metricVal(t, `beyla_kube_cache_connected_clients`))
-	require.NotZero(t, metricVal(t, `beyla_kube_cache_informer_events_total{type="new"}`))
-	require.NotZero(t, metricVal(t, `beyla_kube_cache_informer_events_total{type="update"}`))
-	require.NotZero(t, metricVal(t, `beyla_kube_cache_internal_build_info`))
+	require.NotZero(t, metricVal(t, `obi_kube_cache_client_messages_total{status="submit"}`))
+	require.NotZero(t, metricVal(t, `obi_kube_cache_connected_clients`))
+	require.NotZero(t, metricVal(t, `obi_kube_cache_informer_events_total{type="new"}`))
+	require.NotZero(t, metricVal(t, `obi_kube_cache_informer_events_total{type="update"}`))
+	require.NotZero(t, metricVal(t, `obi_kube_cache_internal_build_info`))
 }
 
 func metricVal(t *testing.T, promQLQuery string) int {

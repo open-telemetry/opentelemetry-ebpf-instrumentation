@@ -1,6 +1,6 @@
 # this file depends in the annotations and 00-kind-multi-node.yml to deploy a otherinstance
 # and a client in different nodes.
-# Beyla will instrument both, but restricting the metadata only to the local node,
+# OBI will instrument both, but restricting the metadata only to the local node,
 # so network flows between client and otherinstance would be incomplete
 apiVersion: v1
 kind: Pod
@@ -8,8 +8,8 @@ metadata:
   name: httppinger
   labels:
     component: httppinger
-    # this label will trigger a deletion of beyla pods before tearing down
-    # kind, to force Beyla writing the coverage data
+    # this label will trigger a deletion of OBI pods before tearing down
+    # kind, to force OBI writing the coverage data
     teardown: delete
 spec:
   affinity:
@@ -28,9 +28,7 @@ spec:
     - name: testoutput
       persistentVolumeClaim:
         claimName: testoutput
-    - name: maincode
-      configMap:
-        name: maincode
+
   containers:
     - name: httppinger
       image: httppinger:dev
@@ -68,8 +66,8 @@ spec:
       name: otherinstance
       labels:
         app: otherinstance
-        # this label will trigger a deletion of beyla pods before tearing down
-        # kind, to force Beyla writing the coverage data
+        # this label will trigger a deletion of OBI pods before tearing down
+        # kind, to force OBI writing the coverage data
         teardown: delete
     spec:
       affinity:

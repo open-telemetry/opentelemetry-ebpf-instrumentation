@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: beyla-config
+  name: obi-config
 data:
-  beyla-config.yml: |
+  obi-config.yml: |
     attributes:
       kubernetes:
         enable: true
@@ -38,39 +38,39 @@ data:
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: beyla
+  name: obi
 spec:
   selector:
     matchLabels:
-      instrumentation: beyla
+      instrumentation: obi
   template:
     metadata:
       labels:
-        instrumentation: beyla
-        # this label will trigger a deletion of beyla pods before tearing down
-        # kind, to force Beyla writing the coverage data
+        instrumentation: obi
+        # this label will trigger a deletion of obi pods before tearing down
+        # kind, to force OBI writing the coverage data
         teardown: delete
     spec:
       hostPID: true  #important!
-      serviceAccountName: beyla
+      serviceAccountName: obi
       volumes:
-        - name: beyla-config
+        - name: obi-config
           configMap:
-            name: beyla-config
+            name: obi-config
         - name: testoutput
           persistentVolumeClaim:
             claimName: testoutput
       containers:
-        - name: beyla
-          image: beyla:dev
+        - name: obi
+          image: obi:dev
           imagePullPolicy: Never # loaded into Kind from localhost
-          args: ["--config=/config/beyla-config.yml"]
+          args: ["--config=/config/obi-config.yml"]
           securityContext:
             privileged: true
             runAsUser: 0
           volumeMounts:
             - mountPath: /config
-              name: beyla-config
+              name: obi-config
             - mountPath: /testoutput
               name: testoutput
           env:

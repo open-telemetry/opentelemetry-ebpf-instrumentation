@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: beyla-config
+  name: obi-config
 data:
-  beyla-config.yml: |
+  obi-config.yml: |
     log_level: debug
     otel_metrics_export:
       endpoint: http://otelcol.default:4317
@@ -32,47 +32,47 @@ data:
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: beyla
+  name: obi
 spec:
   selector:
     matchLabels:
-      instrumentation: beyla
+      instrumentation: obi
   template:
     metadata:
       labels:
-        instrumentation: beyla
-        # this label will trigger a deletion of beyla pods before tearing down
-        # kind, to force Beyla writing the coverage data
+        instrumentation: obi
+        # this label will trigger a deletion of OBI pods before tearing down
+        # kind, to force OBI writing the coverage data
         teardown: delete
     spec:
       hostPID: true  #important for appo11y!
       hostNetwork: true #important for neto11y!
       dnsPolicy: ClusterFirstWithHostNet # important to get connection to otelcollector from hostnetwork !!
-      serviceAccountName: beyla
+      serviceAccountName: obi
       volumes:
-        - name: beyla-config
+        - name: obi-config
           configMap:
-            name: beyla-config
+            name: obi-config
         - name: testoutput
           persistentVolumeClaim:
             claimName: testoutput
       containers:
-        - name: beyla
-          image: beyla:dev
+        - name: obi
+          image: obi:dev
           imagePullPolicy: Never # loaded into Kind from localhost
           securityContext:
             privileged: true
             runAsUser: 0
           volumeMounts:
             - mountPath: /config
-              name: beyla-config
+              name: obi-config
             - mountPath: /testoutput
               name: testoutput
           env:
             - name: GOCOVERDIR
               value: "/testoutput"
             - name: OTEL_EBPF_CONFIG_PATH
-              value: /config/beyla-config.yml
+              value: /config/obi-config.yml
             - name: OTEL_EBPF_NETWORK_METRICS
               value: "true"
             - name: OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT
