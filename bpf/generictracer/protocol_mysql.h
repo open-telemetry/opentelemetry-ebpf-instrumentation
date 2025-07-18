@@ -17,6 +17,8 @@
 #include <generictracer/protocol_common.h>
 #include <generictracer/k_tracer_tailcall.h>
 
+#include <generictracer/maps/protocol_cache.h>
+
 #include <maps/active_ssl_connections.h>
 
 // Every mysql command packet is prefixed by an header
@@ -294,6 +296,8 @@ static __always_inline u8 is_mysql(connection_info_t *conn_info,
     }
 
     *protocol_type = k_protocol_type_mysql;
+    bpf_map_update_elem(&protocol_cache, conn_info, protocol_type, BPF_ANY);
+
     bpf_dbg_printk("is_mysql: mysql! command_id=%d packet_type=%d", hdr.command_id, *packet_type);
     return 1;
 }

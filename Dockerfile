@@ -1,6 +1,6 @@
 # Build the autoinstrumenter binary
 # TODO: replace by OTEL image once they are uploaded
-FROM ghcr.io/open-telemetry/obi-generator:0.1.0@sha256:41fb1d6ed3303339d901755441f7a38eb0dba53e6579e329bbaa66b9978ad3c0 AS builder
+FROM ghcr.io/open-telemetry/obi-generator:0.1.1@sha256:3575058c6e7fa5346e62eef608f197802e8771f53bd2070e01751175c639c31d AS builder
 
 # TODO: embed software version in executable
 

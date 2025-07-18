@@ -9,6 +9,13 @@
 
 #include <logger/bpf_dbg.h>
 
+enum protocol_type : u8 {
+    // Default value, used when the protocol is not known or will be determined/classified
+    // in userspace.
+    k_protocol_type_unknown = 0,
+    k_protocol_type_mysql = 1,
+};
+
 // Struct to keep information on the connections in flight
 // s = source, d = destination
 // h = high word, l = low word
