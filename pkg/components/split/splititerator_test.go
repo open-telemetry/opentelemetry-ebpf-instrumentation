@@ -1,4 +1,4 @@
-package util
+package split
 
 import (
 	"testing"
@@ -12,7 +12,7 @@ type testInput struct {
 }
 
 func runTest(t *testing.T, in string, delim string, expected []testInput) {
-	sp := NewSplitIterator(in, delim)
+	sp := NewIterator(in, delim)
 
 	for _, e := range expected {
 		w, eof := sp.Next()
@@ -74,7 +74,7 @@ func TestSplitIterator_multi(t *testing.T) {
 func TestSplitIterator_reset(t *testing.T) {
 	in := "one|line|per|time|"
 
-	sp := NewSplitIterator(in, "|")
+	sp := NewIterator(in, "|")
 
 	w, eof := sp.Next()
 	assert.False(t, eof)

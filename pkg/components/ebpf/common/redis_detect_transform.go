@@ -110,7 +110,7 @@ func isValidRedisChar(c byte) bool {
 func parseRedisRequest(buf string) (string, string, bool) {
 	const redisDelim = "\r\n"
 
-	lines := util.NewSplitIterator(buf, redisDelim)
+	lines := split.NewIterator(buf, redisDelim)
 
 	_, eof := lines.Next()
 
