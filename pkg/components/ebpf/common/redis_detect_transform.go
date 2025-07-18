@@ -12,7 +12,7 @@ import (
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/ringbuf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/util"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/split"
 )
 
 const minRedisFrameLen = 3
