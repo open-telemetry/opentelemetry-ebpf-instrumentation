@@ -88,20 +88,6 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 }
 
 func (p *Tracer) SetupTailCalls() {
-	for _, tc := range []struct {
-		index int
-		prog  *ebpf.Program
-	}{
-		{
-			index: 0,
-			prog:  p.bpfObjects.ObiReadJsonrpcMethod,
-		},
-	} {
-		err := p.bpfObjects.JsonrpcJumpTable.Update(uint32(tc.index), uint32(tc.prog.FD()), ebpf.UpdateAny)
-		if err != nil {
-			p.log.Error("error loading info tail call jump table", "error", err)
-		}
-	}
 }
 
 func (p *Tracer) Constants() map[string]any {
@@ -256,10 +242,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/rpc/jsonrpc.(*serverCodec).ReadRequestHeader": {{
 			Start: p.bpfObjects.ObiUprobeJsonrpcReadRequestHeader,
 			End:   p.bpfObjects.ObiUprobeJsonrpcReadRequestHeaderReturns,
-		}},
-		"net/http.(*body).Read": {{
-			Start: p.bpfObjects.ObiUprobeBodyRead,
-			End:   p.bpfObjects.ObiUprobeBodyReadReturn,
 		}},
 		"net/textproto.(*Reader).readContinuedLineSlice": {{
 			End: p.bpfObjects.ObiUprobeReadContinuedLineSliceReturns,
