@@ -27,7 +27,6 @@
 #include <gotracer/go_str.h>
 #include <gotracer/go_stream_key.h>
 #include <gotracer/hpack.h>
-#include <gotracer/protocol_jsonrpc.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -1288,8 +1287,7 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
     if (method_len == 0) {
         return 0;
     }
-    bpf_dbg_printk("method_len %d", method_len);
-    unsigned char method_buf[JSONRPC_METHOD_BUF_SIZE] = {};
+    unsigned char method_buf[METHOD_MAX_LEN] = {};
 
     if (!read_go_str("JSON-RPC method", (void *)rpc_request_addr, 0, method_buf, METHOD_MAX_LEN)) {
         bpf_dbg_printk("Failed to read JSON-RPC method from %llx", rpc_request_addr);
