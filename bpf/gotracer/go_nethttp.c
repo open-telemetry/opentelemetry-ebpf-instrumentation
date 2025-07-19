@@ -1281,15 +1281,22 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
     if (!invocation || !invocation->rpc_request_addr) {
         return 0;
     }
+    off_table_t *ot = get_offsets_table();
     u64 rpc_request_addr = invocation->rpc_request_addr;
     bpf_dbg_printk("rpc_request_addr %llx", rpc_request_addr);
-    u64 method_len = peak_go_str_len("JSON-RPC method", (void *)rpc_request_addr, 0);
+    u64 method_len = peak_go_str_len(
+        "JSON-RPC method",
+        (void *)rpc_request_addr,
+        go_offset_of(ot, (go_offset){.v = _jsonrpc_request_header_service_method_pos}));
     if (method_len == 0) {
         return 0;
     }
 
-    if (!read_go_str(
-            "JSON-RPC method", (void *)rpc_request_addr, 0, invocation->method, METHOD_MAX_LEN)) {
+    if (!read_go_str("JSON-RPC method",
+                     (void *)rpc_request_addr,
+                     go_offset_of(ot, (go_offset){.v = _jsonrpc_request_header_service_method_pos}),
+                     invocation->method,
+                     METHOD_MAX_LEN)) {
         bpf_dbg_printk("Failed to read JSON-RPC method from %llx", rpc_request_addr);
         return 0;
     }

@@ -924,6 +924,20 @@
         ]
       }
     },
+    "net/rpc.Request": {
+      "ServiceMethod": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.24.5"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "1.17.0"
+          }
+        ]
+      }
+    },
     "net/url.URL": {
       "Host": {
         "versions": {
