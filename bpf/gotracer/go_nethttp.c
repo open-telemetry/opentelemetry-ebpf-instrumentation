@@ -70,7 +70,8 @@ typedef struct server_http_func_invocation {
     u64 content_length;
     u64 response_length;
     u64 status;
-    u64 body_addr; // pointer to the body buffer
+    u64 rpc_request_addr; // pointer to the jsonrpc Request
+    u64 body_addr;        // pointer to the body buffer
     tp_info_t tp;
     unsigned char content_type[HTTP_CONTENT_TYPE_MAX_LEN];
     u8 method[METHOD_MAX_LEN];
@@ -1295,6 +1296,52 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
         get_conn_info_from_fd(fd_ptr,
                               &sql_conn->conn); // ok to not check the result, we leave it as 0
     }
+
+    return 0;
+}
+
+SEC("uprobe/jsonrpcReadRequestHeader")
+int obi_uprobe_jsonrpcReadRequestHeader(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("=== uprobe/proc jsonrpc read request header goroutine %lx === ",
+                   goroutine_addr);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    if (!invocation) {
+        return 0;
+    }
+    u64 rpc_request_addr = (u64)GO_PARAM2(ctx);
+    bpf_dbg_printk("rpc_request_addr %llx", rpc_request_addr);
+    invocation->rpc_request_addr = rpc_request_addr;
+
+    return 0;
+}
+
+SEC("uprobe/jsonrpcReadRequestHeaderRet")
+int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("=== uprobe/proc jsonrpc read request header return goroutine %lx === ",
+                   goroutine_addr);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    if (!invocation || !invocation->rpc_request_addr) {
+        return 0;
+    }
+    bpf_dbg_printk("rpc_request_addr %llx", invocation->rpc_request_addr);
+
+    unsigned char method_buf[JSONRPC_METHOD_BUF_SIZE] = {};
+    u64 rpc_request_addr = invocation->rpc_request_addr;
+    read_go_str(
+        "JSON-RPC method", (void *)rpc_request_addr, 0, method_buf, JSONRPC_METHOD_BUF_SIZE);
+    bpf_dbg_printk("read jsonrpc method %s", method_buf);
 
     return 0;
 }

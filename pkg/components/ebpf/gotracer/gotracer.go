@@ -192,6 +192,8 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.GrpcClientStreamStream,
 		// go manual spans
 		goexec.GoTracerDelegatePos,
+		// go jsonrpc
+		goexec.GoJsonrpcRequestHeaderServiceMethodPos,
 	} {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
@@ -249,6 +251,11 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*conn).readRequest": {{
 			Start: p.bpfObjects.ObiUprobeReadRequestStart,
 			End:   p.bpfObjects.ObiUprobeReadRequestReturns,
+		}},
+		// Go net/rpc/jsonrpc
+		"net/rpc/jsonrpc.(*serverCodec).ReadRequestHeader": {{
+			Start: p.bpfObjects.ObiUprobeJsonrpcReadRequestHeader,
+			End:   p.bpfObjects.ObiUprobeJsonrpcReadRequestHeaderReturns,
 		}},
 		"net/http.(*body).Read": {{
 			Start: p.bpfObjects.ObiUprobeBodyRead,
