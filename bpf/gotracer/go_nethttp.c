@@ -1287,14 +1287,13 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
     if (method_len == 0) {
         return 0;
     }
-    unsigned char method_buf[METHOD_MAX_LEN] = {};
 
-    if (!read_go_str("JSON-RPC method", (void *)rpc_request_addr, 0, method_buf, METHOD_MAX_LEN)) {
+    if (!read_go_str(
+            "JSON-RPC method", (void *)rpc_request_addr, 0, invocation->method, METHOD_MAX_LEN)) {
         bpf_dbg_printk("Failed to read JSON-RPC method from %llx", rpc_request_addr);
         return 0;
     }
-    __builtin_memcpy(invocation->method, method_buf, sizeof(method_buf));
-    bpf_dbg_printk("read jsonrpc method %s", method_buf);
+    bpf_dbg_printk("read jsonrpc method %s", invocation->method);
 
     return 0;
 }
