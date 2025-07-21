@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: beyla-config
+  name: obi-config
 data:
-  beyla-config.yml: |
+  obi-config.yml: |
     attributes:
       kubernetes:
         enable: true
@@ -15,13 +15,7 @@ data:
       instrument:
         - open_ports: 7773
           namespace: integration-test
-        - open_ports: 3040
-          namespace: integration-test
-        - exe_path: "/testserver"
-          namespace: integration-test
     routes:
-      patterns:
-         - /jsonrpc
       unmatched: heuristic
     otel_metrics_export:
       endpoint: http://otelcol:4318
@@ -31,46 +25,39 @@ data:
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: beyla
+  name: obi
 spec:
   selector:
     matchLabels:
-      instrumentation: beyla
+      instrumentation: obi
   template:
     metadata:
       labels:
-        instrumentation: beyla
-        # this label will trigger a deletion of beyla pods before tearing down
-        # kind, to force Beyla writing the coverage data
+        instrumentation: obi
+        # this label will trigger a deletion of obi pods before tearing down
+        # kind, to force OBI writing the coverage data
         teardown: delete
     spec:
       hostPID: true  #important!
-      serviceAccountName: beyla
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: obi
       volumes:
-        - name: beyla-config
+        - name: obi-config
           configMap:
-            name: beyla-config
+            name: obi-config
         - name: testoutput
           persistentVolumeClaim:
             claimName: testoutput
       containers:
-        - name: beyla
-          image: beyla:dev
+        - name: obi
+          image: obi:dev
           imagePullPolicy: Never # loaded into Kind from localhost
-          args: ["--config=/config/beyla-config.yml"]
+          args: ["--config=/config/obi-config.yml"]
           securityContext:
+            privileged: true
             runAsUser: 0
-            readOnlyRootFilesystem: true
-            capabilities:
-              add:
-                - SYS_ADMIN     # <-- Important. Required for most eBPF probes to function correctly. TODO: We can break this down more
-                - SYS_PTRACE    # <-- Important. Allows Beyla to access the container namespaces and inspect executables.
-                - NET_ADMIN     # <-- Important. Allows Beyla to attach the Linux TC (Traffic Control) probes
           volumeMounts:
             - mountPath: /config
-              name: beyla-config
+              name: obi-config
             - mountPath: /testoutput
               name: testoutput
           env:
@@ -84,8 +71,3 @@ spec:
               value: "10ms"
             - name: OTEL_EBPF_NAME_RESOLVER_SOURCES
               value: "dns,k8s"
-            - name: OTEL_EBPF_BPF_CONTEXT_PROPAGATION
-              value: "all"
-            - name: OTEL_EBPF_BPF_DEBUG
-              value: "true"
-

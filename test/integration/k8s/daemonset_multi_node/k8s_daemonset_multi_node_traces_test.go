@@ -36,7 +36,7 @@ import (
 // connects the dots, while on the same node, the networking is optimized and we rely on black-box context propagation to
 // connect the services.
 func TestMultiNodeTracing(t *testing.T) {
-	feat := features.New("Beyla is able to generate distributed traces go->go jsonrpc->python->ruby").
+	feat := features.New("OBI is able to generate distributed traces go->go jsonrpc->python->ruby").
 		Assess("it sends connected traces for all services",
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				var trace jaeger.Trace

@@ -23,7 +23,7 @@ var cluster *kube.Kind
 func TestMain(m *testing.M) {
 	if err := docker.Build(os.Stdout, tools.ProjectDir(),
 		docker.ImageBuild{Tag: "testserver:dev", Dockerfile: k8s.DockerfileTestServer},
-		docker.ImageBuild{Tag: "beyla:dev", Dockerfile: k8s.DockerfileBeyla},
+		docker.ImageBuild{Tag: "obi:dev", Dockerfile: k8s.DockerfileOBI},
 		docker.ImageBuild{Tag: "httppinger:dev", Dockerfile: k8s.DockerfileHTTPPinger},
 		docker.ImageBuild{Tag: "quay.io/prometheus/prometheus:v2.55.1"},
 	); err != nil {
@@ -34,14 +34,14 @@ func TestMain(m *testing.M) {
 	cluster = kube.NewKind("test-kind-cluster-netolly-promexport",
 		kube.KindConfig(testpath.Manifests+"/00-kind.yml"),
 		kube.LocalImage("testserver:dev"),
-		kube.LocalImage("beyla:dev"),
+		kube.LocalImage("obi:dev"),
 		kube.LocalImage("httppinger:dev"),
 		kube.LocalImage("quay.io/prometheus/prometheus:v2.55.1"),
 		kube.Deploy(testpath.Manifests+"/01-volumes.yml"),
 		kube.Deploy(testpath.Manifests+"/01-serviceaccount.yml"),
 		kube.Deploy(testpath.Manifests+"/02-prometheus-promscrape.yml"),
 		kube.Deploy(testpath.Manifests+"/05-uninstrumented-service.yml"),
-		kube.Deploy(testpath.Manifests+"/06-beyla-netolly-promexport.yml"),
+		kube.Deploy(testpath.Manifests+"/06-obi-netolly-promexport.yml"),
 	)
 
 	cluster.Run(m)

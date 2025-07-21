@@ -19,7 +19,7 @@ formatters:
       # put imports beginning with prefix after 3rd-party packages;
       # it's a comma-separated list of prefixes
       local-prefixes:
-        - github.com/open-telemetry/opentelemetry-ebpf-instrumentation
+        - go.opentelemetry.io/obi
 
 linters:
   exclusions:

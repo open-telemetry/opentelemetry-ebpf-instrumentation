@@ -8,10 +8,10 @@ scrape_configs:
       - targets:
           # Configuration for the K8s decoration tests in kind, where Prometheus must scrape
           # from two different endpoints
-          - 'beyla-testserver:8999'
-          - 'beyla-pinger:8999'
-          - 'beyla-netolly:8999'
-          - 'beyla-promscrape:8999'
+          - 'obi-testserver:8999'
+          - 'obi-pinger:8999'
+          - 'obi-netolly:8999'
+          - 'obi-promscrape:8999'
           - 'k8s-cache:8999'
   # Scrape config for service endpoints.
   #
