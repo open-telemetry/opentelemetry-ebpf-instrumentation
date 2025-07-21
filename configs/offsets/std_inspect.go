@@ -13,6 +13,8 @@ import (
 	"os"
 )
 
+// This program is used to generate an executable that can be inspected by the go-offsets-tracker tool
+
 // Args defines the arguments for the RPC methods.
 type Args struct {
 	A, B int
@@ -37,7 +39,16 @@ func (w *ReadWriteCloserWrapper) Close() error {
 	return nil
 }
 
-// This program is used to generate an executable that can be inspected by the go-offsets-tracker tool
+func jsonrpcHandler(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		http.Error(writer, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// Wrap the request body and response writer in a ReadWriteCloser.
+	conn := &ReadWriteCloserWrapper{Reader: request.Body, Writer: writer}
+	// Serve the request using JSON-RPC codec.
+	rpc.ServeCodec(jsonrpc.NewServerCodec(conn))
+}
 
 func regularGetRequest(ctx context.Context, url string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -73,16 +84,7 @@ func main() {
 	// Register the Arith service.
 	arith := new(Arith)
 	rpc.Register(arith)
-	err = http.ListenAndServe(":8080", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodPost {
-			http.Error(writer, "Only POST method is allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		// Wrap the request body and response writer in a ReadWriteCloser.
-		conn := &ReadWriteCloserWrapper{Reader: request.Body, Writer: writer}
-		// Serve the request using JSON-RPC codec.
-		rpc.ServeCodec(jsonrpc.NewServerCodec(conn))
-	}))
+	err = http.ListenAndServe(":8080", http.HandlerFunc(jsonrpcHandler))
 	if err != nil {
 		os.Exit(1)
 	}
