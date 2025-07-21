@@ -1,6 +1,7 @@
 name: Markdown
 
 on:
+  push:
   pull_request:
 
 permissions:
@@ -21,7 +22,7 @@ jobs:
       - name: Get changed files
         id: changes
         env:
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }
         shell: bash
         run: |
           echo "PR_HEAD_SHA=$PR_HEAD_SHA"
