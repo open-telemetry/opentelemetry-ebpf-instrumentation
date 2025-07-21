@@ -1260,7 +1260,7 @@ int obi_uprobe_jsonrpcReadRequestHeader(struct pt_regs *ctx) {
     if (!invocation) {
         return 0;
     }
-    u64 rpc_request_addr = (u64)GO_PARAM2(ctx);
+    const u64 rpc_request_addr = (u64)GO_PARAM2(ctx);
     bpf_dbg_printk("rpc_request_addr %llx", rpc_request_addr);
     invocation->rpc_request_addr = rpc_request_addr;
 
@@ -1282,9 +1282,9 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
         return 0;
     }
     off_table_t *ot = get_offsets_table();
-    u64 rpc_request_addr = invocation->rpc_request_addr;
+    const u64 rpc_request_addr = invocation->rpc_request_addr;
     bpf_dbg_printk("rpc_request_addr %llx", rpc_request_addr);
-    u64 method_len = peak_go_str_len(
+    const u64 method_len = peak_go_str_len(
         "JSON-RPC method",
         (void *)rpc_request_addr,
         go_offset_of(ot, (go_offset){.v = _jsonrpc_request_header_service_method_pos}));
