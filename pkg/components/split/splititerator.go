@@ -1,20 +1,22 @@
-package util
+// Package split provides an Iterator that allows for zero-copy string
+// splitting.
+package split
 
 import (
 	"strings"
 )
 
-// alternative to strings.Split(str, delim) - each call to Nex() returns a
-// a substring slice, allowing string tokens or lines to be processed in place
-// (zero-copy), without the need of allocations
-type SplitIterator struct {
+// Iterator is alternative to strings.Split(str, delim) - each call to Nex()
+// returns a a substring slice, allowing string tokens or lines to be processed
+// in place (zero-copy), without the need of allocations
+type Iterator struct {
 	startBuf string
 	buf      string
 	delim    string
 }
 
-func NewSplitIterator(buf string, delim string) *SplitIterator {
-	return &SplitIterator{
+func NewIterator(buf string, delim string) *Iterator {
+	return &Iterator{
 		startBuf: buf,
 		buf:      buf,
 		delim:    delim,
@@ -23,7 +25,7 @@ func NewSplitIterator(buf string, delim string) *SplitIterator {
 
 // Next returns a token and false if there are any tokens available, otherwise
 // returns "" and true to convey EOF has been reached
-func (sp *SplitIterator) Next() (string, bool) {
+func (sp *Iterator) Next() (string, bool) {
 	if len(sp.buf) == 0 {
 		return "", true
 	}
@@ -44,6 +46,6 @@ func (sp *SplitIterator) Next() (string, bool) {
 	return buf, false
 }
 
-func (sp *SplitIterator) Reset() {
+func (sp *Iterator) Reset() {
 	sp.buf = sp.startBuf
 }
