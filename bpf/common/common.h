@@ -47,6 +47,11 @@ enum {
     k_mysql_error_message_max_mask = k_mysql_error_message_max - 1
 };
 
+enum large_buf_action : u8 {
+    k_large_buf_action_init = 0,
+    k_large_buf_action_append = 1,
+};
+
 #define MAX_SPAN_NAME_LEN 64
 #define MAX_STATUS_DESCRIPTION_LEN 64
 
@@ -147,7 +152,8 @@ typedef struct tcp_req {
 typedef struct tcp_large_buffer {
     u8 type; // Must be first
     u8 direction;
-    u8 _pad[2];
+    enum large_buf_action action;
+    u8 _pad;
     u32 len;
     tp_info_t tp;
     u8 buf[];

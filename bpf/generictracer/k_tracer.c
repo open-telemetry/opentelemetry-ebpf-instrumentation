@@ -956,7 +956,7 @@ int obi_handle_buf_with_args(void *ctx) {
                         &args->packet_type,
                         &args->protocol_type)) {
         bpf_dbg_printk("Found mysql connection");
-        bpf_tail_call(ctx, &jump_table, k_tail_protocol_mysql);
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
 
