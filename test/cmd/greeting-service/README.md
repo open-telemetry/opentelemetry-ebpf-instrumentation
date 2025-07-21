@@ -1,9 +1,10 @@
 # Description
 
-This test Java (SpringBoot) appserver was adapted from 
+This test Java (SpringBoot) appserver was adapted from
 [greeting-service](https://github.com/fstab/fosdem-2023), please visit this website for more information.
 
 The test application server has only one API, `/greeting` which can take two optional integer parameters:
+
 - `delay` in milliseconds to override the default 10ms API time delay.
 - `response` to change the default HTTP status response code from 200 to something else, e.g. 404.
 
@@ -16,6 +17,7 @@ curl -v "http://localhost:8081/greeting?delay=2000&response=404"
 # Compiling the sample code
 
 The application can be compiled and run in two separate modes:
+
 - As a SpringBoot Java application
 - As a GraalVM Native Image binary
 

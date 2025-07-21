@@ -1,3 +1,5 @@
+# Rust Pingrouille Example
+
 ## Build and run instructions
 
 ### Installing pre-requisites

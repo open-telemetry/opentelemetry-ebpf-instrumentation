@@ -1,3 +1,5 @@
+# Ping Wrapper
+
 ## Build and run instructions
 
 ### Building
@@ -6,7 +8,7 @@
 go build -o wrapper wrapper.go
 ```
 
-### Running 
+### Running
 
 ```bash
 ./wrapper

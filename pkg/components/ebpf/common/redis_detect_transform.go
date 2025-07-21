@@ -15,7 +15,7 @@ import (
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/ringbuf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/util"
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/split"
 )
 
 const minRedisFrameLen = 3
@@ -113,7 +113,7 @@ func isValidRedisChar(c byte) bool {
 func parseRedisRequest(buf string) (string, string, bool) {
 	const redisDelim = "\r\n"
 
-	lines := util.NewSplitIterator(buf, redisDelim)
+	lines := split.NewIterator(buf, redisDelim)
 
 	_, eof := lines.Next()
 
