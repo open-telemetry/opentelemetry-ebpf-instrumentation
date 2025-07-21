@@ -1,6 +1,6 @@
 module github.com/beyla/test/integration/components/sqlclient
 
-go 1.20
+go 1.24.0
 
 require modernc.org/sqlite v1.25.0
 

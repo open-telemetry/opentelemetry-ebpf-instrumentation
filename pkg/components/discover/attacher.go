@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package discover
 
 import (
@@ -115,6 +118,10 @@ func (ta *TraceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 							ta.processInstances.Inc(instr.Obj.FileInfo.Ino)
 							if ok := ta.getTracer(&instr.Obj); ok {
 								ta.OutputTracerEvents.Send(Event[*ebpf.Instrumentable]{Type: EventCreated, Obj: &instr.Obj})
+							}
+
+							if instr.Obj.FileInfo.ELF != nil {
+								_ = instr.Obj.FileInfo.ELF.Close()
 							}
 						}
 					case EventDeleted:

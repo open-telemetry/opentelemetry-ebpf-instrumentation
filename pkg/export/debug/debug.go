@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package debug provides some export nodes that are aimed basically at debugging/testing
 package debug
 

@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build !linux
 
 // this file is emptied on purpose to allow Beyla compiling in non-linux environments

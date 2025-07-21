@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package transform provides some intermediate nodes that might filter/process/transform the events
 package transform
 

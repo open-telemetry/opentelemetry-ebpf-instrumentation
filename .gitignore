@@ -27,6 +27,7 @@ test/cmd/pingserver/server
 test/cmd/grpc/server/server
 test/cmd/grpc/client/client
 
+.tools/
 bin/
 test/integration/components/server
 test/integration/components/testserver/testserver

@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package swarm provides tools for the creation and coordination of the nodes that go inside the different
 // Beyla pipelines
 package swarm
