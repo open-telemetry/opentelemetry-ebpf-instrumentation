@@ -132,6 +132,7 @@ network:
 			BufferSizes: config.EBPFBufferSizes{
 				MySQL: 0,
 			},
+			MySQLPreparedStatementsCacheSize: 1024,
 		},
 		NetworkFlows: nc,
 		Metrics: otel.MetricsConfig{

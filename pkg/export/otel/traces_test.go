@@ -638,6 +638,35 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), "SELECT password FROM credentials WHERE username=\"bill\"")
 	})
+
+	t.Run("test SQL trace generation, error", func(t *testing.T) {
+		span := makeSQLRequestErroredSpan("SELECT * FROM obi.nonexisting")
+		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
+		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.NotEmpty(t, spans.At(0).SpanID().String())
+		assert.NotEmpty(t, spans.At(0).TraceID().String())
+
+		attrs := spans.At(0).Attributes()
+		status := spans.At(0).Status()
+		assert.Equal(t, ptrace.StatusCodeError, status.Code())
+		assert.Equal(t, "SQL Server errored: error_code=8 sql_state=#1234 message=SQL error message", status.Message())
+
+		assert.Equal(t, 8, attrs.Len())
+
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "obi.nonexisting")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "8")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.ErrorType), "#1234")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), "SELECT * FROM obi.nonexisting")
+	})
+
 	t.Run("test Kafka trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeKafkaClient, Method: "process", Path: "important-topic", Statement: "test"}
 		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{})
@@ -656,6 +685,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "important-topic")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "test")
 	})
+
 	t.Run("test Mongo trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase", Status: 0}
 		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{"db.operation.name": {}})
@@ -1500,6 +1530,22 @@ func TestTraceGrouping(t *testing.T) {
 func makeSQLRequestSpan(sql string) request.Span {
 	method, path := sqlprune.SQLParseOperationAndTable(sql)
 	return request.Span{Type: request.EventTypeSQLClient, Method: method, Path: path, Statement: sql}
+}
+
+func makeSQLRequestErroredSpan(sql string) request.Span {
+	method, path := sqlprune.SQLParseOperationAndTable(sql)
+	return request.Span{
+		Type:      request.EventTypeSQLClient,
+		Method:    method,
+		Path:      path,
+		Statement: sql,
+		Status:    1,
+		SQLError: &request.SQLError{
+			Code:     8,
+			SQLState: "#1234",
+			Message:  "SQL error message",
+		},
+	}
 }
 
 func ensureTraceStrAttr(t *testing.T, attrs pcommon.Map, key attribute.Key, val string) {

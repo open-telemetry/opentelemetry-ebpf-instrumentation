@@ -21,6 +21,11 @@ type (
 	}
 )
 
+const (
+	largeBufferActionInit = iota
+	largeBufferActionAppend
+)
+
 func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (request.Span, bool, error) {
 	hdrSize := uint32(unsafe.Sizeof(TCPLargeBufferHeader{})) - uint32(unsafe.Sizeof(uintptr(0))) // Remove `buf` placeholder
 
@@ -36,10 +41,9 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	}
 
 	lb, ok := parseCtx.largeBuffers.Get(key)
-	if ok && event.Action == 1 {
-		// LargeBufActionAppend
+	if ok && event.Action == largeBufferActionAppend {
 		lb.buf = append(lb.buf, record.RawSample[hdrSize:hdrSize+event.Len]...)
-	} else {
+	} else if event.Action == largeBufferActionInit {
 		newBuffer := make([]byte, event.Len)
 		copy(newBuffer, record.RawSample[hdrSize:])
 		parseCtx.largeBuffers.Add(key, &largeBuffer{

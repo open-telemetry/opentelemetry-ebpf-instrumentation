@@ -8,6 +8,11 @@ import (
 	"strings"
 )
 
+type mysqlPreparedStatementsKey struct {
+	connInfo BpfConnectionInfoT
+	stmtID   uint32
+}
+
 type mySQLHdr struct {
 	length  uint32 // payload length + sequence ID
 	command uint8  // command type

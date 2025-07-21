@@ -228,7 +228,7 @@ static __always_inline u8 is_mysql(connection_info_t *conn_info,
 
     switch (hdr.command_id) {
     case k_mysql_com_query:
-        //case k_mysql_com_stmt_prepare:
+    case k_mysql_com_stmt_prepare:
         // COM_QUERY packet structure:
         // +------------+-------------+------------------+
         // | payload_len| sequence_id | command_id | SQL |

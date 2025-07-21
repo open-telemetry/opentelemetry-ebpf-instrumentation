@@ -31,7 +31,7 @@ func TestTCPReqSQLParsing(t *testing.T) {
 	op, table, sql := detectSQL(sql)
 	assert.Equal(t, "SELECT", op)
 	assert.Equal(t, "accounts", table)
-	s := TCPToSQLToSpan(&r, op, table, sql, request.DBGeneric, []byte{}, []byte{}, "")
+	s := TCPToSQLToSpan(&r, op, table, sql, request.DBGeneric, "", nil)
 	assert.NotNil(t, s)
 	assert.NotEmpty(t, s.Host)
 	assert.NotEmpty(t, s.Peer)
