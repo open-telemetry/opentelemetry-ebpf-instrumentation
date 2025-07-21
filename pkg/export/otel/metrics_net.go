@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -43,7 +45,7 @@ func nmlog() *slog.Logger {
 // for network metrics.
 func getFilteredNetworkResourceAttrs(hostID string, attrSelector attributes.Selection) []attribute.KeyValue {
 	baseAttrs := []attribute.KeyValue{
-		semconv.ServiceName(VendorPrefix + "-network-flows"),
+		semconv.ServiceName(attr.VendorPrefix + "-network-flows"),
 		semconv.ServiceInstanceID(uuid.New().String()),
 		semconv.TelemetrySDKLanguageKey.String(semconv.TelemetrySDKLanguageGo.Value.AsString()),
 		semconv.TelemetrySDKNameKey.String("opentelemetry-ebpf-instrumentation"),
@@ -54,7 +56,7 @@ func getFilteredNetworkResourceAttrs(hostID string, attrSelector attributes.Sele
 		semconv.HostID(hostID),
 	}
 
-	return GetFilteredAttributesByPrefix(baseAttrs, attrSelector, extraAttrs, []string{"network.", VendorPrefix + ".network"})
+	return GetFilteredAttributesByPrefix(baseAttrs, attrSelector, extraAttrs, []string{"network.", attr.VendorPrefix + ".network"})
 }
 
 func createFilteredNetworkResource(hostID string, attrSelector attributes.Selection) *resource.Resource {

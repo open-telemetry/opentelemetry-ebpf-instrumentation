@@ -981,7 +981,7 @@ func (r *metricsReporter) labelValuesSpans(span *request.Span) []string {
 		span.ServiceGraphKind(),
 		span.Service.UID.Instance, // app instance ID
 		span.Service.Job(),
-		"beyla",
+		attr.VendorPrefix,
 	}
 }
 
@@ -1019,8 +1019,8 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 		service.UID.Instance, // app instance ID
 		service.Job(),
 		service.SDKLanguage.String(),
-		"beyla",
-		"beyla",
+		attr.VendorPrefix,
+		attr.VendorPrefix,
 		"linux",
 	}
 
@@ -1046,7 +1046,7 @@ func (r *metricsReporter) labelValuesServiceGraph(span *request.Span) []string {
 			span.Service.UID.Namespace,
 			request.SpanHost(span),
 			span.OtherNamespace,
-			"beyla",
+			attr.VendorPrefix,
 		}
 	}
 	return []string{
@@ -1054,7 +1054,7 @@ func (r *metricsReporter) labelValuesServiceGraph(span *request.Span) []string {
 		span.OtherNamespace,
 		request.SpanHost(span),
 		span.Service.UID.Namespace,
-		"beyla",
+		attr.VendorPrefix,
 	}
 }
 

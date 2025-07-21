@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
+	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/ebpf"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
@@ -34,7 +34,7 @@ func printFlow(f *ebpf.Record) {
 	sb.WriteString("transport=")
 	sb.WriteString(strconv.Itoa(int(f.Id.TransportProtocol)))
 	sb.WriteByte(' ')
-	sb.WriteString(otel.VendorPrefix)
+	sb.WriteString(attr.VendorPrefix)
 	sb.WriteString(".ip=")
 	sb.WriteString(f.Attrs.OBIIP)
 	sb.WriteString(" iface=")
