@@ -1,7 +1,6 @@
 name: Markdown
 
 on:
-  push:
   pull_request:
 
 permissions:
