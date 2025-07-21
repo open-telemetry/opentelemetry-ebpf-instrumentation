@@ -1,4 +1,5 @@
 cloud.google.com/go/compute/metadata,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/cloud.google.com/go/compute/metadata/LICENSE,Apache-2.0
+github.com,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/LICENSE,Apache-2.0
 github.com/AlessandroPomponio/go-gibberish,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/AlessandroPomponio/go-gibberish/LICENSE,MIT
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp/LICENSE,Apache-2.0
 github.com/aws/aws-sdk-go,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/aws/aws-sdk-go/LICENSE.txt,Apache-2.0
@@ -49,10 +50,11 @@ github.com/hashicorp/golang-lru/v2,https://github.com/open-telemetry/opentelemet
 github.com/hashicorp/golang-lru/v2/simplelru,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/hashicorp/golang-lru/v2/simplelru/LICENSE_list,BSD-3-Clause
 github.com/ianlancetaylor/demangle,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/ianlancetaylor/demangle/LICENSE,BSD-3-Clause
 github.com/imdario/mergo,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/imdario/mergo/LICENSE,BSD-3-Clause
-github.com/jmespath/go-jmespath,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/jmespath/go-jmespath/LICENSE,Apache-2.0
 github.com/josharian/intern,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/josharian/intern/license.md,MIT
 github.com/json-iterator/go,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/json-iterator/go/LICENSE,MIT
+github.com/klauspost/compress,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/klauspost/compress/LICENSE,MIT
 github.com/klauspost/compress,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/klauspost/compress/LICENSE,Apache-2.0
+github.com/klauspost/compress,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/klauspost/compress/LICENSE,BSD-3-Clause
 github.com/klauspost/compress/internal/snapref,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/klauspost/compress/internal/snapref/LICENSE,BSD-3-Clause
 github.com/klauspost/compress/zstd/internal/xxhash,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/klauspost/compress/zstd/internal/xxhash/LICENSE.txt,MIT
 github.com/knadh/koanf/maps,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/knadh/koanf/maps/LICENSE,MIT
@@ -70,7 +72,6 @@ github.com/modern-go/reflect2,https://github.com/open-telemetry/opentelemetry-eb
 github.com/mostynb/go-grpc-compression,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/mostynb/go-grpc-compression/LICENSE,Apache-2.0
 github.com/munnerz/goautoneg,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/munnerz/goautoneg/LICENSE,BSD-3-Clause
 github.com/mxk/go-flowrate/flowrate,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/mxk/go-flowrate/LICENSE,BSD-3-Clause
-github.com/open-telemetry/opentelemetry-ebpf-instrumentation,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/LICENSE,Apache-2.0
 github.com/pelletier/go-toml/v2,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/pelletier/go-toml/v2/LICENSE,MIT
 github.com/pierrec/lz4/v4,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/pierrec/lz4/v4/LICENSE,BSD-3-Clause
 github.com/pkg/errors,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/pkg/errors/LICENSE,BSD-2-Clause
@@ -180,7 +181,10 @@ k8s.io/utils/internal/third_party/forked/golang/net,https://github.com/open-tele
 sigs.k8s.io/controller-runtime,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/controller-runtime/LICENSE,Apache-2.0
 sigs.k8s.io/e2e-framework,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/e2e-framework/LICENSE,Apache-2.0
 sigs.k8s.io/json,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/json/LICENSE,Apache-2.0
+sigs.k8s.io/json,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/json/LICENSE,BSD-3-Clause
 sigs.k8s.io/structured-merge-diff/v4,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/structured-merge-diff/v4/LICENSE,Apache-2.0
+sigs.k8s.io/yaml,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/yaml/LICENSE,MIT
 sigs.k8s.io/yaml,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/yaml/LICENSE,Apache-2.0
+sigs.k8s.io/yaml,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/yaml/LICENSE,BSD-3-Clause
 sigs.k8s.io/yaml/goyaml.v2,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/yaml/goyaml.v2/LICENSE,Apache-2.0
 sigs.k8s.io/yaml/goyaml.v3,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/yaml/goyaml.v3/LICENSE,MIT

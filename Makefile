@@ -54,31 +54,6 @@ EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/test/)|
 # projects ca have different versions of the tools
 PROJECT_DIR := $(shell dirname $(abspath $(firstword $(MAKEFILE_LIST))))
 
-TOOLS_DIR ?= $(PROJECT_DIR)/bin
-
-# $(1) command name
-# $(2) repo URL
-# $(3) version
-define go-install-tool
-@[ -f "$(1)-$(3)" ] || { \
-set -e ;\
-TMP_DIR=$$(mktemp -d) ;\
-cd $$TMP_DIR ;\
-go mod init tmp ;\
-echo "Removing any outdated version of $(1)";\
-rm -f $(1)*;\
-echo "Downloading $(2)@$(3)" ;\
-GOBIN=$(TOOLS_DIR) GOFLAGS="-mod=mod" go install "$(2)@$(3)" ;\
-touch "$(1)-$(3)";\
-rm -rf $$TMP_DIR ;\
-}
-endef
-
-# gomod-version returns the version number of the go.mod dependency
-define gomod-version
-$(shell sh -c "echo $$(grep $(1) go.mod | awk '{print $$2}')")
-endef
-
 # Check that given variables are set and all have non-empty values,
 # die with an error otherwise.
 #
@@ -92,17 +67,47 @@ __check_defined = \
 	$(if $(value $1),, \
 	  $(error Undefined $1$(if $2, ($2))))
 
-# prereqs binary dependencies
-GOLANGCI_LINT ?= $(TOOLS_DIR)/golangci-lint
-BPF2GO ?= $(TOOLS_DIR)/bpf2go
-GO_OFFSETS_TRACKER ?= $(TOOLS_DIR)/go-offsets-tracker
-GO_LICENSES ?= $(TOOLS_DIR)/go-licenses
-KIND ?= $(TOOLS_DIR)/kind
-GINKGO ?= $(TOOLS_DIR)/ginkgo
+### Development Tools #######################################################
+
+# Tools module where tool versions are defined.
+TOOLS_MOD_DIR := ./internal/tools
+
+# Tools directory for built tool binaries.
+TOOLS = $(CURDIR)/.tools
+
+$(TOOLS):
+	@mkdir -p $@
+$(TOOLS)/%: $(TOOLS_MOD_DIR)/go.mod | $(TOOLS)
+	cd $(TOOLS_MOD_DIR) && \
+	go build -o $@ $(PACKAGE)
+
+BPF2GO ?= $(TOOLS)/bpf2go
+$(TOOLS)/bpf2go: PACKAGE=github.com/cilium/ebpf/cmd/bpf2go
+
+GOLANGCI_LINT = $(TOOLS)/golangci-lint
+$(TOOLS)/golangci-lint: PACKAGE=github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+
+GO_LICENSES ?= $(TOOLS)/go-licenses
+$(TOOLS)/go-licenses: PACKAGE=github.com/google/go-licenses/v2
+
+GO_OFFSETS_TRACKER ?= $(TOOLS)/go-offsets-tracker
+$(TOOLS)/go-offsets-tracker: PACKAGE=github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker
+
+GINKGO ?= $(TOOLS)/ginkgo
+$(TOOLS)/ginkgo: PACKAGE=github.com/onsi/ginkgo/v2/ginkgo
 
 # Required for k8s-cache unit tests
-ENVTEST ?= $(TOOLS_DIR)/setup-envtest
 ENVTEST_K8S_VERSION ?= 1.30.0
+ENVTEST ?= $(TOOLS)/setup-envtest
+$(TOOLS)/setup-envtest: PACKAGE=sigs.k8s.io/controller-runtime/tools/setup-envtest
+
+KIND ?= $(TOOLS)/kind
+$(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
+
+.PHONY: tools
+tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_LICENSES) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND)
+
+### Development Tools (end) #################################################
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -118,22 +123,13 @@ install-hooks:
 		echo "Pre-commit hook installed."; \
 	fi
 
-.PHONY: bpf2go
-bpf2go:
-	$(call go-install-tool,$(BPF2GO),github.com/cilium/ebpf/cmd/bpf2go,$(call gomod-version,cilium/ebpf))
-
 .PHONY: prereqs
-prereqs: install-hooks bpf2go
+prereqs: install-hooks
 	@echo "### Check if prerequisites are met, and installing missing dependencies"
 	mkdir -p $(TEST_OUTPUT)/run
-	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,v2.1.2)
-	$(call go-install-tool,$(GO_OFFSETS_TRACKER),github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker,$(call gomod-version,grafana/go-offsets-tracker))
-	$(call go-install-tool,$(GO_LICENSES),github.com/google/go-licenses,v1.6.0)
-	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,v0.20.0)
-	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,latest)
 
 .PHONY: fmt
-fmt: prereqs
+fmt: $(GOLANGCI_LINT)
 	@echo "### Formatting code and fixing imports"
 	$(GOLANGCI_LINT) fmt
 
@@ -142,7 +138,7 @@ clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" | xargs clang-tidy
 
 .PHONY: lint
-lint: prereqs
+lint: $(GOLANGCI_LINT)
 	@echo "### Linting code"
 	$(GOLANGCI_LINT) run ./... --timeout=6m
 
@@ -159,7 +155,7 @@ lint-markdown-fix:
 	@docker run --rm -u $(DOCKER_USER) -v "$(CURDIR):$(WORKDIR)" -w "$(WORKDIR)" $(MARKDOWNIMAGE) -c $(WORKDIR)/.markdownlint.yaml --fix $(WORKDIR)/**/*.md
 
 .PHONY: update-offsets
-update-offsets: prereqs
+update-offsets: $(GO_OFFSETS_TRACKER)
 	@echo "### Updating pkg/components/goexec/offsets.json"
 	$(GO_OFFSETS_TRACKER) -i configs/offsets/tracker_input.json pkg/components/goexec/offsets.json
 
@@ -167,7 +163,7 @@ update-offsets: prereqs
 generate: export BPF_CLANG := $(CLANG)
 generate: export BPF_CFLAGS := $(CFLAGS)
 generate: export BPF2GO := $(BPF2GO)
-generate: bpf2go
+generate: $(BPF2GO)
 	@echo "### Generating files..."
 	@OTEL_EBPF_GENFILES_RUN_LOCALLY=1 go generate cmd/obi-genfiles/obi_genfiles.go
 
@@ -210,12 +206,12 @@ compile-cache-for-coverage:
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -mod vendor -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
 .PHONY: test
-test:
+test: $(ENVTEST)
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -race -mod vendor -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: test-privileged
-test-privileged:
+test-privileged: $(ENVTEST)
 	@echo "### Testing code with privileged tests enabled"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -race -mod vendor -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
@@ -254,7 +250,7 @@ prepare-integration-test:
 	$(MAKE) cleanup-integration-test
 
 .PHONY: cleanup-integration-test
-cleanup-integration-test:
+cleanup-integration-test: $(KIND)
 	@echo "### Removing integration test clusters"
 	$(KIND) delete cluster -n test-kind-cluster || true
 	@echo "### Removing docker containers and images"
@@ -315,11 +311,8 @@ itest-coverage-data:
 	# exclude generated files from coverage data
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt
 
-bin/ginkgo:
-	$(call go-install-tool,$(GINKGO),github.com/onsi/ginkgo/v2/ginkgo,latest)
-
 .PHONY: oats-prereq
-oats-prereq: bin/ginkgo docker-generate
+oats-prereq: $(GINKGO) docker-generate
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: oats-test-sql
@@ -351,7 +344,7 @@ oats-test-debug: oats-prereq
 	cd test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h $(GINKGO) -v -r
 
 .PHONY: update-licenses check-license
-update-licenses: prereqs
+update-licenses: $(GO_LICENSES)
 	@echo "### Updating third_party_licenses.csv"
 	GOOS=linux GOARCH=amd64 $(GO_LICENSES) report --include_tests ./... > third_party_licenses.csv
 
