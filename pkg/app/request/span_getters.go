@@ -1,6 +1,7 @@
 package request
 
 import (
+	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
 	"strconv"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -71,7 +72,7 @@ func SpanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.SpanName:
 		getter = func(s *Span) attribute.KeyValue { return SpanNameMetric(s.TraceName()) }
 	case attr.Source:
-		getter = func(_ *Span) attribute.KeyValue { return SourceMetric("beyla") }
+		getter = func(_ *Span) attribute.KeyValue { return SourceMetric(otel.VendorPrefix) }
 	case attr.StatusCode:
 		getter = func(s *Span) attribute.KeyValue { return StatusCodeMetric(SpanStatusCode(s)) }
 	case attr.DBOperation:
