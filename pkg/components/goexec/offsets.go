@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
+	"go.opentelemetry.io/obi/pkg/components/exec"
 )
 
 type Offsets struct {

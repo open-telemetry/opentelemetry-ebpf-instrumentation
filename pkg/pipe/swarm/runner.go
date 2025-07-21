@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 // RunFunc is a function that runs a node. The node should be stoppable via the passed context Done function.

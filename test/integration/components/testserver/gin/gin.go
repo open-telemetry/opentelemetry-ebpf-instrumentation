@@ -11,7 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/arg"
+	"go.opentelemetry.io/obi/test/integration/components/testserver/arg"
 )
 
 func Setup(port int) {

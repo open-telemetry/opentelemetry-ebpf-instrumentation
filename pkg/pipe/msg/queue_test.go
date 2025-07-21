@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/testutil"
+	"go.opentelemetry.io/obi/pkg/components/testutil"
 )
 
 const timeout = 5 * time.Second

@@ -8,7 +8,7 @@ package prom
 import (
 	"testing"
 
-	k8s "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common"
+	k8s "go.opentelemetry.io/obi/test/integration/k8s/common"
 )
 
 // Run it alphabetically first (AA-prefix), with a longer timeout, to wait until all the components are up and

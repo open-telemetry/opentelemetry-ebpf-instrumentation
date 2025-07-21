@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	trace2 "go.opentelemetry.io/otel/trace"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/components/svc"
 )
 
 func TestSpanClientServer(t *testing.T) {

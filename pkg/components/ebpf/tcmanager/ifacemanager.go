@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/ifaces"
+	"go.opentelemetry.io/obi/pkg/components/netolly/ifaces"
 )
 
 type IMIfaceMap map[int]*ifaces.Interface

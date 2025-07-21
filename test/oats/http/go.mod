@@ -1,4 +1,4 @@
-module github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/oats
+module go.opentelemetry.io/obi/test/oats
 
 go 1.24.0
 

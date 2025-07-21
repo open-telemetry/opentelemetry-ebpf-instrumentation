@@ -1,4 +1,4 @@
-module github.com/open-telemetry/opentelemetry-ebpf-instrumentation
+module go.opentelemetry.io/obi
 
 go 1.24.0
 

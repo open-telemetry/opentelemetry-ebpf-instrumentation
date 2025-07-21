@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"unsafe"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/app/request"
 )
 
 const (

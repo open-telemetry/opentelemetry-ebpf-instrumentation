@@ -18,8 +18,8 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
-	k8s "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common"
+	"go.opentelemetry.io/obi/test/integration/components/jaeger"
+	k8s "go.opentelemetry.io/obi/test/integration/k8s/common"
 )
 
 // For the DaemonSet scenario, we only check that Beyla is able to instrument any
