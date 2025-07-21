@@ -191,7 +191,6 @@ func (wk *watcherKubeEnricher) onProcessTerminate(procInfo ProcessAttrs) {
 	defer wk.mt.Unlock()
 
 	if cnt, ok := wk.containerByPID[procInfo.pid]; ok {
-
 		if pidProcInfos, ok := wk.processByContainer[cnt.ContainerID]; ok {
 			filtered := []ProcessAttrs{}
 
