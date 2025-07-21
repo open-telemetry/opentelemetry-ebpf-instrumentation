@@ -343,6 +343,38 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 			},
 		}, event)
 	}
+
+	// Test delete of pids, ensuring we don't delete the whole containerProcessMapping
+	wk.enrichProcessEvent([]Event[ProcessAttrs]{
+		{Type: EventDeleted, Obj: ProcessAttrs{pid: 1}},
+	})
+
+	events = testutil.ReadChannel(t, outputCh, timeout)
+	assert.Len(t, events, 1)
+
+	pidProc, ok := wk.processByContainer[containerAll]
+	assert.True(t, ok)
+	assert.Len(t, pidProc, 1)
+
+	_, ok = wk.containerByPID[PID(1)]
+	assert.False(t, ok)
+
+	_, ok = wk.containerByPID[PID(2)]
+	assert.True(t, ok)
+
+	// Let's delete the other process inside the container, the map should be cleaned up fully
+	wk.enrichProcessEvent([]Event[ProcessAttrs]{
+		{Type: EventDeleted, Obj: ProcessAttrs{pid: 2}},
+	})
+
+	events = testutil.ReadChannel(t, outputCh, timeout)
+	assert.Len(t, events, 1)
+
+	_, ok = wk.processByContainer[containerAll]
+	assert.False(t, ok)
+
+	_, ok = wk.containerByPID[PID(2)]
+	assert.False(t, ok)
 }
 
 func newProcess(input *msg.Queue[[]Event[ProcessAttrs]], pid PID, ports []uint32) {
