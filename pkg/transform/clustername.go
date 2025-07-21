@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Few lines of code in this file are taken from
 // https://github.com/DataDog/datadog-agent,
 // published under Apache License 2.0
