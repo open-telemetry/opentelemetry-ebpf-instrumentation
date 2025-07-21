@@ -6,16 +6,16 @@
 package bpf
 
 import (
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/bpfcore"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/common"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/generictracer"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/gotracer"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/gpuevent"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/logger"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/maps"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/netolly"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/pid"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/rdns"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/tctracer"
-	_ "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/bpf/watcher"
+	_ "go.opentelemetry.io/obi/bpf/bpfcore"
+	_ "go.opentelemetry.io/obi/bpf/common"
+	_ "go.opentelemetry.io/obi/bpf/generictracer"
+	_ "go.opentelemetry.io/obi/bpf/gotracer"
+	_ "go.opentelemetry.io/obi/bpf/gpuevent"
+	_ "go.opentelemetry.io/obi/bpf/logger"
+	_ "go.opentelemetry.io/obi/bpf/maps"
+	_ "go.opentelemetry.io/obi/bpf/netolly"
+	_ "go.opentelemetry.io/obi/bpf/pid"
+	_ "go.opentelemetry.io/obi/bpf/rdns"
+	_ "go.opentelemetry.io/obi/bpf/tctracer"
+	_ "go.opentelemetry.io/obi/bpf/watcher"
 )

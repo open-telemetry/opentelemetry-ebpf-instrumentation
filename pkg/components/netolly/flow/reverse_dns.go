@@ -13,11 +13,11 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/ebpf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/rdns/ebpf/xdp"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/rdns/store"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/components/rdns/ebpf/xdp"
+	"go.opentelemetry.io/obi/pkg/components/rdns/store"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 const (

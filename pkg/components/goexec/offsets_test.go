@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/testutil"
+	"go.opentelemetry.io/obi/pkg/components/testutil"
 )
 
 // TestProcessNotFound tests that InspectOffsets process exits on context cancellation

@@ -17,8 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
-	grpcclient "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/grpc/client"
+	"go.opentelemetry.io/obi/test/integration/components/jaeger"
+	grpcclient "go.opentelemetry.io/obi/test/integration/components/testserver/grpc/client"
 )
 
 func testHTTPTracesNoTraceID(t *testing.T) {
@@ -149,7 +149,7 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 	assert.Regexp(t, `^beyla:\d+$$`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.library.name", Type: "string", Value: "github.com/open-telemetry/opentelemetry-ebpf-instrumentation"},
+		{Key: "otel.library.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "go"},
 		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},
@@ -218,7 +218,7 @@ func testGRPCTracesForServiceName(t *testing.T, svcName string) {
 	assert.Regexp(t, `^beyla:\d+$$`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.library.name", Type: "string", Value: "github.com/open-telemetry/opentelemetry-ebpf-instrumentation"},
+		{Key: "otel.library.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "go"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},
 		serviceInstance,
@@ -361,7 +361,7 @@ func testHTTPTracesKProbes(t *testing.T) {
 	assert.Regexp(t, `^beyla:\d+$$`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.library.name", Type: "string", Value: "github.com/open-telemetry/opentelemetry-ebpf-instrumentation"},
+		{Key: "otel.library.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "nodejs"},
 		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},

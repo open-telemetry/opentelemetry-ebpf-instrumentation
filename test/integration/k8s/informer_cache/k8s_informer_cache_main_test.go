@@ -14,13 +14,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/docker"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/kube"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
-	k8s "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common/testpath"
-	otel "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/netolly"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/tools"
+	"go.opentelemetry.io/obi/test/integration/components/docker"
+	"go.opentelemetry.io/obi/test/integration/components/kube"
+	"go.opentelemetry.io/obi/test/integration/components/prom"
+	k8s "go.opentelemetry.io/obi/test/integration/k8s/common"
+	"go.opentelemetry.io/obi/test/integration/k8s/common/testpath"
+	otel "go.opentelemetry.io/obi/test/integration/k8s/netolly"
+	"go.opentelemetry.io/obi/test/tools"
 )
 
 const (

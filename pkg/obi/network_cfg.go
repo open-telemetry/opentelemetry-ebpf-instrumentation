@@ -24,8 +24,8 @@ package obi
 import (
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/flow"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/transform/cidr"
+	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
+	"go.opentelemetry.io/obi/pkg/components/netolly/transform/cidr"
 )
 
 const (

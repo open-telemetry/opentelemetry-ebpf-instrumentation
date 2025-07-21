@@ -6,7 +6,7 @@ package k8s
 import (
 	"path"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common/testpath"
+	"go.opentelemetry.io/obi/test/integration/k8s/common/testpath"
 )
 
 var (

@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/app/request"
 )
 
 func TestSQLExtraction(t *testing.T) {

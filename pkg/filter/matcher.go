@@ -8,7 +8,7 @@ import (
 
 	"github.com/gobwas/glob"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 )
 
 // Matcher condition for a given field of the record type T.

@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/test/integration/components/jaeger"
 )
 
 // For the this scenario we run two worker nodes, with the following structure:

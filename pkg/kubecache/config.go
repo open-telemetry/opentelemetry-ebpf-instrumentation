@@ -11,8 +11,8 @@ import (
 	"github.com/caarlos0/env/v9"
 	"gopkg.in/yaml.v3"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/instrument"
+	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/kubecache/instrument"
 )
 
 // Config options of the Kubernetes Cache service. Check the "DefaultConfig" variable for a view of the default values.

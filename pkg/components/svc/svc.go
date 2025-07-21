@@ -6,8 +6,8 @@ package svc
 import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
 
-	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/services"
 )
 
 type InstrumentableType int

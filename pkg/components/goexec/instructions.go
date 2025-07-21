@@ -12,7 +12,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
+	"go.opentelemetry.io/obi/pkg/components/exec"
 )
 
 func isSupportedGoBinary(elfF *elf.File) error {

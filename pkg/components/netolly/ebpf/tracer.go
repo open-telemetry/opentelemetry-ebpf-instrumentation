@@ -32,9 +32,9 @@ import (
 
 	"github.com/cilium/ebpf/rlimit"
 
-	convenience "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/convenience"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/ringbuf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/tcmanager"
+	convenience "go.opentelemetry.io/obi/pkg/components/ebpf/convenience"
+	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/components/ebpf/tcmanager"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.

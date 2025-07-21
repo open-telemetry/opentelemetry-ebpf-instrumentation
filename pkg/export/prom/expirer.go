@@ -9,7 +9,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/expire"
+	"go.opentelemetry.io/obi/pkg/export/expire"
 )
 
 func plog() *slog.Logger {

@@ -17,9 +17,9 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/kube"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
-	k8s "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common"
+	"go.opentelemetry.io/obi/test/integration/components/kube"
+	"go.opentelemetry.io/obi/test/integration/components/prom"
+	k8s "go.opentelemetry.io/obi/test/integration/k8s/common"
 )
 
 const (

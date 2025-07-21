@@ -14,8 +14,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/docker"
+	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/test/integration/components/docker"
 )
 
 func kprobeTracesEnabled() bool {

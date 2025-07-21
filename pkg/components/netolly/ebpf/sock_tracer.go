@@ -34,8 +34,8 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 	"golang.org/x/sys/unix"
 
-	convenience "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/convenience"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/ringbuf"
+	convenience "go.opentelemetry.io/obi/pkg/components/ebpf/convenience"
+	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.

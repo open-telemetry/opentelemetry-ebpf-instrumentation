@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/tools"
+	"go.opentelemetry.io/obi/test/tools"
 )
 
 // Unorthodox way to provide another test case to ../dir.go: we are testing

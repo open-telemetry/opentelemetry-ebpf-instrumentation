@@ -19,10 +19,10 @@ import (
 	sdkmetricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 
-	internal "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/components"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/components/aggregate"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/components/x"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/global"
+	internal "go.opentelemetry.io/obi/pkg/export/otel/metric/components"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/components/aggregate"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/components/x"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/global"
 )
 
 var (

@@ -9,7 +9,7 @@ import (
 
 	"github.com/xwb1989/sqlparser"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/app/request"
 )
 
 var tokenIsDBOperation = map[int]bool{
