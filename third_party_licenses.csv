@@ -148,6 +148,8 @@ go.opentelemetry.io/otel/trace,https://github.com/open-telemetry/opentelemetry-e
 go.opentelemetry.io/proto/otlp,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/go.opentelemetry.io/proto/otlp/LICENSE,Apache-2.0
 go.uber.org/multierr,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/go.uber.org/multierr/LICENSE.txt,MIT
 go.uber.org/zap,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/go.uber.org/zap/LICENSE,MIT
+go.yaml.in/yaml/v2,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/go.yaml.in/yaml/v2/LICENSE,Apache-2.0
+go.yaml.in/yaml/v3,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/go.yaml.in/yaml/v3/LICENSE,MIT
 golang.org/x/arch/x86/x86asm,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/golang.org/x/arch/LICENSE,BSD-3-Clause
 golang.org/x/crypto,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/golang.org/x/crypto/LICENSE,BSD-3-Clause
 golang.org/x/mod/semver,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/golang.org/x/mod/LICENSE,BSD-3-Clause
@@ -186,5 +188,3 @@ sigs.k8s.io/structured-merge-diff/v4,https://github.com/open-telemetry/opentelem
 sigs.k8s.io/yaml,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/yaml/LICENSE,MIT
 sigs.k8s.io/yaml,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/yaml/LICENSE,Apache-2.0
 sigs.k8s.io/yaml,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/yaml/LICENSE,BSD-3-Clause
-sigs.k8s.io/yaml/goyaml.v2,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/yaml/goyaml.v2/LICENSE,Apache-2.0
-sigs.k8s.io/yaml/goyaml.v3,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/sigs.k8s.io/yaml/goyaml.v3/LICENSE,MIT

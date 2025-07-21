@@ -22,7 +22,7 @@ jobs:
       - name: Get changed files
         id: changes
         env:
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         shell: bash
         run: |
           echo "PR_HEAD_SHA=$PR_HEAD_SHA"
@@ -30,7 +30,7 @@ jobs:
           base="$(git merge-base origin/main $PR_HEAD_SHA)"
           echo "BASE_REF=$base"
 
-          changed="$(git diff --name-only --diff-filter=ACMRTUXB $base $PR_HEAD_SHA)"
+          changed="$(git diff --name-only --diff-filter=ACMRTUXB $base $PR_HEAD_SHA | grep -v '^vendor/')"
           echo "CHANGED=$changed"
 
           filtered="$(grep '.md$' <<<"$changed" || true)"
