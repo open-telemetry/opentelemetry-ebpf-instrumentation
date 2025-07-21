@@ -1,3 +1,5 @@
+# Ping Server
+
 ## Build and run instructions
 
 ### Building
@@ -6,7 +8,7 @@
 go build -o server server.go
 ```
 
-### Running 
+### Running
 
 ```bash
 ./server
