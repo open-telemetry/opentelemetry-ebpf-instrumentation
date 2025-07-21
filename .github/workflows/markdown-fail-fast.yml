@@ -30,7 +30,7 @@ jobs:
           base="$(git merge-base origin/main $PR_HEAD_SHA)"
           echo "BASE_REF=$base"
 
-          changed="$(git diff --name-only --diff-filter=ACMRTUXB $base $PR_HEAD_SHA)"
+          changed="$(git diff --name-only --diff-filter=ACMRTUXB $base $PR_HEAD_SHA | grep -v '^vendor/')"
           echo "CHANGED=$changed"
 
           filtered="$(grep '.md$' <<<"$changed" || true)"
