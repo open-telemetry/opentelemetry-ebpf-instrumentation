@@ -25,8 +25,6 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	if err != nil {
 		return request.Span{}, true, err
 	}
-	newBuffer := make([]byte, event.Len)
-	copy(newBuffer, record.RawSample[hdrSize:])
 
 	key := largeBufferKey{
 		traceID:   event.Tp.TraceId,
@@ -34,19 +32,17 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 		direction: event.Direction,
 	}
 
-	switch event.Action {
-	case 1: // LargeBufActionAppend
-		// If this is an append action, we need to check if the buffer already exists
-		lb, ok := parseCtx.largeBuffers.Get(key)
-		if ok {
-			newBuffer = append(lb.buf, newBuffer...)
-		}
-	default: // LargeBufActionInit
+	lb, ok := parseCtx.largeBuffers.Get(key)
+	if ok && event.Action == 1 {
+		// LargeBufActionAppend
+		lb.buf = append(lb.buf, record.RawSample[hdrSize:hdrSize+event.Len]...)
+	} else {
+		newBuffer := make([]byte, event.Len)
+		copy(newBuffer, record.RawSample[hdrSize:])
+		parseCtx.largeBuffers.Add(key, &largeBuffer{
+			buf: newBuffer,
+		})
 	}
-
-	parseCtx.largeBuffers.Add(key, largeBuffer{
-		buf: newBuffer,
-	})
 
 	return request.Span{}, true, nil
 }

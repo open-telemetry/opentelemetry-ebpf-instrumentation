@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
 	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/ringbuf"
@@ -18,7 +19,7 @@ func TestTCPLargeBuffers(t *testing.T) {
 	verifyLargeBuffer := func(traceID [16]uint8, spanID [8]uint8, direction uint8, expectedBuf string) {
 		buf, ok := extractTCPLargeBuffer(pctx, traceID, spanID, direction)
 		require.True(t, ok, "Expected to find large buffer")
-		require.Equal(t, expectedBuf, string(buf), "Buffer content mismatch")
+		require.Equal(t, expectedBuf, unix.ByteSliceToString(buf), "Buffer content mismatch")
 	}
 
 	firstEvent := TCPLargeBufferHeader{
