@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ringbuf provides some type aliases to prevent testing/compilation
 // errors in non-linux environments due to the use of Cilium's ringbuf package,
 // which is only available on Linux.

@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package docker provides some helpers to manage docker-compose clusters from the test suites
 package docker
 

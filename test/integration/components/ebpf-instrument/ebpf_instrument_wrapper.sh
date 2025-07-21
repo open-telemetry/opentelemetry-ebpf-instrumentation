@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
 # Mount debugfs, we should be running privileged, so should be doable
 mount -t debugfs nodev /sys/kernel/debug
 

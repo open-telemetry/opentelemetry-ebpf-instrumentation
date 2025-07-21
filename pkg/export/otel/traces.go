@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // TODO: remove this after batching API becomes stable
 //
 //nolint:staticcheck

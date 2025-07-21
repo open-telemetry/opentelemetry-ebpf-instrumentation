@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package prom provides some convenience functions for prometheus handling in integration tests
 package prom
 
