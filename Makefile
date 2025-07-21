@@ -32,6 +32,10 @@ GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.1.0
 
 OCI_BIN ?= docker
 
+# User to run as in docker images.
+DOCKER_USER=$(shell id -u):$(shell id -g)
+DEPENDENCIES_DOCKERFILE=./dependencies.Dockerfile
+
 # BPF code generator dependencies
 CLANG ?= clang
 CFLAGS := -O2 -g -Wunaligned-access -Wpacked -Wpadded -Wall -Werror $(CFLAGS)
@@ -141,6 +145,18 @@ clang-tidy:
 lint: prereqs
 	@echo "### Linting code"
 	$(GOLANGCI_LINT) run ./... --timeout=6m
+
+MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+WORKDIR := "/go/src/go.opentelemetry.io/obi"
+.PHONY: lint-markdown
+lint-markdown:
+	@echo "### Linting markdown"
+	@docker run --rm -u $(DOCKER_USER) -v "$(CURDIR):$(WORKDIR)" -w "$(WORKDIR)" $(MARKDOWNIMAGE) -c $(WORKDIR)/.markdownlint.yaml $(WORKDIR)/**/*.md
+
+.PHONY: lint-markdown-fix
+lint-markdown-fix:
+	@echo "### Formatting markdown"
+	@docker run --rm -u $(DOCKER_USER) -v "$(CURDIR):$(WORKDIR)" -w "$(WORKDIR)" $(MARKDOWNIMAGE) -c $(WORKDIR)/.markdownlint.yaml --fix $(WORKDIR)/**/*.md
 
 .PHONY: update-offsets
 update-offsets: prereqs
