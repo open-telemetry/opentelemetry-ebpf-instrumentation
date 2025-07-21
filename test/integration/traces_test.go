@@ -769,7 +769,6 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 		)
 		assert.Empty(t, sd, sd.String())
 
-		/* FIXME flaky
 		// Check the information of the go jsonrpc parent span
 		res = trace.FindByOperationName("Arith.T /jsonrpc", "server")
 		require.Len(t, res, 1)
@@ -789,7 +788,6 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 			jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 		)
 		assert.Empty(t, sd, sd.String())
-		*/
 
 		// Check the information of the python parent span
 		res = trace.FindByOperationName("GET /tracemetoo", "server")
