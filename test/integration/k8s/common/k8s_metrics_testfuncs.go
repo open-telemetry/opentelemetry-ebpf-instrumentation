@@ -96,18 +96,6 @@ func DoWaitForComponentsAvailable(t *testing.T) {
 	}, test.Interval(time.Second))
 }
 
-func DoWaitForHTTPClientAvailable(t *testing.T) {
-	pq := prom.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
-		// now, verify that the metric has been reported.
-		// we don't really care that this metric could be from a previous
-		// test. Once one it is visible, it means that Otel and Prometheus are healthy
-		results, err := pq.Query(`http_client_request_duration_seconds_count{url_path="/iping"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
-}
-
 func FeatureHTTPMetricsDecoration(manifest string, overrideAttrs map[string]string) features.Feature {
 	pinger := kube.Template[Pinger]{
 		TemplateFile: manifest,

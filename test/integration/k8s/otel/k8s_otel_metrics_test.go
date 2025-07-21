@@ -18,7 +18,6 @@ func TestOTEL_MetricsDecoration_AA_WaitForComponents(t *testing.T) {
 }
 
 func TestOTEL_MetricsDecoration_HTTP(t *testing.T) {
-	k8s.DoWaitForHTTPClientAvailable(t)
 	cluster.TestEnv().Test(t, k8s.FeatureHTTPMetricsDecoration(k8s.PingerManifest, nil))
 }
 
