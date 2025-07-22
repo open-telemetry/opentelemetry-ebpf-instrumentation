@@ -364,6 +364,12 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Start:    p.bpfObjects.ObiUvFsAccess,
 			}},
 		},
+		"libuv.so": {
+			"uv_fs_access": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUvFsAccess,
+			}},
+		},
 	}
 }
 
