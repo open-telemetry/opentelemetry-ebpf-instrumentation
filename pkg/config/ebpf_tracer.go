@@ -88,6 +88,12 @@ type EBPFTracer struct {
 
 	// Limit max data buffer size per protocol.
 	BufferSizes EBPFBufferSizes `yaml:"buffer_sizes"`
+
+	// MySQL prepared statements cache size.
+	MySQLPreparedStatementsCacheSize int `yaml:"mysql_prepared_statements_cache_size" env:"OTEL_EBPF_BPF_MYSQL_PREPARED_STATEMENTS_CACHE_SIZE"`
+
+	// MongoDB requests cache size.
+	MongoRequestsCacheSize int `yaml:"mongo_requests_cache_size" env:"OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE"`
 }
 
 type EBPFBufferSizes struct {

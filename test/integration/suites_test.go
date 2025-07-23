@@ -347,13 +347,21 @@ func TestSuite_Python(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
-// Uses both HTTP and SQL, but we want to see only SQL events, since we are filtering by SQL only
-func TestSuite_PythonSQL(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-python-sql.yml", path.Join(pathOutput, "test-suite-python-sql.log"))
+func TestSuite_PythonPostgres(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-postgresql.yml", path.Join(pathOutput, "test-suite-python-postgresql.log"))
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
-	t.Run("Python SQL metrics", testREDMetricsPythonSQLOnly)
+	t.Run("Python Postgres tests", testPythonPostgres)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonMySQL(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-mysql.yml", path.Join(pathOutput, "test-suite-python-mysql.log"))
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Python MySQL tests", testPythonMySQL)
 	require.NoError(t, compose.Close())
 }
 

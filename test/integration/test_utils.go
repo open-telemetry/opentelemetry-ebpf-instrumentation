@@ -241,10 +241,6 @@ func waitForTestComponentsRoute(t *testing.T, url, route string) {
 	}, test.Interval(time.Second))
 }
 
-func waitForSQLTestComponents(t *testing.T, url, subpath string) {
-	waitForSQLTestComponentsWithDB(t, url, subpath, "postgresql")
-}
-
 func waitForSQLTestComponentsMySQL(t *testing.T, url, subpath string) {
 	waitForSQLTestComponentsWithDB(t, url, subpath, "mysql")
 }
