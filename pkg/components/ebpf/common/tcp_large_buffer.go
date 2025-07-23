@@ -43,7 +43,7 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	lb, ok := parseCtx.largeBuffers.Get(key)
 	if ok && event.Action == largeBufferActionAppend {
 		lb.buf = append(lb.buf, record.RawSample[hdrSize:hdrSize+event.Len]...)
-	} else if event.Action == largeBufferActionInit {
+	} else if !ok || event.Action == largeBufferActionInit {
 		newBuffer := make([]byte, event.Len)
 		copy(newBuffer, record.RawSample[hdrSize:])
 		parseCtx.largeBuffers.Add(key, &largeBuffer{

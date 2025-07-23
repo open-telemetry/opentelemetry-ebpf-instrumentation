@@ -75,7 +75,7 @@ func TestTCPLargeBuffers(t *testing.T) {
 		Type:      firstEvent.Type,
 		Direction: firstEvent.Direction,
 		Len:       6,
-		Action:    1, // LargeBufActionAppend
+		Action:    largeBufferActionAppend,
 	}
 	appendEvent.Tp.TraceId = firstEvent.Tp.TraceId
 	appendEvent.Tp.SpanId = firstEvent.Tp.SpanId
