@@ -187,7 +187,7 @@ func checkInstrumentedProcessesMetric(t *testing.T) {
 		}
 
 		for processName, expectedCount := range processes {
-			results, err := pq.Query(fmt.Sprintf(`beyla_instrumented_processes{process_name="%s"}`, processName))
+			results, err := pq.Query(fmt.Sprintf(`obi_instrumented_processes{process_name="%s"}`, processName))
 			require.NoError(t, err)
 			value, err := strconv.Atoi(results[0].Value[1].(string))
 			require.NoError(t, err)
