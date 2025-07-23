@@ -971,7 +971,7 @@ func testPrometheusBeylaBuildInfo(t *testing.T) {
 	var results []prom.Result
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		var err error
-		results, err = pq.Query(`beyla_build_info{target_lang="go"}`)
+		results, err = pq.Query(`obi_build_info{target_lang="go"}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
 	})

@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	flushesMetricName            = "beyla_ebpf_tracer_flushes"
-	promRequestsMetricName       = "beyla_prometheus_http_requests_total"
+	flushesMetricName            = "obi_ebpf_tracer_flushes"
+	promRequestsMetricName       = "obi_prometheus_http_requests_total"
 	internalPrometheusMetricsURL = "http://localhost:8999/internal/metrics"
 )
 
