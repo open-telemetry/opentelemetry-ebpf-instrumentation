@@ -10,7 +10,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
-	"go.opentelemetry.io/obi/pkg/components/sqlprune"
 	"go.opentelemetry.io/obi/pkg/config"
 )
 
@@ -32,7 +31,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		return request.Span{}, true, nil
 	}
 
-	requestBuffer, responseBuffer := fixupBuffers(parseCtx, event)
+	requestBuffer, responseBuffer := getBuffers(parseCtx, event)
 
 	if cfg.ProtocolDebug {
 		fmt.Printf("[>] %v\n", requestBuffer)
@@ -148,7 +147,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	return request.Span{}, true, nil // ignore if we couldn't parse it
 }
 
-func fixupBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req []byte, resp []byte) {
+func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req []byte, resp []byte) {
 	l := int(event.Len)
 	if l < 0 || len(event.Buf) < l {
 		l = len(event.Buf)
@@ -171,84 +170,6 @@ func fixupBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req []byte
 	}
 
 	return
-}
-
-func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer []byte) (request.Span, error) {
-	var (
-		op, table, stmt string
-		span            request.Span
-	)
-
-	if len(requestBuffer) < sqlprune.MySQLHdrSize+1 {
-		slog.Warn("MySQL request too short")
-		return span, errFallback
-	}
-	if len(responseBuffer) < sqlprune.MySQLHdrSize+1 {
-		slog.Warn("MySQL response too short")
-		return span, errFallback
-	}
-
-	sqlCommand := sqlprune.SQLParseCommandID(request.DBMySQL, requestBuffer)
-	if sqlCommand == "" {
-		return span, errIgnore
-	}
-
-	sqlError := sqlprune.SQLParseError(responseBuffer)
-
-	switch sqlCommand {
-	case "STMT_PREPARE":
-		if sqlError != nil {
-			slog.Debug("MySQL PREPARE command errored, ignoring", "error", sqlError)
-			return span, errIgnore
-		}
-
-		// On the PREPARE command, the statement ID is the first 4 bytes after the header and command ID
-		// in the response buffer.
-		stmtID := sqlprune.SQLParseStatementID(request.DBMySQL, responseBuffer)
-		if stmtID == 0 {
-			slog.Warn("MySQL PREPARE command with invalid statement ID")
-			return span, errFallback
-		}
-
-		_, _, stmt = detectSQL(string(requestBuffer[sqlprune.MySQLHdrSize+1:]))
-		parseCtx.mysqlPreparedStatements.Add(mysqlPreparedStatementsKey{
-			connInfo: event.ConnInfo,
-			stmtID:   stmtID,
-		}, stmt)
-
-		return span, errIgnore
-	case "STMT_EXECUTE":
-		// On the EXECUTE command, the statement ID is the first 4 bytes after the header and command ID
-		// in the request buffer.
-		stmtID := sqlprune.SQLParseStatementID(request.DBMySQL, requestBuffer)
-		if stmtID == 0 {
-			slog.Warn("MySQL EXECUTE command with invalid statement ID")
-			return span, errFallback
-		}
-
-		var found bool
-		stmt, found = parseCtx.mysqlPreparedStatements.Get(mysqlPreparedStatementsKey{
-			connInfo: event.ConnInfo,
-			stmtID:   stmtID,
-		})
-		if !found {
-			slog.Debug("MySQL EXECUTE command with unknown statement ID", "stmtID", stmtID)
-			return span, errFallback
-		}
-		op, table = sqlprune.SQLParseOperationAndTable(stmt)
-	case "QUERY":
-		op, table, stmt = detectSQL(string(requestBuffer[sqlprune.MySQLHdrSize+1:]))
-	default:
-		slog.Warn("MySQL command ID unhandled", "commandID", requestBuffer[sqlprune.MySQLHdrSize])
-		return span, errFallback
-	}
-
-	if !validSQL(op, table, request.DBMySQL) {
-		slog.Warn("MySQL operation and/or table are invalid", "stmt", stmt)
-		return span, errFallback
-	}
-
-	return TCPToSQLToSpan(event, op, table, stmt, request.DBMySQL, sqlCommand, sqlError), nil
 }
 
 func reverseTCPEvent(trace *TCPRequestInfo) {

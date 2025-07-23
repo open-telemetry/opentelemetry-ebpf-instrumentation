@@ -141,11 +141,11 @@ func NewEBPFParseContext(cfg *config.EBPFTracer) *EBPFParseContext {
 		err                     error
 		redisDBCache            *simplelru.LRU[BpfConnectionInfoT, int]
 		mysqlPreparedStatements *simplelru.LRU[mysqlPreparedStatementsKey, string]
+		mongoRequestCache       PendingMongoDBRequests
 	)
 
 	h2c, _ := lru.New[uint64, h2Connection](1024 * 10)
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largeBuffer](1024, nil, 5*time.Minute)
-	mongoRequestCache := expirable.NewLRU[MongoRequestKey, *MongoRequestValue](1000, nil, 0)
 
 	if cfg != nil {
 		if cfg.RedisDBCache.Enabled {
@@ -160,6 +160,8 @@ func NewEBPFParseContext(cfg *config.EBPFTracer) *EBPFParseContext {
 		if err != nil {
 			ptlog().Error("failed to create MySQL prepared statements cache", "error", err)
 		}
+
+		mongoRequestCache = expirable.NewLRU[MongoRequestKey, *MongoRequestValue](cfg.MongoRequestsCacheSize, nil, 0)
 	}
 
 	return &EBPFParseContext{
