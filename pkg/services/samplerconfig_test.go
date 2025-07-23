@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package otel
+package services
 
 import (
 	"testing"
@@ -12,7 +12,7 @@ import (
 
 func TestSamplerImplementation(t *testing.T) {
 	type testCase struct {
-		in  Sampler
+		in  SamplerConfig
 		out trace.Sampler
 	}
 
@@ -20,32 +20,32 @@ func TestSamplerImplementation(t *testing.T) {
 		// default sampler
 		out: trace.ParentBased(trace.AlwaysSample()),
 	}, {
-		in:  Sampler{Name: "invalid_sampler", Arg: "0.33"},
+		in:  SamplerConfig{Name: "invalid_sampler", Arg: "0.33"},
 		out: trace.ParentBased(trace.AlwaysSample()),
 	}, {
-		in:  Sampler{Name: "always_on"},
+		in:  SamplerConfig{Name: "always_on"},
 		out: trace.AlwaysSample(),
 	}, {
-		in:  Sampler{Name: "always_off"},
+		in:  SamplerConfig{Name: "always_off"},
 		out: trace.NeverSample(),
 	}, {
-		in:  Sampler{Name: "traceidratio", Arg: "0.33"},
+		in:  SamplerConfig{Name: "traceidratio", Arg: "0.33"},
 		out: trace.TraceIDRatioBased(0.33),
 	}, {
 		// wrong argument: using default sampler
-		in:  Sampler{Name: "traceidratio", Arg: "fofofofoof"},
+		in:  SamplerConfig{Name: "traceidratio", Arg: "fofofofoof"},
 		out: trace.ParentBased(trace.AlwaysSample()),
 	}, {
-		in:  Sampler{Name: "parentbased_always_off", Arg: "0.33"},
+		in:  SamplerConfig{Name: "parentbased_always_off", Arg: "0.33"},
 		out: trace.ParentBased(trace.NeverSample()),
 	}, {
-		in:  Sampler{Name: "parentbased_always_on", Arg: "0.33"},
+		in:  SamplerConfig{Name: "parentbased_always_on", Arg: "0.33"},
 		out: trace.ParentBased(trace.AlwaysSample()),
 	}, {
-		in:  Sampler{Name: "parentbased_traceidratio", Arg: "0.3"},
+		in:  SamplerConfig{Name: "parentbased_traceidratio", Arg: "0.3"},
 		out: trace.ParentBased(trace.TraceIDRatioBased(0.3)),
 	}, {
-		in:  Sampler{Name: "parentbased_traceidratio", Arg: "wrong argument"},
+		in:  SamplerConfig{Name: "parentbased_traceidratio", Arg: "wrong argument"},
 		out: trace.ParentBased(trace.AlwaysSample()),
 	}} {
 		t.Run(tc.in.Name+"/"+tc.in.Arg, func(t *testing.T) {
