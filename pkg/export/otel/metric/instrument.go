@@ -14,8 +14,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/api/metric"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/components/aggregate"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/components/aggregate"
 )
 
 var zeroScope instrumentation.Scope

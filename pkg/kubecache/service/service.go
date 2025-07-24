@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package service
 
 import (
@@ -9,15 +12,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/helpers/sync"
+	"go.opentelemetry.io/obi/pkg/components/helpers/sync"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/instrument"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/meta"
+	"go.opentelemetry.io/obi/pkg/kubecache"
+	"go.opentelemetry.io/obi/pkg/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kubecache/instrument"
+	"go.opentelemetry.io/obi/pkg/kubecache/meta"
 )
 
 const defaultSendTimeout = 10 * time.Second

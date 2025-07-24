@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build linux
 
 package tcmanager
@@ -10,7 +13,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/ifaces"
+	"go.opentelemetry.io/obi/pkg/components/netolly/ifaces"
 )
 
 type attachedProg struct {

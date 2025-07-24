@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/global"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/global"
 )
 
 // Environment variable names.

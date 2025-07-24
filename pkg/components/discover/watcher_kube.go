@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package discover
 
 import (
@@ -6,13 +9,13 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/helpers/container"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/kube"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/transform"
+	"go.opentelemetry.io/obi/pkg/components/helpers/container"
+	"go.opentelemetry.io/obi/pkg/components/kube"
+	"go.opentelemetry.io/obi/pkg/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/services"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 // injectable functions for testing
@@ -152,13 +155,7 @@ func (wk *watcherKubeEnricher) enrichProcessEvent(processEvents []Event[ProcessA
 			}
 		case EventDeleted:
 			wk.log.Debug("process stopped", "pid", procEvent.Obj.pid)
-			wk.mt.Lock()
-			if cnt, ok := wk.containerByPID[procEvent.Obj.pid]; ok {
-				delete(wk.processByContainer, cnt.ContainerID)
-			}
-			delete(wk.containerByPID, procEvent.Obj.pid)
-			wk.store.DeleteProcess(uint32(procEvent.Obj.pid))
-			wk.mt.Unlock()
+			wk.onProcessTerminate(procEvent.Obj)
 			// no need to decorate deleted processes
 			eventsWithMeta = append(eventsWithMeta, procEvent)
 		}
@@ -187,6 +184,32 @@ func (wk *watcherKubeEnricher) onNewProcess(procInfo ProcessAttrs) (ProcessAttrs
 		procInfo = withMetadata(procInfo, pod.Meta)
 	}
 	return procInfo, true
+}
+
+func (wk *watcherKubeEnricher) onProcessTerminate(procInfo ProcessAttrs) {
+	wk.mt.Lock()
+	defer wk.mt.Unlock()
+
+	if cnt, ok := wk.containerByPID[procInfo.pid]; ok {
+		if pidProcInfos, ok := wk.processByContainer[cnt.ContainerID]; ok {
+			filtered := []ProcessAttrs{}
+
+			for _, pidProcInfo := range pidProcInfos {
+				if pidProcInfo.pid != procInfo.pid {
+					filtered = append(filtered, pidProcInfo)
+					continue
+				}
+				wk.log.Debug("removing process mapping", "container", cnt.ContainerID, "pid", pidProcInfo.pid)
+			}
+			if len(filtered) == 0 {
+				delete(wk.processByContainer, cnt.ContainerID)
+			} else {
+				wk.processByContainer[cnt.ContainerID] = filtered
+			}
+		}
+	}
+	delete(wk.containerByPID, procInfo.pid)
+	wk.store.DeleteProcess(uint32(procInfo.pid))
 }
 
 func (wk *watcherKubeEnricher) onNewPod(pod *informer.ObjectMeta) []Event[ProcessAttrs] {

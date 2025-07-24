@@ -75,6 +75,8 @@ typedef enum {
     _tracer_delegate_pos,
     _tracer_attribute_opt_off,
     _error_string_off,
+    // go jsonrpc
+    _jsonrpc_request_header_service_method_pos,
     _last_go_offset,
 } go_offset_const;
 

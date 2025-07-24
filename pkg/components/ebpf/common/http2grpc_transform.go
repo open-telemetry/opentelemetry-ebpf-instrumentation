@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package ebpfcommon
 
 import (
@@ -12,9 +15,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/net/http2"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/bhpack"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/ebpf/bhpack"
+	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
 )
 
 type BPFHTTP2Info BpfHttp2GrpcRequestT

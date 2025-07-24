@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package ebpfcommon
 
 import (
@@ -11,10 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/ringbuf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
+	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/config"
 )
 
 const (
@@ -28,7 +31,7 @@ func TestTCPReqSQLParsing(t *testing.T) {
 	op, table, sql := detectSQL(sql)
 	assert.Equal(t, "SELECT", op)
 	assert.Equal(t, "accounts", table)
-	s := TCPToSQLToSpan(&r, op, table, sql, request.DBGeneric, []byte{}, []byte{}, "")
+	s := TCPToSQLToSpan(&r, op, table, sql, request.DBGeneric, "", nil)
 	assert.NotNil(t, s)
 	assert.NotEmpty(t, s.Host)
 	assert.NotEmpty(t, s.Peer)

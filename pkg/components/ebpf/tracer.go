@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package ebpf
 
 import (
@@ -8,12 +11,12 @@ import (
 
 	"github.com/cilium/ebpf"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/common"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/goexec"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/app/request"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/components/exec"
+	"go.opentelemetry.io/obi/pkg/components/goexec"
+	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 type Instrumentable struct {

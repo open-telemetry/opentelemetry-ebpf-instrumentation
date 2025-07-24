@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build linux
 
 package obi
@@ -8,9 +11,9 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/common"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/helpers"
-	ebpfcfg "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/components/helpers"
+	ebpfcfg "go.opentelemetry.io/obi/pkg/config"
 )
 
 // Minimum required Kernel version: 4.18

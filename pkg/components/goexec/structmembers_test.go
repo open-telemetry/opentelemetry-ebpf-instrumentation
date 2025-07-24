@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package goexec
 
 import (
@@ -13,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/tools"
+	"go.opentelemetry.io/obi/test/tools"
 )
 
 var (

@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package sqlprune
 
 import (
@@ -6,7 +9,7 @@ import (
 
 	"github.com/xwb1989/sqlparser"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/app/request"
 )
 
 var tokenIsDBOperation = map[int]bool{
@@ -152,5 +155,14 @@ func SQLParseCommandID(kind request.SQLKind, buf []byte) string {
 		return mysqlCommandIDToString(parseMySQLCommandID(buf))
 	default:
 		return ""
+	}
+}
+
+func SQLParseStatementID(kind request.SQLKind, buf []byte) uint32 {
+	switch kind {
+	case request.DBMySQL:
+		return mysqlParseStatementID(buf)
+	default:
+		return 0
 	}
 }

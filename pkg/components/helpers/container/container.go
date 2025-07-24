@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package container provides helper tools to inspect container information
 package container
 
@@ -8,7 +11,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
+	"go.opentelemetry.io/obi/pkg/components/exec"
 )
 
 // injectable values for testing

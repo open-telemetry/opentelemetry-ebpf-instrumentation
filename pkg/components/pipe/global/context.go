@@ -1,14 +1,17 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package global
 
 import (
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/connector"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/imetrics"
-	kube2 "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/kube"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/connector"
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
+	kube2 "go.opentelemetry.io/obi/pkg/components/kube"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 // ContextInfo stores some context information that must be shared across some nodes of the

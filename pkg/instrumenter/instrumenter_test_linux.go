@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build linux
 
 package instrumenter
@@ -9,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 // TestRunDontPanic tests the fix for https://github.com/grafana/beyla/issues/926

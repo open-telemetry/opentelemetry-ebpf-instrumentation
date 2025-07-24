@@ -1,5 +1,5 @@
+,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/LICENSE,Apache-2.0
 cloud.google.com/go/compute/metadata,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/cloud.google.com/go/compute/metadata/LICENSE,Apache-2.0
-github.com,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/LICENSE,Apache-2.0
 github.com/AlessandroPomponio/go-gibberish,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/AlessandroPomponio/go-gibberish/LICENSE,MIT
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp/LICENSE,Apache-2.0
 github.com/aws/aws-sdk-go,https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/HEAD/vendor/github.com/aws/aws-sdk-go/LICENSE.txt,Apache-2.0

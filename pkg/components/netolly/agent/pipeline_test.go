@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package agent
 
 import (
@@ -11,18 +14,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/connector"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/ebpf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/flow/transport"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/prom"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/filter"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
-	prom2 "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
+	"go.opentelemetry.io/obi/pkg/components/connector"
+	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/components/netolly/flow/transport"
+	"go.opentelemetry.io/obi/pkg/components/pipe/global"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/export/prom"
+	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	prom2 "go.opentelemetry.io/obi/test/integration/components/prom"
 )
 
 const timeout = 5 * time.Second

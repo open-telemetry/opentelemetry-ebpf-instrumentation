@@ -1,14 +1,17 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package ebpfcommon
 
 import (
 	"log/slog"
 	"sync"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
+	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/exec"
+	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/services"
 )
 
 type PIDType uint8

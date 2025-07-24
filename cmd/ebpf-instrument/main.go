@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -17,9 +20,9 @@ import (
 
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/instrumenter"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/buildinfo"
+	"go.opentelemetry.io/obi/pkg/instrumenter"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 func main() {

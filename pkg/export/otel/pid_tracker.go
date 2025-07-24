@@ -1,9 +1,12 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package otel
 
 import (
 	"sync"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/components/svc"
 )
 
 type PidServiceTracker struct {
@@ -59,6 +62,15 @@ func (p *PidServiceTracker) RemovePID(pid int32) (bool, svc.UID) {
 	}
 
 	return false, svc.UID{}
+}
+
+func (p *PidServiceTracker) ServiceLive(uid svc.UID) bool {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	_, exists := p.servicePIDs[uid]
+
+	return exists
 }
 
 func (p *PidServiceTracker) IsTrackingServerService(n svc.ServiceNameNamespace) bool {

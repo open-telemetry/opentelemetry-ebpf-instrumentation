@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package otel
 
 import (
@@ -6,21 +9,23 @@ import (
 	"log/slog"
 	"time"
 
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/ebpf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/expire"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric"
-	metric2 "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/api/metric"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/buildinfo"
+	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/components/pipe/global"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	"go.opentelemetry.io/obi/pkg/export/expire"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric"
+	metric2 "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 // NetMetricsConfig extends MetricsConfig for Network Metrics
@@ -43,7 +48,7 @@ func nmlog() *slog.Logger {
 // for network metrics.
 func getFilteredNetworkResourceAttrs(hostID string, attrSelector attributes.Selection) []attribute.KeyValue {
 	baseAttrs := []attribute.KeyValue{
-		semconv.ServiceName(VendorPrefix + "-network-flows"),
+		semconv.ServiceName(attr.VendorPrefix + "-network-flows"),
 		semconv.ServiceInstanceID(uuid.New().String()),
 		semconv.TelemetrySDKLanguageKey.String(semconv.TelemetrySDKLanguageGo.Value.AsString()),
 		semconv.TelemetrySDKNameKey.String("opentelemetry-ebpf-instrumentation"),
@@ -54,7 +59,7 @@ func getFilteredNetworkResourceAttrs(hostID string, attrSelector attributes.Sele
 		semconv.HostID(hostID),
 	}
 
-	return GetFilteredAttributesByPrefix(baseAttrs, attrSelector, extraAttrs, []string{"network.", VendorPrefix + ".network"})
+	return GetFilteredAttributesByPrefix(baseAttrs, attrSelector, extraAttrs, []string{"network.", attr.VendorPrefix + ".network"})
 }
 
 func createFilteredNetworkResource(hostID string, attrSelector attributes.Selection) *resource.Resource {

@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package exec
 
 import (
@@ -6,8 +9,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/fastelf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/components/fastelf"
+	"go.opentelemetry.io/obi/pkg/components/svc"
 )
 
 func FindProcLanguage(pid int32) svc.InstrumentableType {

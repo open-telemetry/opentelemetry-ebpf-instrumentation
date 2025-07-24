@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration
 
 package integration
@@ -14,9 +17,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/docker"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
+	"go.opentelemetry.io/obi/test/integration/components/docker"
+	"go.opentelemetry.io/obi/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/test/integration/components/prom"
 )
 
 // does a smoke test to verify that all the components that started

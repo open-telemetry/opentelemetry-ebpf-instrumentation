@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package discover
 
 import (
@@ -5,10 +8,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/kube"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/components/ebpf"
+	"go.opentelemetry.io/obi/pkg/components/kube"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 // ContainerDBUpdaterProvider is a stage in the Process Finder pipeline that will be

@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package ebpfcommon
 
 import (
@@ -10,11 +13,11 @@ import (
 
 	"github.com/cilium/ebpf"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/ringbuf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/imetrics"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
+	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 // ringBufReader interface extracts the used methods from ringbuf.Reader for proper

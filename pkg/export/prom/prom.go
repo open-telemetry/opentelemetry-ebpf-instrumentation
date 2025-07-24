@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package prom
 
 import (
@@ -12,19 +15,19 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/connector"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
-	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/expire"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/instrumentations"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/buildinfo"
+	"go.opentelemetry.io/obi/pkg/components/connector"
+	"go.opentelemetry.io/obi/pkg/components/exec"
+	"go.opentelemetry.io/obi/pkg/components/pipe/global"
+	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/expire"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 // injectable function reference for testing
@@ -96,7 +99,7 @@ const (
 
 // metrics for Beyla statistics
 const (
-	BeylaBuildInfo = "beyla_build_info"
+	buildInfoSuffix = "_build_info"
 
 	LanguageLabel = "target_lang"
 )
@@ -412,7 +415,7 @@ func newReporter(
 		attrGPUKernelCalls:         attrGPUKernelLaunchCalls,
 		attrGPUMemoryAllocs:        attrGPUMemoryAllocations,
 		beylaInfo: NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: BeylaBuildInfo,
+			Name: attr.VendorPrefix + buildInfoSuffix,
 			Help: "A metric with a constant '1' value labeled by version, revision, branch, " +
 				"goversion from which Beyla was built, the goos and goarch for the build, and the" +
 				"language of the reported services",
@@ -981,7 +984,7 @@ func (r *metricsReporter) labelValuesSpans(span *request.Span) []string {
 		span.ServiceGraphKind(),
 		span.Service.UID.Instance, // app instance ID
 		span.Service.Job(),
-		"beyla",
+		attr.VendorPrefix,
 	}
 }
 
@@ -1019,8 +1022,8 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 		service.UID.Instance, // app instance ID
 		service.Job(),
 		service.SDKLanguage.String(),
-		"beyla",
-		"beyla",
+		attr.VendorPrefix,
+		attr.VendorPrefix,
 		"linux",
 	}
 
@@ -1046,7 +1049,7 @@ func (r *metricsReporter) labelValuesServiceGraph(span *request.Span) []string {
 			span.Service.UID.Namespace,
 			request.SpanHost(span),
 			span.OtherNamespace,
-			"beyla",
+			attr.VendorPrefix,
 		}
 	}
 	return []string{
@@ -1054,7 +1057,7 @@ func (r *metricsReporter) labelValuesServiceGraph(span *request.Span) []string {
 		span.OtherNamespace,
 		request.SpanHost(span),
 		span.Service.UID.Namespace,
-		"beyla",
+		attr.VendorPrefix,
 	}
 }
 

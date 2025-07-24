@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package meta
 
 import (
@@ -5,7 +8,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 )
 
 type indexableEntity struct {

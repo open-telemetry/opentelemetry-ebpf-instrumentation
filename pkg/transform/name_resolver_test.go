@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package transform
 
 import (
@@ -7,11 +10,11 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	kube2 "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/kube"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
-	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/app/request"
+	kube2 "go.opentelemetry.io/obi/pkg/components/kube"
+	"go.opentelemetry.io/obi/pkg/components/svc"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 )
 
 func TestSuffixPrefix(t *testing.T) {

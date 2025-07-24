@@ -1,10 +1,13 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package exec
 
 import (
 	"regexp"
 	"strings"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/components/svc"
 )
 
 var (

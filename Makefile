@@ -173,7 +173,7 @@ docker-generate:
 	@OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/obi-genfiles/obi_genfiles.go
 
 .PHONY: verify
-verify: prereqs lint test
+verify: prereqs lint test license-header-check
 
 .PHONY: build
 build: docker-generate verify compile
@@ -354,6 +354,17 @@ check-licenses: update-licenses
 		echo "ERROR: third_party_licenses.csv is not up to date. Run 'make update-licenses' and push the changes to your PR"; \
 		exit 1; \
 	fi
+
+
+.PHONY: license-header-check
+license-header-check:
+	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' \) ! -path '**/vendor/*' ! -path './.git/*' ) ; do \
+	           awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=4 { found=1; next } END { if (!found) print FILENAME }' $$f; \
+	   done); \
+	   if [ -n "$${licRes}" ]; then \
+	           echo "license header checking failed:"; echo "$${licRes}"; \
+	           exit 1; \
+	   fi
 
 .PHONY: artifact
 artifact: docker-generate compile

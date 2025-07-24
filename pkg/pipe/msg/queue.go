@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package msg provides tools for message passing and queues between the different nodes of the Beyla pipelines.
 package msg
 

@@ -96,21 +96,26 @@ static __always_inline void cleanup_tcp_trace_info_if_needed(pid_connection_info
     }
 }
 
-static __always_inline void tcp_send_large_buffer(tcp_req_t *req,
-                                                  pid_connection_info_t *pid_conn,
-                                                  void *u_buf,
-                                                  int bytes_len,
-                                                  u8 direction,
-                                                  enum protocol_type protocol_type) {
+static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
+                                                 pid_connection_info_t *pid_conn,
+                                                 void *u_buf,
+                                                 int bytes_len,
+                                                 u8 direction,
+                                                 enum protocol_type protocol_type,
+                                                 enum large_buf_action action) {
+    int ret = 0;
+
     switch (protocol_type) {
     case k_protocol_type_mysql:
         if (mysql_buffer_size > 0) {
-            mysql_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction);
+            ret = mysql_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
         }
         break;
     case k_protocol_type_unknown:
         break;
     }
+
+    return ret;
 }
 
 static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t *pid_conn,
@@ -183,12 +188,22 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
             tcp_get_or_set_trace_info(req, pid_conn, ssl, orig_dport);
 
-            tcp_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, protocol_type);
+            tcp_send_large_buffer(
+                req, pid_conn, u_buf, bytes_len, direction, protocol_type, k_large_buf_action_init);
 
             bpf_map_update_elem(&ongoing_tcp_req, pid_conn, req, BPF_ANY);
         }
     } else if (existing->direction != direction) {
-        tcp_send_large_buffer(existing, pid_conn, u_buf, bytes_len, direction, protocol_type);
+        if (tcp_send_large_buffer(existing,
+                                  pid_conn,
+                                  u_buf,
+                                  bytes_len,
+                                  direction,
+                                  protocol_type,
+                                  k_large_buf_action_init) < 0) {
+            bpf_dbg_printk("handle_unknown_tcp_connection: waiting additional response data");
+            return;
+        }
 
         if (existing->end_monotime_ns == 0) {
             bpf_clamp_umax(bytes_len, K_TCP_RES_LEN);
@@ -220,7 +235,14 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         existing->len += bytes_len;
         existing->req_len = existing->len;
         existing->protocol_type = protocol_type;
-        tcp_send_large_buffer(existing, pid_conn, u_buf, bytes_len, direction, protocol_type);
+
+        tcp_send_large_buffer(existing,
+                              pid_conn,
+                              u_buf,
+                              bytes_len,
+                              direction,
+                              protocol_type,
+                              k_large_buf_action_append);
     } else {
         existing->req_len += bytes_len;
     }

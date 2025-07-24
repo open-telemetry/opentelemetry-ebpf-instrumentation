@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package request
 
 import (
@@ -14,8 +17,8 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	trace2 "go.opentelemetry.io/otel/trace"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
-	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/components/svc"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 type EventType uint8

@@ -1,13 +1,16 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package flow
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/ebpf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/flow/transport"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/components/netolly/flow/transport"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 // ProtocolFilterProvider allows selecting which protocols are going to be instrumented.

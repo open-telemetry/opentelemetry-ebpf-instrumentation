@@ -1,7 +1,10 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package kube
 
 import (
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 )
 
 // TopOwner assumes that the owners slice as returned by the informers' cache library,

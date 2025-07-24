@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Copyright Red Hat / IBM
 // Copyright Grafana Labs
 //
@@ -21,8 +24,8 @@ package obi
 import (
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/flow"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/transform/cidr"
+	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
+	"go.opentelemetry.io/obi/pkg/components/netolly/transform/cidr"
 )
 
 const (

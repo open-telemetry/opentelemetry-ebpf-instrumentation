@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration_k8s
 
 package otel
@@ -11,12 +14,12 @@ import (
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/docker"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/kube"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
-	k8s "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common/testpath"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/tools"
+	"go.opentelemetry.io/obi/test/integration/components/docker"
+	"go.opentelemetry.io/obi/test/integration/components/kube"
+	"go.opentelemetry.io/obi/test/integration/components/prom"
+	k8s "go.opentelemetry.io/obi/test/integration/k8s/common"
+	"go.opentelemetry.io/obi/test/integration/k8s/common/testpath"
+	"go.opentelemetry.io/obi/test/tools"
 )
 
 const (
@@ -30,7 +33,7 @@ func TestMain(m *testing.M) {
 	if err := docker.Build(os.Stdout, tools.ProjectDir(),
 		docker.ImageBuild{Tag: "testserver:dev", Dockerfile: k8s.DockerfileTestServer},
 		docker.ImageBuild{Tag: "httppinger:dev", Dockerfile: k8s.DockerfileHTTPPinger},
-		docker.ImageBuild{Tag: "beyla:dev", Dockerfile: k8s.DockerfileBeyla},
+		docker.ImageBuild{Tag: "obi:dev", Dockerfile: k8s.DockerfileOBI},
 		docker.ImageBuild{Tag: "quay.io/prometheus/prometheus:v2.55.1"},
 		docker.ImageBuild{Tag: "otel/opentelemetry-collector-contrib:0.103.0"},
 	); err != nil {
@@ -42,7 +45,7 @@ func TestMain(m *testing.M) {
 		kube.KindConfig(testpath.Manifests+"/00-kind-multi-node.yml"),
 		kube.LocalImage("testserver:dev"),
 		kube.LocalImage("httppinger:dev"),
-		kube.LocalImage("beyla:dev"),
+		kube.LocalImage("obi:dev"),
 		kube.LocalImage("quay.io/prometheus/prometheus:v2.55.1"),
 		kube.LocalImage("otel/opentelemetry-collector-contrib:0.103.0"),
 		kube.Deploy(testpath.Manifests+"/01-volumes.yml"),
@@ -50,7 +53,7 @@ func TestMain(m *testing.M) {
 		kube.Deploy(testpath.Manifests+"/02-prometheus-otelscrape-multi-node.yml"),
 		kube.Deploy(testpath.Manifests+"/03-otelcol.yml"),
 		kube.Deploy(testpath.Manifests+"/05-uninstrumented-server-client-different-nodes.yml"),
-		kube.Deploy(testpath.Manifests+"/06-beyla-netolly.yml"),
+		kube.Deploy(testpath.Manifests+"/06-obi-netolly.yml"),
 	)
 
 	cluster.Run(m)
@@ -76,7 +79,7 @@ func TestNoSourceAndDestAvailable(t *testing.T) {
 	}
 
 	// Verify that HTTP pinger/testserver metrics can't have both source and destination labels,
-	// as the test client and server are in different nodes, and Beyla is only getting information
+	// as the test client and server are in different nodes, and OBI is only getting information
 	// from its local node
 	results, err := pq.Query(`obi_network_flow_bytes_total{k8s_dst_name="httppinger",k8s_src_name=~"otherinstance.*",k8s_src_kind="Pod"}`)
 	require.NoError(t, err)

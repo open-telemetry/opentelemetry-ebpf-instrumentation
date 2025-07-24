@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package appolly provides public access to eBPF application observability as a library
 package appolly
 
@@ -9,19 +12,19 @@ import (
 	"sync"
 	"time"
 
-	ebpfcommon "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/common"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/discover"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/traces"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/transform"
+	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/discover"
+	"go.opentelemetry.io/obi/pkg/components/ebpf"
+	"go.opentelemetry.io/obi/pkg/components/exec"
+	"go.opentelemetry.io/obi/pkg/components/pipe"
+	"go.opentelemetry.io/obi/pkg/components/pipe/global"
+	"go.opentelemetry.io/obi/pkg/components/traces"
+	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 var errShutdownTimeout = errors.New("graceful shutdown has timed out while waiting for eBPF tracers to finish")

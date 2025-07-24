@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package meta
 
 import (
@@ -9,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 )
 
 type fakeObserver struct {

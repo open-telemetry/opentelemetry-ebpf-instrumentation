@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Copyright 2020 New Relic Corporation. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 package hostname
@@ -7,7 +10,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/helpers"
+	"go.opentelemetry.io/obi/pkg/components/helpers"
 )
 
 // attempts to determine the hostname, gracefully falling back until we

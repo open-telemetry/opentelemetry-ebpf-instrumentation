@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 /*
  *
  * Based on https://grpc.io/docs/tutorials/basic/go.html
@@ -28,7 +31,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	pb "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/testserver_1.17/grpc/routeguide"
+	pb "go.opentelemetry.io/obi/testserver_1.17/grpc/routeguide"
 )
 
 var counter int64

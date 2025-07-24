@@ -10,7 +10,7 @@ import (
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel/metric/global"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/global"
 )
 
 var (

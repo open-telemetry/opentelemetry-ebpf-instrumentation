@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package services
 
 import (
@@ -75,6 +78,8 @@ type GlobAttributes struct {
 	// or an empty array (disabled). An unspecified value (nil) will use the
 	// default configuration value
 	ExportModes ExportModes `yaml:"exports"`
+
+	SamplerConfig *SamplerConfig `yaml:"sampler"`
 }
 
 // GlobAttr provides a YAML handler for glob.Glob so the type can be parsed from YAML or environment variables
@@ -173,6 +178,8 @@ func (ga *GlobAttributes) RangePodAnnotations() iter.Seq2[string, StringMatcher]
 }
 
 func (ga *GlobAttributes) GetExportModes() ExportModes { return ga.ExportModes }
+
+func (ga *GlobAttributes) GetSamplerConfig() *SamplerConfig { return ga.SamplerConfig }
 
 type nilMatcher struct{}
 

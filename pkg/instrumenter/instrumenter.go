@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package instrumenter
 
 import (
@@ -9,16 +12,16 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/appolly"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/connector"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/imetrics"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/kube"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/agent"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/flow"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/components/appolly"
+	"go.opentelemetry.io/obi/pkg/components/connector"
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
+	"go.opentelemetry.io/obi/pkg/components/kube"
+	"go.opentelemetry.io/obi/pkg/components/netolly/agent"
+	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
+	"go.opentelemetry.io/obi/pkg/components/pipe/global"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 // Run in the foreground process. This is a blocking function and won't exit

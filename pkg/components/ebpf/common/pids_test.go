@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package ebpfcommon
 
 import (
@@ -8,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
+	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/services"
 )
 
 var spanSet = []request.Span{

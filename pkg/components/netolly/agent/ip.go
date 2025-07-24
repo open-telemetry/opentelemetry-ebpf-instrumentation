@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Copyright Red Hat / IBM
 // Copyright Grafana Labs
 //
@@ -23,7 +26,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 // dependencies that can be injected from testing

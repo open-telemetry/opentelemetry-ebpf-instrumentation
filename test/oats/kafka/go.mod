@@ -1,6 +1,6 @@
-module github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/oats
+module go.opentelemetry.io/obi/test/oats
 
-go 1.24.1
+go 1.24.0
 
 require (
 	github.com/grafana/oats v0.0.3

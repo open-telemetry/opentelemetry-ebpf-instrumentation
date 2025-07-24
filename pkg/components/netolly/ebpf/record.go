@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Copyright Red Hat / IBM
 // Copyright Grafana Labs
 //
@@ -23,7 +26,7 @@ import (
 	"io"
 	"net"
 
-	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 // IPAddr encodes v4 and v6 IPs with a fixed length.

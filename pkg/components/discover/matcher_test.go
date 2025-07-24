@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package discover
 
 import (
@@ -7,10 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/testutil"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
+	"go.opentelemetry.io/obi/pkg/components/testutil"
+	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/services"
 )
 
 func testMatch(t *testing.T, m Event[ProcessMatch], name string,
@@ -463,6 +466,9 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
     exports: [metrics]
   - k8s_deployment_name: planet-service
     exports: [traces]
+    sampler:
+        name: traceidratio
+        arg: 0.5
   - k8s_deployment_name: satellite-service
     exports: []
   - k8s_deployment_name: star-service
@@ -547,6 +553,8 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	assert.True(t, planetAttrs.ExportModes.CanExportTraces())
 	assert.False(t, planetAttrs.ExportModes.CanExportMetrics())
+	require.NotNil(t, planetAttrs.Sampler)
+	assert.Equal(t, "TraceIDRatioBased{0.5}", planetAttrs.Sampler.Description())
 
 	satelliteMatch := matches[1].Obj
 
@@ -556,6 +564,7 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	assert.False(t, satelliteAttrs.ExportModes.CanExportTraces())
 	assert.False(t, satelliteAttrs.ExportModes.CanExportMetrics())
+	require.Nil(t, satelliteAttrs.Sampler)
 
 	starMatch := matches[2].Obj
 
@@ -565,6 +574,7 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	assert.False(t, starAttrs.ExportModes.CanExportTraces())
 	assert.True(t, starAttrs.ExportModes.CanExportMetrics())
+	require.Nil(t, starAttrs.Sampler)
 
 	asteroidMatch := matches[3].Obj
 
@@ -574,4 +584,5 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	assert.True(t, asteroidAttrs.ExportModes.CanExportTraces())
 	assert.True(t, asteroidAttrs.ExportModes.CanExportMetrics())
+	require.Nil(t, asteroidAttrs.Sampler)
 }

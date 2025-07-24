@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package gorillamid2
 
 import (
@@ -7,7 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/std"
+	"go.opentelemetry.io/obi/test/integration/components/testserver/std"
 )
 
 func AuthMiddleware(next http.Handler) http.Handler {

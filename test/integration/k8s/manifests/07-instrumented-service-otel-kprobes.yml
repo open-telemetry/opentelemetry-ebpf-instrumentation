@@ -1,14 +1,14 @@
-# TODO: Need to document the ServiceAccount needs. Beyla requires to setup a service account
+# TODO: Need to document the ServiceAccount needs. OBI requires to setup a service account
 # and roles to watch and get information about Nodes, Services, ReplicaSets and Pods
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: beyla
+  name: obi
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: beyla
+  name: obi
 rules:
   - apiGroups: ["apps"]
     resources: ["replicasets"]
@@ -20,15 +20,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: beyla
+  name: obi
 subjects:
   - kind: ServiceAccount
-    name: beyla
+    name: obi
     namespace: default
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: beyla
+  name: obi
 ---
 apiVersion: v1
 kind: Service
@@ -60,15 +60,15 @@ metadata:
   name: testserver
   labels:
     app: testserver
-    # this label will trigger a deletion of beyla pods before tearing down
-    # kind, to force Beyla writing the coverage data
+    # this label will trigger a deletion of OBI pods before tearing down
+    # kind, to force OBI writing the coverage data
     teardown: delete
     deployment.environment: integration-test
   annotations:
     resource.opentelemetry.io/deployment.environment: 'to-be-ignored-in-favor-of-env'
 spec:
   shareProcessNamespace: true
-  serviceAccountName: beyla
+  serviceAccountName: obi
   volumes:
     - name: configs
       persistentVolumeClaim:
@@ -90,8 +90,8 @@ spec:
           value: "DEBUG"
         - name: OTEL_RESOURCE_ATTRIBUTES
           value: "service.name=mypythonapp,service.version=3.2.1"
-    - name: beyla
-      image: beyla:dev
+    - name: obi
+      image: obi:dev
       imagePullPolicy: Never # loaded into Kind from localhost
       securityContext:
         privileged: true

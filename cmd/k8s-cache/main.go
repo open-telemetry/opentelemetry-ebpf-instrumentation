@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -13,11 +16,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/buildinfo"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/instrument"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/meta"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/service"
+	"go.opentelemetry.io/obi/pkg/buildinfo"
+	"go.opentelemetry.io/obi/pkg/kubecache"
+	"go.opentelemetry.io/obi/pkg/kubecache/instrument"
+	"go.opentelemetry.io/obi/pkg/kubecache/meta"
+	"go.opentelemetry.io/obi/pkg/kubecache/service"
 )
 
 // main code of te Kubernetes K8s informer's metadata cache service, when it runs as a separate service and not

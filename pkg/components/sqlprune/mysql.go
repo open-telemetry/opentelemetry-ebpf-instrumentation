@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package sqlprune
 
 import (
@@ -5,7 +8,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/app/request"
 )
 
 const (
@@ -78,12 +81,19 @@ func mysqlCommandIDToString(commandID uint8) string {
 	switch commandID {
 	case 0x3:
 		return "QUERY"
-	// TODO(matt): prepared statements
-	// case 0x16:
-	// 	return "STMT_PREPARE"
-	// case 0x17:
-	// 	return "STMT_EXECUTE"
+	case 0x16:
+		return "STMT_PREPARE"
+	case 0x17:
+		return "STMT_EXECUTE"
 	default:
 		return ""
 	}
+}
+
+func mysqlParseStatementID(buf []byte) uint32 {
+	if len(buf) < MySQLHdrSize+1 {
+		return 0
+	}
+	// The statement ID is a 4-byte little-endian integer after the header and command ID
+	return binary.LittleEndian.Uint32(buf[MySQLHdrSize+1:])
 }

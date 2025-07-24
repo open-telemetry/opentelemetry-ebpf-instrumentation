@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -15,7 +18,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/cmd/grpc/routeguide"
+	pb "go.opentelemetry.io/obi/test/cmd/grpc/routeguide"
 )
 
 const (

@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package ebpfcommon
 
 import (
@@ -9,7 +12,7 @@ import (
 	"strconv"
 	"unsafe"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/app/request"
 )
 
 const (

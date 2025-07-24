@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package envtest
 
 import (
@@ -9,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/testutil"
+	"go.opentelemetry.io/obi/pkg/components/testutil"
 
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
@@ -24,10 +27,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/meta"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/service"
+	"go.opentelemetry.io/obi/pkg/kubecache"
+	"go.opentelemetry.io/obi/pkg/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kubecache/meta"
+	"go.opentelemetry.io/obi/pkg/kubecache/service"
 )
 
 var (

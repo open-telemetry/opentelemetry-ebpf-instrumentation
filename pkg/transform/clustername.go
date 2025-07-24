@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Few lines of code in this file are taken from
 // https://github.com/DataDog/datadog-agent,
 // published under Apache License 2.0
@@ -15,8 +18,8 @@ import (
 
 	"go.opentelemetry.io/contrib/detectors/aws/eks"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/kube"
-	attr2 "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/components/kube"
+	attr2 "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 const (

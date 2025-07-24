@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package attributes
 
 import (
@@ -6,8 +9,8 @@ import (
 	"maps"
 	"slices"
 
-	maps2 "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/helpers/maps"
-	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+	maps2 "go.opentelemetry.io/obi/pkg/components/helpers/maps"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 func alog() *slog.Logger {

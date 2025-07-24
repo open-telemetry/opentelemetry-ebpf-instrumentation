@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package kube
 
 import (
@@ -8,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/meta"
+	"go.opentelemetry.io/obi/pkg/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kubecache/meta"
 )
 
 func TestContainerInfoWithTemplate(t *testing.T) {

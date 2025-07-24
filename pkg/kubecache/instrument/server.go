@@ -1,9 +1,12 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package instrument
 
 import (
 	"context"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/connector"
+	"go.opentelemetry.io/obi/pkg/components/connector"
 )
 
 const defaultMetricsPath = "/metrics"

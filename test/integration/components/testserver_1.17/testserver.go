@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -7,12 +10,12 @@ import (
 	"github.com/caarlos0/env/v9"
 	gin2 "github.com/gin-gonic/gin"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/testserver_1.17/gin"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/testserver_1.17/gorilla"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/testserver_1.17/gorillamid"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/testserver_1.17/gorillamid2"
-	grpctest "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/testserver_1.17/grpc/server"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/testserver_1.17/std"
+	"go.opentelemetry.io/obi/testserver_1.17/gin"
+	"go.opentelemetry.io/obi/testserver_1.17/gorilla"
+	"go.opentelemetry.io/obi/testserver_1.17/gorillamid"
+	"go.opentelemetry.io/obi/testserver_1.17/gorillamid2"
+	grpctest "go.opentelemetry.io/obi/testserver_1.17/grpc/server"
+	"go.opentelemetry.io/obi/testserver_1.17/std"
 )
 
 /*

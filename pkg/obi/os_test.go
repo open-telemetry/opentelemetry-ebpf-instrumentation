@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build linux
 
 package obi
@@ -11,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/helpers"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/config"
+	"go.opentelemetry.io/obi/pkg/components/helpers"
+	"go.opentelemetry.io/obi/pkg/config"
 )
 
 type testCase struct {

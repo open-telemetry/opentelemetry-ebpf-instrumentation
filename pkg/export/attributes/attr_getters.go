@@ -1,6 +1,9 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package attributes
 
-import attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+import attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 
 // Getter is a function that defines how to get a given metric attribute of the type O
 // (e.g. string or attribute.KeyValue) from a data record

@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration_k8s
 
 package otel
@@ -14,9 +17,9 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/kube"
-	k8s "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common"
+	"go.opentelemetry.io/obi/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/test/integration/components/kube"
+	k8s "go.opentelemetry.io/obi/test/integration/k8s/common"
 )
 
 // We only check that traces are decorated in an overall Pod2Service scenario, as the whole metadata
@@ -63,7 +66,7 @@ func TestTracesDecoration(t *testing.T) {
 						{Key: "k8s.pod.start_time", Type: "string", Value: k8s.TimeRegex},
 						{Key: "k8s.namespace.name", Type: "string", Value: "^default$"},
 						{Key: "k8s.deployment.name", Type: "string", Value: "^testserver$"},
-						{Key: "k8s.cluster.name", Type: "string", Value: "^beyla-k8s-test-cluster$"},
+						{Key: "k8s.cluster.name", Type: "string", Value: "^obi-k8s-test-cluster$"},
 						{Key: "service.instance.id", Type: "string", Value: "^default\\.testserver-.+\\.testserver"},
 					}, trace.Processes[parent.ProcessID].Tags)
 					require.Empty(t, sd, sd.String())

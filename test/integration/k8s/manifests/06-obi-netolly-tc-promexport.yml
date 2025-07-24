@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: obi-config
+data:
+  obi-config.yml: |
+    log_level: debug
+    prometheus_export:
+      port: 8999
+    network:
+      protocols:
+        - TCP
+      cidrs:
+        # default subnets of Kind Pods and services
+        - 10.244.0.0/16
+        - fd00:10:244::/56
+        - 10.96.0.0/16
+        - fd00:10:96::/112
+    attributes:
+      kubernetes:
+        enable: true
+        cluster_name: my-kube
+        resource_labels:
+          deployment.environment: ["deployment.environment"]
+      select:
+        obi.network.flow.bytes:
+          # assured cardinality explosion. Don't try in production!
+          include: ["*"]
+          exclude: ["src_port"]
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: obi-netolly
+spec:
+  selector:
+    instrumentation: obi
+  ports:
+    - port: 8999
+      name: prometheus
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: obi
+spec:
+  selector:
+    matchLabels:
+      instrumentation: obi
+  template:
+    metadata:
+      labels:
+        instrumentation: obi
+        # this label will trigger a deletion of OBI pods before tearing down
+        # kind, to force OBI writing the coverage data
+        teardown: delete
+    spec:
+      hostPID: true  #important for appo11y!
+      hostNetwork: true #important for neto11y!
+      dnsPolicy: ClusterFirstWithHostNet # important to get connection to otelcollector from hostnetwork !!
+      serviceAccountName: obi
+      volumes:
+        - name: obi-config
+          configMap:
+            name: obi-config
+        - name: testoutput
+          persistentVolumeClaim:
+            claimName: testoutput
+      containers:
+        - name: obi
+          image: obi:dev
+          imagePullPolicy: Never # loaded into Kind from localhost
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          ports:
+            - containerPort: 8999
+              name: prometheus
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /config
+              name: obi-config
+            - mountPath: /testoutput
+              name: testoutput
+          env:
+            - name: GOCOVERDIR
+              value: "/testoutput"
+            - name: OTEL_EBPF_CONFIG_PATH
+              value: /config/obi-config.yml
+            - name: OTEL_EBPF_NETWORK_METRICS
+              value: "true"
+            - name: OTEL_EBPF_NETWORK_SOURCE
+              value: "tc"
+            - name: OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT
+              value: "100ms"
+            - name: OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS
+              value: "20"
+            - name: OTEL_EBPF_METRICS_INTERVAL
+              value: "10ms"
+            - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
+              value: "10ms"

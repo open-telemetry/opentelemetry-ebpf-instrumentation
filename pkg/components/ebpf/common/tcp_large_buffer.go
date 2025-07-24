@@ -1,10 +1,15 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package ebpfcommon
 
 import (
+	"errors"
+	"fmt"
 	"unsafe"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
 )
 
 type (
@@ -18,15 +23,18 @@ type (
 	}
 )
 
-func setTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (request.Span, bool, error) {
-	hdrSize := uint32(unsafe.Sizeof(TCPLargeBufferHeader{}))
+const (
+	largeBufferActionInit = iota
+	largeBufferActionAppend
+)
 
-	event, err := ReinterpretCast[TCPLargeBufferHeader](record.RawSample[:hdrSize])
+func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (request.Span, bool, error) {
+	hdrSize := uint32(unsafe.Sizeof(TCPLargeBufferHeader{})) - uint32(unsafe.Sizeof(uintptr(0))) // Remove `buf` placeholder
+
+	event, err := ReinterpretCast[TCPLargeBufferHeader](record.RawSample)
 	if err != nil {
 		return request.Span{}, true, err
 	}
-	hdrSize -= uint32(unsafe.Sizeof(uintptr(0))) // Remove `buf` placeholder
-	newBuffer := record.RawSample[hdrSize:]
 
 	key := largeBufferKey{
 		traceID:   event.Tp.TraceId,
@@ -34,16 +42,27 @@ func setTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (requ
 		direction: event.Direction,
 	}
 
-	copiedBuffer := make([]byte, event.Len)
-	copy(copiedBuffer, newBuffer)
-	parseCtx.largeBuffers.Add(key, largeBuffer{
-		buf: copiedBuffer,
-	})
+	switch event.Action {
+	case largeBufferActionInit:
+		newBuffer := make([]byte, event.Len)
+		copy(newBuffer, record.RawSample[hdrSize:])
+		parseCtx.largeBuffers.Add(key, &largeBuffer{
+			buf: newBuffer,
+		})
+	case largeBufferActionAppend:
+		lb, ok := parseCtx.largeBuffers.Get(key)
+		if !ok {
+			return request.Span{}, true, errors.New("existing large buffer not found for append action")
+		}
+		lb.buf = append(lb.buf, record.RawSample[hdrSize:hdrSize+event.Len]...)
+	default:
+		return request.Span{}, true, fmt.Errorf("invalid large buffer action: %d", event.Action)
+	}
 
 	return request.Span{}, true, nil
 }
 
-func getTCPLargeBuffer(parseCtx *EBPFParseContext, traceID [16]uint8, spanID [8]uint8, direction uint8) ([]byte, bool) {
+func extractTCPLargeBuffer(parseCtx *EBPFParseContext, traceID [16]uint8, spanID [8]uint8, direction uint8) ([]byte, bool) {
 	key := largeBufferKey{
 		spanID:    spanID,
 		traceID:   traceID,

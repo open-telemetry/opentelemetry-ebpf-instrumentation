@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package kube
 
 import (
@@ -17,8 +20,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/meta"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubeflags"
+	"go.opentelemetry.io/obi/pkg/kubecache/meta"
+	"go.opentelemetry.io/obi/pkg/kubeflags"
 )
 
 const (

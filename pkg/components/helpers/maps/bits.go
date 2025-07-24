@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package maps
 
 // Bits wraps an unsigned integer that can be used as a bit map

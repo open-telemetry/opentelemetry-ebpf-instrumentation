@@ -1,10 +1,13 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package goexec
 
 import (
 	"testing"
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/testutil"
+	"go.opentelemetry.io/obi/pkg/components/testutil"
 )
 
 // TestProcessNotFound tests that InspectOffsets process exits on context cancellation

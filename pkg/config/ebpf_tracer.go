@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package config
 
 import (
@@ -5,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/tcmanager"
+	"go.opentelemetry.io/obi/pkg/components/ebpf/tcmanager"
 )
 
 type ContextPropagationMode uint8
@@ -84,7 +87,13 @@ type EBPFTracer struct {
 	RedisDBCache RedisDBCacheConfig `yaml:"redis_db_cache"`
 
 	// Limit max data buffer size per protocol.
-	BufferSizes EBPFBufferSizes `yaml:"buffer_sizes" env:"OTEL_EBPF_BPF_BUFFER_SIZES"`
+	BufferSizes EBPFBufferSizes `yaml:"buffer_sizes"`
+
+	// MySQL prepared statements cache size.
+	MySQLPreparedStatementsCacheSize int `yaml:"mysql_prepared_statements_cache_size" env:"OTEL_EBPF_BPF_MYSQL_PREPARED_STATEMENTS_CACHE_SIZE"`
+
+	// MongoDB requests cache size.
+	MongoRequestsCacheSize int `yaml:"mongo_requests_cache_size" env:"OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE"`
 }
 
 type EBPFBufferSizes struct {

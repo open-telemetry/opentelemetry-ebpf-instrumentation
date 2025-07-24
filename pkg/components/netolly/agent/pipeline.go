@@ -1,19 +1,22 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package agent
 
 import (
 	"context"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/ebpf"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/export"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/flow"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/transform/cidr"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/netolly/transform/k8s"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/otel"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/prom"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/filter"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/components/netolly/export"
+	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
+	"go.opentelemetry.io/obi/pkg/components/netolly/transform/cidr"
+	"go.opentelemetry.io/obi/pkg/components/netolly/transform/k8s"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/export/prom"
+	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 // mockable functions for testing

@@ -1,10 +1,15 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package svc
 
 import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
 
-	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
+	"go.opentelemetry.io/otel/sdk/trace"
+
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/services"
 )
 
 type InstrumentableType int
@@ -97,6 +102,8 @@ type Attrs struct {
 	flags idFlags
 
 	ExportModes services.ExportModes
+
+	Sampler trace.Sampler
 }
 
 func (i *Attrs) GetUID() UID {

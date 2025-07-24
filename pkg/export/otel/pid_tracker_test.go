@@ -1,9 +1,14 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package otel
 
 import (
 	"testing"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/svc"
+	"github.com/stretchr/testify/assert"
+
+	"go.opentelemetry.io/obi/pkg/components/svc"
 )
 
 func makeUID(name, ns string) svc.UID {
@@ -53,6 +58,8 @@ func TestPidServiceTracker_AddAndRemovePID(t *testing.T) {
 	if _, ok := tracker.names[uid.NameNamespace()]; ok {
 		t.Errorf("RemovePID: names not deleted")
 	}
+
+	assert.False(t, tracker.ServiceLive(uid))
 }
 
 func TestPidServiceTracker_RemovePID_NotLast(t *testing.T) {
@@ -79,6 +86,8 @@ func TestPidServiceTracker_RemovePID_NotLast(t *testing.T) {
 	if _, ok := tracker.names[uid.NameNamespace()]; !ok {
 		t.Errorf("RemovePID: names should still exist")
 	}
+
+	assert.True(t, tracker.ServiceLive(uid))
 }
 
 func TestPidServiceTracker_RemovePID_Last(t *testing.T) {
@@ -115,6 +124,8 @@ func TestPidServiceTracker_RemovePID_Last(t *testing.T) {
 	if _, ok := tracker.names[uid.NameNamespace()]; ok {
 		t.Errorf("RemovePID: names should not exist")
 	}
+
+	assert.False(t, tracker.ServiceLive(uid))
 }
 
 func TestPidServiceTracker_IsTrackingServerService(t *testing.T) {

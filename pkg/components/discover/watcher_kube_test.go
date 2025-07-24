@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package discover
 
 import (
@@ -13,15 +16,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/helpers/container"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/kube"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/testutil"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/informer"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/kubecache/meta"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/msg"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/services"
+	"go.opentelemetry.io/obi/pkg/components/helpers/container"
+	"go.opentelemetry.io/obi/pkg/components/kube"
+	"go.opentelemetry.io/obi/pkg/components/testutil"
+	"go.opentelemetry.io/obi/pkg/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kubecache/meta"
+	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/services"
 )
 
 const timeout = 5 * time.Second
@@ -340,6 +343,38 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 			},
 		}, event)
 	}
+
+	// Test delete of pids, ensuring we don't delete the whole containerProcessMapping
+	wk.enrichProcessEvent([]Event[ProcessAttrs]{
+		{Type: EventDeleted, Obj: ProcessAttrs{pid: 1}},
+	})
+
+	events = testutil.ReadChannel(t, outputCh, timeout)
+	assert.Len(t, events, 1)
+
+	pidProc, ok := wk.processByContainer[containerAll]
+	assert.True(t, ok)
+	assert.Len(t, pidProc, 1)
+
+	_, ok = wk.containerByPID[PID(1)]
+	assert.False(t, ok)
+
+	_, ok = wk.containerByPID[PID(2)]
+	assert.True(t, ok)
+
+	// Let's delete the other process inside the container, the map should be cleaned up fully
+	wk.enrichProcessEvent([]Event[ProcessAttrs]{
+		{Type: EventDeleted, Obj: ProcessAttrs{pid: 2}},
+	})
+
+	events = testutil.ReadChannel(t, outputCh, timeout)
+	assert.Len(t, events, 1)
+
+	_, ok = wk.processByContainer[containerAll]
+	assert.False(t, ok)
+
+	_, ok = wk.containerByPID[PID(2)]
+	assert.False(t, ok)
 }
 
 func newProcess(input *msg.Queue[[]Event[ProcessAttrs]], pid PID, ports []uint32) {

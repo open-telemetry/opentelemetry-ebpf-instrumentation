@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package goexec helps analyzing Go executables
 package goexec
 
@@ -6,7 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/exec"
+	"go.opentelemetry.io/obi/pkg/components/exec"
 )
 
 type Offsets struct {

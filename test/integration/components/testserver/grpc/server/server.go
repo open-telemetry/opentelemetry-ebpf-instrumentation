@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 /*
  *
  * Based on https://grpc.io/docs/tutorials/basic/go.html
@@ -29,7 +32,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/proto"
 
-	pb "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/grpc/routeguide"
+	pb "go.opentelemetry.io/obi/test/integration/components/testserver/grpc/routeguide"
 )
 
 var jsonDBFile = flag.String("json_db_file", "", "A json file containing a list of features")

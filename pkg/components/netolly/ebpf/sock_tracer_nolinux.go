@@ -1,9 +1,12 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build !linux
 
 package ebpf
 
 import (
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
 )
 
 type SockFlowFetcher struct{}

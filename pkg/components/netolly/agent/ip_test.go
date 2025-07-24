@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Copyright Red Hat / IBM
 // Copyright Grafana Labs
 //
@@ -27,7 +30,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 var (

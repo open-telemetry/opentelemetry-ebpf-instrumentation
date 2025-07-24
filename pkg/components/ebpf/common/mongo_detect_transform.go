@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package ebpfcommon
 
 import (
@@ -11,7 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	trace2 "go.opentelemetry.io/otel/trace"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/app/request"
 )
 
 type mongoSpanInfo struct {
@@ -64,6 +67,7 @@ const (
 	commIsMaster          = "isMaster"
 	commPing              = "ping"
 	commIsWritablePrimary = "isWritablePrimary"
+	commAtlasVersion      = "atlasVersion"
 
 	commInsert = "insert"
 	commUpdate = "update"
@@ -467,7 +471,7 @@ func TCPToMongoToSpan(trace *TCPRequestInfo, info *mongoSpanInfo) request.Span {
 }
 
 func isHeartbeat(comm string) bool {
-	return comm == commHello || comm == commIsMaster || comm == commPing || comm == commIsWritablePrimary
+	return comm == commHello || comm == commIsMaster || comm == commPing || comm == commIsWritablePrimary || comm == commAtlasVersion
 }
 
 func isCollectionCommand(comm string) bool {

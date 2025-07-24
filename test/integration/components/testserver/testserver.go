@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -7,13 +10,13 @@ import (
 	"github.com/caarlos0/env/v9"
 	gin2 "github.com/gin-gonic/gin"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/gin"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/gorilla"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/gorillamid"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/gorillamid2"
-	grpctest "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/grpc/server"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/jsonrpc"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/std"
+	"go.opentelemetry.io/obi/test/integration/components/testserver/gin"
+	"go.opentelemetry.io/obi/test/integration/components/testserver/gorilla"
+	"go.opentelemetry.io/obi/test/integration/components/testserver/gorillamid"
+	"go.opentelemetry.io/obi/test/integration/components/testserver/gorillamid2"
+	grpctest "go.opentelemetry.io/obi/test/integration/components/testserver/grpc/server"
+	"go.opentelemetry.io/obi/test/integration/components/testserver/jsonrpc"
+	"go.opentelemetry.io/obi/test/integration/components/testserver/std"
 )
 
 /*

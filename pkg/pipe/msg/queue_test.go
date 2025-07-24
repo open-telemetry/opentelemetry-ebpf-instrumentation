@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package msg
 
 import (
@@ -6,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/testutil"
+	"go.opentelemetry.io/obi/pkg/components/testutil"
 )
 
 const timeout = 5 * time.Second

@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package connector provides tools for sharing the connection of diverse exporters
 // (Prometheus, OTEL...) from different nodes
 package connector
@@ -16,7 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/helpers/maps"
+	"go.opentelemetry.io/obi/pkg/components/helpers/maps"
 )
 
 func log() *slog.Logger {

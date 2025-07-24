@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration_k8s
 
 package otel
@@ -15,17 +18,17 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/kube"
-	k8s "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common/testpath"
+	"go.opentelemetry.io/obi/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/test/integration/components/kube"
+	k8s "go.opentelemetry.io/obi/test/integration/k8s/common"
+	"go.opentelemetry.io/obi/test/integration/k8s/common/testpath"
 )
 
-// For the DaemonSet scenario, we only check that Beyla is able to instrument any
+// For the DaemonSet scenario, we only check that OBI is able to instrument any
 // process in the system. We just check that traces are properly generated without
 // entering in too many details
 func TestPythonBasicTracing(t *testing.T) {
-	feat := features.New("Beyla is able to instrument an arbitrary process").
+	feat := features.New("OBI is able to instrument an arbitrary process").
 		Assess("it sends traces for that service",
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 				var trace jaeger.Trace
@@ -67,7 +70,7 @@ func TestPythonBasicTracing(t *testing.T) {
 						{Key: "k8s.pod.uid", Type: "string", Value: k8s.UUIDRegex},
 						{Key: "k8s.pod.start_time", Type: "string", Value: k8s.TimeRegex},
 						{Key: "k8s.namespace.name", Type: "string", Value: "^default$"},
-						{Key: "k8s.cluster.name", Type: "string", Value: "^beyla-k8s-test-cluster$"},
+						{Key: "k8s.cluster.name", Type: "string", Value: "^obi-k8s-test-cluster$"},
 						{Key: "service.instance.id", Type: "string", Value: "^default\\.pytestserver-.+\\.pytestserver"},
 					}, trace.Processes[parent.ProcessID].Tags)
 					require.Empty(t, sd, sd.String())
@@ -80,7 +83,7 @@ func TestPythonBasicTracing(t *testing.T) {
 					assert.NotEmpty(t, podID)
 				}, test.Interval(100*time.Millisecond))
 
-				// Let's take down our services, keeping Beyla alive and then redeploy them
+				// Let's take down our services, keeping OBI alive and then redeploy them
 				err := kube.DeleteExistingManifestFile(cfg, testpath.Manifests+"/05-uninstrumented-service-python.yml")
 				require.NoError(t, err, "we should see no error when deleting the uninstrumented service manifest file")
 
@@ -125,7 +128,7 @@ func TestPythonBasicTracing(t *testing.T) {
 						{Key: "k8s.pod.uid", Type: "string", Value: k8s.UUIDRegex},
 						{Key: "k8s.pod.start_time", Type: "string", Value: k8s.TimeRegex},
 						{Key: "k8s.namespace.name", Type: "string", Value: "^default$"},
-						{Key: "k8s.cluster.name", Type: "string", Value: "^beyla-k8s-test-cluster$"},
+						{Key: "k8s.cluster.name", Type: "string", Value: "^obi-k8s-test-cluster$"},
 						{Key: "service.instance.id", Type: "string", Value: "^default\\.pytestserver-.+\\.pytestserver"},
 					}, trace.Processes[parent.ProcessID].Tags)
 					require.Empty(t, sd, sd.String())

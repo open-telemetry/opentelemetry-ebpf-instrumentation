@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package std
 
 import (
@@ -22,8 +25,8 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/arg"
-	pb "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/grpc/routeguide"
+	"go.opentelemetry.io/obi/test/integration/components/testserver/arg"
+	pb "go.opentelemetry.io/obi/test/integration/components/testserver/grpc/routeguide"
 )
 
 var y2k = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)

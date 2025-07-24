@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration_k8s
 
 package owners
@@ -15,15 +18,15 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
-	k8s "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common"
+	"go.opentelemetry.io/obi/test/integration/components/jaeger"
+	k8s "go.opentelemetry.io/obi/test/integration/k8s/common"
 )
 
-// For the DaemonSet scenario, we only check that Beyla is able to instrument any
+// For the DaemonSet scenario, we only check that OBI is able to instrument any
 // process in the system. We just check that traces are properly generated without
 // entering in too many details
 func TestJobMetadata(t *testing.T) {
-	feat := features.New("Beyla is able to decorate the metadata of a job").
+	feat := features.New("OBI is able to decorate the metadata of a job").
 		Assess("it sends decorated traces for the job",
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -68,7 +71,7 @@ func TestJobMetadata(t *testing.T) {
 						{Key: "k8s.pod.start_time", Type: "string", Value: k8s.TimeRegex},
 						{Key: "k8s.job.name", Type: "string", Value: "^jobservice$"},
 						{Key: "k8s.namespace.name", Type: "string", Value: "^default$"},
-						{Key: "k8s.cluster.name", Type: "string", Value: "^beyla-k8s-test-cluster$"},
+						{Key: "k8s.cluster.name", Type: "string", Value: "^obi-k8s-test-cluster$"},
 						{Key: "service.namespace", Type: "string", Value: "^default$"},
 						{Key: "service.instance.id", Type: "string", Value: "^default\\.jobservice-.+\\.jobservice"},
 					}, trace.Processes[parent.ProcessID].Tags)

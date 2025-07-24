@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package attributes
 
 import (
@@ -6,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 // Selection specifies which attributes are allowed for each metric.

@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration_k8s
 
 package otel
@@ -14,7 +17,7 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/test/integration/components/jaeger"
 )
 
 // For the this scenario we run two worker nodes, with the following structure:
@@ -33,7 +36,7 @@ import (
 // connects the dots, while on the same node, the networking is optimized and we rely on black-box context propagation to
 // connect the services.
 func TestMultiNodeTracing(t *testing.T) {
-	feat := features.New("Beyla is able to generate distributed traces go->go jsonrpc->python->ruby").
+	feat := features.New("OBI is able to generate distributed traces go->go jsonrpc->python->ruby").
 		Assess("it sends connected traces for all services",
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				var trace jaeger.Trace

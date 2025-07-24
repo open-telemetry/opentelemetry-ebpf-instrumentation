@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package otel
 
 import (
@@ -11,7 +14,7 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
+	"go.opentelemetry.io/obi/test/integration/components/prom"
 )
 
 const (
@@ -39,7 +42,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 		require.NotEmpty(t, results)
 
 		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from Beyla instances in both nodes
+		// should have 2 exact metrics, measured from OBI instances in both nodes
 		require.GreaterOrEqual(t, len(results), 2)
 		for _, res := range results {
 			assert.Equal(t, "client-zone", res.Metric["src_zone"])
@@ -56,7 +59,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 		require.NotEmpty(t, results)
 
 		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from Beyla instances in both nodes
+		// should have 2 exact metrics, measured from OBI instances in both nodes
 		require.GreaterOrEqual(t, len(results), 2)
 		for _, res := range results {
 			assert.Equal(t, "server-zone", res.Metric["src_zone"])
@@ -74,7 +77,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 		require.NotEmpty(t, results)
 
 		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from Beyla instances in both nodes
+		// should have 2 exact metrics, measured from OBI instances in both nodes
 		require.GreaterOrEqual(t, len(results), 2)
 	})
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -86,7 +89,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 		require.NotEmpty(t, results)
 
 		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from Beyla instances in both nodes
+		// should have 2 exact metrics, measured from OBI instances in both nodes
 		require.GreaterOrEqual(t, len(results), 2)
 	})
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -98,7 +101,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 		require.NotEmpty(t, results)
 
 		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from Beyla instances in both nodes
+		// should have 2 exact metrics, measured from OBI instances in both nodes
 		require.GreaterOrEqual(t, len(results), 2)
 	})
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -110,7 +113,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 		require.NotEmpty(t, results)
 
 		// check that the metrics are properly decorated
-		// should have 2 exact metrics, measured from Beyla instances in both nodes
+		// should have 2 exact metrics, measured from OBI instances in both nodes
 		require.GreaterOrEqual(t, len(results), 2)
 	})
 	return ctx

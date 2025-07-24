@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration_k8s
 
 package k8s
@@ -15,8 +18,8 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/kube"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
+	"go.opentelemetry.io/obi/test/integration/components/kube"
+	"go.opentelemetry.io/obi/test/integration/components/prom"
 )
 
 // This file contains some functions and features that are accessed/used
@@ -110,10 +113,10 @@ func FeatureHTTPMetricsDecoration(manifest string, overrideAttrs map[string]stri
 		"k8s_owner_name":           "^testserver$",
 		"k8s_deployment_name":      "^testserver$",
 		"k8s_replicaset_name":      "^testserver-",
-		"k8s_cluster_name":         "^beyla-k8s-test-cluster$",
+		"k8s_cluster_name":         "^obi-k8s-test-cluster$",
 		"server_service_namespace": "integration-test",
 		"server":                   "testserver",
-		"source":                   "beyla",
+		"source":                   "obi",
 		"host_name":                "testserver",
 		"host_id":                  HostIDRegex,
 		"deployment_environment":   "integration-test",
@@ -201,7 +204,7 @@ func FeatureGRPCMetricsDecoration(manifest string, overrideAttrs map[string]stri
 		"k8s_node_name":          ".+-control-plane$",
 		"k8s_pod_uid":            UUIDRegex,
 		"k8s_pod_start_time":     TimeRegex,
-		"k8s_cluster_name":       "^beyla-k8s-test-cluster",
+		"k8s_cluster_name":       "^obi-k8s-test-cluster",
 		"k8s_owner_name":         "^testserver$",
 		"k8s_deployment_name":    "^testserver$",
 		"k8s_replicaset_name":    "^testserver-",
@@ -256,7 +259,7 @@ func FeatureDisableInformersAppMetricsDecoration() features.Feature {
 					"k8s_pod_start_time":  TimeRegex,
 					"k8s_deployment_name": "^testserver$",
 					"k8s_replicaset_name": "^testserver-.*",
-					"k8s_cluster_name":    "^beyla-k8s-test-cluster$",
+					"k8s_cluster_name":    "^obi-k8s-test-cluster$",
 					"service_instance_id": "^default\\.testserver-.+\\.testserver",
 				})).Feature()
 }

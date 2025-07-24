@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 // Package kube contains some tools to setup and use a Kind cluster
 package kube
 
@@ -30,9 +33,9 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envfuncs"
 	"sigs.k8s.io/e2e-framework/support/kind"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/jaeger"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/k8s/common/testpath"
+	"go.opentelemetry.io/obi/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/test/integration/components/prom"
+	"go.opentelemetry.io/obi/test/integration/k8s/common/testpath"
 )
 
 const (

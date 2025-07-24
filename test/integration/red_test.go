@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration
 
 package integration
@@ -19,8 +22,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
-	grpcclient "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/testserver/grpc/client"
+	"go.opentelemetry.io/obi/test/integration/components/prom"
+	grpcclient "go.opentelemetry.io/obi/test/integration/components/testserver/grpc/client"
 )
 
 const (
@@ -968,7 +971,7 @@ func testPrometheusBeylaBuildInfo(t *testing.T) {
 	var results []prom.Result
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		var err error
-		results, err = pq.Query(`beyla_build_info{target_lang="go"}`)
+		results, err = pq.Query(`obi_build_info{target_lang="go"}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
 	})

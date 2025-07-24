@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration
 
 package integration
@@ -14,8 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/docker"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/test/integration/components/prom"
+	"go.opentelemetry.io/obi/test/integration/components/docker"
+	"go.opentelemetry.io/obi/test/integration/components/prom"
 )
 
 func TestMultiProcess(t *testing.T) {
@@ -184,7 +187,7 @@ func checkInstrumentedProcessesMetric(t *testing.T) {
 		}
 
 		for processName, expectedCount := range processes {
-			results, err := pq.Query(fmt.Sprintf(`beyla_instrumented_processes{process_name="%s"}`, processName))
+			results, err := pq.Query(fmt.Sprintf(`obi_instrumented_processes{process_name="%s"}`, processName))
 			require.NoError(t, err)
 			value, err := strconv.Atoi(results[0].Value[1].(string))
 			require.NoError(t, err)

@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package request
 
 import (
@@ -6,8 +9,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes"
-	attr "github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 // SpanOTELGetters returns the attributes.Getter function that returns the
@@ -71,7 +74,7 @@ func SpanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.SpanName:
 		getter = func(s *Span) attribute.KeyValue { return SpanNameMetric(s.TraceName()) }
 	case attr.Source:
-		getter = func(_ *Span) attribute.KeyValue { return SourceMetric("beyla") }
+		getter = func(_ *Span) attribute.KeyValue { return SourceMetric(attr.VendorPrefix) }
 	case attr.StatusCode:
 		getter = func(s *Span) attribute.KeyValue { return StatusCodeMetric(SpanStatusCode(s)) }
 	case attr.DBOperation:

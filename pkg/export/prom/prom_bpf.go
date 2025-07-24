@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package prom
 
 import (
@@ -10,9 +13,9 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/connector"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/components/pipe/global"
-	"github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/components/connector"
+	"go.opentelemetry.io/obi/pkg/components/pipe/global"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 // BPFCollector implements prometheus.Collector for collecting metrics about currently loaded eBPF programs.
