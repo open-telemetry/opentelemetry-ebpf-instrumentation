@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const OTEL_RESOURCE_ATTRIBUTES = "service.name=order-api, ,service.version=2.0.0,deployment.environment=staging=a"
+const resAttrs = "service.name=order-api, ,service.version=2.0.0,deployment.environment=staging=a"
 
 func TestParseOTELResourceVariable(t *testing.T) {
 	expected := map[string]string{
@@ -28,12 +28,12 @@ func TestParseOTELResourceVariable(t *testing.T) {
 		require.Equal(t, e, v)
 	}
 
-	ParseOTELResourceVariable(OTEL_RESOURCE_ATTRIBUTES, handler)
+	ParseOTELResourceVariable(resAttrs, handler)
 }
 
 func TestParseOTELResourceVariable_NoAllocs(t *testing.T) {
 	allocs := testing.AllocsPerRun(1000, func() {
-		ParseOTELResourceVariable(OTEL_RESOURCE_ATTRIBUTES, func(k, v string) {})
+		ParseOTELResourceVariable(resAttrs, func(_, _ string) {})
 	})
 
 	if allocs != 0 {
@@ -45,7 +45,7 @@ func BenchmarkParseOTELResourceVariable(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ParseOTELResourceVariable(OTEL_RESOURCE_ATTRIBUTES, func(k, v string) {
+		ParseOTELResourceVariable(resAttrs, func(_, _ string) {
 			// no‑op handler
 		})
 	}
