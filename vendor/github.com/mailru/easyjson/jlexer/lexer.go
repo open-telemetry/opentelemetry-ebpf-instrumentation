@@ -19,21 +19,21 @@ import (
 	"github.com/josharian/intern"
 )
 
-// TokenKind determines type of a token.
-type TokenKind byte
+// tokenKind determines type of a token.
+type tokenKind byte
 
 const (
-	TokenUndef  TokenKind = iota // No token.
-	TokenDelim                   // Delimiter: one of '{', '}', '[' or ']'.
-	TokenString                  // A string literal, e.g. "abc\u1234"
-	TokenNumber                  // Number literal, e.g. 1.5e5
-	TokenBool                    // Boolean literal: true or false.
-	TokenNull                    // null keyword.
+	tokenUndef  tokenKind = iota // No token.
+	tokenDelim                   // Delimiter: one of '{', '}', '[' or ']'.
+	tokenString                  // A string literal, e.g. "abc\u1234"
+	tokenNumber                  // Number literal, e.g. 1.5e5
+	tokenBool                    // Boolean literal: true or false.
+	tokenNull                    // null keyword.
 )
 
 // token describes a single token: type, position in the input and value.
 type token struct {
-	kind TokenKind // Type of a token.
+	kind tokenKind // Type of a token.
 
 	boolValue       bool   // Value if a boolean literal token.
 	byteValueCloned bool   // true if byteValue was allocated and does not refer to original json body
@@ -47,7 +47,7 @@ type Lexer struct {
 
 	start int   // Start of the current token.
 	pos   int   // Current unscanned position in the input stream.
-	token token // Last scanned token, if token.kind != TokenUndef.
+	token token // Last scanned token, if token.kind != tokenUndef.
 
 	firstElement bool // Whether current element is the first in array or an object.
 	wantSep      byte // A comma or a colon character, which need to occur before a token.
@@ -59,7 +59,7 @@ type Lexer struct {
 
 // FetchToken scans the input for the next token.
 func (r *Lexer) FetchToken() {
-	r.token.kind = TokenUndef
+	r.token.kind = tokenUndef
 	r.start = r.pos
 
 	// Check if r.Data has r.pos element
@@ -90,7 +90,7 @@ func (r *Lexer) FetchToken() {
 				r.errSyntax()
 			}
 
-			r.token.kind = TokenString
+			r.token.kind = tokenString
 			r.fetchString()
 			return
 
@@ -99,7 +99,7 @@ func (r *Lexer) FetchToken() {
 				r.errSyntax()
 			}
 			r.firstElement = true
-			r.token.kind = TokenDelim
+			r.token.kind = tokenDelim
 			r.token.delimValue = r.Data[r.pos]
 			r.pos++
 			return
@@ -109,7 +109,7 @@ func (r *Lexer) FetchToken() {
 				r.errSyntax()
 			}
 			r.wantSep = 0
-			r.token.kind = TokenDelim
+			r.token.kind = tokenDelim
 			r.token.delimValue = r.Data[r.pos]
 			r.pos++
 			return
@@ -118,7 +118,7 @@ func (r *Lexer) FetchToken() {
 			if r.wantSep != 0 {
 				r.errSyntax()
 			}
-			r.token.kind = TokenNumber
+			r.token.kind = tokenNumber
 			r.fetchNumber()
 			return
 
@@ -127,7 +127,7 @@ func (r *Lexer) FetchToken() {
 				r.errSyntax()
 			}
 
-			r.token.kind = TokenNull
+			r.token.kind = tokenNull
 			r.fetchNull()
 			return
 
@@ -136,7 +136,7 @@ func (r *Lexer) FetchToken() {
 				r.errSyntax()
 			}
 
-			r.token.kind = TokenBool
+			r.token.kind = tokenBool
 			r.token.boolValue = true
 			r.fetchTrue()
 			return
@@ -146,7 +146,7 @@ func (r *Lexer) FetchToken() {
 				r.errSyntax()
 			}
 
-			r.token.kind = TokenBool
+			r.token.kind = tokenBool
 			r.token.boolValue = false
 			r.fetchFalse()
 			return
@@ -391,7 +391,7 @@ func (r *Lexer) fetchString() {
 
 // scanToken scans the next token if no token is currently available in the lexer.
 func (r *Lexer) scanToken() {
-	if r.token.kind != TokenUndef || r.fatalError != nil {
+	if r.token.kind != tokenUndef || r.fatalError != nil {
 		return
 	}
 
@@ -400,7 +400,7 @@ func (r *Lexer) scanToken() {
 
 // consume resets the current token to allow scanning the next one.
 func (r *Lexer) consume() {
-	r.token.kind = TokenUndef
+	r.token.kind = tokenUndef
 	r.token.byteValueCloned = false
 	r.token.delimValue = 0
 }
@@ -443,10 +443,10 @@ func (r *Lexer) errInvalidToken(expected string) {
 		switch expected {
 		case "[":
 			r.token.delimValue = ']'
-			r.token.kind = TokenDelim
+			r.token.kind = tokenDelim
 		case "{":
 			r.token.delimValue = '}'
-			r.token.kind = TokenDelim
+			r.token.kind = tokenDelim
 		}
 		r.addNonfatalError(&LexerError{
 			Reason: fmt.Sprintf("expected %s", expected),
@@ -475,7 +475,7 @@ func (r *Lexer) GetPos() int {
 
 // Delim consumes a token and verifies that it is the given delimiter.
 func (r *Lexer) Delim(c byte) {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
 
@@ -489,7 +489,7 @@ func (r *Lexer) Delim(c byte) {
 
 // IsDelim returns true if there was no scanning error and next token is the given delimiter.
 func (r *Lexer) IsDelim(c byte) bool {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
 	return !r.Ok() || r.token.delimValue == c
@@ -497,10 +497,10 @@ func (r *Lexer) IsDelim(c byte) bool {
 
 // Null verifies that the next token is null and consumes it.
 func (r *Lexer) Null() {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
-	if !r.Ok() || r.token.kind != TokenNull {
+	if !r.Ok() || r.token.kind != tokenNull {
 		r.errInvalidToken("null")
 	}
 	r.consume()
@@ -508,15 +508,15 @@ func (r *Lexer) Null() {
 
 // IsNull returns true if the next token is a null keyword.
 func (r *Lexer) IsNull() bool {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
-	return r.Ok() && r.token.kind == TokenNull
+	return r.Ok() && r.token.kind == tokenNull
 }
 
 // Skip skips a single token.
 func (r *Lexer) Skip() {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
 	r.consume()
@@ -621,10 +621,10 @@ func (r *Lexer) Consumed() {
 }
 
 func (r *Lexer) unsafeString(skipUnescape bool) (string, []byte) {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
-	if !r.Ok() || r.token.kind != TokenString {
+	if !r.Ok() || r.token.kind != tokenString {
 		r.errInvalidToken("string")
 		return "", nil
 	}
@@ -664,10 +664,10 @@ func (r *Lexer) UnsafeFieldName(skipUnescape bool) string {
 
 // String reads a string literal.
 func (r *Lexer) String() string {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
-	if !r.Ok() || r.token.kind != TokenString {
+	if !r.Ok() || r.token.kind != tokenString {
 		r.errInvalidToken("string")
 		return ""
 	}
@@ -687,10 +687,10 @@ func (r *Lexer) String() string {
 
 // StringIntern reads a string literal, and performs string interning on it.
 func (r *Lexer) StringIntern() string {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
-	if !r.Ok() || r.token.kind != TokenString {
+	if !r.Ok() || r.token.kind != tokenString {
 		r.errInvalidToken("string")
 		return ""
 	}
@@ -705,10 +705,10 @@ func (r *Lexer) StringIntern() string {
 
 // Bytes reads a string literal and base64 decodes it into a byte slice.
 func (r *Lexer) Bytes() []byte {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
-	if !r.Ok() || r.token.kind != TokenString {
+	if !r.Ok() || r.token.kind != tokenString {
 		r.errInvalidToken("string")
 		return nil
 	}
@@ -731,10 +731,10 @@ func (r *Lexer) Bytes() []byte {
 
 // Bool reads a true or false boolean keyword.
 func (r *Lexer) Bool() bool {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
-	if !r.Ok() || r.token.kind != TokenBool {
+	if !r.Ok() || r.token.kind != tokenBool {
 		r.errInvalidToken("bool")
 		return false
 	}
@@ -744,10 +744,10 @@ func (r *Lexer) Bool() bool {
 }
 
 func (r *Lexer) number() string {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
-	if !r.Ok() || r.token.kind != TokenNumber {
+	if !r.Ok() || r.token.kind != tokenNumber {
 		r.errInvalidToken("number")
 		return ""
 	}
@@ -1151,7 +1151,7 @@ func (r *Lexer) GetNonFatalErrors() []*LexerError {
 // JsonNumber fetches and json.Number from 'encoding/json' package.
 // Both int, float or string, contains them are valid values
 func (r *Lexer) JsonNumber() json.Number {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
 	if !r.Ok() {
@@ -1160,11 +1160,11 @@ func (r *Lexer) JsonNumber() json.Number {
 	}
 
 	switch r.token.kind {
-	case TokenString:
+	case tokenString:
 		return json.Number(r.String())
-	case TokenNumber:
+	case tokenNumber:
 		return json.Number(r.Raw())
-	case TokenNull:
+	case tokenNull:
 		r.Null()
 		return json.Number("")
 	default:
@@ -1175,7 +1175,7 @@ func (r *Lexer) JsonNumber() json.Number {
 
 // Interface fetches an interface{} analogous to the 'encoding/json' package.
 func (r *Lexer) Interface() interface{} {
-	if r.token.kind == TokenUndef && r.Ok() {
+	if r.token.kind == tokenUndef && r.Ok() {
 		r.FetchToken()
 	}
 
@@ -1183,13 +1183,13 @@ func (r *Lexer) Interface() interface{} {
 		return nil
 	}
 	switch r.token.kind {
-	case TokenString:
+	case tokenString:
 		return r.String()
-	case TokenNumber:
+	case tokenNumber:
 		return r.Float64()
-	case TokenBool:
+	case tokenBool:
 		return r.Bool()
-	case TokenNull:
+	case tokenNull:
 		r.Null()
 		return nil
 	}
@@ -1241,17 +1241,4 @@ func (r *Lexer) WantComma() {
 func (r *Lexer) WantColon() {
 	r.wantSep = ':'
 	r.firstElement = false
-}
-
-// CurrentToken returns current token kind if there were no errors and TokenUndef otherwise
-func (r *Lexer) CurrentToken() TokenKind {
-	if r.token.kind == TokenUndef && r.Ok() {
-		r.FetchToken()
-	}
-
-	if !r.Ok() {
-		return TokenUndef
-	}
-
-	return r.token.kind
 }

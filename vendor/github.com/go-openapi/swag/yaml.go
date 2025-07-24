@@ -16,6 +16,7 @@ package swag
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -50,7 +51,7 @@ func BytesToYAMLDoc(data []byte) (interface{}, error) {
 		return nil, err
 	}
 	if document.Kind != yaml.DocumentNode || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("only YAML documents that are objects are supported: %w", ErrYAML)
+		return nil, errors.New("only YAML documents that are objects are supported")
 	}
 	return &document, nil
 }
@@ -68,32 +69,31 @@ func yamlNode(root *yaml.Node) (interface{}, error) {
 	case yaml.AliasNode:
 		return yamlNode(root.Alias)
 	default:
-		return nil, fmt.Errorf("unsupported YAML node type: %v: %w", root.Kind, ErrYAML)
+		return nil, fmt.Errorf("unsupported YAML node type: %v", root.Kind)
 	}
 }
 
 func yamlDocument(node *yaml.Node) (interface{}, error) {
 	if len(node.Content) != 1 {
-		return nil, fmt.Errorf("unexpected YAML Document node content length: %d: %w", len(node.Content), ErrYAML)
+		return nil, fmt.Errorf("unexpected YAML Document node content length: %d", len(node.Content))
 	}
 	return yamlNode(node.Content[0])
 }
 
 func yamlMapping(node *yaml.Node) (interface{}, error) {
-	const sensibleAllocDivider = 2
-	m := make(JSONMapSlice, len(node.Content)/sensibleAllocDivider)
+	m := make(JSONMapSlice, len(node.Content)/2)
 
 	var j int
 	for i := 0; i < len(node.Content); i += 2 {
 		var nmi JSONMapItem
 		k, err := yamlStringScalarC(node.Content[i])
 		if err != nil {
-			return nil, fmt.Errorf("unable to decode YAML map key: %w: %w", err, ErrYAML)
+			return nil, fmt.Errorf("unable to decode YAML map key: %w", err)
 		}
 		nmi.Key = k
 		v, err := yamlNode(node.Content[i+1])
 		if err != nil {
-			return nil, fmt.Errorf("unable to process YAML map value for key %q: %w: %w", k, err, ErrYAML)
+			return nil, fmt.Errorf("unable to process YAML map value for key %q: %w", k, err)
 		}
 		nmi.Value = v
 		m[j] = nmi
@@ -109,7 +109,7 @@ func yamlSequence(node *yaml.Node) (interface{}, error) {
 
 		v, err := yamlNode(node.Content[i])
 		if err != nil {
-			return nil, fmt.Errorf("unable to decode YAML sequence value: %w: %w", err, ErrYAML)
+			return nil, fmt.Errorf("unable to decode YAML sequence value: %w", err)
 		}
 		s = append(s, v)
 	}
@@ -132,19 +132,19 @@ func yamlScalar(node *yaml.Node) (interface{}, error) {
 	case yamlBoolScalar:
 		b, err := strconv.ParseBool(node.Value)
 		if err != nil {
-			return nil, fmt.Errorf("unable to process scalar node. Got %q. Expecting bool content: %w: %w", node.Value, err, ErrYAML)
+			return nil, fmt.Errorf("unable to process scalar node. Got %q. Expecting bool content: %w", node.Value, err)
 		}
 		return b, nil
 	case yamlIntScalar:
 		i, err := strconv.ParseInt(node.Value, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("unable to process scalar node. Got %q. Expecting integer content: %w: %w", node.Value, err, ErrYAML)
+			return nil, fmt.Errorf("unable to process scalar node. Got %q. Expecting integer content: %w", node.Value, err)
 		}
 		return i, nil
 	case yamlFloatScalar:
 		f, err := strconv.ParseFloat(node.Value, 64)
 		if err != nil {
-			return nil, fmt.Errorf("unable to process scalar node. Got %q. Expecting float content: %w: %w", node.Value, err, ErrYAML)
+			return nil, fmt.Errorf("unable to process scalar node. Got %q. Expecting float content: %w", node.Value, err)
 		}
 		return f, nil
 	case yamlTimestamp:
@@ -152,19 +152,19 @@ func yamlScalar(node *yaml.Node) (interface{}, error) {
 	case yamlNull:
 		return nil, nil //nolint:nilnil
 	default:
-		return nil, fmt.Errorf("YAML tag %q is not supported: %w", node.LongTag(), ErrYAML)
+		return nil, fmt.Errorf("YAML tag %q is not supported", node.LongTag())
 	}
 }
 
 func yamlStringScalarC(node *yaml.Node) (string, error) {
 	if node.Kind != yaml.ScalarNode {
-		return "", fmt.Errorf("expecting a string scalar but got %q: %w", node.Kind, ErrYAML)
+		return "", fmt.Errorf("expecting a string scalar but got %q", node.Kind)
 	}
 	switch node.LongTag() {
 	case yamlStringScalar, yamlIntScalar, yamlFloatScalar:
 		return node.Value, nil
 	default:
-		return "", fmt.Errorf("YAML tag %q is not supported as map key: %w", node.LongTag(), ErrYAML)
+		return "", fmt.Errorf("YAML tag %q is not supported as map key", node.LongTag())
 	}
 }
 
@@ -349,7 +349,7 @@ func json2yaml(item interface{}) (*yaml.Node, error) {
 			Value: strconv.FormatBool(val),
 		}, nil
 	default:
-		return nil, fmt.Errorf("unhandled type: %T: %w", val, ErrYAML)
+		return nil, fmt.Errorf("unhandled type: %T", val)
 	}
 }
 
@@ -416,7 +416,7 @@ func transformData(input interface{}) (out interface{}, err error) {
 		case int64:
 			return strconv.FormatInt(k, 10), nil
 		default:
-			return "", fmt.Errorf("unexpected map key type, got: %T: %w", k, ErrYAML)
+			return "", fmt.Errorf("unexpected map key type, got: %T", k)
 		}
 	}
 
