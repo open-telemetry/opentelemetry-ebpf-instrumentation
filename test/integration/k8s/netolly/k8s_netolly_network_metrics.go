@@ -62,9 +62,6 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		metric := results[0].Metric
 		assertIsIP(t, metric["src_address"])
 		assertIsIP(t, metric["dst_address"])
-		assert.Regexp(t,
-			"^obi-network-flows",
-			metric["job"])
 		assert.Equal(t, "my-kube", metric["k8s_cluster_name"])
 		assert.Equal(t, "default", metric["k8s_src_namespace"])
 		assert.Equal(t, "internal-pinger-net", metric["k8s_src_name"])
@@ -95,9 +92,6 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		metric := results[0].Metric
 		assertIsIP(t, metric["src_address"])
 		assertIsIP(t, metric["dst_address"])
-		assert.Regexp(t,
-			"^obi-network-flows",
-			metric["job"])
 		assert.Equal(t, "default", metric["k8s_src_namespace"])
 		assert.Equal(t, "internal-pinger-net", metric["k8s_src_name"])
 		assert.Equal(t, "Pod", metric["k8s_src_owner_type"])
@@ -132,9 +126,6 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		metric := results[0].Metric
 		assertIsIP(t, metric["src_address"])
 		assertIsIP(t, metric["dst_address"])
-		assert.Regexp(t,
-			"^obi-network-flows",
-			metric["job"])
 		assert.Equal(t, "default", metric["k8s_src_namespace"])
 		assert.Regexp(t, "^testserver-", metric["k8s_src_name"])
 		assert.Equal(t, "Deployment", metric["k8s_src_owner_type"])
@@ -169,9 +160,6 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		metric := results[0].Metric
 		assertIsIP(t, metric["src_address"])
 		assertIsIP(t, metric["dst_address"])
-		assert.Regexp(t,
-			"^obi-network-flows",
-			metric["job"])
 		assert.Equal(t, "default", metric["k8s_src_namespace"])
 		assert.Equal(t, "testserver", metric["k8s_src_name"])
 		assert.Equal(t, "Service", metric["k8s_src_owner_type"])

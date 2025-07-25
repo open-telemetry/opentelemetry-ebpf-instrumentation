@@ -170,23 +170,12 @@ func TestGetFilteredNetworkResourceAttrs(t *testing.T) {
 
 	attrs := getFilteredNetworkResourceAttrs(hostID, attrSelector)
 
-	expectedAttrs := []string{
-		"service.name",
-		"service.instance.id",
-		"telemetry.sdk.language",
-		"telemetry.sdk.name",
-		"telemetry.sdk.version",
-	}
-
 	attrMap := make(map[string]string)
 	for _, attr := range attrs {
 		attrMap[string(attr.Key)] = attr.Value.AsString()
 	}
 
-	for _, key := range expectedAttrs {
-		_, exists := attrMap[key]
-		assert.True(t, exists, "Expected attribute %s not found", key)
-	}
+	assert.Empty(t, attrMap)
 
 	_, hostIDExists := attrMap["host.id"]
 	assert.False(t, hostIDExists, "Host ID should be filtered out")

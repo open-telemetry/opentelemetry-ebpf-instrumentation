@@ -11,13 +11,11 @@ import (
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 
-	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
 
-	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -47,13 +45,7 @@ func nmlog() *slog.Logger {
 // getFilteredNetworkResourceAttrs returns resource attributes that can be filtered based on the attribute selector
 // for network metrics.
 func getFilteredNetworkResourceAttrs(hostID string, attrSelector attributes.Selection) []attribute.KeyValue {
-	baseAttrs := []attribute.KeyValue{
-		semconv.ServiceName(attr.VendorPrefix + "-network-flows"),
-		semconv.ServiceInstanceID(uuid.New().String()),
-		semconv.TelemetrySDKLanguageKey.String(semconv.TelemetrySDKLanguageGo.Value.AsString()),
-		semconv.TelemetrySDKNameKey.String("opentelemetry-ebpf-instrumentation"),
-		semconv.TelemetrySDKVersion(buildinfo.Version),
-	}
+	baseAttrs := []attribute.KeyValue{}
 
 	extraAttrs := []attribute.KeyValue{
 		semconv.HostID(hostID),
