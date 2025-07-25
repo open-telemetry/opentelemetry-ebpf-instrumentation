@@ -175,11 +175,11 @@ func createTraceparent(traceID string, parentID string) string {
 }
 
 func waitForTestComponentsSub(t *testing.T, url, subpath string) {
-	waitForTestComponentsSubWithTime(t, url, subpath, 1)
+	waitForTestComponentsSubWithTime(t, url, subpath, 2)
 }
 
 func waitForTestComponentsSubStatus(t *testing.T, url, subpath string, status int) {
-	waitForTestComponentsSubWithTimeAndCode(t, url, subpath, status, 1)
+	waitForTestComponentsSubWithTimeAndCode(t, url, subpath, status, 2)
 }
 
 // does a smoke test to verify that all the components that started

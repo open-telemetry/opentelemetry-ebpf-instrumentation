@@ -77,6 +77,8 @@ network:
   enable: true
   cidrs:
     - 10.244.0.0/16
+discovery:
+  min_process_age: 5s
 `)
 	t.Setenv("OTEL_EBPF_EXECUTABLE_PATH", "tras")
 	t.Setenv("OTEL_EBPF_NETWORK_AGENT_IP", "1.2.3.4")
@@ -222,6 +224,7 @@ network:
 		},
 		Discovery: services.DiscoveryConfig{
 			ExcludeOTelInstrumentedServices: true,
+			MinProcessAge:                   5 * time.Second,
 			DefaultExcludeServices: services.RegexDefinitionCriteria{
 				services.RegexSelector{
 					Path: services.NewRegexp("(?:^|/)(beyla$|alloy$|otelcol[^/]*$)"),

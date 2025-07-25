@@ -256,3 +256,74 @@ func sort(events []Event[ProcessAttrs]) []Event[ProcessAttrs] {
 	})
 	return events
 }
+
+func TestMinProcessAge(t *testing.T) {
+	count := 1
+	processAgeFunc = func(pid int32) time.Duration {
+		if pid == 3 {
+			return time.Duration(0)
+		}
+		count++
+		return time.Duration(count * 1000000 * 1000)
+	}
+
+	processPidsFunc = func() ([]int32, error) {
+		return []int32{1, 2, 3}, nil
+	}
+
+	userConfig := bytes.NewBufferString("channel_buffer_len: 33")
+	t.Setenv("OTEL_EBPF_OPEN_PORT", "8080-8089")
+
+	cfg, err := obi.LoadConfig(userConfig)
+	require.NoError(t, err)
+
+	channelReturner := make(chan chan<- watcher.Event)
+
+	acc := pollAccounter{
+		cfg:      cfg,
+		interval: time.Hour, // don't let the inner loop mess with our test
+		pidPorts: map[pidPort]ProcessAttrs{},
+		listProcesses: func(bool) (map[PID]ProcessAttrs, error) {
+			return nil, nil
+		},
+		executableReady: func(_ PID) (string, bool) {
+			return "", true
+		},
+		loadBPFWatcher: func(_ context.Context, _ *ebpfcommon.EBPFEventContext, _ *obi.Config, events chan<- watcher.Event) error {
+			channelReturner <- events
+			return nil
+		},
+		loadBPFLogger: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config) error {
+			return nil
+		},
+		stateMux:          sync.Mutex{},
+		bpfWatcherEnabled: false,
+		fetchPorts:        true,
+		findingCriteria:   FindingCriteria(cfg),
+		output:            msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(1)),
+	}
+
+	procs, err := fetchProcessPorts(false)
+	require.NoError(t, err)
+	process, ok := procs[PID(1)]
+
+	assert.True(t, ok)
+	assert.True(t, acc.processTooNew(process))
+
+	// Pid 3 has 0 duration meaning we had to scan it without checking duration
+	// it's never too new
+	process, ok = procs[PID(3)]
+
+	assert.True(t, ok)
+	assert.False(t, acc.processTooNew(process))
+
+	for i := 0; i < 10; i++ {
+		procs, err = fetchProcessPorts(false)
+		require.NoError(t, err)
+	}
+
+	process, ok = procs[PID(1)]
+
+	assert.True(t, ok)
+	assert.False(t, acc.processTooNew(process))
+}
