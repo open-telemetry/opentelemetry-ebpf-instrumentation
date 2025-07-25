@@ -9,16 +9,16 @@ import (
 	"log/slog"
 	"time"
 
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
-
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
 
+	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	metric2 "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
@@ -45,7 +45,10 @@ func nmlog() *slog.Logger {
 // getFilteredNetworkResourceAttrs returns resource attributes that can be filtered based on the attribute selector
 // for network metrics.
 func getFilteredNetworkResourceAttrs(hostID string, attrSelector attributes.Selection) []attribute.KeyValue {
-	baseAttrs := []attribute.KeyValue{}
+	baseAttrs := []attribute.KeyValue{
+		attribute.String(attr.VendorPrefix+string(attr.VendorVersionSuffix), buildinfo.Version),
+		attribute.String(attr.VendorPrefix+string(attr.VendorRevisionSuffix), buildinfo.Revision),
+	}
 
 	extraAttrs := []attribute.KeyValue{
 		semconv.HostID(hostID),
