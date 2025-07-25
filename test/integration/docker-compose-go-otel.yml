@@ -44,6 +44,7 @@ services:
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_HOSTNAME: "beyla"
       OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES: "${OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES}"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "100ms"
     ports:
       - "8999:8999" # Prometheus scrape port, if enabled via config
 

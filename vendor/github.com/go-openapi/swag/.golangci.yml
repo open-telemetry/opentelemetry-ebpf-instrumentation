@@ -1,17 +1,22 @@
 linters-settings:
+  govet:
+    check-shadowing: true
+  golint:
+    min-confidence: 0
   gocyclo:
     min-complexity: 45
+  maligned:
+    suggest-new: true
   dupl:
     threshold: 200
   goconst:
-    min-len: 2
+    min-len: 3
     min-occurrences: 3
 
 linters:
   enable-all: true
   disable:
-    - recvcheck
-    - unparam
+    - maligned
     - lll
     - gochecknoinits
     - gochecknoglobals
@@ -23,6 +28,9 @@ linters:
     - wrapcheck
     - testpackage
     - nlreturn
+    - gomnd
+    - exhaustivestruct
+    - goerr113
     - errorlint
     - nestif
     - godot
@@ -30,6 +38,7 @@ linters:
     - paralleltest
     - tparallel
     - thelper
+    - ifshort
     - exhaustruct
     - varnamelen
     - gci
@@ -42,15 +51,10 @@ linters:
     - forcetypeassert
     - cyclop
     # deprecated linters
-    #- deadcode
-    #- interfacer
-    #- scopelint
-    #- varcheck
-    #- structcheck
-    #- golint
-    #- nosnakecase
-    #- maligned
-    #- goerr113
-    #- ifshort
-    #- gomnd
-    #- exhaustivestruct
+    - deadcode
+    - interfacer
+    - scopelint
+    - varcheck
+    - structcheck
+    - golint
+    - nosnakecase
