@@ -1,0 +1,25 @@
+routes:
+  patterns:
+    - /basic/:rnd
+  unmatched: path
+otel_metrics_export:
+  endpoint: http://otelcol:4018
+otel_traces_export:
+  endpoint: http://jaeger:4318
+discovery:
+  services:
+    # Target the testserver but use configuration that might cause errors
+    - namespace: error-test
+      name: testserver
+      open_ports: 8080
+      # Try to instrument a process that exists but might have issues
+      exe_path: "testserver"
+attributes:
+  kubernetes:
+    enable: true
+# Enable internal metrics to capture instrumentation errors
+internal_metrics:
+  prometheus:
+    port: 8999
+    path: /metrics
+log_level: debug

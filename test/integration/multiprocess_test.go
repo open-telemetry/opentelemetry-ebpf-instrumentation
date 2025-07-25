@@ -115,6 +115,43 @@ func TestMultiProcess(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestInstrumentationErrors(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-error-test.yml", path.Join(pathOutput, "test-suite-instrumentation-errors.log"))
+	// Run OBI without privileged mode to force instrumentation errors
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+
+	// Wait for Prometheus and test server to be ready
+	pq := prom.Client{HostPort: prometheusHostPort}
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		// Check that test server is responding
+		resp, err := http.Get("http://localhost:8080/smoke")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Check that Prometheus is accessible (try any basic query)
+		_, err = pq.Query(`up`)
+		require.NoError(t, err)
+	}, test.Interval(time.Second))
+
+	// Also wait for Beyla's internal metrics to be available
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		resp, err := http.Get("http://localhost:8999/metrics")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	}, test.Interval(time.Second))
+
+	// Give OBI more time to attempt instrumentation and generate errors
+	time.Sleep(20 * time.Second)
+
+	t.Run("Instrumentation error metrics", func(t *testing.T) {
+		checkInstrumentationErrorMetrics(t)
+	})
+
+	require.NoError(t, compose.Close())
+}
+
 func TestMultiProcessAppCP(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp.log"))
 	// we are going to setup discovery directly in the configuration file
@@ -193,5 +230,30 @@ func checkInstrumentedProcessesMetric(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, expectedCount, value)
 		}
+	}, test.Interval(1000*time.Millisecond))
+}
+
+func checkInstrumentationErrorMetrics(t *testing.T) {
+	pq := prom.Client{HostPort: prometheusHostPort}
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		results, err := pq.Query(`obi_instrumentation_errors_total`)
+		require.NoError(t, err)
+
+		require.GreaterOrEqual(t, len(results), 1, "obi_instrumentation_errors_total metric should be present")
+
+		// Verify we have some errors and proper labels
+		totalErrors := 0
+		for _, result := range results {
+			labels := result.Metric
+			require.Contains(t, labels, "process_name", "process_name label should be present")
+			require.Contains(t, labels, "error_type", "error_type label should be present")
+
+			value, err := strconv.Atoi(result.Value[1].(string))
+			require.NoError(t, err)
+			totalErrors += value
+		}
+
+		// We should have at least some errors when running without privileges
+		require.Positive(t, totalErrors, "Should have instrumentation errors when running without privileges")
 	}, test.Interval(1000*time.Millisecond))
 }

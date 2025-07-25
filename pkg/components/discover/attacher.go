@@ -219,12 +219,14 @@ func (ta *TraceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 
 	if err := tracer.Init(ta.EbpfEventContext); err != nil {
 		ta.log.Error("couldn't trace process. Stopping process tracer", "error", err)
+		ta.Metrics.InstrumentationError(ie.FileInfo.ExecutableName(), imetrics.InstrumentationErrorInspectionFailed)
 		return false
 	}
 
 	ie.Tracer = tracer
 
 	if err := tracer.NewExecutable(exe, ie); err != nil {
+		ta.Metrics.InstrumentationError(ie.FileInfo.ExecutableName(), imetrics.InstrumentationErrorAttachingUprobe)
 		return false
 	}
 
@@ -292,6 +294,7 @@ func (ta *TraceAttacher) reuseTracer(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 
 	ta.monitorPIDs(tracer, ie)
 	ta.existingTracers[ie.FileInfo.Ino] = tracer
+	ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName())
 
 	return true
 }

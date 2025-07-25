@@ -1,0 +1,109 @@
+version: "3.8"
+
+services:
+  testserver:
+    build:
+      context: ../..
+      dockerfile: test/integration/components/testserver/Dockerfile
+    image: hatest-testserver
+    ports:
+      - "8080:8080"
+    environment:
+      LOG_LEVEL: DEBUG
+    depends_on:
+      otelcol:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../..
+      dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile
+    command:
+      - --config=/configs/obi-config-error-test.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../testoutput:/coverage
+      - ../../testoutput/run-error:/var/run/beyla
+    image: hatest-obi
+    # Remove privileged mode to force instrumentation errors but allow startup
+    privileged: false
+    pid: "host"
+    depends_on:
+      testserver:
+        condition: service_started
+      otelcol:
+        condition: service_started
+      prometheus:
+        condition: service_started
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_span"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "beyla"
+      OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT: 8999
+      OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PATH: /metrics
+      OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME: 1
+    ports:
+      - "8999:8999"
+
+  # OpenTelemetry Collector
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.86.0
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: [ "--config=/etc/otelcol-contrib/otel-collector-config.yml" ]
+    volumes:
+      - ./configs/:/etc/otelcol-contrib/
+    ports:
+      - "14278:14278"   # Jaeger Health Check
+      - "4317:4317"     # OTLP gRPC receiver
+      - "4318:4318"     # OTLP HTTP receiver
+      - "9999:8888"     # Prometheus metrics exposed by the collector
+      - "8889:8889"     # Prometheus exporter metrics
+    depends_on:
+      jaeger:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.55.0
+    container_name: jaeger
+    command:
+      - "--memory.max-traces=8000"
+      - "--query.base-path=/jaeger/ui"
+      - "--prometheus.server-url=http://prometheus:9090"
+      - "--prometheus.query.normalize-calls=true"
+      - "--prometheus.query.normalize-duration=true"
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+    restart: unless-stopped
+    ports:
+      - "16686:16686"
+      - "14250:14250"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v2.55.1
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+      - --log.level=debug
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"

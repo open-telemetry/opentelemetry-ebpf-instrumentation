@@ -22,15 +22,15 @@ import (
 
 // InternalMetricsReporter is an internal metrics Reporter that exports to OTEL
 type InternalMetricsReporter struct {
-	ctx                     context.Context
-	tracerFlushes           instrument.Float64Histogram
-	otelMetricExports       instrument.Float64Counter
-	otelMetricExportErrs    instrument.Float64Counter
-	otelTraceExports        instrument.Float64Counter
-	otelTraceExportErrs     instrument.Float64Counter
-	instrumentedProcesses   instrument.Int64UpDownCounter
-	instrumentationErrors   instrument.Int64Counter
-	beylaInfo               instrument.Int64Gauge
+	ctx                   context.Context
+	tracerFlushes         instrument.Float64Histogram
+	otelMetricExports     instrument.Float64Counter
+	otelMetricExportErrs  instrument.Float64Counter
+	otelTraceExports      instrument.Float64Counter
+	otelTraceExportErrs   instrument.Float64Counter
+	instrumentedProcesses instrument.Int64UpDownCounter
+	instrumentationErrors instrument.Int64Counter
+	beylaInfo             instrument.Int64Gauge
 }
 
 func imlog() *slog.Logger {
@@ -115,15 +115,15 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	return &InternalMetricsReporter{
-		ctx:                     ctx,
-		tracerFlushes:           tracerFlushes,
-		otelMetricExports:       otelMetricExports,
-		otelMetricExportErrs:    otelMetricExportErrs,
-		otelTraceExports:        otelTraceExports,
-		otelTraceExportErrs:     otelTraceExportErrs,
-		instrumentedProcesses:   instrumentedProcesses,
-		instrumentationErrors:   instrumentationErrors,
-		beylaInfo:               beylaInfo,
+		ctx:                   ctx,
+		tracerFlushes:         tracerFlushes,
+		otelMetricExports:     otelMetricExports,
+		otelMetricExportErrs:  otelMetricExportErrs,
+		otelTraceExports:      otelTraceExports,
+		otelTraceExportErrs:   otelTraceExportErrs,
+		instrumentedProcesses: instrumentedProcesses,
+		instrumentationErrors: instrumentationErrors,
+		beylaInfo:             beylaInfo,
 	}, nil
 }
 
