@@ -106,6 +106,19 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 
 	dbOperation := fmt.Sprintf("%s %s", op, table)
 
+	expectedData := map[string]map[string]string{
+		"mysql": {
+			"db.response.status_code": "1049",
+			"error.type":              "#42000",
+			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=1049 sql_state=#42000 message=Unknown database 'obi'",
+		},
+		"postgresql": {
+			"db.response.status_code": "0",
+			"error.type":              "42P01",
+			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=NA sql_state=42P01 message=relation \"obi.nonexisting\" does not exist",
+		},
+	}
+
 	params := neturl.Values{}
 	params.Add("service", comm)
 	params.Add("operation", dbOperation)
@@ -141,15 +154,15 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 
 		tag, found = jaeger.FindIn(span.Tags, "db.response.status_code")
 		assert.True(t, found)
-		assert.Equal(t, "1049", tag.Value) // Unknown database
+		assert.Equal(t, expectedData[db]["db.response.status_code"], tag.Value)
 
 		tag, found = jaeger.FindIn(span.Tags, "error.type")
 		assert.True(t, found)
-		assert.Equal(t, "#42000", tag.Value)
+		assert.Equal(t, expectedData[db]["error.type"], tag.Value)
 
 		tag, found = jaeger.FindIn(span.Tags, "otel.status_description")
 		assert.True(t, found)
-		assert.Equal(t, "SQL Server errored for command 'COM_QUERY': error_code=1049 sql_state=#42000 message=Unknown database 'obi'", tag.Value)
+		assert.Equal(t, expectedData[db]["otel.status_description"], tag.Value)
 	}, test.Interval(100*time.Millisecond))
 }
 
@@ -191,7 +204,7 @@ func testPythonPostgres(t *testing.T) {
 	assertHTTPRequests(t, comm, "/query")
 	testPythonSQLQuery(t, comm, testCaseURL, table, db)
 	// testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db) // TODO(matt): uncomment once postgres prepared statements are supported
-	// testPythonSQLError(t, comm, testCaseURL, db)                     // TODO(matt): uncomment once postgres errors are supported
+	testPythonSQLError(t, comm, testCaseURL, db)
 }
 
 func testPythonMySQL(t *testing.T) {

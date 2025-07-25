@@ -18,6 +18,7 @@
 #include <generictracer/protocol_http.h>
 #include <generictracer/protocol_http2.h>
 #include <generictracer/protocol_mysql.h>
+#include <generictracer/protocol_postgres.h>
 #include <generictracer/protocol_tcp.h>
 #include <generictracer/ssl_defs.h>
 
@@ -953,9 +954,14 @@ int obi_handle_buf_with_args(void *ctx) {
     } else if (is_mysql(&args->pid_conn.conn,
                         (const unsigned char *)args->u_buf,
                         args->bytes_len,
-                        &args->packet_type,
                         &args->protocol_type)) {
         bpf_dbg_printk("Found mysql connection");
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
+    } else if (is_postgres(&args->pid_conn.conn,
+                           (const unsigned char *)args->u_buf,
+                           args->bytes_len,
+                           &args->protocol_type)) {
+        bpf_dbg_printk("Found postgres connection");
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);

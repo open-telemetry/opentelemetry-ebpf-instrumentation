@@ -11,6 +11,7 @@
 
 #include <generictracer/protocol_common.h>
 #include <generictracer/protocol_mysql.h>
+#include <generictracer/protocol_postgres.h>
 
 #include <generictracer/maps/ongoing_tcp_req.h>
 #include <generictracer/maps/tcp_req_mem.h>
@@ -109,6 +110,11 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     case k_protocol_type_mysql:
         if (mysql_buffer_size > 0) {
             ret = mysql_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
+        }
+        break;
+    case k_protocol_type_postgres:
+        if (postgres_buffer_size > 0) {
+            ret = postgres_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
         }
         break;
     case k_protocol_type_unknown:

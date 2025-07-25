@@ -100,11 +100,7 @@ func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 	}
 
 	sqlCommand := sqlprune.SQLParseCommandID(request.DBMySQL, requestBuffer)
-	if sqlCommand == "" {
-		return span, errIgnore
-	}
-
-	sqlError := sqlprune.SQLParseError(responseBuffer)
+	sqlError := sqlprune.SQLParseError(request.DBMySQL, responseBuffer)
 
 	switch sqlCommand {
 	case "STMT_PREPARE":

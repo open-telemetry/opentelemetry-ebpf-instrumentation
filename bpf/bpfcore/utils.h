@@ -59,4 +59,8 @@
                  : "+r"(VAR)                                                                       \
                  : [max] "i"(UMAX))
 
+static __always_inline bool is_pow2(u32 n) {
+    return n != 0UL && (n & (n - 1)) == 0UL;
+}
+
 #endif /* __UTILS_H__ */

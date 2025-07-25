@@ -146,12 +146,14 @@ func TestSQLExtraction(t *testing.T) {
 func TestSQLParseError(t *testing.T) {
 	tests := []struct {
 		name     string
+		dbKind   request.SQLKind
 		buf      []uint8
 		length   uint32
 		expected *request.SQLError
 	}{
 		{
 			name:   "Valid MySQL error with SQL state",
+			dbKind: request.DBMySQL,
 			buf:    append([]uint8{0x00, 0x00, 0x00, 0x00}, []uint8{0xFF, 0x10, 0x04, '#', 'H', 'Y', '0', '0', '0', 'S', 'o', 'm', 'e', ' ', 'e', 'r', 'r', 'o', 'r'}...),
 			length: 23,
 			expected: &request.SQLError{
@@ -162,6 +164,7 @@ func TestSQLParseError(t *testing.T) {
 		},
 		{
 			name:   "Valid MySQL error",
+			dbKind: request.DBMySQL,
 			buf:    append([]uint8{0x00, 0x00, 0x00, 0x00}, []uint8{0xFF, 0x10, 0x04, 'S', 'o', 'm', 'e', ' ', 'e', 'r', 'r', 'o', 'r'}...),
 			length: 17,
 			expected: &request.SQLError{
@@ -172,21 +175,72 @@ func TestSQLParseError(t *testing.T) {
 		},
 		{
 			name:     "Invalid MySQL error",
+			dbKind:   request.DBMySQL,
 			buf:      append([]uint8{0x00, 0x00, 0x00, 0x00}, []uint8{0xFF, 0x99, 0x99, 'I', 'n', 'v', 'a', 'l', 'i', 'd'}...),
 			length:   14,
 			expected: nil,
 		},
 		{
 			name:     "Empty buffer",
+			dbKind:   request.DBMySQL,
 			buf:      []uint8{0x00, 0x00, 0x00, 0x00, 0x00},
 			length:   5,
+			expected: nil,
+		},
+		{
+			name:   "Valid Postgres error",
+			dbKind: request.DBPostgres,
+			buf: []uint8{
+				0x00, 0x00, 0x00, 0x00, // header
+				'E',                             // error response
+				'S', 'E', 'R', 'R', 'O', 'R', 0, // Severity
+				'C', '4', '2', '6', '0', '1', 0, // Code
+				'M', 's', 'y', 'n', 't', 'a', 'x', ' ', 'e', 'r', 'r', 'o', 'r', 0, // Message
+				0, // terminator
+			},
+			length: 29,
+			expected: &request.SQLError{
+				Code:     0,
+				Message:  "syntax error",
+				SQLState: "42601",
+			},
+		},
+		{
+			name:   "Postgres error with only message",
+			dbKind: request.DBPostgres,
+			buf: []uint8{
+				0x00, 0x00, 0x00, 0x00,
+				'E',
+				'M', 'o', 'n', 'l', 'y', ' ', 'm', 's', 'g', 0,
+				0,
+			},
+			length:   15,
+			expected: nil,
+		},
+		{
+			name:   "Invalid Postgres error (not E)",
+			dbKind: request.DBPostgres,
+			buf: []uint8{
+				0x00, 0x00, 0x00, 0x00,
+				'N', // Not an error response
+				'M', 'n', 'o', 't', ' ', 'e', 'r', 'r', 0,
+				0,
+			},
+			length:   14,
+			expected: nil,
+		},
+		{
+			name:     "Empty Postgres buffer",
+			dbKind:   request.DBPostgres,
+			buf:      []uint8{0x00, 0x00, 0x00, 0x00},
+			length:   4,
 			expected: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := SQLParseError(tt.buf)
+			result := SQLParseError(tt.dbKind, tt.buf)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

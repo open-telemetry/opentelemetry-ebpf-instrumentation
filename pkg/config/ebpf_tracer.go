@@ -103,6 +103,12 @@ type EBPFBufferSizes struct {
 	//
 	// Default: 0 (disabled).
 	MySQL uint32 `yaml:"mysql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL"`
+	// Postgres data buffer size in bytes.
+	// Min: 128 bytes, Max: 8192 bytes.
+	// Valid values: 0, 128, 256, 512, 1024, 2048, 4096, 8192.
+	//
+	// Default: 0 (disabled).
+	Postgres uint32 `yaml:"postgres" env:"OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES"`
 }
 
 func (c *EBPFTracer) Validate() error {
@@ -113,6 +119,13 @@ func (c *EBPFTracer) Validate() error {
 		// valid sizes
 	default:
 		return fmt.Errorf("invalid MySQL buffer size: %d, must be one of 0, 128, 256, 512, 1024, 2048, 4096, 8192", c.BufferSizes.MySQL)
+	}
+
+	switch c.BufferSizes.Postgres {
+	case 0, 128, 256, 512, 1024, 2048, 4096, 8192:
+		// valid sizes
+	default:
+		return fmt.Errorf("invalid Postgres buffer size: %d, must be one of 0, 128, 256, 512, 1024, 2048, 4096, 8192", c.BufferSizes.Postgres)
 	}
 
 	return nil

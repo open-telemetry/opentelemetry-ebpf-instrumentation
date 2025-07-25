@@ -132,7 +132,8 @@ discovery:
 				MaxSize: 1000,
 			},
 			BufferSizes: config.EBPFBufferSizes{
-				MySQL: 0,
+				MySQL:    0,
+				Postgres: 0,
 			},
 			MySQLPreparedStatementsCacheSize: 1024,
 			MongoRequestsCacheSize:           1024,

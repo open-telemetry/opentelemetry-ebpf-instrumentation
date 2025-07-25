@@ -63,6 +63,7 @@ const (
 const (
 	ProtocolTypeUnknown uint8 = iota
 	ProtocolTypeMySQL
+	ProtocolTypePostgres
 )
 
 var IntegrityModeOverride = false

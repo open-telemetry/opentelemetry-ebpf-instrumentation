@@ -39,13 +39,7 @@
 #define HTTP_CONTENT_TYPE_MAX_LEN 16
 
 volatile const u32 mysql_buffer_size = 0;
-
-enum {
-    k_mysql_query_max = 8192,
-    k_mysql_query_max_mask = k_mysql_query_max - 1,
-    k_mysql_error_message_max = 512,
-    k_mysql_error_message_max_mask = k_mysql_error_message_max - 1
-};
+volatile const u32 postgres_buffer_size = 0;
 
 enum large_buf_action : u8 {
     k_large_buf_action_init = 0,

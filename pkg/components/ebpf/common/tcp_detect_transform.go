@@ -40,7 +40,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 
 	// We might know already the protocol for this event
 	switch event.ProtocolType {
-	case ProtocolTypeMySQL: // MySQL
+	case ProtocolTypeMySQL:
 		span, err := handleMySQL(parseCtx, event, requestBuffer, responseBuffer)
 		if err != nil {
 			// First, try to reverse the event and buffers
@@ -64,6 +64,33 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		}
 		if err != nil {
 			return request.Span{}, true, fmt.Errorf("failed to handle MySQL event: %w", err)
+		}
+
+		return span, false, nil
+	case ProtocolTypePostgres:
+		span, err := handlePostgres(parseCtx, event, requestBuffer, responseBuffer)
+		if err != nil {
+			// First, try to reverse the event and buffers
+			var err2 error
+			reverseTCPEvent(event)
+			tmpRequestBuffer := responseBuffer
+			tmpResponseBuffer := requestBuffer
+			span, err2 = handlePostgres(parseCtx, event, tmpRequestBuffer, tmpResponseBuffer)
+			if err2 == nil {
+				return span, false, nil
+			}
+		}
+
+		// Proceed with error handling for the original buffers
+		if errors.Is(err, errFallback) {
+			slog.Debug("Postgres: falling back to generic handler")
+			break
+		}
+		if errors.Is(err, errIgnore) {
+			return request.Span{}, true, nil
+		}
+		if err != nil {
+			return request.Span{}, true, fmt.Errorf("failed to handle Postgres event: %w", err)
 		}
 
 		return span, false, nil

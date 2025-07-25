@@ -14,6 +14,7 @@ enum protocol_type : u8 {
     // in userspace.
     k_protocol_type_unknown = 0,
     k_protocol_type_mysql = 1,
+    k_protocol_type_postgres = 2,
 };
 
 // Struct to keep information on the connections in flight
