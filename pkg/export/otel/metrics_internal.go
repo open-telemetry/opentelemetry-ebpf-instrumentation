@@ -22,14 +22,15 @@ import (
 
 // InternalMetricsReporter is an internal metrics Reporter that exports to OTEL
 type InternalMetricsReporter struct {
-	ctx                   context.Context
-	tracerFlushes         instrument.Float64Histogram
-	otelMetricExports     instrument.Float64Counter
-	otelMetricExportErrs  instrument.Float64Counter
-	otelTraceExports      instrument.Float64Counter
-	otelTraceExportErrs   instrument.Float64Counter
-	instrumentedProcesses instrument.Int64UpDownCounter
-	beylaInfo             instrument.Int64Gauge
+	ctx                     context.Context
+	tracerFlushes           instrument.Float64Histogram
+	otelMetricExports       instrument.Float64Counter
+	otelMetricExportErrs    instrument.Float64Counter
+	otelTraceExports        instrument.Float64Counter
+	otelTraceExportErrs     instrument.Float64Counter
+	instrumentedProcesses   instrument.Int64UpDownCounter
+	instrumentationErrors   instrument.Int64Counter
+	beylaInfo               instrument.Int64Gauge
 }
 
 func imlog() *slog.Logger {
@@ -97,6 +98,14 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		return nil, err
 	}
 
+	instrumentationErrors, err := meter.Int64Counter(
+		attr.VendorPrefix+".instrumentation.errors",
+		instrument.WithDescription("Count of instrumentation errors by process and error type"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	beylaInfo, err := meter.Int64Gauge(
 		attr.VendorPrefix+".internal.build.info",
 		instrument.WithDescription("A metric with a constant '1' value labeled by version, revision, branch, goversion from which Beyla was built, the goos and goarch for the build."),
@@ -106,14 +115,15 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	return &InternalMetricsReporter{
-		ctx:                   ctx,
-		tracerFlushes:         tracerFlushes,
-		otelMetricExports:     otelMetricExports,
-		otelMetricExportErrs:  otelMetricExportErrs,
-		otelTraceExports:      otelTraceExports,
-		otelTraceExportErrs:   otelTraceExportErrs,
-		instrumentedProcesses: instrumentedProcesses,
-		beylaInfo:             beylaInfo,
+		ctx:                     ctx,
+		tracerFlushes:           tracerFlushes,
+		otelMetricExports:       otelMetricExports,
+		otelMetricExportErrs:    otelMetricExportErrs,
+		otelTraceExports:        otelTraceExports,
+		otelTraceExportErrs:     otelTraceExportErrs,
+		instrumentedProcesses:   instrumentedProcesses,
+		instrumentationErrors:   instrumentationErrors,
+		beylaInfo:               beylaInfo,
 	}, nil
 }
 
@@ -157,4 +167,11 @@ func (p *InternalMetricsReporter) InstrumentProcess(processName string) {
 
 func (p *InternalMetricsReporter) UninstrumentProcess(processName string) {
 	p.instrumentedProcesses.Add(p.ctx, -1, instrument.WithAttributes(attribute.String("process_name", processName)))
+}
+
+func (p *InternalMetricsReporter) InstrumentationError(processName, errorType string) {
+	p.instrumentationErrors.Add(p.ctx, 1, instrument.WithAttributes(
+		attribute.String("process_name", processName),
+		attribute.String("error_type", errorType),
+	))
 }
