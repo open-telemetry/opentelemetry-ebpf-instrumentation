@@ -151,7 +151,12 @@ func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents 
 		select {
 		case <-ctx.Done():
 			return
-		case ev := <-processEvents:
+		case ev, ok := <-processEvents:
+			if !ok {
+				log.Error("processEvents channel closed. Application instrumentation has stopped working")
+				return
+			}
+
 			switch ev.Type {
 			case discover.EventCreated:
 				pt := ev.Obj
