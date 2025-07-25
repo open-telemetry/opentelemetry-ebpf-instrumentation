@@ -14,11 +14,9 @@ import (
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper/internal"
-	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/queue"
 	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/request"
 	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/sizer"
 	"go.opentelemetry.io/collector/pdata/ptrace"
-	pdatareq "go.opentelemetry.io/collector/pdata/xpdata/request"
 	"go.opentelemetry.io/collector/pipeline"
 )
 
@@ -32,11 +30,14 @@ var (
 // until https://github.com/open-telemetry/opentelemetry-collector/issues/8122 is resolved.
 func NewTracesQueueBatchSettings() QueueBatchSettings {
 	return QueueBatchSettings{
-		Encoding:   tracesEncoding{},
-		ItemsSizer: request.NewItemsSizer(),
-		BytesSizer: request.BaseSizer{
-			SizeofFunc: func(req request.Request) int64 {
-				return int64(tracesMarshaler.TracesSize(req.(*tracesRequest).td))
+		Encoding: tracesEncoding{},
+		Sizers: map[RequestSizerType]request.Sizer[Request]{
+			RequestSizerTypeRequests: NewRequestsSizer(),
+			RequestSizerTypeItems:    request.NewItemsSizer(),
+			RequestSizerTypeBytes: request.BaseSizer{
+				SizeofFunc: func(req request.Request) int64 {
+					return int64(tracesMarshaler.TracesSize(req.(*tracesRequest).td))
+				},
 			},
 		},
 	}
@@ -56,31 +57,16 @@ func newTracesRequest(td ptrace.Traces) Request {
 
 type tracesEncoding struct{}
 
-var _ QueueBatchEncoding[Request] = tracesEncoding{}
-
-func (tracesEncoding) Unmarshal(bytes []byte) (context.Context, Request, error) {
-	if queue.PersistRequestContextOnRead() {
-		ctx, traces, err := pdatareq.UnmarshalTraces(bytes)
-		if errors.Is(err, pdatareq.ErrInvalidFormat) {
-			// fall back to unmarshaling without context
-			traces, err = tracesUnmarshaler.UnmarshalTraces(bytes)
-		}
-		return ctx, newTracesRequest(traces), err
-	}
+func (tracesEncoding) Unmarshal(bytes []byte) (Request, error) {
 	traces, err := tracesUnmarshaler.UnmarshalTraces(bytes)
 	if err != nil {
-		var req Request
-		return context.Background(), req, err
+		return nil, err
 	}
-	return context.Background(), newTracesRequest(traces), nil
+	return newTracesRequest(traces), nil
 }
 
-func (tracesEncoding) Marshal(ctx context.Context, req Request) ([]byte, error) {
-	traces := req.(*tracesRequest).td
-	if queue.PersistRequestContextOnWrite() {
-		return pdatareq.MarshalTraces(ctx, traces)
-	}
-	return tracesMarshaler.MarshalTraces(traces)
+func (tracesEncoding) Marshal(req Request) ([]byte, error) {
+	return tracesMarshaler.MarshalTraces(req.(*tracesRequest).td)
 }
 
 func (req *tracesRequest) OnError(err error) Request {

@@ -18,7 +18,6 @@ use (
 	./providers/azkeyvault
 	./providers/basicflag
 	./providers/cliflagv2
-	./providers/cliflagv3
 	./providers/confmap
 	./providers/consul
 	./providers/env

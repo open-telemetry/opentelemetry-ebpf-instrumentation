@@ -14,11 +14,9 @@ import (
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper/internal"
-	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/queue"
 	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/request"
 	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/sizer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
-	pdatareq "go.opentelemetry.io/collector/pdata/xpdata/request"
 	"go.opentelemetry.io/collector/pipeline"
 )
 
@@ -32,11 +30,14 @@ var (
 // until https://github.com/open-telemetry/opentelemetry-collector/issues/8122 is resolved.
 func NewMetricsQueueBatchSettings() QueueBatchSettings {
 	return QueueBatchSettings{
-		Encoding:   metricsEncoding{},
-		ItemsSizer: request.NewItemsSizer(),
-		BytesSizer: request.BaseSizer{
-			SizeofFunc: func(req request.Request) int64 {
-				return int64(metricsMarshaler.MetricsSize(req.(*metricsRequest).md))
+		Encoding: metricsEncoding{},
+		Sizers: map[RequestSizerType]request.Sizer[Request]{
+			RequestSizerTypeRequests: NewRequestsSizer(),
+			RequestSizerTypeItems:    request.NewItemsSizer(),
+			RequestSizerTypeBytes: request.BaseSizer{
+				SizeofFunc: func(req request.Request) int64 {
+					return int64(metricsMarshaler.MetricsSize(req.(*metricsRequest).md))
+				},
 			},
 		},
 	}
@@ -56,31 +57,16 @@ func newMetricsRequest(md pmetric.Metrics) Request {
 
 type metricsEncoding struct{}
 
-var _ QueueBatchEncoding[Request] = metricsEncoding{}
-
-func (metricsEncoding) Unmarshal(bytes []byte) (context.Context, Request, error) {
-	if queue.PersistRequestContextOnRead() {
-		ctx, metrics, err := pdatareq.UnmarshalMetrics(bytes)
-		if errors.Is(err, pdatareq.ErrInvalidFormat) {
-			// fall back to unmarshaling without context
-			metrics, err = metricsUnmarshaler.UnmarshalMetrics(bytes)
-		}
-		return ctx, newMetricsRequest(metrics), err
-	}
+func (metricsEncoding) Unmarshal(bytes []byte) (Request, error) {
 	metrics, err := metricsUnmarshaler.UnmarshalMetrics(bytes)
 	if err != nil {
-		var req Request
-		return context.Background(), req, err
+		return nil, err
 	}
-	return context.Background(), newMetricsRequest(metrics), nil
+	return newMetricsRequest(metrics), nil
 }
 
-func (metricsEncoding) Marshal(ctx context.Context, req Request) ([]byte, error) {
-	metrics := req.(*metricsRequest).md
-	if queue.PersistRequestContextOnWrite() {
-		return pdatareq.MarshalMetrics(ctx, metrics)
-	}
-	return metricsMarshaler.MarshalMetrics(metrics)
+func (metricsEncoding) Marshal(req Request) ([]byte, error) {
+	return metricsMarshaler.MarshalMetrics(req.(*metricsRequest).md)
 }
 
 func (req *metricsRequest) OnError(err error) Request {

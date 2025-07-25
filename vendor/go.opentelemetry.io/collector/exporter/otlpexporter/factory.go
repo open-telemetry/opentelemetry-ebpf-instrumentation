@@ -9,7 +9,6 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configcompression"
 	"go.opentelemetry.io/collector/config/configgrpc"
-	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/exporter"
@@ -32,13 +31,13 @@ func NewFactory() exporter.Factory {
 }
 
 func createDefaultConfig() component.Config {
-	clientCfg := configgrpc.NewDefaultClientConfig()
+	clientCfg := *configgrpc.NewDefaultClientConfig()
 	// Default to gzip compression
 	clientCfg.Compression = configcompression.TypeGzip
 	// We almost read 0 bytes, so no need to tune ReadBufferSize.
 	clientCfg.WriteBufferSize = 512 * 1024
 	// For backward compatibility:
-	clientCfg.Keepalive = configoptional.None[configgrpc.KeepaliveClientConfig]()
+	clientCfg.Keepalive = nil
 	clientCfg.BalancerName = ""
 
 	return &Config{
@@ -62,6 +61,7 @@ func createTraces(
 		exporterhelper.WithTimeout(oCfg.TimeoutConfig),
 		exporterhelper.WithRetry(oCfg.RetryConfig),
 		exporterhelper.WithQueue(oCfg.QueueConfig),
+		exporterhelper.WithBatcher(oCfg.BatcherConfig), //nolint:staticcheck // SA1019
 		exporterhelper.WithStart(oce.start),
 		exporterhelper.WithShutdown(oce.shutdown),
 	)
@@ -80,6 +80,7 @@ func createMetrics(
 		exporterhelper.WithTimeout(oCfg.TimeoutConfig),
 		exporterhelper.WithRetry(oCfg.RetryConfig),
 		exporterhelper.WithQueue(oCfg.QueueConfig),
+		exporterhelper.WithBatcher(oCfg.BatcherConfig), //nolint:staticcheck // SA1019
 		exporterhelper.WithStart(oce.start),
 		exporterhelper.WithShutdown(oce.shutdown),
 	)
@@ -98,6 +99,7 @@ func createLogs(
 		exporterhelper.WithTimeout(oCfg.TimeoutConfig),
 		exporterhelper.WithRetry(oCfg.RetryConfig),
 		exporterhelper.WithQueue(oCfg.QueueConfig),
+		exporterhelper.WithBatcher(oCfg.BatcherConfig), //nolint:staticcheck // SA1019
 		exporterhelper.WithStart(oce.start),
 		exporterhelper.WithShutdown(oce.shutdown),
 	)
@@ -110,12 +112,13 @@ func createProfilesExporter(
 ) (xexporter.Profiles, error) {
 	oce := newExporter(cfg, set)
 	oCfg := cfg.(*Config)
-	return xexporterhelper.NewProfiles(ctx, set, cfg,
+	return xexporterhelper.NewProfilesExporter(ctx, set, cfg,
 		oce.pushProfiles,
 		exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
 		exporterhelper.WithTimeout(oCfg.TimeoutConfig),
 		exporterhelper.WithRetry(oCfg.RetryConfig),
 		exporterhelper.WithQueue(oCfg.QueueConfig),
+		exporterhelper.WithBatcher(oCfg.BatcherConfig), //nolint:staticcheck // SA1019
 		exporterhelper.WithStart(oce.start),
 		exporterhelper.WithShutdown(oce.shutdown),
 	)

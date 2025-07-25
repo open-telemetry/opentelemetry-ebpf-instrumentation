@@ -7,7 +7,6 @@ import (
 	"context"
 
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/queue"
 	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/sender"
 )
 
@@ -19,7 +18,7 @@ type disabledBatcher[T any] struct {
 	consumeFunc sender.SendFunc[T]
 }
 
-func (db *disabledBatcher[T]) Consume(ctx context.Context, req T, done queue.Done) {
+func (db *disabledBatcher[T]) Consume(ctx context.Context, req T, done Done) {
 	done.OnDone(db.consumeFunc(ctx, req))
 }
 

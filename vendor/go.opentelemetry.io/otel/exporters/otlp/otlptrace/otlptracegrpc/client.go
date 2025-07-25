@@ -223,7 +223,7 @@ func (c *client) exportContext(parent context.Context) (context.Context, context
 	)
 
 	if c.exportTimeout > 0 {
-		ctx, cancel = context.WithTimeoutCause(parent, c.exportTimeout, errors.New("exporter export timeout"))
+		ctx, cancel = context.WithTimeout(parent, c.exportTimeout)
 	} else {
 		ctx, cancel = context.WithCancel(parent)
 	}

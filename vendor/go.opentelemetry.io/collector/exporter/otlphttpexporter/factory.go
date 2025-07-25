@@ -166,7 +166,7 @@ func createProfiles(
 		return nil, err
 	}
 
-	return xexporterhelper.NewProfiles(ctx, set, cfg,
+	return xexporterhelper.NewProfilesExporter(ctx, set, cfg,
 		oce.pushProfiles,
 		exporterhelper.WithStart(oce.start),
 		exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),

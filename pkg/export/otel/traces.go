@@ -1,6 +1,9 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// TODO: remove this after batching API becomes stable
+//
+//nolint:staticcheck
 package otel
 
 import (
@@ -16,8 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"go.opentelemetry.io/collector/config/configoptional"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 	"go.opentelemetry.io/otel/attribute"
@@ -354,21 +355,15 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig) (exporter.Traces, 
 		}
 		factory := otlphttpexporter.NewFactory()
 		config := factory.CreateDefaultConfig().(*otlphttpexporter.Config)
-
-		queueCfg := &config.QueueConfig
-		queueCfg.Sizer = exporterhelper.RequestSizerTypeBytes
-		batchCfg := exporterhelper.BatchConfig{Sizer: queueCfg.Sizer}
+		// Experimental API for batching
+		// See: https://github.com/open-telemetry/opentelemetry-collector/issues/8122
+		batchCfg := exporterhelper.NewDefaultBatcherConfig()
 		if cfg.MaxQueueSize > 0 {
-			batchCfg.MaxSize = int64(cfg.MaxExportBatchSize)
+			batchCfg.SizeConfig.MaxSize = int64(cfg.MaxExportBatchSize)
 		}
 		if cfg.BatchTimeout > 0 {
 			batchCfg.FlushTimeout = cfg.BatchTimeout
 		}
-		queueCfg.Batch = configoptional.Some(batchCfg)
-		if err := queueCfg.Validate(); err != nil {
-			panic(err)
-		}
-
 		config.RetryConfig = getRetrySettings(cfg)
 		config.ClientConfig = confighttp.ClientConfig{
 			Endpoint: opts.Scheme + "://" + opts.Endpoint + opts.BaseURLPath,
@@ -392,6 +387,7 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig) (exporter.Traces, 
 			exporterhelper.WithShutdown(exporter.Shutdown),
 			exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
 			exporterhelper.WithQueue(config.QueueConfig),
+			exporterhelper.WithBatcher(batchCfg),
 			exporterhelper.WithRetry(config.RetryConfig))
 	case ProtocolGRPC:
 		slog.Debug("instantiating GRPC TracesReporter", "protocol", proto)
@@ -408,23 +404,15 @@ func getTracesExporter(ctx context.Context, cfg TracesConfig) (exporter.Traces, 
 		}
 		factory := otlpexporter.NewFactory()
 		config := factory.CreateDefaultConfig().(*otlpexporter.Config)
-
-		queueCfg := &config.QueueConfig
-		queueCfg.Sizer = exporterhelper.RequestSizerTypeBytes
-		batchCfg := exporterhelper.BatchConfig{Sizer: queueCfg.Sizer}
-		queueCfg.Enabled = cfg.MaxExportBatchSize > 0 || cfg.BatchTimeout > 0
+		// Experimental API for batching
+		// See: https://github.com/open-telemetry/opentelemetry-collector/issues/8122
 		if cfg.MaxExportBatchSize > 0 {
-			batchCfg.MaxSize = int64(cfg.MaxExportBatchSize)
+			config.BatcherConfig.Enabled = true
+			config.BatcherConfig.SizeConfig.MaxSize = int64(cfg.MaxExportBatchSize)
 		}
 		if cfg.BatchTimeout > 0 {
-			batchCfg.FlushTimeout = cfg.BatchTimeout
+			config.BatcherConfig.FlushTimeout = cfg.BatchTimeout
 		}
-
-		queueCfg.Batch = configoptional.Some(batchCfg)
-		if err := queueCfg.Validate(); err != nil {
-			panic(err)
-		}
-
 		config.RetryConfig = getRetrySettings(cfg)
 		config.ClientConfig = configgrpc.ClientConfig{
 			Endpoint: endpoint.String(),

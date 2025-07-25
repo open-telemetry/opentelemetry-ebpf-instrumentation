@@ -5,7 +5,6 @@ package otlpmetricgrpc // import "go.opentelemetry.io/otel/exporters/otlp/otlpme
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -150,7 +149,7 @@ func (c *client) exportContext(parent context.Context) (context.Context, context
 	)
 
 	if c.exportTimeout > 0 {
-		ctx, cancel = context.WithTimeoutCause(parent, c.exportTimeout, errors.New("exporter export timeout"))
+		ctx, cancel = context.WithTimeout(parent, c.exportTimeout)
 	} else {
 		ctx, cancel = context.WithCancel(parent)
 	}

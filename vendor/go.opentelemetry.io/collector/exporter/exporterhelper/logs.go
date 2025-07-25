@@ -14,11 +14,9 @@ import (
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper/internal"
-	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/queue"
 	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/request"
 	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/sizer"
 	"go.opentelemetry.io/collector/pdata/plog"
-	pdatareq "go.opentelemetry.io/collector/pdata/xpdata/request"
 	"go.opentelemetry.io/collector/pipeline"
 )
 
@@ -32,11 +30,14 @@ var (
 // until https://github.com/open-telemetry/opentelemetry-collector/issues/8122 is resolved.
 func NewLogsQueueBatchSettings() QueueBatchSettings {
 	return QueueBatchSettings{
-		Encoding:   logsEncoding{},
-		ItemsSizer: request.NewItemsSizer(),
-		BytesSizer: request.BaseSizer{
-			SizeofFunc: func(req request.Request) int64 {
-				return int64(logsMarshaler.LogsSize(req.(*logsRequest).ld))
+		Encoding: logsEncoding{},
+		Sizers: map[RequestSizerType]request.Sizer[Request]{
+			RequestSizerTypeRequests: NewRequestsSizer(),
+			RequestSizerTypeItems:    request.NewItemsSizer(),
+			RequestSizerTypeBytes: request.BaseSizer{
+				SizeofFunc: func(req request.Request) int64 {
+					return int64(logsMarshaler.LogsSize(req.(*logsRequest).ld))
+				},
 			},
 		},
 	}
@@ -56,32 +57,16 @@ func newLogsRequest(ld plog.Logs) Request {
 
 type logsEncoding struct{}
 
-var _ QueueBatchEncoding[Request] = logsEncoding{}
-
-func (logsEncoding) Unmarshal(bytes []byte) (context.Context, Request, error) {
-	if queue.PersistRequestContextOnRead() {
-		ctx, logs, err := pdatareq.UnmarshalLogs(bytes)
-		if errors.Is(err, pdatareq.ErrInvalidFormat) {
-			// fall back to unmarshaling without context
-			logs, err = logsUnmarshaler.UnmarshalLogs(bytes)
-		}
-		return ctx, newLogsRequest(logs), err
-	}
-
+func (logsEncoding) Unmarshal(bytes []byte) (Request, error) {
 	logs, err := logsUnmarshaler.UnmarshalLogs(bytes)
 	if err != nil {
-		var req Request
-		return context.Background(), req, err
+		return nil, err
 	}
-	return context.Background(), newLogsRequest(logs), nil
+	return newLogsRequest(logs), nil
 }
 
-func (logsEncoding) Marshal(ctx context.Context, req Request) ([]byte, error) {
-	logs := req.(*logsRequest).ld
-	if queue.PersistRequestContextOnWrite() {
-		return pdatareq.MarshalLogs(ctx, logs)
-	}
-	return logsMarshaler.MarshalLogs(logs)
+func (logsEncoding) Marshal(req Request) ([]byte, error) {
+	return logsMarshaler.MarshalLogs(req.(*logsRequest).ld)
 }
 
 func (req *logsRequest) OnError(err error) Request {

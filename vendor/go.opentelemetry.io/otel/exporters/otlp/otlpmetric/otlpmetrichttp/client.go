@@ -55,23 +55,20 @@ var ourTransport = &http.Transport{
 
 // newClient creates a new HTTP metric client.
 func newClient(cfg oconf.Config) (*client, error) {
-	httpClient := cfg.Metrics.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{
-			Transport: ourTransport,
-			Timeout:   cfg.Metrics.Timeout,
+	httpClient := &http.Client{
+		Transport: ourTransport,
+		Timeout:   cfg.Metrics.Timeout,
+	}
+
+	if cfg.Metrics.TLSCfg != nil || cfg.Metrics.Proxy != nil {
+		clonedTransport := ourTransport.Clone()
+		httpClient.Transport = clonedTransport
+
+		if cfg.Metrics.TLSCfg != nil {
+			clonedTransport.TLSClientConfig = cfg.Metrics.TLSCfg
 		}
-
-		if cfg.Metrics.TLSCfg != nil || cfg.Metrics.Proxy != nil {
-			clonedTransport := ourTransport.Clone()
-			httpClient.Transport = clonedTransport
-
-			if cfg.Metrics.TLSCfg != nil {
-				clonedTransport.TLSClientConfig = cfg.Metrics.TLSCfg
-			}
-			if cfg.Metrics.Proxy != nil {
-				clonedTransport.Proxy = cfg.Metrics.Proxy
-			}
+		if cfg.Metrics.Proxy != nil {
+			clonedTransport.Proxy = cfg.Metrics.Proxy
 		}
 	}
 
@@ -280,7 +277,7 @@ type request struct {
 // reset reinitializes the request Body and uses ctx for the request.
 func (r *request) reset(ctx context.Context) {
 	r.Body = r.bodyReader()
-	r.Request = r.WithContext(ctx)
+	r.Request = r.Request.WithContext(ctx)
 }
 
 // retryableError represents a request failure that can be retried.

@@ -29,7 +29,6 @@ import (
 	"go.opentelemetry.io/collector/config/confighttp/internal"
 	"go.opentelemetry.io/collector/config/configmiddleware"
 	"go.opentelemetry.io/collector/config/configopaque"
-	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configtls"
 	"go.opentelemetry.io/collector/extension/extensionauth"
 )
@@ -75,7 +74,7 @@ type ClientConfig struct {
 	Headers map[string]configopaque.String `mapstructure:"headers,omitempty"`
 
 	// Auth configuration for outgoing HTTP calls.
-	Auth configoptional.Optional[configauth.Config] `mapstructure:"auth,omitempty"`
+	Auth *configauth.Config `mapstructure:"auth,omitempty"`
 
 	// The compression key for supported compression types within collector.
 	Compression configcompression.Type `mapstructure:"compression,omitempty"`
@@ -226,14 +225,13 @@ func (hcs *ClientConfig) ToClient(ctx context.Context, host component.Host, sett
 	// The Auth RoundTripper should always be the innermost to ensure that
 	// request signing-based auth mechanisms operate after compression
 	// and header middleware modifies the request
-	if hcs.Auth.HasValue() {
+	if hcs.Auth != nil {
 		ext := host.GetExtensions()
 		if ext == nil {
 			return nil, errors.New("extensions configuration not found")
 		}
 
-		auth := hcs.Auth.Get()
-		httpCustomAuthRoundTripper, aerr := auth.GetHTTPClientAuthenticator(ctx, ext)
+		httpCustomAuthRoundTripper, aerr := hcs.Auth.GetHTTPClientAuthenticator(ctx, ext)
 		if aerr != nil {
 			return nil, aerr
 		}
@@ -317,13 +315,13 @@ type ServerConfig struct {
 	Endpoint string `mapstructure:"endpoint,omitempty"`
 
 	// TLS struct exposes TLS client configuration.
-	TLS configoptional.Optional[configtls.ServerConfig] `mapstructure:"tls"`
+	TLS *configtls.ServerConfig `mapstructure:"tls"`
 
 	// CORS configures the server for HTTP cross-origin resource sharing (CORS).
-	CORS configoptional.Optional[CORSConfig] `mapstructure:"cors"`
+	CORS *CORSConfig `mapstructure:"cors"`
 
 	// Auth for this receiver
-	Auth configoptional.Optional[AuthConfig] `mapstructure:"auth,omitempty"`
+	Auth *AuthConfig `mapstructure:"auth,omitempty"`
 
 	// MaxRequestBodySize sets the maximum request body size in bytes. Default: 20MiB.
 	MaxRequestBodySize int64 `mapstructure:"max_request_body_size,omitempty"`
@@ -380,6 +378,7 @@ type ServerConfig struct {
 func NewDefaultServerConfig() ServerConfig {
 	return ServerConfig{
 		ResponseHeaders:   map[string]configopaque.String{},
+		CORS:              NewDefaultCORSConfig(),
 		WriteTimeout:      30 * time.Second,
 		ReadHeaderTimeout: 1 * time.Minute,
 		IdleTimeout:       1 * time.Minute,
@@ -404,9 +403,9 @@ func (hss *ServerConfig) ToListener(ctx context.Context) (net.Listener, error) {
 		return nil, err
 	}
 
-	if hss.TLS.HasValue() {
+	if hss.TLS != nil {
 		var tlsCfg *tls.Config
-		tlsCfg, err = hss.TLS.Get().LoadTLSConfig(ctx)
+		tlsCfg, err = hss.TLS.LoadTLSConfig(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -485,27 +484,25 @@ func (hss *ServerConfig) ToServer(ctx context.Context, host component.Host, sett
 		handler = maxRequestBodySizeInterceptor(handler, hss.MaxRequestBodySize)
 	}
 
-	if hss.Auth.HasValue() {
-		auth := hss.Auth.Get()
-		server, err := auth.GetServerAuthenticator(context.Background(), host.GetExtensions())
+	if hss.Auth != nil {
+		server, err := hss.Auth.GetServerAuthenticator(context.Background(), host.GetExtensions())
 		if err != nil {
 			return nil, err
 		}
 
-		handler = authInterceptor(handler, server, auth.RequestParameters, serverOpts)
+		handler = authInterceptor(handler, server, hss.Auth.RequestParameters, serverOpts)
 	}
 
-	if hss.CORS.HasValue() && len(hss.CORS.Get().AllowedOrigins) > 0 {
-		corsConfig := hss.CORS.Get()
+	if hss.CORS != nil && len(hss.CORS.AllowedOrigins) > 0 {
 		co := cors.Options{
-			AllowedOrigins:   corsConfig.AllowedOrigins,
+			AllowedOrigins:   hss.CORS.AllowedOrigins,
 			AllowCredentials: true,
-			AllowedHeaders:   corsConfig.AllowedHeaders,
-			MaxAge:           corsConfig.MaxAge,
+			AllowedHeaders:   hss.CORS.AllowedHeaders,
+			MaxAge:           hss.CORS.MaxAge,
 		}
 		handler = cors.New(co).Handler(handler)
 	}
-	if hss.CORS.HasValue() && len(hss.CORS.Get().AllowedOrigins) == 0 && len(hss.CORS.Get().AllowedHeaders) > 0 {
+	if hss.CORS != nil && len(hss.CORS.AllowedOrigins) == 0 && len(hss.CORS.AllowedHeaders) > 0 {
 		settings.Logger.Warn("The CORS configuration specifies allowed headers but no allowed origins, and is therefore ignored.")
 	}
 
@@ -597,8 +594,8 @@ type CORSConfig struct {
 }
 
 // NewDefaultCORSConfig creates a default cross-origin resource sharing (CORS) configuration.
-func NewDefaultCORSConfig() CORSConfig {
-	return CORSConfig{}
+func NewDefaultCORSConfig() *CORSConfig {
+	return &CORSConfig{}
 }
 
 func authInterceptor(next http.Handler, server extensionauth.Server, requestParams []string, serverOpts *internal.ToServerOptions) http.Handler {
