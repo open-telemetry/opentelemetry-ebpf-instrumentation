@@ -27,6 +27,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/goexec"
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
 )
 
 func ilog() *slog.Logger {
@@ -72,7 +73,9 @@ func (i *instrumenter) instrumentProbes(exe *link.Executable, probes map[string]
 
 				if probe.Required {
 					closeAll(closers)
-
+					if i.metrics != nil {
+						i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingUprobe)
+					}
 					return nil, fmt.Errorf("instrumenting function %q: %w", symbolName, err)
 				}
 
@@ -94,6 +97,9 @@ func (i *instrumenter) kprobes(p KprobesTracer) error {
 
 		if err := i.kprobe(kfunc, kprobes); err != nil {
 			if kprobes.Required {
+				if i.metrics != nil {
+					i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingKprobe)
+				}
 				return fmt.Errorf("instrumenting function %q: %w", kfunc, err)
 			}
 
@@ -297,6 +303,9 @@ func (i *instrumenter) sockfilters(p Tracer) error {
 	for _, filter := range p.SocketFilters() {
 		fd, err := attachSocketFilter(filter)
 		if err != nil {
+			if i.metrics != nil {
+				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingSockFilter)
+			}
 			return fmt.Errorf("attaching socket filter: %w", err)
 		}
 
@@ -328,6 +337,9 @@ func (i *instrumenter) sockmsgs(p Tracer) error {
 			Attach:  sockmsg.AttachAs,
 		})
 		if err != nil {
+			if i.metrics != nil {
+				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingSockMsg)
+			}
 			return fmt.Errorf("attaching sock_msg program: %w", err)
 		}
 
@@ -341,6 +353,9 @@ func (i *instrumenter) sockops(p Tracer) error {
 	for _, sockops := range p.SockOps() {
 		cgroupPath, err := getCgroupPath()
 		if err != nil {
+			if i.metrics != nil {
+				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorCgroupNotFound)
+			}
 			return fmt.Errorf("error getting cgroup path for sockops: %w", err)
 		}
 
@@ -352,6 +367,9 @@ func (i *instrumenter) sockops(p Tracer) error {
 			Program: sockops.Program,
 		})
 		if err != nil {
+			if i.metrics != nil {
+				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingCgroup)
+			}
 			return fmt.Errorf("attaching sockops program: %w", err)
 		}
 
@@ -366,6 +384,9 @@ func (i *instrumenter) tracepoints(p KprobesTracer) error {
 		slog.Debug("going to add syscall", "function", sfunc, "probes", sprobes)
 
 		if err := i.tracepoint(sfunc, sprobes); err != nil {
+			if i.metrics != nil {
+				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorInvalidTracepoint)
+			}
 			return fmt.Errorf("instrumenting function %q: %w", sfunc, err)
 		}
 		p.AddCloser(i.closables...)
