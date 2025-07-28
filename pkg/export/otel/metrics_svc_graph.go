@@ -37,8 +37,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
-func mlog() *slog.Logger {
-	return slog.With("component", "otel.MetricsReporter")
+func sglog() *slog.Logger {
+	return slog.With("component", "otel.SvcGraphMetricsReporter")
 }
 
 const (
@@ -55,6 +55,10 @@ const (
 	TracesTargetInfo         = "traces_target_info"
 	TargetInfo               = "target_info"
 	TracesHostInfo           = "traces_host_info"
+	ServiceGraphClient       = "traces_service_graph_request_client"
+	ServiceGraphServer       = "traces_service_graph_request_server"
+	ServiceGraphFailed       = "traces_service_graph_request_failed_total"
+	ServiceGraphTotal        = "traces_service_graph_request_total"
 
 	UsualPortGRPC = "4317"
 	UsualPortHTTP = "4318"
@@ -189,7 +193,7 @@ func (m *MetricsConfig) EndpointEnabled() bool {
 }
 
 func (m *MetricsConfig) AnySpanMetricsEnabled() bool {
-	return m.SpanMetricsEnabled() || m.SpanMetricsSizesEnabled()
+	return m.SpanMetricsEnabled() || m.ServiceGraphMetricsEnabled() || m.SpanMetricsSizesEnabled()
 }
 
 func (m *MetricsConfig) SpanMetricsSizesEnabled() bool {
@@ -291,6 +295,10 @@ type Metrics struct {
 	spanMetricsCallsTotal        *Expirer[*request.Span, instrument.Int64Counter, int64]
 	spanMetricsRequestSizeTotal  *Expirer[*request.Span, instrument.Float64Counter, float64]
 	spanMetricsResponseSizeTotal *Expirer[*request.Span, instrument.Float64Counter, float64]
+	serviceGraphClient           *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	serviceGraphServer           *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	serviceGraphFailed           *Expirer[*request.Span, instrument.Int64Counter, int64]
+	serviceGraphTotal            *Expirer[*request.Span, instrument.Int64Counter, int64]
 	targetInfo                   instrument.Int64UpDownCounter
 	tracesTargetInfo             instrument.Int64UpDownCounter
 	gpuKernelCallsTotal          *Expirer[*request.Span, instrument.Int64Counter, int64]
@@ -345,7 +353,7 @@ func newMetricsReporter(
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) (*MetricsReporter, error) {
-	log := mlog()
+	log := sglog()
 
 	attribProvider, err := attributes.NewAttrSelector(ctxInfo.MetricAttributeGroups, selectorCfg)
 	if err != nil {
@@ -440,13 +448,13 @@ func newMetricsReporter(
 	return &mr, nil
 }
 
-func (mr *MetricsReporter) otelMetricOptions(mlog *slog.Logger) []metric.Option {
+func (mr *MetricsReporter) otelMetricOptions(sglog *slog.Logger) []metric.Option {
 	var opts []metric.Option
 	if !mr.cfg.OTelMetricsEnabled() {
 		return opts
 	}
 
-	useExponentialHistograms := isExponentialAggregation(mr.cfg, mlog)
+	useExponentialHistograms := isExponentialAggregation(mr.cfg, sglog)
 
 	if mr.is.HTTPEnabled() {
 		opts = append(opts,
@@ -494,15 +502,28 @@ func (mr *MetricsReporter) spanMetricsLatencyName() string {
 	return SpanMetricsLatencyOTel
 }
 
-func (mr *MetricsReporter) spanMetricOptions(mlog *slog.Logger) []metric.Option {
+func (mr *MetricsReporter) spanMetricOptions(sglog *slog.Logger) []metric.Option {
 	if !mr.cfg.SpanMetricsEnabled() {
 		return []metric.Option{}
 	}
 
-	useExponentialHistograms := isExponentialAggregation(mr.cfg, mlog)
+	useExponentialHistograms := isExponentialAggregation(mr.cfg, sglog)
 
 	return []metric.Option{
 		metric.WithView(otelHistogramConfig(mr.spanMetricsLatencyName(), mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
+	}
+}
+
+func (mr *MetricsReporter) graphMetricOptions(sglog *slog.Logger) []metric.Option {
+	if !mr.cfg.ServiceGraphMetricsEnabled() {
+		return []metric.Option{}
+	}
+
+	useExponentialHistograms := isExponentialAggregation(mr.cfg, sglog)
+
+	return []metric.Option{
+		metric.WithView(otelHistogramConfig(ServiceGraphClient, mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
+		metric.WithView(otelHistogramConfig(ServiceGraphServer, mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
 	}
 }
 
@@ -728,14 +749,54 @@ func (mr *MetricsReporter) setupHostInfoMeter(meter instrument.Meter) error {
 	return nil
 }
 
+func (mr *MetricsReporter) setupGraphMeters(m *Metrics, meter instrument.Meter) error {
+	if !mr.cfg.ServiceGraphMetricsEnabled() {
+		return nil
+	}
+
+	var err error
+
+	serviceGraphAttrs := mr.serviceGraphAttributes()
+
+	serviceGraphClient, err := meter.Float64Histogram(ServiceGraphClient, instrument.WithUnit("s"))
+	if err != nil {
+		return fmt.Errorf("creating service graph client histogram: %w", err)
+	}
+	m.serviceGraphClient = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+		m.ctx, serviceGraphClient, serviceGraphAttrs, timeNow, mr.cfg.TTL)
+
+	serviceGraphServer, err := meter.Float64Histogram(ServiceGraphServer, instrument.WithUnit("s"))
+	if err != nil {
+		return fmt.Errorf("creating service graph server histogram: %w", err)
+	}
+	m.serviceGraphServer = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+		m.ctx, serviceGraphServer, serviceGraphAttrs, timeNow, mr.cfg.TTL)
+
+	serviceGraphFailed, err := meter.Int64Counter(ServiceGraphFailed)
+	if err != nil {
+		return fmt.Errorf("creating service graph failed total: %w", err)
+	}
+	m.serviceGraphFailed = NewExpirer[*request.Span, instrument.Int64Counter, int64](
+		m.ctx, serviceGraphFailed, serviceGraphAttrs, timeNow, mr.cfg.TTL)
+
+	serviceGraphTotal, err := meter.Int64Counter(ServiceGraphTotal)
+	if err != nil {
+		return fmt.Errorf("creating service graph total: %w", err)
+	}
+	m.serviceGraphTotal = NewExpirer[*request.Span, instrument.Int64Counter, int64](
+		m.ctx, serviceGraphTotal, serviceGraphAttrs, timeNow, mr.cfg.TTL)
+
+	return nil
+}
+
 func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
-	mlog := mlog()
+	sglog := sglog()
 	var resourceAttributes []attribute.KeyValue
 	if service != nil {
-		mlog = mlog.With("service", service)
+		sglog = sglog.With("service", service)
 		resourceAttributes = append(GetAppResourceAttrs(mr.hostID, service), ResourceAttrsFromEnv(service)...)
 	}
-	mlog.Debug("creating new Metrics reporter")
+	sglog.Debug("creating new Metrics reporter")
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
 
 	opts := []metric.Option{
@@ -744,8 +805,9 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 			metric.WithInterval(mr.cfg.Interval))),
 	}
 
-	opts = append(opts, mr.otelMetricOptions(mlog)...)
-	opts = append(opts, mr.spanMetricOptions(mlog)...)
+	opts = append(opts, mr.otelMetricOptions(sglog)...)
+	opts = append(opts, mr.spanMetricOptions(sglog)...)
+	opts = append(opts, mr.graphMetricOptions(sglog)...)
 
 	return Metrics{
 		ctx:                      mr.ctx,
@@ -761,7 +823,7 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 func (mr *MetricsReporter) newMetricSet(service *svc.Attrs) (*Metrics, error) {
 	m := mr.newMetricsInstance(service)
 
-	mlog().Debug("creating new metric set", "service", service)
+	sglog().Debug("creating new metric set", "service", service)
 	// time units for HTTP and GRPC durations are in seconds, according to the OTEL specification:
 	// https://github.com/open-telemetry/opentelemetry-specification/tree/main/specification/metrics/semantic_conventions
 	// TODO: set ExplicitBucketBoundaries here and in prometheus from the previous specification
@@ -801,17 +863,24 @@ func (mr *MetricsReporter) newMetricSet(service *svc.Attrs) (*Metrics, error) {
 		}
 	}
 
+	if mr.cfg.ServiceGraphMetricsEnabled() {
+		err = mr.setupGraphMeters(&m, meter)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &m, nil
 }
 
-func isExponentialAggregation(mc *MetricsConfig, mlog *slog.Logger) bool {
+func isExponentialAggregation(mc *MetricsConfig, sglog *slog.Logger) bool {
 	switch mc.HistogramAggregation {
 	case AggregationExponential:
 		return true
 	case AggregationExplicit:
 	// do nothing
 	default:
-		mlog.Warn("invalid value for histogram aggregation. Accepted values are: "+
+		sglog.Warn("invalid value for histogram aggregation. Accepted values are: "+
 			AggregationExponential+", "+AggregationExplicit+" (default). Using default",
 			"value", mc.HistogramAggregation)
 	}
@@ -968,6 +1037,17 @@ func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Sp
 		})
 }
 
+func (mr *MetricsReporter) serviceGraphAttributes() []attributes.Field[*request.Span, attribute.KeyValue] {
+	return attributes.OpenTelemetryGetters(
+		request.SpanOTELGetters, []attr.Name{
+			attr.Client,
+			attr.ClientNamespace,
+			attr.Server,
+			attr.ServerNamespace,
+			attr.Source,
+		})
+}
+
 func otelMetricsAccepted(span *request.Span, mr *MetricsReporter) bool {
 	return mr.cfg.OTelMetricsEnabled() && !span.Service.ExportsOTelMetrics()
 }
@@ -1067,17 +1147,54 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			smst, attr := r.spanMetricsResponseSizeTotal.ForRecord(span)
 			smst.Add(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attr))
 		}
+
+		if mr.cfg.ServiceGraphMetricsEnabled() {
+			if !span.IsSelfReferenceSpan() || mr.cfg.AllowServiceGraphSelfReferences {
+				if span.IsClientSpan() {
+					sgc, attrs := r.serviceGraphClient.ForRecord(span)
+					sgc.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+					// If we managed to resolve the remote name only, we check to see
+					// we are not instrumenting the server service, then and only then,
+					// we generate client span count for service graph total
+					if ClientSpanToUninstrumentedService(&mr.pidTracker, span) {
+						sgt, attrs := r.serviceGraphTotal.ForRecord(span)
+						sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
+					}
+				} else {
+					sgs, attrs := r.serviceGraphServer.ForRecord(span)
+					sgs.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+					sgt, attrs := r.serviceGraphTotal.ForRecord(span)
+					sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
+				}
+				if request.SpanStatusCode(span) == request.StatusCodeError {
+					sgf, attrs := r.serviceGraphFailed.ForRecord(span)
+					sgf.Add(ctx, 1, instrument.WithAttributeSet(attrs))
+				}
+			}
+		}
 	}
 }
 
+func ClientSpanToUninstrumentedService(tracker *PidServiceTracker, span *request.Span) bool {
+	if span.HostName != "" {
+		n := svc.ServiceNameNamespace{Name: span.HostName, Namespace: span.OtherNamespace}
+		return !tracker.IsTrackingServerService(n)
+	}
+	// If we haven't resolved a hostname, don't add this node to the service graph
+	// it will appear only in client requests. Essentially, in this case we have no
+	// idea if the service is instrumented or not, therefore we take the conservative
+	// approach to avoid double counting.
+	return false
+}
+
 func (mr *MetricsReporter) createTargetInfo(reporter *Metrics) {
-	mlog().Debug("Creating target_info")
+	sglog().Debug("Creating target_info")
 	attrOpt := instrument.WithAttributeSet(attribute.NewSet(reporter.resourceAttributes...))
 	reporter.targetInfo.Add(mr.ctx, 1, attrOpt)
 }
 
 func (mr *MetricsReporter) deleteTargetInfo(reporter *Metrics) {
-	mlog().Debug("Deleting target_info for", "attrs", reporter.resourceAttributes)
+	sglog().Debug("Deleting target_info for", "attrs", reporter.resourceAttributes)
 	attrOpt := instrument.WithAttributeSet(attribute.NewSet(reporter.resourceAttributes...))
 	reporter.targetInfo.Remove(mr.ctx, attrOpt)
 }
@@ -1086,7 +1203,7 @@ func (mr *MetricsReporter) createTracesTargetInfo(reporter *Metrics) {
 	if !mr.cfg.AnySpanMetricsEnabled() {
 		return
 	}
-	mlog().Debug("Creating traces_target_info")
+	sglog().Debug("Creating traces_target_info")
 	attrOpt := instrument.WithAttributeSet(reporter.tracesResourceAttributes)
 	reporter.tracesTargetInfo.Add(mr.ctx, 1, attrOpt)
 }
@@ -1095,7 +1212,7 @@ func (mr *MetricsReporter) deleteTracesTargetInfo(reporter *Metrics) {
 	if !mr.cfg.AnySpanMetricsEnabled() {
 		return
 	}
-	mlog().Debug("Deleting traces_target_info for", "attrs", reporter.resourceAttributes)
+	sglog().Debug("Deleting traces_target_info for", "attrs", reporter.resourceAttributes)
 	attrOpt := instrument.WithAttributeSet(reporter.tracesResourceAttributes)
 	reporter.tracesTargetInfo.Remove(mr.ctx, attrOpt)
 }
@@ -1110,13 +1227,13 @@ func (mr *MetricsReporter) disassociatePIDFromService(pid int32) (bool, svc.UID)
 
 func (mr *MetricsReporter) watchForProcessEvents() {
 	for pe := range mr.processEvents {
-		mlog().Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
+		sglog().Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
 
 		reporter, err := mr.reporters.For(&pe.File.Service)
 		// If we are receiving a delete event, the service may come without kubernetes information, which
 		// is why we record the original service info. Delete look up the data from the pid tracker.
 		if err != nil {
-			mlog().Error("unexpected error creating OTEL resource. Ignoring metric",
+			sglog().Error("unexpected error creating OTEL resource. Ignoring metric",
 				"error", err, "service", pe.File.Service.UID)
 			continue
 		}
@@ -1132,11 +1249,11 @@ func (mr *MetricsReporter) watchForProcessEvents() {
 				svc := svc.Attrs{UID: origUID}
 				reporter, err = mr.reporters.For(&svc)
 				if err != nil {
-					mlog().Error("unexpected error creating OTEL resource. Ignoring metric",
+					sglog().Error("unexpected error creating OTEL resource. Ignoring metric",
 						"error", err, "service", pe.File.Service.UID)
 					continue
 				}
-				mlog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", reporter.service)
+				sglog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", reporter.service)
 				mr.deleteTracesTargetInfo(reporter)
 				mr.deleteTargetInfo(reporter)
 			}
@@ -1161,7 +1278,7 @@ func (mr *MetricsReporter) reportMetrics(_ context.Context) {
 			}
 			reporter, err := mr.reporters.For(&s.Service)
 			if err != nil {
-				mlog().Error("unexpected error creating OTEL resource. Ignoring metric",
+				sglog().Error("unexpected error creating OTEL resource. Ignoring metric",
 					"error", err, "service", s.Service)
 				continue
 			}
@@ -1173,7 +1290,7 @@ func (mr *MetricsReporter) reportMetrics(_ context.Context) {
 
 func getHTTPMetricEndpointOptions(cfg *MetricsConfig) (otlpOptions, error) {
 	opts := otlpOptions{Headers: map[string]string{}}
-	log := mlog().With("transport", "http")
+	log := sglog().With("transport", "http")
 	murl, isCommon, err := parseMetricsEndpoint(cfg)
 	if err != nil {
 		return opts, err
@@ -1215,7 +1332,7 @@ func getHTTPMetricEndpointOptions(cfg *MetricsConfig) (otlpOptions, error) {
 
 func getGRPCMetricEndpointOptions(cfg *MetricsConfig) (otlpOptions, error) {
 	opts := otlpOptions{Headers: map[string]string{}}
-	log := mlog().With("transport", "grpc")
+	log := sglog().With("transport", "grpc")
 	murl, _, err := parseMetricsEndpoint(cfg)
 	if err != nil {
 		return opts, err
@@ -1317,5 +1434,9 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupCounterMetrics(r.ctx, r.spanMetricsCallsTotal)
 	cleanupFloatCounterMetrics(r.ctx, r.spanMetricsRequestSizeTotal)
 	cleanupFloatCounterMetrics(r.ctx, r.spanMetricsResponseSizeTotal)
+	cleanupMetrics(r.ctx, r.serviceGraphClient)
+	cleanupMetrics(r.ctx, r.serviceGraphServer)
+	cleanupCounterMetrics(r.ctx, r.serviceGraphFailed)
+	cleanupCounterMetrics(r.ctx, r.serviceGraphTotal)
 	cleanupCounterMetrics(r.ctx, r.gpuKernelCallsTotal)
 }
