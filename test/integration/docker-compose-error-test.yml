@@ -28,8 +28,14 @@ services:
       - ../../testoutput:/coverage
       - ../../testoutput/run-error:/var/run/beyla
     image: hatest-obi
-    # Remove privileged mode to force instrumentation errors but allow startup
-    privileged: false
+    # Give basic capabilities but remove BPF capability to force eBPF loading errors
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - DAC_READ_SEARCH
+      - PERFMON
+    cap_drop:
+      - ALL
     pid: "host"
     depends_on:
       testserver:
@@ -50,6 +56,9 @@ services:
       OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT: 8999
       OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PATH: /metrics
       OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME: 1
+      # Enable context propagation via environment variables too
+      OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "all"
+      OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS: "1"
     ports:
       - "8999:8999"
 
