@@ -293,7 +293,7 @@ func executableReady(pid PID) (string, bool) {
 		return exePath, errors.Is(err, os.ErrNotExist)
 	}
 
-	return exePath, exePath != "/"
+	return exePath, (exePath != "/" && exePath != "")
 }
 
 func (pa *pollAccounter) checkNewProcessConnectionNotification(
