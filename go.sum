@@ -297,6 +297,8 @@ go.opentelemetry.io/collector/config/confignet v1.34.0 h1:SX0q5IuuK8k/K7++t7aglv
 go.opentelemetry.io/collector/config/confignet v1.34.0/go.mod h1:HgpLwdRLzPTwbjpUXR0Wdt6pAHuYzaIr8t4yECKrEvo=
 go.opentelemetry.io/collector/config/configopaque v1.34.0 h1:nGEW5IiKwfsRcA5Shyd1/4pjlxSdK9OXYq0DeGN08Oo=
 go.opentelemetry.io/collector/config/configopaque v1.34.0/go.mod h1:rw0/X78O8cOk0dhACqNbdiKk1PF7z7mwq9wgSpWoqgs=
+go.opentelemetry.io/collector/config/configopaque v1.36.1 h1:obuLRtK16jnRe6a3deCahYFgFz3r75Kpffe0EZK5lFI=
+go.opentelemetry.io/collector/config/configopaque v1.36.1/go.mod h1:aAOmM/mSWE2F3A58x4MUw1bYW8TIjVxn5/WfgxRgMu0=
 go.opentelemetry.io/collector/config/configretry v1.34.0 h1:ixezwJ2Y0pZiETbXq5lDmQfRDH7AKzaBjRsobxhcDl8=
 go.opentelemetry.io/collector/config/configretry v1.34.0/go.mod h1:QNnb+MCk7aS1k2EuGJMtlNCltzD7b8uC7Xel0Dxm1wQ=
 go.opentelemetry.io/collector/config/configtls v1.34.0 h1:1y87S3dH7sAD7WoDMfCQpQ69vWJr3Ml5aOJls8BBlhs=
@@ -413,6 +415,8 @@ go.yaml.in/yaml/v2 v2.4.2 h1:DzmwEr2rDGHl7lsFgAHxmNz/1NlQ7xLIrlN2h5d1eGI=
 go.yaml.in/yaml/v2 v2.4.2/go.mod h1:081UH+NErpNdqlCXm3TtEran0rJZGxAYx9hb/ELlsPU=
 go.yaml.in/yaml/v3 v3.0.3 h1:bXOww4E/J3f66rav3pX3m8w6jDE4knZjGOw8b5Y6iNE=
 go.yaml.in/yaml/v3 v3.0.3/go.mod h1:tBHosrYAkRZjRAOREWbDnBXUf08JOwYq++0QNwQiWzI=
+go.yaml.in/yaml/v3 v3.0.4 h1:tfq32ie2Jv2UxXFdLJdh3jXuOzWiL1fo0bu/FbuKpbc=
+go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
 golang.org/x/arch v0.0.0-20210923205945-b76863e36670/go.mod h1:5om86z9Hs0C8fWVUuoMHwpExlXzs5Tkyp9hOrfG7pp8=
 golang.org/x/arch v0.18.0 h1:WN9poc33zL4AzGxqf8VtpKUnGvMi8O9lhNyBMF/85qc=
 golang.org/x/arch v0.18.0/go.mod h1:bdwinDaKcfZUGpH09BB7ZmOfhalA8lQdzl62l8gGWsk=
