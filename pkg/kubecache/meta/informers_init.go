@@ -7,11 +7,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net"
 	"os"
 	"path"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -544,10 +542,6 @@ func objLastUpdateTime(
 	return lastStatus.Unix()
 }
 
-func headlessService(om *informer.ObjectMeta) bool {
-	return len(om.Ips) == 0 && om.Kind == "Service"
-}
-
 func (inf *Informers) ipInfoEventHandler(ctx context.Context) *cache.ResourceEventHandlerFuncs {
 	metrics := instrument.FromContext(ctx)
 	log := inf.log.With("func", "ipInfoEventHandler")
@@ -557,9 +551,6 @@ func (inf *Informers) ipInfoEventHandler(ctx context.Context) *cache.ResourceEve
 			em := obj.(*indexableEntity).EncodedMeta
 			log.Debug("AddFunc", "kind", em.Kind, "name", em.Name, "ips", em.Ips)
 			// ignore headless services from being added
-			if headlessService(em) {
-				return
-			}
 			inf.Notify(&informer.Event{
 				Type:     informer.EventType_CREATED,
 				Resource: em,
@@ -570,13 +561,6 @@ func (inf *Informers) ipInfoEventHandler(ctx context.Context) *cache.ResourceEve
 			nie := newObj.(*indexableEntity)
 			newEM := nie.EncodedMeta
 			oldEM := oldObj.(*indexableEntity).EncodedMeta
-			// ignore headless services from being added
-			if headlessService(newEM) && headlessService(oldEM) {
-				return
-			}
-			if unchanged(oldEM, newEM) {
-				return
-			}
 			log.Debug("UpdateFunc", "kind", newEM.Kind, "name", newEM.Name,
 				"ips", newEM.Ips, "oldIps", oldEM.Ips)
 			inf.Notify(&informer.Event{
@@ -608,12 +592,4 @@ func (inf *Informers) ipInfoEventHandler(ctx context.Context) *cache.ResourceEve
 			})
 		},
 	}
-}
-
-// unchanged compares the relevant fields from two versions of an object and returns whether they are
-// different. It only compares fields that could effectively mutate during the life of a Pod, Service or Node
-func unchanged(o, n *informer.ObjectMeta) bool {
-	return slices.Equal(o.Ips, n.Ips) &&
-		maps.Equal(o.Labels, n.Labels) &&
-		maps.Equal(o.Annotations, n.Annotations)
 }
