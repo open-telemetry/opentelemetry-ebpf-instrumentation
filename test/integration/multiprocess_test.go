@@ -122,29 +122,6 @@ func TestInstrumentationErrors(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
-	// Wait for Prometheus and test server to be ready
-	pq := prom.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		// Check that test server is responding
-		resp, err := http.Get("http://localhost:8080/smoke")
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
-
-		// Check that Prometheus is accessible (try any basic query)
-		_, err = pq.Query(`up`)
-		require.NoError(t, err)
-	}, test.Interval(time.Second))
-
-	// Also wait for Beyla's internal metrics to be available
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		resp, err := http.Get("http://localhost:8999/metrics")
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
-	}, test.Interval(time.Second))
-
-	// Give OBI more time to attempt instrumentation and generate errors
-	time.Sleep(20 * time.Second)
-
 	t.Run("Instrumentation error metrics", func(t *testing.T) {
 		checkInstrumentationErrorMetrics(t)
 	})
