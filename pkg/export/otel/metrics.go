@@ -818,6 +818,7 @@ func isExponentialAggregation(mc *MetricsConfig, mlog *slog.Logger) bool {
 	return false
 }
 
+// TODO: unify in single exporter for most metrics
 func InstantiateMetricsExporter(ctx context.Context, cfg *MetricsConfig, log *slog.Logger) (sdkmetric.Exporter, error) {
 	var err error
 	var exporter sdkmetric.Exporter
