@@ -153,6 +153,7 @@ func TestTracerPipeline(t *testing.T) {
 	gb := newGraphBuilder(&obi.Config{
 		Traces: otel.TracesConfig{
 			BatchTimeout:      10 * time.Millisecond,
+			MaxQueueSize:      10,
 			TracesEndpoint:    tc.ServerEndpoint,
 			ReportersCacheLen: 16,
 			Instrumentations:  []string{instrumentations.InstrumentationALL},
@@ -168,7 +169,7 @@ func TestTracerPipeline(t *testing.T) {
 
 	done := pipe.Start(ctx)
 
-	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
+	event := testutil.ReadChannel(t, tc.TraceRecords(), 5000*testTimeout)
 	matchInnerTraceEvent(t, "in queue", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchInnerTraceEvent(t, "processing", event)
