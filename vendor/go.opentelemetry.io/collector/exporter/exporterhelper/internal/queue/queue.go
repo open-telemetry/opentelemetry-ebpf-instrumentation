@@ -1,21 +1,23 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package queuebatch // import "go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch"
+package queue // import "go.opentelemetry.io/collector/exporter/exporterhelper/internal/queue"
 
 import (
 	"context"
 	"errors"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/exporter/exporterhelper/internal/request"
+	"go.opentelemetry.io/collector/pipeline"
 )
 
 type Encoding[T any] interface {
 	// Marshal is a function that can marshal a request into bytes.
-	Marshal(T) ([]byte, error)
+	Marshal(context.Context, T) ([]byte, error)
 
 	// Unmarshal is a function that can unmarshal bytes into a request.
-	Unmarshal([]byte) (T, error)
+	Unmarshal([]byte) (context.Context, T, error)
 }
 
 // ErrQueueIsFull is the error returned when an item is offered to the Queue and the queue is full and setup to
@@ -49,6 +51,62 @@ type Queue[T any] interface {
 	Size() int64
 	// Capacity returns the capacity of the queue.
 	Capacity() int64
+}
+
+// Settings define internal parameters for a new Queue creation.
+type Settings[T any] struct {
+	ItemsSizer      request.Sizer[T]
+	BytesSizer      request.Sizer[T]
+	SizerType       request.SizerType
+	Capacity        int64
+	NumConsumers    int
+	WaitForResult   bool
+	BlockOnOverflow bool
+	Signal          pipeline.Signal
+	StorageID       *component.ID
+	Encoding        Encoding[T]
+	ID              component.ID
+	Telemetry       component.TelemetrySettings
+}
+
+func (set *Settings[T]) activeSizer() request.Sizer[T] {
+	switch set.SizerType {
+	case request.SizerTypeBytes:
+		return set.BytesSizer
+	case request.SizerTypeItems:
+		return set.ItemsSizer
+	default:
+		return request.RequestsSizer[T]{}
+	}
+}
+
+func NewQueue[T request.Request](set Settings[T], next ConsumeFunc[T]) (Queue[T], error) {
+	q, err := newBaseQueue(set)
+	if err != nil {
+		return nil, err
+	}
+
+	oq, err := newObsQueue(set, newAsyncQueue(q, set.NumConsumers, next))
+	if err != nil {
+		return nil, err
+	}
+
+	return oq, nil
+}
+
+func newBaseQueue[T any](set Settings[T]) (readableQueue[T], error) {
+	// Configure memory queue or persistent based on the config.
+	if set.StorageID == nil {
+		return newMemoryQueue[T](set), nil
+	}
+	if set.ItemsSizer == nil {
+		return nil, errors.New("PersistentQueue requires ItemsSizer to be set")
+	}
+	if set.BytesSizer == nil {
+		return nil, errors.New("PersistentQueue requires BytesSizer to be set")
+	}
+
+	return newPersistentQueue[T](set), nil
 }
 
 // TODO: Investigate why linter "unused" fails if add a private "read" func on the Queue.

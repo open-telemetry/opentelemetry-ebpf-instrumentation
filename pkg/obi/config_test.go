@@ -158,12 +158,11 @@ discovery:
 			TTL:                  5 * time.Minute,
 		},
 		Traces: otel.TracesConfig{
-			Protocol:           otel.ProtocolUnset,
-			CommonEndpoint:     "localhost:3131",
-			TracesEndpoint:     "localhost:3232",
-			MaxQueueSize:       4096,
-			MaxExportBatchSize: 4096,
-			ReportersCacheLen:  ReporterLRUSize,
+			Protocol:          otel.ProtocolUnset,
+			CommonEndpoint:    "localhost:3131",
+			TracesEndpoint:    "localhost:3232",
+			MaxQueueSize:      4096,
+			ReportersCacheLen: ReporterLRUSize,
 			Instrumentations: []string{
 				instrumentations.InstrumentationALL,
 			},
