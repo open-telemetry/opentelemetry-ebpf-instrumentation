@@ -170,12 +170,21 @@ func TestGetFilteredNetworkResourceAttrs(t *testing.T) {
 
 	attrs := getFilteredNetworkResourceAttrs(hostID, attrSelector)
 
+	expectedAttrs := []string{
+		"obi.version",
+		"obi.revision",
+	}
+
 	attrMap := make(map[string]string)
 	for _, attr := range attrs {
 		attrMap[string(attr.Key)] = attr.Value.AsString()
 	}
 
-	assert.Empty(t, attrMap)
+	for _, key := range expectedAttrs {
+		v, exists := attrMap[key]
+		assert.True(t, exists, "Expected attribute %s not found", key)
+		assert.NotEmpty(t, v, "Expected attribute %s to have a value", key)
+	}
 
 	_, hostIDExists := attrMap["host.id"]
 	assert.False(t, hostIDExists, "Host ID should be filtered out")
