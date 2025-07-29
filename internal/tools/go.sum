@@ -1075,6 +1075,8 @@ sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250728144631-45f797b
 sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250728144631-45f797bb5c83/go.mod h1:jTa69RfwaI7fplx6nuj5cWoAUg+jpwqGwU6OzDF7I7Q=
 sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250728190028-ea7a2e250f8b h1:iMkqKydtwqVjuVrBDU1fkrEzN/jHYpZp0mih7p85gaM=
 sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250728190028-ea7a2e250f8b/go.mod h1:jTa69RfwaI7fplx6nuj5cWoAUg+jpwqGwU6OzDF7I7Q=
+sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250729155826-ada80794ea8f h1:KyXIRr65cUhk2GESiJ6gj0fYO1n+/2z0ZGOFWcWfqhU=
+sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250729155826-ada80794ea8f/go.mod h1:jTa69RfwaI7fplx6nuj5cWoAUg+jpwqGwU6OzDF7I7Q=
 sigs.k8s.io/kind v0.29.0 h1:3TpCsyh908IkXXpcSnsMjWdwdWjIl7o9IMZImZCWFnI=
 sigs.k8s.io/kind v0.29.0/go.mod h1:ldWQisw2NYyM6k64o/tkZng/1qQW7OlzcN5a8geJX3o=
 sigs.k8s.io/yaml v1.5.0 h1:M10b2U7aEUY6hRtU870n2VTPgR5RZiL/I6Lcc2F4NUQ=
