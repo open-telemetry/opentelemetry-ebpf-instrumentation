@@ -111,7 +111,7 @@ type tracesOTELReceiver struct {
 	input              <-chan []request.Span
 }
 
-func GetUserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Name]struct{}, error) {
+func userSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Name]struct{}, error) {
 	// Get user attributes
 	attribProvider, err := attributes.NewAttrSelector(attributes.GroupTraces, selectorCfg)
 	if err != nil {
@@ -127,7 +127,7 @@ func GetUserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr
 }
 
 func (tr *tracesOTELReceiver) getConstantAttributes() (map[attr.Name]struct{}, error) {
-	traceAttrs, err := GetUserSelectedAttributes(tr.selectorCfg)
+	traceAttrs, err := userSelectedAttributes(tr.selectorCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func spanDiscarded(span *request.Span, is instrumentations.InstrumentationSelect
 	return request.IgnoreTraces(span) || span.Service.ExportsOTelTraces() || !acceptSpan(is, span)
 }
 
-func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection) map[svc.UID][]TraceSpanAndAttributes {
+func groupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection) map[svc.UID][]TraceSpanAndAttributes {
 	spanGroups := map[svc.UID][]TraceSpanAndAttributes{}
 
 	for i := range spans {
@@ -154,7 +154,7 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			continue
 		}
 
-		finalAttrs := TraceAttributes(span, traceAttrs)
+		finalAttrs := traceAttributes(span, traceAttrs)
 
 		spanSampler := func() trace.Sampler {
 			if span.Service.Sampler != nil {
@@ -168,7 +168,7 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			ParentContext: ctx,
 			Name:          span.TraceName(),
 			TraceID:       span.TraceID,
-			Kind:          SpanKind(span),
+			Kind:          spanKind(span),
 			Attributes:    finalAttrs,
 		})
 
@@ -188,7 +188,7 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 }
 
 func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Traces, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler) {
-	spanGroups := GroupSpans(ctx, spans, traceAttrs, sampler, tr.is)
+	spanGroups := groupSpans(ctx, spans, traceAttrs, sampler, tr.is)
 
 	for _, spanGroup := range spanGroups {
 		if len(spanGroup) > 0 {
@@ -199,7 +199,7 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 			}
 
 			envResourceAttrs := otelcfg.ResourceAttrsFromEnv(&sample.Span.Service)
-			traces := generateTracesWithAttributes(tr.attributeCache, &sample.Span.Service, envResourceAttrs, tr.ctxInfo.HostID, spanGroup, tr.ctxInfo.ExtraResourceAttributes)
+			traces := generateTracesWithAttributes(tr.attributeCache, &sample.Span.Service, envResourceAttrs, tr.ctxInfo.HostID, spanGroup, tr.ctxInfo.ExtraResourceAttributes...)
 			err := exp.ConsumeTraces(ctx, traces)
 			if err != nil {
 				slog.Error("error sending trace to consumer", "error", err)
@@ -400,7 +400,7 @@ func generateTracesWithAttributes(
 	envResourceAttrs []attribute.KeyValue,
 	hostID string,
 	spans []TraceSpanAndAttributes,
-	extraResAttrs []attribute.KeyValue,
+	extraResAttrs ...attribute.KeyValue,
 ) ptrace.Traces {
 	traces := ptrace.NewTraces()
 	rs := traces.ResourceSpans().AppendEmpty()
@@ -437,7 +437,7 @@ func generateTracesWithAttributes(
 		// Create a parent span for the whole request session
 		s := ss.Spans().AppendEmpty()
 		s.SetName(span.TraceName())
-		s.SetKind(ptrace.SpanKind(SpanKind(span)))
+		s.SetKind(ptrace.SpanKind(spanKind(span)))
 		s.SetStartTimestamp(pcommon.NewTimestampFromTime(start))
 
 		// Set trace and span IDs
@@ -461,18 +461,6 @@ func generateTracesWithAttributes(
 		s.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
 	}
 	return traces
-}
-
-// GenerateTraces creates a ptrace.Traces from a request.Span
-func GenerateTraces(
-	cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
-	svc *svc.Attrs,
-	envResourceAttrs []attribute.KeyValue,
-	hostID string,
-	spans []TraceSpanAndAttributes,
-	extraResAttrs ...attribute.KeyValue,
-) ptrace.Traces {
-	return generateTracesWithAttributes(cache, svc, envResourceAttrs, hostID, spans, extraResAttrs)
 }
 
 // createSubSpans creates the internal spans for a request.Span
@@ -575,7 +563,7 @@ var (
 )
 
 //nolint:cyclop
-func TraceAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+func traceAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 
 	switch span.Type {
@@ -711,7 +699,7 @@ func TraceAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) [
 	return attrs
 }
 
-func SpanKind(span *request.Span) trace2.SpanKind {
+func spanKind(span *request.Span) trace2.SpanKind {
 	switch span.Type {
 	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer:
 		return trace2.SpanKindServer
