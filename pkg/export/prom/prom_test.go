@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -62,7 +64,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []string{otel.FeatureApplication},
+			Features:                    []string{otelcfg.FeatureApplication},
 			Instrumentations:            []string{instrumentations.InstrumentationALL},
 		},
 		&attributes.SelectorConfig{
@@ -363,7 +365,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 
 func TestMetricsDiscarded(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []string{otel.FeatureApplication},
+		Features: []string{otelcfg.FeatureApplication},
 	}
 	mr := metricsReporter{
 		cfg: &mc,
@@ -417,7 +419,7 @@ func TestMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []string{otel.FeatureApplication},
+		Features: []string{otelcfg.FeatureApplication},
 	}
 	mr := metricsReporter{
 		cfg: &mc,
@@ -512,7 +514,7 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 
 func TestProcessPIDEvents(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []string{otel.FeatureApplication},
+		Features: []string{otelcfg.FeatureApplication},
 	}
 	mr := metricsReporter{
 		cfg:         &mc,
@@ -595,7 +597,7 @@ func makePromExporter(
 			Path:                        "/metrics",
 			TTL:                         300 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []string{otel.FeatureApplication},
+			Features:                    []string{otelcfg.FeatureApplication},
 			Instrumentations:            instrumentations,
 		},
 		&attributes.SelectorConfig{

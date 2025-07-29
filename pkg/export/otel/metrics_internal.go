@@ -9,6 +9,11 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/google/uuid"
+	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
+
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -36,7 +41,7 @@ func imlog() *slog.Logger {
 	return slog.With("component", "otel.InternalMetricsReporter")
 }
 
-func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo, metrics *MetricsConfig) (*InternalMetricsReporter, error) {
+func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo, metrics *otelcfg.MetricsConfig) (*InternalMetricsReporter, error) {
 	log := imlog()
 	log.Debug("instantiating internal metrics exporter provider")
 	exporter, err := InstantiateMetricsExporter(ctx, metrics, log)
@@ -157,4 +162,17 @@ func (p *InternalMetricsReporter) InstrumentProcess(processName string) {
 
 func (p *InternalMetricsReporter) UninstrumentProcess(processName string) {
 	p.instrumentedProcesses.Add(p.ctx, -1, instrument.WithAttributes(attribute.String("process_name", processName)))
+}
+
+func newResourceInternal(hostID string) *resource.Resource {
+	attrs := []attribute.KeyValue{
+		semconv.ServiceName("opentelemetry-ebpf-instrumentation"),
+		semconv.ServiceInstanceID(uuid.New().String()),
+		semconv.TelemetrySDKLanguageKey.String(semconv.TelemetrySDKLanguageGo.Value.AsString()),
+		// We set the SDK name as Beyla, so we can distinguish beyla generated metrics from other SDKs
+		semconv.TelemetrySDKNameKey.String("opentelemetry-ebpf-instrumentation"),
+		semconv.HostID(hostID),
+	}
+
+	return resource.NewWithAttributes(semconv.SchemaURL, attrs...)
 }

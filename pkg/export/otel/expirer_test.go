@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,7 +29,7 @@ import (
 const timeout = 20 * time.Second
 
 func TestNetMetricsExpiration(t *testing.T) {
-	defer restoreEnvAfterExecution()()
+	defer otelcfg.RestoreEnvAfterExecution()()
 	ctx := t.Context()
 
 	otlp, err := collector.Start(ctx)
@@ -39,11 +41,11 @@ func TestNetMetricsExpiration(t *testing.T) {
 	metrics := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(20))
 	otelExporter, err := NetMetricsExporterProvider(
 		&global.ContextInfo{}, &NetMetricsConfig{
-			Metrics: &MetricsConfig{
+			Metrics: &otelcfg.MetricsConfig{
 				Interval:        50 * time.Millisecond,
 				CommonEndpoint:  otlp.ServerEndpoint,
-				MetricsProtocol: ProtocolHTTPProtobuf,
-				Features:        []string{FeatureNetwork},
+				MetricsProtocol: otelcfg.ProtocolHTTPProtobuf,
+				Features:        []string{otelcfg.FeatureNetwork},
 				TTL:             3 * time.Minute,
 				Instrumentations: []string{
 					instrumentations.InstrumentationALL,
@@ -145,7 +147,7 @@ func TestNetMetricsExpiration(t *testing.T) {
 // (2) by metric set of a given service Attrs
 // this test verifies case 1
 func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
-	defer restoreEnvAfterExecution()()
+	defer otelcfg.RestoreEnvAfterExecution()()
 	ctx := t.Context()
 
 	otlp, err := collector.Start(ctx)
@@ -162,11 +164,11 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	otelExporter, err := ReportMetrics(
 		&global.ContextInfo{
 			MetricAttributeGroups: g,
-		}, &MetricsConfig{
+		}, &otelcfg.MetricsConfig{
 			Interval:          50 * time.Millisecond,
 			CommonEndpoint:    otlp.ServerEndpoint,
-			MetricsProtocol:   ProtocolHTTPProtobuf,
-			Features:          []string{FeatureApplication},
+			MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
+			Features:          []string{otelcfg.FeatureApplication},
 			TTL:               3 * time.Minute,
 			ReportersCacheLen: 100,
 			Instrumentations: []string{
@@ -285,7 +287,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 // (2) by metric set of a given service Attrs
 // this test verifies case 2
 func TestAppMetricsExpiration_BySvcID(t *testing.T) {
-	defer restoreEnvAfterExecution()()
+	defer otelcfg.RestoreEnvAfterExecution()()
 	ctx := t.Context()
 
 	otlp, err := collector.Start(ctx)
@@ -297,11 +299,11 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	otelExporter, err := ReportMetrics(
-		&global.ContextInfo{}, &MetricsConfig{
+		&global.ContextInfo{}, &otelcfg.MetricsConfig{
 			Interval:          50 * time.Millisecond,
 			CommonEndpoint:    otlp.ServerEndpoint,
-			MetricsProtocol:   ProtocolHTTPProtobuf,
-			Features:          []string{FeatureApplication},
+			MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
+			Features:          []string{otelcfg.FeatureApplication},
 			TTL:               3 * time.Minute,
 			ReportersCacheLen: 100,
 			Instrumentations: []string{

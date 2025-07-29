@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -42,11 +44,11 @@ const (
 // instances and forwards them as OTEL metrics.
 type SvcGraphMetricsReporter struct {
 	ctx        context.Context
-	cfg        *MetricsConfig
+	cfg        *otelcfg.MetricsConfig
 	hostID     string
 	attributes *attributes.AttrSelector
 	exporter   sdkmetric.Exporter
-	reporters  ReporterPool[*svc.Attrs, *SvcGraphMetrics]
+	reporters  otelcfg.ReporterPool[*svc.Attrs, *SvcGraphMetrics]
 	pidTracker PidServiceTracker
 	is         instrumentations.InstrumentationSelection
 
@@ -71,7 +73,7 @@ type SvcGraphMetrics struct {
 
 func ReportSvcGraphMetrics(
 	ctxInfo *global.ContextInfo,
-	cfg *MetricsConfig,
+	cfg *otelcfg.MetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
@@ -80,7 +82,7 @@ func ReportSvcGraphMetrics(
 		if !cfg.EndpointEnabled() || !cfg.ServiceGraphMetricsEnabled() {
 			return swarm.EmptyRunFunc()
 		}
-		SetupInternalOTELSDKLogger(cfg.SDKLogLevel)
+		otelcfg.SetupInternalOTELSDKLogger(cfg.SDKLogLevel)
 
 		mr, err := newSvcGraphMetricsReporter(
 			ctx,
@@ -101,7 +103,7 @@ func ReportSvcGraphMetrics(
 func newSvcGraphMetricsReporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
-	cfg *MetricsConfig,
+	cfg *otelcfg.MetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
@@ -125,7 +127,7 @@ func newSvcGraphMetricsReporter(
 		processEvents: processEventCh.Subscribe(),
 	}
 
-	mr.reporters = NewReporterPool[*svc.Attrs, *SvcGraphMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
+	mr.reporters = otelcfg.NewReporterPool[*svc.Attrs, *SvcGraphMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
 		func(id svc.UID, v *SvcGraphMetrics) {
 			llog := log.With("service", id)
 			llog.Debug("evicting metrics reporter from cache")
@@ -208,7 +210,7 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 	var resourceAttributes []attribute.KeyValue
 	if service != nil {
 		sglog = sglog.With("service", service)
-		resourceAttributes = append(GetAppResourceAttrs(mr.hostID, service), ResourceAttrsFromEnv(service)...)
+		resourceAttributes = append(otelcfg.GetAppResourceAttrs(mr.hostID, service), otelcfg.ResourceAttrsFromEnv(service)...)
 	}
 	sglog.Debug("creating new Metrics reporter")
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
@@ -280,7 +282,7 @@ func (mr *SvcGraphMetricsReporter) tracesResourceAttributes(service *svc.Attrs) 
 		extraAttrs = append(extraAttrs, k.OTEL().String(v))
 	}
 
-	filteredAttrs := getFilteredMetricResourceAttrs(baseAttrs, nil, extraAttrs, MetricTypes)
+	filteredAttrs := otelcfg.GetFilteredAttributesByPrefix(baseAttrs, nil, extraAttrs, MetricTypes)
 	return attribute.NewSet(filteredAttrs...)
 }
 
