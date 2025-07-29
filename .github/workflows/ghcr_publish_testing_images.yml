@@ -137,3 +137,28 @@ jobs:
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: java-native
           file: test/integration/components/javatestserver/Dockerfile
+
+      - name: node
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: node
+          file: test/integration/components/nodejsserver/Dockerfile
+
+      - name: go
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: go
+          file: test/integration/components/testserver/Dockerfile
+
+      - name: python
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: python
+          file: test/integration/components/pythonserver/Dockerfile
+
