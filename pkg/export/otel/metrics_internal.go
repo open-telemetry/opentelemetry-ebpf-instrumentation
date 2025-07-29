@@ -45,7 +45,7 @@ func imlog() *slog.Logger {
 func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo, metrics *otelcfg.MetricsConfig) (*InternalMetricsReporter, error) {
 	log := imlog()
 	log.Debug("instantiating internal metrics exporter provider")
-	exporter, err := InstantiateMetricsExporter(ctx, metrics, log)
+	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
 	if err != nil {
 		log.Error("can't instantiate metrics exporter", "error", err)
 		return nil, err

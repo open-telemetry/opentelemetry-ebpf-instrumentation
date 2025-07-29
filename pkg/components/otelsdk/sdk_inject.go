@@ -19,13 +19,12 @@ import (
 	"strconv"
 	"strings"
 
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
-
 	"github.com/grafana/jvmtools/jvm"
 
 	"go.opentelemetry.io/obi/pkg/components/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 

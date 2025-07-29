@@ -39,18 +39,21 @@ func TestNetMetricsExpiration(t *testing.T) {
 	timeNow = now.Now
 
 	metrics := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(20))
+	cfg := &otelcfg.MetricsConfig{
+		Interval:        50 * time.Millisecond,
+		CommonEndpoint:  otlp.ServerEndpoint,
+		MetricsProtocol: otelcfg.ProtocolHTTPProtobuf,
+		Features:        []string{otelcfg.FeatureNetwork},
+		TTL:             3 * time.Minute,
+		Instrumentations: []string{
+			instrumentations.InstrumentationALL,
+		},
+	}
 	otelExporter, err := NetMetricsExporterProvider(
-		&global.ContextInfo{}, &NetMetricsConfig{
-			Metrics: &otelcfg.MetricsConfig{
-				Interval:        50 * time.Millisecond,
-				CommonEndpoint:  otlp.ServerEndpoint,
-				MetricsProtocol: otelcfg.ProtocolHTTPProtobuf,
-				Features:        []string{otelcfg.FeatureNetwork},
-				TTL:             3 * time.Minute,
-				Instrumentations: []string{
-					instrumentations.InstrumentationALL,
-				},
-			}, SelectorCfg: &attributes.SelectorConfig{
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{
+			Cfg: cfg,
+		}}, &NetMetricsConfig{
+			Metrics: cfg, SelectorCfg: &attributes.SelectorConfig{
 				SelectionCfg: attributes.Selection{
 					attributes.NetworkFlow.Section: attributes.InclusionLists{
 						Include: []string{"src.name", "dst.name"},
@@ -161,20 +164,22 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	cfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		CommonEndpoint:    otlp.ServerEndpoint,
+		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
+		Features:          []string{otelcfg.FeatureApplication},
+		TTL:               3 * time.Minute,
+		ReportersCacheLen: 100,
+		Instrumentations: []string{
+			instrumentations.InstrumentationALL,
+		},
+	}
 	otelExporter, err := ReportMetrics(
 		&global.ContextInfo{
 			MetricAttributeGroups: g,
-		}, &otelcfg.MetricsConfig{
-			Interval:          50 * time.Millisecond,
-			CommonEndpoint:    otlp.ServerEndpoint,
-			MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-			Features:          []string{otelcfg.FeatureApplication},
-			TTL:               3 * time.Minute,
-			ReportersCacheLen: 100,
-			Instrumentations: []string{
-				instrumentations.InstrumentationALL,
-			},
-		}, &attributes.SelectorConfig{
+			OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: cfg},
+		}, cfg, &attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
 					Include: []string{"url.path", "k8s.app.version"},
@@ -298,18 +303,21 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	cfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		CommonEndpoint:    otlp.ServerEndpoint,
+		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
+		Features:          []string{otelcfg.FeatureApplication},
+		TTL:               3 * time.Minute,
+		ReportersCacheLen: 100,
+		Instrumentations: []string{
+			instrumentations.InstrumentationALL,
+		},
+	}
 	otelExporter, err := ReportMetrics(
-		&global.ContextInfo{}, &otelcfg.MetricsConfig{
-			Interval:          50 * time.Millisecond,
-			CommonEndpoint:    otlp.ServerEndpoint,
-			MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-			Features:          []string{otelcfg.FeatureApplication},
-			TTL:               3 * time.Minute,
-			ReportersCacheLen: 100,
-			Instrumentations: []string{
-				instrumentations.InstrumentationALL,
-			},
-		}, &attributes.SelectorConfig{
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
+		cfg,
+		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
 					Include: []string{"url.path"},

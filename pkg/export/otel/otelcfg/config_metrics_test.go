@@ -65,28 +65,28 @@ func TestHTTPMetricsEndpointOptions(t *testing.T) {
 
 func testMetricsHTTPOptions(t *testing.T, expected OTLPOptions, mcfg *MetricsConfig) {
 	defer RestoreEnvAfterExecution()()
-	opts, err := HTTPMetricEndpointOptions(mcfg)
+	opts, err := httpMetricEndpointOptions(mcfg)
 	require.NoError(t, err)
 	assert.Equal(t, expected, opts)
 }
 
 func TestMissingSchemeInMetricsEndpoint(t *testing.T) {
 	defer RestoreEnvAfterExecution()()
-	opts, err := HTTPMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "http://foo:3030", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
+	opts, err := httpMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "http://foo:3030", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 
-	_, err = HTTPMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo:3030", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
+	_, err = httpMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo:3030", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
 	require.Error(t, err)
 
-	_, err = HTTPMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
+	_, err = httpMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
 	require.Error(t, err)
 }
 
 func TestGRPCMetricsEndpointOptions(t *testing.T) {
 	defer RestoreEnvAfterExecution()()
 	t.Run("do not accept URLs without a scheme", func(t *testing.T) {
-		_, err := GRPCMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo:3939"})
+		_, err := grpcMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo:3939"})
 		require.Error(t, err)
 	})
 
@@ -131,7 +131,7 @@ func TestGRPCMetricsEndpointOptions(t *testing.T) {
 
 func testMetricsGRPCOptions(t *testing.T, expected OTLPOptions, mcfg *MetricsConfig) {
 	defer RestoreEnvAfterExecution()()
-	opts, err := GRPCMetricEndpointOptions(mcfg)
+	opts, err := grpcMetricEndpointOptions(mcfg)
 	require.NoError(t, err)
 	assert.Equal(t, expected, opts)
 }
@@ -168,7 +168,7 @@ func TestMetricsSetupHTTP_Protocol(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.Endpoint+"/"+string(tc.ProtoVal)+"/"+string(tc.MetricProtoVal), func(t *testing.T) {
 			defer RestoreEnvAfterExecution()()
-			_, err := HTTPMetricEndpointOptions(&MetricsConfig{
+			_, err := httpMetricEndpointOptions(&MetricsConfig{
 				CommonEndpoint:   "http://host:3333",
 				MetricsEndpoint:  tc.Endpoint,
 				Protocol:         tc.ProtoVal,
@@ -187,7 +187,7 @@ func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 		defer RestoreEnvAfterExecution()()
 		t.Setenv(envProtocol, "foo-proto")
 		t.Setenv(envMetricsProtocol, "bar-proto")
-		_, err := HTTPMetricEndpointOptions(&MetricsConfig{
+		_, err := httpMetricEndpointOptions(&MetricsConfig{
 			CommonEndpoint: "http://host:3333", Protocol: "foo", MetricsProtocol: "bar", Instrumentations: []string{instrumentations.InstrumentationHTTP},
 		})
 		require.NoError(t, err)
@@ -197,7 +197,7 @@ func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 	t.Run("setting only proto env var", func(t *testing.T) {
 		defer RestoreEnvAfterExecution()()
 		t.Setenv(envProtocol, "foo-proto")
-		_, err := HTTPMetricEndpointOptions(&MetricsConfig{
+		_, err := httpMetricEndpointOptions(&MetricsConfig{
 			CommonEndpoint: "http://host:3333", Protocol: "foo", Instrumentations: []string{instrumentations.InstrumentationHTTP},
 		})
 		require.NoError(t, err)

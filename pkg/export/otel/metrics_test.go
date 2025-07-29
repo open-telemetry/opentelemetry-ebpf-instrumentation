@@ -52,12 +52,14 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	exportMetrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	internalMetrics := &fakeInternalMetrics{}
-	reporter, err := ReportMetrics(&global.ContextInfo{
-		Metrics: internalMetrics,
-	}, &otelcfg.MetricsConfig{
+	mcfg := &otelcfg.MetricsConfig{
 		CommonEndpoint: coll.URL, Interval: 10 * time.Millisecond, ReportersCacheLen: 16,
 		Features: []string{otelcfg.FeatureApplication}, Instrumentations: []string{instrumentations.InstrumentationHTTP},
-	}, &attributes.SelectorConfig{}, exportMetrics, processEvents,
+	}
+	reporter, err := ReportMetrics(&global.ContextInfo{
+		Metrics:             internalMetrics,
+		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	}, mcfg, &attributes.SelectorConfig{}, exportMetrics, processEvents,
 	)(t.Context())
 	require.NoError(t, err)
 	go reporter(t.Context())
@@ -227,6 +229,10 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 	}
 
+	// avoid some race condition derived from concurrent otelExporter instances sharing some
+	// global resources (e.g. timeNow)
+	otelExporterRunning := sync.Mutex{}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
@@ -234,15 +240,21 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			otlp, err := collector.Start(ctx)
 			require.NoError(t, err)
 
+			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+
+			otelExporterRunning.Lock()
 			now := syncedClock{now: time.Now()}
 			timeNow = now.Now
-
-			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+			go func() {
+				<-ctx.Done()
+				metrics.Close()
+			}()
 			otelExporter := makeExporter(ctx, t, tt.instr, otlp, metrics)
-
 			require.NoError(t, err)
-
-			go otelExporter(ctx)
+			go func() {
+				defer otelExporterRunning.Unlock()
+				otelExporter(ctx)
+			}()
 
 			/* Available event types (defined in span.go):
 			EventTypeHTTP
@@ -496,16 +508,18 @@ func makeExporter(
 ) swarm.RunFunc {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		CommonEndpoint:    otlp.ServerEndpoint,
+		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
+		Features:          []string{otelcfg.FeatureApplication},
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 100,
+		Instrumentations:  instrumentations,
+	}
 	otelExporter, err := ReportMetrics(
-		&global.ContextInfo{}, &otelcfg.MetricsConfig{
-			Interval:          50 * time.Millisecond,
-			CommonEndpoint:    otlp.ServerEndpoint,
-			MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-			Features:          []string{otelcfg.FeatureApplication},
-			TTL:               30 * time.Minute,
-			ReportersCacheLen: 100,
-			Instrumentations:  instrumentations,
-		}, &attributes.SelectorConfig{
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg, &attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
 					Include: []string{"url.path"},

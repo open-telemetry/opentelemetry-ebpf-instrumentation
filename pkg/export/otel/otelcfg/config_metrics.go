@@ -164,7 +164,7 @@ func (m *MetricsConfig) Enabled() bool {
 	return m.EndpointEnabled() && (m.OTelMetricsEnabled() || m.AnySpanMetricsEnabled() || m.NetworkMetricsEnabled())
 }
 
-func HTTPMetricEndpointOptions(cfg *MetricsConfig) (OTLPOptions, error) {
+func httpMetricEndpointOptions(cfg *MetricsConfig) (OTLPOptions, error) {
 	opts := OTLPOptions{Headers: map[string]string{}}
 	log := mlog().With("transport", "http")
 	murl, isCommon, err := parseMetricsEndpoint(cfg)
@@ -206,7 +206,7 @@ func HTTPMetricEndpointOptions(cfg *MetricsConfig) (OTLPOptions, error) {
 	return opts, nil
 }
 
-func GRPCMetricEndpointOptions(cfg *MetricsConfig) (OTLPOptions, error) {
+func grpcMetricEndpointOptions(cfg *MetricsConfig) (OTLPOptions, error) {
 	opts := OTLPOptions{Headers: map[string]string{}}
 	log := mlog().With("transport", "grpc")
 	murl, _, err := parseMetricsEndpoint(cfg)

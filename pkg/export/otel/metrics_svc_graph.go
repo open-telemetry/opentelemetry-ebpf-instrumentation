@@ -141,7 +141,7 @@ func newSvcGraphMetricsReporter(
 		}, mr.newMetricSet)
 
 	// Instantiate the OTLP HTTP or GRPC metrics exporter
-	exporter, err := InstantiateMetricsExporter(ctx, cfg, log)
+	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
 	if err != nil {
 		return nil, err
 	}

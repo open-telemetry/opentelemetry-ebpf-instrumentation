@@ -43,19 +43,21 @@ func TestMetricAttributes(t *testing.T) {
 	in.Id.SrcIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
 	in.Id.DstIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
 
-	me, err := newMetricsExporter(t.Context(),
-		&global.ContextInfo{MetricAttributeGroups: attributes.GroupKubernetes},
-		&NetMetricsConfig{SelectorCfg: &attributes.SelectorConfig{
-			SelectionCfg: map[attributes.Section]attributes.InclusionLists{
-				attributes.NetworkFlow.Section: {Include: []string{"*"}},
-			},
-		}, Metrics: &otelcfg.MetricsConfig{
-			MetricsEndpoint:   "http://foo",
-			Interval:          10 * time.Millisecond,
-			ReportersCacheLen: 100,
-			TTL:               5 * time.Minute,
-			Features:          []string{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
-		}}, msg.NewQueue[[]*ebpf.Record]())
+	mcfg := &otelcfg.MetricsConfig{
+		MetricsEndpoint:   "http://foo",
+		Interval:          10 * time.Millisecond,
+		ReportersCacheLen: 100,
+		TTL:               5 * time.Minute,
+		Features:          []string{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
+	}
+	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
+		MetricAttributeGroups: attributes.GroupKubernetes,
+		OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	}, &NetMetricsConfig{SelectorCfg: &attributes.SelectorConfig{
+		SelectionCfg: map[attributes.Section]attributes.InclusionLists{
+			attributes.NetworkFlow.Section: {Include: []string{"*"}},
+		},
+	}, Metrics: mcfg}, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 
 	_, reportedAttributes := me.flowBytes.ForRecord(in)
@@ -101,8 +103,16 @@ func TestMetricAttributes_Filter(t *testing.T) {
 	in.Id.SrcIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
 	in.Id.DstIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
 
-	me, err := newMetricsExporter(t.Context(),
-		&global.ContextInfo{MetricAttributeGroups: attributes.GroupKubernetes},
+	mcfg := &otelcfg.MetricsConfig{
+		MetricsEndpoint:   "http://foo",
+		Interval:          10 * time.Millisecond,
+		ReportersCacheLen: 100,
+		Features:          []string{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
+	}
+	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
+		MetricAttributeGroups: attributes.GroupKubernetes,
+		OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	},
 		&NetMetricsConfig{SelectorCfg: &attributes.SelectorConfig{
 			SelectionCfg: map[attributes.Section]attributes.InclusionLists{
 				attributes.NetworkFlow.Section: {Include: []string{
@@ -111,12 +121,7 @@ func TestMetricAttributes_Filter(t *testing.T) {
 					"k8s.dst.name",
 				}},
 			},
-		}, Metrics: &otelcfg.MetricsConfig{
-			MetricsEndpoint:   "http://foo",
-			Interval:          10 * time.Millisecond,
-			ReportersCacheLen: 100,
-			Features:          []string{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
-		}}, msg.NewQueue[[]*ebpf.Record]())
+		}, Metrics: mcfg}, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 
 	_, reportedAttributes := me.flowBytes.ForRecord(in)

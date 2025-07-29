@@ -103,7 +103,7 @@ func newMetricsExporter(
 ) (*netMetricsExporter, error) {
 	log := nmlog()
 	log.Debug("instantiating network metrics exporter provider")
-	exporter, err := InstantiateMetricsExporter(context.Background(), cfg.Metrics, log)
+	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
 	if err != nil {
 		log.Error("can't instantiate metrics exporter", "error", err)
 		return nil, err

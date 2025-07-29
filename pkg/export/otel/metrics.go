@@ -10,8 +10,6 @@ import (
 	"slices"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -265,7 +263,7 @@ func newMetricsReporter(
 			}()
 		}, mr.newMetricSet)
 	// Instantiate the OTLP HTTP or GRPC metrics exporter
-	exporter, err := InstantiateMetricsExporter(ctx, cfg, log)
+	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -652,52 +650,6 @@ func isExponentialAggregation(mc *otelcfg.MetricsConfig, mlog *slog.Logger) bool
 			"value", mc.HistogramAggregation)
 	}
 	return false
-}
-
-// TODO: unify in single exporter for most metrics
-func InstantiateMetricsExporter(ctx context.Context, cfg *otelcfg.MetricsConfig, log *slog.Logger) (sdkmetric.Exporter, error) {
-	var err error
-	var exporter sdkmetric.Exporter
-	switch proto := cfg.GetProtocol(); proto {
-	case otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf, "": // zero value defaults to HTTP for backwards-compatibility
-		log.Debug("instantiating HTTP MetricsReporter", "protocol", proto)
-		if exporter, err = httpMetricsExporter(ctx, cfg); err != nil {
-			return nil, fmt.Errorf("can't instantiate OTEL HTTP metrics exporter: %w", err)
-		}
-	case otelcfg.ProtocolGRPC:
-		log.Debug("instantiating GRPC MetricsReporter", "protocol", proto)
-		if exporter, err = grpcMetricsExporter(ctx, cfg); err != nil {
-			return nil, fmt.Errorf("can't instantiate OTEL GRPC metrics exporter: %w", err)
-		}
-	default:
-		return nil, fmt.Errorf("invalid protocol value: %q. Accepted values are: %s, %s, %s",
-			proto, otelcfg.ProtocolGRPC, otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf)
-	}
-	return exporter, nil
-}
-
-func httpMetricsExporter(ctx context.Context, cfg *otelcfg.MetricsConfig) (sdkmetric.Exporter, error) {
-	opts, err := otelcfg.HTTPMetricEndpointOptions(cfg)
-	if err != nil {
-		return nil, err
-	}
-	mexp, err := otlpmetrichttp.New(ctx, opts.AsMetricHTTP()...)
-	if err != nil {
-		return nil, fmt.Errorf("creating HTTP metric exporter: %w", err)
-	}
-	return mexp, nil
-}
-
-func grpcMetricsExporter(ctx context.Context, cfg *otelcfg.MetricsConfig) (sdkmetric.Exporter, error) {
-	opts, err := otelcfg.GRPCMetricEndpointOptions(cfg)
-	if err != nil {
-		return nil, err
-	}
-	mexp, err := otlpmetricgrpc.New(ctx, opts.AsMetricGRPC()...)
-	if err != nil {
-		return nil, fmt.Errorf("creating GRPC metric exporter: %w", err)
-	}
-	return mexp, nil
 }
 
 func (mr *MetricsReporter) close() {
