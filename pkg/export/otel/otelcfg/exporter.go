@@ -36,7 +36,7 @@ func (i *MetricsExporterInstancer) Instantiate(ctx context.Context) (sdkmetric.E
 	}
 
 	var err error
-	switch proto := i.Cfg.Protocol; proto {
+	switch proto := i.Cfg.GetProtocol(); proto {
 	case ProtocolHTTPJSON, ProtocolHTTPProtobuf, "": // zero value defaults to HTTP for backwards-compatibility
 		meilog().Debug("instantiating HTTP MetricsReporter", "protocol", proto)
 		if i.instance, err = i.httpMetricsExporter(ctx); err != nil {

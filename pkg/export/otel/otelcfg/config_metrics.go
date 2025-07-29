@@ -88,7 +88,7 @@ func (m *MetricsConfig) GetInterval() time.Duration {
 }
 
 func (m *MetricsConfig) GuessProtocol() Protocol {
-	// If no explicit protocol is set, we guess it it from the metrics endpoint port
+	// If no explicit protocol is set, we guess it from the metrics endpoint port
 	// (assuming it uses a standard port or a development-like form like 14317, 24317, 14318...)
 	ep, _, err := parseMetricsEndpoint(m)
 	if err == nil {
