@@ -351,6 +351,27 @@ func validateFlagBits(flagBits int32) error {
 	return nil
 }
 
+func mongoInfoFromEvent(event *TCPRequestInfo, requestBuffer []byte, responseBuffer []byte, mongoRequestCache PendingMongoDBRequests) *mongoSpanInfo {
+	if event.Direction == 0 {
+		return nil
+	}
+	var mongoRequest *MongoRequestValue
+	var moreToCome bool
+	_, _, err := ProcessMongoEvent(requestBuffer, int64(event.StartMonotimeNs), int64(event.EndMonotimeNs), event.ConnInfo, mongoRequestCache)
+	if err != nil {
+		return nil
+	}
+	mongoRequest, moreToCome, err = ProcessMongoEvent(responseBuffer, int64(event.StartMonotimeNs), int64(event.EndMonotimeNs), event.ConnInfo, mongoRequestCache)
+	if err != nil || mongoRequest == nil || moreToCome {
+		return nil
+	}
+	mongoInfo, err := getMongoInfo(mongoRequest)
+	if err == nil {
+		return mongoInfo
+	}
+	return nil
+}
+
 func getMongoInfo(request *MongoRequestValue) (*mongoSpanInfo, error) {
 	spanInfo := &mongoSpanInfo{}
 	if request == nil || len(request.RequestSections) == 0 {
