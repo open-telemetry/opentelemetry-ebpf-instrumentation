@@ -76,7 +76,7 @@ func ReportSvcGraphMetrics(
 	cfg *otelcfg.MetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]request.Span],
-	processEventCh *msg.Queue[exec.ProcessEvent],
+	processEvents *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
 		if !cfg.EndpointEnabled() || !cfg.ServiceGraphMetricsEnabled() {
@@ -90,7 +90,7 @@ func ReportSvcGraphMetrics(
 			cfg,
 			selectorCfg,
 			input,
-			processEventCh,
+			processEvents,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating OTEL metrics reporter: %w", err)
@@ -381,20 +381,20 @@ func (mr *SvcGraphMetricsReporter) disassociatePIDFromService(pid int32) (bool, 
 }
 
 func (mr *SvcGraphMetricsReporter) watchForProcessEvents() {
+	log := sglog()
 	for pe := range mr.processEvents {
-		sglog().Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
+		log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
 
 		reporter, err := mr.reporters.For(&pe.File.Service)
 		// If we are receiving a delete event, the service may come without kubernetes information, which
 		// is why we record the original service info. Delete look up the data from the pid tracker.
 		if err != nil {
-			sglog().Error("unexpected error creating OTEL resource. Ignoring metric",
+			log.Error("unexpected error creating OTEL resource. Ignoring metric",
 				"error", err, "service", pe.File.Service.UID)
 			continue
 		}
 
 		if pe.Type == exec.ProcessEventCreated {
-			// TODO: necesitamos est0o?
 			mr.setupPIDToServiceRelationship(pe.File.Pid, pe.File.Service.UID)
 		} else {
 			if deleted, origUID := mr.disassociatePIDFromService(pe.File.Pid); deleted {
@@ -403,11 +403,11 @@ func (mr *SvcGraphMetricsReporter) watchForProcessEvents() {
 				svc := svc.Attrs{UID: origUID}
 				reporter, err = mr.reporters.For(&svc)
 				if err != nil {
-					sglog().Error("unexpected error creating OTEL resource. Ignoring metric",
+					log.Error("unexpected error creating OTEL resource. Ignoring metric",
 						"error", err, "service", pe.File.Service.UID)
 					continue
 				}
-				sglog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", reporter.service)
+				log.Debug("deleting infos for", "pid", pe.File.Pid, "attrs", reporter.service)
 			}
 		}
 	}

@@ -229,10 +229,6 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 	}
 
-	// avoid some race condition derived from concurrent otelExporter instances sharing some
-	// global resources (e.g. timeNow)
-	otelExporterRunning := sync.Mutex{}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
@@ -241,20 +237,11 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			require.NoError(t, err)
 
 			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
-
-			otelExporterRunning.Lock()
-			now := syncedClock{now: time.Now()}
-			timeNow = now.Now
-			go func() {
-				<-ctx.Done()
-				metrics.Close()
-			}()
 			otelExporter := makeExporter(ctx, t, tt.instr, otlp, metrics)
+
 			require.NoError(t, err)
-			go func() {
-				defer otelExporterRunning.Unlock()
-				otelExporter(ctx)
-			}()
+
+			go otelExporter(ctx)
 
 			/* Available event types (defined in span.go):
 			EventTypeHTTP

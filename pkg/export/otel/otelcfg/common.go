@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -230,7 +231,8 @@ func shouldIncludeAttribute(normalizedAttrName string, patterns []attributes.Inc
 
 // ReporterPool keeps an LRU cache of different OTEL reporters given a service name.
 type ReporterPool[K uidGetter, T any] struct {
-	pool *simplelru.LRU[svc.UID, *expirable[T]]
+	mutex sync.Mutex
+	pool  *simplelru.LRU[svc.UID, *expirable[T]]
 
 	itemConstructor func(getter K) (T, error)
 
@@ -286,7 +288,14 @@ var emptyUID = svc.UID{}
 
 // For retrieves the associated item for the given service name, or
 // creates a new one if it does not exist
+// TODO: to minimize the impact of the mutex below, the ReporterPool could be divided
+// in two parts: the actual LRU and the accessor that stores the lastService... fields.
+// All the goroutines can share the same LRU but keep its own accessor and only
+// sychronize the access to the cache when it's required
 func (rp *ReporterPool[K, T]) For(service K) (T, error) {
+	rp.mutex.Lock()
+	defer rp.mutex.Unlock()
+
 	rp.expireOldReporters()
 	// optimization: do not query the resources' cache if the
 	// previously processed span belongs to the same service name
