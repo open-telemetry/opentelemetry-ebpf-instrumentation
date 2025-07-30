@@ -4,15 +4,14 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+#include <common/strings.h>
+
 #include <logger/bpf_dbg.h>
 
 #include <maps/nodejs_fd_map.h>
 
 SEC("uprobe/node:uv_fs_access")
 int BPF_KPROBE(obi_uv_fs_access, void *loop, void *req, const char *path) {
-    (void)loop;
-    (void)req;
-
     // the obi nodejs agent (fdextractor.js) passes the file descriptor pair
     // to the ebpf layer by invoking uv_fs_access() with an invalid path:
     // /dev/null/obi/<fd1><fd2> where each fd is a left-zero-padded 4 digit
@@ -28,7 +27,7 @@ int BPF_KPROBE(obi_uv_fs_access, void *loop, void *req, const char *path) {
         return 0;
     }
 
-    if (__builtin_memcmp(prefix, buf, prefix_size) != 0) {
+    if (obi_bpf_memcmp(prefix, buf, prefix_size) != 0) {
         return 0;
     }
 
