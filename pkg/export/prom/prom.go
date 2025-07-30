@@ -414,6 +414,8 @@ func newReporter(
 		attrHTTPClientResponseSize: attrHTTPClientResponseSize,
 		attrGPUKernelCalls:         attrGPUKernelLaunchCalls,
 		attrGPUMemoryAllocs:        attrGPUMemoryAllocations,
+		attrGPUKernelGridSize:      attrGPUKernelGridSize,
+		attrGPUKernelBlockSize:     attrGPUKernelBlockSize,
 		beylaInfo: NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: attr.VendorPrefix + buildInfoSuffix,
 			Help: "A metric with a constant '1' value labeled by version, revision, branch, " +
