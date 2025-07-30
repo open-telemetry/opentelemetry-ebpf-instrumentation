@@ -15,3 +15,13 @@ static __always_inline bool stricmp(const char *s1, const char *s2, u8 n) {
     }
     return true;
 }
+
+static __always_inline int obi_bpf_memcmp(const char *s1, const char *s2, s32 size) {
+    for (int i = 0; i < size; i++) {
+        if (s1[i] != s2[i]) {
+            return i + 1;
+        }
+    }
+
+    return 0;
+}

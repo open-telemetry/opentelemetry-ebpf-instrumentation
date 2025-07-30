@@ -5,6 +5,7 @@
 #include <bpfcore/bpf_endian.h>
 
 #include <common/http_types.h>
+#include <common/strings.h>
 
 #define HTTP2_GRPC_PREFACE "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 
@@ -65,22 +66,12 @@ static __always_inline u8 is_headers_frame(const frame_header_t *frame) {
     return frame->type == FrameHeaders && frame->stream_id;
 }
 
-static __always_inline int bpf_memcmp(const char *s1, const char *s2, s32 size) {
-    for (int i = 0; i < size; i++) {
-        if (s1[i] != s2[i]) {
-            return i + 1;
-        }
-    }
-
-    return 0;
-}
-
 static __always_inline u8 has_preface(unsigned char *p, u32 len) {
     if (len < MIN_HTTP2_SIZE) {
         return 0;
     }
 
-    return !bpf_memcmp((char *)p, HTTP2_GRPC_PREFACE, MIN_HTTP2_SIZE);
+    return !obi_bpf_memcmp((char *)p, HTTP2_GRPC_PREFACE, MIN_HTTP2_SIZE);
 }
 
 static __always_inline u8 is_http2_or_grpc(unsigned char *p, u32 len) {
