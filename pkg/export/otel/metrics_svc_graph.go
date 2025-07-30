@@ -54,6 +54,8 @@ type SvcGraphMetricsReporter struct {
 
 	input         <-chan []request.Span
 	processEvents <-chan exec.ProcessEvent
+
+	log *slog.Logger
 }
 
 // Metrics is a set of metrics associated to a given OTEL MeterProvider.
@@ -125,6 +127,7 @@ func newSvcGraphMetricsReporter(
 		hostID:        ctxInfo.HostID,
 		input:         input.Subscribe(),
 		processEvents: processEventCh.Subscribe(),
+		log:           sglog(),
 	}
 
 	mr.reporters = otelcfg.NewReporterPool[*svc.Attrs, *SvcGraphMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -380,64 +383,80 @@ func (mr *SvcGraphMetricsReporter) disassociatePIDFromService(pid int32) (bool, 
 	return mr.pidTracker.RemovePID(pid)
 }
 
-func (mr *SvcGraphMetricsReporter) watchForProcessEvents() {
-	log := sglog()
-	for pe := range mr.processEvents {
-		log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
-
-		reporter, err := mr.reporters.For(&pe.File.Service)
-		// If we are receiving a delete event, the service may come without kubernetes information, which
-		// is why we record the original service info. Delete look up the data from the pid tracker.
-		if err != nil {
-			log.Error("unexpected error creating OTEL resource. Ignoring metric",
-				"error", err, "service", pe.File.Service.UID)
-			continue
-		}
-
-		if pe.Type == exec.ProcessEventCreated {
-			mr.setupPIDToServiceRelationship(pe.File.Pid, pe.File.Service.UID)
-		} else {
-			if deleted, origUID := mr.disassociatePIDFromService(pe.File.Pid); deleted {
-				// We only need the UID to look up in the pool, no need to cache
-				// the whole of the attrs in the pidTracker
-				svc := svc.Attrs{UID: origUID}
-				reporter, err = mr.reporters.For(&svc)
-				if err != nil {
-					log.Error("unexpected error creating OTEL resource. Ignoring metric",
-						"error", err, "service", pe.File.Service.UID)
-					continue
-				}
-				log.Debug("deleting infos for", "pid", pe.File.Pid, "attrs", reporter.service)
+func (mr *SvcGraphMetricsReporter) reportMetrics(ctx context.Context) {
+	defer mr.close()
+	for {
+		select {
+		case <-ctx.Done():
+			mr.log.Debug("context done, stopping metrics reporting")
+			return
+		case pe, ok := <-mr.processEvents:
+			if !ok {
+				mr.log.Debug("process events channel closed, stopping metrics reporting")
+				return
 			}
+			mr.onProcessEvent(&pe)
+		case spans, ok := <-mr.input:
+			if !ok {
+				mr.log.Debug("input channel closed, stopping metrics reporting")
+				return
+			}
+			mr.onSpan(spans)
 		}
 	}
 }
 
-func (mr *SvcGraphMetricsReporter) reportMetrics(_ context.Context) {
-	go mr.watchForProcessEvents()
-	for spans := range mr.input {
-		for i := range spans {
-			s := &spans[i]
-			if s.InternalSignal() {
-				continue
-			}
-			if !s.Service.ExportModes.CanExportMetrics() {
-				continue
-			}
-			// If we are ignoring this span because of route patterns, don't do anything
-			if request.IgnoreMetrics(s) {
-				continue
-			}
-			reporter, err := mr.reporters.For(&s.Service)
+func (mr *SvcGraphMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
+	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
+
+	reporter, err := mr.reporters.For(&pe.File.Service)
+	// If we are receiving a delete event, the service may come without kubernetes information, which
+	// is why we record the original service info. Delete look up the data from the pid tracker.
+	if err != nil {
+		mr.log.Error("unexpected error creating OTEL resource. Ignoring metric",
+			"error", err, "service", pe.File.Service.UID)
+		return
+	}
+
+	if pe.Type == exec.ProcessEventCreated {
+		mr.setupPIDToServiceRelationship(pe.File.Pid, pe.File.Service.UID)
+	} else {
+		if deleted, origUID := mr.disassociatePIDFromService(pe.File.Pid); deleted {
+			// We only need the UID to look up in the pool, no need to cache
+			// the whole of the attrs in the pidTracker
+			svc := svc.Attrs{UID: origUID}
+			reporter, err = mr.reporters.For(&svc)
 			if err != nil {
-				sglog().Error("unexpected error creating OTEL resource. Ignoring metric",
-					"error", err, "service", s.Service)
-				continue
+				mr.log.Error("unexpected error creating OTEL resource. Ignoring metric",
+					"error", err, "service", pe.File.Service.UID)
+				return
 			}
-			reporter.record(s, mr)
+			mr.log.Debug("deleting infos for", "pid", pe.File.Pid, "attrs", reporter.service)
 		}
 	}
-	mr.close()
+}
+
+func (mr *SvcGraphMetricsReporter) onSpan(spans []request.Span) {
+	for i := range spans {
+		s := &spans[i]
+		if s.InternalSignal() {
+			continue
+		}
+		if !s.Service.ExportModes.CanExportMetrics() {
+			continue
+		}
+		// If we are ignoring this span because of route patterns, don't do anything
+		if request.IgnoreMetrics(s) {
+			continue
+		}
+		reporter, err := mr.reporters.For(&s.Service)
+		if err != nil {
+			sglog().Error("unexpected error creating OTEL resource. Ignoring metric",
+				"error", err, "service", s.Service)
+			continue
+		}
+		reporter.record(s, mr)
+	}
 }
 
 func (r *SvcGraphMetrics) cleanupAllMetricsInstances() {
