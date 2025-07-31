@@ -6,8 +6,6 @@
 
 #include <common/strings.h>
 
-#include <common/strings.h>
-
 #include <logger/bpf_dbg.h>
 
 #include <maps/nodejs_fd_map.h>
