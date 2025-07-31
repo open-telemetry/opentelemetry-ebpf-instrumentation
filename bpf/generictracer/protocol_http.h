@@ -348,8 +348,7 @@ static __always_inline void process_http_request(
     info->task_tid = get_task_tid();     // required for deleting the trace information
 }
 
-static __always_inline void
-process_http_response(http_info_t *info, const unsigned char *buf, int len) {
+static __always_inline void process_http_response(http_info_t *info, const unsigned char *buf) {
     info->resp_len = 0;
     info->end_monotime_ns = bpf_ktime_get_ns();
     info->status = 0;
@@ -367,7 +366,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
                                                  int orig_len,
                                                  u8 direction,
                                                  u8 ssl) {
-    process_http_response(info, small_buf, orig_len);
+    process_http_response(info, small_buf);
 
     if ((direction != TCP_SEND) ||
         high_request_volume /*|| (ssl != NO_SSL) || (orig_len < KPROBES_LARGE_RESPONSE_LEN)*/) {
@@ -387,6 +386,8 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
 // k_tail_protocol_http
 SEC("kprobe/http")
 int obi_protocol_http(void *ctx) {
+    (void)ctx;
+
     call_protocol_args_t *args = protocol_args();
 
     if (!args) {
@@ -431,7 +432,7 @@ int obi_protocol_http(void *ctx) {
     if (args->packet_type == PACKET_TYPE_REQUEST && (info->status == 0) &&
         (info->start_monotime_ns == 0)) {
         http_connection_metadata_t *meta =
-            connection_meta_by_direction(&args->pid_conn, args->direction, PACKET_TYPE_REQUEST);
+            connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
 
         http_get_or_create_trace_info(meta,
                                       args->pid_conn.pid,

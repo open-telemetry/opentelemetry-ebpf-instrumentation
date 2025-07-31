@@ -78,7 +78,6 @@ parse_ip_options_ipv6(struct __sk_buff *skb, connection_info_t *conn, protocol_i
 }
 
 static __always_inline u8 inject_tc_ip_options_ipv4(struct __sk_buff *skb,
-                                                    connection_info_t *conn,
                                                     protocol_info_t *tcp,
                                                     tp_info_pid_t *tp) {
     if (!bpf_skb_adjust_room(skb, MAX_TC_TP_LEN, BPF_ADJ_ROOM_NET, BPF_F_ADJ_ROOM_NO_CSUM_RESET)) {
@@ -136,7 +135,6 @@ static __always_inline u8 inject_tc_ip_options_ipv4(struct __sk_buff *skb,
 }
 
 static __always_inline u8 inject_tc_ip_options_ipv6(struct __sk_buff *skb,
-                                                    connection_info_t *conn,
                                                     protocol_info_t *tcp,
                                                     tp_info_pid_t *tp) {
     if (!bpf_skb_adjust_room(skb,

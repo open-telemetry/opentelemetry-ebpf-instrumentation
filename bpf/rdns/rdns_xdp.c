@@ -158,8 +158,8 @@ static __always_inline void submit_dns_packet(struct xdp_md *ctx, const unsigned
 }
 
 // Parses a DNS response packet and validates its structure
-static __always_inline void
-parse_dns_response(struct xdp_md *ctx, const unsigned char *const data, __u32 size) {
+static __always_inline void parse_dns_response(struct xdp_md *ctx,
+                                               const unsigned char *const data) {
     // Extract DNS header fields
     const __u8 flags0 = *(data + 2);
     const __u8 flags1 = *(data + 3);
@@ -251,7 +251,7 @@ int dns_response_tracker(struct xdp_md *ctx) {
     }
 
     // Parse and process DNS response
-    parse_dns_response(ctx, (unsigned char *)(udp) + UDP_HDR_SIZE, udp_len - UDP_HDR_SIZE);
+    parse_dns_response(ctx, (unsigned char *)(udp) + UDP_HDR_SIZE);
 
     return XDP_PASS;
 }

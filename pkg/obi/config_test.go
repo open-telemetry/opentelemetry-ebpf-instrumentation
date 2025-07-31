@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -27,7 +29,6 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
-	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/kubeflags"
 	"go.opentelemetry.io/obi/pkg/services"
@@ -139,16 +140,16 @@ discovery:
 			MongoRequestsCacheSize:           1024,
 		},
 		NetworkFlows: nc,
-		Metrics: otel.MetricsConfig{
+		Metrics: otelcfg.MetricsConfig{
 			OTELIntervalMS:    60_000,
 			CommonEndpoint:    "localhost:3131",
 			MetricsEndpoint:   "localhost:3030",
-			Protocol:          otel.ProtocolUnset,
+			Protocol:          otelcfg.ProtocolUnset,
 			ReportersCacheLen: ReporterLRUSize,
-			Buckets: otel.Buckets{
+			Buckets: otelcfg.Buckets{
 				DurationHistogram:     []float64{0, 1, 2},
-				RequestSizeHistogram:  otel.DefaultBuckets.RequestSizeHistogram,
-				ResponseSizeHistogram: otel.DefaultBuckets.ResponseSizeHistogram,
+				RequestSizeHistogram:  otelcfg.DefaultBuckets.RequestSizeHistogram,
+				ResponseSizeHistogram: otelcfg.DefaultBuckets.ResponseSizeHistogram,
 			},
 			Features: []string{"application"},
 			Instrumentations: []string{
@@ -157,8 +158,8 @@ discovery:
 			HistogramAggregation: "base2_exponential_bucket_histogram",
 			TTL:                  5 * time.Minute,
 		},
-		Traces: otel.TracesConfig{
-			Protocol:          otel.ProtocolUnset,
+		Traces: otelcfg.TracesConfig{
+			Protocol:          otelcfg.ProtocolUnset,
 			CommonEndpoint:    "localhost:3131",
 			TracesEndpoint:    "localhost:3232",
 			MaxQueueSize:      4096,
@@ -169,14 +170,14 @@ discovery:
 		},
 		Prometheus: prom.PrometheusConfig{
 			Path:     "/metrics",
-			Features: []string{otel.FeatureApplication},
+			Features: []string{otelcfg.FeatureApplication},
 			Instrumentations: []string{
 				instrumentations.InstrumentationALL,
 			},
 			TTL:                         time.Second,
 			SpanMetricsServiceCacheSize: 10000,
-			Buckets: otel.Buckets{
-				DurationHistogram:     otel.DefaultBuckets.DurationHistogram,
+			Buckets: otelcfg.Buckets{
+				DurationHistogram:     otelcfg.DefaultBuckets.DurationHistogram,
 				RequestSizeHistogram:  []float64{0, 10, 20, 22},
 				ResponseSizeHistogram: []float64{0, 10, 20, 22},
 			},

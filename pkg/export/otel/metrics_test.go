@@ -7,12 +7,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
@@ -33,77 +34,8 @@ import (
 
 var fakeMux = sync.Mutex{}
 
-func TestHTTPMetricsEndpointOptions(t *testing.T) {
-	defer restoreEnvAfterExecution()()
-	mcfg := MetricsConfig{
-		CommonEndpoint:  "https://localhost:3131",
-		MetricsEndpoint: "https://localhost:3232/v1/metrics",
-		Instrumentations: []string{
-			instrumentations.InstrumentationHTTP,
-		},
-	}
-
-	t.Run("testing with two endpoints", func(t *testing.T) {
-		testMetricsHTTPOptions(t, otlpOptions{Endpoint: "localhost:3232", URLPath: "/v1/metrics", Headers: map[string]string{}}, &mcfg)
-	})
-
-	mcfg = MetricsConfig{
-		CommonEndpoint: "https://localhost:3131/otlp",
-		Instrumentations: []string{
-			instrumentations.InstrumentationHTTP,
-		},
-	}
-
-	t.Run("testing with only common endpoint", func(t *testing.T) {
-		testMetricsHTTPOptions(t, otlpOptions{Endpoint: "localhost:3131", URLPath: "/otlp/v1/metrics", Headers: map[string]string{}}, &mcfg)
-	})
-
-	mcfg = MetricsConfig{
-		CommonEndpoint:  "https://localhost:3131",
-		MetricsEndpoint: "http://localhost:3232",
-		Instrumentations: []string{
-			instrumentations.InstrumentationHTTP,
-		},
-	}
-	t.Run("testing with insecure endpoint", func(t *testing.T) {
-		testMetricsHTTPOptions(t, otlpOptions{Endpoint: "localhost:3232", Insecure: true, Headers: map[string]string{}}, &mcfg)
-	})
-
-	mcfg = MetricsConfig{
-		CommonEndpoint:     "https://localhost:3232",
-		InsecureSkipVerify: true,
-		Instrumentations: []string{
-			instrumentations.InstrumentationHTTP,
-		},
-	}
-
-	t.Run("testing with skip TLS verification", func(t *testing.T) {
-		testMetricsHTTPOptions(t, otlpOptions{Endpoint: "localhost:3232", URLPath: "/v1/metrics", SkipTLSVerify: true, Headers: map[string]string{}}, &mcfg)
-	})
-}
-
-func testMetricsHTTPOptions(t *testing.T, expected otlpOptions, mcfg *MetricsConfig) {
-	defer restoreEnvAfterExecution()()
-	opts, err := getHTTPMetricEndpointOptions(mcfg)
-	require.NoError(t, err)
-	assert.Equal(t, expected, opts)
-}
-
-func TestMissingSchemeInMetricsEndpoint(t *testing.T) {
-	defer restoreEnvAfterExecution()()
-	opts, err := getHTTPMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "http://foo:3030", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
-	require.NoError(t, err)
-	require.NotEmpty(t, opts)
-
-	_, err = getHTTPMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo:3030", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
-	require.Error(t, err)
-
-	_, err = getHTTPMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
-	require.Error(t, err)
-}
-
 func TestMetrics_InternalInstrumentation(t *testing.T) {
-	defer restoreEnvAfterExecution()()
+	defer otelcfg.RestoreEnvAfterExecution()()
 	// fake OTEL collector server
 	coll := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
 		rw.WriteHeader(http.StatusOK)
@@ -120,12 +52,14 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	exportMetrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	internalMetrics := &fakeInternalMetrics{}
-	reporter, err := ReportMetrics(&global.ContextInfo{
-		Metrics: internalMetrics,
-	}, &MetricsConfig{
+	mcfg := &otelcfg.MetricsConfig{
 		CommonEndpoint: coll.URL, Interval: 10 * time.Millisecond, ReportersCacheLen: 16,
-		Features: []string{FeatureApplication}, Instrumentations: []string{instrumentations.InstrumentationHTTP},
-	}, &attributes.SelectorConfig{}, exportMetrics, processEvents,
+		Features: []string{otelcfg.FeatureApplication}, Instrumentations: []string{instrumentations.InstrumentationHTTP},
+	}
+	reporter, err := ReportMetrics(&global.ContextInfo{
+		Metrics:             internalMetrics,
+		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	}, mcfg, &attributes.SelectorConfig{}, exportMetrics, processEvents,
 	)(t.Context())
 	require.NoError(t, err)
 	go reporter(t.Context())
@@ -194,130 +128,6 @@ type fakeInternalMetrics struct {
 	errs atomic.Int32
 }
 
-func TestGRPCMetricsEndpointOptions(t *testing.T) {
-	defer restoreEnvAfterExecution()()
-	t.Run("do not accept URLs without a scheme", func(t *testing.T) {
-		_, err := getGRPCMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo:3939"})
-		require.Error(t, err)
-	})
-
-	mcfg := MetricsConfig{
-		CommonEndpoint:   "https://localhost:3131",
-		MetricsEndpoint:  "https://localhost:3232",
-		Instrumentations: []string{instrumentations.InstrumentationHTTP},
-	}
-
-	t.Run("testing with two endpoints", func(t *testing.T) {
-		testMetricsGRPCOptions(t, otlpOptions{Endpoint: "localhost:3232", Headers: map[string]string{}}, &mcfg)
-	})
-
-	mcfg = MetricsConfig{
-		CommonEndpoint:   "https://localhost:3131",
-		Instrumentations: []string{instrumentations.InstrumentationHTTP},
-	}
-
-	t.Run("testing with only common endpoint", func(t *testing.T) {
-		testMetricsGRPCOptions(t, otlpOptions{Endpoint: "localhost:3131", Headers: map[string]string{}}, &mcfg)
-	})
-
-	mcfg = MetricsConfig{
-		CommonEndpoint:   "https://localhost:3131",
-		MetricsEndpoint:  "http://localhost:3232",
-		Instrumentations: []string{instrumentations.InstrumentationHTTP},
-	}
-	t.Run("testing with insecure endpoint", func(t *testing.T) {
-		testMetricsGRPCOptions(t, otlpOptions{Endpoint: "localhost:3232", Insecure: true, Headers: map[string]string{}}, &mcfg)
-	})
-
-	mcfg = MetricsConfig{
-		CommonEndpoint:     "https://localhost:3232",
-		InsecureSkipVerify: true,
-		Instrumentations:   []string{instrumentations.InstrumentationHTTP},
-	}
-
-	t.Run("testing with skip TLS verification", func(t *testing.T) {
-		testMetricsGRPCOptions(t, otlpOptions{Endpoint: "localhost:3232", SkipTLSVerify: true, Headers: map[string]string{}}, &mcfg)
-	})
-}
-
-func testMetricsGRPCOptions(t *testing.T, expected otlpOptions, mcfg *MetricsConfig) {
-	defer restoreEnvAfterExecution()()
-	opts, err := getGRPCMetricEndpointOptions(mcfg)
-	require.NoError(t, err)
-	assert.Equal(t, expected, opts)
-}
-
-func TestMetricsSetupHTTP_Protocol(t *testing.T) {
-	testCases := []struct {
-		Endpoint               string
-		ProtoVal               Protocol
-		MetricProtoVal         Protocol
-		ExpectedProtoEnv       string
-		ExpectedMetricProtoEnv string
-	}{
-		{ProtoVal: "", MetricProtoVal: "", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "http/protobuf"},
-		{ProtoVal: "", MetricProtoVal: "foo", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "foo"},
-		{ProtoVal: "bar", MetricProtoVal: "", ExpectedProtoEnv: "bar", ExpectedMetricProtoEnv: ""},
-		{ProtoVal: "bar", MetricProtoVal: "foo", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "foo"},
-		{Endpoint: "http://foo:4317", ProtoVal: "", MetricProtoVal: "", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "grpc"},
-		{Endpoint: "http://foo:4317", ProtoVal: "", MetricProtoVal: "foo", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "foo"},
-		{Endpoint: "http://foo:4317", ProtoVal: "bar", MetricProtoVal: "", ExpectedProtoEnv: "bar", ExpectedMetricProtoEnv: ""},
-		{Endpoint: "http://foo:4317", ProtoVal: "bar", MetricProtoVal: "foo", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "foo"},
-		{Endpoint: "http://foo:14317", ProtoVal: "", MetricProtoVal: "", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "grpc"},
-		{Endpoint: "http://foo:14317", ProtoVal: "", MetricProtoVal: "foo", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "foo"},
-		{Endpoint: "http://foo:14317", ProtoVal: "bar", MetricProtoVal: "", ExpectedProtoEnv: "bar", ExpectedMetricProtoEnv: ""},
-		{Endpoint: "http://foo:14317", ProtoVal: "bar", MetricProtoVal: "foo", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "foo"},
-		{Endpoint: "http://foo:4318", ProtoVal: "", MetricProtoVal: "", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "http/protobuf"},
-		{Endpoint: "http://foo:4318", ProtoVal: "", MetricProtoVal: "foo", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "foo"},
-		{Endpoint: "http://foo:4318", ProtoVal: "bar", MetricProtoVal: "", ExpectedProtoEnv: "bar", ExpectedMetricProtoEnv: ""},
-		{Endpoint: "http://foo:4318", ProtoVal: "bar", MetricProtoVal: "foo", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "foo"},
-		{Endpoint: "http://foo:24318", ProtoVal: "", MetricProtoVal: "", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "http/protobuf"},
-		{Endpoint: "http://foo:24318", ProtoVal: "", MetricProtoVal: "foo", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "foo"},
-		{Endpoint: "http://foo:24318", ProtoVal: "bar", MetricProtoVal: "", ExpectedProtoEnv: "bar", ExpectedMetricProtoEnv: ""},
-		{Endpoint: "http://foo:24318", ProtoVal: "bar", MetricProtoVal: "foo", ExpectedProtoEnv: "", ExpectedMetricProtoEnv: "foo"},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.Endpoint+"/"+string(tc.ProtoVal)+"/"+string(tc.MetricProtoVal), func(t *testing.T) {
-			defer restoreEnvAfterExecution()()
-			_, err := getHTTPMetricEndpointOptions(&MetricsConfig{
-				CommonEndpoint:   "http://host:3333",
-				MetricsEndpoint:  tc.Endpoint,
-				Protocol:         tc.ProtoVal,
-				MetricsProtocol:  tc.MetricProtoVal,
-				Instrumentations: []string{instrumentations.InstrumentationHTTP},
-			})
-			require.NoError(t, err)
-			assert.Equal(t, tc.ExpectedProtoEnv, os.Getenv(envProtocol))
-			assert.Equal(t, tc.ExpectedMetricProtoEnv, os.Getenv(envMetricsProtocol))
-		})
-	}
-}
-
-func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
-	t.Run("setting both variables", func(t *testing.T) {
-		defer restoreEnvAfterExecution()()
-		t.Setenv(envProtocol, "foo-proto")
-		t.Setenv(envMetricsProtocol, "bar-proto")
-		_, err := getHTTPMetricEndpointOptions(&MetricsConfig{
-			CommonEndpoint: "http://host:3333", Protocol: "foo", MetricsProtocol: "bar", Instrumentations: []string{instrumentations.InstrumentationHTTP},
-		})
-		require.NoError(t, err)
-		assert.Equal(t, "foo-proto", os.Getenv(envProtocol))
-		assert.Equal(t, "bar-proto", os.Getenv(envMetricsProtocol))
-	})
-	t.Run("setting only proto env var", func(t *testing.T) {
-		defer restoreEnvAfterExecution()()
-		t.Setenv(envProtocol, "foo-proto")
-		_, err := getHTTPMetricEndpointOptions(&MetricsConfig{
-			CommonEndpoint: "http://host:3333", Protocol: "foo", Instrumentations: []string{instrumentations.InstrumentationHTTP},
-		})
-		require.NoError(t, err)
-		_, ok := os.LookupEnv(envMetricsProtocol)
-		assert.False(t, ok)
-		assert.Equal(t, "foo-proto", os.Getenv(envProtocol))
-	})
-}
-
 type InstrTest struct {
 	name      string
 	instr     []string
@@ -326,7 +136,7 @@ type InstrTest struct {
 }
 
 func TestAppMetrics_ByInstrumentation(t *testing.T) {
-	defer restoreEnvAfterExecution()()
+	defer otelcfg.RestoreEnvAfterExecution()()
 
 	tests := []InstrTest{
 		{
@@ -426,9 +236,6 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			otlp, err := collector.Start(ctx)
 			require.NoError(t, err)
 
-			now := syncedClock{now: time.Now()}
-			timeNow = now.Now
-
 			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 			otelExporter := makeExporter(ctx, t, tt.instr, otlp, metrics)
 
@@ -477,15 +284,15 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				assert.Equal(t, tt.expected[i], m[i].Name)
 			}
 
-			restoreEnvAfterExecution()
+			otelcfg.RestoreEnvAfterExecution()
 		})
 	}
 }
 
 func TestAppMetrics_ResourceAttributes(t *testing.T) {
-	defer restoreEnvAfterExecution()()
+	defer otelcfg.RestoreEnvAfterExecution()()
 
-	t.Setenv(envResourceAttrs, "deployment.environment=production,source=upstream.beyla")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=production,source=upstream.beyla")
 
 	ctx := t.Context()
 
@@ -511,36 +318,9 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	assert.Equal(t, "upstream.beyla", attributes["source"])
 }
 
-func TestMetricsConfig_Enabled(t *testing.T) {
-	assert.True(t, (&MetricsConfig{Features: []string{FeatureApplication, FeatureNetwork}, CommonEndpoint: "foo"}).Enabled())
-	assert.True(t, (&MetricsConfig{Features: []string{FeatureApplication}, MetricsEndpoint: "foo"}).Enabled())
-	assert.True(t, (&MetricsConfig{MetricsEndpoint: "foo", Features: []string{FeatureNetwork}}).Enabled())
-	assert.True(t, (&MetricsConfig{
-		Features:             []string{FeatureNetwork},
-		OTLPEndpointProvider: func() (string, bool) { return "something", false },
-	}).Enabled())
-	assert.True(t, (&MetricsConfig{
-		Features:             []string{FeatureNetwork},
-		OTLPEndpointProvider: func() (string, bool) { return "something", true },
-	}).Enabled())
-}
-
-func TestMetricsConfig_Disabled(t *testing.T) {
-	assert.False(t, (&MetricsConfig{Features: []string{FeatureApplication}}).Enabled())
-	assert.False(t, (&MetricsConfig{Features: []string{FeatureNetwork, FeatureApplication}}).Enabled())
-	assert.False(t, (&MetricsConfig{Features: []string{FeatureNetwork}}).Enabled())
-	// application feature is not enabled
-	assert.False(t, (&MetricsConfig{CommonEndpoint: "foo"}).Enabled())
-	assert.False(t, (&MetricsConfig{}).Enabled())
-	assert.False(t, (&MetricsConfig{
-		Features:             []string{FeatureApplication},
-		OTLPEndpointProvider: func() (string, bool) { return "", false },
-	}).Enabled())
-}
-
 func TestMetricsDiscarded(t *testing.T) {
-	mc := MetricsConfig{
-		Features: []string{FeatureApplication},
+	mc := otelcfg.MetricsConfig{
+		Features: []string{otelcfg.FeatureApplication},
 	}
 	mr := MetricsReporter{
 		cfg: &mc,
@@ -584,8 +364,8 @@ func TestMetricsDiscarded(t *testing.T) {
 }
 
 func TestSpanMetricsDiscarded(t *testing.T) {
-	mc := MetricsConfig{
-		Features: []string{FeatureApplication},
+	mc := otelcfg.MetricsConfig{
+		Features: []string{otelcfg.FeatureApplication},
 	}
 	mr := MetricsReporter{
 		cfg: &mc,
@@ -628,22 +408,9 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 	}
 }
 
-func TestMetricsInterval(t *testing.T) {
-	cfg := MetricsConfig{
-		OTELIntervalMS: 60_000,
-	}
-	t.Run("If only OTEL is defined, it uses that value", func(t *testing.T) {
-		assert.Equal(t, 60*time.Second, cfg.GetInterval())
-	})
-	cfg.Interval = 5 * time.Second
-	t.Run("Beyla interval takes precedence over OTEL", func(t *testing.T) {
-		assert.Equal(t, 5*time.Second, cfg.GetInterval())
-	})
-}
-
 func TestProcessPIDEvents(t *testing.T) {
-	mc := MetricsConfig{
-		Features: []string{FeatureApplication},
+	mc := otelcfg.MetricsConfig{
+		Features: []string{otelcfg.FeatureApplication},
 	}
 	mr := MetricsReporter{
 		cfg:        &mc,
@@ -728,16 +495,18 @@ func makeExporter(
 ) swarm.RunFunc {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		CommonEndpoint:    otlp.ServerEndpoint,
+		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
+		Features:          []string{otelcfg.FeatureApplication},
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 100,
+		Instrumentations:  instrumentations,
+	}
 	otelExporter, err := ReportMetrics(
-		&global.ContextInfo{}, &MetricsConfig{
-			Interval:          50 * time.Millisecond,
-			CommonEndpoint:    otlp.ServerEndpoint,
-			MetricsProtocol:   ProtocolHTTPProtobuf,
-			Features:          []string{FeatureApplication},
-			TTL:               30 * time.Minute,
-			ReportersCacheLen: 100,
-			Instrumentations:  instrumentations,
-		}, &attributes.SelectorConfig{
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg, &attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
 					Include: []string{"url.path"},

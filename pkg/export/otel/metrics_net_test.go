@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
@@ -19,7 +21,7 @@ import (
 )
 
 func TestMetricAttributes(t *testing.T) {
-	defer restoreEnvAfterExecution()()
+	defer otelcfg.RestoreEnvAfterExecution()()
 	in := &ebpf.Record{
 		NetFlowRecordT: ebpf.NetFlowRecordT{
 			Id: ebpf.NetFlowId{
@@ -41,19 +43,21 @@ func TestMetricAttributes(t *testing.T) {
 	in.Id.SrcIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
 	in.Id.DstIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
 
-	me, err := newMetricsExporter(t.Context(),
-		&global.ContextInfo{MetricAttributeGroups: attributes.GroupKubernetes},
-		&NetMetricsConfig{SelectorCfg: &attributes.SelectorConfig{
-			SelectionCfg: map[attributes.Section]attributes.InclusionLists{
-				attributes.NetworkFlow.Section: {Include: []string{"*"}},
-			},
-		}, Metrics: &MetricsConfig{
-			MetricsEndpoint:   "http://foo",
-			Interval:          10 * time.Millisecond,
-			ReportersCacheLen: 100,
-			TTL:               5 * time.Minute,
-			Features:          []string{FeatureNetwork, FeatureNetworkInterZone},
-		}}, msg.NewQueue[[]*ebpf.Record]())
+	mcfg := &otelcfg.MetricsConfig{
+		MetricsEndpoint:   "http://foo",
+		Interval:          10 * time.Millisecond,
+		ReportersCacheLen: 100,
+		TTL:               5 * time.Minute,
+		Features:          []string{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
+	}
+	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
+		MetricAttributeGroups: attributes.GroupKubernetes,
+		OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	}, &NetMetricsConfig{SelectorCfg: &attributes.SelectorConfig{
+		SelectionCfg: map[attributes.Section]attributes.InclusionLists{
+			attributes.NetworkFlow.Section: {Include: []string{"*"}},
+		},
+	}, Metrics: mcfg}, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 
 	_, reportedAttributes := me.flowBytes.ForRecord(in)
@@ -77,7 +81,7 @@ func TestMetricAttributes(t *testing.T) {
 }
 
 func TestMetricAttributes_Filter(t *testing.T) {
-	defer restoreEnvAfterExecution()()
+	defer otelcfg.RestoreEnvAfterExecution()()
 	in := &ebpf.Record{
 		NetFlowRecordT: ebpf.NetFlowRecordT{
 			Id: ebpf.NetFlowId{
@@ -99,8 +103,16 @@ func TestMetricAttributes_Filter(t *testing.T) {
 	in.Id.SrcIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
 	in.Id.DstIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
 
-	me, err := newMetricsExporter(t.Context(),
-		&global.ContextInfo{MetricAttributeGroups: attributes.GroupKubernetes},
+	mcfg := &otelcfg.MetricsConfig{
+		MetricsEndpoint:   "http://foo",
+		Interval:          10 * time.Millisecond,
+		ReportersCacheLen: 100,
+		Features:          []string{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
+	}
+	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
+		MetricAttributeGroups: attributes.GroupKubernetes,
+		OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	},
 		&NetMetricsConfig{SelectorCfg: &attributes.SelectorConfig{
 			SelectionCfg: map[attributes.Section]attributes.InclusionLists{
 				attributes.NetworkFlow.Section: {Include: []string{
@@ -109,12 +121,7 @@ func TestMetricAttributes_Filter(t *testing.T) {
 					"k8s.dst.name",
 				}},
 			},
-		}, Metrics: &MetricsConfig{
-			MetricsEndpoint:   "http://foo",
-			Interval:          10 * time.Millisecond,
-			ReportersCacheLen: 100,
-			Features:          []string{FeatureNetwork, FeatureNetworkInterZone},
-		}}, msg.NewQueue[[]*ebpf.Record]())
+		}, Metrics: mcfg}, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 
 	_, reportedAttributes := me.flowBytes.ForRecord(in)
@@ -139,24 +146,24 @@ func TestMetricAttributes_Filter(t *testing.T) {
 }
 
 func TestNetMetricsConfig_Enabled(t *testing.T) {
-	assert.True(t, NetMetricsConfig{Metrics: &MetricsConfig{
-		Features: []string{FeatureApplication, FeatureNetwork}, CommonEndpoint: "foo",
+	assert.True(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{
+		Features: []string{otelcfg.FeatureApplication, otelcfg.FeatureNetwork}, CommonEndpoint: "foo",
 	}}.Enabled())
-	assert.True(t, NetMetricsConfig{Metrics: &MetricsConfig{
-		Features: []string{FeatureNetwork, FeatureApplication}, MetricsEndpoint: "foo",
+	assert.True(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{
+		Features: []string{otelcfg.FeatureNetwork, otelcfg.FeatureApplication}, MetricsEndpoint: "foo",
 	}}.Enabled())
 }
 
 func TestNetMetricsConfig_Disabled(t *testing.T) {
-	fa := []string{FeatureApplication}
-	fn := []string{FeatureNetwork}
-	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{Features: fn}}.Enabled())
-	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{Features: fn}}.Enabled())
-	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{Features: fn}}.Enabled())
+	fa := []string{otelcfg.FeatureApplication}
+	fn := []string{otelcfg.FeatureNetwork}
+	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
+	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
+	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
 	// network feature is not enabled
-	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{CommonEndpoint: "foo"}}.Enabled())
-	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{MetricsEndpoint: "foo", Features: fa}}.Enabled())
-	assert.False(t, NetMetricsConfig{Metrics: &MetricsConfig{}}.Enabled())
+	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{CommonEndpoint: "foo"}}.Enabled())
+	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{MetricsEndpoint: "foo", Features: fa}}.Enabled())
+	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{}}.Enabled())
 }
 
 func TestGetFilteredNetworkResourceAttrs(t *testing.T) {

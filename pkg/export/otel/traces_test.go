@@ -6,12 +6,12 @@ package otel
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 
@@ -66,308 +66,12 @@ func BenchmarkGenerateTraces(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		traces := GenerateTraces(cache, &span.Service, attrs, "host-id", group)
+		traces := generateTracesWithAttributes(cache, &span.Service, attrs, "host-id", group)
 
 		if traces.ResourceSpans().Len() == 0 {
 			b.Fatal("Generated traces is empty")
 		}
 	}
-}
-
-func TestHTTPTracesEndpoint(t *testing.T) {
-	defer restoreEnvAfterExecution()()
-	tcfg := TracesConfig{
-		CommonEndpoint:   "https://localhost:3131",
-		TracesEndpoint:   "https://localhost:3232/v1/traces",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
-	}
-
-	t.Run("testing with two endpoints", func(t *testing.T) {
-		testHTTPTracesOptions(t, otlpOptions{Scheme: "https", Endpoint: "localhost:3232", URLPath: "/v1/traces", Headers: map[string]string{}}, &tcfg)
-	})
-
-	tcfg = TracesConfig{
-		CommonEndpoint:   "https://localhost:3131/otlp",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
-	}
-
-	t.Run("testing with only common endpoint", func(t *testing.T) {
-		testHTTPTracesOptions(t, otlpOptions{Scheme: "https", Endpoint: "localhost:3131", BaseURLPath: "/otlp", URLPath: "/otlp/v1/traces", Headers: map[string]string{}}, &tcfg)
-	})
-
-	tcfg = TracesConfig{
-		CommonEndpoint:   "https://localhost:3131",
-		TracesEndpoint:   "http://localhost:3232",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
-	}
-	t.Run("testing with insecure endpoint", func(t *testing.T) {
-		testHTTPTracesOptions(t, otlpOptions{Scheme: "http", Endpoint: "localhost:3232", Insecure: true, Headers: map[string]string{}}, &tcfg)
-	})
-
-	tcfg = TracesConfig{
-		CommonEndpoint:     "https://localhost:3232",
-		InsecureSkipVerify: true,
-		Instrumentations:   []string{instrumentations.InstrumentationALL},
-	}
-
-	t.Run("testing with skip TLS verification", func(t *testing.T) {
-		testHTTPTracesOptions(t, otlpOptions{Scheme: "https", Endpoint: "localhost:3232", URLPath: "/v1/traces", SkipTLSVerify: true, Headers: map[string]string{}}, &tcfg)
-	})
-}
-
-func testHTTPTracesOptions(t *testing.T, expected otlpOptions, tcfg *TracesConfig) {
-	defer restoreEnvAfterExecution()()
-	opts, err := getHTTPTracesEndpointOptions(tcfg)
-	require.NoError(t, err)
-	assert.Equal(t, expected, opts)
-}
-
-func TestMissingSchemeInHTTPTracesEndpoint(t *testing.T) {
-	defer restoreEnvAfterExecution()()
-	opts, err := getHTTPTracesEndpointOptions(&TracesConfig{CommonEndpoint: "http://foo:3030", Instrumentations: []string{instrumentations.InstrumentationALL}})
-	require.NoError(t, err)
-	require.NotEmpty(t, opts)
-
-	_, err = getHTTPTracesEndpointOptions(&TracesConfig{CommonEndpoint: "foo:3030", Instrumentations: []string{instrumentations.InstrumentationALL}})
-	require.Error(t, err)
-
-	_, err = getHTTPTracesEndpointOptions(&TracesConfig{CommonEndpoint: "foo", Instrumentations: []string{instrumentations.InstrumentationALL}})
-	require.Error(t, err)
-}
-
-func TestHTTPTracesEndpointHeaders(t *testing.T) {
-	type testCase struct {
-		Description     string
-		Env             map[string]string
-		ExpectedHeaders map[string]string
-	}
-	for _, tc := range []testCase{
-		{
-			Description:     "No headers",
-			ExpectedHeaders: map[string]string{},
-		},
-		{
-			Description:     "defining common OTLP_HEADERS",
-			Env:             map[string]string{"OTEL_EXPORTER_OTLP_HEADERS": "Foo=Bar ==,Authorization=Base 2222=="},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 2222=="},
-		},
-		{
-			Description:     "defining common OTLP_TRACES_HEADERS",
-			Env:             map[string]string{"OTEL_EXPORTER_OTLP_TRACES_HEADERS": "Foo=Bar ==,Authorization=Base 1234=="},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1234=="},
-		},
-		{
-			Description: "OTLP_TRACES_HEADERS takes precedence over OTLP_HEADERS",
-			Env: map[string]string{
-				"OTEL_EXPORTER_OTLP_HEADERS":        "Foo=Bar ==,Authorization=Base 3210==",
-				"OTEL_EXPORTER_OTLP_TRACES_HEADERS": "Authorization=Base 1111==",
-			},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1111=="},
-		},
-	} {
-		// mutex to avoid running testcases in parallel so we don't mess up with env vars
-		mt := sync.Mutex{}
-		t.Run(tc.Description, func(t *testing.T) {
-			mt.Lock()
-			restore := restoreEnvAfterExecution()
-			defer func() {
-				restore()
-				mt.Unlock()
-			}()
-			for k, v := range tc.Env {
-				t.Setenv(k, v)
-			}
-
-			opts, err := getHTTPTracesEndpointOptions(&TracesConfig{
-				TracesEndpoint:   "https://localhost:1234/v1/traces",
-				Instrumentations: []string{instrumentations.InstrumentationALL},
-			})
-			require.NoError(t, err)
-			assert.Equal(t, tc.ExpectedHeaders, opts.Headers)
-		})
-	}
-}
-
-func TestGRPCTracesEndpointOptions(t *testing.T) {
-	defer restoreEnvAfterExecution()()
-	t.Run("do not accept URLs without a scheme", func(t *testing.T) {
-		_, err := getGRPCTracesEndpointOptions(&TracesConfig{CommonEndpoint: "foo:3939", Instrumentations: []string{instrumentations.InstrumentationALL}})
-		require.Error(t, err)
-	})
-	tcfg := TracesConfig{
-		CommonEndpoint:   "https://localhost:3131",
-		TracesEndpoint:   "https://localhost:3232",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
-	}
-
-	t.Run("testing with two endpoints", func(t *testing.T) {
-		testTracesGRPCOptions(t, otlpOptions{Endpoint: "localhost:3232", Headers: map[string]string{}}, &tcfg)
-	})
-
-	tcfg = TracesConfig{
-		CommonEndpoint:   "https://localhost:3131",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
-	}
-
-	t.Run("testing with only common endpoint", func(t *testing.T) {
-		testTracesGRPCOptions(t, otlpOptions{Endpoint: "localhost:3131", Headers: map[string]string{}}, &tcfg)
-	})
-
-	tcfg = TracesConfig{
-		CommonEndpoint:   "https://localhost:3131",
-		TracesEndpoint:   "http://localhost:3232",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
-	}
-	t.Run("testing with insecure endpoint", func(t *testing.T) {
-		testTracesGRPCOptions(t, otlpOptions{Endpoint: "localhost:3232", Insecure: true, Headers: map[string]string{}}, &tcfg)
-	})
-
-	tcfg = TracesConfig{
-		CommonEndpoint:     "https://localhost:3232",
-		InsecureSkipVerify: true,
-		Instrumentations:   []string{instrumentations.InstrumentationALL},
-	}
-
-	t.Run("testing with skip TLS verification", func(t *testing.T) {
-		testTracesGRPCOptions(t, otlpOptions{Endpoint: "localhost:3232", SkipTLSVerify: true, Headers: map[string]string{}}, &tcfg)
-	})
-}
-
-func TestGRPCTracesEndpointHeaders(t *testing.T) {
-	type testCase struct {
-		Description     string
-		Env             map[string]string
-		ExpectedHeaders map[string]string
-	}
-	for _, tc := range []testCase{
-		{
-			Description:     "No headers",
-			ExpectedHeaders: map[string]string{},
-		},
-		{
-			Description:     "defining common OTLP_HEADERS",
-			Env:             map[string]string{"OTEL_EXPORTER_OTLP_HEADERS": "Foo=Bar ==,Authorization=Base 2222=="},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 2222=="},
-		},
-		{
-			Description:     "defining common OTLP_TRACES_HEADERS",
-			Env:             map[string]string{"OTEL_EXPORTER_OTLP_TRACES_HEADERS": "Foo=Bar ==,Authorization=Base 1234=="},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1234=="},
-		},
-		{
-			Description: "OTLP_TRACES_HEADERS takes precedence over OTLP_HEADERS",
-			Env: map[string]string{
-				"OTEL_EXPORTER_OTLP_HEADERS":        "Foo=Bar ==,Authorization=Base 3210==",
-				"OTEL_EXPORTER_OTLP_TRACES_HEADERS": "Authorization=Base 1111==",
-			},
-			ExpectedHeaders: map[string]string{"Foo": "Bar ==", "Authorization": "Base 1111=="},
-		},
-	} {
-		// mutex to avoid running testcases in parallel so we don't mess up with env vars
-		mt := sync.Mutex{}
-		t.Run(tc.Description, func(t *testing.T) {
-			mt.Lock()
-			restore := restoreEnvAfterExecution()
-			defer func() {
-				restore()
-				mt.Unlock()
-			}()
-			for k, v := range tc.Env {
-				t.Setenv(k, v)
-			}
-
-			opts, err := getGRPCTracesEndpointOptions(&TracesConfig{
-				TracesEndpoint:   "https://localhost:1234/v1/traces",
-				Instrumentations: []string{instrumentations.InstrumentationALL},
-			})
-			require.NoError(t, err)
-			assert.Equal(t, tc.ExpectedHeaders, opts.Headers)
-		})
-	}
-}
-
-func testTracesGRPCOptions(t *testing.T, expected otlpOptions, tcfg *TracesConfig) {
-	defer restoreEnvAfterExecution()()
-	opts, err := getGRPCTracesEndpointOptions(tcfg)
-	require.NoError(t, err)
-	assert.Equal(t, expected, opts)
-}
-
-func TestTracesSetupHTTP_Protocol(t *testing.T) {
-	testCases := []struct {
-		Endpoint              string
-		ProtoVal              Protocol
-		TraceProtoVal         Protocol
-		ExpectedProtoEnv      string
-		ExpectedTraceProtoEnv string
-	}{
-		{ProtoVal: "", TraceProtoVal: "", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "http/protobuf"},
-		{ProtoVal: "", TraceProtoVal: "foo", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "foo"},
-		{ProtoVal: "bar", TraceProtoVal: "", ExpectedProtoEnv: "bar", ExpectedTraceProtoEnv: ""},
-		{ProtoVal: "bar", TraceProtoVal: "foo", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "foo"},
-		{Endpoint: "http://foo:4317", ProtoVal: "", TraceProtoVal: "", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "grpc"},
-		{Endpoint: "http://foo:4317", ProtoVal: "", TraceProtoVal: "foo", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "foo"},
-		{Endpoint: "http://foo:4317", ProtoVal: "bar", TraceProtoVal: "", ExpectedProtoEnv: "bar", ExpectedTraceProtoEnv: ""},
-		{Endpoint: "http://foo:4317", ProtoVal: "bar", TraceProtoVal: "foo", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "foo"},
-		{Endpoint: "http://foo:14317", ProtoVal: "", TraceProtoVal: "", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "grpc"},
-		{Endpoint: "http://foo:14317", ProtoVal: "", TraceProtoVal: "foo", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "foo"},
-		{Endpoint: "http://foo:14317", ProtoVal: "bar", TraceProtoVal: "", ExpectedProtoEnv: "bar", ExpectedTraceProtoEnv: ""},
-		{Endpoint: "http://foo:14317", ProtoVal: "bar", TraceProtoVal: "foo", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "foo"},
-		{Endpoint: "http://foo:4318", ProtoVal: "", TraceProtoVal: "", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "http/protobuf"},
-		{Endpoint: "http://foo:4318", ProtoVal: "", TraceProtoVal: "foo", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "foo"},
-		{Endpoint: "http://foo:4318", ProtoVal: "bar", TraceProtoVal: "", ExpectedProtoEnv: "bar", ExpectedTraceProtoEnv: ""},
-		{Endpoint: "http://foo:4318", ProtoVal: "bar", TraceProtoVal: "foo", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "foo"},
-		{Endpoint: "http://foo:24318", ProtoVal: "", TraceProtoVal: "", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "http/protobuf"},
-		{Endpoint: "http://foo:24318", ProtoVal: "", TraceProtoVal: "foo", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "foo"},
-		{Endpoint: "http://foo:24318", ProtoVal: "bar", TraceProtoVal: "", ExpectedProtoEnv: "bar", ExpectedTraceProtoEnv: ""},
-		{Endpoint: "http://foo:24318", ProtoVal: "bar", TraceProtoVal: "foo", ExpectedProtoEnv: "", ExpectedTraceProtoEnv: "foo"},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.Endpoint+"/"+string(tc.ProtoVal)+"/"+string(tc.TraceProtoVal), func(t *testing.T) {
-			defer restoreEnvAfterExecution()()
-			_, err := getHTTPTracesEndpointOptions(&TracesConfig{
-				CommonEndpoint:   "http://host:3333",
-				TracesEndpoint:   tc.Endpoint,
-				Protocol:         tc.ProtoVal,
-				TracesProtocol:   tc.TraceProtoVal,
-				Instrumentations: []string{instrumentations.InstrumentationALL},
-			})
-			require.NoError(t, err)
-			assert.Equal(t, tc.ExpectedProtoEnv, os.Getenv(envProtocol))
-			assert.Equal(t, tc.ExpectedTraceProtoEnv, os.Getenv(envTracesProtocol))
-		})
-	}
-}
-
-func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
-	defer restoreEnvAfterExecution()()
-	t.Run("setting both variables", func(t *testing.T) {
-		defer restoreEnvAfterExecution()()
-		t.Setenv(envProtocol, "foo-proto")
-		t.Setenv(envTracesProtocol, "bar-proto")
-		_, err := getHTTPTracesEndpointOptions(&TracesConfig{
-			CommonEndpoint:   "http://host:3333",
-			Protocol:         "foo",
-			TracesProtocol:   "bar",
-			Instrumentations: []string{instrumentations.InstrumentationALL},
-		})
-		require.NoError(t, err)
-		assert.Equal(t, "foo-proto", os.Getenv(envProtocol))
-		assert.Equal(t, "bar-proto", os.Getenv(envTracesProtocol))
-	})
-	t.Run("setting only proto env var", func(t *testing.T) {
-		defer restoreEnvAfterExecution()()
-		t.Setenv(envProtocol, "foo-proto")
-		_, err := getHTTPTracesEndpointOptions(&TracesConfig{
-			CommonEndpoint:   "http://host:3333",
-			Protocol:         "foo",
-			Instrumentations: []string{instrumentations.InstrumentationALL},
-		})
-		require.NoError(t, err)
-		_, ok := os.LookupEnv(envTracesProtocol)
-		assert.False(t, ok)
-		assert.Equal(t, "foo-proto", os.Getenv(envProtocol))
-	})
 }
 
 func groupFromSpanAndAttributes(span *request.Span, attrs []attribute.KeyValue) []TraceSpanAndAttributes {
@@ -396,7 +100,7 @@ func TestGenerateTraces(t *testing.T) {
 			Service:      svc.Attrs{UID: svc.UID{Name: "1"}},
 		}
 
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -441,7 +145,7 @@ func TestGenerateTraces(t *testing.T) {
 			SpanID:       spanID,
 			TraceID:      traceID,
 		}
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -477,7 +181,7 @@ func TestGenerateTraces(t *testing.T) {
 			Route:        "/test",
 			Status:       200,
 		}
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -514,7 +218,7 @@ func TestGenerateTraces(t *testing.T) {
 			SpanID:       spanID,
 			TraceID:      traceID,
 		}
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -540,7 +244,7 @@ func TestGenerateTraces(t *testing.T) {
 			TraceID:      traceID,
 		}
 
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -560,7 +264,7 @@ func TestGenerateTraces(t *testing.T) {
 			Method:       "GET",
 			Route:        "/test",
 		}
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -575,8 +279,8 @@ func TestGenerateTraces(t *testing.T) {
 func TestGenerateTracesAttributes(t *testing.T) {
 	t.Run("test SQL trace generation, no statement", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
-		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{})
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{})
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -597,8 +301,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password, name FROM credentials WHERE username=\"bill\"")
-		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{"db.operation.name": {}})
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -619,8 +323,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
-		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -641,8 +345,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test SQL trace generation, error", func(t *testing.T) {
 		span := makeSQLRequestErroredSpan("SELECT * FROM obi.nonexisting")
-		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -669,8 +373,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test Kafka trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeKafkaClient, Method: "process", Path: "important-topic", Statement: "test"}
-		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{})
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{})
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -688,8 +392,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test Mongo trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase", Status: 0}
-		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{"db.operation.name": {}})
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -711,8 +415,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 	t.Run("test Mongo trace generation with error", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase", Status: 1, DBError: request.DBError{ErrorCode: "1", Description: "Internal MongoDB error"}}
-		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{"db.operation.name": {}})
-		traces := GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -735,12 +439,12 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, "Internal MongoDB error", spans.At(0).Status().Message())
 	})
 	t.Run("test env var resource attributes", func(t *testing.T) {
-		defer restoreEnvAfterExecution()()
-		t.Setenv(envResourceAttrs, "deployment.environment=productions,source.upstream=beyla")
+		defer otelcfg.RestoreEnvAfterExecution()()
+		t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=productions,source.upstream=beyla")
 		span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Route: "/test", Status: 200}
 
-		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{})
-		traces := GenerateTraces(cache, &span.Service, ResourceAttrsFromEnv(&span.Service), "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{})
+		traces := generateTracesWithAttributes(cache, &span.Service, otelcfg.ResourceAttrsFromEnv(&span.Service), "host-id", groupFromSpanAndAttributes(&span, tAttrs))
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		rs := traces.ResourceSpans().At(0)
@@ -751,9 +455,9 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	t.Run("override resource attributes", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Route: "/test", Status: 200}
 
-		tAttrs := TraceAttributes(&span, map[attr.Name]struct{}{})
-		traces := GenerateTraces(cache, &span.Service,
-			ResourceAttrsFromEnv(&span.Service), "host-id",
+		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{})
+		traces := generateTracesWithAttributes(cache, &span.Service,
+			otelcfg.ResourceAttrsFromEnv(&span.Service), "host-id",
 			groupFromSpanAndAttributes(&span, tAttrs),
 			attribute.String("deployment.environment", "productions"),
 			attribute.String("source.upstream", "OBI"),
@@ -1011,15 +715,6 @@ func TestCodeToStatusCode(t *testing.T) {
 	})
 }
 
-func TestTracesConfig_Enabled(t *testing.T) {
-	assert.True(t, (&TracesConfig{CommonEndpoint: "foo"}).Enabled())
-	assert.True(t, (&TracesConfig{TracesEndpoint: "foo"}).Enabled())
-}
-
-func TestTracesConfig_Disabled(t *testing.T) {
-	assert.False(t, (&TracesConfig{}).Enabled())
-}
-
 func TestSpanHostPeer(t *testing.T) {
 	sp := request.Span{
 		HostName: "localhost",
@@ -1202,35 +897,6 @@ func TestTracesSkipsInstrumented(t *testing.T) {
 			traces := generateTracesForSpans(t, tr, tt.spans)
 			assert.Equal(t, tt.filtered, len(traces) == 0, tt.name)
 		})
-	}
-}
-
-// stores the values of some modified env vars to avoid
-// interferences between cases. Must be invoked as:
-// defer restoreEnvAfterExecution()()
-func restoreEnvAfterExecution() func() {
-	vals := []*struct {
-		name   string
-		val    string
-		exists bool
-	}{
-		{name: envTracesProtocol},
-		{name: envMetricsProtocol},
-		{name: envProtocol},
-		{name: envHeaders},
-		{name: envTracesHeaders},
-	}
-	for _, v := range vals {
-		v.val, v.exists = os.LookupEnv(v.name)
-	}
-	return func() {
-		for _, v := range vals {
-			if v.exists {
-				os.Setenv(v.name, v.val)
-			} else {
-				os.Unsetenv(v.name)
-			}
-		}
 	}
 }
 
@@ -1464,7 +1130,7 @@ func TestHostPeerAttributes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			attrs := TraceAttributes(&tt.span, nil)
+			attrs := traceAttributes(&tt.span, nil)
 			if tt.server != "" {
 				var found attribute.KeyValue
 				for _, a := range attrs {
@@ -1562,7 +1228,7 @@ func ensureTraceAttrNotExists(t *testing.T, attrs pcommon.Map, key attribute.Key
 
 func makeTracesTestReceiver(instr []string) *tracesOTELReceiver {
 	return makeTracesReceiver(
-		TracesConfig{
+		otelcfg.TracesConfig{
 			CommonEndpoint:    "http://something",
 			BatchTimeout:      10 * time.Millisecond,
 			ReportersCacheLen: 16,
@@ -1577,7 +1243,7 @@ func makeTracesTestReceiver(instr []string) *tracesOTELReceiver {
 
 func makeTracesTestReceiverWithSpanMetrics(instr []string) *tracesOTELReceiver {
 	return makeTracesReceiver(
-		TracesConfig{
+		otelcfg.TracesConfig{
 			CommonEndpoint:    "http://something",
 			BatchTimeout:      10 * time.Millisecond,
 			ReportersCacheLen: 16,
@@ -1592,16 +1258,16 @@ func makeTracesTestReceiverWithSpanMetrics(instr []string) *tracesOTELReceiver {
 
 func generateTracesForSpans(t *testing.T, tr *tracesOTELReceiver, spans []request.Span) []ptrace.Traces {
 	res := []ptrace.Traces{}
-	traceAttrs, err := GetUserSelectedAttributes(tr.selectorCfg)
+	traceAttrs, err := userSelectedAttributes(tr.selectorCfg)
 	require.NoError(t, err)
 	for i := range spans {
 		span := &spans[i]
 		if spanDiscarded(span, tr.is) {
 			continue
 		}
-		tAttrs := TraceAttributes(span, traceAttrs)
+		tAttrs := traceAttributes(span, traceAttrs)
 
-		res = append(res, GenerateTraces(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, tAttrs)))
+		res = append(res, generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, tAttrs)))
 	}
 
 	return res

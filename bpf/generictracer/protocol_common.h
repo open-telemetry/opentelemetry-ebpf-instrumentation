@@ -53,8 +53,8 @@ static __always_inline u8 request_type_by_direction(u8 direction, u8 packet_type
     return 0;
 }
 
-static __always_inline http_connection_metadata_t *
-connection_meta_by_direction(pid_connection_info_t *pid_conn, u8 direction, u8 packet_type) {
+static __always_inline http_connection_metadata_t *connection_meta_by_direction(u8 direction,
+                                                                                u8 packet_type) {
     http_connection_metadata_t *meta = empty_connection_meta();
     if (!meta) {
         return 0;

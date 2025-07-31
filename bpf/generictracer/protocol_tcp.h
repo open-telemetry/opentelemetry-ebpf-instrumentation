@@ -114,7 +114,7 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
         break;
     case k_protocol_type_postgres:
         if (postgres_buffer_size > 0) {
-            ret = postgres_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
+            ret = postgres_send_large_buffer(req, u_buf, bytes_len, direction, action);
         }
         break;
     case k_protocol_type_unknown:
@@ -257,6 +257,8 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 // k_tail_protocol_tcp
 SEC("kprobe/tcp")
 int obi_protocol_tcp(void *ctx) {
+    (void)ctx;
+
     call_protocol_args_t *args = protocol_args();
 
     if (!args) {

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"text/template"
 
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+
 	"golang.org/x/sync/errgroup"
 
 	"go.opentelemetry.io/obi/pkg/components/appolly"
@@ -172,6 +174,7 @@ func buildCommonContextInfo(
 			RestrictLocalNode:   config.Attributes.Kubernetes.MetaRestrictLocalNode,
 			ServiceNameTemplate: templ,
 		}),
+		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: &config.Metrics},
 	}
 	if config.Attributes.HostID.Override == "" {
 		ctxInfo.FetchHostID(ctx, config.Attributes.HostID.FetchTimeout)

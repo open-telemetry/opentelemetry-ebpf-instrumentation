@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"time"
 
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+
 	"github.com/caarlos0/env/v9"
 	"gopkg.in/yaml.v3"
 
@@ -86,23 +88,23 @@ var DefaultConfig = Config{
 		CacheLen: 1024,
 		CacheTTL: 5 * time.Minute,
 	},
-	Metrics: otel.MetricsConfig{
-		Protocol:        otel.ProtocolUnset,
-		MetricsProtocol: otel.ProtocolUnset,
+	Metrics: otelcfg.MetricsConfig{
+		Protocol:        otelcfg.ProtocolUnset,
+		MetricsProtocol: otelcfg.ProtocolUnset,
 		// Matches Alloy and Grafana recommended scrape interval
 		OTELIntervalMS:       60_000,
-		Buckets:              otel.DefaultBuckets,
+		Buckets:              otelcfg.DefaultBuckets,
 		ReportersCacheLen:    ReporterLRUSize,
 		HistogramAggregation: otel.AggregationExplicit,
-		Features:             []string{otel.FeatureApplication},
+		Features:             []string{otelcfg.FeatureApplication},
 		Instrumentations: []string{
 			instrumentations.InstrumentationALL,
 		},
 		TTL: defaultMetricsTTL,
 	},
-	Traces: otel.TracesConfig{
-		Protocol:          otel.ProtocolUnset,
-		TracesProtocol:    otel.ProtocolUnset,
+	Traces: otelcfg.TracesConfig{
+		Protocol:          otelcfg.ProtocolUnset,
+		TracesProtocol:    otelcfg.ProtocolUnset,
 		MaxQueueSize:      4096,
 		ReportersCacheLen: ReporterLRUSize,
 		Instrumentations: []string{
@@ -111,8 +113,8 @@ var DefaultConfig = Config{
 	},
 	Prometheus: prom.PrometheusConfig{
 		Path:     "/metrics",
-		Buckets:  otel.DefaultBuckets,
-		Features: []string{otel.FeatureApplication},
+		Buckets:  otelcfg.DefaultBuckets,
+		Features: []string{otelcfg.FeatureApplication},
 		Instrumentations: []string{
 			instrumentations.InstrumentationALL,
 		},
@@ -180,8 +182,8 @@ type Config struct {
 	// Routes is an optional node. If not set, data will be directly forwarded to exporters.
 	Routes       *transform.RoutesConfig       `yaml:"routes"`
 	NameResolver *transform.NameResolverConfig `yaml:"name_resolver"`
-	Metrics      otel.MetricsConfig            `yaml:"otel_metrics_export"`
-	Traces       otel.TracesConfig             `yaml:"otel_traces_export"`
+	Metrics      otelcfg.MetricsConfig         `yaml:"otel_metrics_export"`
+	Traces       otelcfg.TracesConfig          `yaml:"otel_traces_export"`
 	Prometheus   prom.PrometheusConfig         `yaml:"prometheus_export"`
 	TracePrinter debug.TracePrinter            `yaml:"trace_printer" env:"OTEL_EBPF_TRACE_PRINTER"`
 
