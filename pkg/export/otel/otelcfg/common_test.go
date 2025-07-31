@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package otel
+package otelcfg
 
 import (
 	"fmt"
@@ -17,17 +17,17 @@ import (
 
 func TestOtlpOptions_AsMetricHTTP(t *testing.T) {
 	type testCase struct {
-		in  otlpOptions
+		in  OTLPOptions
 		len int
 	}
 	testCases := []testCase{
-		{in: otlpOptions{Endpoint: "foo"}, len: 1},
-		{in: otlpOptions{Endpoint: "foo", Insecure: true}, len: 2},
-		{in: otlpOptions{Endpoint: "foo", URLPath: "/foo"}, len: 2},
-		{in: otlpOptions{Endpoint: "foo", SkipTLSVerify: true}, len: 2},
-		{in: otlpOptions{Endpoint: "foo", Insecure: true, SkipTLSVerify: true}, len: 3},
-		{in: otlpOptions{Endpoint: "foo", URLPath: "/foo", SkipTLSVerify: true}, len: 3},
-		{in: otlpOptions{Endpoint: "foo", URLPath: "/foo", Insecure: true, SkipTLSVerify: true}, len: 4},
+		{in: OTLPOptions{Endpoint: "foo"}, len: 1},
+		{in: OTLPOptions{Endpoint: "foo", Insecure: true}, len: 2},
+		{in: OTLPOptions{Endpoint: "foo", URLPath: "/foo"}, len: 2},
+		{in: OTLPOptions{Endpoint: "foo", SkipTLSVerify: true}, len: 2},
+		{in: OTLPOptions{Endpoint: "foo", Insecure: true, SkipTLSVerify: true}, len: 3},
+		{in: OTLPOptions{Endpoint: "foo", URLPath: "/foo", SkipTLSVerify: true}, len: 3},
+		{in: OTLPOptions{Endpoint: "foo", URLPath: "/foo", Insecure: true, SkipTLSVerify: true}, len: 4},
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprint(tc), func(t *testing.T) {
@@ -38,14 +38,14 @@ func TestOtlpOptions_AsMetricHTTP(t *testing.T) {
 
 func TestOtlpOptions_AsMetricGRPC(t *testing.T) {
 	type testCase struct {
-		in  otlpOptions
+		in  OTLPOptions
 		len int
 	}
 	testCases := []testCase{
-		{in: otlpOptions{Endpoint: "foo"}, len: 1},
-		{in: otlpOptions{Endpoint: "foo", Insecure: true}, len: 2},
-		{in: otlpOptions{Endpoint: "foo", SkipTLSVerify: true}, len: 2},
-		{in: otlpOptions{Endpoint: "foo", Insecure: true, SkipTLSVerify: true}, len: 3},
+		{in: OTLPOptions{Endpoint: "foo"}, len: 1},
+		{in: OTLPOptions{Endpoint: "foo", Insecure: true}, len: 2},
+		{in: OTLPOptions{Endpoint: "foo", SkipTLSVerify: true}, len: 2},
+		{in: OTLPOptions{Endpoint: "foo", Insecure: true, SkipTLSVerify: true}, len: 3},
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprint(tc), func(t *testing.T) {
@@ -56,17 +56,17 @@ func TestOtlpOptions_AsMetricGRPC(t *testing.T) {
 
 func TestOtlpOptions_AsTraceHTTP(t *testing.T) {
 	type testCase struct {
-		in  otlpOptions
+		in  OTLPOptions
 		len int
 	}
 	testCases := []testCase{
-		{in: otlpOptions{Endpoint: "foo"}, len: 1},
-		{in: otlpOptions{Endpoint: "foo", Insecure: true}, len: 2},
-		{in: otlpOptions{Endpoint: "foo", URLPath: "/foo"}, len: 2},
-		{in: otlpOptions{Endpoint: "foo", SkipTLSVerify: true}, len: 2},
-		{in: otlpOptions{Endpoint: "foo", Insecure: true, SkipTLSVerify: true}, len: 3},
-		{in: otlpOptions{Endpoint: "foo", URLPath: "/foo", SkipTLSVerify: true}, len: 3},
-		{in: otlpOptions{Endpoint: "foo", URLPath: "/foo", Insecure: true, SkipTLSVerify: true}, len: 4},
+		{in: OTLPOptions{Endpoint: "foo"}, len: 1},
+		{in: OTLPOptions{Endpoint: "foo", Insecure: true}, len: 2},
+		{in: OTLPOptions{Endpoint: "foo", URLPath: "/foo"}, len: 2},
+		{in: OTLPOptions{Endpoint: "foo", SkipTLSVerify: true}, len: 2},
+		{in: OTLPOptions{Endpoint: "foo", Insecure: true, SkipTLSVerify: true}, len: 3},
+		{in: OTLPOptions{Endpoint: "foo", URLPath: "/foo", SkipTLSVerify: true}, len: 3},
+		{in: OTLPOptions{Endpoint: "foo", URLPath: "/foo", Insecure: true, SkipTLSVerify: true}, len: 4},
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprint(tc), func(t *testing.T) {
@@ -77,14 +77,14 @@ func TestOtlpOptions_AsTraceHTTP(t *testing.T) {
 
 func TestOtlpOptions_AsTraceGRPC(t *testing.T) {
 	type testCase struct {
-		in  otlpOptions
+		in  OTLPOptions
 		len int
 	}
 	testCases := []testCase{
-		{in: otlpOptions{Endpoint: "foo"}, len: 1},
-		{in: otlpOptions{Endpoint: "foo", Insecure: true}, len: 2},
-		{in: otlpOptions{Endpoint: "foo", SkipTLSVerify: true}, len: 2},
-		{in: otlpOptions{Endpoint: "foo", Insecure: true, SkipTLSVerify: true}, len: 3},
+		{in: OTLPOptions{Endpoint: "foo"}, len: 1},
+		{in: OTLPOptions{Endpoint: "foo", Insecure: true}, len: 2},
+		{in: OTLPOptions{Endpoint: "foo", SkipTLSVerify: true}, len: 2},
+		{in: OTLPOptions{Endpoint: "foo", Insecure: true, SkipTLSVerify: true}, len: 3},
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprint(tc), func(t *testing.T) {

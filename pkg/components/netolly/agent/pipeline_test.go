@@ -19,7 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/netolly/flow/transport"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -46,7 +46,7 @@ func TestFilter(t *testing.T) {
 			Prometheus: prom.PrometheusConfig{
 				Path:     "/metrics",
 				Port:     promPort,
-				Features: []string{otel.FeatureNetwork},
+				Features: []string{otelcfg.FeatureNetwork},
 				TTL:      time.Hour,
 			},
 			Filters: filter.AttributesConfig{
