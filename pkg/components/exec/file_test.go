@@ -57,8 +57,8 @@ func TestSetServiceEnvVariables(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &svc.Attrs{}
-			setServiceEnvVariables(s, tt.envVars, tt.k8sEnabled)
+			s := svc.Attrs{}
+			s = setServiceEnvVariables(s, tt.envVars, tt.k8sEnabled)
 			if got := s.UID.Name; got != tt.expectName {
 				t.Errorf("UID.Name = %q, want %q", got, tt.expectName)
 			}

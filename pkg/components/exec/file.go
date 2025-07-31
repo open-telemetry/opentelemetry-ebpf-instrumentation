@@ -76,17 +76,17 @@ func FindExecELF(p *services.ProcessInfo, svcID svc.Attrs, k8sEnabled bool) (*Fi
 		return nil, err
 	}
 
-	setServiceEnvVariables(&file.Service, envVars, k8sEnabled)
+	file.Service = setServiceEnvVariables(file.Service, envVars, k8sEnabled)
 
 	return &file, nil
 }
 
-func setServiceEnvVariables(service *svc.Attrs, envVars map[string]string, k8sEnabled bool) {
+func setServiceEnvVariables(service svc.Attrs, envVars map[string]string, k8sEnabled bool) svc.Attrs {
 	service.EnvVars = envVars
 	// If Kubernetes is enabled we use the K8S metadata as the source of truth
 	// including the k8s supplied environment variables
 	if k8sEnabled {
-		return
+		return service
 	}
 	if svcName, ok := service.EnvVars[envServiceName]; ok {
 		service.UID.Name = svcName
@@ -104,4 +104,6 @@ func setServiceEnvVariables(service *svc.Attrs, envVars map[string]string, k8sEn
 			}
 		}
 	}
+
+	return service
 }
