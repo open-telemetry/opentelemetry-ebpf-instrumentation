@@ -266,6 +266,11 @@ func (p *Tracer) readGPUMallocIntoSpan(record *ringbuf.Record) (request.Span, bo
 	return request.Span{
 		Type:          request.EventTypeGPUMalloc,
 		ContentLength: int64(event.Size),
+		Pid: request.PidInfo{
+			HostPID:   event.PidInfo.HostPid,
+			UserPID:   event.PidInfo.UserPid,
+			Namespace: event.PidInfo.Ns,
+		},
 	}, false, nil
 }
 
@@ -275,14 +280,14 @@ func (p *Tracer) readGPUKernelLaunchIntoSpan(record *ringbuf.Record) (request.Sp
 		return request.Span{}, true, err
 	}
 
-	// Log the GPU Kernel Launch event
-	p.log.Info("GPU Kernel Launch", "event", event)
-
 	// Find the symbol for the kernel launch
 	symbol, ok := p.symForAddr(int32(event.PidInfo.UserPid), event.PidInfo.Ns, event.KernFuncOff)
 	if !ok {
 		return request.Span{}, true, fmt.Errorf("failed to find symbol for kernel launch at address %d, pid %d", event.KernFuncOff, event.PidInfo.UserPid)
 	}
+
+	// Log the GPU Kernel Launch event
+	p.log.Debug("GPU Kernel Launch", "symbol", symbol, "event", event)
 
 	return request.Span{
 		Type:          request.EventTypeGPUKernelLaunch,
@@ -290,6 +295,11 @@ func (p *Tracer) readGPUKernelLaunchIntoSpan(record *ringbuf.Record) (request.Sp
 		Path:          p.callStack(&event),
 		ContentLength: int64(event.GridX * event.GridY * event.GridZ),
 		SubType:       int(event.BlockX * event.BlockY * event.BlockZ),
+		Pid: request.PidInfo{
+			HostPID:   event.PidInfo.HostPid,
+			UserPID:   event.PidInfo.UserPid,
+			Namespace: event.PidInfo.Ns,
+		},
 	}, false, nil
 }
 
