@@ -119,6 +119,11 @@ const (
 	K8sDstOwnerType = Name("k8s.dst.owner.type")
 	K8sDstNodeIP    = Name("k8s.dst.node.ip")
 	K8sDstNodeName  = Name("k8s.dst.node.name")
+
+	// Cluster selectable attributes for service graph metrics
+	Cluster       = Name("cluster")
+	ClientCluster = Name("client.cluster")
+	ServerCluster = Name("server.cluster")
 )
 
 // other OBI-specific attributes

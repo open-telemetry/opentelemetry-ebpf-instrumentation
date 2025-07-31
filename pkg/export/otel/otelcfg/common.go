@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"log/slog"
 	"os"
 	"path"
@@ -123,6 +124,12 @@ func GetAppResourceAttrs(hostID string, service *svc.Attrs) []attribute.KeyValue
 	)
 }
 
+// ClusterName
+// TODO: support other sources for the cluster name
+func ClusterName(service *svc.Attrs) string {
+	return service.Metadata[attr.K8sClusterName]
+}
+
 func GetResourceAttrs(hostID string, service *svc.Attrs) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		semconv.ServiceName(service.UID.Name),
@@ -137,6 +144,7 @@ func GetResourceAttrs(hostID string, service *svc.Attrs) []attribute.KeyValue {
 		semconv.HostName(service.HostName),
 		semconv.HostID(hostID),
 		semconv.OSTypeLinux,
+		attr.Cluster.OTEL().String(ClusterName(service)),
 	}
 
 	if service.UID.Namespace != "" {

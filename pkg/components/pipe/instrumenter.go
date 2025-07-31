@@ -117,7 +117,6 @@ func newGraphBuilder(
 	swi.Add(otel.ReportSvcGraphMetrics(
 		ctxInfo,
 		&config.Metrics,
-		selectorCfg,
 		exportableSpans,
 		processEventsCh,
 	), swarm.WithID("OTELSvcGraphMetricsExport"))
