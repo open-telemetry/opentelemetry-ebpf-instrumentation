@@ -127,7 +127,7 @@ func newSvcGraphMetricsReporter(
 		hostID:        ctxInfo.HostID,
 		input:         input.Subscribe(),
 		processEvents: processEventCh.Subscribe(),
-		log:           sglog(),
+		log:           log,
 	}
 
 	mr.reporters = otelcfg.NewReporterPool[*svc.Attrs, *SvcGraphMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -155,12 +155,8 @@ func newSvcGraphMetricsReporter(
 	return &mr, nil
 }
 
-func (mr *SvcGraphMetricsReporter) graphMetricOptions(sglog *slog.Logger) []metric.Option {
-	if !mr.cfg.ServiceGraphMetricsEnabled() {
-		return []metric.Option{}
-	}
-
-	useExponentialHistograms := isExponentialAggregation(mr.cfg, sglog)
+func (mr *SvcGraphMetricsReporter) graphMetricOptions(log *slog.Logger) []metric.Option {
+	useExponentialHistograms := isExponentialAggregation(mr.cfg, log)
 
 	return []metric.Option{
 		metric.WithView(otelHistogramConfig(ServiceGraphClient, mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
@@ -169,10 +165,6 @@ func (mr *SvcGraphMetricsReporter) graphMetricOptions(sglog *slog.Logger) []metr
 }
 
 func (mr *SvcGraphMetricsReporter) setupGraphMeters(m *SvcGraphMetrics, meter instrument.Meter) error {
-	if !mr.cfg.ServiceGraphMetricsEnabled() {
-		return nil
-	}
-
 	var err error
 
 	serviceGraphAttrs := mr.serviceGraphAttributes()
@@ -209,13 +201,13 @@ func (mr *SvcGraphMetricsReporter) setupGraphMeters(m *SvcGraphMetrics, meter in
 }
 
 func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs) SvcGraphMetrics {
-	sglog := sglog()
+	log := mr.log
 	var resourceAttributes []attribute.KeyValue
 	if service != nil {
-		sglog = sglog.With("service", service)
+		log = log.With("service", service)
 		resourceAttributes = append(otelcfg.GetAppResourceAttrs(mr.hostID, service), otelcfg.ResourceAttrsFromEnv(service)...)
 	}
-	sglog.Debug("creating new Metrics reporter")
+	log.Debug("creating new Metrics reporter")
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
 
 	opts := []metric.Option{
@@ -224,7 +216,7 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 			metric.WithInterval(mr.cfg.Interval))),
 	}
 
-	opts = append(opts, mr.graphMetricOptions(sglog)...)
+	opts = append(opts, mr.graphMetricOptions(log)...)
 
 	return SvcGraphMetrics{
 		ctx:                      mr.ctx,
@@ -240,18 +232,14 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 func (mr *SvcGraphMetricsReporter) newMetricSet(service *svc.Attrs) (*SvcGraphMetrics, error) {
 	m := mr.newSvcGraphMetricsInstance(service)
 
-	sglog().Debug("creating new metric set", "service", service)
+	mr.log.Debug("creating new metric set", "service", service)
 	// time units for HTTP and GRPC durations are in seconds, according to the OTEL specification:
 	// https://github.com/open-telemetry/opentelemetry-specification/tree/main/specification/metrics/semantic_conventions
 	// TODO: set ExplicitBucketBoundaries here and in prometheus from the previous specification
 	meter := m.provider.Meter(reporterName)
-	var err error
 
-	if mr.cfg.ServiceGraphMetricsEnabled() {
-		err = mr.setupGraphMeters(&m, meter)
-		if err != nil {
-			return nil, err
-		}
+	if err := mr.setupGraphMeters(&m, meter); err != nil {
+		return nil, err
 	}
 
 	return &m, nil
@@ -297,29 +285,6 @@ func (mr *SvcGraphMetricsReporter) metricHostAttributes() attribute.Set {
 	return attribute.NewSet(attrs...)
 }
 
-// spanMetricAttributes follow a given specification, so their attribute getters are predefined and can't be
-// selected by the user
-func (mr *SvcGraphMetricsReporter) spanMetricAttributes() []attributes.Field[*request.Span, attribute.KeyValue] {
-	return append(attributes.OpenTelemetryGetters(
-		request.SpanOTELGetters, []attr.Name{
-			attr.ServiceName,
-			attr.ServiceInstanceID,
-			attr.ServiceNamespace,
-			attr.SpanKind,
-			attr.SpanName,
-			attr.StatusCode,
-			attr.Source,
-		}),
-		// hostID is not taken from the span but common to the metrics reporter,
-		// so the getter is injected here directly
-		attributes.Field[*request.Span, attribute.KeyValue]{
-			ExposedName: string(attr.HostID.OTEL()),
-			Get: func(_ *request.Span) attribute.KeyValue {
-				return semconv.HostID(mr.hostID)
-			},
-		})
-}
-
 func (mr *SvcGraphMetricsReporter) serviceGraphAttributes() []attributes.Field[*request.Span, attribute.KeyValue] {
 	return attributes.OpenTelemetryGetters(
 		request.SpanOTELGetters, []attr.Name{
@@ -337,28 +302,26 @@ func (r *SvcGraphMetrics) record(span *request.Span, mr *SvcGraphMetricsReporter
 
 	ctx := trace.ContextWithSpanContext(r.ctx, trace.SpanContext{}.WithTraceID(span.TraceID).WithSpanID(span.SpanID).WithTraceFlags(trace.TraceFlags(span.TraceFlags)))
 
-	if mr.cfg.ServiceGraphMetricsEnabled() {
-		if !span.IsSelfReferenceSpan() || mr.cfg.AllowServiceGraphSelfReferences {
-			if span.IsClientSpan() {
-				sgc, attrs := r.serviceGraphClient.ForRecord(span)
-				sgc.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-				// If we managed to resolve the remote name only, we check to see
-				// we are not instrumenting the server service, then and only then,
-				// we generate client span count for service graph total
-				if ClientSpanToUninstrumentedService(&mr.pidTracker, span) {
-					sgt, attrs := r.serviceGraphTotal.ForRecord(span)
-					sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
-				}
-			} else {
-				sgs, attrs := r.serviceGraphServer.ForRecord(span)
-				sgs.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+	if !span.IsSelfReferenceSpan() || mr.cfg.AllowServiceGraphSelfReferences {
+		if span.IsClientSpan() {
+			sgc, attrs := r.serviceGraphClient.ForRecord(span)
+			sgc.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			// If we managed to resolve the remote name only, we check to see
+			// we are not instrumenting the server service, then and only then,
+			// we generate client span count for service graph total
+			if ClientSpanToUninstrumentedService(&mr.pidTracker, span) {
 				sgt, attrs := r.serviceGraphTotal.ForRecord(span)
 				sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 			}
-			if request.SpanStatusCode(span) == request.StatusCodeError {
-				sgf, attrs := r.serviceGraphFailed.ForRecord(span)
-				sgf.Add(ctx, 1, instrument.WithAttributeSet(attrs))
-			}
+		} else {
+			sgs, attrs := r.serviceGraphServer.ForRecord(span)
+			sgs.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			sgt, attrs := r.serviceGraphTotal.ForRecord(span)
+			sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
+		}
+		if request.SpanStatusCode(span) == request.StatusCodeError {
+			sgf, attrs := r.serviceGraphFailed.ForRecord(span)
+			sgf.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 		}
 	}
 }
@@ -451,7 +414,7 @@ func (mr *SvcGraphMetricsReporter) onSpan(spans []request.Span) {
 		}
 		reporter, err := mr.reporters.For(&s.Service)
 		if err != nil {
-			sglog().Error("unexpected error creating OTEL resource. Ignoring metric",
+			mr.log.Error("unexpected error creating OTEL resource. Ignoring metric",
 				"error", err, "service", s.Service)
 			continue
 		}
