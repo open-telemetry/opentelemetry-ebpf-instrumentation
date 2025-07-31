@@ -65,7 +65,7 @@ static __always_inline void http2_grpc_start(
     //dbg_print_http_connection_info(&s_key->pid_conn.conn); // commented out since GitHub CI doesn't like this call
     if (h2g_info) {
         http_connection_metadata_t *meta =
-            connection_meta_by_direction(&s_key->pid_conn, direction, PACKET_TYPE_REQUEST);
+            connection_meta_by_direction(direction, PACKET_TYPE_REQUEST);
         if (!meta) {
             bpf_dbg_printk("Can't get meta memory or connection not found");
             return;
