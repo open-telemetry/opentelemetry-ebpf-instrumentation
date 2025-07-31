@@ -72,22 +72,19 @@ static __always_inline void update_outgoing_request_span_id(pid_connection_info_
     }
 }
 
-static __always_inline void encode_data_in_ip_options(struct __sk_buff *skb,
-                                                      connection_info_t *conn,
-                                                      protocol_info_t *tcp,
-                                                      tp_info_pid_t *tp,
-                                                      const egress_key_t *e_key) {
+static __always_inline void
+encode_data_in_ip_options(struct __sk_buff *skb, protocol_info_t *tcp, tp_info_pid_t *tp) {
     // Handling IPv4
     // We only do this if the IP header doesn't have any options, this can be improved if needed
     if (tcp->h_proto == ETH_P_IP && tcp->ip_len == MIN_IP_LEN) {
         bpf_dbg_printk("Adding the trace_id in the IP Options");
 
-        inject_tc_ip_options_ipv4(skb, conn, tcp, tp);
+        inject_tc_ip_options_ipv4(skb, tcp, tp);
         tp->valid = 0;
     } else if (tcp->h_proto == ETH_P_IPV6 && tcp->l4_proto == IPPROTO_TCP) { // Handling IPv6
         bpf_dbg_printk("Found IPv6 header");
 
-        inject_tc_ip_options_ipv6(skb, conn, tcp, tp);
+        inject_tc_ip_options_ipv6(skb, tcp, tp);
         tp->valid = 0;
     }
 }
@@ -274,7 +271,7 @@ int obi_app_egress(struct __sk_buff *skb) {
     // does it only once. If it successfully injected the information it
     // will set valid to 0 so that we only run the L7 part from now on.
     if (tp->valid) {
-        encode_data_in_ip_options(skb, &conn, &tcp, tp, &e_key);
+        encode_data_in_ip_options(skb, &tcp, tp);
     }
 
     return TC_ACT_UNSPEC;

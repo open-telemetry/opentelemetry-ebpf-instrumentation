@@ -51,6 +51,10 @@ int BPF_KPROBE(obi_kprobe_unix_stream_recvmsg,
                struct msghdr *msg,
                size_t size,
                int flags) {
+    (void)ctx;
+    (void)size;
+    (void)flags;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -266,6 +270,8 @@ int BPF_KPROBE(obi_kprobe_unix_stream_sendmsg,
 
 SEC("kretprobe/unix_stream_sendmsg")
 int BPF_KRETPROBE(obi_kretprobe_unix_stream_sendmsg, int sent_len) {
+    (void)ctx;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {

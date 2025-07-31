@@ -54,6 +54,8 @@ static __always_inline void get_sock_info(u64 id, void *conn_ptr, connection_inf
 
 SEC("uprobe/nginx:ngx_event_connect_peer_ret")
 int obi_ngx_event_connect_peer_ret(struct pt_regs *ctx) {
+    (void)ctx;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {

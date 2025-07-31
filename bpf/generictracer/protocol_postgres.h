@@ -50,12 +50,8 @@ SCRATCH_MEM_SIZED(postgres_large_buffers, k_pg_large_buf_max_size);
 // Emit a large buffer event for Postgres protocol.
 // The return value is used to control the flow for this specific protocol.
 // -1: wait additional data; 0: continue, regardless of errors.
-static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
-                                                      pid_connection_info_t *pid_conn,
-                                                      const void *u_buf,
-                                                      u32 bytes_len,
-                                                      u8 direction,
-                                                      enum large_buf_action action) {
+static __always_inline int postgres_send_large_buffer(
+    tcp_req_t *req, const void *u_buf, u32 bytes_len, u8 direction, enum large_buf_action action) {
     if (!is_pow2(postgres_buffer_size)) {
         bpf_dbg_printk("postgres_send_large_buffer: bug: postgres_buffer_size is not a power of 2");
         return -1;

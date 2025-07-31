@@ -34,6 +34,9 @@
 // Used by accept to grab the sock details
 SEC("kprobe/security_socket_accept")
 int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct socket *newsock) {
+    (void)ctx;
+    (void)sock;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -65,6 +68,9 @@ int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct so
 // data in the map, since those cannot be optimised.
 SEC("kprobe/tcp_rcv_established")
 int BPF_KPROBE(obi_kprobe_tcp_rcv_established, struct sock *sk, struct sk_buff *skb) {
+    (void)ctx;
+    (void)skb;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -106,6 +112,8 @@ int BPF_KPROBE(obi_kprobe_tcp_rcv_established, struct sock *sk, struct sk_buff *
 // process may have already reached accept, before the instrumenter has launched.
 SEC("kretprobe/sys_accept4")
 int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
+    (void)ctx;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -185,6 +193,8 @@ int BPF_KPROBE(obi_kprobe_sys_connect) {
 // Used by connect so that we can grab the sock details
 SEC("kprobe/tcp_connect")
 int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
+    (void)ctx;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -228,6 +238,8 @@ static __always_inline void setup_cp_support_conn_info(pid_connection_info_t *p_
 // HTTP client calls
 SEC("kretprobe/sys_connect")
 int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
+    (void)ctx;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -512,6 +524,9 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg, int sent_len) {
 
 SEC("kprobe/tcp_close")
 int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
+    (void)ctx;
+    (void)timeout;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -566,7 +581,12 @@ int BPF_KPROBE(obi_kprobe_tcp_recvmsg,
                struct msghdr *msg,
                size_t len,
                int flags,
-               int *addr_len) {
+               int *addr_len) { //NOLINT(readability-non-const-parameter)
+    (void)ctx;
+    (void)len;
+    (void)flags;
+    (void)addr_len;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -587,6 +607,9 @@ int BPF_KPROBE(obi_kprobe_tcp_recvmsg,
 // so if tcp_recvmsg happens, it will overwrite the data in the args.
 SEC("kprobe/sock_recvmsg")
 int BPF_KPROBE(obi_kprobe_sock_recvmsg, struct socket *sock, struct msghdr *msg, int flags) {
+    (void)ctx;
+    (void)flags;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -611,6 +634,8 @@ int BPF_KPROBE(obi_kprobe_sock_recvmsg, struct socket *sock, struct msghdr *msg,
 // cleaned up by that probe and this kprobe won't do anything.
 SEC("kretprobe/sock_recvmsg")
 int BPF_KRETPROBE(obi_kretprobe_sock_recvmsg, int copied_len) {
+    (void)ctx;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -875,6 +900,8 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
 */
 SEC("kretprobe/sys_clone")
 int BPF_KRETPROBE(obi_kretprobe_sys_clone, int tid) {
+    (void)ctx;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id) || tid < 0) {
@@ -898,6 +925,9 @@ int BPF_KRETPROBE(obi_kretprobe_sys_clone, int tid) {
 
 SEC("kprobe/sys_exit")
 int BPF_KPROBE(obi_kprobe_sys_exit, int status) {
+    (void)ctx;
+    (void)status;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {

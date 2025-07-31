@@ -851,7 +851,6 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                                                     void *cc_ptr,
                                                     u32 stream_id,
                                                     go_offset_const off_cc_tconn_pos,
-                                                    go_offset_const off_cc_next_stream_id_pos,
                                                     go_offset_const off_cc_framer_pos) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
@@ -930,12 +929,7 @@ int obi_uprobe_http2WriteHeaders(struct pt_regs *ctx) {
 
     bpf_dbg_printk("=== uprobe/proc http2WriteHeaders === ");
 
-    setup_http2_client_conn(goroutine_addr,
-                            cc_ptr,
-                            (u32)stream_id,
-                            _cc_tconn_pos,
-                            _cc_next_stream_id_pos,
-                            _cc_framer_pos);
+    setup_http2_client_conn(goroutine_addr, cc_ptr, (u32)stream_id, _cc_tconn_pos, _cc_framer_pos);
 
     return 0;
 }
@@ -951,12 +945,8 @@ int obi_uprobe_http2WriteHeaders_vendored(struct pt_regs *ctx) {
 
     bpf_dbg_printk("=== uprobe/proc http2WriteHeaders === ");
 
-    setup_http2_client_conn(goroutine_addr,
-                            cc_ptr,
-                            (u32)stream_id,
-                            _cc_tconn_vendored_pos,
-                            _cc_next_stream_id_vendored_pos,
-                            _cc_framer_vendored_pos);
+    setup_http2_client_conn(
+        goroutine_addr, cc_ptr, (u32)stream_id, _cc_tconn_vendored_pos, _cc_framer_vendored_pos);
 
     return 0;
 }

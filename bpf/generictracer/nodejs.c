@@ -12,6 +12,10 @@
 
 SEC("uprobe/node:uv_fs_access")
 int BPF_KPROBE(obi_uv_fs_access, void *loop, void *req, const char *path) {
+    (void)ctx;
+    (void)loop;
+    (void)req;
+
     // the obi nodejs agent (fdextractor.js) passes the file descriptor pair
     // to the ebpf layer by invoking uv_fs_access() with an invalid path:
     // /dev/null/obi/<fd1><fd2> where each fd is a left-zero-padded 4 digit

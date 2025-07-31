@@ -12,7 +12,6 @@ Checks:
   - '-bugprone-narrowing-conversions' #TODO this needs to be checked/enabled
   - 'clang-analyzer-*'
   - '-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling'
-  - '-misc-unused-parameters'
   - '-misc-misplaced-const'
   - '-misc-include-cleaner'
   - '-readability-else-after-return'

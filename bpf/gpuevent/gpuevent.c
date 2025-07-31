@@ -103,6 +103,9 @@ int BPF_KPROBE(handle_cuda_launch,
 
 SEC("uprobe/cudaMalloc")
 int BPF_KPROBE(handle_cuda_malloc, void **devPtr, size_t size) {
+    (void)ctx;
+    (void)devPtr;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
