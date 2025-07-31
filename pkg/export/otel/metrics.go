@@ -264,6 +264,7 @@ type MetricsReporter struct {
 	attrGPUKernelGridSize      []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGPUKernelBlockSize     []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGPUMemoryAllocations   []attributes.Field[*request.Span, attribute.KeyValue]
+	attrGPUMemoryCopies        []attributes.Field[*request.Span, attribute.KeyValue]
 	userAttribSelection        attributes.Selection
 	input                      <-chan []request.Span
 	processEvents              <-chan exec.ProcessEvent
@@ -305,6 +306,7 @@ type Metrics struct {
 	gpuMemoryAllocsTotal         *Expirer[*request.Span, instrument.Int64Counter, int64]
 	gpuKernelGridSize            *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	gpuKernelBlockSize           *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	gpuMemoryCopySize            *Expirer[*request.Span, instrument.Float64Histogram, float64]
 }
 
 func ReportMetrics(
@@ -417,6 +419,8 @@ func newMetricsReporter(
 			request.SpanOTELGetters, mr.attributes.For(attributes.GPUKernelGridSize))
 		mr.attrGPUKernelBlockSize = attributes.OpenTelemetryGetters(
 			request.SpanOTELGetters, mr.attributes.For(attributes.GPUKernelBlockSize))
+		mr.attrGPUMemoryCopies = attributes.OpenTelemetryGetters(
+			request.SpanOTELGetters, mr.attributes.For(attributes.GPUMemoryCopies))
 	}
 
 	mr.reporters = NewReporterPool[*svc.Attrs, *Metrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -656,6 +660,13 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 		}
 		m.gpuKernelBlockSize = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
 			m.ctx, gpuKernelBlockSize, mr.attrGPUKernelBlockSize, timeNow, mr.cfg.TTL)
+
+		gpuMemoryCopySize, err := meter.Float64Histogram(attributes.GPUMemoryCopies.OTEL, instrument.WithUnit("1"))
+		if err != nil {
+			return fmt.Errorf("creating gpu memcpy size histogram: %w", err)
+		}
+		m.gpuMemoryCopySize = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+			m.ctx, gpuMemoryCopySize, mr.attrGPUMemoryCopies, timeNow, mr.cfg.TTL)
 	}
 
 	return nil
@@ -1127,6 +1138,11 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			if mr.is.GPUEnabled() {
 				gmem, attrs := r.gpuMemoryAllocsTotal.ForRecord(span)
 				gmem.Add(ctx, span.ContentLength, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeGPUMemcpy:
+			if mr.is.GPUEnabled() {
+				gmem, attrs := r.gpuMemoryCopySize.ForRecord(span)
+				gmem.Record(r.ctx, float64(span.ContentLength), instrument.WithAttributeSet(attrs))
 			}
 		}
 	}

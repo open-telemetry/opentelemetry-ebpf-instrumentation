@@ -183,3 +183,22 @@ func PeerAsClient(span *Span) string {
 func CudaKernel(val string) attribute.KeyValue {
 	return attribute.Key(attr.CudaKernelName).String(val)
 }
+
+func CudaMemcpyName(val int) string {
+	switch val {
+	case 0:
+		return "MemcpyHostToHost"
+	case 1:
+		return "MemcpyHostToDevice"
+	case 2:
+		return "MemcpyDeviceToHost"
+	case 3:
+		return "MemcpyDeviceToDevice"
+	default:
+		return "MemcpyDefault"
+	}
+}
+
+func CudaMemcpy(val int) attribute.KeyValue {
+	return attribute.Key(attr.CudaMemcpyKind).String(CudaMemcpyName(val))
+}

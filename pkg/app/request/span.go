@@ -37,10 +37,11 @@ const (
 	EventTypeKafkaClient
 	EventTypeRedisServer
 	EventTypeKafkaServer
-	EventTypeGPUKernelLaunch
-	EventTypeGPUMalloc
 	EventTypeMongoClient
 	EventTypeManualSpan
+	EventTypeGPUKernelLaunch
+	EventTypeGPUMalloc
+	EventTypeGPUMemcpy
 )
 
 const (
@@ -89,6 +90,8 @@ func (t EventType) String() string {
 		return "CUDALaunch"
 	case EventTypeGPUMalloc:
 		return "CUDAMalloc"
+	case EventTypeGPUMemcpy:
+		return "CUDAMemcpy"
 	case EventTypeMongoClient:
 		return "MongoClient"
 	case EventTypeManualSpan:

@@ -37,6 +37,7 @@ import (
 const (
 	EventTypeKernelLaunch = 1 // EVENT_GPU_KERNEL_LAUNCH
 	EventTypeMalloc       = 2 // EVENT_GPU_MALLOC
+	EventTypeMemcpy       = 3 // EVENT_GPU_MEMCPY
 )
 
 type pidKey struct {
@@ -55,6 +56,7 @@ type moduleOffsets map[uint64]*SymbolTree
 type (
 	GPUKernelLaunchInfo BpfGpuKernelLaunchT
 	GPUMallocInfo       BpfGpuMallocT
+	GPUMemcpyInfo       BpfGpuMemcpyT
 )
 
 // TODO: We have a way to bring ELF file information to this Tracer struct
@@ -165,6 +167,12 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			"cudaMalloc": {{
 				Start: p.bpfObjects.HandleCudaMalloc,
 			}},
+			"cudaMemcpy": {{
+				Start: p.bpfObjects.HandleCudaMemcpy,
+			}},
+			"cudaMemcpyAsync": {{
+				Start: p.bpfObjects.HandleCudaMemcpy,
+			}},
 		},
 	}
 }
@@ -247,6 +255,8 @@ func (p *Tracer) processCudaEvent(_ *ebpfcommon.EBPFParseContext, _ *config.EBPF
 		return p.readGPUKernelLaunchIntoSpan(record)
 	case EventTypeMalloc:
 		return p.readGPUMallocIntoSpan(record)
+	case EventTypeMemcpy:
+		return p.readGPUMemcpyIntoSpan(record)
 	default:
 		p.log.Error("unknown cuda event")
 	}
@@ -266,6 +276,27 @@ func (p *Tracer) readGPUMallocIntoSpan(record *ringbuf.Record) (request.Span, bo
 	return request.Span{
 		Type:          request.EventTypeGPUMalloc,
 		ContentLength: int64(event.Size),
+		Pid: request.PidInfo{
+			HostPID:   event.PidInfo.HostPid,
+			UserPID:   event.PidInfo.UserPid,
+			Namespace: event.PidInfo.Ns,
+		},
+	}, false, nil
+}
+
+func (p *Tracer) readGPUMemcpyIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
+	var event GPUMemcpyInfo
+	if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &event); err != nil {
+		return request.Span{}, true, err
+	}
+
+	// Log the GPU Kernel Launch event
+	p.log.Debug("GPU Memcpy", "event", event)
+
+	return request.Span{
+		Type:          request.EventTypeGPUMemcpy,
+		ContentLength: int64(event.Size),
+		SubType:       int(event.Kind),
 		Pid: request.PidInfo{
 			HostPID:   event.PidInfo.HostPid,
 			UserPID:   event.PidInfo.UserPid,
