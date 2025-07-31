@@ -132,6 +132,10 @@ int BPF_KPROBE(handle_cuda_malloc, void **devPtr, size_t size) {
 
 SEC("uprobe/cudaMemcpyAsync")
 int BPF_KPROBE(handle_cuda_memcpy, void *dst, void *src, size_t size, u8 kind) {
+    (void)ctx;
+    (void)dst;
+    (void)src;
+
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
