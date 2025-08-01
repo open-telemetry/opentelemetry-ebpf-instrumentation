@@ -39,7 +39,7 @@ typedef struct gpu_malloc {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 _pad[3];
     pid_info pid_info;
-    u64 size;
+    s64 size;
 } gpu_malloc_t;
 
 typedef struct gpu_memcpy {
@@ -47,5 +47,5 @@ typedef struct gpu_memcpy {
     u8 kind;
     u8 _pad[2];
     pid_info pid_info;
-    u64 size;
+    s64 size;
 } gpu_memcpy_t;

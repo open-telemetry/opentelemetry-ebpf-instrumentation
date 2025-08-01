@@ -271,7 +271,7 @@ func (p *Tracer) readGPUMallocIntoSpan(record *ringbuf.Record) (request.Span, bo
 
 	return request.Span{
 		Type:          request.EventTypeGPUMalloc,
-		ContentLength: int64(event.Size),
+		ContentLength: event.Size,
 		Pid: request.PidInfo{
 			HostPID:   event.PidInfo.HostPid,
 			UserPID:   event.PidInfo.UserPid,
@@ -291,7 +291,7 @@ func (p *Tracer) readGPUMemcpyIntoSpan(record *ringbuf.Record) (request.Span, bo
 
 	return request.Span{
 		Type:          request.EventTypeGPUMemcpy,
-		ContentLength: int64(event.Size),
+		ContentLength: event.Size,
 		SubType:       int(event.Kind),
 		Pid: request.PidInfo{
 			HostPID:   event.PidInfo.HostPid,

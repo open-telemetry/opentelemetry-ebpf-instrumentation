@@ -124,7 +124,7 @@ int BPF_KPROBE(handle_cuda_malloc, void **devPtr, size_t size) {
 
     e->flags = EVENT_GPU_MALLOC;
     task_pid(&e->pid_info);
-    e->size = (u64)size;
+    e->size = (s64)size;
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -152,7 +152,7 @@ int BPF_KPROBE(handle_cuda_memcpy, void *dst, void *src, size_t size, u8 kind) {
 
     e->flags = EVENT_GPU_MEMCPY;
     task_pid(&e->pid_info);
-    e->size = (u64)size;
+    e->size = (s64)size;
     e->kind = kind;
 
     bpf_ringbuf_submit(e, 0);
