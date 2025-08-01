@@ -8,13 +8,12 @@ package integration
 import (
 	"testing"
 
-	"go.opentelemetry.io/obi/test/tools"
-
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/test/integration/components/prom"
+	"go.opentelemetry.io/obi/test/tools"
 )
 
 func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {

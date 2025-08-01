@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gavv/monotime"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"

@@ -10,19 +10,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
-
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
-
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 
 	"go.opentelemetry.io/otel/attribute"
 	instrument "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
 
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 )
 
 // InternalMetricsReporter is an internal metrics Reporter that exports to OTEL

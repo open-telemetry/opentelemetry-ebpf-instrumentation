@@ -10,8 +10,6 @@ import (
 	"sync"
 	"text/template"
 
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
-
 	"golang.org/x/sync/errgroup"
 
 	"go.opentelemetry.io/obi/pkg/components/appolly"
@@ -23,6 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 

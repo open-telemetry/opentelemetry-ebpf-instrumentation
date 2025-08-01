@@ -12,11 +12,10 @@ import (
 	"sync"
 	"time"
 
-	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
-
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/discover"
 	"go.opentelemetry.io/obi/pkg/components/ebpf"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/pipe"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
