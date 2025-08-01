@@ -51,6 +51,13 @@ func TestYAMLUnmarshal_Exports(t *testing.T) {
 	}
 	t.Run("undefined value", func(t *testing.T) {
 		var tc tc
+		err := yaml.Unmarshal([]byte(``), &tc)
+		require.NoError(t, err)
+		assert.True(t, tc.Exports.CanExportMetrics())
+		assert.True(t, tc.Exports.CanExportTraces())
+	})
+	t.Run("nil value", func(t *testing.T) {
+		var tc tc
 		err := yaml.Unmarshal([]byte(`exports: null`), &tc)
 		require.NoError(t, err)
 		assert.True(t, tc.Exports.CanExportMetrics())
