@@ -4,10 +4,8 @@
 package gpuevent
 
 import (
-	"bytes"
 	"context"
 	"debug/elf"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -242,13 +240,11 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 }
 
 func (p *Tracer) processCudaEvent(_ *ebpfcommon.EBPFParseContext, _ *config.EBPFTracer, record *ringbuf.Record, _ ebpfcommon.ServiceFilter) (request.Span, bool, error) {
-	var eventType uint8
-
-	// we read the type first, depending on the type we decide what kind of record we have
-	err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &eventType)
-	if err != nil {
-		return request.Span{}, true, err
+	if len(record.RawSample) == 0 {
+		return request.Span{}, true, errors.New("invalid ringbuffer record size")
 	}
+
+	eventType := record.RawSample[0]
 
 	switch eventType {
 	case EventTypeKernelLaunch:
@@ -265,8 +261,8 @@ func (p *Tracer) processCudaEvent(_ *ebpfcommon.EBPFParseContext, _ *config.EBPF
 }
 
 func (p *Tracer) readGPUMallocIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
-	var event GPUMallocInfo
-	if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &event); err != nil {
+	event, err := ebpfcommon.ReinterpretCast[GPUMallocInfo](record.RawSample)
+	if err != nil {
 		return request.Span{}, true, err
 	}
 
@@ -285,8 +281,8 @@ func (p *Tracer) readGPUMallocIntoSpan(record *ringbuf.Record) (request.Span, bo
 }
 
 func (p *Tracer) readGPUMemcpyIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
-	var event GPUMemcpyInfo
-	if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &event); err != nil {
+	event, err := ebpfcommon.ReinterpretCast[GPUMemcpyInfo](record.RawSample)
+	if err != nil {
 		return request.Span{}, true, err
 	}
 
@@ -306,8 +302,8 @@ func (p *Tracer) readGPUMemcpyIntoSpan(record *ringbuf.Record) (request.Span, bo
 }
 
 func (p *Tracer) readGPUKernelLaunchIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
-	var event GPUKernelLaunchInfo
-	if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &event); err != nil {
+	event, err := ebpfcommon.ReinterpretCast[GPUKernelLaunchInfo](record.RawSample)
+	if err != nil {
 		return request.Span{}, true, err
 	}
 
@@ -323,7 +319,7 @@ func (p *Tracer) readGPUKernelLaunchIntoSpan(record *ringbuf.Record) (request.Sp
 	return request.Span{
 		Type:          request.EventTypeGPUKernelLaunch,
 		Method:        p.symToName(symbol),
-		Path:          p.callStack(&event),
+		Path:          p.callStack(event),
 		ContentLength: int64(event.GridX * event.GridY * event.GridZ),
 		SubType:       int(event.BlockX * event.BlockY * event.BlockZ),
 		Pid: request.PidInfo{

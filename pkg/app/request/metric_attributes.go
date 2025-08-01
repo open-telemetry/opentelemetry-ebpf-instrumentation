@@ -184,15 +184,24 @@ func CudaKernel(val string) attribute.KeyValue {
 	return attribute.Key(attr.CudaKernelName).String(val)
 }
 
+// These are defined here https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html#group__CUDART__TYPES_1gg18fa99055ee694244a270e4d5101e95bdeec295de8a74ac2a74f98ffb6c5d7c7
+// in the enum cudaMemcpyKind
+const (
+	MemcpyHostToHost     = 0
+	MemcpyHostToDevice   = 1
+	MemcpyDeviceToHost   = 2
+	MemcpyDeviceToDevice = 3
+)
+
 func CudaMemcpyName(val int) string {
 	switch val {
-	case 0:
+	case MemcpyHostToHost:
 		return "MemcpyHostToHost"
-	case 1:
+	case MemcpyHostToDevice:
 		return "MemcpyHostToDevice"
-	case 2:
+	case MemcpyDeviceToHost:
 		return "MemcpyDeviceToHost"
-	case 3:
+	case MemcpyDeviceToDevice:
 		return "MemcpyDeviceToDevice"
 	default:
 		return "MemcpyDefault"
