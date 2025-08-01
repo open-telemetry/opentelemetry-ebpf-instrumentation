@@ -101,7 +101,7 @@ type Attrs struct {
 
 	flags idFlags
 
-	ExportModes services.ExportModes
+	ExportModes *services.ExportModes
 
 	Sampler trace.Sampler
 }
