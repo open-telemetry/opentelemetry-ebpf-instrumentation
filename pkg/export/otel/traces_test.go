@@ -31,7 +31,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/idgen"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -65,7 +67,7 @@ func BenchmarkGenerateTraces(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		traces := generateTracesWithAttributes(cache, &span.Service, attrs, "host-id", group)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, attrs, "host-id", group, reporterName)
 
 		if traces.ResourceSpans().Len() == 0 {
 			b.Fatal("Generated traces is empty")
@@ -73,9 +75,9 @@ func BenchmarkGenerateTraces(b *testing.B) {
 	}
 }
 
-func groupFromSpanAndAttributes(span *request.Span, attrs []attribute.KeyValue) []TraceSpanAndAttributes {
-	groups := []TraceSpanAndAttributes{}
-	groups = append(groups, TraceSpanAndAttributes{Span: span, Attributes: attrs})
+func groupFromSpanAndAttributes(span *request.Span, attrs []attribute.KeyValue) []tracesgen.TraceSpanAndAttributes {
+	groups := []tracesgen.TraceSpanAndAttributes{}
+	groups = append(groups, tracesgen.TraceSpanAndAttributes{Span: span, Attributes: attrs})
 	return groups
 }
 
@@ -99,7 +101,7 @@ func TestGenerateTraces(t *testing.T) {
 			Service:      svc.Attrs{UID: svc.UID{Name: "1"}},
 		}
 
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -144,7 +146,7 @@ func TestGenerateTraces(t *testing.T) {
 			SpanID:       spanID,
 			TraceID:      traceID,
 		}
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -180,7 +182,7 @@ func TestGenerateTraces(t *testing.T) {
 			Route:        "/test",
 			Status:       200,
 		}
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -217,7 +219,7 @@ func TestGenerateTraces(t *testing.T) {
 			SpanID:       spanID,
 			TraceID:      traceID,
 		}
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -243,7 +245,7 @@ func TestGenerateTraces(t *testing.T) {
 			TraceID:      traceID,
 		}
 
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -263,7 +265,7 @@ func TestGenerateTraces(t *testing.T) {
 			Method:       "GET",
 			Route:        "/test",
 		}
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}))
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -278,8 +280,8 @@ func TestGenerateTraces(t *testing.T) {
 func TestGenerateTracesAttributes(t *testing.T) {
 	t.Run("test SQL trace generation, no statement", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
-		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{})
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -300,8 +302,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password, name FROM credentials WHERE username=\"bill\"")
-		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{"db.operation.name": {}})
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -322,8 +324,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
-		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -344,8 +346,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test SQL trace generation, error", func(t *testing.T) {
 		span := makeSQLRequestErroredSpan("SELECT * FROM obi.nonexisting")
-		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -372,8 +374,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test Kafka trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeKafkaClient, Method: "process", Path: "important-topic", Statement: "test"}
-		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{})
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -391,8 +393,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test Mongo trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase", Status: 0}
-		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{"db.operation.name": {}})
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -414,8 +416,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 	t.Run("test Mongo trace generation with error", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase", Status: 1, DBError: request.DBError{ErrorCode: "1", Description: "Internal MongoDB error"}}
-		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{"db.operation.name": {}})
-		traces := generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
@@ -442,8 +444,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=productions,source.upstream=beyla")
 		span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Route: "/test", Status: 200}
 
-		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{})
-		traces := generateTracesWithAttributes(cache, &span.Service, otelcfg.ResourceAttrsFromEnv(&span.Service), "host-id", groupFromSpanAndAttributes(&span, tAttrs))
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, otelcfg.ResourceAttrsFromEnv(&span.Service), "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
 		rs := traces.ResourceSpans().At(0)
@@ -454,10 +456,11 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	t.Run("override resource attributes", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Route: "/test", Status: 200}
 
-		tAttrs := traceAttributes(&span, map[attr.Name]struct{}{})
-		traces := generateTracesWithAttributes(cache, &span.Service,
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service,
 			otelcfg.ResourceAttrsFromEnv(&span.Service), "host-id",
 			groupFromSpanAndAttributes(&span, tAttrs),
+			reporterName,
 			attribute.String("deployment.environment", "productions"),
 			attribute.String("source.upstream", "OBI"),
 			semconv.OTelLibraryName("my-reporter"),
@@ -484,7 +487,7 @@ func TestTraceSampling(t *testing.T) {
 			Method:       "GET",
 			Route:        "/test" + strconv.Itoa(i),
 			Status:       200,
-			TraceID:      RandomTraceID(),
+			TraceID:      idgen.RandomTraceID(),
 			Service:      svc.Attrs{UID: svc.UID{Name: strconv.Itoa(i)}},
 		}
 		spans = append(spans, span)
@@ -557,7 +560,7 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 			Route:        "/test" + strconv.Itoa(i),
 			Status:       200,
 			Service:      svc.Attrs{UID: svc.UID{Name: strconv.Itoa(i)}},
-			TraceID:      RandomTraceID(),
+			TraceID:      idgen.RandomTraceID(),
 		}
 		spans = append(spans, span)
 	}
@@ -644,7 +647,7 @@ func TestAttrsToMap(t *testing.T) {
 		expected.PutStr("key1", "value1")
 		expected.PutStr("key2", "value2")
 
-		result := attrsToMap(attrs)
+		result := tracesgen.AttrsToMap(attrs)
 		assert.Equal(t, expected, result)
 	})
 
@@ -657,7 +660,7 @@ func TestAttrsToMap(t *testing.T) {
 		expected.PutInt("key1", 10)
 		expected.PutInt("key2", 20)
 
-		result := attrsToMap(attrs)
+		result := tracesgen.AttrsToMap(attrs)
 		assert.Equal(t, expected, result)
 	})
 
@@ -670,7 +673,7 @@ func TestAttrsToMap(t *testing.T) {
 		expected.PutDouble("key1", 3.14)
 		expected.PutDouble("key2", 2.718)
 
-		result := attrsToMap(attrs)
+		result := tracesgen.AttrsToMap(attrs)
 		assert.Equal(t, expected, result)
 	})
 
@@ -683,7 +686,7 @@ func TestAttrsToMap(t *testing.T) {
 		expected.PutBool("key1", true)
 		expected.PutBool("key2", false)
 
-		result := attrsToMap(attrs)
+		result := tracesgen.AttrsToMap(attrs)
 		assert.Equal(t, expected, result)
 	})
 }
@@ -693,7 +696,7 @@ func TestCodeToStatusCode(t *testing.T) {
 		code := request.StatusCodeUnset
 		expected := ptrace.StatusCodeUnset
 
-		result := codeToStatusCode(code)
+		result := tracesgen.CodeToStatusCode(code)
 		assert.Equal(t, expected, result)
 	})
 
@@ -701,7 +704,7 @@ func TestCodeToStatusCode(t *testing.T) {
 		code := request.StatusCodeError
 		expected := ptrace.StatusCodeError
 
-		result := codeToStatusCode(code)
+		result := tracesgen.CodeToStatusCode(code)
 		assert.Equal(t, expected, result)
 	})
 
@@ -709,7 +712,7 @@ func TestCodeToStatusCode(t *testing.T) {
 		code := request.StatusCodeOk
 		expected := ptrace.StatusCodeOk
 
-		result := codeToStatusCode(code)
+		result := tracesgen.CodeToStatusCode(code)
 		assert.Equal(t, expected, result)
 	})
 }
@@ -851,8 +854,8 @@ func TestTracesAttrReuse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			attr1 := traceAppResourceAttrs(cache, "123", &tt.span.Service)
-			attr2 := traceAppResourceAttrs(cache, "123", &tt.span.Service)
+			attr1 := tracesgen.TraceAppResourceAttrs(cache, "123", &tt.span.Service)
+			attr2 := tracesgen.TraceAppResourceAttrs(cache, "123", &tt.span.Service)
 			assert.Equal(t, tt.same, &attr1[0] == &attr2[0], tt.name)
 		})
 	}
@@ -1129,7 +1132,7 @@ func TestHostPeerAttributes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			attrs := traceAttributes(&tt.span, nil)
+			attrs := tracesgen.TraceAttributesSelector(&tt.span, nil)
 			if tt.server != "" {
 				var found attribute.KeyValue
 				for _, a := range attrs {
@@ -1166,7 +1169,7 @@ func TestTraceGrouping(t *testing.T) {
 			Method:       "GET",
 			Route:        "/test" + strconv.Itoa(i),
 			Status:       200,
-			TraceID:      RandomTraceID(),
+			TraceID:      idgen.RandomTraceID(),
 			Service:      svc.Attrs{UID: svc.UID{Instance: "1"}}, // Same service for all spans
 		}
 		spans = append(spans, span)
@@ -1257,16 +1260,16 @@ func makeTracesTestReceiverWithSpanMetrics(instr []string) *tracesOTELReceiver {
 
 func generateTracesForSpans(t *testing.T, tr *tracesOTELReceiver, spans []request.Span) []ptrace.Traces {
 	res := []ptrace.Traces{}
-	traceAttrs, err := userSelectedAttributes(tr.selectorCfg)
+	traceAttrs, err := tracesgen.UserSelectedAttributes(tr.selectorCfg)
 	require.NoError(t, err)
 	for i := range spans {
 		span := &spans[i]
-		if spanDiscarded(span, tr.is) {
+		if tracesgen.SpanDiscarded(span, tr.is) {
 			continue
 		}
-		tAttrs := traceAttributes(span, traceAttrs)
+		tAttrs := tracesgen.TraceAttributesSelector(span, traceAttrs)
 
-		res = append(res, generateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, tAttrs)))
+		res = append(res, tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(span, tAttrs), reporterName))
 	}
 
 	return res
