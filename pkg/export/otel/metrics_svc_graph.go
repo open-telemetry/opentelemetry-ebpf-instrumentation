@@ -43,14 +43,14 @@ const (
 // MetricsReporter implements the graph node that receives request.Span
 // instances and forwards them as OTEL metrics.
 type SvcGraphMetricsReporter struct {
-	ctx        context.Context
-	cfg        *otelcfg.MetricsConfig
-	hostID     string
-	attributes *attributes.AttrSelector
-	exporter   sdkmetric.Exporter
-	reporters  otelcfg.ReporterPool[*svc.Attrs, *SvcGraphMetrics]
-	pidTracker PidServiceTracker
-	is         instrumentations.InstrumentationSelection
+	ctx              context.Context
+	cfg              *otelcfg.MetricsConfig
+	hostID           string
+	exporter         sdkmetric.Exporter
+	reporters        otelcfg.ReporterPool[*svc.Attrs, *SvcGraphMetrics]
+	pidTracker       PidServiceTracker
+	is               instrumentations.InstrumentationSelection
+	metricAttributes []attributes.Field[*request.Span, attribute.KeyValue]
 
 	input         <-chan []request.Span
 	processEvents <-chan exec.ProcessEvent
@@ -58,7 +58,7 @@ type SvcGraphMetricsReporter struct {
 	log *slog.Logger
 }
 
-// Metrics is a set of metrics associated to a given OTEL MeterProvider.
+// SvcGraphMetrics is a set of metrics associated to a given OTEL MeterProvider.
 // There is a Metrics instance for each service/process instrumented by OBI.
 type SvcGraphMetrics struct {
 	ctx                      context.Context
@@ -76,7 +76,6 @@ type SvcGraphMetrics struct {
 func ReportSvcGraphMetrics(
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
-	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]request.Span],
 	processEvents *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
@@ -90,7 +89,6 @@ func ReportSvcGraphMetrics(
 			ctx,
 			ctxInfo,
 			cfg,
-			selectorCfg,
 			input,
 			processEvents,
 		)
@@ -106,28 +104,22 @@ func newSvcGraphMetricsReporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
-	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) (*SvcGraphMetricsReporter, error) {
 	log := sglog()
 
-	attribProvider, err := attributes.NewAttrSelector(ctxInfo.MetricAttributeGroups, selectorCfg)
-	if err != nil {
-		return nil, fmt.Errorf("attributes select: %w", err)
-	}
-
 	is := instrumentations.NewInstrumentationSelection(cfg.Instrumentations)
 
 	mr := SvcGraphMetricsReporter{
-		ctx:           ctx,
-		cfg:           cfg,
-		is:            is,
-		attributes:    attribProvider,
-		hostID:        ctxInfo.HostID,
-		input:         input.Subscribe(),
-		processEvents: processEventCh.Subscribe(),
-		log:           log,
+		ctx:              ctx,
+		cfg:              cfg,
+		is:               is,
+		hostID:           ctxInfo.HostID,
+		input:            input.Subscribe(),
+		processEvents:    processEventCh.Subscribe(),
+		metricAttributes: serviceGraphGetters(),
+		log:              log,
 	}
 
 	mr.reporters = otelcfg.NewReporterPool[*svc.Attrs, *SvcGraphMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -167,40 +159,38 @@ func (mr *SvcGraphMetricsReporter) graphMetricOptions(log *slog.Logger) []metric
 func (mr *SvcGraphMetricsReporter) setupGraphMeters(m *SvcGraphMetrics, meter instrument.Meter) error {
 	var err error
 
-	serviceGraphAttrs := mr.serviceGraphAttributes()
-
 	serviceGraphClient, err := meter.Float64Histogram(ServiceGraphClient, instrument.WithUnit("s"))
 	if err != nil {
 		return fmt.Errorf("creating service graph client histogram: %w", err)
 	}
 	m.serviceGraphClient = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
-		m.ctx, serviceGraphClient, serviceGraphAttrs, timeNow, mr.cfg.TTL)
+		m.ctx, serviceGraphClient, mr.metricAttributes, timeNow, mr.cfg.TTL)
 
 	serviceGraphServer, err := meter.Float64Histogram(ServiceGraphServer, instrument.WithUnit("s"))
 	if err != nil {
 		return fmt.Errorf("creating service graph server histogram: %w", err)
 	}
 	m.serviceGraphServer = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
-		m.ctx, serviceGraphServer, serviceGraphAttrs, timeNow, mr.cfg.TTL)
+		m.ctx, serviceGraphServer, mr.metricAttributes, timeNow, mr.cfg.TTL)
 
 	serviceGraphFailed, err := meter.Int64Counter(ServiceGraphFailed)
 	if err != nil {
 		return fmt.Errorf("creating service graph failed total: %w", err)
 	}
 	m.serviceGraphFailed = NewExpirer[*request.Span, instrument.Int64Counter, int64](
-		m.ctx, serviceGraphFailed, serviceGraphAttrs, timeNow, mr.cfg.TTL)
+		m.ctx, serviceGraphFailed, mr.metricAttributes, timeNow, mr.cfg.TTL)
 
 	serviceGraphTotal, err := meter.Int64Counter(ServiceGraphTotal)
 	if err != nil {
 		return fmt.Errorf("creating service graph total: %w", err)
 	}
 	m.serviceGraphTotal = NewExpirer[*request.Span, instrument.Int64Counter, int64](
-		m.ctx, serviceGraphTotal, serviceGraphAttrs, timeNow, mr.cfg.TTL)
+		m.ctx, serviceGraphTotal, mr.metricAttributes, timeNow, mr.cfg.TTL)
 
 	return nil
 }
 
-func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs) SvcGraphMetrics {
+func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs) *SvcGraphMetrics {
 	log := mr.log
 	var resourceAttributes []attribute.KeyValue
 	if service != nil {
@@ -218,7 +208,7 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 
 	opts = append(opts, mr.graphMetricOptions(log)...)
 
-	return SvcGraphMetrics{
+	return &SvcGraphMetrics{
 		ctx:                      mr.ctx,
 		service:                  service,
 		resourceAttributes:       resourceAttributes,
@@ -233,21 +223,19 @@ func (mr *SvcGraphMetricsReporter) newMetricSet(service *svc.Attrs) (*SvcGraphMe
 	m := mr.newSvcGraphMetricsInstance(service)
 
 	mr.log.Debug("creating new metric set", "service", service)
-	// time units for HTTP and GRPC durations are in seconds, according to the OTEL specification:
-	// https://github.com/open-telemetry/opentelemetry-specification/tree/main/specification/metrics/semantic_conventions
-	// TODO: set ExplicitBucketBoundaries here and in prometheus from the previous specification
+
 	meter := m.provider.Meter(reporterName)
 
-	if err := mr.setupGraphMeters(&m, meter); err != nil {
+	if err := mr.setupGraphMeters(m, meter); err != nil {
 		return nil, err
 	}
 
-	return &m, nil
+	return m, nil
 }
 
 func (mr *SvcGraphMetricsReporter) close() {
 	if err := mr.exporter.Shutdown(mr.ctx); err != nil {
-		slog.With("component", "MetricsReporter").Error("closing metrics provider", "error", err)
+		mr.log.Error("closing metrics provider", "error", err)
 	}
 }
 
@@ -285,7 +273,7 @@ func (mr *SvcGraphMetricsReporter) metricHostAttributes() attribute.Set {
 	return attribute.NewSet(attrs...)
 }
 
-func (mr *SvcGraphMetricsReporter) serviceGraphAttributes() []attributes.Field[*request.Span, attribute.KeyValue] {
+func serviceGraphGetters() []attributes.Field[*request.Span, attribute.KeyValue] {
 	return attributes.OpenTelemetryGetters(
 		request.SpanOTELGetters, []attr.Name{
 			attr.Client,
@@ -372,29 +360,14 @@ func (mr *SvcGraphMetricsReporter) reportMetrics(ctx context.Context) {
 func (mr *SvcGraphMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
 
-	reporter, err := mr.reporters.For(&pe.File.Service)
-	// If we are receiving a delete event, the service may come without kubernetes information, which
-	// is why we record the original service info. Delete look up the data from the pid tracker.
-	if err != nil {
-		mr.log.Error("unexpected error creating OTEL resource. Ignoring metric",
-			"error", err, "service", pe.File.Service.UID)
-		return
-	}
-
 	if pe.Type == exec.ProcessEventCreated {
 		mr.setupPIDToServiceRelationship(pe.File.Pid, pe.File.Service.UID)
 	} else {
 		if deleted, origUID := mr.disassociatePIDFromService(pe.File.Pid); deleted {
-			// We only need the UID to look up in the pool, no need to cache
-			// the whole of the attrs in the pidTracker
-			svc := svc.Attrs{UID: origUID}
-			reporter, err = mr.reporters.For(&svc)
-			if err != nil {
-				mr.log.Error("unexpected error creating OTEL resource. Ignoring metric",
-					"error", err, "service", pe.File.Service.UID)
-				return
-			}
-			mr.log.Debug("deleting infos for", "pid", pe.File.Pid, "attrs", reporter.service)
+			mr.log.Debug("deleting infos for",
+				"pid", pe.File.Pid,
+				"uid", origUID,
+				"attrs", pe.File.Service)
 		}
 	}
 }
