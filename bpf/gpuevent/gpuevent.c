@@ -142,7 +142,7 @@ int BPF_KPROBE(handle_cuda_memcpy, void *dst, void *src, size_t size, u8 kind) {
         return 0;
     }
 
-    bpf_dbg_printk("=== cudaMemcpyAsync %llx ===", id);
+    bpf_dbg_printk("=== cudaMemcpyAsync %llx kind %d ===", id, kind);
 
     gpu_memcpy_t *e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
     if (!e) {
