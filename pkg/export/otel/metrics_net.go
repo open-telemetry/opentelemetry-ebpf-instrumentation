@@ -9,8 +9,6 @@ import (
 	"log/slog"
 	"time"
 
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
-
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -24,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	metric2 "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )

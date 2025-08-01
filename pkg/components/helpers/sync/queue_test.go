@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"go.opentelemetry.io/obi/pkg/components/testutil"
-
 	"github.com/stretchr/testify/assert"
+
+	"go.opentelemetry.io/obi/pkg/components/testutil"
 )
 
 const timeout = 5 * time.Second

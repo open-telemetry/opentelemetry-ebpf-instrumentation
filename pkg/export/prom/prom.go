@@ -13,8 +13,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
-
 	"github.com/prometheus/client_golang/prometheus"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
@@ -28,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )

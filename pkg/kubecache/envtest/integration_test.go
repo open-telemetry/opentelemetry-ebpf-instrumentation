@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"go.opentelemetry.io/obi/pkg/components/testutil"
-
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
+	"go.opentelemetry.io/obi/pkg/components/testutil"
 	"go.opentelemetry.io/obi/pkg/kubecache"
 	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kubecache/meta"

@@ -6,13 +6,11 @@ package instrumenter
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/pkg/transform"
-
-	"github.com/stretchr/testify/assert"
-
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 func TestServiceNameTemplate(t *testing.T) {

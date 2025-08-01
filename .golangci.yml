@@ -7,19 +7,21 @@ issues:
 
 formatters:
   enable:
+    - gci
     - gofumpt
-    - goimports
 
   settings:
     gofmt:
       # simplify code: gofmt with `-s` option, true by default
       simplify: true
 
-    goimports:
-      # put imports beginning with prefix after 3rd-party packages;
-      # it's a comma-separated list of prefixes
-      local-prefixes:
-        - go.opentelemetry.io/obi
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/open-telemetry)
+        - prefix(go.opentelemetry.io)
+        - localmodule
 
 linters:
   exclusions:

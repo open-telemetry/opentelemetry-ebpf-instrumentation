@@ -7,7 +7,6 @@ import (
 	"context"
 
 	"go.opentelemetry.io/otel"
-
 	"go.opentelemetry.io/otel/attribute"
 )
 
