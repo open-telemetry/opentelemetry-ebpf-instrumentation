@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package otel
+package tracesgen
 
 import (
 	"context"
@@ -12,23 +12,37 @@ import (
 	"strconv"
 	"time"
 
+	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 	"golang.org/x/sys/unix"
 
-	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
-	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
+	trace2 "go.opentelemetry.io/otel/trace"
+
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/idgen"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
-	trace2 "go.opentelemetry.io/otel/trace"
 )
+
+type TraceSpanAndAttributes struct {
+	Span       *request.Span
+	Attributes []attribute.KeyValue
+}
+
+type SpanAttr struct {
+	ValLength uint16
+	Vtype     uint8
+	Reserved  uint8
+	Key       [32]uint8
+	Value     [128]uint8
+}
 
 // Must remain public for collectors embedding OBI
 func UserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Name]struct{}, error) {
@@ -55,11 +69,11 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 		if span.InternalSignal() {
 			continue
 		}
-		if spanDiscarded(span, is) {
+		if SpanDiscarded(span, is) {
 			continue
 		}
 
-		finalAttrs := traceAttributes(span, traceAttrs)
+		finalAttrs := TraceAttributesSelector(span, traceAttrs)
 
 		spanSampler := func() trace.Sampler {
 			if span.Service.Sampler != nil {
@@ -99,13 +113,14 @@ func GenerateTracesWithAttributes(
 	envResourceAttrs []attribute.KeyValue,
 	hostID string,
 	spans []TraceSpanAndAttributes,
+	reporterName string,
 	extraResAttrs ...attribute.KeyValue,
 ) ptrace.Traces {
 	traces := ptrace.NewTraces()
 	rs := traces.ResourceSpans().AppendEmpty()
-	resourceAttrs := traceAppResourceAttrs(cache, hostID, svc)
+	resourceAttrs := TraceAppResourceAttrs(cache, hostID, svc)
 	resourceAttrs = append(resourceAttrs, envResourceAttrs...)
-	resourceAttrsMap := attrsToMap(resourceAttrs)
+	resourceAttrsMap := AttrsToMap(resourceAttrs)
 	resourceAttrsMap.PutStr(string(semconv.OTelLibraryNameKey), reporterName)
 	addAttrsToMap(extraResAttrs, resourceAttrsMap)
 	resourceAttrsMap.MoveTo(rs.Resource().Attributes())
@@ -121,10 +136,10 @@ func GenerateTracesWithAttributes(
 		hasSubSpans := t.Start.After(start)
 
 		traceID := pcommon.TraceID(span.TraceID)
-		spanID := pcommon.SpanID(RandomSpanID())
+		spanID := pcommon.SpanID(idgen.RandomSpanID())
 		// This should never happen
 		if traceID.IsEmpty() {
-			traceID = pcommon.TraceID(RandomTraceID())
+			traceID = pcommon.TraceID(idgen.RandomTraceID())
 		}
 
 		if hasSubSpans {
@@ -147,11 +162,11 @@ func GenerateTracesWithAttributes(
 		}
 
 		// Set span attributes
-		m := attrsToMap(attrs)
+		m := AttrsToMap(attrs)
 		m.MoveTo(s.Attributes())
 
 		// Set status code
-		statusCode := codeToStatusCode(request.SpanStatusCode(span))
+		statusCode := CodeToStatusCode(request.SpanStatusCode(span))
 		s.Status().SetCode(statusCode)
 		statusMessage := request.SpanStatusMessage(span)
 		if statusMessage != "" {
@@ -162,7 +177,7 @@ func GenerateTracesWithAttributes(
 	return traces
 }
 
-func spanDiscarded(span *request.Span, is instrumentations.InstrumentationSelection) bool {
+func SpanDiscarded(span *request.Span, is instrumentations.InstrumentationSelection) bool {
 	return request.IgnoreTraces(span) || span.Service.ExportsOTelTraces() || !acceptSpan(is, span)
 }
 
@@ -175,7 +190,7 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 	spQ.SetKind(ptrace.SpanKindInternal)
 	spQ.SetEndTimestamp(pcommon.NewTimestampFromTime(t.Start))
 	spQ.SetTraceID(traceID)
-	spQ.SetSpanID(pcommon.SpanID(RandomSpanID()))
+	spQ.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
 	spQ.SetParentSpanID(parentSpanID)
 
 	// Create a child span showing the processing time
@@ -188,14 +203,14 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 	if span.SpanID.IsValid() {
 		spP.SetSpanID(pcommon.SpanID(span.SpanID))
 	} else {
-		spP.SetSpanID(pcommon.SpanID(RandomSpanID()))
+		spP.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
 	}
 	spP.SetParentSpanID(parentSpanID)
 }
 
 var emptyUID = svc.UID{}
 
-func traceAppResourceAttrs(cache *expirable2.LRU[svc.UID, []attribute.KeyValue], hostID string, service *svc.Attrs) []attribute.KeyValue {
+func TraceAppResourceAttrs(cache *expirable2.LRU[svc.UID, []attribute.KeyValue], hostID string, service *svc.Attrs) []attribute.KeyValue {
 	// TODO: remove?
 	if service.UID == emptyUID {
 		return otelcfg.GetAppResourceAttrs(hostID, service)
@@ -211,8 +226,8 @@ func traceAppResourceAttrs(cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
 	return attrs
 }
 
-// attrsToMap converts a slice of attribute.KeyValue to a pcommon.Map
-func attrsToMap(attrs []attribute.KeyValue) pcommon.Map {
+// AttrsToMap converts a slice of attribute.KeyValue to a pcommon.Map
+func AttrsToMap(attrs []attribute.KeyValue) pcommon.Map {
 	m := pcommon.NewMap()
 	addAttrsToMap(attrs, m)
 	return m
@@ -234,8 +249,8 @@ func addAttrsToMap(attrs []attribute.KeyValue, dst pcommon.Map) {
 	}
 }
 
-// codeToStatusCode converts a codes.Code to a ptrace.StatusCode
-func codeToStatusCode(code string) ptrace.StatusCode {
+// CodeToStatusCode converts a codes.Code to a ptrace.StatusCode
+func CodeToStatusCode(code string) ptrace.StatusCode {
 	switch code {
 	case request.StatusCodeUnset:
 		return ptrace.StatusCodeUnset
@@ -245,14 +260,6 @@ func codeToStatusCode(code string) ptrace.StatusCode {
 		return ptrace.StatusCodeOk
 	}
 	return ptrace.StatusCodeUnset
-}
-
-func convertHeaders(headers map[string]string) map[string]configopaque.String {
-	opaqueHeaders := make(map[string]configopaque.String)
-	for key, value := range headers {
-		opaqueHeaders[key] = configopaque.String(value)
-	}
-	return opaqueHeaders
 }
 
 func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span) bool {
@@ -284,7 +291,7 @@ var (
 )
 
 //nolint:cyclop
-func traceAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 
 	switch span.Type {

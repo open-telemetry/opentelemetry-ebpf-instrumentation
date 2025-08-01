@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configgrpc"
 	"go.opentelemetry.io/collector/config/confighttp"
+	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/config/configtls"
@@ -36,24 +37,12 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 const reporterName = "go.opentelemetry.io/obi"
-
-type TraceSpanAndAttributes struct {
-	Span       *request.Span
-	Attributes []attribute.KeyValue
-}
-
-type SpanAttr struct {
-	ValLength uint16
-	Vtype     uint8
-	Reserved  uint8
-	Key       [32]uint8
-	Value     [128]uint8
-}
 
 func makeTracesReceiver(
 	cfg otelcfg.TracesConfig,
@@ -101,7 +90,7 @@ type tracesOTELReceiver struct {
 }
 
 func (tr *tracesOTELReceiver) getConstantAttributes() (map[attr.Name]struct{}, error) {
-	traceAttrs, err := UserSelectedAttributes(tr.selectorCfg)
+	traceAttrs, err := tracesgen.UserSelectedAttributes(tr.selectorCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +102,7 @@ func (tr *tracesOTELReceiver) getConstantAttributes() (map[attr.Name]struct{}, e
 }
 
 func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Traces, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler) {
-	spanGroups := GroupSpans(ctx, spans, traceAttrs, sampler, tr.is)
+	spanGroups := tracesgen.GroupSpans(ctx, spans, traceAttrs, sampler, tr.is)
 
 	for _, spanGroup := range spanGroups {
 		if len(spanGroup) > 0 {
@@ -124,7 +113,7 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 			}
 
 			envResourceAttrs := otelcfg.ResourceAttrsFromEnv(&sample.Span.Service)
-			traces := GenerateTracesWithAttributes(tr.attributeCache, &sample.Span.Service, envResourceAttrs, tr.ctxInfo.HostID, spanGroup, tr.ctxInfo.ExtraResourceAttributes...)
+			traces := tracesgen.GenerateTracesWithAttributes(tr.attributeCache, &sample.Span.Service, envResourceAttrs, tr.ctxInfo.HostID, spanGroup, reporterName, tr.ctxInfo.ExtraResourceAttributes...)
 			err := exp.ConsumeTraces(ctx, traces)
 			if err != nil {
 				slog.Error("error sending trace to consumer", "error", err)
@@ -299,4 +288,12 @@ func getRetrySettings(cfg otelcfg.TracesConfig) configretry.BackOffConfig {
 		backOffCfg.MaxElapsedTime = cfg.BackOffMaxElapsedTime
 	}
 	return backOffCfg
+}
+
+func convertHeaders(headers map[string]string) map[string]configopaque.String {
+	opaqueHeaders := make(map[string]configopaque.String)
+	for key, value := range headers {
+		opaqueHeaders[key] = configopaque.String(value)
+	}
+	return opaqueHeaders
 }
