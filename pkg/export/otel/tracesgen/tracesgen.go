@@ -44,7 +44,7 @@ type SpanAttr struct {
 	Value     [128]uint8
 }
 
-// Must remain public for collectors embedding OBI
+// UserSelectedAttributes must remain public for collectors embedding OBI
 func UserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Name]struct{}, error) {
 	// Get user attributes
 	attribProvider, err := attributes.NewAttrSelector(attributes.GroupTraces, selectorCfg)
@@ -60,7 +60,7 @@ func UserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Na
 	return traceAttrs, err
 }
 
-// Must remain public for collectors embedding OBI
+// GroupSpans must remain public for collectors embedding OBI
 func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection) map[svc.UID][]TraceSpanAndAttributes {
 	spanGroups := map[svc.UID][]TraceSpanAndAttributes{}
 
@@ -106,7 +106,7 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 	return spanGroups
 }
 
-// Must remain public for collectors embedding OBI
+// GenerateTracesWithAttributes must remain public for collectors embedding OBI
 func GenerateTracesWithAttributes(
 	cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
 	svc *svc.Attrs,
