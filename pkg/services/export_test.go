@@ -13,32 +13,32 @@ import (
 
 func TestYAMLMarshal_Exports(t *testing.T) {
 	type tc struct {
-		Exports *ExportModes
+		Exports ExportModes
 	}
 	t.Run("nil value", func(t *testing.T) {
 		yamlOut, err := yaml.Marshal(&tc{
-			Exports: nil,
+			Exports: ExportModes{},
 		})
 		require.NoError(t, err)
 		assert.YAMLEq(t, `exports: null`, string(yamlOut))
 	})
 	t.Run("empty value", func(t *testing.T) {
 		yamlOut, err := yaml.Marshal(&tc{
-			Exports: &ExportModes{},
+			Exports: ExportModes{blockSignal: blockAll},
 		})
 		require.NoError(t, err)
 		assert.YAMLEq(t, `exports: []`, string(yamlOut))
 	})
 	t.Run("some value", func(t *testing.T) {
 		yamlOut, err := yaml.Marshal(&tc{
-			Exports: &ExportModes{items: exportMetrics},
+			Exports: ExportModes{blockSignal: ^blockMetrics},
 		})
 		require.NoError(t, err)
 		assert.YAMLEq(t, `exports: ["metrics"]`, string(yamlOut))
 	})
 	t.Run("all values", func(t *testing.T) {
 		yamlOut, err := yaml.Marshal(&tc{
-			Exports: &ExportModes{items: exportMetrics | exportTraces},
+			Exports: ExportModes{blockSignal: ^(blockMetrics | blockTraces)},
 		})
 		require.NoError(t, err)
 		assert.YAMLEq(t, `exports: ["metrics", "traces"]`, string(yamlOut))
@@ -47,13 +47,21 @@ func TestYAMLMarshal_Exports(t *testing.T) {
 
 func TestYAMLUnmarshal_Exports(t *testing.T) {
 	type tc struct {
-		Exports *ExportModes
+		Exports ExportModes
 	}
+	t.Run("undefined value", func(t *testing.T) {
+		var tc tc
+		err := yaml.Unmarshal([]byte(``), &tc)
+		require.NoError(t, err)
+		assert.True(t, tc.Exports.CanExportMetrics())
+		assert.True(t, tc.Exports.CanExportTraces())
+	})
 	t.Run("nil value", func(t *testing.T) {
 		var tc tc
 		err := yaml.Unmarshal([]byte(`exports: null`), &tc)
 		require.NoError(t, err)
-		assert.Nil(t, tc.Exports)
+		assert.True(t, tc.Exports.CanExportMetrics())
+		assert.True(t, tc.Exports.CanExportTraces())
 	})
 	t.Run("empty value", func(t *testing.T) {
 		var tc tc
