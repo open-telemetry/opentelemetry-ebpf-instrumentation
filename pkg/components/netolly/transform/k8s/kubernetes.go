@@ -32,8 +32,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/kubecache/informer"
-	"go.opentelemetry.io/obi/pkg/pipe/msg"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -55,39 +53,6 @@ const alreadyLoggedIPsCacheLen = 256
 
 func log() *slog.Logger { return slog.With("component", "k8s.MetadataDecorator") }
 
-func MetadataDecoratorProvider(
-	ctx context.Context,
-	cfg *transform.KubernetesDecorator,
-	k8sInformer *kube.MetadataProvider,
-	input, output *msg.Queue[[]*ebpf.Record],
-) swarm.InstanceFunc {
-	return func(_ context.Context) (swarm.RunFunc, error) {
-		if !k8sInformer.IsKubeEnabled() {
-			return swarm.Bypass(input, output)
-		}
-		nt, err := newDecorator(ctx, cfg, k8sInformer)
-		if err != nil {
-			return nil, fmt.Errorf("instantiating k8s.MetadataDecorator: %w", err)
-		}
-		var decorate func([]*ebpf.Record) []*ebpf.Record
-		if cfg.DropExternal {
-			log().Debug("will drop external flows")
-			decorate = nt.decorateMightDrop
-		} else {
-			decorate = nt.decorateNoDrop
-		}
-		in := input.Subscribe()
-		return func(_ context.Context) {
-			defer output.Close()
-			log().Debug("starting network transformation loop")
-			for flows := range in {
-				output.Send(decorate(flows))
-			}
-			log().Debug("stopping network transformation loop")
-		}, nil
-	}
-}
-
 type decorator struct {
 	log              *slog.Logger
 	alreadyLoggedIPs *simplelru.LRU[string, struct{}]
@@ -95,21 +60,45 @@ type decorator struct {
 	clusterName      string
 }
 
-func (n *decorator) decorateNoDrop(flows []*ebpf.Record) []*ebpf.Record {
-	for _, flow := range flows {
-		n.transform(flow)
-	}
-	return flows
+type Decorator struct {
+	decorator *decorator
+	Decorate func(*ebpf.Record) bool
 }
 
-func (n *decorator) decorateMightDrop(flows []*ebpf.Record) []*ebpf.Record {
-	out := make([]*ebpf.Record, 0, len(flows))
-	for _, flow := range flows {
-		if n.transform(flow) {
-			out = append(out, flow)
-		}
+func NewDecorator(ctx context.Context, cfg *transform.KubernetesDecorator,
+	k8sInformer *kube.MetadataProvider) (*Decorator, error) {
+
+	if !k8sInformer.IsKubeEnabled() {
+		return &Decorator{decorator: nil, Decorate: func(*ebpf.Record) bool { return true}, }, nil
 	}
-	return out
+
+	nt, err := newDecorator(ctx, cfg, k8sInformer)
+
+	if err != nil {
+		return nil, fmt.Errorf("instantiating k8s.MetadataDecorator: %w", err)
+	}
+
+	d := &Decorator{
+		decorator: nt,
+	}
+
+	if cfg.DropExternal {
+		log().Debug("will drop external flows")
+		d.Decorate = nt.decorateMightDrop
+	} else {
+		d.Decorate = nt.decorateNoDrop
+	}
+
+	return d, nil
+}
+
+func (n *decorator) decorateNoDrop(flow *ebpf.Record) bool {
+	n.transform(flow)
+	return true
+}
+
+func (n *decorator) decorateMightDrop(flow *ebpf.Record) bool {
+	return n.transform(flow)
 }
 
 func (n *decorator) transform(flow *ebpf.Record) bool {

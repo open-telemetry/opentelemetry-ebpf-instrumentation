@@ -184,6 +184,7 @@ static __always_inline bool same_ip(const u8 *ip1, const u8 *ip2) {
     return true;
 }
 
+#if 0
 SEC("socket/filter")
 int obi_socket__filter(struct __sk_buff *skb) {
     // If sampling is defined, will only parse 1 out of "sampling" flows
@@ -304,10 +305,103 @@ cleanup:
     }
     return TC_ACT_UNSPEC;
 }
+#else
+SEC("socket/filter")
+int obi_socket__filter(struct __sk_buff *skb) {
+    // If sampling is defined, will only parse 1 out of "sampling" flows
+    if (sampling != 0 && (bpf_get_prandom_u32() % sampling) != 0) {
+        return TC_ACT_UNSPEC;
+    }
+
+    u16 flags = 0;
+    flow_id id;
+    __builtin_memset(&id, 0, sizeof(id));
+    if (!read_sk_buff(skb, &id, &flags)) {
+        return TC_ACT_UNSPEC;
+    }
+
+    // ignore traffic that's not egress or ingress
+    if (same_ip(id.src_ip.s6_addr, id.dst_ip.s6_addr)) {
+        return TC_ACT_UNSPEC;
+    }
+
+    u64 current_time = bpf_ktime_get_ns();
+
+    // TODO: we need to add spinlock here when we deprecate versions prior to 5.1, or provide
+    // a spinlocked alternative version and use it selectively https://lwn.net/Articles/779120/
+    // Key does not exist in the map, and will need to create a new entry.
+    flow_metrics new_flow = {
+        .packets = 1,
+        .bytes = skb->len,
+        .start_mono_time_ns = current_time,
+        .end_mono_time_ns = current_time,
+        .flags = flags,
+        .iface_direction = UNKNOWN,
+    };
+
+    u8 *direction = (u8 *)bpf_map_lookup_elem(&flow_directions, &id);
+
+    if (direction == NULL) {
+        // Calculate direction based on first flag received
+        // SYN and ACK mean someone else initiated the connection and this is the INGRESS direction
+        if ((flags & (SYN_FLAG | ACK_FLAG)) == (SYN_FLAG | ACK_FLAG)) {
+            new_flow.iface_direction = INGRESS;
+        }
+        // SYN only means we initiated the connection and this is the EGRESS direction
+        else if ((flags & SYN_FLAG) == SYN_FLAG) {
+            new_flow.iface_direction = EGRESS;
+        }
+
+        // save, when direction was calculated based on TCP flag
+        if (new_flow.iface_direction != UNKNOWN) {
+            // errors are intentionally omitted
+            bpf_map_update_elem(&flow_directions, &id, &new_flow.iface_direction, BPF_NOEXIST);
+        }
+        // fallback for lost or already started connections and UDP
+        else {
+            new_flow.iface_direction = INGRESS;
+            if (id.src_port > id.dst_port) {
+                new_flow.iface_direction = EGRESS;
+            }
+        }
+    } else {
+        // get direction from saved flow
+        new_flow.iface_direction = *direction;
+    }
+
+    new_flow.initiator = get_connection_initiator(&id, flags);
+
+    if (trace_messages) {
+        bpf_dbg_printk("error adding flow %d\n", ret);
+    }
+
+    new_flow.errno = 0; //FIXME
+
+    flow_record *record =
+        (flow_record *)bpf_ringbuf_reserve(&direct_flows, sizeof(flow_record), 0);
+
+    if (!record) {
+        if (trace_messages) {
+            bpf_dbg_printk("couldn't reserve space in the ringbuf. Dropping flow");
+        }
+        goto cleanup;
+    }
+
+    record->id = id;
+    record->metrics = new_flow;
+    bpf_ringbuf_submit(record, 0);
+
+cleanup:
+    // finally, when flow receives FIN or RST, clean flow_directions
+    if (flags & FIN_FLAG || flags & RST_FLAG) {
+        bpf_map_delete_elem(&flow_directions, &id);
+    }
+    return TC_ACT_UNSPEC;
+}
+#endif
 
 // Force emitting structs into the ELF for automatic creation of Golang struct
 const flow_metrics *unused_flow_metrics __attribute__((unused));
 const flow_id *unused_flow_id __attribute__((unused));
 const flow_record *unused_flow_record __attribute__((unused));
 
-char _license[] SEC("license") = "GPL";

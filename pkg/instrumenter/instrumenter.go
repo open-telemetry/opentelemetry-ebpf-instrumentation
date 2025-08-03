@@ -17,7 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/components/kube"
 	"go.opentelemetry.io/obi/pkg/components/netolly/agent"
-	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
+	"go.opentelemetry.io/obi/pkg/components/netolly/deduper"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel"
@@ -216,7 +216,7 @@ func attributeGroups(config *obi.Config, ctxInfo *global.ContextInfo) {
 	if config.Routes != nil {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupHTTPRoutes)
 	}
-	if config.NetworkFlows.Deduper == flow.DeduperNone {
+	if config.NetworkFlows.Deduper == deduper.DeduperNone {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupNetIfaceDirection)
 	}
 	if config.NetworkFlows.CIDRs.Enabled() {

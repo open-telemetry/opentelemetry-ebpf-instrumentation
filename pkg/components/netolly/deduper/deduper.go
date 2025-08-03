@@ -19,17 +19,14 @@
 // This implementation is a derivation of the code in
 // https://github.com/netobserv/netobserv-ebpf-agent/tree/release-1.4
 
-package flow
+package deduper
 
 import (
 	"container/list"
-	"context"
 	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
-	"go.opentelemetry.io/obi/pkg/pipe/msg"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 func dlog() *slog.Logger {
@@ -42,9 +39,8 @@ const (
 )
 
 type Deduper struct {
-	Type               string
-	FCTTL              time.Duration
-	CacheActiveTimeout time.Duration
+	Type  string
+	cache *deduperCache
 }
 
 func (d Deduper) Enabled() bool {
@@ -71,49 +67,40 @@ type entry struct {
 	expiryTime time.Time
 }
 
-// DeduperProvider receives flows and filters these belonging to duplicate interfaces. It will forward
-// the flows from the first interface coming to it, until that flow expires in the cache
-// (no activity for it during the expiration time)
-// After passing by the deduper, the ebpf.Record instances loose their IfIndex and Direction fields.
-func DeduperProvider(dd *Deduper, input, output *msg.Queue[[]*ebpf.Record]) swarm.InstanceFunc {
-	deduperExpireTime := dd.FCTTL
-	if deduperExpireTime <= 0 {
-		deduperExpireTime = 2 * dd.CacheActiveTimeout
-	}
-	return func(_ context.Context) (swarm.RunFunc, error) {
-		if !dd.Enabled() {
-			// This node is not going to be instantiated. Bypassing it
-			return swarm.Bypass(input, output)
-		}
-		cache := &deduperCache{
-			expire:  deduperExpireTime,
-			entries: list.New(),
-			ifaces:  map[ebpf.NetFlowId]*list.Element{},
-		}
-		in := input.Subscribe()
-		return func(_ context.Context) {
-			defer output.Close()
-			for records := range in {
-				cache.removeExpired()
-				fwd := make([]*ebpf.Record, 0, len(records))
-				for _, record := range records {
-					if cache.isDupe(&record.Id) {
-						continue
-					}
-					// Before forwarding, unset the non-common fields of deduplicate flows.
-					// These values are not relevant after deduplication and keeping them
-					// would unnecessarily increase cardinality, as they could chaotically
-					// contain the different interfaces.
-					record.Id.IfIndex = ebpf.InterfaceUnset
+func NewDeduper(t string, fcttl, cacheActiveTimeout time.Duration) *Deduper {
+	deduperExpireTime := fcttl
 
-					fwd = append(fwd, record)
-				}
-				if len(fwd) > 0 {
-					output.Send(fwd)
-				}
-			}
-		}, nil
+	if deduperExpireTime <= 0 {
+		deduperExpireTime = 2 * cacheActiveTimeout
 	}
+
+	cache := &deduperCache{
+		expire:  deduperExpireTime,
+		entries: list.New(),
+		ifaces:  map[ebpf.NetFlowId]*list.Element{},
+	}
+
+	return &Deduper{
+		Type:  t,
+		cache: cache,
+	}
+}
+
+func (d *Deduper) IsDupe(event *ebpf.NetFlowRecordT) bool {
+	if !d.Enabled() {
+		return false
+	}
+
+	d.cache.removeExpired()
+	duped := d.cache.isDupe(&event.Id)
+
+	// Before forwarding, unset the non-common fields of deduplicate flows.
+	// These values are not relevant after deduplication and keeping them
+	// would unnecessarily increase cardinality, as they could chaotically
+	// contain the different interfaces.
+	event.Id.IfIndex = ebpf.InterfaceUnset
+
+	return duped
 }
 
 // isDupe returns whether the passed record has been already checked for duplicate for

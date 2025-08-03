@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package flow
+package rdns
 
 import (
 	"context"
@@ -85,6 +85,34 @@ func ReverseDNSProvider(cfg *ReverseDNS, input, output *msg.Queue[[]*ebpf.Record
 			}
 		}, nil
 	}
+}
+
+type ReverseDNSFunc func(*ebpf.Record)
+
+func ReverseDNSEnricher(ctx context.Context, cfg *ReverseDNS) (ReverseDNSFunc, error) {
+	if !cfg.Enabled() {
+		return func(*ebpf.Record) {}, nil
+	}
+
+	if err := checkEBPFReverseDNS(ctx, cfg); err != nil {
+		return nil, err
+	}
+
+	return func(flow *ebpf.Record) {
+		// TODO: replace by a cache with fuzzy expiration time to avoid cache stampede
+		cache := expirable.NewLRU[ebpf.IPAddr, string](cfg.CacheLen, nil, cfg.CacheTTL)
+
+		log := rdlog()
+
+		log.Debug("starting reverse DNS node")
+
+		if flow.Attrs.SrcName == "" {
+			flow.Attrs.SrcName = optGetName(log, cache, flow.Id.SrcIp.In6U.U6Addr8)
+		}
+		if flow.Attrs.DstName == "" {
+			flow.Attrs.DstName = optGetName(log, cache, flow.Id.DstIp.In6U.U6Addr8)
+		}
+	}, nil
 }
 
 // changes reverse DNS method according to the provided configuration

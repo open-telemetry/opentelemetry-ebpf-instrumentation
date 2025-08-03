@@ -57,6 +57,24 @@ func DecoratorProvider(g Definitions, input, output *msg.Queue[[]*ebpf.Record]) 
 	}
 }
 
+type CIDRDecoratorFunc func(*ebpf.Record)
+
+func CIDRDecorator(g Definitions) (CIDRDecoratorFunc, error) {
+	if !g.Enabled() {
+		return func(*ebpf.Record){}, nil
+	}
+
+	grouper, err := newIPGrouper(g)
+
+	if err != nil {
+		return nil, fmt.Errorf("instantiating IP grouper: %w", err)
+	}
+
+	return func(flow *ebpf.Record) {
+		grouper.decorate(flow)
+	}, nil
+}
+
 type customRangerEntry struct {
 	ipNet net.IPNet
 	cidr  string

@@ -117,6 +117,7 @@ type ebpfFlowFetcher interface {
 
 	LookupAndDeleteMap() map[ebpf.NetFlowId][]ebpf.NetFlowMetrics
 	ReadRingBuf() (ringbuf.Record, error)
+	RingBufReader() *ringbuf.Reader
 }
 
 // FlowsAgent instantiates a new agent, given a configuration.
@@ -207,7 +208,7 @@ func flowsAgent(
 	}
 
 	mapTracer := flow.NewMapTracer(fetcher, cfg.NetworkFlows.CacheActiveTimeout)
-	rbTracer := flow.NewRingBufTracer(fetcher, mapTracer, cfg.NetworkFlows.CacheActiveTimeout)
+	rbTracer := flow.NewRingBufTracer(fetcher, mapTracer, cfg)
 
 	return &Flows{
 		ctxInfo:        ctxInfo,

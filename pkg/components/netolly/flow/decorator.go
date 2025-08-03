@@ -57,3 +57,18 @@ func Decorate(agentIP net.IP, ifaceNamer InterfaceNamer, input *msg.Queue[[]*ebp
 		}
 	}
 }
+
+type FlowDecoratorFunc func(*ebpf.Record)
+
+func FlowDecorator(agentIP string, ifaceNamer InterfaceNamer) FlowDecoratorFunc {
+	return func(flow *ebpf.Record) {
+		flow.Attrs.Interface = ifaceNamer(int(flow.Id.IfIndex))
+		flow.Attrs.OBIIP = agentIP
+		if flow.Attrs.DstName == "" {
+			flow.Attrs.DstName = flow.Id.DstIP().IP().String()
+		}
+		if flow.Attrs.SrcName == "" {
+			flow.Attrs.SrcName = flow.Id.SrcIP().IP().String()
+		}
+	}
+}

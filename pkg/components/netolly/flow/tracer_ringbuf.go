@@ -1,4 +1,5 @@
 // Copyright The OpenTelemetry Authors
+
 // SPDX-License-Identifier: Apache-2.0
 
 // Copyright Red Hat / IBM
@@ -22,17 +23,22 @@
 package flow
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
+	"os"
 	"sync/atomic"
-	"syscall"
 	"time"
 
+	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/components/netolly/deduper"
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/components/netolly/protofilter"
+	"go.opentelemetry.io/obi/pkg/components/netolly/rdns"
+	"go.opentelemetry.io/obi/pkg/components/netolly/transform/cidr"
+	"go.opentelemetry.io/obi/pkg/components/netolly/transform/k8s"
+	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
@@ -45,13 +51,21 @@ func rtlog() *slog.Logger {
 // added in the eBPF kernel space due to the map being full or busy) and submits them to the
 // userspace Aggregator map
 type RingBufTracer struct {
-	mapFlusher mapFlusher
-	ringBuffer ringBufReader
-	stats      stats
+	cfg            *obi.Config
+	mapFlusher     mapFlusher
+	ringBuffer     ringBufReader
+	stats          stats
+	protocolFilter *protofilter.ProtocolFilter
+	deduper        *deduper.Deduper
+	k8sDecorator   *k8s.Decorator
+	rdnsEnricher   rdns.ReverseDNSFunc
+	cidrDecorator  cidr.CIDRDecoratorFunc
+	flowDecorator  FlowDecoratorFunc
 }
 
 type ringBufReader interface {
 	ReadRingBuf() (ringbuf.Record, error)
+	RingBufReader() *ringbuf.Reader
 }
 
 // stats supports atomic logging of ringBuffer metrics
@@ -66,65 +80,137 @@ type mapFlusher interface {
 	Flush()
 }
 
-func NewRingBufTracer(
-	reader ringBufReader, flusher mapFlusher, logTimeout time.Duration,
-) *RingBufTracer {
+func NewRingBufTracer(reader ringBufReader, flusher mapFlusher, cfg *obi.Config) *RingBufTracer {
 	return &RingBufTracer{
+		cfg:        cfg,
 		mapFlusher: flusher,
 		ringBuffer: reader,
-		stats:      stats{loggingTimeout: logTimeout},
+		stats:      stats{loggingTimeout: cfg.NetworkFlows.CacheActiveTimeout},
+		deduper: deduper.NewDeduper(cfg.NetworkFlows.Deduper,
+			cfg.NetworkFlows.DeduperFCTTL,
+			cfg.NetworkFlows.CacheActiveTimeout),
 	}
 }
 
-func (m *RingBufTracer) TraceLoop(out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
-	return func(ctx context.Context) {
-		defer out.MarkCloseable()
-		rtlog := rtlog()
-		debugging := rtlog.Enabled(ctx, slog.LevelDebug)
-		for {
-			select {
-			case <-ctx.Done():
-				rtlog.Debug("exiting trace loop due to context cancellation")
-				return
-			default:
-				if err := m.listenAndForwardRingBuffer(debugging, out); err != nil {
-					if errors.Is(err, ringbuf.ErrClosed) {
-						rtlog.Debug("Received signal, exiting..")
-						return
-					}
-					rtlog.Warn("ignoring flow event", "error", err)
+/*
+// 1) A pool of byte-slices, each sized for the largest event you expect.
+var eventPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, maxPayloadSize)
+	},
+}
+*/
+
+func (m *RingBufTracer) ringbufferLoop(ctx context.Context,
+		k8sDecorator *k8s.Decorator,
+		flowDecorator FlowDecoratorFunc,
+		out *msg.Queue[ebpf.Record]) {
+	defer out.MarkCloseable()
+
+	rtlog := rtlog()
+
+	protocolFilter, err := protofilter.NewFilter(m.cfg.NetworkFlows.Protocols, m.cfg.NetworkFlows.ExcludeProtocols)
+
+	if err != nil {
+		rtlog.Error("error creating protocol filter", "error", err)
+		return
+	}
+
+	m.protocolFilter = protocolFilter
+	m.k8sDecorator = k8sDecorator
+
+	rdnsEnricher, err := rdns.ReverseDNSEnricher(ctx, &m.cfg.NetworkFlows.ReverseDNS)
+
+	if err != nil {
+		rtlog.Error("error creating rdns enricher ", "error", err)
+		return
+	}
+
+	m.rdnsEnricher = rdnsEnricher
+
+	cidrDecorator, err := cidr.CIDRDecorator(m.cfg.NetworkFlows.CIDRs)
+
+	if err != nil {
+		rtlog.Error("error creating CIDR decorator ", "error", err)
+		return
+	}
+
+	m.cidrDecorator = cidrDecorator
+	m.flowDecorator = flowDecorator
+
+	// debugging := rtlog.Enabled(ctx, slog.LevelDebug)
+
+	reader := m.ringBuffer.RingBufReader()
+
+	resetDeadline := func() {
+		reader.SetDeadline(time.Now().Add(100 * time.Millisecond))
+	}
+
+	resetDeadline()
+
+	var rec ringbuf.Record
+
+	for {
+		select {
+		case <-ctx.Done():
+			rtlog.Debug("exiting trace loop due to context cancellation")
+			return
+		default:
+			if err := reader.ReadInto(&rec); err != nil {
+				if errors.Is(err, os.ErrDeadlineExceeded) {
+					resetDeadline()
 					continue
 				}
+
+				if errors.Is(err, ringbuf.ErrClosed) {
+					rtlog.Debug("Received signal, exiting..")
+					return
+				}
+
+				rtlog.Warn("ignoring flow event", "error", err)
+				continue
 			}
+
+			event, err := ebpfcommon.ReinterpretCast[ebpf.NetFlowRecordT](rec.RawSample)
+			if err != nil {
+				continue
+			}
+
+			m.handleEvent(event, out)
+
+			// out.Send(ebpf.Record{ NetFlowRecordT: *event, })
 		}
 	}
 }
 
-func (m *RingBufTracer) listenAndForwardRingBuffer(debugging bool, forwardCh *msg.Queue[[]*ebpf.Record]) error {
-	event, err := m.ringBuffer.ReadRingBuf()
-	if err != nil {
-		return fmt.Errorf("reading from ring buffer: %w", err)
-	}
-	// Parses the ringbuf event entry into an Event structure.
-	readFlow, err := ebpf.ReadFrom(bytes.NewBuffer(event.RawSample))
-	if err != nil {
-		return fmt.Errorf("parsing data received from the ring buffer: %w", err)
-	}
-	mapFullError := readFlow.Metrics.Errno == uint8(syscall.E2BIG)
-	if debugging {
-		m.stats.logRingBufferFlows(mapFullError)
-	}
-	// if the flow was received due to lack of space in the eBPF map
-	// forces a flow's eviction to leave room for new flows in the ebpf cache
-	if mapFullError {
-		m.mapFlusher.Flush()
+func (m *RingBufTracer) handleEvent(event *ebpf.NetFlowRecordT, out *msg.Queue[ebpf.Record]) {
+	if !m.protocolFilter.IsAllowed(event) {
+		return
 	}
 
-	forwardCh.Send([]*ebpf.Record{{
-		NetFlowRecordT: readFlow,
-	}})
+	if m.deduper.IsDupe(event) {
+		return
+	}
 
-	return nil
+	rec := ebpf.Record{ NetFlowRecordT: *event }
+
+	if !m.k8sDecorator.Decorate(&rec) {
+		return
+	}
+
+	m.rdnsEnricher(&rec)
+	m.cidrDecorator(&rec)
+	m.flowDecorator(&rec)
+
+	out.Send(rec)
+}
+
+func (m *RingBufTracer) TraceLoop(k8sDecorator *k8s.Decorator,
+		flowDecorator FlowDecoratorFunc,
+		out *msg.Queue[ebpf.Record]) swarm.RunFunc {
+	return func(ctx context.Context) {
+		m.ringbufferLoop(ctx, k8sDecorator, flowDecorator, out)
+	}
 }
 
 // logRingBufferFlows avoids flooding logs on long series of evicted flows by grouping how

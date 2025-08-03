@@ -194,6 +194,10 @@ func (m *FlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
 	return m.ringbufReader.Read()
 }
 
+func (m *FlowFetcher) RingBufReader() *ringbuf.Reader {
+	return m.ringbufReader
+}
+
 // LookupAndDeleteMap reads all the entries from the eBPF map and removes them from it.
 // It returns a map where the key
 // For synchronization purposes, we get/delete a whole snapshot of the flows map.

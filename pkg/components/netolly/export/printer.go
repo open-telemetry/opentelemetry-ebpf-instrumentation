@@ -15,7 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
-func FlowPrinterProvider(enabled bool, input *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
+func FlowPrinterProvider(enabled bool, input *msg.Queue[ebpf.Record]) swarm.RunFunc {
 	if !enabled {
 		// just return a no-op
 		return func(_ context.Context) {}
@@ -23,10 +23,8 @@ func FlowPrinterProvider(enabled bool, input *msg.Queue[[]*ebpf.Record]) swarm.R
 
 	in := input.Subscribe()
 	return func(_ context.Context) {
-		for flows := range in {
-			for _, flow := range flows {
-				printFlow(flow)
-			}
+		for flow := range in {
+			printFlow(&flow)
 		}
 	}
 }
