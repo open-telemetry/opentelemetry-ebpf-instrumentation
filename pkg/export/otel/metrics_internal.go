@@ -201,21 +201,21 @@ func newResourceInternal(hostID string) *resource.Resource {
 	return resource.NewWithAttributes(semconv.SchemaURL, attrs...)
 }
 
-func (p *InternalMetricsReporter) recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, serviceVersion, telemetryType string) {
-	attrs := []attribute.KeyValue{
-		semconv.ServiceName(serviceName),
-		semconv.ServiceNamespace(serviceNamespace),
-		semconv.ServiceInstanceID(serviceInstanceID),
-		attribute.String("telemetry.type", telemetryType),
-	}
+func (p *InternalMetricsReporter) recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, telemetryType string) {
+	   attrs := []attribute.KeyValue{
+			   semconv.ServiceName(serviceName),
+			   semconv.ServiceNamespace(serviceNamespace),
+			   semconv.ServiceInstanceID(serviceInstanceID),
+			   attribute.String("telemetry.type", telemetryType),
+	   }
 
-	p.avoidedServices.Record(p.ctx, 1, instrument.WithAttributes(attrs...))
+	   p.avoidedServices.Record(p.ctx, 1, instrument.WithAttributes(attrs...))
 }
 
-func (p *InternalMetricsReporter) AvoidInstrumentationMetrics(serviceName, serviceNamespace, serviceInstanceID, serviceVersion string) {
-	p.recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, serviceVersion, "metrics")
+func (p *InternalMetricsReporter) AvoidInstrumentationMetrics(serviceName, serviceNamespace, serviceInstanceID string) {
+	   p.recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, "metrics")
 }
 
-func (p *InternalMetricsReporter) AvoidInstrumentationTraces(serviceName, serviceNamespace, serviceInstanceID, serviceVersion string) {
-	p.recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, serviceVersion, "traces")
+func (p *InternalMetricsReporter) AvoidInstrumentationTraces(serviceName, serviceNamespace, serviceInstanceID string) {
+	   p.recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, "traces")
 }
