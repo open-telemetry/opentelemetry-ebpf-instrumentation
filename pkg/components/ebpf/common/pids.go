@@ -237,6 +237,10 @@ func (pf *PIDsFilter) checkIfExportsOTelSpanMetrics(svc *svc.Attrs, span *reques
 
 // reportAvoidedService calls the appropriate internal metrics method based on telemetry type
 func (pf *PIDsFilter) reportAvoidedService(svc *svc.Attrs, telemetryType string) {
+	if _, ok := pf.metrics.(imetrics.NoopReporter); ok || pf.metrics == nil {
+		return
+	}
+
 	// Extract service attributes
 	serviceName := svc.UID.Name
 	serviceNamespace := svc.UID.Namespace
