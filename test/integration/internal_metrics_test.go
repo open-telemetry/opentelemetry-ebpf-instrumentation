@@ -124,8 +124,8 @@ func checkAvoidedServicesMetrics(t *testing.T) {
 		}
 
 		// Assert specific values for service_name and service_namespace
-		assert.Equal(t, "example-service", labelMap["service_name"], "service_name label should be 'example-service'")
-		assert.Equal(t, "default", labelMap["service_namespace"], "service_namespace label should be 'default'")
+		assert.Equal(t, "rolldice", labelMap["service_name"], "service_name label should be 'rolldice'")
+		assert.Equal(t, "integration-test", labelMap["service_namespace"], "service_namespace label should be 'integration-test'")
 		assert.NotEmpty(t, labelMap["telemetry_type"], "telemetry_type label should not be empty")
 		assert.Condition(t, func() bool {
 			return labelMap["telemetry_type"] == "metrics" || labelMap["telemetry_type"] == "traces"
