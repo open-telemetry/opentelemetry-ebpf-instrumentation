@@ -219,17 +219,17 @@ func (pf *IdentityPidsFilter) Filter(inputSpans []request.Span) []request.Span {
 }
 
 func (pf *PIDsFilter) checkIfExportsOTel(svc *svc.Attrs, span *request.Span) {
-	if span.IsExportMetricsSpan() {
+	if span.IsExportMetricsSpan() && !svc.ExportsOTelMetrics() {
 		svc.SetExportsOTelMetrics()
 		pf.reportAvoidedService(svc, "metrics")
-	} else if span.IsExportTracesSpan() {
+	} else if span.IsExportTracesSpan() && !svc.ExportsOTelTraces() {
 		svc.SetExportsOTelTraces()
 		pf.reportAvoidedService(svc, "traces")
 	}
 }
 
 func (pf *PIDsFilter) checkIfExportsOTelSpanMetrics(svc *svc.Attrs, span *request.Span) {
-	if span.IsExportTracesSpan() {
+	if span.IsExportTracesSpan() && !svc.ExportsOTelMetricsSpan() {
 		svc.SetExportsOTelMetricsSpan()
 		pf.reportAvoidedService(svc, "metrics_span")
 	}
