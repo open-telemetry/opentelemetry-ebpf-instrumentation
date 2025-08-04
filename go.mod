@@ -22,7 +22,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/ianlancetaylor/demangle v0.0.0-20250628045327-2d64ad6b7ec5
 	github.com/mariomac/guara v0.0.0-20250408105519-1e4dbdfb7136
-	github.com/prometheus/client_golang v1.22.0
+	github.com/prometheus/client_golang v1.23.0
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.65.0
 	github.com/prometheus/procfs v0.17.0
@@ -38,6 +38,7 @@ require (
 	go.opentelemetry.io/collector/config/configgrpc v0.130.1
 	go.opentelemetry.io/collector/config/confighttp v0.130.1
 	go.opentelemetry.io/collector/config/configopaque v1.36.1
+	go.opentelemetry.io/collector/config/configoptional v0.130.1
 	go.opentelemetry.io/collector/config/configretry v1.36.1
 	go.opentelemetry.io/collector/config/configtls v1.36.1
 	go.opentelemetry.io/collector/consumer v1.36.1
@@ -152,7 +153,6 @@ require (
 	go.opentelemetry.io/collector/config/configcompression v1.36.1 // indirect
 	go.opentelemetry.io/collector/config/configmiddleware v0.130.1 // indirect
 	go.opentelemetry.io/collector/config/confignet v1.36.1 // indirect
-	go.opentelemetry.io/collector/config/configoptional v0.130.1 // indirect
 	go.opentelemetry.io/collector/confmap v1.36.1 // indirect
 	go.opentelemetry.io/collector/consumer/consumererror v0.130.1 // indirect
 	go.opentelemetry.io/collector/consumer/consumererror/xconsumererror v0.130.1 // indirect
