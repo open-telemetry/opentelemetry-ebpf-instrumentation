@@ -86,7 +86,7 @@ func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 
 		tag, found := jaeger.FindIn(span.Tags, "db.query.text")
 		assert.True(t, found)
-		assert.True(t, strings.HasPrefix(tag.Value.(string), "SELECT * from "+table))
+		assert.True(t, strings.HasPrefix(tag.Value.(string), "SELECT * FROM "+table))
 
 		tag, found = jaeger.FindIn(span.Tags, "db.system.name")
 		assert.True(t, found)
@@ -203,7 +203,7 @@ func testPythonPostgres(t *testing.T) {
 
 	assertHTTPRequests(t, comm, "/query")
 	testPythonSQLQuery(t, comm, testCaseURL, table, db)
-	// testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db) // TODO(matt): uncomment once postgres prepared statements are supported
+	testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db)
 	testPythonSQLError(t, comm, testCaseURL, db)
 }
 

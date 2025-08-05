@@ -138,8 +138,7 @@ static __always_inline u8 is_postgres(connection_info_t *conn_info,
             includes_known_command = true;
             break;
         default:
-            bpf_dbg_printk("postgres_detect: unhandled message type 0x%x", hdr.message_type);
-            return 0;
+            break;
         }
     }
 

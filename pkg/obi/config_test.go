@@ -135,8 +135,9 @@ discovery:
 				MySQL:    0,
 				Postgres: 0,
 			},
-			MySQLPreparedStatementsCacheSize: 1024,
-			MongoRequestsCacheSize:           1024,
+			MySQLPreparedStatementsCacheSize:    1024,
+			PostgresPreparedStatementsCacheSize: 1024,
+			MongoRequestsCacheSize:              1024,
 		},
 		NetworkFlows: nc,
 		Metrics: otelcfg.MetricsConfig{
