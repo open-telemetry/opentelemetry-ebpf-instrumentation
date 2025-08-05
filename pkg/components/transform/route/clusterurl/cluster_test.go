@@ -49,4 +49,5 @@ func TestClusterURL(t *testing.T) {
 	assert.Equal(t, "/attach", csf.ClusterURL("/attach#section-1"))
 	assert.Equal(t, "HTTP GET", csf.ClusterURL("HTTP GET"))
 	assert.Equal(t, "GET /api/cart", csf.ClusterURL("GET /api/cart?sessionId=55f4e5ea-5d6d-482a-80c4-799e3c72dfb0&currencyCode=USD"))
+	assert.Equal(t, "/getquote", csf.ClusterURL("/getquote"))
 }
