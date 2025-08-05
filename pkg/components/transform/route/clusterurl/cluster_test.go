@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+//nolint:testifylint
 func TestClusterURL(t *testing.T) {
 	csf, err := NewClusterURLClassifier(DefaultConfig())
 	assert.NoError(t, err)
