@@ -3,7 +3,7 @@
 
 package clusterurl
 
-import "fmt"
+import "errors"
 
 type Config struct {
 	// MaxSegments is the maximum number of segments in a path.
@@ -33,19 +33,19 @@ func DefaultConfig() *Config {
 
 func (c *Config) Validate() error {
 	if c.MaxSegments <= 0 {
-		return fmt.Errorf("field MaxSegments must be greater than 0")
+		return errors.New("field MaxSegments must be greater than 0")
 	}
 	if c.Separator == 0 {
-		return fmt.Errorf("field Separator cannot be zero")
+		return errors.New("field Separator cannot be zero")
 	}
 	if c.ReplaceWith == 0 {
-		return fmt.Errorf("field ReplaceWith cannot be zero")
+		return errors.New("field ReplaceWith cannot be zero")
 	}
 	if c.CacheSize <= 0 {
-		return fmt.Errorf("field CacheSize must be greater than 0")
+		return errors.New("field CacheSize must be greater than 0")
 	}
 	if c.MaxSegments > 100 {
-		return fmt.Errorf("field MaxSegments cannot be greater than 100")
+		return errors.New("field MaxSegments cannot be greater than 100")
 	}
 	return nil
 }

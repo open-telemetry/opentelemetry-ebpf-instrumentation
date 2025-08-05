@@ -14,32 +14,32 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 )
 
-type ClusterUrlClassifier struct {
+type ClusterURLClassifier struct {
 	classifier *structs.GibberishData
 	cache      *lru.Cache[string, bool]
 	cfg        *Config
 }
 
-func NewClusterUrlClassifier(config *Config) (*ClusterUrlClassifier, error) {
+func NewClusterURLClassifier(config *Config) (*ClusterURLClassifier, error) {
 	if config == nil {
 		config = DefaultConfig()
 	}
 
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("NewClusterUrlClassifier: invalid configuration: %w", err)
+		return nil, fmt.Errorf("NewClusterURLClassifier: invalid configuration: %w", err)
 	}
 
 	classifier, err := loadKnowledgeBase(config.ModelPath)
 	if err != nil {
-		return nil, fmt.Errorf("NewClusterUrlClassifier: unable to load knowledge base: %w", err)
+		return nil, fmt.Errorf("NewClusterURLClassifier: unable to load knowledge base: %w", err)
 	}
 
 	cache, err := lru.New[string, bool](config.CacheSize)
 	if err != nil {
-		return nil, fmt.Errorf("NewClusterUrlClassifier: unable to create cache: %w", err)
+		return nil, fmt.Errorf("NewClusterURLClassifier: unable to create cache: %w", err)
 	}
 
-	return &ClusterUrlClassifier{
+	return &ClusterURLClassifier{
 		classifier: classifier,
 		cache:      cache,
 		cfg:        config,
@@ -53,7 +53,7 @@ func NewClusterUrlClassifier(config *Config) (*ClusterUrlClassifier, error) {
 // to be grouped into a smaller number of paths.
 
 //nolint:cyclop
-func (csf *ClusterUrlClassifier) ClusterURL(path string) string {
+func (csf *ClusterURLClassifier) ClusterURL(path string) string {
 	if path == "" {
 		return path
 	}
@@ -124,7 +124,7 @@ func (csf *ClusterUrlClassifier) ClusterURL(path string) string {
 	return string(p[:sPos])
 }
 
-func (csf *ClusterUrlClassifier) okWord(w string) bool {
+func (csf *ClusterURLClassifier) okWord(w string) bool {
 	_, ok := csf.cache.Get(w)
 	if ok {
 		return ok
@@ -137,7 +137,7 @@ func (csf *ClusterUrlClassifier) okWord(w string) bool {
 	return true
 }
 
-func (csf *ClusterUrlClassifier) isValid(c byte) bool {
+func (csf *ClusterURLClassifier) isValid(c byte) bool {
 	if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
 		return true
 	}

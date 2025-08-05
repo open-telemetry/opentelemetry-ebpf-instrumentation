@@ -10,9 +10,9 @@ import (
 )
 
 func TestClusterURL(t *testing.T) {
-	csf, err := NewClusterUrlClassifier(DefaultConfig())
+	csf, err := NewClusterURLClassifier(DefaultConfig())
 	assert.NoError(t, err)
-	assert.Equal(t, "", csf.ClusterURL(""))
+	assert.Empty(t, csf.ClusterURL(""))
 	assert.Equal(t, "/users/*/j4elk/*/job/*", csf.ClusterURL("/users/fdklsd/j4elk/23993/job/2"))
 	assert.Equal(t, "*", csf.ClusterURL("123"))
 	assert.Equal(t, "/*", csf.ClusterURL("/123"))
