@@ -106,6 +106,8 @@ github.com/bombsimon/wsl/v5 v5.0.0 h1:pWxP6X11o/YeF9eBVGXvS7L0FLEbHWm2kJJJGH6SeD
 github.com/bombsimon/wsl/v5 v5.0.0/go.mod h1:Gp8lD04z27wm3FANIUPZycXp+8huVsn0oxc+n4qfV9I=
 github.com/bombsimon/wsl/v5 v5.1.0 h1:pLmVRBMxSL1D3/rCe65s/iCSFqU37Cz5/8dVEB4UNBw=
 github.com/bombsimon/wsl/v5 v5.1.0/go.mod h1:Gp8lD04z27wm3FANIUPZycXp+8huVsn0oxc+n4qfV9I=
+github.com/bombsimon/wsl/v5 v5.1.1 h1:cQg5KJf9FlctAH4cpL9vLKnziYknoCMCdqXl0wjl72Q=
+github.com/bombsimon/wsl/v5 v5.1.1/go.mod h1:Gp8lD04z27wm3FANIUPZycXp+8huVsn0oxc+n4qfV9I=
 github.com/breml/bidichk v0.3.3 h1:WSM67ztRusf1sMoqH6/c4OBCUlRVTKq+CbSeo0R17sE=
 github.com/breml/bidichk v0.3.3/go.mod h1:ISbsut8OnjB367j5NseXEGGgO/th206dVa427kR8YTE=
 github.com/breml/errchkjson v0.4.1 h1:keFSS8D7A2T0haP9kzZTi7o26r7kE3vymjZNeNDRDwg=
@@ -149,6 +151,8 @@ github.com/curioswitch/go-reassign v0.3.0 h1:dh3kpQHuADL3cobV/sSGETA8DOv457dwl+f
 github.com/curioswitch/go-reassign v0.3.0/go.mod h1:nApPCCTtqLJN/s8HfItCcKV0jIPwluBOvZP+dsJGA88=
 github.com/daixiang0/gci v0.13.6 h1:RKuEOSkGpSadkGbvZ6hJ4ddItT3cVZ9Vn9Rybk6xjl8=
 github.com/daixiang0/gci v0.13.6/go.mod h1:12etP2OniiIdP4q+kjUGrC/rUagga7ODbqsom5Eo5Yk=
+github.com/daixiang0/gci v0.13.7 h1:+0bG5eK9vlI08J+J/NWGbWPTNiXPG4WhNLJOkSxWITQ=
+github.com/daixiang0/gci v0.13.7/go.mod h1:812WVN6JLFY9S6Tv76twqmNqevN0pa3SX3nih0brVzQ=
 github.com/dave/dst v0.27.3 h1:P1HPoMza3cMEquVf9kKy8yXsFirry4zEnWOdYPOoIzY=
 github.com/dave/dst v0.27.3/go.mod h1:jHh6EOibnHgcUW3WjKHisiooEkYwqpHLBSX1iOBhEyc=
 github.com/dave/jennifer v1.7.1 h1:B4jJJDHelWcDhlRQxWeo0Npa/pYKBLrirAQoTN45txo=
@@ -274,6 +278,8 @@ github.com/golangci/golangci-lint/v2 v2.2.2 h1:vuzwYGPzDx9WqN85Fu8F8wqDSZqk8q76y
 github.com/golangci/golangci-lint/v2 v2.2.2/go.mod h1:F0BBgvaCGCAfnrlRQ729JSLrAJT172WwOpaQrbluz8E=
 github.com/golangci/golangci-lint/v2 v2.3.0 h1:SgxoaAXH8vMuuSnvRDjfF0sxWeIplxJTcs4o6gGEu9Q=
 github.com/golangci/golangci-lint/v2 v2.3.0/go.mod h1:9eHPNOsTOqLGSnDsfPRcOaC2m52stgt37uxsjtQwjg0=
+github.com/golangci/golangci-lint/v2 v2.3.1 h1:kregGxX/IsDeHCmBbHo0LKJ5wNLKMGosMBTrxKyIweM=
+github.com/golangci/golangci-lint/v2 v2.3.1/go.mod h1:JEcfo5MEAzo6nY7SLzLzhHoYBJudAd55rgB5ZYOHrXE=
 github.com/golangci/golines v0.0.0-20250217134842-442fd0091d95 h1:AkK+w9FZBXlU/xUmBtSJN1+tAI4FIvy5WtnUnY8e4p8=
 github.com/golangci/golines v0.0.0-20250217134842-442fd0091d95/go.mod h1:k9mmcyWKSTMcPPvQUCfRWWQ9VHJ1U9Dc0R7kaXAgtnQ=
 github.com/golangci/misspell v0.7.0 h1:4GOHr/T1lTW0hhR4tgaaV1WS/lJ+ncvYCoFKmqJsj0c=
@@ -411,6 +417,8 @@ github.com/ldez/gomoddirectives v0.7.0 h1:EOx8Dd56BZYSez11LVgdj025lKwlP0/E5OLSl9
 github.com/ldez/gomoddirectives v0.7.0/go.mod h1:wR4v8MN9J8kcwvrkzrx6sC9xe9Cp68gWYCsda5xvyGc=
 github.com/ldez/grignotin v0.9.0 h1:MgOEmjZIVNn6p5wPaGp/0OKWyvq42KnzAt/DAb8O4Ow=
 github.com/ldez/grignotin v0.9.0/go.mod h1:uaVTr0SoZ1KBii33c47O1M8Jp3OP3YDwhZCmzT9GHEk=
+github.com/ldez/grignotin v0.10.0 h1:NQPeh1E/Eza4F0exCeC1WkpnLvgUcQDT8MQ1vOLML0E=
+github.com/ldez/grignotin v0.10.0/go.mod h1:oR4iCKUP9fwoeO6vCQeD7M5SMxCT6xdVas4vg0h1LaI=
 github.com/ldez/tagliatelle v0.7.1 h1:bTgKjjc2sQcsgPiT902+aadvMjCeMHrY7ly2XKFORIk=
 github.com/ldez/tagliatelle v0.7.1/go.mod h1:3zjxUpsNB2aEZScWiZTHrAXOl1x25t3cRmzfK1mlo2I=
 github.com/ldez/usetesting v0.5.0 h1:3/QtzZObBKLy1F4F8jLuKJiKBjjVFi1IavpoWbmqLwc=
@@ -556,6 +564,8 @@ github.com/securego/gosec/v2 v2.22.5 h1:ySws9uwOeE42DsG54v2moaJfh7r08Ev7SAYJuoMD
 github.com/securego/gosec/v2 v2.22.5/go.mod h1:AWfgrFsVewk5LKobsPWlygCHt8K91boVPyL6GUZG5NY=
 github.com/securego/gosec/v2 v2.22.6 h1:mixR+X+Z5fT6QddWY8jyU9gs43CyW0SnADHB6kJm8NY=
 github.com/securego/gosec/v2 v2.22.6/go.mod h1:510TFNDMrIPytokyHQAVLvPeDr41Yihn2ak8P+XQfNE=
+github.com/securego/gosec/v2 v2.22.7 h1:8/9P+oTYI4yIpAzccQKVsg1/90Po+JzGtAhqoHImDeM=
+github.com/securego/gosec/v2 v2.22.7/go.mod h1:510TFNDMrIPytokyHQAVLvPeDr41Yihn2ak8P+XQfNE=
 github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNXdaHfM=
 github.com/sergi/go-diff v1.2.0 h1:XU+rvMAioB0UC3q1MFrIQy4Vo5/4VsRDQQXHsEya6xQ=
 github.com/sergi/go-diff v1.2.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNXdaHfM=
@@ -572,6 +582,8 @@ github.com/sonatard/noctx v0.3.4 h1:ZeiM4rEeFTFSie/G5/HD9lHiMpQg/L4fnilaNmFQ2/A=
 github.com/sonatard/noctx v0.3.4/go.mod h1:64XdbzFb18XL4LporKXp8poqZtPKbCrqQ402CV+kJas=
 github.com/sonatard/noctx v0.3.5 h1:KJmJt2jEXFu2JLlGfjpGNOjyjc4qvfzl4918XJ4Odpc=
 github.com/sonatard/noctx v0.3.5/go.mod h1:64XdbzFb18XL4LporKXp8poqZtPKbCrqQ402CV+kJas=
+github.com/sonatard/noctx v0.4.0 h1:7MC/5Gg4SQ4lhLYR6mvOP6mQVSxCrdyiExo7atBs27o=
+github.com/sonatard/noctx v0.4.0/go.mod h1:64XdbzFb18XL4LporKXp8poqZtPKbCrqQ402CV+kJas=
 github.com/sourcegraph/go-diff v0.7.0 h1:9uLlrd5T46OXs5qpp8L/MTltk0zikUGi0sNNyCpA8G0=
 github.com/sourcegraph/go-diff v0.7.0/go.mod h1:iBszgVvyxdc8SFZ7gm69go2KDdt3ag071iBaWPF6cjs=
 github.com/spf13/afero v1.14.0 h1:9tH6MapGnn/j0eb0yIXiLjERO8RB6xIVZRDCX7PtqWA=
