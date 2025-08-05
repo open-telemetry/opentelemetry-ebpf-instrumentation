@@ -6,10 +6,12 @@ package transform
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/transform/route"
+	"go.opentelemetry.io/obi/pkg/components/transform/route/clusterurl"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
@@ -57,6 +59,8 @@ type RoutesConfig struct {
 	IgnoredEvents IgnoreMode `yaml:"ignore_mode"`
 	// Character that will be used to replace route segments
 	WildcardChar string `yaml:"wildcard_char,omitempty"`
+
+	classifier *clusterurl.ClusterUrlClassifier
 }
 
 func RoutesProvider(rc *RoutesConfig, input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
@@ -150,10 +154,15 @@ func chooseUnmatchPolicy(rc *RoutesConfig) (func(rc *RoutesConfig, span *request
 	case UnmatchPath:
 		unmatchAction = setUnmatchToPath
 	case UnmatchHeuristic:
-		err := route.InitAutoClassifier()
-		if err != nil {
-			return nil, err
+		classifierCfg := clusterurl.DefaultConfig()
+		if rc.WildcardChar != "" {
+			classifierCfg.ReplaceWith = rc.WildcardChar[0]
 		}
+		classifier, err := clusterurl.NewClusterUrlClassifier(classifierCfg)
+		if err != nil {
+			return nil, fmt.Errorf("chooseUnmatchPolicy: unable to create cluster URL classifier: %w", err)
+		}
+		rc.classifier = classifier
 		unmatchAction = classifyFromPath
 	default:
 		slog.With("component", "RoutesProvider").
@@ -181,7 +190,7 @@ func setUnmatchToPath(_ *RoutesConfig, str *request.Span) {
 
 func classifyFromPath(rc *RoutesConfig, s *request.Span) {
 	if s.Route == "" && (s.Type == request.EventTypeHTTP || s.Type == request.EventTypeHTTPClient) {
-		s.Route = route.ClusterPath(s.Path, rc.WildcardChar[0])
+		s.Route = rc.classifier.ClusterURL(s.Path)
 	}
 }
 
