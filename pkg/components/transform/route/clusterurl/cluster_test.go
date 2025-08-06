@@ -52,3 +52,59 @@ func TestClusterURL(t *testing.T) {
 	assert.Equal(t, "GET /api/cart", csf.ClusterURL("GET /api/cart?sessionId=55f4e5ea-5d6d-482a-80c4-799e3c72dfb0&currencyCode=USD"))
 	assert.Equal(t, "/getquote", csf.ClusterURL("/getquote"))
 }
+
+func BenchmarkClusterURLWithCache(b *testing.B) {
+	cfg := DefaultConfig()
+	cfg.CacheSize = 1000
+	csf, err := NewClusterURLClassifier(cfg)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Test cases representing different scenarios
+	testCases := []string{
+		"/users/fdklsd/j4elk/23993/job/2",
+		"/v1/products/22",
+		"/products/1/org/3",
+		"/attach?session_id=ddfsdsf&track_id=sjdklnfldsn",
+		"GET /user_space/",
+		"/api/hello.world",
+		"123/ljgdflgjf",
+		"",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, testCase := range testCases {
+			_ = csf.ClusterURL(testCase)
+		}
+	}
+}
+
+func BenchmarkClusterURLWithoutCache(b *testing.B) {
+	cfg := DefaultConfig()
+	cfg.CacheSize = 1
+	csf, err := NewClusterURLClassifier(cfg)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Test cases representing different scenarios
+	testCases := []string{
+		"/users/fdklsd/j4elk/23993/job/2",
+		"/v1/products/22",
+		"/products/1/org/3",
+		"/attach?session_id=ddfsdsf&track_id=sjdklnfldsn",
+		"GET /user_space/",
+		"/api/hello.world",
+		"123/ljgdflgjf",
+		"",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, testCase := range testCases {
+			_ = csf.ClusterURL(testCase)
+		}
+	}
+}
