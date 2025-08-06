@@ -63,7 +63,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []string{otelcfg.FeatureApplication},
+			Features:                    []string{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost},
 			Instrumentations:            []string{instrumentations.InstrumentationALL},
 		},
 		&attributes.SelectorConfig{
@@ -90,7 +90,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		Pid: 1,
 	}
 
-	// Send a process event so we make target_info
+	// Send a process event so we make target_info and traces_host_info
 	processEvents.Send(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: &app})
 
 	// WHEN it receives metrics
@@ -109,6 +109,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	})
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
+	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*grafana_host_id="my-host"`)
 
 	// THEN the metrics are exported
 	test.Eventually(t, timeout, func(t require.TestingT) {
@@ -116,6 +117,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 123`)
 		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
 		assert.Regexp(t, containsTargetInfo, exported)
+		assert.Regexp(t, containsTracesHostInfo, exported)
 	})
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
@@ -159,6 +161,19 @@ func TestAppMetricsExpiration(t *testing.T) {
 	})
 	assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/foo"}`)
 	assert.Regexp(t, containsTargetInfo, exported)
+
+	// AND WHEN the observed process is terminated
+	processEvents.Send(exec.ProcessEvent{
+		Type: exec.ProcessEventTerminated,
+		File: &app,
+	})
+
+	// THEN traces_host_info and traces_target_info are removed
+	test.Eventually(t, timeout, func(t require.TestingT) {
+		exported = getMetrics(t, promURL)
+		assert.NotRegexp(t, containsTargetInfo, exported)
+		assert.NotRegexp(t, containsTracesHostInfo, exported)
+	})
 }
 
 type InstrTest struct {
