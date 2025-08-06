@@ -138,16 +138,9 @@ func (csf *ClusterURLClassifier) okWord(w string) bool {
 }
 
 func (csf *ClusterURLClassifier) isValid(c byte) bool {
-	if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+	if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-' || c == '_' || c == '.' || c == ' ' {
 		return true
 	}
-
-	for _, ac := range csf.cfg.AdditionalValidChars {
-		if c == ac {
-			return true
-		}
-	}
-
 	return false
 }
 

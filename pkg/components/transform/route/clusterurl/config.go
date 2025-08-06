@@ -14,20 +14,17 @@ type Config struct {
 	ReplaceWith byte `json:"replace_with"`
 	// CacheSize is the size of the cache for the classifier.
 	CacheSize int `json:"cache_size"`
-	// Additional characters that are considered valid in a segment.
-	AdditionalValidChars []byte `json:"additional_chars,omitempty"`
 	// ModelPath is the path to the model file.
 	ModelPath string `json:"model_path"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		MaxSegments:          10,
-		Separator:            '/',
-		ReplaceWith:          '*',
-		CacheSize:            8192,
-		AdditionalValidChars: []byte{'-', '_', '.', ' '},
-		ModelPath:            "",
+		MaxSegments: 10,
+		Separator:   '/',
+		ReplaceWith: '*',
+		CacheSize:   8192,
+		ModelPath:   "",
 	}
 }
 
