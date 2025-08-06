@@ -99,7 +99,7 @@ func testParentBasedTraceparentSampler(t *testing.T) {
 
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/a"})
 
-		require.Greater(t, len(traces), 0)
+		require.NotEmpty(t, traces)
 	}, test.Interval(2*time.Second))
 }
 
