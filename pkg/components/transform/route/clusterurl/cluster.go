@@ -142,7 +142,7 @@ func (csf *ClusterURLClassifier) isValid(c byte) bool {
 		return true
 	}
 
-	for _, ac := range DefaultConfig().AdditionalValidChars {
+	for _, ac := range csf.cfg.AdditionalValidChars {
 		if c == ac {
 			return true
 		}
