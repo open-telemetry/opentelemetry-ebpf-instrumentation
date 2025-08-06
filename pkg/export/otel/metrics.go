@@ -75,6 +75,7 @@ type MetricsReporter struct {
 	attributes *attributes.AttrSelector
 	exporter   sdkmetric.Exporter
 	reporters  otelcfg.ReporterPool[*svc.Attrs, *Metrics]
+	hostInfo   *Expirer[*request.Span, instrument.Int64Gauge, int64]
 	pidTracker PidServiceTracker
 	is         instrumentations.InstrumentationSelection
 
@@ -570,8 +571,15 @@ func (mr *MetricsReporter) setupHostInfoMeter(meter instrument.Meter) error {
 	if err != nil {
 		return fmt.Errorf("creating span metric traces host info: %w", err)
 	}
-	attrOpt := instrument.WithAttributeSet(mr.metricHostAttributes())
-	tracesHostInfo.Record(mr.ctx, 1, attrOpt)
+	attr := attributes.Field[*request.Span, attribute.KeyValue]{
+		ExposedName: string(GrafanaHostIDKey),
+		Get: func(_ *request.Span) attribute.KeyValue {
+			return semconv.HostID(mr.hostID)
+		},
+	}
+
+	mr.hostInfo = NewExpirer[*request.Span, instrument.Int64Gauge, int64](
+		mr.ctx, tracesHostInfo, []attributes.Field[*request.Span, attribute.KeyValue]{attr}, timeNow, mr.cfg.TTL)
 
 	return nil
 }
@@ -969,6 +977,10 @@ func (mr *MetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 			mlog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", reporter.service)
 			mr.deleteTracesTargetInfo(reporter)
 			mr.deleteTargetInfo(reporter)
+			if mr.cfg.HostMetricsEnabled() && mr.pidTracker.Count() == 0 {
+				mlog().Debug("No more PIDs tracked, expiring host info metric")
+				mr.hostInfo.RemoveAllMetrics(mr.ctx)
+			}
 		}
 	}
 }
@@ -993,6 +1005,11 @@ func (mr *MetricsReporter) onSpan(spans []request.Span) {
 			continue
 		}
 		reporter.record(s, mr)
+
+		if mr.cfg.HostMetricsEnabled() {
+			hostInfo, attrs := mr.hostInfo.ForRecord(s)
+			hostInfo.Record(mr.ctx, 1, instrument.WithAttributeSet(attrs))
+		}
 	}
 }
 

@@ -128,6 +128,26 @@ func TestPidServiceTracker_RemovePID_Last(t *testing.T) {
 	assert.False(t, tracker.ServiceLive(uid))
 }
 
+func TestPidServiceTracker_Count(t *testing.T) {
+	tracker := NewPidServiceTracker()
+	uid := makeUID("foo", "bar")
+	pid1 := int32(1)
+	pid2 := int32(2)
+
+	assert.Equal(t, 0, tracker.Count())
+
+	tracker.AddPID(pid1, uid)
+	tracker.AddPID(pid2, uid)
+
+	assert.Equal(t, 2, tracker.Count())
+
+	_, _ = tracker.RemovePID(pid1)
+	assert.Equal(t, 1, tracker.Count())
+
+	_, _ = tracker.RemovePID(pid2)
+	assert.Equal(t, 0, tracker.Count())
+}
+
 func TestPidServiceTracker_IsTrackingServerService(t *testing.T) {
 	tracker := NewPidServiceTracker()
 	uid := makeUID("foo", "bar")

@@ -1178,6 +1178,10 @@ func (r *metricsReporter) watchForProcessEvents(ctx context.Context) {
 					mlog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
 					r.deleteTargetInfo(origUID, &pe.File.Service)
 					r.deleteTracesTargetInfo(origUID, &pe.File.Service)
+					if r.cfg.HostMetricsEnabled() && r.pidsTracker.Count() == 0 {
+						mlog().Debug("No more PIDs tracked, expiring host info metric")
+						r.tracesHostInfo.entries.DeleteAll()
+					}
 					delete(r.serviceMap, origUID)
 				}
 			}

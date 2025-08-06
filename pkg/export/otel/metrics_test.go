@@ -236,7 +236,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			require.NoError(t, err)
 
 			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
-			otelExporter := makeExporter(ctx, t, tt.instr, otlp, metrics)
+			otelExporter := makeExporter(ctx, t, tt.instr, []string{otelcfg.FeatureApplication}, otlp, metrics)
 
 			require.NoError(t, err)
 
@@ -302,7 +302,7 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	timeNow = now.Now
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
-	otelExporter := makeExporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, otlp, metrics)
+	otelExporter := makeExporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, []string{otelcfg.FeatureApplication}, otlp, metrics)
 
 	go otelExporter(ctx)
 
@@ -489,7 +489,7 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 }
 
 func makeExporter(
-	ctx context.Context, t *testing.T, instrumentations []string, otlp *collector.TestCollector,
+	ctx context.Context, t *testing.T, instrumentations []string, features []string, otlp *collector.TestCollector,
 	input *msg.Queue[[]request.Span],
 ) swarm.RunFunc {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
@@ -498,7 +498,7 @@ func makeExporter(
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          []string{otelcfg.FeatureApplication},
+		Features:          features,
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 100,
 		Instrumentations:  instrumentations,
@@ -516,6 +516,41 @@ func makeExporter(
 	require.NoError(t, err)
 
 	return otelExporter
+}
+
+func TestAppMetrics_TracesHostInfo(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	otelExporter := makeExporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, []string{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost}, otlp, metrics)
+
+	go otelExporter(ctx)
+
+	assert.Len(t, otlp.Records(), 0, "metric reported before the first span is sent")
+
+	metrics.Send([]request.Span{
+		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
+	})
+
+	res := readNChan(t, otlp.Records(), 2, timeout)
+	assert.Len(t, res, 2)
+
+	found := false
+	for _, r := range res {
+		if r.Name == "traces_host_info" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "traces_host_info metric not found in the exported metrics")
 }
 
 func TestMetricResourceAttributes(t *testing.T) {
