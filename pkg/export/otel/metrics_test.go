@@ -551,7 +551,7 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 	})
 
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.Equal(t, 1, len(mr.hostInfo.entries.All())) // The entry should be expired
+		assert.Equal(t, 1, len(mr.hostInfo.entries.All()))
 	}, 10*time.Second, 10*time.Millisecond, "traces_host_info metric has not been created yet")
 
 	// Check expiration logic
