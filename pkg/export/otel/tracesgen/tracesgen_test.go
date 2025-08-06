@@ -4,6 +4,7 @@
 package tracesgen
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -14,13 +15,15 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
-	"go.opentelemetry.io/otel/trace"
+	trace2 "go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/sqlprune"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/services"
 )
 
 var cache = expirable2.NewLRU[svc.UID, []attribute.KeyValue](1024, nil, 5*time.Minute)
@@ -72,9 +75,9 @@ func BenchmarkGenerateTraces(b *testing.B) {
 func TestGenerateTraces(t *testing.T) {
 	t.Run("test with subtraces - with parent spanId", func(t *testing.T) {
 		start := time.Now()
-		parentSpanID, _ := trace.SpanIDFromHex("89cbc1f60aab3b04")
-		spanID, _ := trace.SpanIDFromHex("89cbc1f60aab3b01")
-		traceID, _ := trace.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
+		parentSpanID, _ := trace2.SpanIDFromHex("89cbc1f60aab3b04")
+		spanID, _ := trace2.SpanIDFromHex("89cbc1f60aab3b01")
+		traceID, _ := trace2.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
 		span := &request.Span{
 			Type:         request.EventTypeHTTP,
 			RequestStart: start.UnixNano(),
@@ -121,8 +124,8 @@ func TestGenerateTraces(t *testing.T) {
 
 	t.Run("test with subtraces - ids set bpf layer", func(t *testing.T) {
 		start := time.Now()
-		spanID, _ := trace.SpanIDFromHex("89cbc1f60aab3b04")
-		traceID, _ := trace.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
+		spanID, _ := trace2.SpanIDFromHex("89cbc1f60aab3b04")
+		traceID, _ := trace2.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
 		span := &request.Span{
 			Type:         request.EventTypeHTTP,
 			RequestStart: start.UnixNano(),
@@ -195,8 +198,8 @@ func TestGenerateTraces(t *testing.T) {
 
 	t.Run("test without subspans - ids set bpf layer", func(t *testing.T) {
 		start := time.Now()
-		spanID, _ := trace.SpanIDFromHex("89cbc1f60aab3b04")
-		traceID, _ := trace.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
+		spanID, _ := trace2.SpanIDFromHex("89cbc1f60aab3b04")
+		traceID, _ := trace2.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
 		span := &request.Span{
 			Type:         request.EventTypeHTTP,
 			RequestStart: start.UnixNano(),
@@ -220,8 +223,8 @@ func TestGenerateTraces(t *testing.T) {
 
 	t.Run("test without subspans - with parent spanId", func(t *testing.T) {
 		start := time.Now()
-		parentSpanID, _ := trace.SpanIDFromHex("89cbc1f60aab3b04")
-		traceID, _ := trace.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
+		parentSpanID, _ := trace2.SpanIDFromHex("89cbc1f60aab3b04")
+		traceID, _ := trace2.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
 		span := &request.Span{
 			Type:         request.EventTypeHTTP,
 			RequestStart: start.UnixNano(),
@@ -747,3 +750,95 @@ func ensureTraceAttrNotExists(t *testing.T, attrs pcommon.Map, key attribute.Key
 	_, ok := attrs.Get(string(key))
 	assert.False(t, ok)
 }
+
+func TestGroupSpans_ParentBasedSampling(t *testing.T) {
+	ctx := context.Background()
+	traceAttrs := make(map[attr.Name]struct{})
+	is := instrumentations.NewInstrumentationSelection([]string{"http"})
+
+	// Test cases for parent-based sampling
+	tests := []struct {
+		name          string
+		samplerConfig services.SamplerConfig
+		traceFlags    uint8
+		hasParent     bool
+		expectSampled bool
+	}{
+		{
+			name:          "parentbased_traceidratio 0.0 with sampled parent",
+			samplerConfig: services.SamplerConfig{Name: "parentbased_traceidratio", Arg: "0.0"},
+			traceFlags:    0x01, // sampled
+			hasParent:     true,
+			expectSampled: true, // Should be sampled due to parent decision
+		},
+		{
+			name:          "parentbased_traceidratio 0.0 with non-sampled parent",
+			samplerConfig: services.SamplerConfig{Name: "parentbased_traceidratio", Arg: "0.0"},
+			traceFlags:    0x00, // not sampled
+			hasParent:     true,
+			expectSampled: false, // Should not be sampled due to parent decision
+		},
+		{
+			name:          "parentbased_traceidratio 0.0 with no parent",
+			samplerConfig: services.SamplerConfig{Name: "parentbased_traceidratio", Arg: "0.0"},
+			traceFlags:    0x01,
+			hasParent:     false,
+			expectSampled: false, // Should not be sampled due to 0.0 ratio
+		},
+		{
+			name:          "parentbased_traceidratio 1.0 with sampled parent",
+			samplerConfig: services.SamplerConfig{Name: "parentbased_traceidratio", Arg: "1.0"},
+			traceFlags:    0x01,
+			hasParent:     true,
+			expectSampled: true, // Should be sampled due to parent decision
+		},
+		{
+			name:          "parentbased_traceidratio 1.0 with non-sampled parent",
+			samplerConfig: services.SamplerConfig{Name: "parentbased_traceidratio", Arg: "1.0"},
+			traceFlags:    0x00,
+			hasParent:     true,
+			expectSampled: false, // Should not be sampled due to parent decision
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sampler := tt.samplerConfig.Implementation()
+
+			// Create test span
+			traceID := trace2.TraceID([16]byte{0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56, 0x78, 0x90, 0x12})
+			spanID := trace2.SpanID([8]byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88})
+			parentSpanID := trace2.SpanID([8]byte{0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56})
+
+			span := request.Span{
+				Type:       request.EventTypeHTTP,
+				Method:     "GET",
+				Path:       "/test",
+				TraceID:    traceID,
+				SpanID:     spanID,
+				TraceFlags: tt.traceFlags,
+				Service: svc.Attrs{
+					UID: svc.UID{
+						Namespace: "test",
+						Name:      "test-service",
+					},
+				},
+			}
+
+			if tt.hasParent {
+				span.ParentSpanID = parentSpanID
+			}
+
+			spans := []request.Span{span}
+			spanGroups := GroupSpans(ctx, spans, traceAttrs, sampler, is)
+
+			if tt.expectSampled {
+				assert.Len(t, spanGroups, 1, "Expected span to be sampled")
+				assert.Len(t, spanGroups[span.Service.UID], 1, "Expected one span in group")
+			} else {
+				assert.Empty(t, spanGroups, "Expected span to not be sampled")
+			}
+		})
+	}
+}
+

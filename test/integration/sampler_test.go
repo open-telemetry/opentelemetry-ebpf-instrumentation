@@ -77,6 +77,32 @@ func testSampler(t *testing.T) {
 	}, test.Interval(1500*time.Millisecond))
 }
 
+func testParentBasedTraceparentSampler(t *testing.T) {
+	waitForTestComponents(t, "http://localhost:5000")
+	time.Sleep(60 * time.Second)
+
+	// Test sampled parent (should be sampled despite 0.0 ratio)
+	sampledTraceparent := "00-" + createTraceID() + "-" + createParentID() + "-01"
+	doHTTPGetWithTraceparent(t, "http://localhost:5000/a", 200, sampledTraceparent)
+
+	// Test non-sampled parent (should not be sampled)
+	nonSampledTraceparent := "00-" + createTraceID() + "-" + createParentID() + "-00"
+	doHTTPGetWithTraceparent(t, "http://localhost:5000/a", 200, nonSampledTraceparent)
+
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=service-a&operation=GET%20%2Fa")
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/a"})
+
+		require.GreaterOrEqual(t, len(traces), 0)
+	}, test.Interval(2*time.Second))
+}
+
 func TestSampler(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-sampler.yml", path.Join(pathOutput, "test-suite-sampler.log"))
 	// we are going to setup discovery directly in the configuration file

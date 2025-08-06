@@ -83,8 +83,20 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			return sampler
 		}
 
+		// Construct parent context from span's trace information
+		parentCtx := ctx
+		if span.ParentSpanID.IsValid() {
+			parentSpanContext := trace2.NewSpanContext(trace2.SpanContextConfig{
+				TraceID:    span.TraceID,
+				SpanID:     span.ParentSpanID,
+				TraceFlags: trace2.TraceFlags(span.TraceFlags),
+				Remote:     true,
+			})
+			parentCtx = trace2.ContextWithSpanContext(ctx, parentSpanContext)
+		}
+
 		sr := spanSampler().ShouldSample(trace.SamplingParameters{
-			ParentContext: ctx,
+			ParentContext: parentCtx,
 			Name:          span.TraceName(),
 			TraceID:       span.TraceID,
 			Kind:          spanKind(span),
