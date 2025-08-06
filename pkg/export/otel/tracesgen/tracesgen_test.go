@@ -287,7 +287,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
-		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+		ensureTraceAttrNotExists(t, attrs)
 	})
 
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
@@ -309,7 +309,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
-		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+		ensureTraceAttrNotExists(t, attrs)
 	})
 
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
@@ -401,7 +401,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "mycollection")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mydatabase")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "mongodb")
-		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+		ensureTraceAttrNotExists(t, attrs)
 		assert.Equal(t, ptrace.StatusCodeUnset, spans.At(0).Status().Code())
 	})
 
@@ -426,7 +426,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mydatabase")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "mongodb")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "1")
-		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+		ensureTraceAttrNotExists(t, attrs)
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
 		assert.Equal(t, "Internal MongoDB error", spans.At(0).Status().Message())
 	})
@@ -746,8 +746,8 @@ func ensureTraceStrAttr(t *testing.T, attrs pcommon.Map, key attribute.Key, val 
 	assert.Equal(t, val, v.AsString())
 }
 
-func ensureTraceAttrNotExists(t *testing.T, attrs pcommon.Map, key attribute.Key) {
-	_, ok := attrs.Get(string(key))
+func ensureTraceAttrNotExists(t *testing.T, attrs pcommon.Map) {
+	_, ok := attrs.Get(string(attr.DBQueryText))
 	assert.False(t, ok)
 }
 
@@ -841,4 +841,3 @@ func TestGroupSpans_ParentBasedSampling(t *testing.T) {
 		})
 	}
 }
-
