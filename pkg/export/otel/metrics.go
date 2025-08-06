@@ -163,15 +163,6 @@ func ReportMetrics(
 			return nil, fmt.Errorf("instantiating OTEL metrics reporter: %w", err)
 		}
 
-		if mr.cfg.HostMetricsEnabled() {
-			hostMetrics := mr.newMetricsInstance(nil)
-			hostMeter := hostMetrics.provider.Meter(reporterName)
-			err := mr.setupHostInfoMeter(hostMeter)
-			if err != nil {
-				return nil, fmt.Errorf("setting up host metrics: %w", err)
-			}
-		}
-
 		return mr.reportMetrics, nil
 	}
 }
@@ -278,6 +269,15 @@ func newMetricsReporter(
 	mr.exporter = instrumentMetricsExporter(ctxInfo.Metrics, exporter)
 
 	mr.pidTracker = NewPidServiceTracker()
+
+	if cfg.HostMetricsEnabled() {
+		hostMetrics := mr.newMetricsInstance(nil)
+		hostMeter := hostMetrics.provider.Meter(reporterName)
+		err := mr.setupHostInfoMeter(hostMeter)
+		if err != nil {
+			return nil, fmt.Errorf("setting up host metrics: %w", err)
+		}
+	}
 
 	return &mr, nil
 }
