@@ -99,7 +99,7 @@ func testParentBasedTraceparentSampler(t *testing.T) {
 
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/a"})
 
-		require.GreaterOrEqual(t, len(traces), 0)
+		require.Greater(t, len(traces), 0)
 	}, test.Interval(2*time.Second))
 }
 
@@ -111,6 +111,7 @@ func TestSampler(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	t.Run("Sampler", testSampler)
+	t.Run("ParentBasedTraceparentSampler", testParentBasedTraceparentSampler)
 
 	require.NoError(t, compose.Close())
 }
