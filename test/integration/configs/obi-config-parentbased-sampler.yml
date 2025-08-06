@@ -1,0 +1,17 @@
+routes:
+  patterns:
+    - /basic/:rnd
+  unmatched: path
+otel_metrics_export:
+  endpoint: http://otelcol:4018
+otel_traces_export:
+  endpoint: http://jaeger:4318
+discovery:
+  services:
+    - namespace: integration-test
+      name: service-a
+      open_ports: 5000
+attributes:
+  select:
+    "*":
+      include: ["*"]

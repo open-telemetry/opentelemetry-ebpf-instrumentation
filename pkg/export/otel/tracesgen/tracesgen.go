@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
@@ -83,8 +84,19 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			return sampler
 		}
 
+		parentCtx := ctx
+		if span.ParentSpanID.IsValid() && isParentBasedSampler(spanSampler()) {
+			parentSpanContext := trace2.NewSpanContext(trace2.SpanContextConfig{
+				TraceID:    span.TraceID,
+				SpanID:     span.ParentSpanID,
+				TraceFlags: trace2.TraceFlags(span.TraceFlags),
+				Remote:     true,
+			})
+			parentCtx = trace2.ContextWithSpanContext(ctx, parentSpanContext)
+		}
+
 		sr := spanSampler().ShouldSample(trace.SamplingParameters{
-			ParentContext: ctx,
+			ParentContext: parentCtx,
 			Name:          span.TraceName(),
 			TraceID:       span.TraceID,
 			Kind:          spanKind(span),
@@ -102,8 +114,13 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 		group = append(group, TraceSpanAndAttributes{Span: span, Attributes: finalAttrs})
 		spanGroups[span.Service.UID] = group
 	}
-
 	return spanGroups
+}
+
+// isParentBasedSampler checks if the given sampler uses parent-based sampling decisions
+func isParentBasedSampler(sampler trace.Sampler) bool {
+	samplerStr := fmt.Sprintf("%T", sampler)
+	return strings.Contains(samplerStr, "parentBased")
 }
 
 // GenerateTracesWithAttributes must remain public for collectors embedding OBI
