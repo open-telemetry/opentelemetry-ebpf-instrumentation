@@ -15,9 +15,10 @@ import (
 )
 
 type ClusterURLClassifier struct {
-	classifier *structs.GibberishData
-	cache      *lru.Cache[string, bool]
-	cfg        *Config
+	classifier     *structs.GibberishData
+	cache          *lru.Cache[string, bool]
+	cfg            *Config
+	validCharTable [256]bool
 }
 
 func NewClusterURLClassifier(config *Config) (*ClusterURLClassifier, error) {
@@ -39,10 +40,23 @@ func NewClusterURLClassifier(config *Config) (*ClusterURLClassifier, error) {
 		return nil, fmt.Errorf("NewClusterURLClassifier: unable to create cache: %w", err)
 	}
 
+	// Initialize lookup table for valid characters
+	var validCharTable [256]bool
+	for c := byte('a'); c <= 'z'; c++ {
+		validCharTable[c] = true
+	}
+	for c := byte('A'); c <= 'Z'; c++ {
+		validCharTable[c] = true
+	}
+	for _, c := range []byte{'-', '_', '.', ' '} {
+		validCharTable[c] = true
+	}
+
 	return &ClusterURLClassifier{
-		classifier: classifier,
-		cache:      cache,
-		cfg:        config,
+		classifier:     classifier,
+		cache:          cache,
+		cfg:            config,
+		validCharTable: validCharTable,
 	}, nil
 }
 
@@ -99,7 +113,7 @@ func (csf *ClusterURLClassifier) ClusterURL(path string) string {
 		} else if !skip {
 			p[sFwd] = c
 			sFwd++
-			if !csf.isValid(c) {
+			if !csf.validCharTable[c] {
 				if skipGrace && (sFwd-sPos) == 2 {
 					skipGrace = false
 					continue
@@ -135,20 +149,6 @@ func (csf *ClusterURLClassifier) okWord(w string) bool {
 
 	csf.cache.Add(w, true)
 	return true
-}
-
-func (csf *ClusterURLClassifier) isValid(c byte) bool {
-	if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
-		return true
-	}
-
-	for _, ac := range DefaultConfig().AdditionalValidChars {
-		if c == ac {
-			return true
-		}
-	}
-
-	return false
 }
 
 //go:embed model.json
