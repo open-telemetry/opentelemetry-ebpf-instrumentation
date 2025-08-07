@@ -202,20 +202,20 @@ func newResourceInternal(hostID string) *resource.Resource {
 }
 
 func (p *InternalMetricsReporter) recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, telemetryType string) {
-	   attrs := []attribute.KeyValue{
-			   semconv.ServiceName(serviceName),
-			   semconv.ServiceNamespace(serviceNamespace),
-			   semconv.ServiceInstanceID(serviceInstanceID),
-			   attribute.String("telemetry.type", telemetryType),
-	   }
+	attrs := []attribute.KeyValue{
+		semconv.ServiceName(serviceName),
+		semconv.ServiceNamespace(serviceNamespace),
+		semconv.ServiceInstanceID(serviceInstanceID),
+		attribute.String("telemetry.type", telemetryType),
+	}
 
-	   p.avoidedServices.Record(p.ctx, 1, instrument.WithAttributes(attrs...))
+	p.avoidedServices.Record(p.ctx, 1, instrument.WithAttributes(attrs...))
 }
 
 func (p *InternalMetricsReporter) AvoidInstrumentationMetrics(serviceName, serviceNamespace, serviceInstanceID string) {
-	   p.recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, "metrics")
+	p.recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, "metrics")
 }
 
 func (p *InternalMetricsReporter) AvoidInstrumentationTraces(serviceName, serviceNamespace, serviceInstanceID string) {
-	   p.recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, "traces")
+	p.recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, "traces")
 }

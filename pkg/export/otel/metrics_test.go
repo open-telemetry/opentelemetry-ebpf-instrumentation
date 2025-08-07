@@ -27,7 +27,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/test/collector"
 )
 
@@ -236,8 +235,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			require.NoError(t, err)
 
 			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
-			otelExporter := makeExporter(ctx, t, tt.instr, otlp, metrics)
-
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+			otelExporter := makeMetricsReporter(ctx, t, tt.instr, []string{otelcfg.FeatureApplication}, otlp, metrics, processEvents).reportMetrics
 			require.NoError(t, err)
 
 			go otelExporter(ctx)
@@ -302,8 +301,8 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	timeNow = now.Now
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
-	otelExporter := makeExporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, otlp, metrics)
-
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	otelExporter := makeMetricsReporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, []string{otelcfg.FeatureApplication}, otlp, metrics, processEvents).reportMetrics
 	go otelExporter(ctx)
 
 	metrics.Send([]request.Span{
@@ -488,34 +487,85 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 	return records
 }
 
-func makeExporter(
-	ctx context.Context, t *testing.T, instrumentations []string, otlp *collector.TestCollector,
-	input *msg.Queue[[]request.Span],
-) swarm.RunFunc {
-	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-
+func makeMetricsReporter(
+	ctx context.Context, t *testing.T, instrumentations []string, features []string, otlp *collector.TestCollector,
+	input *msg.Queue[[]request.Span], processEvents *msg.Queue[exec.ProcessEvent],
+) *MetricsReporter {
 	mcfg := &otelcfg.MetricsConfig{
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          []string{otelcfg.FeatureApplication},
+		Features:          features,
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 100,
 		Instrumentations:  instrumentations,
 	}
-	otelExporter, err := ReportMetrics(
+	mr, err := newMetricsReporter(
+		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
-		mcfg, &attributes.SelectorConfig{
+		mcfg,
+		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
 					Include: []string{"url.path"},
 				},
 			},
-		}, input, processEvents)(ctx)
+		},
+		input,
+		processEvents)
 
 	require.NoError(t, err)
+	return mr
+}
 
-	return otelExporter
+func TestAppMetrics_TracesHostInfo(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	mr := makeMetricsReporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, []string{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost}, otlp, metrics, processEvents)
+	otelExporter := mr.reportMetrics
+	go otelExporter(ctx)
+
+	assert.Len(t, otlp.Records(), 0, "metric reported before the first span is sent")
+
+	processEvents.Send(exec.ProcessEvent{
+		Type: exec.ProcessEventCreated,
+		File: &exec.FileInfo{
+			Service: svc.Attrs{
+				UID: svc.UID{Instance: "foo"},
+			},
+		},
+	})
+
+	metrics.Send([]request.Span{
+		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
+	})
+
+	assert.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Equal(t, 1, len(mr.hostInfo.entries.All()))
+	}, 10*time.Second, 10*time.Millisecond, "traces_host_info metric has not been created yet")
+
+	// Check expiration logic
+	processEvents.Send(exec.ProcessEvent{
+		Type: exec.ProcessEventTerminated,
+		File: &exec.FileInfo{
+			Service: svc.Attrs{
+				UID: svc.UID{Instance: "foo"},
+			},
+		},
+	})
+	assert.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Equal(t, 0, len(mr.hostInfo.entries.All())) // The entry should be expired
+	}, 10*time.Second, 10*time.Millisecond, "traces_host_info metric has not expired yet")
 }
 
 func TestMetricResourceAttributes(t *testing.T) {
