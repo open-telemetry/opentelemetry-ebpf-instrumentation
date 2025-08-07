@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>

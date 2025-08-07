@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // estimate: 1000 concurrent processes (including children) * 3 namespaces per pid

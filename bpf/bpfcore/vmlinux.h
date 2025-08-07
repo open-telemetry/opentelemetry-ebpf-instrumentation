@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef __VMLINUX_H_PARENT_
 #define __VMLINUX_H_PARENT_
 
