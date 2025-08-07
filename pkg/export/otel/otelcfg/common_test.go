@@ -392,3 +392,92 @@ func TestGetFilteredResourceAttrs(t *testing.T) {
 		})
 	}
 }
+
+func TestResourceAttrsFromEnv(t *testing.T) {
+	tests := []struct {
+		name          string
+		resourceAttrs string
+		envVars       map[string]string
+		expectedAttrs map[string]string
+	}{
+		{
+			name:          "Simple key-value pairs without variables",
+			resourceAttrs: "service.name=test-service,service.version=1.0.0",
+			envVars:       map[string]string{},
+			expectedAttrs: map[string]string{
+				"service.name":    "test-service",
+				"service.version": "1.0.0",
+			},
+		},
+		{
+			name:          "Environment variables with ${VAR} syntax",
+			resourceAttrs: "k8s.pod.name=${POD_NAME},k8s.node.name=${NODE_NAME}",
+			envVars: map[string]string{
+				"POD_NAME":  "test-pod-123",
+				"NODE_NAME": "test-node-456",
+			},
+			expectedAttrs: map[string]string{
+				"k8s.pod.name":  "test-pod-123",
+				"k8s.node.name": "test-node-456",
+			},
+		},
+		{
+			name:          "Environment variables with $(VAR) syntax",
+			resourceAttrs: "k8s.pod.name=$(OTEL_RESOURCE_ATTRIBUTES_POD_NAME),k8s.node.name=$(OTEL_RESOURCE_ATTRIBUTES_NODE_NAME)",
+			envVars: map[string]string{
+				"OTEL_RESOURCE_ATTRIBUTES_POD_NAME":  "test-pod-789",
+				"OTEL_RESOURCE_ATTRIBUTES_NODE_NAME": "test-node-012",
+			},
+			expectedAttrs: map[string]string{
+				"k8s.pod.name":  "test-pod-789",
+				"k8s.node.name": "test-node-012",
+			},
+		},
+		{
+			name:          "Mixed syntax with default values",
+			resourceAttrs: "k8s.pod.name=$(POD_NAME:-default-pod),k8s.node.name=${NODE_NAME:-default-node}",
+			envVars:       map[string]string{},
+			expectedAttrs: map[string]string{
+				"k8s.pod.name":  "default-pod",
+				"k8s.node.name": "default-node",
+			},
+		},
+		{
+			name:          "Complex real-world example",
+			resourceAttrs: "service.name=my-service,k8s.pod.name=$(OTEL_RESOURCE_ATTRIBUTES_POD_NAME),k8s.node.name=$(OTEL_RESOURCE_ATTRIBUTES_NODE_NAME),k8s.namespace.name=${K8S_NAMESPACE:-default}",
+			envVars: map[string]string{
+				"OTEL_RESOURCE_ATTRIBUTES_POD_NAME":  "web-server-pod-abc123",
+				"OTEL_RESOURCE_ATTRIBUTES_NODE_NAME": "worker-node-xyz789",
+				"K8S_NAMESPACE":                      "production",
+			},
+			expectedAttrs: map[string]string{
+				"service.name":       "my-service",
+				"k8s.pod.name":       "web-server-pod-abc123",
+				"k8s.node.name":      "worker-node-xyz789",
+				"k8s.namespace.name": "production",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.envVars {
+				t.Setenv(k, v)
+			}
+
+			t.Setenv("OTEL_RESOURCE_ATTRIBUTES", tt.resourceAttrs)
+
+			attrs := ResourceAttrsFromEnv(nil)
+
+			attrMap := make(map[string]string)
+			for _, attr := range attrs {
+				attrMap[string(attr.Key)] = attr.Value.AsString()
+			}
+
+			assert.Len(t, attrMap, len(tt.expectedAttrs), "Number of attributes should match")
+			for k, v := range tt.expectedAttrs {
+				assert.Equal(t, v, attrMap[k], "Attribute %s should have value %s", k, v)
+			}
+		})
+	}
+}
