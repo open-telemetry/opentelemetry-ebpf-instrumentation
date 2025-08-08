@@ -29,9 +29,6 @@
         "buf",
         "n"
       ],
-      "vendor/golang.org/x/net/http2/hpack.Encoder": [
-        "w"
-      ],
       "net.TCPConn": [
         "conn" 
       ],

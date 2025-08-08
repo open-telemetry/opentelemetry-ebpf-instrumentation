@@ -975,20 +975,6 @@
           }
         ]
       }
-    },
-    "vendor/golang.org/x/net/http2/hpack.Encoder": {
-      "w": {
-        "versions": {
-          "oldest": "1.17.0",
-          "newest": "1.24.6"
-        },
-        "offsets": [
-          {
-            "offset": 80,
-            "since": "1.17.0"
-          }
-        ]
-      }
     }
   }
 }
