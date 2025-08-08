@@ -184,14 +184,14 @@ all: docker-generate build
 .PHONY: compile compile-cache
 compile:
 	@echo "### Compiling OpenTelemetry eBPF Instrumentation"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -mod vendor -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_FILE)
 compile-cache:
 	@echo "### Compiling OpenTelemetry eBPF Instrumentation K8s cache"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -mod vendor -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
 .PHONY: debug
 debug:
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -mod vendor -gcflags "-N -l" -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -gcflags "-N -l" -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_FILE)
 
 .PHONY: dev
 dev: prereqs generate compile-for-coverage
@@ -200,20 +200,20 @@ dev: prereqs generate compile-for-coverage
 .PHONY: compile-for-coverage compile-cache-for-coverage
 compile-for-coverage:
 	@echo "### Compiling project to generate coverage profiles"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -mod vendor -cover -a -o bin/$(CMD) $(MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CMD) $(MAIN_GO_FILE)
 compile-cache-for-coverage:
 	@echo "### Compiling K8s cache service to generate coverage profiles"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -mod vendor -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
 .PHONY: test
 test: $(ENVTEST)
 	@echo "### Testing code"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -race -mod vendor -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: test-privileged
 test-privileged: $(ENVTEST)
 	@echo "### Testing code with privileged tests enabled"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -race -mod vendor -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: cov-exclude-generated
 cov-exclude-generated:
@@ -263,24 +263,24 @@ cleanup-integration-test: $(KIND)
 run-integration-test:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -mod vendor -a ./test/integration/... --tags=integration
+	go test -p 1 -failfast -v -timeout 60m -a ./test/integration/... --tags=integration
 
 .PHONY: run-integration-test-k8s
 run-integration-test-k8s:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -mod vendor -a ./test/integration/... --tags=integration_k8s
+	go test -p 1 -failfast -v -timeout 60m -a ./test/integration/... --tags=integration_k8s
 
 .PHONY: run-integration-test-vm
 run-integration-test-vm:
 	@echo "### Running integration tests"
-	go test -p 1 -failfast -v -timeout 90m -mod vendor -a ./test/integration/... --tags=integration -run "^TestMultiProcess"
+	go test -p 1 -failfast -v -timeout 90m -a ./test/integration/... --tags=integration -run "^TestMultiProcess"
 
 .PHONY: run-integration-test-arm
 run-integration-test-arm:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 90m -mod vendor -a ./test/integration/... --tags=integration -run "^TestMultiProcess"
+	go test -p 1 -failfast -v -timeout 90m -a ./test/integration/... --tags=integration -run "^TestMultiProcess"
 
 .PHONY: integration-test
 integration-test: prereqs prepare-integration-test
@@ -358,7 +358,7 @@ check-licenses: update-licenses
 
 .PHONY: license-header-check
 license-header-check:
-	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' \) ! -path '**/vendor/*' ! -path './.git/*' ) ; do \
+	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' \) ! -path './.git/*' ) ; do \
 	           awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=4 { found=1; next } END { if (!found) print FILENAME }' $$f; \
 	   done); \
 	   if [ -n "$${licRes}" ]; then \
