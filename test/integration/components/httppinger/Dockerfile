@@ -9,7 +9,6 @@ ENV GOARCH=$TARGETARCH
 WORKDIR /src
 
 # Copy the go manifests and source
-COPY vendor/ vendor/
 COPY test/ test/
 COPY go.mod go.mod
 COPY go.sum go.sum
