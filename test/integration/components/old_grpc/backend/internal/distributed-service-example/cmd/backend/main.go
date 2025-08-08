@@ -1,6 +1,9 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// Copied from
+// https://github.com/mariomac/distributed-service-example/blob/af82ec3812c693167f8881490b9260d901c6a87d/backend/cmd/backend/main.go
+
 package main
 
 import (
