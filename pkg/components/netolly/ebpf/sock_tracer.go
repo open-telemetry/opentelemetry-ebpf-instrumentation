@@ -26,13 +26,16 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
-	"syscall"
+	//"syscall"
 	"unsafe"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
-	"golang.org/x/sys/unix"
+	"github.com/containers/common/pkg/cgroupv2"
+	//"golang.org/x/sys/unix"
 
 	convenience "go.opentelemetry.io/obi/pkg/components/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
@@ -49,7 +52,42 @@ type SockFlowFetcher struct {
 	log           *slog.Logger
 	objects       *NetSkObjects
 	ringbufReader *ringbuf.Reader
+	links         []link.Link
 	cacheMaxSize  int
+}
+
+func getCgroupPath() (string, error) {
+	cgroupPath := "/sys/fs/cgroup"
+
+	enabled, err := cgroupv2.Enabled()
+	if !enabled {
+		if _, pathErr := os.Stat(filepath.Join(cgroupPath, "unified")); pathErr == nil {
+			slog.Debug("discovered hybrid cgroup hierarchy, will attempt to attach sockops")
+			return filepath.Join(cgroupPath, "unified"), nil
+		}
+		return "", errors.New("failed to find unified cgroup hierarchy: sockops cannot be used with cgroups v1")
+	}
+	return cgroupPath, err
+}
+
+func attachCgroup(program *ebpf.Program, attachType ebpf.AttachType) (link.Link, error) {
+	cgroupPath, err := getCgroupPath()
+
+	if err != nil {
+		return nil, fmt.Errorf("error getting cgroup path: %w", err)
+	}
+
+	l, err := link.AttachCgroup(link.CgroupOptions{
+		Path:    cgroupPath,
+		Attach:  attachType,
+		Program: program,
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("attaching cgroup program: %w", err)
+	}
+
+	return l, nil
 }
 
 func NewSockFlowFetcher(
@@ -89,6 +127,7 @@ func NewSockFlowFetcher(
 		return nil, fmt.Errorf("loading and assigning BPF objects: %w", err)
 	}
 
+	/*
 	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, int(htons(unix.ETH_P_ALL)))
 	if err == nil {
 		ssoErr := syscall.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ATTACH_BPF, objects.ObiSocketFilter.FD())
@@ -98,6 +137,33 @@ func NewSockFlowFetcher(
 	} else {
 		return nil, fmt.Errorf("loading and assigning BPF objects: %w", err)
 	}
+	*/
+
+	links := []link.Link{}
+
+	lnk, err := attachCgroup(objects.ObiSockEgress, ebpf.AttachCGroupInetEgress)
+
+	if err != nil {
+		return nil, fmt.Errorf("error attaching cgroup program: %w", err)
+	}
+
+	links = append(links, lnk)
+
+	lnk, err = attachCgroup(objects.ObiSockIngress, ebpf.AttachCGroupInetIngress)
+
+	if err != nil {
+		return nil, fmt.Errorf("error attaching cgroup program: %w", err)
+	}
+
+	links = append(links, lnk)
+
+	lnk, err = attachCgroup(objects.ObiSockRelease, ebpf.AttachCgroupInetSockRelease)
+
+	if err != nil {
+		return nil, fmt.Errorf("error attaching cgroup program: %w", err)
+	}
+
+	links = append(links, lnk)
 
 	// read events from socket filter ringbuffer
 	flows, err := ringbuf.NewReader(objects.DirectFlows)
@@ -108,6 +174,7 @@ func NewSockFlowFetcher(
 		log:           tlog,
 		objects:       &objects,
 		ringbufReader: flows,
+		links:         links,
 		cacheMaxSize:  cacheMaxSize,
 	}, nil
 }
@@ -179,6 +246,7 @@ func (m *SockFlowFetcher) RingBufReader() *ringbuf.Reader {
 // Supported Lookup/Delete operations by kernel: https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md
 // Race conditions here causes that some flows are lost in high-load scenarios
 func (m *SockFlowFetcher) LookupAndDeleteMap() map[NetFlowId][]NetFlowMetrics {
+	return map[NetFlowId][]NetFlowMetrics{}
 	flowMap := m.objects.AggregatedFlows
 
 	iterator := flowMap.Iterate()

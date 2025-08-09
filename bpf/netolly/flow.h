@@ -45,6 +45,7 @@ typedef struct flow_metrics_t {
     // and monotime.Now() (user space)
     u64 start_mono_time_ns;
     u64 end_mono_time_ns;
+    u64 last_submitted_time_ns;
 
     u32 packets;
 

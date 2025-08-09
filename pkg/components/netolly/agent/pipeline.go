@@ -11,12 +11,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/netolly/export"
 	"go.opentelemetry.io/obi/pkg/components/netolly/deduper"
 	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
-	//"go.opentelemetry.io/obi/pkg/components/netolly/transform/cidr"
 	"go.opentelemetry.io/obi/pkg/components/netolly/transform/k8s"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	//"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/prom"
-	//"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
@@ -26,10 +25,11 @@ var newMapTracer = func(f *Flows, out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc 
 	return f.mapTracer.TraceLoop(out)
 }
 
-var newRingBufTracer = func(f *Flows, k8sDecorator *k8s.Decorator,out *msg.Queue[ebpf.Record]) swarm.RunFunc {
+var newRingBufTracer = func(f *Flows, k8sDecorator *k8s.Decorator,
+		flowFilter *filter.Filter2[*ebpf.Record], out *msg.Queue[ebpf.Record]) swarm.RunFunc {
 	flowDecorator := flow.FlowDecorator(f.agentIP.String(), f.makeInterfaceNamer())
 
-	return f.rbTracer.TraceLoop(k8sDecorator, flowDecorator, out)
+	return f.rbTracer.TraceLoop(k8sDecorator, flowDecorator, flowFilter, out)
 }
 
 func (f *Flows) makeInterfaceNamer() flow.InterfaceNamer {
@@ -67,25 +67,25 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		msg.ClosingAttempts(2), // queue won't close until both tracers try to close it
 	)
 
+	flowFilter, err := filter.NewFilter2[*ebpf.Record](f.cfg.Filters.Network, nil, selectorCfg.ExtraGroupAttributesCfg, ebpf.RecordStringGetters)
+
+	if err != nil {
+		return nil, fmt.Errorf("error instantiating flow filter: %w", err)
+	}
+
 	// swi.Add(swarm.DirectInstance(newMapTracer(f, ebpfFlows)), swarm.WithID("MapTracer"))
-	swi.Add(swarm.DirectInstance(newRingBufTracer(f, k8sDecorator, ebpfFlows)), swarm.WithID("RingBufTracer"))
+	swi.Add(swarm.DirectInstance(newRingBufTracer(f, k8sDecorator, flowFilter, ebpfFlows)), swarm.WithID("RingBufTracer"))
 
-	/*
-		filteredFlows := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(f.cfg.ChannelBufferLen))
-		swi.Add(filter.ByAttribute(f.cfg.Filters.Network, nil, selectorCfg.ExtraGroupAttributesCfg, ebpf.RecordStringGetters, decoratedFlows, filteredFlows),
-			swarm.WithID("AttributeFilter"))
+	// Terminal nodes export the flow record information out of the pipeline: OTEL, Prom and printer.
+	// Not all the nodes are mandatory here. Is the responsibility of each Provider function to decide
+	// whether each node is going to be instantiated or just ignored.
+	f.cfg.Attributes.Select.Normalize()
 
-		// Terminal nodes export the flow record information out of the pipeline: OTEL, Prom and printer.
-		// Not all the nodes are mandatory here. Is the responsibility of each Provider function to decide
-		// whether each node is going to be instantiated or just ignored.
-		f.cfg.Attributes.Select.Normalize()
-		swi.Add(otel.NetMetricsExporterProvider(f.ctxInfo, &otel.NetMetricsConfig{
-			Metrics:         &f.cfg.Metrics,
-			SelectorCfg:     selectorCfg,
-			GloballyEnabled: f.cfg.NetworkFlows.Enable,
-		}, filteredFlows), swarm.WithID("OTelExporter"))
-
-	*/
+	swi.Add(otel.NetMetricsExporterProvider(f.ctxInfo, &otel.NetMetricsConfig{
+		Metrics:         &f.cfg.Metrics,
+		SelectorCfg:     selectorCfg,
+		GloballyEnabled: f.cfg.NetworkFlows.Enable,
+	}, ebpfFlows), swarm.WithID("OTelExporter"))
 
 	swi.Add(prom.NetPrometheusEndpoint(f.ctxInfo, &prom.NetPrometheusConfig{
 		Config:          &f.cfg.Prometheus,

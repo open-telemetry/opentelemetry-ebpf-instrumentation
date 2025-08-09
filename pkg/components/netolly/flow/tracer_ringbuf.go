@@ -38,6 +38,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/netolly/rdns"
 	"go.opentelemetry.io/obi/pkg/components/netolly/transform/cidr"
 	"go.opentelemetry.io/obi/pkg/components/netolly/transform/k8s"
+	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -61,6 +62,7 @@ type RingBufTracer struct {
 	rdnsEnricher   rdns.ReverseDNSFunc
 	cidrDecorator  cidr.CIDRDecoratorFunc
 	flowDecorator  FlowDecoratorFunc
+	flowFilter     *filter.Filter2[*ebpf.Record]
 }
 
 type ringBufReader interface {
@@ -104,6 +106,7 @@ var eventPool = sync.Pool{
 func (m *RingBufTracer) ringbufferLoop(ctx context.Context,
 		k8sDecorator *k8s.Decorator,
 		flowDecorator FlowDecoratorFunc,
+		flowFilter *filter.Filter2[*ebpf.Record],
 		out *msg.Queue[ebpf.Record]) {
 	defer out.MarkCloseable()
 
@@ -137,13 +140,14 @@ func (m *RingBufTracer) ringbufferLoop(ctx context.Context,
 
 	m.cidrDecorator = cidrDecorator
 	m.flowDecorator = flowDecorator
+	m.flowFilter = flowFilter
 
 	// debugging := rtlog.Enabled(ctx, slog.LevelDebug)
 
 	reader := m.ringBuffer.RingBufReader()
 
 	resetDeadline := func() {
-		reader.SetDeadline(time.Now().Add(100 * time.Millisecond))
+		//reader.SetDeadline(time.Now().Add(100 * time.Millisecond))
 	}
 
 	resetDeadline()
@@ -188,10 +192,6 @@ func (m *RingBufTracer) handleEvent(event *ebpf.NetFlowRecordT, out *msg.Queue[e
 		return
 	}
 
-	if m.deduper.IsDupe(event) {
-		return
-	}
-
 	rec := ebpf.Record{ NetFlowRecordT: *event }
 
 	if !m.k8sDecorator.Decorate(&rec) {
@@ -202,14 +202,19 @@ func (m *RingBufTracer) handleEvent(event *ebpf.NetFlowRecordT, out *msg.Queue[e
 	m.cidrDecorator(&rec)
 	m.flowDecorator(&rec)
 
+	if !m.flowFilter.Allow(&rec) {
+		return
+	}
+
 	out.Send(rec)
 }
 
 func (m *RingBufTracer) TraceLoop(k8sDecorator *k8s.Decorator,
 		flowDecorator FlowDecoratorFunc,
+		flowFilter *filter.Filter2[*ebpf.Record],
 		out *msg.Queue[ebpf.Record]) swarm.RunFunc {
 	return func(ctx context.Context) {
-		m.ringbufferLoop(ctx, k8sDecorator, flowDecorator, out)
+		m.ringbufferLoop(ctx, k8sDecorator, flowDecorator, flowFilter, out)
 	}
 }
 
