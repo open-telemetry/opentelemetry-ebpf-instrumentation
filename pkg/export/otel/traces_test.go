@@ -570,7 +570,7 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 			Features: []string{otelcfg.FeatureSpan},
 		}
 
-		receiver := makeTracesTestReceiverWithSpanMetrics(mc.Enabled() && mc.AnySpanMetricsEnabled(), []string{"http"})
+		receiver := makeTracesTestReceiverWithSpanMetrics(mc.AnySpanMetricsEnabled(), []string{"http"})
 
 		sampler := sdktrace.AlwaysSample()
 		attrs, err := receiver.getConstantAttributes()
