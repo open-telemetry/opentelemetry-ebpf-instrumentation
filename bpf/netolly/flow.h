@@ -94,3 +94,9 @@ typedef struct flow_record_t {
     u8 ignore;
     u8 _pad[2];
 } flow_record;
+
+typedef struct socket_data_t {
+    struct bpf_spin_lock lock;
+    u8 _pad[4];
+    flow_record record;
+} flow_socket_data;

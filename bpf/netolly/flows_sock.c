@@ -40,7 +40,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_SK_STORAGE);
     __uint(map_flags, BPF_F_NO_PREALLOC);
     __type(key, int);
-    __type(value, flow_record);
+    __type(value, flow_socket_data);
 } sk_storage_map SEC(".maps");
 
 static __always_inline u8 same_ip(const unsigned char *ip1, const unsigned char *ip2) {
@@ -74,18 +74,32 @@ static __always_inline void update_flows_psec() {
     }
 }
 
-static __always_inline flow_record *get_sk_storage(struct bpf_sock *sk) {
+static __always_inline flow_socket_data *get_sk_storage(struct bpf_sock *sk) {
     if (!sk) {
         return NULL;
     }
 
     // FIXME direction UNKNOWN should be 0? migrate to an enum
-    flow_record init = {.metrics.iface_direction = UNKNOWN};
+    flow_socket_data init = {.record.metrics.iface_direction = UNKNOWN};
 
     // BPF_SK_STORAGE_GET_F_CREATE will only create a new entry initialised
     // with 'init' if it does not yet exist, returning the existing entry
     // otherwise
     return bpf_sk_storage_get(&sk_storage_map, sk, &init, BPF_SK_STORAGE_GET_F_CREATE);
+}
+
+static __always_inline void update_flow_record(struct bpf_sock *sk, const flow_record *record) {
+    flow_socket_data *data = get_sk_storage(sk);
+
+    if (!data) {
+        return;
+    }
+
+    bpf_spin_lock(&data->lock);
+
+    data->record = *record;
+
+    bpf_spin_unlock(&data->lock);
 }
 
 static __always_inline void init_flow(struct bpf_sock_ops *skops, u8 direction) {
@@ -97,79 +111,94 @@ static __always_inline void init_flow(struct bpf_sock_ops *skops, u8 direction) 
         return;
     }
 
-    flow_record *record = get_sk_storage(skops->sk);
-
-    if (!record) {
-        bpf_printk("sock_ops failed");
-        return;
-    }
+    flow_record record = {};
 
     if (skops->family == AF_INET) {
-        record->id.src_ip = encode_ipv4in6(skops->local_ip4);
-        record->id.dst_ip = encode_ipv4in6(skops->remote_ip4);
+        record.id.src_ip = encode_ipv4in6(skops->local_ip4);
+        record.id.dst_ip = encode_ipv4in6(skops->remote_ip4);
     } else if (skops->family == AF_INET6) {
+        bpf_probe_read_kernel(record.id.src_ip.s6_addr, sizeof(skops->local_ip6), skops->local_ip6);
         bpf_probe_read_kernel(
-            record->id.src_ip.s6_addr, sizeof(skops->local_ip6), skops->local_ip6);
-        bpf_probe_read_kernel(
-            record->id.dst_ip.s6_addr, sizeof(skops->remote_ip6), skops->remote_ip6);
+            record.id.dst_ip.s6_addr, sizeof(skops->remote_ip6), skops->remote_ip6);
 
-        if (same_ip(record->id.src_ip.s6_addr, record->id.dst_ip.s6_addr)) {
+        if (same_ip(record.id.src_ip.s6_addr, record.id.dst_ip.s6_addr)) {
             // unlike ipv4, we'd always need to read the IPv6 data into a
             // buffer for comparison - so instead we just mark the record to
             // be ignored from now on, to prevent the recorf from being
             // created and deleted everytime this codepath is hit -
             // instead, it will be cleaned up when the socket dies
-            record->ignore = 1;
+            record.ignore = 1;
+
+            update_flow_record(skops->sk, &record);
             return;
         }
     }
 
-    record->id.src_port = skops->local_port;
-    record->id.dst_port = bpf_ntohl(skops->remote_port);
+    record.id.src_port = skops->local_port;
+    record.id.dst_port = bpf_ntohl(skops->remote_port);
 
-    record->metrics.iface_direction = direction;
+    record.metrics.iface_direction = direction;
 
     const u64 current_time = bpf_ktime_get_ns();
 
-    record->metrics.start_mono_time_ns = current_time;
-    record->metrics.end_mono_time_ns = current_time;
+    record.metrics.start_mono_time_ns = current_time;
+    record.metrics.end_mono_time_ns = current_time;
 
-    record->initialized = 1;
+    record.initialized = 1;
+
+    // here we unconditionally update the flow, even if it was initialised by
+    // cgroup/{egress, ingress} (unlikely) as we'd like to store the correct
+    // direction
+    update_flow_record(skops->sk, &record);
 }
 
-static __always_inline u8 init_flow_skb(struct __sk_buff *skb, flow_record *record) {
-    if (skb->family == AF_INET) {
-        record->id.src_ip = encode_ipv4in6(skb->local_ip4);
-        record->id.dst_ip = encode_ipv4in6(skb->remote_ip4);
-    } else if (skb->family == AF_INET6) {
-        bpf_probe_read_kernel(record->id.src_ip.s6_addr, sizeof(skb->local_ip6), skb->local_ip6);
-        bpf_probe_read_kernel(record->id.dst_ip.s6_addr, sizeof(skb->remote_ip6), skb->remote_ip6);
+static __always_inline u8 init_flow_skb(struct __sk_buff *skb, flow_socket_data *data) {
+    flow_record record = {};
 
-        if (same_ip(record->id.src_ip.s6_addr, record->id.dst_ip.s6_addr)) {
+    if (skb->family == AF_INET) {
+        record.id.src_ip = encode_ipv4in6(skb->local_ip4);
+        record.id.dst_ip = encode_ipv4in6(skb->remote_ip4);
+    } else if (skb->family == AF_INET6) {
+        bpf_probe_read_kernel(record.id.src_ip.s6_addr, sizeof(skb->local_ip6), skb->local_ip6);
+        bpf_probe_read_kernel(record.id.dst_ip.s6_addr, sizeof(skb->remote_ip6), skb->remote_ip6);
+
+        if (same_ip(record.id.src_ip.s6_addr, record.id.dst_ip.s6_addr)) {
             // unlike ipv4, we'd always need to read the IPv6 data into a
             // buffer for comparison - so instead we just mark the record to
             // be ignored from now on, to prevent the recorf from being
             // created and deleted everytime this codepath is hit -
             // instead, it will be cleaned up when the socket dies
-            record->ignore = 1;
+            record.ignore = 1;
+
+            update_flow_record(skb->sk, &record);
             return 0;
         }
     }
 
-    record->id.src_port = skb->local_port;
-    record->id.dst_port = bpf_ntohl(skb->remote_port);
-    record->id.transport_protocol = skb->protocol;
-    record->id.if_index = skb->ifindex;
+    record.id.src_port = skb->local_port;
+    record.id.dst_port = bpf_ntohl(skb->remote_port);
+    record.id.transport_protocol = skb->protocol;
+    record.id.if_index = skb->ifindex;
 
     const u64 current_time = bpf_ktime_get_ns();
 
-    record->metrics.start_mono_time_ns = current_time;
-    record->metrics.end_mono_time_ns = current_time;
+    record.metrics.start_mono_time_ns = current_time;
+    record.metrics.end_mono_time_ns = current_time;
 
     // fallback for lost or already started connections and UDP
-    record->metrics.iface_direction = record->id.src_port > record->id.dst_port ? EGRESS : INGRESS;
+    record.metrics.iface_direction = record.id.src_port > record.id.dst_port ? EGRESS : INGRESS;
 
-    record->initialized = 1;
+    record.initialized = 1;
+
+    // we can't use update_flow_record here, as we need to double check if
+    // this flow has been initialised in the meantime
+    bpf_spin_lock(&data->lock);
+
+    if (!data->record.initialized) {
+        data->record = record;
+    }
+
+    bpf_spin_unlock(&data->lock);
 
     return 1;
 }
@@ -183,27 +212,34 @@ static __always_inline void update_flow(struct __sk_buff *skb) {
         return;
     }
 
-    flow_record *record = get_sk_storage(skb->sk);
+    flow_socket_data *data = get_sk_storage(skb->sk);
 
-    if (!record) {
+    if (!data) {
         bpf_printk("sock_egress failed");
         return;
     }
 
     update_flows_psec();
 
-    if (record->ignore) {
+    bpf_spin_lock(&data->lock);
+
+    const u8 ignore = data->record.ignore;
+    const u8 initialized = data->record.initialized;
+
+    bpf_spin_unlock(&data->lock);
+
+    if (ignore) {
         return;
     }
 
     // this happens when we haven't seen the flow in obi_sock_ops, i.e. the
     // flow had already begun before obi_sock_ops was loaded
-    if (!record->initialized) {
-        init_flow_skb(skb, record);
+    if (!initialized) {
+        init_flow_skb(skb, data);
     }
 
-    record->metrics.packets++;
-    record->metrics.bytes += skb->len;
+    __sync_fetch_and_add(&data->record.metrics.packets, 1);
+    __sync_fetch_and_add(&data->record.metrics.bytes, skb->len);
 }
 
 static __always_inline u64 get_rb_flags() {
@@ -248,13 +284,23 @@ int obi_sock_ingress(struct __sk_buff *skb) {
 
 SEC("cgroup/sock_release")
 int obi_sock_release(struct bpf_sock *sock) {
-    flow_record *record = bpf_sk_storage_get(&sk_storage_map, sock, 0, 0);
+    flow_socket_data *data = bpf_sk_storage_get(&sk_storage_map, sock, 0, 0);
 
-    if (record && !record->ignore) {
+    if (!data) {
+        return 1;
+    }
+
+    bpf_spin_lock(&data->lock);
+
+    flow_record record = data->record;
+
+    bpf_spin_unlock(&data->lock);
+
+    if (!record.ignore) {
         const u64 current_time = bpf_ktime_get_ns();
-        record->metrics.end_mono_time_ns = current_time;
+        record.metrics.end_mono_time_ns = current_time;
 
-        bpf_ringbuf_output(&direct_flows, record, sizeof(*record), get_rb_flags());
+        bpf_ringbuf_output(&direct_flows, &record, sizeof(record), get_rb_flags());
     }
 
     return 1;
