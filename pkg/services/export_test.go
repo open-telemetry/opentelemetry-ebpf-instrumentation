@@ -45,7 +45,7 @@ func TestYAMLMarshal_Exports(t *testing.T) {
 		var exports struct {
 			Exports []string `yaml:"exports"`
 		}
-		yaml.Unmarshal(yamlOut, &exports)
+		require.NoError(t, yaml.Unmarshal(yamlOut, &exports))
 		assert.ElementsMatch(t, []string{"metrics", "traces"}, exports.Exports)
 	})
 }
