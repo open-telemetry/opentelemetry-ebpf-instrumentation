@@ -1,4 +1,4 @@
-module otel_sdk_off
+module go.opentelemetry.io/obi/configs/offsets/otelsdk
 
 go 1.24.0
 

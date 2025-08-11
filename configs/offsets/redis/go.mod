@@ -1,4 +1,4 @@
-module grafana.com/goredis
+module go.opentelemetry.io/obi/configs/offsets/redis
 
 go 1.24.0
 
