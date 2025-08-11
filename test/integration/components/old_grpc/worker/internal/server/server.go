@@ -1,6 +1,9 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// Copied from
+// https://github.com/mariomac/distributed-service-example/blob/af82ec3812c693167f8881490b9260d901c6a87d/worker/pkg/server/server.go
+
 package server
 
 import (
@@ -8,7 +11,7 @@ import (
 	"errors"
 	"math"
 	"math/big"
-	"math/rand/v2"
+	"math/rand"
 
 	"go.opentelemetry.io/obi/test/integration/components/old_grpc/worker/internal/gprc"
 )
@@ -22,7 +25,7 @@ type MultiplyServer struct {
 func (m *MultiplyServer) Loop(_ context.Context, request *gprc.LoopRequest) (*gprc.LoopResponse, error) {
 	start := &big.Int{}
 	start.SetBytes(request.From)
-	if rand.Int64N(int64(math.Max(10.0, float64(start.Int64()/10)))) == 0 {
+	if rand.Int63n(int64(math.Max(10.0, float64(start.Int64()/10)))) == 0 {
 		return nil, errors.New("boom!")
 	}
 	result := (&big.Int{}).Set(start)

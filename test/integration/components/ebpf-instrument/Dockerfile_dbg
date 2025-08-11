@@ -18,7 +18,6 @@ COPY .git/ .git/
 COPY bpf/ bpf/
 COPY cmd/ cmd/
 COPY pkg/ pkg/
-COPY vendor/ vendor/
 COPY go.mod go.mod
 COPY go.sum go.sum
 COPY Makefile Makefile
