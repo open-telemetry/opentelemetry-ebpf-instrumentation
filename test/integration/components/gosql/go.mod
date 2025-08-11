@@ -1,4 +1,4 @@
-module github.com/beyla/test/integration/components/gosql
+module go.opentelemetry.io/obi/test/integration/components/gosql
 
 go 1.24.0
 

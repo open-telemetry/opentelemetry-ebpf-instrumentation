@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/testserver_1.17
+module go.opentelemetry.io/obi/test/integration/components/testserver_1.17
 
 go 1.17
 
