@@ -363,7 +363,7 @@ func TestMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mc := otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureApplication},
+		Features: []string{otelcfg.FeatureSpan},
 	}
 	mr := MetricsReporter{
 		cfg: &mc,
