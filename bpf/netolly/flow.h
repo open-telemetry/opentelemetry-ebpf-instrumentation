@@ -90,5 +90,7 @@ typedef struct flow_id_t {
 typedef struct flow_record_t {
     flow_metrics metrics;
     flow_id id;
-    u8 _pad[4];
+    u8 initialized;
+    u8 ignore;
+    u8 _pad[2];
 } flow_record;

@@ -165,6 +165,14 @@ func NewSockFlowFetcher(
 
 	links = append(links, lnk)
 
+	lnk, err = attachCgroup(objects.ObiSockOps, ebpf.AttachCGroupSockOps)
+
+	if err != nil {
+		return nil, fmt.Errorf("error attaching cgroup program: %w", err)
+	}
+
+	links = append(links, lnk)
+
 	// read events from socket filter ringbuffer
 	flows, err := ringbuf.NewReader(objects.DirectFlows)
 	if err != nil {
@@ -215,9 +223,11 @@ func (m *SockFlowFetcher) Close() error {
 
 func (m *SockFlowFetcher) closeObjects() []error {
 	var errs []error
+	/*
 	if err := m.objects.ObiSocketFilter.Close(); err != nil {
 		errs = append(errs, err)
 	}
+	*/
 	if err := m.objects.AggregatedFlows.Close(); err != nil {
 		errs = append(errs, err)
 	}

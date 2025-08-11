@@ -80,36 +80,6 @@ struct {
     __type(value, u8);
 } conn_initiators SEC(".maps");
 
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(map_flags, BPF_F_NO_PREALLOC);
-    __uint(max_entries, 1024);
-    __type(key, u64);
-    __type(value, flow_record);
-} sk_storage_map SEC(".maps");
-
-static __always_inline flow_metrics *new_sk_storage(const struct bpf_sock *sk) {
-    const u64 key = (u64)sk;
-
-    const flow_record init = {};
-
-    bpf_map_update_elem(&sk_storage_map, &key, &init, BPF_ANY);
-
-    return bpf_map_lookup_elem(&sk_storage_map, &key);
-}
-
-static __always_inline flow_metrics *get_sk_storage(const struct bpf_sock *sk) {
-    const u64 key = (u64)sk;
-
-    return bpf_map_lookup_elem(&sk_storage_map, &key);
-}
-
-static __always_inline void clear_sk_storage(const struct bpf_sock *sk) {
-    const u64 key = (u64)sk;
-
-    bpf_map_delete_elem(&sk_storage_map, &key);
-}
-
 const u8 ip4in6[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
 
 // Constant definitions, to be overridden by the invoker
