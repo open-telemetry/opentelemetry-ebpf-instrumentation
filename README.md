@@ -31,7 +31,7 @@ the [test/integration](./test/integration) and [test/integration/k8s](./test/int
 
 ## Contributing
 
-See [CONTRIBUTING](contributing.md)
+See [CONTRIBUTING](CONTRIBUTING.md)
 
 ## License
 
