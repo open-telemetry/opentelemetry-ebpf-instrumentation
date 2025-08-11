@@ -203,7 +203,7 @@ static __always_inline u8 init_flow_skb(struct __sk_buff *skb, flow_socket_data 
     return 1;
 }
 
-static __always_inline void update_flow(struct __sk_buff *skb) {
+static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
     if (skb->family != AF_INET && skb->family != AF_INET6) {
         return;
     }
@@ -225,11 +225,33 @@ static __always_inline void update_flow(struct __sk_buff *skb) {
 
     const u8 ignore = data->record.ignore;
     const u8 initialized = data->record.initialized;
+    const u8 ifindex = data->record.id.if_index;
 
     bpf_spin_unlock(&data->lock);
 
     if (ignore) {
         return;
+    }
+
+    if (initialized) {
+        if (direction == INGRESS && ifindex != skb->ingress_ifindex) {
+            // this packet has arrived at a different interface, we don't want
+            // to account for it again
+            return;
+        } else if (direction == EGRESS && ifindex != skb->ifindex) {
+            // we have seen this packet and have already accounted for it, but
+            // we want to register the last outgoing interface to ensure we
+            // report the true interface used when the packet has left this
+            // node
+            // __sync_lock_test_and_set does not work here, so we need to lock
+            // the spin lock
+            bpf_spin_lock(&data->lock);
+
+            data->record.id.if_index = skb->ifindex;
+
+            bpf_spin_unlock(&data->lock);
+            return;
+        }
     }
 
     // this happens when we haven't seen the flow in obi_sock_ops, i.e. the
@@ -272,13 +294,13 @@ int obi_sock_ops(struct bpf_sock_ops *skops) {
 }
 SEC("cgroup_skb/egress")
 int obi_sock_egress(struct __sk_buff *skb) {
-    update_flow(skb);
+    update_flow(skb, EGRESS);
     return 1;
 }
 
 SEC("cgroup_skb/ingress")
 int obi_sock_ingress(struct __sk_buff *skb) {
-    update_flow(skb);
+    update_flow(skb, INGRESS);
     return 1;
 }
 
