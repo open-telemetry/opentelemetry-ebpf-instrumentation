@@ -651,6 +651,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 		})
 	}
 }
+
 func loadConfig(t *testing.T, env envMap) *Config {
 	for k, v := range env {
 		t.Setenv(k, v)

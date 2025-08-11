@@ -8,9 +8,10 @@ import (
 	"net"
 
 	"github.com/caarlos0/env/v7"
+	"google.golang.org/grpc"
+
 	"go.opentelemetry.io/obi/test/integration/components/old_grpc/worker/internal/gprc"
 	"go.opentelemetry.io/obi/test/integration/components/old_grpc/worker/internal/server"
-	"google.golang.org/grpc"
 )
 
 type Config struct {
