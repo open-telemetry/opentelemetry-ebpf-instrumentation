@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/test/oats
+module go.opentelemetry.io/obi/test/oats/kafka
 
 go 1.24.0
 
