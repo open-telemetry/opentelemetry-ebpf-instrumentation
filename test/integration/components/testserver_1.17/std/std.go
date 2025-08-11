@@ -19,8 +19,8 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"go.opentelemetry.io/obi/testserver_1.17/arg"
-	pb "go.opentelemetry.io/obi/testserver_1.17/grpc/routeguide"
+	"go.opentelemetry.io/obi/test/integration/components/testserver_1.17/arg"
+	pb "go.opentelemetry.io/obi/test/integration/components/testserver_1.17/grpc/routeguide"
 )
 
 var y2k = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)

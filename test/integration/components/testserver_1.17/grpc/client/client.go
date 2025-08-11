@@ -31,7 +31,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	pb "go.opentelemetry.io/obi/testserver_1.17/grpc/routeguide"
+	pb "go.opentelemetry.io/obi/test/integration/components/testserver_1.17/grpc/routeguide"
 )
 
 var counter int64
