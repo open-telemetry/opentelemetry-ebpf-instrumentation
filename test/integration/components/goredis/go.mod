@@ -1,4 +1,4 @@
-module grafana.com/goredis
+module go.opentelemetry.io/obi/test/integration/components/goredis
 
 go 1.24.0
 

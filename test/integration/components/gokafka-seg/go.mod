@@ -1,4 +1,4 @@
-module grafana.com/gokafka-seg
+module go.opentelemetry.io/obi/test/integration/components/gokafka-seg
 
 go 1.24.0
 

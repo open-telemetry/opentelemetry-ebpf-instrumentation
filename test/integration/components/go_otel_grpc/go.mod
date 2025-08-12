@@ -1,5 +1,4 @@
-// Deprecated: This module will be moved to go.opentelemetry.io/auto/examples.
-module rolldice
+module go.opentelemetry.io/obi/test/integration/components/go_otel_grpc
 
 go 1.24.0
 
