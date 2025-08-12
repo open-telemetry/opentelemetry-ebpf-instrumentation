@@ -53,7 +53,6 @@ func rtlog() *slog.Logger {
 // userspace Aggregator map
 type RingBufTracer struct {
 	cfg            *obi.Config
-	mapFlusher     mapFlusher
 	ringBuffer     ringBufReader
 	stats          stats
 	protocolFilter *protofilter.ProtocolFilter
@@ -78,14 +77,9 @@ type stats struct {
 	mapFullErrs    int32
 }
 
-type mapFlusher interface {
-	Flush()
-}
-
-func NewRingBufTracer(reader ringBufReader, flusher mapFlusher, cfg *obi.Config) *RingBufTracer {
+func NewRingBufTracer(reader ringBufReader, cfg *obi.Config) *RingBufTracer {
 	return &RingBufTracer{
 		cfg:        cfg,
-		mapFlusher: flusher,
 		ringBuffer: reader,
 		stats:      stats{loggingTimeout: cfg.NetworkFlows.CacheActiveTimeout},
 		deduper: deduper.NewDeduper(cfg.NetworkFlows.Deduper,
@@ -93,15 +87,6 @@ func NewRingBufTracer(reader ringBufReader, flusher mapFlusher, cfg *obi.Config)
 			cfg.NetworkFlows.CacheActiveTimeout),
 	}
 }
-
-/*
-// 1) A pool of byte-slices, each sized for the largest event you expect.
-var eventPool = sync.Pool{
-	New: func() interface{} {
-		return make([]byte, maxPayloadSize)
-	},
-}
-*/
 
 func (m *RingBufTracer) ringbufferLoop(ctx context.Context,
 		k8sDecorator *k8s.Decorator,

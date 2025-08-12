@@ -28,7 +28,7 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <netolly/flows_common.h>
+#include <netolly/flow.h>
 
 static u64 last_submitted = 0;
 #if 1
@@ -43,6 +43,13 @@ struct {
     __type(value, flow_socket_data);
 } sk_storage_map SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 1 << 24);
+} direct_flows SEC(".maps");
+
+enum flow_direction : u8 { k_flow_ingress = 0, k_flow_egress = 1, k_flow_unknown = 0xff };
+
 static __always_inline u8 same_ip(const unsigned char *ip1, const unsigned char *ip2) {
     for (int i = 0; i < 16; i += 4) {
         if (*((u32 *)(ip1 + i)) != *((u32 *)(ip2 + i))) {
@@ -54,10 +61,12 @@ static __always_inline u8 same_ip(const unsigned char *ip1, const unsigned char 
 }
 
 static __always_inline struct in6_addr encode_ipv4in6(u32 ipv4) {
+    const unsigned char ip4in6[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+
     struct in6_addr addr;
 
-    __builtin_memcpy(addr.s6_addr, ip4in6, sizeof(ip4in6));
-    __builtin_memcpy(addr.s6_addr + sizeof(ip4in6), &ipv4, sizeof(ipv4));
+    __builtin_memcpy(addr.in6_u.u6_addr8, ip4in6, sizeof(ip4in6));
+    __builtin_memcpy(addr.in6_u.u6_addr8 + sizeof(ip4in6), &ipv4, sizeof(ipv4));
 
     return addr;
 }
@@ -79,8 +88,7 @@ static __always_inline flow_socket_data *get_sk_storage(struct bpf_sock *sk) {
         return NULL;
     }
 
-    // FIXME direction UNKNOWN should be 0? migrate to an enum
-    flow_socket_data init = {.record.metrics.iface_direction = UNKNOWN};
+    flow_socket_data init = {.record.metrics.iface_direction = k_flow_unknown};
 
     // BPF_SK_STORAGE_GET_F_CREATE will only create a new entry initialised
     // with 'init' if it does not yet exist, returning the existing entry
@@ -117,11 +125,12 @@ static __always_inline void init_flow(struct bpf_sock_ops *skops, u8 direction) 
         record.id.src_ip = encode_ipv4in6(skops->local_ip4);
         record.id.dst_ip = encode_ipv4in6(skops->remote_ip4);
     } else if (skops->family == AF_INET6) {
-        bpf_probe_read_kernel(record.id.src_ip.s6_addr, sizeof(skops->local_ip6), skops->local_ip6);
         bpf_probe_read_kernel(
-            record.id.dst_ip.s6_addr, sizeof(skops->remote_ip6), skops->remote_ip6);
+            record.id.src_ip.in6_u.u6_addr8, sizeof(skops->local_ip6), skops->local_ip6);
+        bpf_probe_read_kernel(
+            record.id.dst_ip.in6_u.u6_addr8, sizeof(skops->remote_ip6), skops->remote_ip6);
 
-        if (same_ip(record.id.src_ip.s6_addr, record.id.dst_ip.s6_addr)) {
+        if (same_ip(record.id.src_ip.in6_u.u6_addr8, record.id.dst_ip.in6_u.u6_addr8)) {
             // unlike ipv4, we'd always need to read the IPv6 data into a
             // buffer for comparison - so instead we just mark the record to
             // be ignored from now on, to prevent the recorf from being
@@ -159,10 +168,12 @@ static __always_inline u8 init_flow_skb(struct __sk_buff *skb, flow_socket_data 
         record.id.src_ip = encode_ipv4in6(skb->local_ip4);
         record.id.dst_ip = encode_ipv4in6(skb->remote_ip4);
     } else if (skb->family == AF_INET6) {
-        bpf_probe_read_kernel(record.id.src_ip.s6_addr, sizeof(skb->local_ip6), skb->local_ip6);
-        bpf_probe_read_kernel(record.id.dst_ip.s6_addr, sizeof(skb->remote_ip6), skb->remote_ip6);
+        bpf_probe_read_kernel(
+            record.id.src_ip.in6_u.u6_addr8, sizeof(skb->local_ip6), skb->local_ip6);
+        bpf_probe_read_kernel(
+            record.id.dst_ip.in6_u.u6_addr8, sizeof(skb->remote_ip6), skb->remote_ip6);
 
-        if (same_ip(record.id.src_ip.s6_addr, record.id.dst_ip.s6_addr)) {
+        if (same_ip(record.id.src_ip.in6_u.u6_addr8, record.id.dst_ip.in6_u.u6_addr8)) {
             // unlike ipv4, we'd always need to read the IPv6 data into a
             // buffer for comparison - so instead we just mark the record to
             // be ignored from now on, to prevent the recorf from being
@@ -186,7 +197,8 @@ static __always_inline u8 init_flow_skb(struct __sk_buff *skb, flow_socket_data 
     record.metrics.end_mono_time_ns = current_time;
 
     // fallback for lost or already started connections and UDP
-    record.metrics.iface_direction = record.id.src_port > record.id.dst_port ? EGRESS : INGRESS;
+    record.metrics.iface_direction =
+        record.id.src_port > record.id.dst_port ? k_flow_egress : k_flow_ingress;
 
     record.initialized = 1;
 
@@ -234,11 +246,11 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
     }
 
     if (initialized) {
-        if (direction == INGRESS && ifindex != skb->ingress_ifindex) {
+        if (direction == k_flow_ingress && ifindex != skb->ingress_ifindex) {
             // this packet has arrived at a different interface, we don't want
             // to account for it again
             return;
-        } else if (direction == EGRESS && ifindex != skb->ifindex) {
+        } else if (direction == k_flow_egress && ifindex != skb->ifindex) {
             // we have seen this packet and have already accounted for it, but
             // we want to register the last outgoing interface to ensure we
             // report the true interface used when the packet has left this
@@ -283,10 +295,10 @@ SEC("sockops")
 int obi_sock_ops(struct bpf_sock_ops *skops) {
     switch (skops->op) {
     case BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB:
-        init_flow(skops, EGRESS);
+        init_flow(skops, k_flow_egress);
         break;
     case BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB:
-        init_flow(skops, INGRESS);
+        init_flow(skops, k_flow_ingress);
         break;
     }
 
@@ -294,13 +306,13 @@ int obi_sock_ops(struct bpf_sock_ops *skops) {
 }
 SEC("cgroup_skb/egress")
 int obi_sock_egress(struct __sk_buff *skb) {
-    update_flow(skb, EGRESS);
+    update_flow(skb, k_flow_egress);
     return 1;
 }
 
 SEC("cgroup_skb/ingress")
 int obi_sock_ingress(struct __sk_buff *skb) {
-    update_flow(skb, INGRESS);
+    update_flow(skb, k_flow_ingress);
     return 1;
 }
 

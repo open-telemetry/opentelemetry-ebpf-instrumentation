@@ -98,10 +98,9 @@ type Flows struct {
 
 	// input data providers
 	ifaceManager *tcmanager.InterfaceManager
-	ebpf         ebpfFlowFetcher
+	ebpf         *ebpf.SockFlowFetcher
 
 	// processing nodes to be wired in the buildPipeline method
-	mapTracer *flow.MapTracer
 	rbTracer  *flow.RingBufTracer
 
 	// elements used to decorate flows with extra information
@@ -139,29 +138,12 @@ func FlowsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Flows, error) {
 
 	alog.Debug("agent IP: " + agentIP.String())
 
-	fetcher, err := newFetcher(cfg, alog, ifaceManager)
+	fetcher, err := ebpf.NewSockFlowFetcher()
 	if err != nil {
 		return nil, err
 	}
 
 	return flowsAgent(ctxInfo, cfg, fetcher, agentIP, ifaceManager)
-}
-
-func newFetcher(cfg *obi.Config, alog *slog.Logger, ifaceManager *tcmanager.InterfaceManager) (ebpfFlowFetcher, error) {
-	switch cfg.NetworkFlows.Source {
-	case obi.EbpfSourceSock:
-		alog.Info("using socket filter for collecting network events")
-
-		return ebpf.NewSockFlowFetcher(cfg.NetworkFlows.Sampling, cfg.NetworkFlows.CacheMaxFlows)
-	case obi.EbpfSourceTC:
-		alog.Info("using kernel Traffic Control for collecting network events")
-		ingress, egress := flowDirections(&cfg.NetworkFlows)
-
-		return ebpf.NewFlowFetcher(cfg.NetworkFlows.Sampling, cfg.NetworkFlows.CacheMaxFlows,
-			ingress, egress, ifaceManager, cfg.EBPF.TCBackend)
-	}
-
-	return nil, errors.New("unknown network configuration eBPF source specified, allowed options are [tc, socket_filter]")
 }
 
 func monitorMode(cfg *obi.Config, alog *slog.Logger) tcmanager.MonitorMode {
@@ -187,7 +169,7 @@ func monitorMode(cfg *obi.Config, alog *slog.Logger) tcmanager.MonitorMode {
 func flowsAgent(
 	ctxInfo *global.ContextInfo,
 	cfg *obi.Config,
-	fetcher ebpfFlowFetcher,
+	fetcher *ebpf.SockFlowFetcher,
 	agentIP net.IP,
 	ifaceManager *tcmanager.InterfaceManager,
 ) (*Flows, error) {
@@ -207,15 +189,13 @@ func flowsAgent(
 		return iface
 	}
 
-	mapTracer := flow.NewMapTracer(fetcher, cfg.NetworkFlows.CacheActiveTimeout)
-	rbTracer := flow.NewRingBufTracer(fetcher, mapTracer, cfg)
+	rbTracer := flow.NewRingBufTracer(fetcher,cfg)
 
 	return &Flows{
 		ctxInfo:        ctxInfo,
 		ebpf:           fetcher,
 		ifaceManager:   ifaceManager,
 		cfg:            cfg,
-		mapTracer:      mapTracer,
 		rbTracer:       rbTracer,
 		agentIP:        agentIP,
 		interfaceNamer: interfaceNamer,

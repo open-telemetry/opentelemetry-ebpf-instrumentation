@@ -21,10 +21,6 @@ import (
 )
 
 // mockable functions for testing
-var newMapTracer = func(f *Flows, out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
-	return f.mapTracer.TraceLoop(out)
-}
-
 var newRingBufTracer = func(f *Flows, k8sDecorator *k8s.Decorator,
 		flowFilter *filter.Filter2[*ebpf.Record], out *msg.Queue[ebpf.Record]) swarm.RunFunc {
 	flowDecorator := flow.FlowDecorator(f.agentIP.String(), f.makeInterfaceNamer())
@@ -73,7 +69,6 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		return nil, fmt.Errorf("error instantiating flow filter: %w", err)
 	}
 
-	// swi.Add(swarm.DirectInstance(newMapTracer(f, ebpfFlows)), swarm.WithID("MapTracer"))
 	swi.Add(swarm.DirectInstance(newRingBufTracer(f, k8sDecorator, flowFilter, ebpfFlows)), swarm.WithID("RingBufTracer"))
 
 	// Terminal nodes export the flow record information out of the pipeline: OTEL, Prom and printer.
