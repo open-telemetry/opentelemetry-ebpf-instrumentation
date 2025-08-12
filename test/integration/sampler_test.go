@@ -82,11 +82,13 @@ func testParentBasedSampler(t *testing.T) {
 	time.Sleep(60 * time.Second)
 
 	// Test sampled parent (should be sampled despite 0.0 ratio)
-	sampledTraceparent := "00-" + createTraceID() + "-" + createParentID() + "-01"
+	sampledTraceID := createTraceID()
+	sampledTraceparent := "00-" + sampledTraceID + "-" + createParentID() + "-01"
 	doHTTPGetWithTraceparent(t, "http://localhost:5000/a", 200, sampledTraceparent)
 
 	// Test non-sampled parent (should not be sampled)
-	nonSampledTraceparent := "00-" + createTraceID() + "-" + createParentID() + "-00"
+	nonSampledTraceID := createTraceID()
+	nonSampledTraceparent := "00-" + nonSampledTraceID + "-" + createParentID() + "-00"
 	doHTTPGetWithTraceparent(t, "http://localhost:5000/a", 200, nonSampledTraceparent)
 
 	// Test without traceparent (should not be sampled)
