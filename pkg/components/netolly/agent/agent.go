@@ -125,7 +125,9 @@ func FlowsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Flows, error) {
 
 	alog.Debug("agent IP: " + agentIP.String())
 
-	fetcher, err := ebpf.NewSockFlowFetcher()
+	fetcher, err := ebpf.NewSockFlowFetcher(cfg.NetworkFlows.RingBufferSize,
+		cfg.NetworkFlows.RingBufferFlushPeriod,
+		cfg.NetworkFlows.MaxFlowDuration)
 	if err != nil {
 		return nil, err
 	}

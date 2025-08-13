@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -76,7 +77,34 @@ func attachCgroup(program *ebpf.Program, attachType ebpf.AttachType, cgroupPath 
 	return l, nil
 }
 
-func NewSockFlowFetcher() (*SockFlowFetcher, error) {
+func effectiveRingBufferSize(size uint32) uint32 {
+    page := uint32(os.Getpagesize())
+
+    // ensure size is at least the system page size.
+    if size < page {
+        size = page
+    }
+
+    // if size is already a power of two, this trick will leave it unchanged.
+    // decrement size so powers of two won't get rounded up.
+    size--
+
+    // fill all bits to the right with 1s
+    // this propagates the highest set bit to all lower bits.
+    size |= size >> 1
+    size |= size >> 2
+    size |= size >> 4
+    size |= size >> 8
+    size |= size >> 16
+
+    // increment to get the next power of two.
+    size++
+
+    return size
+}
+
+
+func NewSockFlowFetcher(rbSizeMB uint32, flushPeriod, flowDuration time.Duration) (*SockFlowFetcher, error) {
 	tlog := tlog()
 	if err := rlimit.RemoveMemlock(); err != nil {
 		tlog.Warn("can't remove mem lock. The agent could not be able to start eBPF programs",
@@ -88,6 +116,22 @@ func NewSockFlowFetcher() (*SockFlowFetcher, error) {
 	spec, err := LoadNetSk()
 	if err != nil {
 		return nil, fmt.Errorf("loading BPF data: %w", err)
+	}
+
+	ringBufferSize := effectiveRingBufferSize(rbSizeMB * 1024 * 1024)
+
+	spec.Maps["direct_flows"].MaxEntries = ringBufferSize
+
+	if err := spec.Variables["k_max_rb_size"].Set(ringBufferSize); err != nil {
+		return nil, errors.New("failed to set ring buffer size")
+	}
+
+	if err := spec.Variables["k_rb_flush_period"].Set(uint64(flushPeriod)); err != nil {
+		return nil, errors.New("failed to set ring buffer flush period")
+	}
+
+	if err := spec.Variables["k_max_flow_duration"].Set(uint64(flowDuration)); err != nil {
+		return nil, errors.New("failed to set flow duration")
 	}
 
 	if err := spec.LoadAndAssign(&objects, &ebpf.CollectionOptions{

@@ -36,6 +36,10 @@ static u64 last_sec = 0;
 static u64 flow_count = 0;
 #endif
 
+volatile const u32 k_max_rb_size;
+volatile const u64 k_rb_flush_period;
+volatile const u64 k_max_flow_duration;
+
 struct {
     __uint(type, BPF_MAP_TYPE_SK_STORAGE);
     __uint(map_flags, BPF_F_NO_PREALLOC);
@@ -59,7 +63,7 @@ static __always_inline u64 get_rb_flags() {
 
     bpf_printk("RB USED: %llu", rb_avail);
 
-    if ((delta_nsec > 10e9) || (rb_avail + 1024 * 1024) >= (1 << 24)) {
+    if ((delta_nsec > k_rb_flush_period) || (rb_avail + sizeof(flow_record)) >= k_max_rb_size) {
         last_submitted = current_time;
         return BPF_RB_FORCE_WAKEUP;
     }
@@ -192,9 +196,9 @@ static __always_inline void init_flow_skb(struct __sk_buff *skb, flow_socket_dat
             record.id.dst_ip.in6_u.u6_addr8, sizeof(skb->remote_ip6), skb->remote_ip6);
 
         if (same_ip(record.id.src_ip.in6_u.u6_addr8, record.id.dst_ip.in6_u.u6_addr8)) {
-            // unlike ipv4, we'd always need to read the IPv6 data into a
+            // unlike IPv4, we'd always need to read the IPv6 data into a
             // buffer for comparison - so instead we just mark the record to
-            // be ignored from now on, to prevent the recorf from being
+            // be ignored from now on, to prevent the record from being
             // created and deleted everytime this codepath is hit -
             // instead, it will be cleaned up when the socket dies
             record.ignore = 1;
@@ -217,6 +221,9 @@ static __always_inline void init_flow_skb(struct __sk_buff *skb, flow_socket_dat
     // fallback for lost or already started connections and UDP
     record.metrics.iface_direction =
         record.id.src_port > record.id.dst_port ? k_flow_egress : k_flow_ingress;
+
+    record.metrics.packets = 1;
+    record.metrics.bytes = skb->len;
 
     record.initialized = 1;
 
@@ -258,6 +265,9 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
 
     u64 start_mono_ns = data->record.metrics.start_mono_time_ns;
 
+    data->record.metrics.packets++;
+    data->record.metrics.bytes += skb->len;
+
     bpf_spin_unlock(&data->lock);
 
     if (ignore) {
@@ -274,8 +284,6 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
             // we want to register the last outgoing interface to ensure we
             // report the true interface used when the packet has left this
             // node
-            // __sync_lock_test_and_set does not work here, so we need to lock
-            // the spin lock
             bpf_spin_lock(&data->lock);
 
             data->record.id.if_index = skb->ifindex;
@@ -302,9 +310,6 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
         }
     }
 
-    __sync_fetch_and_add(&data->record.metrics.packets, 1);
-    __sync_fetch_and_add(&data->record.metrics.bytes, skb->len);
-
     const u64 current_time_ns = bpf_ktime_get_ns();
     const u64 delta_ns = current_time_ns - start_mono_ns;
 
@@ -314,7 +319,7 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
     }
 
     // we've hit a time deadline, submit this flow as is and start over
-    if (delta_ns > 30e9) {
+    if (delta_ns > k_max_flow_duration) {
         flow_record *record = bpf_ringbuf_reserve(&direct_flows, sizeof(flow_record), 0);
 
         if (!record) {
@@ -392,7 +397,10 @@ int obi_sock_release(struct bpf_sock *sock) {
 
     bpf_spin_unlock(&data->lock);
 
-    if (record->ignore) {
+    // apart from ignore, we also check if packets == 0 in the unlikely case
+    // the flow has just been submitted by the timeout logic in update_flow()
+    // preceding this socket release
+    if (record->ignore || record->metrics.packets == 0) {
         bpf_ringbuf_discard(record, BPF_RB_NO_WAKEUP);
     } else {
         record->metrics.end_mono_time_ns = bpf_ktime_get_ns();
