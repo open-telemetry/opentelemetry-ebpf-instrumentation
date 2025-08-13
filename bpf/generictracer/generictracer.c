@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build obi_bpf_ignore
 #include "k_tracer.c"
 #include "iter_tcp.c"
