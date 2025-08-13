@@ -25,7 +25,7 @@ jobs:
         check-latest: true
     - name: "Update offsets"
       run: make update-offsets
-    - uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+    - uses: actions/create-github-app-token@a8d616148505b5069dccd32f177bb87d7f39123b # v2.1.1
       id: generate-token
       with:
         app-id: ${{ vars.OTELBOT_APP_ID }}
