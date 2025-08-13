@@ -4,7 +4,6 @@
 package ebpfcommon
 
 import (
-	"errors"
 	"fmt"
 	"unsafe"
 
@@ -52,7 +51,7 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	case largeBufferActionAppend:
 		lb, ok := parseCtx.largeBuffers.Get(key)
 		if !ok {
-			return request.Span{}, true, errors.New("existing large buffer not found for append action")
+			return request.Span{}, true, nil
 		}
 		lb.buf = append(lb.buf, record.RawSample[hdrSize:hdrSize+event.Len]...)
 	default:
