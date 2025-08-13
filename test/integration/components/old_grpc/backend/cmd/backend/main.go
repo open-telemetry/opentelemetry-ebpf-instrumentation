@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v7"
-	"github.com/mariomac/distributed-service-example/backend/pkg/rest"
+
+	"go.opentelemetry.io/obi/test/integration/components/old_grpc/backend/internal/distributed-service-example/pkg/rest"
 )
 
 type Config struct {

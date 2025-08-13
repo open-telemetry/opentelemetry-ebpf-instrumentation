@@ -1,4 +1,4 @@
-module grpc_mux
+module go.opentelemetry.io/obi/test/integration/components/go_grpc_server_mux
 
 go 1.24.0
 

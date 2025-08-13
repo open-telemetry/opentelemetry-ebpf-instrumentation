@@ -10,12 +10,12 @@ import (
 	"github.com/caarlos0/env/v9"
 	gin2 "github.com/gin-gonic/gin"
 
-	"go.opentelemetry.io/obi/testserver_1.17/gin"
-	"go.opentelemetry.io/obi/testserver_1.17/gorilla"
-	"go.opentelemetry.io/obi/testserver_1.17/gorillamid"
-	"go.opentelemetry.io/obi/testserver_1.17/gorillamid2"
-	grpctest "go.opentelemetry.io/obi/testserver_1.17/grpc/server"
-	"go.opentelemetry.io/obi/testserver_1.17/std"
+	"go.opentelemetry.io/obi/test/integration/components/testserver_1.17/gin"
+	"go.opentelemetry.io/obi/test/integration/components/testserver_1.17/gorilla"
+	"go.opentelemetry.io/obi/test/integration/components/testserver_1.17/gorillamid"
+	"go.opentelemetry.io/obi/test/integration/components/testserver_1.17/gorillamid2"
+	grpctest "go.opentelemetry.io/obi/test/integration/components/testserver_1.17/grpc/server"
+	"go.opentelemetry.io/obi/test/integration/components/testserver_1.17/std"
 )
 
 /*

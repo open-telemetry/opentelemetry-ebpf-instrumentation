@@ -8,7 +8,7 @@ require (
 	github.com/google/go-licenses/v2 v2.0.0-alpha.1
 	github.com/grafana/go-offsets-tracker v0.1.7
 	github.com/onsi/ginkgo/v2 v2.23.4
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250731065915-e8c5c5445a20
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250812131711-682465344b9b
 	sigs.k8s.io/kind v0.29.0
 )
 
@@ -229,5 +229,5 @@ require (
 	k8s.io/klog/v2 v2.90.1 // indirect
 	mvdan.cc/gofumpt v0.8.0 // indirect
 	mvdan.cc/unparam v0.0.0-20250301125049-0df0534333a4 // indirect
-	sigs.k8s.io/yaml v1.5.0 // indirect
+	sigs.k8s.io/yaml v1.6.0 // indirect
 )

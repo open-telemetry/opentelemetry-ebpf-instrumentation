@@ -566,7 +566,11 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 	}
 
 	t.Run("test with span metrics on", func(t *testing.T) {
-		receiver := makeTracesTestReceiverWithSpanMetrics([]string{"http"})
+		mc := otelcfg.MetricsConfig{
+			Features: []string{otelcfg.FeatureSpan},
+		}
+
+		receiver := makeTracesTestReceiverWithSpanMetrics(mc.AnySpanMetricsEnabled(), []string{"http"})
 
 		sampler := sdktrace.AlwaysSample()
 		attrs, err := receiver.getConstantAttributes()
@@ -1243,7 +1247,7 @@ func makeTracesTestReceiver(instr []string) *tracesOTELReceiver {
 	)
 }
 
-func makeTracesTestReceiverWithSpanMetrics(instr []string) *tracesOTELReceiver {
+func makeTracesTestReceiverWithSpanMetrics(enabled bool, instr []string) *tracesOTELReceiver {
 	return makeTracesReceiver(
 		otelcfg.TracesConfig{
 			CommonEndpoint:    "http://something",
@@ -1251,7 +1255,7 @@ func makeTracesTestReceiverWithSpanMetrics(instr []string) *tracesOTELReceiver {
 			ReportersCacheLen: 16,
 			Instrumentations:  instr,
 		},
-		true,
+		enabled,
 		&global.ContextInfo{},
 		&attributes.SelectorConfig{},
 		msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10)),

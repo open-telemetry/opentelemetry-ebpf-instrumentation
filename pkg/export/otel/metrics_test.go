@@ -363,7 +363,52 @@ func TestMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mc := otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureApplication},
+		Features: []string{otelcfg.FeatureSpan},
+	}
+	mr := MetricsReporter{
+		cfg: &mc,
+	}
+
+	svcNoExport := svc.Attrs{}
+
+	svcExportMetrics := svc.Attrs{}
+	svcExportMetrics.SetExportsOTelMetrics()
+
+	svcExportSpanMetrics := svc.Attrs{}
+	svcExportSpanMetrics.SetExportsOTelMetricsSpan()
+
+	tests := []struct {
+		name      string
+		span      request.Span
+		discarded bool
+	}{
+		{
+			name:      "Foo span is not filtered",
+			span:      request.Span{Service: svcNoExport, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/foo", RequestStart: 100, End: 200},
+			discarded: false,
+		},
+		{
+			name:      "/v1/metrics span is not filtered",
+			span:      request.Span{Service: svcExportMetrics, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/v1/metrics", RequestStart: 100, End: 200},
+			discarded: false,
+		},
+		{
+			name:      "/v1/traces span is filtered",
+			span:      request.Span{Service: svcExportSpanMetrics, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/v1/traces", RequestStart: 100, End: 200},
+			discarded: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.discarded, !otelSpanMetricsAccepted(&tt.span, &mr), tt.name)
+		})
+	}
+}
+
+func TestSpanMetricsDiscardedGraph(t *testing.T) {
+	mc := otelcfg.MetricsConfig{
+		Features: []string{otelcfg.FeatureGraph},
 	}
 	mr := MetricsReporter{
 		cfg: &mc,

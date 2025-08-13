@@ -15,7 +15,6 @@ COPY Makefile Makefile
 COPY third_party_licenses.csv third_party_licenses.csv
 COPY cmd/ cmd/
 COPY pkg/ pkg/
-COPY vendor/ vendor/
 COPY .git/ .git/
 
 # Build

@@ -1,4 +1,4 @@
-module github.com/beyla/test/integration/components/sqlclient
+module go.opentelemetry.io/obi/test/integration/components/sqlclient
 
 go 1.24.0
 

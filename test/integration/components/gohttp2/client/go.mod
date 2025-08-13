@@ -1,4 +1,4 @@
-module http2client
+module go.opentelemetry.io/obi/test/integration/components/go_http2/client
 
 go 1.24.0
 

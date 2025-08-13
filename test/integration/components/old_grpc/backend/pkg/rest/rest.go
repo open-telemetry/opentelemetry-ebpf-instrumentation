@@ -11,9 +11,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mariomac/distributed-service-example/worker/pkg/gprc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"go.opentelemetry.io/obi/test/integration/components/old_grpc/worker/pkg/gprc"
 )
 
 const (

@@ -10,7 +10,7 @@ import (
 	"math/big"
 	"math/rand/v2"
 
-	"github.com/mariomac/distributed-service-example/worker/pkg/gprc"
+	"go.opentelemetry.io/obi/test/integration/components/old_grpc/worker/internal/gprc"
 )
 
 var one = big.NewInt(1)

@@ -41,7 +41,12 @@ func TestYAMLMarshal_Exports(t *testing.T) {
 			Exports: ExportModes{blockSignal: ^(blockMetrics | blockTraces)},
 		})
 		require.NoError(t, err)
-		assert.YAMLEq(t, `exports: ["metrics", "traces"]`, string(yamlOut))
+
+		var exports struct {
+			Exports []string `yaml:"exports"`
+		}
+		require.NoError(t, yaml.Unmarshal(yamlOut, &exports))
+		assert.ElementsMatch(t, []string{"metrics", "traces"}, exports.Exports)
 	})
 }
 

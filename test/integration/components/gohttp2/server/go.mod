@@ -1,4 +1,4 @@
-module http2srv
+module go.opentelemetry.io/obi/test/integration/components/go_http2/server
 
 go 1.24.0
 

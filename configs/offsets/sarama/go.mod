@@ -1,4 +1,4 @@
-module sarama_off
+module go.opentelemetry.io/obi/configs/offsets/sarama
 
 go 1.24.0
 

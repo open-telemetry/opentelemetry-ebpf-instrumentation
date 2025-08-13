@@ -9,7 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"go.opentelemetry.io/obi/testserver_1.17/std"
+	"go.opentelemetry.io/obi/test/integration/components/testserver_1.17/std"
 )
 
 func Setup(port, stdPort int) {
