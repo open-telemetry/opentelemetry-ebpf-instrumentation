@@ -63,19 +63,12 @@ func getCgroupPath() (string, error) {
 	return cgroupPath, err
 }
 
-func attachCgroup(program *ebpf.Program, attachType ebpf.AttachType) (link.Link, error) {
-	cgroupPath, err := getCgroupPath()
-
-	if err != nil {
-		return nil, fmt.Errorf("error getting cgroup path: %w", err)
-	}
-
+func attachCgroup(program *ebpf.Program, attachType ebpf.AttachType, cgroupPath string) (link.Link, error) {
 	l, err := link.AttachCgroup(link.CgroupOptions{
 		Path:    cgroupPath,
 		Attach:  attachType,
 		Program: program,
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("attaching cgroup program: %w", err)
 	}
@@ -91,6 +84,7 @@ func NewSockFlowFetcher() (*SockFlowFetcher, error) {
 	}
 
 	objects := NetSkObjects{}
+
 	spec, err := LoadNetSk()
 	if err != nil {
 		return nil, fmt.Errorf("loading BPF data: %w", err)
@@ -103,45 +97,33 @@ func NewSockFlowFetcher() (*SockFlowFetcher, error) {
 		return nil, fmt.Errorf("loading and assigning BPF objects: %w", err)
 	}
 
+	cgroupPath, err := getCgroupPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cgroup path: %w", err)
+	}
+
 	links := []link.Link{}
 
-	lnk, err := attachCgroup(objects.ObiSockEgress, ebpf.AttachCGroupInetEgress)
+	for prog, attachType := range map[*ebpf.Program]ebpf.AttachType{
+		objects.ObiSockEgress:  ebpf.AttachCGroupInetEgress,
+		objects.ObiSockIngress: ebpf.AttachCGroupInetIngress,
+		objects.ObiSockRelease: ebpf.AttachCgroupInetSockRelease,
+		objects.ObiSockOps:     ebpf.AttachCGroupSockOps,
+	} {
+		lnk, err := attachCgroup(prog, attachType, cgroupPath)
+		if err != nil {
+			return nil, fmt.Errorf("error attaching cgroup program: %w", err)
+		}
 
-	if err != nil {
-		return nil, fmt.Errorf("error attaching cgroup program: %w", err)
+		links = append(links, lnk)
 	}
-
-	links = append(links, lnk)
-
-	lnk, err = attachCgroup(objects.ObiSockIngress, ebpf.AttachCGroupInetIngress)
-
-	if err != nil {
-		return nil, fmt.Errorf("error attaching cgroup program: %w", err)
-	}
-
-	links = append(links, lnk)
-
-	lnk, err = attachCgroup(objects.ObiSockRelease, ebpf.AttachCgroupInetSockRelease)
-
-	if err != nil {
-		return nil, fmt.Errorf("error attaching cgroup program: %w", err)
-	}
-
-	links = append(links, lnk)
-
-	lnk, err = attachCgroup(objects.ObiSockOps, ebpf.AttachCGroupSockOps)
-
-	if err != nil {
-		return nil, fmt.Errorf("error attaching cgroup program: %w", err)
-	}
-
-	links = append(links, lnk)
 
 	// read events from socket filter ringbuffer
 	flows, err := ringbuf.NewReader(objects.DirectFlows)
 	if err != nil {
 		return nil, fmt.Errorf("accessing to ringbuffer: %w", err)
 	}
+
 	return &SockFlowFetcher{
 		log:           tlog,
 		objects:       &objects,
@@ -190,10 +172,6 @@ func (m *SockFlowFetcher) Close() error {
 		errStrings = append(errStrings, err.Error())
 	}
 	return errors.New(`errors: "` + strings.Join(errStrings, `", "`) + `"`)
-}
-
-func (m *SockFlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
-	return m.ringbufReader.Read()
 }
 
 func (m *SockFlowFetcher) RingBufReader() *ringbuf.Reader {

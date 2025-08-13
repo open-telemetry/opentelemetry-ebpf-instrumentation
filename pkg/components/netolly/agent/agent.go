@@ -25,12 +25,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"time"
 
-	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/components/ebpf/tcmanager"
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
@@ -88,8 +86,6 @@ func (s Status) String() string {
 	}
 }
 
-var errShutdownTimeout = errors.New("graceful shutdown has timed out while waiting for eBPF network infrastructure to finish")
-
 // Flows reporting agent
 type Flows struct {
 	cfg     *obi.Config
@@ -101,22 +97,13 @@ type Flows struct {
 	ebpf         *ebpf.SockFlowFetcher
 
 	// processing nodes to be wired in the buildPipeline method
-	rbTracer  *flow.RingBufTracer
+	rbTracer *flow.RingBufTracer
 
 	// elements used to decorate flows with extra information
 	interfaceNamer flow.InterfaceNamer
 	agentIP        net.IP
 
 	status Status
-}
-
-// ebpfFlowFetcher abstracts the interface of ebpf.FlowFetcher to allow dependency injection in tests
-type ebpfFlowFetcher interface {
-	io.Closer
-
-	LookupAndDeleteMap() map[ebpf.NetFlowId][]ebpf.NetFlowMetrics
-	ReadRingBuf() (ringbuf.Record, error)
-	RingBufReader() *ringbuf.Reader
 }
 
 // FlowsAgent instantiates a new agent, given a configuration.
@@ -189,7 +176,7 @@ func flowsAgent(
 		return iface
 	}
 
-	rbTracer := flow.NewRingBufTracer(fetcher,cfg)
+	rbTracer := flow.NewRingBufTracer(fetcher, cfg)
 
 	return &Flows{
 		ctxInfo:        ctxInfo,
@@ -200,21 +187,6 @@ func flowsAgent(
 		agentIP:        agentIP,
 		interfaceNamer: interfaceNamer,
 	}, nil
-}
-
-func flowDirections(cfg *obi.NetworkConfig) (ingress, egress bool) {
-	switch cfg.Direction {
-	case directionIngress:
-		return true, false
-	case directionEgress:
-		return false, true
-	case directionBoth:
-		return true, true
-	default:
-		alog().Warn("unknown DIRECTION. Tracing both ingress and egress traffic",
-			"direction", cfg.Direction)
-		return true, true
-	}
 }
 
 // Run a Flows agent
@@ -274,7 +246,7 @@ func (f *Flows) stop() error {
 
 	select {
 	case <-time.After(f.cfg.ShutdownTimeout):
-		return errShutdownTimeout
+		return errors.New("graceful shutdown has timed out while waiting for eBPF network infrastructure to finish")
 	case err := <-stopped:
 		// err might be nil
 		return err

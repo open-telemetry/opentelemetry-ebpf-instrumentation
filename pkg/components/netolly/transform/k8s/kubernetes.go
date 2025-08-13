@@ -62,18 +62,17 @@ type decorator struct {
 
 type Decorator struct {
 	decorator *decorator
-	Decorate func(*ebpf.Record) bool
+	Decorate  func(*ebpf.Record) bool
 }
 
 func NewDecorator(ctx context.Context, cfg *transform.KubernetesDecorator,
-	k8sInformer *kube.MetadataProvider) (*Decorator, error) {
-
+	k8sInformer *kube.MetadataProvider,
+) (*Decorator, error) {
 	if !k8sInformer.IsKubeEnabled() {
-		return &Decorator{decorator: nil, Decorate: func(*ebpf.Record) bool { return true}, }, nil
+		return &Decorator{decorator: nil, Decorate: func(*ebpf.Record) bool { return true }}, nil
 	}
 
 	nt, err := newDecorator(ctx, cfg, k8sInformer)
-
 	if err != nil {
 		return nil, fmt.Errorf("instantiating k8s.MetadataDecorator: %w", err)
 	}

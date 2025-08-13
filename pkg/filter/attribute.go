@@ -188,4 +188,3 @@ func (f *Filter2[T]) Allow(t T) bool {
 
 	return true
 }
-

@@ -50,6 +50,23 @@ struct {
 
 enum flow_direction : u8 { k_flow_ingress = 0, k_flow_egress = 1, k_flow_unknown = 0xff };
 
+enum : u32 { k_invalid_iface = 0xffffffff };
+
+static __always_inline u64 get_rb_flags() {
+    const u64 current_time = bpf_ktime_get_ns();
+    const u64 rb_avail = bpf_ringbuf_query(&direct_flows, BPF_RB_AVAIL_DATA);
+    const u64 delta_nsec = current_time - last_submitted;
+
+    bpf_printk("RB USED: %llu", rb_avail);
+
+    if ((delta_nsec > 10e9) || (rb_avail + 1024 * 1024) >= (1 << 24)) {
+        last_submitted = current_time;
+        return BPF_RB_FORCE_WAKEUP;
+    }
+
+    return BPF_RB_NO_WAKEUP;
+}
+
 static __always_inline u8 same_ip(const unsigned char *ip1, const unsigned char *ip2) {
     for (int i = 0; i < 16; i += 4) {
         if (*((u32 *)(ip1 + i)) != *((u32 *)(ip2 + i))) {
@@ -88,7 +105,8 @@ static __always_inline flow_socket_data *get_sk_storage(struct bpf_sock *sk) {
         return NULL;
     }
 
-    flow_socket_data init = {.record.metrics.iface_direction = k_flow_unknown};
+    flow_socket_data init = {.submitted_iface = k_invalid_iface,
+                             .record.metrics.iface_direction = k_flow_unknown};
 
     // BPF_SK_STORAGE_GET_F_CREATE will only create a new entry initialised
     // with 'init' if it does not yet exist, returning the existing entry
@@ -161,7 +179,7 @@ static __always_inline void init_flow(struct bpf_sock_ops *skops, u8 direction) 
     update_flow_record(skops->sk, &record);
 }
 
-static __always_inline u8 init_flow_skb(struct __sk_buff *skb, flow_socket_data *data) {
+static __always_inline void init_flow_skb(struct __sk_buff *skb, flow_socket_data *data) {
     flow_record record = {};
 
     if (skb->family == AF_INET) {
@@ -182,7 +200,7 @@ static __always_inline u8 init_flow_skb(struct __sk_buff *skb, flow_socket_data 
             record.ignore = 1;
 
             update_flow_record(skb->sk, &record);
-            return 0;
+            return;
         }
     }
 
@@ -211,8 +229,6 @@ static __always_inline u8 init_flow_skb(struct __sk_buff *skb, flow_socket_data 
     }
 
     bpf_spin_unlock(&data->lock);
-
-    return 1;
 }
 
 static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
@@ -235,9 +251,12 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
 
     bpf_spin_lock(&data->lock);
 
-    const u8 ignore = data->record.ignore;
     const u8 initialized = data->record.initialized;
     const u8 ifindex = data->record.id.if_index;
+
+    u8 ignore = data->record.ignore;
+
+    u64 start_mono_ns = data->record.metrics.start_mono_time_ns;
 
     bpf_spin_unlock(&data->lock);
 
@@ -270,25 +289,62 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
     // flow had already begun before obi_sock_ops was loaded
     if (!initialized) {
         init_flow_skb(skb, data);
+
+        bpf_spin_lock(&data->lock);
+
+        ignore = data->record.ignore;
+        start_mono_ns = data->record.metrics.start_mono_time_ns;
+
+        bpf_spin_unlock(&data->lock);
+
+        if (ignore) {
+            return;
+        }
     }
 
     __sync_fetch_and_add(&data->record.metrics.packets, 1);
     __sync_fetch_and_add(&data->record.metrics.bytes, skb->len);
-}
 
-static __always_inline u64 get_rb_flags() {
-    const u64 current_time = bpf_ktime_get_ns();
-    const u64 rb_avail = bpf_ringbuf_query(&direct_flows, BPF_RB_AVAIL_DATA);
-    const u64 delta_nsec = current_time - last_submitted;
+    const u64 current_time_ns = bpf_ktime_get_ns();
+    const u64 delta_ns = current_time_ns - start_mono_ns;
 
-    bpf_printk("RB USED: %llu", rb_avail);
-
-    if ((delta_nsec > 10e9) || (rb_avail + 1024 * 1024) >= (1 << 24)) {
-        last_submitted = current_time;
-        return BPF_RB_FORCE_WAKEUP;
+    if (delta_ns > current_time_ns) {
+        // overflow, try again later
+        return;
     }
 
-    return BPF_RB_NO_WAKEUP;
+    // we've hit a time deadline, submit this flow as is and start over
+    if (delta_ns > 30e9) {
+        flow_record *record = bpf_ringbuf_reserve(&direct_flows, sizeof(flow_record), 0);
+
+        if (!record) {
+            return;
+        }
+
+        bpf_spin_lock(&data->lock);
+
+        // because we can hit this at any time, settle on an interface to
+        // submit to avoid cardinality explosion
+        if (data->submitted_iface == k_invalid_iface) {
+            data->submitted_iface = data->record.id.if_index;
+        } else {
+            data->record.id.if_index = data->submitted_iface;
+        }
+
+        *record = data->record;
+
+        // reset whilst preserving flow metadata
+        data->record.metrics.packets = 0;
+        data->record.metrics.bytes = 0;
+        data->record.metrics.start_mono_time_ns = current_time_ns;
+        data->record.metrics.end_mono_time_ns = current_time_ns;
+
+        bpf_spin_unlock(&data->lock);
+
+        record->metrics.end_mono_time_ns = current_time_ns;
+
+        bpf_ringbuf_submit(record, get_rb_flags());
+    }
 }
 
 SEC("sockops")
@@ -324,17 +380,24 @@ int obi_sock_release(struct bpf_sock *sock) {
         return 1;
     }
 
+    flow_record *record = bpf_ringbuf_reserve(&direct_flows, sizeof(flow_record), 0);
+
+    if (!record) {
+        return 1;
+    }
+
     bpf_spin_lock(&data->lock);
 
-    flow_record record = data->record;
+    *record = data->record;
 
     bpf_spin_unlock(&data->lock);
 
-    if (!record.ignore) {
-        const u64 current_time = bpf_ktime_get_ns();
-        record.metrics.end_mono_time_ns = current_time;
+    if (record->ignore) {
+        bpf_ringbuf_discard(record, BPF_RB_NO_WAKEUP);
+    } else {
+        record->metrics.end_mono_time_ns = bpf_ktime_get_ns();
 
-        bpf_ringbuf_output(&direct_flows, &record, sizeof(record), get_rb_flags());
+        bpf_ringbuf_submit(record, get_rb_flags());
     }
 
     return 1;

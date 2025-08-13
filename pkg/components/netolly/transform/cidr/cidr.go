@@ -61,11 +61,10 @@ type CIDRDecoratorFunc func(*ebpf.Record)
 
 func CIDRDecorator(g Definitions) (CIDRDecoratorFunc, error) {
 	if !g.Enabled() {
-		return func(*ebpf.Record){}, nil
+		return func(*ebpf.Record) {}, nil
 	}
 
 	grouper, err := newIPGrouper(g)
-
 	if err != nil {
 		return nil, fmt.Errorf("instantiating IP grouper: %w", err)
 	}

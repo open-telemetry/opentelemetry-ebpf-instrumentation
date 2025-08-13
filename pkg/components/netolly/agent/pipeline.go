@@ -7,9 +7,9 @@ import (
 	"context"
 	"fmt"
 
+	"go.opentelemetry.io/obi/pkg/components/netolly/deduper"
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/components/netolly/export"
-	"go.opentelemetry.io/obi/pkg/components/netolly/deduper"
 	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
 	"go.opentelemetry.io/obi/pkg/components/netolly/transform/k8s"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -22,7 +22,8 @@ import (
 
 // mockable functions for testing
 var newRingBufTracer = func(f *Flows, k8sDecorator *k8s.Decorator,
-		flowFilter *filter.Filter2[*ebpf.Record], out *msg.Queue[ebpf.Record]) swarm.RunFunc {
+	flowFilter *filter.Filter2[*ebpf.Record], out *msg.Queue[ebpf.Record],
+) swarm.RunFunc {
 	flowDecorator := flow.FlowDecorator(f.agentIP.String(), f.makeInterfaceNamer())
 
 	return f.rbTracer.TraceLoop(k8sDecorator, flowDecorator, flowFilter, out)
@@ -51,7 +52,6 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	}
 
 	k8sDecorator, err := k8s.NewDecorator(ctx, &f.cfg.Attributes.Kubernetes, f.ctxInfo.K8sInformer)
-
 	if err != nil {
 		return nil, fmt.Errorf("error creating k8s decorator: %w", err)
 	}
@@ -64,7 +64,6 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	)
 
 	flowFilter, err := filter.NewFilter2[*ebpf.Record](f.cfg.Filters.Network, nil, selectorCfg.ExtraGroupAttributesCfg, ebpf.RecordStringGetters)
-
 	if err != nil {
 		return nil, fmt.Errorf("error instantiating flow filter: %w", err)
 	}
@@ -89,7 +88,7 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	}, ebpfFlows), swarm.WithID("PrometheusExporter"))
 
 	swi.Add(swarm.DirectInstance(export.FlowPrinterProvider(f.cfg.NetworkFlows.Print, ebpfFlows)),
-	swarm.WithID("FlowPrinter"))
+		swarm.WithID("FlowPrinter"))
 
 	return swi.Instance(ctx)
 }
