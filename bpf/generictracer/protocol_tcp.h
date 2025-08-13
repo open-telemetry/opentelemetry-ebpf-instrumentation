@@ -109,12 +109,14 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     switch (protocol_type) {
     case k_protocol_type_mysql:
         if (mysql_buffer_size > 0) {
-            ret = mysql_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
+            u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
+            ret = mysql_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, action);
         }
         break;
     case k_protocol_type_postgres:
         if (postgres_buffer_size > 0) {
-            ret = postgres_send_large_buffer(req, u_buf, bytes_len, direction, action);
+            u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
+            ret = postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, action);
         }
         break;
     case k_protocol_type_unknown:

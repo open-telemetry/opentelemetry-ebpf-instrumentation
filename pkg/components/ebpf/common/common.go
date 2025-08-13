@@ -109,6 +109,11 @@ type SockMsg struct {
 	AttachAs ebpf.AttachType
 }
 
+type Iter struct {
+	Program *ebpf.Program
+	Link    link.Link
+}
+
 type MisclassifiedEvent struct {
 	EventType int
 	TCPInfo   *TCPRequestInfo

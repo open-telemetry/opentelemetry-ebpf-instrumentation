@@ -145,7 +145,7 @@ typedef struct tcp_req {
 
 typedef struct tcp_large_buffer {
     u8 type; // Must be first
-    u8 direction;
+    u8 packet_type;
     enum large_buf_action action;
     u8 _pad;
     u32 len;

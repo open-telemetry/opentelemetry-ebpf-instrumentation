@@ -50,8 +50,11 @@ SCRATCH_MEM_SIZED(postgres_large_buffers, k_pg_large_buf_max_size);
 // Emit a large buffer event for Postgres protocol.
 // The return value is used to control the flow for this specific protocol.
 // -1: wait additional data; 0: continue, regardless of errors.
-static __always_inline int postgres_send_large_buffer(
-    tcp_req_t *req, const void *u_buf, u32 bytes_len, u8 direction, enum large_buf_action action) {
+static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
+                                                      const void *u_buf,
+                                                      u32 bytes_len,
+                                                      u8 packet_type,
+                                                      enum large_buf_action action) {
     if (!is_pow2(postgres_buffer_size)) {
         bpf_dbg_printk("postgres_send_large_buffer: bug: postgres_buffer_size is not a power of 2");
         return -1;
@@ -66,7 +69,7 @@ static __always_inline int postgres_send_large_buffer(
     }
 
     large_buf->type = EVENT_TCP_LARGE_BUFFER;
-    large_buf->direction = direction;
+    large_buf->packet_type = packet_type;
     large_buf->action = action;
     __builtin_memcpy((void *)&large_buf->tp, (void *)&req->tp, sizeof(tp_info_t));
 
@@ -77,11 +80,11 @@ static __always_inline int postgres_send_large_buffer(
     }
     bpf_probe_read(large_buf->buf, large_buf->len & buf_len_mask, u_buf);
 
+    u32 total_size = sizeof(tcp_large_buffer_t);
+    total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);
+
     req->has_large_buffers = true;
-    bpf_ringbuf_output(&events,
-                       large_buf,
-                       (sizeof(tcp_large_buffer_t) + large_buf->len) & k_pg_large_buf_max_size_mask,
-                       get_flags());
+    bpf_ringbuf_output(&events, large_buf, total_size & k_pg_large_buf_max_size_mask, get_flags());
     return 0;
 }
 
