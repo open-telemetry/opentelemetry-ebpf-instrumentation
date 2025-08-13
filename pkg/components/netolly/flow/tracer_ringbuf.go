@@ -29,9 +29,7 @@ import (
 
 	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
-	"go.opentelemetry.io/obi/pkg/components/netolly/deduper"
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
-	"go.opentelemetry.io/obi/pkg/components/netolly/protofilter"
 	"go.opentelemetry.io/obi/pkg/components/netolly/rdns"
 	"go.opentelemetry.io/obi/pkg/components/netolly/transform/cidr"
 	"go.opentelemetry.io/obi/pkg/components/netolly/transform/k8s"
@@ -51,8 +49,6 @@ func rtlog() *slog.Logger {
 type RingBufTracer struct {
 	cfg            *obi.Config
 	flowFetcher    *ebpf.SockFlowFetcher
-	protocolFilter *protofilter.ProtocolFilter
-	deduper        *deduper.Deduper
 	k8sDecorator   *k8s.Decorator
 	rdnsEnricher   rdns.ReverseDNSFunc
 	cidrDecorator  cidr.CIDRDecoratorFunc
@@ -64,9 +60,6 @@ func NewRingBufTracer(fetcher *ebpf.SockFlowFetcher, cfg *obi.Config) *RingBufTr
 	return &RingBufTracer{
 		cfg:        cfg,
 		flowFetcher: fetcher,
-		deduper: deduper.NewDeduper(cfg.NetworkFlows.Deduper,
-			cfg.NetworkFlows.DeduperFCTTL,
-			cfg.NetworkFlows.CacheActiveTimeout),
 	}
 }
 
@@ -80,13 +73,6 @@ func (m *RingBufTracer) ringbufferLoop(ctx context.Context,
 
 	rtlog := rtlog()
 
-	protocolFilter, err := protofilter.NewFilter(m.cfg.NetworkFlows.Protocols, m.cfg.NetworkFlows.ExcludeProtocols)
-	if err != nil {
-		rtlog.Error("error creating protocol filter", "error", err)
-		return
-	}
-
-	m.protocolFilter = protocolFilter
 	m.k8sDecorator = k8sDecorator
 
 	rdnsEnricher, err := rdns.ReverseDNSEnricher(ctx, &m.cfg.NetworkFlows.ReverseDNS)
@@ -138,10 +124,6 @@ func (m *RingBufTracer) ringbufferLoop(ctx context.Context,
 }
 
 func (m *RingBufTracer) handleEvent(event *ebpf.NetFlowRecordT, out *msg.Queue[ebpf.Record]) {
-	if !m.protocolFilter.IsAllowed(event) {
-		return
-	}
-
 	rec := ebpf.Record{NetFlowRecordT: *event}
 
 	if !m.k8sDecorator.Decorate(&rec) {

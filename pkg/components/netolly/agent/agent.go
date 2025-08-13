@@ -127,7 +127,10 @@ func FlowsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Flows, error) {
 
 	fetcher, err := ebpf.NewSockFlowFetcher(cfg.NetworkFlows.RingBufferSize,
 		cfg.NetworkFlows.RingBufferFlushPeriod,
-		cfg.NetworkFlows.MaxFlowDuration)
+		cfg.NetworkFlows.MaxFlowDuration,
+		cfg.NetworkFlows.Protocols,
+		cfg.NetworkFlows.ExcludeProtocols)
+
 	if err != nil {
 		return nil, err
 	}

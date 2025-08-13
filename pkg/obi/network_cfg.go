@@ -24,7 +24,6 @@ package obi
 import (
 	"time"
 
-	"go.opentelemetry.io/obi/pkg/components/netolly/deduper"
 	"go.opentelemetry.io/obi/pkg/components/netolly/rdns"
 	"go.opentelemetry.io/obi/pkg/components/netolly/transform/cidr"
 )
@@ -103,20 +102,6 @@ type NetworkConfig struct {
 	// MaxFlowDuration will be flushed and reset. Defaults to 60 seconds.
 	MaxFlowDuration time.Duration `yaml:"max_flow_duration" env:"OTEL_EBPF_NETWORK_MAX_FLOW_DURATION"`
 
-	// Deduper specifies the deduper type. Accepted values are "none" (disabled) and "first_come".
-	// When enabled, it will detect duplicate flows (flows that have been detected e.g. through
-	// both the physical and a virtual interface).
-	// "first_come" will forward only flows from the first interface the flows are received from.
-	// Default value: first_come
-	Deduper string `yaml:"deduper" env:"OTEL_EBPF_NETWORK_DEDUPER"`
-
-	// DeduperFCTTL specifies the expiry duration of the flows "first_come" deduplicator. After
-	// a flow hasn't been received for that expiry time, the deduplicator forgets it. That means
-	// that a flow from a connection that has been inactive during that period could be forwarded
-	// again from a different interface.
-	// If the value is not set, it will default to 2 * CacheActiveTimeout
-	DeduperFCTTL time.Duration `yaml:"deduper_fc_ttl" env:"OTEL_EBPF_NETWORK_DEDUPER_FC_TTL"`
-
 	// Direction allows selecting which flows to trace according to its direction. Accepted values
 	// are "ingress", "egress" or "both" (default).
 	Direction string `yaml:"direction" env:"OTEL_EBPF_NETWORK_DIRECTION"`
@@ -164,7 +149,6 @@ var defaultNetworkConfig = NetworkConfig{
 	RingBufferSize:            16,
 	RingBufferFlushPeriod:     10 * time.Second,
 	MaxFlowDuration:           60 * time.Second,
-	Deduper:                   deduper.DeduperFirstCome,
 	Direction:                 "both",
 	ListenInterfaces:          "watch",
 	ListenPollPeriod:          10 * time.Second,

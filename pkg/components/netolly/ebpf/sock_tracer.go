@@ -34,6 +34,7 @@ import (
 	"github.com/containers/common/pkg/cgroupv2"
 
 	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/components/netolly/flow/transport"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
@@ -103,8 +104,51 @@ func effectiveRingBufferSize(size uint32) uint32 {
     return size
 }
 
+func parseProtocolList(list []string) ([]transport.Protocol, error) {
+	if len(list) == 0 {
+		return []transport.Protocol{}, nil
+	}
 
-func NewSockFlowFetcher(rbSizeMB uint32, flushPeriod, flowDuration time.Duration) (*SockFlowFetcher, error) {
+	ret := make([]transport.Protocol, 0, len(list))
+
+	for _, s := range list {
+		p, err := transport.ParseProtocol(s)
+
+		if err != nil {
+			return nil, err
+		}
+
+		ret = append(ret, p)
+	}
+
+	return ret, nil
+}
+
+func assignProtocolList(m *ebpf.Map, list []transport.Protocol) error {
+	for _, proto := range list {
+		if err := m.Put(uint32(proto), uint8(1)); err != nil {
+			return fmt.Errorf("error writing map: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func NewSockFlowFetcher(rbSizeMB uint32, flushPeriod, flowDuration time.Duration,
+	protocolWhitelist, protocolBlacklist []string) (*SockFlowFetcher, error) {
+
+	protoWl, err := parseProtocolList(protocolWhitelist)
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid protocol whitelist: %w", err)
+	}
+
+	protoBl, err := parseProtocolList(protocolBlacklist)
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid protocol blacklist: %w", err)
+	}
+
 	tlog := tlog()
 	if err := rlimit.RemoveMemlock(); err != nil {
 		tlog.Warn("can't remove mem lock. The agent could not be able to start eBPF programs",
@@ -134,11 +178,27 @@ func NewSockFlowFetcher(rbSizeMB uint32, flushPeriod, flowDuration time.Duration
 		return nil, errors.New("failed to set flow duration")
 	}
 
+	if err := spec.Variables["k_protocol_wl_empty"].Set(len(protocolWhitelist) == 0); err != nil {
+		return nil, errors.New("failed to set flow duration")
+	}
+
+	if err := spec.Variables["k_protocol_bl_empty"].Set(len(protocolBlacklist) == 0); err != nil {
+		return nil, errors.New("failed to set flow duration")
+	}
+
 	if err := spec.LoadAndAssign(&objects, &ebpf.CollectionOptions{
 		Programs: ebpf.ProgramOptions{LogSizeStart: 640 * 1024},
 	}); err != nil {
 		printVerifierErrorInfo(err)
 		return nil, fmt.Errorf("loading and assigning BPF objects: %w", err)
+	}
+
+	if err := assignProtocolList(objects.ProtocolWhitelist, protoWl); err != nil {
+		return nil, err
+	}
+
+	if err := assignProtocolList(objects.ProtocolBlacklist, protoBl); err != nil {
+		return nil, err
 	}
 
 	cgroupPath, err := getCgroupPath()

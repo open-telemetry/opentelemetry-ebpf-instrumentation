@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 
-	"go.opentelemetry.io/obi/pkg/components/netolly/deduper"
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/components/netolly/export"
 	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
@@ -24,19 +23,9 @@ import (
 var newRingBufTracer = func(f *Flows, k8sDecorator *k8s.Decorator,
 	flowFilter *filter.Filter2[*ebpf.Record], out *msg.Queue[ebpf.Record],
 ) swarm.RunFunc {
-	flowDecorator := flow.FlowDecorator(f.agentIP.String(), f.makeInterfaceNamer())
+	flowDecorator := flow.FlowDecorator(f.agentIP.String(), f.interfaceNamer)
 
 	return f.rbTracer.TraceLoop(k8sDecorator, flowDecorator, flowFilter, out)
-}
-
-func (f *Flows) makeInterfaceNamer() flow.InterfaceNamer {
-	ifaceNamer := f.interfaceNamer
-
-	if f.cfg.NetworkFlows.Deduper == deduper.DeduperFirstCome {
-		ifaceNamer = func(_ int) string { return "" }
-	}
-
-	return ifaceNamer
 }
 
 // buildPipeline defines the different nodes in the Beyla's NetO11y module,

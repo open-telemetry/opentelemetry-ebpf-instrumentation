@@ -21,12 +21,11 @@
 // https://github.com/netobserv/netobserv-ebpf-agent/tree/release-1.4
 
 #include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
 
 #include <common/protocol_defs.h>
-
-#include <logger/bpf_dbg.h>
 
 #include <netolly/flow.h>
 
@@ -36,6 +35,8 @@ static u64 last_sec = 0;
 static u64 flow_count = 0;
 #endif
 
+volatile const u8 k_protocol_wl_empty;
+volatile const u8 k_protocol_bl_empty;
 volatile const u32 k_max_rb_size;
 volatile const u64 k_rb_flush_period;
 volatile const u64 k_max_flow_duration;
@@ -48,6 +49,20 @@ struct {
 } sk_storage_map SEC(".maps");
 
 struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 256);
+    __type(key, u32);
+    __type(value, u8);
+} protocol_whitelist SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 256);
+    __type(key, u32);
+    __type(value, u8);
+} protocol_blacklist SEC(".maps");
+
+struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 24);
 } direct_flows SEC(".maps");
@@ -55,6 +70,7 @@ struct {
 enum flow_direction : u8 { k_flow_ingress = 0, k_flow_egress = 1, k_flow_unknown = 0xff };
 
 enum : u32 { k_invalid_iface = 0xffffffff };
+enum : u8 { k_proto_unknown = 0xff };
 
 static __always_inline u64 get_rb_flags() {
     const u64 current_time = bpf_ktime_get_ns();
@@ -79,6 +95,123 @@ static __always_inline u8 same_ip(const unsigned char *ip1, const unsigned char 
     }
 
     return 1;
+}
+
+static __always_inline u8 get_transport_proto(const struct __sk_buff *skb) {
+    u16 l3 = bpf_ntohs(skb->protocol);
+    u8 nh;
+
+    if (l3 == ETH_P_IP) {
+        if (bpf_skb_load_bytes_relative(
+                skb, offsetof(struct iphdr, protocol), &nh, 1, BPF_HDR_START_NET) < 0)
+            return k_proto_unknown;
+        return nh;
+    }
+
+    if (l3 != ETH_P_IPV6) {
+        return k_proto_unknown;
+    }
+
+    // IPv6 can spread across multiple headers, we need to iterate them
+
+    // start at ipv6hdr, then walk extension headers
+    if (bpf_skb_load_bytes_relative(
+            skb, offsetof(struct ipv6hdr, nexthdr), &nh, 1, BPF_HDR_START_NET) < 0) {
+        return k_proto_unknown;
+    }
+
+    u32 off = sizeof(struct ipv6hdr);
+
+#pragma unroll
+    for (int i = 0; i < 6; i++) {
+        // terminal (or good-enough) protocols
+        if (nh == 6 ||   // TCP
+            nh == 17 ||  // UDP
+            nh == 58 ||  // ICMPv6
+            nh == 132 || // SCTP
+            nh == 136 || // UDP-Lite
+            nh == 50 ||  // ESP (encrypted—stop)
+            nh == 59)    // No Next Header
+            return nh;
+
+        // Hop-by-Hop / Dest Options / Routing: len = (HdrExtLen+1)*8
+        if (nh == 0 || nh == 60 || nh == 43) {
+            u8 next, hdrlen8;
+
+            if (bpf_skb_load_bytes_relative(skb, off + 0, &next, 1, BPF_HDR_START_NET) < 0) {
+                return k_proto_unknown;
+            }
+
+            if (bpf_skb_load_bytes_relative(skb, off + 1, &hdrlen8, 1, BPF_HDR_START_NET) < 0) {
+                return k_proto_unknown;
+            }
+
+            off += ((u32)hdrlen8 + 1) * 8;
+
+            nh = next;
+
+            continue;
+        }
+
+        // fragment header: fixed 8 bytes
+        if (nh == 44) {
+            u8 next;
+
+            if (bpf_skb_load_bytes_relative(skb, off + 0, &next, 1, BPF_HDR_START_NET) < 0) {
+                return k_proto_unknown;
+            }
+
+            off += 8;
+            nh = next;
+
+            continue;
+        }
+
+        // AH: len = (PayloadLen+2)*4
+        if (nh == 51) {
+            __u8 next, hdrlen32;
+
+            if (bpf_skb_load_bytes_relative(skb, off + 0, &next, 1, BPF_HDR_START_NET) < 0) {
+                return k_proto_unknown;
+            }
+
+            if (bpf_skb_load_bytes_relative(skb, off + 1, &hdrlen32, 1, BPF_HDR_START_NET) < 0) {
+                return k_proto_unknown;
+            }
+
+            off += ((u32)hdrlen32 + 2) * 4;
+            nh = next;
+
+            continue;
+        }
+
+        // unknown, return what we have
+        return nh;
+    }
+
+    // ditto
+    return nh;
+}
+
+static __always_inline u8 is_protocol_allowed(u8 proto) {
+    // if both lists are empty, always allow
+    if (k_protocol_wl_empty && k_protocol_bl_empty) {
+        return 1;
+    }
+
+    const u32 key = proto;
+
+    // if the whitelist is not empty, only allow a protocol that is in the
+    // whitelist
+    if (!k_protocol_wl_empty) {
+        const u8 *b = bpf_map_lookup_elem(&protocol_whitelist, &key);
+        return b && *b;
+    }
+
+    // if we get here, the whitelist is empty but the blacklist isn't, so
+    // only allow a protocol that is not in the blacklist
+    const u8 *b = bpf_map_lookup_elem(&protocol_blacklist, &key);
+    return !(b && *b);
 }
 
 static __always_inline struct in6_addr encode_ipv4in6(u32 ipv4) {
@@ -109,8 +242,11 @@ static __always_inline flow_socket_data *get_sk_storage(struct bpf_sock *sk) {
         return NULL;
     }
 
-    flow_socket_data init = {.submitted_iface = k_invalid_iface,
-                             .record.metrics.iface_direction = k_flow_unknown};
+    flow_socket_data init = {
+        .submitted_iface = k_invalid_iface,
+        .record.metrics.iface_direction = k_flow_unknown,
+        .record.id.transport_protocol = k_proto_unknown,
+    };
 
     // BPF_SK_STORAGE_GET_F_CREATE will only create a new entry initialised
     // with 'init' if it does not yet exist, returning the existing entry
@@ -133,15 +269,21 @@ static __always_inline void update_flow_record(struct bpf_sock *sk, const flow_r
 }
 
 static __always_inline void init_flow(struct bpf_sock_ops *skops, u8 direction) {
+    flow_record record = {};
+
     if (skops->family != AF_INET && skops->family != AF_INET6) {
+        record.ignore = 1;
+
+        update_flow_record(skops->sk, &record);
         return;
     }
 
     if (skops->family == AF_INET && skops->local_ip4 == skops->remote_ip4) {
+        record.ignore = 1;
+
+        update_flow_record(skops->sk, &record);
         return;
     }
-
-    flow_record record = {};
 
     if (skops->family == AF_INET) {
         record.id.src_ip = encode_ipv4in6(skops->local_ip4);
@@ -167,6 +309,7 @@ static __always_inline void init_flow(struct bpf_sock_ops *skops, u8 direction) 
 
     record.id.src_port = skops->local_port;
     record.id.dst_port = bpf_ntohl(skops->remote_port);
+    record.id.transport_protocol = k_proto_unknown;
 
     record.metrics.iface_direction = direction;
 
@@ -185,6 +328,14 @@ static __always_inline void init_flow(struct bpf_sock_ops *skops, u8 direction) 
 
 static __always_inline void init_flow_skb(struct __sk_buff *skb, flow_socket_data *data) {
     flow_record record = {};
+    record.id.transport_protocol = get_transport_proto(skb);
+
+    if (!is_protocol_allowed(record.id.transport_protocol)) {
+        record.ignore = 1;
+
+        update_flow_record(skb->sk, &record);
+        return;
+    }
 
     if (skb->family == AF_INET) {
         record.id.src_ip = encode_ipv4in6(skb->local_ip4);
@@ -210,7 +361,6 @@ static __always_inline void init_flow_skb(struct __sk_buff *skb, flow_socket_dat
 
     record.id.src_port = skb->local_port;
     record.id.dst_port = bpf_ntohl(skb->remote_port);
-    record.id.transport_protocol = skb->protocol;
     record.id.if_index = skb->ifindex;
 
     const u64 current_time = bpf_ktime_get_ns();
@@ -261,6 +411,7 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
     const u8 initialized = data->record.initialized;
     const u8 ifindex = data->record.id.if_index;
 
+    u8 transport_proto = data->record.id.transport_protocol;
     u8 ignore = data->record.ignore;
 
     u64 start_mono_ns = data->record.metrics.start_mono_time_ns;
@@ -306,6 +457,25 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
         bpf_spin_unlock(&data->lock);
 
         if (ignore) {
+            return;
+        }
+    }
+
+    // this will run only the first time we see the flow to update the
+    // transport protocol and check if the flow is to be ignored
+    if (transport_proto == k_proto_unknown) {
+        transport_proto = get_transport_proto(skb);
+
+        const u8 proto_allowed = is_protocol_allowed(transport_proto);
+
+        bpf_spin_lock(&data->lock);
+
+        data->record.id.transport_protocol = transport_proto;
+        data->record.ignore = !proto_allowed;
+
+        bpf_spin_unlock(&data->lock);
+
+        if (!proto_allowed) {
             return;
         }
     }
