@@ -5,6 +5,8 @@ package otel
 
 import (
 	"context"
+	"go.opentelemetry.io/collector/exporter"
+	"go.opentelemetry.io/collector/pdata/ptrace"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -18,7 +20,7 @@ type instrumentedMetricsExporter struct {
 	internal imetrics.Reporter
 }
 
-func (ie *instrumentedMetricsExporter) Export(ctx context.Context, md *metricdata.ResourceMetrics) error {
+func (ie *instrumentedMetricsExporter) Export(ctx context.Ceontext, md *metricdata.ResourceMetrics) error {
 	if err := ie.Exporter.Export(ctx, md); err != nil {
 		ie.internal.OTELMetricExportError(err)
 		return err
@@ -28,5 +30,20 @@ func (ie *instrumentedMetricsExporter) Export(ctx context.Context, md *metricdat
 		totalMetrics += len(scope.Metrics)
 	}
 	ie.internal.OTELMetricExport(totalMetrics)
+	return nil
+}
+
+// instrumentedTracesExporter wraps an otel traces exporter to account some internal metrics
+type instrumentedTracesExporter struct {
+	exporter.Traces
+	internal imetrics.Reporter
+}
+
+func (ie *instrumentedTracesExporter) ConsumeTraces(ctx context.Context, td ptrace.Traces) error {
+	if err := ie.Traces.ConsumeTraces(ctx, td); err != nil {
+		ie.internal.OTELTraceExportError(err)
+		return err
+	}
+	ie.internal.OTELTraceExport(td.SpanCount())
 	return nil
 }

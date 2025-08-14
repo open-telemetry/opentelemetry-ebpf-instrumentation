@@ -6,6 +6,7 @@ package otel
 import (
 	"context"
 	"fmt"
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"log/slog"
 	"time"
 
@@ -128,6 +129,7 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 
 func (tr *tracesOTELReceiver) provideLoop(ctx context.Context) {
 	exp, err := getTracesExporter(ctx, tr.cfg)
+	exp = instrumentTracesExporter(tr.ctxInfo.Metrics, exp)
 	if err != nil {
 		slog.Error("error creating traces exporter", "error", err)
 		return
@@ -159,6 +161,20 @@ func (tr *tracesOTELReceiver) provideLoop(ctx context.Context) {
 		case spans := <-tr.input:
 			tr.processSpans(ctx, exp, spans, traceAttrs, sampler)
 		}
+	}
+}
+
+// instrumentTracesExporter checks whether the context is configured to report internal metrics and,
+// in this case, wraps the passed metrics exporter inside an instrumented exporter
+func instrumentTracesExporter(internalMetrics imetrics.Reporter, in exporter.Traces) exporter.Traces {
+	// avoid wrapping the instrumented exporter if we don't have
+	// internal instrumentation (NoopReporter)
+	if _, ok := internalMetrics.(imetrics.NoopReporter); ok || internalMetrics == nil {
+		return in
+	}
+	return &instrumentedTracesExporter{
+		Traces:   in,
+		internal: internalMetrics,
 	}
 }
 
