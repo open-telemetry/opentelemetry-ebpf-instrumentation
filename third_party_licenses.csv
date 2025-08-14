@@ -168,7 +168,7 @@ go.yaml.in/yaml/v2,https://github.com/yaml/go-yaml/blob/v2.4.2/LICENSE,Apache-2.
 go.yaml.in/yaml/v3,https://github.com/yaml/go-yaml/blob/v3.0.4/LICENSE,MIT
 golang.org/x/arch/x86/x86asm,https://cs.opensource.google/go/x/arch/+/v0.18.0:LICENSE,BSD-3-Clause
 golang.org/x/crypto,https://cs.opensource.google/go/x/crypto/+/v0.41.0:LICENSE,BSD-3-Clause
-golang.org/x/mod/semver,https://cs.opensource.google/go/x/mod/+/v0.26.0:LICENSE,BSD-3-Clause
+golang.org/x/mod/semver,https://cs.opensource.google/go/x/mod/+/v0.27.0:LICENSE,BSD-3-Clause
 golang.org/x/net,https://cs.opensource.google/go/x/net/+/v0.43.0:LICENSE,BSD-3-Clause
 golang.org/x/oauth2,https://cs.opensource.google/go/x/oauth2/+/v0.30.0:LICENSE,BSD-3-Clause
 golang.org/x/sync/errgroup,https://cs.opensource.google/go/x/sync/+/v0.16.0:LICENSE,BSD-3-Clause
