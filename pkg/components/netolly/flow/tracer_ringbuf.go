@@ -25,10 +25,12 @@ package flow
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/components/kube"
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/components/netolly/rdns"
 	"go.opentelemetry.io/obi/pkg/components/netolly/transform/cidr"
@@ -43,12 +45,10 @@ func rtlog() *slog.Logger {
 	return slog.With("component", "flow.RingBufTracer")
 }
 
-// RingBufTracer receives single-packet flows via ringbuffer (usually, these that couldn't be
-// added in the eBPF kernel space due to the map being full or busy) and submits them to the
-// userspace Aggregator map
 type RingBufTracer struct {
 	cfg           *obi.Config
 	flowFetcher   *ebpf.SockFlowFetcher
+	k8sInformer   *kube.MetadataProvider
 	k8sDecorator  *k8s.Decorator
 	rdnsEnricher  rdns.ReverseDNSFunc
 	cidrDecorator cidr.CIDRDecoratorFunc
@@ -56,42 +56,51 @@ type RingBufTracer struct {
 	flowFilter    *filter.Filter2[*ebpf.Record]
 }
 
-func NewRingBufTracer(fetcher *ebpf.SockFlowFetcher, cfg *obi.Config) *RingBufTracer {
-	return &RingBufTracer{
-		cfg:         cfg,
-		flowFetcher: fetcher,
+func NewRingBufTracer(fetcher *ebpf.SockFlowFetcher,
+	cfg *obi.Config,
+	k8sInformer *kube.MetadataProvider,
+	agentIP string,
+	ifaceNamer InterfaceNamer,
+) (*RingBufTracer, error) {
+	flowFilter, err := filter.NewFilter2[*ebpf.Record](cfg.Filters.Network,
+		nil, cfg.Attributes.ExtraGroupAttributes, ebpf.RecordStringGetters)
+
+	if err != nil {
+		return nil, fmt.Errorf("error instantiating flow filter: %w", err)
 	}
+
+	return &RingBufTracer{
+		cfg:           cfg,
+		flowFetcher:   fetcher,
+		k8sInformer:   k8sInformer,
+		flowDecorator: FlowDecorator(agentIP, ifaceNamer),
+		flowFilter:    flowFilter,
+	}, nil
 }
 
-func (m *RingBufTracer) ringbufferLoop(ctx context.Context,
-	k8sDecorator *k8s.Decorator,
-	flowDecorator FlowDecoratorFunc,
-	flowFilter *filter.Filter2[*ebpf.Record],
-	out *msg.Queue[ebpf.Record],
-) {
+func (m *RingBufTracer) ringbufferLoop(ctx context.Context, out *msg.Queue[ebpf.Record]) {
 	defer out.MarkCloseable()
 
 	rtlog := rtlog()
 
-	m.k8sDecorator = k8sDecorator
-
-	rdnsEnricher, err := rdns.ReverseDNSEnricher(ctx, &m.cfg.NetworkFlows.ReverseDNS)
+	var err error
+	m.k8sDecorator, err = k8s.NewDecorator(ctx, &m.cfg.Attributes.Kubernetes, m.k8sInformer)
 	if err != nil {
-		rtlog.Error("error creating rdns enricher ", "error", err)
+		rtlog.Error("error creating k8s decorator", "error", err)
 		return
 	}
 
-	m.rdnsEnricher = rdnsEnricher
+	m.rdnsEnricher, err = rdns.ReverseDNSEnricher(ctx, &m.cfg.NetworkFlows.ReverseDNS)
+	if err != nil {
+		rtlog.Error("error creating rdns enricher", "error", err)
+		return
+	}
 
-	cidrDecorator, err := cidr.CIDRDecorator(m.cfg.NetworkFlows.CIDRs)
+	m.cidrDecorator, err = cidr.CIDRDecorator(m.cfg.NetworkFlows.CIDRs)
 	if err != nil {
 		rtlog.Error("error creating CIDR decorator ", "error", err)
 		return
 	}
-
-	m.cidrDecorator = cidrDecorator
-	m.flowDecorator = flowDecorator
-	m.flowFilter = flowFilter
 
 	reader := m.flowFetcher.RingBufReader()
 
@@ -141,12 +150,8 @@ func (m *RingBufTracer) handleEvent(event *ebpf.NetFlowRecordT, out *msg.Queue[e
 	out.Send(rec)
 }
 
-func (m *RingBufTracer) TraceLoop(k8sDecorator *k8s.Decorator,
-	flowDecorator FlowDecoratorFunc,
-	flowFilter *filter.Filter2[*ebpf.Record],
-	out *msg.Queue[ebpf.Record],
-) swarm.RunFunc {
+func (m *RingBufTracer) TraceLoop(out *msg.Queue[ebpf.Record]) swarm.RunFunc {
 	return func(ctx context.Context) {
-		m.ringbufferLoop(ctx, k8sDecorator, flowDecorator, flowFilter, out)
+		m.ringbufferLoop(ctx, out)
 	}
 }

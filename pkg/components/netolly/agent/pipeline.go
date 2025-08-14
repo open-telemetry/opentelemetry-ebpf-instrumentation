@@ -5,27 +5,19 @@ package agent
 
 import (
 	"context"
-	"fmt"
 
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/components/netolly/export"
-	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
-	"go.opentelemetry.io/obi/pkg/components/netolly/transform/k8s"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/prom"
-	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 // mockable functions for testing
-var newRingBufTracer = func(f *Flows, k8sDecorator *k8s.Decorator,
-	flowFilter *filter.Filter2[*ebpf.Record], out *msg.Queue[ebpf.Record],
-) swarm.RunFunc {
-	flowDecorator := flow.FlowDecorator(f.agentIP.String(), f.interfaceNamer)
-
-	return f.rbTracer.TraceLoop(k8sDecorator, flowDecorator, flowFilter, out)
+var newRingBufTracer = func(f *Flows, out *msg.Queue[ebpf.Record]) swarm.RunFunc {
+	return f.rbTracer.TraceLoop(out)
 }
 
 // buildPipeline defines the different nodes in the Beyla's NetO11y module,
@@ -35,16 +27,6 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 
 	alog.Debug("creating flows' processing graph")
 
-	selectorCfg := &attributes.SelectorConfig{
-		SelectionCfg:            f.cfg.Attributes.Select,
-		ExtraGroupAttributesCfg: f.cfg.Attributes.ExtraGroupAttributes,
-	}
-
-	k8sDecorator, err := k8s.NewDecorator(ctx, &f.cfg.Attributes.Kubernetes, f.ctxInfo.K8sInformer)
-	if err != nil {
-		return nil, fmt.Errorf("error creating k8s decorator: %w", err)
-	}
-
 	swi := &swarm.Instancer{}
 	// Start nodes: those generating flow records (reading them from eBPF)
 	ebpfFlows := msg.NewQueue[ebpf.Record](
@@ -52,17 +34,17 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		msg.ClosingAttempts(2), // queue won't close until both tracers try to close it
 	)
 
-	flowFilter, err := filter.NewFilter2[*ebpf.Record](f.cfg.Filters.Network, nil, selectorCfg.ExtraGroupAttributesCfg, ebpf.RecordStringGetters)
-	if err != nil {
-		return nil, fmt.Errorf("error instantiating flow filter: %w", err)
-	}
-
-	swi.Add(swarm.DirectInstance(newRingBufTracer(f, k8sDecorator, flowFilter, ebpfFlows)), swarm.WithID("RingBufTracer"))
+	swi.Add(swarm.DirectInstance(newRingBufTracer(f, ebpfFlows)), swarm.WithID("RingBufTracer"))
 
 	// Terminal nodes export the flow record information out of the pipeline: OTEL, Prom and printer.
 	// Not all the nodes are mandatory here. Is the responsibility of each Provider function to decide
 	// whether each node is going to be instantiated or just ignored.
 	f.cfg.Attributes.Select.Normalize()
+
+	selectorCfg := &attributes.SelectorConfig{
+		SelectionCfg:            f.cfg.Attributes.Select,
+		ExtraGroupAttributesCfg: f.cfg.Attributes.ExtraGroupAttributes,
+	}
 
 	swi.Add(otel.NetMetricsExporterProvider(f.ctxInfo, &otel.NetMetricsConfig{
 		Metrics:         &f.cfg.Metrics,

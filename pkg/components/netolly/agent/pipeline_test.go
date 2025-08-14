@@ -6,7 +6,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"net"
 	"testing"
 	"time"
 
@@ -38,7 +37,6 @@ func TestFilter(t *testing.T) {
 
 	// Flows pipeline that will discard any network flow not matching the "TCP" transport attribute
 	flows := Flows{
-		agentIP: net.ParseIP("1.2.3.4"),
 		ctxInfo: &global.ContextInfo{
 			Prometheus: &connector.PrometheusManager{},
 		},
@@ -58,15 +56,10 @@ func TestFilter(t *testing.T) {
 				},
 			}},
 		},
-		interfaceNamer: func(_ int) string { return "fakeiface" },
 	}
 
-	ringBuf := make(chan []*ebpf.Record, 10)
-	// override eBPF flow fetchers
-	newMapTracer = func(_ *Flows, _ *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
-		return func(_ context.Context) {}
-	}
-	newRingBufTracer = func(_ *Flows, out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
+	ringBuf := make(chan ebpf.Record, 10)
+	newRingBufTracer = func(_ *Flows, out *msg.Queue[ebpf.Record]) swarm.RunFunc {
 		return func(_ context.Context) {
 			for i := range ringBuf {
 				out.Send(i)
@@ -79,15 +72,11 @@ func TestFilter(t *testing.T) {
 
 	go runner.Start(ctx)
 
-	ringBuf <- []*ebpf.Record{
-		fakeRecord(transport.UDP, 123, 456),
-		fakeRecord(transport.TCP, 789, 1011),
-		fakeRecord(transport.UDP, 333, 444),
-	}
-	ringBuf <- []*ebpf.Record{
-		fakeRecord(transport.TCP, 1213, 1415),
-		fakeRecord(transport.UDP, 3333, 8080),
-	}
+	ringBuf <- fakeRecord(transport.UDP, 123, 456)
+	ringBuf <- fakeRecord(transport.TCP, 789, 1011)
+	ringBuf <- fakeRecord(transport.UDP, 333, 444)
+	ringBuf <- fakeRecord(transport.TCP, 1213, 1415)
+	ringBuf <- fakeRecord(transport.UDP, 3333, 8080)
 
 	test.Eventually(t, timeout, func(t require.TestingT) {
 		metrics, err := prom2.Scrape(fmt.Sprintf("http://localhost:%d/metrics", promPort))
@@ -108,8 +97,8 @@ func TestFilter(t *testing.T) {
 	})
 }
 
-func fakeRecord(protocol transport.Protocol, srcPort, dstPort uint16) *ebpf.Record {
-	return &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
+func fakeRecord(protocol transport.Protocol, srcPort, dstPort uint16) ebpf.Record {
+	return ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
 		Id: ebpf.NetFlowId{
 			SrcPort: srcPort, DstPort: dstPort, TransportProtocol: uint8(protocol),
 		},

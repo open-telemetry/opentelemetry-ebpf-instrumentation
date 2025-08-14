@@ -5,58 +5,49 @@ package flow
 
 import (
 	"fmt"
-	"net"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
-	"go.opentelemetry.io/obi/pkg/components/testutil"
-	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
-
-const timeout = 5 * time.Second
 
 func TestDecoration(t *testing.T) {
 	srcIP := [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 1, 2, 3, 4}
 	dstIP := [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 4, 3, 2, 1}
 
-	// Given a flow Decorator node
-	in := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
-	out := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
-	go Decorate(net.IPv4(3, 3, 3, 3), func(n int) string {
+	ifaceNamer := func(n int) string {
 		return fmt.Sprintf("eth%d", n)
-	}, in, out)(t.Context())
+	}
 
-	// When it receives flows
-	f1 := &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
+	agentIP := "3.3.3.3"
+
+	decorate := FlowDecorator(agentIP, ifaceNamer)
+
+	f1 := ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
 		Id: ebpf.NetFlowId{IfIndex: 1},
 	}, Attrs: ebpf.RecordAttrs{SrcName: "source"}}
 	f1.Id.SrcIp.In6U.U6Addr8 = srcIP
 	f1.Id.DstIp.In6U.U6Addr8 = dstIP
 
-	f2 := &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
+	f2 := ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
 		Id: ebpf.NetFlowId{IfIndex: 2},
 	}, Attrs: ebpf.RecordAttrs{DstName: "destination"}}
 	f2.Id.SrcIp.In6U.U6Addr8 = srcIP
 	f2.Id.DstIp.In6U.U6Addr8 = dstIP
 
-	in.Send([]*ebpf.Record{f1, f2})
-
-	// THEN it decorates them, by adding IPs to source/destination
+	// decorates the flows, by adding IPs to source/destination
 	// names only when they were missing
-	decorated := testutil.ReadChannel(t, out.Subscribe(), timeout)
-	require.Len(t, decorated, 2)
+	decorate(&f1)
+	decorate(&f2)
 
-	assert.Equal(t, "eth1", decorated[0].Attrs.Interface)
-	assert.Equal(t, "3.3.3.3", decorated[0].Attrs.OBIIP)
-	assert.Equal(t, "source", decorated[0].Attrs.SrcName)
-	assert.Equal(t, "4.3.2.1", decorated[0].Attrs.DstName)
+	assert.Equal(t, "eth1", f1.Attrs.Interface)
+	assert.Equal(t, "3.3.3.3", f1.Attrs.OBIIP)
+	assert.Equal(t, "source", f1.Attrs.SrcName)
+	assert.Equal(t, "4.3.2.1", f1.Attrs.DstName)
 
-	assert.Equal(t, "eth2", decorated[1].Attrs.Interface)
-	assert.Equal(t, "3.3.3.3", decorated[1].Attrs.OBIIP)
-	assert.Equal(t, "1.2.3.4", decorated[1].Attrs.SrcName)
-	assert.Equal(t, "destination", decorated[1].Attrs.DstName)
+	assert.Equal(t, "eth2", f2.Attrs.Interface)
+	assert.Equal(t, "3.3.3.3", f2.Attrs.OBIIP)
+	assert.Equal(t, "1.2.3.4", f2.Attrs.SrcName)
+	assert.Equal(t, "destination", f2.Attrs.DstName)
 }

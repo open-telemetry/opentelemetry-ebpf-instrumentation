@@ -99,10 +99,6 @@ type Flows struct {
 	// processing nodes to be wired in the buildPipeline method
 	rbTracer *flow.RingBufTracer
 
-	// elements used to decorate flows with extra information
-	interfaceNamer flow.InterfaceNamer
-	agentIP        net.IP
-
 	status Status
 }
 
@@ -180,7 +176,12 @@ func flowsAgent(
 		return iface
 	}
 
-	rbTracer := flow.NewRingBufTracer(fetcher, cfg)
+	rbTracer, err := flow.NewRingBufTracer(fetcher, cfg,
+		ctxInfo.K8sInformer, agentIP.String(), interfaceNamer)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ring buffer tracer: %w", err)
+	}
 
 	return &Flows{
 		ctxInfo:        ctxInfo,
@@ -188,8 +189,6 @@ func flowsAgent(
 		ifaceManager:   ifaceManager,
 		cfg:            cfg,
 		rbTracer:       rbTracer,
-		agentIP:        agentIP,
-		interfaceNamer: interfaceNamer,
 	}, nil
 }
 

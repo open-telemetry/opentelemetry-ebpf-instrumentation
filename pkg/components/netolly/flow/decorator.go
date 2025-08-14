@@ -22,42 +22,16 @@
 package flow
 
 import (
-	"context"
-	"net"
-
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
-	"go.opentelemetry.io/obi/pkg/pipe/msg"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 type InterfaceNamer func(ifIndex int) string
 
-// Decorate the flows with extra metadata fields that are not directly fetched by eBPF
+// FlowDecorator the flows with extra metadata fields that are not directly fetched by eBPF
 // or by any previous pipeline stage (DNS, Kubernetes...):
 // - The interface name (corresponding to the interface index in the flow).
 // - The IP address of the agent host.
 // - If there is no source or destination hostname, the source IP and destination
-func Decorate(agentIP net.IP, ifaceNamer InterfaceNamer, input *msg.Queue[[]*ebpf.Record], output *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
-	ip := agentIP.String()
-	in := input.Subscribe()
-	return func(_ context.Context) {
-		defer output.Close()
-		for flows := range in {
-			for _, flow := range flows {
-				flow.Attrs.Interface = ifaceNamer(int(flow.Id.IfIndex))
-				flow.Attrs.OBIIP = ip
-				if flow.Attrs.DstName == "" {
-					flow.Attrs.DstName = flow.Id.DstIP().IP().String()
-				}
-				if flow.Attrs.SrcName == "" {
-					flow.Attrs.SrcName = flow.Id.SrcIP().IP().String()
-				}
-			}
-			output.Send(flows)
-		}
-	}
-}
-
 type FlowDecoratorFunc func(*ebpf.Record)
 
 func FlowDecorator(agentIP string, ifaceNamer InterfaceNamer) FlowDecoratorFunc {
