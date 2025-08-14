@@ -130,7 +130,6 @@ func FlowsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Flows, error) {
 		cfg.NetworkFlows.MaxFlowDuration,
 		cfg.NetworkFlows.Protocols,
 		cfg.NetworkFlows.ExcludeProtocols)
-
 	if err != nil {
 		return nil, err
 	}

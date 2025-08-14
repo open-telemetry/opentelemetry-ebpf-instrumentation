@@ -79,29 +79,29 @@ func attachCgroup(program *ebpf.Program, attachType ebpf.AttachType, cgroupPath 
 }
 
 func effectiveRingBufferSize(size uint32) uint32 {
-    page := uint32(os.Getpagesize())
+	page := uint32(os.Getpagesize())
 
-    // ensure size is at least the system page size.
-    if size < page {
-        size = page
-    }
+	// ensure size is at least the system page size.
+	if size < page {
+		size = page
+	}
 
-    // if size is already a power of two, this trick will leave it unchanged.
-    // decrement size so powers of two won't get rounded up.
-    size--
+	// if size is already a power of two, this trick will leave it unchanged.
+	// decrement size so powers of two won't get rounded up.
+	size--
 
-    // fill all bits to the right with 1s
-    // this propagates the highest set bit to all lower bits.
-    size |= size >> 1
-    size |= size >> 2
-    size |= size >> 4
-    size |= size >> 8
-    size |= size >> 16
+	// fill all bits to the right with 1s
+	// this propagates the highest set bit to all lower bits.
+	size |= size >> 1
+	size |= size >> 2
+	size |= size >> 4
+	size |= size >> 8
+	size |= size >> 16
 
-    // increment to get the next power of two.
-    size++
+	// increment to get the next power of two.
+	size++
 
-    return size
+	return size
 }
 
 func parseProtocolList(list []string) ([]transport.Protocol, error) {
@@ -113,7 +113,6 @@ func parseProtocolList(list []string) ([]transport.Protocol, error) {
 
 	for _, s := range list {
 		p, err := transport.ParseProtocol(s)
-
 		if err != nil {
 			return nil, err
 		}
@@ -135,16 +134,14 @@ func assignProtocolList(m *ebpf.Map, list []transport.Protocol) error {
 }
 
 func NewSockFlowFetcher(rbSizeMB uint32, flushPeriod, flowDuration time.Duration,
-	protocolWhitelist, protocolBlacklist []string) (*SockFlowFetcher, error) {
-
+	protocolWhitelist, protocolBlacklist []string,
+) (*SockFlowFetcher, error) {
 	protoWl, err := parseProtocolList(protocolWhitelist)
-
 	if err != nil {
 		return nil, fmt.Errorf("invalid protocol whitelist: %w", err)
 	}
 
 	protoBl, err := parseProtocolList(protocolBlacklist)
-
 	if err != nil {
 		return nil, fmt.Errorf("invalid protocol blacklist: %w", err)
 	}

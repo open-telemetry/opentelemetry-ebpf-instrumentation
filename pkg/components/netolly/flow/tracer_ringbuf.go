@@ -47,18 +47,18 @@ func rtlog() *slog.Logger {
 // added in the eBPF kernel space due to the map being full or busy) and submits them to the
 // userspace Aggregator map
 type RingBufTracer struct {
-	cfg            *obi.Config
-	flowFetcher    *ebpf.SockFlowFetcher
-	k8sDecorator   *k8s.Decorator
-	rdnsEnricher   rdns.ReverseDNSFunc
-	cidrDecorator  cidr.CIDRDecoratorFunc
-	flowDecorator  FlowDecoratorFunc
-	flowFilter     *filter.Filter2[*ebpf.Record]
+	cfg           *obi.Config
+	flowFetcher   *ebpf.SockFlowFetcher
+	k8sDecorator  *k8s.Decorator
+	rdnsEnricher  rdns.ReverseDNSFunc
+	cidrDecorator cidr.CIDRDecoratorFunc
+	flowDecorator FlowDecoratorFunc
+	flowFilter    *filter.Filter2[*ebpf.Record]
 }
 
 func NewRingBufTracer(fetcher *ebpf.SockFlowFetcher, cfg *obi.Config) *RingBufTracer {
 	return &RingBufTracer{
-		cfg:        cfg,
+		cfg:         cfg,
 		flowFetcher: fetcher,
 	}
 }
@@ -150,4 +150,3 @@ func (m *RingBufTracer) TraceLoop(k8sDecorator *k8s.Decorator,
 		m.ringbufferLoop(ctx, k8sDecorator, flowDecorator, flowFilter, out)
 	}
 }
-
