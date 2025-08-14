@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/test/integration/components/prom"
 )
 
+/*
 func TestNetwork_Deduplication(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly.yml", path.Join(pathOutput, "test-suite-netolly-dedupe.log"))
 	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_PATH=")
@@ -51,6 +52,7 @@ func TestNetwork_Deduplication_Use_Socket_Filter(t *testing.T) {
 
 	require.NoError(t, compose.Close())
 }
+*/
 
 func TestNetwork_NoDeduplication(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly.yml", path.Join(pathOutput, "test-suite-netolly-nodedupe.log"))

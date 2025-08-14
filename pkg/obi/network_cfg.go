@@ -77,15 +77,6 @@ type NetworkConfig struct {
 	// If the Protocols list is already defined, ExcludeProtocols has no effect.
 	ExcludeProtocols []string `yaml:"exclude_protocols" env:"OTEL_EBPF_NETWORK_EXCLUDE_PROTOCOLS" envSeparator:","`
 
-	// CacheMaxFlows specifies how many flows can be accumulated in the accounting cache before
-	// being flushed for its later export. Default value is 5000.
-	// Decrease it if you see the "received message larger than max" error in Beyla logs.
-	CacheMaxFlows int `yaml:"cache_max_flows" env:"OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS"`
-
-	// CacheActiveTimeout specifies the maximum duration that flows are kept in the accounting
-	// cache before being flushed for its later export.
-	CacheActiveTimeout time.Duration `yaml:"cache_active_timeout" env:"OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT"`
-
 	// The size of the ring buffer in MB used to queue the network flows. Defaults
 	// to 16 MB. Values will be adjusted to be a power of 2 of at least the OS
 	// page size.
@@ -144,8 +135,6 @@ var defaultNetworkConfig = NetworkConfig{
 	AgentIPIface:          "external",
 	AgentIPType:           "any",
 	ExcludeInterfaces:     []string{"lo"},
-	CacheMaxFlows:         5000,
-	CacheActiveTimeout:    5 * time.Second,
 	RingBufferSize:        16,
 	RingBufferFlushPeriod: 10 * time.Second,
 	MaxFlowDuration:       60 * time.Second,
