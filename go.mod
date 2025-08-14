@@ -46,7 +46,7 @@ require (
 	go.opentelemetry.io/collector/exporter/otlpexporter v0.131.0
 	go.opentelemetry.io/collector/exporter/otlphttpexporter v0.131.0
 	go.opentelemetry.io/collector/pdata v1.37.0
-	go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.0.0-20250812124805-8b2ef6949ee3
+	go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.0.0-20250814110309-6dac951934bb
 	go.opentelemetry.io/contrib/detectors/aws/eks v1.28.0
 	go.opentelemetry.io/contrib/detectors/azure/azurevm v0.0.1
 	go.opentelemetry.io/contrib/detectors/gcp v1.36.0
@@ -68,9 +68,9 @@ require (
 	google.golang.org/grpc v1.74.2
 	google.golang.org/protobuf v1.36.7
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/api v0.33.3
-	k8s.io/apimachinery v0.33.3
-	k8s.io/client-go v0.33.3
+	k8s.io/api v0.33.4
+	k8s.io/apimachinery v0.33.4
+	k8s.io/client-go v0.33.4
 	sigs.k8s.io/controller-runtime v0.21.0
 	sigs.k8s.io/e2e-framework v0.6.0
 )
