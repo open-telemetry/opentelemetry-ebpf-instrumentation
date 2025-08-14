@@ -4,17 +4,20 @@
 package agent
 
 import (
-	"context"
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf/ringbuf"
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/components/connector"
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
 	"go.opentelemetry.io/obi/pkg/components/netolly/flow/transport"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -22,12 +25,54 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
-	"go.opentelemetry.io/obi/pkg/pipe/msg"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	prom2 "go.opentelemetry.io/obi/test/integration/components/prom"
 )
 
 const timeout = 5 * time.Second
+
+type DummyFlowFetcher struct {
+	records []ebpf.NetFlowRecordT
+	idx     int
+}
+
+func NewDummyFlowFetcher() *DummyFlowFetcher {
+	d := DummyFlowFetcher{}
+
+	d.add(transport.UDP, 123, 456)
+	d.add(transport.TCP, 789, 1011)
+	d.add(transport.UDP, 333, 444)
+	d.add(transport.TCP, 1213, 1415)
+	d.add(transport.UDP, 3333, 8080)
+
+	d.idx = 0
+
+	return &d
+}
+
+func (d *DummyFlowFetcher) add(protocol transport.Protocol, srcPort, dstPort uint16) {
+	record := ebpf.NetFlowRecordT{
+		Id: ebpf.NetFlowId{
+			SrcPort: srcPort, DstPort: dstPort, TransportProtocol: uint8(protocol),
+		},
+	}
+
+	d.records = append(d.records, record)
+}
+
+func (d *DummyFlowFetcher) ReadInto(r *ringbuf.Record) error {
+	buf := new(bytes.Buffer)
+
+	err := binary.Write(buf, binary.LittleEndian, d.records[d.idx])
+	if err != nil {
+		panic(err)
+	}
+
+	r.RawSample = buf.Bytes()
+
+	d.idx = (d.idx + 1) % len(d.records)
+
+	return nil
+}
 
 func TestFilter(t *testing.T) {
 	ctx := t.Context()
@@ -58,25 +103,23 @@ func TestFilter(t *testing.T) {
 		},
 	}
 
-	ringBuf := make(chan ebpf.Record, 10)
-	newRingBufTracer = func(_ *Flows, out *msg.Queue[ebpf.Record]) swarm.RunFunc {
-		return func(_ context.Context) {
-			for i := range ringBuf {
-				out.Send(i)
-			}
-		}
+	ifaceNamer := func(int) string {
+		return "fakeiface"
 	}
+
+	flowFetcher := NewDummyFlowFetcher()
+
+	tracer, err := flow.NewRingBufTracer(flowFetcher, flows.cfg,
+		flows.ctxInfo.K8sInformer, "1.2.3.4", ifaceNamer)
+
+	require.NoError(t, err)
+
+	flows.rbTracer = tracer
 
 	runner, err := flows.buildPipeline(ctx)
 	require.NoError(t, err)
 
 	go runner.Start(ctx)
-
-	ringBuf <- fakeRecord(transport.UDP, 123, 456)
-	ringBuf <- fakeRecord(transport.TCP, 789, 1011)
-	ringBuf <- fakeRecord(transport.UDP, 333, 444)
-	ringBuf <- fakeRecord(transport.TCP, 1213, 1415)
-	ringBuf <- fakeRecord(transport.UDP, 3333, 8080)
 
 	test.Eventually(t, timeout, func(t require.TestingT) {
 		metrics, err := prom2.Scrape(fmt.Sprintf("http://localhost:%d/metrics", promPort))
@@ -95,12 +138,4 @@ func TestFilter(t *testing.T) {
 			{Name: "promhttp_metric_handler_errors_total", Labels: map[string]string{"cause": "gathering"}},
 		}, metrics)
 	})
-}
-
-func fakeRecord(protocol transport.Protocol, srcPort, dstPort uint16) ebpf.Record {
-	return ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
-		Id: ebpf.NetFlowId{
-			SrcPort: srcPort, DstPort: dstPort, TransportProtocol: uint8(protocol),
-		},
-	}}
 }

@@ -47,7 +47,7 @@ func rtlog() *slog.Logger {
 
 type RingBufTracer struct {
 	cfg           *obi.Config
-	flowFetcher   *ebpf.SockFlowFetcher
+	flowFetcher   ebpf.FlowFetcher
 	k8sInformer   *kube.MetadataProvider
 	k8sDecorator  *k8s.Decorator
 	rdnsEnricher  rdns.ReverseDNSFunc
@@ -56,7 +56,7 @@ type RingBufTracer struct {
 	flowFilter    *filter.Filter2[*ebpf.Record]
 }
 
-func NewRingBufTracer(fetcher *ebpf.SockFlowFetcher,
+func NewRingBufTracer(fetcher ebpf.FlowFetcher,
 	cfg *obi.Config,
 	k8sInformer *kube.MetadataProvider,
 	agentIP string,
@@ -101,8 +101,6 @@ func (m *RingBufTracer) ringbufferLoop(ctx context.Context, out *msg.Queue[ebpf.
 		return
 	}
 
-	reader := m.flowFetcher.RingBufReader()
-
 	var rec ringbuf.Record
 
 	for {
@@ -111,7 +109,7 @@ func (m *RingBufTracer) ringbufferLoop(ctx context.Context, out *msg.Queue[ebpf.
 			rtlog.Debug("exiting trace loop due to context cancellation")
 			return
 		default:
-			if err := reader.ReadInto(&rec); err != nil {
+			if err := m.flowFetcher.ReadInto(&rec); err != nil {
 				if errors.Is(err, ringbuf.ErrClosed) {
 					rtlog.Debug("Received signal, exiting..")
 					return

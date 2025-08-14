@@ -275,6 +275,6 @@ func (m *SockFlowFetcher) Close() error {
 	return errors.New(`errors: "` + strings.Join(errStrings, `", "`) + `"`)
 }
 
-func (m *SockFlowFetcher) RingBufReader() *ringbuf.Reader {
-	return m.ringbufReader
+func (m *SockFlowFetcher) ReadInto(rec *ringbuf.Record) error {
+	return m.ringbufReader.ReadInto(rec)
 }
