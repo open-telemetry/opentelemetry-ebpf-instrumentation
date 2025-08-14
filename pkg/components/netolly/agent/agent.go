@@ -178,17 +178,16 @@ func flowsAgent(
 
 	rbTracer, err := flow.NewRingBufTracer(fetcher, cfg,
 		ctxInfo.K8sInformer, agentIP.String(), interfaceNamer)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ring buffer tracer: %w", err)
 	}
 
 	return &Flows{
-		ctxInfo:        ctxInfo,
-		ebpf:           fetcher,
-		ifaceManager:   ifaceManager,
-		cfg:            cfg,
-		rbTracer:       rbTracer,
+		ctxInfo:      ctxInfo,
+		ebpf:         fetcher,
+		ifaceManager: ifaceManager,
+		cfg:          cfg,
+		rbTracer:     rbTracer,
 	}, nil
 }
 

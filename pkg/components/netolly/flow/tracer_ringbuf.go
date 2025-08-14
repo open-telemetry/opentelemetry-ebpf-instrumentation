@@ -64,7 +64,6 @@ func NewRingBufTracer(fetcher *ebpf.SockFlowFetcher,
 ) (*RingBufTracer, error) {
 	flowFilter, err := filter.NewFilter2[*ebpf.Record](cfg.Filters.Network,
 		nil, cfg.Attributes.ExtraGroupAttributes, ebpf.RecordStringGetters)
-
 	if err != nil {
 		return nil, fmt.Errorf("error instantiating flow filter: %w", err)
 	}
