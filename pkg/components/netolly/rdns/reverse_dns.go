@@ -16,8 +16,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/components/rdns/ebpf/xdp"
 	"go.opentelemetry.io/obi/pkg/components/rdns/store"
-	"go.opentelemetry.io/obi/pkg/pipe/msg"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 const (
@@ -55,38 +53,6 @@ func (r ReverseDNS) Enabled() bool {
 	return rdType == ReverseDNSLocalLookup || rdType == ReverseDNSEBPF
 }
 
-func ReverseDNSProvider(cfg *ReverseDNS, input, output *msg.Queue[[]*ebpf.Record]) swarm.InstanceFunc {
-	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !cfg.Enabled() {
-			return swarm.Bypass(input, output)
-		}
-
-		if err := checkEBPFReverseDNS(ctx, cfg); err != nil {
-			return nil, err
-		}
-		// TODO: replace by a cache with fuzzy expiration time to avoid cache stampede
-		cache := expirable.NewLRU[ebpf.IPAddr, string](cfg.CacheLen, nil, cfg.CacheTTL)
-
-		log := rdlog()
-		in := input.Subscribe()
-		return func(_ context.Context) {
-			defer output.Close()
-			log.Debug("starting reverse DNS node")
-			for flows := range in {
-				for _, flow := range flows {
-					if flow.Attrs.SrcName == "" {
-						flow.Attrs.SrcName = optGetName(log, cache, flow.Id.SrcIp.In6U.U6Addr8)
-					}
-					if flow.Attrs.DstName == "" {
-						flow.Attrs.DstName = optGetName(log, cache, flow.Id.DstIp.In6U.U6Addr8)
-					}
-				}
-				output.Send(flows)
-			}
-		}, nil
-	}
-}
-
 type ReverseDNSFunc func(*ebpf.Record)
 
 func ReverseDNSEnricher(ctx context.Context, cfg *ReverseDNS) (ReverseDNSFunc, error) {
@@ -98,9 +64,10 @@ func ReverseDNSEnricher(ctx context.Context, cfg *ReverseDNS) (ReverseDNSFunc, e
 		return nil, err
 	}
 
+	cache := expirable.NewLRU[ebpf.IPAddr, string](cfg.CacheLen, nil, cfg.CacheTTL)
+
 	return func(flow *ebpf.Record) {
 		// TODO: replace by a cache with fuzzy expiration time to avoid cache stampede
-		cache := expirable.NewLRU[ebpf.IPAddr, string](cfg.CacheLen, nil, cfg.CacheTTL)
 
 		log := rdlog()
 

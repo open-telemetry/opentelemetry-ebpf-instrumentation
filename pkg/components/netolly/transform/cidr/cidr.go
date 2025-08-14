@@ -4,7 +4,6 @@
 package cidr
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -13,8 +12,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
-	"go.opentelemetry.io/obi/pkg/pipe/msg"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 func glog() *slog.Logger {
@@ -31,30 +28,6 @@ func (c Definitions) Enabled() bool {
 
 type ipGrouper struct {
 	ranger cidranger.Ranger
-}
-
-func DecoratorProvider(g Definitions, input, output *msg.Queue[[]*ebpf.Record]) swarm.InstanceFunc {
-	return func(_ context.Context) (swarm.RunFunc, error) {
-		if !g.Enabled() {
-			return swarm.Bypass(input, output)
-		}
-		grouper, err := newIPGrouper(g)
-		if err != nil {
-			return nil, fmt.Errorf("instantiating IP grouper: %w", err)
-		}
-		in := input.Subscribe()
-		return func(_ context.Context) {
-			defer output.Close()
-			glog().Debug("starting node")
-			for flows := range in {
-				for _, flow := range flows {
-					grouper.decorate(flow)
-				}
-				output.Send(flows)
-			}
-			glog().Debug("stopping node")
-		}, nil
-	}
 }
 
 type CIDRDecoratorFunc func(*ebpf.Record)
