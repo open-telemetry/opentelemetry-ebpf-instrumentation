@@ -18,11 +18,42 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/rdns/store"
 )
 
+type ReverseDNSMode uint8
+
 const (
-	ReverseDNSNone        = "none"
-	ReverseDNSLocalLookup = "local"
-	ReverseDNSEBPF        = "ebpf"
+	ReverseDNSNone = ReverseDNSMode(iota)
+	ReverseDNSLocalLookup
+	ReverseDNSEBPF
 )
+
+func (m *ReverseDNSMode) UnmarshalText(text []byte) error {
+	switch strings.ToLower(strings.TrimSpace(string(text))) {
+	case "none":
+		*m = ReverseDNSNone
+		return nil
+	case "local":
+		*m = ReverseDNSLocalLookup
+		return nil
+	case "ebpf":
+		*m = ReverseDNSEBPF
+		return nil
+	}
+
+	return fmt.Errorf("invalid reverse DNS mode: '%s'", text)
+}
+
+func (m ReverseDNSMode) MarshalText() ([]byte, error) {
+	switch m {
+	case ReverseDNSNone:
+		return []byte("none"), nil
+	case ReverseDNSLocalLookup:
+		return []byte("local"), nil
+	case ReverseDNSEBPF:
+		return []byte("ebpf"), nil
+	}
+
+	return nil, fmt.Errorf("invalid reverse DNS mode: %d", m)
+}
 
 func rdlog() *slog.Logger {
 	return slog.With("component", "flow.ReverseDNS")
@@ -34,7 +65,7 @@ var netLookupAddr = net.LookupAddr
 // from the documentation. This means that it does not impact in the overall Beyla performance.
 type ReverseDNS struct {
 	// Type of ReverseDNS. Values are "none" (default), "local" and "ebpf"
-	Type string `yaml:"type" env:"OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE"`
+	Type ReverseDNSMode `yaml:"type" env:"OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE"`
 
 	// CacheLen only applies to the "local" ReverseDNS type. It
 	// specifies the max size of the LRU cache that is checked before
@@ -49,8 +80,7 @@ type ReverseDNS struct {
 }
 
 func (r ReverseDNS) Enabled() bool {
-	rdType := strings.ToLower(r.Type)
-	return rdType == ReverseDNSLocalLookup || rdType == ReverseDNSEBPF
+	return r.Type == ReverseDNSLocalLookup || r.Type == ReverseDNSEBPF
 }
 
 type ReverseDNSFunc func(*ebpf.Record)
