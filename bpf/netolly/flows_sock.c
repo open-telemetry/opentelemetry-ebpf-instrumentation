@@ -69,7 +69,7 @@ struct {
 
 enum flow_direction : u8 { k_flow_ingress = 0, k_flow_egress = 1, k_flow_unknown = 0xff };
 
-enum : u32 { k_invalid_iface = 0xffffffff };
+enum : u32 { k_invalid_iface = 0 };
 enum : u8 { k_proto_unknown = 0xff };
 
 static __always_inline u64 get_rb_flags() {
@@ -243,9 +243,9 @@ static __always_inline flow_socket_data *get_sk_storage(struct bpf_sock *sk) {
     }
 
     flow_socket_data init = {
-        .submitted_iface = k_invalid_iface,
-        .record.metrics.iface_direction = k_flow_unknown,
-        .record.id.transport_protocol = k_proto_unknown,
+        .ctx.egress_submitted_iface = k_invalid_iface,
+        .ctx.start_direction = k_flow_unknown,
+        .ctx.transport_protocol = k_proto_unknown,
     };
 
     // BPF_SK_STORAGE_GET_F_CREATE will only create a new entry initialised
@@ -254,7 +254,7 @@ static __always_inline flow_socket_data *get_sk_storage(struct bpf_sock *sk) {
     return bpf_sk_storage_get(&sk_storage_map, sk, &init, BPF_SK_STORAGE_GET_F_CREATE);
 }
 
-static __always_inline void update_flow_record(struct bpf_sock *sk, const flow_record *record) {
+static __always_inline void ignore_flow(struct bpf_sock *sk) {
     flow_socket_data *data = get_sk_storage(sk);
 
     if (!data) {
@@ -263,149 +263,211 @@ static __always_inline void update_flow_record(struct bpf_sock *sk, const flow_r
 
     bpf_spin_lock(&data->lock);
 
-    data->record = *record;
+    data->ignore = 1;
 
     bpf_spin_unlock(&data->lock);
 }
 
 static __always_inline void init_flow(struct bpf_sock_ops *skops, u8 direction) {
-    flow_record record = {};
-
     if (skops->family != AF_INET && skops->family != AF_INET6) {
-        record.ignore = 1;
-
-        update_flow_record(skops->sk, &record);
+        ignore_flow(skops->sk);
         return;
     }
 
     if (skops->family == AF_INET && skops->local_ip4 == skops->remote_ip4) {
-        record.ignore = 1;
-
-        update_flow_record(skops->sk, &record);
+        ignore_flow(skops->sk);
         return;
     }
 
+    flow_ctx ctx = {};
+
     if (skops->family == AF_INET) {
-        record.id.src_ip = encode_ipv4in6(skops->local_ip4);
-        record.id.dst_ip = encode_ipv4in6(skops->remote_ip4);
+        ctx.local_ip = encode_ipv4in6(skops->local_ip4);
+        ctx.remote_ip = encode_ipv4in6(skops->remote_ip4);
     } else if (skops->family == AF_INET6) {
         bpf_probe_read_kernel(
-            record.id.src_ip.in6_u.u6_addr8, sizeof(skops->local_ip6), skops->local_ip6);
+            ctx.local_ip.in6_u.u6_addr8, sizeof(skops->local_ip6), skops->local_ip6);
         bpf_probe_read_kernel(
-            record.id.dst_ip.in6_u.u6_addr8, sizeof(skops->remote_ip6), skops->remote_ip6);
+            ctx.remote_ip.in6_u.u6_addr8, sizeof(skops->remote_ip6), skops->remote_ip6);
 
-        if (same_ip(record.id.src_ip.in6_u.u6_addr8, record.id.dst_ip.in6_u.u6_addr8)) {
+        if (same_ip(ctx.local_ip.in6_u.u6_addr8, ctx.remote_ip.in6_u.u6_addr8)) {
             // unlike ipv4, we'd always need to read the IPv6 data into a
             // buffer for comparison - so instead we just mark the record to
             // be ignored from now on, to prevent the recorf from being
             // created and deleted everytime this codepath is hit -
             // instead, it will be cleaned up when the socket dies
-            record.ignore = 1;
-
-            update_flow_record(skops->sk, &record);
+            ignore_flow(skops->sk);
             return;
         }
     }
 
-    record.id.src_port = skops->local_port;
-    record.id.dst_port = bpf_ntohl(skops->remote_port);
-    record.id.transport_protocol = k_proto_unknown;
-
-    record.metrics.iface_direction = direction;
+    ctx.local_port = skops->local_port;
+    ctx.remote_port = bpf_ntohl(skops->remote_port);
+    ctx.transport_protocol = k_proto_unknown;
+    ctx.start_direction = direction;
 
     const u64 current_time = bpf_ktime_get_ns();
 
-    record.metrics.start_mono_time_ns = current_time;
-    record.metrics.end_mono_time_ns = current_time;
-
-    record.initialized = 1;
+    ctx.start_mono_time_ns = current_time;
+    ctx.end_mono_time_ns = current_time;
 
     // here we unconditionally update the flow, even if it was initialised by
     // cgroup/{egress, ingress} (unlikely) as we'd like to store the correct
     // direction
-    update_flow_record(skops->sk, &record);
+    flow_socket_data *data = get_sk_storage(skops->sk);
+
+    if (!data) {
+        return;
+    }
+
+    bpf_spin_lock(&data->lock);
+
+    data->ctx = ctx;
+    data->initialized = 1;
+
+    bpf_spin_unlock(&data->lock);
 }
 
-static __always_inline void init_flow_skb(struct __sk_buff *skb, flow_socket_data *data) {
-    flow_record record = {};
-    record.id.transport_protocol = get_transport_proto(skb);
+static __always_inline void
+init_flow_skb(struct __sk_buff *skb, flow_socket_data *data, u8 direction) {
+    flow_ctx ctx = {};
+    ctx.transport_protocol = get_transport_proto(skb);
 
-    if (!is_protocol_allowed(record.id.transport_protocol)) {
-        record.ignore = 1;
-
-        update_flow_record(skb->sk, &record);
+    if (!is_protocol_allowed(ctx.transport_protocol)) {
+        ignore_flow(skb->sk);
         return;
     }
 
     if (skb->family == AF_INET) {
-        record.id.src_ip = encode_ipv4in6(skb->local_ip4);
-        record.id.dst_ip = encode_ipv4in6(skb->remote_ip4);
+        ctx.local_ip = encode_ipv4in6(skb->local_ip4);
+        ctx.remote_ip = encode_ipv4in6(skb->remote_ip4);
     } else if (skb->family == AF_INET6) {
+        bpf_probe_read_kernel(ctx.local_ip.in6_u.u6_addr8, sizeof(skb->local_ip6), skb->local_ip6);
         bpf_probe_read_kernel(
-            record.id.src_ip.in6_u.u6_addr8, sizeof(skb->local_ip6), skb->local_ip6);
-        bpf_probe_read_kernel(
-            record.id.dst_ip.in6_u.u6_addr8, sizeof(skb->remote_ip6), skb->remote_ip6);
+            ctx.remote_ip.in6_u.u6_addr8, sizeof(skb->remote_ip6), skb->remote_ip6);
 
-        if (same_ip(record.id.src_ip.in6_u.u6_addr8, record.id.dst_ip.in6_u.u6_addr8)) {
+        if (same_ip(ctx.local_ip.in6_u.u6_addr8, ctx.remote_ip.in6_u.u6_addr8)) {
             // unlike IPv4, we'd always need to read the IPv6 data into a
             // buffer for comparison - so instead we just mark the record to
             // be ignored from now on, to prevent the record from being
             // created and deleted everytime this codepath is hit -
             // instead, it will be cleaned up when the socket dies
-            record.ignore = 1;
-
-            update_flow_record(skb->sk, &record);
+            ignore_flow(skb->sk);
             return;
         }
     }
 
-    record.id.src_port = skb->local_port;
-    record.id.dst_port = bpf_ntohl(skb->remote_port);
-    record.id.if_index = skb->ifindex;
+    ctx.local_port = skb->local_port;
+    ctx.remote_port = bpf_ntohl(skb->remote_port);
 
     const u64 current_time = bpf_ktime_get_ns();
 
-    record.metrics.start_mono_time_ns = current_time;
-    record.metrics.end_mono_time_ns = current_time;
+    ctx.start_mono_time_ns = current_time;
+    ctx.end_mono_time_ns = current_time;
 
     // fallback for lost or already started connections and UDP
-    record.metrics.iface_direction =
-        record.id.src_port > record.id.dst_port ? k_flow_egress : k_flow_ingress;
+    ctx.start_direction = ctx.local_port > ctx.remote_port ? k_flow_egress : k_flow_ingress;
 
-    record.metrics.packets = 1;
-    record.metrics.bytes = skb->len;
+    if (direction == k_flow_egress) {
+        ctx.ingress_if_index = k_invalid_iface;
+        ctx.egress_if_index = skb->ifindex;
 
-    record.initialized = 1;
+        ctx.tx_bytes = skb->len;
+        ctx.tx_packets = 1;
+    } else if (direction == k_flow_ingress) {
+        ctx.ingress_if_index = skb->ifindex;
+        ctx.egress_if_index = k_invalid_iface;
 
-    // we can't use update_flow_record here, as we need to double check if
-    // this flow has been initialised in the meantime
+        ctx.rx_bytes = skb->len;
+        ctx.rx_packets = 1;
+    }
+
     bpf_spin_lock(&data->lock);
 
-    if (!data->record.initialized) {
-        data->record = record;
+    if (!data->initialized) {
+        data->ctx = ctx;
+        data->initialized = 1;
     }
 
     bpf_spin_unlock(&data->lock);
 }
 
-static __always_inline void print_flow(struct __sk_buff *skb, u8 direction) {
-    char buf[64];
+static __always_inline void submit_flows(const flow_ctx *ctx) {
+    const u64 rb_flags = get_rb_flags();
 
-    u32 local = skb->local_ip4;
-    u32 remote = skb->remote_ip4;
-    u8 *bytes = (u8 *)&local;
-    u8 *rbytes = (u8 *)&remote;
-    u64 data[] = {
-        bytes[0], bytes[1], bytes[2], bytes[3], rbytes[0], rbytes[1], rbytes[2], rbytes[3]};
+    if (ctx->tx_bytes > 0) {
+        flow_record *record = bpf_ringbuf_reserve(&direct_flows, sizeof(flow_record), 0);
 
-    bpf_snprintf(buf, 64, "%d.%d.%d.%d -> %d.%d.%d.%d", data, sizeof(data));
+        if (!record) {
+            return;
+        }
 
-    bpf_printk("FLOW %s (%u)", buf, direction);
+        record->id.src_ip = ctx->local_ip;
+        record->id.dst_ip = ctx->remote_ip;
+        record->id.if_index = ctx->egress_if_index;
+        record->id.src_port = ctx->local_port;
+        record->id.dst_port = ctx->remote_port;
+        record->id.transport_protocol = ctx->transport_protocol;
+
+        record->metrics.bytes = ctx->tx_bytes;
+        record->metrics.packets = ctx->tx_packets;
+        record->metrics.iface_direction = k_flow_egress;
+        record->metrics.initiator = ctx->start_direction;
+
+        bpf_ringbuf_submit(record, rb_flags);
+    }
+
+    if (ctx->rx_bytes > 0) {
+        flow_record *record = bpf_ringbuf_reserve(&direct_flows, sizeof(flow_record), 0);
+
+        if (!record) {
+            return;
+        }
+
+        record->id.src_ip = ctx->remote_ip;
+        record->id.dst_ip = ctx->local_ip;
+        record->id.if_index = ctx->ingress_if_index;
+        record->id.src_port = ctx->remote_port;
+        record->id.dst_port = ctx->local_port;
+        record->id.transport_protocol = ctx->transport_protocol;
+
+        record->metrics.bytes = ctx->rx_bytes;
+        record->metrics.packets = ctx->rx_packets;
+        record->metrics.iface_direction = k_flow_ingress;
+        record->metrics.initiator = ctx->start_direction;
+
+        bpf_ringbuf_submit(record, rb_flags);
+    }
+}
+
+static __always_inline void submit_and_reset_flows(flow_socket_data *data, u64 current_time_ns) {
+    bpf_spin_lock(&data->lock);
+
+    // because we can hit this at any time, settle on an interface to
+    // submit to avoid cardinality explosion
+    if (data->ctx.egress_submitted_iface == k_invalid_iface) {
+        data->ctx.egress_submitted_iface = data->ctx.egress_if_index;
+    } else {
+        data->ctx.egress_if_index = data->ctx.egress_submitted_iface;
+    }
+
+    flow_ctx ctx = data->ctx;
+    ctx.end_mono_time_ns = current_time_ns;
+
+    // reset whilst preserving flow metadata
+    data->ctx.tx_bytes = 0;
+    data->ctx.rx_bytes = 0;
+    data->ctx.tx_packets = 0;
+    data->ctx.rx_packets = 0;
+    data->ctx.start_mono_time_ns = current_time_ns;
+    data->ctx.end_mono_time_ns = current_time_ns;
+
+    bpf_spin_unlock(&data->lock);
+
+    submit_flows(&ctx);
 }
 
 static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
-    print_flow(skb, direction);
-
     if (skb->family != AF_INET && skb->family != AF_INET6) {
         return;
     }
@@ -425,16 +487,22 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
 
     bpf_spin_lock(&data->lock);
 
-    const u8 initialized = data->record.initialized;
-    const u8 ifindex = data->record.id.if_index;
+    const u32 ingress_if_index = data->ctx.ingress_if_index;
+    const u32 egress_if_index = data->ctx.egress_if_index;
+    const u8 initialized = data->initialized;
 
-    u8 transport_proto = data->record.id.transport_protocol;
-    u8 ignore = data->record.ignore;
+    u8 transport_proto = data->ctx.transport_protocol;
+    u8 ignore = data->ignore;
 
-    u64 start_mono_ns = data->record.metrics.start_mono_time_ns;
+    u64 start_mono_ns = data->ctx.start_mono_time_ns;
 
-    data->record.metrics.packets++;
-    data->record.metrics.bytes += skb->len;
+    if (direction == k_flow_egress) {
+        data->ctx.tx_bytes += skb->len;
+        data->ctx.tx_packets++;
+    } else if (direction == k_flow_ingress) {
+        data->ctx.rx_bytes += skb->len;
+        data->ctx.rx_packets++;
+    }
 
     bpf_spin_unlock(&data->lock);
 
@@ -443,18 +511,29 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
     }
 
     if (initialized) {
-        if (direction == k_flow_ingress && ifindex != skb->ingress_ifindex) {
-            // this packet has arrived at a different interface, we don't want
-            // to account for it again
-            return;
-        } else if (direction == k_flow_egress && ifindex != skb->ifindex) {
+        if (direction == k_flow_ingress) {
+            if (ingress_if_index == k_invalid_iface) {
+                // first time we see an ingress packet (the flow could have
+                // been initialised on egress), update the interface
+
+                bpf_spin_lock(&data->lock);
+
+                data->ctx.ingress_if_index = skb->ifindex;
+
+                bpf_spin_unlock(&data->lock);
+            } else if (ingress_if_index != skb->ingress_ifindex) {
+                // this packet has arrived at a different interface, we don't want
+                // to account for it again
+                return;
+            }
+        } else if (direction == k_flow_egress && egress_if_index != skb->ifindex) {
             // we have seen this packet and have already accounted for it, but
             // we want to register the last outgoing interface to ensure we
             // report the true interface used when the packet has left this
             // node
             bpf_spin_lock(&data->lock);
 
-            data->record.id.if_index = skb->ifindex;
+            data->ctx.egress_if_index = skb->ifindex;
 
             bpf_spin_unlock(&data->lock);
             return;
@@ -464,12 +543,12 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
     // this happens when we haven't seen the flow in obi_sock_ops, i.e. the
     // flow had already begun before obi_sock_ops was loaded
     if (!initialized) {
-        init_flow_skb(skb, data);
+        init_flow_skb(skb, data, direction);
 
         bpf_spin_lock(&data->lock);
 
-        ignore = data->record.ignore;
-        start_mono_ns = data->record.metrics.start_mono_time_ns;
+        ignore = data->ignore;
+        start_mono_ns = data->ctx.start_mono_time_ns;
 
         bpf_spin_unlock(&data->lock);
 
@@ -487,8 +566,8 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
 
         bpf_spin_lock(&data->lock);
 
-        data->record.id.transport_protocol = transport_proto;
-        data->record.ignore = !proto_allowed;
+        data->ctx.transport_protocol = transport_proto;
+        data->ignore = !proto_allowed;
 
         bpf_spin_unlock(&data->lock);
 
@@ -507,35 +586,7 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
 
     // we've hit a time deadline, submit this flow as is and start over
     if (delta_ns > k_max_flow_duration) {
-        flow_record *record = bpf_ringbuf_reserve(&direct_flows, sizeof(flow_record), 0);
-
-        if (!record) {
-            return;
-        }
-
-        bpf_spin_lock(&data->lock);
-
-        // because we can hit this at any time, settle on an interface to
-        // submit to avoid cardinality explosion
-        if (data->submitted_iface == k_invalid_iface) {
-            data->submitted_iface = data->record.id.if_index;
-        } else {
-            data->record.id.if_index = data->submitted_iface;
-        }
-
-        *record = data->record;
-
-        // reset whilst preserving flow metadata
-        data->record.metrics.packets = 0;
-        data->record.metrics.bytes = 0;
-        data->record.metrics.start_mono_time_ns = current_time_ns;
-        data->record.metrics.end_mono_time_ns = current_time_ns;
-
-        bpf_spin_unlock(&data->lock);
-
-        record->metrics.end_mono_time_ns = current_time_ns;
-
-        bpf_ringbuf_submit(record, get_rb_flags());
+        submit_and_reset_flows(data, current_time_ns);
     }
 }
 
@@ -552,6 +603,7 @@ int obi_sock_ops(struct bpf_sock_ops *skops) {
 
     return 0;
 }
+
 SEC("cgroup_skb/egress")
 int obi_sock_egress(struct __sk_buff *skb) {
     update_flow(skb, k_flow_egress);
@@ -572,27 +624,17 @@ int obi_sock_release(struct bpf_sock *sock) {
         return 1;
     }
 
-    flow_record *record = bpf_ringbuf_reserve(&direct_flows, sizeof(flow_record), 0);
-
-    if (!record) {
-        return 1;
-    }
-
     bpf_spin_lock(&data->lock);
 
-    *record = data->record;
+    flow_ctx ctx = data->ctx;
+
+    const u8 ignore = data->ignore;
 
     bpf_spin_unlock(&data->lock);
 
-    // apart from ignore, we also check if packets == 0 in the unlikely case
-    // the flow has just been submitted by the timeout logic in update_flow()
-    // preceding this socket release
-    if (record->ignore || record->metrics.packets == 0) {
-        bpf_ringbuf_discard(record, BPF_RB_NO_WAKEUP);
-    } else {
-        record->metrics.end_mono_time_ns = bpf_ktime_get_ns();
-
-        bpf_ringbuf_submit(record, get_rb_flags());
+    if (!ignore) {
+        ctx.end_mono_time_ns = bpf_ktime_get_ns();
+        submit_flows(&ctx);
     }
 
     return 1;

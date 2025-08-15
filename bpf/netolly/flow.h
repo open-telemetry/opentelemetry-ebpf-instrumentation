@@ -25,28 +25,12 @@
 
 typedef struct flow_metrics_t {
     u64 bytes;
-    // start_mono_time_ts and end_mono_time_ts are the start and end times as system monotonic timestamps
-    // in nanoseconds, as output from bpf_ktime_get_ns() (kernel space)
-    // and monotime.Now() (user space)
-    u64 start_mono_time_ns;
-    u64 end_mono_time_ns;
-    u64 last_submitted_time_ns;
 
     u32 packets;
 
-    // TCP Flags from https://www.ietf.org/rfc/rfc793.txt
-    u16 flags;
-    // direction of the flow EGRESS / INGRESS
     u8 iface_direction;
-    // who initiated of the connection: INITIATOR_SRC or INITIATOR_DST
     u8 initiator;
-    // The positive errno of a failed map insertion that caused a flow
-    // to be sent via ringbuffer.
-    // 0 otherwise
-    // https://chromium.googlesource.com/chromiumos/docs/+/master/constants/errnos.md
-    u8 errno;
-
-    u8 _pad[7];
+    u8 pad[2];
 } flow_metrics;
 
 // Attributes that uniquely identify a flow
@@ -75,13 +59,41 @@ typedef struct flow_id_t {
 typedef struct flow_record_t {
     flow_metrics metrics;
     flow_id id;
-    u8 initialized;
-    u8 ignore;
-    u8 _pad[2];
+    u32 pad;
 } flow_record;
+
+typedef struct flow_ctx_t {
+    struct in6_addr local_ip;
+    struct in6_addr remote_ip;
+
+    u64 start_mono_time_ns;
+    u64 end_mono_time_ns;
+
+    u64 tx_bytes;
+    u64 rx_bytes;
+
+    u32 tx_packets;
+    u32 rx_packets;
+
+    u16 local_port;
+    u16 remote_port;
+
+    u32 ingress_if_index;
+    u32 egress_if_index;
+
+    u32 egress_submitted_iface;
+
+    u8 transport_protocol;
+    u8 start_direction;
+    u8 pad[6];
+} flow_ctx;
 
 typedef struct socket_data_t {
     struct bpf_spin_lock lock;
-    u32 submitted_iface;
-    flow_record record;
+
+    u8 ignore;
+    u8 initialized;
+    u8 _pad[2];
+
+    flow_ctx ctx;
 } flow_socket_data;

@@ -38,11 +38,11 @@ import (
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type flow_metrics_t -type flow_id_t  -type flow_record_t -target amd64,arm64 NetSk ../../../../bpf/netolly/flows_sock.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type flow_metrics_t -type flow_id_t  -type flow_record_t -target amd64,arm64 Net ../../../../bpf/netolly/flows_sock.c -- -I../../../../bpf
 
 type SockFlowFetcher struct {
 	log           *slog.Logger
-	objects       *NetSkObjects
+	objects       *NetObjects
 	ringbufReader *ringbuf.Reader
 	links         []link.Link
 }
@@ -152,9 +152,9 @@ func NewSockFlowFetcher(rbSizeMB uint32, flushPeriod, flowDuration time.Duration
 			"error", err)
 	}
 
-	objects := NetSkObjects{}
+	objects := NetObjects{}
 
-	spec, err := LoadNetSk()
+	spec, err := LoadNet()
 	if err != nil {
 		return nil, fmt.Errorf("loading BPF data: %w", err)
 	}
