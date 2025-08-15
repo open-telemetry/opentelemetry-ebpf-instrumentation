@@ -388,7 +388,24 @@ static __always_inline void init_flow_skb(struct __sk_buff *skb, flow_socket_dat
     bpf_spin_unlock(&data->lock);
 }
 
+static __always_inline void print_flow(struct __sk_buff *skb, u8 direction) {
+    char buf[64];
+
+    u32 local = skb->local_ip4;
+    u32 remote = skb->remote_ip4;
+    u8 *bytes = (u8 *)&local;
+    u8 *rbytes = (u8 *)&remote;
+    u64 data[] = {
+        bytes[0], bytes[1], bytes[2], bytes[3], rbytes[0], rbytes[1], rbytes[2], rbytes[3]};
+
+    bpf_snprintf(buf, 64, "%d.%d.%d.%d -> %d.%d.%d.%d", data, sizeof(data));
+
+    bpf_printk("FLOW %s (%u)", buf, direction);
+}
+
 static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
+    print_flow(skb, direction);
+
     if (skb->family != AF_INET && skb->family != AF_INET6) {
         return;
     }
@@ -400,7 +417,7 @@ static __always_inline void update_flow(struct __sk_buff *skb, u8 direction) {
     flow_socket_data *data = get_sk_storage(skb->sk);
 
     if (!data) {
-        bpf_printk("sock_egress failed");
+        bpf_printk("update_flow failed");
         return;
     }
 

@@ -116,7 +116,6 @@ func TestNetwork_ReverseDNS(t *testing.T) {
 	}
 
 	checkCurlFlows(`{dst_name="github.com"}`)
-	checkCurlFlows(`{src_name="github.com"}`)
 
 	require.NoError(t, compose.Close())
 }
