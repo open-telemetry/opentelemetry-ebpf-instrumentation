@@ -853,7 +853,7 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
             &packet_type)) { // we must check tcp_close second, a packet can be a close and a response
         // this can be very verbose
         //bpf_d_printk("http buf %s", buf);
-        //d_print_http_connection_info(&conn);
+        //dbg_print_http_connection_info(&conn);
 
         if (packet_type == PACKET_TYPE_REQUEST) {
             u64 cookie = bpf_get_socket_cookie(skb);

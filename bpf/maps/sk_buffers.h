@@ -50,7 +50,7 @@ static __always_inline sk_msg_buffer_t *empty_sk_buffer() {
 
 static __always_inline void delete_backup_sk_buff(connection_info_t *conn) {
     bpf_d_printk("deleting sk_buff on");
-    d_print_http_connection_info(conn);
+    dbg_print_http_connection_info(conn);
     bpf_map_delete_elem(&sk_buffers, conn);
 }
 
@@ -71,7 +71,7 @@ static __always_inline void make_inactive_sk_buffer(connection_info_t *conn) {
     }
     if (msg_buf) {
         bpf_d_printk("marked buffer as inactive");
-        d_print_http_connection_info(conn);
+        dbg_print_http_connection_info(conn);
         msg_buf->inactive = 1;
         bpf_map_update_elem(&sk_buffers, conn, msg_buf, BPF_ANY);
     }
