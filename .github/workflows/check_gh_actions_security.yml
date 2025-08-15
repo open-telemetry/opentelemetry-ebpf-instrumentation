@@ -25,7 +25,7 @@ jobs:
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@d9e0f98d3fc6adb07d1e3d37f3043649ddad06a1 # v6.5.0
         with:
-          enable-cache: true
+          enable-cache: false
 
       - name: Run zizmor 🌈
         run: uvx zizmor --format=github .
