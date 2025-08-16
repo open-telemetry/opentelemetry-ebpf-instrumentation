@@ -82,8 +82,12 @@ func TestCIDRDecorator_GroupAllUnknownTraffic(t *testing.T) {
 }
 
 func flow(srcIP, dstIP string) *ebpf.Record {
-	er := ebpf.Record{}
-	copy(er.Id.SrcIp.In6U.U6Addr8[:], net.ParseIP(srcIP).To16())
-	copy(er.Id.DstIp.In6U.U6Addr8[:], net.ParseIP(dstIP).To16())
+	er := ebpf.Record{
+		NetFlowRecordT: ebpf.NetFlowRecordT{
+			Metrics: ebpf.NetFlowMetricsT{IfaceDirection: 1, StartDirection: 1},
+		},
+	}
+	copy(er.Id.LocalIp.In6U.U6Addr8[:], net.ParseIP(srcIP).To16())
+	copy(er.Id.RemoteIp.In6U.U6Addr8[:], net.ParseIP(dstIP).To16())
 	return &er
 }

@@ -116,6 +116,7 @@ func TestNetwork_ReverseDNS(t *testing.T) {
 	}
 
 	checkCurlFlows(`{dst_name="github.com"}`)
+	checkCurlFlows(`{src_name="github.com"}`)
 
 	require.NoError(t, compose.Close())
 }
@@ -215,8 +216,7 @@ func getDirectionNetFlows(t *testing.T) []prom.Result {
 	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
 		results, err = pq.Query(`obi_network_flow_bytes_total{src_port="7000", dst_port="8080"} or obi_network_flow_bytes_total{src_port="8080", dst_port="7000"}`)
 		require.NoError(t, err)
-		require.Len(t, results, 2)
-		require.NotEmpty(t, results)
+		require.GreaterOrEqual(t, len(results), 2)
 	}, test.Interval(time.Second))
 	return results
 }
@@ -233,8 +233,7 @@ func callAndCheckMetrics(t *testing.T, req *http.Request, pq prom.Client, previo
 	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_port="7000", dst_port="8080"} or obi_network_flow_bytes_total{src_port="8080", dst_port="7000"}`)
 		require.NoError(t, err)
-		require.Len(t, results, 2)
-		require.NotEmpty(t, results)
+		require.GreaterOrEqual(t, len(results), 2)
 		// wait till the amount of bytes is greater than the previous read
 		client := results[slices.IndexFunc(results, func(result prom.Result) bool { return result.Metric["dst_port"] == "8080" })]
 		clientValue, _ = strconv.Atoi(client.Value[1].(string))

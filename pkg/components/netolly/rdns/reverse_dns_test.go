@@ -36,10 +36,11 @@ func TestReverseDNS(t *testing.T) {
 
 	// When it receives flows without source nor destination name
 	f1 := &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
-		Id: ebpf.NetFlowId{IfIndex: 1},
+		Id:      ebpf.NetFlowIdT{IfIndex: 1},
+		Metrics: ebpf.NetFlowMetricsT{IfaceDirection: 1, StartDirection: 1},
 	}}
-	f1.Id.SrcIp.In6U.U6Addr8 = srcIP
-	f1.Id.DstIp.In6U.U6Addr8 = dstIP
+	f1.Id.LocalIp.In6U.U6Addr8 = srcIP
+	f1.Id.RemoteIp.In6U.U6Addr8 = dstIP
 
 	enrich(f1)
 
@@ -58,11 +59,11 @@ func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
 
 	// When it receives flows with source and destination names
 	f1 := &ebpf.Record{
-		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{IfIndex: 1}},
+		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowIdT{IfIndex: 1}},
 		Attrs:          ebpf.RecordAttrs{SrcName: "src", DstName: "dst"},
 	}
-	f1.Id.SrcIp.In6U.U6Addr8 = srcIP
-	f1.Id.DstIp.In6U.U6Addr8 = dstIP
+	f1.Id.LocalIp.In6U.U6Addr8 = srcIP
+	f1.Id.RemoteIp.In6U.U6Addr8 = dstIP
 
 	enrich(f1)
 
@@ -83,11 +84,11 @@ func TestReverseDNS_Cache(t *testing.T) {
 
 	// When it receives a flow with an unknown destination for the first time
 	f1 := &ebpf.Record{
-		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{IfIndex: 1}},
+		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowIdT{IfIndex: 1}},
 		Attrs:          ebpf.RecordAttrs{SrcName: "src"},
 	}
-	f1.Id.SrcIp.In6U.U6Addr8 = srcIP
-	f1.Id.DstIp.In6U.U6Addr8 = dstIP
+	f1.Id.LocalIp.In6U.U6Addr8 = srcIP
+	f1.Id.RemoteIp.In6U.U6Addr8 = dstIP
 
 	// THEN it decorates it
 	enrich(f1)

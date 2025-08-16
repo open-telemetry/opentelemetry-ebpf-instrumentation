@@ -402,17 +402,17 @@ static __always_inline void submit_flows(const flow_ctx *ctx) {
             return;
         }
 
-        record->id.src_ip = ctx->local_ip;
-        record->id.dst_ip = ctx->remote_ip;
+        record->id.local_ip = ctx->local_ip;
+        record->id.remote_ip = ctx->remote_ip;
         record->id.if_index = ctx->egress_if_index;
-        record->id.src_port = ctx->local_port;
-        record->id.dst_port = ctx->remote_port;
+        record->id.local_port = ctx->local_port;
+        record->id.remote_port = ctx->remote_port;
         record->id.transport_protocol = ctx->transport_protocol;
 
         record->metrics.bytes = ctx->tx_bytes;
         record->metrics.packets = ctx->tx_packets;
         record->metrics.iface_direction = k_flow_egress;
-        record->metrics.initiator = ctx->start_direction;
+        record->metrics.start_direction = ctx->start_direction;
 
         bpf_ringbuf_submit(record, rb_flags);
     }
@@ -424,17 +424,17 @@ static __always_inline void submit_flows(const flow_ctx *ctx) {
             return;
         }
 
-        record->id.src_ip = ctx->remote_ip;
-        record->id.dst_ip = ctx->local_ip;
+        record->id.local_ip = ctx->local_ip;
+        record->id.remote_ip = ctx->remote_ip;
         record->id.if_index = ctx->ingress_if_index;
-        record->id.src_port = ctx->remote_port;
-        record->id.dst_port = ctx->local_port;
+        record->id.local_port = ctx->local_port;
+        record->id.remote_port = ctx->remote_port;
         record->id.transport_protocol = ctx->transport_protocol;
 
         record->metrics.bytes = ctx->rx_bytes;
         record->metrics.packets = ctx->rx_packets;
         record->metrics.iface_direction = k_flow_ingress;
-        record->metrics.initiator = ctx->start_direction;
+        record->metrics.start_direction = ctx->start_direction;
 
         bpf_ringbuf_submit(record, rb_flags);
     }

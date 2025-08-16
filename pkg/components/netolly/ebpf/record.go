@@ -76,14 +76,52 @@ func NewRecord(
 	}
 }
 
-// SrcIP is never null. Returned as pointer for efficiency.
-func (fi *NetFlowIdT) SrcIP() *IPAddr {
-	return (*IPAddr)(&fi.SrcIp.In6U.U6Addr8)
+func (fi *NetFlowRecordT) SrcIP() *IPAddr {
+	if fi.Metrics.IfaceDirection == DirectionEgress {
+		return (*IPAddr)(&fi.Id.LocalIp.In6U.U6Addr8)
+	}
+
+	return (*IPAddr)(&fi.Id.RemoteIp.In6U.U6Addr8)
 }
 
-// DstIP is never null. Returned as pointer for efficiency.
-func (fi *NetFlowIdT) DstIP() *IPAddr {
-	return (*IPAddr)(&fi.DstIp.In6U.U6Addr8)
+func (fi *NetFlowRecordT) SrcPort() uint16 {
+	if fi.Metrics.IfaceDirection == DirectionEgress {
+		return fi.Id.LocalPort
+	}
+
+	return fi.Id.RemotePort
+}
+
+func (fi *NetFlowRecordT) DstIP() *IPAddr {
+	if fi.Metrics.IfaceDirection == DirectionEgress {
+		return (*IPAddr)(&fi.Id.RemoteIp.In6U.U6Addr8)
+	}
+
+	return (*IPAddr)(&fi.Id.LocalIp.In6U.U6Addr8)
+}
+
+func (fi *NetFlowRecordT) DstPort() uint16 {
+	if fi.Metrics.IfaceDirection == DirectionEgress {
+		return fi.Id.RemotePort
+	}
+
+	return fi.Id.LocalPort
+}
+
+func (fi *NetFlowRecordT) ClientPort() uint16 {
+	if fi.Metrics.StartDirection == DirectionEgress {
+		return fi.Id.LocalPort
+	}
+
+	return fi.Id.RemotePort
+}
+
+func (fi *NetFlowRecordT) ServerPort() uint16 {
+	if fi.Metrics.StartDirection == DirectionEgress {
+		return fi.Id.RemotePort
+	}
+
+	return fi.Id.LocalPort
 }
 
 // IP returns the net.IP equivalent object

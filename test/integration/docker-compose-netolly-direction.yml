@@ -37,6 +37,7 @@ services:
     image: hatest-obi
     privileged: true
     network_mode: service:testserver
+    cgroup: host
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-netolly${OTEL_EBPF_CONFIG_SUFFIX}.yml
       GOCOVERDIR: "/coverage"

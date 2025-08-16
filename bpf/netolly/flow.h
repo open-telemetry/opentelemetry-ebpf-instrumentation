@@ -29,28 +29,25 @@ typedef struct flow_metrics_t {
     u32 packets;
 
     u8 iface_direction;
-    u8 initiator;
+    u8 start_direction;
     u8 pad[2];
 } flow_metrics;
 
 // Attributes that uniquely identify a flow
-// TODO: remove attributes that won't be used in Beyla (e.g. MAC, maybe protocol...)
 typedef struct flow_id_t {
     // L3 network layer
     // IPv4 addresses are encoded as IPv6 addresses with prefix ::ffff/96
     // as described in https://datatracker.ietf.org/doc/html/rfc4038#section-4.2
-    struct in6_addr src_ip; // keep these aligned
-    struct in6_addr dst_ip;
+    struct in6_addr local_ip; // keep these aligned
+    struct in6_addr remote_ip;
     // OS interface index
     u32 if_index;
 
-    u16 eth_protocol;
-
     // L4 transport layer
-    u16 src_port;
-    u16 dst_port;
+    u16 local_port;
+    u16 remote_port;
     u8 transport_protocol;
-    u8 _pad[1];
+    u8 _pad[3];
 } flow_id;
 
 // Flow record is a tuple containing both flow identifier and metrics. It is used to send

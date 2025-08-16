@@ -83,10 +83,10 @@ func (g *ipGrouper) decorate(flow *ebpf.Record) {
 	if flow.Attrs.Metadata == nil {
 		flow.Attrs.Metadata = map[attr.Name]string{}
 	}
-	if srcCIDR := g.CIDR(flow.Id.SrcIP().IP()); srcCIDR != "" {
+	if srcCIDR := g.CIDR(flow.SrcIP().IP()); srcCIDR != "" {
 		flow.Attrs.Metadata[attr.SrcCIDR] = srcCIDR
 	}
-	if dstCIDR := g.CIDR(flow.Id.DstIP().IP()); dstCIDR != "" {
+	if dstCIDR := g.CIDR(flow.DstIP().IP()); dstCIDR != "" {
 		flow.Attrs.Metadata[attr.DstCIDR] = dstCIDR
 	}
 }

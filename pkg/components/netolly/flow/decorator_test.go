@@ -25,16 +25,18 @@ func TestDecoration(t *testing.T) {
 	decorate := FlowDecorator(agentIP, ifaceNamer)
 
 	f1 := ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
-		Id: ebpf.NetFlowId{IfIndex: 1},
+		Id:      ebpf.NetFlowIdT{IfIndex: 1},
+		Metrics: ebpf.NetFlowMetricsT{IfaceDirection: 1, StartDirection: 1},
 	}, Attrs: ebpf.RecordAttrs{SrcName: "source"}}
-	f1.Id.SrcIp.In6U.U6Addr8 = srcIP
-	f1.Id.DstIp.In6U.U6Addr8 = dstIP
+	f1.Id.LocalIp.In6U.U6Addr8 = srcIP
+	f1.Id.RemoteIp.In6U.U6Addr8 = dstIP
 
 	f2 := ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
-		Id: ebpf.NetFlowId{IfIndex: 2},
+		Id:      ebpf.NetFlowIdT{IfIndex: 2},
+		Metrics: ebpf.NetFlowMetricsT{IfaceDirection: 1, StartDirection: 1},
 	}, Attrs: ebpf.RecordAttrs{DstName: "destination"}}
-	f2.Id.SrcIp.In6U.U6Addr8 = srcIP
-	f2.Id.DstIp.In6U.U6Addr8 = dstIP
+	f2.Id.LocalIp.In6U.U6Addr8 = srcIP
+	f2.Id.RemoteIp.In6U.U6Addr8 = dstIP
 
 	// decorates the flows, by adding IPs to source/destination
 	// names only when they were missing

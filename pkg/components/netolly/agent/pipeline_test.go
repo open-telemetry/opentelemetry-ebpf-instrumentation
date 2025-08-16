@@ -49,10 +49,14 @@ func NewDummyFlowFetcher() *DummyFlowFetcher {
 	return &d
 }
 
-func (d *DummyFlowFetcher) add(protocol transport.Protocol, srcPort, dstPort uint16) {
+func (d *DummyFlowFetcher) add(protocol transport.Protocol, localPort, remotePort uint16) {
 	record := ebpf.NetFlowRecordT{
-		Id: ebpf.NetFlowId{
-			SrcPort: srcPort, DstPort: dstPort, TransportProtocol: uint8(protocol),
+		Id: ebpf.NetFlowIdT{
+			LocalPort: localPort, RemotePort: remotePort, TransportProtocol: uint8(protocol),
+		},
+		Metrics: ebpf.NetFlowMetricsT{
+			IfaceDirection: 1,
+			StartDirection: 1,
 		},
 	}
 
@@ -128,10 +132,10 @@ func TestFilter(t *testing.T) {
 		// assuming metrics returned alphabetically ordered
 		assert.Equal(t, []prom2.ScrapedMetric{
 			{Name: "obi_network_flow_bytes_total", Labels: map[string]string{
-				"obi_ip": "1.2.3.4", "iface_direction": "ingress", "dst_port": "1011", "iface": "fakeiface", "src_port": "789", "transport": "TCP",
+				"obi_ip": "1.2.3.4", "iface_direction": "egress", "dst_port": "1011", "iface": "fakeiface", "src_port": "789", "transport": "TCP",
 			}},
 			{Name: "obi_network_flow_bytes_total", Labels: map[string]string{
-				"obi_ip": "1.2.3.4", "iface_direction": "ingress", "dst_port": "1415", "iface": "fakeiface", "src_port": "1213", "transport": "TCP",
+				"obi_ip": "1.2.3.4", "iface_direction": "egress", "dst_port": "1415", "iface": "fakeiface", "src_port": "1213", "transport": "TCP",
 			}},
 			// standard prometheus metrics. Leaving them here to simplify test verification
 			{Name: "promhttp_metric_handler_errors_total", Labels: map[string]string{"cause": "encoding"}},

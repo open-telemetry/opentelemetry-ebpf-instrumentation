@@ -104,10 +104,10 @@ func ReverseDNSEnricher(ctx context.Context, cfg *ReverseDNS) (ReverseDNSFunc, e
 		log.Debug("starting reverse DNS node")
 
 		if flow.Attrs.SrcName == "" {
-			flow.Attrs.SrcName = optGetName(log, cache, flow.Id.SrcIp.In6U.U6Addr8)
+			flow.Attrs.SrcName = optGetName(log, cache, *flow.SrcIP())
 		}
 		if flow.Attrs.DstName == "" {
-			flow.Attrs.DstName = optGetName(log, cache, flow.Id.DstIp.In6U.U6Addr8)
+			flow.Attrs.DstName = optGetName(log, cache, *flow.DstIP())
 		}
 	}, nil
 }

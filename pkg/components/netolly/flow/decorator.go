@@ -39,10 +39,10 @@ func FlowDecorator(agentIP string, ifaceNamer InterfaceNamer) FlowDecoratorFunc 
 		flow.Attrs.Interface = ifaceNamer(int(flow.Id.IfIndex))
 		flow.Attrs.OBIIP = agentIP
 		if flow.Attrs.DstName == "" {
-			flow.Attrs.DstName = flow.Id.DstIP().IP().String()
+			flow.Attrs.DstName = flow.DstIP().IP().String()
 		}
 		if flow.Attrs.SrcName == "" {
-			flow.Attrs.SrcName = flow.Id.SrcIP().IP().String()
+			flow.Attrs.SrcName = flow.SrcIP().IP().String()
 		}
 	}
 }
