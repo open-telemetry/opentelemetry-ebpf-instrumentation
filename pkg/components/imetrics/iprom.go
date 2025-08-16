@@ -38,6 +38,9 @@ type PrometheusReporter struct {
 	instrumentationErrors *prometheus.CounterVec
 	avoidedServices       *prometheus.GaugeVec
 	buildInfo             prometheus.Gauge
+	bpfProbeLatencies     *prometheus.HistogramVec
+	bpfMapEntries         *prometheus.GaugeVec
+	bpfMapMaxEntries      *prometheus.GaugeVec
 }
 
 func NewPrometheusReporter(cfg *PrometheusConfig, manager *connector.PrometheusManager, registry *prometheus.Registry) *PrometheusReporter {
@@ -95,6 +98,19 @@ func NewPrometheusReporter(cfg *PrometheusConfig, manager *connector.PrometheusM
 				"revision":  buildinfo.Revision,
 			},
 		}),
+		bpfProbeLatencies: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    attr.VendorPrefix + "_bpf_probe_latency_seconds",
+			Help:    "Latency of the BPF probes in seconds",
+			Buckets: BpfLatenciesBuckets,
+		}, []string{"probe_id", "probe_type", "probe_name"}),
+		bpfMapEntries: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: attr.VendorPrefix + "_bpf_map_entries_total",
+			Help: "Total number of entries in the BPF maps",
+		}, []string{"map_id", "map_name", "map_type"}),
+		bpfMapMaxEntries: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: attr.VendorPrefix + "_bpf_map_max_entries",
+			Help: "Maximum number of entries in the BPF maps",
+		}, []string{"map_id", "map_name", "map_type"}),
 	}
 	if registry != nil {
 		registry.MustRegister(pr.tracerFlushes,
@@ -106,7 +122,10 @@ func NewPrometheusReporter(cfg *PrometheusConfig, manager *connector.PrometheusM
 			pr.instrumentedProcesses,
 			pr.instrumentationErrors,
 			pr.avoidedServices,
-			pr.buildInfo)
+			pr.buildInfo,
+			pr.bpfProbeLatencies,
+			pr.bpfMapEntries,
+			pr.bpfMapMaxEntries)
 	} else {
 		manager.Register(cfg.Port, cfg.Path,
 			pr.tracerFlushes,
@@ -118,7 +137,10 @@ func NewPrometheusReporter(cfg *PrometheusConfig, manager *connector.PrometheusM
 			pr.instrumentedProcesses,
 			pr.instrumentationErrors,
 			pr.avoidedServices,
-			pr.buildInfo)
+			pr.buildInfo,
+			pr.bpfProbeLatencies,
+			pr.bpfMapEntries,
+			pr.bpfMapMaxEntries)
 	}
 
 	return pr
@@ -177,4 +199,16 @@ func (p *PrometheusReporter) AvoidInstrumentationMetrics(serviceName, serviceNam
 
 func (p *PrometheusReporter) AvoidInstrumentationTraces(serviceName, serviceNamespace, serviceInstanceID string) {
 	p.recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, "traces")
+}
+
+func (p *PrometheusReporter) BpfProbeLatency(probeID, probeType, probeName string, latencySeconds float64) {
+	p.bpfProbeLatencies.WithLabelValues(probeID, probeType, probeName).Observe(latencySeconds)
+}
+
+func (p *PrometheusReporter) BpfMapEntries(mapID, mapName, mapType string, entriesTotal int) {
+	p.bpfMapEntries.WithLabelValues(mapID, mapName, mapType).Set(float64(entriesTotal))
+}
+
+func (p *PrometheusReporter) BpfMapMaxEntries(mapID, mapName, mapType string, maxEntries int) {
+	p.bpfMapMaxEntries.WithLabelValues(mapID, mapName, mapType).Set(float64(maxEntries))
 }
