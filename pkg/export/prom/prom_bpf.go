@@ -40,6 +40,23 @@ type BPFProgram struct {
 	buckets      map[float64]uint64
 }
 
+type ProbeMetrics struct {
+	probeType string
+	probeName string
+	probeID   string
+	latency   float64
+	count     uint64
+	program   *BPFProgram
+}
+
+type BpfMapMetrics struct {
+	mapType    string
+	mapName    string
+	mapID      string
+	maxEntries int
+	entries    uint64
+}
+
 func BPFMetrics(
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
@@ -49,7 +66,7 @@ func BPFMetrics(
 			return swarm.EmptyRunFunc()
 		}
 		collector := newBPFCollector(ctxInfo, cfg)
-		return collector.reportMetrics, nil
+		return collector.start, nil
 	}
 }
 
@@ -89,13 +106,52 @@ func newBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig) *BPFCol
 			nil,
 		),
 	}
-	// Register the collector
-	c.promConnect.Register(cfg.Port, cfg.Path, c)
+	if promMetricsEnabled(cfg) {
+		// Register the collector
+		c.promConnect.Register(cfg.Port, cfg.Path, c)
+	}
 	return c
+}
+
+func (bc *BPFCollector) start(ctx context.Context) {
+	if promMetricsEnabled(bc.promCfg) {
+		bc.reportMetrics(ctx)
+	} else {
+		// TODO configurable?
+		go bc.collectInternalMetrics(ctx)
+	}
 }
 
 func (bc *BPFCollector) reportMetrics(ctx context.Context) {
 	go bc.promConnect.StartHTTP(ctx)
+}
+
+func (bc *BPFCollector) collectInternalMetrics(ctx context.Context) {
+	ticker := time.NewTicker(15 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-ticker.C:
+			probeMetrics := bc.getProbeMetrics()
+			for _, metric := range probeMetrics {
+				// TODO: this is not the most efficient way to report histogram metrics,
+				// but with otel metrics we don't have a way to report histograms based on count and latency, like filling buckets with prometheus.
+				// options are either to create counter with an le label, or just report count and sum of latencies, and drop the histogram.
+				for range metric.count {
+					bc.ctxInfo.Metrics.BpfProbeLatency(metric.probeID, metric.probeType, metric.probeName, metric.latency)
+				}
+			}
+
+			mapMetrics := bc.getMapMetrics()
+			for _, metric := range mapMetrics {
+				bc.ctxInfo.Metrics.BpfMapEntries(metric.mapID, metric.mapName, metric.mapType, int(metric.entries))
+				bc.ctxInfo.Metrics.BpfMapMaxEntries(metric.mapID, metric.mapName, metric.mapType, metric.maxEntries)
+			}
+		}
+	}
+	defer ticker.Stop()
 }
 
 func (bc *BPFCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -104,12 +160,39 @@ func (bc *BPFCollector) Describe(ch chan<- *prometheus.Desc) {
 
 func (bc *BPFCollector) Collect(ch chan<- prometheus.Metric) {
 	bc.log.Debug("Collecting eBPF metrics")
-	bc.collectProbesMetrics(ch)
-	bc.collectMapMetrics(ch)
+	probeMetrics := bc.getProbeMetrics()
+	for _, metric := range probeMetrics {
+		metric.program.updateBuckets(metric.latency, metric.count)
+
+		// Create the histogram metric
+		ch <- prometheus.MustNewConstHistogram(
+			bc.probeLatencyDesc,
+			metric.program.runCount,
+			metric.program.runTime.Seconds(),
+			metric.program.buckets,
+			metric.probeID,
+			metric.probeType,
+			metric.probeName,
+		)
+	}
+	mapMetrics := bc.getMapMetrics()
+	for _, metric := range mapMetrics {
+		ch <- prometheus.MustNewConstMetric(
+			bc.mapSizeDesc,
+			prometheus.CounterValue,
+			float64(metric.entries),
+			metric.mapID,
+			metric.mapName,
+			metric.mapType,
+			strconv.FormatUint(uint64(metric.maxEntries), 10),
+		)
+	}
 }
 
-func (bc *BPFCollector) collectProbesMetrics(ch chan<- prometheus.Metric) {
+func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
 	bc.enableBPFStatsRuntime()
+
+	probeMetrics := make([]ProbeMetrics, 0)
 
 	for id := ebpf.ProgramID(0); ; {
 		nextID, err := ebpf.ProgramGetNextID(id)
@@ -165,28 +248,16 @@ func (bc *BPFCollector) collectProbesMetrics(ch chan<- prometheus.Metric) {
 			probe.runCount = stats.RunCount
 		}
 		latency, count := probe.calculateStats()
-		// TODO: this is not the most efficient way to report histogram metrics,
-		// but with otel metrics we don't have a way to report histograms based on count and latency, like filling buckets with prometheus.
-		// options are either to create counter with an le label, or just report count and sum of latencies, and drop the histogram.
-		for range count {
-			bc.ctxInfo.Metrics.BpfProbeLatency(idStr, info.Type.String(), name, latency)
-		}
-
-		if promMetricsEnabled(bc.promCfg) {
-			probe.updateBuckets(latency, count)
-
-			// Create the histogram metric
-			ch <- prometheus.MustNewConstHistogram(
-				bc.probeLatencyDesc,
-				stats.RunCount,
-				stats.Runtime.Seconds(),
-				probe.buckets,
-				idStr,
-				info.Type.String(),
-				name,
-			)
-		}
+		probeMetrics = append(probeMetrics, ProbeMetrics{
+			probeID:   idStr,
+			probeType: info.Type.String(),
+			probeName: name,
+			latency:   latency,
+			count:     count,
+			program:   probe,
+		})
 	}
+	return probeMetrics
 }
 
 func getFuncName(info *ebpf.ProgramInfo, id ebpf.ProgramID, log *slog.Logger) string {
@@ -204,7 +275,8 @@ func getFuncName(info *ebpf.ProgramInfo, id ebpf.ProgramID, log *slog.Logger) st
 	return info.Name
 }
 
-func (bc *BPFCollector) collectMapMetrics(ch chan<- prometheus.Metric) {
+func (bc *BPFCollector) getMapMetrics() []BpfMapMetrics {
+	mapMetrics := make([]BpfMapMetrics, 0)
 	for id := ebpf.MapID(0); ; {
 		nextID, err := ebpf.MapGetNextID(id)
 		if err != nil {
@@ -240,21 +312,16 @@ func (bc *BPFCollector) collectMapMetrics(ch chan<- prometheus.Metric) {
 		if err := iter.Err(); err == nil {
 			mapID := strconv.FormatUint(uint64(id), 10)
 			mapType := info.Type.String()
-			bc.ctxInfo.Metrics.BpfMapEntries(mapID, mapType, info.Name, int(count))
-			bc.ctxInfo.Metrics.BpfMapMaxEntries(mapID, mapType, info.Name, int(info.MaxEntries))
-			if promMetricsEnabled(bc.promCfg) {
-				ch <- prometheus.MustNewConstMetric(
-					bc.mapSizeDesc,
-					prometheus.CounterValue,
-					float64(count),
-					mapID,
-					info.Name,
-					mapType,
-					strconv.FormatUint(uint64(info.MaxEntries), 10),
-				)
-			}
+			mapMetrics = append(mapMetrics, BpfMapMetrics{
+				mapType:    mapType,
+				mapName:    info.Name,
+				mapID:      mapID,
+				maxEntries: int(info.MaxEntries),
+				entries:    count,
+			})
 		}
 	}
+	return mapMetrics
 }
 
 func (bp *BPFProgram) calculateStats() (float64, uint64) {
