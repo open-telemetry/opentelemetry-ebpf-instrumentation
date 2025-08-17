@@ -117,7 +117,6 @@ func (bc *BPFCollector) start(ctx context.Context) {
 	if promMetricsEnabled(bc.promCfg) {
 		bc.reportMetrics(ctx)
 	} else {
-		// TODO configurable?
 		go bc.collectInternalMetrics(ctx)
 	}
 }
@@ -127,7 +126,9 @@ func (bc *BPFCollector) reportMetrics(ctx context.Context) {
 }
 
 func (bc *BPFCollector) collectInternalMetrics(ctx context.Context) {
+	// TODO configurable?
 	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -151,7 +152,6 @@ func (bc *BPFCollector) collectInternalMetrics(ctx context.Context) {
 			}
 		}
 	}
-	defer ticker.Stop()
 }
 
 func (bc *BPFCollector) Describe(ch chan<- *prometheus.Desc) {
