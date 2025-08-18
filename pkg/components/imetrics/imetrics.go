@@ -94,7 +94,7 @@ type Reporter interface {
 	BpfProbeLatency(probeID, probeType, probeName string, latencySeconds float64)
 	// BpfMapEntries is invoked every time a BPF map size is recorded
 	BpfMapEntries(mapID, mapName, mapType string, entriesTotal int)
-	// BpfMapMaxEntries is invoked every time a BPF map size is recorded
+	// BpfMapMaxEntries is invoked every time a BPF map max size is recorded
 	BpfMapMaxEntries(mapID, mapName, mapType string, maxEntries int)
 }
 

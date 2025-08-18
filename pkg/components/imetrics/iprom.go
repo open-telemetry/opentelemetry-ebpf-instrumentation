@@ -108,7 +108,7 @@ func NewPrometheusReporter(cfg *PrometheusConfig, manager *connector.PrometheusM
 			Help: "Total number of entries in the BPF maps",
 		}, []string{"map_id", "map_name", "map_type"}),
 		bpfMapMaxEntries: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: attr.VendorPrefix + "_bpf_map_max_entries",
+			Name: attr.VendorPrefix + "_bpf_map_max_entries_total",
 			Help: "Maximum number of entries in the BPF maps",
 		}, []string{"map_id", "map_name", "map_type"}),
 	}

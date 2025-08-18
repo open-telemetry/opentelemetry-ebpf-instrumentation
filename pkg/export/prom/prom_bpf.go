@@ -22,7 +22,7 @@ import (
 // BPFCollector implements prometheus.Collector for collecting metrics about currently loaded eBPF programs.
 type BPFCollector struct {
 	promCfg         *PrometheusConfig
-	internalMetrics *imetrics.Reporter
+	internalMetrics imetrics.Reporter
 	promConnect     *connector.PrometheusManager
 	ctxInfo         *global.ContextInfo
 	log             *slog.Logger
@@ -88,7 +88,7 @@ func bpfCollectorEnabled(cfg *PrometheusConfig, internalMetrics imetrics.Reporte
 func newBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig) *BPFCollector {
 	c := &BPFCollector{
 		promCfg:         cfg,
-		internalMetrics: &ctxInfo.Metrics,
+		internalMetrics: ctxInfo.Metrics,
 		log:             slog.With("component", "prom.BPFCollector"),
 		ctxInfo:         ctxInfo,
 		promConnect:     ctxInfo.Prometheus,

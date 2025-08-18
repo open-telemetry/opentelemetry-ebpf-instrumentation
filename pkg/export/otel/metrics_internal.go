@@ -161,7 +161,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		return nil, err
 	}
 	bpfMapMaxEntries, err := meter.Int64Gauge(
-		attr.VendorPrefix+".bpf.map.max.entries_total",
+		attr.VendorPrefix+".bpf.map.max_entries_total",
 		instrument.WithDescription("Max number of entries in the eBPF map"),
 	)
 	if err != nil {
