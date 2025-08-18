@@ -25,8 +25,6 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
-
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 // IPAddr encodes v4 and v6 IPs with a fixed length.
@@ -47,21 +45,25 @@ type Record struct {
 }
 
 type RecordAttrs struct {
-	// SrcName and DstName might be set from several sources along the processing/decoration pipeline:
-	// - K8s entity
-	// - Host name
-	// - IP
-	SrcName string
-	DstName string
+	K8sClusterName string
+	OBIIP          string
+	Interface      string
+	Src            InnerAttrs
+	Dst            InnerAttrs
+}
 
-	// SrcZone and DstZone represent the Cloud availability zones of the source and destination
-	SrcZone string
-	DstZone string
-
-	Interface string
-	// OBIIP provides information about the source of the flow (the Agent that traced it)
-	OBIIP    string
-	Metadata map[attr.Name]string
+type InnerAttrs struct {
+	Namespace  string
+	Name       string
+	Type       string
+	OwnerName  string
+	OwnerType  string
+	OnwerIP    string
+	NodeIP     string
+	NodeName   string
+	TargetName string
+	TargetZone string
+	CIDR       string
 }
 
 func NewRecord(

@@ -65,9 +65,13 @@ func RecordGetters(name attr.Name) (attributes.Getter[*Record, attribute.KeyValu
 	case attr.DstPort:
 		getter = func(r *Record) attribute.KeyValue { return attribute.Int(string(attr.DstPort), int(r.DstPort())) }
 	case attr.SrcName:
-		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.SrcName), r.Attrs.SrcName) }
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.SrcName), r.Attrs.Src.TargetName)
+		}
 	case attr.DstName:
-		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.DstName), r.Attrs.DstName) }
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.DstName), r.Attrs.Dst.TargetName)
+		}
 	case attr.IfaceDirection:
 		getter = func(r *Record) attribute.KeyValue {
 			return attribute.String(string(attr.IfaceDirection), ifaceDirectionStr(r.Metrics.IfaceDirection))
@@ -83,11 +87,15 @@ func RecordGetters(name attr.Name) (attributes.Getter[*Record, attribute.KeyValu
 	case attr.ServerPort:
 		getter = func(r *Record) attribute.KeyValue { return attribute.Int(string(attr.ServerPort), int(r.ServerPort())) }
 	case attr.SrcZone:
-		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.SrcZone), r.Attrs.SrcZone) }
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.SrcZone), r.Attrs.Src.TargetZone)
+		}
 	case attr.DstZone:
-		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.DstZone), r.Attrs.DstZone) }
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.DstZone), r.Attrs.Dst.TargetZone)
+		}
 	default:
-		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(name), r.Attrs.Metadata[name]) }
+		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(name), "") }
 	}
 	return getter, getter != nil
 }

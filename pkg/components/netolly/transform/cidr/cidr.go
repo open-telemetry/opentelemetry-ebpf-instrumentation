@@ -11,7 +11,6 @@ import (
 	"github.com/yl2chen/cidranger"
 
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 func glog() *slog.Logger {
@@ -80,13 +79,10 @@ func (g *ipGrouper) CIDR(ip net.IP) string {
 }
 
 func (g *ipGrouper) decorate(flow *ebpf.Record) {
-	if flow.Attrs.Metadata == nil {
-		flow.Attrs.Metadata = map[attr.Name]string{}
-	}
 	if srcCIDR := g.CIDR(flow.SrcIP().IP()); srcCIDR != "" {
-		flow.Attrs.Metadata[attr.SrcCIDR] = srcCIDR
+		flow.Attrs.Src.CIDR = srcCIDR
 	}
 	if dstCIDR := g.CIDR(flow.DstIP().IP()); dstCIDR != "" {
-		flow.Attrs.Metadata[attr.DstCIDR] = dstCIDR
+		flow.Attrs.Dst.CIDR = dstCIDR
 	}
 }

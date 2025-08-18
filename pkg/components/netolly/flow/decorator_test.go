@@ -27,14 +27,14 @@ func TestDecoration(t *testing.T) {
 	f1 := ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
 		Id:      ebpf.NetFlowIdT{IfIndex: 1},
 		Metrics: ebpf.NetFlowMetricsT{IfaceDirection: 1, StartDirection: 1},
-	}, Attrs: ebpf.RecordAttrs{SrcName: "source"}}
+	}, Attrs: ebpf.RecordAttrs{Src: ebpf.InnerAttrs{TargetName: "source"}}}
 	f1.Id.LocalIp.In6U.U6Addr8 = srcIP
 	f1.Id.RemoteIp.In6U.U6Addr8 = dstIP
 
 	f2 := ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
 		Id:      ebpf.NetFlowIdT{IfIndex: 2},
 		Metrics: ebpf.NetFlowMetricsT{IfaceDirection: 1, StartDirection: 1},
-	}, Attrs: ebpf.RecordAttrs{DstName: "destination"}}
+	}, Attrs: ebpf.RecordAttrs{Dst: ebpf.InnerAttrs{TargetName: "destination"}}}
 	f2.Id.LocalIp.In6U.U6Addr8 = srcIP
 	f2.Id.RemoteIp.In6U.U6Addr8 = dstIP
 
@@ -45,11 +45,11 @@ func TestDecoration(t *testing.T) {
 
 	assert.Equal(t, "eth1", f1.Attrs.Interface)
 	assert.Equal(t, "3.3.3.3", f1.Attrs.OBIIP)
-	assert.Equal(t, "source", f1.Attrs.SrcName)
-	assert.Equal(t, "4.3.2.1", f1.Attrs.DstName)
+	assert.Equal(t, "source", f1.Attrs.Src.TargetName)
+	assert.Equal(t, "4.3.2.1", f1.Attrs.Dst.TargetName)
 
 	assert.Equal(t, "eth2", f2.Attrs.Interface)
 	assert.Equal(t, "3.3.3.3", f2.Attrs.OBIIP)
-	assert.Equal(t, "1.2.3.4", f2.Attrs.SrcName)
-	assert.Equal(t, "destination", f2.Attrs.DstName)
+	assert.Equal(t, "1.2.3.4", f2.Attrs.Src.TargetName)
+	assert.Equal(t, "destination", f2.Attrs.Dst.TargetName)
 }

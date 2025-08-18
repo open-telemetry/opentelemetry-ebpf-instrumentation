@@ -44,11 +44,11 @@ func TestReverseDNS(t *testing.T) {
 
 	enrich(f1)
 
-	assert.Contains(t, f1.Attrs.SrcName, "github")
-	assert.Contains(t, f1.Attrs.DstName, "local")
+	assert.Contains(t, f1.Attrs.Src.TargetName, "github")
+	assert.Contains(t, f1.Attrs.Dst.TargetName, "local")
 }
 
-func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
+func TestReverseDNS_AlreadyProvidedTargetNames(t *testing.T) {
 	netLookupAddr = func(addr string) ([]string, error) {
 		require.Fail(t, "network lookup shouldn't be invoked!", "Got:", addr)
 		return nil, errors.New("boom")
@@ -60,15 +60,15 @@ func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
 	// When it receives flows with source and destination names
 	f1 := &ebpf.Record{
 		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowIdT{IfIndex: 1}},
-		Attrs:          ebpf.RecordAttrs{SrcName: "src", DstName: "dst"},
+		Attrs:          ebpf.RecordAttrs{Src: ebpf.InnerAttrs{TargetName: "src"}, Dst: ebpf.InnerAttrs{TargetName: "dst"}},
 	}
 	f1.Id.LocalIp.In6U.U6Addr8 = srcIP
 	f1.Id.RemoteIp.In6U.U6Addr8 = dstIP
 
 	enrich(f1)
 
-	assert.Contains(t, f1.Attrs.SrcName, "src")
-	assert.Contains(t, f1.Attrs.DstName, "dst")
+	assert.Contains(t, f1.Attrs.Src.TargetName, "src")
+	assert.Contains(t, f1.Attrs.Dst.TargetName, "dst")
 }
 
 func TestReverseDNS_Cache(t *testing.T) {
@@ -85,7 +85,7 @@ func TestReverseDNS_Cache(t *testing.T) {
 	// When it receives a flow with an unknown destination for the first time
 	f1 := &ebpf.Record{
 		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowIdT{IfIndex: 1}},
-		Attrs:          ebpf.RecordAttrs{SrcName: "src"},
+		Attrs:          ebpf.RecordAttrs{Src: ebpf.InnerAttrs{TargetName: "src"}},
 	}
 	f1.Id.LocalIp.In6U.U6Addr8 = srcIP
 	f1.Id.RemoteIp.In6U.U6Addr8 = dstIP
@@ -93,12 +93,12 @@ func TestReverseDNS_Cache(t *testing.T) {
 	// THEN it decorates it
 	enrich(f1)
 
-	assert.Contains(t, f1.Attrs.DstName, "amazon")
+	assert.Contains(t, f1.Attrs.Dst.TargetName, "amazon")
 
 	// AND when it receives the same flow again
-	f1.Attrs.DstName = ""
+	f1.Attrs.Dst.TargetName = ""
 	enrich(f1)
 
 	// THEN it decorates it from the cached copy (otherwise the fake netLookupAddr would crash)
-	assert.Contains(t, f1.Attrs.DstName, "amazon")
+	assert.Contains(t, f1.Attrs.Dst.TargetName, "amazon")
 }

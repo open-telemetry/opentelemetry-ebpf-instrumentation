@@ -38,14 +38,14 @@ func TestCIDRDecorator(t *testing.T) {
 		grouper(r)
 	}
 
-	assert.Equal(t, "10.0.0.0/8", records[0].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "10.1.2.0/24", records[0].Attrs.Metadata["dst.cidr"])
-	assert.Equal(t, "2001:db8:3c4d:15::/64", records[1].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "2001::/16", records[1].Attrs.Metadata["dst.cidr"])
-	assert.Equal(t, "140.130.22.0/24", records[2].Attrs.Metadata["src.cidr"])
-	assert.Empty(t, records[2].Attrs.Metadata["dst.cidr"])
-	assert.Empty(t, records[3].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "10.1.2.0/24", records[3].Attrs.Metadata["dst.cidr"])
+	assert.Equal(t, "10.0.0.0/8", records[0].Attrs.Src.CIDR)
+	assert.Equal(t, "10.1.2.0/24", records[0].Attrs.Dst.CIDR)
+	assert.Equal(t, "2001:db8:3c4d:15::/64", records[1].Attrs.Src.CIDR)
+	assert.Equal(t, "2001::/16", records[1].Attrs.Dst.CIDR)
+	assert.Equal(t, "140.130.22.0/24", records[2].Attrs.Src.CIDR)
+	assert.Empty(t, records[2].Attrs.Dst.CIDR)
+	assert.Empty(t, records[3].Attrs.Src.CIDR)
+	assert.Equal(t, "10.1.2.0/24", records[3].Attrs.Dst.CIDR)
 }
 
 func TestCIDRDecorator_GroupAllUnknownTraffic(t *testing.T) {
@@ -71,14 +71,14 @@ func TestCIDRDecorator_GroupAllUnknownTraffic(t *testing.T) {
 		grouper(r)
 	}
 
-	assert.Equal(t, "10.0.0.0/8", records[0].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "10.1.2.0/24", records[0].Attrs.Metadata["dst.cidr"])
-	assert.Equal(t, "2001:db8:3c4d:15::/64", records[1].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "2001::/16", records[1].Attrs.Metadata["dst.cidr"])
-	assert.Equal(t, "140.130.22.0/24", records[2].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "0.0.0.0/0", records[2].Attrs.Metadata["dst.cidr"])
-	assert.Equal(t, "0.0.0.0/0", records[3].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "10.1.2.0/24", records[3].Attrs.Metadata["dst.cidr"])
+	assert.Equal(t, "10.0.0.0/8", records[0].Attrs.Src.CIDR)
+	assert.Equal(t, "10.1.2.0/24", records[0].Attrs.Dst.CIDR)
+	assert.Equal(t, "2001:db8:3c4d:15::/64", records[1].Attrs.Src.CIDR)
+	assert.Equal(t, "2001::/16", records[1].Attrs.Dst.CIDR)
+	assert.Equal(t, "140.130.22.0/24", records[2].Attrs.Src.CIDR)
+	assert.Equal(t, "0.0.0.0/0", records[2].Attrs.Dst.CIDR)
+	assert.Equal(t, "0.0.0.0/0", records[3].Attrs.Src.CIDR)
+	assert.Equal(t, "10.1.2.0/24", records[3].Attrs.Dst.CIDR)
 }
 
 func flow(srcIP, dstIP string) *ebpf.Record {
