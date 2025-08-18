@@ -46,7 +46,7 @@ require (
 	go.opentelemetry.io/collector/exporter/otlpexporter v0.131.0
 	go.opentelemetry.io/collector/exporter/otlphttpexporter v0.131.0
 	go.opentelemetry.io/collector/pdata v1.37.0
-	go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.0.0-20250814110309-6dac951934bb
+	go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.0.0-20250818225315-bdf710db7736
 	go.opentelemetry.io/contrib/detectors/aws/eks v1.28.0
 	go.opentelemetry.io/contrib/detectors/azure/azurevm v0.0.1
 	go.opentelemetry.io/contrib/detectors/gcp v1.36.0
