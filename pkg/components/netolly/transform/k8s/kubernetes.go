@@ -60,15 +60,21 @@ type decorator struct {
 }
 
 type Decorator struct {
-	decorator *decorator
-	Decorate  func(*ebpf.Record) bool
+	decorator    *decorator
+	Enabled      bool
+	DropExternal bool
 }
 
 func NewDecorator(ctx context.Context, cfg *transform.KubernetesDecorator,
 	k8sInformer *kube.MetadataProvider,
 ) (*Decorator, error) {
-	if !k8sInformer.IsKubeEnabled() {
-		return &Decorator{decorator: nil, Decorate: func(*ebpf.Record) bool { return true }}, nil
+	d := &Decorator{
+		Enabled:      k8sInformer.IsKubeEnabled(),
+		DropExternal: cfg.DropExternal,
+	}
+
+	if !d.Enabled {
+		return d, nil
 	}
 
 	nt, err := newDecorator(ctx, cfg, k8sInformer)
@@ -76,18 +82,21 @@ func NewDecorator(ctx context.Context, cfg *transform.KubernetesDecorator,
 		return nil, fmt.Errorf("instantiating k8s.MetadataDecorator: %w", err)
 	}
 
-	d := &Decorator{
-		decorator: nt,
-	}
-
-	if cfg.DropExternal {
-		log().Debug("will drop external flows")
-		d.Decorate = nt.decorateMightDrop
-	} else {
-		d.Decorate = nt.decorateNoDrop
-	}
+	d.decorator = nt
 
 	return d, nil
+}
+
+func (d *Decorator) Decorate(r *ebpf.Record) bool {
+	if !d.Enabled {
+		return true
+	}
+
+	if d.DropExternal {
+		return d.decorator.decorateMightDrop(r)
+	}
+
+	return d.decorator.decorateNoDrop(r)
 }
 
 func (n *decorator) decorateNoDrop(flow *ebpf.Record) bool {

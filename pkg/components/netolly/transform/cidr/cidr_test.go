@@ -17,7 +17,7 @@ import (
 const testTimeout = 5 * time.Second
 
 func TestCIDRDecorator(t *testing.T) {
-	grouper, err := CIDRDecorator([]string{
+	grouper, err := NewCIDRDecorator([]string{
 		"10.0.0.0/8",
 		"10.1.2.0/24",
 		"140.130.22.0/24",
@@ -35,7 +35,7 @@ func TestCIDRDecorator(t *testing.T) {
 	}
 
 	for _, r := range records {
-		grouper(r)
+		grouper.Decorate(r)
 	}
 
 	assert.Equal(t, "10.0.0.0/8", records[0].Attrs.Src.CIDR)
@@ -49,7 +49,7 @@ func TestCIDRDecorator(t *testing.T) {
 }
 
 func TestCIDRDecorator_GroupAllUnknownTraffic(t *testing.T) {
-	grouper, err := CIDRDecorator([]string{
+	grouper, err := NewCIDRDecorator([]string{
 		"10.0.0.0/8",
 		"10.1.2.0/24",
 		"0.0.0.0/0", // this entry will capture all the unknown traffic
@@ -68,7 +68,7 @@ func TestCIDRDecorator_GroupAllUnknownTraffic(t *testing.T) {
 	}
 
 	for _, r := range records {
-		grouper(r)
+		grouper.Decorate(r)
 	}
 
 	assert.Equal(t, "10.0.0.0/8", records[0].Attrs.Src.CIDR)

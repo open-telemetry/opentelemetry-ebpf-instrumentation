@@ -31,7 +31,7 @@ func TestReverseDNS(t *testing.T) {
 		}
 	}
 	// Given a Reverse DNS node
-	enrich, err := ReverseDNSEnricher(t.Context(), &ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute})
+	enricher, err := NewReverseDNSEnricher(t.Context(), &ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute})
 	require.NoError(t, err)
 
 	// When it receives flows without source nor destination name
@@ -42,7 +42,7 @@ func TestReverseDNS(t *testing.T) {
 	f1.Id.LocalIp.In6U.U6Addr8 = srcIP
 	f1.Id.RemoteIp.In6U.U6Addr8 = dstIP
 
-	enrich(f1)
+	enricher.Enrich(f1)
 
 	assert.Contains(t, f1.Attrs.Src.TargetName, "github")
 	assert.Contains(t, f1.Attrs.Dst.TargetName, "local")
@@ -54,7 +54,7 @@ func TestReverseDNS_AlreadyProvidedTargetNames(t *testing.T) {
 		return nil, errors.New("boom")
 	}
 	// Given a Reverse DNS node
-	enrich, err := ReverseDNSEnricher(t.Context(), &ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute})
+	enricher, err := NewReverseDNSEnricher(t.Context(), &ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute})
 	require.NoError(t, err)
 
 	// When it receives flows with source and destination names
@@ -65,7 +65,7 @@ func TestReverseDNS_AlreadyProvidedTargetNames(t *testing.T) {
 	f1.Id.LocalIp.In6U.U6Addr8 = srcIP
 	f1.Id.RemoteIp.In6U.U6Addr8 = dstIP
 
-	enrich(f1)
+	enricher.Enrich(f1)
 
 	assert.Contains(t, f1.Attrs.Src.TargetName, "src")
 	assert.Contains(t, f1.Attrs.Dst.TargetName, "dst")
@@ -79,7 +79,7 @@ func TestReverseDNS_Cache(t *testing.T) {
 		return []string{"amazon"}, nil
 	}
 	// Given a Reverse DNS node
-	enrich, err := ReverseDNSEnricher(t.Context(), &ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute})
+	enricher, err := NewReverseDNSEnricher(t.Context(), &ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute})
 	require.NoError(t, err)
 
 	// When it receives a flow with an unknown destination for the first time
@@ -91,13 +91,13 @@ func TestReverseDNS_Cache(t *testing.T) {
 	f1.Id.RemoteIp.In6U.U6Addr8 = dstIP
 
 	// THEN it decorates it
-	enrich(f1)
+	enricher.Enrich(f1)
 
 	assert.Contains(t, f1.Attrs.Dst.TargetName, "amazon")
 
 	// AND when it receives the same flow again
 	f1.Attrs.Dst.TargetName = ""
-	enrich(f1)
+	enricher.Enrich(f1)
 
 	// THEN it decorates it from the cached copy (otherwise the fake netLookupAddr would crash)
 	assert.Contains(t, f1.Attrs.Dst.TargetName, "amazon")

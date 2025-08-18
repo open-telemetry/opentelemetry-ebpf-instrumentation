@@ -32,17 +32,25 @@ type InterfaceNamer func(ifIndex int) string
 // - The interface name (corresponding to the interface index in the flow).
 // - The IP address of the agent host.
 // - If there is no source or destination hostname, the source IP and destination
-type FlowDecoratorFunc func(*ebpf.Record)
+type FlowDecorator struct {
+	agentIP    string
+	ifaceNamer InterfaceNamer
+}
 
-func FlowDecorator(agentIP string, ifaceNamer InterfaceNamer) FlowDecoratorFunc {
-	return func(flow *ebpf.Record) {
-		flow.Attrs.Interface = ifaceNamer(int(flow.Id.IfIndex))
-		flow.Attrs.OBIIP = agentIP
-		if flow.Attrs.Dst.TargetName == "" {
-			flow.Attrs.Dst.TargetName = flow.DstIP().IP().String()
-		}
-		if flow.Attrs.Src.TargetName == "" {
-			flow.Attrs.Src.TargetName = flow.SrcIP().IP().String()
-		}
+func NewFlowDecorator(agentIP string, ifaceNamer InterfaceNamer) *FlowDecorator {
+	return &FlowDecorator{
+		agentIP:    agentIP,
+		ifaceNamer: ifaceNamer,
+	}
+}
+
+func (d *FlowDecorator) Decorate(flow *ebpf.Record) {
+	flow.Attrs.Interface = d.ifaceNamer(int(flow.Id.IfIndex))
+	flow.Attrs.OBIIP = d.agentIP
+	if flow.Attrs.Dst.TargetName == "" {
+		flow.Attrs.Dst.TargetName = flow.DstIP().IP().String()
+	}
+	if flow.Attrs.Src.TargetName == "" {
+		flow.Attrs.Src.TargetName = flow.SrcIP().IP().String()
 	}
 }

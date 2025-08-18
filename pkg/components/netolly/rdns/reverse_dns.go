@@ -85,31 +85,43 @@ func (r ReverseDNS) Enabled() bool {
 
 type ReverseDNSFunc func(*ebpf.Record)
 
-func ReverseDNSEnricher(ctx context.Context, cfg *ReverseDNS) (ReverseDNSFunc, error) {
-	if !cfg.Enabled() {
-		return func(*ebpf.Record) {}, nil
+type ReverseDNSEnricher struct {
+	cache   *expirable.LRU[ebpf.IPAddr, string]
+	enabled bool
+	log     *slog.Logger
+}
+
+func NewReverseDNSEnricher(ctx context.Context, cfg *ReverseDNS) (*ReverseDNSEnricher, error) {
+	r := &ReverseDNSEnricher{
+		enabled: cfg.Enabled(),
+		log:     rdlog(),
+	}
+
+	if !r.enabled {
+		return r, nil
 	}
 
 	if err := checkEBPFReverseDNS(ctx, cfg); err != nil {
 		return nil, err
 	}
 
-	cache := expirable.NewLRU[ebpf.IPAddr, string](cfg.CacheLen, nil, cfg.CacheTTL)
+	// TODO: replace by a cache with fuzzy expiration time to avoid cache stampede
+	r.cache = expirable.NewLRU[ebpf.IPAddr, string](cfg.CacheLen, nil, cfg.CacheTTL)
 
-	return func(flow *ebpf.Record) {
-		// TODO: replace by a cache with fuzzy expiration time to avoid cache stampede
+	return r, nil
+}
 
-		log := rdlog()
+func (r *ReverseDNSEnricher) Enrich(flow *ebpf.Record) {
+	if !r.enabled {
+		return
+	}
 
-		log.Debug("starting reverse DNS node")
-
-		if flow.Attrs.Src.TargetName == "" {
-			flow.Attrs.Src.TargetName = optGetName(log, cache, *flow.SrcIP())
-		}
-		if flow.Attrs.Dst.TargetName == "" {
-			flow.Attrs.Dst.TargetName = optGetName(log, cache, *flow.DstIP())
-		}
-	}, nil
+	if flow.Attrs.Src.TargetName == "" {
+		flow.Attrs.Src.TargetName = optGetName(r.log, r.cache, *flow.SrcIP())
+	}
+	if flow.Attrs.Dst.TargetName == "" {
+		flow.Attrs.Dst.TargetName = optGetName(r.log, r.cache, *flow.DstIP())
+	}
 }
 
 // changes reverse DNS method according to the provided configuration

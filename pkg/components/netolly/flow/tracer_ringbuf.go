@@ -50,10 +50,11 @@ type RingBufTracer struct {
 	flowFetcher   ebpf.FlowFetcher
 	k8sInformer   *kube.MetadataProvider
 	k8sDecorator  *k8s.Decorator
-	rdnsEnricher  rdns.ReverseDNSFunc
-	cidrDecorator cidr.CIDRDecoratorFunc
-	flowDecorator FlowDecoratorFunc
+	rdnsEnricher  *rdns.ReverseDNSEnricher
+	cidrDecorator *cidr.CIDRDecorator
+	flowDecorator *FlowDecorator
 	flowFilter    *filter.Filter2[*ebpf.Record]
+	rec           *ebpf.Record
 }
 
 func NewRingBufTracer(fetcher ebpf.FlowFetcher,
@@ -72,8 +73,9 @@ func NewRingBufTracer(fetcher ebpf.FlowFetcher,
 		cfg:           cfg,
 		flowFetcher:   fetcher,
 		k8sInformer:   k8sInformer,
-		flowDecorator: FlowDecorator(agentIP, ifaceNamer),
+		flowDecorator: NewFlowDecorator(agentIP, ifaceNamer),
 		flowFilter:    flowFilter,
+		rec:           &ebpf.Record{},
 	}, nil
 }
 
@@ -89,13 +91,13 @@ func (m *RingBufTracer) ringbufferLoop(ctx context.Context, out *msg.Queue[ebpf.
 		return
 	}
 
-	m.rdnsEnricher, err = rdns.ReverseDNSEnricher(ctx, &m.cfg.NetworkFlows.ReverseDNS)
+	m.rdnsEnricher, err = rdns.NewReverseDNSEnricher(ctx, &m.cfg.NetworkFlows.ReverseDNS)
 	if err != nil {
 		rtlog.Error("error creating rdns enricher", "error", err)
 		return
 	}
 
-	m.cidrDecorator, err = cidr.CIDRDecorator(m.cfg.NetworkFlows.CIDRs)
+	m.cidrDecorator, err = cidr.NewCIDRDecorator(m.cfg.NetworkFlows.CIDRs)
 	if err != nil {
 		rtlog.Error("error creating CIDR decorator ", "error", err)
 		return
@@ -130,21 +132,21 @@ func (m *RingBufTracer) ringbufferLoop(ctx context.Context, out *msg.Queue[ebpf.
 }
 
 func (m *RingBufTracer) handleEvent(event *ebpf.NetFlowRecordT, out *msg.Queue[ebpf.Record]) {
-	rec := ebpf.Record{NetFlowRecordT: *event}
+	*m.rec = ebpf.Record{NetFlowRecordT: *event}
 
-	if !m.k8sDecorator.Decorate(&rec) {
+	if !m.k8sDecorator.Decorate(m.rec) {
 		return
 	}
 
-	m.rdnsEnricher(&rec)
-	m.cidrDecorator(&rec)
-	m.flowDecorator(&rec)
+	m.rdnsEnricher.Enrich(m.rec)
+	m.cidrDecorator.Decorate(m.rec)
+	m.flowDecorator.Decorate(m.rec)
 
-	if !m.flowFilter.Allow(&rec) {
+	if !m.flowFilter.Allow(m.rec) {
 		return
 	}
 
-	out.Send(rec)
+	out.Send(*m.rec)
 }
 
 func (m *RingBufTracer) TraceLoop(out *msg.Queue[ebpf.Record]) swarm.RunFunc {

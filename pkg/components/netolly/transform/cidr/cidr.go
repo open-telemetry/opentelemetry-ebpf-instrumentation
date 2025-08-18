@@ -29,21 +29,35 @@ type ipGrouper struct {
 	ranger cidranger.Ranger
 }
 
-type CIDRDecoratorFunc func(*ebpf.Record)
+type CIDRDecorator struct {
+	grouper ipGrouper
+	enabled bool
+}
 
-func CIDRDecorator(g Definitions) (CIDRDecoratorFunc, error) {
-	if !g.Enabled() {
-		return func(*ebpf.Record) {}, nil
+func (d *CIDRDecorator) Decorate(r *ebpf.Record) {
+	if !d.enabled {
+		return
 	}
 
-	grouper, err := newIPGrouper(g)
+	d.grouper.decorate(r)
+}
+
+func NewCIDRDecorator(g Definitions) (*CIDRDecorator, error) {
+	d := &CIDRDecorator{
+		enabled: g.Enabled(),
+	}
+
+	if !d.enabled {
+		return d, nil
+	}
+
+	var err error
+	d.grouper, err = newIPGrouper(g)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating IP grouper: %w", err)
 	}
 
-	return func(flow *ebpf.Record) {
-		grouper.decorate(flow)
-	}, nil
+	return d, nil
 }
 
 type customRangerEntry struct {

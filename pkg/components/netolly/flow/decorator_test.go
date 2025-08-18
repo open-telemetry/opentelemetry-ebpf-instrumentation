@@ -22,7 +22,7 @@ func TestDecoration(t *testing.T) {
 
 	agentIP := "3.3.3.3"
 
-	decorate := FlowDecorator(agentIP, ifaceNamer)
+	decorator := NewFlowDecorator(agentIP, ifaceNamer)
 
 	f1 := ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
 		Id:      ebpf.NetFlowIdT{IfIndex: 1},
@@ -40,8 +40,8 @@ func TestDecoration(t *testing.T) {
 
 	// decorates the flows, by adding IPs to source/destination
 	// names only when they were missing
-	decorate(&f1)
-	decorate(&f2)
+	decorator.Decorate(&f1)
+	decorator.Decorate(&f2)
 
 	assert.Equal(t, "eth1", f1.Attrs.Interface)
 	assert.Equal(t, "3.3.3.3", f1.Attrs.OBIIP)
