@@ -53,7 +53,7 @@ type filter[T any] struct {
 	output   *msg.Queue[[]T]
 }
 
-type Filter2[T any] struct {
+type ElementFilter[T any] struct {
 	matchers []Matcher[T]
 }
 
@@ -90,12 +90,12 @@ func newFilter[T any](
 	return &filter[T]{matchers: matchers, input: input.Subscribe(), output: output}, nil
 }
 
-func NewFilter2[T any](
+func NewElementFilter[T any](
 	config AttributeFamilyConfig,
 	extraDefinitionsProvider func(groups attributes.AttrGroups, extraGroupAttributes attributes.GroupAttributes) map[attributes.Section]attributes.AttrReportGroup,
 	extraGroupAttributesCfg map[string][]attr.Name,
 	getters attributes.NamedGetters[T, string],
-) (*Filter2[T], error) {
+) (*ElementFilter[T], error) {
 	// Internally, from code, we use the OTEL-like naming (attr.Name) for the attributes,
 	// which usually uses dot-separation but sometimes also use underscore.
 	// Since we allow users to specify metrics in both formats, we convert any user-provided
@@ -119,7 +119,7 @@ func NewFilter2[T any](
 		}
 		matchers = append(matchers, matcher)
 	}
-	return &Filter2[T]{matchers: matchers}, nil
+	return &ElementFilter[T]{matchers: matchers}, nil
 }
 
 // buildMatcher returns a Matcher given an attribute name, the user-provided MatchDefinition, and the provided
@@ -179,7 +179,7 @@ batchLoop:
 	return batch[:w]
 }
 
-func (f *Filter2[T]) Allow(t T) bool {
+func (f *ElementFilter[T]) Allow(t T) bool {
 	for m := range f.matchers {
 		if !f.matchers[m].Matches(t) {
 			return false

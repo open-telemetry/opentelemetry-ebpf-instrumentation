@@ -41,46 +41,71 @@ func TestAttributeFilter(t *testing.T) {
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "148.132.1.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "debug",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "debug",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "128.132.1.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "foo",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "148.132.1.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "foo",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "148.133.2.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "tralar",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "141.132.1.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "tralari",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralari",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 	})
@@ -90,19 +115,29 @@ func TestAttributeFilter(t *testing.T) {
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "128.132.1.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "foo",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "141.132.1.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "tralari",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralari",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 	})
@@ -112,19 +147,29 @@ func TestAttributeFilter(t *testing.T) {
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "148.132.1.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "foo",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "148.133.2.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "tralar",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 	})
@@ -134,19 +179,29 @@ func TestAttributeFilter(t *testing.T) {
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "148.132.1.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "foo",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "148.133.2.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "tralar",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 	}, filtered)
@@ -156,19 +211,29 @@ func TestAttributeFilter(t *testing.T) {
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "148.132.1.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "foo",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 		{
 			Attrs: ebpf.RecordAttrs{
 				OBIIP: "148.133.2.1",
+				Src: ebpf.InnerAttrs {
+					Namespace: "tralar",
+				},
+				/*
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
 					"k8s.app.version":   "v0.0.1",
 				},
+				*/
 			},
 		},
 	}, filtered)

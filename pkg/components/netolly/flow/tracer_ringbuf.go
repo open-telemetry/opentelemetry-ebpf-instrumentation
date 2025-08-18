@@ -53,7 +53,7 @@ type RingBufTracer struct {
 	rdnsEnricher  *rdns.ReverseDNSEnricher
 	cidrDecorator *cidr.CIDRDecorator
 	flowDecorator *FlowDecorator
-	flowFilter    *filter.Filter2[*ebpf.Record]
+	flowFilter    *filter.ElementFilter[*ebpf.Record]
 	rec           *ebpf.Record
 }
 
@@ -63,7 +63,7 @@ func NewRingBufTracer(fetcher ebpf.FlowFetcher,
 	agentIP string,
 	ifaceNamer InterfaceNamer,
 ) (*RingBufTracer, error) {
-	flowFilter, err := filter.NewFilter2[*ebpf.Record](cfg.Filters.Network,
+	flowFilter, err := filter.NewElementFilter[*ebpf.Record](cfg.Filters.Network,
 		nil, cfg.Attributes.ExtraGroupAttributes, ebpf.RecordStringGetters)
 	if err != nil {
 		return nil, fmt.Errorf("error instantiating flow filter: %w", err)
