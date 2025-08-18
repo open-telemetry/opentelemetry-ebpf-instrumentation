@@ -46,6 +46,10 @@ func requestDirection(startDirection, ifaceDirection uint8) string {
 func RecordGetters(name attr.Name) (attributes.Getter[*Record, attribute.KeyValue], bool) {
 	var getter attributes.Getter[*Record, attribute.KeyValue]
 	switch name {
+	case attr.K8sClusterName:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sClusterName), r.Attrs.K8sClusterName)
+		}
 	case attr.OBIIP:
 		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.OBIIP), r.Attrs.OBIIP) }
 	case attr.Transport:
@@ -93,6 +97,70 @@ func RecordGetters(name attr.Name) (attributes.Getter[*Record, attribute.KeyValu
 	case attr.DstZone:
 		getter = func(r *Record) attribute.KeyValue {
 			return attribute.String(string(attr.DstZone), r.Attrs.Dst.TargetZone)
+		}
+	case attr.SrcCIDR:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.SrcCIDR), r.Attrs.Src.CIDR)
+		}
+	case attr.DstCIDR:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.DstCIDR), r.Attrs.Dst.CIDR)
+		}
+	case attr.K8sSrcOwnerName:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sSrcOwnerName), r.Attrs.Src.OwnerName)
+		}
+	case attr.K8sDstOwnerName:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sDstOwnerName), r.Attrs.Dst.OwnerName)
+		}
+	case attr.K8sSrcOwnerType:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sSrcOwnerType), r.Attrs.Src.OwnerType)
+		}
+	case attr.K8sDstOwnerType:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sDstOwnerType), r.Attrs.Dst.OwnerType)
+		}
+	case attr.K8sSrcNodeIP:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sSrcNodeIP), r.Attrs.Src.NodeIP)
+		}
+	case attr.K8sDstNodeIP:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sDstNodeIP), r.Attrs.Dst.NodeIP)
+		}
+	case attr.K8sSrcNodeName:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sSrcNodeName), r.Attrs.Src.NodeName)
+		}
+	case attr.K8sDstNodeName:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sDstNodeName), r.Attrs.Dst.NodeName)
+		}
+	case attr.K8sSrcNamespace:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sSrcNamespace), r.Attrs.Src.Namespace)
+		}
+	case attr.K8sDstNamespace:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sDstNamespace), r.Attrs.Dst.Namespace)
+		}
+	case attr.K8sSrcName:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sSrcName), r.Attrs.Src.Name)
+		}
+	case attr.K8sDstName:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sDstName), r.Attrs.Dst.Name)
+		}
+	case attr.K8sSrcType:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sSrcType), r.Attrs.Src.Type)
+		}
+	case attr.K8sDstType:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.K8sDstType), r.Attrs.Dst.Type)
 		}
 	default:
 		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(name), "") }

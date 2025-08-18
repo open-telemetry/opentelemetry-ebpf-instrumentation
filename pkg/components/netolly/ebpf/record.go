@@ -58,7 +58,6 @@ type InnerAttrs struct {
 	Type       string
 	OwnerName  string
 	OwnerType  string
-	OnwerIP    string
 	NodeIP     string
 	NodeName   string
 	TargetName string
