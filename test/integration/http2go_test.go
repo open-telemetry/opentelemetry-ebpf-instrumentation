@@ -112,6 +112,8 @@ func testNestedHTTP2Traces(t *testing.T, url string) {
 
 func TestHTTP2Go(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-http2.yml", path.Join(pathOutput, "test-suite-http2.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
 	lockdown := KernelLockdownMode()
@@ -120,7 +122,6 @@ func TestHTTP2Go(t *testing.T) {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
 	}
 
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Go RED metrics: http2 service", func(t *testing.T) {

@@ -116,9 +116,10 @@ func testREDMetricsPHPFPM(t *testing.T) {
 
 func TestPHPFM(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-php-fpm.yml", path.Join(pathOutput, "test-suite-php-fpm.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("PHP-FM RED metrics", testREDMetricsPHPFPM)
@@ -186,9 +187,10 @@ func testTracesPHPFPM(t *testing.T) {
 
 func TestPHPFMUnixSock(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-php-fpm-sock.yml", path.Join(pathOutput, "test-suite-php-fpm-sock.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("PHP-FM RED metrics", testTracesPHPFPM)
