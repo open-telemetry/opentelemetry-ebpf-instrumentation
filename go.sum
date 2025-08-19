@@ -394,6 +394,8 @@ go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.0.0-20250812124805-8b2ef6949
 go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.0.0-20250812124805-8b2ef6949ee3/go.mod h1:NAqCUz6MmjIi+d8kXSE3ORxNqrz8Tymm4vBZWyoxQSk=
 go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.0.0-20250814110309-6dac951934bb h1:zRtkR2ojEVWdlAGVO3E0ijNSnHfZnX2q2EVw4/ADfgU=
 go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.0.0-20250814110309-6dac951934bb/go.mod h1:NAqCUz6MmjIi+d8kXSE3ORxNqrz8Tymm4vBZWyoxQSk=
+go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.0.0-20250818225315-bdf710db7736 h1:Ww42o/1Om2U9BP6T/3rRkaLMJVuhv2/0ItOuY4kt274=
+go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.0.0-20250818225315-bdf710db7736/go.mod h1:NAqCUz6MmjIi+d8kXSE3ORxNqrz8Tymm4vBZWyoxQSk=
 go.opentelemetry.io/contrib/detectors/aws/eks v1.28.0 h1:446exEE2fdXqNttY+oHB54NMGXRAmQBaMz2fXkL77bc=
 go.opentelemetry.io/contrib/detectors/aws/eks v1.28.0/go.mod h1:L2UOyaTFvypCAHW69TwGnce7YgKhSI9n8kAzQjyNbJk=
 go.opentelemetry.io/contrib/detectors/azure/azurevm v0.0.1 h1:hgKJ88bL5cTomIlP7VYxsG4HfYeRp3U2tfcpZr0B0yY=
