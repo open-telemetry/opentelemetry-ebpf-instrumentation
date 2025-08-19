@@ -168,6 +168,9 @@ var DefaultConfig = Config{
 		},
 		MinProcessAge: 5 * time.Second,
 	},
+	NodeJS: NodeJSConfig{
+		Enabled: true,
+	},
 }
 
 type Config struct {
@@ -233,6 +236,8 @@ type Config struct {
 
 	// LogConfig enables the logging of the configuration on startup.
 	LogConfig bool `yaml:"log_config" env:"OTEL_EBPF_LOG_CONFIG"`
+
+	NodeJS NodeJSConfig `yaml:"nodejs"`
 }
 
 // Attributes configures the decoration of some extra attributes that will be
@@ -250,6 +255,10 @@ type HostIDConfig struct {
 	Override string `yaml:"override" env:"OTEL_EBPF_HOST_ID"`
 	// FetchTimeout specifies the timeout for trying to fetch the HostID from diverse Cloud Providers
 	FetchTimeout time.Duration `yaml:"fetch_timeout" env:"OTEL_EBPF_HOST_ID_FETCH_TIMEOUT"`
+}
+
+type NodeJSConfig struct {
+	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_NODEJS_ENABLED"`
 }
 
 type ConfigError string
