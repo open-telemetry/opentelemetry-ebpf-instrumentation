@@ -5,6 +5,7 @@ package otel
 
 import (
 	"context"
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"log/slog"
 	"runtime"
 	"time"
@@ -135,20 +136,8 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		instrument.WithDescription("Latency of the eBPF probe in seconds"),
 		instrument.WithUnit("1"),
 		instrument.WithExplicitBucketBoundaries(
-			0.0000001,
-			0.0000005,
-			0.000001,
-			0.000002,
-			0.000005,
-			0.00001,
-			0.00002,
-			0.00005,
-			0.0001,
-			0.0002,
-			0.0005,
-			0.001,
-			0.002,
-			0.005),
+			imetrics.BpfLatenciesBuckets...,
+		),
 	)
 	if err != nil {
 		return nil, err
