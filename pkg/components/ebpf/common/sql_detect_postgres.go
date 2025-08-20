@@ -261,7 +261,7 @@ Loop:
 			break
 		}
 		if it.err != nil {
-			slog.Warn("failed to parse Postgres request messages", "error", it.err)
+			slog.Debug("failed to parse Postgres request messages", "error", it.err)
 			return span, errFallback
 		}
 
