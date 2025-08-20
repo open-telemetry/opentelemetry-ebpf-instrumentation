@@ -23,9 +23,10 @@ import (
 
 func TestMultiProcess(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec.yml", path.Join(pathOutput, "test-suite-multiexec.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Go RED metrics: usual service", func(t *testing.T) {
@@ -117,9 +118,10 @@ func TestMultiProcess(t *testing.T) {
 
 func TestMultiProcessAppCP(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=all`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`)
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	if kprobeTracesEnabled() {
@@ -132,10 +134,11 @@ func TestMultiProcessAppCP(t *testing.T) {
 
 func TestMultiProcessAppCPNoIP(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp-no-ip.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`)
 
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	if kprobeTracesEnabled() {

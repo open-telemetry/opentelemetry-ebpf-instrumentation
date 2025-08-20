@@ -131,6 +131,8 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 
 func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-otel.yml", path.Join(pathOutput, "test-suite-go-otel.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_ENDPOINT=http://localhost:1111`)
 	lockdown := KernelLockdownMode()
@@ -139,7 +141,6 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
 	}
 
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Go RED metrics: http service instrumented with OTel", func(t *testing.T) {
@@ -171,6 +172,8 @@ func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 
 func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-otel.yml", path.Join(pathOutput, "test-suite-go-otel-avoids.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_METRICS_ENDPOINT=http://otelcol:4318`, `APP_OTEL_TRACES_ENDPOINT=http://jaeger:4318`)
 	lockdown := KernelLockdownMode()
@@ -179,7 +182,6 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
 	}
 
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Go RED metrics: http service instrumented with OTel, no istrumentation", func(t *testing.T) {
@@ -193,6 +195,8 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 
 func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-otel.yml", path.Join(pathOutput, "test-suite-go-otel-disabled.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(
 		compose.Env,
@@ -209,7 +213,6 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
 	}
 
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Go RED metrics: http service instrumented with OTel, option disabled", func(t *testing.T) {
@@ -223,6 +226,8 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 
 func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-grpc.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_ENDPOINT=http://localhost:1111`)
 	lockdown := KernelLockdownMode()
@@ -231,7 +236,6 @@ func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
 	}
 
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Go RED metrics: http service instrumented with OTel - GRPC", func(t *testing.T) {
@@ -266,6 +270,8 @@ func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
 
 func TestHTTPGoOTelAvoidsInstrumentedAppGRPC(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-avoids-grpc.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_METRICS_ENDPOINT=http://otelcol:4317`, `APP_OTEL_TRACES_ENDPOINT=http://jaeger:4317`)
 	lockdown := KernelLockdownMode()
@@ -274,7 +280,6 @@ func TestHTTPGoOTelAvoidsInstrumentedAppGRPC(t *testing.T) {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
 	}
 
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Go RED metrics: http service instrumented with OTel, no istrumentation, GRPC", func(t *testing.T) {

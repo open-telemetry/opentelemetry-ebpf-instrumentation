@@ -23,9 +23,10 @@ import (
 
 func TestInstrumentationErrors(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-error-test.yml", path.Join(pathOutput, "test-suite-instrumentation-errors.log"))
+	require.NoError(t, err)
+
 	// Run OBI without privileged mode to force instrumentation errors
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Instrumentation error metrics", func(t *testing.T) {
@@ -37,6 +38,8 @@ func TestInstrumentationErrors(t *testing.T) {
 
 func TestAvoidedServicesMetrics(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-otel.yml", path.Join(pathOutput, "test-suite-avoided-services.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env,
 		`OTEL_EBPF_EXECUTABLE_PATH=`,
@@ -52,7 +55,6 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
 	}
 
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Avoided services metrics are recorded", func(t *testing.T) {

@@ -44,9 +44,10 @@ func testREDMetricsForGRPCMuxLibrary(t *testing.T, route, svcNs, serverPort stri
 
 func TestGRPCMux(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-grpc-http2-mux.yml", path.Join(pathOutput, "test-suite-grpc-http2-mux.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`, `TARGET_URL=testserver:8080`, `TARGET_PORTS=8080:8080`)
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Go RED metrics: grpc-http2 mux service", func(t *testing.T) {
@@ -58,9 +59,10 @@ func TestGRPCMux(t *testing.T) {
 
 func TestGRPCMuxTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-grpc-http2-mux.yml", path.Join(pathOutput, "test-suite-grpc-http2-mux-tls.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`, `TARGET_URL=testserver:8383`, `TARGET_PORTS=8383:8383`, `TEST_SUFFIX=_tls`)
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Go RED metrics: grpc-http2 mux service TLS", func(t *testing.T) {

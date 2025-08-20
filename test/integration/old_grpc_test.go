@@ -129,6 +129,8 @@ func testGRPCGoClientFailsToConnect(t *testing.T) {
 
 func TestSuiteOtherGRPCGo(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-other-grpc.yml", path.Join(pathOutput, "test-suite-other-grpc.log"))
+	require.NoError(t, err)
+
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
 	lockdown := KernelLockdownMode()
@@ -137,7 +139,6 @@ func TestSuiteOtherGRPCGo(t *testing.T) {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
 	}
 
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
 	t.Run("Go RED metrics and traces: old grpc service", func(t *testing.T) {
