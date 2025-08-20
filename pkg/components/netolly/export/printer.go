@@ -61,17 +61,18 @@ func printFlow(f *ebpf.Record) {
 		}
 	}
 
-	writeMeta("k8s_cluster_name", f.Attrs.K8sClusterName)
-	writeMeta("src.namespace", f.Attrs.Src.Namespace)
-	writeMeta("dst.namespace", f.Attrs.Dst.Namespace)
-	writeMeta("src.owner.name", f.Attrs.Src.OwnerName)
-	writeMeta("dst.owner.name", f.Attrs.Dst.OwnerName)
-	writeMeta("src.owner.type", f.Attrs.Src.OwnerType)
-	writeMeta("dst.owner.type", f.Attrs.Dst.OwnerType)
-	writeMeta("src.node.ip", f.Attrs.Src.NodeIP)
-	writeMeta("dst.node.ip", f.Attrs.Dst.NodeIP)
-	writeMeta("src.node.Name", f.Attrs.Src.NodeName)
-	writeMeta("dst.node.Name", f.Attrs.Dst.NodeName)
+	writeMeta("k8s.cluster.name", f.Attrs.K8sClusterName)
+	writeMeta("k8s.src.namespace", f.Attrs.Src.Namespace)
+	writeMeta("k8s.dst.namespace", f.Attrs.Dst.Namespace)
+	writeMeta("k8s.src.owner.name", f.Attrs.Src.OwnerName)
+	writeMeta("k8s.dst.owner.name", f.Attrs.Dst.OwnerName)
+	writeMeta("k8s.src.owner.type", f.Attrs.Src.OwnerType)
+	writeMeta("k8s.dst.owner.type", f.Attrs.Dst.OwnerType)
+	writeMeta("k8s.src.node.ip", f.Attrs.Src.NodeIP)
+	writeMeta("k8s.dst.node.ip", f.Attrs.Dst.NodeIP)
+	writeMeta("k8s.src.node.Name", f.Attrs.Src.NodeName)
+	writeMeta("k8s.dst.node.Name", f.Attrs.Dst.NodeName)
+
 	writeMeta("src.cidr", f.Attrs.Src.CIDR)
 	writeMeta("dst.cidr", f.Attrs.Dst.CIDR)
 
