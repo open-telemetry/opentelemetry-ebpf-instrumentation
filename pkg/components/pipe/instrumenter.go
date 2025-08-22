@@ -106,30 +106,34 @@ func newGraphBuilder(
 		nameResolverToAttrFilter, exportableSpans),
 		swarm.WithID("AttributesFilter"))
 
+	swi.Add(otel.TracesReceiver(
+		ctxInfo, config.Traces, config.SpanMetricsEnabledForTraces(), selectorCfg, exportableSpans,
+	), swarm.WithID("OTELTracesReceiver"))
+	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus),
+		swarm.WithID("BPFMetrics"))
+	swi.Add(debug.PrinterNode(config.TracePrinter, exportableSpans),
+		swarm.WithID("PrinterNode"))
+
+	IPFilteredSpans := newQueue()
+	swi.Add(transform.IPsFilter(&config.Metrics, exportableSpans, IPFilteredSpans),
+		swarm.WithID("IPsFilter"))
+
 	swi.Add(otel.ReportMetrics(
 		ctxInfo,
 		&config.Metrics,
 		selectorCfg,
-		exportableSpans,
+		IPFilteredSpans,
 		processEventsCh,
 	), swarm.WithID("OTELMetricsExport"))
 
 	swi.Add(otel.ReportSvcGraphMetrics(
 		ctxInfo,
 		&config.Metrics,
-		exportableSpans,
+		IPFilteredSpans,
 		processEventsCh,
 	), swarm.WithID("OTELSvcGraphMetricsExport"))
-
-	swi.Add(otel.TracesReceiver(
-		ctxInfo, config.Traces, config.SpanMetricsEnabledForTraces(), selectorCfg, exportableSpans,
-	), swarm.WithID("OTELTracesReceiver"))
-	swi.Add(prom.PrometheusEndpoint(ctxInfo, &config.Prometheus, selectorCfg, exportableSpans, processEventsCh),
+	swi.Add(prom.PrometheusEndpoint(ctxInfo, &config.Prometheus, selectorCfg, IPFilteredSpans, processEventsCh),
 		swarm.WithID("PrometheusEndpoint"))
-	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus),
-		swarm.WithID("BPFMetrics"))
-	swi.Add(debug.PrinterNode(config.TracePrinter, exportableSpans),
-		swarm.WithID("PrinterNode"))
 
 	// The returned builder later invokes its "Build" function that, given
 	// the contents of the nodesMap struct, will instantiate

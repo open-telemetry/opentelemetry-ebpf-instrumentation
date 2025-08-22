@@ -100,7 +100,8 @@ var DefaultConfig = Config{
 		Instrumentations: []string{
 			instrumentations.InstrumentationALL,
 		},
-		TTL: defaultMetricsTTL,
+		DropUnresolvedIPs: true,
+		TTL:               defaultMetricsTTL,
 	},
 	Traces: otelcfg.TracesConfig{
 		Protocol:          otelcfg.ProtocolUnset,
@@ -120,6 +121,7 @@ var DefaultConfig = Config{
 		},
 		TTL:                         defaultMetricsTTL,
 		SpanMetricsServiceCacheSize: 10000,
+		DropUnresolvedIPs:           true,
 	},
 	TracePrinter: debug.TracePrinterDisabled,
 	InternalMetrics: imetrics.Config{

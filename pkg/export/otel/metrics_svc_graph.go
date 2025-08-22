@@ -273,8 +273,11 @@ func (mr *SvcGraphMetricsReporter) metricHostAttributes() attribute.Set {
 }
 
 func serviceGraphGetters() []attributes.Field[*request.Span, attribute.KeyValue] {
+	spanGetters := func(name attr.Name) (attributes.Getter[*request.Span, attribute.KeyValue], bool) {
+		return request.SpanOTELGetters(name)
+	}
 	return attributes.OpenTelemetryGetters(
-		request.SpanOTELGetters, []attr.Name{
+		spanGetters, []attr.Name{
 			attr.Client,
 			attr.ClientNamespace,
 			attr.Server,

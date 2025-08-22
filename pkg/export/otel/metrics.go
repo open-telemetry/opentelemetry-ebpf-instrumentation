@@ -196,52 +196,57 @@ func newMetricsReporter(
 		log:                 mlog(),
 	}
 
+	// Create getter wrapper that captures the DropUnresolvedIPs config
+	spanGetters := func(name attr.Name) (attributes.Getter[*request.Span, attribute.KeyValue], bool) {
+		return request.SpanOTELGetters(name)
+	}
+
 	// initialize attribute getters
 	if is.HTTPEnabled() {
 		mr.attrHTTPDuration = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPServerDuration))
+			spanGetters, mr.attributes.For(attributes.HTTPServerDuration))
 		mr.attrHTTPClientDuration = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPClientDuration))
+			spanGetters, mr.attributes.For(attributes.HTTPClientDuration))
 		mr.attrHTTPRequestSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPServerRequestSize))
+			spanGetters, mr.attributes.For(attributes.HTTPServerRequestSize))
 		mr.attrHTTPResponseSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPServerResponseSize))
+			spanGetters, mr.attributes.For(attributes.HTTPServerResponseSize))
 		mr.attrHTTPClientRequestSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPClientRequestSize))
+			spanGetters, mr.attributes.For(attributes.HTTPClientRequestSize))
 		mr.attrHTTPClientResponseSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
+			spanGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
 	}
 
 	if is.GRPCEnabled() {
 		mr.attrGRPCServer = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.RPCServerDuration))
+			spanGetters, mr.attributes.For(attributes.RPCServerDuration))
 		mr.attrGRPCClient = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.RPCClientDuration))
+			spanGetters, mr.attributes.For(attributes.RPCClientDuration))
 	}
 
 	if is.DBEnabled() {
 		mr.attrDBClient = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.DBClientDuration))
+			spanGetters, mr.attributes.For(attributes.DBClientDuration))
 	}
 
 	if is.MQEnabled() {
 		mr.attrMessagingPublish = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.MessagingPublishDuration))
+			spanGetters, mr.attributes.For(attributes.MessagingPublishDuration))
 		mr.attrMessagingProcess = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.MessagingProcessDuration))
+			spanGetters, mr.attributes.For(attributes.MessagingProcessDuration))
 	}
 
 	if is.GPUEnabled() {
 		mr.attrGPUKernelCalls = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUKernelLaunchCalls))
+			spanGetters, mr.attributes.For(attributes.GPUKernelLaunchCalls))
 		mr.attrGPUMemoryAllocations = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUMemoryAllocations))
+			spanGetters, mr.attributes.For(attributes.GPUMemoryAllocations))
 		mr.attrGPUKernelGridSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUKernelGridSize))
+			spanGetters, mr.attributes.For(attributes.GPUKernelGridSize))
 		mr.attrGPUKernelBlockSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUKernelBlockSize))
+			spanGetters, mr.attributes.For(attributes.GPUKernelBlockSize))
 		mr.attrGPUMemoryCopies = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUMemoryCopies))
+			spanGetters, mr.attributes.For(attributes.GPUMemoryCopies))
 	}
 
 	mr.reporters = otelcfg.NewReporterPool[*svc.Attrs, *Metrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -759,8 +764,11 @@ func (mr *MetricsReporter) metricHostAttributes() attribute.Set {
 // spanMetricAttributes follow a given specification, so their attribute getters are predefined and can't be
 // selected by the user
 func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Span, attribute.KeyValue] {
+	spanGetters := func(name attr.Name) (attributes.Getter[*request.Span, attribute.KeyValue], bool) {
+		return request.SpanOTELGetters(name)
+	}
 	return append(attributes.OpenTelemetryGetters(
-		request.SpanOTELGetters, []attr.Name{
+		spanGetters, []attr.Name{
 			attr.ServiceName,
 			attr.ServiceInstanceID,
 			attr.ServiceNamespace,
