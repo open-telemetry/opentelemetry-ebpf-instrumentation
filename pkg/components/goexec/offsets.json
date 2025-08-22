@@ -174,7 +174,7 @@
       "Topic": {
         "versions": {
           "oldest": "0.4.11",
-          "newest": "0.4.48"
+          "newest": "0.4.49"
         },
         "offsets": [
           {
@@ -188,7 +188,7 @@
       "topic": {
         "versions": {
           "oldest": "0.4.11",
-          "newest": "0.4.48"
+          "newest": "0.4.49"
         },
         "offsets": [
           {
@@ -202,7 +202,7 @@
       "conn": {
         "versions": {
           "oldest": "0.4.11",
-          "newest": "0.4.48"
+          "newest": "0.4.49"
         },
         "offsets": [
           {
