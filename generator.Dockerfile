@@ -13,11 +13,34 @@ FROM base AS dist
 WORKDIR /src
 
 ENV EBPF_VER=v0.19.0
+ENV PROTOC_VERSION=32.0
+ARG TARGETARCH
 
-RUN apk add clang llvm20 wget
+RUN apk add clang llvm20 wget unzip curl
 RUN apk cache purge
+
+# Install protoc
+# Deal with the arm64==aarch64 ambiguity
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        curl -qL https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-aarch_64.zip -o protoc.zip; \
+    else \
+        curl -qL https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip -o protoc.zip; \
+    fi
+RUN unzip protoc.zip -d /usr/local
+RUN rm protoc.zip
+
+# Install protoc-gen-go and protoc-gen-go-grpc
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Install eBPF tools
 RUN go install github.com/cilium/ebpf/cmd/bpf2go@$EBPF_VER
 COPY --from=builder /build/obi_genfiles /go/bin
+
+# Verify installations
+RUN protoc --version
+RUN protoc-gen-go --version  
+RUN protoc-gen-go-grpc --version
 
 RUN cat <<EOF > /generate.sh
 #!/bin/sh
