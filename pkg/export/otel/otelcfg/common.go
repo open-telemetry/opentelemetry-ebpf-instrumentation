@@ -295,8 +295,8 @@ func (rp *ReporterPool[K, T]) For(service K) (T, error) {
 	// as the current.
 	// This will save querying OTEL resource reporters when there is
 	// only a single instrumented process.
-	// In multi-process tracing, this is likely to happen as most
-	// tracers group traces belonging to the same service in the same slice.
+	// This is likely to happen as most spans in the same slice will belong to
+	// the same service/process.
 	svcUID := service.GetUID()
 	if rp.lastServiceUID == emptyUID || svcUID != rp.lastService.GetUID() {
 		lm, err := rp.get(svcUID, service)
@@ -312,6 +312,35 @@ func (rp *ReporterPool[K, T]) For(service K) (T, error) {
 	// being expired after the TTL
 	rp.lastReporter.lastAccess = rp.clock()
 	return rp.lastReporter.value, nil
+}
+
+// Peek retrieves the associated item for the given service name.
+// Unlike For, it does not create any new item if it does not exist.
+func (rp *ReporterPool[K, T]) Peek(service K) (T, bool) {
+	rp.expireOldReporters()
+	// optimization: do not query the resources' cache if the
+	// previously processed span belongs to the same service name
+	// as the current.
+	// This will save querying OTEL resource reporters when there is
+	// only a single instrumented process.
+	// This is likely to happen as most spans in the same slice will belong to
+	// the same service/process.
+	svcUID := service.GetUID()
+	if rp.lastServiceUID == emptyUID || svcUID != rp.lastService.GetUID() {
+		e, ok := rp.pool.Get(svcUID)
+		if !ok {
+			var t T
+			return t, false
+		}
+		rp.lastServiceUID = svcUID
+		rp.lastService = service
+		rp.lastReporter = e
+	}
+
+	// we need to update the last access for that reporter, to avoid it
+	// being expired after the TTL
+	rp.lastReporter.lastAccess = rp.clock()
+	return rp.lastReporter.value, true
 }
 
 // expireOldReporters will remove the metrics reporters that haven't been accessed

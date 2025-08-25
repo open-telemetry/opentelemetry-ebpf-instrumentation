@@ -950,35 +950,29 @@ func (mr *MetricsReporter) reportMetrics(ctx context.Context) {
 func (mr *MetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
 
-	reporter, err := mr.reporters.For(&pe.File.Service)
-	// If we are receiving a delete event, the service may come without kubernetes information, which
-	// is why we record the original service info. Delete look up the data from the pid tracker.
-	if err != nil {
-		mr.log.Error("unexpected error creating OTEL resource. Ignoring metric",
-			"error", err, "service", pe.File.Service.UID)
-		return
-	}
-
 	if pe.Type == exec.ProcessEventCreated {
+		reporter, err := mr.reporters.For(&pe.File.Service)
+		if err != nil {
+			mr.log.Error("unexpected error creating OTEL resource. Ignoring metric",
+				"error", err, "service", pe.File.Service.UID)
+			return
+		}
 		mr.createTargetInfo(reporter)
 		mr.createTracesTargetInfo(reporter)
 		mr.setupPIDToServiceRelationship(pe.File.Pid, pe.File.Service.UID)
 	} else {
 		if deleted, origUID := mr.disassociatePIDFromService(pe.File.Pid); deleted {
-			// We only need the UID to look up in the pool, no need to cache
-			// the whole of the attrs in the pidTracker
 			svc := svc.Attrs{UID: origUID}
-			reporter, err = mr.reporters.For(&svc)
-			if err != nil {
-				mr.log.Error("unexpected error creating OTEL resource. Ignoring metric",
-					"error", err, "service", pe.File.Service.UID)
-				return
+			reporter, ok := mr.reporters.Peek(&svc)
+			if !ok {
+				mr.log.Debug("onProcessEvent/Deletion: service not found in reporters map", "service", svc)
+			} else {
+				mr.log.Debug("deleting infos for", "pid", pe.File.Pid, "attrs", reporter.service)
+				mr.deleteTracesTargetInfo(reporter)
+				mr.deleteTargetInfo(reporter)
 			}
-			mlog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", reporter.service)
-			mr.deleteTracesTargetInfo(reporter)
-			mr.deleteTargetInfo(reporter)
 			if mr.cfg.HostMetricsEnabled() && mr.pidTracker.Count() == 0 {
-				mlog().Debug("No more PIDs tracked, expiring host info metric")
+				mr.log.Debug("No more PIDs tracked, expiring host info metric")
 				mr.hostInfo.RemoveAllMetrics(mr.ctx)
 			}
 		}
