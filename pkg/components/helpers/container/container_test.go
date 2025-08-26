@@ -44,6 +44,8 @@ var fixturesWithContainer = map[uint32]string{
 	889: `0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod7260904bbd08e72e4dff95d9fccd2ee8.slice/cri-containerd-40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9.scope`,
 	// Docker 27+
 	899: `0::/../../pode039200acb850c82bb901653cc38ff6e/40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9`,
+	// Cgroup v2
+	910: `0::/k8s.io/40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9`,
 }
 
 var fixturesWithoutContainer = map[uint32]string{
