@@ -204,11 +204,10 @@ func TestAttributeFilter_SpanMetrics(t *testing.T) {
 	// if the attributes are not existing, we should just ignore them
 	input := msg.NewQueue[[]*request.Span](msg.ChannelBufferLen(10))
 	output := msg.NewQueue[[]*request.Span](msg.ChannelBufferLen(10))
-	spanPromGetters := request.SpanPromGetters
 	filterFunc, err := ByAttribute[*request.Span](AttributeFamilyConfig{
 		"client": MatchDefinition{NotMatch: "filtered"},
 		"server": MatchDefinition{NotMatch: "filtered"},
-	}, nil, map[string][]attr.Name{}, spanPromGetters, input, output)(t.Context())
+	}, nil, map[string][]attr.Name{}, request.SpanPromGetters, input, output)(t.Context())
 	require.NoError(t, err)
 
 	out := output.Subscribe()

@@ -331,48 +331,45 @@ func newReporter(
 
 	is := instrumentations.NewInstrumentationSelection(cfg.Instrumentations)
 
-	// Create getter wrapper that captures the DropUnresolvedIPs config
-	spanPromGetters := request.SpanPromGetters
-
 	var attrHTTPDuration, attrHTTPClientDuration, attrHTTPRequestSize, attrHTTPResponseSize, attrHTTPClientRequestSize, attrHTTPClientResponseSize []attributes.Field[*request.Span, string]
 
 	if is.HTTPEnabled() {
-		attrHTTPDuration = attributes.PrometheusGetters(spanPromGetters,
+		attrHTTPDuration = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.HTTPServerDuration))
-		attrHTTPClientDuration = attributes.PrometheusGetters(spanPromGetters,
+		attrHTTPClientDuration = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.HTTPClientDuration))
-		attrHTTPRequestSize = attributes.PrometheusGetters(spanPromGetters,
+		attrHTTPRequestSize = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.HTTPServerRequestSize))
-		attrHTTPResponseSize = attributes.PrometheusGetters(spanPromGetters,
+		attrHTTPResponseSize = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.HTTPServerResponseSize))
-		attrHTTPClientRequestSize = attributes.PrometheusGetters(spanPromGetters,
+		attrHTTPClientRequestSize = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.HTTPClientRequestSize))
-		attrHTTPClientResponseSize = attributes.PrometheusGetters(spanPromGetters,
+		attrHTTPClientResponseSize = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.HTTPClientResponseSize))
 	}
 
 	var attrGRPCDuration, attrGRPCClientDuration []attributes.Field[*request.Span, string]
 
 	if is.GRPCEnabled() {
-		attrGRPCDuration = attributes.PrometheusGetters(spanPromGetters,
+		attrGRPCDuration = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.RPCServerDuration))
-		attrGRPCClientDuration = attributes.PrometheusGetters(spanPromGetters,
+		attrGRPCClientDuration = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.RPCClientDuration))
 	}
 
 	var attrDBClientDuration []attributes.Field[*request.Span, string]
 
 	if is.DBEnabled() {
-		attrDBClientDuration = attributes.PrometheusGetters(spanPromGetters,
+		attrDBClientDuration = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.DBClientDuration))
 	}
 
 	var attrMessagingProcessDuration, attrMessagingPublishDuration []attributes.Field[*request.Span, string]
 
 	if is.MQEnabled() {
-		attrMessagingPublishDuration = attributes.PrometheusGetters(spanPromGetters,
+		attrMessagingPublishDuration = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.MessagingPublishDuration))
-		attrMessagingProcessDuration = attributes.PrometheusGetters(spanPromGetters,
+		attrMessagingProcessDuration = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.MessagingProcessDuration))
 	}
 
@@ -383,15 +380,15 @@ func newReporter(
 	var attrGPUMemoryCopies []attributes.Field[*request.Span, string]
 
 	if is.GPUEnabled() {
-		attrGPUKernelLaunchCalls = attributes.PrometheusGetters(spanPromGetters,
+		attrGPUKernelLaunchCalls = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.GPUKernelLaunchCalls))
-		attrGPUMemoryAllocations = attributes.PrometheusGetters(spanPromGetters,
+		attrGPUMemoryAllocations = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.GPUMemoryAllocations))
-		attrGPUKernelGridSize = attributes.PrometheusGetters(spanPromGetters,
+		attrGPUKernelGridSize = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.GPUKernelGridSize))
-		attrGPUKernelBlockSize = attributes.PrometheusGetters(spanPromGetters,
+		attrGPUKernelBlockSize = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.GPUKernelBlockSize))
-		attrGPUMemoryCopies = attributes.PrometheusGetters(spanPromGetters,
+		attrGPUMemoryCopies = attributes.PrometheusGetters(request.SpanPromGetters,
 			attrsProvider.For(attributes.GPUMemoryCopies))
 	}
 
