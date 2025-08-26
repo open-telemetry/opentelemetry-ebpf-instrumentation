@@ -34,19 +34,18 @@ func TestSelectorMatch(t *testing.T) {
 	assert.Empty(t, selection.Matching(Name{Section: "pam.pum"}))
 }
 
-// TestConcurrentMapAccess demonstrates the race condition between Normalize() and Matching()
-// This test reproduces the "fatal error: concurrent map iteration and map write" issue.
+// TestConcurrentMapAccess demonstrates the race condition between Normalize() and Matching():
+// https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/508
 //
 // The race condition occurs when:
 // 1. Normalize() modifies the Selection map
 // 2. Matching() iterates over the Selection map
 // 3. These operations happen concurrently from different goroutines
 //
-// To demonstrate the issue, remove the t.Skip() line below and run:
+// To demonstrate the issue, run with the -race flag:
 //
 //	go test ./pkg/export/attributes/... -race
 func TestConcurrentMapAccess(t *testing.T) {
-	// t.Skip("Skipping race condition test by default - remove this line to demonstrate the concurrent map access issue")
 	// Create a selection with multiple entries to increase chances of race condition
 	selection := Selection{
 		"http.server.request.duration":   {Include: []string{"*"}},
@@ -128,7 +127,5 @@ func TestConcurrentMapAccess(t *testing.T) {
 	close(done)
 	wg.Wait()
 
-	// If we reach here without a race condition panic, the test passes
-	// But when run with -race flag, this should detect the concurrent map access
-	t.Log("Test completed - if run with -race flag, this should have detected concurrent map access")
+	t.Log("test completed - this is here as at least one usage of t required for linting")
 }
