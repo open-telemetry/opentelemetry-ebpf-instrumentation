@@ -235,10 +235,17 @@ type Config struct {
 	InternalMetrics  imetrics.Config `yaml:"internal_metrics"`
 
 	// LogConfig enables the logging of the configuration on startup.
-	LogConfig bool `yaml:"log_config" env:"OTEL_EBPF_LOG_CONFIG"`
+	LogConfig LogConfigOption `yaml:"log_config" env:"OTEL_EBPF_LOG_CONFIG"`
 
 	NodeJS NodeJSConfig `yaml:"nodejs"`
 }
+
+type LogConfigOption string
+
+const (
+	LogConfigOptionYAML = LogConfigOption("yaml")
+	LogConfigOptionJSON = LogConfigOption("json")
+)
 
 // Attributes configures the decoration of some extra attributes that will be
 // added to each span
