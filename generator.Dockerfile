@@ -16,7 +16,7 @@ ENV EBPF_VER=v0.19.0
 ENV PROTOC_VERSION=32.0
 ARG TARGETARCH
 
-RUN apk add clang llvm20 wget unzip curl
+RUN apk add clang llvm20 wget unzip curl wget
 RUN apk cache purge
 
 # Install protoc
