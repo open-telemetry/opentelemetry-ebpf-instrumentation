@@ -17,7 +17,7 @@ testoutput
 **/node_modules
 
 # Dependency directories (remove the comment below to include it)
-# vendor/
+**/vendor/
 
 deployments/01-grafana-credentials.yml
 test/cmd/pingserver/server
@@ -75,10 +75,7 @@ test/cmd/grpc/client/grpclient
 test/integration/components/gohttp2/client/client
 test/integration/components/gohttp2/server/http2srv
 test/integration/components/gokafka/gokafka
-test/integration/components/gokafka/vendor/*
-test/integration/components/gokafka-seg/vendor/*
 test/integration/components/gokafka-seg/gokafka
-test/integration/components/goredis/vendor/*
 test/integration/components/goredis/goredis
 test/integration/components/go_otel/rolldice
 test/integration/components/go_otel_grpc/rolldice
@@ -86,7 +83,6 @@ test/integration/components/pythonserver/lib/
 test/integration/components/pythonserver/lib64
 test/integration/components/pythonserver/pyvenv.cfg
 test/integration/components/gosql/qosql
-test/integration/components/testserver_1.17/vendor/*
 *_bpfel.go
 *_bpfel.o
 pkg/components/otelsdk/grafana-opentelemetry-java.jar
