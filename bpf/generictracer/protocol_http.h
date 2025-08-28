@@ -41,14 +41,16 @@ static __always_inline u32 trace_type_from_meta(http_connection_metadata_t *meta
     return TRACE_TYPE_SERVER;
 }
 
-static __always_inline void http_get_or_create_trace_info(http_connection_metadata_t *meta,
-                                                          u32 pid,
-                                                          connection_info_t *conn,
-                                                          void *u_buf,
-                                                          int bytes_len,
-                                                          s32 capture_header_buffer,
-                                                          u8 ssl,
-                                                          u16 orig_dport) {
+static __always_inline void
+http_get_or_create_trace_info(http_connection_metadata_t *meta,
+                              u32 pid,
+                              connection_info_t *conn,
+                              void *u_buf,
+                              int bytes_len,
+                              s32 capture_header_buffer,
+                              u8 ssl,
+                              u16 orig_dport,
+                              unsigned char *(*tp_loop_fn)(unsigned char *, int)) {
     //TODO use make_key
     egress_key_t e_key = {
         .d_port = conn->d_port,
@@ -148,8 +150,8 @@ static __always_inline void http_get_or_create_trace_info(http_connection_metada
             bpf_clamp_umax(buf_len, TRACE_BUF_SIZE - 1);
 
             bpf_probe_read(buf, buf_len, u_buf);
-            unsigned char *res = bpf_strstr_tp_loop(buf, buf_len);
 
+            unsigned char *res = tp_loop_fn(buf, buf_len);
             if (res) {
                 bpf_dbg_printk("Found traceparent in headers [%s] overriding what was before", res);
                 unsigned char *t_id = extract_trace_id(res);
@@ -401,13 +403,8 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     cleanup_http_request_data(pid_conn, info);
 }
 
-// k_tail_protocol_http
-SEC("kprobe/http")
-int obi_protocol_http(void *ctx) {
-    (void)ctx;
-
+static __always_inline int __obi_protocol_http(unsigned char *(*tp_loop_fn)(unsigned char *, int)) {
     call_protocol_args_t *args = protocol_args();
-
     if (!args) {
         return 0;
     }
@@ -459,7 +456,8 @@ int obi_protocol_http(void *ctx) {
                                       args->bytes_len,
                                       capture_header_buffer,
                                       args->ssl,
-                                      args->orig_dport);
+                                      args->orig_dport,
+                                      tp_loop_fn);
 
         if (meta) {
             u32 type = trace_type_from_meta(meta);
@@ -491,4 +489,18 @@ int obi_protocol_http(void *ctx) {
     }
 
     return 0;
+}
+
+// k_tail_protocol_http
+SEC("kprobe/http")
+static int obi_protocol_http(void *ctx) {
+    (void)ctx;
+    return __obi_protocol_http(bpf_strstr_tp_loop);
+}
+
+// k_tail_protocol_http
+SEC("kprobe/http")
+static int obi_protocol_http_legacy(void *ctx) {
+    (void)ctx;
+    return __obi_protocol_http(bpf_strstr_tp_loop__legacy);
 }

@@ -56,10 +56,6 @@ static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
 }
 
 static int tp_match(u32 index, void *data) {
-    if (!k_bpf_traceparent_enabled) {
-        return 0;
-    }
-
     if (index >= (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) {
         return 1;
     }
@@ -88,6 +84,27 @@ static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, int
 
     if (data.pos) {
         return (data.pos > (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) ? NULL : &(buf[data.pos]);
+    }
+
+    return NULL;
+}
+
+static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *buf, int buf_len) {
+    (void)buf_len;
+
+    if (!k_bpf_traceparent_enabled) {
+        return NULL;
+    }
+
+    const u16 k_besteffort_max_loops = 450; // Limited best-effort search to stay within insns limit
+    for (u16 i = 0; i + TRACE_PARENT_HEADER_LEN < k_besteffort_max_loops; i++) {
+        if (i != 0 && buf[i - 1] != '\n') {
+            continue;
+        }
+
+        if (is_traceparent(&buf[i])) {
+            return &buf[i];
+        }
     }
 
     return NULL;

@@ -141,18 +141,22 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 
 	if p.cfg.EBPF.TrackRequestHeaders ||
 		p.cfg.EBPF.ContextPropagation != config.ContextPropagationDisabled {
-		if ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled) {
-			p.log.Info("Found compatible Linux kernel, enabling trace information parsing")
-			loader = LoadBpfTP
-			if p.cfg.EBPF.BpfDebug {
-				loader = LoadBpfTPDebug
-			}
-		} else {
-			p.log.Info("Found incompatible Linux kernel, disabling trace information parsing")
+		loader = LoadBpfTP
+		if p.cfg.EBPF.BpfDebug {
+			loader = LoadBpfTPDebug
 		}
+
+		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled))
 	}
 
-	return loader()
+	spec, err := loader()
+	if err != nil {
+		return nil, fmt.Errorf("can't load bpf collection from reader: %w", err)
+	}
+
+	ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
+
+	return spec, err
 }
 
 func (p *Tracer) SetupTailCalls() {
