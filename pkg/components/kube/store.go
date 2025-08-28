@@ -5,7 +5,10 @@ package kube
 
 import (
 	"bytes"
+	"iter"
 	"log/slog"
+	gomaps "maps"
+	"slices"
 	"strings"
 	"sync"
 	"text/template"
@@ -456,7 +459,6 @@ func (s *Store) serviceNameNamespaceOwnerID(om *informer.ObjectMeta, containerNa
 	} else if own := TopOwner(om.Pod); own != nil {
 		serviceName = own.Name
 	}
-
 	if envName, ok := s.serviceNamespaceFromEnv(om, containerName); ok {
 		serviceNamespace = envName
 	} else if nsFromMeta := s.valueFromMetadata(om,
@@ -488,6 +490,14 @@ func isValidServiceName(name string) bool {
 	return name != "" && !strings.HasPrefix(name, "$(")
 }
 
+// if the object is not a pod, we would need to dig into the internal owner:containers store
+func (s *Store) containersFor(om *informer.ObjectMeta) iter.Seq[*informer.ContainerInfo] {
+	if om.Pod != nil {
+		return slices.Values(om.Pod.Containers)
+	}
+	return gomaps.Values(s.containersByOwner[ownerID(om.Namespace, om.Name)])
+}
+
 func (s *Store) serviceNameFromEnv(om *informer.ObjectMeta, containerName string) (string, bool) {
 	// for eBPF application data, we know the container name.
 	// However, when we only know the IP address (e.g. when we are checking the Peer address), we still
@@ -498,7 +508,7 @@ func (s *Store) serviceNameFromEnv(om *informer.ObjectMeta, containerName string
 	// There is a known limitation with this approach: if a pod has multiple containers defining
 	// OTEL_SERVICE_NAME with different values, we might get the wrong service name.
 	// However, this looks as an edge case that shouldn't happen in practice.
-	for _, c := range om.GetPod().GetContainers() {
+	for c := range s.containersFor(om) {
 		if containerName == "" || c.Name == containerName {
 			if serviceName, ok := c.Env[meta.EnvServiceName]; ok {
 				return serviceName, isValidServiceName(serviceName)
@@ -513,13 +523,14 @@ func (s *Store) serviceNameFromEnv(om *informer.ObjectMeta, containerName string
 
 func (s *Store) serviceNamespaceFromEnv(om *informer.ObjectMeta, containerName string) (string, bool) {
 	// when containerName is empty, we will follow the same assumption as serviceNameFromEnv
-	for _, c := range om.GetPod().GetContainers() {
+	for c := range s.containersFor(om) {
 		if containerName == "" || c.Name == containerName {
 			if namespace, ok := s.nameFromResourceAttrs(serviceNamespaceKey, c); ok {
 				return namespace, isValidServiceName(namespace)
 			}
 		}
 	}
+
 	return "", false
 }
 

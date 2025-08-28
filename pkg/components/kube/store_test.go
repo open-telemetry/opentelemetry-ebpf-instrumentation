@@ -129,12 +129,21 @@ func TestContainerInfoWithTemplate(t *testing.T) {
 
 	assert.Empty(t, store.otelServiceInfoByIP)
 
-	t.Run("test with service attributes set", func(tt *testing.T) {
-		for _, ip := range []string{"169.0.0.1", "1.1.1.1", "3.1.1.1"} {
-			name, namespace := store.ServiceNameNamespaceForIP(ip)
-			assert.Equal(tt, "customName", name, ip)
-			assert.Equal(tt, "boo", namespace, ip)
+	t.Run("test with service attributes set", func(t *testing.T) {
+		for _, ip := range []string{"169.0.0.1", "1.1.1.1"} {
+			t.Run(ip, func(t *testing.T) {
+				name, namespace := store.ServiceNameNamespaceForIP(ip)
+				assert.Equal(t, "customName", name, ip)
+				assert.Equal(t, "boo", namespace, ip)
+			})
 		}
+		// Pod with IP 3.1.1.1 does not have any overriding of the service name,
+		// so it should follow te template
+		t.Run("3.1.1.1", func(t *testing.T) {
+			name, namespace := store.ServiceNameNamespaceForIP("3.1.1.1")
+			assert.Equal(t, "namespaceA/applicationA/componentB", name)
+			assert.Equal(t, "namespaceA", namespace)
+		})
 	})
 
 	assert.Len(t, store.otelServiceInfoByIP, 3)
@@ -326,12 +335,21 @@ func TestContainerInfo(t *testing.T) {
 
 	assert.Empty(t, store.otelServiceInfoByIP)
 
-	t.Run("test with service attributes set", func(tt *testing.T) {
-		for _, ip := range []string{"169.0.0.1", "1.1.1.1", "3.1.1.1"} {
-			name, namespace := store.ServiceNameNamespaceForIP(ip)
-			assert.Equal(tt, "customName", name, ip)
-			assert.Equal(tt, "boo", namespace, ip)
+	t.Run("test with service attributes set", func(t *testing.T) {
+		for _, ip := range []string{"169.0.0.1", "1.1.1.1"} {
+			t.Run(ip, func(t *testing.T) {
+				name, namespace := store.ServiceNameNamespaceForIP(ip)
+				assert.Equal(t, "customName", name, ip)
+				assert.Equal(t, "boo", namespace, ip)
+			})
 		}
+		// Pod with IP 3.1.1.1 does neither override name nor namespace, so
+		// we should expect here the Kubernetes metadata
+		t.Run("3.1.1.1", func(t *testing.T) {
+			name, namespace := store.ServiceNameNamespaceForIP("3.1.1.1")
+			assert.Equal(t, "service", name)
+			assert.Equal(t, "namespaceA", namespace)
+		})
 	})
 
 	assert.Len(t, store.otelServiceInfoByIP, 3)
@@ -347,28 +365,32 @@ func TestContainerInfo(t *testing.T) {
 	assert.True(t, ok)
 	assert.Len(t, serviceContainers, 2)
 
-	t.Run("test without service attributes set", func(tt *testing.T) {
+	t.Run("test without service attributes set", func(t *testing.T) {
 		// We removed the pod that defined the env variables
 		for _, ip := range []string{"169.0.0.1", "3.1.1.1"} {
-			name, namespace := store.ServiceNameNamespaceForIP(ip)
-			assert.Equal(tt, "service", name)
-			assert.Equal(tt, "namespaceA", namespace)
+			t.Run(ip, func(t *testing.T) {
+				name, namespace := store.ServiceNameNamespaceForIP(ip)
+				assert.Equal(t, "service", name)
+				assert.Equal(t, "namespaceA", namespace)
+			})
 		}
 
 		name, namespace := store.ServiceNameNamespaceForIP("1.1.1.1")
-		assert.Empty(tt, name)
-		assert.Empty(tt, namespace)
+		assert.Empty(t, name)
+		assert.Empty(t, namespace)
 	})
 
 	// 3 again, because we cache that we can't see the IP in our info
 	assert.Len(t, store.otelServiceInfoByIP, 3)
 
-	t.Run("test with only namespace attributes set", func(tt *testing.T) {
+	t.Run("test with only namespace attributes set", func(t *testing.T) {
 		// We removed the pod that defined the env variables
 		for _, ip := range []string{"1.2.1.2", "2.1.2.1"} {
-			name, namespace := store.ServiceNameNamespaceForIP(ip)
-			assert.Equal(tt, "serviceB", name)
-			assert.Equal(tt, "boo", namespace)
+			t.Run(ip, func(t *testing.T) {
+				name, namespace := store.ServiceNameNamespaceForIP(ip)
+				assert.Equal(t, "serviceB", name)
+				assert.Equal(t, "boo", namespace)
+			})
 		}
 	})
 
