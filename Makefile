@@ -8,9 +8,6 @@ CACHE_MAIN_GO_FILE ?= cmd/$(CACHE_CMD)/main.go
 GOOS ?= linux
 GOARCH ?= amd64
 
-# TODO: upload as a ghcr.io artifact
-PROTOC_IMAGE ?= docker.io/mariomac/protoc-go:latest
-
 # RELEASE_VERSION will contain the tag name, or the branch name if current commit is not a tag
 RELEASE_VERSION := $(shell git describe --all | cut -d/ -f2)
 RELEASE_REVISION := $(shell git rev-parse --short HEAD )
@@ -28,7 +25,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.1.0
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.1
 
 OCI_BIN ?= docker
 
@@ -381,7 +378,7 @@ clean-testoutput:
 
 .PHONY: protoc-gen
 protoc-gen:
-	docker run --rm -v $(PWD):/work -w /work $(PROTOC_IMAGE) protoc --go_out=pkg/kubecache --go-grpc_out=pkg/kubecache proto/informer.proto
+	docker run --rm -v $(PWD):/src -w /src $(GEN_IMG) protoc --go_out=pkg/kubecache --go-grpc_out=pkg/kubecache proto/informer.proto
 
 .PHONY: clang-format
 clang-format:
