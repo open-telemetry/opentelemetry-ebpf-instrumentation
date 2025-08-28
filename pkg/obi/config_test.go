@@ -50,11 +50,13 @@ otel_metrics_export:
   buckets:
     duration_histogram: [0, 1, 2]
   histogram_aggregation: base2_exponential_bucket_histogram
+  drop_unresolved_ips: false
 prometheus_export:
   ttl: 1s
   buckets:
     request_size_histogram: [0, 10, 20, 22]
     response_size_histogram: [0, 10, 20, 22]
+  drop_unresolved_ips: false
 attributes:
   kubernetes:
     kubeconfig_path: /foo/bar
@@ -157,6 +159,7 @@ discovery:
 			},
 			HistogramAggregation: "base2_exponential_bucket_histogram",
 			TTL:                  5 * time.Minute,
+			DropUnresolvedIPs:    false,
 		},
 		Traces: otelcfg.TracesConfig{
 			Protocol:          otelcfg.ProtocolUnset,
@@ -181,6 +184,7 @@ discovery:
 				RequestSizeHistogram:  []float64{0, 10, 20, 22},
 				ResponseSizeHistogram: []float64{0, 10, 20, 22},
 			},
+			DropUnresolvedIPs: false,
 		},
 		InternalMetrics: imetrics.Config{
 			Exporter: imetrics.InternalMetricsExporterDisabled,
