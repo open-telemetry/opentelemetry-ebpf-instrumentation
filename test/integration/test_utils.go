@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
+//go:build integration || integration_shard_0 || integration_shard_1 || integration_shard_2 || integration_shard_3 || integration_shard_4 || integration_shard_5
 
 package integration
 

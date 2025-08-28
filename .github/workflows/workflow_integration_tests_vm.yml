@@ -68,5 +68,5 @@ jobs:
           ARCH: ${{ inputs.arch }}
           KERNEL_VERSION: ${{ inputs.kernel-version }}
         with:
-          file: ./testoutput/itest-covdata.txt
+          files: ./testoutput/itest-covdata.txt
           flags: integration-test-vm-${ARCH}-${KERNEL_VERSION}

@@ -22,34 +22,82 @@ jobs:
     strategy:
       matrix:
         go: [ '1.24' ]
+        shard: [0, 1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
+
       - name: Set up Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: ${{ matrix.go }}
           cache: 'false'
-      - name: Clean up disk space
-        run: |
-          docker system prune -af
-          docker volume prune -f
+
+      - name: Generate files
+        run: make docker-generate
+
       - name: Run integration tests
-        run: make docker-generate integration-test
-        timeout-minutes: 60
-      - name: Upload integration test logs
+        timeout-minutes: 30
+        run: |
+          make prereqs prepare-integration-test run-integration-test \
+            INTEGRATION_TEST_TAGS="integration_shard_${{ matrix.shard }}"
+
+      - name: Upload logs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: Test Logs
+          name: test-logs-${{ matrix.go }}-${{ matrix.shard }}
           path: |
             testoutput/*.log
             testoutput/kind
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: coverage-${{ matrix.go }}-${{ matrix.shard }}
+          path: |
+            testoutput/cov*
+
+  coverage:
+    if: ${{ !cancelled() }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.24"]
+    permissions:
+      # Required for codecov
+      checks: write
+      pull-requests: write
+      # Required for uploading artifacts
+      actions: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: ${{ matrix.go }}
+          cache: "false"
+
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: testoutput
+          pattern: coverage-${{ matrix.go }}-*
+          merge-multiple: true
+
+      - name: Merge coverage data
+        run: make itest-coverage-data
+
       - name: Report coverage
         uses: codecov/codecov-action@fdcc8476540edceab3de004e990f80d881c6cc00 # v5.5.0
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
-          file: ./testoutput/itest-covdata.txt
+          files: ./testoutput/itest-covdata.txt
           flags: integration-test

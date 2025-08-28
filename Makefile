@@ -13,6 +13,7 @@ RELEASE_VERSION := $(shell git describe --all | cut -d/ -f2)
 RELEASE_REVISION := $(shell git rev-parse --short HEAD )
 BUILDINFO_PKG ?= go.opentelemetry.io/obi/pkg/buildinfo
 TEST_OUTPUT ?= ./testoutput
+INTEGRATION_TEST_TAGS ?= integration
 
 IMG_REGISTRY ?= docker.io
 # Set your registry username. CI will set 'otel' but you mustn't use it for manual pushing.
@@ -260,7 +261,7 @@ cleanup-integration-test: $(KIND)
 run-integration-test:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./test/integration/... --tags=integration
+	go test -p 1 -failfast -v -timeout 60m -a ./test/integration/... --tags="$(INTEGRATION_TEST_TAGS)"
 
 .PHONY: run-integration-test-k8s
 run-integration-test-k8s:
