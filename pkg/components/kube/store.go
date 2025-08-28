@@ -346,6 +346,7 @@ func (s *Store) PodContainerByPIDNs(pidns uint32) (*CachedObjMeta, string) {
 		if om, ok := s.podsByContainer[info.ContainerID]; ok {
 			oID := fetchOwnerID(om.Meta)
 			containerName := ""
+			// TODO: try to get rid of containersByOwner to simplify the code
 			if containerInfo, ok := s.containersByOwner.Get(oID, info.ContainerID); ok {
 				containerName = containerInfo.Name
 			}
@@ -364,20 +365,7 @@ func (s *Store) ObjectMetaByIP(ip string) *CachedObjMeta {
 func (s *Store) ServiceNameNamespaceForMetadata(om *informer.ObjectMeta, containerName string) (string, string) {
 	s.access.RLock()
 	defer s.access.RUnlock()
-	return s.serviceNameNamespaceForMetadata(om, containerName)
-}
-
-// TODO: this function can be probably simplified, as it is used to build a CachedObjectMeta
-// that already contains the metadata
-func (s *Store) serviceNameNamespaceForMetadata(om *informer.ObjectMeta, containerName string) (string, string) {
-	var name string
-	var namespace string
-	if owner := TopOwner(om.Pod); owner != nil {
-		name, namespace = s.serviceNameNamespaceOwnerID(om, owner.Name, containerName)
-	} else {
-		name, namespace = s.serviceNameNamespaceOwnerID(om, om.Name, containerName)
-	}
-	return name, namespace
+	return s.serviceNameNamespaceOwnerID(om, containerName)
 }
 
 // function implemented to provide consistent service metadata naming across multiple
@@ -414,7 +402,7 @@ func (s *Store) ServiceNameNamespaceForIP(ip string) (string, string) {
 
 	name, namespace := "", ""
 	if om, ok := s.objectMetaByIP[ip]; ok {
-		name, namespace = s.serviceNameNamespaceForMetadata(om.Meta, "")
+		name, namespace = s.serviceNameNamespaceOwnerID(om.Meta, "")
 	}
 
 	s.otelServiceInfoByIP[ip] = OTelServiceNamePair{Name: name, Namespace: namespace}
@@ -428,15 +416,14 @@ func (s *Store) ServiceNameNamespaceForIP(ip string) (string, string) {
 // 2. Resource attributes set via annotations (with the resource.opentelemetry.io/ prefix)
 // 3. Resource attributes set via labels (e.g. app.kubernetes.io/name)
 // 4. Resource attributes calculated from the owner's metadata (e.g. k8s.deployment.name) or pod's metadata (e.g. k8s.pod.name)
-func (s *Store) serviceNameNamespaceOwnerID(om *informer.ObjectMeta, ownerName string, containerName string) (string, string) {
+func (s *Store) serviceNameNamespaceOwnerID(om *informer.ObjectMeta, containerName string) (string, string) {
 	// ownerName can be the top Owner name, or om.Name in case it's a pod without owner
-	serviceName := ownerName
+	serviceName := om.Name
 	serviceNamespace := om.Namespace
-	ownerKey := ownerID(serviceNamespace, serviceName)
 
 	// OTEL_SERVICE_NAME and OTEL_SERVICE_NAMESPACE variables take precedence over user-configured annotations
 	// and labels
-	if envName, ok := s.serviceNameFromEnv(ownerKey, containerName); ok {
+	if envName, ok := s.serviceNameFromEnv(om, containerName); ok {
 		serviceName = envName
 	} else if s.serviceNameTemplate != nil {
 		// defining a serviceNameTemplate disables the resolution via annotation + label (this can be implemented in the template)
@@ -466,8 +453,11 @@ func (s *Store) serviceNameNamespaceOwnerID(om *informer.ObjectMeta, ownerName s
 		s.resourceLabels["service.name"],
 	); nameFromMeta != "" {
 		serviceName = nameFromMeta
+	} else if own := TopOwner(om.Pod); own != nil {
+		serviceName = own.Name
 	}
-	if envName, ok := s.serviceNamespaceFromEnv(ownerKey, containerName); ok {
+
+	if envName, ok := s.serviceNamespaceFromEnv(om, containerName); ok {
 		serviceNamespace = envName
 	} else if nsFromMeta := s.valueFromMetadata(om,
 		ServiceNamespaceAnnotation,
@@ -498,30 +488,35 @@ func isValidServiceName(name string) bool {
 	return name != "" && !strings.HasPrefix(name, "$(")
 }
 
-func (s *Store) serviceNameFromEnv(ownerKey string, containerName string) (string, bool) {
-	if containers, ok := s.containersByOwner[ownerKey]; ok {
-		for _, c := range containers {
-			if c.Name == containerName {
-				if serviceName, ok := c.Env[meta.EnvServiceName]; ok {
-					return serviceName, isValidServiceName(serviceName)
-				}
-
-				if serviceName, ok := s.nameFromResourceAttrs(serviceNameKey, c); ok {
-					return serviceName, isValidServiceName(serviceName)
-				}
+func (s *Store) serviceNameFromEnv(om *informer.ObjectMeta, containerName string) (string, bool) {
+	// for eBPF application data, we know the container name.
+	// However, when we only know the IP address (e.g. when we are checking the Peer address), we still
+	// need to override the service name from the environment variables; otherwise service graph metrics
+	// won't be consistent with the rest of application metrics.
+	// If the container is empty and the pod has multiple containers, we will pickup the last matching
+	// environment variable overriding the service name.
+	// There is a known limitation with this approach: if a pod has multiple containers defining
+	// OTEL_SERVICE_NAME with different values, we might get the wrong service name.
+	// However, this looks as an edge case that shouldn't happen in practice.
+	for _, c := range om.GetPod().GetContainers() {
+		if containerName == "" || c.Name == containerName {
+			if serviceName, ok := c.Env[meta.EnvServiceName]; ok {
+				return serviceName, isValidServiceName(serviceName)
+			}
+			if serviceName, ok := s.nameFromResourceAttrs(serviceNameKey, c); ok {
+				return serviceName, isValidServiceName(serviceName)
 			}
 		}
 	}
 	return "", false
 }
 
-func (s *Store) serviceNamespaceFromEnv(ownerKey string, containerName string) (string, bool) {
-	if containers, ok := s.containersByOwner[ownerKey]; ok {
-		for _, c := range containers {
-			if c.Name == containerName {
-				if namespace, ok := s.nameFromResourceAttrs(serviceNamespaceKey, c); ok {
-					return namespace, isValidServiceName(namespace)
-				}
+func (s *Store) serviceNamespaceFromEnv(om *informer.ObjectMeta, containerName string) (string, bool) {
+	// when containerName is empty, we will follow the same assumption as serviceNameFromEnv
+	for _, c := range om.GetPod().GetContainers() {
+		if containerName == "" || c.Name == containerName {
+			if namespace, ok := s.nameFromResourceAttrs(serviceNamespaceKey, c); ok {
+				return namespace, isValidServiceName(namespace)
 			}
 		}
 	}
