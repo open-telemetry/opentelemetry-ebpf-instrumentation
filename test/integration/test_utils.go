@@ -29,6 +29,10 @@ import (
 	"go.opentelemetry.io/obi/test/integration/components/prom"
 )
 
+const (
+	prometheusHostPort = "localhost:9090"
+)
+
 /*
 TestCaseSpan represents a span that is expected to be produced by the instrumented service
 - Name: the name of the span (example: HSET)
