@@ -182,6 +182,77 @@ func TestIPsFilter(t *testing.T) {
 	}
 }
 
+func BenchmarkIPsFilter(b *testing.B) {
+	benchmarks := []struct {
+		name              string
+		numSpans          int
+		dropUnresolvedIPs bool
+	}{
+		{"Small_NoFilter", 10, false},
+		{"Small_WithFilter", 10, true},
+		{"Medium_NoFilter", 100, false},
+		{"Medium_WithFilter", 100, true},
+		{"Large_NoFilter", 1000, false},
+		{"Large_WithFilter", 1000, true},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			spans := generateTestSpans(bm.numSpans)
+			cfg := &otelcfg.MetricsConfig{
+				DropUnresolvedIPs: bm.dropUnresolvedIPs,
+			}
+
+			input := msg.NewQueue[[]request.Span]()
+			output := msg.NewQueue[[]request.Span]()
+
+			instanceFunc := IPsFilter(cfg, input, output)
+			runFunc, err := instanceFunc(context.Background())
+			if err != nil {
+				b.Fatal(err)
+			}
+			outputSub := output.Subscribe()
+			ctx, cancel := context.WithCancel(b.Context())
+			defer func() {
+				input.Close()
+				cancel()
+			}()
+			go runFunc(ctx)
+			done := make(chan struct{}, 1)
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+
+				input.Send(spans)
+				go func() {
+					for spans := range outputSub {
+						for i := range spans {
+							_ = spans[i].Host
+						}
+						done <- struct{}{}
+					}
+				}()
+				<-done
+			}
+		})
+	}
+}
+
+func generateTestSpans(n int) []request.Span {
+	spans := make([]request.Span, n)
+	for i := 0; i < n; i++ {
+		spans[i] = request.Span{
+			HostName:  "192.168.1.1",
+			Host:      "10.0.0.1",
+			PeerName:  "192.168.1.2",
+			Peer:      "10.0.0.2",
+			Statement: "http;192.168.1.3:8080",
+			Service:   svc.Attrs{UID: svc.UID{Name: "test-service"}},
+		}
+	}
+	return spans
+}
+
 func TestFilterHTTPClientHostFromStatement(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -244,3 +315,5 @@ func TestFilterHTTPClientHostFromStatement(t *testing.T) {
 		})
 	}
 }
+
+
