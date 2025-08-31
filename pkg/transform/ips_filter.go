@@ -5,6 +5,7 @@ package transform
 
 import (
 	"context"
+	"iter"
 	"net"
 	"strings"
 
@@ -14,7 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
-func IPsFilter(mc *otelcfg.MetricsConfig, input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
+func IPsFilter(mc *otelcfg.MetricsConfig, input, output *msg.Queue[iter.Seq[request.Span]]) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {
 		if !mc.DropUnresolvedIPs {
 			return swarm.Bypass(input, output)
@@ -23,14 +24,14 @@ func IPsFilter(mc *otelcfg.MetricsConfig, input, output *msg.Queue[[]request.Spa
 		return func(_ context.Context) {
 			defer output.Close()
 			for spans := range in {
-				copiedSpans := make([]request.Span, len(spans))
-				copy(copiedSpans, spans)
-
-				for i := range copiedSpans {
-					span := &copiedSpans[i]
-					filterIPsFromSpan(span)
-				}
-				output.Send(copiedSpans)
+				output.Send(func(yield func(request.Span) bool) {
+					for span := range spans {
+						filterIPsFromSpan(&span)
+						if !yield(span) {
+							return
+						}
+					}
+				})
 			}
 		}, nil
 	}
