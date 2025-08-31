@@ -10,13 +10,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-/*
 func TestIPsFilter(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -130,8 +130,8 @@ func TestIPsFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create input and output queues
-			input := msg.NewQueue[[]request.Span]()
-			output := msg.NewQueue[[]request.Span]()
+			input := msg.NewQueue[iter.Seq[request.Span]]()
+			output := msg.NewQueue[iter.Seq[request.Span]]()
 
 			// Create metrics config
 			cfg := &otelcfg.MetricsConfig{
@@ -155,13 +155,13 @@ func TestIPsFilter(t *testing.T) {
 			}()
 
 			// Send input spans
-			input.Send(tt.inputSpans)
+			input.Send(slices.Values(tt.inputSpans))
 			input.Close()
 
 			// Collect output
 			var actualSpans []request.Span
 			for spans := range outputSubscription {
-				actualSpans = append(actualSpans, spans...)
+				actualSpans = append(actualSpans, slices.Collect(spans)...)
 			}
 
 			// Clean up
@@ -182,7 +182,6 @@ func TestIPsFilter(t *testing.T) {
 		})
 	}
 }
-*/
 
 func BenchmarkIPsFilter(b *testing.B) {
 	benchmarks := []struct {
