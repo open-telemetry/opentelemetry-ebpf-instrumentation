@@ -77,3 +77,8 @@ spec:
           value: "true"
         - name: OTEL_EBPF_NAME_RESOLVER_SOURCES
           value: "dns,k8s"
+        {{- range $key, $value := .Env }}
+        - name: {{$key}}
+          value: "{{$value}}"
+        {{- end }}
+
