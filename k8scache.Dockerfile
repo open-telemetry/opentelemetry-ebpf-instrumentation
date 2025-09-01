@@ -12,7 +12,6 @@ COPY go.sum go.sum
 COPY LICENSE LICENSE
 COPY NOTICE NOTICE
 COPY Makefile Makefile
-COPY third_party_licenses.csv third_party_licenses.csv
 COPY cmd/ cmd/
 COPY pkg/ pkg/
 COPY .git/ .git/
@@ -30,6 +29,5 @@ WORKDIR /
 COPY --from=builder /opt/app-root/bin/k8s-cache .
 COPY --from=builder /opt/app-root/LICENSE .
 COPY --from=builder /opt/app-root/NOTICE .
-COPY --from=builder /opt/app-root/third_party_licenses.csv .
 
 ENTRYPOINT [ "/k8s-cache" ]

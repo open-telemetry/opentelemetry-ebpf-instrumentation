@@ -21,7 +21,6 @@ COPY go.sum go.sum
 COPY Makefile Makefile
 COPY LICENSE LICENSE
 COPY NOTICE NOTICE
-COPY third_party_licenses.csv third_party_licenses.csv
 
 # Build
 RUN /generate.sh
@@ -37,7 +36,6 @@ WORKDIR /
 COPY --from=builder /src/bin/ebpf-instrument .
 COPY --from=builder /src/LICENSE .
 COPY --from=builder /src/NOTICE .
-COPY --from=builder /src/third_party_licenses.csv .
 
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
