@@ -349,7 +349,6 @@ func (s *Store) PodContainerByPIDNs(pidns uint32) (*CachedObjMeta, string) {
 		if om, ok := s.podsByContainer[info.ContainerID]; ok {
 			oID := fetchOwnerID(om.Meta)
 			containerName := ""
-			// TODO: try to get rid of containersByOwner to simplify the code
 			if containerInfo, ok := s.containersByOwner.Get(oID, info.ContainerID); ok {
 				containerName = containerInfo.Name
 			}
@@ -530,7 +529,6 @@ func (s *Store) serviceNamespaceFromEnv(om *informer.ObjectMeta, containerName s
 			}
 		}
 	}
-
 	return "", false
 }
 
