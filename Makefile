@@ -84,9 +84,6 @@ $(TOOLS)/bpf2go: PACKAGE=github.com/cilium/ebpf/cmd/bpf2go
 GOLANGCI_LINT = $(TOOLS)/golangci-lint
 $(TOOLS)/golangci-lint: PACKAGE=github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
-GO_LICENSES ?= $(TOOLS)/go-licenses
-$(TOOLS)/go-licenses: PACKAGE=github.com/google/go-licenses/v2
-
 GO_OFFSETS_TRACKER ?= $(TOOLS)/go-offsets-tracker
 $(TOOLS)/go-offsets-tracker: PACKAGE=github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker
 
@@ -102,7 +99,7 @@ KIND ?= $(TOOLS)/kind
 $(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
 
 .PHONY: tools
-tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_LICENSES) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND)
+tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND)
 
 ### Development Tools (end) #################################################
 
@@ -377,19 +374,6 @@ oats-test: oats-test-sql oats-test-redis oats-test-kafka oats-test-http
 oats-test-debug: oats-prereq
 	cd test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h $(GINKGO) -v -r
 
-.PHONY: update-licenses check-license
-update-licenses: $(GO_LICENSES)
-	@echo "### Updating third_party_licenses.csv"
-	GOOS=linux GOARCH=amd64 $(GO_LICENSES) report --include_tests ./... > third_party_licenses.csv
-
-check-licenses: update-licenses
-	@echo "### Checking third party licenses"
-	@if [ "$(strip $(shell git diff HEAD third_party_licenses.csv))" != "" ]; then \
-		echo "ERROR: third_party_licenses.csv is not up to date. Run 'make update-licenses' and push the changes to your PR"; \
-		exit 1; \
-	fi
-
-
 .PHONY: license-header-check
 license-header-check:
 	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) ! -path './.git/*' ) ; do \
@@ -405,8 +389,7 @@ artifact: docker-generate compile
 	@echo "### Packing generated artifact"
 	cp LICENSE ./bin
 	cp NOTICE ./bin
-	cp third_party_licenses.csv ./bin
-	tar -C ./bin -cvzf bin/opentelemetry-ebpf-instrumentation.tar.gz ebpf-instrument LICENSE NOTICE third_party_licenses.csv
+	tar -C ./bin -cvzf bin/opentelemetry-ebpf-instrumentation.tar.gz ebpf-instrument LICENSE NOTICE
 
 .PHONY: clean-testoutput
 clean-testoutput:
