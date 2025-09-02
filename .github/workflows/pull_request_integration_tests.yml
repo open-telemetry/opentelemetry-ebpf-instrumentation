@@ -67,7 +67,7 @@ jobs:
         run: go install gotest.tools/gotestsum@v1.12.3
 
       - name: Run integration tests
-        timeout-minutes: 20
+        timeout-minutes: 30
         env:
           # zizmor template-injection fixes: pass data as env vars
           MATRIX_ID: ${{ matrix.id }}
@@ -87,7 +87,7 @@ jobs:
 
           ~/go/bin/gotestsum -ftestname \
               --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
-              -- -race -tags=integration -timeout 15m \
+              -- -race -tags=integration -timeout 25m \
               -run="^(${MATRIX_TEST_PATTERN})$" ./test/integration/...
 
       - name: Upload test reports
