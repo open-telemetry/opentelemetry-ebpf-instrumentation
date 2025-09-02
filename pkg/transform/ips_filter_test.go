@@ -12,7 +12,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/svc"
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -122,7 +121,7 @@ func TestIPsFilter(t *testing.T) {
 				},
 			},
 			dropUnresolvedIPs: true,
-			description:       "IPv6 addresses should be filtered out when DropUnresolvedIPs is true",
+			description:       "IPv6 addresses should be filtered out when DropMetricsUnresolvedIPs is true",
 		},
 	}
 
@@ -132,13 +131,8 @@ func TestIPsFilter(t *testing.T) {
 			input := msg.NewQueue[[]request.Span]()
 			output := msg.NewQueue[[]request.Span]()
 
-			// Create metrics config
-			cfg := &otelcfg.MetricsConfig{
-				DropUnresolvedIPs: tt.dropUnresolvedIPs,
-			}
-
 			// Create the IP filter instance
-			instanceFunc := IPsFilter(cfg, input, output)
+			instanceFunc := IPsFilter(tt.dropUnresolvedIPs, input, output)
 			runFunc, err := instanceFunc(context.Background())
 			require.NoError(t, err)
 
