@@ -2,14 +2,40 @@ name: Pull request integration tests
 
 on:
   push:
-    branches: [ 'main', 'release-*' ]
+    branches: ["main", "release-*"]
   pull_request:
-    branches: [ 'main', 'release-*' ]
+    branches: ["main", "release-*"]
 
 permissions:
   contents: read
 
 jobs:
+  test-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: "1.24"
+          cache: false
+
+      - name: Generate files
+        run: make docker-generate
+
+      - name: build matrix
+        id: build-matrix
+        env:
+          PARTITIONS: 6
+        run: |
+          echo -n "matrix=" >> $GITHUB_OUTPUT
+          make integration-test-matrix-json >> $GITHUB_OUTPUT
+
   test:
     permissions:
       # Required for codecov
@@ -17,39 +43,65 @@ jobs:
       pull-requests: write
       # Required for uploading artifacts
       actions: write
-    name: test
+    name: "test ${{ matrix.description }}"
+    needs: test-matrix
     runs-on: ubuntu-latest
     strategy:
-      matrix:
-        go: [ '1.24' ]
+      fail-fast: true
+      matrix: ${{ fromJson(needs.test-matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
+
       - name: Set up Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version: ${{ matrix.go }}
-          cache: 'false'
-      - name: Clean up disk space
-        run: |
-          docker system prune -af
-          docker volume prune -f
+          go-version: "1.24"
+          cache: false
+
+      - name: Generate files
+        run: make prereqs docker-generate
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.12.3
+
       - name: Run integration tests
-        run: make docker-generate integration-test
-        timeout-minutes: 60
+        timeout-minutes: 20
+        env:
+          # zizmor template-injection fixes: pass data as env vars
+          MATRIX_ID: ${{ matrix.id }}
+          MATRIX_JSON: ${{ toJson(matrix) }}
+          MATRIX_TEST_PATTERN: ${{ matrix.test_pattern }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          echo Partition
+          echo "${MATRIX_JSON}"
+
+          if [ -z "${MATRIX_TEST_PATTERN}" ]; then
+            echo "Error: Test pattern is empty for shard $MATRIX_ID"
+            exit 1
+          fi
+
+          mkdir -p /home/runner/reports
+
+          ~/go/bin/gotestsum -ftestname \
+              --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
+              -- -race -tags=integration -timeout 15m \
+              -run="^(${MATRIX_TEST_PATTERN})$" ./test/integration/...
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: go-test-reports-${{ github.run_number }}-${{ matrix.id }}
+          path: /home/runner/reports/*.log
+          retention-days: 5
+
       - name: Upload integration test logs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: Test Logs
+          name: go-test-logs-${{ github.run_number }}-${{ matrix.id }}
           path: |
             testoutput/*.log
             testoutput/kind
-      - name: Report coverage
-        uses: codecov/codecov-action@fdcc8476540edceab3de004e990f80d881c6cc00 # v5.5.0
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        with:
-          file: ./testoutput/itest-covdata.txt
-          flags: integration-test
