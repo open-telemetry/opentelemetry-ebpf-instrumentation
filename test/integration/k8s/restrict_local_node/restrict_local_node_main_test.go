@@ -41,7 +41,7 @@ func TestMain(m *testing.M) {
 		os.Exit(-1)
 	}
 
-	cluster = kube.NewKind("test-kind-cluster-otel-multi",
+	cluster = kube.NewKind("test-kind-cluster-restrict-local-node",
 		kube.KindConfig(testpath.Manifests+"/00-kind-multi-node.yml"),
 		kube.LocalImage("testserver:dev"),
 		kube.LocalImage("httppinger:dev"),
