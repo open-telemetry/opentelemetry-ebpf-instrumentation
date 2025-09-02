@@ -65,6 +65,10 @@ type ServiceNameNamespace struct {
 	Namespace string
 }
 
+func (sn ServiceNameNamespace) String() string {
+	return sn.Namespace + "/" + sn.Name
+}
+
 // UID uniquely identifies a service instance across the whole system
 // according to the OpenTelemetry specification: (name, namespace, instance)
 type UID struct {
