@@ -35,9 +35,9 @@ type SpanNameLimiterConfig struct {
 // SpanNameLimiter applies only to metrics. If span metrics are enabled and
 // metric_span_names_limit > 0, it renames all the span.name attributes when the cardinality of that attribute
 // for a given, alive service exceeds max_span_names.
-func SpanNameLimiter(cfg *SpanNameLimiterConfig, input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
+func SpanNameLimiter(cfg SpanNameLimiterConfig, input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !enabled(cfg) {
+		if !enabled(&cfg) {
 			return swarm.Bypass(input, output)
 		}
 		log := slog.With("component", "SpanNameLimiter")
@@ -101,5 +101,3 @@ func (l *spanNameLimiter) aggregate(spans []request.Span) {
 		lastNames[span.TraceName()] = struct{}{}
 	}
 }
-
-// TEST: that two services with the same name are accounted together

@@ -1,0 +1,124 @@
+package cache
+
+import (
+	"testing"
+	"testing/synctest"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const testTTL = 5 * time.Minute
+
+func TestExpirableLRU_PutGetRemove(t *testing.T) {
+	lru := NewExpirableLRU[string, string](testTTL)
+
+	lru.Put("foo", "bar")
+	v, ok := lru.Get("foo")
+	assert.True(t, ok)
+	assert.Equal(t, "bar", string(v))
+	assert.Equal(t, 1, lru.Len())
+
+	_, ok = lru.Get("baz")
+	assert.False(t, ok)
+
+	lru.Put("baz", "bae")
+	v, ok = lru.Get("baz")
+	assert.True(t, ok)
+	assert.Equal(t, "bae", string(v))
+	assert.Equal(t, 2, lru.Len())
+
+	lru.Remove("foo")
+	_, ok = lru.Get("foo")
+	assert.False(t, ok)
+	assert.Equal(t, 1, lru.Len())
+}
+
+func TestExpirableLRU_ExpireAll(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		cache := NewExpirableLRU[string, string](testTTL)
+
+		// Add items at different times
+		cache.Put("key1", "value1")
+		// Advance time by 2 minutes
+		time.Sleep(2 * time.Minute)
+		cache.Put("key2", "value2")
+		// Advance time by 2 more minutes (key1 is now 4 minutes old, key2 is 2 minutes old)
+		time.Sleep(2 * time.Minute)
+		cache.Put("key3", "value3")
+
+		cache.ExpireAll()
+
+		// All items should be there(none have exceeded 5-minute TTL)
+		assert.Equal(t, 3, cache.Len())
+
+		v, ok := cache.Get("key1")
+		require.True(t, ok, "Expected to find key1")
+		assert.Equal(t, "value1", v)
+		time.Sleep(2 * time.Minute)
+
+		v, ok = cache.Get("key2")
+		require.True(t, ok, "Expected to find key2")
+		assert.Equal(t, "value2", v)
+		time.Sleep(2 * time.Minute)
+
+		v, ok = cache.Get("key3")
+		require.True(t, ok, "Expected to find key3")
+		assert.Equal(t, "value3", v)
+		time.Sleep(2 * time.Minute)
+
+		cache.ExpireAll()
+
+		// key1 is 6 minutes old, should expire while others are still valid
+		assert.Equal(t, 2, cache.Len())
+
+		_, ok = cache.Get("key1")
+		assert.False(t, ok, "Expected key1 to be expired")
+		v, ok = cache.Get("key2")
+		require.True(t, ok, "Expected to find key2")
+		assert.Equal(t, "value2", v)
+		v, ok = cache.Get("key3")
+		require.True(t, ok, "Expected to find key3")
+		assert.Equal(t, "value3", v)
+
+		time.Sleep(2 * time.Minute)
+
+		// add key 4
+		cache.Put("key4", "value4")
+		time.Sleep(4 * time.Minute)
+		cache.ExpireAll()
+
+		// all the keys but key4 should be expired
+		assert.Equal(t, 1, cache.Len())
+
+		_, ok = cache.Get("key1")
+		assert.False(t, ok, "Expected key1 to be expired")
+		_, ok = cache.Get("key2")
+		assert.False(t, ok, "Expected key2 to be expired")
+		_, ok = cache.Get("key3")
+		assert.False(t, ok, "Expected key3 to be expired")
+		v, ok = cache.Get("key4")
+		require.True(t, ok, "Expected to find key4")
+		assert.Equal(t, "value4", v)
+
+		time.Sleep(4 * time.Minute)
+
+		// a re-added key should not expire
+		cache.Put("key1", "value1")
+		time.Sleep(2 * time.Minute)
+
+		cache.ExpireAll()
+
+		assert.Equal(t, 1, cache.Len())
+		v, ok = cache.Get("key1")
+		require.True(t, ok, "Expected to find key1")
+		assert.Equal(t, "value1", v)
+		_, ok = cache.Get("key2")
+		assert.False(t, ok, "Expected key2 to be expired")
+		_, ok = cache.Get("key3")
+		assert.False(t, ok, "expected key 3 to be expired")
+		_, ok = cache.Get("key4")
+		assert.False(t, ok, "expected key 4 to be expired")
+	})
+}
