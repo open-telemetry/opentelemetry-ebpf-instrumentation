@@ -214,6 +214,7 @@ discovery:
 			ExtraGroupAttributes: map[string][]attr.Name{
 				"k8s_app_meta": {"k8s.app.version"},
 			},
+			MetricSpanNameAggregationLimit: 100,
 		},
 		Routes: &transform.RoutesConfig{
 			Unmatch:      transform.UnmatchHeuristic,

@@ -161,7 +161,7 @@ func TestTracerPipeline(t *testing.T) {
 			Instrumentations:  []string{instrumentations.InstrumentationALL},
 		},
 		Attributes: obi.Attributes{
-			InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"},
+			InstanceID:                     traces.InstanceIDConfig{OverrideHostname: "the-host"},
 			MetricSpanNameAggregationLimit: 100,
 		},
 	}, gCtx, tracesInput, processEvents)

@@ -112,18 +112,44 @@ func newGraphBuilder(
 	swi.Add(debug.PrinterNode(config.TracePrinter, exportableSpans),
 		swarm.WithID("PrinterNode"))
 
-	// ipDroppedMetrics is only passed to the metrics export nodes
-	// nodes exporting/printing traces will still get the unfiltered exportableSpans queue
-	ipDroppedMetrics := exportableSpans
-	if config.Attributes.DropMetricsUnresolvedIPs {
-		// unlike the other nodes, we need to conditionally instantiate the queue because
-		// if IPsFilter internally bypasses the exportableSpans queue to ipDroppedMetrics,
-		// then exportableSpans could not be used by the TracesReceiver nodes
-		// TODO: fix Queue to support both bypassing and exporting
-		ipDroppedMetrics = newQueue()
-		swi.Add(transform.IPsFilter(config.Attributes.DropMetricsUnresolvedIPs, exportableSpans, ipDroppedMetrics),
-			swarm.WithID("IPsFilter"))
+	// some nodes (ipNodesFilter, span name limiter...) are only passed to the metrics export nodes.
+	// Nodes directly handling raw traces will still get the unfiltered exportableSpans queue.
+	// If no metrics exporter is configured, we will not start the metrics subpipeline to save resources.
+	exportingMetrics := config.Metrics.Enabled() ||
+		config.Metrics.ServiceGraphMetricsEnabled() ||
+		config.Prometheus.Enabled()
+	if exportingMetrics {
+		setupMetricsSubPipeline(config, ctxInfo, swi, exportableSpans, selectorCfg, processEventsCh)
 	}
+
+	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus),
+		swarm.WithID("BPFMetrics"))
+
+	// The returned builder later invokes its "Build" function that, given
+	// the contents of the nodesMap struct, will instantiate
+	// and interconnect each node according to the SendTo invocations in the
+	// Connect() method of the nodesMap.
+	return gb
+}
+
+func setupMetricsSubPipeline(
+	config *obi.Config,
+	ctxInfo *global.ContextInfo,
+	swi *swarm.Instancer,
+	exportableSpans *msg.Queue[[]request.Span],
+	selectorCfg *attributes.SelectorConfig,
+	processEventsCh *msg.Queue[exec.ProcessEvent],
+) {
+	newQueue := func() *msg.Queue[[]request.Span] {
+		return msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen))
+	}
+
+	ipDroppedMetrics := newQueue()
+	swi.Add(transform.IPsFilter(
+		config.Attributes.DropMetricsUnresolvedIPs,
+		exportableSpans,
+		ipDroppedMetrics,
+	), swarm.WithID("IPsFilter"))
 
 	spanNameAggregatedMetrics := newQueue()
 	swi.Add(transform.SpanNameLimiter(transform.SpanNameLimiterConfig{
@@ -154,15 +180,6 @@ func newGraphBuilder(
 		spanNameAggregatedMetrics,
 		processEventsCh,
 	), swarm.WithID("PrometheusEndpoint"))
-
-	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus),
-		swarm.WithID("BPFMetrics"))
-
-	// The returned builder later invokes its "Build" function that, given
-	// the contents of the nodesMap struct, will instantiate
-	// and interconnect each node according to the SendTo invocations in the
-	// Connect() method of the nodesMap.
-	return gb
 }
 
 func (gb *graphFunctions) buildGraph(ctx context.Context) (*Instrumenter, error) {

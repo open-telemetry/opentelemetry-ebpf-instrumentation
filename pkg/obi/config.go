@@ -143,7 +143,7 @@ var DefaultConfig = Config{
 			FetchTimeout: 500 * time.Millisecond,
 		},
 		DropMetricsUnresolvedIPs:       true,
-		MetricSpanNameAggregationLimit: 50,
+		MetricSpanNameAggregationLimit: 100,
 	},
 	Routes: &transform.RoutesConfig{
 		Unmatch:      transform.UnmatchDefault,
