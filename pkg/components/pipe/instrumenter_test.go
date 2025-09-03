@@ -160,7 +160,10 @@ func TestTracerPipeline(t *testing.T) {
 			ReportersCacheLen: 16,
 			Instrumentations:  []string{instrumentations.InstrumentationALL},
 		},
-		Attributes: obi.Attributes{InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
+		Attributes: obi.Attributes{
+			InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"},
+			MetricSpanNameAggregationLimit: 100,
+		},
 	}, gCtx, tracesInput, processEvents)
 
 	// Override eBPF tracer to send some fake data

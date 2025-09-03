@@ -17,7 +17,7 @@ func TestExpirableLRU_PutGetRemove(t *testing.T) {
 	lru.Put("foo", "bar")
 	v, ok := lru.Get("foo")
 	assert.True(t, ok)
-	assert.Equal(t, "bar", string(v))
+	assert.Equal(t, "bar", v)
 	assert.Equal(t, 1, lru.Len())
 
 	_, ok = lru.Get("baz")
@@ -26,7 +26,7 @@ func TestExpirableLRU_PutGetRemove(t *testing.T) {
 	lru.Put("baz", "bae")
 	v, ok = lru.Get("baz")
 	assert.True(t, ok)
-	assert.Equal(t, "bae", string(v))
+	assert.Equal(t, "bae", v)
 	assert.Equal(t, 2, lru.Len())
 
 	lru.Remove("foo")

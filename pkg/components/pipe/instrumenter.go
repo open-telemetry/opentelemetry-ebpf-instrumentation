@@ -125,23 +125,35 @@ func newGraphBuilder(
 			swarm.WithID("IPsFilter"))
 	}
 
+	spanNameAggregatedMetrics := newQueue()
+	swi.Add(transform.SpanNameLimiter(transform.SpanNameLimiterConfig{
+		Limit: config.Attributes.MetricSpanNameAggregationLimit,
+		OTEL:  &config.Metrics,
+		Prom:  &config.Prometheus,
+	}, ipDroppedMetrics, spanNameAggregatedMetrics))
+
 	swi.Add(otel.ReportMetrics(
 		ctxInfo,
 		&config.Metrics,
 		selectorCfg,
-		ipDroppedMetrics,
+		spanNameAggregatedMetrics,
 		processEventsCh,
 	), swarm.WithID("OTELMetricsExport"))
 
 	swi.Add(otel.ReportSvcGraphMetrics(
 		ctxInfo,
 		&config.Metrics,
-		ipDroppedMetrics,
+		spanNameAggregatedMetrics,
 		processEventsCh,
 	), swarm.WithID("OTELSvcGraphMetricsExport"))
 
-	swi.Add(prom.PrometheusEndpoint(ctxInfo, &config.Prometheus, selectorCfg, ipDroppedMetrics, processEventsCh),
-		swarm.WithID("PrometheusEndpoint"))
+	swi.Add(prom.PrometheusEndpoint(
+		ctxInfo,
+		&config.Prometheus,
+		selectorCfg,
+		spanNameAggregatedMetrics,
+		processEventsCh,
+	), swarm.WithID("PrometheusEndpoint"))
 
 	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus),
 		swarm.WithID("BPFMetrics"))

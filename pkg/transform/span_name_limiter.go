@@ -23,9 +23,15 @@ type spanNameLimiter struct {
 	in    <-chan []request.Span
 	out   *msg.Queue[[]request.Span]
 
-	// key 1: service. Key 2: set of span.names
-	spanNamesCount *cache.ExpirableLRU[svc.ServiceNameNamespace, map[string]struct{}]
+	spanNamesCount *cache.ExpirableLRU[svc.ServiceNameNamespace, *routesCount]
 	ttl            time.Duration
+}
+
+type routesCount struct {
+	routes map[string]struct{}
+	// to save memory: when routes length reaches the per-service limit,
+	// we can set it to nil to save memory and use this flag instead
+	limitReached bool
 }
 
 type SpanNameLimiterConfig struct {
@@ -38,7 +44,7 @@ type SpanNameLimiterConfig struct {
 // metric_span_names_limit > 0, it renames all the span.name attributes when the cardinality of that attribute
 // for a given, alive service exceeds max_span_names.
 func SpanNameLimiter(cfg SpanNameLimiterConfig, input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
-	return func(ctx context.Context) (swarm.RunFunc, error) {
+	return func(_ context.Context) (swarm.RunFunc, error) {
 		if !enabled(&cfg) {
 			return swarm.Bypass(input, output)
 		}
@@ -50,9 +56,9 @@ func SpanNameLimiter(cfg SpanNameLimiterConfig, input, output *msg.Queue[[]reque
 			in:    input.Subscribe(),
 			out:   output,
 			ttl:   ttl,
-			spanNamesCount: cache.NewExpirableLRU[svc.ServiceNameNamespace, map[string]struct{}](ttl,
-				cache.WithEvictCallBack(func(key svc.ServiceNameNamespace, value map[string]struct{}) {
-					log.Debug("evicting inactive service", "key", key, "entries", len(value))
+			spanNamesCount: cache.NewExpirableLRU[svc.ServiceNameNamespace, *routesCount](ttl,
+				cache.WithEvictCallBack(func(key svc.ServiceNameNamespace, _ *routesCount) {
+					log.Debug("evicting inactive service", "key", key)
 				})),
 		}).doLimit, nil
 	}
@@ -86,23 +92,28 @@ func (l *spanNameLimiter) aggregate(spans []request.Span) {
 	// assuming many spans from the same service could come in a row
 	// we can slightly optimize by avoiding the cache lookup for each span
 	var lastKey svc.ServiceNameNamespace
-	var lastNames map[string]struct{}
+	lastCount := &routesCount{}
 
 	for i := range spans {
 		span := &spans[i]
 		if key := span.Service.UID.NameNamespace(); key != lastKey {
 			lastKey = key
-			names, ok := l.spanNamesCount.Get(key)
+			count, ok := l.spanNamesCount.Get(key)
 			if !ok {
-				names = map[string]struct{}{}
-				l.spanNamesCount.Put(key, names)
+				count = &routesCount{routes: map[string]struct{}{}}
+				l.spanNamesCount.Put(key, count)
 			}
-			lastNames = names
+			lastCount = count
 		}
-		if len(lastNames) >= l.limit {
+		if lastCount.limitReached {
 			span.OverrideTraceName = aggregatedMark
 			continue
 		}
-		lastNames[span.TraceName()] = struct{}{}
+		lastCount.routes[span.TraceName()] = struct{}{}
+		if len(lastCount.routes) >= l.limit {
+			// free some memory and set the flag
+			lastCount.routes = nil
+			lastCount.limitReached = true
+		}
 	}
 }

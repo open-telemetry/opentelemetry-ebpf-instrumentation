@@ -87,6 +87,22 @@ func TestChainedBypass(t *testing.T) {
 	testutil.ChannelEmpty(t, ch3, 5*time.Millisecond)
 }
 
+func TestOneToManyBypass(t *testing.T) {
+	src := NewQueue[int]()
+	dst := NewQueue[int]()
+	src.Bypass(dst)
+	ch1 := dst.Subscribe()
+	ch2 := dst.Subscribe()
+	ch3 := dst.Subscribe()
+	go src.Send(123)
+	assert.Equal(t, 123, testutil.ReadChannel(t, ch1, timeout))
+	assert.Equal(t, 123, testutil.ReadChannel(t, ch2, timeout))
+	assert.Equal(t, 123, testutil.ReadChannel(t, ch3, timeout))
+	testutil.ChannelEmpty(t, ch1, 5*time.Millisecond)
+	testutil.ChannelEmpty(t, ch2, 5*time.Millisecond)
+	testutil.ChannelEmpty(t, ch3, 5*time.Millisecond)
+}
+
 func TestErrors(t *testing.T) {
 	t.Run("can't bypass to itself", func(t *testing.T) {
 		q := NewQueue[int]()

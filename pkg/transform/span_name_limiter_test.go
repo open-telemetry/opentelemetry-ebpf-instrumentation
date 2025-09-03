@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	"go.opentelemetry.io/obi/pkg/components/testutil"
@@ -132,8 +133,8 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 		for i := 0; i < maxCardinalityBeforeAggregation; i++ {
 			spans := testutil.ReadChannel(t, outCh, testTimeout)
 			require.Len(t, spans, 2)
-			assert.Equal(t, "GET /foo-"+fmt.Sprintf("%d", i), spans[0].TraceName())
-			assert.Equal(t, "GET /bar-"+fmt.Sprintf("%d", i), spans[1].TraceName())
+			assert.Equal(t, fmt.Sprintf("GET /foo-%d", i), spans[0].TraceName())
+			assert.Equal(t, fmt.Sprintf("GET /bar-%d", i), spans[1].TraceName())
 		}
 		// after max cardinality, it starts aggregating
 		spans := testutil.ReadChannel(t, outCh, testTimeout)
@@ -142,7 +143,7 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 		assert.Equal(t, "AGGREGATED", spans[1].TraceName())
 
 		// During TTL time, a service stops sending data while the other keeps going
-		for i := 0 ; i < 13 ; i++ {
+		for i := 0; i < 13; i++ {
 			// will expect that te internal expiration timer is eventually triggered during this loop
 			time.Sleep(10 * time.Second)
 			input.Send([]request.Span{

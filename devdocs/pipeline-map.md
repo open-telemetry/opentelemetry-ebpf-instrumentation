@@ -32,10 +32,14 @@ flowchart TD
         KD:::optional --> NR
         NR(Name resolver):::optional --> AF
         
-        AF(Attributes filter):::optional --> OTELM(OTEL<br/> metrics<br/> exporter):::optional
-        AF --> OTELT(OTEL<br/> traces<br/> exporter):::optional
-        AF --> PROM(Prometheus<br/>HTTP<br/>endpoint):::optional
-        AF --> ALLOY(Alloy<br/>connector):::optional
+        AF(Attributes filter):::optional --> OTELT(OTEL/ALLOY<br/> traces<br/> exporter):::optional
+
+        
+        AF --> IPD(Unknown IP<br/>dropper):::optional
+        IPD --> SNCL(Span Name<br/>cardinality<br/>limiter)
+        SNCL --> OTELRM(OTEL<br/>RED metrics<br/> exporter):::optional
+        SNCL --> OTELSM(OTEL<br/>span/svc graph<br/>metrics<br/> exporter):::optional
+        SNCL --> PROM(Prometheus<br/>HTTP<br/>endpoint):::optional
     end
     CU -.-> |New PIDs| KDB
     KDB(KubeDatabase):::optional <-.- | Aggregated & indexed Pod info | KD
