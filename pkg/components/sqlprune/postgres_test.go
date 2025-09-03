@@ -21,7 +21,7 @@ func TestParsePostgresError(t *testing.T) {
 			name: "valid error with SQLState and Message",
 			buf: func() []uint8 {
 				// 'E' + 4-byte header + 'C' + code + 'M' + message + 0
-				b := []uint8{'E', 0, 0, 0, 0}
+				b := []uint8{'E', 0, 0, 0, 75}
 				b = append(b, 'C')
 				b = append(b, []uint8("23505")...)
 				b = append(b, 0)
@@ -39,7 +39,7 @@ func TestParsePostgresError(t *testing.T) {
 		{
 			name: "missing SQLState",
 			buf: func() []uint8 {
-				b := []uint8{'E', 0, 0, 0, 0}
+				b := []uint8{'E', 0, 0, 0, 17}
 				b = append(b, 'M')
 				b = append(b, []uint8("some error")...)
 				b = append(b, 0)
@@ -51,7 +51,7 @@ func TestParsePostgresError(t *testing.T) {
 		{
 			name: "missing Message",
 			buf: func() []uint8 {
-				b := []uint8{'E', 0, 0, 0, 0}
+				b := []uint8{'E', 0, 0, 0, 11}
 				b = append(b, 'C')
 				b = append(b, []uint8("23505")...)
 				b = append(b, 0)
@@ -62,7 +62,7 @@ func TestParsePostgresError(t *testing.T) {
 		{
 			name: "malformed error packet (no null terminator)",
 			buf: func() []uint8 {
-				b := []uint8{'E', 0, 0, 0, 0}
+				b := []uint8{'E', 0, 0, 0, 16}
 				b = append(b, 'C')
 				b = append(b, []uint8("23505")...)
 				b = append(b, 'M')
@@ -74,13 +74,13 @@ func TestParsePostgresError(t *testing.T) {
 		},
 		{
 			name:     "too short buffer",
-			buf:      []uint8{'E', 0, 0, 0},
+			buf:      []uint8{'E', 0, 0, 3},
 			expected: nil,
 		},
 		{
 			name: "valid error with extra fields",
 			buf: func() []uint8 {
-				b := []uint8{'E', 0, 0, 0, 0}
+				b := []uint8{'E', 0, 0, 0, 97}
 				b = append(b, 'S')
 				b = append(b, []uint8("ERROR")...)
 				b = append(b, 0)
