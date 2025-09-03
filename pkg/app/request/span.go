@@ -260,7 +260,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			"statement":  s.Statement,
 			"query":      s.Path,
 		}
-	case EventTypeKafkaServer:
+	case EventTypeKafkaClient, EventTypeKafkaServer:
 		return SpanAttributes{
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
@@ -547,7 +547,7 @@ func (s *Span) TraceName() string {
 		if s.Path == "" {
 			return s.Method
 		}
-		return fmt.Sprintf("%s %s", s.Path, s.Method)
+		return fmt.Sprintf("%s %s", s.Method, s.Path)
 	case EventTypeMongoClient:
 		if s.Path != "" && s.Method != "" {
 			// TODO for database operations like listCollections, we need to use s.DbNamespace instead of s.Path

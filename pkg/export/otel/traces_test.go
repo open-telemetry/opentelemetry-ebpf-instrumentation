@@ -751,7 +751,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "all instrumentations",
 			instr:    []string{instrumentations.InstrumentationALL},
-			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "important-topic publish", "important-topic process", "insert mycollection"},
+			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "insert mycollection"},
 		},
 		{
 			name:     "http only",
@@ -776,7 +776,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "kafka only",
 			instr:    []string{instrumentations.InstrumentationKafka},
-			expected: []string{"important-topic publish", "important-topic process"},
+			expected: []string{"publish important-topic", "process important-topic"},
 		},
 		{
 			name:     "none",
@@ -791,7 +791,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "kafka and grpc",
 			instr:    []string{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
-			expected: []string{"/grpcFoo", "/grpcGoo", "important-topic publish", "important-topic process"},
+			expected: []string{"/grpcFoo", "/grpcGoo", "publish important-topic", "process important-topic"},
 		},
 		{
 			name:     "mongo",
