@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/test/oats/redis
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/grafana/oats v0.0.3
