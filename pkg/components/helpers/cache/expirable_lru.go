@@ -7,9 +7,10 @@ import (
 
 // ExpirableLRU cache. It is not safe for concurrent access.
 type ExpirableLRU[K comparable, V any] struct {
-	ttl   time.Duration
-	ll    *list.List
-	cache map[K]*list.Element
+	ttl           time.Duration
+	ll            *list.List
+	cache         map[K]*list.Element
+	evictCallBack func(K, V)
 }
 
 type expirableEntry[K comparable, V any] struct {
@@ -18,14 +19,27 @@ type expirableEntry[K comparable, V any] struct {
 	lastAccess time.Time
 }
 
+type ExpirableCacheOpt[K comparable, V any] func(*ExpirableLRU[K, V])
+
+func WithEvictCallBack[K comparable, V any](cb func(K, V)) ExpirableCacheOpt[K, V] {
+	return func(c *ExpirableLRU[K, V]) {
+		c.evictCallBack = cb
+	}
+}
+
 // NewExpirableLRU creates a new Cache whose entries older than the provided TTL are removed
 // only when the ExpireAll method is explicitly called.
-func NewExpirableLRU[K comparable, V any](ttl time.Duration) *ExpirableLRU[K, V] {
-	return &ExpirableLRU[K, V]{
-		ttl:   ttl,
-		ll:    list.New(),
-		cache: map[K]*list.Element{},
+func NewExpirableLRU[K comparable, V any](ttl time.Duration, opts ...ExpirableCacheOpt[K, V]) *ExpirableLRU[K, V] {
+	lru := &ExpirableLRU[K, V]{
+		ttl:           ttl,
+		ll:            list.New(),
+		cache:         map[K]*list.Element{},
+		evictCallBack: func(K, V) {},
 	}
+	for _, opt := range opts {
+		opt(lru)
+	}
+	return lru
 }
 
 // Put a value into the cache.
@@ -60,17 +74,22 @@ func (c *ExpirableLRU[K, V]) Remove(key K) {
 }
 
 func (c *ExpirableLRU[K, V]) removeElement(e *list.Element) {
-	c.ll.Remove(e)
 	kv := e.Value.(*expirableEntry[K, V])
+	c.evictCallBack(kv.key, kv.value)
+	c.ll.Remove(e)
 	delete(c.cache, kv.key)
 }
 
-// ExpireAll removes all the entries that are older than the cache TTL
-func (c *ExpirableLRU[K, V]) ExpireAll() {
+// ExpireAll removes all the entries that are older than the cache TTL.
+// Returns the number of entries removed.
+func (c *ExpirableLRU[K, V]) ExpireAll() int {
 	now := time.Now()
+	removed := 0
 	for older := c.ll.Back(); c.expired(older, now); older = c.ll.Back() {
+		removed++
 		c.removeElement(older)
 	}
+	return removed
 }
 
 func (c *ExpirableLRU[K, V]) expired(elem *list.Element, now time.Time) bool {

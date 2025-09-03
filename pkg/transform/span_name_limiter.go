@@ -4,9 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"time"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/helpers/cache"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/prom"
@@ -23,7 +24,8 @@ type spanNameLimiter struct {
 	out   *msg.Queue[[]request.Span]
 
 	// key 1: service. Key 2: set of span.names
-	spanNamesCount *expirable.LRU[svc.ServiceNameNamespace, map[string]struct{}]
+	spanNamesCount *cache.ExpirableLRU[svc.ServiceNameNamespace, map[string]struct{}]
+	ttl            time.Duration
 }
 
 type SpanNameLimiterConfig struct {
@@ -41,18 +43,14 @@ func SpanNameLimiter(cfg SpanNameLimiterConfig, input, output *msg.Queue[[]reque
 			return swarm.Bypass(input, output)
 		}
 		log := slog.With("component", "SpanNameLimiter")
-		var evictCB func(key svc.ServiceNameNamespace, value map[string]struct{})
-		if log.Enabled(ctx, slog.LevelDebug) {
-			evictCB = func(key svc.ServiceNameNamespace, value map[string]struct{}) {
-				log.Debug("Evicted", "key", key, "value", value)
-			}
-		}
+		ttl := max(cfg.OTEL.TTL, cfg.Prom.TTL)
 		return (&spanNameLimiter{
 			limit: cfg.Limit,
 			log:   log,
 			in:    input.Subscribe(),
 			out:   output,
-			spanNamesCount: expirable.NewLRU(0, evictCB, max(cfg.OTEL.TTL, cfg.Prom.TTL)),
+			ttl: ttl,
+			spanNamesCount: cache.NewExpirableLRU[svc.ServiceNameNamespace, map[string]struct{}](ttl),
 		}).doLimit, nil
 	}
 }
@@ -65,11 +63,15 @@ func enabled(cfg *SpanNameLimiterConfig) bool {
 
 func (l *spanNameLimiter) doLimit(ctx context.Context) {
 	l.log.Debug("Starting")
+	expirer := time.NewTicker(l.ttl)
 	for {
 		select {
 		case <-ctx.Done():
 			l.log.Debug("context done. Stopping")
 			return
+		case <-expirer.C:
+			removed := l.spanNamesCount.ExpireAll()
+			l.log.Debug("inactive services expired", "len", removed)
 		case spans := <-l.in:
 			l.aggregate(spans)
 			l.out.Send(spans)
