@@ -30,8 +30,8 @@ type spanNameLimiter struct {
 
 type SpanNameLimiterConfig struct {
 	Limit int
-	OTEL *otelcfg.MetricsConfig
-	Prom *prom.PrometheusConfig
+	OTEL  *otelcfg.MetricsConfig
+	Prom  *prom.PrometheusConfig
 }
 
 // SpanNameLimiter applies only to metrics. If span metrics are enabled and
@@ -49,8 +49,11 @@ func SpanNameLimiter(cfg SpanNameLimiterConfig, input, output *msg.Queue[[]reque
 			log:   log,
 			in:    input.Subscribe(),
 			out:   output,
-			ttl: ttl,
-			spanNamesCount: cache.NewExpirableLRU[svc.ServiceNameNamespace, map[string]struct{}](ttl),
+			ttl:   ttl,
+			spanNamesCount: cache.NewExpirableLRU[svc.ServiceNameNamespace, map[string]struct{}](ttl,
+				cache.WithEvictCallBack(func(key svc.ServiceNameNamespace, value map[string]struct{}) {
+					log.Debug("evicting inactive service", "key", key, "entries", len(value))
+				})),
 		}).doLimit, nil
 	}
 }
@@ -62,7 +65,7 @@ func enabled(cfg *SpanNameLimiterConfig) bool {
 }
 
 func (l *spanNameLimiter) doLimit(ctx context.Context) {
-	l.log.Debug("Starting")
+	l.log.Debug("Starting", "ttl", l.ttl, "limit", l.limit)
 	expirer := time.NewTicker(l.ttl)
 	for {
 		select {
@@ -92,7 +95,7 @@ func (l *spanNameLimiter) aggregate(spans []request.Span) {
 			names, ok := l.spanNamesCount.Get(key)
 			if !ok {
 				names = map[string]struct{}{}
-				l.spanNamesCount.Add(key, names)
+				l.spanNamesCount.Put(key, names)
 			}
 			lastNames = names
 		}
