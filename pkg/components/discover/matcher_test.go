@@ -176,6 +176,7 @@ func TestCriteriaMatcher_MustMatchAllAttributes(t *testing.T) {
     k8s_pod_name: thepod
     k8s_deployment_name: thedepl
     k8s_replicaset_name: thers
+    k8s_container_name: foocontainer
 `), &pipeConfig))
 
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
@@ -198,6 +199,7 @@ func TestCriteriaMatcher_MustMatchAllAttributes(t *testing.T) {
 		"k8s_pod_name":        "is-thepod",
 		"k8s_deployment_name": "thedeployment",
 		"k8s_replicaset_name": "thers",
+		"k8s_container_name":  "foocontainer",
 	}
 	incompleteMeta := map[string]string{
 		"k8s_namespace":       "thens",
