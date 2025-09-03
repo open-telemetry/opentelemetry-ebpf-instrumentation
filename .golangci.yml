@@ -246,7 +246,7 @@ output:
 
 # options for analysis running
 run:
-  go: "1.24"
+  go: "1.25"
 
   # Allow multiple parallel golangci-lint instances running.
   # If false (default) - golangci-lint acquires file lock on start.

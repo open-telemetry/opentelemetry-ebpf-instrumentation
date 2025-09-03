@@ -1,8 +1,6 @@
 module go.opentelemetry.io/obi/test/integration/components/go_otel
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.25.0
 
 require (
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.45.0

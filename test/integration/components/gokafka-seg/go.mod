@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/test/integration/components/gokafka-seg
 
-go 1.24.0
+go 1.25.0
 
 require github.com/segmentio/kafka-go v0.4.47
 
