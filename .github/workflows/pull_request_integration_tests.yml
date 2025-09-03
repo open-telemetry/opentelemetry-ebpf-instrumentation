@@ -105,3 +105,11 @@ jobs:
           path: |
             testoutput/*.log
             testoutput/kind
+
+      - name: Report coverage
+        uses: codecov/codecov-action@fdcc8476540edceab3de004e990f80d881c6cc00 # v5.5.0
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          files: ./testoutput/itest-covdata.txt
+          flags: integration-test
