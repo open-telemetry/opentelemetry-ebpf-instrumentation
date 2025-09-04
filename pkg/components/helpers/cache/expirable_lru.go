@@ -22,6 +22,7 @@ type expirableEntry[K comparable, V any] struct {
 	lastAccess time.Time
 }
 
+// ExpirableCacheOpt defines a functional option for configuring an ExpirableLRU cache.
 type ExpirableCacheOpt[K comparable, V any] func(*ExpirableLRU[K, V])
 
 // WithEvictCallBack sets a callback function to be called whenever an entry is evicted
