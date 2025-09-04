@@ -26,6 +26,7 @@ func TestDecoration(t *testing.T) {
 	// Given a flow Decorator node
 	in := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
 	out := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
+	outCh := out.Subscribe()
 	go Decorate(net.IPv4(3, 3, 3, 3), func(n int) string {
 		return fmt.Sprintf("eth%d", n)
 	}, in, out)(t.Context())
@@ -47,7 +48,7 @@ func TestDecoration(t *testing.T) {
 
 	// THEN it decorates them, by adding IPs to source/destination
 	// names only when they were missing
-	decorated := testutil.ReadChannel(t, out.Subscribe(), timeout)
+	decorated := testutil.ReadChannel(t, outCh, timeout)
 	require.Len(t, decorated, 2)
 
 	assert.Equal(t, "eth1", decorated[0].Attrs.Interface)
