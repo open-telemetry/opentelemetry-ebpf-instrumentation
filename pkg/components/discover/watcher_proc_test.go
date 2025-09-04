@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -326,4 +327,48 @@ func TestMinProcessAge(t *testing.T) {
 
 	assert.True(t, ok)
 	assert.False(t, acc.processTooNew(process))
+}
+
+func TestParseProcStatField(t *testing.T) {
+	// this has excessive whitespace on purpose
+	const procPidStat = " 1197473 (foo bar) R   1494929 1197473 1494929 34817 1197473 4194304 91 " +
+		"0 0 0 0 0 0 0 20 0 1 0 164004305 8724480 1364    18446744073709551615 93963828355072 " +
+		"93963828373377 140721901331744 0 0 0 0 0 0 0 0 0    17 4 0 0 0 0 0 93963828386384 " +
+		"93963828387944 93964083773440 140721901340217 140721901340237 140721901340237 " +
+		"140721901342699 0"
+
+	inParens := false
+
+	f := func(c rune) bool {
+		if c == '(' {
+			inParens = true
+			return true
+		}
+
+		if inParens {
+			if c == ')' {
+				inParens = false
+				return true
+			}
+
+			return false
+		}
+
+		return c == ' '
+	}
+
+	expected := strings.FieldsFunc(procPidStat, f)
+
+	for i := 0; i < len(expected); i++ {
+		assert.Equal(t, expected[i], parseProcStatField(procPidStat, i+1))
+	}
+
+	// test a few fields explicitly to ensure whitespace is being handled
+	// properly
+	assert.Empty(t, parseProcStatField(procPidStat, 0))
+	assert.Empty(t, parseProcStatField(procPidStat, 200))
+	assert.Equal(t, "1197473", parseProcStatField(procPidStat, 1))
+	assert.Equal(t, "foo bar", parseProcStatField(procPidStat, 2))
+	assert.Equal(t, "R", parseProcStatField(procPidStat, 3))
+	assert.Equal(t, "1494929", parseProcStatField(procPidStat, 4))
 }

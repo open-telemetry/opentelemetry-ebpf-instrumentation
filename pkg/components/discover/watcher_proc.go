@@ -25,7 +25,6 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/components/ebpf/logger"
 	"go.opentelemetry.io/obi/pkg/components/ebpf/watcher"
-	"go.opentelemetry.io/obi/pkg/components/split"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -357,6 +356,43 @@ func (pa *pollAccounter) checkNewProcessNotification(pid PID, reportedProcs, not
 // overridden in tests
 var processAgeFunc = processAge
 
+// see https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
+func parseProcStatField(buf string, field int) string {
+	inParens := false
+
+	// field 2 is the comm, which is deliminated by parens and can contain
+	// whitespace, e.g. (foo bar) - this function accounts for that
+	f := func(c rune) bool {
+		if c == '(' {
+			inParens = true
+			return true
+		}
+
+		if inParens {
+			if c == ')' {
+				inParens = false
+				return true
+			}
+
+			return false
+		}
+
+		return c == ' '
+	}
+
+	i := 1
+
+	for word := range strings.FieldsFuncSeq(buf, f) {
+		if i == field {
+			return word
+		}
+
+		i++
+	}
+
+	return ""
+}
+
 func getProcStatField(pid int32, field int) string {
 	path := fmt.Sprintf("/proc/%d/stat", pid)
 
@@ -365,22 +401,7 @@ func getProcStatField(pid int32, field int) string {
 		return ""
 	}
 
-	buf := string(data)
-
-	it := split.NewIterator(buf, " ")
-
-	var val string
-	var eof bool
-
-	for i := 0; i < field; i++ {
-		val, eof = it.Next()
-
-		if eof {
-			return ""
-		}
-	}
-
-	return strings.TrimSpace(val)
+	return parseProcStatField(string(data), field)
 }
 
 func ticksToNanosecond(ticks uint64) uint64 {
