@@ -390,7 +390,7 @@ func TestGetProcStatField(t *testing.T) {
 
 	exePath, err := os.Executable()
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	exe := filepath.Base(exePath)
 
@@ -407,11 +407,11 @@ func TestProcessAge(t *testing.T) {
 
 	age := processAge(int32(os.Getpid()))
 
-	assert.NotZero(t, age)
+	require.NotZero(t, age)
 
 	expected, err := time.ParseDuration("2m")
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Less(t, age, expected)
 }
