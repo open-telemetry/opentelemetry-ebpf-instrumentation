@@ -111,6 +111,11 @@ func TestExpirableLRU_ExpireAll(t *testing.T) {
 		require.True(t, ok, "Expected to find key4")
 		assert.Equal(t, "value4", v)
 
+		// Advance age by four minute:
+		//   - "key1": removed (expired)
+		//   - "key2": removed (expired)
+		//   - "key3": removed (expired)
+		//   - "key4": 6 minutes old
 		time.Sleep(4 * time.Minute)
 
 		// a re-added key should not expire
