@@ -115,6 +115,11 @@ func TestExpirableLRU_ExpireAll(t *testing.T) {
 
 		// a re-added key should not expire
 		cache.Put("key1", "value1")
+		// Advance age by two minute:
+		//   - "key1": two minutes old
+		//   - "key2": removed (expired)
+		//   - "key3": removed (expired)
+		//   - "key4": 10 minutes old
 		time.Sleep(2 * time.Minute)
 
 		assert.Equal(t, 1, cache.ExpireAll())
