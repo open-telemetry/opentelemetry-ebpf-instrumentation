@@ -46,7 +46,7 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm)
+			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&limit=1000")
 			require.NoError(t, err, "failed to query jaeger for %s", comm)
 			if resp == nil {
 				return
@@ -95,6 +95,7 @@ func testREDMetricsPythonKafkaOnly(t *testing.T) {
 						attribute.String("messaging.operation.type", "publish"),
 						attribute.String("messaging.destination.name", "my-topic"),
 						attribute.String("messaging.client_id", "kafka-python-producer-1"),
+						attribute.Int64("messaging.destination.partition.id", 0),
 					},
 				},
 				{
@@ -104,6 +105,7 @@ func testREDMetricsPythonKafkaOnly(t *testing.T) {
 						attribute.String("messaging.operation.type", "process"),
 						attribute.String("messaging.destination.name", "my-topic"),
 						attribute.String("messaging.client_id", "kafka-python-2.2.15"),
+						attribute.Int64("messaging.destination.partition.id", 0),
 					},
 				},
 			},
@@ -141,15 +143,19 @@ func testJavaKafka(t *testing.T) {
 						attribute.String("messaging.operation.type", "publish"),
 						attribute.String("messaging.destination.name", "my-topic"),
 						attribute.String("messaging.client_id", "producer-1"),
+						attribute.Int64("messaging.destination.partition.id", 0),
 					},
 				},
 				{
+					// TODO: in here we can't recognize the topic name since the metadata response is cut to the first 4 bytes
+					// in java, to get this to work we need to use eBPF large buffers for kafka, will do so in a future PR
 					Name: "process *",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "consumer"),
 						attribute.String("messaging.operation.type", "process"),
 						attribute.String("messaging.destination.name", "*"),
 						attribute.String("messaging.client_id", "consumer-1-1"),
+						attribute.Int64("messaging.destination.partition.id", 0),
 					},
 				},
 			},

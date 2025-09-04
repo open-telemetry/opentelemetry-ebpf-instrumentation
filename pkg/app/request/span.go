@@ -140,6 +140,11 @@ type SQLError struct {
 	Message  string `json:"message"`
 }
 
+type MessagingInfo struct {
+	Offset    int64 `json:"offset"`
+	Partition int   `json:"partition"`
+}
+
 // Span contains the information being submitted by the following nodes in the graph.
 // It enables comfortable handling of data from Go.
 // REMINDER: any attribute here must be also added to the functions SpanOTELGetters,
@@ -175,6 +180,7 @@ type Span struct {
 	DBNamespace    string         `json:"-"`
 	SQLCommand     string         `json:"-"`
 	SQLError       *SQLError      `json:"-"`
+	MessagingInfo  *MessagingInfo `json:"-"`
 }
 
 func (s *Span) Inside(parent *Span) bool {
@@ -260,13 +266,21 @@ func spanAttributes(s *Span) SpanAttributes {
 			"statement":  s.Statement,
 			"query":      s.Path,
 		}
-	case EventTypeKafkaClient, EventTypeKafkaServer:
-		return SpanAttributes{
+	case EventTypeKafkaServer, EventTypeKafkaClient:
+		attrs := SpanAttributes{
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
 			"operation":  s.Method,
-			"clientId":   s.OtherNamespace,
+			"clientId":   s.Statement,
+			"topic":      s.Path,
 		}
+		if s.MessagingInfo != nil {
+			attrs["partition"] = strconv.FormatUint(uint64(s.MessagingInfo.Partition), 10)
+			if s.Method == MessagingProcess {
+				attrs["offset"] = strconv.FormatUint(uint64(s.MessagingInfo.Offset), 10)
+			}
+		}
+		return attrs
 	case EventTypeGPUKernelLaunch:
 		return SpanAttributes{
 			"function":  s.Method,
