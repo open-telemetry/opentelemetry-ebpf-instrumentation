@@ -171,12 +171,67 @@ func TestTracerPipeline(t *testing.T) {
 
 	done := pipe.Start(ctx)
 
-	event := testutil.ReadChannel(t, tc.TraceRecords(), 5000*testTimeout)
+	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchInnerTraceEvent(t, "in queue", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchInnerTraceEvent(t, "processing", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchTraceEvent(t, "GET", event)
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestMergedMetricsTracePipeline(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+
+	tc, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	mCfg := otelcfg.MetricsConfig{
+		Features:        []string{otelcfg.FeatureApplication},
+		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
+		ReportersCacheLen: 16,
+		TTL:               5 * time.Minute,
+		Instrumentations: []string{
+			instrumentations.InstrumentationALL,
+		},
+	}
+	tCfg := otelcfg.TracesConfig{
+		BatchTimeout:      10 * time.Millisecond,
+		MaxQueueSize:      10,
+		TracesEndpoint:    tc.ServerEndpoint,
+		ReportersCacheLen: 16,
+		Instrumentations:  []string{instrumentations.InstrumentationALL},
+	}
+
+	gb := newGraphBuilder(&obi.Config{
+		Metrics: mCfg,
+		Traces:  tCfg,
+		Attributes: obi.Attributes{
+			Select:                         allMetrics,
+			InstanceID:                     traces.InstanceIDConfig{OverrideHostname: "the-host"},
+			MetricSpanNameAggregationLimit: 10,
+		},
+	}, gctx(0, &mCfg), tracesInput, processEvents)
+
+	tracesInput.Send(newRequest("bar-svc", "/foo/bar", 404))
+
+	pipe, err := gb.buildGraph(ctx)
+	require.NoError(t, err)
+	done := pipe.Start(ctx)
+
+	// Test that traces flow through the pipeline to the end
+	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
+	assert.Equal(t, "in queue", event.Name)
+	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
+	assert.Equal(t, "processing", event.Name)
+	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
+	assert.Equal(t, "GET", event.Name)
+
+	// Test that metrics flow through the pipeline to the end
 
 	cancel()
 	require.NoError(t, <-done)
