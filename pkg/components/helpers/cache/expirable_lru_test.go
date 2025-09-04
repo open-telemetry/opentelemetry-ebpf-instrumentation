@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testTTL = 5 * time.Minute
+const fiveMin = 5 * time.Minute
 
 func TestExpirableLRU_PutGetRemove(t *testing.T) {
 	lru := NewExpirableLRU[string, string](testTTL)
