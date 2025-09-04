@@ -129,11 +129,15 @@ func isValidKafkaHeader(header *Header) bool {
 
 	switch Operation(header.APIKey) {
 	case Fetch:
-		if header.APIVersion > 16 { // latest: Fetch Request (Version: 16)
+		// Latest Fetch Request version = 18
+		// https://github.com/apache/kafka/blob/trunk/clients/src/main/resources/common/message/FetchRequest.json
+		if header.APIVersion > 18 {
 			return false
 		}
 	case Produce:
-		if header.APIVersion == 0 || header.APIVersion > 10 { // latest: Produce Request (Version: 10)
+		// Latest Produce Request version = 13
+		// https://github.com/apache/kafka/blob/trunk/clients/src/main/resources/common/message/ProduceRequest.json
+		if header.APIVersion == 0 || header.APIVersion > 13 {
 			return false
 		}
 	default:

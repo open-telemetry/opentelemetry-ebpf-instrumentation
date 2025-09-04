@@ -33,6 +33,7 @@ const (
 	namespace      = "test-ns"
 	containerPID   = 123
 	containerID    = "container-123"
+	containerName  = "container-123-name"
 	containerPort  = 332
 	replicaSetName = "the-deployment-123456789"
 	deploymentName = "the-deployment"
@@ -60,10 +61,10 @@ func TestWatcherKubeEnricher(t *testing.T) {
 		newProcess(input, containerPID, []uint32{containerPort})
 	}
 	pod := func(_ *msg.Queue[[]Event[ProcessAttrs]], fInformer meta.Notifier) {
-		deployPod(fInformer, podName, containerID, nil)
+		deployPod(fInformer, podName, containerID, containerName, nil)
 	}
 	ownedPod := func(_ *msg.Queue[[]Event[ProcessAttrs]], fInformer meta.Notifier) {
-		deployOwnedPod(fInformer, namespace, podName, replicaSetName, deploymentName, containerID)
+		deployOwnedPod(fInformer, namespace, podName, replicaSetName, deploymentName, containerID, containerName)
 	}
 
 	// The watcherKubeEnricher has to listen and relate information from multiple asynchronous sources.
@@ -105,6 +106,7 @@ func TestWatcherKubeEnricher(t *testing.T) {
 			assert.Equal(t, EventCreated, event.Type)
 			assert.EqualValues(t, containerPID, event.Obj.pid)
 			assert.Equal(t, []uint32{containerPort}, event.Obj.openPorts)
+			assert.Equal(t, containerName, event.Obj.metadata[services.AttrContainerName])
 			assert.Equal(t, namespace, event.Obj.metadata[services.AttrNamespace])
 			assert.Equal(t, podName, event.Obj.metadata[services.AttrPodName])
 			if strings.Contains(tc.name, "(no owner)") {
@@ -172,7 +174,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 	newProcess(inputQueue, 123, []uint32{777})
 	newProcess(inputQueue, 456, []uint32{})
 	newProcess(inputQueue, 789, []uint32{443})
-	deployOwnedPod(fInformer, namespace, "depl-rsid-podid", "depl-rsid", "depl", "container-789")
+	deployOwnedPod(fInformer, namespace, "depl-rsid-podid", "depl-rsid", "depl", "container-789", "container-789-name")
 
 	// sending events that will match and will be forwarded
 	t.Run("port-only match", func(t *testing.T) {
@@ -184,7 +186,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("metadata-only match", func(t *testing.T) {
 		newProcess(inputQueue, 34, []uint32{8080})
-		deployPod(fInformer, "chichi", "container-34", nil)
+		deployPod(fInformer, "chichi", "container-34", "container-34-name", nil)
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		testKubeMatch(t, matches[0], "metadata-only", 34)
@@ -192,7 +194,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("pod-label-only match", func(t *testing.T) {
 		newProcess(inputQueue, 42, []uint32{8080})
-		deployPod(fInformer, "labeltest", "container-42", map[string]string{"instrument": "beyla"})
+		deployPod(fInformer, "labeltest", "container-42", "container-42-name", map[string]string{"instrument": "beyla"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		testKubeMatch(t, matches[0], "pod-label-only", 42)
@@ -200,7 +202,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("pod-multi-label-only match", func(t *testing.T) {
 		newProcess(inputQueue, 43, []uint32{8080})
-		deployPod(fInformer, "multi-labeltest", "container-43", map[string]string{"instrument": "ebpf", "lang": "golang"})
+		deployPod(fInformer, "multi-labeltest", "container-43", "container-43-name", map[string]string{"instrument": "ebpf", "lang": "golang"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		testKubeMatch(t, matches[0], "pod-multi-label-only", 43)
@@ -208,7 +210,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("pod-annotation-only match", func(t *testing.T) {
 		newProcess(inputQueue, 44, []uint32{8080})
-		deployPod(fInformer, "annotationtest", "container-44", nil, map[string]string{"deploy.type": "canary"})
+		deployPod(fInformer, "annotationtest", "container-44", "container-44-name", nil, map[string]string{"deploy.type": "canary"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		testKubeMatch(t, matches[0], "pod-annotation-only", 44)
@@ -216,7 +218,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("pod-multi-annotation-only match", func(t *testing.T) {
 		newProcess(inputQueue, 45, []uint32{8080})
-		deployPod(fInformer, "multi-annotationtest", "container-45", nil, map[string]string{"deploy.type": "prod", "version": "v1"})
+		deployPod(fInformer, "multi-annotationtest", "container-45", "container-45-name", nil, map[string]string{"deploy.type": "prod", "version": "v1"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		testKubeMatch(t, matches[0], "pod-multi-annotation-only", 45)
@@ -224,7 +226,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("both process and metadata match", func(t *testing.T) {
 		newProcess(inputQueue, 56, []uint32{443})
-		deployOwnedPod(fInformer, namespace, "chacha-rsid-podid", "chacha-rsid", "chacha", "container-56")
+		deployOwnedPod(fInformer, namespace, "chacha-rsid-podid", "chacha-rsid", "chacha", "container-56", "container-56-name")
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		testKubeMatch(t, matches[0], "both", 56)
@@ -285,6 +287,7 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 	}
 
 	const containerAll = "container-contains-all"
+	const containerAllName = "container-contains-all-name"
 
 	// Fake container info function that returns the same container string
 	// for any PID we ask for
@@ -312,7 +315,7 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 		Name: "myservice", Namespace: namespace, Labels: map[string]string{"instrument": "ebpf", "lang": "golang"}, Annotations: map[string]string{"deploy.type": "prod"},
 		Kind: "Pod",
 		Pod: &informer.PodInfo{
-			Containers: []*informer.ContainerInfo{{Id: containerAll}},
+			Containers: []*informer.ContainerInfo{{Id: containerAll, Name: containerAllName}},
 		},
 	}
 
@@ -329,9 +332,10 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 			Obj: ProcessAttrs{
 				pid: event.Obj.pid,
 				metadata: map[string]string{
-					"k8s_namespace":  "test-ns",
-					"k8s_owner_name": "myservice",
-					"k8s_pod_name":   "myservice",
+					"k8s_namespace":      "test-ns",
+					"k8s_owner_name":     "myservice",
+					"k8s_pod_name":       "myservice",
+					"k8s_container_name": containerAllName,
 				},
 				podLabels: map[string]string{
 					"instrument": "ebpf",
@@ -384,7 +388,7 @@ func newProcess(input *msg.Queue[[]Event[ProcessAttrs]], pid PID, ports []uint32
 	}})
 }
 
-func deployPod(fInformer meta.Notifier, name, containerID string, labels map[string]string, annotations ...map[string]string) {
+func deployPod(fInformer meta.Notifier, name, containerID string, containerName string, labels map[string]string, annotations ...map[string]string) {
 	var podAnnotations map[string]string
 	if len(annotations) > 0 {
 		podAnnotations = annotations[0]
@@ -395,20 +399,20 @@ func deployPod(fInformer meta.Notifier, name, containerID string, labels map[str
 			Name: name, Namespace: namespace, Labels: labels, Annotations: podAnnotations,
 			Kind: "Pod",
 			Pod: &informer.PodInfo{
-				Containers: []*informer.ContainerInfo{{Id: containerID}},
+				Containers: []*informer.ContainerInfo{{Id: containerID, Name: containerName}},
 			},
 		},
 	})
 }
 
-func deployOwnedPod(fInformer meta.Notifier, ns, name, replicaSetName, deploymentName, containerID string) {
+func deployOwnedPod(fInformer meta.Notifier, ns, name, replicaSetName, deploymentName, containerID string, containerName string) {
 	fInformer.Notify(&informer.Event{
 		Type: informer.EventType_CREATED,
 		Resource: &informer.ObjectMeta{
 			Name: name, Namespace: ns,
 			Kind: "Pod",
 			Pod: &informer.PodInfo{
-				Containers: []*informer.ContainerInfo{{Id: containerID}},
+				Containers: []*informer.ContainerInfo{{Id: containerID, Name: containerName}},
 				Owners: []*informer.Owner{
 					{Name: replicaSetName, Kind: "ReplicaSet"},
 					{Name: deploymentName, Kind: "Deployment"},
