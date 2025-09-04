@@ -181,6 +181,10 @@ type Span struct {
 	SQLCommand     string         `json:"-"`
 	SQLError       *SQLError      `json:"-"`
 	MessagingInfo  *MessagingInfo `json:"-"`
+
+	// OverrideTraceName is set under some conditions, like spanmetrics reaching the maximum
+	// cardinality for trace names.
+	OverrideTraceName string `json:"-"`
 }
 
 func (s *Span) Inside(parent *Span) bool {
@@ -533,6 +537,9 @@ func (s *Span) ServiceGraphKind() string {
 }
 
 func (s *Span) TraceName() string {
+	if s.OverrideTraceName != "" {
+		return s.OverrideTraceName
+	}
 	switch s.Type {
 	case EventTypeHTTP, EventTypeHTTPClient:
 		name := s.Method
@@ -561,11 +568,11 @@ func (s *Span) TraceName() string {
 		if s.Path == "" {
 			return s.Method
 		}
-		return fmt.Sprintf("%s %s", s.Method, s.Path)
+		return s.Method + " " + s.Path
 	case EventTypeMongoClient:
 		if s.Path != "" && s.Method != "" {
 			// TODO for database operations like listCollections, we need to use s.DbNamespace instead of s.Path
-			return fmt.Sprintf("%s %s", s.Method, s.Path)
+			return s.Method + " " + s.Path
 		}
 		if s.Path != "" {
 			return s.Path
