@@ -6,6 +6,9 @@ package discover
 import (
 	"bytes"
 	"context"
+	"math"
+	"path/filepath"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -371,4 +374,44 @@ func TestParseProcStatField(t *testing.T) {
 	assert.Equal(t, "foo bar", parseProcStatField(procPidStat, 2))
 	assert.Equal(t, "R", parseProcStatField(procPidStat, 3))
 	assert.Equal(t, "1494929", parseProcStatField(procPidStat, 4))
+
+	// empty input
+	assert.Empty(t, parseProcStatField("", 0))
+	assert.Empty(t, parseProcStatField("", 1))
+	assert.Empty(t, parseProcStatField("", 200))
+	assert.Empty(t, parseProcStatField("", -1))
+}
+
+func TestGetProcStatField(t *testing.T) {
+	assert.Empty(t, getProcStatField(0, 0))
+	assert.Empty(t, getProcStatField(-1, 0))
+
+	pid := os.Getpid()
+
+	exePath, err := os.Executable()
+
+	assert.NoError(t, err)
+
+	exe := filepath.Base(exePath)
+
+	assert.Equal(t, exe, getProcStatField(int32(pid), 2))
+}
+
+func TestNSToDuration(t *testing.T) {
+	assert.Equal(t, time.Duration(math.MaxInt64), nsToDuration(math.MaxUint64))
+	assert.Equal(t, time.Duration(0), nsToDuration(0))
+}
+
+func TestProcessAge(t *testing.T) {
+	assert.Zero(t, processAge(0))
+
+	age := processAge(int32(os.Getpid()))
+
+	assert.NotZero(t, age)
+
+	expected, err :=  time.ParseDuration("2m")
+
+	assert.NoError(t, err)
+
+	assert.Less(t, age, expected)
 }

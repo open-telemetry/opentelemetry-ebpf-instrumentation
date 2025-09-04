@@ -450,6 +450,11 @@ func getProcStartTime(pid int32) uint64 {
 
 func processAge(pid int32) time.Duration {
 	procStartTime := getProcStartTime(pid)
+
+	if procStartTime == 0 {
+		return emptyDuration
+	}
+
 	now := currentTime()
 
 	if now < procStartTime {
