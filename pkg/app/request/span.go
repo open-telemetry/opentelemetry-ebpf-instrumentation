@@ -176,8 +176,8 @@ type Span struct {
 	SQLCommand     string         `json:"-"`
 	SQLError       *SQLError      `json:"-"`
 
-	// OverrideTracename is set under some conditions, like spanmetrics reaching the maximum
-	// cardinality for trace names
+	// OverrideTraceName is set under some conditions, like spanmetrics reaching the maximum
+	// cardinality for trace names.
 	OverrideTraceName string `json:"-"`
 }
 
