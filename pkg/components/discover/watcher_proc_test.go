@@ -7,8 +7,8 @@ import (
 	"bytes"
 	"context"
 	"math"
-	"path/filepath"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -409,7 +409,7 @@ func TestProcessAge(t *testing.T) {
 
 	assert.NotZero(t, age)
 
-	expected, err :=  time.ParseDuration("2m")
+	expected, err := time.ParseDuration("2m")
 
 	assert.NoError(t, err)
 
