@@ -12,10 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const fiveMin = 5 * time.Minute
-
 func TestExpirableLRU_PutGetRemove(t *testing.T) {
-	lru := NewExpirableLRU[string, string](testTTL)
+	lru := NewExpirableLRU[string, string](5 * time.Minute)
 
 	lru.Put("foo", "bar")
 	v, ok := lru.Get("foo")
@@ -41,7 +39,7 @@ func TestExpirableLRU_PutGetRemove(t *testing.T) {
 
 func TestExpirableLRU_ExpireAll(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		cache := NewExpirableLRU[string, string](testTTL)
+		cache := NewExpirableLRU[string, string](5 * time.Minute)
 
 		// Add items at different times
 		cache.Put("key1", "value1")
@@ -150,7 +148,7 @@ func TestWithEvictCallBack(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var evictedKeys []int
 		var evictedVals []string
-		cache := NewExpirableLRU[int, string](testTTL,
+		cache := NewExpirableLRU[int, string](5*time.Minute,
 			WithEvictCallBack(func(k int, v string) {
 				evictedKeys = append(evictedKeys, k)
 				evictedVals = append(evictedVals, v)
@@ -176,7 +174,7 @@ func TestWithEvictCallBack(t *testing.T) {
 
 func TestPutAlsoUpdatesTTL(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		cache := NewExpirableLRU[int, string](testTTL)
+		cache := NewExpirableLRU[int, string](5 * time.Minute)
 		cache.Put(1, "one")
 
 		time.Sleep(3 * time.Minute)
