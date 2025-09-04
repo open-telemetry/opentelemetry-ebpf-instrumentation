@@ -74,6 +74,7 @@ func enabled(cfg *SpanNameLimiterConfig) bool {
 }
 
 func (l *spanNameLimiter) doLimit(ctx context.Context) {
+	defer l.out.Close()
 	l.log.Debug("Starting", "ttl", l.ttl, "limit", l.limit)
 	expirer := time.NewTicker(l.ttl)
 	for {
