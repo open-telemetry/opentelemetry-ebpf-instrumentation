@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testTTL = 5 * time.Minute
+const fiveMin = 5 * time.Minute
 
 func TestExpirableLRU_PutGetRemove(t *testing.T) {
 	lru := NewExpirableLRU[string, string](testTTL)
@@ -23,8 +23,9 @@ func TestExpirableLRU_PutGetRemove(t *testing.T) {
 	assert.Equal(t, "bar", v)
 	assert.Equal(t, 1, lru.Len())
 
-	_, ok = lru.Get("baz")
+	v, ok = lru.Get("baz")
 	assert.False(t, ok)
+	assert.Empty(t, v)
 
 	lru.Put("baz", "bae")
 	v, ok = lru.Get("baz")
@@ -85,10 +86,19 @@ func TestExpirableLRU_ExpireAll(t *testing.T) {
 		require.True(t, ok, "Expected to find key3")
 		assert.Equal(t, "value3", v)
 
+		// Advance age by two minute:
+		//   - "key1": removed (expired)
+		//   - "key2": 6 minutes old
+		//   - "key3": 4 minutes old
 		time.Sleep(2 * time.Minute)
 
 		// add key 4
 		cache.Put("key4", "value4")
+		// Advance age by four minute:
+		//   - "key1": removed (expired)
+		//   - "key2": 10 minutes old
+		//   - "key3": 8 minutes old
+		//   - "key4": 2 minutes old
 		time.Sleep(4 * time.Minute)
 
 		// all the keys but key4 should be expired
@@ -105,10 +115,20 @@ func TestExpirableLRU_ExpireAll(t *testing.T) {
 		require.True(t, ok, "Expected to find key4")
 		assert.Equal(t, "value4", v)
 
+		// Advance age by four minute:
+		//   - "key1": removed (expired)
+		//   - "key2": removed (expired)
+		//   - "key3": removed (expired)
+		//   - "key4": 6 minutes old
 		time.Sleep(4 * time.Minute)
 
 		// a re-added key should not expire
 		cache.Put("key1", "value1")
+		// Advance age by two minute:
+		//   - "key1": two minutes old
+		//   - "key2": removed (expired)
+		//   - "key3": removed (expired)
+		//   - "key4": 10 minutes old
 		time.Sleep(2 * time.Minute)
 
 		assert.Equal(t, 1, cache.ExpireAll())
