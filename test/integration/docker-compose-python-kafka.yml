@@ -75,6 +75,7 @@ services:
       OTEL_EBPF_TRACES_INSTRUMENTATIONS: "kafka"
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "kafka"
       OTEL_EBPF_METRICS_FEATURES: "application"
+      OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE: "1000"
     depends_on:
       testserver:
         condition: service_started
