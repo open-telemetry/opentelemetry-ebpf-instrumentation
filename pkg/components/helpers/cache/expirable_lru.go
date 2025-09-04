@@ -24,6 +24,8 @@ type expirableEntry[K comparable, V any] struct {
 
 type ExpirableCacheOpt[K comparable, V any] func(*ExpirableLRU[K, V])
 
+// WithEvictCallBack sets a callback function to be called whenever an entry is evicted
+// from the [ExpirableLRU] cache.
 func WithEvictCallBack[K comparable, V any](cb func(K, V)) ExpirableCacheOpt[K, V] {
 	return func(c *ExpirableLRU[K, V]) {
 		c.evictCallBack = cb
