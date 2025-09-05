@@ -19,7 +19,6 @@ import (
 	"github.com/shirou/gopsutil/v3/net"
 	"github.com/shirou/gopsutil/v3/process"
 	"github.com/tklauser/go-sysconf"
-	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/components/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
@@ -419,16 +418,6 @@ func nsToDuration(ns uint64) time.Duration {
 	}
 
 	return time.Duration(ns)
-}
-
-func currentTime() uint64 {
-	var ts unix.Timespec
-
-	if err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &ts); err != nil {
-		return 0
-	}
-
-	return uint64(ts.Sec)*1e9 + uint64(ts.Nsec)
 }
 
 func getProcStartTime(pid int32) uint64 {

@@ -31,6 +31,8 @@ func Run(
 	ctx context.Context, cfg *obi.Config,
 	opts ...Option,
 ) error {
+	normalizeConfig(cfg)
+
 	ctxInfo, err := buildCommonContextInfo(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("can't build common context info: %w", err)
@@ -68,6 +70,11 @@ func Run(
 	}
 	slog.Debug("OBI main node finished")
 	return nil
+}
+
+// normalizeConfig normalizes user input to a common set of assumptions that are global to OBI
+func normalizeConfig(cfg *obi.Config) {
+	cfg.Attributes.Select.Normalize()
 }
 
 func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) error {
