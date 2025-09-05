@@ -93,7 +93,12 @@ func textPrinter(in *msg.Queue[[]request.Span]) swarm.RunFunc {
 					}
 				}
 
-				fmt.Printf("%s (%s[%s]) %s %v %s %s [%s:%d]->[%s:%d] contentLen:%dB responseLen:%dB svc=[%s %s] traceparent=[%s]\n",
+				r := ""
+				if spans[i].Route != "" {
+					r = "(" + spans[i].Route + ")"
+				}
+
+				fmt.Printf("%s (%s[%s]) %s %v %s %s%s [%s:%d]->[%s:%d] contentLen:%dB responseLen:%dB svc=[%s %s] traceparent=[%s]\n",
 					t.Start.Format("2006-01-02 15:04:05.12345"),
 					t.End.Sub(t.RequestStart),
 					t.End.Sub(t.Start),
@@ -101,6 +106,7 @@ func textPrinter(in *msg.Queue[[]request.Span]) swarm.RunFunc {
 					spans[i].Status,
 					spans[i].Method,
 					spans[i].Path,
+					r,
 					spans[i].Peer+" as "+request.SpanPeer(&spans[i])+pn,
 					spans[i].PeerPort,
 					spans[i].Host+" as "+request.SpanHost(&spans[i])+hn,
