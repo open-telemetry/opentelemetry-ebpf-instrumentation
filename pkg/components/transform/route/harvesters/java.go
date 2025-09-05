@@ -20,7 +20,7 @@ const (
 	jvmAnnotationRootDelimiter  = " 3: /"
 )
 
-var validURLPath = regexp.MustCompile(`^[A-Za-z0-9\-._{}/:\\*+]+$`)
+var validURLPath = regexp.MustCompile(`^[A-Za-z0-9\-_{}/]+$`)
 
 func NewJavaRouteHarvester() *javaRouteHarvester {
 	return &javaRouteHarvester{
@@ -93,7 +93,7 @@ func (h *javaRouteHarvester) ExtractRoutes(pid int32) ([]string, error) {
 	h.log.Debug("java routes", "routes", routes, "parts", parts, "roots", roots)
 
 	if len(parts) > 0 {
-		combined := Combinations(parts, 5)
+		combined := Permutations(parts, 2)
 		root := ""
 		if len(roots) > 0 {
 			root = roots[0]
