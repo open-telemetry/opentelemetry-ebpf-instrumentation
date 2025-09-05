@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/grafana/jvmtools/jvm"
 )
@@ -34,7 +35,7 @@ func (h *javaRouteHarvester) parseAndAdd(accumulator []string, line string, pos 
 	start := pos + dLen
 	if start < len(line) {
 		r := line[start-1:]
-		if strings.HasPrefix(r, "/WEB-INF") || strings.HasPrefix(r, "/META-INF") || !validURLPath.MatchString(r) {
+		if strings.HasPrefix(r, "/WEB-INF") || strings.HasPrefix(r, "/META-INF") || !validURLPath.MatchString(r) || !hasAlphanumeric(r) {
 			return accumulator
 		}
 
@@ -48,6 +49,15 @@ func (h *javaRouteHarvester) parseAndAdd(accumulator []string, line string, pos 
 
 var curlyBracesRegexp = regexp.MustCompile(`\{([^}]*)\}`)
 
+func hasAlphanumeric(s string) bool {
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return true
+		}
+	}
+	return false
+}
+
 func sanitizeParams(s string) string {
 	return curlyBracesRegexp.ReplaceAllStringFunc(s, func(match string) string {
 		// match is like "{id:\\d+}"
@@ -57,6 +67,9 @@ func sanitizeParams(s string) string {
 			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
 				b.WriteRune(r)
 			} else {
+				if b.Len() == 0 {
+					return ""
+				}
 				break
 			}
 		}
@@ -79,6 +92,9 @@ func (h *javaRouteHarvester) ExtractRoutes(pid int32) ([]string, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		line = sanitizeParams(line)
+		if len(line) == 0 {
+			continue
+		}
 
 		// output format is something like `17 1: /greeting123/{id}`
 		if pos := strings.Index(line, jvmAnnotationDelimiter); pos > 0 {
@@ -93,11 +109,13 @@ func (h *javaRouteHarvester) ExtractRoutes(pid int32) ([]string, error) {
 	h.log.Debug("java routes", "routes", routes, "parts", parts, "roots", roots)
 
 	if len(parts) > 0 {
-		combined := Permutations(parts, 2)
+		combined := Permutations2(parts)
 		root := ""
 		if len(roots) > 0 {
 			root = roots[0]
 		}
+
+		partRoutes := []string{}
 
 		for _, combination := range combined {
 			if len(combination) > 0 {
@@ -105,9 +123,17 @@ func (h *javaRouteHarvester) ExtractRoutes(pid int32) ([]string, error) {
 				if root != "" {
 					full = root + full
 				}
-				routes = append(routes, full)
+				partRoutes = append(partRoutes, full)
 			}
 		}
+
+		for _, topR := range routes {
+			for _, innerR := range partRoutes {
+				routes = append(routes, topR+innerR)
+			}
+		}
+
+		routes = append(routes, partRoutes...)
 	} else if len(roots) > 0 {
 		for _, root := range roots {
 			routes = append(routes, root)
