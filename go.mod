@@ -28,6 +28,7 @@ require (
 	github.com/prometheus/procfs v0.17.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/stretchr/testify v1.10.0
+	github.com/tklauser/go-sysconf v0.3.12
 	github.com/vishvananda/netlink v1.3.1
 	github.com/vladimirvivien/gexe v0.5.0
 	github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2
@@ -151,7 +152,6 @@ require (
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
-	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
