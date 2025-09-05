@@ -29,9 +29,9 @@ func TestNormalize(t *testing.T) {
 func TestFor(t *testing.T) {
 	p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{
 		SelectionCfg: Selection{
-			"obi_network_flow_bytes_total": InclusionLists{
-				Include: []string{"obi_ip", "src.*", "k8s.*"},
-				Exclude: []string{"k8s_*_name", "k8s.*.type", "*zone"},
+			"obi.network.flow": InclusionLists{
+				Include: []string{"obi.ip", "src.*", "k8s.*"},
+				Exclude: []string{"k8s.*.name", "k8s.*.type", "*zone"},
 			},
 		},
 	})
@@ -53,12 +53,12 @@ func TestFor_GlobEntries(t *testing.T) {
 	p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{
 		SelectionCfg: Selection{
 			"*": InclusionLists{
-				Include: []string{"obi_ip"},
+				Include: []string{"obi.ip"},
 				// won't be excluded from the final snapshot because they are
 				// re-included in the next inclusion list
-				Exclude: []string{"k8s_*_type"},
+				Exclude: []string{"k8s.*.type"},
 			},
-			"obi_network_flow_bytes_total": InclusionLists{
+			"obi.network.flow": InclusionLists{
 				Include: []string{"src.*", "k8s.*"},
 				Exclude: []string{"k8s.*.name", "*zone"},
 			},
@@ -88,7 +88,7 @@ func TestFor_GlobEntries_NoInclusion(t *testing.T) {
 			"*": InclusionLists{
 				Exclude: []string{"*dst*"},
 			},
-			"obi_network_flow_bytes_total": InclusionLists{
+			"obi.network.flow": InclusionLists{
 				Exclude: []string{"k8s.*.namespace", "*zone"},
 			},
 		},
@@ -110,10 +110,10 @@ func TestFor_GlobEntries_Order(t *testing.T) {
 			"*": InclusionLists{
 				Include: []string{"*"},
 			},
-			"obi_network_*": InclusionLists{
+			"obi.network.*": InclusionLists{
 				Exclude: []string{"dst.*", "transport", "*direction", "iface", "*zone"},
 			},
-			"obi_network_flow_bytes_total": InclusionLists{
+			"obi.network.flow": InclusionLists{
 				Include: []string{"dst.name"},
 			},
 		},
@@ -138,10 +138,10 @@ func TestFor_GlobEntries_Order_Default(t *testing.T) {
 	p, err := NewAttrSelector(g, &SelectorConfig{
 		SelectionCfg: Selection{
 			"*": InclusionLists{}, // assuming default set
-			"http_*": InclusionLists{
+			"http.*": InclusionLists{
 				Exclude: []string{"*"},
 			},
-			"http_server_request_duration": InclusionLists{
+			"http.server.request.duration": InclusionLists{
 				Include: []string{"url.path"},
 			},
 		},
@@ -155,8 +155,8 @@ func TestFor_GlobEntries_Order_Default(t *testing.T) {
 func TestFor_KubeDisabled(t *testing.T) {
 	p, err := NewAttrSelector(0, &SelectorConfig{
 		SelectionCfg: Selection{
-			"obi_network_flow_bytes_total": InclusionLists{
-				Include: []string{"target.instance", "obi_ip", "src.*", "k8s.*"},
+			"obi.network.flow": InclusionLists{
+				Include: []string{"target.instance", "obi.ip", "src.*", "k8s.*"},
 				Exclude: []string{"src.port", "*zone"},
 			},
 		},
@@ -233,7 +233,7 @@ func TestTraces(t *testing.T) {
 	p, err := NewAttrSelector(GroupTraces, &SelectorConfig{
 		SelectionCfg: Selection{
 			"traces": InclusionLists{
-				Include: []string{"db.query.text", "obi_ip", "src.*", "k8s.*"},
+				Include: []string{"db.query.text", "obi.ip", "src.*", "k8s.*"},
 			},
 		},
 	})
