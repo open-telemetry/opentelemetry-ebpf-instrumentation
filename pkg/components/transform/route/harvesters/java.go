@@ -15,15 +15,53 @@ type javaRouteHarvester struct {
 }
 
 const (
-	jvmAnnotationDelimiter = " 1: /"
+	jvmAnnotationDelimiter      = " 1: /"
+	jvmAnnotationPartsDelimiter = " 2: /"
+	jvmAnnotationRootDelimiter  = " 3: /"
 )
 
-var validURLPath = regexp.MustCompile(`^[A-Za-z0-9\-._{}/]+$`)
+var validURLPath = regexp.MustCompile(`^[A-Za-z0-9\-._{}/:\\*+]+$`)
 
 func NewJavaRouteHarvester() *javaRouteHarvester {
 	return &javaRouteHarvester{
 		log: slog.With("component", "route.harvester.java"),
 	}
+}
+
+func (h *javaRouteHarvester) parseAndAdd(accumulator []string, line string, pos int, dLen int) []string {
+	h.log.Debug("symbol", "line", line)
+
+	start := pos + dLen
+	if start < len(line) {
+		r := line[start-1:]
+		if strings.HasPrefix(r, "/WEB-INF") || strings.HasPrefix(r, "/META-INF") || !validURLPath.MatchString(r) {
+			return accumulator
+		}
+
+		if u, err := url.ParseRequestURI(r); err == nil && u.Scheme == "" && u.Host == "" {
+			accumulator = append(accumulator, r)
+		}
+	}
+
+	return accumulator
+}
+
+var curlyBracesRegexp = regexp.MustCompile(`\{([^}]*)\}`)
+
+func sanitizeParams(s string) string {
+	return curlyBracesRegexp.ReplaceAllStringFunc(s, func(match string) string {
+		// match is like "{id:\\d+}"
+		inside := match[1 : len(match)-1]
+		var b strings.Builder
+		for _, r := range inside {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+				b.WriteRune(r)
+			} else {
+				break
+			}
+		}
+		return "{" + b.String() + "}"
+	})
 }
 
 func (h *javaRouteHarvester) ExtractRoutes(pid int32) ([]string, error) {
@@ -33,23 +71,46 @@ func (h *javaRouteHarvester) ExtractRoutes(pid int32) ([]string, error) {
 		return nil, err
 	}
 
+	roots := []string{}
+
+	parts := []string{}
+
 	scanner := bufio.NewScanner(out)
 	for scanner.Scan() {
 		line := scanner.Text()
+		line = sanitizeParams(line)
+
 		// output format is something like `17 1: /greeting123/{id}`
 		if pos := strings.Index(line, jvmAnnotationDelimiter); pos > 0 {
-			h.log.Debug("symbol", "line", line)
-			start := pos + len(jvmAnnotationDelimiter)
-			if start < len(line) {
-				r := line[start-1:]
-				if strings.HasPrefix(r, "/WEB-INF") || strings.HasPrefix(r, "/META-INF") || !validURLPath.MatchString(r) {
-					continue
-				}
+			routes = h.parseAndAdd(routes, line, pos, len(jvmAnnotationDelimiter))
+		} else if pos := strings.Index(line, jvmAnnotationPartsDelimiter); pos > 0 {
+			parts = h.parseAndAdd(parts, line, pos, len(jvmAnnotationPartsDelimiter))
+		} else if pos := strings.Index(line, jvmAnnotationRootDelimiter); pos > 0 {
+			roots = h.parseAndAdd(roots, line, pos, len(jvmAnnotationRootDelimiter))
+		}
+	}
 
-				if u, err := url.ParseRequestURI(r); err == nil && u.Scheme == "" && u.Host == "" {
-					routes = append(routes, r)
+	h.log.Debug("java routes", "routes", routes, "parts", parts, "roots", roots)
+
+	if len(parts) > 0 {
+		combined := Combinations(parts, 5)
+		root := ""
+		if len(roots) > 0 {
+			root = roots[0]
+		}
+
+		for _, combination := range combined {
+			if len(combination) > 0 {
+				full := strings.Join(combination, "")
+				if root != "" {
+					full = root + full
 				}
+				routes = append(routes, full)
 			}
+		}
+	} else if len(roots) > 0 {
+		for _, root := range roots {
+			routes = append(routes, root)
 		}
 	}
 
