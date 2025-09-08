@@ -31,3 +31,256 @@ func TestFindParts(t *testing.T) {
 	assert.Equal(t, "", m.Find("/"))
 	assert.Equal(t, "/{id}", m.Find("/whatever"))
 }
+
+func TestPartialRouteMatcherEmptyRoutes(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{})
+	assert.Equal(t, "", m.Find("/api/users"))
+	assert.Equal(t, "", m.Find("/"))
+	assert.Equal(t, "", m.Find(""))
+}
+
+func TestPartialRouteMatcherSingleRoute(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{"/api"})
+	assert.Equal(t, "/api", m.Find("/api"))
+	assert.Equal(t, "", m.Find("/api/users"))
+	assert.Equal(t, "", m.Find("/users"))
+	assert.Equal(t, "", m.Find("/"))
+}
+
+func TestPartialRouteMatcherWildcards(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/users/{id}",
+		"/posts/:postId",
+		"/admin/{role}",
+	})
+
+	// Test single wildcard matches
+	assert.Equal(t, "/users/{id}", m.Find("/users/123"))
+	assert.Equal(t, "/posts/:postId", m.Find("/posts/456"))
+	assert.Equal(t, "/admin/{role}", m.Find("/admin/superuser"))
+
+	// Test combined matches
+	assert.Equal(t, "/users/{id}/posts/:postId", m.Find("/users/123/posts/456"))
+	assert.Equal(t, "/admin/{role}/users/{id}", m.Find("/admin/moderator/users/789"))
+}
+
+func TestPartialRouteMatcherExactMatches(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/health",
+		"/status",
+		"/api/v1",
+		"/metrics",
+	})
+
+	// Test exact matches
+	assert.Equal(t, "/health", m.Find("/health"))
+	assert.Equal(t, "/status", m.Find("/status"))
+	assert.Equal(t, "/api/v1", m.Find("/api/v1"))
+
+	// Test combined exact matches
+	assert.Equal(t, "/api/v1/health", m.Find("/api/v1/health"))
+	assert.Equal(t, "/status/metrics", m.Find("/status/metrics"))
+
+	// Test partial paths that don't match
+	assert.Equal(t, "", m.Find("/unknown"))
+}
+
+func TestPartialRouteMatcherMixedRoutes(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/comments",
+		"/users",
+		"/posts",
+		"/api",
+		"/v1",
+		"/{slug}",
+		"/{id}",
+	})
+
+	// Test various combinations
+	assert.Equal(t, "/api/v1/users/{slug}", m.Find("/api/v1/users/123"))
+	assert.Equal(t, "/api/posts/{slug}/comments", m.Find("/api/posts/my-post/comments"))
+	assert.Equal(t, "/users/{slug}/posts/{slug}", m.Find("/users/456/posts/another-post"))
+
+	// Test fallback to generic wildcard
+	assert.Equal(t, "/{slug}", m.Find("/anything"))
+}
+
+func TestPartialRouteMatcherComplexPaths(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/organizations",
+		"/repositories",
+		"/projects",
+		"/branches",
+		"/commits",
+		"/api",
+		"/v2",
+		"/{branchName}",
+		"/{commitHash}",
+		"/{projectId}",
+		"/{repoId}",
+		"/{orgId}",
+	})
+
+	// This test shows that we can improve the matcher for single parameter routes, such that we should
+	// not pick the same route twice. It's unlikely scenario.
+	longPath := "/api/v2/organizations/123/projects/456/repositories/789/branches/main/commits/abc123"
+	expected := "/api/v2/organizations/{branchName}/projects/{branchName}/repositories/{branchName}/branches/{branchName}/commits/{branchName}"
+	assert.Equal(t, expected, m.Find(longPath))
+}
+
+func TestPartialRouteMatcherEdgeCases(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/",
+		"/single",
+		"/{param}",
+	})
+
+	// Test root path
+	assert.Equal(t, "/", m.Find("/"))
+
+	// Test single segment
+	assert.Equal(t, "/single", m.Find("/single"))
+
+	// Test parameter fallback
+	assert.Equal(t, "/{param}", m.Find("/anything"))
+
+	// Test path with trailing slash
+	assert.Equal(t, "/single", m.Find("/single/"))
+}
+
+func TestPartialRouteMatcherNoMatch(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/api/users",
+		"/api/posts",
+		"/admin/settings",
+	})
+
+	// These should return empty since they can't be constructed from partial matches
+	assert.Equal(t, "", m.Find("/public/files"))
+	assert.Equal(t, "", m.Find("/dashboard"))
+	assert.Equal(t, "", m.Find("/auth/login"))
+}
+
+func TestPartialRouteMatcherGreedyMatching(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/api/users/profile",
+		"/api/users",
+		"/api",
+		"/users",
+		"/profile",
+	})
+
+	// Should prefer longer, more specific matches
+	assert.Equal(t, "/api/users/profile", m.Find("/api/users/profile"))
+	assert.Equal(t, "/api/users", m.Find("/api/users"))
+
+	// Should build from parts when exact match not available
+	assert.Equal(t, "/users/profile", m.Find("/users/profile"))
+}
+
+func TestPartialRouteMatcherOrderDependence(t *testing.T) {
+	// Test that order of routes in slice doesn't affect matching behavior significantly
+	routes1 := []string{"/a", "/b", "/c"}
+	routes2 := []string{"/c", "/b", "/a"}
+
+	m1 := NewPartialRouteMatcher(routes1)
+	m2 := NewPartialRouteMatcher(routes2)
+
+	testPath := "/a/b/c"
+	result1 := m1.Find(testPath)
+	result2 := m2.Find(testPath)
+
+	// Both should find some valid combination (though may differ due to order)
+	assert.NotEmpty(t, result1)
+	assert.NotEmpty(t, result2)
+	assert.Contains(t, result1, "/a")
+	assert.Contains(t, result1, "/b")
+	assert.Contains(t, result1, "/c")
+}
+
+func TestPartialRouteMatcherRepeatedSegments(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/api",
+		"/{version}",
+		"/users",
+		"/{id}",
+		"/posts",
+	})
+
+	// Test paths with repeated patterns
+	assert.Equal(t, "/api/{version}/{version}/{version}/{version}/{version}", m.Find("/api/v1/users/123/posts/456"))
+	assert.Equal(t, "/{version}/{version}", m.Find("/v1/v2"))
+}
+
+func TestPartialRouteMatcherSpecialCharacters(t *testing.T) {
+	m := NewPartialRouteMatcher([]string{
+		"/api-v1",
+		"/user_profile",
+		"/data.json",
+		"/{file_name}",
+	})
+
+	assert.Equal(t, "/api-v1", m.Find("/api-v1"))
+	assert.Equal(t, "/user_profile", m.Find("/user_profile"))
+	assert.Equal(t, "/data.json", m.Find("/data.json"))
+	assert.Equal(t, "/api-v1/user_profile", m.Find("/api-v1/user_profile"))
+	assert.Equal(t, "/{file_name}", m.Find("/some-file.txt"))
+}
+
+func TestNewPartialRouteMatcher(t *testing.T) {
+	routes := []string{"/api", "/users", "/{id}"}
+	m := NewPartialRouteMatcher(routes)
+
+	assert.NotNil(t, m)
+	assert.Len(t, m.roots, 3) // Should create one root per route
+
+	// Each root should be properly initialized
+	for _, root := range m.roots {
+		assert.NotNil(t, root)
+		assert.NotNil(t, root.Child)
+	}
+}
+
+// Benchmark tests
+func BenchmarkPartialRouteMatcherSimple(b *testing.B) {
+	m := NewPartialRouteMatcher([]string{
+		"/api", "/users", "/{id}", "/posts", "/comments",
+	})
+
+	testPaths := []string{
+		"/api/users/123",
+		"/users/456/posts",
+		"/api/posts/789/comments",
+		"/anything/else",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, path := range testPaths {
+			m.Find(path)
+		}
+	}
+}
+
+func BenchmarkPartialRouteMatcherComplex(b *testing.B) {
+	m := NewPartialRouteMatcher([]string{
+		"/api", "/v1", "/v2", "/organizations", "/{orgId}",
+		"/projects", "/{projectId}", "/repositories", "/{repoId}",
+		"/branches", "/{branchName}", "/commits", "/{commitHash}",
+		"/files", "/{filePath}", "/users", "/{userId}",
+	})
+
+	testPaths := []string{
+		"/api/v1/organizations/123/projects/456",
+		"/api/v2/repositories/789/branches/main/commits/abc123",
+		"/organizations/999/users/777/projects/888",
+		"/files/path/to/file.txt",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, path := range testPaths {
+			m.Find(path)
+		}
+	}
+}

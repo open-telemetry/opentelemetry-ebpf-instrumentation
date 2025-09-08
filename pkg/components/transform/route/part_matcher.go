@@ -8,7 +8,8 @@ import "strings"
 // Matcher allows matching a given URL path towards a set of framework-like provided
 // patterns.
 type PartialRouteMatcher struct {
-	roots []*node
+	roots           []*node
+	hasAbsoluteRoot bool
 }
 
 // NewMatcher creates a new Matcher that would allow validating given URL paths towards
@@ -16,6 +17,10 @@ type PartialRouteMatcher struct {
 func NewPartialRouteMatcher(routes []string) *PartialRouteMatcher {
 	m := PartialRouteMatcher{roots: []*node{}}
 	for _, route := range routes {
+		if route == "/" {
+			m.hasAbsoluteRoot = true
+			continue
+		}
 		n := &node{Child: map[string]*node{}}
 		m.roots = append(m.roots, n)
 		appendRoute(route, tokenize(route), n)
@@ -26,6 +31,10 @@ func NewPartialRouteMatcher(routes []string) *PartialRouteMatcher {
 // Find the router pattern that would match a given URL path, or empty if no pattern
 // matches it. Uses partial matching across multiple root trees.
 func (rm *PartialRouteMatcher) Find(path string) string {
+	if path == "/" && rm.hasAbsoluteRoot {
+		return path
+	}
+
 	tokens := tokenize(path)
 	return rm.findCombined(tokens, 0, []string{})
 }
