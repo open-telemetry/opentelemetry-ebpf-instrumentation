@@ -14,6 +14,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 func aflog() *slog.Logger {
@@ -124,17 +125,11 @@ func (f *filter[T]) doFilter(ctx context.Context) {
 	// output channel must be closed so later stages in the pipeline can finish in cascade
 	defer f.output.Close()
 
-	for {
-		select {
-		case <-ctx.Done():
-			aflog().Debug("context done, stopping filter")
-			return
-		case attrs := <-f.input:
-			if attrs = f.filterBatch(attrs); len(attrs) > 0 {
-				f.output.Send(attrs)
-			}
+	swarms.ForEachInput(ctx, f.input, aflog().Debug, func(attrs []T) {
+		if attrs = f.filterBatch(attrs); len(attrs) > 0 {
+			f.output.Send(attrs)
 		}
-	}
+	})
 }
 
 // filterBatch removes from the input slice the records that do not match

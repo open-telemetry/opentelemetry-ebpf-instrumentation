@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -146,44 +147,34 @@ func (i *Instrumenter) WaitUntilFinished() error {
 
 func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents <-chan discover.Event[*ebpf.Instrumentable]) {
 	log := log()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case ev, ok := <-processEvents:
-			if !ok {
-				log.Error("processEvents channel closed. Application instrumentation has stopped working")
-				return
+	swarms.ForEachInput(ctx, processEvents, log.Debug, func(ev discover.Event[*ebpf.Instrumentable]) {
+		switch ev.Type {
+		case discover.EventCreated:
+			pt := ev.Obj
+			log.Debug("running tracer for new process",
+				"inode", pt.FileInfo.Ino, "pid", pt.FileInfo.Pid, "exec", pt.FileInfo.CmdExePath)
+			if pt.Tracer != nil {
+				i.tracersWg.Add(1)
+				go func() {
+					defer i.tracersWg.Done()
+					pt.Tracer.Run(ctx, i.ebpfEventContext, i.tracesInput)
+				}()
 			}
-
-			switch ev.Type {
-			case discover.EventCreated:
-				pt := ev.Obj
-				log.Debug("running tracer for new process",
-					"inode", pt.FileInfo.Ino, "pid", pt.FileInfo.Pid, "exec", pt.FileInfo.CmdExePath)
-				if pt.Tracer != nil {
-					i.tracersWg.Add(1)
-					go func() {
-						defer i.tracersWg.Done()
-						pt.Tracer.Run(ctx, i.ebpfEventContext, i.tracesInput)
-					}()
-				}
-				i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: pt.FileInfo})
-			case discover.EventDeleted:
-				dp := ev.Obj
-				log.Debug("stopping ProcessTracer because there are no more instances of such process",
-					"inode", dp.FileInfo.Ino, "pid", dp.FileInfo.Pid, "exec", dp.FileInfo.CmdExePath)
-				if dp.Tracer != nil {
-					dp.Tracer.UnlinkExecutable(dp.FileInfo)
-				}
-				i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: dp.FileInfo})
-			case discover.EventInstanceDeleted:
-				i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: ev.Obj.FileInfo})
-			default:
-				log.Error("BUG ALERT! unknown event type", "type", ev.Type)
+			i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: pt.FileInfo})
+		case discover.EventDeleted:
+			dp := ev.Obj
+			log.Debug("stopping ProcessTracer because there are no more instances of such process",
+				"inode", dp.FileInfo.Ino, "pid", dp.FileInfo.Pid, "exec", dp.FileInfo.CmdExePath)
+			if dp.Tracer != nil {
+				dp.Tracer.UnlinkExecutable(dp.FileInfo)
 			}
+			i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: dp.FileInfo})
+		case discover.EventInstanceDeleted:
+			i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: ev.Obj.FileInfo})
+		default:
+			log.Error("BUG ALERT! unknown event type", "type", ev.Type)
 		}
-	}
+	})
 }
 
 // ReadAndForward keeps listening for traces in the BPF map, then reads,

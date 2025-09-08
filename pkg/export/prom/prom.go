@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 // injectable function reference for testing
@@ -804,22 +805,14 @@ func (r *metricsReporter) reportMetrics(ctx context.Context) {
 
 func (r *metricsReporter) collectMetrics(ctx context.Context) {
 	go r.watchForProcessEvents(ctx)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case spans, ok := <-r.input:
-			if !ok {
-				return
-			}
-			// clock needs to be updated to let the expirer
-			// remove the old metrics
-			r.clock.Update()
-			for i := range spans {
-				r.observe(&spans[i])
-			}
+	swarms.ForEachInput(ctx, r.input, nil, func(spans []request.Span) {
+		// clock needs to be updated to let the expirer
+		// remove the old metrics
+		r.clock.Update()
+		for i := range spans {
+			r.observe(&spans[i])
 		}
-	}
+	})
 }
 
 func (r *metricsReporter) otelMetricsObserved(span *request.Span) bool {
@@ -1159,36 +1152,26 @@ func (r *metricsReporter) disassociatePIDFromService(pid int32) (bool, svc.UID) 
 
 func (r *metricsReporter) watchForProcessEvents(ctx context.Context) {
 	log := mlog().With("function", "watchForProcessEvents")
-	for {
-		select {
-		case pe, ok := <-r.processEvents:
-			if !ok {
-				log.Debug("process channel closed. Exiting")
-				return
-			}
-			log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
-			uid := pe.File.Service.UID
+	swarms.ForEachInput(ctx, r.processEvents, log.Debug, func(pe exec.ProcessEvent) {
+		log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
+		uid := pe.File.Service.UID
 
-			if pe.Type == exec.ProcessEventCreated {
-				r.createTargetInfo(&pe.File.Service)
-				r.createTracesTargetInfo(&pe.File.Service)
-				r.serviceMap[uid] = pe.File.Service
-				r.setupPIDToServiceRelationship(pe.File.Pid, uid)
-			} else {
-				if deleted, origUID := r.disassociatePIDFromService(pe.File.Pid); deleted {
-					mlog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
-					r.deleteTargetInfo(origUID, &pe.File.Service)
-					r.deleteTracesTargetInfo(origUID, &pe.File.Service)
-					if r.cfg.HostMetricsEnabled() && r.pidsTracker.Count() == 0 {
-						mlog().Debug("No more PIDs tracked, expiring host info metric")
-						r.tracesHostInfo.entries.DeleteAll()
-					}
-					delete(r.serviceMap, origUID)
+		if pe.Type == exec.ProcessEventCreated {
+			r.createTargetInfo(&pe.File.Service)
+			r.createTracesTargetInfo(&pe.File.Service)
+			r.serviceMap[uid] = pe.File.Service
+			r.setupPIDToServiceRelationship(pe.File.Pid, uid)
+		} else {
+			if deleted, origUID := r.disassociatePIDFromService(pe.File.Pid); deleted {
+				mlog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
+				r.deleteTargetInfo(origUID, &pe.File.Service)
+				r.deleteTracesTargetInfo(origUID, &pe.File.Service)
+				if r.cfg.HostMetricsEnabled() && r.pidsTracker.Count() == 0 {
+					mlog().Debug("No more PIDs tracked, expiring host info metric")
+					r.tracesHostInfo.entries.DeleteAll()
 				}
+				delete(r.serviceMap, origUID)
 			}
-		case <-ctx.Done():
-			log.Debug("Context done. Exiting")
-			return
 		}
-	}
+	})
 }

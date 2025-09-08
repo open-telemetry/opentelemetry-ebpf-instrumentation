@@ -40,6 +40,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 const reporterName = "go.opentelemetry.io/obi"
@@ -151,15 +152,9 @@ func (tr *tracesOTELReceiver) provideLoop(ctx context.Context) {
 	}
 
 	sampler := tr.cfg.SamplerConfig.Implementation()
-	for {
-		select {
-		case <-ctx.Done():
-			otlog().Debug("context done, stopping traces reporting")
-			return
-		case spans := <-tr.input:
-			tr.processSpans(ctx, exp, spans, traceAttrs, sampler)
-		}
-	}
+	swarms.ForEachInput(ctx, tr.input, otlog().Debug, func(spans []request.Span) {
+		tr.processSpans(ctx, exp, spans, traceAttrs, sampler)
+	})
 }
 
 //nolint:cyclop

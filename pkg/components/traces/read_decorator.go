@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/traces/hostname"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 func rlog() *slog.Logger {
@@ -104,20 +105,11 @@ func HostProcessEventDecoratorProvider(
 		log := rlog().With("function", "HostProcessEventDecoratorProvider")
 		return func(ctx context.Context) {
 			defer output.Close()
-			for {
-				select {
-				case pe, ok := <-in:
-					if !ok {
-						return
-					}
-					decorate(&pe.File.Service, int(pe.File.Pid))
-					log.Debug("host decorating event", "event", pe, "ns", pe.File.Ns, "procPID", pe.File.Pid, "procPPID", pe.File.Ppid, "service", pe.File.Service.UID)
-					output.Send(pe)
-				case <-ctx.Done():
-					log.Debug("context canceled. Exiting HostProcessEventDecorator")
-					return
-				}
-			}
+			swarms.ForEachInput(ctx, in, log.Debug, func(pe exec.ProcessEvent) {
+				decorate(&pe.File.Service, int(pe.File.Pid))
+				log.Debug("host decorating event", "event", pe, "ns", pe.File.Ns, "procPID", pe.File.Pid, "procPPID", pe.File.Ppid, "service", pe.File.Service.UID)
+				output.Send(pe)
+			})
 		}, nil
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/transform/route/clusterurl"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 // UnmatchType defines which actions to do when a route pattern is not recognized
@@ -103,31 +104,26 @@ func (rn *routerNode) provideRoutes(_ context.Context) (swarm.RunFunc, error) {
 		// output channel must be closed so later stages in the pipeline can finish in cascade
 		defer rn.output.Close()
 
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case spans := <-in:
-				for i := range spans {
-					s := &spans[i]
-					if ignoreEnabled {
-						if discarder.Find(s.Path) != "" {
-							if ignoreMode == IgnoreAll {
-								request.SetIgnoreMetrics(s)
-								request.SetIgnoreTraces(s)
-							}
-							// we can't discard it here, ignoring is selective (metrics | traces)
-							setSpanIgnoreMode(ignoreMode, s)
+		swarms.ForEachInput(ctx, in, nil, func(spans []request.Span) {
+			for i := range spans {
+				s := &spans[i]
+				if ignoreEnabled {
+					if discarder.Find(s.Path) != "" {
+						if ignoreMode == IgnoreAll {
+							request.SetIgnoreMetrics(s)
+							request.SetIgnoreTraces(s)
 						}
+						// we can't discard it here, ignoring is selective (metrics | traces)
+						setSpanIgnoreMode(ignoreMode, s)
 					}
-					if routesEnabled {
-						s.Route = matcher.Find(s.Path)
-					}
-					unmatchAction(rn, s)
 				}
-				out.Send(spans)
+				if routesEnabled {
+					s.Route = matcher.Find(s.Path)
+				}
+				unmatchAction(rn, s)
 			}
-		}
+			out.Send(spans)
+		})
 	}, nil
 }
 
