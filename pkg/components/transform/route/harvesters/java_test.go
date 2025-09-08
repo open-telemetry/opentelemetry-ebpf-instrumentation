@@ -404,7 +404,7 @@ func TestJavaRouteHarvester_ExtractRoutes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			jvmAttachFunc = func(pid int, args []string, logger *slog.Logger) (io.ReadCloser, error) {
+			jvmAttachFunc = func(pid int, args []string, _ *slog.Logger) (io.ReadCloser, error) {
 				assert.Equal(t, int(tt.pid), pid)
 				assert.Equal(t, []string{"jcmd", "VM.symboltable -verbose"}, args)
 
@@ -418,7 +418,7 @@ func TestJavaRouteHarvester_ExtractRoutes(t *testing.T) {
 			result, err := harvester.ExtractRoutes(tt.pid)
 
 			if tt.expectedError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, result)
 			} else {
 				require.NoError(t, err)
@@ -447,7 +447,7 @@ Header: ...
 99: /META-INF/resources
 110: /static/{filename}
 `
-	jvmAttachFunc = func(pid int, argv []string, logger *slog.Logger) (io.ReadCloser, error) {
+	jvmAttachFunc = func(_ int, _ []string, _ *slog.Logger) (io.ReadCloser, error) {
 		return NewReaderCloser(strings.NewReader(symbolTableOutput)), nil
 	}
 

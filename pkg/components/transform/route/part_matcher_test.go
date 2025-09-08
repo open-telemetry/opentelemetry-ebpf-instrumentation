@@ -27,24 +27,24 @@ func TestFindParts(t *testing.T) {
 	assert.Equal(t, "/api/persons/{id}/{id}/{id}", m.Find("/api/persons/greeting12/greeting12/456"))
 	assert.Equal(t, "/api/persons/age-greater-than/{age}", m.Find("/api/persons/age-greater-than/34"))
 	assert.Equal(t, "/api/greeting/{id}", m.Find("/api/greeting/456"))
-	assert.Equal(t, "", m.Find(""))
-	assert.Equal(t, "", m.Find("/"))
+	assert.Empty(t, m.Find(""))
+	assert.Empty(t, m.Find("/"))
 	assert.Equal(t, "/{id}", m.Find("/whatever"))
 }
 
 func TestPartialRouteMatcherEmptyRoutes(t *testing.T) {
 	m := NewPartialRouteMatcher([]string{})
-	assert.Equal(t, "", m.Find("/api/users"))
-	assert.Equal(t, "", m.Find("/"))
-	assert.Equal(t, "", m.Find(""))
+	assert.Empty(t, m.Find("/api/users"))
+	assert.Empty(t, m.Find("/"))
+	assert.Empty(t, m.Find(""))
 }
 
 func TestPartialRouteMatcherSingleRoute(t *testing.T) {
 	m := NewPartialRouteMatcher([]string{"/api"})
 	assert.Equal(t, "/api", m.Find("/api"))
-	assert.Equal(t, "", m.Find("/api/users"))
-	assert.Equal(t, "", m.Find("/users"))
-	assert.Equal(t, "", m.Find("/"))
+	assert.Empty(t, m.Find("/api/users"))
+	assert.Empty(t, m.Find("/users"))
+	assert.Empty(t, m.Find("/"))
 }
 
 func TestPartialRouteMatcherWildcards(t *testing.T) {
@@ -82,7 +82,7 @@ func TestPartialRouteMatcherExactMatches(t *testing.T) {
 	assert.Equal(t, "/status/metrics", m.Find("/status/metrics"))
 
 	// Test partial paths that don't match
-	assert.Equal(t, "", m.Find("/unknown"))
+	assert.Empty(t, m.Find("/unknown"))
 }
 
 func TestPartialRouteMatcherMixedRoutes(t *testing.T) {
@@ -156,9 +156,9 @@ func TestPartialRouteMatcherNoMatch(t *testing.T) {
 	})
 
 	// These should return empty since they can't be constructed from partial matches
-	assert.Equal(t, "", m.Find("/public/files"))
-	assert.Equal(t, "", m.Find("/dashboard"))
-	assert.Equal(t, "", m.Find("/auth/login"))
+	assert.Empty(t, m.Find("/public/files"))
+	assert.Empty(t, m.Find("/dashboard"))
+	assert.Empty(t, m.Find("/auth/login"))
 }
 
 func TestPartialRouteMatcherGreedyMatching(t *testing.T) {

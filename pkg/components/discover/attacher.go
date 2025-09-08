@@ -214,12 +214,10 @@ func (ta *TraceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 	routes, err := ta.routeHarvester.HarvestRoutes(ie.FileInfo)
 	if err != nil {
 		ta.log.Info("encountered error harvesting routes", "error", err, "pid", ie.FileInfo.Pid, "cmd", ie.FileInfo.CmdExePath)
-	} else {
-		if routes != nil && len(routes.Routes) > 0 {
-			ta.log.Debug("found routes in executable", "pid", ie.FileInfo.Pid, "routes", routes)
-			m := harvesters.RouteMatcherFromResult(*routes)
-			ie.FileInfo.Service.SetRoutes(m)
-		}
+	} else if routes != nil && len(routes.Routes) > 0 {
+		ta.log.Debug("found routes in executable", "pid", ie.FileInfo.Pid, "routes", routes)
+		m := harvesters.RouteMatcherFromResult(*routes)
+		ie.FileInfo.Service.SetRoutes(m)
 	}
 
 	// Instead of the executable file in the disk, we pass the /proc/<pid>/exec

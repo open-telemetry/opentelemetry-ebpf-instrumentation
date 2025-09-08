@@ -13,7 +13,7 @@ import (
 
 type RouteHarvester struct {
 	log  *slog.Logger
-	java *javaRouteHarvester
+	java *JavaRouteHarvester
 }
 
 type RouteHarvesterResultKind uint8

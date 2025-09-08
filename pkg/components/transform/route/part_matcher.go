@@ -8,14 +8,14 @@ import (
 	"strings"
 )
 
-// Matcher allows matching a given URL path towards a set of framework-like provided
+// PartialRouteMatcher allows matching a given URL path towards a set of framework-like provided
 // patterns.
 type PartialRouteMatcher struct {
 	roots           []*node
 	hasAbsoluteRoot bool
 }
 
-// NewMatcher creates a new Matcher that would allow validating given URL paths towards
+// NewPartialRouteMatcher creates a new Matcher that would allow validating given URL paths towards
 // the provided set of routes
 func NewPartialRouteMatcher(routes []string) *PartialRouteMatcher {
 	m := PartialRouteMatcher{roots: []*node{}}
@@ -60,7 +60,9 @@ func (rm *PartialRouteMatcher) findCombined(tokens []string, startIdx int, match
 	for _, root := range rm.roots {
 		if partialMatch, consumed := rm.findPartial(tokens[startIdx:], root); partialMatch != "" && consumed > 0 {
 			// Found a partial match, try to match the rest
-			newMatchedParts := append(matchedParts, partialMatch)
+			newMatchedParts := make([]string, len(matchedParts)+1)
+			copy(newMatchedParts, matchedParts)
+			newMatchedParts[len(matchedParts)] = partialMatch
 			if result := rm.findCombined(tokens, startIdx+consumed, newMatchedParts); result != "" {
 				return result
 			}

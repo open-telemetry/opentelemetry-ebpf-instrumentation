@@ -16,7 +16,7 @@ import (
 	"github.com/grafana/jvmtools/jvm"
 )
 
-type javaRouteHarvester struct {
+type JavaRouteHarvester struct {
 	log *slog.Logger
 }
 
@@ -27,13 +27,13 @@ const (
 
 var validURLPath = regexp.MustCompile(`^[A-Za-z0-9\-_{}\./]+$`)
 
-func NewJavaRouteHarvester() *javaRouteHarvester {
-	return &javaRouteHarvester{
+func NewJavaRouteHarvester() *JavaRouteHarvester {
+	return &JavaRouteHarvester{
 		log: slog.With("component", "route.harvester.java"),
 	}
 }
 
-func (h *javaRouteHarvester) parseAndAdd(accumulator []string, line string, pos int, dLen int) []string {
+func (h *JavaRouteHarvester) parseAndAdd(accumulator []string, line string, pos int, dLen int) []string {
 	h.log.Debug("symbol", "line", line)
 
 	start := pos + dLen
@@ -81,7 +81,7 @@ func sanitizeParams(s string) string {
 	})
 }
 
-func (h *javaRouteHarvester) sortRoutes(routes []string) []string {
+func (h *JavaRouteHarvester) sortRoutes(routes []string) []string {
 	sort.Slice(routes, func(i, j int) bool {
 		hasParamsI := strings.Contains(routes[i], "{")
 		hasParamsJ := strings.Contains(routes[j], "{")
@@ -101,7 +101,7 @@ func (h *javaRouteHarvester) sortRoutes(routes []string) []string {
 	return routes
 }
 
-func (h *javaRouteHarvester) validLine(line string) (string, bool) {
+func (h *JavaRouteHarvester) validLine(line string) (string, bool) {
 	if strings.Contains(line, jvmSystemSymbol) {
 		return "", false
 	}
@@ -110,7 +110,7 @@ func (h *javaRouteHarvester) validLine(line string) (string, bool) {
 	return line, line != ""
 }
 
-func (h *javaRouteHarvester) addRouteIfValid(line string, routes []string) []string {
+func (h *JavaRouteHarvester) addRouteIfValid(line string, routes []string) []string {
 	// output format is something like `17 1: /greeting123/{id}`
 	if pos := strings.Index(line, jvmAnnotationDelimiter); pos > 0 {
 		routes = h.parseAndAdd(routes, line, pos, len(jvmAnnotationDelimiter))
@@ -121,7 +121,7 @@ func (h *javaRouteHarvester) addRouteIfValid(line string, routes []string) []str
 
 var jvmAttachFunc func(pid int, argv []string, logger *slog.Logger) (io.ReadCloser, error) = jvm.Jattach
 
-func (h *javaRouteHarvester) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
+func (h *JavaRouteHarvester) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
 	routes := []string{}
 	out, err := jvmAttachFunc(int(pid), []string{"jcmd", "VM.symboltable -verbose"}, h.log)
 	if err != nil {
