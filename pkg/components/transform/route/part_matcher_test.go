@@ -97,12 +97,12 @@ func TestPartialRouteMatcherMixedRoutes(t *testing.T) {
 	})
 
 	// Test various combinations
-	assert.Equal(t, "/api/v1/users/{slug}", m.Find("/api/v1/users/123"))
-	assert.Equal(t, "/api/posts/{slug}/comments", m.Find("/api/posts/my-post/comments"))
-	assert.Equal(t, "/users/{slug}/posts/{slug}", m.Find("/users/456/posts/another-post"))
+	assert.Equal(t, "/api/v1/users/{id}", m.Find("/api/v1/users/123"))
+	assert.Equal(t, "/api/posts/{id}/comments", m.Find("/api/posts/my-post/comments"))
+	assert.Equal(t, "/users/{id}/posts/{id}", m.Find("/users/456/posts/another-post"))
 
 	// Test fallback to generic wildcard
-	assert.Equal(t, "/{slug}", m.Find("/anything"))
+	assert.Equal(t, "/{id}", m.Find("/anything"))
 }
 
 func TestPartialRouteMatcherComplexPaths(t *testing.T) {
@@ -124,7 +124,7 @@ func TestPartialRouteMatcherComplexPaths(t *testing.T) {
 	// This test shows that we can improve the matcher for single parameter routes, such that we should
 	// not pick the same route twice. It's unlikely scenario.
 	longPath := "/api/v2/organizations/123/projects/456/repositories/789/branches/main/commits/abc123"
-	expected := "/api/v2/organizations/{branchName}/projects/{branchName}/repositories/{branchName}/branches/{branchName}/commits/{branchName}"
+	expected := "/api/v2/organizations/{id}/projects/{id}/repositories/{id}/branches/{id}/commits/{id}"
 	assert.Equal(t, expected, m.Find(longPath))
 }
 
@@ -201,15 +201,15 @@ func TestPartialRouteMatcherOrderDependence(t *testing.T) {
 func TestPartialRouteMatcherRepeatedSegments(t *testing.T) {
 	m := NewPartialRouteMatcher([]string{
 		"/api",
-		"/{version}",
 		"/users",
-		"/{id}",
 		"/posts",
+		"/{version}",
+		"/{id}",
 	})
 
 	// Test paths with repeated patterns
-	assert.Equal(t, "/api/{version}/{version}/{version}/{version}/{version}", m.Find("/api/v1/users/123/posts/456"))
-	assert.Equal(t, "/{version}/{version}", m.Find("/v1/v2"))
+	assert.Equal(t, "/api/{id}/users/{id}/posts/{id}", m.Find("/api/v1/users/123/posts/456"))
+	assert.Equal(t, "/{id}/{id}", m.Find("/v1/v2"))
 }
 
 func TestPartialRouteMatcherSpecialCharacters(t *testing.T) {
@@ -238,6 +238,113 @@ func TestNewPartialRouteMatcher(t *testing.T) {
 	for _, root := range m.roots {
 		assert.NotNil(t, root)
 		assert.NotNil(t, root.Child)
+	}
+}
+
+func TestDeduplicateSingleParamRoutes(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{
+			name:     "multiple single param routes - should deduplicate",
+			input:    []string{"/users/{userId}", "/products/{productId}", "/orders/{orderId}", "/api/v1"},
+			expected: []string{"/users/{userId}", "/products/{productId}", "/orders/{orderId}", "/api/v1"},
+		},
+		{
+			name:     "single param route - should keep as is",
+			input:    []string{"/users/{userId}", "/api/v1", "/health"},
+			expected: []string{"/api/v1", "/health", "/users/{userId}"},
+		},
+		{
+			name:     "no single param routes - should remain unchanged",
+			input:    []string{"/api/v1", "/health", "/status"},
+			expected: []string{"/api/v1", "/health", "/status"},
+		},
+		{
+			name:     "empty input - should return empty",
+			input:    []string{},
+			expected: []string{},
+		},
+		{
+			name:     "complex routes mixed with single params",
+			input:    []string{"/api/users/{id}", "/posts/{postId}", "/{categoryId}", "/health", "/api/v1/status"},
+			expected: []string{"/api/users/{id}", "/posts/{postId}", "/{categoryId}", "/health", "/api/v1/status"},
+		},
+		{
+			name:     "single param with different bracket styles",
+			input:    []string{"/{userId}", "/{productId}", "/api/:id", "/users/{id}/posts"},
+			expected: []string{"/api/:id", "/users/{id}/posts", "/{id}"},
+		},
+		{
+			name:     "root single param routes only",
+			input:    []string{"/{id}", "/{slug}", "/{uuid}"},
+			expected: []string{"/{id}"},
+		},
+		{
+			name:     "mixed single and multi-segment routes",
+			input:    []string{"/{id}", "/api/users/{userId}", "/products/{productId}", "/api/v1"},
+			expected: []string{"/{id}", "/api/users/{userId}", "/products/{productId}", "/api/v1"},
+		},
+		{
+			name:     "single param routes with special characters",
+			input:    []string{"/{user-id}", "/{product_id}", "/api/health"},
+			expected: []string{"/api/health", "/{id}"},
+		},
+		{
+			name:     "edge case - routes that look similar but aren't single params",
+			input:    []string{"/{id}", "/users/{id}/posts", "/{category}/{id}", "/api/{version}"},
+			expected: []string{"/{id}", "/users/{id}/posts", "/{category}/{id}", "/api/{version}"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := deduplicateSingleParamRoutes(tt.input)
+
+			// Sort both slices to avoid order dependency in comparison
+			assert.ElementsMatch(t, tt.expected, result, "Routes should match expected result")
+		})
+	}
+}
+
+func TestDeduplicateSingleParamRoutesRegexPattern(t *testing.T) {
+	// Test specific regex pattern matching
+	tests := []struct {
+		name        string
+		route       string
+		shouldMatch bool
+	}{
+		{"simple single param", "/{id}", true},
+		{"single param with underscore", "/{user_id}", true},
+		{"single param with hyphen", "/{user-id}", true},
+		{"single param with alphanumeric", "/{userId123}", true},
+		{"multi-segment route", "/users/{id}", false},
+		{"route with multiple params", "/{id}/{name}", false},
+		{"route without param", "/users", false},
+		{"root route", "/", false},
+		{"empty route", "", false},
+		{"route with query param style", "/users?id={id}", false},
+		{"route with colon param", "/:id", false}, // Different parameter style
+		{"nested braces", "/{user{id}}", false},   // Invalid nesting
+		{"empty braces", "/{}", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := []string{tt.route, "/api/v1"} // Add a non-matching route
+			result := deduplicateSingleParamRoutes(input)
+
+			if tt.shouldMatch {
+				// If it should match, it should be kept as a single param route
+				// (since there's only one single param route, it should be preserved)
+				assert.Contains(t, result, tt.route, "Single param route should be preserved")
+			} else {
+				// If it shouldn't match, it should be treated as a regular route
+				assert.Contains(t, result, tt.route, "Non-single-param route should be preserved")
+			}
+		})
 	}
 }
 

@@ -3,7 +3,10 @@
 
 package route
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // Matcher allows matching a given URL path towards a set of framework-like provided
 // patterns.
@@ -16,6 +19,10 @@ type PartialRouteMatcher struct {
 // the provided set of routes
 func NewPartialRouteMatcher(routes []string) *PartialRouteMatcher {
 	m := PartialRouteMatcher{roots: []*node{}}
+
+	// Deduplicate single parameter routes of type /{something}
+	routes = deduplicateSingleParamRoutes(routes)
+
 	for _, route := range routes {
 		if route == "/" {
 			m.hasAbsoluteRoot = true
@@ -94,4 +101,32 @@ func (rm *PartialRouteMatcher) findPartialRecursive(tokens []string, node *node,
 
 	// No match found
 	return "", 0
+}
+
+// deduplicateSingleParamRoutes processes routes to find patterns of type /{something}
+// (routes with single parameter prefixed with /) and if there are multiple such patterns,
+// removes them all and replaces with /{id}
+func deduplicateSingleParamRoutes(routes []string) []string {
+	singleParamPattern := regexp.MustCompile(`^/\{[^/}]+\}$`)
+	var singleParamRoutes []string
+	var otherRoutes []string
+
+	// Separate single parameter routes from others
+	for _, route := range routes {
+		if singleParamPattern.MatchString(route) {
+			singleParamRoutes = append(singleParamRoutes, route)
+		} else {
+			otherRoutes = append(otherRoutes, route)
+		}
+	}
+
+	// If we have more than one single parameter route, replace them all with /{id}
+	if len(singleParamRoutes) > 1 {
+		otherRoutes = append(otherRoutes, "/{id}")
+	} else if len(singleParamRoutes) == 1 {
+		// Keep the single one as is
+		otherRoutes = append(otherRoutes, singleParamRoutes[0])
+	}
+
+	return otherRoutes
 }
