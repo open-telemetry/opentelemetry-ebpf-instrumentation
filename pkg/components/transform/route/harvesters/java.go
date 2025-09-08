@@ -1,7 +1,11 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package harvesters
 
 import (
 	"bufio"
+	"io"
 	"log/slog"
 	"net/url"
 	"regexp"
@@ -18,9 +22,10 @@ type javaRouteHarvester struct {
 
 const (
 	jvmAnnotationDelimiter = ": /"
+	jvmSystemSymbol        = " 65535: "
 )
 
-var validURLPath = regexp.MustCompile(`^[A-Za-z0-9\-_{}/]+$`)
+var validURLPath = regexp.MustCompile(`^[A-Za-z0-9\-_{}\./]+$`)
 
 func NewJavaRouteHarvester() *javaRouteHarvester {
 	return &javaRouteHarvester{
@@ -63,12 +68,12 @@ func sanitizeParams(s string) string {
 		inside := match[1 : len(match)-1]
 		var b strings.Builder
 		for _, r := range inside {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			// simple pattern that ensures we only match until it's a valid Java variable name
+			if (r == '_' && b.Len() == 0) ||
+				(unicode.IsLetter(r) && b.Len() == 0) ||
+				(b.Len() > 0 && (unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')) {
 				b.WriteRune(r)
 			} else {
-				if b.Len() == 0 {
-					return ""
-				}
 				break
 			}
 		}
@@ -96,9 +101,29 @@ func (h *javaRouteHarvester) sortRoutes(routes []string) []string {
 	return routes
 }
 
+func (h *javaRouteHarvester) validLine(line string) (string, bool) {
+	if strings.Contains(line, jvmSystemSymbol) {
+		return "", false
+	}
+
+	line = sanitizeParams(line)
+	return line, line != ""
+}
+
+func (h *javaRouteHarvester) addRouteIfValid(line string, routes []string) []string {
+	// output format is something like `17 1: /greeting123/{id}`
+	if pos := strings.Index(line, jvmAnnotationDelimiter); pos > 0 {
+		routes = h.parseAndAdd(routes, line, pos, len(jvmAnnotationDelimiter))
+	}
+
+	return routes
+}
+
+var jvmAttachFunc func(pid int, argv []string, logger *slog.Logger) (io.ReadCloser, error) = jvm.Jattach
+
 func (h *javaRouteHarvester) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
 	routes := []string{}
-	out, err := jvm.Jattach(int(pid), []string{"jcmd", "VM.symboltable -verbose"}, h.log)
+	out, err := jvmAttachFunc(int(pid), []string{"jcmd", "VM.symboltable -verbose"}, h.log)
 	if err != nil {
 		return nil, err
 	}
@@ -106,15 +131,13 @@ func (h *javaRouteHarvester) ExtractRoutes(pid int32) (*RouteHarvesterResult, er
 	scanner := bufio.NewScanner(out)
 	for scanner.Scan() {
 		line := scanner.Text()
-		line = sanitizeParams(line)
-		if len(line) == 0 {
+		line, ok := h.validLine(line)
+
+		if !ok {
 			continue
 		}
 
-		// output format is something like `17 1: /greeting123/{id}`
-		if pos := strings.Index(line, jvmAnnotationDelimiter); pos > 0 {
-			routes = h.parseAndAdd(routes, line, pos, len(jvmAnnotationDelimiter))
-		}
+		routes = h.addRouteIfValid(line, routes)
 	}
 
 	routes = h.sortRoutes(routes)
