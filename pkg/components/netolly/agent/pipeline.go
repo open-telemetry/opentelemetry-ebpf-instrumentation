@@ -95,7 +95,6 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	// Terminal nodes export the flow record information out of the pipeline: OTEL, Prom and printer.
 	// Not all the nodes are mandatory here. Is the responsibility of each Provider function to decide
 	// whether each node is going to be instantiated or just ignored.
-	f.cfg.Attributes.Select.Normalize()
 	swi.Add(otel.NetMetricsExporterProvider(f.ctxInfo, &otel.NetMetricsConfig{
 		Metrics:         &f.cfg.Metrics,
 		SelectorCfg:     selectorCfg,

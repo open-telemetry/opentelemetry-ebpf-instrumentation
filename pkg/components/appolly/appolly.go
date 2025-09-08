@@ -64,7 +64,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen))
 
 	newEventQueue := func() *msg.Queue[exec.ProcessEvent] {
-		return msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(config.ChannelBufferLen), msg.NotBlockIfNoSubscribers())
+		return msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(config.ChannelBufferLen))
 	}
 
 	swi := &swarm.Instancer{}

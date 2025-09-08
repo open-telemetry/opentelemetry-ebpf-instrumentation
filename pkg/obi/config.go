@@ -82,6 +82,7 @@ var DefaultConfig = Config{
 		MySQLPreparedStatementsCacheSize:    1024,
 		PostgresPreparedStatementsCacheSize: 1024,
 		MongoRequestsCacheSize:              1024,
+		KafkaTopicUUIDCacheSize:             1024,
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources:  []string{"k8s"},
