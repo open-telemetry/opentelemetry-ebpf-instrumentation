@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -16,9 +17,7 @@ type javaRouteHarvester struct {
 }
 
 const (
-	jvmAnnotationDelimiter      = " 1: /"
-	jvmAnnotationPartsDelimiter = " 2: /"
-	jvmAnnotationRootDelimiter  = " 3: /"
+	jvmAnnotationDelimiter = ": /"
 )
 
 var validURLPath = regexp.MustCompile(`^[A-Za-z0-9\-_{}/]+$`)
@@ -77,16 +76,32 @@ func sanitizeParams(s string) string {
 	})
 }
 
-func (h *javaRouteHarvester) ExtractRoutes(pid int32) ([]string, error) {
+func (h *javaRouteHarvester) sortRoutes(routes []string) []string {
+	sort.Slice(routes, func(i, j int) bool {
+		hasParamsI := strings.Contains(routes[i], "{")
+		hasParamsJ := strings.Contains(routes[j], "{")
+
+		// If one has params and the other doesn't, non-param routes come first
+		if hasParamsI && !hasParamsJ {
+			return false
+		}
+		if !hasParamsI && hasParamsJ {
+			return true
+		}
+
+		// If both have same param status, sort by length (longer first)
+		return len(routes[i]) > len(routes[j])
+	})
+
+	return routes
+}
+
+func (h *javaRouteHarvester) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
 	routes := []string{}
 	out, err := jvm.Jattach(int(pid), []string{"jcmd", "VM.symboltable -verbose"}, h.log)
 	if err != nil {
 		return nil, err
 	}
-
-	roots := []string{}
-
-	parts := []string{}
 
 	scanner := bufio.NewScanner(out)
 	for scanner.Scan() {
@@ -99,50 +114,12 @@ func (h *javaRouteHarvester) ExtractRoutes(pid int32) ([]string, error) {
 		// output format is something like `17 1: /greeting123/{id}`
 		if pos := strings.Index(line, jvmAnnotationDelimiter); pos > 0 {
 			routes = h.parseAndAdd(routes, line, pos, len(jvmAnnotationDelimiter))
-		} else if pos := strings.Index(line, jvmAnnotationPartsDelimiter); pos > 0 {
-			parts = h.parseAndAdd(parts, line, pos, len(jvmAnnotationPartsDelimiter))
-		} else if pos := strings.Index(line, jvmAnnotationRootDelimiter); pos > 0 {
-			roots = h.parseAndAdd(roots, line, pos, len(jvmAnnotationRootDelimiter))
 		}
 	}
 
-	h.log.Debug("java routes", "routes", routes, "parts", parts, "roots", roots)
+	routes = h.sortRoutes(routes)
 
-	if len(parts) > 0 {
-		combined := Permutations2(parts)
-		root := ""
-		if len(roots) > 0 {
-			root = roots[0]
-		}
+	h.log.Debug("java routes", "routes", routes)
 
-		partRoutes := []string{}
-
-		for _, combination := range combined {
-			if len(combination) > 0 {
-				full := strings.Join(combination, "")
-				if root != "" {
-					full = root + full
-				}
-				partRoutes = append(partRoutes, full)
-			}
-		}
-
-		for _, topR := range routes {
-			for _, innerR := range partRoutes {
-				routes = append(routes, topR+innerR)
-			}
-		}
-
-		routes = append(routes, partRoutes...)
-	} else if len(roots) > 0 {
-		for _, root := range roots {
-			routes = append(routes, root)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		h.log.Error("error reading from scanner", "error", err)
-	}
-
-	return routes, nil
+	return &RouteHarvesterResult{Routes: routes, Kind: PartialRoutes}, nil
 }

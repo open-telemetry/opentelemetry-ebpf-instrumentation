@@ -215,9 +215,10 @@ func (ta *TraceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 	if err != nil {
 		ta.log.Info("encountered error harvesting routes", "error", err, "pid", ie.FileInfo.Pid, "cmd", ie.FileInfo.CmdExePath)
 	} else {
-		if len(routes) > 0 {
+		if routes != nil && len(routes.Routes) > 0 {
 			ta.log.Debug("found routes in executable", "pid", ie.FileInfo.Pid, "routes", routes)
-			ie.FileInfo.Service.SetRoutes(routes)
+			m := harvesters.RouteMatcherFromResult(*routes)
+			ie.FileInfo.Service.SetRoutes(m)
 		}
 	}
 

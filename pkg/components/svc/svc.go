@@ -109,7 +109,7 @@ type Attrs struct {
 
 	Sampler trace.Sampler
 
-	RouterMatcher *route.Matcher
+	RouterMatcher route.Matcher
 }
 
 func (i *Attrs) GetUID() UID {
@@ -167,9 +167,6 @@ func (i *Attrs) ExportsOTelTraces() bool {
 	return i.getFlag(exportsOTelTraces)
 }
 
-func (i *Attrs) SetRoutes(routes []string) {
-	if len(routes) > 0 {
-		matcher := route.NewMatcher(routes)
-		i.RouterMatcher = &matcher
-	}
+func (i *Attrs) SetRoutes(matcher route.Matcher) {
+	i.RouterMatcher = matcher
 }
