@@ -38,8 +38,8 @@ func TestModuleDetection(t *testing.T) {
 func TestSymbolDetection(t *testing.T) {
 	assert.Equal(t, svc.InstrumentableRust, instrumentableFromSymbolName("rust_panic"))
 	assert.Equal(t, svc.InstrumentableRust, instrumentableFromSymbolName("ZN387639_rust_panic_.NAME"))
-	assert.Equal(t, svc.InstrumentableJava, instrumentableFromSymbolName("JVM_2398743897"))
-	assert.Equal(t, svc.InstrumentableJava, instrumentableFromSymbolName("graal_testing"))
+	assert.Equal(t, svc.InstrumentableJavaNative, instrumentableFromSymbolName("JVM_2398743897"))
+	assert.Equal(t, svc.InstrumentableJavaNative, instrumentableFromSymbolName("graal_testing"))
 	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromSymbolName("graal"))
 	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromSymbolName("rust"))
 }

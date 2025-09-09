@@ -108,7 +108,12 @@ func printSpan(span *request.Span) {
 		}
 	}
 
-	fmt.Printf("%s (%s[%s]) %s %v %s %s [%s:%d]->[%s:%d] contentLen:%dB responseLen:%dB svc=[%s %s] traceparent=[%s]\n",
+	r := ""
+	if span.Route != "" {
+		r = "(" + span.Route + ")"
+	}
+
+	fmt.Printf("%s (%s[%s]) %s %v %s %s%s [%s:%d]->[%s:%d] contentLen:%dB responseLen:%dB svc=[%s %s] traceparent=[%s]\n",
 		t.Start.Format("2006-01-02 15:04:05.12345"),
 		t.End.Sub(t.RequestStart),
 		t.End.Sub(t.Start),
@@ -116,6 +121,7 @@ func printSpan(span *request.Span) {
 		span.Status,
 		span.Method,
 		span.Path,
+		r,
 		span.Peer+" as "+request.SpanPeer(span)+pn,
 		span.PeerPort,
 		span.Host+" as "+request.SpanHost(span)+hn,

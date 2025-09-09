@@ -88,3 +88,4 @@ test/integration/components/gosql/qosql
 pkg/components/otelsdk/grafana-opentelemetry-java.jar
 opentelemetry-ebpf-instrumentation.sln
 obi.sln
+test/integration/components/javakafka/target/*

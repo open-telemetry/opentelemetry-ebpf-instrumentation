@@ -7,6 +7,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
 
+	route "go.opentelemetry.io/obi/pkg/components/transform/route"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/services"
 )
@@ -16,6 +17,7 @@ type InstrumentableType int
 const (
 	InstrumentableGolang InstrumentableType = iota + 1
 	InstrumentableJava
+	InstrumentableJavaNative
 	InstrumentableDotnet
 	InstrumentablePython
 	InstrumentableRuby
@@ -29,7 +31,7 @@ func (it InstrumentableType) String() string {
 	switch it {
 	case InstrumentableGolang:
 		return semconv.TelemetrySDKLanguageGo.Value.AsString()
-	case InstrumentableJava:
+	case InstrumentableJava, InstrumentableJavaNative:
 		return semconv.TelemetrySDKLanguageJava.Value.AsString()
 	case InstrumentableDotnet:
 		return semconv.TelemetrySDKLanguageDotnet.Value.AsString()
@@ -107,6 +109,8 @@ type Attrs struct {
 	ExportModes services.ExportModes
 
 	Sampler trace.Sampler
+
+	RouterMatcher route.Matcher
 }
 
 func (i *Attrs) GetUID() UID {
@@ -162,4 +166,8 @@ func (i *Attrs) SetExportsOTelTraces() {
 
 func (i *Attrs) ExportsOTelTraces() bool {
 	return i.getFlag(exportsOTelTraces)
+}
+
+func (i *Attrs) SetRoutes(matcher route.Matcher) {
+	i.RouterMatcher = matcher
 }

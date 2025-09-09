@@ -123,6 +123,9 @@ func (rn *routerNode) provideRoutes(_ context.Context) (swarm.RunFunc, error) {
 					if routesEnabled {
 						s.Route = matcher.Find(s.Path)
 					}
+					if s.Route == "" && s.Service.RouterMatcher != nil {
+						s.Route = s.Service.RouterMatcher.Find(s.Path)
+					}
 					unmatchAction(rn, s)
 				}
 				out.Send(spans)
