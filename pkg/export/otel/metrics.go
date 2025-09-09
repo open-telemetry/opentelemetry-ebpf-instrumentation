@@ -130,8 +130,6 @@ type Metrics struct {
 	spanMetricsCallsTotal        *Expirer[*request.Span, instrument.Int64Counter, int64]
 	spanMetricsRequestSizeTotal  *Expirer[*request.Span, instrument.Float64Counter, float64]
 	spanMetricsResponseSizeTotal *Expirer[*request.Span, instrument.Float64Counter, float64]
-	targetInfo                   instrument.Int64UpDownCounter
-	tracesTargetInfo             instrument.Int64UpDownCounter
 	gpuKernelCallsTotal          *Expirer[*request.Span, instrument.Int64Counter, int64]
 	gpuMemoryAllocsTotal         *Expirer[*request.Span, instrument.Int64Counter, int64]
 	gpuKernelGridSize            *Expirer[*request.Span, instrument.Float64Histogram, float64]
@@ -749,14 +747,6 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 	return attribute.NewSet(filteredAttrs...)
 }
 
-func (mr *MetricsReporter) metricHostAttributes() attribute.Set {
-	attrs := []attribute.KeyValue{
-		GrafanaHostIDKey.String(mr.hostID),
-	}
-
-	return attribute.NewSet(attrs...)
-}
-
 // spanMetricAttributes follow a given specification, so their attribute getters are predefined and can't be
 // selected by the user
 func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Span, attribute.KeyValue] {
@@ -960,7 +950,13 @@ func (mr *MetricsReporter) reportMetrics(ctx context.Context) {
 }
 
 func (mr *MetricsReporter) resourceAttrsForService(service *svc.Attrs) []attribute.KeyValue {
-	return append(otelcfg.GetAppResourceAttrs(mr.hostID, service), otelcfg.ResourceAttrsFromEnv(service)...)
+	attrs := []attribute.KeyValue{
+		attribute.String(string(attr.Instance), service.UID.Instance),
+		attribute.String(string(attr.Job), service.Job()),
+	}
+
+	attrs = append(attrs, otelcfg.GetAppResourceAttrs(mr.hostID, service)...)
+	return append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
 }
 
 func (mr *MetricsReporter) ensureTargetMetrics(service *svc.Attrs) *TargetMetrics {
