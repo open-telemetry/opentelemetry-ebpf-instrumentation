@@ -52,4 +52,4 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: ./testoutput/itest-covdata.txt
-          flags: k8s-integration-test
+          flags: k8s-integration-test-${{ github.run_number }}-${{ matrix.id }}
