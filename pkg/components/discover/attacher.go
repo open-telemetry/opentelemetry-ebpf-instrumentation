@@ -145,6 +145,9 @@ func (ta *TraceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 			"child", ie.ChildPids,
 			"cmd", ie.FileInfo.CmdExePath)
 		ie.FileInfo.Service.SDKLanguage = ie.Type
+		// Must be called after we've set the SDKLanguage
+		ta.harvestRoutes(ie, false)
+
 		// allowing the tracer to forward traces from the new PID and its children processes
 		ta.monitorPIDs(tracer, ie)
 		ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName())
@@ -211,14 +214,7 @@ func (ta *TraceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 
 	ie.FileInfo.Service.SDKLanguage = ie.Type
 	// Must be called after we've set the SDKLanguage
-	routes, err := ta.routeHarvester.HarvestRoutes(ie.FileInfo)
-	if err != nil {
-		ta.log.Info("encountered error harvesting routes", "error", err, "pid", ie.FileInfo.Pid, "cmd", ie.FileInfo.CmdExePath)
-	} else if routes != nil && len(routes.Routes) > 0 {
-		ta.log.Debug("found routes in executable", "pid", ie.FileInfo.Pid, "routes", routes)
-		m := harvesters.RouteMatcherFromResult(*routes)
-		ie.FileInfo.Service.SetRoutes(m)
-	}
+	ta.harvestRoutes(ie, false)
 
 	// Instead of the executable file in the disk, we pass the /proc/<pid>/exec
 	// to allow loading it from different container/pods in containerized environments
@@ -274,6 +270,17 @@ func (ta *TraceAttacher) withCommonTracersGroup(tracers []ebpf.Tracer) []ebpf.Tr
 	tracers = append(tracers, newCommonTracersGroup(ta.Cfg)...)
 
 	return tracers
+}
+
+func (ta *TraceAttacher) harvestRoutes(ie *ebpf.Instrumentable, reused bool) {
+	routes, err := ta.routeHarvester.HarvestRoutes(ie.FileInfo)
+	if err != nil {
+		ta.log.Info("encountered error harvesting routes", "error", err, "pid", ie.FileInfo.Pid, "cmd", ie.FileInfo.CmdExePath)
+	} else if routes != nil && len(routes.Routes) > 0 {
+		ta.log.Debug("found routes in executable", "pid", ie.FileInfo.Pid, "routes", routes, "reused", reused)
+		m := harvesters.RouteMatcherFromResult(*routes)
+		ie.FileInfo.Service.SetRoutes(m)
+	}
 }
 
 func (ta *TraceAttacher) loadExecutable(ie *ebpf.Instrumentable) (*link.Executable, bool) {
