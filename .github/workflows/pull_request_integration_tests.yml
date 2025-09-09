@@ -112,4 +112,4 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: ./testoutput/itest-covdata.txt
-          flags: integration-test
+          flags: integration-test-${{ github.run_number }}-${{ matrix.id }}
