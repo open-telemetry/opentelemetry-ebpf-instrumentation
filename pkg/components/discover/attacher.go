@@ -66,7 +66,7 @@ type TraceAttacher struct {
 	EbpfEventContext *ebpfcommon.EBPFEventContext
 
 	// Extracts HTTP routes from executables
-	routeHarvester harvest.RouteHarvester
+	routeHarvester *harvest.RouteHarvester
 }
 
 func TraceAttacherProvider(ta *TraceAttacher) swarm.InstanceFunc {
@@ -81,7 +81,7 @@ func (ta *TraceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	ta.processInstances = maps.MultiCounter[uint64]{}
 	ta.beylaPID = os.Getpid()
 	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.CommonPIDsFilter(&ta.Cfg.Discovery, ta.Metrics)
-	ta.routeHarvester = *harvest.NewRouteHarvester()
+	ta.routeHarvester = harvest.NewRouteHarvester()
 
 	if err := ta.init(); err != nil {
 		ta.log.Error("cant start process tracer. Stopping it", "error", err)
