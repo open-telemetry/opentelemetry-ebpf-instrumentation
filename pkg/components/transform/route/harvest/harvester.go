@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package harvesters
+package harvest
 
 import (
 	"log/slog"
@@ -13,7 +13,7 @@ import (
 
 type RouteHarvester struct {
 	log  *slog.Logger
-	java *JavaRouteHarvester
+	java *JavaRoutes
 }
 
 type RouteHarvesterResultKind uint8
@@ -31,7 +31,7 @@ type RouteHarvesterResult struct {
 func NewRouteHarvester() *RouteHarvester {
 	return &RouteHarvester{
 		log:  slog.With("component", "route.harvester"),
-		java: NewJavaRouteHarvester(),
+		java: NewJavaRoutesHarvester(),
 	}
 }
 

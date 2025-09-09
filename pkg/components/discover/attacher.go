@@ -18,7 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/nodejs"
 	"go.opentelemetry.io/obi/pkg/components/otelsdk"
 	"go.opentelemetry.io/obi/pkg/components/svc"
-	"go.opentelemetry.io/obi/pkg/components/transform/route/harvesters"
+	"go.opentelemetry.io/obi/pkg/components/transform/route/harvest"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -66,7 +66,7 @@ type TraceAttacher struct {
 	EbpfEventContext *ebpfcommon.EBPFEventContext
 
 	// Extracts HTTP routes from executables
-	routeHarvester harvesters.RouteHarvester
+	routeHarvester harvest.RouteHarvester
 }
 
 func TraceAttacherProvider(ta *TraceAttacher) swarm.InstanceFunc {
@@ -81,7 +81,7 @@ func (ta *TraceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	ta.processInstances = maps.MultiCounter[uint64]{}
 	ta.beylaPID = os.Getpid()
 	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.CommonPIDsFilter(&ta.Cfg.Discovery, ta.Metrics)
-	ta.routeHarvester = *harvesters.NewRouteHarvester()
+	ta.routeHarvester = *harvest.NewRouteHarvester()
 
 	if err := ta.init(); err != nil {
 		ta.log.Error("cant start process tracer. Stopping it", "error", err)
@@ -278,7 +278,7 @@ func (ta *TraceAttacher) harvestRoutes(ie *ebpf.Instrumentable, reused bool) {
 		ta.log.Info("encountered error harvesting routes", "error", err, "pid", ie.FileInfo.Pid, "cmd", ie.FileInfo.CmdExePath)
 	} else if routes != nil && len(routes.Routes) > 0 {
 		ta.log.Debug("found routes in executable", "pid", ie.FileInfo.Pid, "routes", routes, "reused", reused)
-		m := harvesters.RouteMatcherFromResult(*routes)
+		m := harvest.RouteMatcherFromResult(*routes)
 		ie.FileInfo.Service.SetRoutes(m)
 	}
 }

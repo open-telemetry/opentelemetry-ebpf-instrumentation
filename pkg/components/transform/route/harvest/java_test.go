@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package harvesters
+package harvest
 
 import (
 	"io"
@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewJavaRouteHarvester(t *testing.T) {
-	harvester := NewJavaRouteHarvester()
+func TestNewJavaRoutesHarvester(t *testing.T) {
+	harvester := NewJavaRoutesHarvester()
 	assert.NotNil(t, harvester)
 	assert.NotNil(t, harvester.log)
 }
@@ -126,8 +126,8 @@ func TestSanitizeParams(t *testing.T) {
 	}
 }
 
-func TestJavaRouteHarvester_parseAndAdd(t *testing.T) {
-	harvester := NewJavaRouteHarvester()
+func TestJavaRoutes_parseAndAdd(t *testing.T) {
+	harvester := NewJavaRoutesHarvester()
 
 	tests := []struct {
 		name        string
@@ -195,8 +195,8 @@ func TestJavaRouteHarvester_parseAndAdd(t *testing.T) {
 	}
 }
 
-func TestJavaRouteHarvester_sortRoutes(t *testing.T) {
-	harvester := NewJavaRouteHarvester()
+func TestJavaRoutes_sortRoutes(t *testing.T) {
+	harvester := NewJavaRoutesHarvester()
 
 	tests := []struct {
 		name     string
@@ -247,8 +247,8 @@ func TestJavaRouteHarvester_sortRoutes(t *testing.T) {
 	}
 }
 
-func TestJavaRouteHarvester_validLine(t *testing.T) {
-	harvester := NewJavaRouteHarvester()
+func TestJavaRoutes_validLine(t *testing.T) {
+	harvester := NewJavaRoutesHarvester()
 
 	tests := []struct {
 		name         string
@@ -291,8 +291,8 @@ func TestJavaRouteHarvester_validLine(t *testing.T) {
 	}
 }
 
-func TestJavaRouteHarvester_addRouteIfValid(t *testing.T) {
-	harvester := NewJavaRouteHarvester()
+func TestJavaRoutes_addRouteIfValid(t *testing.T) {
+	harvester := NewJavaRoutesHarvester()
 
 	tests := []struct {
 		name     string
@@ -328,8 +328,8 @@ func TestJavaRouteHarvester_addRouteIfValid(t *testing.T) {
 	}
 }
 
-func TestJavaRouteHarvester_ExtractRoutes(t *testing.T) {
-	harvester := NewJavaRouteHarvester()
+func TestJavaRoutes_ExtractRoutes(t *testing.T) {
+	harvester := NewJavaRoutesHarvester()
 
 	tests := []struct {
 		name           string
@@ -430,8 +430,8 @@ func TestJavaRouteHarvester_ExtractRoutes(t *testing.T) {
 	}
 }
 
-func TestJavaRouteHarvester_ExtractRoutes_Integration(t *testing.T) {
-	harvester := NewJavaRouteHarvester()
+func TestJavaRoutes_ExtractRoutes_Integration(t *testing.T) {
+	harvester := NewJavaRoutesHarvester()
 
 	// This test simulates the entire flow without mocking
 	symbolTableOutput := `Symbol table:
@@ -573,7 +573,7 @@ func BenchmarkSanitizeParams(b *testing.B) {
 }
 
 func BenchmarkSortRoutes(b *testing.B) {
-	harvester := NewJavaRouteHarvester()
+	harvester := NewJavaRoutesHarvester()
 	routes := []string{
 		"/api/users",
 		"/api/users/{id}",
