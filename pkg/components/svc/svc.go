@@ -17,6 +17,7 @@ type InstrumentableType int
 const (
 	InstrumentableGolang InstrumentableType = iota + 1
 	InstrumentableJava
+	InstrumentableJavaNative
 	InstrumentableDotnet
 	InstrumentablePython
 	InstrumentableRuby
@@ -30,7 +31,7 @@ func (it InstrumentableType) String() string {
 	switch it {
 	case InstrumentableGolang:
 		return semconv.TelemetrySDKLanguageGo.Value.AsString()
-	case InstrumentableJava:
+	case InstrumentableJava, InstrumentableJavaNative:
 		return semconv.TelemetrySDKLanguageJava.Value.AsString()
 	case InstrumentableDotnet:
 		return semconv.TelemetrySDKLanguageDotnet.Value.AsString()
