@@ -747,14 +747,6 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 	return attribute.NewSet(filteredAttrs...)
 }
 
-func (mr *MetricsReporter) metricHostAttributes() attribute.Set {
-	attrs := []attribute.KeyValue{
-		GrafanaHostIDKey.String(mr.hostID),
-	}
-
-	return attribute.NewSet(attrs...)
-}
-
 // spanMetricAttributes follow a given specification, so their attribute getters are predefined and can't be
 // selected by the user
 func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Span, attribute.KeyValue] {
