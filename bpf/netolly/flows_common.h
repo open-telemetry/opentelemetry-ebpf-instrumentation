@@ -83,6 +83,20 @@ struct {
     __type(value, u8);
 } conn_initiators SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 256);
+    __type(key, u32);
+    __type(value, u8);
+} protocol_whitelist SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 256);
+    __type(key, u32);
+    __type(value, u8);
+} protocol_blacklist SEC(".maps");
+
 const u8 ip4in6[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
 
 // Constant definitions, to be overridden by the invoker
@@ -90,6 +104,8 @@ volatile const u32 sampling = 0;
 
 static u64 last_submitted = 0;
 
+volatile const u8 k_protocol_wl_empty;
+volatile const u8 k_protocol_bl_empty;
 volatile const u32 k_max_rb_size;
 volatile const u64 k_rb_flush_period;
 volatile const u64 k_max_flow_duration;
@@ -502,6 +518,27 @@ static __always_inline bool same_ip(const u8 *ip1, const u8 *ip2) {
     return true;
 }
 
+static __always_inline u8 is_protocol_allowed(u8 proto) {
+    // if both lists are empty, always allow
+    if (k_protocol_wl_empty && k_protocol_bl_empty) {
+        return 1;
+    }
+
+    const u32 key = proto;
+
+    // if the whitelist is not empty, only allow a protocol that is in the
+    // whitelist
+    if (!k_protocol_wl_empty) {
+        const u8 *b = bpf_map_lookup_elem(&protocol_whitelist, &key);
+        return b && *b;
+    }
+
+    // if we get here, the whitelist is empty but the blacklist isn't, so
+    // only allow a protocol that is not in the blacklist
+    const u8 *b = bpf_map_lookup_elem(&protocol_blacklist, &key);
+    return !(b && *b);
+}
+
 static __always_inline int flow_monitor(struct __sk_buff *skb) {
     // If sampling is defined, will only parse 1 out of "sampling" flows
     if (sampling != 0 && (bpf_get_prandom_u32() % sampling) != 0) {
@@ -517,6 +554,10 @@ static __always_inline int flow_monitor(struct __sk_buff *skb) {
 
     // ignore traffic that's not egress or ingress
     if (same_ip(id.src_ip.s6_addr, id.dst_ip.s6_addr)) {
+        return TC_ACT_UNSPEC;
+    }
+
+    if (!is_protocol_allowed(id.transport_protocol)) {
         return TC_ACT_UNSPEC;
     }
 
@@ -549,7 +590,6 @@ static __always_inline int flow_monitor(struct __sk_buff *skb) {
     }
 
     // initialise flow
-
     atomic_min_u64(&aggregate_flow->start_mono_time_ns, current_time);
     aggregate_flow->iface_direction = get_flow_direction(&id, flags);
     aggregate_flow->initiator = get_connection_initiator(&id, flags);

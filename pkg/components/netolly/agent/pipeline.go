@@ -47,16 +47,12 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	// Middle nodes: transforming flow records and passing them to the next stage in the pipeline.
 	// Many of the nodes here are not mandatory. It's decision of each InstanceFunc to decide
 	// whether the node needs to be instantiated or just bypass their input/output channels.
-	protocolFilteredEbpfFlows := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(f.cfg.ChannelBufferLen))
-	swi.Add(flow.ProtocolFilterProvider(f.cfg.NetworkFlows.Protocols, f.cfg.NetworkFlows.ExcludeProtocols,
-		ebpfFlows, protocolFilteredEbpfFlows), swarm.WithID("ProtocolFilter"))
-
 	dedupedEBPFFlows := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(f.cfg.ChannelBufferLen))
 	swi.Add(flow.DeduperProvider(&flow.Deduper{
 		Type:               f.cfg.NetworkFlows.Deduper,
 		FCTTL:              f.cfg.NetworkFlows.DeduperFCTTL,
 		CacheActiveTimeout: f.cfg.NetworkFlows.CacheActiveTimeout,
-	}, protocolFilteredEbpfFlows, dedupedEBPFFlows), swarm.WithID("FlowDeduper"))
+	}, ebpfFlows, dedupedEBPFFlows), swarm.WithID("FlowDeduper"))
 
 	kubeDecoratedFlows := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(f.cfg.ChannelBufferLen))
 	swi.Add(k8s.MetadataDecoratorProvider(ctx, &f.cfg.Attributes.Kubernetes, f.ctxInfo.K8sInformer,

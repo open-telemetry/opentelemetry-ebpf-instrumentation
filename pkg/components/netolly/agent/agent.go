@@ -154,6 +154,8 @@ func newFetcher(cfg *obi.Config, alog *slog.Logger, ifaceManager *tcmanager.Inte
 			cfg.NetworkFlows.RingBufferSize,
 			cfg.NetworkFlows.RingBufferFlushPeriod,
 			cfg.NetworkFlows.MaxFlowDuration,
+			cfg.NetworkFlows.Protocols,
+			cfg.NetworkFlows.ExcludeProtocols,
 		)
 	case obi.EbpfSourceTC:
 		alog.Info("using kernel Traffic Control for collecting network events")
@@ -168,6 +170,8 @@ func newFetcher(cfg *obi.Config, alog *slog.Logger, ifaceManager *tcmanager.Inte
 			cfg.NetworkFlows.RingBufferSize,
 			cfg.NetworkFlows.RingBufferFlushPeriod,
 			cfg.NetworkFlows.MaxFlowDuration,
+			cfg.NetworkFlows.Protocols,
+			cfg.NetworkFlows.ExcludeProtocols,
 		)
 	}
 

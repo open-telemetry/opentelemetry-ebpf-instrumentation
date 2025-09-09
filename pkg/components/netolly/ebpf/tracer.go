@@ -73,7 +73,18 @@ func NewFlowFetcher(
 	tcBackend tcmanager.TCBackend,
 	rbSizeMB uint32,
 	flushPeriod, flowDuration time.Duration,
+	protocolWhitelist, protocolBlacklist []string,
 ) (*FlowFetcher, error) {
+	protoWl, err := parseProtocolList(protocolWhitelist)
+	if err != nil {
+		return nil, fmt.Errorf("invalid protocol whitelist: %w", err)
+	}
+
+	protoBl, err := parseProtocolList(protocolBlacklist)
+	if err != nil {
+		return nil, fmt.Errorf("invalid protocol blacklist: %w", err)
+	}
+
 	tlog := tlog()
 	if err := rlimit.RemoveMemlock(); err != nil {
 		tlog.Warn("can't remove mem lock. The agent could not be able to start eBPF programs",
@@ -102,6 +113,14 @@ func NewFlowFetcher(
 		return nil, errors.New("failed to set flow duration")
 	}
 
+	if err := spec.Variables["k_protocol_wl_empty"].Set(len(protocolWhitelist) == 0); err != nil {
+		return nil, errors.New("failed to protocol white list empty")
+	}
+
+	if err := spec.Variables["k_protocol_bl_empty"].Set(len(protocolBlacklist) == 0); err != nil {
+		return nil, errors.New("failed to set protocol black list empty")
+	}
+
 	// Resize aggregated flows and flow directions maps according to user-provided configuration
 	spec.Maps[aggregatedFlowsMap].MaxEntries = uint32(cacheMaxSize)
 	spec.Maps[flowDirectionsMap].MaxEntries = uint32(cacheMaxSize)
@@ -114,6 +133,14 @@ func NewFlowFetcher(
 	}
 	if err := spec.LoadAndAssign(&objects, nil); err != nil {
 		return nil, fmt.Errorf("loading and assigning BPF objects: %w", err)
+	}
+
+	if err := assignProtocolList(objects.ProtocolWhitelist, protoWl); err != nil {
+		return nil, err
+	}
+
+	if err := assignProtocolList(objects.ProtocolBlacklist, protoBl); err != nil {
+		return nil, err
 	}
 
 	// read events from igress+egress ringbuffer
