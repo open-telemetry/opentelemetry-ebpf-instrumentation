@@ -960,7 +960,13 @@ func (mr *MetricsReporter) reportMetrics(ctx context.Context) {
 }
 
 func (mr *MetricsReporter) resourceAttrsForService(service *svc.Attrs) []attribute.KeyValue {
-	return append(otelcfg.GetAppResourceAttrs(mr.hostID, service), otelcfg.ResourceAttrsFromEnv(service)...)
+	attrs := []attribute.KeyValue{
+		attribute.String(string(attr.Instance), service.UID.Instance),
+		attribute.String(string(attr.Job), service.Job()),
+	}
+
+	attrs = append(attrs, otelcfg.GetAppResourceAttrs(mr.hostID, service)...)
+	return append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
 }
 
 func (mr *MetricsReporter) ensureTargetMetrics(service *svc.Attrs) *TargetMetrics {
