@@ -276,6 +276,7 @@ func PrometheusEndpoint(
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
 	selectorCfg *attributes.SelectorConfig,
+	unresolvedHostTag string,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
@@ -283,7 +284,7 @@ func PrometheusEndpoint(
 		if !cfg.Enabled() {
 			return swarm.EmptyRunFunc()
 		}
-		reporter, err := newReporter(ctxInfo, cfg, selectorCfg, input, processEventCh)
+		reporter, err := newReporter(ctxInfo, cfg, selectorCfg, unresolvedHostTag, input, processEventCh)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating Prometheus endpoint: %w", err)
 		}
@@ -315,6 +316,7 @@ func newReporter(
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
 	selectorCfg *attributes.SelectorConfig,
+	unresolvedHostTag string,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) (*metricsReporter, error) {
@@ -330,43 +332,45 @@ func newReporter(
 
 	var attrHTTPDuration, attrHTTPClientDuration, attrHTTPRequestSize, attrHTTPResponseSize, attrHTTPClientRequestSize, attrHTTPClientResponseSize []attributes.Field[*request.Span, string]
 
+	attributeGetters := request.SpanPromGetters(unresolvedHostTag)
+
 	if is.HTTPEnabled() {
-		attrHTTPDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPServerDuration))
-		attrHTTPClientDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPClientDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPClientDuration))
-		attrHTTPRequestSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPRequestSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPServerRequestSize))
-		attrHTTPResponseSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPResponseSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPServerResponseSize))
-		attrHTTPClientRequestSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPClientRequestSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPClientRequestSize))
-		attrHTTPClientResponseSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPClientResponseSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPClientResponseSize))
 	}
 
 	var attrGRPCDuration, attrGRPCClientDuration []attributes.Field[*request.Span, string]
 
 	if is.GRPCEnabled() {
-		attrGRPCDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGRPCDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.RPCServerDuration))
-		attrGRPCClientDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGRPCClientDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.RPCClientDuration))
 	}
 
 	var attrDBClientDuration []attributes.Field[*request.Span, string]
 
 	if is.DBEnabled() {
-		attrDBClientDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrDBClientDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.DBClientDuration))
 	}
 
 	var attrMessagingProcessDuration, attrMessagingPublishDuration []attributes.Field[*request.Span, string]
 
 	if is.MQEnabled() {
-		attrMessagingPublishDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrMessagingPublishDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.MessagingPublishDuration))
-		attrMessagingProcessDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrMessagingProcessDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.MessagingProcessDuration))
 	}
 
@@ -377,15 +381,15 @@ func newReporter(
 	var attrGPUMemoryCopies []attributes.Field[*request.Span, string]
 
 	if is.GPUEnabled() {
-		attrGPUKernelLaunchCalls = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGPUKernelLaunchCalls = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.GPUKernelLaunchCalls))
-		attrGPUMemoryAllocations = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGPUMemoryAllocations = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.GPUMemoryAllocations))
-		attrGPUKernelGridSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGPUKernelGridSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.GPUKernelGridSize))
-		attrGPUKernelBlockSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGPUKernelBlockSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.GPUKernelBlockSize))
-		attrGPUMemoryCopies = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGPUMemoryCopies = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.GPUMemoryCopies))
 	}
 

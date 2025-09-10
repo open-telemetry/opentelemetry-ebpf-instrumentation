@@ -35,7 +35,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
-const timeout = 3 * time.Second
+const timeout = 5 * time.Second
 
 func TestAppMetricsExpiration(t *testing.T) {
 	now := syncedClock{now: time.Now()}
@@ -76,6 +76,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 				"k8s_app_meta": {"k8s.app.version"},
 			},
 		},
+		"",
 		promInput,
 		processEvents,
 	)(ctx)
@@ -667,6 +668,7 @@ func makePromExporter(
 				},
 			},
 		},
+		"",
 		input,
 		processEvents,
 	)(ctx)

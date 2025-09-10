@@ -96,22 +96,19 @@ func newGraphBuilder(
 		kubeDecoratorToNameResolver, nameResolverToAttrFilter),
 		swarm.WithID("NameResolution"))
 
-	filteredByAttributeSpans := newQueue()
-	swi.Add(filter.ByAttribute(config.Filters.Application, nil, selectorCfg.ExtraGroupAttributesCfg, spanPtrPromGetters,
-		nameResolverToAttrFilter, filteredByAttributeSpans),
-		swarm.WithID("AttributesFilter"))
-
 	// In vendored mode, the invoker might want to override the export queue for connecting their
 	// own exporters, otherwise we create a new queue
 	exportableSpans := ctxInfo.OverrideAppExportQueue
 	if exportableSpans == nil {
 		exportableSpans = newQueue()
 	}
-	swi.Add(transform.UnresolvedHostRenamer(
-		config.Attributes.RenameUnresolvedHosts,
-		filteredByAttributeSpans,
-		exportableSpans,
-	), swarm.WithID("UnresolvedHostRenamer"))
+	swi.Add(filter.ByAttribute(config.Filters.Application,
+		nil,
+		selectorCfg.ExtraGroupAttributesCfg,
+		spanPtrPromGetters(config),
+		nameResolverToAttrFilter,
+		exportableSpans),
+		swarm.WithID("AttributesFilter"))
 
 	swi.Add(otel.TracesReceiver(
 		ctxInfo, config.Traces, config.SpanMetricsEnabledForTraces(), selectorCfg, exportableSpans,
@@ -162,6 +159,7 @@ func setupMetricsSubPipeline(
 		ctxInfo,
 		&config.Metrics,
 		selectorCfg,
+		config.Attributes.RenameUnresolvedHosts,
 		spanNameAggregatedMetrics,
 		processEventsCh,
 	), swarm.WithID("OTELMetricsExport"))
@@ -169,6 +167,7 @@ func setupMetricsSubPipeline(
 	swi.Add(otel.ReportSvcGraphMetrics(
 		ctxInfo,
 		&config.Metrics,
+		config.Attributes.RenameUnresolvedHosts,
 		spanNameAggregatedMetrics,
 		processEventsCh,
 	), swarm.WithID("OTELSvcGraphMetricsExport"))
@@ -177,6 +176,7 @@ func setupMetricsSubPipeline(
 		ctxInfo,
 		&config.Prometheus,
 		selectorCfg,
+		config.Attributes.RenameUnresolvedHosts,
 		spanNameAggregatedMetrics,
 		processEventsCh,
 	), swarm.WithID("PrometheusEndpoint"))
@@ -209,12 +209,15 @@ func (i *Instrumenter) Start(ctx context.Context) <-chan error {
 	return i.graph.Done()
 }
 
-// spanPtrPromGetters adapts the invocation of SpanPromGetters to work with a request.Span value
+// spanPtrPromGetters adapts the invocation of spanPromGetters to work with a request.Span value
 // instead of a *request.Span pointer. This is a convenience method created to avoid having to
 // rewrite the pipeline types from []request.Span types to []*request.Span
-func spanPtrPromGetters(name attr.Name) (attributes.Getter[request.Span, string], bool) {
-	if ptrGetter, ok := request.SpanPromGetters(name); ok {
-		return func(span request.Span) string { return ptrGetter(&span) }, true
+func spanPtrPromGetters(cfg *obi.Config) attributes.NamedGetters[request.Span, string] {
+	getter := request.SpanPromGetters(cfg.Attributes.RenameUnresolvedHosts)
+	return func(name attr.Name) (attributes.Getter[request.Span, string], bool) {
+		if ptrGetter, ok := getter(name); ok {
+			return func(span request.Span) string { return ptrGetter(&span) }, true
+		}
+		return nil, false
 	}
-	return nil, false
 }
