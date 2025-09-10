@@ -412,6 +412,10 @@ func (s *Span) IsClientSpan() bool {
 	return false
 }
 
+func (s *Span) IsHTTPSpan() bool {
+	return s.Type == EventTypeHTTP || s.Type == EventTypeHTTPClient
+}
+
 const (
 	StatusCodeUnset = "STATUS_CODE_UNSET"
 	StatusCodeError = "STATUS_CODE_ERROR"
