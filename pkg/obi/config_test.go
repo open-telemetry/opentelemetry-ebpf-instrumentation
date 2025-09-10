@@ -190,6 +190,7 @@ discovery:
 				Port: 3210,
 				Path: "/internal/metrics",
 			},
+			BpfMetricScrapeIntervalSeconds: 15,
 		},
 		Attributes: Attributes{
 			InstanceID: traces.InstanceIDConfig{
