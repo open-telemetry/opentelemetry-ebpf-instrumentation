@@ -17,14 +17,14 @@ import (
 
 func TestIPsFilter(t *testing.T) {
 	tests := []struct {
-		name              string
-		inputSpans        []request.Span
-		expectedSpans     []request.Span
-		dropUnresolvedIPs bool
-		description       string
+		name          string
+		inputSpans    []request.Span
+		expectedSpans []request.Span
+		rename        string
+		description   string
 	}{
 		{
-			name: "filter disabled - all spans pass through unchanged",
+			name: "rename disabled - all spans pass through unchanged",
 			inputSpans: []request.Span{
 				{
 					HostName:  "192.168.1.1",
@@ -45,11 +45,11 @@ func TestIPsFilter(t *testing.T) {
 					Service:   svc.Attrs{UID: svc.UID{Name: "test-service"}},
 				},
 			},
-			dropUnresolvedIPs: false,
-			description:       "When filtering disabled, all IPs should pass through unchanged",
+			rename:      "",
+			description: "When renaming disabled, all IPs should pass through unchanged",
 		},
 		{
-			name: "filter enabled - IPs are filtered out",
+			name: "renaming enabled - IPs are renamed out",
 			inputSpans: []request.Span{
 				{
 					HostName:  "192.168.1.1",
@@ -62,24 +62,24 @@ func TestIPsFilter(t *testing.T) {
 			},
 			expectedSpans: []request.Span{
 				{
-					HostName:  "",
-					Host:      "",
-					PeerName:  "",
-					Peer:      "",
+					HostName:  "unknown",
+					Host:      "10.0.0.1",
+					PeerName:  "unknown",
+					Peer:      "10.0.0.2",
 					Statement: "http;",
 					Service:   svc.Attrs{UID: svc.UID{Name: "test-service"}},
 				},
 			},
-			dropUnresolvedIPs: true,
-			description:       "When filtering enabled, all IP addresses should be filtered out",
+			rename:      "unknown",
+			description: "When renaming enabled, all IP addresses should be renamed",
 		},
 		{
-			name: "mixed hostnames and IPs - only IPs filtered",
+			name: "renaming enabled - hostnames are empty",
 			inputSpans: []request.Span{
 				{
-					HostName:  "example.com",
+					HostName:  "",
 					Host:      "192.168.1.1",
-					PeerName:  "service.local",
+					PeerName:  "",
 					Peer:      "10.0.0.1",
 					Statement: "http;frontend:8080",
 					Service:   svc.Attrs{UID: svc.UID{Name: "test-service"}},
@@ -87,19 +87,19 @@ func TestIPsFilter(t *testing.T) {
 			},
 			expectedSpans: []request.Span{
 				{
-					HostName:  "example.com",
+					HostName:  "unknown",
 					Host:      "192.168.1.1", // Should remain because HostName takes precedence
-					PeerName:  "service.local",
+					PeerName:  "unknown",
 					Peer:      "10.0.0.1", // Should remain because PeerName takes precedence
 					Statement: "http;frontend:8080",
 					Service:   svc.Attrs{UID: svc.UID{Name: "test-service"}},
 				},
 			},
-			dropUnresolvedIPs: true,
-			description:       "When hostnames available, they should be preserved and IPs should not be filtered",
+			rename:      "unknown",
+			description: "When hostnames available, they should be preserved and IPs should not be filtered",
 		},
 		{
-			name: "IPv6 addresses should be filtered",
+			name: "IPv6 addresses should be renamed too",
 			inputSpans: []request.Span{
 				{
 					HostName:  "2001:db8::1",
@@ -112,16 +112,16 @@ func TestIPsFilter(t *testing.T) {
 			},
 			expectedSpans: []request.Span{
 				{
-					HostName:  "",
-					Host:      "",
-					PeerName:  "",
-					Peer:      "",
+					HostName:  "unknown",
+					Host:      "::1",
+					PeerName:  "unknown",
+					Peer:      "::2",
 					Statement: "http;",
 					Service:   svc.Attrs{UID: svc.UID{Name: "test-service"}},
 				},
 			},
-			dropUnresolvedIPs: true,
-			description:       "IPv6 addresses should be filtered out when DropMetricsUnresolvedIPs is true",
+			rename:      "unknown",
+			description: "IPv6 HostName/PeerName addresses should be marked as RenameUnresolvedHosts value",
 		},
 	}
 
@@ -132,7 +132,7 @@ func TestIPsFilter(t *testing.T) {
 			output := msg.NewQueue[[]request.Span]()
 
 			// Create the IP filter instance
-			instanceFunc := IPsFilter(tt.dropUnresolvedIPs, input, output)
+			instanceFunc := UnresolvedHostRenamer(tt.rename, input, output)
 			runFunc, err := instanceFunc(context.Background())
 			require.NoError(t, err)
 
@@ -215,8 +215,8 @@ func TestFilterHTTPClientHostFromStatement(t *testing.T) {
 		},
 		{
 			name:              "empty statement should remain empty",
-			statement:         "",
-			expectedStatement: "",
+			statement:         "unknown",
+			expectedStatement: "unknown",
 			description:       "Empty statement should remain empty",
 		},
 		{

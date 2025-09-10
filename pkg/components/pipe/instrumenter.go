@@ -5,7 +5,6 @@ package pipe
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
@@ -97,15 +96,22 @@ func newGraphBuilder(
 		kubeDecoratorToNameResolver, nameResolverToAttrFilter),
 		swarm.WithID("NameResolution"))
 
+	filteredByAttributeSpans := newQueue()
+	swi.Add(filter.ByAttribute(config.Filters.Application, nil, selectorCfg.ExtraGroupAttributesCfg, spanPtrPromGetters,
+		nameResolverToAttrFilter, filteredByAttributeSpans),
+		swarm.WithID("AttributesFilter"))
+
 	// In vendored mode, the invoker might want to override the export queue for connecting their
 	// own exporters, otherwise we create a new queue
 	exportableSpans := ctxInfo.OverrideAppExportQueue
 	if exportableSpans == nil {
 		exportableSpans = newQueue()
 	}
-	swi.Add(filter.ByAttribute(config.Filters.Application, nil, selectorCfg.ExtraGroupAttributesCfg, spanPtrPromGetters,
-		nameResolverToAttrFilter, exportableSpans),
-		swarm.WithID("AttributesFilter"))
+	swi.Add(transform.UnresolvedHostRenamer(
+		config.Attributes.RenameUnresolvedHosts,
+		filteredByAttributeSpans,
+		exportableSpans,
+	), swarm.WithID("UnresolvedHostRenamer"))
 
 	swi.Add(otel.TracesReceiver(
 		ctxInfo, config.Traces, config.SpanMetricsEnabledForTraces(), selectorCfg, exportableSpans,
@@ -145,29 +151,12 @@ func setupMetricsSubPipeline(
 		return msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen))
 	}
 
-	// since this sub pipeline might modify the traces that are going to be exported as metrics,
-	// but we don't want to modify their values when exported as traces in the other
-	// sup-pipeline, we create a node that just copies the spans array
-	// This queue also prevents that exportableSpans queue is both read from the
-	// trace exporters and Bypassed by IPSFilter or SpanNameLimiter nodes, which
-	// might lead to get it blocked.
-	copiedSpans := newQueue()
-	inputCh := exportableSpans.Subscribe()
-	swi.Add(swarm.DirectInstance(cloneSpans(inputCh, copiedSpans)))
-
-	ipDroppedMetrics := newQueue()
-	swi.Add(transform.IPsFilter(
-		config.Attributes.DropMetricsUnresolvedIPs,
-		copiedSpans,
-		ipDroppedMetrics,
-	), swarm.WithID("IPsFilter"))
-
 	spanNameAggregatedMetrics := newQueue()
 	swi.Add(transform.SpanNameLimiter(transform.SpanNameLimiterConfig{
 		Limit: config.Attributes.MetricSpanNameAggregationLimit,
 		OTEL:  &config.Metrics,
 		Prom:  &config.Prometheus,
-	}, ipDroppedMetrics, spanNameAggregatedMetrics))
+	}, exportableSpans, spanNameAggregatedMetrics))
 
 	swi.Add(otel.ReportMetrics(
 		ctxInfo,
@@ -191,25 +180,6 @@ func setupMetricsSubPipeline(
 		spanNameAggregatedMetrics,
 		processEventsCh,
 	), swarm.WithID("PrometheusEndpoint"))
-}
-
-func cloneSpans(inputCh <-chan []request.Span, output *msg.Queue[[]request.Span]) func(ctx context.Context) {
-	return func(ctx context.Context) {
-		defer output.Close()
-		log := slog.With("component", "SpanCloner")
-		log.Info("starting span cloner")
-		for {
-			select {
-			case <-ctx.Done():
-				log.Info("context done. terminating span cloner")
-				return
-			case spans := <-inputCh:
-				spansCopy := make([]request.Span, len(spans))
-				cpy := copy(spansCopy, spans)
-				output.Send(spansCopy[:cpy])
-			}
-		}
-	}
 }
 
 func (gb *graphFunctions) buildGraph(ctx context.Context) (*Instrumenter, error) {

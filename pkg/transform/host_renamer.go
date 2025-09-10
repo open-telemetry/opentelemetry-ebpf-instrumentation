@@ -14,13 +14,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
-func ipslog() *slog.Logger {
-	return slog.With("component", "transform.IPsFilter")
+func uhlog() *slog.Logger {
+	return slog.With("component", "transform.UnresolvedHostRenamer")
 }
 
-func IPsFilter(dropUnresolvedIPs bool, input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
+func UnresolvedHostRenamer(unresolved string, input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {
-		if !dropUnresolvedIPs {
+		if unresolved == "" {
 			return swarm.Bypass(input, output)
 		}
 		in := input.Subscribe()
@@ -29,15 +29,15 @@ func IPsFilter(dropUnresolvedIPs bool, input, output *msg.Queue[[]request.Span])
 			for {
 				select {
 				case <-ctx.Done():
-					ipslog().Debug("context done. Stopping")
+					uhlog().Debug("context done. Stopping")
 					return
 				case spans, ok := <-in:
 					if !ok {
-						ipslog().Debug("input channel closed, stopping")
+						uhlog().Debug("input channel closed, stopping")
 						return
 					}
 					for i := range spans {
-						filterIPsFromSpan(&spans[i])
+						renameIPsFromSpan(&spans[i], unresolved)
 					}
 					output.Send(spans)
 				}
@@ -46,26 +46,22 @@ func IPsFilter(dropUnresolvedIPs bool, input, output *msg.Queue[[]request.Span])
 	}
 }
 
-// filterIPsFromSpan removes IP addresses from span fields when they are unresolved
-func filterIPsFromSpan(span *request.Span) {
-	// Filter HostName if it's an IP address
-	if span.HostName != "" && net.ParseIP(span.HostName) != nil {
-		span.HostName = ""
+// renameIPsFromSpan removes IP addresses from span fields when they are unresolved
+func renameIPsFromSpan(span *request.Span, unknownTag string) {
+	// Mark HostName as unknown if it is empty or an IP address
+	if span.HostName == "" {
+		span.HostName = span.Host
+	}
+	if net.ParseIP(span.HostName) != nil {
+		span.HostName = unknownTag
 	}
 
-	// Filter Host if it's an IP address and HostName is empty
-	if span.HostName == "" && span.Host != "" && net.ParseIP(span.Host) != nil {
-		span.Host = ""
+	// Mark PeerName as unknown if it is empty or an IP address
+	if span.PeerName == "" {
+		span.PeerName = span.Peer
 	}
-
-	// Filter PeerName if it's an IP address
-	if span.PeerName != "" && net.ParseIP(span.PeerName) != nil {
-		span.PeerName = ""
-	}
-
-	// Filter Peer if it's an IP address and PeerName is empty
-	if span.PeerName == "" && span.Peer != "" && net.ParseIP(span.Peer) != nil {
-		span.Peer = ""
+	if net.ParseIP(span.PeerName) != nil {
+		span.PeerName = unknownTag
 	}
 
 	// Filter HTTP client host from Statement if it contains IP
