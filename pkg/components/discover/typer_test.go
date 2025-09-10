@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package discover
 
 import (
@@ -5,12 +8,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"go.opentelemetry.io/obi/pkg/services"
 )
-
-type dummyProcess struct {
-	Pid int32
-}
 
 type dummyCriterion struct {
 	name      string
