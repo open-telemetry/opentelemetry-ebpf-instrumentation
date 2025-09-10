@@ -317,28 +317,23 @@ itest-coverage-data:
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt
 
 .PHONY: oats-prereq
-oats-prereq: docker-generate
-	mkdir -p $(TEST_OUTPUT)/run
+oats-prereq: prereqs docker-generate
 
 .PHONY: oats-test-sql
 oats-test-sql: oats-prereq
-	mkdir -p test/oats/sql/$(TEST_OUTPUT)/run
-	cd test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./test/oats/sql/yaml $(GINKGO) -v -r
 
 .PHONY: oats-test-redis
 oats-test-redis: oats-prereq
-	mkdir -p test/oats/redis/$(TEST_OUTPUT)/run
-	cd test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./test/oats/redis/yaml $(GINKGO) -v -r
 
 .PHONY: oats-test-kafka
 oats-test-kafka: oats-prereq
-	mkdir -p test/oats/kafka/$(TEST_OUTPUT)/run
-	cd test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./test/oats/kafka/yaml $(GINKGO) -v -r
 
 .PHONY: oats-test-http
 oats-test-http: oats-prereq
-	mkdir -p test/oats/http/$(TEST_OUTPUT)/run
-	cd test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./test/oats/http/yaml $(GINKGO) -v -r
 
 .PHONY: oats-test
 oats-test: oats-test-sql oats-test-redis oats-test-kafka oats-test-http
