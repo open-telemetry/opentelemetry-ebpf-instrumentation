@@ -66,40 +66,14 @@ __check_defined = \
 
 ### Development Tools #######################################################
 
-# Tools module where tool versions are defined.
-TOOLS_MOD_DIR := ./internal/tools
-
-# Tools directory for built tool binaries.
-TOOLS = $(CURDIR)/.tools
-
-$(TOOLS):
-	@mkdir -p $@
-$(TOOLS)/%: $(TOOLS_MOD_DIR)/go.mod | $(TOOLS)
-	cd $(TOOLS_MOD_DIR) && \
-	go build -o $@ $(PACKAGE)
-
-BPF2GO ?= $(TOOLS)/bpf2go
-$(TOOLS)/bpf2go: PACKAGE=github.com/cilium/ebpf/cmd/bpf2go
-
-GOLANGCI_LINT = $(TOOLS)/golangci-lint
-$(TOOLS)/golangci-lint: PACKAGE=github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-
-GO_OFFSETS_TRACKER ?= $(TOOLS)/go-offsets-tracker
-$(TOOLS)/go-offsets-tracker: PACKAGE=github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker
-
-GINKGO ?= $(TOOLS)/ginkgo
-$(TOOLS)/ginkgo: PACKAGE=github.com/onsi/ginkgo/v2/ginkgo
-
+BPF2GO ?= go tool bpf2go
+GOLANGCI_LINT = go tool golangci-lint
+GO_OFFSETS_TRACKER ?= go tool go-offsets-tracker
+GINKGO ?= go tool ginkgo
+KIND ?= go tool kind
 # Required for k8s-cache unit tests
 ENVTEST_K8S_VERSION ?= 1.30.0
-ENVTEST ?= $(TOOLS)/setup-envtest
-$(TOOLS)/setup-envtest: PACKAGE=sigs.k8s.io/controller-runtime/tools/setup-envtest
-
-KIND ?= $(TOOLS)/kind
-$(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
-
-.PHONY: tools
-tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND)
+ENVTEST ?= go tool setup-envtest
 
 ### Development Tools (end) #################################################
 
@@ -123,7 +97,7 @@ prereqs: install-hooks
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: fmt
-fmt: $(GOLANGCI_LINT)
+fmt:
 	@echo "### Formatting code and fixing imports"
 	$(GOLANGCI_LINT) fmt
 
@@ -132,7 +106,7 @@ clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" | xargs clang-tidy
 
 .PHONY: lint
-lint: $(GOLANGCI_LINT)
+lint:
 	@echo "### Linting code"
 	$(GOLANGCI_LINT) run ./... --timeout=6m
 
@@ -149,7 +123,7 @@ lint-markdown-fix:
 	@docker run --rm -u $(DOCKER_USER) -v "$(CURDIR):$(WORKDIR)" -w "$(WORKDIR)" $(MARKDOWNIMAGE) -c $(WORKDIR)/.markdownlint.yaml --fix $(WORKDIR)/**/*.md
 
 .PHONY: update-offsets
-update-offsets: $(GO_OFFSETS_TRACKER)
+update-offsets:
 	@echo "### Updating pkg/components/goexec/offsets.json"
 	$(GO_OFFSETS_TRACKER) -i configs/offsets/tracker_input.json pkg/components/goexec/offsets.json
 
@@ -157,7 +131,7 @@ update-offsets: $(GO_OFFSETS_TRACKER)
 generate: export BPF_CLANG := $(CLANG)
 generate: export BPF_CFLAGS := $(CFLAGS)
 generate: export BPF2GO := $(BPF2GO)
-generate: $(BPF2GO)
+generate:
 	@echo "### Generating files..."
 	@OTEL_EBPF_GENFILES_RUN_LOCALLY=1 go generate cmd/obi-genfiles/obi_genfiles.go
 
@@ -200,12 +174,12 @@ compile-cache-for-coverage:
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
 .PHONY: test
-test: $(ENVTEST)
+test:
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: test-privileged
-test-privileged: $(ENVTEST)
+test-privileged:
 	@echo "### Testing code with privileged tests enabled"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
@@ -244,7 +218,7 @@ prepare-integration-test:
 	$(MAKE) cleanup-integration-test
 
 .PHONY: cleanup-integration-test
-cleanup-integration-test: $(KIND)
+cleanup-integration-test:
 	@echo "### Removing integration test clusters"
 	$(KIND) delete cluster -n test-kind-cluster || true
 	@echo "### Removing docker containers and images"
@@ -343,7 +317,7 @@ itest-coverage-data:
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt
 
 .PHONY: oats-prereq
-oats-prereq: $(GINKGO) docker-generate
+oats-prereq: docker-generate
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: oats-test-sql

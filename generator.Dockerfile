@@ -29,6 +29,8 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 RUN unzip protoc.zip -d /usr/local
 RUN rm protoc.zip
 
+# TODO: replace tools install by the new `go tool ...`
+
 # Install protoc-gen-go and protoc-gen-go-grpc
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
