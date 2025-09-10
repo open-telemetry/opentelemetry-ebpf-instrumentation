@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/nodejs"
 	"go.opentelemetry.io/obi/pkg/components/otelsdk"
 	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/components/transform/route/harvest"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -66,6 +67,9 @@ type TraceAttacher struct {
 
 	// EbpfEventContext allows to set the common PID filter that's used to filter out events we don't need
 	EbpfEventContext *ebpfcommon.EBPFEventContext
+
+	// Extracts HTTP routes from executables
+	routeHarvester *harvest.RouteHarvester
 }
 
 func TraceAttacherProvider(ta *TraceAttacher) swarm.InstanceFunc {
@@ -80,6 +84,7 @@ func (ta *TraceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	ta.processInstances = maps.MultiCounter[uint64]{}
 	ta.beylaPID = os.Getpid()
 	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.CommonPIDsFilter(&ta.Cfg.Discovery, ta.Metrics)
+	ta.routeHarvester = harvest.NewRouteHarvester()
 
 	if err := ta.init(); err != nil {
 		ta.log.Error("cant start process tracer. Stopping it", "error", err)
@@ -130,6 +135,9 @@ func (ta *TraceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 			"child", ie.ChildPids,
 			"cmd", ie.FileInfo.CmdExePath)
 		ie.FileInfo.Service.SDKLanguage = ie.Type
+		// Must be called after we've set the SDKLanguage
+		ta.harvestRoutes(ie, false)
+
 		// allowing the tracer to forward traces from the new PID and its children processes
 		ta.monitorPIDs(tracer, ie)
 		ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName())
@@ -180,7 +188,7 @@ func (ta *TraceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 			tracerType = ebpf.Go
 			programs = ta.withCommonTracersGroup(newGoTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
 		}
-	case svc.InstrumentableNodejs, svc.InstrumentableJava, svc.InstrumentableRuby, svc.InstrumentablePython, svc.InstrumentableDotnet, svc.InstrumentableGeneric, svc.InstrumentableRust, svc.InstrumentablePHP:
+	case svc.InstrumentableNodejs, svc.InstrumentableJava, svc.InstrumentableJavaNative, svc.InstrumentableRuby, svc.InstrumentablePython, svc.InstrumentableDotnet, svc.InstrumentableGeneric, svc.InstrumentableRust, svc.InstrumentablePHP:
 		if ta.reusableTracer != nil {
 			return ta.reuseTracer(ta.reusableTracer, ie)
 		}
@@ -195,6 +203,8 @@ func (ta *TraceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 	}
 
 	ie.FileInfo.Service.SDKLanguage = ie.Type
+	// Must be called after we've set the SDKLanguage
+	ta.harvestRoutes(ie, false)
 
 	// Instead of the executable file in the disk, we pass the /proc/<pid>/exec
 	// to allow loading it from different container/pods in containerized environments
@@ -250,6 +260,17 @@ func (ta *TraceAttacher) withCommonTracersGroup(tracers []ebpf.Tracer) []ebpf.Tr
 	tracers = append(tracers, newCommonTracersGroup(ta.Cfg)...)
 
 	return tracers
+}
+
+func (ta *TraceAttacher) harvestRoutes(ie *ebpf.Instrumentable, reused bool) {
+	routes, err := ta.routeHarvester.HarvestRoutes(ie.FileInfo)
+	if err != nil {
+		ta.log.Info("encountered error harvesting routes", "error", err, "pid", ie.FileInfo.Pid, "cmd", ie.FileInfo.CmdExePath)
+	} else if routes != nil && len(routes.Routes) > 0 {
+		ta.log.Debug("found routes in executable", "pid", ie.FileInfo.Pid, "routes", routes, "reused", reused)
+		m := harvest.RouteMatcherFromResult(*routes)
+		ie.FileInfo.Service.SetRoutes(m)
+	}
 }
 
 func (ta *TraceAttacher) loadExecutable(ie *ebpf.Instrumentable) (*link.Executable, bool) {

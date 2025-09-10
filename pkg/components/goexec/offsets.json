@@ -234,7 +234,7 @@
       "fr": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.43.0"
+          "newest": "0.44.0"
         },
         "offsets": [
           {
@@ -260,13 +260,17 @@
           {
             "offset": 360,
             "since": "0.32.0"
+          },
+          {
+            "offset": 352,
+            "since": "0.44.0"
           }
         ]
       },
       "nextStreamID": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.43.0"
+          "newest": "0.44.0"
         },
         "offsets": [
           {
@@ -284,13 +288,17 @@
           {
             "offset": 192,
             "since": "0.32.0"
+          },
+          {
+            "offset": 184,
+            "since": "0.44.0"
           }
         ]
       },
       "tconn": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.43.0"
+          "newest": "0.44.0"
         },
         "offsets": [
           {
@@ -304,7 +312,7 @@
       "w": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.43.0"
+          "newest": "0.44.0"
         },
         "offsets": [
           {
@@ -318,7 +326,7 @@
       "Fields": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.43.0"
+          "newest": "0.44.0"
         },
         "offsets": [
           {
@@ -332,7 +340,7 @@
       "conn": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.43.0"
+          "newest": "0.44.0"
         },
         "offsets": [
           {
@@ -346,7 +354,7 @@
       "w": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.43.0"
+          "newest": "0.44.0"
         },
         "offsets": [
           {

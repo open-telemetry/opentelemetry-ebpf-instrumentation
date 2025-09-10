@@ -234,7 +234,7 @@ func TestMergedMetricsTracePipeline(t *testing.T) {
 	// Test that metrics flow through the pipeline to the end
 
 	cancel()
-	require.NoError(t, <-done)
+	require.NoError(t, testutil.ReadChannel(t, done, testTimeout))
 }
 
 func TestTracerPipelineBadTimestamps(t *testing.T) {

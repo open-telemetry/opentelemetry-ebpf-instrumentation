@@ -116,6 +116,13 @@ func (rn *routerNode) provideRoutes(_ context.Context) (swarm.RunFunc, error) {
 						// we can't discard it here, ignoring is selective (metrics | traces)
 						setSpanIgnoreMode(ignoreMode, s)
 					}
+					if routesEnabled {
+						s.Route = matcher.Find(s.Path)
+					}
+					if s.Route == "" && s.Service.RouterMatcher != nil {
+						s.Route = s.Service.RouterMatcher.Find(s.Path)
+					}
+					unmatchAction(rn, s)
 				}
 				if routesEnabled {
 					s.Route = matcher.Find(s.Path)
