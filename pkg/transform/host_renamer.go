@@ -25,6 +25,7 @@ func UnresolvedHostRenamer(unresolved string, input, output *msg.Queue[[]request
 		}
 		in := input.Subscribe()
 		return func(ctx context.Context) {
+			uhlog().Debug("starting node loop")
 			defer output.Close()
 			for {
 				select {
