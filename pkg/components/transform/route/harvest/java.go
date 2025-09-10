@@ -5,15 +5,12 @@ package harvest
 
 import (
 	"bufio"
-	"io"
 	"log/slog"
 	"net/url"
 	"regexp"
 	"sort"
 	"strings"
 	"unicode"
-
-	"github.com/grafana/jvmtools/jvm"
 )
 
 type JavaRoutes struct {
@@ -118,8 +115,6 @@ func (h *JavaRoutes) addRouteIfValid(line string, routes []string) []string {
 
 	return routes
 }
-
-var jvmAttachFunc func(pid int, argv []string, logger *slog.Logger) (io.ReadCloser, error) = jvm.Jattach
 
 func (h *JavaRoutes) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
 	routes := []string{}
