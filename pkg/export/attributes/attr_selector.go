@@ -102,12 +102,23 @@ func NewAttrSelector(
 	groups AttrGroups,
 	cfg *SelectorConfig,
 ) (*AttrSelector, error) {
+	return NewCustomAttrSelector(groups, cfg, getDefinitions)
+}
+
+func NewCustomAttrSelector(
+	groups AttrGroups,
+	cfg *SelectorConfig,
+	extraDefinitionsProvider func(groups AttrGroups, extraGroupAttributes GroupAttributes) map[Section]AttrReportGroup,
+) (*AttrSelector, error) {
+	cfg.SelectionCfg.Normalize()
 	extraGroupAttributes := NewGroupAttributes(cfg.ExtraGroupAttributesCfg)
 
 	definitions := getDefinitions(groups, extraGroupAttributes)
 
-	for section, group := range getDefinitions(groups, extraGroupAttributes) {
-		definitions[section] = group
+	if extraDefinitionsProvider != nil {
+		for section, group := range extraDefinitionsProvider(groups, extraGroupAttributes) {
+			definitions[section] = group
+		}
 	}
 
 	// TODO: validate
