@@ -152,7 +152,7 @@
       "bw": {
         "versions": {
           "oldest": "9.0.0",
-          "newest": "9.13.0"
+          "newest": "9.14.0"
         },
         "offsets": [
           {
@@ -382,7 +382,7 @@
       "s": {
         "versions": {
           "oldest": "1.40.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -396,7 +396,7 @@
       "Stream": {
         "versions": {
           "oldest": "1.69.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -410,7 +410,7 @@
       "Stream": {
         "versions": {
           "oldest": "1.69.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -422,7 +422,7 @@
       "st": {
         "versions": {
           "oldest": "1.69.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -436,7 +436,7 @@
       "id": {
         "versions": {
           "oldest": "1.40.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -448,7 +448,7 @@
       "method": {
         "versions": {
           "oldest": "1.40.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -468,7 +468,7 @@
       "st": {
         "versions": {
           "oldest": "1.40.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -482,7 +482,7 @@
       "buf": {
         "versions": {
           "oldest": "1.40.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -498,7 +498,7 @@
       "conn": {
         "versions": {
           "oldest": "1.40.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -514,7 +514,7 @@
       "offset": {
         "versions": {
           "oldest": "1.40.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -532,7 +532,7 @@
       "conn": {
         "versions": {
           "oldest": "1.40.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -552,7 +552,7 @@
       "scheme": {
         "versions": {
           "oldest": "1.40.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
@@ -578,7 +578,7 @@
       "conn": {
         "versions": {
           "oldest": "1.40.0",
-          "newest": "1.75.0"
+          "newest": "1.75.1"
         },
         "offsets": [
           {
