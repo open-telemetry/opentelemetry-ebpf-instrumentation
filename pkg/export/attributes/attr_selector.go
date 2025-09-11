@@ -105,6 +105,7 @@ func NewAttrSelector(
 	return NewCustomAttrSelector(groups, cfg, getDefinitions)
 }
 
+// NewCustomAttrSelector is required for extensions of OBI with other metric types
 func NewCustomAttrSelector(
 	groups AttrGroups,
 	cfg *SelectorConfig,
