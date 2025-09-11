@@ -13,7 +13,6 @@
 
 typedef struct accept_args {
     u64 addr; // linux sock or socket address
-    u64 accept_time;
     int fd;
     u32 __pad;
 } sock_args_t;
