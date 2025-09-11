@@ -169,7 +169,8 @@ var DefaultConfig = Config{
 				Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
 			},
 		},
-		MinProcessAge: 5 * time.Second,
+		MinProcessAge:       5 * time.Second,
+		DefaultOtlpGRPCPort: 4317,
 	},
 	NodeJS: NodeJSConfig{
 		Enabled: true,
