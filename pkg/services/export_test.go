@@ -98,3 +98,18 @@ func TestYAMLUnmarshal_Exports(t *testing.T) {
 		assert.True(t, tc.Exports.CanExportTraces())
 	})
 }
+
+func TestPragmaticExports(t *testing.T) {
+	modes := NewExportModes()
+
+	assert.False(t, modes.CanExportTraces())
+	assert.False(t, modes.CanExportMetrics())
+
+	modes.AllowTraces()
+
+	assert.True(t, modes.CanExportTraces())
+
+	modes.AllowMetrics()
+
+	assert.True(t, modes.CanExportMetrics())
+}
