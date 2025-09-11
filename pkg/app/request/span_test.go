@@ -322,56 +322,74 @@ func TestDetectsOTelExport(t *testing.T) {
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL != grpc doesn't export",
-			span: Span{Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/protobuf"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/protobuf"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_PROTOCOL != grpc doesn't export",
-			span: Span{Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT is not a valid endpoint doesn't export",
-			span: Span{Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "notanendpoint"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "notanendpoint"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_ENDPOINT is not a valid endpoint doesn't export",
-			span: Span{Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "notanendpoint"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "notanendpoint"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT != span.PeerPort doesn't export",
-			span: Span{Type: EventTypeGRPCClient, PeerPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:4317"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, PeerPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:4317"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_ENDPOINT != span.PeerPort doesn't export",
-			span: Span{Type: EventTypeGRPCClient, PeerPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, PeerPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT == span.PeerPort export",
-			span: Span{Type: EventTypeGRPCClient, PeerPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:9090"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, PeerPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:9090"}},
+			},
 			exports: true,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_ENDPOINT == span.PeerPort export",
-			span: Span{Type: EventTypeGRPCClient, PeerPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:9090", "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, PeerPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:9090", "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf"}},
+			},
 			exports: true,
 		},
 		{
 			name: fmt.Sprintf("no otel metrics environment sends to %x export", defaultOtlpGRPCPort),
-			span: Span{Type: EventTypeGRPCClient, PeerPort: 4317, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, PeerPort: 4317, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf"}},
+			},
 			exports: true,
 		},
 		{
@@ -436,56 +454,74 @@ func TestDetectsOTelExport(t *testing.T) {
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL != grpc doesn't export",
-			span: Span{Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_PROTOCOL != grpc doesn't export",
-			span: Span{Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is not a valid endpoint doesn't export",
-			span: Span{Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "notanendpoint"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "notanendpoint"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_ENDPOINT is not a valid endpoint doesn't export",
-			span: Span{Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "notanendpoint"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "notanendpoint"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT != span.PeerPort doesn't export",
-			span: Span{Type: EventTypeGRPCClient, PeerPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:4317"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, PeerPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:4317"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_ENDPOINT != span.PeerPort doesn't export",
-			span: Span{Type: EventTypeGRPCClient, PeerPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, PeerPort: 8080, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}},
+			},
 			exports: false,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == span.PeerPort export",
-			span: Span{Type: EventTypeGRPCClient, PeerPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://localhost:9090"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, PeerPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://localhost:9090"}},
+			},
 			exports: true,
 		},
 		{
 			name: "OTEL_EXPORTER_OTLP_ENDPOINT == span.PeerPort export",
-			span: Span{Type: EventTypeGRPCClient, PeerPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:9090", "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/protobuf"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, PeerPort: 9090, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:9090", "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/protobuf"}},
+			},
 			exports: true,
 		},
 		{
 			name: fmt.Sprintf("no otel traces environment sends to %d export", defaultOtlpGRPCPort),
-			span: Span{Type: EventTypeGRPCClient, PeerPort: 4317, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
-				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/protobuf"}}},
+			span: Span{
+				Type: EventTypeGRPCClient, PeerPort: 4317, Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Service: svc.Attrs{EnvVars: map[string]string{"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/protobuf"}},
+			},
 			exports: true,
 		},
 		{
