@@ -692,7 +692,7 @@ func (s *Span) portFromEndpointEnvVar(envVarName string) (int, bool) {
 		return 0, false
 	}
 	parsedURL, err := url.Parse(endpoint)
-	if err != nil && parsedURL == nil {
+	if err != nil || parsedURL == nil {
 		return 0, false
 	}
 	port, err := strconv.Atoi(parsedURL.Port())
