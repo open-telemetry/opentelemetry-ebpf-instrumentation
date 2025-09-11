@@ -63,9 +63,6 @@ func TestFilter(t *testing.T) {
 
 	ringBuf := make(chan []*ebpf.Record, 10)
 	// override eBPF flow fetchers
-	newMapTracer = func(_ *Flows, _ *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
-		return func(_ context.Context) {}
-	}
 	newRingBufTracer = func(_ *Flows, out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
 		return func(_ context.Context) {
 			for i := range ringBuf {
