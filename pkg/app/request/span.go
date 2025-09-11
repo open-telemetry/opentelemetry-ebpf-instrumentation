@@ -628,7 +628,7 @@ func (s *Span) isTracesExportURL() bool {
 	}
 }
 
-func (s *Span) sendsTracesOnOtelGrpcPort(defaultOtlpGRPCPort int) bool {
+func (s *Span) sendsTracesOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	otlpTracesProtocol, ok := s.Service.EnvVars[envOTLPTracesProtocol]
 	if ok && otlpTracesProtocol != otlpGrpcProtocol {
 		return false
@@ -648,7 +648,25 @@ func (s *Span) sendsTracesOnOtelGrpcPort(defaultOtlpGRPCPort int) bool {
 	return s.PeerPort == defaultOtlpGRPCPort
 }
 
-func (s *Span) sendsMetricsOnOtelGrpcPort(defaultOtlpGRPCPort int) bool {
+func (s *Span) sendsMetricsOnOtelPort(defaultOtlpGRPCPort int) bool {
+	switch s.Type {
+	case EventTypeGRPCClient:
+		return s.sendsMetricsOnGrpcOtelPort(defaultOtlpGRPCPort)
+	default:
+		return false
+	}
+}
+
+func (s *Span) sendsTracesOnOtelPort(defaultOtlpGRPCPort int) bool {
+	switch s.Type {
+	case EventTypeGRPCClient:
+		return s.sendsTracesOnGrpcOtelPort(defaultOtlpGRPCPort)
+	default:
+		return false
+	}
+}
+
+func (s *Span) sendsMetricsOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	otlpMetricsProtocol, ok := s.Service.EnvVars[envOTLPMetricsProtocol]
 	if ok && otlpMetricsProtocol != otlpGrpcProtocol {
 		return false
@@ -690,7 +708,7 @@ func (s *Span) IsExportMetricsSpan(defaultOtlpGRPCPort int) bool {
 		return false
 	}
 
-	return s.isMetricsExportURL() || s.sendsMetricsOnOtelGrpcPort(defaultOtlpGRPCPort)
+	return s.isMetricsExportURL() || s.sendsMetricsOnOtelPort(defaultOtlpGRPCPort)
 }
 
 func (s *Span) IsExportTracesSpan(defaultOtlpGRPCPort int) bool {
@@ -699,7 +717,7 @@ func (s *Span) IsExportTracesSpan(defaultOtlpGRPCPort int) bool {
 		return false
 	}
 
-	return s.isTracesExportURL() || s.sendsTracesOnOtelGrpcPort(defaultOtlpGRPCPort)
+	return s.isTracesExportURL() || s.sendsTracesOnOtelPort(defaultOtlpGRPCPort)
 }
 
 func (s *Span) IsSelfReferenceSpan() bool {
