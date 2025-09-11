@@ -90,6 +90,7 @@ func checkCapabilitiesForSetOptions(config *Config, caps *helpers.OSCapabilities
 		testAndSet(caps, capError, unix.CAP_SYS_PTRACE)
 		testAndSet(caps, capError, unix.CAP_PERFMON)
 		testAndSet(caps, capError, unix.CAP_NET_RAW)
+		testAndSet(caps, capError, unix.CAP_SYS_ADMIN)
 
 		if config.EBPF.ContextPropagation != ebpfcfg.ContextPropagationDisabled {
 			testAndSet(caps, capError, unix.CAP_NET_ADMIN)
@@ -126,11 +127,6 @@ func CheckOSCapabilities(config *Config) error {
 		}
 
 		return capError
-	}
-
-	// if sys admin is set, we have all capabilities
-	if caps.Has(unix.CAP_SYS_ADMIN) {
-		return nil
 	}
 
 	// core capabilities
