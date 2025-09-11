@@ -161,6 +161,12 @@ func TestSQLParseError(t *testing.T) {
 			},
 		},
 		{
+			name:     "Truncated buffer",
+			dbKind:   request.DBMySQL,
+			buf:      append([]uint8{0x00, 0x00, 0x00, 0x00}, []uint8{0xFF, 0x10, 0x04, '#', 'H'}...),
+			expected: nil,
+		},
+		{
 			name:   "Valid MySQL error",
 			dbKind: request.DBMySQL,
 			buf:    append([]uint8{0x00, 0x00, 0x00, 0x00}, []uint8{0xFF, 0x10, 0x04, 'S', 'o', 'm', 'e', ' ', 'e', 'r', 'r', 'o', 'r'}...),
@@ -232,6 +238,53 @@ func TestSQLParseError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := SQLParseError(tt.dbKind, tt.buf)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSQLParseStatementID(t *testing.T) {
+	tests := []struct {
+		name     string
+		dbKind   request.SQLKind
+		buf      []byte
+		expected uint32
+	}{
+		{
+			name:     "MySQL valid statement ID",
+			dbKind:   request.DBMySQL,
+			buf:      []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x1, 0x2, 0x3, 0x4},
+			expected: 0x4030201,
+		},
+		{
+			name:     "MySQL empty buffer",
+			dbKind:   request.DBMySQL,
+			buf:      []byte{},
+			expected: 0,
+		},
+		{
+			name:     "MySQL truncated packet (1 byte)",
+			dbKind:   request.DBMySQL,
+			buf:      []byte{0x01},
+			expected: 0,
+		},
+		{
+			name:     "MySQL truncated packet (5 bytes)",
+			dbKind:   request.DBMySQL,
+			buf:      []byte{0x01, 0x02, 0x03, 0x04, 0x05},
+			expected: 0,
+		},
+		{
+			name:     "MySQL truncated packet (7 bytes)",
+			dbKind:   request.DBMySQL,
+			buf:      []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07},
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := SQLParseStatementID(tt.dbKind, tt.buf)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
