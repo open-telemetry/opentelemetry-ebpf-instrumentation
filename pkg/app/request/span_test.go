@@ -613,3 +613,15 @@ func TestResponseBodyLength(t *testing.T) {
 		})
 	}
 }
+
+func TestIsHTTPSpan(t *testing.T) {
+	spanHTTP := &Span{Type: EventTypeHTTP}
+	spanHTTPClient := &Span{Type: EventTypeHTTPClient}
+	spanGRPC := &Span{Type: EventTypeGRPC}
+	spanOther := &Span{Type: EventTypeSQLClient}
+
+	assert.True(t, spanHTTP.IsHTTPSpan(), "EventTypeHTTP should be HTTP span")
+	assert.True(t, spanHTTPClient.IsHTTPSpan(), "EventTypeHTTPClient should be HTTP span")
+	assert.False(t, spanGRPC.IsHTTPSpan(), "EventTypeGRPC should not be HTTP span")
+	assert.False(t, spanOther.IsHTTPSpan(), "Other types should not be HTTP span")
+}

@@ -110,7 +110,9 @@ type Attrs struct {
 
 	Sampler trace.Sampler
 
-	RouterMatcher route.Matcher
+	CustomInRouteMatcher  route.Matcher
+	CustomOutRouteMatcher route.Matcher
+	HarvestedRouteMatcher route.Matcher
 }
 
 func (i *Attrs) GetUID() UID {
@@ -168,6 +170,11 @@ func (i *Attrs) ExportsOTelTraces() bool {
 	return i.getFlag(exportsOTelTraces)
 }
 
-func (i *Attrs) SetRoutes(matcher route.Matcher) {
-	i.RouterMatcher = matcher
+func (i *Attrs) SetHarvestedRoutes(matcher route.Matcher) {
+	i.HarvestedRouteMatcher = matcher
+}
+
+func (i *Attrs) SetCustomRoutes(config *services.CustomRoutesConfig) {
+	i.CustomInRouteMatcher = route.NewMatcher(config.Incoming)
+	i.CustomOutRouteMatcher = route.NewMatcher(config.Outgoing)
 }
