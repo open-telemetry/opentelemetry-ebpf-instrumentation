@@ -28,7 +28,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace -type sql_request_trace -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t Bpf ../../../../bpf/common/common.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace -type sql_request_trace -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type mongo_go_client_req_t Bpf ../../../../bpf/common/common.c -- -I../../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -43,6 +43,7 @@ type (
 	GoKafkaGoClientInfo  BpfKafkaGoReqT
 	TCPLargeBufferHeader BpfTcpLargeBufferT
 	GoOTelSpanTrace      BpfOtelSpanT
+	GoMongoClientInfo    BpfMongoGoClientReqT
 )
 
 const (
@@ -55,7 +56,7 @@ const (
 	EventTypeGoKafkaGo      = 11 // Kafka-Go client from Segment-io
 	EventTypeTCPLargeBuffer = 12 // Dynamically sized TCP buffers
 	EventOTelSDKGo          = 13 // OTel SDK manual span
-
+	EventTypeGoMongo        = 14 // Go MongoDB spans
 )
 
 // Kernel-side classification
@@ -231,6 +232,8 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return ReadGoSaramaRequestIntoSpan(record)
 	case EventTypeGoRedis:
 		return ReadGoRedisRequestIntoSpan(record)
+	case EventTypeGoMongo:
+		return ReadGoMongoRequestIntoSpan(record)
 	case EventTypeGoKafkaGo:
 		return ReadGoKafkaGoRequestIntoSpan(record)
 	case EventTypeTCPLargeBuffer:

@@ -23,8 +23,6 @@ func log() *slog.Logger {
 // this const table must match what's in go_offsets.h
 type GoOffset uint32
 
-const GoOffsetsTableSize = 30
-
 var (
 	grpcOneSixZero = version.Must(version.NewVersion("1.60.0"))
 	grpcOneSixNine = version.Must(version.NewVersion("1.69.0"))
@@ -100,6 +98,10 @@ const (
 	GoErrorStringOffset
 	// go jsonrpc
 	GoJsonrpcRequestHeaderServiceMethodPos
+	// go mongodb
+	MongoConnNamePos
+	MongoOpNamePos
+	MongoOpDBPos
 )
 
 //go:embed offsets.json
@@ -374,6 +376,19 @@ var structMembers = map[string]structInfo{
 		lib: "go.opentelemetry.io/otel",
 		fields: map[string]GoOffset{
 			"delegate": GoTracerDelegatePos,
+		},
+	},
+	"go.mongodb.org/mongo-driver/mongo.Collection": {
+		lib: "go.mongodb.org/mongo-driver",
+		fields: map[string]GoOffset{
+			"name": MongoConnNamePos,
+		},
+	},
+	"go.mongodb.org/mongo-driver/x/mongo/driver.Operation": {
+		lib: "go.mongodb.org/mongo-driver",
+		fields: map[string]GoOffset{
+			"Name":     MongoOpNamePos,
+			"Database": MongoOpDBPos,
 		},
 	},
 }

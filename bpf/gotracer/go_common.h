@@ -115,6 +115,13 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_sql_queries SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t);           // key: goroutine id
+    __type(value, mongo_go_client_req_t); // the request
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} ongoing_mongo_requests SEC(".maps");
+
 typedef struct grpc_header_field {
     u8 *key_ptr;
     u64 key_len;

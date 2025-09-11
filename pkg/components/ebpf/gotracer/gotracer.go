@@ -181,6 +181,10 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.GoTracerDelegatePos,
 		// go jsonrpc
 		goexec.GoJsonrpcRequestHeaderServiceMethodPos,
+		// go mongodb
+		goexec.MongoConnNamePos,
+		goexec.MongoOpNamePos,
+		goexec.MongoOpDBPos,
 	} {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
@@ -446,6 +450,42 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"go.opentelemetry.io/auto/sdk.(*span).RecordError": {{
 			Start: p.bpfObjects.ObiUprobeRecordError,
+		}},
+		// Go MongoDB
+		"go.mongodb.org/mongo-driver/x/mongo/driver.Operation.Execute": {{
+			Start: p.bpfObjects.ObiUprobeMongoOpExecute,
+			End:   p.bpfObjects.ObiUprobeMongoOpExecuteRet,
+		}},
+		// all of these point to the same probe, we just use it to find start time and collection name
+		"go.mongodb.org/mongo-driver/mongo.(*Collection).insert": {{
+			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+		}},
+		"go.mongodb.org/mongo-driver/mongo.(*Collection).delete": {{
+			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+		}},
+		"go.mongodb.org/mongo-driver/mongo.(*Collection).updateOrReplace": {{
+			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+		}},
+		"go.mongodb.org/mongo-driver/mongo.(*Collection).find": {{
+			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+		}},
+		"go.mongodb.org/mongo-driver/mongo.(*Collection).drop": {{
+			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+		}},
+		"go.mongodb.org/mongo-driver/mongo.(*Collection).findAndModify": {{
+			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+		}},
+		"go.mongodb.org/mongo-driver/mongo.(*Collection).Aggregate": {{
+			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+		}},
+		"go.mongodb.org/mongo-driver/mongo.(*Collection).CountDocuments": {{
+			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+		}},
+		"go.mongodb.org/mongo-driver/mongo.(*Collection).EstimatedDocumentCount": {{
+			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+		}},
+		"go.mongodb.org/mongo-driver/mongo.(*Collection).Distinct": {{
+			Start: p.bpfObjects.ObiUprobeMongoCollOp,
 		}},
 	}
 
