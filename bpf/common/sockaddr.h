@@ -11,9 +11,8 @@
 #include <common/http_types.h>
 #include <common/protocol_defs.h>
 
-typedef struct accept_args {
+typedef struct sock_args {
     u64 addr; // linux sock or socket address
-    u64 accept_time;
     int fd;
     u32 __pad;
 } sock_args_t;
