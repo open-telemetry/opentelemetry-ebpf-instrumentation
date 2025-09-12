@@ -393,6 +393,19 @@ var structMembers = map[string]structInfo{
 			"Database": MongoOpDBPos,
 		},
 	},
+	"go.mongodb.org/mongo-driver/v2/mongo.Collection": {
+		lib: "go.mongodb.org/mongo-driver",
+		fields: map[string]GoOffset{
+			"name": MongoConnNamePos,
+		},
+	},
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation": {
+		lib: "go.mongodb.org/mongo-driver",
+		fields: map[string]GoOffset{
+			"Name":     MongoOpNamePos,
+			"Database": MongoOpDBPos,
+		},
+	},
 }
 
 func structMemberOffsets(elfFile *elf.File) (FieldOffsets, error) {

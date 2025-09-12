@@ -118,5 +118,16 @@
         "Database"
       ]
     }
+  },
+  "go.mongodb.org/mongo-driver/v2": {
+    "inspect": "./configs/offsets/mongov2/inspect.go",
+    "versions": ">= v2.0.1",
+    "fields": {
+      "go.mongodb.org/mongo-driver/v2/mongo.Collection": ["name"],
+      "go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation": [
+        "Name",
+        "Database"
+      ]
+    }
   }
 }
