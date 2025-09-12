@@ -20,6 +20,7 @@
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_str.h>
 
 #include <logger/bpf_dbg.h>
 
