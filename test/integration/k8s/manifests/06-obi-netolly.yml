@@ -85,4 +85,8 @@ spec:
             - name: OTEL_EBPF_KUBE_META_RESTRICT_LOCAL_NODE
               value: "true"
             - name: OTEL_EBPF_NETWORK_RING_BUFFER_FLUSH_PERIOD
-              value: "2s"
+              value: "1s"
+            - name: OTEL_EBPF_NETWORK_MAX_FLOW_DURATION
+              value: "1s"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "5000"

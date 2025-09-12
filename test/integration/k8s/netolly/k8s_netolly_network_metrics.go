@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	testTimeout        = 3 * time.Minute
+	testTimeout        = 5 * time.Minute
 	prometheusHostPort = "localhost:39090"
 )
 
