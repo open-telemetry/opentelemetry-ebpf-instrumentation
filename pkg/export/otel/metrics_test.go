@@ -790,8 +790,8 @@ func TestMetricResourceAttributes(t *testing.T) {
 			t.Logf("Attributes in test %s:", tc.name)
 			for _, a := range attrs {
 				keyStr := string(a.Key)
-				t.Logf("   - %s = %s", keyStr, a.Value.AsString())
-				attrMap[keyStr] = a.Value.AsString()
+				t.Logf("   - %s = %s", keyStr, a.Value.Emit())
+				attrMap[keyStr] = a.Value.Emit()
 			}
 
 			for _, attrName := range tc.expectedAttrs {

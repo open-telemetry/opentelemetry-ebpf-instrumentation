@@ -966,7 +966,7 @@ func testREDMetricsForGoBasicOnly(t *testing.T, url string, comm string) {
 	})
 }
 
-func testPrometheusBeylaBuildInfo(t *testing.T) {
+func testPrometheusOBIBuildInfo(t *testing.T) {
 	pq := prom.Client{HostPort: prometheusHostPort}
 	var results []prom.Result
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -1007,7 +1007,7 @@ func testPrometheusBPFMetrics(t *testing.T) {
 	})
 }
 
-func testPrometheusNoBeylaEvents(t *testing.T) {
+func testPrometheusNoOBIEvents(t *testing.T) {
 	pq := prom.Client{HostPort: prometheusHostPort}
 	var results []prom.Result
 	test.Eventually(t, testTimeout, func(t require.TestingT) {

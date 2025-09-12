@@ -471,7 +471,7 @@ func TestResourceAttrsFromEnv(t *testing.T) {
 
 			attrMap := make(map[string]string)
 			for _, attr := range attrs {
-				attrMap[string(attr.Key)] = attr.Value.AsString()
+				attrMap[string(attr.Key)] = attr.Value.Emit()
 			}
 
 			assert.Len(t, attrMap, len(tt.expectedAttrs), "Number of attributes should match")

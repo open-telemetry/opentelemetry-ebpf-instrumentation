@@ -126,7 +126,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 //nolint:cyclop
 func spanPromGetters(attrName attr.Name) (attributes.Getter[*Span, string], bool) {
 	if otelGetter, ok := spanOTELGetters(attrName); ok {
-		return func(span *Span) string { return otelGetter(span).Value.AsString() }, true
+		return func(span *Span) string { return otelGetter(span).Value.Emit() }, true
 	}
 	// unlike the OTEL getters, when the attribute is not found, we need to look for it
 	// in the metadata section
