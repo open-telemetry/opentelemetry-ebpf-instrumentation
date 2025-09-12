@@ -560,6 +560,23 @@ func findDoubleInBson(doc bson.D, key string) (float64, bool) {
 	return doubleValue, true
 }
 
+func opAndCollectionFromEvent(event *GoMongoClientInfo) (string, string) {
+	coll := cstr(event.Coll[:])
+	db := cstr(event.Db[:])
+
+	if db != "" {
+		if coll == "" {
+			coll = db
+		} else {
+			coll = db + "." + coll
+		}
+	}
+
+	op := cstr(event.Op[:])
+
+	return op, coll
+}
+
 func ReadGoMongoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
 	event, err := ReinterpretCast[GoMongoClientInfo](record.RawSample)
 	if err != nil {
@@ -575,18 +592,7 @@ func ReadGoMongoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, err
 		hostPort = int(event.Conn.D_port)
 	}
 
-	coll := cstr(event.Coll[:])
-	db := cstr(event.Db[:])
-
-	if db != "" {
-		if coll == "" {
-			coll = db
-		} else {
-			coll = db + "." + coll
-		}
-	}
-
-	op := cstr(event.Op[:])
+	op, coll := opAndCollectionFromEvent(event)
 
 	// Mongo client sends these dummy hello requests all the time
 	if op == "" {
