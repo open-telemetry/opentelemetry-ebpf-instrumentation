@@ -438,7 +438,8 @@ func structMemberOffsets(elfFile *elf.File) (FieldOffsets, error) {
 
 func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]string, log *slog.Logger) FieldOffsets {
 	for lib, ver := range libVersions {
-		if lib == "google.golang.org/grpc" {
+		switch lib {
+		case "google.golang.org/grpc":
 			ver = cleanLibVersion(ver, true, lib, log)
 
 			if v, err := version.NewVersion(ver); err == nil {
@@ -455,7 +456,7 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 			} else {
 				log.Debug("can't parse version for", "library", lib)
 			}
-		} else if lib == "go.mongodb.org/mongo-driver" {
+		case "go.mongodb.org/mongo-driver":
 			ver = cleanLibVersion(ver, true, lib, log)
 
 			if v, err := version.NewVersion(ver); err == nil {

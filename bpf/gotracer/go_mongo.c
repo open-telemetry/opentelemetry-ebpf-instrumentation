@@ -25,8 +25,8 @@
 #include <logger/bpf_dbg.h>
 
 #define MONGO_OP_DEF(name, str)                                                                    \
-    const char name[] = str;                                                                       \
-    const u32 name##_size = sizeof(name) - 1;
+    static const char name[] = str;                                                                \
+    static const u32 name##_size = sizeof(name) - 1;
 
 MONGO_OP_DEF(insert, "insert")
 MONGO_OP_DEF(delete, "delete")
