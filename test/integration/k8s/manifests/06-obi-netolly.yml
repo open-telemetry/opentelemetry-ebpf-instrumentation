@@ -86,3 +86,5 @@ spec:
               value: "true"
             - name: OTEL_EBPF_NETWORK_RING_BUFFER_FLUSH_PERIOD
               value: "1s"
+            - name: OTEL_EBPF_NETWORK_MAX_FLOW_DURATION
+              value: "1s"
