@@ -116,30 +116,26 @@ func (rn *routerNode) provideRoutes(_ context.Context) (swarm.RunFunc, error) {
 						// we can't discard it here, ignoring is selective (metrics | traces)
 						setSpanIgnoreMode(ignoreMode, s)
 					}
-					if routesEnabled {
-						s.Route = matcher.Find(s.Path)
-					}
-					if s.Route == "" && s.IsHTTPSpan() {
-						if s.IsClientSpan() {
-							if s.Service.CustomOutRouteMatcher != nil {
-								s.Route = s.Service.CustomOutRouteMatcher.Find(s.Path)
-							}
-						} else {
-							if s.Service.CustomInRouteMatcher != nil {
-								s.Route = s.Service.CustomInRouteMatcher.Find(s.Path)
-							}
-						}
-
-						if s.Route == "" && s.Service.HarvestedRouteMatcher != nil {
-							s.Route = s.Service.HarvestedRouteMatcher.Find(s.Path)
-						}
-					}
-
-					unmatchAction(rn, s)
 				}
 				if routesEnabled {
 					s.Route = matcher.Find(s.Path)
 				}
+				if s.Route == "" && s.IsHTTPSpan() {
+					if s.IsClientSpan() {
+						if s.Service.CustomOutRouteMatcher != nil {
+							s.Route = s.Service.CustomOutRouteMatcher.Find(s.Path)
+						}
+					} else {
+						if s.Service.CustomInRouteMatcher != nil {
+							s.Route = s.Service.CustomInRouteMatcher.Find(s.Path)
+						}
+					}
+
+					if s.Route == "" && s.Service.HarvestedRouteMatcher != nil {
+						s.Route = s.Service.HarvestedRouteMatcher.Find(s.Path)
+					}
+				}
+
 				unmatchAction(rn, s)
 			}
 			out.Send(spans)

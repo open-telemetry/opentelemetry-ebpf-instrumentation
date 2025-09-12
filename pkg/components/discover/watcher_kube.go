@@ -102,7 +102,6 @@ func (wk *watcherKubeEnricher) enrich(_ context.Context) {
 	defer wk.output.Close()
 
 	wk.log.Debug("starting watcherKubeEnricher")
-
 	// the initialization needs to go in a different thread,
 	// as the subscription "welcome message" would otherwise be blocked
 	// trying to send events to the wk.podsInfoCh channel
