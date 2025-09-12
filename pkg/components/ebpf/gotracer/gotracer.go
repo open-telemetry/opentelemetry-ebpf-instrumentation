@@ -185,6 +185,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.MongoConnNamePos,
 		goexec.MongoOpNamePos,
 		goexec.MongoOpDBPos,
+		goexec.MongoOneThirteenOne,
 	} {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
@@ -458,34 +459,37 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		// all of these point to the same probe, we just use it to find start time and collection name
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).insert": {{
-			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+			Start: p.bpfObjects.ObiUprobeMongoOpInsert,
 		}},
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).delete": {{
-			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+			Start: p.bpfObjects.ObiUprobeMongoOpDelete,
 		}},
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).updateOrReplace": {{
-			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+			Start: p.bpfObjects.ObiUprobeMongoOpUpdateOrReplace,
 		}},
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).find": {{
-			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+			Start: p.bpfObjects.ObiUprobeMongoOpFind,
+		}},
+		"go.mongodb.org/mongo-driver/mongo.(*Collection).Find": {{
+			Start: p.bpfObjects.ObiUprobeMongoOpFind,
 		}},
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).drop": {{
-			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+			Start: p.bpfObjects.ObiUprobeMongoOpDrop,
 		}},
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).findAndModify": {{
-			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+			Start: p.bpfObjects.ObiUprobeMongoOpFindAndModify,
 		}},
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).Aggregate": {{
-			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+			Start: p.bpfObjects.ObiUprobeMongoOpAggregate,
 		}},
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).CountDocuments": {{
-			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+			Start: p.bpfObjects.ObiUprobeMongoOpCountDocuments,
 		}},
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).EstimatedDocumentCount": {{
-			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+			Start: p.bpfObjects.ObiUprobeMongoOpEstimatedDocumentCount,
 		}},
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).Distinct": {{
-			Start: p.bpfObjects.ObiUprobeMongoCollOp,
+			Start: p.bpfObjects.ObiUprobeMongoOpDistinct,
 		}},
 	}
 

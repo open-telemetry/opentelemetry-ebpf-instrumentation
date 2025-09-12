@@ -84,6 +84,7 @@ typedef enum {
     _mongo_conn_name_pos,
     _mongo_op_name_pos,
     _mongo_db_name_pos,
+    _mongo_op_name_new,
     _last_go_offset,
 } go_offset_const;
 

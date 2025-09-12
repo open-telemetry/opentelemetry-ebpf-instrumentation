@@ -24,8 +24,9 @@ func log() *slog.Logger {
 type GoOffset uint32
 
 var (
-	grpcOneSixZero = version.Must(version.NewVersion("1.60.0"))
-	grpcOneSixNine = version.Must(version.NewVersion("1.69.0"))
+	grpcOneSixZero      = version.Must(version.NewVersion("1.60.0"))
+	grpcOneSixNine      = version.Must(version.NewVersion("1.69.0"))
+	mongoOneThirteenOne = version.Must(version.NewVersion("1.13.1"))
 )
 
 const (
@@ -102,6 +103,7 @@ const (
 	MongoConnNamePos
 	MongoOpNamePos
 	MongoOpDBPos
+	MongoOneThirteenOne
 )
 
 //go:embed offsets.json
@@ -439,6 +441,16 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 				}
 			} else {
 				log.Debug("can't parse version for", "library", lib)
+			}
+		} else if lib == "go.mongodb.org/mongo-driver" {
+			ver = cleanLibVersion(ver, true, lib, log)
+
+			if v, err := version.NewVersion(ver); err == nil {
+				if v.GreaterThanOrEqual(mongoOneThirteenOne) {
+					fieldOffsets[MongoOneThirteenOne] = uint64(1)
+				} else {
+					fieldOffsets[MongoOneThirteenOne] = uint64(0)
+				}
 			}
 		}
 	}
