@@ -135,6 +135,7 @@ type Selector interface {
 	RangePodAnnotations() iter.Seq2[string, StringMatcher]
 	GetExportModes() ExportModes
 	GetSamplerConfig() *SamplerConfig
+	GetRoutesConfig() *CustomRoutesConfig
 }
 
 // StringMatcher provides a generic interface to match string values against some matcher types: regex and glob
