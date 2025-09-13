@@ -34,6 +34,7 @@
 #define SQL_MAX_LEN 500
 #define KAFKA_MAX_LEN 256
 #define REDIS_MAX_LEN 256
+#define MONGO_MAX_LEN 256
 #define MAX_TOPIC_NAME_LEN 64
 #define HOST_MAX_LEN 100
 #define SCHEME_MAX_LEN 10
@@ -227,3 +228,17 @@ typedef struct otel_span {
     otel_attributes_t span_attrs;
     u8 _epad[6];
 } otel_span_t;
+
+typedef struct mongo_go_client_req {
+    u8 type; // Must be first
+    u8 err;
+    u8 _pad[6];
+    u64 start_monotime_ns;
+    u64 end_monotime_ns;
+    pid_info pid;
+    unsigned char op[32];
+    unsigned char db[32];
+    unsigned char coll[32];
+    connection_info_t conn;
+    tp_info_t tp;
+} mongo_go_client_req_t;

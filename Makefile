@@ -366,8 +366,13 @@ oats-test-http: oats-prereq
 	mkdir -p test/oats/http/$(TEST_OUTPUT)/run
 	cd test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
+.PHONY: oats-test-mongo
+oats-test-mongo: oats-prereq
+	mkdir -p test/oats/mongo/$(TEST_OUTPUT)/run
+	cd test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+
 .PHONY: oats-test
-oats-test: oats-test-sql oats-test-redis oats-test-kafka oats-test-http
+oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http
 	$(MAKE) itest-coverage-data
 
 .PHONY: oats-test-debug

@@ -24,3 +24,4 @@
 #include "go_kafka_go.c"
 #include "go_sarama.c"
 #include "go_sdk.c"
+#include "go_mongo.c"

@@ -212,6 +212,94 @@
         ]
       }
     },
+    "go.mongodb.org/mongo-driver/mongo.Collection": {
+      "name": {
+        "versions": {
+          "oldest": "1.10.1",
+          "newest": "1.17.4"
+        },
+        "offsets": [
+          {
+            "offset": 16,
+            "since": "1.10.1"
+          }
+        ]
+      }
+    },
+    "go.mongodb.org/mongo-driver/v2/mongo.Collection": {
+      "name": {
+        "versions": {
+          "oldest": "2.0.1",
+          "newest": "2.3.0"
+        },
+        "offsets": [
+          {
+            "offset": 16,
+            "since": "2.0.1"
+          }
+        ]
+      }
+    },
+    "go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation": {
+      "Database": {
+        "versions": {
+          "oldest": "2.0.1",
+          "newest": "2.3.0"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "2.0.1"
+          }
+        ]
+      },
+      "Name": {
+        "versions": {
+          "oldest": "2.0.1",
+          "newest": "2.3.0"
+        },
+        "offsets": [
+          {
+            "offset": 208,
+            "since": "2.0.1"
+          },
+          {
+            "offset": 216,
+            "since": "2.1.0"
+          }
+        ]
+      }
+    },
+    "go.mongodb.org/mongo-driver/x/mongo/driver.Operation": {
+      "Database": {
+        "versions": {
+          "oldest": "1.10.1",
+          "newest": "1.17.4"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "1.10.1"
+          }
+        ]
+      },
+      "Name": {
+        "versions": {
+          "oldest": "1.10.1",
+          "newest": "1.17.4"
+        },
+        "offsets": [
+          {
+            "offset": 48,
+            "since": "1.10.1"
+          },
+          {
+            "offset": 216,
+            "since": "1.13.1"
+          }
+        ]
+      }
+    },
     "go.opentelemetry.io/otel/internal/global.tracer": {
       "delegate": {
         "versions": {

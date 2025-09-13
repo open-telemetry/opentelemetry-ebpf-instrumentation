@@ -1233,6 +1233,14 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
                               &sql_conn->conn); // ok to not check the result, we leave it as 0
     }
 
+    mongo_go_client_req_t *mongo_conn = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
+    bpf_dbg_printk("mongo_conn %llx", mongo_conn);
+    if (mongo_conn) {
+        void *fd_ptr = GO_PARAM1(ctx);
+        get_conn_info_from_fd(fd_ptr,
+                              &mongo_conn->conn); // ok to not check the result, we leave it as 0
+    }
+
     return 0;
 }
 

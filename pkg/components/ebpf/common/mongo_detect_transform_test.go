@@ -511,3 +511,71 @@ func TestGetMongoInfoOperationUnknownForEmptyRequestSection(t *testing.T) {
 	assert.Empty(t, res.ErrorCode, "Expected ErrorCode to be empty in successful request")
 	assert.Empty(t, res.ErrorCodeName, "Expected ErrorCodeName to be empty in successful request")
 }
+
+func TestOpAndCollectionFromEvent(t *testing.T) {
+	tests := []struct {
+		name     string
+		event    GoMongoClientInfo
+		wantOp   string
+		wantColl string
+	}{
+		{
+			name: "db and coll set",
+			event: GoMongoClientInfo{
+				Db:   [32]byte{'m', 'y', 'd', 'b'},
+				Coll: [32]byte{'m', 'y', 'c', 'o', 'l', 'l'},
+				Op:   [32]byte{'f', 'i', 'n', 'd'},
+			},
+			wantOp:   "find",
+			wantColl: "mydb.mycoll",
+		},
+		{
+			name: "db set, coll empty",
+			event: GoMongoClientInfo{
+				Db:   [32]byte{'m', 'y', 'd', 'b'},
+				Coll: [32]byte{},
+				Op:   [32]byte{'i', 'n', 's', 'e', 'r', 't'},
+			},
+			wantOp:   "insert",
+			wantColl: "mydb",
+		},
+		{
+			name: "db empty, coll set",
+			event: GoMongoClientInfo{
+				Db:   [32]byte{},
+				Coll: [32]byte{'c', 'o', 'l', 'l'},
+				Op:   [32]byte{'u', 'p', 'd', 'a', 't', 'e'},
+			},
+			wantOp:   "update",
+			wantColl: "coll",
+		},
+		{
+			name: "db and coll empty",
+			event: GoMongoClientInfo{
+				Db:   [32]byte{},
+				Coll: [32]byte{},
+				Op:   [32]byte{'d', 'e', 'l', 'e', 't', 'e'},
+			},
+			wantOp:   "delete",
+			wantColl: "",
+		},
+		{
+			name: "op empty",
+			event: GoMongoClientInfo{
+				Db:   [32]byte{'d', 'b'},
+				Coll: [32]byte{'c', 'o', 'l', 'l'},
+				Op:   [32]byte{},
+			},
+			wantOp:   "",
+			wantColl: "db.coll",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotOp, gotColl := opAndCollectionFromEvent(&tt.event)
+			assert.Equal(t, tt.wantOp, gotOp)
+			assert.Equal(t, tt.wantColl, gotColl)
+		})
+	}
+}
