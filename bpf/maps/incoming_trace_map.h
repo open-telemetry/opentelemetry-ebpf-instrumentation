@@ -16,5 +16,5 @@ struct {
     __type(key, connection_info_t); // key: the connection info
     __type(value, tp_info_pid_t);   // value: traceparent info
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } incoming_trace_map SEC(".maps");
