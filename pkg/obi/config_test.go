@@ -56,7 +56,7 @@ prometheus_export:
     request_size_histogram: [0, 10, 20, 22]
     response_size_histogram: [0, 10, 20, 22]
 attributes:
-  drop_metric_unresolved_ips: false
+  rename_unresolved_hosts: ""
   kubernetes:
     kubeconfig_path: /foo/bar
     enable: true

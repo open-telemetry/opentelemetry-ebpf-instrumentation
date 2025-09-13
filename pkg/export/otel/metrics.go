@@ -81,6 +81,7 @@ type MetricsReporter struct {
 	pidTracker       PidServiceTracker
 	is               instrumentations.InstrumentationSelection
 	targetMetrics    map[svc.UID]*TargetMetrics
+	attrGetters      attributes.NamedGetters[*request.Span, attribute.KeyValue]
 
 	// user-selected fields for each of the reported metrics
 	attrHTTPDuration           []attributes.Field[*request.Span, attribute.KeyValue]
@@ -146,6 +147,7 @@ func ReportMetrics(
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
+	renameUnresolved string,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
@@ -160,6 +162,7 @@ func ReportMetrics(
 			ctxInfo,
 			cfg,
 			selectorCfg,
+			renameUnresolved,
 			input,
 			processEventCh,
 		)
@@ -176,6 +179,7 @@ func newMetricsReporter(
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
+	renameUnresolved string,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) (*MetricsReporter, error) {
@@ -199,54 +203,55 @@ func newMetricsReporter(
 		processEvents:       processEventCh.Subscribe(),
 		userAttribSelection: selectorCfg.SelectionCfg,
 		log:                 mlog(),
+		attrGetters:         request.SpanOTELGetters(renameUnresolved),
 	}
 
 	// initialize attribute getters
 	if is.HTTPEnabled() {
 		mr.attrHTTPDuration = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPServerDuration))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPServerDuration))
 		mr.attrHTTPClientDuration = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPClientDuration))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPClientDuration))
 		mr.attrHTTPRequestSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPServerRequestSize))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPServerRequestSize))
 		mr.attrHTTPResponseSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPServerResponseSize))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPServerResponseSize))
 		mr.attrHTTPClientRequestSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPClientRequestSize))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPClientRequestSize))
 		mr.attrHTTPClientResponseSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
 	}
 
 	if is.GRPCEnabled() {
 		mr.attrGRPCServer = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.RPCServerDuration))
+			mr.attrGetters, mr.attributes.For(attributes.RPCServerDuration))
 		mr.attrGRPCClient = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.RPCClientDuration))
+			mr.attrGetters, mr.attributes.For(attributes.RPCClientDuration))
 	}
 
 	if is.DBEnabled() {
 		mr.attrDBClient = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.DBClientDuration))
+			mr.attrGetters, mr.attributes.For(attributes.DBClientDuration))
 	}
 
 	if is.MQEnabled() {
 		mr.attrMessagingPublish = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.MessagingPublishDuration))
+			mr.attrGetters, mr.attributes.For(attributes.MessagingPublishDuration))
 		mr.attrMessagingProcess = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.MessagingProcessDuration))
+			mr.attrGetters, mr.attributes.For(attributes.MessagingProcessDuration))
 	}
 
 	if is.GPUEnabled() {
 		mr.attrGPUKernelCalls = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUKernelLaunchCalls))
+			mr.attrGetters, mr.attributes.For(attributes.GPUKernelLaunchCalls))
 		mr.attrGPUMemoryAllocations = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUMemoryAllocations))
+			mr.attrGetters, mr.attributes.For(attributes.GPUMemoryAllocations))
 		mr.attrGPUKernelGridSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUKernelGridSize))
+			mr.attrGetters, mr.attributes.For(attributes.GPUKernelGridSize))
 		mr.attrGPUKernelBlockSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUKernelBlockSize))
+			mr.attrGetters, mr.attributes.For(attributes.GPUKernelBlockSize))
 		mr.attrGPUMemoryCopies = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUMemoryCopies))
+			mr.attrGetters, mr.attributes.For(attributes.GPUMemoryCopies))
 	}
 
 	mr.reporters = otelcfg.NewReporterPool[*svc.Attrs, *Metrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -751,7 +756,7 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 // selected by the user
 func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Span, attribute.KeyValue] {
 	return append(attributes.OpenTelemetryGetters(
-		request.SpanOTELGetters, []attr.Name{
+		mr.attrGetters, []attr.Name{
 			attr.ServiceName,
 			attr.ServiceInstanceID,
 			attr.ServiceNamespace,

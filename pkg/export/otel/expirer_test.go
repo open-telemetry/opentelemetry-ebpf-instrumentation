@@ -187,7 +187,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 			ExtraGroupAttributesCfg: map[string][]attr.Name{
 				"k8s_app_meta": {"k8s.app.version"},
 			},
-		}, metrics, processEvents)(ctx)
+		}, "", metrics, processEvents)(ctx)
 	require.NoError(t, err)
 
 	go otelExporter(ctx)
@@ -322,7 +322,7 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 					Include: []string{"url.path"},
 				},
 			},
-		}, metrics, processEvents)(ctx)
+		}, "", metrics, processEvents)(ctx)
 	require.NoError(t, err)
 
 	go otelExporter(ctx)

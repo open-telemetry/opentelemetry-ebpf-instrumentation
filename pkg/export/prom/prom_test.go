@@ -35,7 +35,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
-const timeout = 3 * time.Second
+const timeout = 5 * time.Second
 
 func TestAppMetricsExpiration(t *testing.T) {
 	now := syncedClock{now: time.Now()}
@@ -76,6 +76,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 				"k8s_app_meta": {"k8s.app.version"},
 			},
 		},
+		"",
 		promInput,
 		processEvents,
 	)(ctx)
@@ -536,15 +537,10 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 		fmt.Fprintf(w, "Hello, %v, http: %v\n", r.URL.Path, r.TLS == nil)
 	})
 	server := http.Server{Addr: fmt.Sprintf(":%d", openPort), Handler: handler}
-	serverUp := make(chan bool, 1)
 
 	go func() {
-		go func() {
-			time.Sleep(5 * time.Second)
-			serverUp <- true
-		}()
 		err := server.ListenAndServe()
-		fmt.Printf("Terminating server %v\n", err)
+		t.Logf("Terminating server %v\n", err)
 	}()
 
 	sigChan := make(chan os.Signal, 1)
@@ -565,7 +561,7 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 	case sig := <-sigChan:
 		assert.Equal(t, syscall.SIGINT, sig)
 		ok = true
-	case <-time.After(5 * time.Second):
+	case <-time.After(timeout):
 		ok = false
 	}
 
@@ -667,6 +663,7 @@ func makePromExporter(
 				},
 			},
 		},
+		"",
 		input,
 		processEvents,
 	)(ctx)

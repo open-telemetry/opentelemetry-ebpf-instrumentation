@@ -6,6 +6,8 @@
 package ebpf
 
 import (
+	"time"
+
 	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
 )
 
@@ -19,6 +21,14 @@ func (s *SockFlowFetcher) ReadInto(*ringbuf.Record) error {
 	panic("this is never going to be executed")
 }
 
-func NewSockFlowFetcher(_, _ int) (*SockFlowFetcher, error) {
+func NewSockFlowFetcher(
+	_, _ int,
+	_ uint32,
+	_, _ time.Duration,
+	_, _ []string,
+) (*SockFlowFetcher, error) {
+	// avoids linter complaining
+	_ = parseProtocolList
+	_ = assignProtocolList
 	return nil, nil
 }

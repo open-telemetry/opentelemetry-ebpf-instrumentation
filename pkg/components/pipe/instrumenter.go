@@ -5,7 +5,6 @@ package pipe
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
@@ -22,7 +21,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -104,8 +102,12 @@ func newGraphBuilder(
 	if exportableSpans == nil {
 		exportableSpans = newQueue()
 	}
-	swi.Add(filter.ByAttribute(config.Filters.Application, nil, selectorCfg.ExtraGroupAttributesCfg, spanPtrPromGetters,
-		nameResolverToAttrFilter, exportableSpans),
+	swi.Add(filter.ByAttribute(config.Filters.Application,
+		nil,
+		selectorCfg.ExtraGroupAttributesCfg,
+		spanPtrPromGetters(config),
+		nameResolverToAttrFilter,
+		exportableSpans),
 		swarm.WithID("AttributesFilter"))
 
 	swi.Add(otel.TracesReceiver(
@@ -146,34 +148,18 @@ func setupMetricsSubPipeline(
 		return msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen))
 	}
 
-	// since this sub pipeline might modify the traces that are going to be exported as metrics,
-	// but we don't want to modify their values when exported as traces in the other
-	// sup-pipeline, we create a node that just copies the spans array
-	// This queue also prevents that exportableSpans queue is both read from the
-	// trace exporters and Bypassed by IPSFilter or SpanNameLimiter nodes, which
-	// might lead to get it blocked.
-	copiedSpans := newQueue()
-	inputCh := exportableSpans.Subscribe()
-	swi.Add(swarm.DirectInstance(cloneSpans(inputCh, copiedSpans)))
-
-	ipDroppedMetrics := newQueue()
-	swi.Add(transform.IPsFilter(
-		config.Attributes.DropMetricsUnresolvedIPs,
-		copiedSpans,
-		ipDroppedMetrics,
-	), swarm.WithID("IPsFilter"))
-
 	spanNameAggregatedMetrics := newQueue()
 	swi.Add(transform.SpanNameLimiter(transform.SpanNameLimiterConfig{
 		Limit: config.Attributes.MetricSpanNameAggregationLimit,
 		OTEL:  &config.Metrics,
 		Prom:  &config.Prometheus,
-	}, ipDroppedMetrics, spanNameAggregatedMetrics))
+	}, exportableSpans, spanNameAggregatedMetrics))
 
 	swi.Add(otel.ReportMetrics(
 		ctxInfo,
 		&config.Metrics,
 		selectorCfg,
+		config.Attributes.RenameUnresolvedHosts,
 		spanNameAggregatedMetrics,
 		processEventsCh,
 	), swarm.WithID("OTELMetricsExport"))
@@ -181,6 +167,7 @@ func setupMetricsSubPipeline(
 	swi.Add(otel.ReportSvcGraphMetrics(
 		ctxInfo,
 		&config.Metrics,
+		config.Attributes.RenameUnresolvedHosts,
 		spanNameAggregatedMetrics,
 		processEventsCh,
 	), swarm.WithID("OTELSvcGraphMetricsExport"))
@@ -189,21 +176,10 @@ func setupMetricsSubPipeline(
 		ctxInfo,
 		&config.Prometheus,
 		selectorCfg,
+		config.Attributes.RenameUnresolvedHosts,
 		spanNameAggregatedMetrics,
 		processEventsCh,
 	), swarm.WithID("PrometheusEndpoint"))
-}
-
-func cloneSpans(inputCh <-chan []request.Span, output *msg.Queue[[]request.Span]) func(ctx context.Context) {
-	return func(ctx context.Context) {
-		defer output.Close()
-		log := slog.With("component", "SpanCloner")
-		swarms.ForEachInput(ctx, inputCh, log.Debug, func(spans []request.Span) {
-			spansCopy := make([]request.Span, len(spans))
-			cpy := copy(spansCopy, spans)
-			output.Send(spansCopy[:cpy])
-		})
-	}
 }
 
 func (gb *graphFunctions) buildGraph(ctx context.Context) (*Instrumenter, error) {
@@ -233,12 +209,15 @@ func (i *Instrumenter) Start(ctx context.Context) <-chan error {
 	return i.graph.Done()
 }
 
-// spanPtrPromGetters adapts the invocation of SpanPromGetters to work with a request.Span value
+// spanPtrPromGetters adapts the invocation of spanPromGetters to work with a request.Span value
 // instead of a *request.Span pointer. This is a convenience method created to avoid having to
 // rewrite the pipeline types from []request.Span types to []*request.Span
-func spanPtrPromGetters(name attr.Name) (attributes.Getter[request.Span, string], bool) {
-	if ptrGetter, ok := request.SpanPromGetters(name); ok {
-		return func(span request.Span) string { return ptrGetter(&span) }, true
+func spanPtrPromGetters(cfg *obi.Config) attributes.NamedGetters[request.Span, string] {
+	getter := request.SpanPromGetters(cfg.Attributes.RenameUnresolvedHosts)
+	return func(name attr.Name) (attributes.Getter[request.Span, string], bool) {
+		if ptrGetter, ok := getter(name); ok {
+			return func(span request.Span) string { return ptrGetter(&span) }, true
+		}
+		return nil, false
 	}
-	return nil, false
 }

@@ -143,7 +143,7 @@ var DefaultConfig = Config{
 		HostID: HostIDConfig{
 			FetchTimeout: 500 * time.Millisecond,
 		},
-		DropMetricsUnresolvedIPs:       true,
+		RenameUnresolvedHosts:          "unresolved",
 		MetricSpanNameAggregationLimit: 100,
 	},
 	Routes: &transform.RoutesConfig{
@@ -259,8 +259,10 @@ type Attributes struct {
 	HostID               HostIDConfig                  `yaml:"host_id"`
 	ExtraGroupAttributes map[string][]attr.Name        `yaml:"extra_group_attributes"`
 
-	// DropMetricsUnresolvedIPs drops metrics that contain unresolved IP addresses to reduce cardinality
-	DropMetricsUnresolvedIPs bool `yaml:"drop_metric_unresolved_ips" env:"OTEL_EBPF_DROP_METRIC_UNRESOLVED_IPS"`
+	// RenameUnresolvedHosts will replace HostName and PeerName attributes when they are empty or contain
+	// unresolved IP addresses to reduce cardinality.
+	// Set this value to the empty string to disable this feature.
+	RenameUnresolvedHosts string `yaml:"rename_unresolved_hosts" env:"OTEL_EBPF_RENAME_UNRESOLVED_HOSTS"`
 
 	// MetricSpanNameAggregationLimit works PER SERVICE and only relates to span_metrics.
 	// When the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED.

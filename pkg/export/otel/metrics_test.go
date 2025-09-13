@@ -57,7 +57,7 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	reporter, err := ReportMetrics(&global.ContextInfo{
 		Metrics:             internalMetrics,
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
-	}, mcfg, &attributes.SelectorConfig{}, exportMetrics, processEvents,
+	}, mcfg, &attributes.SelectorConfig{}, "", exportMetrics, processEvents,
 	)(t.Context())
 	require.NoError(t, err)
 	go reporter(t.Context())
@@ -556,6 +556,7 @@ func makeMetricsReporter(
 				},
 			},
 		},
+		"",
 		input,
 		processEvents)
 
@@ -789,8 +790,8 @@ func TestMetricResourceAttributes(t *testing.T) {
 			t.Logf("Attributes in test %s:", tc.name)
 			for _, a := range attrs {
 				keyStr := string(a.Key)
-				t.Logf("   - %s = %s", keyStr, a.Value.AsString())
-				attrMap[keyStr] = a.Value.AsString()
+				t.Logf("   - %s = %s", keyStr, a.Value.Emit())
+				attrMap[keyStr] = a.Value.Emit()
 			}
 
 			for _, attrName := range tc.expectedAttrs {
