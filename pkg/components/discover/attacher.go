@@ -5,10 +5,12 @@ package discover
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 
 	"github.com/cilium/ebpf/link"
+	"github.com/cilium/ebpf/rlimit"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/ebpf"
@@ -22,6 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 // TraceAttacher creates the available trace.Tracer implementations (Go HTTP tracer, GRPC tracer, Generic tracer...)
@@ -91,49 +94,36 @@ func (ta *TraceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	in := ta.InputInstrumentables.Subscribe()
 	return func(ctx context.Context) {
 		defer ta.OutputTracerEvents.Close()
-
-		for {
-			select {
-			case <-ctx.Done():
-				ta.log.Debug("context done. terminating process attacher")
-				ta.close()
-				return
-			case instrumentables, ok := <-in:
-				if !ok {
-					ta.log.Debug("input channel closed. terminating process attacher")
-					ta.close()
-					return
-				}
-				for _, instr := range instrumentables {
-					ta.log.Debug("Instrumentable", "created", instr.Type, "type", instr.Obj.Type,
-						"exec", instr.Obj.FileInfo.CmdExePath, "pid", instr.Obj.FileInfo.Pid)
-					switch instr.Type {
-					case EventCreated:
-						sdkInstrumented := false
-						if ta.sdkInjectionPossible(&instr.Obj) {
-							if err := ta.sdkInjector.NewExecutable(&instr.Obj); err == nil {
-								sdkInstrumented = true
-							}
+		swarms.ForEachInput(ctx, in, ta.log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {
+			for _, instr := range instrumentables {
+				ta.log.Debug("Instrumentable", "created", instr.Type, "type", instr.Obj.Type,
+					"exec", instr.Obj.FileInfo.CmdExePath, "pid", instr.Obj.FileInfo.Pid)
+				switch instr.Type {
+				case EventCreated:
+					sdkInstrumented := false
+					if ta.sdkInjectionPossible(&instr.Obj) {
+						if err := ta.sdkInjector.NewExecutable(&instr.Obj); err == nil {
+							sdkInstrumented = true
 						}
-
-						if !sdkInstrumented {
-							ta.nodeInjector.NewExecutable(&instr.Obj)
-
-							ta.processInstances.Inc(instr.Obj.FileInfo.Ino)
-							if ok := ta.getTracer(&instr.Obj); ok {
-								ta.OutputTracerEvents.Send(Event[*ebpf.Instrumentable]{Type: EventCreated, Obj: &instr.Obj})
-							}
-
-							if instr.Obj.FileInfo.ELF != nil {
-								_ = instr.Obj.FileInfo.ELF.Close()
-							}
-						}
-					case EventDeleted:
-						ta.notifyProcessDeletion(&instr.Obj)
 					}
+
+					if !sdkInstrumented {
+						ta.nodeInjector.NewExecutable(&instr.Obj)
+
+						ta.processInstances.Inc(instr.Obj.FileInfo.Ino)
+						if ok := ta.getTracer(&instr.Obj); ok {
+							ta.OutputTracerEvents.Send(Event[*ebpf.Instrumentable]{Type: EventCreated, Obj: &instr.Obj})
+						}
+
+						if instr.Obj.FileInfo.ELF != nil {
+							_ = instr.Obj.FileInfo.ELF.Close()
+						}
+					}
+				case EventDeleted:
+					ta.notifyProcessDeletion(&instr.Obj)
 				}
 			}
-		}
+		})
 	}, nil
 }
 
@@ -396,4 +386,11 @@ func (ta *TraceAttacher) notifyProcessDeletion(ie *ebpf.Instrumentable) {
 
 func (ta *TraceAttacher) sdkInjectionPossible(ie *ebpf.Instrumentable) bool {
 	return ta.sdkInjector.Enabled() && ie.Type == svc.InstrumentableJava
+}
+
+func (ta *TraceAttacher) init() error {
+	if err := rlimit.RemoveMemlock(); err != nil {
+		return fmt.Errorf("removing memory lock: %w", err)
+	}
+	return nil
 }

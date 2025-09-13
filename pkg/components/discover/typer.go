@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 	"go.opentelemetry.io/obi/pkg/services"
 )
 
@@ -52,26 +53,17 @@ func ExecTyperProvider(
 		currentPids:         map[int32]*exec.FileInfo{},
 		instrumentableCache: instrumentableCache,
 	}
-	return func(ctx context.Context) (swarm.RunFunc, error) {
+	return func(_ context.Context) (swarm.RunFunc, error) {
 		// TODO: do it per executable
 		if !cfg.Discovery.SkipGoSpecificTracers {
 			t.loadAllGoFunctionNames()
 		}
 		in := input.Subscribe()
-		return func(_ context.Context) {
+		return func(ctx context.Context) {
 			defer output.Close()
-			for {
-				select {
-				case <-ctx.Done():
-					t.log.Debug("context cancelled, closing ExecTyper")
-					return
-				case i, ok := <-in:
-					if !ok {
-						return
-					}
-					output.Send(t.FilterClassify(i))
-				}
-			}
+			swarms.ForEachInput(ctx, in, t.log.Debug, func(i []Event[ProcessMatch]) {
+				output.Send(t.FilterClassify(i))
+			})
 		}, nil
 	}
 }

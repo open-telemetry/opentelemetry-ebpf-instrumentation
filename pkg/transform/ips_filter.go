@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 func ipslog() *slog.Logger {
@@ -26,22 +27,12 @@ func IPsFilter(dropUnresolvedIPs bool, input, output *msg.Queue[[]request.Span])
 		in := input.Subscribe()
 		return func(ctx context.Context) {
 			defer output.Close()
-			for {
-				select {
-				case <-ctx.Done():
-					ipslog().Debug("context done. Stopping")
-					return
-				case spans, ok := <-in:
-					if !ok {
-						ipslog().Debug("input channel closed, stopping")
-						return
-					}
-					for i := range spans {
-						filterIPsFromSpan(&spans[i])
-					}
-					output.Send(spans)
+			swarms.ForEachInput(ctx, in, ipslog().Debug, func(spans []request.Span) {
+				for i := range spans {
+					filterIPsFromSpan(&spans[i])
 				}
-			}
+				output.Send(spans)
+			})
 		}, nil
 	}
 }

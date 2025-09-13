@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -197,18 +198,11 @@ func cloneSpans(inputCh <-chan []request.Span, output *msg.Queue[[]request.Span]
 	return func(ctx context.Context) {
 		defer output.Close()
 		log := slog.With("component", "SpanCloner")
-		log.Info("starting span cloner")
-		for {
-			select {
-			case <-ctx.Done():
-				log.Info("context done. terminating span cloner")
-				return
-			case spans := <-inputCh:
-				spansCopy := make([]request.Span, len(spans))
-				cpy := copy(spansCopy, spans)
-				output.Send(spansCopy[:cpy])
-			}
-		}
+		swarms.ForEachInput(ctx, inputCh, log.Debug, func(spans []request.Span) {
+			spansCopy := make([]request.Span, len(spans))
+			cpy := copy(spansCopy, spans)
+			output.Send(spansCopy[:cpy])
+		})
 	}
 }
 
