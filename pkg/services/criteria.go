@@ -98,7 +98,7 @@ type DiscoveryConfig struct {
 
 	// DefaultOtlpGRPCPort specifies the default OTLP gRPC port (4317) to fallback on when missing environment variables on service, for
 	// checking for grpc export requests, defaults to 4317
-	DefaultOtlpGRPCPort int `yaml:"default_otlp_grpc_port" env:"OTEL_DEFAULT_OTLP_GRPC_PORT"`
+	DefaultOtlpGRPCPort int `yaml:"default_otlp_grpc_port" env:"OTEL_EBPF_DEFAULT_OTLP_GRPC_PORT"`
 
 	// Min process age to be considered for discovery.
 	//nolint:undoc

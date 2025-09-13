@@ -628,6 +628,14 @@ func (s *Span) isTracesExportURL() bool {
 	}
 }
 
+func (s *Span) sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort int) bool {
+	otlpPort, ok := s.portFromEndpointEnvVar(envOTLPEndpoint)
+	if ok {
+		return otlpPort == s.PeerPort
+	}
+	return s.PeerPort == defaultOtlpGRPCPort
+}
+
 func (s *Span) sendsTracesOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	otlpTracesProtocol, ok := s.Service.EnvVars[envOTLPTracesProtocol]
 	if ok && otlpTracesProtocol != otlpGrpcProtocol {
@@ -641,11 +649,7 @@ func (s *Span) sendsTracesOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	if ok {
 		return otlpTracesPort == s.PeerPort
 	}
-	otlpPort, ok := s.portFromEndpointEnvVar(envOTLPEndpoint)
-	if ok {
-		return otlpPort == s.PeerPort
-	}
-	return s.PeerPort == defaultOtlpGRPCPort
+	return s.sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort)
 }
 
 func (s *Span) sendsMetricsOnOtelPort(defaultOtlpGRPCPort int) bool {
@@ -679,11 +683,7 @@ func (s *Span) sendsMetricsOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	if ok {
 		return otlpMetricsPort == s.PeerPort
 	}
-	otlpPort, ok := s.portFromEndpointEnvVar(envOTLPEndpoint)
-	if ok {
-		return otlpPort == s.PeerPort
-	}
-	return s.PeerPort == defaultOtlpGRPCPort
+	return s.sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort)
 }
 
 func (s *Span) portFromEndpointEnvVar(envVarName string) (int, bool) {
