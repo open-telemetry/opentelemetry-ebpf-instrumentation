@@ -279,7 +279,7 @@ func (ta *TraceAttacher) harvestRoutes(ie *ebpf.Instrumentable, reused bool) {
 	} else if routes != nil && len(routes.Routes) > 0 {
 		ta.log.Debug("found routes in executable", "pid", ie.FileInfo.Pid, "routes", routes, "reused", reused)
 		m := harvest.RouteMatcherFromResult(*routes)
-		ie.FileInfo.Service.SetRoutes(m)
+		ie.FileInfo.Service.SetHarvestedRoutes(m)
 	}
 }
 

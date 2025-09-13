@@ -55,7 +55,6 @@ int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct so
     sock_args_t args = {};
 
     args.addr = addr;
-    args.accept_time = bpf_ktime_get_ns();
 
     // The socket->sock is not valid until accept finishes, therefore
     // we don't extract ->sock here, we remember the address of socket
@@ -216,7 +215,6 @@ int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
 
     if (args) {
         args->addr = addr;
-        args->accept_time = bpf_ktime_get_ns();
     }
 
     return 0;

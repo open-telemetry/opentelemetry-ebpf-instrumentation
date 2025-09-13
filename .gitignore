@@ -89,3 +89,4 @@ pkg/components/otelsdk/grafana-opentelemetry-java.jar
 opentelemetry-ebpf-instrumentation.sln
 obi.sln
 test/integration/components/javakafka/target/*
+test/integration/components/gomongo/mongosrv
