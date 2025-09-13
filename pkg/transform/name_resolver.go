@@ -21,6 +21,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 func nrlog() *slog.Logger {
@@ -105,22 +106,12 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 	return func(ctx context.Context) {
 		// output channel must be closed so later stages in the pipeline can finish in cascade
 		defer output.Close()
-		for {
-			select {
-			case <-ctx.Done():
-				nrlog().Debug("context done. Stopping")
-				return
-			case spans, ok := <-in:
-				if !ok {
-					nrlog().Debug("input channel closed, stopping")
-					return
-				}
-				for i := range spans {
-					nr.resolveNames(&spans[i])
-				}
-				output.Send(spans)
+		swarms.ForEachInput(ctx, in, nrlog().Debug, func(spans []request.Span) {
+			for i := range spans {
+				nr.resolveNames(&spans[i])
 			}
-		}
+			output.Send(spans)
+		})
 	}, nil
 }
 

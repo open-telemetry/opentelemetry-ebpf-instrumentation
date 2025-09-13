@@ -27,6 +27,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 	"go.opentelemetry.io/obi/pkg/services"
 )
 
@@ -197,24 +198,19 @@ func portOfInterest(criteria []services.Selector, port int) bool {
 }
 
 func (pa *pollAccounter) watchForProcessEvents(ctx context.Context, log *slog.Logger, events <-chan watcher.Event) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case e := <-events:
-			switch e.Type {
-			case watcher.Ready:
-				pa.bpfWatcherIsReady()
-			case watcher.NewPort:
-				port := int(e.Payload)
-				if pa.cfg.Port.Matches(port) || portOfInterest(pa.findingCriteria, port) {
-					pa.refetchPorts()
-				}
-			default:
-				log.Warn("Unknown ebpf process watch event", "type", e.Type)
+	swarms.ForEachInput(ctx, events, log.Debug, func(e watcher.Event) {
+		switch e.Type {
+		case watcher.Ready:
+			pa.bpfWatcherIsReady()
+		case watcher.NewPort:
+			port := int(e.Payload)
+			if pa.cfg.Port.Matches(port) || portOfInterest(pa.findingCriteria, port) {
+				pa.refetchPorts()
 			}
+		default:
+			log.Warn("Unknown ebpf process watch event", "type", e.Type)
 		}
-	}
+	})
 }
 
 func (pa *pollAccounter) processTooNew(proc ProcessAttrs) bool {
