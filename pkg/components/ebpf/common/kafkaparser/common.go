@@ -261,7 +261,7 @@ func readStringLength(pkt []byte, header *KafkaRequestHeader, offset Offset, nul
 		if nullable && size == -1 {
 			return 0, offset + Int16Len, nil // return 0 for null
 		}
-		if size < -1 {
+		if size < 1 {
 			return 0, 0, errors.New("invalid string size")
 		}
 		return int(size), offset + Int16Len, nil
