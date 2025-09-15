@@ -65,7 +65,7 @@ func WatcherKubeEnricherProvider(
 			containerByPID:     map[PID]container.Info{},
 			processByContainer: map[string][]ProcessAttrs{},
 			podsInfoCh:         make(chan Event[*informer.ObjectMeta], 10),
-			input:              input.Subscribe(),
+			input:              input.Subscribe(msg.SubscriberName("WatcherKubeEnricher")),
 			output:             output,
 		}
 		return wk.enrich, nil

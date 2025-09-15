@@ -49,7 +49,7 @@ type decorator func(s *svc.Attrs, pid int)
 
 func ReadFromChannel(r *ReadDecorator) swarm.InstanceFunc {
 	decorate := hostNamePIDDecorator(&r.InstanceID)
-	tracesInput := r.TracesInput.Subscribe()
+	tracesInput := r.TracesInput.Subscribe(msg.SubscriberName("traces.ReadDecorator"))
 	return swarm.DirectInstance(func(ctx context.Context) {
 		// output channel must be closed so later stages in the pipeline can finish in cascade
 		defer r.DecoratedTraces.Close()
@@ -100,7 +100,7 @@ func HostProcessEventDecoratorProvider(
 ) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {
 		decorate := hostNamePIDDecorator(cfg)
-		in := input.Subscribe()
+		in := input.Subscribe(msg.SubscriberName("HostProcessEventDecorator"))
 		// if kubernetes decoration is disabled, we just bypass the node
 		log := rlog().With("function", "HostProcessEventDecoratorProvider")
 		return func(ctx context.Context) {

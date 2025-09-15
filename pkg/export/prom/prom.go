@@ -400,8 +400,8 @@ func newReporter(
 	// executable inspector
 	extraMetadataLabels := parseExtraMetadata(cfg.ExtraResourceLabels)
 	mr := &metricsReporter{
-		input:                      input.Subscribe(),
-		processEvents:              processEventCh.Subscribe(),
+		input:                      input.Subscribe(msg.SubscriberName("prom.InputSpans")),
+		processEvents:              processEventCh.Subscribe(msg.SubscriberName("prom.ProcessEvents")),
 		serviceMap:                 map[svc.UID]svc.Attrs{},
 		pidsTracker:                otel.NewPidServiceTracker(),
 		ctxInfo:                    ctxInfo,

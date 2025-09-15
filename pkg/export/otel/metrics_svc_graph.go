@@ -118,8 +118,8 @@ func newSvcGraphMetricsReporter(
 		cfg:              cfg,
 		is:               is,
 		hostID:           ctxInfo.HostID,
-		input:            input.Subscribe(),
-		processEvents:    processEventCh.Subscribe(),
+		input:            input.Subscribe(msg.SubscriberName("otel.SvcGraphMetricsReporter.input")),
+		processEvents:    processEventCh.Subscribe(msg.SubscriberName("otel.SvcGraphMetricsReporter.processEvents")),
 		metricAttributes: serviceGraphGetters(renameUnresolved),
 		log:              log,
 	}

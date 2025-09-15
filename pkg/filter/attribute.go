@@ -89,7 +89,11 @@ func newFilter[T any](
 		}
 		matchers = append(matchers, matcher)
 	}
-	return &filter[T]{matchers: matchers, input: input.Subscribe(), output: output}, nil
+	return &filter[T]{
+		matchers: matchers,
+		input:    input.Subscribe(msg.SubscriberName("AttributesFilter")),
+		output:   output,
+	}, nil
 }
 
 // buildMatcher returns a Matcher given an attribute name, the user-provided MatchDefinition, and the provided

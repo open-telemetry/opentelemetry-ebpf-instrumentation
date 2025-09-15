@@ -58,7 +58,7 @@ func ExecTyperProvider(
 		if !cfg.Discovery.SkipGoSpecificTracers {
 			t.loadAllGoFunctionNames()
 		}
-		in := input.Subscribe()
+		in := input.Subscribe(msg.SubscriberName("ExecTyper"))
 		return func(ctx context.Context) {
 			defer output.Close()
 			swarms.ForEachInput(ctx, in, t.log.Debug, func(i []Event[ProcessMatch]) {

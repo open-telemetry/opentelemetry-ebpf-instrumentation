@@ -77,7 +77,7 @@ func MetadataDecoratorProvider(
 		} else {
 			decorate = nt.decorateNoDrop
 		}
-		in := input.Subscribe()
+		in := input.Subscribe(msg.SubscriberName("k8s.MetadataDecorator"))
 		return func(ctx context.Context) {
 			defer output.Close()
 			swarms.ForEachInput(ctx, in, log().Debug, func(flows []*ebpf.Record) {
