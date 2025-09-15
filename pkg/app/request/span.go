@@ -6,6 +6,7 @@ package request
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +44,16 @@ const (
 	EventTypeGPUKernelLaunch
 	EventTypeGPUMalloc
 	EventTypeGPUMemcpy
+)
+
+const (
+	envOTLPProtocol        = "OTEL_EXPORTER_OTLP_PROTOCOL"
+	envOTLPTracesProtocol  = "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"
+	envOTLPMetricsProtocol = "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL"
+	envOTLPEndpoint        = "OTEL_EXPORTER_OTLP_ENDPOINT"
+	envOTLPTracesEndpoint  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+	envOTLPMetricsEndpoint = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+	otlpGrpcProtocol       = "grpc"
 )
 
 const (
@@ -617,22 +628,96 @@ func (s *Span) isTracesExportURL() bool {
 	}
 }
 
-func (s *Span) IsExportMetricsSpan() bool {
-	// check if it's a successful client call
-	if !s.isHTTPOrGRPCClient() || (SpanStatusCode(s) != StatusCodeUnset) {
-		return false
+func (s *Span) sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort int) bool {
+	otlpPort, ok := s.portFromEndpointEnvVar(envOTLPEndpoint)
+	if ok {
+		return otlpPort == s.PeerPort
 	}
-
-	return s.isMetricsExportURL()
+	return s.PeerPort == defaultOtlpGRPCPort
 }
 
-func (s *Span) IsExportTracesSpan() bool {
+func (s *Span) sendsTracesOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
+	otlpTracesProtocol, ok := s.Service.EnvVars[envOTLPTracesProtocol]
+	if ok && otlpTracesProtocol != otlpGrpcProtocol {
+		return false
+	}
+	otlpProtocol, ok := s.Service.EnvVars[envOTLPProtocol]
+	if ok && otlpProtocol != otlpGrpcProtocol {
+		return false
+	}
+	otlpTracesPort, ok := s.portFromEndpointEnvVar(envOTLPTracesEndpoint)
+	if ok {
+		return otlpTracesPort == s.PeerPort
+	}
+	return s.sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort)
+}
+
+func (s *Span) sendsMetricsOnOtelPort(defaultOtlpGRPCPort int) bool {
+	switch s.Type {
+	case EventTypeGRPCClient:
+		return s.sendsMetricsOnGrpcOtelPort(defaultOtlpGRPCPort)
+	default:
+		return false
+	}
+}
+
+func (s *Span) sendsTracesOnOtelPort(defaultOtlpGRPCPort int) bool {
+	switch s.Type {
+	case EventTypeGRPCClient:
+		return s.sendsTracesOnGrpcOtelPort(defaultOtlpGRPCPort)
+	default:
+		return false
+	}
+}
+
+func (s *Span) sendsMetricsOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
+	otlpMetricsProtocol, ok := s.Service.EnvVars[envOTLPMetricsProtocol]
+	if ok && otlpMetricsProtocol != otlpGrpcProtocol {
+		return false
+	}
+	otlpProtocol, ok := s.Service.EnvVars[envOTLPProtocol]
+	if ok && otlpProtocol != otlpGrpcProtocol {
+		return false
+	}
+	otlpMetricsPort, ok := s.portFromEndpointEnvVar(envOTLPMetricsEndpoint)
+	if ok {
+		return otlpMetricsPort == s.PeerPort
+	}
+	return s.sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort)
+}
+
+func (s *Span) portFromEndpointEnvVar(envVarName string) (int, bool) {
+	endpoint, ok := s.Service.EnvVars[envVarName]
+	if !ok {
+		return 0, false
+	}
+	parsedURL, err := url.Parse(endpoint)
+	if err != nil || parsedURL == nil {
+		return 0, false
+	}
+	port, err := strconv.Atoi(parsedURL.Port())
+	if err != nil {
+		return 0, false
+	}
+	return port, true
+}
+
+func (s *Span) IsExportMetricsSpan(defaultOtlpGRPCPort int) bool {
 	// check if it's a successful client call
 	if !s.isHTTPOrGRPCClient() || (SpanStatusCode(s) != StatusCodeUnset) {
 		return false
 	}
 
-	return s.isTracesExportURL()
+	return s.isMetricsExportURL() || s.sendsMetricsOnOtelPort(defaultOtlpGRPCPort)
+}
+
+func (s *Span) IsExportTracesSpan(defaultOtlpGRPCPort int) bool {
+	// check if it's a successful client call
+	if !s.isHTTPOrGRPCClient() || (SpanStatusCode(s) != StatusCodeUnset) {
+		return false
+	}
+
+	return s.isTracesExportURL() || s.sendsTracesOnOtelPort(defaultOtlpGRPCPort)
 }
 
 func (s *Span) IsSelfReferenceSpan() bool {

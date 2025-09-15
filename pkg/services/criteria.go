@@ -96,6 +96,10 @@ type DiscoveryConfig struct {
 	// Disables instrumentation of services which are already instrumented
 	ExcludeOTelInstrumentedServices bool `yaml:"exclude_otel_instrumented_services" env:"OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES"`
 
+	// DefaultOtlpGRPCPort specifies the default OTLP gRPC port (4317) to fallback on when missing environment variables on service, for
+	// checking for grpc export requests, defaults to 4317
+	DefaultOtlpGRPCPort int `yaml:"default_otlp_grpc_port" env:"OTEL_EBPF_DEFAULT_OTLP_GRPC_PORT"`
+
 	// Min process age to be considered for discovery.
 	//nolint:undoc
 	MinProcessAge time.Duration `yaml:"min_process_age" env:"OTEL_EBPF_MIN_PROCESS_AGE"`

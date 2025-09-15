@@ -129,12 +129,13 @@ func TestFilter_NewNSLater(t *testing.T) {
 }
 
 func TestFilter_ExportsOTelDetection(t *testing.T) {
+	const defaultOtlpPort = 4317
 	pf := newPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
 	s := svc.Attrs{}
 	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/random/server/span", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTel(&s, &span)
+	pf.checkIfExportsOTel(&s, &span, defaultOtlpPort)
 	assert.False(t, s.ExportsOTelMetricsSpan())
 	assert.False(t, s.ExportsOTelMetrics())
 	assert.False(t, s.ExportsOTelTraces())
@@ -142,7 +143,7 @@ func TestFilter_ExportsOTelDetection(t *testing.T) {
 	s = svc.Attrs{}
 	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/metrics", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTel(&s, &span)
+	pf.checkIfExportsOTel(&s, &span, defaultOtlpPort)
 	assert.False(t, s.ExportsOTelMetricsSpan())
 	assert.True(t, s.ExportsOTelMetrics())
 	assert.False(t, s.ExportsOTelTraces())
@@ -150,19 +151,20 @@ func TestFilter_ExportsOTelDetection(t *testing.T) {
 	s = svc.Attrs{}
 	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTel(&s, &span)
+	pf.checkIfExportsOTel(&s, &span, defaultOtlpPort)
 	assert.False(t, s.ExportsOTelMetricsSpan())
 	assert.False(t, s.ExportsOTelMetrics())
 	assert.True(t, s.ExportsOTelTraces())
 }
 
 func TestFilter_ExportsOTelSpanDetection(t *testing.T) {
+	const defaultOtlpPort = 4317
 	pf := newPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
 	s := svc.Attrs{}
 	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/random/server/span", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTelSpanMetrics(&s, &span)
+	pf.checkIfExportsOTelSpanMetrics(&s, &span, defaultOtlpPort)
 	assert.False(t, s.ExportsOTelMetricsSpan())
 	assert.False(t, s.ExportsOTelMetrics())
 	assert.False(t, s.ExportsOTelTraces())
@@ -170,7 +172,7 @@ func TestFilter_ExportsOTelSpanDetection(t *testing.T) {
 	s = svc.Attrs{}
 	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/metrics", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTelSpanMetrics(&s, &span)
+	pf.checkIfExportsOTelSpanMetrics(&s, &span, defaultOtlpPort)
 	assert.False(t, s.ExportsOTelMetricsSpan())
 	assert.False(t, s.ExportsOTelMetrics())
 	assert.False(t, s.ExportsOTelTraces())
@@ -178,11 +180,11 @@ func TestFilter_ExportsOTelSpanDetection(t *testing.T) {
 	s = svc.Attrs{}
 	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTelSpanMetrics(&s, &span)
+	pf.checkIfExportsOTelSpanMetrics(&s, &span, defaultOtlpPort)
 	assert.False(t, s.ExportsOTelMetrics())
 	assert.True(t, s.ExportsOTelMetricsSpan())
 	assert.False(t, s.ExportsOTelTraces())
-	pf.checkIfExportsOTel(&s, &span)
+	pf.checkIfExportsOTel(&s, &span, defaultOtlpPort)
 	assert.True(t, s.ExportsOTelTraces())
 }
 
