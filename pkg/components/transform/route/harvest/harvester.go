@@ -4,7 +4,9 @@
 package harvest
 
 import (
+	"context"
 	"log/slog"
+	"time"
 
 	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/svc"
@@ -12,8 +14,12 @@ import (
 )
 
 type RouteHarvester struct {
-	log  *slog.Logger
-	java *JavaRoutes
+	log     *slog.Logger
+	java    *JavaRoutes
+	timeout time.Duration
+
+	// testing related
+	javaExtractRoutes func(pid int32) (*RouteHarvesterResult, error)
 }
 
 type RouteHarvesterResultKind uint8
@@ -28,19 +34,67 @@ type RouteHarvesterResult struct {
 	Kind   RouteHarvesterResultKind
 }
 
-func NewRouteHarvester() *RouteHarvester {
-	return &RouteHarvester{
-		log:  slog.With("component", "route.harvester"),
-		java: NewJavaRoutesHarvester(),
+// HarvestError represents an error that occurred during route harvesting
+type HarvestError struct {
+	Message string
+}
+
+func (e *HarvestError) Error() string {
+	return e.Message
+}
+
+func NewRouteHarvester(timeout time.Duration) *RouteHarvester {
+	h := &RouteHarvester{
+		log:     slog.With("component", "route.harvester"),
+		java:    NewJavaRoutesHarvester(),
+		timeout: timeout,
 	}
+
+	h.javaExtractRoutes = h.java.ExtractRoutes
+
+	return h
 }
 
 func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvesterResult, error) {
-	if fileInfo.Service.SDKLanguage == svc.InstrumentableJava {
-		return h.java.ExtractRoutes(fileInfo.Pid)
-	}
+	// Create a context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), h.timeout)
+	defer cancel()
 
-	return nil, nil
+	// Channel to receive the result
+	resultChan := make(chan *RouteHarvesterResult, 1)
+	errorChan := make(chan error, 1)
+
+	// Run the harvesting in a goroutine
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				h.log.Error("route harvesting failed", "error", r)
+				errorChan <- &HarvestError{Message: "harvesting failed"}
+			}
+		}()
+
+		if fileInfo.Service.SDKLanguage == svc.InstrumentableJava {
+			result, err := h.javaExtractRoutes(fileInfo.Pid)
+			if err != nil {
+				errorChan <- err
+				return
+			}
+			resultChan <- result
+		} else {
+			resultChan <- nil
+		}
+	}()
+
+	// Wait for either completion or timeout
+	select {
+	case result := <-resultChan:
+		return result, nil
+	case err := <-errorChan:
+		return nil, err
+	case <-ctx.Done():
+		h.log.Warn("route harvesting timed out", "timeout", h.timeout, "pid", fileInfo.Pid)
+		return nil, &HarvestError{Message: "route harvesting timed out"}
+	}
 }
 
 func RouteMatcherFromResult(r RouteHarvesterResult) route.Matcher {

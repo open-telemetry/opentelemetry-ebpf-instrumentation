@@ -169,7 +169,8 @@ var DefaultConfig = Config{
 				Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
 			},
 		},
-		MinProcessAge: 5 * time.Second,
+		MinProcessAge:         5 * time.Second,
+		RouteHarvesterTimeout: 10 * time.Second,
 	},
 	NodeJS: NodeJSConfig{
 		Enabled: true,
