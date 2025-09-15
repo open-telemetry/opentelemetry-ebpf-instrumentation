@@ -84,7 +84,7 @@ func (ta *TraceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	ta.processInstances = maps.MultiCounter[uint64]{}
 	ta.beylaPID = os.Getpid()
 	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.CommonPIDsFilter(&ta.Cfg.Discovery, ta.Metrics)
-	ta.routeHarvester = harvest.NewRouteHarvester()
+	ta.routeHarvester = harvest.NewRouteHarvester(ta.Cfg.Discovery.DisabledRouteHarvesters)
 
 	if err := ta.init(); err != nil {
 		ta.log.Error("cant start process tracer. Stopping it", "error", err)

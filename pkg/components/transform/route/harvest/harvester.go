@@ -5,6 +5,7 @@ package harvest
 
 import (
 	"log/slog"
+	"strings"
 
 	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/svc"
@@ -12,8 +13,9 @@ import (
 )
 
 type RouteHarvester struct {
-	log  *slog.Logger
-	java *JavaRoutes
+	log      *slog.Logger
+	java     *JavaRoutes
+	disabled map[svc.InstrumentableType]struct{}
 }
 
 type RouteHarvesterResultKind uint8
@@ -28,16 +30,26 @@ type RouteHarvesterResult struct {
 	Kind   RouteHarvesterResultKind
 }
 
-func NewRouteHarvester() *RouteHarvester {
+func NewRouteHarvester(disabled []string) *RouteHarvester {
+	dMap := map[svc.InstrumentableType]struct{}{}
+	for _, lang := range disabled {
+		if strings.ToLower(lang) == "java" {
+			dMap[svc.InstrumentableJava] = struct{}{}
+		}
+	}
+
 	return &RouteHarvester{
-		log:  slog.With("component", "route.harvester"),
-		java: NewJavaRoutesHarvester(),
+		log:      slog.With("component", "route.harvester"),
+		java:     NewJavaRoutesHarvester(),
+		disabled: dMap,
 	}
 }
 
 func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvesterResult, error) {
 	if fileInfo.Service.SDKLanguage == svc.InstrumentableJava {
-		return h.java.ExtractRoutes(fileInfo.Pid)
+		if _, ok := h.disabled[svc.InstrumentableJava]; !ok {
+			return h.java.ExtractRoutes(fileInfo.Pid)
+		}
 	}
 
 	return nil, nil

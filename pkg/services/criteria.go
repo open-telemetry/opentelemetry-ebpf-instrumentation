@@ -106,6 +106,8 @@ type DiscoveryConfig struct {
 
 	// Disables generation of span metrics of services which are already instrumented
 	ExcludeOTelInstrumentedServicesSpanMetrics bool `yaml:"exclude_otel_instrumented_services_span_metrics" env:"OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES_SPAN_METRICS"`
+
+	DisabledRouteHarvesters []string `yaml:"disabled_route_harvesters"`
 }
 
 func (c *DiscoveryConfig) Validate() error {
