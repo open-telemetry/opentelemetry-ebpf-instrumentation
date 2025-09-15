@@ -29,7 +29,7 @@ func ContainerDBUpdaterProvider(
 		if err != nil {
 			return nil, fmt.Errorf("instantiating ContainerDBUpdater: %w", err)
 		}
-		return updateLoop(store, input.Subscribe(), output), nil
+		return updateLoop(store, input.Subscribe(msg.SubscriberName("ContainerDBUpdater")), output), nil
 	}
 }
 

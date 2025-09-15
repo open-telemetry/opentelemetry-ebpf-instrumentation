@@ -91,7 +91,7 @@ func (ta *TraceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 		return nil, err
 	}
 
-	in := ta.InputInstrumentables.Subscribe()
+	in := ta.InputInstrumentables.Subscribe(msg.SubscriberName("TraceAttacher"))
 	return func(ctx context.Context) {
 		defer ta.OutputTracerEvents.Close()
 		swarms.ForEachInput(ctx, in, ta.log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {

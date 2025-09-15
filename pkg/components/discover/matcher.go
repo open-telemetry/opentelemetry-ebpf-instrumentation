@@ -39,7 +39,7 @@ func CriteriaMatcherProvider(
 		Criteria:         FindingCriteria(cfg),
 		ExcludeCriteria:  ExcludingCriteria(cfg),
 		ProcessHistory:   map[PID]ProcessMatch{},
-		Input:            input.Subscribe(),
+		Input:            input.Subscribe(msg.SubscriberName("discover.CriteriaMatcher")),
 		Output:           output,
 		Namespace:        beylaNamespace,
 		HasHostPidAccess: hasHostPidAccess(),

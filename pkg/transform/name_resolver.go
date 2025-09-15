@@ -102,7 +102,7 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 		sources: sources,
 	}
 
-	in := input.Subscribe()
+	in := input.Subscribe(msg.SubscriberName("transform.NameResolver"))
 	return func(ctx context.Context) {
 		// output channel must be closed so later stages in the pipeline can finish in cascade
 		defer output.Close()

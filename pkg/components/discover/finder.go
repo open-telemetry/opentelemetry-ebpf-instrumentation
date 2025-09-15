@@ -115,7 +115,7 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 	if err != nil {
 		return nil, fmt.Errorf("can't instantiate discovery.ProcessFinder pipeline: %w", err)
 	}
-	tracerEventsCh := tracerEvents.Subscribe()
+	tracerEventsCh := tracerEvents.Subscribe(msg.SubscriberName("tracerEventsCh"))
 	pipeline.Start(ctx, swarm.WithCancelTimeout(pf.cfg.ShutdownTimeout))
 	pf.doneChan = pipeline.Done()
 	return tracerEventsCh, nil

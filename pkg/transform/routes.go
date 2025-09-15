@@ -98,7 +98,7 @@ func (rn *routerNode) provideRoutes(_ context.Context) (swarm.RunFunc, error) {
 		ignoreMode = IgnoreDefault
 	}
 
-	in := rn.input.Subscribe()
+	in := rn.input.Subscribe(msg.SubscriberName("transform.Routes"))
 	out := rn.output
 	return func(ctx context.Context) {
 		// output channel must be closed so later stages in the pipeline can finish in cascade

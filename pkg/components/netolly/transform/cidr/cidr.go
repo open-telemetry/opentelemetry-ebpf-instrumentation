@@ -43,7 +43,7 @@ func DecoratorProvider(g Definitions, input, output *msg.Queue[[]*ebpf.Record]) 
 		if err != nil {
 			return nil, fmt.Errorf("instantiating IP grouper: %w", err)
 		}
-		in := input.Subscribe()
+		in := input.Subscribe(msg.SubscriberName("cidr.Decorator"))
 		return func(ctx context.Context) {
 			defer output.Close()
 			swarms.ForEachInput(ctx, in, glog().Debug, func(flows []*ebpf.Record) {
