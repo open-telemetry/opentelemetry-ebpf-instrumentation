@@ -212,6 +212,7 @@ func (p *Tracer) Constants() map[string]any {
 		m["disable_black_box_cp"] = uint32(0)
 	}
 
+	m["http_buffer_size"] = p.cfg.EBPF.BufferSizes.HTTP
 	m["mysql_buffer_size"] = p.cfg.EBPF.BufferSizes.MySQL
 	m["postgres_buffer_size"] = p.cfg.EBPF.BufferSizes.Postgres
 
@@ -465,9 +466,10 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	}
 
 	timeoutTicker := time.NewTicker(2 * time.Second)
+	parseContext := ebpfcommon.NewEBPFParseContext(&p.cfg.EBPF)
 
 	go p.watchForMisclassifedEvents(ctx)
-	go p.lookForTimeouts(ctx, timeoutTicker, eventsChan)
+	go p.lookForTimeouts(ctx, parseContext, timeoutTicker, eventsChan)
 	defer timeoutTicker.Stop()
 
 	for _, it := range p.Iters() {
@@ -482,6 +484,7 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 
 	ebpfcommon.SharedRingbuf(
 		ebpfEventContext,
+		parseContext,
 		&p.cfg.EBPF,
 		p.pidsFilter,
 		p.bpfObjects.Events,
@@ -497,7 +500,7 @@ func kernelTime(ktime uint64) time.Time {
 }
 
 //nolint:cyclop
-func (p *Tracer) lookForTimeouts(ctx context.Context, ticker *time.Ticker, eventsChan *msg.Queue[[]request.Span]) {
+func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFParseContext, ticker *time.Ticker, eventsChan *msg.Queue[[]request.Span]) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -515,7 +518,7 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, ticker *time.Ticker, event
 					if v.EndMonotimeNs != 0 && t.After(kernelTime(v.EndMonotimeNs).Add(2*time.Second)) {
 						// Must use unsafe here, the two bpfHttpInfoTs are the same but generated from different
 						// ebpf2go outputs
-						s, ignore, err := ebpfcommon.HTTPInfoEventToSpan((*ebpfcommon.BPFHTTPInfo)(unsafe.Pointer(&v)))
+						s, ignore, err := ebpfcommon.HTTPInfoEventToSpan(parseCtx, (*ebpfcommon.BPFHTTPInfo)(unsafe.Pointer(&v)))
 						if !ignore && err == nil {
 							eventsChan.Send(p.pidsFilter.Filter([]request.Span{s}))
 						}
@@ -525,7 +528,7 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, ticker *time.Ticker, event
 					} else if v.EndMonotimeNs == 0 && p.cfg.EBPF.HTTPRequestTimeout.Milliseconds() > 0 && t.After(kernelTime(v.StartMonotimeNs).Add(p.cfg.EBPF.HTTPRequestTimeout)) {
 						// If we don't have a request finish with endTime by the configured request timeout, terminate the
 						// waiting request with a timeout 408
-						s, ignore, err := ebpfcommon.HTTPInfoEventToSpan((*ebpfcommon.BPFHTTPInfo)(unsafe.Pointer(&v)))
+						s, ignore, err := ebpfcommon.HTTPInfoEventToSpan(parseCtx, (*ebpfcommon.BPFHTTPInfo)(unsafe.Pointer(&v)))
 
 						if !ignore && err == nil {
 							s.Status = 408 // timeout

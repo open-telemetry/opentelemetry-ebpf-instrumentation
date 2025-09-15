@@ -42,6 +42,7 @@
 #define HTTP_HEADER_MAX_LEN 100
 #define HTTP_CONTENT_TYPE_MAX_LEN 16
 
+volatile const u32 http_buffer_size = 0;
 volatile const u32 mysql_buffer_size = 0;
 volatile const u32 postgres_buffer_size = 0;
 

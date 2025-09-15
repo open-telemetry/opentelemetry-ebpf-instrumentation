@@ -102,23 +102,26 @@ type EBPFTracer struct {
 	MongoRequestsCacheSize int `yaml:"mongo_requests_cache_size" env:"OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE"`
 }
 
+// Per-protocol data buffer size in bytes.
+// Min: 128 bytes, Max: 8192 bytes.
+// Valid values: 0, 128, 256, 512, 1024, 2048, 4096, 8192.
+//
+// Default: 0 (disabled).
 type EBPFBufferSizes struct {
-	// MySQL data buffer size in bytes.
-	// Min: 128 bytes, Max: 8192 bytes.
-	// Valid values: 0, 128, 256, 512, 1024, 2048, 4096, 8192.
-	//
-	// Default: 0 (disabled).
-	MySQL uint32 `yaml:"mysql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL"`
-	// Postgres data buffer size in bytes.
-	// Min: 128 bytes, Max: 8192 bytes.
-	// Valid values: 0, 128, 256, 512, 1024, 2048, 4096, 8192.
-	//
-	// Default: 0 (disabled).
+	HTTP     uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP"`
+	MySQL    uint32 `yaml:"mysql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL"`
 	Postgres uint32 `yaml:"postgres" env:"OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES"`
 }
 
 func (c *EBPFTracer) Validate() error {
 	// TODO(matt): validate all the existing attributes
+
+	switch c.BufferSizes.HTTP {
+	case 0, 128, 256, 512, 1024, 2048, 4096, 8192:
+		// valid sizes
+	default:
+		return fmt.Errorf("invalid HTTP buffer size: %d, must be one of 0, 128, 256, 512, 1024, 2048, 4096, 8192", c.BufferSizes.HTTP)
+	}
 
 	switch c.BufferSizes.MySQL {
 	case 0, 128, 256, 512, 1024, 2048, 4096, 8192:
