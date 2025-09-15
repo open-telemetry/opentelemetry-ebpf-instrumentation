@@ -4,6 +4,9 @@
     "config:best-practices",
     "helpers:pinGitHubActionDigestsToSemver"
   ],
+  "ignorePaths": [
+    "configs/offsets/shopify/**"
+  ],
   "packageRules": [
     {
       "groupName": "all patch versions",
