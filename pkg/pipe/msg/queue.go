@@ -5,18 +5,29 @@
 package msg
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
+
+// if a Send operation takes more than this time, we panic informing about a deadlock
+// in the user-provide pipeline
+const sendTimeout = 20 * time.Second
+
+const unnamed = "(unnamed)"
 
 type queueConfig struct {
 	channelBufferLen int
 	closingAttempts  int
+	name             string
 }
 
 var defaultQueueConfig = queueConfig{
 	channelBufferLen: 1,
 	closingAttempts:  1,
+	name:             unnamed,
 }
 
 // QueueOpts allow configuring some operation of a queue
@@ -26,6 +37,13 @@ type QueueOpts func(*queueConfig)
 func ChannelBufferLen(l int) QueueOpts {
 	return func(c *queueConfig) {
 		c.channelBufferLen = l
+	}
+}
+
+// Name sets the name of the queue. Useful for debugging.
+func Name(name string) QueueOpts {
+	return func(c *queueConfig) {
+		c.name = name
 	}
 }
 
@@ -39,6 +57,11 @@ func ClosingAttempts(attempts int) QueueOpts {
 	}
 }
 
+type dst[T any] struct {
+	name string
+	ch   chan T
+}
+
 // Queue is a simple message queue that allows sending messages to multiple subscribers.
 // It also allows bypassing messages to other queues, so that a message sent to one queue
 // can be received by subscribers of another queue.
@@ -48,13 +71,15 @@ type Queue[T any] struct {
 	mt  sync.Mutex
 	cfg *queueConfig
 
-	dsts             []chan T
+	dsts             []dst[T]
 	remainingClosers int
 
 	// linked list of bypassing queues
 	// For simplicity, a Queue instance can only bypass to a single queue, despite multiple queues can bypass to it
 	bypassTo *Queue[T]
 	closed   atomic.Bool
+
+	sendTimeout *time.Timer
 }
 
 // NewQueue creates a new Queue instance with the given options.
@@ -63,14 +88,7 @@ func NewQueue[T any](opts ...QueueOpts) *Queue[T] {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	return &Queue[T]{cfg: &cfg, remainingClosers: cfg.closingAttempts}
-}
-
-func (q *Queue[T]) config() *queueConfig {
-	if q.cfg == nil {
-		return &defaultQueueConfig
-	}
-	return q.cfg
+	return &Queue[T]{cfg: &cfg, remainingClosers: cfg.closingAttempts, sendTimeout: time.NewTimer(sendTimeout)}
 }
 
 // Send a message to all subscribers of this queue.
@@ -81,13 +99,49 @@ func (q *Queue[T]) config() *queueConfig {
 // the Send operation would block for all the subscribers until all the internal channels
 // of the Queue room for a new message.
 func (q *Queue[T]) Send(o T) {
+	q.chainedSend(o, []string{q.cfg.name})
+}
+
+func (q *Queue[T]) chainedSend(o T, bypassPath []string) {
 	q.assertNotClosed()
 	if q.bypassTo != nil {
-		q.bypassTo.Send(o)
+		q.bypassTo.chainedSend(o, append(bypassPath, q.bypassTo.cfg.name))
 		return
 	}
+
+	// this can happen in dead paths (which are valid for disabled pipeline branches),
+	// exiting early to save timeout management
+	if len(q.dsts) == 0 {
+		return
+	}
+	q.sendTimeout.Reset(sendTimeout)
 	for _, d := range q.dsts {
-		d <- o
+		select {
+		case d.ch <- o:
+		// good!
+		case <-q.sendTimeout.C:
+			panic(fmt.Sprintf("sending through queue path %s. Subscriber channel %s is blocked",
+				strings.Join(bypassPath, "->"), d.name))
+		}
+	}
+}
+
+type subscribeOpts struct {
+	subscriber string
+}
+
+type SubscribeOpt func(*subscribeOpts)
+
+// SubscriberName helps debugging any blocked channel reader
+func SubscriberName(nodeName string) SubscribeOpt {
+	return func(o *subscribeOpts) {
+		o.subscriber = nodeName
+	}
+}
+
+func withRawOpts(opts subscribeOpts) SubscribeOpt {
+	return func(o *subscribeOpts) {
+		*o = opts
 	}
 }
 
@@ -98,17 +152,22 @@ func (q *Queue[T]) Send(o T) {
 // sure that any subscriber will get its own effective channel. But invocations to Subscribe are not
 // thread-safe with the Send method. This means that concurrent invocations to Subscribe and Send might
 // result in few initial lost messages.
-func (q *Queue[T]) Subscribe() <-chan T {
+func (q *Queue[T]) Subscribe(options ...SubscribeOpt) <-chan T {
 	q.assertNotClosed()
 	q.mt.Lock()
 	defer q.mt.Unlock()
 
-	if q.bypassTo != nil {
-		return q.bypassTo.Subscribe()
+	opts := subscribeOpts{subscriber: unnamed}
+	for _, opt := range options {
+		opt(&opts)
 	}
 
-	ch := make(chan T, q.config().channelBufferLen)
-	q.dsts = append(q.dsts, ch)
+	if q.bypassTo != nil {
+		return q.bypassTo.Subscribe(withRawOpts(opts))
+	}
+
+	ch := make(chan T, q.cfg.channelBufferLen)
+	q.dsts = append(q.dsts, dst[T]{ch: ch, name: opts.subscriber})
 	return ch
 }
 
@@ -120,7 +179,7 @@ func (q *Queue[T]) Bypass(to *Queue[T]) {
 	q.mt.Lock()
 	defer q.mt.Unlock()
 	if q == to {
-		panic("this queue can't bypass to itself")
+		panic(q.cfg.name + ": this queue can't bypass to itself")
 	}
 	q.assertNotBypassing()
 
@@ -137,6 +196,7 @@ func (q *Queue[T]) Bypass(to *Queue[T]) {
 	}
 	last.dsts = append(last.dsts, q.dsts...)
 	q.dsts = nil
+	q.sendTimeout = nil
 	last.mt.Unlock()
 }
 
@@ -145,6 +205,9 @@ func (q *Queue[T]) Bypass(to *Queue[T]) {
 func (q *Queue[T]) Close() {
 	q.mt.Lock()
 	defer q.mt.Unlock()
+	if q.sendTimeout != nil {
+		q.sendTimeout.Stop()
+	}
 	q.close()
 }
 
@@ -169,7 +232,7 @@ func (q *Queue[T]) close() {
 		q.bypassTo.Close()
 	} else {
 		for _, d := range q.dsts {
-			close(d)
+			close(d.ch)
 		}
 		q.dsts = nil
 	}
@@ -177,12 +240,12 @@ func (q *Queue[T]) close() {
 
 func (q *Queue[T]) assertNotBypassing() {
 	if q.bypassTo != nil {
-		panic("queue already bypassing data to another queue")
+		panic(fmt.Sprintf("queue %s already bypassing data to queue %s", q.cfg.name, q.bypassTo.cfg.name))
 	}
 }
 
 func (q *Queue[T]) assertNotClosed() {
 	if q.closed.Load() {
-		panic("queue is closed")
+		panic(q.cfg.name + ": queue is closed")
 	}
 }

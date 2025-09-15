@@ -62,16 +62,16 @@ type finisher struct {
 func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (*Instrumenter, error) {
 	setupFeatureContextInfo(ctx, ctxInfo, config)
 
-	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen))
+	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen), msg.Name("tracesInput"))
 
-	newEventQueue := func() *msg.Queue[exec.ProcessEvent] {
-		return msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(config.ChannelBufferLen))
+	newEventQueue := func(name string) *msg.Queue[exec.ProcessEvent] {
+		return msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(config.ChannelBufferLen), msg.Name(name))
 	}
 
 	swi := &swarm.Instancer{}
 
-	processEventsInput := newEventQueue()
-	processEventsHostDecorated := newEventQueue()
+	processEventsInput := newEventQueue("processEventsInput")
+	processEventsHostDecorated := newEventQueue("processEventsHostDecorated")
 
 	swi.Add(traces.HostProcessEventDecoratorProvider(
 		&config.Attributes.InstanceID,
@@ -79,7 +79,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		processEventsHostDecorated,
 	), swarm.WithID("HostProcessEventDecoratorProvider"))
 
-	processEventsKubeDecorated := newEventQueue()
+	processEventsKubeDecorated := newEventQueue("processEventsKubeDecorated")
 	swi.Add(transform.KubeProcessEventDecoratorProvider(
 		ctxInfo,
 		&config.Attributes.Kubernetes,

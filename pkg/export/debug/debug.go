@@ -69,7 +69,7 @@ func PrinterNode(p TracePrinter, input *msg.Queue[[]request.Span]) swarm.Instanc
 }
 
 func textPrinter(in *msg.Queue[[]request.Span]) swarm.RunFunc {
-	input := in.Subscribe()
+	input := in.Subscribe(msg.SubscriberName("textPrinter"))
 	return func(ctx context.Context) {
 		swarms.ForEachInput(ctx, input, nil, func(spans []request.Span) {
 			for i := range spans {
@@ -136,7 +136,7 @@ func serializeSpansJSON(spans []request.Span, indent bool) ([]byte, error) {
 }
 
 func jsonPrinter(in *msg.Queue[[]request.Span], indent bool) swarm.RunFunc {
-	input := in.Subscribe()
+	input := in.Subscribe(msg.SubscriberName("jsonPrinter"))
 	return func(_ context.Context) {
 		for spans := range input {
 			data, err := serializeSpansJSON(spans, indent)
@@ -158,7 +158,7 @@ func traceparent(span *request.Span) string {
 }
 
 func counterPrinter(in *msg.Queue[[]request.Span]) swarm.RunFunc {
-	input := in.Subscribe()
+	input := in.Subscribe(msg.SubscriberName("counterPrinter"))
 	counter := 0
 	return func(_ context.Context) {
 		for spans := range input {

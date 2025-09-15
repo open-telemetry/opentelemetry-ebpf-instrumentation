@@ -40,7 +40,7 @@ type InterfaceNamer func(ifIndex int) string
 // - If there is no source or destination hostname, the source IP and destination
 func Decorate(agentIP net.IP, ifaceNamer InterfaceNamer, input *msg.Queue[[]*ebpf.Record], output *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
 	ip := agentIP.String()
-	in := input.Subscribe()
+	in := input.Subscribe(msg.SubscriberName("flow.Decorate"))
 	return func(ctx context.Context) {
 		defer output.Close()
 		swarms.ForEachInput(ctx, in, nil, func(flows []*ebpf.Record) {

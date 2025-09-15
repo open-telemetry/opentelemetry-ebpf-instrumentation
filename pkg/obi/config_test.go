@@ -245,6 +245,7 @@ discovery:
 					Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
 				},
 			},
+			DefaultOtlpGRPCPort: 4317,
 			RouteHarvesterTimeout: 10 * time.Second,
 		},
 		NodeJS: NodeJSConfig{

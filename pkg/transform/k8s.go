@@ -92,7 +92,7 @@ func KubeDecoratorProvider(
 		decorator := &metadataDecorator{
 			db:          metaStore,
 			clusterName: KubeClusterName(ctx, cfg, ctxInfo.K8sInformer),
-			input:       input.Subscribe(),
+			input:       input.Subscribe(msg.SubscriberName("transform.KubeDecorator")),
 			output:      output,
 		}
 		return decorator.nodeLoop, nil
@@ -115,7 +115,7 @@ func KubeProcessEventDecoratorProvider(
 		decorator := &procEventMetadataDecorator{
 			db:          metaStore,
 			clusterName: KubeClusterName(ctx, cfg, ctxInfo.K8sInformer),
-			input:       input.Subscribe(),
+			input:       input.Subscribe(msg.SubscriberName("transform.KubeProcessEventDecorator")),
 			output:      output,
 		}
 		return decorator.k8sLoop, nil

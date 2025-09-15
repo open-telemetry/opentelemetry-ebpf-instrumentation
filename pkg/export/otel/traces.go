@@ -62,7 +62,7 @@ func makeTracesReceiver(
 		selectorCfg:        selectorCfg,
 		is:                 instrumentations.NewInstrumentationSelection(cfg.Instrumentations),
 		spanMetricsEnabled: spanMetricsEnabled,
-		input:              input.Subscribe(),
+		input:              input.Subscribe(msg.SubscriberName("otel.TracesReceiver")),
 		attributeCache:     expirable2.NewLRU[svc.UID, []attribute.KeyValue](1024, nil, 5*time.Minute),
 	}
 }

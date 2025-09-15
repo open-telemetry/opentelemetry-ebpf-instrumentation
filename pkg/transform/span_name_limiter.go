@@ -56,7 +56,7 @@ func SpanNameLimiter(cfg SpanNameLimiterConfig, input, output *msg.Queue[[]reque
 		return (&spanNameLimiter{
 			limit: cfg.Limit,
 			log:   log,
-			in:    input.Subscribe(),
+			in:    input.Subscribe(msg.SubscriberName("SpanNameLimiter")),
 			out:   output,
 			ttl:   ttl,
 			spanNamesCount: cache.NewExpirableLRU[svc.ServiceNameNamespace, *routesCount](ttl,
