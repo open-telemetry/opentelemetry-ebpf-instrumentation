@@ -64,34 +64,34 @@ func newGraphBuilder(
 		ExtraGroupAttributesCfg: config.Attributes.ExtraGroupAttributes,
 	}
 
-	newQueue := func() *msg.Queue[[]request.Span] {
-		return msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen))
+	newQueue := func(name string) *msg.Queue[[]request.Span] {
+		return msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen), msg.Name(name))
 	}
 
 	// Second, we register instancers for each pipe node, as well as communication queues between them
 	// TODO: consider moving the queues to a public structure so when OBI is used as library, other components can
 	// listen to the messages and expanding the Pipeline
-	tracesReaderToRouter := newQueue()
+	tracesReaderToRouter := newQueue("tracesReaderToRouter")
 	swi.Add(traces.ReadFromChannel(&traces.ReadDecorator{
 		InstanceID:      config.Attributes.InstanceID,
 		TracesInput:     tracesCh,
 		DecoratedTraces: tracesReaderToRouter,
 	}), swarm.WithID("ReadFromChannel"))
 
-	routerToKubeDecorator := newQueue()
+	routerToKubeDecorator := newQueue("routerToKubeDecorator")
 	swi.Add(transform.RoutesProvider(
 		config.Routes,
 		tracesReaderToRouter,
 		routerToKubeDecorator,
 	), swarm.WithID("Routes"))
 
-	kubeDecoratorToNameResolver := newQueue()
+	kubeDecoratorToNameResolver := newQueue("kubeDecoratorToNameResolver")
 	swi.Add(transform.KubeDecoratorProvider(
 		ctxInfo, &config.Attributes.Kubernetes,
 		routerToKubeDecorator, kubeDecoratorToNameResolver,
 	), swarm.WithID("KubeDecorator"))
 
-	nameResolverToAttrFilter := newQueue()
+	nameResolverToAttrFilter := newQueue("nameResolverToAttrFilter")
 	swi.Add(transform.NameResolutionProvider(ctxInfo, config.NameResolver,
 		kubeDecoratorToNameResolver, nameResolverToAttrFilter),
 		swarm.WithID("NameResolution"))
@@ -100,7 +100,7 @@ func newGraphBuilder(
 	// own exporters, otherwise we create a new queue
 	exportableSpans := ctxInfo.OverrideAppExportQueue
 	if exportableSpans == nil {
-		exportableSpans = newQueue()
+		exportableSpans = newQueue("exportableSpans")
 	}
 	swi.Add(filter.ByAttribute(config.Filters.Application,
 		nil,
@@ -144,11 +144,11 @@ func setupMetricsSubPipeline(
 	selectorCfg *attributes.SelectorConfig,
 	processEventsCh *msg.Queue[exec.ProcessEvent],
 ) {
-	newQueue := func() *msg.Queue[[]request.Span] {
-		return msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen))
+	newQueue := func(name string) *msg.Queue[[]request.Span] {
+		return msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen), msg.Name(name))
 	}
 
-	spanNameAggregatedMetrics := newQueue()
+	spanNameAggregatedMetrics := newQueue("spanNameAggregatedMetrics")
 	swi.Add(transform.SpanNameLimiter(transform.SpanNameLimiterConfig{
 		Limit: config.Attributes.MetricSpanNameAggregationLimit,
 		OTEL:  &config.Metrics,

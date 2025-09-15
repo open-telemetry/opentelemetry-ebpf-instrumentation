@@ -14,7 +14,8 @@ import (
 
 // if a Send operation takes more than this time, we panic informing about a deadlock
 // in the user-provide pipeline
-const sendTimeout = 30 * time.Second
+const sendTimeout = 20 * time.Second
+
 const unnamed = "(unnamed)"
 
 type queueConfig struct {
@@ -127,11 +128,11 @@ func (q *Queue[T]) chainedSend(o T, bypassPath []string) {
 
 type subscribeOpts struct {
 	subscriber string
-	//bypassPath []string
 }
 
 type SubscribeOpt func(*subscribeOpts)
 
+// SubscriberName helps debugging any blocked channel reader
 func SubscriberName(nodeName string) SubscribeOpt {
 	return func(o *subscribeOpts) {
 		o.subscriber = nodeName
@@ -160,7 +161,6 @@ func (q *Queue[T]) Subscribe(options ...SubscribeOpt) <-chan T {
 	for _, opt := range options {
 		opt(&opts)
 	}
-	//opts.bypassPath = append(opts.bypassPath, "queue:"+q.cfg.name)
 
 	if q.bypassTo != nil {
 		return q.bypassTo.Subscribe(withRawOpts(opts))

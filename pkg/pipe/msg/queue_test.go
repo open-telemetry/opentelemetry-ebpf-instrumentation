@@ -8,9 +8,11 @@ import (
 	"math/rand/v2"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/components/testutil"
 )
@@ -351,4 +353,57 @@ func TestRandomConcurrentBypassSubscribeLongChains(t *testing.T) {
 	if t.Failed() {
 		fmt.Println("failed queues:")
 	}
+}
+
+func TestDeathPathNotBlocking(t *testing.T) {
+	q1 := NewQueue[int](ChannelBufferLen(3), Name("q1"))
+	q2 := NewQueue[int](ChannelBufferLen(3), Name("q2"))
+	q2a1 := NewQueue[int](ChannelBufferLen(3), Name("q2a1"))
+	q2a2 := NewQueue[int](ChannelBufferLen(3), Name("q2a2"))
+
+	// q1 -> q2 -> q2a1 -> q2a2 // a dead path must not block if nobody subscribes to it
+	//         \-> ch           // path with actual subscribers
+	q1.Bypass(q2)
+	ch := q2.Subscribe(SubscriberName("test"))
+	q2a1.Bypass(q2a2)
+	q2.Bypass(q2a1)
+
+	go func() {
+		q1.Send(1)
+		q1.Send(2)
+		q1.Send(3)
+		q1.Send(4)
+	}()
+
+	require.Equal(t, 1, testutil.ReadChannel(t, ch, timeout))
+	require.Equal(t, 2, testutil.ReadChannel(t, ch, timeout))
+	require.Equal(t, 3, testutil.ReadChannel(t, ch, timeout))
+	require.Equal(t, 4, testutil.ReadChannel(t, ch, timeout))
+	testutil.ChannelEmpty(t, ch, 5*time.Millisecond)
+}
+
+func TestBlockingPanics(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		assert.Panics(t, func() {
+			// tests the deadlock verifier. It should panic if a message is sent
+			// and nobody reads it
+
+			q1 := NewQueue[int](ChannelBufferLen(1), Name("q1"))
+			q2 := NewQueue[int](ChannelBufferLen(1), Name("q2"))
+			q2a1 := NewQueue[int](ChannelBufferLen(1), Name("q2a1"))
+			q2a2 := NewQueue[int](ChannelBufferLen(1), Name("q2a2"))
+
+			// q1 -> q2 -> q2a1 -> q2a2 // a dead path must not block if nobody subscribes to it
+			//         \-> ch           // path with actual subscribers
+			q1.Bypass(q2)
+			_ = q2.Subscribe(SubscriberName("test"))
+			q2.Bypass(q2a1)
+			q2a1.Bypass(q2a2)
+
+			q1.Send(1)
+			q1.Send(2)
+
+			time.Sleep(2 * sendTimeout)
+		}, "a deadlock should have been detected")
+	})
 }

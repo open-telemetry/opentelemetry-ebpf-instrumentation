@@ -38,7 +38,8 @@ func main() {
 	// the instrumenter creates internally some communication Queues, but we can override some of them
 	// for inspection. In this case, we override the exporter queue to connect our own exporter
 	// (If other exporters are defined in the config, like OTEL or Prometheus, they will use this queue also)
-	exportedSpans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen))
+	exportedSpans := msg.NewQueue[[]request.Span](
+		msg.ChannelBufferLen(config.ChannelBufferLen), msg.Name("exportedSpans"))
 
 	// running 2 goroutines:
 	// - one containing the vendored instrumentation
