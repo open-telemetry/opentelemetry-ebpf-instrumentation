@@ -6,8 +6,8 @@ package harvest
 import (
 	"context"
 	"log/slog"
-	"time"
 	"strings"
+	"time"
 
 	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/svc"
@@ -15,10 +15,10 @@ import (
 )
 
 type RouteHarvester struct {
-	log     *slog.Logger
-	java    *JavaRoutes
+	log      *slog.Logger
+	java     *JavaRoutes
 	disabled map[svc.InstrumentableType]struct{}
-	timeout time.Duration
+	timeout  time.Duration
 
 	// testing related
 	javaExtractRoutes func(pid int32) (*RouteHarvesterResult, error)
@@ -54,10 +54,10 @@ func NewRouteHarvester(disabled []string, timeout time.Duration) *RouteHarvester
 	}
 
 	h := &RouteHarvester{
-		log:     slog.With("component", "route.harvester"),
-		java:    NewJavaRoutesHarvester(),
+		log:      slog.With("component", "route.harvester"),
+		java:     NewJavaRoutesHarvester(),
 		disabled: dMap,
-		timeout: timeout,
+		timeout:  timeout,
 	}
 
 	h.javaExtractRoutes = h.java.ExtractRoutes
@@ -84,16 +84,16 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 		}()
 
 		if fileInfo.Service.SDKLanguage == svc.InstrumentableJava {
-    		if _, ok := h.disabled[svc.InstrumentableJava]; !ok {
-	    		result, err := h.javaExtractRoutes(fileInfo.Pid)
-                if err != nil {
-                    errorChan <- err
-                    return
-                }
-    			resultChan <- result
-    		} else {
-    		    resultChan <- nil
-    		}
+			if _, ok := h.disabled[svc.InstrumentableJava]; !ok {
+				result, err := h.javaExtractRoutes(fileInfo.Pid)
+				if err != nil {
+					errorChan <- err
+					return
+				}
+				resultChan <- result
+			} else {
+				resultChan <- nil
+			}
 		} else {
 			resultChan <- nil
 		}
