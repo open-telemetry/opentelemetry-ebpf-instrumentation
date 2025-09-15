@@ -2,7 +2,7 @@ module go.opentelemetry.io/obi/configs/offsets/shopify
 
 go 1.25.0
 
-require github.com/Shopify/sarama v1.37.1
+require github.com/Shopify/sarama v1.46.0
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
