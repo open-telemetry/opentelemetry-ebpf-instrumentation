@@ -245,6 +245,7 @@ discovery:
 					Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
 				},
 			},
+			RouteHarvesterTimeout: 10 * time.Second,
 		},
 		NodeJS: NodeJSConfig{
 			Enabled: true,

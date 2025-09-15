@@ -16,7 +16,7 @@ import (
 )
 
 // successfulExtractRoutes simulates a successful route extraction
-func successfulExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
+func successfulExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
 	return &RouteHarvesterResult{
 		Routes: []string{"/api/users", "/api/orders"},
 		Kind:   CompleteRoutes,
@@ -24,12 +24,12 @@ func successfulExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
 }
 
 // errorExtractRoutes simulates an error during route extraction
-func errorExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
+func errorExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
 	return nil, errors.New("failed to connect to Java process")
 }
 
 // timeoutExtractRoutes simulates a slow operation that will timeout
-func timeoutExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
+func timeoutExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
 	// Sleep longer than any reasonable timeout
 	time.Sleep(5 * time.Second)
 	return &RouteHarvesterResult{
@@ -39,12 +39,12 @@ func timeoutExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
 }
 
 // panicExtractRoutes simulates a panic during route extraction
-func panicExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
+func panicExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
 	panic("unexpected error in java route extraction")
 }
 
 // slowButSuccessfulExtractRoutes simulates a slow but successful operation
-func slowButSuccessfulExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
+func slowButSuccessfulExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
 	time.Sleep(50 * time.Millisecond) // Slow but within timeout
 	return &RouteHarvesterResult{
 		Routes: []string{"/api/slow"},
@@ -53,7 +53,7 @@ func slowButSuccessfulExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
 }
 
 // emptyResultExtractRoutes simulates successful extraction with no routes
-func emptyResultExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
+func emptyResultExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
 	return &RouteHarvesterResult{
 		Routes: []string{},
 		Kind:   CompleteRoutes,
@@ -111,7 +111,7 @@ func TestHarvestRoutes_Timeout(t *testing.T) {
 
 	// Check that it's a HarvestError with timeout message
 	var harvestErr *HarvestError
-	assert.True(t, errors.As(err, &harvestErr))
+	require.ErrorAs(t, err, &harvestErr)
 	assert.Equal(t, "route harvesting timed out", harvestErr.Message)
 
 	// Ensure it actually timed out quickly (within reasonable bounds)
@@ -132,7 +132,7 @@ func TestHarvestRoutes_Panic(t *testing.T) {
 
 	// Check that panic was caught and converted to HarvestError
 	var harvestErr *HarvestError
-	assert.True(t, errors.As(err, &harvestErr))
+	require.ErrorAs(t, err, &harvestErr)
 	assert.Equal(t, "harvesting failed", harvestErr.Message)
 }
 
@@ -167,7 +167,7 @@ func TestHarvestRoutes_EmptyResult(t *testing.T) {
 func TestHarvestRoutes_NonJavaLanguage(t *testing.T) {
 	harvester := NewRouteHarvester(1 * time.Second)
 	// javaExtractRoutes should not be called for non-Java languages
-	harvester.javaExtractRoutes = func(pid int32) (*RouteHarvesterResult, error) {
+	harvester.javaExtractRoutes = func(_ int32) (*RouteHarvesterResult, error) {
 		t.Fatal("javaExtractRoutes should not be called for non-Java languages")
 		return nil, nil
 	}
@@ -194,7 +194,7 @@ func TestHarvestRoutes_MultipleTimeouts(t *testing.T) {
 		assert.Nil(t, result, "iteration %d should return nil result", i)
 
 		var harvestErr *HarvestError
-		assert.True(t, errors.As(err, &harvestErr), "iteration %d should return HarvestError", i)
+		require.ErrorAs(t, err, &harvestErr, "iteration %d should return HarvestError", i)
 		assert.Equal(t, "route harvesting timed out", harvestErr.Message, "iteration %d should have timeout message", i)
 	}
 }
