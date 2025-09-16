@@ -31,10 +31,10 @@ import (
 // for each received Instrumentable process and forwards an ebpf.ProcessTracer instance ready to run and start
 // instrumenting the executable
 type TraceAttacher struct {
-	log      *slog.Logger
-	Cfg      *obi.Config
-	Metrics  imetrics.Reporter
-	beylaPID int
+	log     *slog.Logger
+	Cfg     *obi.Config
+	Metrics imetrics.Reporter
+	obiPID  int
 
 	// processInstances keeps track of the instances of each process. This will help making sure
 	// that we don't remove the BPF resources of an executable until all their instances are removed
@@ -82,7 +82,7 @@ func (ta *TraceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	ta.sdkInjector = otelsdk.NewSDKInjector(ta.Cfg)
 	ta.nodeInjector = nodejs.NewNodeInjector(ta.Cfg)
 	ta.processInstances = maps.MultiCounter[uint64]{}
-	ta.beylaPID = os.Getpid()
+	ta.obiPID = os.Getpid()
 	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.CommonPIDsFilter(&ta.Cfg.Discovery, ta.Metrics)
 	ta.routeHarvester = harvest.NewRouteHarvester(ta.Cfg.Discovery.DisabledRouteHarvesters)
 
