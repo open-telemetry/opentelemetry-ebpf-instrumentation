@@ -1,1 +1,1 @@
-FROM mongo:8.0.10
+FROM mongo:8.0.10@sha256:98028cf281bb5d49ace5e1ddbd4509e8f1382fe80ef1cf101eeefdc106d76cd4
