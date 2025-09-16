@@ -190,6 +190,7 @@ discovery:
 				Port: 3210,
 				Path: "/internal/metrics",
 			},
+			BpfMetricScrapeIntervalSeconds: 15,
 		},
 		Attributes: Attributes{
 			InstanceID: traces.InstanceIDConfig{
@@ -245,7 +246,8 @@ discovery:
 					Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
 				},
 			},
-			DefaultOtlpGRPCPort: 4317,
+			DefaultOtlpGRPCPort:   4317,
+			RouteHarvesterTimeout: 10 * time.Second,
 		},
 		NodeJS: NodeJSConfig{
 			Enabled: true,

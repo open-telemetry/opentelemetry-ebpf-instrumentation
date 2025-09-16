@@ -18,5 +18,5 @@ struct {
     __type(key, u64);                         // the SSL struct pointer
     __type(value, ssl_pid_connection_info_t); // the pointer to the file descriptor matching ssl
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } ssl_to_conn SEC(".maps");

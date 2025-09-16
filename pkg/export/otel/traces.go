@@ -31,6 +31,7 @@ import (
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -128,7 +129,7 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 }
 
 func (tr *tracesOTELReceiver) provideLoop(ctx context.Context) {
-	exp, err := getTracesExporter(ctx, tr.cfg)
+	exp, err := getTracesExporter(ctx, tr.cfg, tr.ctxInfo.Metrics)
 	if err != nil {
 		slog.Error("error creating traces exporter", "error", err)
 		return
@@ -157,8 +158,22 @@ func (tr *tracesOTELReceiver) provideLoop(ctx context.Context) {
 	})
 }
 
+// instrumentTracesExporter checks whether the context is configured to report internal metrics and,
+// in this case, wraps the passed metrics exporter inside an instrumented exporter
+func instrumentTracesExporter(internalMetrics imetrics.Reporter, in exporter.Traces) exporter.Traces {
+	// avoid wrapping the instrumented exporter if we don't have
+	// internal instrumentation (NoopReporter)
+	if _, ok := internalMetrics.(imetrics.NoopReporter); ok || internalMetrics == nil {
+		return in
+	}
+	return &instrumentedTracesExporter{
+		Traces:   in,
+		internal: internalMetrics,
+	}
+}
+
 //nolint:cyclop
-func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig) (exporter.Traces, error) {
+func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetrics.Reporter) (exporter.Traces, error) {
 	switch proto := cfg.GetProtocol(); proto {
 	case otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf, "": // zero value defaults to HTTP for backwards-compatibility
 		slog.Debug("instantiating HTTP TracesReporter", "protocol", proto)
@@ -198,16 +213,17 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig) (exporter.
 		}
 		slog.Debug("getTracesExporter: confighttp.ClientConfig created", "endpoint", config.ClientConfig.Endpoint)
 		set := getTraceSettings(factory.Type())
-		exporter, err := factory.CreateTraces(ctx, set, config)
+		exp, err := factory.CreateTraces(ctx, set, config)
 		if err != nil {
 			slog.Error("can't create OTLP HTTP traces exporter", "error", err)
 			return nil, err
 		}
+		exp = instrumentTracesExporter(im, exp)
 		// TODO: remove this once the batcher helper is added to otlphttpexporter
 		return exporterhelper.NewTraces(ctx, set, cfg,
-			exporter.ConsumeTraces,
-			exporterhelper.WithStart(exporter.Start),
-			exporterhelper.WithShutdown(exporter.Shutdown),
+			exp.ConsumeTraces,
+			exporterhelper.WithStart(exp.Start),
+			exporterhelper.WithShutdown(exp.Shutdown),
 			exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
 			exporterhelper.WithQueue(config.QueueConfig),
 			exporterhelper.WithRetry(config.RetryConfig))
@@ -252,7 +268,12 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig) (exporter.
 			Headers: convertHeaders(opts.Headers),
 		}
 		set := getTraceSettings(factory.Type())
-		return factory.CreateTraces(ctx, set, config)
+		exp, err := factory.CreateTraces(ctx, set, config)
+		if err != nil {
+			return nil, err
+		}
+		exp = instrumentTracesExporter(im, exp)
+		return exp, nil
 	default:
 		slog.Error(fmt.Sprintf("invalid protocol value: %q. Accepted values are: %s, %s, %s",
 			proto, otelcfg.ProtocolGRPC, otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf))

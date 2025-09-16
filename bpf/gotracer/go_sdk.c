@@ -46,7 +46,7 @@ struct {
     __type(key, go_addr_key_t); // goroutine
     __type(value, span_info_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } span_names SEC(".maps");
 
 struct {
@@ -54,7 +54,7 @@ struct {
     __type(key, go_addr_key_t); // span pointer
     __type(value, otel_span_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } active_spans SEC(".maps");
 
 struct {

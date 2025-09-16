@@ -16,5 +16,5 @@ struct {
     __type(key, fd_info_t);                // the fd information with pid, tid
     __type(value, connection_info_part_t); // the ephemeral connection info
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } nginx_upstream SEC(".maps");

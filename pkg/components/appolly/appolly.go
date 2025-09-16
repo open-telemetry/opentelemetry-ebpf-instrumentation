@@ -118,11 +118,10 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 	// In the background process any process found events and annotate them with
 	// the Host or Kubernetes metadata
 	graph, err := i.peGraphBuilder.Instance(ctx)
-	if err == nil {
-		i.processEventsPipeline(ctx, graph)
-	} else {
+	if err != nil {
 		return fmt.Errorf("couldn't start Process Event pipeline: %w", err)
 	}
+	i.processEventsPipeline(ctx, graph)
 
 	// registers resources that must be done before exiting OBI
 	i.finishers = append(i.finishers,
