@@ -78,7 +78,7 @@ spec:
             - name: OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT
               value: "100ms"
             - name: OTEL_EBPF_NETWORK_RING_BUFFER_FLUSH_PERIOD
-              value: "2s"
+              value: "1s"
             - name: OTEL_EBPF_METRICS_INTERVAL
               value: "10ms"
             - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
@@ -88,3 +88,5 @@ spec:
             # expecting to be replaced during the configuration YAML load
             - name: DEPLOYMENT_ENVIRONMENT
               value: "deployment.environment"
+            - name: OTEL_EBPF_NETWORK_MAX_FLOW_DURATION
+              value: "1s"
