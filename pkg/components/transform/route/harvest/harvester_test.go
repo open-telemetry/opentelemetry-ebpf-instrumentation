@@ -16,7 +16,7 @@ import (
 )
 
 // successfulExtractRoutes simulates a successful route extraction
-func successfulExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
+func successfulExtractRoutes(int32) (*RouteHarvesterResult, error) {
 	return &RouteHarvesterResult{
 		Routes: []string{"/api/users", "/api/orders"},
 		Kind:   CompleteRoutes,
@@ -24,12 +24,12 @@ func successfulExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
 }
 
 // errorExtractRoutes simulates an error during route extraction
-func errorExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
+func errorExtractRoutes(int32) (*RouteHarvesterResult, error) {
 	return nil, errors.New("failed to connect to Java process")
 }
 
 // timeoutExtractRoutes simulates a slow operation that will timeout
-func timeoutExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
+func timeoutExtractRoutes(int32) (*RouteHarvesterResult, error) {
 	// Sleep longer than any reasonable timeout
 	time.Sleep(5 * time.Second)
 	return &RouteHarvesterResult{
@@ -39,12 +39,12 @@ func timeoutExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
 }
 
 // panicExtractRoutes simulates a panic during route extraction
-func panicExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
+func panicExtractRoutes(int32) (*RouteHarvesterResult, error) {
 	panic("unexpected error in java route extraction")
 }
 
 // slowButSuccessfulExtractRoutes simulates a slow but successful operation
-func slowButSuccessfulExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
+func slowButSuccessfulExtractRoutes(int32) (*RouteHarvesterResult, error) {
 	time.Sleep(50 * time.Millisecond) // Slow but within timeout
 	return &RouteHarvesterResult{
 		Routes: []string{"/api/slow"},
@@ -53,7 +53,7 @@ func slowButSuccessfulExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
 }
 
 // emptyResultExtractRoutes simulates successful extraction with no routes
-func emptyResultExtractRoutes(_ int32) (*RouteHarvesterResult, error) {
+func emptyResultExtractRoutes(int32) (*RouteHarvesterResult, error) {
 	return &RouteHarvesterResult{
 		Routes: []string{},
 		Kind:   CompleteRoutes,

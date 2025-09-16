@@ -71,40 +71,42 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 	defer cancel()
 
 	// Channel to receive the result
-	resultChan := make(chan *RouteHarvesterResult, 1)
-	errorChan := make(chan error, 1)
+	type result struct {
+		r   *RouteHarvesterResult
+		err error
+	}
+
+	resultChan := make(chan result, 1)
 
 	// Run the harvesting in a goroutine
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				h.log.Error("route harvesting failed", "error", r)
-				errorChan <- &HarvestError{Message: "harvesting failed"}
+				resultChan <- result{err: &HarvestError{Message: "harvesting failed"}}
 			}
 		}()
 
 		if fileInfo.Service.SDKLanguage == svc.InstrumentableJava {
 			if _, ok := h.disabled[svc.InstrumentableJava]; !ok {
-				result, err := h.javaExtractRoutes(fileInfo.Pid)
+				r, err := h.javaExtractRoutes(fileInfo.Pid)
 				if err != nil {
-					errorChan <- err
+					resultChan <- result{err: err}
 					return
 				}
-				resultChan <- result
+				resultChan <- result{r: r}
 			} else {
-				resultChan <- nil
+				resultChan <- result{r: nil}
 			}
 		} else {
-			resultChan <- nil
+			resultChan <- result{r: nil}
 		}
 	}()
 
 	// Wait for either completion or timeout
 	select {
 	case result := <-resultChan:
-		return result, nil
-	case err := <-errorChan:
-		return nil, err
+		return result.r, result.err
 	case <-ctx.Done():
 		h.log.Warn("route harvesting timed out", "timeout", h.timeout, "pid", fileInfo.Pid)
 		return nil, &HarvestError{Message: "route harvesting timed out"}
