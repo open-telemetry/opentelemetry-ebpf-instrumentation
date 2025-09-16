@@ -17,5 +17,5 @@ struct {
     __type(key, pid_connection_info_t);
     __type(value, http_info_t);
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_http SEC(".maps");
