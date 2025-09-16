@@ -10,15 +10,16 @@
     // be updated.
     "configs/offsets/shopify/**"
   ],
+  "schedule": [
+    "before 8am on Monday"
+  ],
+  "groupName": "all dependencies",
   "packageRules": [
     {
-      "groupName": "all patch versions",
-      "matchUpdateTypes": ["patch"],
-      "schedule": ["before 8am every weekday"]
-    },
-    {
-      "matchUpdateTypes": ["minor", "major"],
-      "schedule": ["before 8am on Monday"]
+      "groupName": "all dependencies",
+      "matchPackageNames": [
+        "*"
+      ]
     }
   ],
   "labels": [
