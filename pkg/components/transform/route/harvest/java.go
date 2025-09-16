@@ -5,6 +5,7 @@ package harvest
 
 import (
 	"bufio"
+	"io"
 	"log/slog"
 	"net/url"
 	"regexp"
@@ -123,11 +124,32 @@ func (h *JavaRoutes) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
 		return nil, err
 	}
 
-	scanner := bufio.NewScanner(out)
-	for scanner.Scan() {
-		line := scanner.Text()
-		line, ok := h.validLine(line)
+	defer out.Close()
 
+	reader := bufio.NewReader(out)
+	for {
+		// Read line by line, handling arbitrarily long lines
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				// Process the last line if it doesn't end with newline
+				if line != "" {
+					line = strings.TrimRight(line, "\r\n")
+					line, ok := h.validLine(line)
+					if ok {
+						routes = h.addRouteIfValid(line, routes)
+					}
+				}
+				break
+			}
+			h.log.Error("error reading line", "error", err)
+			return nil, err
+		}
+
+		// Remove newline characters
+		line = strings.TrimRight(line, "\r\n")
+
+		line, ok := h.validLine(line)
 		if !ok {
 			continue
 		}
