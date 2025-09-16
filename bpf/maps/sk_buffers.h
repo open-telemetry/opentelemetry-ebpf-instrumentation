@@ -26,7 +26,7 @@ struct {
     __type(key, connection_info_t);
     __type(value, sk_msg_buffer_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } sk_buffers SEC(".maps");
 
 struct {
