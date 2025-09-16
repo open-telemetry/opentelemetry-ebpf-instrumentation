@@ -1014,68 +1014,96 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/api1"})
 		require.Len(t, traces, 1)
 		trace = traces[0]
+
+		// Check the information of the parent span
+		res := trace.FindByOperationName("GET /api1", "")
+		require.Len(t, res, 1)
+		server := res[0]
+		require.NotEmpty(t, server.TraceID)
+		require.NotEmpty(t, server.SpanID)
+		parentID = server.SpanID
+
+		// check span attributes
+		sd := server.Diff(
+			jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+			jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+			jaeger.Tag{Key: "url.path", Type: "string", Value: "/api1"},
+			jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(7771)},
+			jaeger.Tag{Key: "http.route", Type: "string", Value: "/api1"},
+			jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		)
+		assert.Empty(t, sd, sd.String())
+
+		children := trace.ChildrenOf(parentID)
+		require.GreaterOrEqual(t, len(children), 1)
+
+		// We've created the in-queue and processing spans
+		for _, c := range children {
+			children = trace.ChildrenOf(c.SpanID)
+			if len(children) > 0 {
+				break
+			}
+		}
+
+		require.Len(t, children, 1)
+		child := children[0]
+
+		sd = child.Diff(
+			jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+			jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+			jaeger.Tag{Key: "url.path", Type: "string", Value: "/api2"},
+			jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(7772)},
+			jaeger.Tag{Key: "http.route", Type: "string", Value: "/api2"},
+			jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		)
+		assert.Empty(t, sd, sd.String())
+
+		children = trace.ChildrenOf(child.SpanID)
+		require.GreaterOrEqual(t, len(children), 1)
+
+		for _, c := range children {
+			children = trace.ChildrenOf(c.SpanID)
+			if len(children) > 0 {
+				break
+			}
+		}
+
+		require.Len(t, children, 1)
+		child = children[0]
+
+		sd = child.Diff(
+			jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+			jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+			jaeger.Tag{Key: "url.path", Type: "string", Value: "/api3"},
+			jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(7773)},
+			jaeger.Tag{Key: "http.route", Type: "string", Value: "/api3"},
+			jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		)
+		assert.Empty(t, sd, sd.String())
+
+		children = trace.ChildrenOf(child.SpanID)
+		require.GreaterOrEqual(t, len(children), 1)
+
+		for _, c := range children {
+			children = trace.ChildrenOf(c.SpanID)
+			if len(children) > 0 {
+				break
+			}
+		}
+
+		require.Len(t, children, 1)
+		child = children[0]
+
+		sd = child.Diff(
+			jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+			jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+			jaeger.Tag{Key: "url.path", Type: "string", Value: "/api4"},
+			jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(7774)},
+			jaeger.Tag{Key: "http.route", Type: "string", Value: "/api4"},
+			jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		)
+		assert.Empty(t, sd, sd.String())
 	}, test.Interval(100*time.Millisecond))
-
-	// Check the information of the parent span
-	res := trace.FindByOperationName("GET /api1", "")
-	require.Len(t, res, 1)
-	server := res[0]
-	require.NotEmpty(t, server.TraceID)
-	require.NotEmpty(t, server.SpanID)
-	parentID = server.SpanID
-
-	// check span attributes
-	sd := server.Diff(
-		jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
-		jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
-		jaeger.Tag{Key: "url.path", Type: "string", Value: "/api1"},
-		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(7771)},
-		jaeger.Tag{Key: "http.route", Type: "string", Value: "/api1"},
-		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
-	)
-	assert.Empty(t, sd, sd.String())
-
-	children := trace.ChildrenOf(parentID)
-	require.Len(t, children, 1)
-	child := children[0]
-
-	sd = child.Diff(
-		jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
-		jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
-		jaeger.Tag{Key: "url.path", Type: "string", Value: "/api2"},
-		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(7772)},
-		jaeger.Tag{Key: "http.route", Type: "string", Value: "/api2"},
-		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
-	)
-	assert.Empty(t, sd, sd.String())
-
-	children = trace.ChildrenOf(child.SpanID)
-	require.Len(t, children, 1)
-	child = children[0]
-
-	sd = child.Diff(
-		jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
-		jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
-		jaeger.Tag{Key: "url.path", Type: "string", Value: "/api3"},
-		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(7773)},
-		jaeger.Tag{Key: "http.route", Type: "string", Value: "/api3"},
-		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
-	)
-	assert.Empty(t, sd, sd.String())
-
-	children = trace.ChildrenOf(child.SpanID)
-	require.Len(t, children, 1)
-	child = children[0]
-
-	sd = child.Diff(
-		jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
-		jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
-		jaeger.Tag{Key: "url.path", Type: "string", Value: "/api4"},
-		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(7774)},
-		jaeger.Tag{Key: "http.route", Type: "string", Value: "/api4"},
-		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
-	)
-	assert.Empty(t, sd, sd.String())
 }
 
 func testHTTPTracesNestedNodeJSDistCalls(t *testing.T) {
@@ -1121,6 +1149,31 @@ func testHTTPTracesNestedNodeJSDistCalls(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 
 	children := trace.ChildrenOf(parentID)
+	require.GreaterOrEqual(t, len(children), 2)
+
+	res = trace.FindByOperationName("processing", "internal")
+
+	var processing *jaeger.Span
+
+	if len(res) > 0 {
+		for i := range res {
+			r := &res[i]
+			// Check parenthood
+			p, ok := trace.ParentOf(r)
+
+			if ok {
+				if p.TraceID == server.TraceID && p.SpanID == server.SpanID {
+					processing = r
+					break
+				}
+			}
+		}
+	}
+
+	if processing != nil {
+		children = trace.ChildrenOf(processing.SpanID)
+	}
+
 	require.Len(t, children, 3)
 
 	seenP := false
