@@ -5,6 +5,7 @@ package harvest
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"log/slog"
 	"net/url"
@@ -117,6 +118,20 @@ func (h *JavaRoutes) addRouteIfValid(line string, routes []string) []string {
 	return routes
 }
 
+func (h *JavaRoutes) processSymbolLine(lineBytes []byte, routes []string) []string {
+	if len(lineBytes) > 0 {
+		// Remove newline characters
+		lineBytes = bytes.TrimRight(lineBytes, "\r\n")
+		// Validate the line and sanitise
+		line, ok := h.validLine(string(lineBytes))
+		if ok {
+			routes = h.addRouteIfValid(line, routes)
+		}
+	}
+
+	return routes
+}
+
 func (h *JavaRoutes) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
 	routes := []string{}
 	out, err := jvmAttachFunc(int(pid), []string{"jcmd", "VM.symboltable -verbose"}, h.log)
@@ -129,32 +144,18 @@ func (h *JavaRoutes) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
 	reader := bufio.NewReader(out)
 	for {
 		// Read line by line, handling arbitrarily long lines
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
 				// Process the last line if it doesn't end with newline
-				if line != "" {
-					line = strings.TrimRight(line, "\r\n")
-					line, ok := h.validLine(line)
-					if ok {
-						routes = h.addRouteIfValid(line, routes)
-					}
-				}
+				routes = h.processSymbolLine(line, routes)
 				break
 			}
 			h.log.Error("error reading line", "error", err)
 			return nil, err
 		}
 
-		// Remove newline characters
-		line = strings.TrimRight(line, "\r\n")
-
-		line, ok := h.validLine(line)
-		if !ok {
-			continue
-		}
-
-		routes = h.addRouteIfValid(line, routes)
+		routes = h.processSymbolLine(line, routes)
 	}
 
 	routes = h.sortRoutes(routes)
