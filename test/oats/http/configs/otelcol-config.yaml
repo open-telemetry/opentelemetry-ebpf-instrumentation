@@ -10,9 +10,6 @@ receivers:
             - "http://*"
             - "https://*"
 
-processors:
-  batch:
-
 exporters:
   debug:
     verbosity: detailed
@@ -21,27 +18,30 @@ exporters:
   prometheusremotewrite:
     endpoint: http://prometheus:9090/api/v1/write
     add_metric_suffixes: true
+    sending_queue:
+      batch:
   otlp:
     endpoint: tempo:4317
     tls:
       insecure: true
+    sending_queue:
+      batch:
   loki:
     endpoint: http://loki:3100/loki/api/v1/push
+    sending_queue:
+      batch:
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
       #exporters: [otlp]
       exporters: [otlp,debug]
     metrics:
       receivers: [otlp]
-      processors: [batch]
       #exporters: [prometheusremotewrite]
       exporters: [prometheusremotewrite,debug]
     logs:
       receivers: [otlp]
-      processors: [batch]
       exporters: [loki]
       #exporters: [loki,logging/logs]
