@@ -15,6 +15,7 @@
 #include <generictracer/maps/http_info_mem.h>
 #include <generictracer/protocol_common.h>
 
+#include <maps/accepted_connections.h>
 #include <maps/active_ssl_connections.h>
 #include <maps/ongoing_http.h>
 
@@ -344,7 +345,21 @@ static __always_inline void process_http_request(
 
     fixup_connection_info(&info->conn_info, info->type == EVENT_HTTP_CLIENT, orig_dport);
 
-    info->start_monotime_ns = bpf_ktime_get_ns();
+    u64 start_time = bpf_ktime_get_ns();
+    u64 req_time = start_time;
+
+    if (info->type == EVENT_HTTP_REQUEST) {
+        u64 *accept_time = bpf_map_lookup_elem(&accepted_connections, &info->conn_info);
+        if (accept_time) {
+            bpf_d_printk("prev_start_time %ld actual_start_time %ld", start_time, *accept_time);
+            req_time = *accept_time;
+            // delete just in case the connection is reused, so we don't produce wrong info
+            bpf_map_delete_elem(&accepted_connections, &info->conn_info);
+        }
+    }
+
+    info->start_monotime_ns = start_time;
+    info->req_monotime_ns = req_time;
     info->status = 0;
     info->len = len;
     info->extra_id = extra_runtime_id(); // required for deleting the trace information

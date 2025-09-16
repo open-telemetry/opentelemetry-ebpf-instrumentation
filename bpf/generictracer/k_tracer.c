@@ -29,6 +29,7 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <maps/accepted_connections.h>
 #include <maps/fd_map.h>
 #include <maps/fd_to_connection.h>
 #include <maps/msg_buffers.h>
@@ -150,7 +151,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
         store_accept_fd_info(host_pid, fd, &info.p_conn.conn);
 
         u16 orig_dport = info.p_conn.conn.d_port;
-        //dbg_print_http_connection_info(&info.p_conn.conn);
+        dbg_print_http_connection_info(&info.p_conn.conn);
         sort_connection_info(&info.p_conn.conn);
         info.p_conn.pid = pid_from_pid_tgid(id);
         info.orig_dport = orig_dport;
@@ -164,6 +165,10 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
         // find_nodejs_parent_trace() for usage
         // TODO: try to merge with store_accept_fd_info() above
         bpf_map_update_elem(&fd_to_connection, &key, &info.p_conn.conn, BPF_ANY);
+
+        u64 accept_time = bpf_ktime_get_ns();
+
+        bpf_map_update_elem(&accepted_connections, &info.p_conn.conn, &accept_time, BPF_ANY);
     } else {
         bpf_dbg_printk("Failed to parse accept socket info");
     }
@@ -554,6 +559,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         bpf_map_delete_elem(&ongoing_tcp_req, &info);
         delete_backup_sk_buff(&info.conn);
         cleanup_tcp_trace_info_if_needed(&info);
+        bpf_map_delete_elem(&accepted_connections, &info.conn);
     }
 
     bpf_map_delete_elem(&active_send_args, &id);
