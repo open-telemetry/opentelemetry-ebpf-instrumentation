@@ -64,6 +64,32 @@ func (p *PidServiceTracker) RemovePID(pid int32) (bool, svc.UID) {
 	return false, svc.UID{}
 }
 
+func (p *PidServiceTracker) TracksPID(pid int32) (svc.UID, bool) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	u, ok := p.pidToService[pid]
+
+	return u, ok
+}
+
+func (p *PidServiceTracker) UpdateUID(staleUID, newUID svc.UID) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	if staleUID.Equals(&newUID) {
+		return
+	}
+
+	if pids, ok := p.servicePIDs[staleUID]; ok {
+		for pid := range pids {
+			p.pidToService[pid] = newUID
+		}
+		p.servicePIDs[newUID] = pids
+		delete(p.servicePIDs, staleUID)
+	}
+}
+
 func (p *PidServiceTracker) Count() int {
 	p.lock.Lock()
 	defer p.lock.Unlock()
