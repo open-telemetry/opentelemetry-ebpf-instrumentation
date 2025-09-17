@@ -83,7 +83,13 @@ func (csf *ClusterURLClassifier) ClusterURL(path string) string {
 		char := c
 		if c == '?' || c == '&' || c == '#' {
 			// Strip query string and fragment identifiers
-			p = p[:sPos]
+			if skip {
+				// leave one extra byte for the ReplaceWith character
+				p = p[:sPos+1]
+			} else {
+				p = p[:sPos]
+			}
+
 			break
 		}
 
