@@ -122,7 +122,7 @@ func (h *JavaRoutes) processSymbolLine(lineBytes []byte, routes []string) []stri
 	if len(lineBytes) > 0 {
 		// Remove newline characters
 		lineBytes = bytes.TrimRight(lineBytes, "\r\n")
-		// Validate the line and sanitise
+		// Validate the line and sanitize
 		line, ok := h.validLine(string(lineBytes))
 		if ok {
 			routes = h.addRouteIfValid(line, routes)
