@@ -18,5 +18,5 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
     __type(key, u64);
     __type(value, ssl_args_t);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } active_ssl_read_args SEC(".maps");

@@ -15,5 +15,5 @@ struct {
     __type(key, pid_connection_info_t); // connection that's SSL
     __type(value, u64);                 // ssl
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } active_ssl_connections SEC(".maps");

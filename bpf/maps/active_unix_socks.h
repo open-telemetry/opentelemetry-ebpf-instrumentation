@@ -14,5 +14,5 @@ struct {
     __type(key, u64);   // the pid_tid
     __type(value, u32); // the last seen ino
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } active_unix_socks SEC(".maps");

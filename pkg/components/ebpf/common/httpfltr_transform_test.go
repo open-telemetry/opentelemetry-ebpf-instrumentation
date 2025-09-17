@@ -64,6 +64,7 @@ func makeHTTPInfo(method, path, peer, host string, peerPort, hostPort uint32, st
 	bpfInfo := BPFHTTPInfo{
 		Type:            1,
 		Status:          status,
+		ReqMonotimeNs:   durationMs * 1000000,
 		StartMonotimeNs: durationMs * 1000000,
 		EndMonotimeNs:   durationMs * 2 * 1000000,
 	}

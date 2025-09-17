@@ -13,8 +13,8 @@
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, fd_key); // key: fd
-    __type(value, connection_info_t);
+    __type(key, connection_info_t); // connection info
+    __type(value, u64);             // time
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
-} fd_to_connection SEC(".maps");
+} accepted_connections SEC(".maps");

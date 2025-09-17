@@ -95,6 +95,7 @@ func TestToRequestTrace(t *testing.T) {
 
 	var record BPFHTTPInfo
 	record.Type = 1
+	record.ReqMonotimeNs = 123450
 	record.StartMonotimeNs = 123456
 	record.EndMonotimeNs = 789012
 	record.Status = 200
@@ -117,7 +118,7 @@ func TestToRequestTrace(t *testing.T) {
 		Method:       "GET",
 		Status:       200,
 		Type:         request.EventTypeHTTP,
-		RequestStart: 123456,
+		RequestStart: 123450,
 		Start:        123456,
 		End:          789012,
 		HostPort:     1,
@@ -132,6 +133,7 @@ func TestToRequestTraceNoConnection(t *testing.T) {
 
 	var record BPFHTTPInfo
 	record.Type = 1
+	record.ReqMonotimeNs = 123450
 	record.StartMonotimeNs = 123456
 	record.EndMonotimeNs = 789012
 	record.Status = 200
@@ -154,7 +156,7 @@ func TestToRequestTraceNoConnection(t *testing.T) {
 		Method:       "GET",
 		Type:         request.EventTypeHTTP,
 		Start:        123456,
-		RequestStart: 123456,
+		RequestStart: 123450,
 		End:          789012,
 		Status:       200,
 		HostPort:     7033,
@@ -169,6 +171,7 @@ func TestToRequestTrace_BadHost(t *testing.T) {
 
 	var record BPFHTTPInfo
 	record.Type = 1
+	record.ReqMonotimeNs = 123450
 	record.StartMonotimeNs = 123456
 	record.EndMonotimeNs = 789012
 	record.Status = 200
@@ -192,7 +195,7 @@ func TestToRequestTrace_BadHost(t *testing.T) {
 		Method:       "GET",
 		Status:       200,
 		Type:         request.EventTypeHTTP,
-		RequestStart: 123456,
+		RequestStart: 123450,
 		Start:        123456,
 		End:          789012,
 		HostPort:     0,

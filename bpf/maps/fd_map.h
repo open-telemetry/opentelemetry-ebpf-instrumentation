@@ -15,7 +15,7 @@ struct {
     __type(key, connection_info_part_t); // key: the connection info
     __type(value, fd_info_t);            // value: file descriptor with pid/tid information
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } fd_map SEC(".maps");
 
 static __always_inline void get_ephemeral_info(connection_info_part_t *part,
