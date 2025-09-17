@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17@sha256:29a90c25b8e5a2d2617a1a935162b05fa0c4150b4b7ec697b38fd9b5ec13ba05 AS javabuilder
+FROM eclipse-temurin:17@sha256:c2cf43dc9cc4ad9187f1dd7beda6466ad861e1dc30f5d27416ec5a0a3a4653b7 AS javabuilder
 
 # Install tar and gzip to extract the Maven binaries
 RUN apt install -y tar gzip
