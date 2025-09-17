@@ -30,6 +30,8 @@ jobs:
           go-version: ${{ matrix.go }}
           cache: 'false'
       - name: Run verification and unit tests
+        env:
+          GOEXPERIMENT: synctest
         run: make docker-generate verify cov-exclude-generated
       - name: Report coverage
         uses: codecov/codecov-action@fdcc8476540edceab3de004e990f80d881c6cc00 # v5.5.0
