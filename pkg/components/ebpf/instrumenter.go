@@ -20,7 +20,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
-	"github.com/containers/common/pkg/cgroupv2"
+	v2 "github.com/containers/common/pkg/cgroupv2"
 	"github.com/prometheus/procfs"
 	"golang.org/x/sys/unix"
 
@@ -488,7 +488,7 @@ func processMaps(pid int32) ([]*procfs.ProcMap, error) {
 func getCgroupPath() (string, error) {
 	cgroupPath := "/sys/fs/cgroup"
 
-	enabled, err := cgroupv2.Enabled()
+	enabled, err := v2.Enabled()
 	if !enabled {
 		if _, pathErr := os.Stat(filepath.Join(cgroupPath, "unified")); pathErr == nil {
 			slog.Debug("discovered hybrid cgroup hierarchy, will attempt to attach sockops")

@@ -306,7 +306,6 @@ func SupportsContextPropagationWithProbe(log *slog.Logger) bool {
 }
 
 func SupportsEBPFLoops(log *slog.Logger, overrideKernelVersion bool) bool {
-	// TODO(matt): probe for BPF_FUNC_loop instead of relying on kernel version?
 	if overrideKernelVersion {
 		log.Debug("Skipping kernel version check for bpf_loop functionality: user supplied confirmation of support")
 		return true
@@ -315,8 +314,8 @@ func SupportsEBPFLoops(log *slog.Logger, overrideKernelVersion bool) bool {
 	return kernelMajor > 5 || (kernelMajor == 5 && kernelMinor >= 17)
 }
 
-func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
-	if !SupportsEBPFLoops(ptlog(), overrideKernelVersion) {
+func FixupSpec(spec *ebpf.CollectionSpec, bpfLoopEnabled bool) {
+	if !bpfLoopEnabled {
 		// Hack: instead of redefining bpf2go generated struct for mutually exclusive conditional programs,
 		// use one predefined field name to store either of them.
 		spec.Programs["obi_protocol_http"] = spec.Programs["obi_protocol_http_legacy"]

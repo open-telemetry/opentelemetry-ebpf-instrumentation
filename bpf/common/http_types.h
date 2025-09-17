@@ -57,6 +57,7 @@ typedef struct call_protocol_args {
     u16 orig_dport;
     u16 _pad2;
     u64 u_buf;
+    u64 self_ref_parent_id;
 } call_protocol_args_t;
 
 // Here we keep information on the packets passing through the socket filter

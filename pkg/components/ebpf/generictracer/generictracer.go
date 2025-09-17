@@ -51,6 +51,7 @@ type Tracer struct {
 	instrumentedLibs ebpfcommon.InstrumentedLibsT
 	libsMux          sync.Mutex
 	iters            []*ebpfcommon.Iter
+	bpfLoopEnabled   bool
 }
 
 func tlog() *slog.Logger {
@@ -134,6 +135,10 @@ func (p *Tracer) BlockPID(pid, ns uint32) {
 }
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
+	// Default to true: if context propagation is disabled,
+	// load the non-legacy version of the http tailcalls.
+	bpfLoopEnabled := true
+
 	loader := LoadBpf
 	if p.cfg.EBPF.BpfDebug {
 		loader = LoadBpfDebug
@@ -146,7 +151,9 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 			loader = LoadBpfTPDebug
 		}
 
-		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled))
+		bpfLoopEnabled = ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled)
+
+		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", bpfLoopEnabled)
 	}
 
 	spec, err := loader()
@@ -154,7 +161,8 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 		return nil, fmt.Errorf("can't load bpf collection from reader: %w", err)
 	}
 
-	ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
+	ebpfcommon.FixupSpec(spec, bpfLoopEnabled)
+	p.bpfLoopEnabled = bpfLoopEnabled
 
 	return spec, err
 }
@@ -162,12 +170,14 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 func (p *Tracer) SetupTailCalls() {
 	for i, prog := range []*ebpf.Program{
 		p.bpfObjects.ObiProtocolHttp,                      // 0
-		p.bpfObjects.ObiProtocolHttp2,                     // 1
-		p.bpfObjects.ObiProtocolTcp,                       // 2
-		p.bpfObjects.ObiProtocolHttp2GrpcFrames,           // 3
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame, // 4
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,   // 5
-		p.bpfObjects.ObiHandleBufWithArgs,                 // 6
+		p.bpfObjects.ObiContinueProtocolHttp,              // 1
+		p.bpfObjects.ObiContinue2ProtocolHttp,             // 2
+		p.bpfObjects.ObiProtocolHttp2,                     // 3
+		p.bpfObjects.ObiProtocolTcp,                       // 4
+		p.bpfObjects.ObiProtocolHttp2GrpcFrames,           // 5
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame, // 6
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,   // 7
+		p.bpfObjects.ObiHandleBufWithArgs,                 // 8
 	} {
 		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
 		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {

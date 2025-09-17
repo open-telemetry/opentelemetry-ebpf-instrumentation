@@ -14,15 +14,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/test/integration/components/docker"
 )
-
-func kprobeTracesEnabled() bool {
-	major, minor := obi.KernelVersion()
-
-	return major > 5 || (major == 5 && minor >= 17)
-}
 
 func TestSuite(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite.log"))
@@ -507,11 +500,6 @@ func TestSuite_OverrideServiceName(t *testing.T) {
 }
 
 func TestSuiteNodeClient(t *testing.T) {
-	if !kprobeTracesEnabled() {
-		t.Skip("distributed traces not supported")
-		return
-	}
-
 	compose, err := docker.ComposeSuite("docker-compose-nodeclient.yml", path.Join(pathOutput, "test-suite-nodeclient.log"))
 	require.NoError(t, err)
 
@@ -524,11 +512,6 @@ func TestSuiteNodeClient(t *testing.T) {
 }
 
 func TestSuiteNodeClientTLS(t *testing.T) {
-	if !kprobeTracesEnabled() {
-		t.Skip("distributed traces not supported")
-		return
-	}
-
 	compose, err := docker.ComposeSuite("docker-compose-nodeclient.yml", path.Join(pathOutput, "test-suite-nodeclient-tls.log"))
 	require.NoError(t, err)
 
