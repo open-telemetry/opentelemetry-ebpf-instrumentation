@@ -14,7 +14,11 @@
     {
       "groupName": "all patch versions",
       "matchUpdateTypes": ["patch"],
-      "schedule": ["before 8am every weekday"]
+      "schedule": ["before 8am on Monday"],
+      // group all patches in a single PR
+      "matchPackageNames": [
+        "*"
+      ]
     },
     {
       "matchUpdateTypes": ["minor", "major"],
