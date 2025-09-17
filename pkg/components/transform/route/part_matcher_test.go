@@ -391,3 +391,32 @@ func BenchmarkPartialRouteMatcherComplex(b *testing.B) {
 		}
 	}
 }
+
+// TestMatchedPartsSliceExpansion tests the specific condition where the matchedParts slice
+// needs to be expanded when matchedLen == len(matchedParts). This happens when we have
+// enough partial route matches to fill the initial slice and need to add more.
+func TestMatchedPartsSliceExpansion(t *testing.T) {
+	// Create routes that can be combined into a long path requiring slice expansion
+	routes := []string{
+		"/api",
+		"/v1",
+		"/users",
+		"/{id}",
+		"/profile",
+		"/settings",
+		"/preferences",
+		"/notifications",
+	}
+
+	m := NewPartialRouteMatcher(routes)
+
+	// Create a path that will match multiple partial routes sequentially,
+	// forcing the matchedParts slice to expand beyond its initial size
+	testPath := "/api/v1/users/123/profile/settings/preferences/notifications"
+
+	// Purposefully call with empty parts slice to force the iteration to hit the copy
+	tokens := tokenize(testPath)
+	result := m.findCombined(tokens, 0, make([]string, 0), 0)
+
+	assert.Equal(t, "/api/v1/users/{id}/profile/settings/preferences/notifications", result)
+}
