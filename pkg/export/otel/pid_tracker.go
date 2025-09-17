@@ -73,7 +73,7 @@ func (p *PidServiceTracker) TracksPID(pid int32) (svc.UID, bool) {
 	return u, ok
 }
 
-func (p *PidServiceTracker) UpdateUID(staleUID, newUID svc.UID) {
+func (p *PidServiceTracker) ReplaceUID(staleUID, newUID svc.UID) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 

@@ -233,7 +233,7 @@ func TestPidServiceTracker_UpdateUID(t *testing.T) {
 		assert.False(t, tracker.ServiceLive(newUID))
 
 		// Update UID
-		tracker.UpdateUID(oldUID, newUID)
+		tracker.ReplaceUID(oldUID, newUID)
 
 		// Verify PIDs now map to new UID
 		gotUID, exists = tracker.TracksPID(pid1)
@@ -263,7 +263,7 @@ func TestPidServiceTracker_UpdateUID(t *testing.T) {
 		newUID := makeUID("new-service", "namespace1")
 
 		// Try to update non-existent UID - should be no-op
-		tracker.UpdateUID(nonExistentUID, newUID)
+		tracker.ReplaceUID(nonExistentUID, newUID)
 
 		// Verify no changes occurred
 		assert.Equal(t, 0, tracker.Count(), "Count should remain 0")
@@ -286,7 +286,7 @@ func TestPidServiceTracker_UpdateUID(t *testing.T) {
 		tracker.AddPID(pid3, uid2)
 
 		// Update only uid1
-		tracker.UpdateUID(uid1, newUID)
+		tracker.ReplaceUID(uid1, newUID)
 
 		// Verify uid1 PIDs are updated
 		gotUID, exists := tracker.TracksPID(pid1)
@@ -318,7 +318,7 @@ func TestPidServiceTracker_UpdateUID(t *testing.T) {
 		tracker.AddPID(pid1, uid)
 
 		// Update to same UID (edge case)
-		tracker.UpdateUID(uid, uid)
+		tracker.ReplaceUID(uid, uid)
 
 		// Verify state remains consistent
 		gotUID, exists := tracker.TracksPID(pid1)

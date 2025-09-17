@@ -1181,28 +1181,33 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 	uid := pe.File.Service.UID
 
 	if pe.Type == exec.ProcessEventCreated {
-		// Handle the case when we have new labels for same service
-		if origAttrs, ok := r.serviceMap[uid]; ok {
-			log.Debug("updating stale attributes for", "service", uid)
-			r.deleteEventMetrics(&origAttrs)
-			r.serviceMap[uid] = pe.File.Service
-			r.createEventMetrics(&pe.File.Service)
-		} else if staleUID, exists := r.pidsTracker.TracksPID(pe.File.Pid); exists {
-			// Handle the case when the PID changed its feathers, e.g. got new metadata impacting the service name
+		// Handle the case when the PID changed its feathers, e.g. got new metadata impacting the service name.
+		// There's no new PID, just an update to the metadata.
+		if staleUID, exists := r.pidsTracker.TracksPID(pe.File.Pid); exists && !staleUID.Equals(&uid) {
 			log.Debug("updating older service definition", "from", staleUID, "new", uid)
-			r.pidsTracker.UpdateUID(staleUID, uid)
+			r.pidsTracker.ReplaceUID(staleUID, uid)
 			if origAttrs, ok := r.serviceMap[staleUID]; ok {
 				log.Debug("updating service attributes for", "service", uid)
 				r.deleteEventMetrics(&origAttrs)
 				delete(r.serviceMap, staleUID)
 				r.serviceMap[uid] = pe.File.Service
 				r.createEventMetrics(&pe.File.Service)
+				// we don't setup the pid again, we just replaced the metrics it's associated with
 			}
-		} else {
-			r.createEventMetrics(&pe.File.Service)
-			r.serviceMap[uid] = pe.File.Service
-			r.setupPIDToServiceRelationship(pe.File.Pid, uid)
+			return
 		}
+
+		// Handle the case when we have new labels for same service
+		// It could be a brand new PID with this information, so we fall through after deleting
+		// the old target info
+		if origAttrs, ok := r.serviceMap[uid]; ok {
+			log.Debug("updating stale attributes for", "service", uid)
+			r.deleteEventMetrics(&origAttrs)
+		}
+
+		r.createEventMetrics(&pe.File.Service)
+		r.serviceMap[uid] = pe.File.Service
+		r.setupPIDToServiceRelationship(pe.File.Pid, uid)
 	} else {
 		if deleted, origUID := r.disassociatePIDFromService(pe.File.Pid); deleted {
 			mlog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
