@@ -565,8 +565,6 @@ func makeMetricsReporter(
 }
 
 func TestAppMetrics_TracesHostInfo(t *testing.T) {
-	defer otelcfg.RestoreEnvAfterExecution()()
-
 	ctx := t.Context()
 
 	otlp, err := collector.Start(ctx)
@@ -596,9 +594,10 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
 	})
 
-	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.Equal(t, 1, len(mr.hostInfo.entries.All()))
-	}, 10*time.Second, 10*time.Millisecond, "traces_host_info metric has not been created yet")
+	test.Eventually(t, timeout, func(t require.TestingT) {
+		assert.NotEmpty(t, mr.hostInfo.entries.All(),
+			"traces_host_info metric has not been created yet")
+	})
 
 	// Check expiration logic
 	processEvents.Send(exec.ProcessEvent{
@@ -609,9 +608,13 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 			},
 		},
 	})
-	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.Equal(t, 0, len(mr.hostInfo.entries.All())) // The entry should be expired
-	}, 10*time.Second, 10*time.Millisecond, "traces_host_info metric has not expired yet")
+
+	now.Advance(50 * time.Minute)
+
+	test.Eventually(t, timeout, func(t require.TestingT) {
+		assert.Empty(t, mr.hostInfo.entries.All(),
+			"traces_host_info metric has not expired yet") // The entry should be expired
+	})
 }
 
 func TestMetricResourceAttributes(t *testing.T) {
