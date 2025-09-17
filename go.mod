@@ -27,7 +27,7 @@ require (
 	github.com/prometheus/common v0.65.0
 	github.com/prometheus/procfs v0.17.0
 	github.com/shirou/gopsutil/v3 v3.24.5
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/tklauser/go-sysconf v0.3.12
 	github.com/vishvananda/netlink v1.3.1
 	github.com/vladimirvivien/gexe v0.5.0
