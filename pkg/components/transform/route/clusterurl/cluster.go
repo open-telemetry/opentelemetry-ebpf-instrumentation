@@ -81,15 +81,19 @@ func (csf *ClusterURLClassifier) ClusterURL(path string) string {
 	nSegments := 0
 	for _, c := range p {
 		char := c
+
+		// Strip query string and fragment identifiers
 		if c == '?' || c == '&' || c == '#' {
-			// Strip query string and fragment identifiers
-			if skip {
-				// leave one extra byte for the ReplaceWith character
-				p = p[:sPos+1]
-			} else {
-				p = p[:sPos]
+			if skip && sPos < len(p) {
+				// no other chars, just use ReplaceWith
+				p[sPos] = csf.cfg.ReplaceWith
+				sPos++
+			} else if !skip && sFwd > sPos {
+				// preserve chars
+				sPos = sFwd
 			}
 
+			p = p[:sPos]
 			break
 		}
 
@@ -135,12 +139,16 @@ func (csf *ClusterURLClassifier) ClusterURL(path string) string {
 	}
 
 	if skip {
-		p[sPos] = csf.cfg.ReplaceWith
-		sPos++
-	} else if sFwd > sPos {
-		if !csf.okWord(string(p[sPos:sFwd])) {
+		if sPos < len(p) {
 			p[sPos] = csf.cfg.ReplaceWith
 			sPos++
+		}
+	} else if sFwd > sPos {
+		if !csf.okWord(string(p[sPos:sFwd])) {
+			if sPos < len(p) {
+				p[sPos] = csf.cfg.ReplaceWith
+				sPos++
+			}
 		} else {
 			sPos = sFwd
 		}
