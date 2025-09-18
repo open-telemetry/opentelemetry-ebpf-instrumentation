@@ -105,6 +105,10 @@ type MetricsReporter struct {
 	processEvents              <-chan exec.ProcessEvent
 
 	log *slog.Logger
+
+	// testing support
+	createEventMetrics func(targetMetrics *TargetMetrics)
+	deleteEventMetrics func(targetMetrics *TargetMetrics)
 }
 
 // Metrics is a set of metrics associated to a given OTEL MeterProvider.
@@ -205,6 +209,9 @@ func newMetricsReporter(
 		log:                 mlog(),
 		attrGetters:         request.SpanOTELGetters(renameUnresolved),
 	}
+
+	mr.createEventMetrics = mr.createTargetMetricData
+	mr.deleteEventMetrics = mr.deleteTargetMetricData
 
 	// initialize attribute getters
 	if is.HTTPEnabled() {
@@ -988,6 +995,11 @@ func (mr *MetricsReporter) ensureTargetMetrics(service *svc.Attrs) *TargetMetric
 	return targetMetrics
 }
 
+func (mr *MetricsReporter) createTargetMetricData(targetMetrics *TargetMetrics) {
+	mr.createTargetInfo(&targetMetrics.resourceAttributes)
+	mr.createTracesTargetInfo(&targetMetrics.tracesResourceAttributes)
+}
+
 func (mr *MetricsReporter) createTargetMetrics(service *svc.Attrs) {
 	if service == nil {
 		return
@@ -999,8 +1011,12 @@ func (mr *MetricsReporter) createTargetMetrics(service *svc.Attrs) {
 		return
 	}
 
-	mr.createTargetInfo(&targetMetrics.resourceAttributes)
-	mr.createTracesTargetInfo(&targetMetrics.tracesResourceAttributes)
+	mr.createEventMetrics(targetMetrics)
+}
+
+func (mr *MetricsReporter) deleteTargetMetricData(targetMetrics *TargetMetrics) {
+	mr.deleteTargetInfo(&targetMetrics.resourceAttributes)
+	mr.deleteTracesTargetInfo(&targetMetrics.tracesResourceAttributes)
 }
 
 func (mr *MetricsReporter) deleteTargetMetrics(uid *svc.UID) {
@@ -1014,8 +1030,7 @@ func (mr *MetricsReporter) deleteTargetMetrics(uid *svc.UID) {
 		return
 	}
 
-	mr.deleteTargetInfo(&targetMetrics.resourceAttributes)
-	mr.deleteTracesTargetInfo(&targetMetrics.tracesResourceAttributes)
+	mr.deleteEventMetrics(targetMetrics)
 
 	delete(mr.targetMetrics, *uid)
 }
