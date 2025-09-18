@@ -1140,6 +1140,13 @@ int obi_handle_buf_with_args(void *ctx) {
                         }
                     }
                 }
+
+                http_send_large_buffer(info,
+                                       (void *)args->u_buf,
+                                       args->bytes_len,
+                                       args->packet_type,
+                                       args->direction,
+                                       k_large_buf_action_append);
             } else if (still_responding(info)) {
                 info->end_monotime_ns = bpf_ktime_get_ns();
             }

@@ -6,6 +6,7 @@ package ebpfcommon
 import (
 	"bytes"
 	"encoding/binary"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -228,4 +229,92 @@ func TestToRequestTrace_BadHost(t *testing.T) {
 	s, p = httpHostFromBuf(record3.Buf[:])
 	assert.Empty(t, s)
 	assert.Equal(t, -1, p)
+}
+
+func TestHTTPInfoParsing(t *testing.T) {
+	t.Run("Test basic parsing", func(t *testing.T) {
+		tr := makeHTTPInfo("POST", "/users", "127.0.0.1", "127.0.0.2", 12345, 8080, 200, 5)
+		s := httpInfoToSpanLegacy(&tr)
+		assertMatchesInfo(t, &s, "POST", "/users", "127.0.0.1", "127.0.0.2", 8080, 200, 5)
+	})
+
+	t.Run("Test empty URL", func(t *testing.T) {
+		tr := makeHTTPInfo("POST", "", "127.0.0.1", "127.0.0.2", 12345, 8080, 200, 5)
+		s := httpInfoToSpanLegacy(&tr)
+		assertMatchesInfo(t, &s, "POST", "", "127.0.0.1", "127.0.0.2", 8080, 200, 5)
+	})
+
+	t.Run("Test parsing with URL parameters", func(t *testing.T) {
+		tr := makeHTTPInfo("POST", "/users?query=1234", "127.0.0.1", "127.0.0.2", 12345, 8080, 200, 5)
+		s := httpInfoToSpanLegacy(&tr)
+		assertMatchesInfo(t, &s, "POST", "/users", "127.0.0.1", "127.0.0.2", 8080, 200, 5)
+	})
+}
+
+func TestMethodURLParsing(t *testing.T) {
+	for _, s := range []string{
+		"GET /test ",
+		"GET /test\r\n",
+		"GET /test\r",
+		"GET /test\n",
+		"GET /test",
+		"GET /test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test/",
+	} {
+		i := makeBPFInfoWithBuf([]uint8(s))
+		assert.NotEmpty(t, httpURLFromBuf(i.Buf[:]), "-"+s+"-")
+		assert.NotEmpty(t, httpMethodFromBuf(i.Buf[:]), "-"+s+"-")
+		assert.True(t, strings.HasPrefix(httpURLFromBuf(i.Buf[:]), "/test"))
+	}
+
+	i := makeBPFInfoWithBuf([]uint8("GET "))
+	assert.NotEmpty(t, httpMethodFromBuf(i.Buf[:]))
+	assert.Empty(t, httpURLFromBuf(i.Buf[:]))
+
+	i = makeBPFInfoWithBuf([]uint8(""))
+	assert.Empty(t, httpMethodFromBuf(i.Buf[:]))
+	assert.Empty(t, httpURLFromBuf(i.Buf[:]))
+
+	i = makeBPFInfoWithBuf([]uint8("POST"))
+	assert.Empty(t, httpMethodFromBuf(i.Buf[:]))
+	assert.Empty(t, httpURLFromBuf(i.Buf[:]))
+}
+
+func makeHTTPInfo(method, path, peer, host string, peerPort, hostPort uint32, status uint16, durationMs uint64) HTTPInfo {
+	bpfInfo := BPFHTTPInfo{
+		Type:            1,
+		Status:          status,
+		ReqMonotimeNs:   durationMs * 1000000,
+		StartMonotimeNs: durationMs * 1000000,
+		EndMonotimeNs:   durationMs * 2 * 1000000,
+	}
+	i := HTTPInfo{
+		BPFHTTPInfo: bpfInfo,
+		Method:      method,
+		Peer:        peer,
+		URL:         path,
+		Host:        host,
+	}
+
+	i.ConnInfo.D_port = uint16(hostPort)
+	i.ConnInfo.S_port = uint16(peerPort)
+
+	return i
+}
+
+func assertMatchesInfo(t *testing.T, span *request.Span, method, path, peer, host string, hostPort int, status int, durationMs uint64) {
+	assert.Equal(t, method, span.Method)
+	assert.Equal(t, path, span.Path)
+	assert.Equal(t, host, span.Host)
+	assert.Equal(t, hostPort, span.HostPort)
+	assert.Equal(t, peer, span.Peer)
+	assert.Equal(t, status, span.Status)
+	assert.Equal(t, int64(durationMs*1000000), span.End-span.Start)
+	assert.Equal(t, int64(durationMs*1000000), span.End-span.RequestStart)
+}
+
+func makeBPFInfoWithBuf(buf []uint8) BPFHTTPInfo {
+	bpfInfo := BPFHTTPInfo{}
+	copy(bpfInfo.Buf[:], buf)
+
+	return bpfInfo
 }

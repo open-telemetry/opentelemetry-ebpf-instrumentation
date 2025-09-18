@@ -600,6 +600,12 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
             return 0;
         }
     } else if ((args->packet_type == PACKET_TYPE_RESPONSE) && (info->status == 0)) {
+        http_send_large_buffer(info,
+                               (void *)args->u_buf,
+                               args->bytes_len,
+                               args->packet_type,
+                               args->direction,
+                               k_large_buf_action_init);
         handle_http_response(
             args->small_buf, &args->pid_conn, info, args->bytes_len, args->direction, args->ssl);
     } else if (still_reading(info)) {
