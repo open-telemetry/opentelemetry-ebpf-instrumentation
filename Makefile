@@ -428,7 +428,7 @@ TARGET_BPF_FILES := $(patsubst ./%,$(NOTICES_DIR)/%,$(BPF_FILES))
 TARGET_BPF := $(TARGET_C_LICENSES) $(TARGET_BPF_FILES)
 
 .PHONY: notices-update
-notices-update: generate go-notices-update $(TARGET_BPF)
+notices-update: docker-generate go-notices-update $(TARGET_BPF)
 
 .PHONY: go-notices-update
 go-notices-update: $(GOLICENSES)

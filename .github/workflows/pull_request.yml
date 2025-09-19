@@ -51,6 +51,4 @@ jobs:
           go-version: stable
           check-latest: true
           cache-dependency-path: "**/go.sum"
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev
       - run: make notices-update check-clean-work-tree
