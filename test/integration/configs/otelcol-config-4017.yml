@@ -16,8 +16,7 @@ exporters:
     resource_to_telemetry_conversion:
       enabled: true
     enable_open_metrics: true
-    sending_queue:
-      batch:
+
 service:
   pipelines:
     metrics:
