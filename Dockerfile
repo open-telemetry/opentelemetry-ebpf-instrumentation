@@ -36,6 +36,7 @@ WORKDIR /
 COPY --from=builder /src/bin/ebpf-instrument .
 COPY --from=builder /src/LICENSE .
 COPY --from=builder /src/NOTICE .
+COPY NOTICES ./NOTICES
 
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 

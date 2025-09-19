@@ -98,8 +98,11 @@ $(TOOLS)/setup-envtest: PACKAGE=sigs.k8s.io/controller-runtime/tools/setup-envte
 KIND ?= $(TOOLS)/kind
 $(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
 
+GOLICENSES = $(TOOLS)/go-licenses
+$(TOOLS)/go-licenses: PACKAGE=github.com/google/go-licenses/v2
+
 .PHONY: tools
-tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND)
+tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES)
 
 ### Development Tools (end) #################################################
 
@@ -129,7 +132,7 @@ fmt: $(GOLANGCI_LINT)
 
 .PHONY: clang-tidy
 clang-tidy:
-	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" | xargs clang-tidy
+	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" | xargs clang-tidy
 
 .PHONY: lint
 lint: $(GOLANGCI_LINT)
@@ -173,7 +176,7 @@ verify: prereqs lint test license-header-check
 build: docker-generate verify compile
 
 .PHONY: all
-all: docker-generate build
+all: docker-generate notices-update build
 
 .PHONY: compile compile-cache
 compile:
@@ -381,7 +384,7 @@ oats-test-debug: oats-prereq
 
 .PHONY: license-header-check
 license-header-check:
-	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) ! -path './.git/*' ) ; do \
+	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) ! -path './.git/*' ! -path './NOTICES/*' ) ; do \
 	           awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=4 { found=1; next } END { if (!found) print FILENAME }' $$f; \
 	   done); \
 	   if [ -n "$${licRes}" ]; then \
@@ -407,9 +410,40 @@ protoc-gen:
 
 .PHONY: clang-format
 clang-format:
-	find ./bpf -type f -name "*.c" | xargs -P 0 -n 1 clang-format -i
-	find ./bpf -type f -name "*.h" | xargs -P 0 -n 1 clang-format -i
+	find ./bpf -type f -name "*.c" ! -path "./NOTICES/*" | xargs -P 0 -n 1 clang-format -i
+	find ./bpf -type f -name "*.h" ! -path "./NOTICES/*" | xargs -P 0 -n 1 clang-format -i
 
 .PHONY: clean-ebpf-generated-files
 clean-ebpf-generated-files:
 	find . -name "*_bpfel*" | xargs rm
+
+NOTICES_DIR ?= ./NOTICES
+
+C_LICENSES := $(shell find ./bpf -type f -name 'LICENSE*')
+TARGET_C_LICENSES := $(patsubst ./%,$(NOTICES_DIR)/%,$(C_LICENSES))
+# BPF code is licensed under the BSD-2-Clause, GPL-2.0-only, or LGPL-2.1 which
+# require redistribution of the license and code.
+BPF_FILES := $(shell find ./bpf/bpfcore/ -type f )
+TARGET_BPF_FILES := $(patsubst ./%,$(NOTICES_DIR)/%,$(BPF_FILES))
+TARGET_BPF := $(TARGET_C_LICENSES) $(TARGET_BPF_FILES)
+
+.PHONY: notices-update
+notices-update: docker-generate go-notices-update $(TARGET_BPF)
+
+.PHONY: go-notices-update
+go-notices-update: $(GOLICENSES)
+	@$(GOLICENSES) save ./... --save_path=$(NOTICES_DIR) --force
+
+$(NOTICES_DIR)/%: %
+	@mkdir -p $(dir $@)
+	@cp $< $@
+
+.PHONY: check-clean-work-tree
+check-clean-work-tree:
+	if [ -n "$$(git status --porcelain)" ]; then \
+		git status; \
+		git --no-pager diff; \
+		echo 'Working tree is not clean, did you forget to run "make"?' \
+		exit 1; \
+	fi
+
