@@ -107,6 +107,9 @@ func (p *PidServiceTracker) ServiceLive(uid svc.UID) bool {
 }
 
 func (p *PidServiceTracker) IsTrackingServerService(n svc.ServiceNameNamespace) bool {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
 	_, ok := p.names[n]
 	return ok
 }
