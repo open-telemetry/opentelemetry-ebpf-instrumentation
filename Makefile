@@ -132,7 +132,7 @@ fmt: $(GOLANGCI_LINT)
 
 .PHONY: clang-tidy
 clang-tidy:
-	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" | xargs clang-tidy
+	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" | xargs clang-tidy
 
 .PHONY: lint
 lint: $(GOLANGCI_LINT)
@@ -410,8 +410,8 @@ protoc-gen:
 
 .PHONY: clang-format
 clang-format:
-	find ./bpf -type f -name "*.c" | xargs -P 0 -n 1 clang-format -i
-	find ./bpf -type f -name "*.h" | xargs -P 0 -n 1 clang-format -i
+	find ./bpf -type f -name "*.c" ! -path "./NOTICES/*" | xargs -P 0 -n 1 clang-format -i
+	find ./bpf -type f -name "*.h" ! -path "./NOTICES/*" | xargs -P 0 -n 1 clang-format -i
 
 .PHONY: clean-ebpf-generated-files
 clean-ebpf-generated-files:
