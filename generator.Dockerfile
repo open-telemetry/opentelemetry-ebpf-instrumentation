@@ -3,10 +3,14 @@ FROM base AS builder
 
 WORKDIR /build
 
+COPY go.mod go.sum ./
+# Cache module cache.
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
 COPY cmd/obi-genfiles/obi_genfiles.go .
-COPY go.mod go.mod
-COPY go.sum go.sum
-RUN go build -o obi_genfiles obi_genfiles.go
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg \
+	go build -o obi_genfiles obi_genfiles.go
 
 FROM base AS dist
 
@@ -29,23 +33,19 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 RUN unzip protoc.zip -d /usr/local
 RUN rm protoc.zip
 
-# Install protoc-gen-go and protoc-gen-go-grpc
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+# Install protoc-gen-go, protoc-gen-go-grpc, and eBPF tools.
+RUN --mount=type=cache,target=/go/pkg \
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest \
+	&& go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest \
+	&& go install github.com/cilium/ebpf/cmd/bpf2go@$EBPF_VER \
+	&& protoc --version \
+	&& protoc-gen-go --version \
+	&& protoc-gen-go-grpc --version
 
-# Install eBPF tools
-RUN go install github.com/cilium/ebpf/cmd/bpf2go@$EBPF_VER
 COPY --from=builder /build/obi_genfiles /go/bin
-
-# Verify installations
-RUN protoc --version
-RUN protoc-gen-go --version  
-RUN protoc-gen-go-grpc --version
 
 RUN cat <<EOF > /generate.sh
 #!/bin/sh
-export GOCACHE=/tmp
-export GOMODCACHE=/tmp/go-mod-cache
 export BPF2GO=bpf2go
 export BPF_CLANG=clang
 export BPF_CFLAGS="-O2 -g -Wall -Werror"
