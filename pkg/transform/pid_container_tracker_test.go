@@ -413,7 +413,7 @@ func TestPidContainerTracker_Info(t *testing.T) {
 	}
 }
 
-func TestPidContainerTracker_ConcurrentAccess(t *testing.T) {
+func TestPidContainerTracker_ConcurrentAccess(*testing.T) {
 	tracker := &pidContainerTracker{
 		missedPods:    maps2.Map2[string, int32, *exec.ProcessEvent]{},
 		missedPodPids: make(map[int32]string),

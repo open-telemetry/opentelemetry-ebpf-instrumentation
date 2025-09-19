@@ -25,9 +25,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
-var (
-	containerInfoForPID = container.InfoForPID
-)
+var containerInfoForPID = container.InfoForPID
 
 func klog() *slog.Logger {
 	return slog.With("component", "transform.KubernetesDecorator")

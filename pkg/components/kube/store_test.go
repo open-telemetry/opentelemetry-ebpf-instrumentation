@@ -721,7 +721,7 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 			setupPIDs:   []uint32{2001, 2002, 2003, 2004},
 			containerID: "container456",
 			pidNS:       6000,
-			operations: func(t *testing.T, store *Store, pids []uint32) {
+			operations: func(t *testing.T, store *Store, _ []uint32) {
 				// Delete middle PID
 				store.DeleteProcess(2002)
 
@@ -775,13 +775,13 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 				// Verify namespace map is empty or doesn't exist
 				nsMap, exists := store.namespaces[7000]
 				if exists {
-					assert.Len(t, nsMap, 0, "Namespace map should be empty")
+					assert.Empty(t, nsMap, "Namespace map should be empty")
 				}
 
 				// Verify container map is empty or doesn't exist
 				cidMap, exists := store.containerIDs["container789"]
 				if exists {
-					assert.Len(t, cidMap, 0, "Container map should be empty")
+					assert.Empty(t, cidMap, "Container map should be empty")
 				}
 
 				// Verify containerByPID has no entries for these PIDs
@@ -797,7 +797,7 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 			setupPIDs:   []uint32{}, // Start empty
 			containerID: "container999",
 			pidNS:       8000,
-			operations: func(t *testing.T, store *Store, pids []uint32) {
+			operations: func(t *testing.T, store *Store, _ []uint32) {
 				// Add PIDs one by one
 				testPIDs := []uint32{4001, 4002, 4003, 4004, 4005}
 
@@ -833,7 +833,7 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 			setupPIDs:   []uint32{5001, 5002},
 			containerID: "container111",
 			pidNS:       9000,
-			operations: func(t *testing.T, store *Store, pids []uint32) {
+			operations: func(t *testing.T, store *Store, _ []uint32) {
 				// Initial state: 2 PIDs
 				store.access.RLock()
 				nsMap, exists := store.namespaces[9000]
@@ -1018,13 +1018,13 @@ func TestStore_MultiPID_CrossContainerScenarios(t *testing.T) {
 		// Namespace 2000 should be empty or non-existent
 		nsMap2000, exists := store.namespaces[2000]
 		if exists {
-			assert.Len(t, nsMap2000, 0, "Namespace 2000 should be empty")
+			assert.Empty(t, nsMap2000, "Namespace 2000 should be empty")
 		}
 
 		// Container2 map should be empty or non-existent
 		cont2Map, exists := store.containerIDs["cont2"]
 		if exists {
-			assert.Len(t, cont2Map, 0, "Container2 map should be empty")
+			assert.Empty(t, cont2Map, "Container2 map should be empty")
 		}
 
 		// Other containers should be unaffected
@@ -1124,7 +1124,7 @@ func TestStore_MultiPID_ConcurrentAccess(t *testing.T) {
 	containerID := "concurrent-container"
 	pidNS := uint32(9999)
 
-	InfoForPID = func(pid uint32) (container.Info, error) {
+	InfoForPID = func(uint32) (container.Info, error) {
 		return container.Info{
 			ContainerID:  containerID,
 			PIDNamespace: pidNS,
@@ -1175,7 +1175,7 @@ func TestStore_MultiPID_ConcurrentAccess(t *testing.T) {
 			cidMap, cidExists := store.containerIDs[containerID]
 			assert.Equal(t, cidExists, exists, "Both maps should have same existence state")
 			if cidExists {
-				assert.Equal(t, len(nsMap), len(cidMap), "Both maps should have same number of PIDs")
+				assert.Len(t, nsMap, len(cidMap), "Both maps should have same number of PIDs")
 
 				// Verify consistency between maps
 				for pid, nsInfo := range nsMap {

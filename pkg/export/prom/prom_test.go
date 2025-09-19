@@ -746,7 +746,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 	}{
 		{
 			name: "new service - fresh start",
-			setup: func(r *metricsReporter, m *mockEventMetrics) {
+			setup: func(*metricsReporter, *mockEventMetrics) {
 				// No setup needed for fresh start
 			},
 			event: exec.ProcessEvent{
@@ -791,7 +791,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 		},
 		{
 			name: "same service UID with updated attributes",
-			setup: func(r *metricsReporter, m *mockEventMetrics) {
+			setup: func(r *metricsReporter, _ *mockEventMetrics) {
 				// Pre-populate service map with existing service
 				uid := svc.UID{
 					Name:      "test-service",
@@ -854,7 +854,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 		},
 		{
 			name: "PID changing service (stale UID with existing attributes)",
-			setup: func(r *metricsReporter, m *mockEventMetrics) {
+			setup: func(r *metricsReporter, _ *mockEventMetrics) {
 				// Setup: PID 1234 is already tracked with stale UID
 				staleUID := svc.UID{
 					Name:      "old-service",
@@ -920,7 +920,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 		},
 		{
 			name: "PID changing service (stale UID without existing attributes)",
-			setup: func(r *metricsReporter, m *mockEventMetrics) {
+			setup: func(r *metricsReporter, _ *mockEventMetrics) {
 				// Setup: PID 1234 is already tracked with stale UID, but no service map entry
 				staleUID := svc.UID{
 					Name:      "old-service",

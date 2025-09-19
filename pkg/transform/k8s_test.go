@@ -384,9 +384,9 @@ func TestDecorationProcessEvents(t *testing.T) {
 	// When we send 34 we first get naked PID info, the kubernetes metadata was delayed
 	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 34, Ns: 1034, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
 	deco := testutil.ReadChannel(t, outputCh, timeout)
-	assert.Equal(t, "", deco.File.Service.UID.Namespace)
-	assert.Equal(t, "", deco.File.Service.UID.Name)
-	assert.Equal(t, "", deco.File.Service.UID.Instance)
+	assert.Empty(t, deco.File.Service.UID.Namespace)
+	assert.Empty(t, deco.File.Service.UID.Name)
+	assert.Empty(t, deco.File.Service.UID.Instance)
 	assert.Empty(t, deco.File.Service.Metadata)
 
 	// we now notify on new informer
@@ -403,7 +403,7 @@ func TestDecorationProcessEvents(t *testing.T) {
 
 	// After we got new information, there's no need to send the event again, it's
 	// automatically going to generate a process event with the updated info
-	//inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 34, Ns: 1034, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+	// inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 34, Ns: 1034, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
 	deco = testutil.ReadChannel(t, outputCh, timeout)
 	assert.Equal(t, "the-ns", deco.File.Service.UID.Namespace)
 	assert.Equal(t, "rs", deco.File.Service.UID.Name)
@@ -438,18 +438,18 @@ func TestDecorationProcessEvents(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		deco := testutil.ReadChannel(t, outputCh, timeout)
 		assert.Equal(t, exec.ProcessEventCreated, deco.Type)
-		assert.Equal(t, "", deco.File.Service.UID.Namespace)
-		assert.Equal(t, "", deco.File.Service.UID.Name)
-		assert.Equal(t, "", deco.File.Service.UID.Instance)
+		assert.Empty(t, deco.File.Service.UID.Namespace)
+		assert.Empty(t, deco.File.Service.UID.Name)
+		assert.Empty(t, deco.File.Service.UID.Instance)
 		assert.Empty(t, deco.File.Service.Metadata)
 	}
 
 	for i := 0; i < 2; i++ {
 		deco := testutil.ReadChannel(t, outputCh, timeout)
 		assert.Equal(t, exec.ProcessEventTerminated, deco.Type)
-		assert.Equal(t, "", deco.File.Service.UID.Namespace)
-		assert.Equal(t, "", deco.File.Service.UID.Name)
-		assert.Equal(t, "", deco.File.Service.UID.Instance)
+		assert.Empty(t, deco.File.Service.UID.Namespace)
+		assert.Empty(t, deco.File.Service.UID.Name)
+		assert.Empty(t, deco.File.Service.UID.Instance)
 		assert.Empty(t, deco.File.Service.Metadata)
 	}
 

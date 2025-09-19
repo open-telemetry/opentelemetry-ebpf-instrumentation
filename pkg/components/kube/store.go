@@ -197,19 +197,13 @@ func (s *Store) cacheResourceMetadata(meta *informer.ObjectMeta) *CachedObjMeta 
 func (s *Store) On(event *informer.Event) error {
 	switch event.Type {
 	case informer.EventType_CREATED:
-		// go func() {
-		// 	time.Sleep(10 * time.Second)
 		s.addObjectMeta(event.Resource)
-		s.Notify(event)
-		// }()
 	case informer.EventType_UPDATED:
 		s.updateObjectMeta(event.Resource)
-		s.Notify(event)
 	case informer.EventType_DELETED:
 		s.deleteObjectMeta(event.Resource)
-		s.Notify(event)
 	}
-	//s.Notify(event)
+	s.Notify(event)
 	return nil
 }
 

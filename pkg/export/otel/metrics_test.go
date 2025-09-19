@@ -19,6 +19,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/imetrics"
@@ -30,7 +32,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/test/collector"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 var fakeMux = sync.Mutex{}
