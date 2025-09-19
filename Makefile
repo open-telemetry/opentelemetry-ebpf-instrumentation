@@ -176,7 +176,7 @@ verify: prereqs lint test license-header-check
 build: docker-generate verify compile
 
 .PHONY: all
-all: docker-generate build
+all: docker-generate notices-update build
 
 .PHONY: compile compile-cache
 compile:
