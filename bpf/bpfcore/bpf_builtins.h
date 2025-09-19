@@ -1,6 +1,8 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// Source: https://github.com/cilium/cilium/blob/e896ab6a0c4caf5cd7f394350dc68a2a2bf2bc9a/bpf/include/bpf/builtins.h
+
 /* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
 /* Copyright Authors of Cilium */
 
