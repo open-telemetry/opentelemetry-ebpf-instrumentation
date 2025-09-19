@@ -98,8 +98,11 @@ $(TOOLS)/setup-envtest: PACKAGE=sigs.k8s.io/controller-runtime/tools/setup-envte
 KIND ?= $(TOOLS)/kind
 $(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
 
+GOLICENSES = $(TOOLS)/go-licenses
+$(TOOLS)/go-licenses: PACKAGE=github.com/google/go-licenses/v2
+
 .PHONY: tools
-tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND)
+tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES)
 
 ### Development Tools (end) #################################################
 
@@ -413,3 +416,24 @@ clang-format:
 .PHONY: clean-ebpf-generated-files
 clean-ebpf-generated-files:
 	find . -name "*_bpfel*" | xargs rm
+
+NOTICES_DIR ?= ./NOTICES
+
+C_LICENSES := $(shell find ./bpf -type f -name 'LICENSE*')
+TARGET_C_LICENSES := $(patsubst ./%,$(NOTICES_DIR)/%,$(C_LICENSES))
+# BPF code is licensed under the BSD-2-Clause, GPL-2.0-only, or LGPL-2.1 which
+# require redistribution of the license and code.
+BPF_FILES := $(shell find ./bpf/bpfcore/ -type f )
+TARGET_BPF_FILES := $(patsubst ./%,$(NOTICES_DIR)/%,$(BPF_FILES))
+TARGET_BPF := $(TARGET_C_LICENSES) $(TARGET_BPF_FILES)
+
+.PHONY: notices-update
+notices-update: generate go-notices-update $(TARGET_BPF)
+
+.PHONY: go-notices-update
+go-notices-update: $(GOLICENSES)
+	@$(GOLICENSES) save ./... --save_path=$(NOTICES_DIR) --force
+
+$(NOTICES_DIR)/%: %
+	@mkdir -p $(dir $@)
+	@cp $< $@
