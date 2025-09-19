@@ -437,3 +437,13 @@ go-notices-update: $(GOLICENSES)
 $(NOTICES_DIR)/%: %
 	@mkdir -p $(dir $@)
 	@cp $< $@
+
+.PHONY: check-clean-work-tree
+check-clean-work-tree:
+	if [ -n "$$(git status --porcelain)" ]; then \
+		git status; \
+		git --no-pager diff; \
+		echo 'Working tree is not clean, did you forget to run "make"?' \
+		exit 1; \
+	fi
+
