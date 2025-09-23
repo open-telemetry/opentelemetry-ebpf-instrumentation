@@ -83,6 +83,10 @@ func (uid *UID) NameNamespace() ServiceNameNamespace {
 	return ServiceNameNamespace{Name: uid.Name, Namespace: uid.Namespace}
 }
 
+func (uid *UID) Equals(other *UID) bool {
+	return uid.Name == other.Name && uid.Namespace == other.Namespace && uid.Instance == other.Instance
+}
+
 // Attrs stores the metadata attributes of a service/resource
 type Attrs struct {
 	// Instance uniquely identifies a service instance. It is not exported

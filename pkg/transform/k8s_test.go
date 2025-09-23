@@ -5,6 +5,7 @@ package transform
 
 import (
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/helpers/container"
 	"go.opentelemetry.io/obi/pkg/components/kube"
 	"go.opentelemetry.io/obi/pkg/components/svc"
@@ -296,6 +298,228 @@ func TestDecoration(t *testing.T) {
 			"k8s.kind":            "Deployment",
 		}, deco[0].Service.Metadata)
 	})
+}
+
+func TestDecorationProcessEvents(t *testing.T) {
+	inf := &fakeInformer{}
+	store := kube.NewStore(inf, kube.ResourceLabels{
+		"service.name":      []string{"app.kubernetes.io/name"},
+		"service.namespace": []string{"app.kubernetes.io/part-of"},
+	}, nil)
+	// add one container, the others will be delayed
+	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: &informer.ObjectMeta{
+		Name: "pod-12", Namespace: "the-ns", Kind: "Pod",
+		Pod: &informer.PodInfo{
+			NodeName:     "the-node",
+			StartTimeStr: "2020-01-02 12:12:56",
+			Uid:          "uid-12",
+			Owners:       []*informer.Owner{{Kind: "Deployment", Name: "deployment-12"}},
+			Containers:   []*informer.ContainerInfo{{Name: "a-container", Id: "container-12"}},
+		},
+	}})
+
+	// we need to add PID metadata for all the pod/containers above
+	// by convention, the mocked pid namespace will be PID+1000
+	kube.InfoForPID = func(pid uint32) (container.Info, error) {
+		if pid < 56 {
+			return container.Info{
+				ContainerID:  fmt.Sprintf("container-%d", pid),
+				PIDNamespace: 1000 + pid,
+			}, nil
+		}
+
+		// the other pids all sit in the same container
+		return container.Info{
+			ContainerID:  "container-56",
+			PIDNamespace: 1056,
+		}, nil
+	}
+
+	containerInfoForPID = kube.InfoForPID
+
+	for _, pid := range []uint32{12, 34, 56, 78, 83, 66} {
+		store.AddProcess(pid)
+	}
+	inputQueue := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+
+	podInfoCh := make(chan Event[*informer.ObjectMeta])
+
+	dec := &procEventMetadataDecorator{
+		log:         slog.With("component", "transform.KubeProcessEventDecoratorProvider"),
+		db:          store,
+		clusterName: "the-cluster",
+		input:       inputQueue.Subscribe(msg.SubscriberName("transform.KubeProcessEventDecorator")),
+		output:      msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10)),
+		podsInfoCh:  podInfoCh,
+		tracker:     newPidContainerTracker(),
+	}
+
+	outputCh := dec.output.Subscribe()
+	defer inputQueue.Close()
+	go dec.k8sLoop(t.Context())
+
+	autoNameSvc := svc.Attrs{}
+	autoNameSvc.SetAutoName()
+
+	t.Run("complete pod info should set deployment as name", func(t *testing.T) {
+		inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 12, Ns: 1012, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+		deco := testutil.ReadChannel(t, outputCh, timeout)
+		assert.Equal(t, "the-ns", deco.File.Service.UID.Namespace)
+		assert.Equal(t, "deployment-12", deco.File.Service.UID.Name)
+		assert.Equal(t, "the-ns.pod-12.a-container", deco.File.Service.UID.Instance)
+		assert.Equal(t, map[attr.Name]string{
+			"k8s.node.name":       "the-node",
+			"k8s.namespace.name":  "the-ns",
+			"k8s.pod.name":        "pod-12",
+			"k8s.container.name":  "a-container",
+			"k8s.pod.uid":         "uid-12",
+			"k8s.deployment.name": "deployment-12",
+			"k8s.owner.name":      "deployment-12",
+			"k8s.pod.start_time":  "2020-01-02 12:12:56",
+			"k8s.cluster.name":    "the-cluster",
+			"k8s.kind":            "Deployment",
+		}, deco.File.Service.Metadata)
+	})
+
+	// When we send 34 we first get naked PID info, the kubernetes metadata was delayed
+	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 34, Ns: 1034, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+	deco := testutil.ReadChannel(t, outputCh, timeout)
+	assert.Empty(t, deco.File.Service.UID.Namespace)
+	assert.Empty(t, deco.File.Service.UID.Name)
+	assert.Empty(t, deco.File.Service.UID.Instance)
+	assert.Empty(t, deco.File.Service.Metadata)
+
+	// we now notify on new informer
+	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: &informer.ObjectMeta{
+		Name: "pod-34", Namespace: "the-ns", Kind: "Pod",
+		Pod: &informer.PodInfo{
+			NodeName:     "the-node",
+			StartTimeStr: "2020-01-02 12:34:56",
+			Uid:          "uid-34",
+			Owners:       []*informer.Owner{{Kind: "ReplicaSet", Name: "rs"}},
+			Containers:   []*informer.ContainerInfo{{Name: "a-container", Id: "container-34"}},
+		},
+	}})
+
+	// After we got new information, there's no need to send the event again, it's
+	// automatically going to generate a process event with the updated info
+	// inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 34, Ns: 1034, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+	deco = testutil.ReadChannel(t, outputCh, timeout)
+	assert.Equal(t, "the-ns", deco.File.Service.UID.Namespace)
+	assert.Equal(t, "rs", deco.File.Service.UID.Name)
+	assert.Equal(t, "the-ns.pod-34.a-container", deco.File.Service.UID.Instance)
+	assert.Equal(t, map[attr.Name]string{
+		"k8s.node.name":       "the-node",
+		"k8s.namespace.name":  "the-ns",
+		"k8s.replicaset.name": "rs",
+		"k8s.owner.name":      "rs",
+		"k8s.pod.name":        "pod-34",
+		"k8s.container.name":  "a-container",
+		"k8s.pod.uid":         "uid-34",
+		"k8s.pod.start_time":  "2020-01-02 12:34:56",
+		"k8s.cluster.name":    "the-cluster",
+		"k8s.kind":            "ReplicaSet",
+	}, deco.File.Service.Metadata)
+
+	// Now let's send the rest of the PIDs. We'll send all and remove half
+	// 56, 78, 83, 66
+	// They all have the same namespace -- they are in the same container
+	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 56, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 78, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 83, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 66, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+
+	// remove two
+	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 56, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventTerminated})
+	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 78, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventTerminated})
+
+	// this produces 6 events exactly
+	// all without metadata
+	for i := 0; i < 4; i++ {
+		deco := testutil.ReadChannel(t, outputCh, timeout)
+		assert.Equal(t, exec.ProcessEventCreated, deco.Type)
+		assert.Empty(t, deco.File.Service.UID.Namespace)
+		assert.Empty(t, deco.File.Service.UID.Name)
+		assert.Empty(t, deco.File.Service.UID.Instance)
+		assert.Empty(t, deco.File.Service.Metadata)
+	}
+
+	for i := 0; i < 2; i++ {
+		deco := testutil.ReadChannel(t, outputCh, timeout)
+		assert.Equal(t, exec.ProcessEventTerminated, deco.Type)
+		assert.Empty(t, deco.File.Service.UID.Namespace)
+		assert.Empty(t, deco.File.Service.UID.Name)
+		assert.Empty(t, deco.File.Service.UID.Instance)
+		assert.Empty(t, deco.File.Service.Metadata)
+	}
+
+	// Now we'll receive pod information for 56, this is the container where all the pids are
+	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: &informer.ObjectMeta{
+		Name: "the-pod", Namespace: "the-ns", Kind: "Pod",
+		Pod: &informer.PodInfo{
+			NodeName:     "the-node",
+			Uid:          "uid-56",
+			StartTimeStr: "2020-01-02 12:56:56",
+			Containers:   []*informer.ContainerInfo{{Name: "a-container", Id: "container-56"}},
+		},
+	}})
+	// dummy pod launch, we don't care about it, but we want to ensure it doesn't mess up
+	// things for us
+	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: &informer.ObjectMeta{
+		Name: "overridden-meta", Namespace: "the-ns", Kind: "Pod",
+		Labels: map[string]string{
+			"app.kubernetes.io/name":    "a-cool-name",
+			"app.kubernetes.io/part-of": "a-cool-namespace",
+		},
+		Pod: &informer.PodInfo{
+			NodeName:     "the-node",
+			Uid:          "uid-78",
+			StartTimeStr: "2020-01-02 12:56:56",
+			Containers:   []*informer.ContainerInfo{{Name: "a-container", Id: "container-78"}},
+		},
+	}})
+
+	// we'll receive only two process events, two of the 4 naked pids were deleted
+	// so no event will be generated for those
+
+	seenPids := map[int32]struct{}{}
+	for _, deco := range []exec.ProcessEvent{testutil.ReadChannel(t, outputCh, timeout), testutil.ReadChannel(t, outputCh, timeout)} {
+		seenPids[deco.File.Pid] = struct{}{}
+		assert.Equal(t, "the-ns", deco.File.Service.UID.Namespace)
+		assert.Equal(t, "the-pod", deco.File.Service.UID.Name)
+		assert.Equal(t, "the-ns.the-pod.a-container", deco.File.Service.UID.Instance)
+		assert.Equal(t, map[attr.Name]string{
+			"k8s.node.name":      "the-node",
+			"k8s.namespace.name": "the-ns",
+			"k8s.pod.name":       "the-pod",
+			"k8s.container.name": "a-container",
+			"k8s.pod.uid":        "uid-56",
+			"k8s.pod.start_time": "2020-01-02 12:56:56",
+			"k8s.cluster.name":   "the-cluster",
+		}, deco.File.Service.Metadata)
+
+		assert.Equal(t, "the-ns", deco.File.Service.UID.Namespace)
+		assert.Equal(t, "the-pod", deco.File.Service.UID.Name)
+		assert.Equal(t, "the-ns.the-pod.a-container", deco.File.Service.UID.Instance)
+		assert.Equal(t, map[attr.Name]string{
+			"k8s.node.name":      "the-node",
+			"k8s.namespace.name": "the-ns",
+			"k8s.pod.name":       "the-pod",
+			"k8s.container.name": "a-container",
+			"k8s.pod.uid":        "uid-56",
+			"k8s.pod.start_time": "2020-01-02 12:56:56",
+			"k8s.cluster.name":   "the-cluster",
+		}, deco.File.Service.Metadata)
+	}
+
+	assert.Len(t, seenPids, 2)
+	_, exists := seenPids[66]
+	assert.True(t, exists)
+	_, exists = seenPids[83]
+	assert.True(t, exists)
+
+	// no more events
+	testutil.ChannelEmpty(t, outputCh, 100*time.Millisecond)
 }
 
 type fakeInformer struct {

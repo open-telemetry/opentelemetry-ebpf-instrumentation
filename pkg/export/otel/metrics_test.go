@@ -5,6 +5,8 @@ package otel
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +18,8 @@ import (
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/exec"
@@ -845,5 +849,397 @@ func TestClientSpanToUninstrumentedService(t *testing.T) {
 	}
 	if ClientSpanToUninstrumentedService(&tracker, spanNoHost) {
 		t.Errorf("Expected false for span with no HostName, got true")
+	}
+}
+
+type mockEventMetrics struct {
+	createCalls []*TargetMetrics
+	deleteCalls []*TargetMetrics
+}
+
+func newMockEventMetrics() *mockEventMetrics {
+	return &mockEventMetrics{
+		createCalls: make([]*TargetMetrics, 0),
+		deleteCalls: make([]*TargetMetrics, 0),
+	}
+}
+
+func (m *mockEventMetrics) createEventMetrics(targetMetrics *TargetMetrics) {
+	m.createCalls = append(m.createCalls, targetMetrics)
+}
+
+func (m *mockEventMetrics) deleteEventMetrics(targetMetrics *TargetMetrics) {
+	m.deleteCalls = append(m.deleteCalls, targetMetrics)
+}
+
+func TestHandleProcessEventCreated(t *testing.T) {
+	tests := []struct {
+		name           string
+		setup          func(*MetricsReporter, *mockEventMetrics)
+		event          exec.ProcessEvent
+		expectedCreate []svc.Attrs
+		expectedDelete []svc.Attrs
+		expectedMap    map[svc.UID]svc.Attrs
+	}{
+		{
+			name: "new service - fresh start",
+			setup: func(r *MetricsReporter, m *mockEventMetrics) {
+				// No setup needed for fresh start
+			},
+			event: exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: &exec.FileInfo{
+					Pid: 1234,
+					Service: svc.Attrs{
+						UID: svc.UID{
+							Name:      "test-service",
+							Namespace: "default",
+							Instance:  "instance-1",
+						},
+						HostName: "test-host",
+					},
+				},
+			},
+			expectedCreate: []svc.Attrs{
+				{
+					UID: svc.UID{
+						Name:      "test-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedDelete: nil,
+			expectedMap: map[svc.UID]svc.Attrs{
+				{
+					Name:      "test-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}: {
+					UID: svc.UID{
+						Name:      "test-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+		},
+		{
+			name: "same service UID with updated attributes",
+			setup: func(r *MetricsReporter, m *mockEventMetrics) {
+				// Pre-populate service map with existing service
+				uid := svc.UID{
+					Name:      "test-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.targetMetrics[uid] = attrsToTargetMetrics(r, &svc.Attrs{
+					UID:      uid,
+					HostName: "old-host",
+				})
+			},
+			event: exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: &exec.FileInfo{
+					Pid: 1234,
+					Service: svc.Attrs{
+						UID: svc.UID{
+							Name:      "test-service",
+							Namespace: "default",
+							Instance:  "instance-1",
+						},
+						HostName: "new-host",
+					},
+				},
+			},
+			expectedCreate: []svc.Attrs{
+				{
+					UID: svc.UID{
+						Name:      "test-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "new-host",
+				},
+			},
+			expectedDelete: []svc.Attrs{
+				{
+					UID: svc.UID{
+						Name:      "test-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "old-host",
+				},
+			},
+			expectedMap: map[svc.UID]svc.Attrs{
+				{
+					Name:      "test-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}: {
+					UID: svc.UID{
+						Name:      "test-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "new-host",
+				},
+			},
+		},
+		{
+			name: "PID changing service (stale UID with existing attributes)",
+			setup: func(r *MetricsReporter, m *mockEventMetrics) {
+				// Setup: PID 1234 is already tracked with stale UID
+				staleUID := svc.UID{
+					Name:      "old-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.pidTracker.AddPID(1234, staleUID)
+
+				// Add stale service to service map
+				r.targetMetrics[staleUID] = attrsToTargetMetrics(r, &svc.Attrs{
+					UID:      staleUID,
+					HostName: "test-host",
+				})
+			},
+			event: exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: &exec.FileInfo{
+					Pid: 1234,
+					Service: svc.Attrs{
+						UID: svc.UID{
+							Name:      "new-service",
+							Namespace: "default",
+							Instance:  "instance-1",
+						},
+						HostName: "test-host",
+					},
+				},
+			},
+			expectedCreate: []svc.Attrs{
+				{
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedDelete: []svc.Attrs{
+				{
+					UID: svc.UID{
+						Name:      "old-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedMap: map[svc.UID]svc.Attrs{
+				{
+					Name:      "new-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}: {
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+		},
+		{
+			name: "PID changing service (stale UID without existing attributes)",
+			setup: func(r *MetricsReporter, m *mockEventMetrics) {
+				// Setup: PID 1234 is already tracked with stale UID, but no service map entry
+				staleUID := svc.UID{
+					Name:      "old-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.pidTracker.AddPID(1234, staleUID)
+				// Note: deliberately NOT adding to serviceMap to test this edge case
+			},
+			event: exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: &exec.FileInfo{
+					Pid: 1234,
+					Service: svc.Attrs{
+						UID: svc.UID{
+							Name:      "new-service",
+							Namespace: "default",
+							Instance:  "instance-1",
+						},
+						HostName: "test-host",
+					},
+				},
+			},
+			expectedCreate: nil,
+			expectedDelete: nil,
+			expectedMap: map[svc.UID]svc.Attrs{
+				{
+					Name:      "new-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}: {
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockEventsStore := mockEventMetrics{}
+
+			// Create a minimal metricsReporter with mocks
+			reporter := &MetricsReporter{
+				cfg:                &otelcfg.MetricsConfig{},
+				log:                slog.Default(),
+				targetMetrics:      make(map[svc.UID]*TargetMetrics),
+				pidTracker:         NewPidServiceTracker(),
+				createEventMetrics: mockEventsStore.createEventMetrics,
+				deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+			}
+
+			// Setup any initial state
+			tt.setup(reporter, &mockEventsStore)
+
+			// Execute the function under test
+			reporter.onProcessEvent(&tt.event)
+
+			// Verify create calls
+			for i, cc := range tt.expectedCreate {
+				c := attrsToTargetMetrics(reporter, &cc)
+				resourcesMatch(t, c, mockEventsStore.createCalls[i])
+			}
+
+			// Verify delete calls
+			for i, cc := range tt.expectedDelete {
+				c := attrsToTargetMetrics(reporter, &cc)
+				resourcesMatch(t, c, mockEventsStore.deleteCalls[i])
+			}
+
+			tm := map[svc.UID]*TargetMetrics{}
+
+			for uid, attrs := range tt.expectedMap {
+				tm[uid] = attrsToTargetMetrics(reporter, &attrs)
+			}
+
+			// Verify service map state
+			assert.Equal(t, tm, reporter.targetMetrics,
+				"Service map should match expected state")
+		})
+	}
+}
+
+func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
+	t.Run("multiple PIDs for same service", func(t *testing.T) {
+		mockEventsStore := newMockEventMetrics()
+
+		reporter := &MetricsReporter{
+			cfg:                &otelcfg.MetricsConfig{},
+			log:                slog.Default(),
+			targetMetrics:      make(map[svc.UID]*TargetMetrics),
+			pidTracker:         NewPidServiceTracker(),
+			createEventMetrics: mockEventsStore.createEventMetrics,
+			deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+		}
+
+		uid := svc.UID{Name: "multi-pid-service", Namespace: "default", Instance: "instance-1"}
+		service := svc.Attrs{UID: uid, HostName: "test-host"}
+
+		// Add first PID
+		event1 := exec.ProcessEvent{
+			Type: exec.ProcessEventCreated,
+			File: &exec.FileInfo{Pid: 1111, Service: service},
+		}
+		reporter.onProcessEvent(&event1)
+
+		// Add second PID for same service
+		event2 := exec.ProcessEvent{
+			Type: exec.ProcessEventCreated,
+			File: &exec.FileInfo{Pid: 2222, Service: service},
+		}
+		reporter.onProcessEvent(&event2)
+
+		// Service should only be created once initially, then updated once for the same UID
+		assert.Len(t, mockEventsStore.createCalls, 2) // One for each PID event
+		assert.Len(t, mockEventsStore.deleteCalls, 1) // One delete when second event updates existing service
+	})
+
+	t.Run("concurrent service updates", func(t *testing.T) {
+		mockEventsStore := newMockEventMetrics()
+
+		reporter := &MetricsReporter{
+			cfg:                &otelcfg.MetricsConfig{},
+			log:                slog.Default(),
+			targetMetrics:      make(map[svc.UID]*TargetMetrics),
+			pidTracker:         NewPidServiceTracker(),
+			createEventMetrics: mockEventsStore.createEventMetrics,
+			deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+		}
+
+		uid := svc.UID{Name: "concurrent-service", Namespace: "default", Instance: "instance-1"}
+
+		// Simulate rapid updates to same service with different metadata
+		for i := 0; i < 5; i++ {
+			service := svc.Attrs{
+				UID:      uid,
+				HostName: fmt.Sprintf("host-%d", i),
+			}
+
+			event := exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: &exec.FileInfo{Pid: int32(1000 + i), Service: service},
+			}
+			reporter.onProcessEvent(&event)
+		}
+
+		hostKey := attribute.Key(attr.HostName)
+		// Should end up with latest service attributes
+		finalService := reporter.targetMetrics[uid]
+		hostName, ok := finalService.resourceAttributes.Value(hostKey)
+		assert.True(t, ok)
+		assert.Equal(t, "host-4", hostName.AsString())
+
+		// Should have created 5 times and deleted 4 times (each update after first deletes previous)
+		assert.Len(t, mockEventsStore.createCalls, 5)
+		assert.Len(t, mockEventsStore.deleteCalls, 4)
+	})
+}
+
+func attrsToTargetMetrics(mr *MetricsReporter, attrs *svc.Attrs) *TargetMetrics {
+	targetMetrics := &TargetMetrics{}
+
+	targetMetrics.resourceAttributes = attribute.NewSet(mr.resourceAttrsForService(attrs)...)
+
+	targetMetrics.tracesResourceAttributes = *attribute.EmptySet()
+
+	return targetMetrics
+}
+
+func resourcesMatch(t *testing.T, one *TargetMetrics, two *TargetMetrics) {
+	assert.Equal(t, one.resourceAttributes.Len(), two.resourceAttributes.Len())
+
+	for i := 0; i < one.resourceAttributes.Len(); i++ {
+		a, ok := one.resourceAttributes.Get(i)
+		assert.True(t, ok)
+
+		other, ok := two.resourceAttributes.Value(a.Key)
+		assert.True(t, ok)
+		assert.Equal(t, a.Value.AsString(), other.AsString())
 	}
 }
