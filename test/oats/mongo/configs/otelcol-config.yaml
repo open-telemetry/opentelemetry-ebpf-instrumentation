@@ -10,9 +10,6 @@ receivers:
             - "http://*"
             - "https://*"
 
-processors:
-  batch:
-
 exporters:
   debug:
     verbosity: detailed
@@ -32,16 +29,13 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
       #exporters: [otlp]
       exporters: [otlp,debug]
     metrics:
       receivers: [otlp]
-      processors: [batch]
       #exporters: [prometheusremotewrite]
       exporters: [prometheusremotewrite,debug]
     logs:
       receivers: [otlp]
-      processors: [batch]
       exporters: [loki]
       #exporters: [loki,logging/logs]
