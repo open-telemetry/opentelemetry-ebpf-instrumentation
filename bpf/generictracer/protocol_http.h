@@ -4,6 +4,7 @@
 #pragma once
 
 #include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/http_types.h>
@@ -43,14 +44,15 @@ static __always_inline u32 trace_type_from_meta(http_connection_metadata_t *meta
     return TRACE_TYPE_SERVER;
 }
 
-static __always_inline void http_get_or_create_trace_info(http_connection_metadata_t *meta,
-                                                          u32 pid,
-                                                          connection_info_t *conn,
-                                                          void *u_buf,
-                                                          int bytes_len,
-                                                          u8 ssl,
-                                                          u16 orig_dport,
-                                                          u16 (*tp_loop_fn)(unsigned char *, u16)) {
+static __always_inline void
+http_get_or_create_trace_info(http_connection_metadata_t *meta,
+                              u32 pid,
+                              connection_info_t *conn,
+                              void *u_buf,
+                              int bytes_len,
+                              u8 ssl,
+                              u16 orig_dport,
+                              unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
     //TODO use make_key
     egress_key_t e_key = {
         .d_port = conn->d_port,
@@ -146,15 +148,16 @@ static __always_inline void http_get_or_create_trace_info(http_connection_metada
 
         unsigned char *buf = tp_char_buf();
         if (buf) {
-            u16 buf_len = bytes_len & (TRACE_BUF_SIZE - 1);
-            __builtin_memset(buf, 0, TRACE_BUF_SIZE);
+            const u16 buf_len = bytes_len & (TRACE_BUF_SIZE - 1);
+            _Static_assert(TRACE_BUF_SIZE == 1024,
+                           "Please fix the __bpf_memzero statements below this line");
+            __bpf_memzero(buf, 512);
+            __bpf_memzero(buf + 512, 512);
+
             bpf_probe_read(buf, buf_len, u_buf);
 
-            u16 idx = tp_loop_fn(buf, buf_len);
-
-            if (idx > 0 && idx < (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) {
-                unsigned char *res = &buf[idx];
-
+            unsigned char *res = tp_loop_fn(buf, buf_len);
+            if (res) {
                 bpf_dbg_printk("Found traceparent in headers [%s] overriding what was before", res);
                 unsigned char *t_id = extract_trace_id(res);
                 unsigned char *s_id = extract_span_id(res);
@@ -453,10 +456,11 @@ int obi_continue2_protocol_http(struct pt_regs *ctx) {
     return __obi_continue2_protocol_http(ctx, args, info, meta);
 }
 
-static __always_inline int __obi_continue_protocol_http(struct pt_regs *ctx,
-                                                        call_protocol_args_t *args,
-                                                        http_info_t *info,
-                                                        u16 (*tp_loop_fn)(unsigned char *, u16)) {
+static __always_inline int
+__obi_continue_protocol_http(struct pt_regs *ctx,
+                             call_protocol_args_t *args,
+                             http_info_t *info,
+                             unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
     http_connection_metadata_t *meta =
         connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
 
@@ -494,8 +498,8 @@ int obi_continue_protocol_http(struct pt_regs *ctx) {
     return __obi_continue_protocol_http(ctx, args, info, bpf_strstr_tp_loop__legacy);
 }
 
-static __always_inline int __obi_protocol_http(struct pt_regs *ctx,
-                                               u16 (*tp_loop_fn)(unsigned char *, u16)) {
+static __always_inline int
+__obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;

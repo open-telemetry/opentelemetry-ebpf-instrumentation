@@ -51,7 +51,6 @@ type Tracer struct {
 	instrumentedLibs ebpfcommon.InstrumentedLibsT
 	libsMux          sync.Mutex
 	iters            []*ebpfcommon.Iter
-	bpfLoopEnabled   bool
 }
 
 func tlog() *slog.Logger {
@@ -135,10 +134,6 @@ func (p *Tracer) BlockPID(pid, ns uint32) {
 }
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
-	// Default to true: if context propagation is disabled,
-	// load the non-legacy version of the http tailcalls.
-	bpfLoopEnabled := true
-
 	loader := LoadBpf
 	if p.cfg.EBPF.BpfDebug {
 		loader = LoadBpfDebug
@@ -151,9 +146,7 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 			loader = LoadBpfTPDebug
 		}
 
-		bpfLoopEnabled = ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled)
-
-		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", bpfLoopEnabled)
+		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled))
 	}
 
 	spec, err := loader()
@@ -161,8 +154,7 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 		return nil, fmt.Errorf("can't load bpf collection from reader: %w", err)
 	}
 
-	ebpfcommon.FixupSpec(spec, bpfLoopEnabled)
-	p.bpfLoopEnabled = bpfLoopEnabled
+	ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
 
 	return spec, err
 }
