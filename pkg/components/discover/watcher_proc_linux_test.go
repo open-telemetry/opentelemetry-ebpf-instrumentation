@@ -66,8 +66,9 @@ func TestParseProcStatField(t *testing.T) {
 }
 
 func TestGetProcStatField(t *testing.T) {
-	assert.Empty(t, getProcStatField(0, 0))
-	assert.Empty(t, getProcStatField(-1, 0))
+	r := procStatReader{}
+	assert.Empty(t, r.getProcStatField(0, 0))
+	assert.Empty(t, r.getProcStatField(-1, 0))
 
 	pid := os.Getpid()
 
@@ -77,7 +78,7 @@ func TestGetProcStatField(t *testing.T) {
 
 	exe := filepath.Base(exePath)
 
-	assert.Equal(t, exe, getProcStatField(int32(pid), 2))
+	assert.Equal(t, exe, r.getProcStatField(int32(pid), 2))
 }
 
 func TestNSToDuration(t *testing.T) {
@@ -86,9 +87,11 @@ func TestNSToDuration(t *testing.T) {
 }
 
 func TestProcessAge(t *testing.T) {
-	assert.Zero(t, processAge(0))
+	r := procStatReader{}
 
-	age := processAge(int32(os.Getpid()))
+	assert.Zero(t, r.processAge(0))
+
+	age := r.processAge(int32(os.Getpid()))
 
 	require.NotZero(t, age)
 
