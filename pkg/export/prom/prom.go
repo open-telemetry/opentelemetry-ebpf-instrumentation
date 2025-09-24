@@ -85,6 +85,7 @@ const (
 	sourceKey            = "source"
 	telemetryLanguageKey = "telemetry_sdk_language"
 	telemetrySDKKey      = "telemetry_sdk_name"
+	telemetrySDKVersion  = "telemetry_sdk_version"
 
 	clientKey          = "client"
 	clientNamespaceKey = "client_service_namespace"
@@ -1030,6 +1031,7 @@ func labelNamesTargetInfo(kubeEnabled bool, extraMetadataLabelNames []attr.Name)
 		serviceJobKey,
 		telemetryLanguageKey,
 		telemetrySDKKey,
+		telemetrySDKVersion,
 		sourceKey,
 		osTypeKey,
 	}
@@ -1055,6 +1057,7 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 		service.Job(),
 		service.SDKLanguage.String(),
 		attr.VendorPrefix,
+		buildinfo.Version,
 		attr.VendorPrefix,
 		"linux",
 	}
