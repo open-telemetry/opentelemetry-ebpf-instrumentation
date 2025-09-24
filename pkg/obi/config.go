@@ -144,7 +144,6 @@ var DefaultConfig = Config{
 		HostID: HostIDConfig{
 			FetchTimeout: 500 * time.Millisecond,
 		},
-		RenameUnresolvedHosts:          "unresolved",
 		MetricSpanNameAggregationLimit: 100,
 	},
 	Routes: &transform.RoutesConfig{
