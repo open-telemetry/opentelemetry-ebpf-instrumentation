@@ -96,8 +96,6 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 			return request.Span{}, false, nil
 		}
 		requestBuffer = b
-
-		// TODO: response?
 	} else {
 		requestBuffer = event.Buf[:]
 	}

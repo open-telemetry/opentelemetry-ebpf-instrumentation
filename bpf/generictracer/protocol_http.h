@@ -9,6 +9,7 @@
 
 #include <common/common.h>
 #include <common/http_types.h>
+#include <common/large_buffers.h>
 #include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
@@ -25,11 +26,6 @@
 #include <maps/ongoing_http.h>
 
 volatile const u32 high_request_volume;
-
-enum {
-    k_http_large_buf_max_size = 1 << 14, // 16K
-    k_http_large_buf_max_size_mask = k_http_large_buf_max_size - 1,
-};
 
 // empty_http_info zeroes and return the unique percpu copy in the map
 // this function assumes that a given thread is not trying to use many
@@ -414,8 +410,6 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     cleanup_http_request_data(pid_conn, info);
 }
 
-SCRATCH_MEM_SIZED(http_large_buffers, k_http_large_buf_max_size);
-
 static __always_inline int http_send_large_buffer(http_info_t *req,
                                                   const void *u_buf,
                                                   u32 bytes_len,
@@ -440,7 +434,7 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
     large_buf->type = EVENT_TCP_LARGE_BUFFER;
     large_buf->packet_type = packet_type;
     large_buf->action = action;
-    __builtin_memcpy((void *)&large_buf->tp, (void *)&req->tp, sizeof(tp_info_t));
+    large_buf->tp = req->tp;
 
     large_buf->len = bytes_len;
     if (large_buf->len >= http_buffer_size) {
@@ -455,8 +449,7 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
 
     req->has_large_buffers = true;
 
-    bpf_ringbuf_output(
-        &events, large_buf, total_size & k_http_large_buf_max_size_mask, get_flags());
+    bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
     return 0;
 }
 
@@ -609,16 +602,14 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
                                    args->bytes_len,
                                    args->packet_type,
                                    k_large_buf_action_init);
-        } else {
-            // we copy some small part of the buffer to the info trace event, so that we can process an event even with
-            // incomplete trace info in user space.
-            bpf_probe_read(info->buf, FULL_BUF_SIZE, (void *)args->u_buf);
         }
+
+        // we copy some small part of the buffer to the info trace event, so that we can process an event even with
+        // incomplete trace info in user space.
+        bpf_probe_read(info->buf, FULL_BUF_SIZE, (void *)args->u_buf);
 
         process_http_request(info, args->bytes_len, meta, args->direction, args->orig_dport);
     } else if ((args->packet_type == PACKET_TYPE_RESPONSE) && (info->status == 0)) {
-        http_send_large_buffer(
-            info, (void *)args->u_buf, args->bytes_len, args->packet_type, k_large_buf_action_init);
         handle_http_response(
             args->small_buf, &args->pid_conn, info, args->bytes_len, args->direction, args->ssl);
     } else if (still_reading(info)) {

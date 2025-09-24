@@ -9,6 +9,7 @@
 
 #include <common/common.h>
 #include <common/connection_info.h>
+#include <common/large_buffers.h>
 #include <common/http_types.h>
 #include <common/pin_internal.h>
 #include <common/ringbuf.h>
@@ -57,10 +58,6 @@ enum {
     k_mysql_com_stmt_prepare = 0x16,
     k_mysql_com_stmt_execute = 0x17,
 
-    // Large buffer
-    k_mysql_large_buf_max_size = 1 << 14, // 16K
-    k_mysql_large_buf_max_size_mask = k_mysql_large_buf_max_size - 1,
-
     // Sanity checks
     k_mysql_payload_length_max = 1 << 13, // 8K
 };
@@ -71,8 +68,6 @@ struct {
     __type(value, struct mysql_state_data);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } mysql_state SEC(".maps");
-
-SCRATCH_MEM_SIZED(mysql_large_buffers, k_mysql_large_buf_max_size);
 
 // This function is used to store the MySQL header if it comes in split packets
 // from double send.
@@ -194,8 +189,7 @@ static __always_inline int mysql_send_large_buffer(tcp_req_t *req,
     total_size += written > sizeof(void *) ? written : sizeof(void *);
 
     req->has_large_buffers = true;
-    bpf_ringbuf_output(
-        &events, large_buf, total_size & k_mysql_large_buf_max_size_mask, get_flags());
+    bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
     return 0;
 }
 

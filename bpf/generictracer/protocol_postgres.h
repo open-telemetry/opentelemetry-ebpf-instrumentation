@@ -11,6 +11,7 @@
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/http_types.h>
+#include <common/large_buffers.h>
 #include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
@@ -42,13 +43,7 @@ enum {
     k_pg_msg_execute = 'E', // Execute a portal
     k_pg_msg_parse = 'P',   // Parses a query and creates a prepared statement
     k_pg_msg_query = 'Q',   // Executes a simple SQL query
-
-    // Large buffer
-    k_pg_large_buf_max_size = 1 << 14, // 16K
-    k_pg_large_buf_max_size_mask = k_pg_large_buf_max_size - 1,
 };
-
-SCRATCH_MEM_SIZED(postgres_large_buffers, k_pg_large_buf_max_size);
 
 // Emit a large buffer event for Postgres protocol.
 // The return value is used to control the flow for this specific protocol.
@@ -87,7 +82,7 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
     total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);
 
     req->has_large_buffers = true;
-    bpf_ringbuf_output(&events, large_buf, total_size & k_pg_large_buf_max_size_mask, get_flags());
+    bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
     return 0;
 }
 
