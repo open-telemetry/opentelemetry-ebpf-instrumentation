@@ -1,4 +1,4 @@
-FROM mysql:8@sha256:6e60ad6d61d8e7f0a4fd07f6b14109331d66a2f0d089e4b7a1f485d671a29604 as builder
+FROM mysql:8@sha256:5367102acfefeaa47eb0eb57c8d4f8b96c8c14004859131eac9bbfaa62f81e34 as builder
 ENV MYSQL_ROOT_PASSWORD=p_ssW0rd
 ENV MYSQL_DATABASE=sakila
 ENV MYSQL_USER=sakila
@@ -15,7 +15,7 @@ RUN ["sed", "-i", "s/exec \"$@\"/echo \"skipping...\"/", "/usr/local/bin/docker-
 USER mysql
 RUN ["/usr/local/bin/docker-entrypoint.sh", "mysqld"]
 
-FROM mysql:8@sha256:6e60ad6d61d8e7f0a4fd07f6b14109331d66a2f0d089e4b7a1f485d671a29604
+FROM mysql:8@sha256:5367102acfefeaa47eb0eb57c8d4f8b96c8c14004859131eac9bbfaa62f81e34
 ENV MYSQL_ROOT_PASSWORD=p_ssW0rd
 ENV MYSQL_DATABASE=sakila
 ENV MYSQL_USER=sakila
