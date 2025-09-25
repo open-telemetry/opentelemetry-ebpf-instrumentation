@@ -56,9 +56,6 @@ typedef struct flow_metrics_t {
     // TCP Flags from https://www.ietf.org/rfc/rfc793.txt
     u64 flags;
 
-    // must be 64-bit to be used with __sync functions
-    u64 init_state;
-
     // direction of the flow EGRESS / INGRESS
     u64 iface_direction;
 

@@ -43,8 +43,6 @@
 
 #define INITIATOR_UNKNOWN 0
 
-#define INITIATOR_UNSET 255
-
 // Common Ringbuffer as a conduit for ingress/egress flows to userspace
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -114,7 +112,7 @@ volatile const u64 k_max_flow_duration;
 
 // we can safely assume that the passed address is IPv6 as long as we encode IPv4
 // as IPv6 during the creation of the flow_id.
-static inline s32 compare_ipv6(flow_id *fid) {
+static inline s32 compare_ipv6(const flow_id *fid) {
     for (int i = 0; i < 4; i++) {
         s32 diff = fid->src_ip.in6_u.u6_addr32[i] - fid->dst_ip.in6_u.u6_addr32[i];
         if (diff != 0) {
@@ -128,8 +126,9 @@ static inline s32 compare_ipv6(flow_id *fid) {
 // ordering endpoints (ip:port) numerically into a lower and a higher endpoint.
 // returns true if the lower address corresponds to the source address
 // (false if the lower address corresponds to the destination address)
-static inline u8 fill_conn_initiator_key(flow_id *id, conn_initiator_key *key) {
-    s32 cmp = compare_ipv6(id);
+static inline u8 fill_conn_initiator_key(const flow_id *id, conn_initiator_key *key) {
+    const s32 cmp = compare_ipv6(id);
+
     if (cmp < 0) {
         __builtin_memcpy(&key->low_ip, &id->src_ip, sizeof(struct in6_addr));
         key->low_ip_port = id->src_port;
@@ -153,7 +152,7 @@ static inline u8 fill_conn_initiator_key(flow_id *id, conn_initiator_key *key) {
 // returns INITIATOR_SRC or INITIATOR_DST, but might return INITIATOR_UNKNOWN
 // if the connection initiator couldn't be found. The user-space Beyla pipeline
 // will handle this last case heuristically
-static inline u8 get_connection_initiator(flow_id *id, u16 flags) {
+static inline u8 get_connection_initiator(const flow_id *id, u16 flags) {
     conn_initiator_key initiator_key;
     // from the initiator_key with sorted ip/ports, know the index of the
     // endpoint that that initiated the connection, which might be the low or the high address
@@ -219,19 +218,51 @@ static inline u8 get_connection_initiator(flow_id *id, u16 flags) {
     return flow_initiator;
 }
 
-static __always_inline flow_metrics *get_flow_storage(const flow_id *id) {
+static __always_inline u8 get_flow_direction(const flow_id *id, u64 flags) {
+    const u8 *direction = (u8 *)bpf_map_lookup_elem(&flow_directions, id);
+
+    if (direction) {
+        return *direction;
+    }
+
+    u8 ret = UNKNOWN;
+
+    // Calculate direction based on first flag received
+    // SYN and ACK mean someone else initiated the connection and this is the INGRESS direction
+    if ((flags & (SYN_FLAG | ACK_FLAG)) == (SYN_FLAG | ACK_FLAG)) {
+        ret = INGRESS;
+    }
+    // SYN only means we initiated the connection and this is the EGRESS direction
+    else if ((flags & SYN_FLAG) == SYN_FLAG) {
+        ret = EGRESS;
+    }
+
+    // save, when direction was calculated based on TCP flag
+    if (ret != UNKNOWN) {
+        // errors are intentionally omitted
+        bpf_map_update_elem(&flow_directions, id, &ret, BPF_NOEXIST);
+    }
+    // fallback for lost or already started connections and UDP
+    else {
+        ret = (id->src_port > id->dst_port) ? EGRESS : INGRESS;
+    }
+
+    return ret;
+}
+
+static __always_inline flow_metrics *get_flow_storage(const flow_id *id, u16 flags) {
     flow_metrics *f = bpf_map_lookup_elem(&aggregated_flows, id);
 
     if (f) {
         return f;
     }
 
-    flow_metrics zero = {};
-    zero.start_mono_time_ns = bpf_ktime_get_ns();
-    zero.init_state = k_flow_uninitialized;
-    zero.initiator = INITIATOR_UNSET;
+    flow_metrics init = {};
+    init.start_mono_time_ns = bpf_ktime_get_ns();
+    init.iface_direction = get_flow_direction(id, flags);
+    init.initiator = get_connection_initiator(id, flags);
 
-    bpf_map_update_elem(&aggregated_flows, id, &zero, BPF_NOEXIST);
+    bpf_map_update_elem(&aggregated_flows, id, &init, BPF_NOEXIST);
 
     return bpf_map_lookup_elem(&aggregated_flows, id);
 }
@@ -294,38 +325,6 @@ static __always_inline void submit_flow(const flow_id *id, flow_metrics *metrics
 
     //bpf_printk("submit %u -> %u (%u)", id->src_port, id->dst_port, id->if_index);
     bpf_ringbuf_submit(record, get_rb_flags());
-}
-
-static __always_inline u8 get_flow_direction(const flow_id *id, u64 flags) {
-    const u8 *direction = (u8 *)bpf_map_lookup_elem(&flow_directions, id);
-
-    if (direction) {
-        return *direction;
-    }
-
-    u8 ret = UNKNOWN;
-
-    // Calculate direction based on first flag received
-    // SYN and ACK mean someone else initiated the connection and this is the INGRESS direction
-    if ((flags & (SYN_FLAG | ACK_FLAG)) == (SYN_FLAG | ACK_FLAG)) {
-        ret = INGRESS;
-    }
-    // SYN only means we initiated the connection and this is the EGRESS direction
-    else if ((flags & SYN_FLAG) == SYN_FLAG) {
-        ret = EGRESS;
-    }
-
-    // save, when direction was calculated based on TCP flag
-    if (ret != UNKNOWN) {
-        // errors are intentionally omitted
-        bpf_map_update_elem(&flow_directions, id, &ret, BPF_ANY);
-    }
-    // fallback for lost or already started connections and UDP
-    else {
-        ret = (id->src_port > id->dst_port) ? EGRESS : INGRESS;
-    }
-
-    return ret;
 }
 
 static __always_inline bool read_sk_buff(struct __sk_buff *skb, flow_id *id, u16 *custom_flags) {
@@ -523,7 +522,7 @@ static __always_inline int flow_monitor(struct __sk_buff *skb) {
         return TC_ACT_UNSPEC;
     }
 
-    flow_metrics *aggregate_flow = get_flow_storage(&id);
+    flow_metrics *aggregate_flow = get_flow_storage(&id, flags);
 
     if (!aggregate_flow) {
         return TC_ACT_UNSPEC;
@@ -533,14 +532,6 @@ static __always_inline int flow_monitor(struct __sk_buff *skb) {
 
     __sync_fetch_and_add(&aggregate_flow->bytes, skb->len);
     __sync_fetch_and_add(&aggregate_flow->packets, 1);
-
-    if (aggregate_flow->iface_direction == UNKNOWN) {
-        aggregate_flow->iface_direction = get_flow_direction(&id, flags);
-    }
-
-    if (aggregate_flow->initiator == INITIATOR_UNSET) {
-        aggregate_flow->initiator = get_connection_initiator(&id, flags);
-    }
 
     if (must_submit(aggregate_flow->start_mono_time_ns, current_time, flags)) {
         submit_flow(&id, aggregate_flow, flags);
