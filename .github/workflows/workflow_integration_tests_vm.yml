@@ -29,7 +29,7 @@ jobs:
       # Required for uploading artifacts
       actions: write
     name: test
-    runs-on: ubuntu-latest-large
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         go: [ '1.22' ]
