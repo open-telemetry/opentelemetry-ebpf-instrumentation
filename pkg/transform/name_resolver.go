@@ -134,6 +134,9 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 	if span.IsClientSpan() {
 		hn, span.OtherNamespace = nr.resolve(&span.Service, span.Host)
 		pn, ns = nr.resolve(&span.Service, span.Peer)
+		if pn == "" {
+			pn = request.HTTPClientHost(span)
+		}
 	} else {
 		pn, span.OtherNamespace = nr.resolve(&span.Service, span.Peer)
 		hn, ns = nr.resolve(&span.Service, span.Host)
