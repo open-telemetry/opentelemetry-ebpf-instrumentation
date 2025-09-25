@@ -318,7 +318,7 @@ static __always_inline u8 get_flow_direction(const flow_id *id, u64 flags) {
     // save, when direction was calculated based on TCP flag
     if (ret != UNKNOWN) {
         // errors are intentionally omitted
-        bpf_map_update_elem(&flow_directions, id, &ret, BPF_NOEXIST);
+        bpf_map_update_elem(&flow_directions, id, &ret, BPF_ANY);
     }
     // fallback for lost or already started connections and UDP
     else {
