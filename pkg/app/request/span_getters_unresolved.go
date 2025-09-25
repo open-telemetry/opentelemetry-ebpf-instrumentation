@@ -84,7 +84,7 @@ func otelUnresolvedHostGetters(unresolved UnresolvedNames) func(name attr.Name) 
 // unresolved metrics by a user-provided tag (usually "unresolved")
 func promUnresolvedHostGetters(unresolved UnresolvedNames) func(name attr.Name) (attributes.Getter[*Span, string], bool) {
 	return func(name attr.Name) (attributes.Getter[*Span, string], bool) {
-		getter, ok := spanPromGetters(name)
+		getter := spanPromGetters(name)
 		switch name {
 		case attr.Client:
 			return func(span *Span) string {
@@ -123,6 +123,6 @@ func promUnresolvedHostGetters(unresolved UnresolvedNames) func(name attr.Name) 
 				return val
 			}, true
 		}
-		return getter, ok
+		return getter, true
 	}
 }
