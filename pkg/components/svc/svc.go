@@ -7,8 +7,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
 
-	route "go.opentelemetry.io/obi/pkg/components/transform/route"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/internal/transform/route"
 	"go.opentelemetry.io/obi/pkg/services"
 )
 

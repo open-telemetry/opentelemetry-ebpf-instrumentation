@@ -13,8 +13,8 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
-	"go.opentelemetry.io/obi/pkg/components/testutil"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 

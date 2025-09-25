@@ -85,7 +85,7 @@ test/integration/components/pythonserver/pyvenv.cfg
 test/integration/components/gosql/qosql
 *_bpfel.go
 *_bpfel.o
-pkg/components/otelsdk/grafana-opentelemetry-java.jar
+pkg/internal/otelsdk/grafana-opentelemetry-java.jar
 opentelemetry-ebpf-instrumentation.sln
 obi.sln
 test/integration/components/javakafka/target/*
