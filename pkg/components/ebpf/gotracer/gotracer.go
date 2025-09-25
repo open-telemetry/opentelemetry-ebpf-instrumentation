@@ -27,10 +27,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/app/request"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/components/exec"
-	"go.opentelemetry.io/obi/pkg/components/goexec"
 	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	"go.opentelemetry.io/obi/pkg/config"
+	goexec2 "go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -112,80 +112,80 @@ func (p *Tracer) Constants() map[string]any {
 	}
 }
 
-func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
+func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec2.Offsets) {
 	offTable := BpfOffTableT{}
 	// Set the field offsets and the logLevel for the Go BPF program in a map
-	for _, field := range []goexec.GoOffset{
-		goexec.ConnFdPos,
-		goexec.FdLaddrPos,
-		goexec.FdRaddrPos,
-		goexec.TCPAddrPortPtrPos,
-		goexec.TCPAddrIPPtrPos,
+	for _, field := range []goexec2.GoOffset{
+		goexec2.ConnFdPos,
+		goexec2.FdLaddrPos,
+		goexec2.FdRaddrPos,
+		goexec2.TCPAddrPortPtrPos,
+		goexec2.TCPAddrIPPtrPos,
 		// http
-		goexec.URLPtrPos,
-		goexec.PathPtrPos,
-		goexec.HostPtrPos,
-		goexec.SchemePtrPos,
-		goexec.MethodPtrPos,
-		goexec.StatusCodePtrPos,
-		goexec.ResponseLengthPtrPos,
-		goexec.ContentLengthPtrPos,
-		goexec.ReqHeaderPtrPos,
-		goexec.IoWriterBufPtrPos,
-		goexec.IoWriterNPos,
-		goexec.CcNextStreamIDPos,
-		goexec.CcNextStreamIDVendoredPos,
-		goexec.CcFramerPos,
-		goexec.CcFramerVendoredPos,
-		goexec.FramerWPos,
-		goexec.PcConnPos,
-		goexec.PcTLSPos,
-		goexec.NetConnPos,
-		goexec.CcTconnPos,
-		goexec.CcTconnVendoredPos,
-		goexec.ScConnPos,
-		goexec.CRwcPos,
-		goexec.CTlsPos,
+		goexec2.URLPtrPos,
+		goexec2.PathPtrPos,
+		goexec2.HostPtrPos,
+		goexec2.SchemePtrPos,
+		goexec2.MethodPtrPos,
+		goexec2.StatusCodePtrPos,
+		goexec2.ResponseLengthPtrPos,
+		goexec2.ContentLengthPtrPos,
+		goexec2.ReqHeaderPtrPos,
+		goexec2.IoWriterBufPtrPos,
+		goexec2.IoWriterNPos,
+		goexec2.CcNextStreamIDPos,
+		goexec2.CcNextStreamIDVendoredPos,
+		goexec2.CcFramerPos,
+		goexec2.CcFramerVendoredPos,
+		goexec2.FramerWPos,
+		goexec2.PcConnPos,
+		goexec2.PcTLSPos,
+		goexec2.NetConnPos,
+		goexec2.CcTconnPos,
+		goexec2.CcTconnVendoredPos,
+		goexec2.ScConnPos,
+		goexec2.CRwcPos,
+		goexec2.CTlsPos,
 		// grpc
-		goexec.GrpcStreamStPtrPos,
-		goexec.GrpcStreamMethodPtrPos,
-		goexec.GrpcStatusSPos,
-		goexec.GrpcStatusCodePtrPos,
-		goexec.MetaHeadersFrameFieldsPtrPos,
-		goexec.ValueContextValPtrPos,
-		goexec.GrpcStConnPos,
-		goexec.GrpcTConnPos,
-		goexec.GrpcTSchemePos,
-		goexec.GrpcTransportStreamIDPos,
-		goexec.GrpcTransportBufWriterBufPos,
-		goexec.GrpcTransportBufWriterOffsetPos,
-		goexec.GrpcTransportBufWriterConnPos,
+		goexec2.GrpcStreamStPtrPos,
+		goexec2.GrpcStreamMethodPtrPos,
+		goexec2.GrpcStatusSPos,
+		goexec2.GrpcStatusCodePtrPos,
+		goexec2.MetaHeadersFrameFieldsPtrPos,
+		goexec2.ValueContextValPtrPos,
+		goexec2.GrpcStConnPos,
+		goexec2.GrpcTConnPos,
+		goexec2.GrpcTSchemePos,
+		goexec2.GrpcTransportStreamIDPos,
+		goexec2.GrpcTransportBufWriterBufPos,
+		goexec2.GrpcTransportBufWriterOffsetPos,
+		goexec2.GrpcTransportBufWriterConnPos,
 		// redis
-		goexec.RedisConnBwPos,
+		goexec2.RedisConnBwPos,
 		// kafka go
-		goexec.KafkaGoWriterTopicPos,
-		goexec.KafkaGoProtocolConnPos,
-		goexec.KafkaGoReaderTopicPos,
+		goexec2.KafkaGoWriterTopicPos,
+		goexec2.KafkaGoProtocolConnPos,
+		goexec2.KafkaGoReaderTopicPos,
 		// kafka sarama
-		goexec.SaramaBrokerCorrIDPos,
-		goexec.SaramaResponseCorrIDPos,
-		goexec.SaramaBrokerConnPos,
-		goexec.SaramaBufconnConnPos,
+		goexec2.SaramaBrokerCorrIDPos,
+		goexec2.SaramaResponseCorrIDPos,
+		goexec2.SaramaBrokerConnPos,
+		goexec2.SaramaBufconnConnPos,
 		// grpc versioning
-		goexec.GrpcOneSixZero,
-		goexec.GrpcOneSixNine,
-		goexec.GrpcServerStreamStream,
-		goexec.GrpcServerStreamStPtr,
-		goexec.GrpcClientStreamStream,
+		goexec2.GrpcOneSixZero,
+		goexec2.GrpcOneSixNine,
+		goexec2.GrpcServerStreamStream,
+		goexec2.GrpcServerStreamStPtr,
+		goexec2.GrpcClientStreamStream,
 		// go manual spans
-		goexec.GoTracerDelegatePos,
+		goexec2.GoTracerDelegatePos,
 		// go jsonrpc
-		goexec.GoJsonrpcRequestHeaderServiceMethodPos,
+		goexec2.GoJsonrpcRequestHeaderServiceMethodPos,
 		// go mongodb
-		goexec.MongoConnNamePos,
-		goexec.MongoOpNamePos,
-		goexec.MongoOpDBPos,
-		goexec.MongoOneThirteenOne,
+		goexec2.MongoConnNamePos,
+		goexec2.MongoOpNamePos,
+		goexec2.MongoOpDBPos,
+		goexec2.MongoOneThirteenOne,
 	} {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
@@ -194,15 +194,15 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 
 	for _, iType := range []struct {
 		symbol string
-		field  goexec.GoOffset
+		field  goexec2.GoOffset
 	}{
 		{
 			symbol: "go.opentelemetry.io/otel/trace.attributeOption",
-			field:  goexec.GoTracerAttributeOptOffset,
+			field:  goexec2.GoTracerAttributeOptOffset,
 		},
 		{
 			symbol: "*errors.errorString",
-			field:  goexec.GoErrorStringOffset,
+			field:  goexec2.GoErrorStringOffset,
 		},
 	} {
 		if offset, ok := offsets.ITypes[iType.symbol]; ok {
