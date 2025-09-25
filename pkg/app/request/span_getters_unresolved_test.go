@@ -176,6 +176,27 @@ func TestRenameUnresolved_OTEL_ClientSide(t *testing.T) {
 		renameIncoming          string
 	}{
 		{
+			name: "rename disabled for generic - all server pass through unchanged, server exists",
+			input: Span{
+				Service:   svc,
+				Type:      EventTypeHTTPClient,
+				HostName:  "github.com",
+				Host:      "10.0.0.1",
+				PeerName:  "192.168.1.2",
+				Peer:      "10.0.0.2",
+				Statement: "http;github.com:8080",
+			},
+			expectedClient:          "192.168.1.2",
+			expectedClientAddr:      "192.168.1.2",
+			expectedServer:          "github.com",
+			expectedServerAddr:      "github.com:8080", // serverAddr is now taken from statement
+			expectedServerNamespace: "",
+			expectedClientNamespace: svc.UID.Namespace,
+			rename:                  "",
+			renameOutgoing:          "outgoing",
+			renameIncoming:          "",
+		},
+		{
 			name: "rename disabled - all spans pass through unchanged",
 			input: Span{
 				Service:   svc,
@@ -502,6 +523,27 @@ func TestRenameUnresolved_Prom_ClientSide(t *testing.T) {
 			expectedServer:          "outgoing2",
 			expectedServerAddr:      "192.168.1.3:8080", // serverAddr is now taken from statement
 			expectedServerNamespace: svc.UID.Namespace,
+			expectedClientNamespace: svc.UID.Namespace,
+			rename:                  "",
+			renameOutgoing:          "outgoing2",
+			renameIncoming:          "",
+		},
+		{
+			name: "rename disabled client - all client pass through unchanged, github",
+			input: Span{
+				Service:   svc,
+				Type:      EventTypeHTTPClient,
+				HostName:  "github.com",
+				Host:      "10.0.0.1",
+				PeerName:  "192.168.1.2",
+				Peer:      "10.0.0.2",
+				Statement: "http;github.com:8080",
+			},
+			expectedClient:          "192.168.1.2",
+			expectedClientAddr:      "192.168.1.2",
+			expectedServer:          "github.com",
+			expectedServerAddr:      "github.com:8080", // serverAddr is now taken from statement
+			expectedServerNamespace: "",
 			expectedClientNamespace: svc.UID.Namespace,
 			rename:                  "",
 			renameOutgoing:          "outgoing2",
