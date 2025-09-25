@@ -482,23 +482,6 @@ static __always_inline u8 is_protocol_allowed(u8 proto) {
     return !(b && *b);
 }
 
-// Because kernels < 5.12 must be supported, it is not possible to use any
-// atomics with the exception of BPF_XADD (that is, an atomic add which does
-// not fetch its original value) - this, paired with the fact that
-// BPF_PROG_TYPE_SOCK_FILTER prohibits spin locks leaves very little room for
-// synchronisation.
-// Per CPU maps means consolidating events in user space, which presents a
-// huge performance impact given it multiplies the number of events and
-// processing in userspace.
-//
-// Instead, the code below chooses to live with potential data races whilst
-// mitigating them. In particular, the lack of proper synchronisation
-// mechanisms have the following side effects:
-//
-// - iface_direction may be computed more than once
-// - the flow initiator may be computed more than once
-// - the event may be submitted more than once: submit_flow mitigates pushing
-// duplicate events (see in-loco comment)
 static __always_inline int flow_monitor(struct __sk_buff *skb) {
     // If sampling is defined, will only parse 1 out of "sampling" flows
     if (sampling != 0 && (bpf_get_prandom_u32() % sampling) != 0) {
