@@ -43,6 +43,8 @@
 
 #define INITIATOR_UNKNOWN 0
 
+#define INITIATOR_UNSET 255
+
 // Common Ringbuffer as a conduit for ingress/egress flows to userspace
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -227,82 +229,23 @@ static __always_inline flow_metrics *get_flow_storage(const flow_id *id) {
     flow_metrics zero = {};
     zero.start_mono_time_ns = bpf_ktime_get_ns();
     zero.init_state = k_flow_uninitialized;
+    zero.initiator = INITIATOR_UNSET;
 
     bpf_map_update_elem(&aggregated_flows, id, &zero, BPF_NOEXIST);
 
     return bpf_map_lookup_elem(&aggregated_flows, id);
 }
 
-// p must point to a u64 field in a MAP VALUE (8-byte aligned).
-static __always_inline void atomic_max_u64(volatile __u64 *p, __u64 v) {
-    // plain (non-atomic) read is fine; CAS enforces atomicity of the write.
-    u64 cur = *p;
-
-#pragma clang loop unroll(disable)
-    for (int i = 0; i < 4; i++) {
-        if (v <= cur) {
-            return;
-        }
-
-        const u64 prev = __sync_val_compare_and_swap(p, cur, v);
-
-        if (prev == cur) {
-            return;
-        }
-
-        cur = prev; // someone else wrote; retry with newer value
-    }
-
-    // last-ditch single attempt based on the latest value
-    cur = __sync_fetch_and_add(p, 0); // atomic read via XADD 0 (supported)
-                                      //
-    if (v > cur) {
-        __sync_val_compare_and_swap(p, cur, v);
-    }
-}
-
-// p must point to a u64 field in a MAP VALUE (8-byte aligned).
-static __always_inline void atomic_min_u64(volatile __u64 *p, __u64 v) {
-    // plain (non-atomic) read is fine; CAS enforces atomicity of the write.
-    u64 cur = *p;
-
-#pragma clang loop unroll(disable)
-    for (int i = 0; i < 4; i++) {
-        if (v >= cur) {
-            return;
-        }
-
-        const u64 prev = __sync_val_compare_and_swap(p, cur, v);
-
-        if (prev == cur) {
-            return;
-        }
-
-        cur = prev;
-    }
-
-    cur = __sync_fetch_and_add(p, 0);
-
-    if (v < cur) {
-        __sync_val_compare_and_swap(p, cur, v);
-    }
-}
-
-static __always_inline u8 must_submit(flow_metrics *metrics) {
-    const u64 flags = __sync_fetch_and_add(&metrics->flags, 0);
-
+static __always_inline u8 must_submit(u64 start_time, u64 current_time, u16 flags) {
     if (flags & (FIN_FLAG | RST_FLAG)) {
         return 1;
     }
 
-    const u64 start_ns = __sync_fetch_and_add(&metrics->start_mono_time_ns, 0);
-    const u64 end_ns = __sync_fetch_and_add(&metrics->end_mono_time_ns, 0);
-
-    if (end_ns < start_ns) {
+    if (current_time < start_time) {
         return 0;
     }
 
-    const u64 delta_ns = end_ns - start_ns;
+    const u64 delta_ns = current_time - start_time;
 
     return delta_ns > k_max_flow_duration;
 }
@@ -315,17 +258,24 @@ static __always_inline u64 get_rb_flags() {
     //bpf_printk("RB USED: %llu", rb_avail);
 
     if ((delta_nsec > k_rb_flush_period) || (rb_avail + sizeof(flow_record)) >= k_max_rb_size) {
-        __sync_lock_test_and_set(&last_submitted, current_time);
+        last_submitted = current_time;
         return BPF_RB_FORCE_WAKEUP;
     }
 
     return BPF_RB_NO_WAKEUP;
 }
 
-static __always_inline void submit_flow(const flow_id *id, flow_metrics *metrics) {
-    bpf_map_delete_elem(&aggregated_flows, id);
+static __always_inline void submit_flow(const flow_id *id, flow_metrics *metrics, u16 flags) {
+    // whilst highly unlikely, it is theoretically possible for submit flow to
+    // push duplicates - this is mitigated by the call to bpf_map_delete_elem
+    // (1) which causes subsequent calls to bpf_map_lookup_elem (2) to fail -
+    // the actual aggregated_flows value is ref-counted by the kernel and
+    // remains valid until the event is submitted
+    if (bpf_map_lookup_elem(&aggregated_flows, id) == NULL) { // (2)
+        return;
+    }
 
-    const u64 flags = __sync_fetch_and_add(&metrics->flags, 0);
+    bpf_map_delete_elem(&aggregated_flows, id); // (1)
 
     if (flags & (FIN_FLAG | RST_FLAG | FIN_ACK_FLAG | RST_ACK_FLAG)) {
         bpf_map_delete_elem(&flow_directions, id);
@@ -337,14 +287,9 @@ static __always_inline void submit_flow(const flow_id *id, flow_metrics *metrics
         return;
     }
 
-    record->metrics.packets = __sync_fetch_and_add(&metrics->packets, 0);
-    record->metrics.bytes = __sync_fetch_and_add(&metrics->bytes, 0);
-    record->metrics.start_mono_time_ns = __sync_fetch_and_add(&metrics->start_mono_time_ns, 0);
-    record->metrics.end_mono_time_ns = __sync_fetch_and_add(&metrics->end_mono_time_ns, 0);
+    record->metrics = *metrics;
+    record->metrics.end_mono_time_ns = bpf_ktime_get_ns();
     record->metrics.flags = flags;
-    record->metrics.iface_direction = __sync_fetch_and_add(&metrics->iface_direction, 0);
-    record->metrics.initiator = __sync_fetch_and_add(&metrics->initiator, 0);
-
     record->id = *id;
 
     //bpf_printk("submit %u -> %u (%u)", id->src_port, id->dst_port, id->if_index);
@@ -539,6 +484,23 @@ static __always_inline u8 is_protocol_allowed(u8 proto) {
     return !(b && *b);
 }
 
+// Because kernels < 5.12 must be supported, it is not possible to use any
+// atomics with the exception of BPF_XADD (that is, an atomic add which does
+// not fetch its original value) - this, paired with the fact that
+// BPF_PROG_TYPE_SOCK_FILTER prohibits spin locks leaves very little room for
+// synchronisation.
+// Per CPU maps means consolidating events in user space, which presents a
+// huge performance impact given it multiplies the number of events and
+// processing in userspace.
+//
+// Instead, the code below chooses to live with potential data races whilst
+// mitigating them. In particular, the lack of proper synchronisation
+// mechanisms have the following side effects:
+//
+// - iface_direction may be computed more than once
+// - the flow initiator may be computed more than once
+// - the event may be submitted more than once: submit_flow mitigates pushing
+// duplicate events (see in-loco comment)
 static __always_inline int flow_monitor(struct __sk_buff *skb) {
     // If sampling is defined, will only parse 1 out of "sampling" flows
     if (sampling != 0 && (bpf_get_prandom_u32() % sampling) != 0) {
@@ -571,34 +533,17 @@ static __always_inline int flow_monitor(struct __sk_buff *skb) {
 
     __sync_fetch_and_add(&aggregate_flow->bytes, skb->len);
     __sync_fetch_and_add(&aggregate_flow->packets, 1);
-    __sync_fetch_and_or(&aggregate_flow->flags, (u64)flags);
-    atomic_max_u64(&aggregate_flow->end_mono_time_ns, current_time);
 
-    const flow_init_state init_state = __sync_val_compare_and_swap(
-        &aggregate_flow->init_state, k_flow_uninitialized, k_flow_initializing);
-
-    if (init_state == k_flow_initializing) {
-        // flow is being initialised elsewhere cannot submit it yet
-        return TC_ACT_UNSPEC;
-    } else if (init_state == k_flow_initialized) {
-        // flow has been initialised, maybe submit it
-        if (must_submit(aggregate_flow)) {
-            submit_flow(&id, aggregate_flow);
-        }
-
-        return TC_ACT_UNSPEC;
+    if (aggregate_flow->iface_direction == UNKNOWN) {
+        aggregate_flow->iface_direction = get_flow_direction(&id, flags);
     }
 
-    // initialise flow
-    atomic_min_u64(&aggregate_flow->start_mono_time_ns, current_time);
-    aggregate_flow->iface_direction = get_flow_direction(&id, flags);
-    aggregate_flow->initiator = get_connection_initiator(&id, flags);
+    if (aggregate_flow->initiator == INITIATOR_UNSET) {
+        aggregate_flow->initiator = get_connection_initiator(&id, flags);
+    }
 
-    // mark flow as fully initialised
-    __sync_lock_test_and_set(&aggregate_flow->init_state, k_flow_initialized);
-
-    if (must_submit(aggregate_flow)) {
-        submit_flow(&id, aggregate_flow);
+    if (must_submit(aggregate_flow->start_mono_time_ns, current_time, flags)) {
+        submit_flow(&id, aggregate_flow, flags);
     }
 
     return TC_ACT_UNSPEC;
