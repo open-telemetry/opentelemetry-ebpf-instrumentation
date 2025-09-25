@@ -308,7 +308,7 @@ func TestResolveClientFromHost(t *testing.T) {
 		Type:      request.EventTypeHTTPClient,
 		Peer:      "10.10.0.1",
 		Statement: "https;github.com",
-		Host:      "10.0.0.2",
+		Host:      "10.10.0.2",
 		Service: svc.Attrs{UID: svc.UID{
 			Name:      "pod1",
 			Namespace: "",
@@ -319,7 +319,7 @@ func TestResolveClientFromHost(t *testing.T) {
 		Type:      request.EventTypeHTTP,
 		Peer:      "10.10.0.1",
 		Statement: "https;github.com",
-		Host:      "10.0.0.2",
+		Host:      "10.10.0.2",
 		Service: svc.Attrs{UID: svc.UID{
 			Name:      "pod2",
 			Namespace: "something",
@@ -328,15 +328,15 @@ func TestResolveClientFromHost(t *testing.T) {
 
 	nr.resolveNames(&clientSpan)
 
-	assert.Equal(t, "github.com", clientSpan.PeerName)
+	assert.Equal(t, "10.10.0.1", clientSpan.PeerName)
 	assert.Empty(t, clientSpan.Service.UID.Namespace)
-	assert.Equal(t, "pod2", clientSpan.HostName)
-	assert.Equal(t, "something", clientSpan.OtherNamespace)
+	assert.Equal(t, "github.com", clientSpan.HostName)
+	assert.Equal(t, "", clientSpan.OtherNamespace)
 
 	nr.resolveNames(&serverSpan)
 
 	assert.Equal(t, "10.10.0.1", serverSpan.PeerName)
 	assert.Empty(t, serverSpan.OtherNamespace)
-	assert.Equal(t, "pod2", serverSpan.HostName)
+	assert.Equal(t, "10.10.0.2", serverSpan.HostName)
 	assert.Equal(t, "something", serverSpan.Service.UID.Namespace)
 }

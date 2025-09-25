@@ -238,6 +238,7 @@ type metricsReporter struct {
 	attrGPUKernelGridSize      []attributes.Field[*request.Span, string]
 	attrGPUKernelBlockSize     []attributes.Field[*request.Span, string]
 	attrGPUMemoryCopies        []attributes.Field[*request.Span, string]
+	attrSvcGraph               []attributes.Field[*request.Span, string]
 
 	// trace span metrics
 	spanMetricsLatency           *Expirer[prometheus.Histogram]
@@ -336,7 +337,7 @@ func newReporter(
 
 	is := instrumentations.NewInstrumentationSelection(cfg.Instrumentations)
 
-	var attrHTTPDuration, attrHTTPClientDuration, attrHTTPRequestSize, attrHTTPResponseSize, attrHTTPClientRequestSize, attrHTTPClientResponseSize []attributes.Field[*request.Span, string]
+	var attrHTTPDuration, attrHTTPClientDuration, attrHTTPRequestSize, attrHTTPResponseSize, attrHTTPClientRequestSize, attrHTTPClientResponseSize, attrSvcGraph []attributes.Field[*request.Span, string]
 
 	attributeGetters := request.SpanPromGetters(unresolved)
 
@@ -399,6 +400,10 @@ func newReporter(
 			attrsProvider.For(attributes.GPUMemoryCopies))
 	}
 
+	if cfg.ServiceGraphMetricsEnabled() {
+		attrSvcGraph = attributes.PrometheusGetters(attributeGetters, []attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source})
+	}
+
 	clock := expire.NewCachedClock(timeNow)
 	kubeEnabled := ctxInfo.K8sInformer.IsKubeEnabled()
 	// If service name is not explicitly set, we take the service name as set by the
@@ -433,6 +438,7 @@ func newReporter(
 		attrGPUKernelGridSize:      attrGPUKernelGridSize,
 		attrGPUKernelBlockSize:     attrGPUKernelBlockSize,
 		attrGPUMemoryCopies:        attrGPUMemoryCopies,
+		attrSvcGraph:               attrSvcGraph,
 		beylaInfo: NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: attr.VendorPrefix + buildInfoSuffix,
 			Help: "A metric with a constant '1' value labeled by version, revision, branch, " +
@@ -604,7 +610,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
-			}, labelNamesServiceGraph()).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		serviceGraphServer: optionalHistogramProvider(cfg.ServiceGraphMetricsEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -614,19 +620,19 @@ func newReporter(
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
-			}, labelNamesServiceGraph()).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		serviceGraphFailed: optionalCounterProvider(cfg.ServiceGraphMetricsEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphFailed,
 				Help: "number of failed service calls in trace service graph metrics format",
-			}, labelNamesServiceGraph()).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		serviceGraphTotal: optionalCounterProvider(cfg.ServiceGraphMetricsEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphTotal,
 				Help: "number of service calls in trace service graph metrics format",
-			}, labelNamesServiceGraph()).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		targetInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: TargetInfo,
@@ -954,7 +960,7 @@ func (r *metricsReporter) observe(span *request.Span) {
 
 		if r.cfg.ServiceGraphMetricsEnabled() {
 			if !span.IsSelfReferenceSpan() || r.cfg.AllowServiceGraphSelfReferences {
-				lvg := r.labelValuesServiceGraph(span)
+				lvg := labelValues(span, r.attrSvcGraph)
 
 				if span.IsClientSpan() {
 					r.serviceGraphClient.WithLabelValues(lvg...).Metric.Observe(duration)
@@ -1071,29 +1077,6 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 	}
 
 	return values
-}
-
-func labelNamesServiceGraph() []string {
-	return []string{clientKey, clientNamespaceKey, serverKey, serverNamespaceKey, sourceKey}
-}
-
-func (r *metricsReporter) labelValuesServiceGraph(span *request.Span) []string {
-	if span.IsClientSpan() {
-		return []string{
-			request.SpanPeer(span),
-			span.Service.UID.Namespace,
-			request.SpanHost(span),
-			span.OtherNamespace,
-			attr.VendorPrefix,
-		}
-	}
-	return []string{
-		request.SpanPeer(span),
-		span.OtherNamespace,
-		request.SpanHost(span),
-		span.Service.UID.Namespace,
-		attr.VendorPrefix,
-	}
 }
 
 func labelNames[T any](getters []attributes.Field[T, string]) []string {

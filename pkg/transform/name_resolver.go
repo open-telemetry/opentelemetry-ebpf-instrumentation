@@ -66,10 +66,7 @@ func NameResolutionProvider(ctxInfo *global.ContextInfo, cfg *NameResolverConfig
 	input, output *msg.Queue[[]request.Span],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if cfg == nil || len(cfg.Sources) == 0 {
-			// if no sources are configured, we just bypass the node
-			return swarm.Bypass(input, output)
-		}
+
 		return nameResolver(ctx, ctxInfo, cfg, input, output)
 	}
 }
@@ -88,11 +85,6 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 		}
 	} else {
 		sources &= ^ResolverK8s
-	}
-	// after potentially remove k8s resolver, check again if
-	// this node needs to be bypassed
-	if sources == 0 {
-		return swarm.Bypass(input, output)
 	}
 
 	nr := NameResolver{
@@ -133,13 +125,25 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 	var hn, pn, ns string
 	if span.IsClientSpan() {
 		hn, span.OtherNamespace = nr.resolve(&span.Service, span.Host)
+		if hn == "" || hn == span.Host {
+			hn = request.HostFromSchemeHost(span)
+		}
 		pn, ns = nr.resolve(&span.Service, span.Peer)
 		if pn == "" || pn == span.Peer {
-			pn = request.HostFromSchemeHost(span)
+			pn = span.Service.UID.Name
+			if ns == "" {
+				ns = span.Service.UID.Namespace
+			}
 		}
 	} else {
 		pn, span.OtherNamespace = nr.resolve(&span.Service, span.Peer)
 		hn, ns = nr.resolve(&span.Service, span.Host)
+		if hn == "" || hn == span.Host {
+			hn = span.Service.UID.Name
+			if ns == "" {
+				ns = span.Service.UID.Namespace
+			}
+		}
 	}
 	if span.Service.UID.Namespace == "" && ns != "" {
 		span.Service.UID.Namespace = ns
