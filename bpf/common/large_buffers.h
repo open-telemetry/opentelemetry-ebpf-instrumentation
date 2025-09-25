@@ -17,6 +17,10 @@ enum {
     // of the maximum payload size as a guard.
     k_large_buf_max_size = 1 << 14, // 16K
     k_large_buf_max_size_mask = k_large_buf_max_size - 1,
+
+    // Maximum size for a large buffer payload.
+    k_large_buf_payload_max_size = 1 << 13, // 8K
+    k_large_buf_payload_max_size_mask = k_large_buf_payload_max_size - 1,
 };
 
 SCRATCH_MEM_SIZED(http_large_buffers, k_large_buf_max_size);

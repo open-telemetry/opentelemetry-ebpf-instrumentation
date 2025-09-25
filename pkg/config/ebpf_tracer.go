@@ -25,6 +25,8 @@ const (
 	ContextPropagationDisabled
 )
 
+const bufferSizeMax = 8192
+
 // EBPFTracer configuration for eBPF programs
 type EBPFTracer struct {
 	// Enables logging of eBPF program events
@@ -103,9 +105,7 @@ type EBPFTracer struct {
 }
 
 // Per-protocol data buffer size in bytes.
-// Min: 128 bytes, Max: 8192 bytes.
-// Valid values: 0, 128, 256, 512, 1024, 2048, 4096, 8192.
-//
+// Max: 8192 bytes.
 // Default: 0 (disabled).
 type EBPFBufferSizes struct {
 	HTTP     uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP"`
@@ -116,25 +116,14 @@ type EBPFBufferSizes struct {
 func (c *EBPFTracer) Validate() error {
 	// TODO(matt): validate all the existing attributes
 
-	switch c.BufferSizes.HTTP {
-	case 0, 128, 256, 512, 1024, 2048, 4096, 8192:
-		// valid sizes
-	default:
-		return fmt.Errorf("invalid HTTP buffer size: %d, must be one of 0, 128, 256, 512, 1024, 2048, 4096, 8192", c.BufferSizes.HTTP)
+	if c.BufferSizes.HTTP > bufferSizeMax {
+		return fmt.Errorf("buffer size too large (HTTP): %d, max is %d", c.BufferSizes.HTTP, bufferSizeMax)
 	}
-
-	switch c.BufferSizes.MySQL {
-	case 0, 128, 256, 512, 1024, 2048, 4096, 8192:
-		// valid sizes
-	default:
-		return fmt.Errorf("invalid MySQL buffer size: %d, must be one of 0, 128, 256, 512, 1024, 2048, 4096, 8192", c.BufferSizes.MySQL)
+	if c.BufferSizes.MySQL > bufferSizeMax {
+		return fmt.Errorf("buffer size too large (MySQL): %d, max is %d", c.BufferSizes.MySQL, bufferSizeMax)
 	}
-
-	switch c.BufferSizes.Postgres {
-	case 0, 128, 256, 512, 1024, 2048, 4096, 8192:
-		// valid sizes
-	default:
-		return fmt.Errorf("invalid Postgres buffer size: %d, must be one of 0, 128, 256, 512, 1024, 2048, 4096, 8192", c.BufferSizes.Postgres)
+	if c.BufferSizes.Postgres > bufferSizeMax {
+		return fmt.Errorf("buffer size too large (Postgres): %d, max is %d", c.BufferSizes.Postgres, bufferSizeMax)
 	}
 
 	return nil

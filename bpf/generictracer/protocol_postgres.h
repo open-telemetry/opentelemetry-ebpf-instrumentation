@@ -15,7 +15,6 @@
 #include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
-#include <common/scratch_mem.h>
 #include <common/sql.h>
 #include <common/tp_info.h>
 #include <common/trace_common.h>
@@ -53,12 +52,6 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
                                                       u32 bytes_len,
                                                       u8 packet_type,
                                                       enum large_buf_action action) {
-    if (!is_pow2(postgres_buffer_size)) {
-        bpf_dbg_printk("postgres_send_large_buffer: bug: postgres_buffer_size is not a power of 2");
-        return -1;
-    }
-    const u32 buf_len_mask = postgres_buffer_size - 1;
-
     tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)postgres_large_buffers_mem();
     if (!large_buf) {
         bpf_dbg_printk(
@@ -76,7 +69,7 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
         large_buf->len = postgres_buffer_size;
         bpf_dbg_printk("WARN: postgres_send_large_buffer: buffer is full, truncating data");
     }
-    bpf_probe_read(large_buf->buf, large_buf->len & buf_len_mask, u_buf);
+    bpf_probe_read(large_buf->buf, large_buf->len & k_large_buf_payload_max_size_mask, u_buf);
 
     u32 total_size = sizeof(tcp_large_buffer_t);
     total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);

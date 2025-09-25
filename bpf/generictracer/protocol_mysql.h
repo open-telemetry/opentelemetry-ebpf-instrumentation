@@ -14,7 +14,6 @@
 #include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
-#include <common/scratch_mem.h>
 #include <common/sql.h>
 #include <common/tp_info.h>
 #include <common/trace_common.h>
@@ -124,12 +123,6 @@ static __always_inline int mysql_read_fixup_buffer(const connection_info_t *conn
                                                    u32 data_len) {
     u8 offset = 0;
 
-    if (!is_pow2(mysql_buffer_size)) {
-        bpf_dbg_printk("mysql_read_fixup_buffer: bug: mysql_buffer_size is not a power of 2");
-        return -1;
-    }
-    const u32 buf_len_mask = mysql_buffer_size - 1;
-
     struct mysql_state_data *state_data = bpf_map_lookup_elem(&mysql_state, conn_info);
     if (state_data != NULL) {
         bpf_probe_read(buf, k_mysql_hdr_without_command_size, (const void *)state_data);
@@ -148,7 +141,7 @@ static __always_inline int mysql_read_fixup_buffer(const connection_info_t *conn
         bpf_dbg_printk("WARN: mysql_read_fixup_buffer: buffer is full, truncating data");
     }
 
-    bpf_probe_read(buf + offset, *buf_len & buf_len_mask, (const void *)data);
+    bpf_probe_read(buf + offset, *buf_len & k_large_buf_payload_max_size_mask, (const void *)data);
 
     return *buf_len;
 }

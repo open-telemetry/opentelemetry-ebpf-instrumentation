@@ -86,18 +86,16 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 		bufHost       string
 		bufPort       int
 		parsedHost    bool
-		requestBuffer []byte
+		requestBuffer = event.Buf[:]
 	)
 
 	if event.HasLargeBuffers == 1 {
 		b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, packetTypeRequest)
-		if !ok {
+		if ok {
+			requestBuffer = b
+		} else {
 			slog.Debug("missing large buffer for HTTP request", "traceID", event.Tp.TraceId, "spanID", event.Tp.SpanId)
-			return request.Span{}, false, nil
 		}
-		requestBuffer = b
-	} else {
-		requestBuffer = event.Buf[:]
 	}
 
 	// When we can't find the connection info, we signal that through making the
