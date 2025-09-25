@@ -61,7 +61,7 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	reporter, err := ReportMetrics(&global.ContextInfo{
 		Metrics:             internalMetrics,
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
-	}, mcfg, &attributes.SelectorConfig{}, "", exportMetrics, processEvents,
+	}, mcfg, &attributes.SelectorConfig{}, request.UnresolvedNames{}, exportMetrics, processEvents,
 	)(t.Context())
 	require.NoError(t, err)
 	go reporter(t.Context())
@@ -560,7 +560,7 @@ func makeMetricsReporter(
 				},
 			},
 		},
-		"",
+		request.UnresolvedNames{},
 		input,
 		processEvents)
 

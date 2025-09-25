@@ -22,6 +22,8 @@ func TestRenameUnresolved_OTEL_ServerSide(t *testing.T) {
 		expectedServer     string
 		expectedServerAddr string
 		rename             string
+		renameOutgoing     string
+		renameIncoming     string
 	}{
 		{
 			name: "rename disabled - all spans pass through unchanged",
@@ -38,6 +40,26 @@ func TestRenameUnresolved_OTEL_ServerSide(t *testing.T) {
 			expectedServer:     "192.168.1.1",
 			expectedServerAddr: "192.168.1.1",
 			rename:             "",
+			renameOutgoing:     "",
+			renameIncoming:     "",
+		},
+		{
+			name: "rename disabled for server - all server pass through unchanged",
+			input: Span{
+				Type:      EventTypeHTTP,
+				HostName:  "192.168.1.1",
+				Host:      "10.0.0.1",
+				PeerName:  "192.168.1.2",
+				Peer:      "10.0.0.2",
+				Statement: "http;192.168.1.3:8080",
+			},
+			expectedClient:     "incoming",
+			expectedClientAddr: "192.168.1.2",
+			expectedServer:     "192.168.1.1",
+			expectedServerAddr: "192.168.1.1",
+			rename:             "",
+			renameOutgoing:     "",
+			renameIncoming:     "incoming",
 		},
 		{
 			name: "renaming enabled - IPs are renamed out",
@@ -49,11 +71,13 @@ func TestRenameUnresolved_OTEL_ServerSide(t *testing.T) {
 				Peer:      "10.0.0.2",
 				Statement: "http;192.168.1.3:8080",
 			},
-			expectedClient:     "unknown",
+			expectedClient:     "incoming",
 			expectedClientAddr: "192.168.1.2", // it takes the peer name instead of the raw "peer" attribute
 			expectedServer:     "unknown",
 			expectedServerAddr: "192.168.1.1",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 		{
 			name: "renaming enabled - hostnames are empty",
@@ -65,11 +89,13 @@ func TestRenameUnresolved_OTEL_ServerSide(t *testing.T) {
 				Peer:      "10.0.0.1",
 				Statement: "http;frontend:8080",
 			},
-			expectedClient:     "unknown",
+			expectedClient:     "incoming",
 			expectedClientAddr: "10.0.0.1",
 			expectedServer:     "unknown",
 			expectedServerAddr: "192.168.1.1",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 		{
 			name: "IPv6 addresses should be renamed too",
@@ -81,18 +107,25 @@ func TestRenameUnresolved_OTEL_ServerSide(t *testing.T) {
 				Peer:      "::2",
 				Statement: "http;[2001:db8::3]:8080",
 			},
-			expectedClient:     "unknown",
+			expectedClient:     "incoming",
 			expectedClientAddr: "2001:db8::2",
 			expectedServer:     "unknown",
 			expectedServerAddr: "2001:db8::1",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			cfg := UnresolvedNames{
+				Generic:  tt.rename,
+				Outgoing: tt.renameOutgoing,
+				Incoming: tt.renameIncoming,
+			}
 			// Create the attributes getter
-			getter := SpanOTELGetters(tt.rename)
+			getter := SpanOTELGetters(cfg)
 
 			assert.Equal(t, tt.expectedClient, getVal(t, getter, &tt.input, attr.Client).Value.AsString())
 			assert.Equal(t, tt.expectedClientAddr, getVal(t, getter, &tt.input, attr.ClientAddr).Value.AsString())
@@ -111,6 +144,8 @@ func TestRenameUnresolved_OTEL_ClientSide(t *testing.T) {
 		expectedServer     string
 		expectedServerAddr string
 		rename             string
+		renameOutgoing     string
+		renameIncoming     string
 	}{
 		{
 			name: "rename disabled - all spans pass through unchanged",
@@ -127,6 +162,26 @@ func TestRenameUnresolved_OTEL_ClientSide(t *testing.T) {
 			expectedServer:     "192.168.1.1",
 			expectedServerAddr: "192.168.1.3:8080", // serverAddr is now taken from statement
 			rename:             "",
+			renameOutgoing:     "",
+			renameIncoming:     "",
+		},
+		{
+			name: "rename disabled for generic - all server pass through unchanged",
+			input: Span{
+				Type:      EventTypeHTTPClient,
+				HostName:  "192.168.1.1",
+				Host:      "10.0.0.1",
+				PeerName:  "192.168.1.2",
+				Peer:      "10.0.0.2",
+				Statement: "http;192.168.1.3:8080",
+			},
+			expectedClient:     "192.168.1.2",
+			expectedClientAddr: "192.168.1.2",
+			expectedServer:     "outgoing",
+			expectedServerAddr: "192.168.1.3:8080", // serverAddr is now taken from statement
+			rename:             "",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "",
 		},
 		{
 			name: "renaming enabled - IPs are renamed out",
@@ -140,9 +195,11 @@ func TestRenameUnresolved_OTEL_ClientSide(t *testing.T) {
 			},
 			expectedClient:     "unknown",
 			expectedClientAddr: "192.168.1.2", // it takes the peer name instead of the raw "peer" attribute
-			expectedServer:     "unknown",
+			expectedServer:     "outgoing",
 			expectedServerAddr: "192.168.1.3:8080",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 		{
 			name: "renaming enabled - hostnames are empty",
@@ -156,9 +213,11 @@ func TestRenameUnresolved_OTEL_ClientSide(t *testing.T) {
 			},
 			expectedClient:     "unknown",
 			expectedClientAddr: "10.0.0.1",
-			expectedServer:     "unknown",
+			expectedServer:     "outgoing",
 			expectedServerAddr: "frontend:8080",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 		{
 			name: "IPv6 addresses should be renamed too",
@@ -172,16 +231,24 @@ func TestRenameUnresolved_OTEL_ClientSide(t *testing.T) {
 			},
 			expectedClient:     "unknown",
 			expectedClientAddr: "2001:db8::2",
-			expectedServer:     "unknown",
+			expectedServer:     "outgoing",
 			expectedServerAddr: "[2001:db8::3]:8080",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			cfg := UnresolvedNames{
+				Generic:  tt.rename,
+				Outgoing: tt.renameOutgoing,
+				Incoming: tt.renameIncoming,
+			}
+
 			// Create the attributes getter
-			getter := SpanOTELGetters(tt.rename)
+			getter := SpanOTELGetters(cfg)
 
 			assert.Equal(t, tt.expectedClient, getVal(t, getter, &tt.input, attr.Client).Value.AsString())
 			assert.Equal(t, tt.expectedClientAddr, getVal(t, getter, &tt.input, attr.ClientAddr).Value.AsString())
@@ -200,6 +267,8 @@ func TestRenameUnresolved_Prom_ServerSide(t *testing.T) {
 		expectedServer     string
 		expectedServerAddr string
 		rename             string
+		renameOutgoing     string
+		renameIncoming     string
 	}{
 		{
 			name: "rename disabled - all spans pass through unchanged",
@@ -216,6 +285,26 @@ func TestRenameUnresolved_Prom_ServerSide(t *testing.T) {
 			expectedServer:     "192.168.1.1",
 			expectedServerAddr: "192.168.1.1",
 			rename:             "",
+			renameOutgoing:     "",
+			renameIncoming:     "",
+		},
+		{
+			name: "rename disabled server - all server pass through unchanged",
+			input: Span{
+				Type:      EventTypeHTTP,
+				HostName:  "192.168.1.1",
+				Host:      "10.0.0.1",
+				PeerName:  "192.168.1.2",
+				Peer:      "10.0.0.2",
+				Statement: "http;192.168.1.3:8080",
+			},
+			expectedClient:     "incoming1",
+			expectedClientAddr: "192.168.1.2",
+			expectedServer:     "192.168.1.1",
+			expectedServerAddr: "192.168.1.1",
+			rename:             "",
+			renameOutgoing:     "",
+			renameIncoming:     "incoming1",
 		},
 		{
 			name: "renaming enabled - IPs are renamed out",
@@ -227,11 +316,13 @@ func TestRenameUnresolved_Prom_ServerSide(t *testing.T) {
 				Peer:      "10.0.0.2",
 				Statement: "http;192.168.1.3:8080",
 			},
-			expectedClient:     "unknown",
+			expectedClient:     "incoming",
 			expectedClientAddr: "192.168.1.2", // it takes the peer name instead of the raw "peer" attribute
 			expectedServer:     "unknown",
 			expectedServerAddr: "192.168.1.1",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 		{
 			name: "renaming enabled - hostnames are empty",
@@ -243,11 +334,13 @@ func TestRenameUnresolved_Prom_ServerSide(t *testing.T) {
 				Peer:      "10.0.0.1",
 				Statement: "http;frontend:8080",
 			},
-			expectedClient:     "unknown",
+			expectedClient:     "incoming",
 			expectedClientAddr: "10.0.0.1",
 			expectedServer:     "unknown",
 			expectedServerAddr: "192.168.1.1",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 		{
 			name: "IPv6 addresses should be renamed too",
@@ -259,18 +352,26 @@ func TestRenameUnresolved_Prom_ServerSide(t *testing.T) {
 				Peer:      "::2",
 				Statement: "http;[2001:db8::3]:8080",
 			},
-			expectedClient:     "unknown",
+			expectedClient:     "incoming",
 			expectedClientAddr: "2001:db8::2",
 			expectedServer:     "unknown",
 			expectedServerAddr: "2001:db8::1",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			cfg := UnresolvedNames{
+				Generic:  tt.rename,
+				Outgoing: tt.renameOutgoing,
+				Incoming: tt.renameIncoming,
+			}
+
 			// Create the attributes getter
-			getter := SpanPromGetters(tt.rename)
+			getter := SpanPromGetters(cfg)
 
 			assert.Equal(t, tt.expectedClient, getVal(t, getter, &tt.input, attr.Client))
 			assert.Equal(t, tt.expectedClientAddr, getVal(t, getter, &tt.input, attr.ClientAddr))
@@ -289,6 +390,8 @@ func TestRenameUnresolved_Prom_ClientSide(t *testing.T) {
 		expectedServer     string
 		expectedServerAddr string
 		rename             string
+		renameOutgoing     string
+		renameIncoming     string
 	}{
 		{
 			name: "rename disabled - all spans pass through unchanged",
@@ -305,6 +408,26 @@ func TestRenameUnresolved_Prom_ClientSide(t *testing.T) {
 			expectedServer:     "192.168.1.1",
 			expectedServerAddr: "192.168.1.3:8080", // serverAddr is now taken from statement
 			rename:             "",
+			renameOutgoing:     "",
+			renameIncoming:     "",
+		},
+		{
+			name: "rename disabled client - all client pass through unchanged",
+			input: Span{
+				Type:      EventTypeHTTPClient,
+				HostName:  "192.168.1.1",
+				Host:      "10.0.0.1",
+				PeerName:  "192.168.1.2",
+				Peer:      "10.0.0.2",
+				Statement: "http;192.168.1.3:8080",
+			},
+			expectedClient:     "192.168.1.2",
+			expectedClientAddr: "192.168.1.2",
+			expectedServer:     "outgoing2",
+			expectedServerAddr: "192.168.1.3:8080", // serverAddr is now taken from statement
+			rename:             "",
+			renameOutgoing:     "outgoing2",
+			renameIncoming:     "",
 		},
 		{
 			name: "renaming enabled - IPs are renamed out",
@@ -318,9 +441,11 @@ func TestRenameUnresolved_Prom_ClientSide(t *testing.T) {
 			},
 			expectedClient:     "unknown",
 			expectedClientAddr: "192.168.1.2", // it takes the peer name instead of the raw "peer" attribute
-			expectedServer:     "unknown",
+			expectedServer:     "outgoing",
 			expectedServerAddr: "192.168.1.3:8080",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 		{
 			name: "renaming enabled - hostnames are empty",
@@ -334,9 +459,11 @@ func TestRenameUnresolved_Prom_ClientSide(t *testing.T) {
 			},
 			expectedClient:     "unknown",
 			expectedClientAddr: "10.0.0.1",
-			expectedServer:     "unknown",
+			expectedServer:     "outgoing",
 			expectedServerAddr: "frontend:8080",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 		{
 			name: "IPv6 addresses should be renamed too",
@@ -350,16 +477,24 @@ func TestRenameUnresolved_Prom_ClientSide(t *testing.T) {
 			},
 			expectedClient:     "unknown",
 			expectedClientAddr: "2001:db8::2",
-			expectedServer:     "unknown",
+			expectedServer:     "outgoing",
 			expectedServerAddr: "[2001:db8::3]:8080",
 			rename:             "unknown",
+			renameOutgoing:     "outgoing",
+			renameIncoming:     "incoming",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			cfg := UnresolvedNames{
+				Generic:  tt.rename,
+				Outgoing: tt.renameOutgoing,
+				Incoming: tt.renameOutgoing,
+			}
+
 			// Create the attributes getter
-			getter := SpanPromGetters(tt.rename)
+			getter := SpanPromGetters(cfg)
 
 			assert.Equal(t, tt.expectedClient, getVal(t, getter, &tt.input, attr.Client))
 			assert.Equal(t, tt.expectedClientAddr, getVal(t, getter, &tt.input, attr.ClientAddr))

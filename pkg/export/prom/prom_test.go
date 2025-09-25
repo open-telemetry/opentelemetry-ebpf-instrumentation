@@ -77,7 +77,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 				"k8s_app_meta": {"k8s.app.version"},
 			},
 		},
-		"",
+		request.UnresolvedNames{},
 		promInput,
 		processEvents,
 	)(ctx)
@@ -664,7 +664,7 @@ func makePromExporter(
 				},
 			},
 		},
-		"",
+		request.UnresolvedNames{},
 		input,
 		processEvents,
 	)(ctx)

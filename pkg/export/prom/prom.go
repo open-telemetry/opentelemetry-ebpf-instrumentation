@@ -281,7 +281,7 @@ func PrometheusEndpoint(
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
 	selectorCfg *attributes.SelectorConfig,
-	unresolvedHostTag string,
+	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
@@ -289,7 +289,7 @@ func PrometheusEndpoint(
 		if !cfg.Enabled() {
 			return swarm.EmptyRunFunc()
 		}
-		reporter, err := newReporter(ctxInfo, cfg, selectorCfg, unresolvedHostTag, input, processEventCh)
+		reporter, err := newReporter(ctxInfo, cfg, selectorCfg, unresolved, input, processEventCh)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating Prometheus endpoint: %w", err)
 		}
@@ -321,7 +321,7 @@ func newReporter(
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
 	selectorCfg *attributes.SelectorConfig,
-	unresolvedHostTag string,
+	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) (*metricsReporter, error) {
@@ -337,7 +337,7 @@ func newReporter(
 
 	var attrHTTPDuration, attrHTTPClientDuration, attrHTTPRequestSize, attrHTTPResponseSize, attrHTTPClientRequestSize, attrHTTPClientResponseSize []attributes.Field[*request.Span, string]
 
-	attributeGetters := request.SpanPromGetters(unresolvedHostTag)
+	attributeGetters := request.SpanPromGetters(unresolved)
 
 	if is.HTTPEnabled() {
 		attrHTTPDuration = attributes.PrometheusGetters(attributeGetters,
