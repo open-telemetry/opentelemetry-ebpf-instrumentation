@@ -102,6 +102,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			Path: "/foo",
 			End:  123 * time.Second.Nanoseconds(),
 			Service: svc.Attrs{
+				UID: svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
 				Metadata: map[attr.Name]string{
 					"k8s.app.version": "v0.0.1",
 				},
@@ -111,7 +112,10 @@ func TestAppMetricsExpiration(t *testing.T) {
 	})
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
+	containsTargetInfoSDKVersion := regexp.MustCompile(`\ntarget_info\{.*telemetry_sdk_version=.*`)
 	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*grafana_host_id="my-host"`)
+	containsJob := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*job="default/test-app".*`)
+	containsInstance := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*instance="test-app-1".*"`)
 
 	// THEN the metrics are exported
 	test.Eventually(t, timeout, func(t require.TestingT) {
@@ -119,7 +123,10 @@ func TestAppMetricsExpiration(t *testing.T) {
 		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 123`)
 		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
 		assert.Regexp(t, containsTargetInfo, exported)
+		assert.Regexp(t, containsTargetInfoSDKVersion, exported)
 		assert.Regexp(t, containsTracesHostInfo, exported)
+		assert.Regexp(t, containsJob, exported)
+		assert.Regexp(t, containsInstance, exported)
 	})
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
