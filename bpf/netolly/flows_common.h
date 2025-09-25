@@ -320,7 +320,6 @@ static __always_inline void submit_flow(const flow_id *id, flow_metrics *metrics
 
     record->metrics = *metrics;
     record->metrics.end_mono_time_ns = bpf_ktime_get_ns();
-    record->metrics.flags = flags;
     record->id = *id;
 
     //bpf_printk("submit %u -> %u (%u)", id->src_port, id->dst_port, id->if_index);

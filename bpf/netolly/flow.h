@@ -53,9 +53,6 @@ typedef struct flow_metrics_t {
     u64 start_mono_time_ns;
     u64 end_mono_time_ns;
 
-    // TCP Flags from https://www.ietf.org/rfc/rfc793.txt
-    u64 flags;
-
     // direction of the flow EGRESS / INGRESS
     u64 iface_direction;
 
