@@ -7,7 +7,9 @@
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/common.h>
 #include <common/http_types.h>
+#include <common/large_buffers.h>
 #include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
@@ -407,6 +409,43 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     cleanup_http_request_data(pid_conn, info);
 }
 
+static __always_inline int http_send_large_buffer(http_info_t *req,
+                                                  const void *u_buf,
+                                                  u32 bytes_len,
+                                                  u8 packet_type,
+                                                  enum large_buf_action action) {
+    if (http_buffer_size == 0) {
+        return 0;
+    }
+
+    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)http_large_buffers_mem();
+    if (!large_buf) {
+        bpf_dbg_printk("http_send_large_buffer: failed to reserve space for HTTP large buffer");
+        return -1;
+    }
+
+    large_buf->type = EVENT_TCP_LARGE_BUFFER;
+    large_buf->packet_type = packet_type;
+    large_buf->action = action;
+    large_buf->tp = req->tp;
+
+    large_buf->len = bytes_len;
+    if (large_buf->len >= http_buffer_size) {
+        large_buf->len = http_buffer_size;
+        bpf_dbg_printk("WARN: http_send_large_buffer: buffer is full, truncating data");
+    }
+
+    bpf_probe_read(large_buf->buf, large_buf->len & k_large_buf_payload_max_size_mask, u_buf);
+
+    u32 total_size = sizeof(tcp_large_buffer_t);
+    total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);
+
+    req->has_large_buffers = true;
+
+    bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
+    return 0;
+}
+
 static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
                                                          call_protocol_args_t *args,
                                                          http_info_t *info,
@@ -428,6 +467,9 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
     } else {
         bpf_dbg_printk("No META!");
     }
+
+    http_send_large_buffer(
+        info, (void *)args->u_buf, args->bytes_len, args->packet_type, k_large_buf_action_init);
 
     // we copy some small part of the buffer to the info trace event, so that we can process an event even with
     // incomplete trace info in user space.
@@ -553,6 +595,12 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
         handle_http_response(
             args->small_buf, &args->pid_conn, info, args->bytes_len, args->direction, args->ssl);
     } else if (still_reading(info)) {
+        http_send_large_buffer(info,
+                               (void *)args->u_buf,
+                               args->bytes_len,
+                               args->packet_type,
+                               k_large_buf_action_append);
+
         info->len += args->bytes_len;
         info->end_monotime_ns = bpf_ktime_get_ns();
     }

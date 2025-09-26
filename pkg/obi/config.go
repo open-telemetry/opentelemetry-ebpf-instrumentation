@@ -76,6 +76,7 @@ var DefaultConfig = Config{
 			MaxSize: 1000,
 		},
 		BufferSizes: config.EBPFBufferSizes{
+			HTTP:     0,
 			MySQL:    0,
 			Postgres: 0,
 		},

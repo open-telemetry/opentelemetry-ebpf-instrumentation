@@ -3,4 +3,4 @@
 
 #pragma once
 
-enum { k_iovec_max_len = 512 };
+enum { k_iovec_max_len = 8192 };

@@ -42,22 +42,22 @@ func TestMethodURLParsing(t *testing.T) {
 		"GET /test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test//test/test/test/test/test/test/test/",
 	} {
 		i := makeBPFInfoWithBuf([]uint8(s))
-		assert.NotEmpty(t, i.url(), "-"+s+"-")
-		assert.NotEmpty(t, i.method(), "-"+s+"-")
-		assert.True(t, strings.HasPrefix(i.url(), "/test"))
+		assert.NotEmpty(t, httpURLFromBuf(i.Buf[:]), "-"+s+"-")
+		assert.NotEmpty(t, httpMethodFromBuf(i.Buf[:]), "-"+s+"-")
+		assert.True(t, strings.HasPrefix(httpURLFromBuf(i.Buf[:]), "/test"))
 	}
 
 	i := makeBPFInfoWithBuf([]uint8("GET "))
-	assert.NotEmpty(t, i.method())
-	assert.Empty(t, i.url())
+	assert.NotEmpty(t, httpMethodFromBuf(i.Buf[:]))
+	assert.Empty(t, httpURLFromBuf(i.Buf[:]))
 
 	i = makeBPFInfoWithBuf([]uint8(""))
-	assert.Empty(t, i.method())
-	assert.Empty(t, i.url())
+	assert.Empty(t, httpMethodFromBuf(i.Buf[:]))
+	assert.Empty(t, httpURLFromBuf(i.Buf[:]))
 
 	i = makeBPFInfoWithBuf([]uint8("POST"))
-	assert.Empty(t, i.method())
-	assert.Empty(t, i.url())
+	assert.Empty(t, httpMethodFromBuf(i.Buf[:]))
+	assert.Empty(t, httpURLFromBuf(i.Buf[:]))
 }
 
 func makeHTTPInfo(method, path, peer, host string, peerPort, hostPort uint32, status uint16, durationMs uint64) HTTPInfo {

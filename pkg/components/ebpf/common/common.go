@@ -224,7 +224,7 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 	case EventTypeSQL:
 		return ReadSQLRequestTraceAsSpan(record)
 	case EventTypeKHTTP:
-		return ReadHTTPInfoIntoSpan(record, filter)
+		return ReadHTTPInfoIntoSpan(parseCtx, record, filter)
 	case EventTypeKHTTP2:
 		return ReadHTTP2InfoIntoSpan(parseCtx, record, filter)
 	case EventTypeTCP:

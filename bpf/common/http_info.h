@@ -30,5 +30,6 @@ typedef struct http_info {
     u32 task_tid;
     u16 status;
     unsigned char buf[FULL_BUF_SIZE];
-    u8 _pad[6];
+    u8 has_large_buffers;
+    u8 _pad[5];
 } http_info_t;
