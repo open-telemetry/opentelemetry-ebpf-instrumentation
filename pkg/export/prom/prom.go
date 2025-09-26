@@ -87,12 +87,6 @@ const (
 	telemetrySDKKey      = "telemetry_sdk_name"
 	telemetrySDKVersion  = "telemetry_sdk_version"
 
-	clientKey          = "client"
-	clientNamespaceKey = "client_service_namespace"
-	serverKey          = "server"
-	serverNamespaceKey = "server_service_namespace"
-	connectionTypeKey  = "connection_type"
-
 	// default values for the histogram configuration
 	// from https://grafana.com/docs/mimir/latest/send/native-histograms/#migrate-from-classic-histograms
 	defaultHistogramBucketFactor     = 1.1

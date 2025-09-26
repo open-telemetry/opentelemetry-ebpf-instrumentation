@@ -66,6 +66,10 @@ func NameResolutionProvider(ctxInfo *global.ContextInfo, cfg *NameResolverConfig
 	input, output *msg.Queue[[]request.Span],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
+		if cfg == nil {
+			// if no config is passed, we just bypass the node
+			return swarm.Bypass(input, output)
+		}
 
 		return nameResolver(ctx, ctxInfo, cfg, input, output)
 	}

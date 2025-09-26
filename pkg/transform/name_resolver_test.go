@@ -328,15 +328,15 @@ func TestResolveClientFromHost(t *testing.T) {
 
 	nr.resolveNames(&clientSpan)
 
-	assert.Equal(t, "10.10.0.1", clientSpan.PeerName)
+	assert.Equal(t, "pod1", clientSpan.PeerName) // we don't match the IP in k8s, but we have a service name
 	assert.Empty(t, clientSpan.Service.UID.Namespace)
 	assert.Equal(t, "github.com", clientSpan.HostName)
-	assert.Equal(t, "", clientSpan.OtherNamespace)
+	assert.Empty(t, clientSpan.OtherNamespace)
 
 	nr.resolveNames(&serverSpan)
 
 	assert.Equal(t, "10.10.0.1", serverSpan.PeerName)
 	assert.Empty(t, serverSpan.OtherNamespace)
-	assert.Equal(t, "10.10.0.2", serverSpan.HostName)
+	assert.Equal(t, "pod2", serverSpan.HostName) // we don't match the IP in k8s, but we have a service name
 	assert.Equal(t, "something", serverSpan.Service.UID.Namespace)
 }
