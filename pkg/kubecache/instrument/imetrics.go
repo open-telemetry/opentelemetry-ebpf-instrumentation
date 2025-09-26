@@ -5,6 +5,7 @@ package instrument
 
 import (
 	"runtime"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -26,6 +27,8 @@ type InternalMetrics interface {
 	MessageSucceed()
 	MessageTimeout()
 	MessageError()
+
+	ForwardLag(unixSeconds int64)
 }
 
 type noopMetrics struct{}
@@ -39,6 +42,7 @@ func (n noopMetrics) MessageSubmit()    {}
 func (n noopMetrics) MessageSucceed()   {}
 func (n noopMetrics) MessageTimeout()   {}
 func (n noopMetrics) MessageError()     {}
+func (n noopMetrics) ForwardLag(int64)  {}
 
 type promInternalMetrics struct {
 	connector        *connector.PrometheusManager
@@ -46,6 +50,7 @@ type promInternalMetrics struct {
 	connectedClients prometheus.Gauge
 	clientMessages   *prometheus.CounterVec
 	beylaCacheInfo   prometheus.Gauge
+	forwardLag       prometheus.Histogram
 }
 
 func prometheusInternalMetrics(
@@ -79,6 +84,14 @@ func prometheusInternalMetrics(
 				"revision":  buildinfo.Revision,
 			},
 		}),
+		forwardLag: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:                            attr.VendorPrefix + "_kube_cache_forward_lag_seconds",
+			Help:                            "How long, in seconds, it takes since a Kubernetes event happens until it is forwarded to the subscribers",
+			Buckets:                         prometheus.DefBuckets,
+			NativeHistogramBucketFactor:     2,
+			NativeHistogramMaxExemplars:     20,
+			NativeHistogramMinResetDuration: 10 * time.Minute,
+		}),
 	}
 	pr.beylaCacheInfo.Set(1)
 	manager.Register(cfg.Port, cfg.Path,
@@ -88,6 +101,10 @@ func prometheusInternalMetrics(
 		pr.beylaCacheInfo)
 
 	return pr
+}
+
+func (n *promInternalMetrics) ForwardLag(unixSeconds int64) {
+	n.forwardLag.Observe(float64(unixSeconds))
 }
 
 func (n *promInternalMetrics) InformerNew() {
