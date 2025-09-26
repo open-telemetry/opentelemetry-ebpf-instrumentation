@@ -45,7 +45,7 @@ func gctx(groups attributes.AttrGroups, mcfg *otelcfg.MetricsConfig) *global.Con
 	return &global.ContextInfo{
 		Metrics:               imetrics.NoopReporter{},
 		MetricAttributeGroups: groups,
-		K8sInformer:           kube.NewMetadataProvider(kube.MetadataConfig{Enable: kubeflags.EnabledFalse}),
+		K8sInformer:           kube.NewMetadataProvider(kube.MetadataConfig{Enable: kubeflags.EnabledFalse}, imetrics.NoopReporter{}),
 		HostID:                "host-id",
 		OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
 	}

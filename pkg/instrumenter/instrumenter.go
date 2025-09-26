@@ -168,18 +168,7 @@ func buildCommonContextInfo(
 
 	promMgr := &connector.PrometheusManager{}
 	ctxInfo := &global.ContextInfo{
-		Prometheus: promMgr,
-		K8sInformer: kube.NewMetadataProvider(kube.MetadataConfig{
-			Enable:              config.Attributes.Kubernetes.Enable,
-			KubeConfigPath:      config.Attributes.Kubernetes.KubeconfigPath,
-			SyncTimeout:         config.Attributes.Kubernetes.InformersSyncTimeout,
-			ResyncPeriod:        config.Attributes.Kubernetes.InformersResyncPeriod,
-			DisabledInformers:   config.Attributes.Kubernetes.DisableInformers,
-			MetaCacheAddr:       config.Attributes.Kubernetes.MetaCacheAddress,
-			ResourceLabels:      resourceLabels,
-			RestrictLocalNode:   config.Attributes.Kubernetes.MetaRestrictLocalNode,
-			ServiceNameTemplate: templ,
-		}),
+		Prometheus:          promMgr,
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: &config.Metrics},
 	}
 	if config.Attributes.HostID.Override == "" {
@@ -187,31 +176,52 @@ func buildCommonContextInfo(
 	} else {
 		ctxInfo.HostID = config.Attributes.HostID.Override
 	}
-	switch {
-	case config.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL:
-		var err error
-		slog.Debug("reporting internal metrics as OpenTelemetry")
-		ctxInfo.Metrics, err = otel.NewInternalMetricsReporter(ctx, ctxInfo, &config.Metrics, &config.InternalMetrics)
-		if err != nil {
-			return nil, fmt.Errorf("can't start OpenTelemetry metrics: %w", err)
-		}
-	case config.InternalMetrics.Exporter == imetrics.InternalMetricsExporterPrometheus || config.InternalMetrics.Prometheus.Port != 0:
-		slog.Debug("reporting internal metrics as Prometheus")
-		ctxInfo.Metrics = imetrics.NewPrometheusReporter(&config.InternalMetrics, promMgr, nil)
-		// Prometheus manager also has its own internal metrics, so we need to pass the imetrics reporter
-		// TODO: remove this dependency cycle and let prommgr to create and return the PrometheusReporter
-		promMgr.InstrumentWith(ctxInfo.Metrics)
-	case config.Prometheus.Registry != nil:
-		slog.Debug("reporting internal metrics with Prometheus Registry")
-		ctxInfo.Metrics = imetrics.NewPrometheusReporter(&config.InternalMetrics, nil, config.Prometheus.Registry)
-	default:
-		slog.Debug("not reporting internal metrics")
-		ctxInfo.Metrics = imetrics.NoopReporter{}
+	ctxInfo.Metrics, err = internalMetrics(ctx, config, ctxInfo, promMgr)
+	if err != nil {
+		return nil, fmt.Errorf("can't create internal metrics: %w", err)
 	}
+
+	ctxInfo.K8sInformer = kube.NewMetadataProvider(kube.MetadataConfig{
+		Enable:              config.Attributes.Kubernetes.Enable,
+		KubeConfigPath:      config.Attributes.Kubernetes.KubeconfigPath,
+		SyncTimeout:         config.Attributes.Kubernetes.InformersSyncTimeout,
+		ResyncPeriod:        config.Attributes.Kubernetes.InformersResyncPeriod,
+		DisabledInformers:   config.Attributes.Kubernetes.DisableInformers,
+		MetaCacheAddr:       config.Attributes.Kubernetes.MetaCacheAddress,
+		ResourceLabels:      resourceLabels,
+		RestrictLocalNode:   config.Attributes.Kubernetes.MetaRestrictLocalNode,
+		ServiceNameTemplate: templ,
+	}, ctxInfo.Metrics)
 
 	attributeGroups(config, ctxInfo)
 
 	return ctxInfo, nil
+}
+
+func internalMetrics(
+	ctx context.Context,
+	config *obi.Config,
+	ctxInfo *global.ContextInfo,
+	promMgr *connector.PrometheusManager,
+) (imetrics.Reporter, error) {
+	switch {
+	case config.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL:
+		slog.Debug("reporting internal metrics as OpenTelemetry")
+		return otel.NewInternalMetricsReporter(ctx, ctxInfo, &config.Metrics, &config.InternalMetrics)
+	case config.InternalMetrics.Exporter == imetrics.InternalMetricsExporterPrometheus || config.InternalMetrics.Prometheus.Port != 0:
+		slog.Debug("reporting internal metrics as Prometheus")
+		metrics := imetrics.NewPrometheusReporter(&config.InternalMetrics, promMgr, nil)
+		// Prometheus manager also has its own internal metrics, so we need to pass the imetrics reporter
+		// TODO: remove this dependency cycle and let prommgr to create and return the PrometheusReporter
+		promMgr.InstrumentWith(metrics)
+		return metrics, nil
+	case config.Prometheus.Registry != nil:
+		slog.Debug("reporting internal metrics with Prometheus Registry")
+		return imetrics.NewPrometheusReporter(&config.InternalMetrics, nil, config.Prometheus.Registry), nil
+	default:
+		slog.Debug("not reporting internal metrics")
+		return imetrics.NoopReporter{}, nil
+	}
 }
 
 // attributeGroups specifies, based in the provided configuration, which groups of attributes
