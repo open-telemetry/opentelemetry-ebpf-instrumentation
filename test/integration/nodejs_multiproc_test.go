@@ -31,7 +31,22 @@ func testNestedTraces(t *testing.T) {
 	// TODO: once we implement the instrumentation status query API, replace
 	// this with  a proper check to see if the target process has finished
 	// being instrumented
-	time.Sleep(60 * time.Second)
+	t.Log("checking instrumentation status")
+	test.Eventually(t, 2*time.Minute, func(t require.TestingT) {
+		doHTTPGet(t, "http://localhost:5000/a", 200)
+
+		resp, err := http.Get(jaegerQueryURL + "?service=service-a&limit=1")
+		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
+			return
+		}
+
+		var tq jaeger.TracesQuery
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if len(tq.Data) == 0 {
+			return
+		}
+	}, test.Interval(1*time.Second))
+	t.Log("instrumentation ready")
 
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be
