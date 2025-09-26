@@ -28,21 +28,21 @@ type InternalMetrics interface {
 	MessageTimeout()
 	MessageError()
 
-	ForwardLag(unixSeconds int64)
+	ForwardLag(seconds float64)
 }
 
 type noopMetrics struct{}
 
-func (n noopMetrics) InformerNew()      {}
-func (n noopMetrics) InformerUpdate()   {}
-func (n noopMetrics) InformerDelete()   {}
-func (n noopMetrics) ClientConnect()    {}
-func (n noopMetrics) ClientDisconnect() {}
-func (n noopMetrics) MessageSubmit()    {}
-func (n noopMetrics) MessageSucceed()   {}
-func (n noopMetrics) MessageTimeout()   {}
-func (n noopMetrics) MessageError()     {}
-func (n noopMetrics) ForwardLag(int64)  {}
+func (n noopMetrics) InformerNew()       {}
+func (n noopMetrics) InformerUpdate()    {}
+func (n noopMetrics) InformerDelete()    {}
+func (n noopMetrics) ClientConnect()     {}
+func (n noopMetrics) ClientDisconnect()  {}
+func (n noopMetrics) MessageSubmit()     {}
+func (n noopMetrics) MessageSucceed()    {}
+func (n noopMetrics) MessageTimeout()    {}
+func (n noopMetrics) MessageError()      {}
+func (n noopMetrics) ForwardLag(float64) {}
 
 type promInternalMetrics struct {
 	connector        *connector.PrometheusManager
@@ -85,9 +85,10 @@ func prometheusInternalMetrics(
 			},
 		}),
 		informerLag: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:                            attr.VendorPrefix + "_informer_receive_lag_seconds",
-			Help:                            "How long, in seconds, it takes since a Kubernetes event happens until it received by this OBI instance",
-			Buckets:                         prometheus.DefBuckets,
+			Name: attr.VendorPrefix + "_informer_receive_lag_seconds",
+			Help: "How long, in seconds, it takes since a Kubernetes event happens until it received by this OBI instance",
+			// Since K8s stores the timestamps with second precision, we initially provide buckets larger than 0.5s
+			Buckets:                         []float64{0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256},
 			NativeHistogramBucketFactor:     2,
 			NativeHistogramMaxExemplars:     20,
 			NativeHistogramMinResetDuration: 10 * time.Minute,
@@ -104,8 +105,8 @@ func prometheusInternalMetrics(
 	return pr
 }
 
-func (n *promInternalMetrics) ForwardLag(unixSeconds int64) {
-	n.informerLag.Observe(float64(unixSeconds))
+func (n *promInternalMetrics) ForwardLag(seconds float64) {
+	n.informerLag.Observe(seconds)
 }
 
 func (n *promInternalMetrics) InformerNew() {
