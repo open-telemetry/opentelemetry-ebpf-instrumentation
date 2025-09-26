@@ -267,3 +267,76 @@ func TestResolveNodesFromK8s(t *testing.T) {
 	assert.Equal(t, "node2", serverSpan.HostName)
 	assert.Equal(t, "something", serverSpan.Service.UID.Namespace)
 }
+
+func TestResolveClientFromHost(t *testing.T) {
+	inf := &fakeInformer{}
+	db := kube2.NewStore(inf, kube2.ResourceLabels{}, nil)
+	pod1 := &informer.ObjectMeta{Name: "pod1", Kind: "Service", Ips: []string{"10.0.0.1", "10.1.0.1"}}
+	pod2 := &informer.ObjectMeta{Name: "pod2", Namespace: "something", Kind: "Service", Ips: []string{"10.0.0.2", "10.1.0.2"}}
+	pod3 := &informer.ObjectMeta{Name: "pod3", Kind: "Service", Ips: []string{"10.0.0.3", "10.1.0.3"}}
+	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod1})
+	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod2})
+	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod3})
+
+	assert.Equal(t, pod1, db.ObjectMetaByIP("10.0.0.1").Meta)
+	assert.Equal(t, pod1, db.ObjectMetaByIP("10.1.0.1").Meta)
+	assert.Equal(t, pod2, db.ObjectMetaByIP("10.0.0.2").Meta)
+	assert.Equal(t, pod2, db.ObjectMetaByIP("10.1.0.2").Meta)
+	assert.Equal(t, pod3, db.ObjectMetaByIP("10.1.0.3").Meta)
+	inf.Notify(&informer.Event{Type: informer.EventType_DELETED, Resource: pod3})
+	assert.Nil(t, db.ObjectMetaByIP("10.1.0.3"))
+
+	nr := NameResolver{
+		db:      db,
+		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		sources: resolverSources([]string{"k8s"}),
+	}
+
+	name, namespace := nr.resolveFromK8s("10.0.0.1")
+	assert.Equal(t, "pod1", name)
+	assert.Empty(t, namespace)
+
+	name, namespace = nr.resolveFromK8s("10.0.0.2")
+	assert.Equal(t, "pod2", name)
+	assert.Equal(t, "something", namespace)
+
+	name, namespace = nr.resolveFromK8s("10.0.0.3")
+	assert.Empty(t, name)
+	assert.Empty(t, namespace)
+
+	clientSpan := request.Span{
+		Type:      request.EventTypeHTTPClient,
+		Peer:      "10.10.0.1",
+		Statement: "https;github.com",
+		Host:      "10.10.0.2",
+		Service: svc.Attrs{UID: svc.UID{
+			Name:      "pod1",
+			Namespace: "",
+		}},
+	}
+
+	serverSpan := request.Span{
+		Type:      request.EventTypeHTTP,
+		Peer:      "10.10.0.1",
+		Statement: "https;github.com",
+		Host:      "10.10.0.2",
+		Service: svc.Attrs{UID: svc.UID{
+			Name:      "pod2",
+			Namespace: "something",
+		}},
+	}
+
+	nr.resolveNames(&clientSpan)
+
+	assert.Equal(t, "pod1", clientSpan.PeerName) // we don't match the IP in k8s, but we have a service name
+	assert.Empty(t, clientSpan.Service.UID.Namespace)
+	assert.Equal(t, "github.com", clientSpan.HostName)
+	assert.Empty(t, clientSpan.OtherNamespace)
+
+	nr.resolveNames(&serverSpan)
+
+	assert.Equal(t, "10.10.0.1", serverSpan.PeerName)
+	assert.Empty(t, serverSpan.OtherNamespace)
+	assert.Equal(t, "pod2", serverSpan.HostName) // we don't match the IP in k8s, but we have a service name
+	assert.Equal(t, "something", serverSpan.Service.UID.Namespace)
+}

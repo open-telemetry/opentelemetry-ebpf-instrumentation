@@ -82,8 +82,9 @@ func TestBasicPipeline(t *testing.T) {
 		},
 	}
 	gb := newGraphBuilder(&obi.Config{
-		Metrics:    cfg,
-		Attributes: obi.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
+		NameResolver: obi.DefaultConfig.NameResolver,
+		Metrics:      cfg,
+		Attributes:   obi.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0, &cfg), tracesInput, processEvents)
 
 	// Override eBPF tracer to send some fake data
