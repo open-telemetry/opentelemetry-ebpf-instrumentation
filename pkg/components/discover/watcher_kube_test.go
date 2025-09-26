@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/components/helpers/container"
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/components/kube"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kubecache/informer"
@@ -82,7 +83,7 @@ func TestWatcherKubeEnricher(t *testing.T) {
 
 			// Setup a fake K8s API connected to the watcherKubeEnricher
 			fInformer := &fakeInformer{}
-			store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil)
+			store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 			input := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 			defer input.Close()
 			output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
@@ -126,7 +127,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	// Setup a fake K8s API connected to the watcherKubeEnricher
 	fInformer := &fakeInformer{}
-	store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil)
+	store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	inputQueue := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	defer inputQueue.Close()
 	connectQueue := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
@@ -269,7 +270,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 	// Setup a fake K8s API connected to the watcherKubeEnricher
 	fInformer := &fakeInformer{}
-	store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil)
+	store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	input := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	defer input.Close()
 	output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))

@@ -42,6 +42,7 @@ type PrometheusReporter struct {
 	bpfMapEntries                    *prometheus.GaugeVec
 	bpfMapMaxEntries                 *prometheus.GaugeVec
 	bpfInternalMetricsScrapeInterval time.Duration
+	informerLag                      prometheus.Histogram
 }
 
 func NewPrometheusReporter(cfg *Config, manager *connector.PrometheusManager, registry *prometheus.Registry) *PrometheusReporter {
@@ -113,6 +114,14 @@ func NewPrometheusReporter(cfg *Config, manager *connector.PrometheusManager, re
 			Help: "Maximum number of entries in the BPF maps",
 		}, []string{"map_id", "map_name", "map_type"}),
 		bpfInternalMetricsScrapeInterval: cfg.BpfMetricScrapeInterval,
+		informerLag: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:                            attr.VendorPrefix + "_kube_cache_forward_lag_seconds",
+			Help:                            "How long, in seconds, it takes since a Kubernetes event happens until it is forwarded to the subscribers",
+			Buckets:                         prometheus.DefBuckets,
+			NativeHistogramBucketFactor:     2,
+			NativeHistogramMaxExemplars:     20,
+			NativeHistogramMinResetDuration: 10 * time.Minute,
+		}),
 	}
 	if registry != nil {
 		registry.MustRegister(pr.tracerFlushes,
@@ -127,7 +136,8 @@ func NewPrometheusReporter(cfg *Config, manager *connector.PrometheusManager, re
 			pr.buildInfo,
 			pr.bpfProbeLatencies,
 			pr.bpfMapEntries,
-			pr.bpfMapMaxEntries)
+			pr.bpfMapMaxEntries,
+			pr.informerLag)
 	} else {
 		manager.Register(cfg.Prometheus.Port, cfg.Prometheus.Path,
 			pr.tracerFlushes,
@@ -217,4 +227,8 @@ func (p *PrometheusReporter) BpfMapMaxEntries(mapID, mapName, mapType string, ma
 
 func (p *PrometheusReporter) BpfInternalMetricsScrapeInterval() time.Duration {
 	return p.bpfInternalMetricsScrapeInterval
+}
+
+func (p *PrometheusReporter) InformerLag(seconds float64) {
+	p.informerLag.Observe(seconds)
 }

@@ -50,7 +50,7 @@ type promInternalMetrics struct {
 	connectedClients prometheus.Gauge
 	clientMessages   *prometheus.CounterVec
 	beylaCacheInfo   prometheus.Gauge
-	forwardLag       prometheus.Histogram
+	informerLag      prometheus.Histogram
 }
 
 func prometheusInternalMetrics(
@@ -84,9 +84,9 @@ func prometheusInternalMetrics(
 				"revision":  buildinfo.Revision,
 			},
 		}),
-		forwardLag: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:                            attr.VendorPrefix + "_kube_cache_forward_lag_seconds",
-			Help:                            "How long, in seconds, it takes since a Kubernetes event happens until it is forwarded to the subscribers",
+		informerLag: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:                            attr.VendorPrefix + "_informer_receive_lag_seconds",
+			Help:                            "How long, in seconds, it takes since a Kubernetes event happens until it received by this OBI instance",
 			Buckets:                         prometheus.DefBuckets,
 			NativeHistogramBucketFactor:     2,
 			NativeHistogramMaxExemplars:     20,
@@ -98,13 +98,14 @@ func prometheusInternalMetrics(
 		pr.informerEvents,
 		pr.connectedClients,
 		pr.clientMessages,
-		pr.beylaCacheInfo)
+		pr.beylaCacheInfo,
+		pr.informerLag)
 
 	return pr
 }
 
 func (n *promInternalMetrics) ForwardLag(unixSeconds int64) {
-	n.forwardLag.Observe(float64(unixSeconds))
+	n.informerLag.Observe(float64(unixSeconds))
 }
 
 func (n *promInternalMetrics) InformerNew() {
@@ -141,4 +142,8 @@ func (n *promInternalMetrics) MessageTimeout() {
 
 func (n *promInternalMetrics) MessageError() {
 	n.clientMessages.WithLabelValues("error").Inc()
+}
+
+func (n *promInternalMetrics) InformerLag(seconds float64) {
+	n.informerLag.Observe(seconds)
 }

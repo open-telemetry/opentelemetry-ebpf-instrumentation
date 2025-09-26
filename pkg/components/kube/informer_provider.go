@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/kubecache/meta"
 	"go.opentelemetry.io/obi/pkg/kubeflags"
 )
@@ -64,10 +65,12 @@ type MetadataProvider struct {
 	clusterName   string
 
 	cfg *MetadataConfig
+
+	internalMetrics imetrics.Reporter
 }
 
-func NewMetadataProvider(config MetadataConfig) *MetadataProvider {
-	return &MetadataProvider{cfg: &config}
+func NewMetadataProvider(config MetadataConfig, internalMetrics imetrics.Reporter) *MetadataProvider {
+	return &MetadataProvider{cfg: &config, internalMetrics: internalMetrics}
 }
 
 func (mp *MetadataProvider) IsKubeEnabled() bool {
@@ -124,7 +127,7 @@ func (mp *MetadataProvider) Get(ctx context.Context) (*Store, error) {
 		return nil, err
 	}
 
-	mp.metadata = NewStore(informer, mp.cfg.ResourceLabels, mp.cfg.ServiceNameTemplate)
+	mp.metadata = NewStore(informer, mp.cfg.ResourceLabels, mp.cfg.ServiceNameTemplate, mp.internalMetrics)
 
 	return mp.metadata, nil
 }
