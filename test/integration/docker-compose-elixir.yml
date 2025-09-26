@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   testserver:
@@ -31,6 +31,7 @@ services:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_METRICS_INTERVAL: "10ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
@@ -49,14 +50,14 @@ services:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: [ "--config=/etc/otelcol-config/otelcol-config.yml" ]
+    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
-      - "4317"          # OTLP over gRPC receiver
-      - "4318:4318"     # OTLP over HTTP receiver
-      - "9464"          # Prometheus exporter
-      - "8888"          # metrics endpoint
+      - "4317" # OTLP over gRPC receiver
+      - "4318:4318" # OTLP over HTTP receiver
+      - "9464" # Prometheus exporter
+      - "8888" # metrics endpoint
     depends_on:
       prometheus:
         condition: service_started

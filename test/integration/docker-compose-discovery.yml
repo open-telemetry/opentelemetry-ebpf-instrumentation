@@ -36,6 +36,7 @@ services:
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_METRICS_FEATURES: "application,application_span"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_METRICS_INTERVAL: "10ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
