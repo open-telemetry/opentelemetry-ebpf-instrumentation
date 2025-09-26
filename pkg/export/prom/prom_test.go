@@ -111,6 +111,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		},
 		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
+	awaitSpanProcessing()
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
 	containsTargetInfoSDKVersion := regexp.MustCompile(`\ntarget_info\{.*telemetry_sdk_version=.*`)
@@ -145,6 +146,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			},
 		},
 	})
+	awaitSpanProcessing()
 	now.Advance(2 * time.Minute)
 
 	// THEN THE metrics that have been received during the timeout period are still visible
@@ -162,6 +164,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	promInput.Send([]request.Span{
 		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
+	awaitSpanProcessing()
 	now.Advance(2 * time.Minute)
 
 	// THEN they are reported again, starting from zero in the case of counters
@@ -372,6 +375,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
 			})
+			awaitSpanProcessing()
 
 			var exported string
 			test.Eventually(t, timeout, func(t require.TestingT) {
@@ -631,6 +635,13 @@ func getMetrics(t require.TestingT, promURL string) string {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	return string(body)
+}
+
+// awaitSpanProcessing allows for slower CI environments to catch up. The
+// intention is to prevent race conditions between sending spans, processing
+// them, and advancing the mocked clock.
+func awaitSpanProcessing() {
+	time.Sleep(10 * time.Millisecond)
 }
 
 type syncedClock struct {
