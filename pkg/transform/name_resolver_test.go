@@ -271,7 +271,7 @@ func TestResolveNodesFromK8s(t *testing.T) {
 
 func TestResolveClientFromHost(t *testing.T) {
 	inf := &fakeInformer{}
-	db := kube2.NewStore(inf, kube2.ResourceLabels{}, nil)
+	db := kube2.NewStore(inf, kube2.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	pod1 := &informer.ObjectMeta{Name: "pod1", Kind: "Service", Ips: []string{"10.0.0.1", "10.1.0.1"}}
 	pod2 := &informer.ObjectMeta{Name: "pod2", Namespace: "something", Kind: "Service", Ips: []string{"10.0.0.2", "10.1.0.2"}}
 	pod3 := &informer.ObjectMeta{Name: "pod3", Kind: "Service", Ips: []string{"10.0.0.3", "10.1.0.3"}}
