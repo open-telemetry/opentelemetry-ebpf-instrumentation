@@ -141,29 +141,35 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 
 	if p.cfg.EBPF.TrackRequestHeaders ||
 		p.cfg.EBPF.ContextPropagation != config.ContextPropagationDisabled {
-		if ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled) {
-			p.log.Info("Found compatible Linux kernel, enabling trace information parsing")
-			loader = LoadBpfTP
-			if p.cfg.EBPF.BpfDebug {
-				loader = LoadBpfTPDebug
-			}
-		} else {
-			p.log.Info("Found incompatible Linux kernel, disabling trace information parsing")
+		loader = LoadBpfTP
+		if p.cfg.EBPF.BpfDebug {
+			loader = LoadBpfTPDebug
 		}
+
+		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled))
 	}
 
-	return loader()
+	spec, err := loader()
+	if err != nil {
+		return nil, fmt.Errorf("can't load bpf collection from reader: %w", err)
+	}
+
+	ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
+
+	return spec, err
 }
 
 func (p *Tracer) SetupTailCalls() {
 	for i, prog := range []*ebpf.Program{
 		p.bpfObjects.ObiProtocolHttp,                      // 0
-		p.bpfObjects.ObiProtocolHttp2,                     // 1
-		p.bpfObjects.ObiProtocolTcp,                       // 2
-		p.bpfObjects.ObiProtocolHttp2GrpcFrames,           // 3
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame, // 4
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,   // 5
-		p.bpfObjects.ObiHandleBufWithArgs,                 // 6
+		p.bpfObjects.ObiContinueProtocolHttp,              // 1
+		p.bpfObjects.ObiContinue2ProtocolHttp,             // 2
+		p.bpfObjects.ObiProtocolHttp2,                     // 3
+		p.bpfObjects.ObiProtocolTcp,                       // 4
+		p.bpfObjects.ObiProtocolHttp2GrpcFrames,           // 5
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame, // 6
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,   // 7
+		p.bpfObjects.ObiHandleBufWithArgs,                 // 8
 	} {
 		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
 		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {

@@ -99,15 +99,13 @@ func TestMultiProcess(t *testing.T) {
 		assert.Empty(t, results)
 	})
 
-	if kprobeTracesEnabled() {
-		t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
-			testNestedHTTPTracesKProbes(t)
-		})
+	t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
+		testNestedHTTPTracesKProbes(t)
+	})
 
-		t.Run("Nested traces with kprobes: SSL node python rails", func(t *testing.T) {
-			testNestedHTTPSTracesKProbes(t)
-		})
-	}
+	t.Run("Nested traces with kprobes: SSL node python rails", func(t *testing.T) {
+		testNestedHTTPSTracesKProbes(t)
+	})
 
 	t.Run("Instrumented processes metric", func(t *testing.T) {
 		checkInstrumentedProcessesMetric(t)
@@ -124,11 +122,9 @@ func TestMultiProcessAppCP(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=all`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`)
 	require.NoError(t, compose.Up())
 
-	if kprobeTracesEnabled() {
-		t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
-			testNestedHTTPTracesKProbes(t)
-		})
-	}
+	t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
+		testNestedHTTPTracesKProbes(t)
+	})
 	require.NoError(t, compose.Close())
 }
 
@@ -141,11 +137,10 @@ func TestMultiProcessAppCPNoIP(t *testing.T) {
 
 	require.NoError(t, compose.Up())
 
-	if kprobeTracesEnabled() {
-		t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
-			testNestedHTTPTracesKProbes(t)
-		})
-	}
+	t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
+		testNestedHTTPTracesKProbes(t)
+	})
+
 	require.NoError(t, compose.Close())
 }
 

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/http_types.h>
@@ -13,6 +14,8 @@
 #include <common/trace_common.h>
 
 #include <generictracer/maps/http_info_mem.h>
+
+#include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>
 
 #include <maps/accepted_connections.h>
@@ -41,14 +44,15 @@ static __always_inline u32 trace_type_from_meta(http_connection_metadata_t *meta
     return TRACE_TYPE_SERVER;
 }
 
-static __always_inline void http_get_or_create_trace_info(http_connection_metadata_t *meta,
-                                                          u32 pid,
-                                                          connection_info_t *conn,
-                                                          void *u_buf,
-                                                          int bytes_len,
-                                                          s32 capture_header_buffer,
-                                                          u8 ssl,
-                                                          u16 orig_dport) {
+static __always_inline void
+http_get_or_create_trace_info(http_connection_metadata_t *meta,
+                              u32 pid,
+                              connection_info_t *conn,
+                              void *u_buf,
+                              int bytes_len,
+                              u8 ssl,
+                              u16 orig_dport,
+                              unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
     //TODO use make_key
     egress_key_t e_key = {
         .d_port = conn->d_port,
@@ -144,12 +148,15 @@ static __always_inline void http_get_or_create_trace_info(http_connection_metada
 
         unsigned char *buf = tp_char_buf();
         if (buf) {
-            int buf_len = bytes_len;
-            bpf_clamp_umax(buf_len, TRACE_BUF_SIZE - 1);
+            const u16 buf_len = bytes_len & (TRACE_BUF_SIZE - 1);
+            _Static_assert(TRACE_BUF_SIZE == 1024,
+                           "Please fix the __bpf_memzero statements below this line");
+            __bpf_memzero(buf, 512);
+            __bpf_memzero(buf + 512, 512);
 
             bpf_probe_read(buf, buf_len, u_buf);
-            unsigned char *res = bpf_strstr_tp_loop(buf, buf_len);
 
+            unsigned char *res = tp_loop_fn(buf, buf_len);
             if (res) {
                 bpf_dbg_printk("Found traceparent in headers [%s] overriding what was before", res);
                 unsigned char *t_id = extract_trace_id(res);
@@ -166,8 +173,7 @@ static __always_inline void http_get_or_create_trace_info(http_connection_metada
                 bpf_dbg_printk("new tp: %s", tp_buf);
 #endif
             } else {
-                bpf_dbg_printk("No additional traceparent in headers, using what was made before",
-                               res);
+                bpf_dbg_printk("No additional traceparent in headers, using what was made before");
             }
         } else {
             return;
@@ -401,13 +407,100 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     cleanup_http_request_data(pid_conn, info);
 }
 
-// k_tail_protocol_http
-SEC("kprobe/http")
-int obi_protocol_http(void *ctx) {
+static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
+                                                         call_protocol_args_t *args,
+                                                         http_info_t *info,
+                                                         http_connection_metadata_t *meta) {
     (void)ctx;
 
-    call_protocol_args_t *args = protocol_args();
+    if (meta) {
+        u32 type = trace_type_from_meta(meta);
+        tp_info_pid_t *tp_p = trace_info_for_connection(&args->pid_conn.conn, type);
+        if (tp_p) {
+            info->tp = tp_p->tp;
+            if (args->self_ref_parent_id) {
+                bpf_dbg_printk("overwriting parent id from the self referencing client request");
+                __builtin_memcpy(&info->tp.parent_id, &args->self_ref_parent_id, sizeof(u64));
+            }
+        } else {
+            bpf_dbg_printk("Can't find trace info, this is a bug!");
+        }
+    } else {
+        bpf_dbg_printk("No META!");
+    }
 
+    // we copy some small part of the buffer to the info trace event, so that we can process an event even with
+    // incomplete trace info in user space.
+    bpf_probe_read(info->buf, FULL_BUF_SIZE, (void *)args->u_buf);
+    process_http_request(info, args->bytes_len, meta, args->direction, args->orig_dport);
+
+    return 0;
+}
+
+// k_tail_continue2_protocol_http
+SEC("kprobe/http")
+int obi_continue2_protocol_http(struct pt_regs *ctx) {
+    call_protocol_args_t *args = protocol_args();
+    if (!args) {
+        return 0;
+    }
+
+    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
+    if (!info) {
+        return 0;
+    }
+
+    http_connection_metadata_t *meta =
+        connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
+
+    return __obi_continue2_protocol_http(ctx, args, info, meta);
+}
+
+static __always_inline int
+__obi_continue_protocol_http(struct pt_regs *ctx,
+                             call_protocol_args_t *args,
+                             http_info_t *info,
+                             unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
+    http_connection_metadata_t *meta =
+        connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
+
+    http_get_or_create_trace_info(meta,
+                                  args->pid_conn.pid,
+                                  &args->pid_conn.conn,
+                                  (void *)args->u_buf,
+                                  args->bytes_len,
+                                  args->ssl,
+                                  args->orig_dport,
+                                  tp_loop_fn);
+
+    if (tp_loop_fn == bpf_strstr_tp_loop) {
+        return __obi_continue2_protocol_http(ctx, args, info, meta);
+    } else {
+        bpf_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
+    }
+
+    return 0;
+}
+
+// k_tail_continue_protocol_http
+SEC("kprobe/http")
+int obi_continue_protocol_http(struct pt_regs *ctx) {
+    call_protocol_args_t *args = protocol_args();
+    if (!args) {
+        return 0;
+    }
+
+    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
+    if (!info) {
+        return 0;
+    }
+
+    return __obi_continue_protocol_http(ctx, args, info, bpf_strstr_tp_loop__legacy);
+}
+
+static __always_inline int
+__obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
+    call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
     }
@@ -433,6 +526,7 @@ int obi_protocol_http(void *ctx) {
     if (self_ref_tp) {
         __builtin_memcpy(&self_ref_parent_id, &self_ref_tp->parent_id, sizeof(u64));
     }
+    args->self_ref_parent_id = self_ref_parent_id;
 
     http_info_t *info =
         get_or_set_http_info(in, &args->pid_conn, args->packet_type, args->direction);
@@ -449,39 +543,12 @@ int obi_protocol_http(void *ctx) {
 
     if (args->packet_type == PACKET_TYPE_REQUEST && (info->status == 0) &&
         (info->start_monotime_ns == 0)) {
-        http_connection_metadata_t *meta =
-            connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
-
-        http_get_or_create_trace_info(meta,
-                                      args->pid_conn.pid,
-                                      &args->pid_conn.conn,
-                                      (void *)args->u_buf,
-                                      args->bytes_len,
-                                      capture_header_buffer,
-                                      args->ssl,
-                                      args->orig_dport);
-
-        if (meta) {
-            u32 type = trace_type_from_meta(meta);
-            tp_info_pid_t *tp_p = trace_info_for_connection(&args->pid_conn.conn, type);
-            if (tp_p) {
-                info->tp = tp_p->tp;
-                if (self_ref_parent_id) {
-                    bpf_dbg_printk(
-                        "overwriting parent id from the self referencing client request");
-                    __builtin_memcpy(&info->tp.parent_id, &self_ref_parent_id, sizeof(u64));
-                }
-            } else {
-                bpf_dbg_printk("Can't find trace info, this is a bug!");
-            }
+        if (tp_loop_fn == bpf_strstr_tp_loop) {
+            return __obi_continue_protocol_http(ctx, args, info, bpf_strstr_tp_loop);
         } else {
-            bpf_dbg_printk("No META!");
+            bpf_tail_call(ctx, &jump_table, k_tail_continue_protocol_http);
+            return 0;
         }
-
-        // we copy some small part of the buffer to the info trace event, so that we can process an event even with
-        // incomplete trace info in user space.
-        bpf_probe_read(info->buf, FULL_BUF_SIZE, (void *)args->u_buf);
-        process_http_request(info, args->bytes_len, meta, args->direction, args->orig_dport);
     } else if ((args->packet_type == PACKET_TYPE_RESPONSE) && (info->status == 0)) {
         handle_http_response(
             args->small_buf, &args->pid_conn, info, args->bytes_len, args->direction, args->ssl);
@@ -491,4 +558,16 @@ int obi_protocol_http(void *ctx) {
     }
 
     return 0;
+}
+
+// k_tail_protocol_http
+SEC("kprobe/http")
+int obi_protocol_http(struct pt_regs *ctx) {
+    return __obi_protocol_http(ctx, bpf_strstr_tp_loop);
+}
+
+// k_tail_protocol_http
+SEC("kprobe/http")
+int obi_protocol_http_legacy(struct pt_regs *ctx) {
+    return __obi_protocol_http(ctx, bpf_strstr_tp_loop__legacy);
 }
