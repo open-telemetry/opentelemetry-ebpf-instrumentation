@@ -17,5 +17,5 @@ struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
     __uint(max_entries, 65535);
     __uint(key_size, sizeof(connection_info_t));
-    __uint(value_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(u32));
 } sock_dir SEC(".maps");

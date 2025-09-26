@@ -57,6 +57,8 @@ prometheus_export:
     response_size_histogram: [0, 10, 20, 22]
 attributes:
   rename_unresolved_hosts: ""
+  rename_unresolved_hosts_outgoing: ""
+  rename_unresolved_hosts_incoming: ""
   kubernetes:
     kubeconfig_path: /foo/bar
     enable: true

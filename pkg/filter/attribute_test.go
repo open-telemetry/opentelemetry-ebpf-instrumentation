@@ -207,7 +207,7 @@ func TestAttributeFilter_SpanMetrics(t *testing.T) {
 	filterFunc, err := ByAttribute[*request.Span](AttributeFamilyConfig{
 		"client": MatchDefinition{NotMatch: "filtered"},
 		"server": MatchDefinition{NotMatch: "filtered"},
-	}, nil, map[string][]attr.Name{}, request.SpanPromGetters(""), input, output)(t.Context())
+	}, nil, map[string][]attr.Name{}, request.SpanPromGetters(request.UnresolvedNames{}), input, output)(t.Context())
 	require.NoError(t, err)
 
 	out := output.Subscribe()
