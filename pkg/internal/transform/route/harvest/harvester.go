@@ -78,6 +78,12 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 
 	resultChan := make(chan result, 1)
 
+	// We need to fix this in the downstream library and then we can remove this code
+	if fileInfo.Service.SDKLanguage == svc.InstrumentableJava {
+		myUID, myGID := jvmAttachInitFunc()
+		defer jvmAttachCleanupFunc(myUID, myGID)
+	}
+
 	// Run the harvesting in a goroutine
 	go func() {
 		defer func() {
