@@ -8,7 +8,8 @@
     // github.com/Shopify/sarama has been moved to github.com/IBM/sarama
     // but we keep supporting the go-offsets for the outdated library, which must not
     // be updated.
-    "configs/offsets/shopify/**"
+    "configs/offsets/shopify/**",
+    "NOTICES/**"
   ],
   "packageRules": [
     {
