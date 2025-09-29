@@ -87,12 +87,12 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 	require.Len(t, res, 1)
 	parent := res[0]
 	require.NotEmpty(t, parent.TraceID)
-	if kprobeTracesEnabled() {
-		require.Equal(t, traceID, parent.TraceID)
-		// Validate that "parent" is a CHILD_OF the traceparent's "parent-id"
-		childOfPID := trace.ChildrenOf(parentID)
-		require.Len(t, childOfPID, 1)
-	}
+	require.Equal(t, traceID, parent.TraceID)
+
+	// Validate that "parent" is a CHILD_OF the traceparent's "parent-id"
+	childOfPID := trace.ChildrenOf(parentID)
+	require.Len(t, childOfPID, 1)
+
 	require.NotEmpty(t, parent.SpanID)
 	// check duration is at least 2us
 	assert.Less(t, (2 * time.Microsecond).Microseconds(), parent.Duration)

@@ -25,13 +25,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/kube"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
 	"go.opentelemetry.io/obi/pkg/components/svc"
-	"go.opentelemetry.io/obi/pkg/components/testutil"
 	"go.opentelemetry.io/obi/pkg/components/traces"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kubeflags"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -45,7 +45,7 @@ func gctx(groups attributes.AttrGroups, mcfg *otelcfg.MetricsConfig) *global.Con
 	return &global.ContextInfo{
 		Metrics:               imetrics.NoopReporter{},
 		MetricAttributeGroups: groups,
-		K8sInformer:           kube.NewMetadataProvider(kube.MetadataConfig{Enable: kubeflags.EnabledFalse}),
+		K8sInformer:           kube.NewMetadataProvider(kube.MetadataConfig{Enable: kubeflags.EnabledFalse}, imetrics.NoopReporter{}),
 		HostID:                "host-id",
 		OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
 	}
@@ -82,8 +82,9 @@ func TestBasicPipeline(t *testing.T) {
 		},
 	}
 	gb := newGraphBuilder(&obi.Config{
-		Metrics:    cfg,
-		Attributes: obi.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
+		NameResolver: obi.DefaultConfig.NameResolver,
+		Metrics:      cfg,
+		Attributes:   obi.Attributes{Select: allMetrics, InstanceID: traces.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0, &cfg), tracesInput, processEvents)
 
 	// Override eBPF tracer to send some fake data

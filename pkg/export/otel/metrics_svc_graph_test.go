@@ -93,7 +93,7 @@ func makeSvcGraphExporter(
 	}
 	otelExporter, err := ReportSvcGraphMetrics(
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
-		mcfg, "", input, processEvents)(ctx)
+		mcfg, request.UnresolvedNames{}, input, processEvents)(ctx)
 	require.NoError(t, err)
 
 	return otelExporter

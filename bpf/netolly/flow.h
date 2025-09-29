@@ -53,17 +53,13 @@ typedef struct flow_metrics_t {
     u64 start_mono_time_ns;
     u64 end_mono_time_ns;
 
-    // TCP Flags from https://www.ietf.org/rfc/rfc793.txt
-    u64 flags;
-
-    // must be 64-bit to be used with __sync functions
-    u64 init_state;
-
     // direction of the flow EGRESS / INGRESS
-    u64 iface_direction;
+    u8 iface_direction;
 
     // who initiated of the connection: INITIATOR_SRC or INITIATOR_DST
-    u64 initiator;
+    u8 initiator;
+
+    u8 _pad[6];
 } flow_metrics;
 
 // Attributes that uniquely identify a flow

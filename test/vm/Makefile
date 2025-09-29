@@ -10,7 +10,7 @@ REPO_ROOT ?= ../..
 TARGET_TEST ?= run-integration-test-vm
 TEST_OUTPUT = $(REPO_ROOT)/testoutput
 MNT ?= mnt
-IMG_SIZE ?= 20G
+IMG_SIZE ?= 10G
 QEMU_BIN = qemu-system-$(ARCH)
 QEMU := $(shell which $(QEMU_BIN))
 

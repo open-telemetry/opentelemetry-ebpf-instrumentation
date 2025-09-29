@@ -35,6 +35,7 @@ services:
       OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span,application_process"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_EBPF_METRICS_INTERVAL: "10ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
@@ -44,7 +45,6 @@ services:
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_HOSTNAME: "beyla"
       OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES: "${OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES}"
-      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "100ms"
     ports:
       - "8999:8999" # Prometheus scrape port, if enabled via config
 

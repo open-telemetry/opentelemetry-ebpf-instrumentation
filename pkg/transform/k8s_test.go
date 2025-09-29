@@ -15,10 +15,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/helpers/container"
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/components/kube"
 	"go.opentelemetry.io/obi/pkg/components/svc"
-	"go.opentelemetry.io/obi/pkg/components/testutil"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kubecache/meta"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -31,7 +32,7 @@ func TestDecoration(t *testing.T) {
 	store := kube.NewStore(inf, kube.ResourceLabels{
 		"service.name":      []string{"app.kubernetes.io/name"},
 		"service.namespace": []string{"app.kubernetes.io/part-of"},
-	}, nil)
+	}, nil, imetrics.NoopReporter{})
 	// pre-populated kubernetes metadata database
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: &informer.ObjectMeta{
 		Name: "pod-12", Namespace: "the-ns", Kind: "Pod",
@@ -305,7 +306,7 @@ func TestDecorationProcessEvents(t *testing.T) {
 	store := kube.NewStore(inf, kube.ResourceLabels{
 		"service.name":      []string{"app.kubernetes.io/name"},
 		"service.namespace": []string{"app.kubernetes.io/part-of"},
-	}, nil)
+	}, nil, imetrics.NoopReporter{})
 	// add one container, the others will be delayed
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: &informer.ObjectMeta{
 		Name: "pod-12", Namespace: "the-ns", Kind: "Pod",

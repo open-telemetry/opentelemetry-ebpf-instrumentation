@@ -8,7 +8,7 @@ require (
 	github.com/google/go-licenses/v2 v2.0.0
 	github.com/grafana/go-offsets-tracker v0.1.7
 	github.com/onsi/ginkgo/v2 v2.25.3
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250918083545-961fc2c233d6
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250926234817-7c50567748ae
 	sigs.k8s.io/kind v0.29.0
 )
 

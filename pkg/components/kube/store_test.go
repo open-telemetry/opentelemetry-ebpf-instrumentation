@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/components/helpers/container"
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kubecache/meta"
 )
@@ -110,7 +111,7 @@ func TestContainerInfoWithTemplate(t *testing.T) {
 
 	templ, _ := template.New("serviceNameTemplate").Parse(`{{- if eq .Meta.Pod nil }}{{.Meta.Name}}{{ else }}{{- .Meta.Namespace }}/{{ index .Meta.Labels "app.kubernetes.io/name" }}/{{ index .Meta.Labels "app.kubernetes.io/component" -}}{{ if .ContainerName }}/{{ .ContainerName -}}{{ end -}}{{ end -}}`)
 
-	store := NewStore(fInformer, ResourceLabels{}, templ)
+	store := NewStore(fInformer, ResourceLabels{}, templ, imetrics.NoopReporter{})
 
 	_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &service})
 	_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &podMetaA})
@@ -316,7 +317,7 @@ func TestContainerInfo(t *testing.T) {
 
 	fInformer := &fakeInformer{}
 
-	store := NewStore(fInformer, ResourceLabels{}, nil)
+	store := NewStore(fInformer, ResourceLabels{}, nil, imetrics.NoopReporter{})
 
 	_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &service})
 	_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &podMetaA})
@@ -496,7 +497,7 @@ func TestMemoryCleanedUp(t *testing.T) {
 
 	fInformer := &fakeInformer{}
 
-	store := NewStore(fInformer, ResourceLabels{}, nil)
+	store := NewStore(fInformer, ResourceLabels{}, nil, imetrics.NoopReporter{})
 
 	_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &service})
 	_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &podMetaA})
@@ -520,7 +521,7 @@ func TestMemoryCleanedUp(t *testing.T) {
 // Fixes a memory leak in the store where the objectMetaByIP map was not cleaned up
 func TestMetaByIPEntryRemovedIfIPGroupChanges(t *testing.T) {
 	// GIVEN a store with
-	store := NewStore(&fakeInformer{}, ResourceLabels{}, nil)
+	store := NewStore(&fakeInformer{}, ResourceLabels{}, nil, imetrics.NoopReporter{})
 	// WHEN an object is created with several IPs
 	_ = store.On(&informer.Event{
 		Type: informer.EventType_CREATED,
@@ -565,7 +566,7 @@ func TestMetaByIPEntryRemovedIfIPGroupChanges(t *testing.T) {
 }
 
 func TestNoLeakOnUpdateOrDeletion(t *testing.T) {
-	store := NewStore(&fakeInformer{}, ResourceLabels{}, nil)
+	store := NewStore(&fakeInformer{}, ResourceLabels{}, nil, imetrics.NoopReporter{})
 	topOwner := &informer.Owner{Name: "foo", Kind: "Deployment"}
 	require.NoError(t, store.On(&informer.Event{
 		Type: informer.EventType_CREATED,
@@ -1197,6 +1198,7 @@ func createTestStore() *Store {
 		&n,
 		DefaultResourceLabels,
 		nil, // no service name template
+		imetrics.NoopReporter{},
 	)
 }
 

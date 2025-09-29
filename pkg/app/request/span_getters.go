@@ -114,6 +114,10 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(span *Span) attribute.KeyValue { return CudaKernel(span.Method) }
 	case attr.CudaMemcpyKind:
 		getter = func(span *Span) attribute.KeyValue { return CudaMemcpy(span.SubType) }
+	case attr.Job:
+		getter = func(span *Span) attribute.KeyValue { return Job(span.Service.Job()) }
+	case attr.Instance:
+		getter = func(span *Span) attribute.KeyValue { return Job(span.Service.UID.Instance) }
 	}
 	// default: unlike the Prometheus getters, we don't check here for service name nor k8s metadata
 	// because they are already attributes of the Resource instead of the attributes.
@@ -124,11 +128,11 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 // Prometheus string value of a given attribute name.
 //
 //nolint:cyclop
-func spanPromGetters(attrName attr.Name) (attributes.Getter[*Span, string], bool) {
+func spanPromGetters(attrName attr.Name) attributes.Getter[*Span, string] {
 	if otelGetter, ok := spanOTELGetters(attrName); ok {
-		return func(span *Span) string { return otelGetter(span).Value.Emit() }, true
+		return func(span *Span) string { return otelGetter(span).Value.Emit() }
 	}
 	// unlike the OTEL getters, when the attribute is not found, we need to look for it
 	// in the metadata section
-	return func(s *Span) string { return s.Service.Metadata[attrName] }, true
+	return func(s *Span) string { return s.Service.Metadata[attrName] }
 }

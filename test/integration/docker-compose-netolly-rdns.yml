@@ -1,8 +1,8 @@
-version: '3.8'
+version: "3.8"
 
 services:
   curler:
-    image: alpine/curl@sha256:c842d704500f0e474157fc1652b01cff239992eab854c84d9f4551f049e23160
+    image: alpine/curl@sha256:168563f2fe4b3f5d60fc3071af68ac9a6db40cfe07110ef0e942e91d80754200
     command:
       - sh
       - -c
@@ -26,6 +26,7 @@ services:
       OTEL_EBPF_NETWORK_METRICS: "true" # explicitly enabling network metrics
       OTEL_EBPF_NETWORK_PRINT_FLOWS: "true"
       OTEL_EBPF_METRICS_INTERVAL: "1s"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "1s"
       OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT: "1s"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318 # otelcol exposing port in local node
@@ -43,14 +44,14 @@ services:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: [ "--config=/etc/otelcol-config/otelcol-config.yml" ]
+    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
-      - "4317"          # OTLP over gRPC receiver
-      - "4318:4318"     # OTLP over HTTP receiver
-      - "9464"          # Prometheus exporter
-      - "8888"          # metrics endpoint
+      - "4317" # OTLP over gRPC receiver
+      - "4318:4318" # OTLP over HTTP receiver
+      - "9464" # Prometheus exporter
+      - "8888" # metrics endpoint
     depends_on:
       prometheus:
         condition: service_started
