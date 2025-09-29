@@ -11,9 +11,11 @@ import (
 	"github.com/grafana/jvmtools/util"
 )
 
-var jvmAttachFunc = jvm.Jattach
-var jvmAttachInitFunc = initAttach
-var jvmAttachCleanupFunc = cleanupAttach
+var (
+	jvmAttachFunc        = jvm.Jattach
+	jvmAttachInitFunc    = initAttach
+	jvmAttachCleanupFunc = cleanupAttach
+)
 
 func initAttach() (int, int, int) {
 	myUID := syscall.Geteuid()

@@ -84,7 +84,10 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 		myUID, myGID, myPID := jvmAttachInitFunc()
-		defer jvmAttachCleanupFunc(myUID, myGID, myPID)
+		defer func() {
+			err := jvmAttachCleanupFunc(myUID, myGID, myPID)
+			h.log.Error("route harvesting cleanup failed", "error", err)
+		}()
 	}
 
 	// Run the harvesting in a goroutine
