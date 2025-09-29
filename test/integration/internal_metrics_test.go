@@ -14,6 +14,7 @@ import (
 
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -106,7 +107,7 @@ func checkAvoidedServicesMetrics(t *testing.T) {
 	const internalMetricsURL = "http://localhost:8999/internal/metrics"
 
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		parser := expfmt.TextParser{}
+		parser := expfmt.NewTextParser(model.UTF8Validation)
 		resp, err := http.Get(internalMetricsURL)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
