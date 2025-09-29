@@ -111,6 +111,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		},
 		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
+	awaitSpanProcessing()
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
 	containsTargetInfoSDKVersion := regexp.MustCompile(`\ntarget_info\{.*telemetry_sdk_version=.*`)
@@ -145,32 +146,34 @@ func TestAppMetricsExpiration(t *testing.T) {
 			},
 		},
 	})
+	awaitSpanProcessing()
 	now.Advance(2 * time.Minute)
 
 	// THEN THE metrics that have been received during the timeout period are still visible
-	var exported string
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported = getMetrics(t, promURL)
+		exported := getMetrics(t, promURL)
 		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
+
+		// BUT not the metrics that haven't been received during that time
+		assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
+		assert.Regexp(t, containsTargetInfo, exported)
 	})
-	// BUT not the metrics that haven't been received during that time
-	assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
-	assert.Regexp(t, containsTargetInfo, exported)
 	now.Advance(2 * time.Minute)
 
 	// AND WHEN the metrics labels that disappeared are received again
 	promInput.Send([]request.Span{
 		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
+	awaitSpanProcessing()
 	now.Advance(2 * time.Minute)
 
 	// THEN they are reported again, starting from zero in the case of counters
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported = getMetrics(t, promURL)
+		exported := getMetrics(t, promURL)
 		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
+		assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/foo"}`)
+		assert.Regexp(t, containsTargetInfo, exported)
 	})
-	assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/foo"}`)
-	assert.Regexp(t, containsTargetInfo, exported)
 
 	// AND WHEN the observed process is terminated
 	processEvents.Send(exec.ProcessEvent{
@@ -180,7 +183,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 
 	// THEN traces_host_info and traces_target_info are removed
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported = getMetrics(t, promURL)
+		exported := getMetrics(t, promURL)
 		assert.NotRegexp(t, containsTargetInfo, exported)
 		assert.NotRegexp(t, containsTracesHostInfo, exported)
 	})
@@ -372,6 +375,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
 			})
+			awaitSpanProcessing()
 
 			var exported string
 			test.Eventually(t, timeout, func(t require.TestingT) {
@@ -631,6 +635,13 @@ func getMetrics(t require.TestingT, promURL string) string {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	return string(body)
+}
+
+// awaitSpanProcessing allows for slower CI environments to catch up. The
+// intention is to prevent race conditions between sending spans, processing
+// them, and advancing the mocked clock.
+func awaitSpanProcessing() {
+	time.Sleep(10 * time.Millisecond)
 }
 
 type syncedClock struct {
