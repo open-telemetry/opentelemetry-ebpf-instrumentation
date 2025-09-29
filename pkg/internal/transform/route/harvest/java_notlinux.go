@@ -14,10 +14,10 @@ var jvmAttachFunc = func(_ int, _ []string, _ *slog.Logger) (io.ReadCloser, erro
 	return nil, nil
 }
 
-var jvmAttachInitFunc = func() (int, int) {
-	return 0, 0
+var jvmAttachInitFunc = func() (int, int, int) {
+	return 0, 0, 0
 }
 
-var jvmAttachCleanupFunc = func(int, int) error {
+var jvmAttachCleanupFunc = func(int, int, int) error {
 	return nil
 }

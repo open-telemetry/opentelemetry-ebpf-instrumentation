@@ -80,8 +80,8 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 
 	// We need to fix this in the downstream library and then we can remove this code
 	if fileInfo.Service.SDKLanguage == svc.InstrumentableJava {
-		myUID, myGID := jvmAttachInitFunc()
-		defer jvmAttachCleanupFunc(myUID, myGID)
+		myUID, myGID, myPID := jvmAttachInitFunc()
+		defer jvmAttachCleanupFunc(myUID, myGID, myPID)
 	}
 
 	// Run the harvesting in a goroutine
