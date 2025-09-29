@@ -6,6 +6,7 @@ package harvest
 import (
 	"context"
 	"log/slog"
+	"runtime"
 	"strings"
 	"time"
 
@@ -80,6 +81,8 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 
 	// We need to fix this in the downstream library and then we can remove this code
 	if fileInfo.Service.SDKLanguage == svc.InstrumentableJava {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
 		myUID, myGID, myPID := jvmAttachInitFunc()
 		defer jvmAttachCleanupFunc(myUID, myGID, myPID)
 	}
