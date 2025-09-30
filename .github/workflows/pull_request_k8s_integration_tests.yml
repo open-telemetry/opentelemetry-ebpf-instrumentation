@@ -54,7 +54,7 @@ jobs:
         run: make prereqs docker-generate
 
       - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@v1.12.3
+        run: make tools
 
       - name: Check disk usage before tests
         run: df -h
@@ -79,7 +79,7 @@ jobs:
 
           mkdir -p /home/runner/reports
 
-          ~/go/bin/gotestsum -ftestname \
+          ./.tools/gotestsum -ftestname \
               --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
               -- -race -tags=${TEST_TAGS} -timeout 30m \
               ${MATRIX_TEST_PATTERN}
