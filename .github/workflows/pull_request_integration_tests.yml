@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   test-matrix:
+    name: "Build integration matrix"
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
@@ -31,20 +32,21 @@ jobs:
       - name: build matrix
         id: build-matrix
         env:
-          PARTITIONS: 6
+          PARTITIONS: 10
+          TEST_TAGS: integration
         run: |
           echo -n "matrix=" >> $GITHUB_OUTPUT
           make integration-test-matrix-json >> $GITHUB_OUTPUT
 
   test:
+    name: ${{ matrix.description }}
+    needs: test-matrix
     permissions:
       # Required for codecov
       checks: write
       pull-requests: write
       # Required for uploading artifacts
       actions: write
-    name: "test ${{ matrix.description }}"
-    needs: test-matrix
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
@@ -66,14 +68,18 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.12.3
 
+      - name: Check disk usage before tests
+        run: df -h
+
       - name: Run integration tests
-        timeout-minutes: 30
+        timeout-minutes: 35
         env:
           # zizmor template-injection fixes: pass data as env vars
           MATRIX_ID: ${{ matrix.id }}
           MATRIX_JSON: ${{ toJson(matrix) }}
           MATRIX_TEST_PATTERN: ${{ matrix.test_pattern }}
           RUN_NUMBER: ${{ github.run_number }}
+          TEST_TAGS: integration
         run: |
           echo Partition
           echo "${MATRIX_JSON}"
@@ -87,17 +93,29 @@ jobs:
 
           ~/go/bin/gotestsum -ftestname \
               --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
-              -- -race -tags=integration -timeout 25m \
+              -- -race -tags=${TEST_TAGS} -timeout 30m \
               -run="^(${MATRIX_TEST_PATTERN})$" ./test/integration/...
 
+      - name: Process coverage data
+        run: make itest-coverage-data
+
+      - name: Report coverage
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          files: ./testoutput/itest-covdata.txt
+          flags: integration-test
+
       - name: Upload test reports
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: go-test-reports-${{ github.run_number }}-${{ matrix.id }}
           path: /home/runner/reports/*.log
           retention-days: 5
 
-      - name: Upload integration test logs
+      - name: Upload test logs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -106,10 +124,6 @@ jobs:
             testoutput/*.log
             testoutput/kind
 
-      - name: Report coverage
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        with:
-          files: ./testoutput/itest-covdata.txt
-          flags: integration-test-${{ github.run_number }}-${{ matrix.id }}
+      - name: Check final disk usage
+        if: always()
+        run: df -h
