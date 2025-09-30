@@ -195,6 +195,7 @@ int BPF_KPROBE(obi_kprobe_sys_connect) {
 
     sock_args_t args = {0};
     args.fd = fd;
+    args.ts = bpf_ktime_get_ns();
 
     bpf_map_update_elem(&active_connect_args, &id, &args, BPF_ANY);
 
@@ -590,7 +591,7 @@ int BPF_KPROBE(obi_kprobe_sk_error_report, struct sock *sk) {
             u16 orig_dport = info.conn.d_port;
             sort_connection_info(&info.conn);
             dbg_print_http_connection_info(&info.conn);
-            failed_to_connect_event(&info, orig_dport);
+            failed_to_connect_event(&info, orig_dport, args->ts);
         }
     }
 

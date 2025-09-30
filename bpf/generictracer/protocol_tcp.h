@@ -133,8 +133,8 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     return ret;
 }
 
-static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_conn,
-                                                    u16 orig_dport) {
+static __always_inline void
+failed_to_connect_event(pid_connection_info_t *pid_conn, u16 orig_dport, u64 connect_ts) {
     tcp_req_t *req = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
     if (req) {
         req->flags = EVENT_TCP_REQUEST;
@@ -142,7 +142,7 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
         fixup_connection_info(&req->conn_info, TCP_SEND, orig_dport);
         req->ssl = 0;
         req->direction = TCP_SEND;
-        req->start_monotime_ns = bpf_ktime_get_ns();
+        req->start_monotime_ns = connect_ts;
         req->end_monotime_ns = bpf_ktime_get_ns();
         req->resp_len = 0;
         req->len = 0;

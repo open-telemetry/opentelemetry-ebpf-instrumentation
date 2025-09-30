@@ -13,6 +13,7 @@
 
 typedef struct sock_args {
     u64 addr; // linux sock or socket address
+    u64 ts;
     int fd;
     u32 __pad;
 } sock_args_t;
