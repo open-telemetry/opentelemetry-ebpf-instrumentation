@@ -10,10 +10,11 @@ import (
 	"log/slog"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
-	"go.opentelemetry.io/obi/pkg/components/transform/route"
-	"go.opentelemetry.io/obi/pkg/components/transform/route/clusterurl"
+	"go.opentelemetry.io/obi/pkg/internal/transform/route"
+	clusterurl2 "go.opentelemetry.io/obi/pkg/internal/transform/route/clusterurl"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 // UnmatchType defines which actions to do when a route pattern is not recognized
@@ -71,7 +72,7 @@ func RoutesProvider(rc *RoutesConfig, input, output *msg.Queue[[]request.Span]) 
 
 type routerNode struct {
 	config     *RoutesConfig
-	classifier *clusterurl.ClusterURLClassifier
+	classifier *clusterurl2.ClusterURLClassifier
 	input      *msg.Queue[[]request.Span]
 	output     *msg.Queue[[]request.Span]
 }
@@ -97,40 +98,48 @@ func (rn *routerNode) provideRoutes(_ context.Context) (swarm.RunFunc, error) {
 		ignoreMode = IgnoreDefault
 	}
 
-	in := rn.input.Subscribe()
+	in := rn.input.Subscribe(msg.SubscriberName("transform.Routes"))
 	out := rn.output
 	return func(ctx context.Context) {
 		// output channel must be closed so later stages in the pipeline can finish in cascade
 		defer rn.output.Close()
 
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case spans := <-in:
-				for i := range spans {
-					s := &spans[i]
-					if ignoreEnabled {
-						if discarder.Find(s.Path) != "" {
-							if ignoreMode == IgnoreAll {
-								request.SetIgnoreMetrics(s)
-								request.SetIgnoreTraces(s)
-							}
-							// we can't discard it here, ignoring is selective (metrics | traces)
-							setSpanIgnoreMode(ignoreMode, s)
+		swarms.ForEachInput(ctx, in, nil, func(spans []request.Span) {
+			for i := range spans {
+				s := &spans[i]
+				if ignoreEnabled {
+					if discarder.Find(s.Path) != "" {
+						if ignoreMode == IgnoreAll {
+							request.SetIgnoreMetrics(s)
+							request.SetIgnoreTraces(s)
+						}
+						// we can't discard it here, ignoring is selective (metrics | traces)
+						setSpanIgnoreMode(ignoreMode, s)
+					}
+				}
+				if routesEnabled {
+					s.Route = matcher.Find(s.Path)
+				}
+				if s.Route == "" && s.IsHTTPSpan() {
+					if s.IsClientSpan() {
+						if s.Service.CustomOutRouteMatcher != nil {
+							s.Route = s.Service.CustomOutRouteMatcher.Find(s.Path)
+						}
+					} else {
+						if s.Service.CustomInRouteMatcher != nil {
+							s.Route = s.Service.CustomInRouteMatcher.Find(s.Path)
 						}
 					}
-					if routesEnabled {
-						s.Route = matcher.Find(s.Path)
+
+					if s.Route == "" && s.Service.HarvestedRouteMatcher != nil {
+						s.Route = s.Service.HarvestedRouteMatcher.Find(s.Path)
 					}
-					if s.Route == "" && s.Service.RouterMatcher != nil {
-						s.Route = s.Service.RouterMatcher.Find(s.Path)
-					}
-					unmatchAction(rn, s)
 				}
-				out.Send(spans)
+
+				unmatchAction(rn, s)
 			}
-		}
+			out.Send(spans)
+		})
 	}, nil
 }
 
@@ -157,11 +166,11 @@ func chooseUnmatchPolicy(rn *routerNode) (func(rn *routerNode, span *request.Spa
 	case UnmatchPath:
 		unmatchAction = setUnmatchToPath
 	case UnmatchHeuristic:
-		classifierCfg := clusterurl.DefaultConfig()
+		classifierCfg := clusterurl2.DefaultConfig()
 		if rc.WildcardChar != "" {
 			classifierCfg.ReplaceWith = rc.WildcardChar[0]
 		}
-		classifier, err := clusterurl.NewClusterURLClassifier(classifierCfg)
+		classifier, err := clusterurl2.NewClusterURLClassifier(classifierCfg)
 		if err != nil {
 			return nil, fmt.Errorf("chooseUnmatchPolicy: unable to create cluster URL classifier: %w", err)
 		}
@@ -192,7 +201,7 @@ func setUnmatchToPath(_ *routerNode, str *request.Span) {
 }
 
 func classifyFromPath(rc *routerNode, s *request.Span) {
-	if s.Route == "" && (s.Type == request.EventTypeHTTP || s.Type == request.EventTypeHTTPClient) {
+	if s.Route == "" && s.IsHTTPSpan() {
 		s.Route = rc.classifier.ClusterURL(s.Path)
 	}
 }

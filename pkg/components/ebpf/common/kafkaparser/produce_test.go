@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var negativeLength int16 = -1
+
 func TestParseProduceRequest(t *testing.T) {
 	tests := []struct {
 		name                   string
@@ -29,7 +31,7 @@ func TestParseProduceRequest(t *testing.T) {
 				offset := 0
 
 				// transactional_id (nullable string) - null
-				binary.BigEndian.PutUint16(pkt[offset:], 0) // null string
+				binary.BigEndian.PutUint16(pkt[offset:], uint16(negativeLength)) // null string
 				offset += 2
 
 				// acks
@@ -321,7 +323,7 @@ func TestProduceRequestSkipUntilTopics(t *testing.T) {
 				offset := 0
 
 				// transactional_id (nullable string) - null
-				binary.BigEndian.PutUint16(pkt[offset:], 0) // null string
+				binary.BigEndian.PutUint16(pkt[offset:], uint16(negativeLength)) // null string
 				offset += 2
 
 				// acks
@@ -544,7 +546,7 @@ func createValidProducePacket(version int16) []byte {
 	} else {
 		// Non-flexible versions
 		// transactional_id (nullable string) - null
-		binary.BigEndian.PutUint16(pkt[offset:], 0) // null string
+		binary.BigEndian.PutUint16(pkt[offset:], uint16(negativeLength)) // null string
 		offset += 2
 
 		// acks
@@ -591,7 +593,7 @@ func TestParseProduceRequestEdgeCases(t *testing.T) {
 				offset := 0
 
 				// transactional_id - null
-				binary.BigEndian.PutUint16(pkt[offset:], 0)
+				binary.BigEndian.PutUint16(pkt[offset:], uint16(negativeLength))
 				offset += 2
 
 				// acks
@@ -624,7 +626,7 @@ func TestParseProduceRequestEdgeCases(t *testing.T) {
 				offset := 0
 
 				// transactional_id - null
-				binary.BigEndian.PutUint16(pkt[offset:], 0)
+				binary.BigEndian.PutUint16(pkt[offset:], uint16(negativeLength))
 				offset += 2
 
 				// acks

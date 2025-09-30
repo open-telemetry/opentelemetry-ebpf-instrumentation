@@ -81,6 +81,7 @@ type MetricsReporter struct {
 	pidTracker       PidServiceTracker
 	is               instrumentations.InstrumentationSelection
 	targetMetrics    map[svc.UID]*TargetMetrics
+	attrGetters      attributes.NamedGetters[*request.Span, attribute.KeyValue]
 
 	// user-selected fields for each of the reported metrics
 	attrHTTPDuration           []attributes.Field[*request.Span, attribute.KeyValue]
@@ -104,6 +105,10 @@ type MetricsReporter struct {
 	processEvents              <-chan exec.ProcessEvent
 
 	log *slog.Logger
+
+	// testing support
+	createEventMetrics func(targetMetrics *TargetMetrics)
+	deleteEventMetrics func(targetMetrics *TargetMetrics)
 }
 
 // Metrics is a set of metrics associated to a given OTEL MeterProvider.
@@ -146,6 +151,7 @@ func ReportMetrics(
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
+	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
@@ -160,6 +166,7 @@ func ReportMetrics(
 			ctxInfo,
 			cfg,
 			selectorCfg,
+			unresolved,
 			input,
 			processEventCh,
 		)
@@ -176,6 +183,7 @@ func newMetricsReporter(
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
+	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) (*MetricsReporter, error) {
@@ -195,58 +203,62 @@ func newMetricsReporter(
 		targetMetrics:       map[svc.UID]*TargetMetrics{},
 		attributes:          attribProvider,
 		hostID:              ctxInfo.HostID,
-		input:               input.Subscribe(),
-		processEvents:       processEventCh.Subscribe(),
+		input:               input.Subscribe(msg.SubscriberName("otelMetrics.InputSpans")),
+		processEvents:       processEventCh.Subscribe(msg.SubscriberName("otelMetrics.ProcessEvents")),
 		userAttribSelection: selectorCfg.SelectionCfg,
 		log:                 mlog(),
+		attrGetters:         request.SpanOTELGetters(unresolved),
 	}
+
+	mr.createEventMetrics = mr.createTargetMetricData
+	mr.deleteEventMetrics = mr.deleteTargetMetricData
 
 	// initialize attribute getters
 	if is.HTTPEnabled() {
 		mr.attrHTTPDuration = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPServerDuration))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPServerDuration))
 		mr.attrHTTPClientDuration = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPClientDuration))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPClientDuration))
 		mr.attrHTTPRequestSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPServerRequestSize))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPServerRequestSize))
 		mr.attrHTTPResponseSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPServerResponseSize))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPServerResponseSize))
 		mr.attrHTTPClientRequestSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPClientRequestSize))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPClientRequestSize))
 		mr.attrHTTPClientResponseSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
+			mr.attrGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
 	}
 
 	if is.GRPCEnabled() {
 		mr.attrGRPCServer = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.RPCServerDuration))
+			mr.attrGetters, mr.attributes.For(attributes.RPCServerDuration))
 		mr.attrGRPCClient = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.RPCClientDuration))
+			mr.attrGetters, mr.attributes.For(attributes.RPCClientDuration))
 	}
 
 	if is.DBEnabled() {
 		mr.attrDBClient = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.DBClientDuration))
+			mr.attrGetters, mr.attributes.For(attributes.DBClientDuration))
 	}
 
 	if is.MQEnabled() {
 		mr.attrMessagingPublish = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.MessagingPublishDuration))
+			mr.attrGetters, mr.attributes.For(attributes.MessagingPublishDuration))
 		mr.attrMessagingProcess = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.MessagingProcessDuration))
+			mr.attrGetters, mr.attributes.For(attributes.MessagingProcessDuration))
 	}
 
 	if is.GPUEnabled() {
 		mr.attrGPUKernelCalls = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUKernelLaunchCalls))
+			mr.attrGetters, mr.attributes.For(attributes.GPUKernelLaunchCalls))
 		mr.attrGPUMemoryAllocations = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUMemoryAllocations))
+			mr.attrGetters, mr.attributes.For(attributes.GPUMemoryAllocations))
 		mr.attrGPUKernelGridSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUKernelGridSize))
+			mr.attrGetters, mr.attributes.For(attributes.GPUKernelGridSize))
 		mr.attrGPUKernelBlockSize = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUKernelBlockSize))
+			mr.attrGetters, mr.attributes.For(attributes.GPUKernelBlockSize))
 		mr.attrGPUMemoryCopies = attributes.OpenTelemetryGetters(
-			request.SpanOTELGetters, mr.attributes.For(attributes.GPUMemoryCopies))
+			mr.attrGetters, mr.attributes.For(attributes.GPUMemoryCopies))
 	}
 
 	mr.reporters = otelcfg.NewReporterPool[*svc.Attrs, *Metrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -751,7 +763,7 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 // selected by the user
 func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Span, attribute.KeyValue] {
 	return append(attributes.OpenTelemetryGetters(
-		request.SpanOTELGetters, []attr.Name{
+		mr.attrGetters, []attr.Name{
 			attr.ServiceName,
 			attr.ServiceInstanceID,
 			attr.ServiceNamespace,
@@ -983,6 +995,11 @@ func (mr *MetricsReporter) ensureTargetMetrics(service *svc.Attrs) *TargetMetric
 	return targetMetrics
 }
 
+func (mr *MetricsReporter) createTargetMetricData(targetMetrics *TargetMetrics) {
+	mr.createTargetInfo(&targetMetrics.resourceAttributes)
+	mr.createTracesTargetInfo(&targetMetrics.tracesResourceAttributes)
+}
+
 func (mr *MetricsReporter) createTargetMetrics(service *svc.Attrs) {
 	if service == nil {
 		return
@@ -994,8 +1011,12 @@ func (mr *MetricsReporter) createTargetMetrics(service *svc.Attrs) {
 		return
 	}
 
-	mr.createTargetInfo(&targetMetrics.resourceAttributes)
-	mr.createTracesTargetInfo(&targetMetrics.tracesResourceAttributes)
+	mr.createEventMetrics(targetMetrics)
+}
+
+func (mr *MetricsReporter) deleteTargetMetricData(targetMetrics *TargetMetrics) {
+	mr.deleteTargetInfo(&targetMetrics.resourceAttributes)
+	mr.deleteTracesTargetInfo(&targetMetrics.tracesResourceAttributes)
 }
 
 func (mr *MetricsReporter) deleteTargetMetrics(uid *svc.UID) {
@@ -1009,8 +1030,7 @@ func (mr *MetricsReporter) deleteTargetMetrics(uid *svc.UID) {
 		return
 	}
 
-	mr.deleteTargetInfo(&targetMetrics.resourceAttributes)
-	mr.deleteTracesTargetInfo(&targetMetrics.tracesResourceAttributes)
+	mr.deleteEventMetrics(targetMetrics)
 
 	delete(mr.targetMetrics, *uid)
 }
@@ -1019,6 +1039,27 @@ func (mr *MetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
 
 	if pe.Type == exec.ProcessEventCreated {
+		uid := pe.File.Service.UID
+
+		// Handle the case when the PID changed its feathers, e.g. got new metadata impacting the service name.
+		// There's no new PID, just an update to the metadata.
+		if staleUID, exists := mr.pidTracker.TracksPID(pe.File.Pid); exists && !staleUID.Equals(&uid) {
+			mr.log.Debug("updating older service definition", "from", staleUID, "new", uid)
+			mr.pidTracker.ReplaceUID(staleUID, uid)
+			mr.deleteTargetMetrics(&staleUID)
+			mr.createTargetMetrics(&pe.File.Service)
+			// we don't setup the pid again, we just replaced the metrics it's associated with
+			return
+		}
+
+		// Handle the case when we have new labels for same service
+		// It could be a brand new PID with this information, so we fall through after deleting
+		// the old target info
+		if _, ok := mr.targetMetrics[uid]; ok {
+			mr.log.Debug("updating stale attributes for", "service", uid)
+			mr.deleteTargetMetrics(&uid)
+		}
+
 		mr.createTargetMetrics(&pe.File.Service)
 		mr.setupPIDToServiceRelationship(pe.File.Pid, pe.File.Service.UID)
 	} else {

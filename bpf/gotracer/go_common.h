@@ -51,7 +51,7 @@ struct {
     __type(key, go_addr_key_t);        // key: pointer to the goroutine
     __type(value, goroutine_metadata); // value: timestamp of the goroutine creation
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_goroutines SEC(".maps");
 
 struct {
@@ -59,7 +59,7 @@ struct {
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
     __type(value, connection_info_t);
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_server_connections SEC(".maps");
 
 struct {
@@ -74,7 +74,7 @@ struct {
     __type(key, go_addr_key_t); // key: pointer to the goroutine
     __type(value, tp_info_t);   // value: traceparent info
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } go_trace_map SEC(".maps");
 
 struct {
@@ -114,6 +114,13 @@ struct {
     __type(value, sql_func_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_sql_queries SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t);           // key: goroutine id
+    __type(value, mongo_go_client_req_t); // the request
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} ongoing_mongo_requests SEC(".maps");
 
 typedef struct grpc_header_field {
     u8 *key_ptr;

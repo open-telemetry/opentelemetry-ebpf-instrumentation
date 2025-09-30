@@ -7,8 +7,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
 
-	route "go.opentelemetry.io/obi/pkg/components/transform/route"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/internal/transform/route"
 	"go.opentelemetry.io/obi/pkg/services"
 )
 
@@ -83,6 +83,10 @@ func (uid *UID) NameNamespace() ServiceNameNamespace {
 	return ServiceNameNamespace{Name: uid.Name, Namespace: uid.Namespace}
 }
 
+func (uid *UID) Equals(other *UID) bool {
+	return uid.Name == other.Name && uid.Namespace == other.Namespace && uid.Instance == other.Instance
+}
+
 // Attrs stores the metadata attributes of a service/resource
 type Attrs struct {
 	// Instance uniquely identifies a service instance. It is not exported
@@ -110,7 +114,9 @@ type Attrs struct {
 
 	Sampler trace.Sampler
 
-	RouterMatcher route.Matcher
+	CustomInRouteMatcher  route.Matcher
+	CustomOutRouteMatcher route.Matcher
+	HarvestedRouteMatcher route.Matcher
 }
 
 func (i *Attrs) GetUID() UID {
@@ -168,6 +174,11 @@ func (i *Attrs) ExportsOTelTraces() bool {
 	return i.getFlag(exportsOTelTraces)
 }
 
-func (i *Attrs) SetRoutes(matcher route.Matcher) {
-	i.RouterMatcher = matcher
+func (i *Attrs) SetHarvestedRoutes(matcher route.Matcher) {
+	i.HarvestedRouteMatcher = matcher
+}
+
+func (i *Attrs) SetCustomRoutes(config *services.CustomRoutesConfig) {
+	i.CustomInRouteMatcher = route.NewMatcher(config.Incoming)
+	i.CustomOutRouteMatcher = route.NewMatcher(config.Outgoing)
 }

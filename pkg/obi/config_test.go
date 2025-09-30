@@ -56,7 +56,9 @@ prometheus_export:
     request_size_histogram: [0, 10, 20, 22]
     response_size_histogram: [0, 10, 20, 22]
 attributes:
-  drop_metric_unresolved_ips: false
+  rename_unresolved_hosts: ""
+  rename_unresolved_hosts_outgoing: ""
+  rename_unresolved_hosts_incoming: ""
   kubernetes:
     kubeconfig_path: /foo/bar
     enable: true
@@ -165,6 +167,7 @@ discovery:
 			CommonEndpoint:    "localhost:3131",
 			TracesEndpoint:    "localhost:3232",
 			MaxQueueSize:      4096,
+			BatchTimeout:      15 * time.Second,
 			ReportersCacheLen: ReporterLRUSize,
 			Instrumentations: []string{
 				instrumentations.InstrumentationALL,
@@ -190,6 +193,7 @@ discovery:
 				Port: 3210,
 				Path: "/internal/metrics",
 			},
+			BpfMetricScrapeInterval: 15 * time.Second,
 		},
 		Attributes: Attributes{
 			InstanceID: traces.InstanceIDConfig{
@@ -245,6 +249,8 @@ discovery:
 					Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
 				},
 			},
+			DefaultOtlpGRPCPort:   4317,
+			RouteHarvesterTimeout: 10 * time.Second,
 		},
 		NodeJS: NodeJSConfig{
 			Enabled: true,

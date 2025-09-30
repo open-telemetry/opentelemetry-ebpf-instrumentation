@@ -5,33 +5,36 @@ package discover
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 
 	"github.com/cilium/ebpf/link"
+	"github.com/cilium/ebpf/rlimit"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/components/helpers/maps"
 	"go.opentelemetry.io/obi/pkg/components/imetrics"
-	"go.opentelemetry.io/obi/pkg/components/nodejs"
-	"go.opentelemetry.io/obi/pkg/components/otelsdk"
 	"go.opentelemetry.io/obi/pkg/components/svc"
-	"go.opentelemetry.io/obi/pkg/components/transform/route/harvest"
+	"go.opentelemetry.io/obi/pkg/internal/nodejs"
+	"go.opentelemetry.io/obi/pkg/internal/otelsdk"
+	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 // TraceAttacher creates the available trace.Tracer implementations (Go HTTP tracer, GRPC tracer, Generic tracer...)
 // for each received Instrumentable process and forwards an ebpf.ProcessTracer instance ready to run and start
 // instrumenting the executable
 type TraceAttacher struct {
-	log      *slog.Logger
-	Cfg      *obi.Config
-	Metrics  imetrics.Reporter
-	beylaPID int
+	log     *slog.Logger
+	Cfg     *obi.Config
+	Metrics imetrics.Reporter
+	obiPID  int
 
 	// processInstances keeps track of the instances of each process. This will help making sure
 	// that we don't remove the BPF resources of an executable until all their instances are removed
@@ -79,61 +82,48 @@ func (ta *TraceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	ta.sdkInjector = otelsdk.NewSDKInjector(ta.Cfg)
 	ta.nodeInjector = nodejs.NewNodeInjector(ta.Cfg)
 	ta.processInstances = maps.MultiCounter[uint64]{}
-	ta.beylaPID = os.Getpid()
+	ta.obiPID = os.Getpid()
 	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.CommonPIDsFilter(&ta.Cfg.Discovery, ta.Metrics)
-	ta.routeHarvester = harvest.NewRouteHarvester()
+	ta.routeHarvester = harvest.NewRouteHarvester(ta.Cfg.Discovery.DisabledRouteHarvesters, ta.Cfg.Discovery.RouteHarvesterTimeout)
 
 	if err := ta.init(); err != nil {
 		ta.log.Error("cant start process tracer. Stopping it", "error", err)
 		return nil, err
 	}
 
-	in := ta.InputInstrumentables.Subscribe()
+	in := ta.InputInstrumentables.Subscribe(msg.SubscriberName("TraceAttacher"))
 	return func(ctx context.Context) {
 		defer ta.OutputTracerEvents.Close()
-
-		for {
-			select {
-			case <-ctx.Done():
-				ta.log.Debug("context done. terminating process attacher")
-				ta.close()
-				return
-			case instrumentables, ok := <-in:
-				if !ok {
-					ta.log.Debug("input channel closed. terminating process attacher")
-					ta.close()
-					return
-				}
-				for _, instr := range instrumentables {
-					ta.log.Debug("Instrumentable", "created", instr.Type, "type", instr.Obj.Type,
-						"exec", instr.Obj.FileInfo.CmdExePath, "pid", instr.Obj.FileInfo.Pid)
-					switch instr.Type {
-					case EventCreated:
-						sdkInstrumented := false
-						if ta.sdkInjectionPossible(&instr.Obj) {
-							if err := ta.sdkInjector.NewExecutable(&instr.Obj); err == nil {
-								sdkInstrumented = true
-							}
+		swarms.ForEachInput(ctx, in, ta.log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {
+			for _, instr := range instrumentables {
+				ta.log.Debug("Instrumentable", "created", instr.Type, "type", instr.Obj.Type,
+					"exec", instr.Obj.FileInfo.CmdExePath, "pid", instr.Obj.FileInfo.Pid)
+				switch instr.Type {
+				case EventCreated:
+					sdkInstrumented := false
+					if ta.sdkInjectionPossible(&instr.Obj) {
+						if err := ta.sdkInjector.NewExecutable(&instr.Obj); err == nil {
+							sdkInstrumented = true
 						}
-
-						if !sdkInstrumented {
-							ta.nodeInjector.NewExecutable(&instr.Obj)
-
-							ta.processInstances.Inc(instr.Obj.FileInfo.Ino)
-							if ok := ta.getTracer(&instr.Obj); ok {
-								ta.OutputTracerEvents.Send(Event[*ebpf.Instrumentable]{Type: EventCreated, Obj: &instr.Obj})
-							}
-
-							if instr.Obj.FileInfo.ELF != nil {
-								_ = instr.Obj.FileInfo.ELF.Close()
-							}
-						}
-					case EventDeleted:
-						ta.notifyProcessDeletion(&instr.Obj)
 					}
+
+					if !sdkInstrumented {
+						ta.nodeInjector.NewExecutable(&instr.Obj)
+
+						ta.processInstances.Inc(instr.Obj.FileInfo.Ino)
+						if ok := ta.getTracer(&instr.Obj); ok {
+							ta.OutputTracerEvents.Send(Event[*ebpf.Instrumentable]{Type: EventCreated, Obj: &instr.Obj})
+						}
+
+						if instr.Obj.FileInfo.ELF != nil {
+							_ = instr.Obj.FileInfo.ELF.Close()
+						}
+					}
+				case EventDeleted:
+					ta.notifyProcessDeletion(&instr.Obj)
 				}
 			}
-		}
+		})
 	}, nil
 }
 
@@ -279,7 +269,7 @@ func (ta *TraceAttacher) harvestRoutes(ie *ebpf.Instrumentable, reused bool) {
 	} else if routes != nil && len(routes.Routes) > 0 {
 		ta.log.Debug("found routes in executable", "pid", ie.FileInfo.Pid, "routes", routes, "reused", reused)
 		m := harvest.RouteMatcherFromResult(*routes)
-		ie.FileInfo.Service.SetRoutes(m)
+		ie.FileInfo.Service.SetHarvestedRoutes(m)
 	}
 }
 
@@ -396,4 +386,11 @@ func (ta *TraceAttacher) notifyProcessDeletion(ie *ebpf.Instrumentable) {
 
 func (ta *TraceAttacher) sdkInjectionPossible(ie *ebpf.Instrumentable) bool {
 	return ta.sdkInjector.Enabled() && ie.Type == svc.InstrumentableJava
+}
+
+func (ta *TraceAttacher) init() error {
+	if err := rlimit.RemoveMemlock(); err != nil {
+		return fmt.Errorf("removing memory lock: %w", err)
+	}
+	return nil
 }

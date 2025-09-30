@@ -103,7 +103,7 @@ fmt:
 
 .PHONY: clang-tidy
 clang-tidy:
-	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" | xargs clang-tidy
+	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" | xargs clang-tidy
 
 .PHONY: lint
 lint:
@@ -147,7 +147,7 @@ verify: prereqs lint test license-header-check
 build: docker-generate verify compile
 
 .PHONY: all
-all: docker-generate build
+all: docker-generate notices-update build
 
 .PHONY: compile compile-cache
 compile:
@@ -252,40 +252,11 @@ run-integration-test-arm:
 
 .PHONY: integration-test-matrix-json
 integration-test-matrix-json:
-	@bash -c '\
-		set -e; \
-		TEST_NAMES=$$(cd test/integration && go test -tags integration -list . | grep "^Test" | sort); \
-		PARTITIONS=$${PARTITIONS:-5}; \
-		TOTAL_TESTS=$$(echo "$$TEST_NAMES" | wc -l | tr -d " "); \
-		if [ "$$TOTAL_TESTS" -lt 10 ]; then \
-			echo "ERROR: Expected at least 10 tests, but found only $$TOTAL_TESTS" >&2; \
-			echo "Found tests:" >&2; \
-			echo "$$TEST_NAMES" >&2; \
-			exit 1; \
-		fi; \
-		TESTS_PER_SHARD=$$(((TOTAL_TESTS + PARTITIONS - 1) / PARTITIONS)); \
-		echo "Total tests: $$TOTAL_TESTS, Tests per shard: $$TESTS_PER_SHARD" >&2; \
-		MATRIX_JSON="{\"include\":["; \
-		SHARD=0; \
-		FIRST_SHARD=true; \
-		while [ $$SHARD -lt $$PARTITIONS ]; do \
-			START=$$((SHARD * TESTS_PER_SHARD + 1)); \
-			END=$$(((SHARD + 1) * TESTS_PER_SHARD)); \
-			SHARD_TESTS=$$(echo "$$TEST_NAMES" | sed -n "$${START},$${END}p" | tr "\n" "|" | sed "s/|$$//"); \
-			if [ ! -z "$$SHARD_TESTS" ]; then \
-				if [ "$$FIRST_SHARD" = "false" ]; then \
-					MATRIX_JSON+=","; \
-				fi; \
-				FIRST_SHARD=false; \
-				TEST_COUNT=$$(echo "$$SHARD_TESTS" | tr "|" "\n" | wc -l | tr -d " "); \
-				MATRIX_JSON+="{\"id\":$$SHARD,\"description\":\"shard-$$SHARD ($$TEST_COUNT tests)\",\"test_pattern\":\"$$SHARD_TESTS\"}"; \
-				echo "Shard $$SHARD: $$TEST_COUNT tests" >&2; \
-			fi; \
-			SHARD=$$((SHARD + 1)); \
-		done; \
-		MATRIX_JSON+="]}"; \
-		echo "$$MATRIX_JSON"; \
-	'
+	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" test/integration "$${PARTITIONS:-5}"
+
+.PHONY: k8s-integration-test-matrix-json
+k8s-integration-test-matrix-json:
+	@./scripts/generate-k8s-matrix.sh
 
 .PHONY: integration-test
 integration-test: prereqs prepare-integration-test
@@ -317,26 +288,36 @@ itest-coverage-data:
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt
 
 .PHONY: oats-prereq
-oats-prereq: prereqs docker-generate
+oats-prereq: docker-generate
+	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: oats-test-sql
 oats-test-sql: oats-prereq
-	TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./test/oats/sql/yaml $(GINKGO) -v -r
+	mkdir -p test/oats/sql/$(TEST_OUTPUT)/run
+	cd test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
 .PHONY: oats-test-redis
 oats-test-redis: oats-prereq
-	TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./test/oats/redis/yaml $(GINKGO) -v -r
+	mkdir -p test/oats/redis/$(TEST_OUTPUT)/run
+	cd test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
 .PHONY: oats-test-kafka
 oats-test-kafka: oats-prereq
-	TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./test/oats/kafka/yaml $(GINKGO) -v -r
+	mkdir -p test/oats/kafka/$(TEST_OUTPUT)/run
+	cd test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
 .PHONY: oats-test-http
 oats-test-http: oats-prereq
-	TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./test/oats/http/yaml $(GINKGO) -v -r
+	mkdir -p test/oats/http/$(TEST_OUTPUT)/run
+	cd test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+
+.PHONY: oats-test-mongo
+oats-test-mongo: oats-prereq
+	mkdir -p test/oats/mongo/$(TEST_OUTPUT)/run
+	cd test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
 .PHONY: oats-test
-oats-test: oats-test-sql oats-test-redis oats-test-kafka oats-test-http
+oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http
 	$(MAKE) itest-coverage-data
 
 .PHONY: oats-test-debug
@@ -345,7 +326,7 @@ oats-test-debug: oats-prereq
 
 .PHONY: license-header-check
 license-header-check:
-	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) ! -path './.git/*' ) ; do \
+	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) ! -path './.git/*' ! -path './NOTICES/*' ) ; do \
 	           awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=4 { found=1; next } END { if (!found) print FILENAME }' $$f; \
 	   done); \
 	   if [ -n "$${licRes}" ]; then \
@@ -371,9 +352,40 @@ protoc-gen:
 
 .PHONY: clang-format
 clang-format:
-	find ./bpf -type f -name "*.c" | xargs -P 0 -n 1 clang-format -i
-	find ./bpf -type f -name "*.h" | xargs -P 0 -n 1 clang-format -i
+	find ./bpf -type f -name "*.c" ! -path "./NOTICES/*" | xargs -P 0 -n 1 clang-format -i
+	find ./bpf -type f -name "*.h" ! -path "./NOTICES/*" | xargs -P 0 -n 1 clang-format -i
 
 .PHONY: clean-ebpf-generated-files
 clean-ebpf-generated-files:
 	find . -name "*_bpfel*" | xargs rm
+
+NOTICES_DIR ?= ./NOTICES
+
+C_LICENSES := $(shell find ./bpf -type f -name 'LICENSE*')
+TARGET_C_LICENSES := $(patsubst ./%,$(NOTICES_DIR)/%,$(C_LICENSES))
+# BPF code is licensed under the BSD-2-Clause, GPL-2.0-only, or LGPL-2.1 which
+# require redistribution of the license and code.
+BPF_FILES := $(shell find ./bpf/bpfcore/ -type f )
+TARGET_BPF_FILES := $(patsubst ./%,$(NOTICES_DIR)/%,$(BPF_FILES))
+TARGET_BPF := $(TARGET_C_LICENSES) $(TARGET_BPF_FILES)
+
+.PHONY: notices-update
+notices-update: docker-generate go-notices-update $(TARGET_BPF)
+
+.PHONY: go-notices-update
+go-notices-update: $(GOLICENSES)
+	@$(GOLICENSES) save ./... --save_path=$(NOTICES_DIR) --force
+
+$(NOTICES_DIR)/%: %
+	@mkdir -p $(dir $@)
+	@cp $< $@
+
+.PHONY: check-clean-work-tree
+check-clean-work-tree:
+	if [ -n "$$(git status --porcelain)" ]; then \
+		git status; \
+		git --no-pager diff; \
+		echo 'Working tree is not clean, did you forget to run "make"?' \
+		exit 1; \
+	fi
+

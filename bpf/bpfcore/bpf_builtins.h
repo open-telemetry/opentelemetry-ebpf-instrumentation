@@ -1,12 +1,15 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// Source: https://github.com/cilium/cilium/blob/e896ab6a0c4caf5cd7f394350dc68a2a2bf2bc9a/bpf/include/bpf/builtins.h
+
 /* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
 /* Copyright Authors of Cilium */
 
 #ifndef __BPF_BUILTINS__
 #define __BPF_BUILTINS__
 
+#include "bpf_helpers.h"
 #include "compiler.h"
 
 /* Memory iterators used below. */
@@ -903,7 +906,8 @@ __bpf_no_builtin_memset(void *d __maybe_unused, __u8 c __maybe_unused, __u64 len
 }
 
 /* Redirect any direct use in our code to throw an error. */
-#define __builtin_memset __bpf_no_builtin_memset
+// TODO: re-enable once all __builtin_memset() are replaced with the optimized version
+// #define __builtin_memset __bpf_no_builtin_memset
 
 static __always_inline __maybe_unused __nobuiltin("memset") void bpf_memset(void *d,
                                                                             int c,
@@ -1793,7 +1797,8 @@ static __always_inline __maybe_unused void *__bpf_no_builtin_memcpy(void *d __ma
 }
 
 /* Redirect any direct use in our code to throw an error. */
-#define __builtin_memcpy __bpf_no_builtin_memcpy
+// TODO: re-enable once all __builtin_memcpy() are replaced with the optimized version
+// #define __builtin_memcpy __bpf_no_builtin_memcpy
 
 static __always_inline __maybe_unused __nobuiltin("memcpy") void bpf_memcpy(void *d,
                                                                             const void *s,
@@ -2690,7 +2695,8 @@ static __always_inline __maybe_unused __u64 __bpf_no_builtin_memcmp(const void *
 }
 
 /* Redirect any direct use in our code to throw an error. */
-#define __builtin_memcmp __bpf_no_builtin_memcmp
+// TODO: re-enable once all __builtin_memcmp() are replaced with the optimized version
+// #define __builtin_memcmp __bpf_no_builtin_memcmp
 
 /* Modified for our needs in that we only return either zero (x and y
  * are equal) or non-zero (x and y are non-equal).

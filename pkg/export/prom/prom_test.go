@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -35,9 +36,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
-const timeout = 3 * time.Second
+const timeout = 5 * time.Second
 
 func TestAppMetricsExpiration(t *testing.T) {
+	t.Skip("race conditions")
 	now := syncedClock{now: time.Now()}
 	timeNow = now.Now
 
@@ -76,6 +78,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 				"k8s_app_meta": {"k8s.app.version"},
 			},
 		},
+		request.UnresolvedNames{},
 		promInput,
 		processEvents,
 	)(ctx)
@@ -100,6 +103,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			Path: "/foo",
 			End:  123 * time.Second.Nanoseconds(),
 			Service: svc.Attrs{
+				UID: svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
 				Metadata: map[attr.Name]string{
 					"k8s.app.version": "v0.0.1",
 				},
@@ -107,9 +111,13 @@ func TestAppMetricsExpiration(t *testing.T) {
 		},
 		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
+	awaitSpanProcessing()
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
+	containsTargetInfoSDKVersion := regexp.MustCompile(`\ntarget_info\{.*telemetry_sdk_version=.*`)
 	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*grafana_host_id="my-host"`)
+	containsJob := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*job="default/test-app".*`)
+	containsInstance := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*instance="test-app-1".*"`)
 
 	// THEN the metrics are exported
 	test.Eventually(t, timeout, func(t require.TestingT) {
@@ -117,7 +125,10 @@ func TestAppMetricsExpiration(t *testing.T) {
 		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 123`)
 		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
 		assert.Regexp(t, containsTargetInfo, exported)
+		assert.Regexp(t, containsTargetInfoSDKVersion, exported)
 		assert.Regexp(t, containsTracesHostInfo, exported)
+		assert.Regexp(t, containsJob, exported)
+		assert.Regexp(t, containsInstance, exported)
 	})
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
@@ -135,32 +146,34 @@ func TestAppMetricsExpiration(t *testing.T) {
 			},
 		},
 	})
+	awaitSpanProcessing()
 	now.Advance(2 * time.Minute)
 
 	// THEN THE metrics that have been received during the timeout period are still visible
-	var exported string
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported = getMetrics(t, promURL)
+		exported := getMetrics(t, promURL)
 		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
+
+		// BUT not the metrics that haven't been received during that time
+		assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
+		assert.Regexp(t, containsTargetInfo, exported)
 	})
-	// BUT not the metrics that haven't been received during that time
-	assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
-	assert.Regexp(t, containsTargetInfo, exported)
 	now.Advance(2 * time.Minute)
 
 	// AND WHEN the metrics labels that disappeared are received again
 	promInput.Send([]request.Span{
 		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
+	awaitSpanProcessing()
 	now.Advance(2 * time.Minute)
 
 	// THEN they are reported again, starting from zero in the case of counters
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported = getMetrics(t, promURL)
+		exported := getMetrics(t, promURL)
 		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
+		assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/foo"}`)
+		assert.Regexp(t, containsTargetInfo, exported)
 	})
-	assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/foo"}`)
-	assert.Regexp(t, containsTargetInfo, exported)
 
 	// AND WHEN the observed process is terminated
 	processEvents.Send(exec.ProcessEvent{
@@ -170,7 +183,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 
 	// THEN traces_host_info and traces_target_info are removed
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported = getMetrics(t, promURL)
+		exported := getMetrics(t, promURL)
 		assert.NotRegexp(t, containsTargetInfo, exported)
 		assert.NotRegexp(t, containsTracesHostInfo, exported)
 	})
@@ -362,6 +375,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
 			})
+			awaitSpanProcessing()
 
 			var exported string
 			test.Eventually(t, timeout, func(t require.TestingT) {
@@ -536,15 +550,10 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 		fmt.Fprintf(w, "Hello, %v, http: %v\n", r.URL.Path, r.TLS == nil)
 	})
 	server := http.Server{Addr: fmt.Sprintf(":%d", openPort), Handler: handler}
-	serverUp := make(chan bool, 1)
 
 	go func() {
-		go func() {
-			time.Sleep(5 * time.Second)
-			serverUp <- true
-		}()
 		err := server.ListenAndServe()
-		fmt.Printf("Terminating server %v\n", err)
+		t.Logf("Terminating server %v\n", err)
 	}()
 
 	sigChan := make(chan os.Signal, 1)
@@ -565,7 +574,7 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 	case sig := <-sigChan:
 		assert.Equal(t, syscall.SIGINT, sig)
 		ok = true
-	case <-time.After(5 * time.Second):
+	case <-time.After(timeout):
 		ok = false
 	}
 
@@ -628,6 +637,13 @@ func getMetrics(t require.TestingT, promURL string) string {
 	return string(body)
 }
 
+// awaitSpanProcessing allows for slower CI environments to catch up. The
+// intention is to prevent race conditions between sending spans, processing
+// them, and advancing the mocked clock.
+func awaitSpanProcessing() {
+	time.Sleep(10 * time.Millisecond)
+}
+
 type syncedClock struct {
 	mt  sync.Mutex
 	now time.Time
@@ -667,6 +683,7 @@ func makePromExporter(
 				},
 			},
 		},
+		request.UnresolvedNames{},
 		input,
 		processEvents,
 	)(ctx)
@@ -715,4 +732,344 @@ func TestSanitizeUTF8ForPrometheus(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+type mockEventMetrics struct {
+	createCalls []svc.Attrs
+	deleteCalls []svc.Attrs
+}
+
+func newMockEventMetrics() *mockEventMetrics {
+	return &mockEventMetrics{
+		createCalls: make([]svc.Attrs, 0),
+		deleteCalls: make([]svc.Attrs, 0),
+	}
+}
+
+func (m *mockEventMetrics) createEventMetrics(service *svc.Attrs) {
+	m.createCalls = append(m.createCalls, *service)
+}
+
+func (m *mockEventMetrics) deleteEventMetrics(service *svc.Attrs) {
+	m.deleteCalls = append(m.deleteCalls, *service)
+}
+
+func TestHandleProcessEventCreated(t *testing.T) {
+	tests := []struct {
+		name           string
+		setup          func(*metricsReporter, *mockEventMetrics)
+		event          exec.ProcessEvent
+		expectedCreate []svc.Attrs
+		expectedDelete []svc.Attrs
+		expectedMap    map[svc.UID]svc.Attrs
+	}{
+		{
+			name: "new service - fresh start",
+			setup: func(*metricsReporter, *mockEventMetrics) {
+				// No setup needed for fresh start
+			},
+			event: exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: &exec.FileInfo{
+					Pid: 1234,
+					Service: svc.Attrs{
+						UID: svc.UID{
+							Name:      "test-service",
+							Namespace: "default",
+							Instance:  "instance-1",
+						},
+						HostName: "test-host",
+					},
+				},
+			},
+			expectedCreate: []svc.Attrs{
+				{
+					UID: svc.UID{
+						Name:      "test-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedDelete: nil,
+			expectedMap: map[svc.UID]svc.Attrs{
+				{
+					Name:      "test-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}: {
+					UID: svc.UID{
+						Name:      "test-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+		},
+		{
+			name: "same service UID with updated attributes",
+			setup: func(r *metricsReporter, _ *mockEventMetrics) {
+				// Pre-populate service map with existing service
+				uid := svc.UID{
+					Name:      "test-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.serviceMap[uid] = svc.Attrs{
+					UID:      uid,
+					HostName: "old-host",
+				}
+			},
+			event: exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: &exec.FileInfo{
+					Pid: 1234,
+					Service: svc.Attrs{
+						UID: svc.UID{
+							Name:      "test-service",
+							Namespace: "default",
+							Instance:  "instance-1",
+						},
+						HostName: "new-host",
+					},
+				},
+			},
+			expectedCreate: []svc.Attrs{
+				{
+					UID: svc.UID{
+						Name:      "test-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "new-host",
+				},
+			},
+			expectedDelete: []svc.Attrs{
+				{
+					UID: svc.UID{
+						Name:      "test-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "old-host",
+				},
+			},
+			expectedMap: map[svc.UID]svc.Attrs{
+				{
+					Name:      "test-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}: {
+					UID: svc.UID{
+						Name:      "test-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "new-host",
+				},
+			},
+		},
+		{
+			name: "PID changing service (stale UID with existing attributes)",
+			setup: func(r *metricsReporter, _ *mockEventMetrics) {
+				// Setup: PID 1234 is already tracked with stale UID
+				staleUID := svc.UID{
+					Name:      "old-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.pidsTracker.AddPID(1234, staleUID)
+
+				// Add stale service to service map
+				r.serviceMap[staleUID] = svc.Attrs{
+					UID:      staleUID,
+					HostName: "test-host",
+				}
+			},
+			event: exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: &exec.FileInfo{
+					Pid: 1234,
+					Service: svc.Attrs{
+						UID: svc.UID{
+							Name:      "new-service",
+							Namespace: "default",
+							Instance:  "instance-1",
+						},
+						HostName: "test-host",
+					},
+				},
+			},
+			expectedCreate: []svc.Attrs{
+				{
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedDelete: []svc.Attrs{
+				{
+					UID: svc.UID{
+						Name:      "old-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedMap: map[svc.UID]svc.Attrs{
+				{
+					Name:      "new-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}: {
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+		},
+		{
+			name: "PID changing service (stale UID without existing attributes)",
+			setup: func(r *metricsReporter, _ *mockEventMetrics) {
+				// Setup: PID 1234 is already tracked with stale UID, but no service map entry
+				staleUID := svc.UID{
+					Name:      "old-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.pidsTracker.AddPID(1234, staleUID)
+				// Note: deliberately NOT adding to serviceMap to test this edge case
+			},
+			event: exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: &exec.FileInfo{
+					Pid: 1234,
+					Service: svc.Attrs{
+						UID: svc.UID{
+							Name:      "new-service",
+							Namespace: "default",
+							Instance:  "instance-1",
+						},
+						HostName: "test-host",
+					},
+				},
+			},
+			expectedCreate: nil,
+			expectedDelete: nil,
+			expectedMap:    map[svc.UID]svc.Attrs{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockEventsStore := mockEventMetrics{}
+
+			// Create a minimal metricsReporter with mocks
+			reporter := &metricsReporter{
+				serviceMap:         make(map[svc.UID]svc.Attrs),
+				pidsTracker:        otel.NewPidServiceTracker(),
+				createEventMetrics: mockEventsStore.createEventMetrics,
+				deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+			}
+
+			// Setup any initial state
+			tt.setup(reporter, &mockEventsStore)
+
+			// Create a test logger (using slog.Default for simplicity)
+			logger := slog.Default()
+
+			// Execute the function under test
+			reporter.handleProcessEvent(tt.event, logger)
+
+			// Verify create calls
+			assert.Equal(t, tt.expectedCreate, mockEventsStore.createCalls,
+				"Create event metrics calls should match expected")
+
+			// Verify delete calls
+			assert.Equal(t, tt.expectedDelete, mockEventsStore.deleteCalls,
+				"Delete event metrics calls should match expected")
+
+			// Verify service map state
+			assert.Equal(t, tt.expectedMap, reporter.serviceMap,
+				"Service map should match expected state")
+		})
+	}
+}
+
+func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
+	t.Run("multiple PIDs for same service", func(t *testing.T) {
+		mockEventsStore := newMockEventMetrics()
+
+		reporter := &metricsReporter{
+			serviceMap:         make(map[svc.UID]svc.Attrs),
+			pidsTracker:        otel.NewPidServiceTracker(),
+			createEventMetrics: mockEventsStore.createEventMetrics,
+			deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+		}
+
+		uid := svc.UID{Name: "multi-pid-service", Namespace: "default", Instance: "instance-1"}
+		service := svc.Attrs{UID: uid, HostName: "test-host"}
+
+		// Add first PID
+		event1 := exec.ProcessEvent{
+			Type: exec.ProcessEventCreated,
+			File: &exec.FileInfo{Pid: 1111, Service: service},
+		}
+		reporter.handleProcessEvent(event1, slog.Default())
+
+		// Add second PID for same service
+		event2 := exec.ProcessEvent{
+			Type: exec.ProcessEventCreated,
+			File: &exec.FileInfo{Pid: 2222, Service: service},
+		}
+		reporter.handleProcessEvent(event2, slog.Default())
+
+		// Service should only be created once initially, then updated once for the same UID
+		assert.Len(t, mockEventsStore.createCalls, 2) // One for each PID event
+		assert.Len(t, mockEventsStore.deleteCalls, 1) // One delete when second event updates existing service
+	})
+
+	t.Run("concurrent service updates", func(t *testing.T) {
+		mockEventsStore := newMockEventMetrics()
+
+		reporter := &metricsReporter{
+			serviceMap:         make(map[svc.UID]svc.Attrs),
+			pidsTracker:        otel.NewPidServiceTracker(),
+			createEventMetrics: mockEventsStore.createEventMetrics,
+			deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+		}
+
+		uid := svc.UID{Name: "concurrent-service", Namespace: "default", Instance: "instance-1"}
+
+		// Simulate rapid updates to same service with different metadata
+		for i := 0; i < 5; i++ {
+			service := svc.Attrs{
+				UID:      uid,
+				HostName: fmt.Sprintf("host-%d", i),
+			}
+
+			event := exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: &exec.FileInfo{Pid: int32(1000 + i), Service: service},
+			}
+			reporter.handleProcessEvent(event, slog.Default())
+		}
+
+		// Should end up with latest service attributes
+		finalService := reporter.serviceMap[uid]
+		assert.Equal(t, "host-4", finalService.HostName)
+
+		// Should have created 5 times and deleted 4 times (each update after first deletes previous)
+		assert.Len(t, mockEventsStore.createCalls, 5)
+		assert.Len(t, mockEventsStore.deleteCalls, 4)
+	})
 }

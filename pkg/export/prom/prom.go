@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 // injectable function reference for testing
@@ -84,12 +85,7 @@ const (
 	sourceKey            = "source"
 	telemetryLanguageKey = "telemetry_sdk_language"
 	telemetrySDKKey      = "telemetry_sdk_name"
-
-	clientKey          = "client"
-	clientNamespaceKey = "client_service_namespace"
-	serverKey          = "server"
-	serverNamespaceKey = "server_service_namespace"
-	connectionTypeKey  = "connection_type"
+	telemetrySDKVersion  = "telemetry_sdk_version"
 
 	// default values for the histogram configuration
 	// from https://grafana.com/docs/mimir/latest/send/native-histograms/#migrate-from-classic-histograms
@@ -236,6 +232,7 @@ type metricsReporter struct {
 	attrGPUKernelGridSize      []attributes.Field[*request.Span, string]
 	attrGPUKernelBlockSize     []attributes.Field[*request.Span, string]
 	attrGPUMemoryCopies        []attributes.Field[*request.Span, string]
+	attrSvcGraph               []attributes.Field[*request.Span, string]
 
 	// trace span metrics
 	spanMetricsLatency           *Expirer[prometheus.Histogram]
@@ -270,12 +267,17 @@ type metricsReporter struct {
 
 	serviceMap  map[svc.UID]svc.Attrs
 	pidsTracker otel.PidServiceTracker
+
+	// for testing purposes
+	createEventMetrics func(service *svc.Attrs)
+	deleteEventMetrics func(service *svc.Attrs)
 }
 
 func PrometheusEndpoint(
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
 	selectorCfg *attributes.SelectorConfig,
+	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
@@ -283,7 +285,7 @@ func PrometheusEndpoint(
 		if !cfg.Enabled() {
 			return swarm.EmptyRunFunc()
 		}
-		reporter, err := newReporter(ctxInfo, cfg, selectorCfg, input, processEventCh)
+		reporter, err := newReporter(ctxInfo, cfg, selectorCfg, unresolved, input, processEventCh)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating Prometheus endpoint: %w", err)
 		}
@@ -315,6 +317,7 @@ func newReporter(
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
 	selectorCfg *attributes.SelectorConfig,
+	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) (*metricsReporter, error) {
@@ -328,45 +331,47 @@ func newReporter(
 
 	is := instrumentations.NewInstrumentationSelection(cfg.Instrumentations)
 
-	var attrHTTPDuration, attrHTTPClientDuration, attrHTTPRequestSize, attrHTTPResponseSize, attrHTTPClientRequestSize, attrHTTPClientResponseSize []attributes.Field[*request.Span, string]
+	var attrHTTPDuration, attrHTTPClientDuration, attrHTTPRequestSize, attrHTTPResponseSize, attrHTTPClientRequestSize, attrHTTPClientResponseSize, attrSvcGraph []attributes.Field[*request.Span, string]
+
+	attributeGetters := request.SpanPromGetters(unresolved)
 
 	if is.HTTPEnabled() {
-		attrHTTPDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPServerDuration))
-		attrHTTPClientDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPClientDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPClientDuration))
-		attrHTTPRequestSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPRequestSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPServerRequestSize))
-		attrHTTPResponseSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPResponseSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPServerResponseSize))
-		attrHTTPClientRequestSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPClientRequestSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPClientRequestSize))
-		attrHTTPClientResponseSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrHTTPClientResponseSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.HTTPClientResponseSize))
 	}
 
 	var attrGRPCDuration, attrGRPCClientDuration []attributes.Field[*request.Span, string]
 
 	if is.GRPCEnabled() {
-		attrGRPCDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGRPCDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.RPCServerDuration))
-		attrGRPCClientDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGRPCClientDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.RPCClientDuration))
 	}
 
 	var attrDBClientDuration []attributes.Field[*request.Span, string]
 
 	if is.DBEnabled() {
-		attrDBClientDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrDBClientDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.DBClientDuration))
 	}
 
 	var attrMessagingProcessDuration, attrMessagingPublishDuration []attributes.Field[*request.Span, string]
 
 	if is.MQEnabled() {
-		attrMessagingPublishDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrMessagingPublishDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.MessagingPublishDuration))
-		attrMessagingProcessDuration = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrMessagingProcessDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.MessagingProcessDuration))
 	}
 
@@ -377,16 +382,20 @@ func newReporter(
 	var attrGPUMemoryCopies []attributes.Field[*request.Span, string]
 
 	if is.GPUEnabled() {
-		attrGPUKernelLaunchCalls = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGPUKernelLaunchCalls = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.GPUKernelLaunchCalls))
-		attrGPUMemoryAllocations = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGPUMemoryAllocations = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.GPUMemoryAllocations))
-		attrGPUKernelGridSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGPUKernelGridSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.GPUKernelGridSize))
-		attrGPUKernelBlockSize = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGPUKernelBlockSize = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.GPUKernelBlockSize))
-		attrGPUMemoryCopies = attributes.PrometheusGetters(request.SpanPromGetters,
+		attrGPUMemoryCopies = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.GPUMemoryCopies))
+	}
+
+	if cfg.ServiceGraphMetricsEnabled() {
+		attrSvcGraph = attributes.PrometheusGetters(attributeGetters, []attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source})
 	}
 
 	clock := expire.NewCachedClock(timeNow)
@@ -395,8 +404,8 @@ func newReporter(
 	// executable inspector
 	extraMetadataLabels := parseExtraMetadata(cfg.ExtraResourceLabels)
 	mr := &metricsReporter{
-		input:                      input.Subscribe(),
-		processEvents:              processEventCh.Subscribe(),
+		input:                      input.Subscribe(msg.SubscriberName("prom.InputSpans")),
+		processEvents:              processEventCh.Subscribe(msg.SubscriberName("prom.ProcessEvents")),
 		serviceMap:                 map[svc.UID]svc.Attrs{},
 		pidsTracker:                otel.NewPidServiceTracker(),
 		ctxInfo:                    ctxInfo,
@@ -423,6 +432,7 @@ func newReporter(
 		attrGPUKernelGridSize:      attrGPUKernelGridSize,
 		attrGPUKernelBlockSize:     attrGPUKernelBlockSize,
 		attrGPUMemoryCopies:        attrGPUMemoryCopies,
+		attrSvcGraph:               attrSvcGraph,
 		beylaInfo: NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: attr.VendorPrefix + buildInfoSuffix,
 			Help: "A metric with a constant '1' value labeled by version, revision, branch, " +
@@ -594,7 +604,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
-			}, labelNamesServiceGraph()).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		serviceGraphServer: optionalHistogramProvider(cfg.ServiceGraphMetricsEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -604,19 +614,19 @@ func newReporter(
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
-			}, labelNamesServiceGraph()).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		serviceGraphFailed: optionalCounterProvider(cfg.ServiceGraphMetricsEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphFailed,
 				Help: "number of failed service calls in trace service graph metrics format",
-			}, labelNamesServiceGraph()).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		serviceGraphTotal: optionalCounterProvider(cfg.ServiceGraphMetricsEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphTotal,
 				Help: "number of service calls in trace service graph metrics format",
-			}, labelNamesServiceGraph()).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		targetInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: TargetInfo,
@@ -665,6 +675,10 @@ func newReporter(
 			}, labelNames(attrGPUMemoryCopies)).MetricVec, clock.Time, cfg.TTL)
 		}),
 	}
+
+	// testing aid
+	mr.deleteEventMetrics = mr.deleteTargetInfoMetrics
+	mr.createEventMetrics = mr.createTargetInfos
 
 	registeredMetrics := []prometheus.Collector{mr.targetInfo}
 
@@ -804,22 +818,14 @@ func (r *metricsReporter) reportMetrics(ctx context.Context) {
 
 func (r *metricsReporter) collectMetrics(ctx context.Context) {
 	go r.watchForProcessEvents(ctx)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case spans, ok := <-r.input:
-			if !ok {
-				return
-			}
-			// clock needs to be updated to let the expirer
-			// remove the old metrics
-			r.clock.Update()
-			for i := range spans {
-				r.observe(&spans[i])
-			}
+	swarms.ForEachInput(ctx, r.input, nil, func(spans []request.Span) {
+		// clock needs to be updated to let the expirer
+		// remove the old metrics
+		r.clock.Update()
+		for i := range spans {
+			r.observe(&spans[i])
 		}
-	}
+	})
 }
 
 func (r *metricsReporter) otelMetricsObserved(span *request.Span) bool {
@@ -948,7 +954,7 @@ func (r *metricsReporter) observe(span *request.Span) {
 
 		if r.cfg.ServiceGraphMetricsEnabled() {
 			if !span.IsSelfReferenceSpan() || r.cfg.AllowServiceGraphSelfReferences {
-				lvg := r.labelValuesServiceGraph(span)
+				lvg := labelValues(span, r.attrSvcGraph)
 
 				if span.IsClientSpan() {
 					r.serviceGraphClient.WithLabelValues(lvg...).Metric.Observe(duration)
@@ -1025,6 +1031,7 @@ func labelNamesTargetInfo(kubeEnabled bool, extraMetadataLabelNames []attr.Name)
 		serviceJobKey,
 		telemetryLanguageKey,
 		telemetrySDKKey,
+		telemetrySDKVersion,
 		sourceKey,
 		osTypeKey,
 	}
@@ -1050,6 +1057,7 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 		service.Job(),
 		service.SDKLanguage.String(),
 		attr.VendorPrefix,
+		buildinfo.Version,
 		attr.VendorPrefix,
 		"linux",
 	}
@@ -1063,29 +1071,6 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 	}
 
 	return values
-}
-
-func labelNamesServiceGraph() []string {
-	return []string{clientKey, clientNamespaceKey, serverKey, serverNamespaceKey, sourceKey}
-}
-
-func (r *metricsReporter) labelValuesServiceGraph(span *request.Span) []string {
-	if span.IsClientSpan() {
-		return []string{
-			request.SpanPeer(span),
-			span.Service.UID.Namespace,
-			request.SpanHost(span),
-			span.OtherNamespace,
-			attr.VendorPrefix,
-		}
-	}
-	return []string{
-		request.SpanPeer(span),
-		span.OtherNamespace,
-		request.SpanHost(span),
-		span.Service.UID.Namespace,
-		attr.VendorPrefix,
-	}
 }
 
 func labelNames[T any](getters []attributes.Field[T, string]) []string {
@@ -1136,16 +1121,16 @@ func (r *metricsReporter) origService(uid svc.UID, service *svc.Attrs) *svc.Attr
 	return orig
 }
 
-func (r *metricsReporter) deleteTargetInfo(uid svc.UID, service *svc.Attrs) {
-	targetInfoLabelValues := r.labelValuesTargetInfo(r.origService(uid, service))
+func (r *metricsReporter) deleteTargetInfoMetric(service *svc.Attrs) {
+	targetInfoLabelValues := r.labelValuesTargetInfo(service)
 	r.targetInfo.DeleteLabelValues(targetInfoLabelValues...)
 }
 
-func (r *metricsReporter) deleteTracesTargetInfo(uid svc.UID, service *svc.Attrs) {
+func (r *metricsReporter) deleteTracesTargetInfoMetric(service *svc.Attrs) {
 	if !r.cfg.AnySpanMetricsEnabled() {
 		return
 	}
-	targetInfoLabelValues := r.labelValuesTargetInfo(r.origService(uid, service))
+	targetInfoLabelValues := r.labelValuesTargetInfo(service)
 	r.tracesTargetInfo.DeleteLabelValues(targetInfoLabelValues...)
 }
 
@@ -1157,38 +1142,68 @@ func (r *metricsReporter) disassociatePIDFromService(pid int32) (bool, svc.UID) 
 	return r.pidsTracker.RemovePID(pid)
 }
 
-func (r *metricsReporter) watchForProcessEvents(ctx context.Context) {
-	log := mlog().With("function", "watchForProcessEvents")
-	for {
-		select {
-		case pe, ok := <-r.processEvents:
-			if !ok {
-				log.Debug("process channel closed. Exiting")
-				return
-			}
-			log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
-			uid := pe.File.Service.UID
+func (r *metricsReporter) createTargetInfos(service *svc.Attrs) {
+	r.createTargetInfo(service)
+	r.createTracesTargetInfo(service)
+}
 
-			if pe.Type == exec.ProcessEventCreated {
-				r.createTargetInfo(&pe.File.Service)
-				r.createTracesTargetInfo(&pe.File.Service)
+func (r *metricsReporter) deleteTargetInfoMetrics(service *svc.Attrs) {
+	r.deleteTargetInfoMetric(service)
+	r.deleteTracesTargetInfoMetric(service)
+}
+
+func (r *metricsReporter) deleteTargetInfos(uid svc.UID, service *svc.Attrs) {
+	r.deleteEventMetrics(r.origService(uid, service))
+}
+
+func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Logger) {
+	log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
+	uid := pe.File.Service.UID
+
+	if pe.Type == exec.ProcessEventCreated {
+		// Handle the case when the PID changed its feathers, e.g. got new metadata impacting the service name.
+		// There's no new PID, just an update to the metadata.
+		if staleUID, exists := r.pidsTracker.TracksPID(pe.File.Pid); exists && !staleUID.Equals(&uid) {
+			log.Debug("updating older service definition", "from", staleUID, "new", uid)
+			r.pidsTracker.ReplaceUID(staleUID, uid)
+			if origAttrs, ok := r.serviceMap[staleUID]; ok {
+				log.Debug("updating service attributes for", "service", uid)
+				r.deleteEventMetrics(&origAttrs)
+				delete(r.serviceMap, staleUID)
 				r.serviceMap[uid] = pe.File.Service
-				r.setupPIDToServiceRelationship(pe.File.Pid, uid)
-			} else {
-				if deleted, origUID := r.disassociatePIDFromService(pe.File.Pid); deleted {
-					mlog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
-					r.deleteTargetInfo(origUID, &pe.File.Service)
-					r.deleteTracesTargetInfo(origUID, &pe.File.Service)
-					if r.cfg.HostMetricsEnabled() && r.pidsTracker.Count() == 0 {
-						mlog().Debug("No more PIDs tracked, expiring host info metric")
-						r.tracesHostInfo.entries.DeleteAll()
-					}
-					delete(r.serviceMap, origUID)
-				}
+				r.createEventMetrics(&pe.File.Service)
+				// we don't setup the pid again, we just replaced the metrics it's associated with
 			}
-		case <-ctx.Done():
-			log.Debug("Context done. Exiting")
 			return
 		}
+
+		// Handle the case when we have new labels for same service
+		// It could be a brand new PID with this information, so we fall through after deleting
+		// the old target info
+		if origAttrs, ok := r.serviceMap[uid]; ok {
+			log.Debug("updating stale attributes for", "service", uid)
+			r.deleteEventMetrics(&origAttrs)
+		}
+
+		r.createEventMetrics(&pe.File.Service)
+		r.serviceMap[uid] = pe.File.Service
+		r.setupPIDToServiceRelationship(pe.File.Pid, uid)
+	} else {
+		if deleted, origUID := r.disassociatePIDFromService(pe.File.Pid); deleted {
+			mlog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
+			r.deleteTargetInfos(origUID, &pe.File.Service)
+			if r.cfg.HostMetricsEnabled() && r.pidsTracker.Count() == 0 {
+				mlog().Debug("No more PIDs tracked, expiring host info metric")
+				r.tracesHostInfo.entries.DeleteAll()
+			}
+			delete(r.serviceMap, origUID)
+		}
 	}
+}
+
+func (r *metricsReporter) watchForProcessEvents(ctx context.Context) {
+	log := mlog().With("function", "watchForProcessEvents")
+	swarms.ForEachInput(ctx, r.processEvents, log.Debug, func(pe exec.ProcessEvent) {
+		r.handleProcessEvent(pe, log)
+	})
 }

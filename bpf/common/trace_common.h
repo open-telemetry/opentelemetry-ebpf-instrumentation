@@ -56,10 +56,6 @@ static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
 }
 
 static int tp_match(u32 index, void *data) {
-    if (!k_bpf_traceparent_enabled) {
-        return 0;
-    }
-
     if (index >= (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) {
         return 1;
     }
@@ -75,7 +71,7 @@ static int tp_match(u32 index, void *data) {
     return 0;
 }
 
-static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, int buf_len) {
+static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, const u16 buf_len) {
     if (!k_bpf_traceparent_enabled) {
         return NULL;
     }
@@ -87,7 +83,27 @@ static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, int
     bpf_loop(nr_loops, tp_match, &data, 0);
 
     if (data.pos) {
-        return (data.pos > (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) ? NULL : &(buf[data.pos]);
+        return (data.pos > (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) ? NULL : &buf[data.pos];
+    }
+
+    return NULL;
+}
+
+static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *buf,
+                                                                 const u16 buf_len) {
+    (void)buf_len;
+
+    if (!k_bpf_traceparent_enabled) {
+        return NULL;
+    }
+
+    // Limited best-effort search to stay within insns limit
+    const u16 k_besteffort_max_loops = 350;
+
+    for (u16 i = 0; i < k_besteffort_max_loops; i++) {
+        if (is_traceparent(&buf[i])) {
+            return &buf[i];
+        }
     }
 
     return NULL;

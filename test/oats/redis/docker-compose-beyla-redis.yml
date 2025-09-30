@@ -1,7 +1,7 @@
 services:
   # Use postgres as a test SQL server
   redis:
-    image: redis:latest
+    image: redis:latest@sha256:b0341dc2e0ce47beb7fcef80089b4d469b10ae94fbbea50072b878d7c88de487
     ports:
       - "6379:6379"
   # Simple python HTTP server, which exposes one endpoint /query that does a few redis queries
@@ -35,6 +35,7 @@ services:
       OTEL_EBPF_OPEN_PORT: {{ .ApplicationPort }}
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "true"

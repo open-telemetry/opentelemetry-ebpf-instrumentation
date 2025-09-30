@@ -3,4 +3,4 @@
 
 #pragma once
 
-enum { BEYLA_PIN_INTERNAL = 100 };
+enum { OBI_PIN_INTERNAL = 100 };

@@ -21,6 +21,7 @@ typedef struct http_info {
     connection_info_t conn_info;
     u64 start_monotime_ns;
     u64 end_monotime_ns;
+    u64 req_monotime_ns;
     u64 extra_id;
     tp_info_t tp;
     pid_info pid;
@@ -29,5 +30,6 @@ typedef struct http_info {
     u32 task_tid;
     u16 status;
     unsigned char buf[FULL_BUF_SIZE];
-    u8 _pad[6];
+    u8 has_large_buffers;
+    u8 _pad[5];
 } http_info_t;

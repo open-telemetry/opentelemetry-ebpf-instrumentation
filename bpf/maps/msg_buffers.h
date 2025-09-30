@@ -15,5 +15,5 @@ struct {
     __type(key, egress_key_t);
     __type(value, msg_buffer_t);
     __uint(max_entries, 1000);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } msg_buffers SEC(".maps");

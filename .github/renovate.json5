@@ -4,11 +4,22 @@
     "config:best-practices",
     "helpers:pinGitHubActionDigestsToSemver"
   ],
+  "ignorePaths": [
+    // github.com/Shopify/sarama has been moved to github.com/IBM/sarama
+    // but we keep supporting the go-offsets for the outdated library, which must not
+    // be updated.
+    "configs/offsets/shopify/**",
+    "NOTICES/**"
+  ],
   "packageRules": [
     {
-      "groupName": "all patch versions",
-      "matchUpdateTypes": ["patch"],
-      "schedule": ["before 8am every weekday"]
+      "groupName": "all patch and digest versions",
+      "matchUpdateTypes": ["patch", "digest"],
+      "schedule": ["before 8am on Monday"],
+      // group all patches in a single PR
+      "matchPackageNames": [
+        "*"
+      ]
     },
     {
       "matchUpdateTypes": ["minor", "major"],

@@ -15,5 +15,5 @@ struct {
     __uint(max_entries, k_max_concurrent_pids);
     __type(key, u32);
     __type(value, u32);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } pid_cache SEC(".maps");

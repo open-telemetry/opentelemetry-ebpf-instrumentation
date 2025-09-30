@@ -9,11 +9,11 @@
 
 #include <common/common.h>
 #include <common/connection_info.h>
+#include <common/large_buffers.h>
 #include <common/http_types.h>
 #include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
-#include <common/scratch_mem.h>
 #include <common/sql.h>
 #include <common/tp_info.h>
 #include <common/trace_common.h>
@@ -57,10 +57,6 @@ enum {
     k_mysql_com_stmt_prepare = 0x16,
     k_mysql_com_stmt_execute = 0x17,
 
-    // Large buffer
-    k_mysql_large_buf_max_size = 1 << 14, // 16K
-    k_mysql_large_buf_max_size_mask = k_mysql_large_buf_max_size - 1,
-
     // Sanity checks
     k_mysql_payload_length_max = 1 << 13, // 8K
 };
@@ -71,8 +67,6 @@ struct {
     __type(value, struct mysql_state_data);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } mysql_state SEC(".maps");
-
-SCRATCH_MEM_SIZED(mysql_large_buffers, k_mysql_large_buf_max_size);
 
 // This function is used to store the MySQL header if it comes in split packets
 // from double send.
@@ -129,12 +123,6 @@ static __always_inline int mysql_read_fixup_buffer(const connection_info_t *conn
                                                    u32 data_len) {
     u8 offset = 0;
 
-    if (!is_pow2(mysql_buffer_size)) {
-        bpf_dbg_printk("mysql_read_fixup_buffer: bug: mysql_buffer_size is not a power of 2");
-        return -1;
-    }
-    const u8 buf_len_mask = mysql_buffer_size - 1;
-
     struct mysql_state_data *state_data = bpf_map_lookup_elem(&mysql_state, conn_info);
     if (state_data != NULL) {
         bpf_probe_read(buf, k_mysql_hdr_without_command_size, (const void *)state_data);
@@ -153,7 +141,7 @@ static __always_inline int mysql_read_fixup_buffer(const connection_info_t *conn
         bpf_dbg_printk("WARN: mysql_read_fixup_buffer: buffer is full, truncating data");
     }
 
-    bpf_probe_read(buf + offset, *buf_len & buf_len_mask, (const void *)data);
+    bpf_probe_read(buf + offset, *buf_len & k_large_buf_payload_max_size_mask, (const void *)data);
 
     return *buf_len;
 }
@@ -194,8 +182,7 @@ static __always_inline int mysql_send_large_buffer(tcp_req_t *req,
     total_size += written > sizeof(void *) ? written : sizeof(void *);
 
     req->has_large_buffers = true;
-    bpf_ringbuf_output(
-        &events, large_buf, total_size & k_mysql_large_buf_max_size_mask, get_flags());
+    bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
     return 0;
 }
 

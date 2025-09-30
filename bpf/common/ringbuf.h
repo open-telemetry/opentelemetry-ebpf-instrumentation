@@ -22,6 +22,7 @@
 #define EVENT_GO_KAFKA_SEG 11 // the segment-io version (kafka-go) has different format
 #define EVENT_TCP_LARGE_BUFFER 12
 #define EVENT_GO_SPAN 13
+#define EVENT_GO_MONGO 14
 
 // setting here the following map definitions without pinning them to a global namespace
 // would lead that services running both HTTP and GRPC server would duplicate
@@ -34,7 +35,7 @@
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 16);
-    __uint(pinning, BEYLA_PIN_INTERNAL);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } events SEC(".maps");
 
 // To be Injected from the user space during the eBPF program load & initialization

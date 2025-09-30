@@ -3,92 +3,35 @@
     "versions": ">= 1.17",
     "inspect": "./configs/offsets/std_inspect.go",
     "fields": {
-      "net/http.Request": [
-        "Method",
-        "URL",
-        "ContentLength",
-        "Header"
-      ],
-      "net/url.URL": [
-        "Path",
-        "Host",
-        "Scheme"
-      ],
-      "net/http.Response": [
-        "StatusCode",
-        "ContentLength"
-      ],
-      "net.TCPAddr": [
-        "IP",
-        "Port"
-      ],
-      "context.valueCtx": [
-        "val"
-      ],
-      "bufio.Writer": [
-        "buf",
-        "n"
-      ],
-      "net.TCPConn": [
-        "conn" 
-      ],
-      "net.conn": [
-        "fd" 
-      ],
-      "net.netFD": [
-        "laddr",
-        "raddr"
-      ],
-      "net/http.persistConn": [
-        "conn",
-        "tlsState"
-      ],
-      "net/http.conn": [
-        "rwc",
-        "tlsState"
-      ],
-      "net/http.http2ClientConn": [
-        "nextStreamID",
-        "tconn",
-        "fr"
-      ],
-      "net/http.http2serverConn": [
-        "conn"
-      ],
-      "net/http.http2Framer": [
-        "w"
-      ],
-      "net/http.http2MetaHeadersFrame": [
-        "Fields"
-      ],
-      "net/rpc.Request": [
-        "ServiceMethod"
-      ]
+      "net/http.Request": ["Method", "URL", "ContentLength", "Header"],
+      "net/url.URL": ["Path", "Host", "Scheme"],
+      "net/http.Response": ["StatusCode", "ContentLength"],
+      "net.TCPAddr": ["IP", "Port"],
+      "context.valueCtx": ["val"],
+      "bufio.Writer": ["buf", "n"],
+      "net.TCPConn": ["conn"],
+      "net.conn": ["fd"],
+      "net.netFD": ["laddr", "raddr"],
+      "net/http.persistConn": ["conn", "tlsState"],
+      "net/http.conn": ["rwc", "tlsState"],
+      "net/http.http2ClientConn": ["nextStreamID", "tconn", "fr"],
+      "net/http.http2serverConn": ["conn"],
+      "net/http.http2Framer": ["w"],
+      "net/http.http2MetaHeadersFrame": ["Fields"],
+      "net/rpc.Request": ["ServiceMethod"]
     }
   },
   "golang.org/x/net": {
     "inspect": "./configs/offsets/http2/inspect.go",
     "versions": ">= 0.12.0",
     "fields": {
-      "golang.org/x/net/http2/hpack.Encoder": [
-        "w"
-      ],
-      "golang.org/x/net/http2.ClientConn": [
-        "nextStreamID",
-        "tconn",
-        "fr"
-      ],
-      "golang.org/x/net/http2.Framer": [
-        "w"
-      ],
-      "golang.org/x/net/http2.serverConn": [
-        "conn"
-      ],
-      "golang.org/x/net/http2.MetaHeadersFrame": [
-        "Fields"
-      ]
+      "golang.org/x/net/http2/hpack.Encoder": ["w"],
+      "golang.org/x/net/http2.ClientConn": ["nextStreamID", "tconn", "fr"],
+      "golang.org/x/net/http2.Framer": ["w"],
+      "golang.org/x/net/http2.serverConn": ["conn"],
+      "golang.org/x/net/http2.MetaHeadersFrame": ["Fields"]
     }
-  },  
+  },
   "google.golang.org/grpc": {
     "versions": ">= 1.40",
     "fields": {
@@ -97,12 +40,8 @@
         "st",
         "id"
       ],
-      "google.golang.org/grpc/internal/status.Status": [
-        "s"
-      ],
-      "google.golang.org/grpc/internal/transport.http2Server": [
-        "conn"
-      ],
+      "google.golang.org/grpc/internal/status.Status": ["s"],
+      "google.golang.org/grpc/internal/transport.http2Server": ["conn"],
       "google.golang.org/grpc/internal/transport.http2Client": [
         "conn",
         "scheme"
@@ -123,77 +62,71 @@
   },
   "google.golang.org/genproto": {
     "branch": "main",
-    "packages": [
-      "google.golang.org/genproto/googleapis/rpc/status"
-    ],
+    "packages": ["google.golang.org/genproto/googleapis/rpc/status"],
     "fields": {
-      "google.golang.org/genproto/googleapis/rpc/status.Status": [
-        "Code"
-      ]
+      "google.golang.org/genproto/googleapis/rpc/status.Status": ["Code"]
     }
   },
   "github.com/IBM/sarama": {
     "inspect": "./configs/offsets/sarama/inspect.go",
     "versions": ">= 1.40",
     "fields": {
-      "github.com/IBM/sarama.Broker": [
-        "correlationID",
-        "conn"
-      ],
-      "github.com/IBM/sarama.responsePromise": [
-        "correlationID"
-      ],
-      "github.com/IBM/sarama.bufConn": [
-        "Conn"
-      ]
+      "github.com/IBM/sarama.Broker": ["correlationID", "conn"],
+      "github.com/IBM/sarama.responsePromise": ["correlationID"],
+      "github.com/IBM/sarama.bufConn": ["Conn"]
     }
   },
   "github.com/Shopify/sarama": {
     "inspect": "./configs/offsets/shopify/inspect.go",
     "versions": ">= 1.37, < 1.40",
     "fields": {
-      "github.com/Shopify/sarama.Broker": [
-        "correlationID",
-        "conn"
-      ],
-      "github.com/Shopify/sarama.responsePromise": [
-        "correlationID"
-      ],
-      "github.com/Shopify/sarama.bufConn": [
-        "Conn"
-      ]
+      "github.com/Shopify/sarama.Broker": ["correlationID", "conn"],
+      "github.com/Shopify/sarama.responsePromise": ["correlationID"],
+      "github.com/Shopify/sarama.bufConn": ["Conn"]
     }
   },
   "github.com/redis/go-redis/v9": {
     "inspect": "./configs/offsets/redis/inspect.go",
     "versions": ">= v9.0.0",
     "fields": {
-      "github.com/redis/go-redis/v9/internal/pool.Conn": [
-        "bw"
-      ]
+      "github.com/redis/go-redis/v9/internal/pool.Conn": ["bw"]
     }
   },
   "github.com/segmentio/kafka-go": {
     "inspect": "./configs/offsets/kafkago/inspect.go",
     "versions": ">= v0.4.11",
     "fields": {
-      "github.com/segmentio/kafka-go.Writer": [
-        "Topic"
-      ],
-      "github.com/segmentio/kafka-go/protocol.Conn": [
-        "conn"
-      ],
-      "github.com/segmentio/kafka-go.reader": [
-        "topic"
-      ]
+      "github.com/segmentio/kafka-go.Writer": ["Topic"],
+      "github.com/segmentio/kafka-go/protocol.Conn": ["conn"],
+      "github.com/segmentio/kafka-go.reader": ["topic"]
     }
   },
   "go.opentelemetry.io/otel": {
     "inspect": "./configs/offsets/otelsdk/inspect.go",
     "versions": ">= v1.10.0",
     "fields": {
-      "go.opentelemetry.io/otel/internal/global.tracer": [
-        "delegate"
+      "go.opentelemetry.io/otel/internal/global.tracer": ["delegate"]
+    }
+  },
+  "go.mongodb.org/mongo-driver": {
+    "inspect": "./configs/offsets/mongo/inspect.go",
+    "versions": ">= v1.10.1",
+    "fields": {
+      "go.mongodb.org/mongo-driver/mongo.Collection": ["name"],
+      "go.mongodb.org/mongo-driver/x/mongo/driver.Operation": [
+        "Name",
+        "Database"
+      ]
+    }
+  },
+  "go.mongodb.org/mongo-driver/v2": {
+    "inspect": "./configs/offsets/mongov2/inspect.go",
+    "versions": ">= v2.0.1",
+    "fields": {
+      "go.mongodb.org/mongo-driver/v2/mongo.Collection": ["name"],
+      "go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation": [
+        "Name",
+        "Database"
       ]
     }
   }

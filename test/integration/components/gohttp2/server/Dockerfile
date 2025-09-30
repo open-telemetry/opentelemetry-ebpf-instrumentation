@@ -1,6 +1,6 @@
 # Build the testserver binary
 # Docker command must be invoked from the projec root directory
-FROM golang:1.25 AS builder
+FROM golang:1.25@sha256:8305f5fa8ea63c7b5bc85bd223ccc62941f852318ebfbd22f53bbd0b358c07e1 AS builder
 
 ARG TARGETARCH
 
@@ -17,7 +17,7 @@ COPY go.sum go.sum
 RUN go build -o http2srv ./test/integration/components/gohttp2/server/main.go
 
 # Create final image from minimal + built binary
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:7e490910eea2861b9664577a96b54ce68ea3e02ce7f51d89cb0103a6f9c386e0
 
 WORKDIR /
 COPY --from=builder /src/http2srv .

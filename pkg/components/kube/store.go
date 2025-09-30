@@ -12,9 +12,11 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"time"
 
 	"go.opentelemetry.io/obi/pkg/components/helpers/container"
 	"go.opentelemetry.io/obi/pkg/components/helpers/maps"
+	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/kubecache/informer"
@@ -82,7 +84,7 @@ type Store struct {
 
 	metadataNotifier meta.Notifier
 
-	containerIDs map[string]*container.Info
+	containerIDs maps.Map2[string, uint32, *container.Info]
 
 	// stores container info by PID. It is only required for
 	// deleting entries in namespaces and podsByContainer when DeleteProcess is called
@@ -90,7 +92,7 @@ type Store struct {
 
 	// a single namespace will point to any container inside the pod
 	// but we don't care which one
-	namespaces map[uint32]*container.Info
+	namespaces maps.Map2[uint32, uint32, *container.Info]
 
 	// container ID to pod matcher
 	podsByContainer map[string]*CachedObjMeta
@@ -114,6 +116,9 @@ type Store struct {
 
 	// A go template that, if set, is used to create the service name
 	serviceNameTemplate *template.Template
+
+	cacheSynced bool
+	metrics     imetrics.Reporter
 }
 
 type CachedObjMeta struct {
@@ -121,13 +126,18 @@ type CachedObjMeta struct {
 	OTELResourceMeta map[attr.Name]string
 }
 
-func NewStore(kubeMetadata meta.Notifier, resourceLabels ResourceLabels, serviceNameTemplate *template.Template) *Store {
+func NewStore(
+	kubeMetadata meta.Notifier,
+	resourceLabels ResourceLabels,
+	serviceNameTemplate *template.Template,
+	internalMetrics imetrics.Reporter,
+) *Store {
 	log := dblog()
 
 	db := &Store{
 		log:                 log,
-		containerIDs:        map[string]*container.Info{},
-		namespaces:          map[uint32]*container.Info{},
+		containerIDs:        maps.Map2[string, uint32, *container.Info]{},
+		namespaces:          maps.Map2[uint32, uint32, *container.Info]{},
 		podsByContainer:     map[string]*CachedObjMeta{},
 		containerByPID:      map[uint32]*container.Info{},
 		objectMetaByIP:      map[string]*CachedObjMeta{},
@@ -138,6 +148,7 @@ func NewStore(kubeMetadata meta.Notifier, resourceLabels ResourceLabels, service
 		BaseNotifier:        meta.NewBaseNotifier(log),
 		resourceLabels:      resourceLabels,
 		serviceNameTemplate: serviceNameTemplate,
+		metrics:             internalMetrics,
 	}
 	kubeMetadata.Subscribe(db)
 	return db
@@ -195,6 +206,12 @@ func (s *Store) cacheResourceMetadata(meta *informer.ObjectMeta) *CachedObjMeta 
 // On is invoked by the informer when a new Kube object is created, updated or deleted.
 // It will forward the notification to all the Store subscribers
 func (s *Store) On(event *informer.Event) error {
+	// During cache startup, it is expected that the informer receives metadata from old events,
+	// so we don't measure lag until all the cache has been synced
+	if s.cacheSynced {
+		lag := time.Since(time.Unix(event.Resource.StatusTimeEpoch, 0))
+		s.metrics.InformerLag(lag.Seconds())
+	}
 	switch event.Type {
 	case informer.EventType_CREATED:
 		s.addObjectMeta(event.Resource)
@@ -202,6 +219,8 @@ func (s *Store) On(event *informer.Event) error {
 		s.updateObjectMeta(event.Resource)
 	case informer.EventType_DELETED:
 		s.deleteObjectMeta(event.Resource)
+	case informer.EventType_SYNC_FINISHED:
+		s.cacheSynced = true
 	}
 	s.Notify(event)
 	return nil
@@ -221,8 +240,8 @@ func (s *Store) AddProcess(pid uint32) {
 
 	s.access.Lock()
 	defer s.access.Unlock()
-	s.namespaces[ifp.PIDNamespace] = &ifp
-	s.containerIDs[ifp.ContainerID] = &ifp
+	s.namespaces.Put(ifp.PIDNamespace, pid, &ifp)
+	s.containerIDs.Put(ifp.ContainerID, pid, &ifp)
 	s.containerByPID[pid] = &ifp
 }
 
@@ -234,8 +253,8 @@ func (s *Store) DeleteProcess(pid uint32) {
 		return
 	}
 	delete(s.containerByPID, pid)
-	delete(s.namespaces, info.PIDNamespace)
-	delete(s.containerIDs, info.ContainerID)
+	s.namespaces.Delete(info.PIDNamespace, pid)
+	s.containerIDs.Delete(info.ContainerID, pid)
 }
 
 func (s *Store) addObjectMeta(meta *informer.ObjectMeta) {
@@ -279,9 +298,11 @@ func (s *Store) unlockedAddObjectMeta(meta *informer.ObjectMeta) {
 		for _, c := range meta.Pod.Containers {
 			s.podsByContainer[c.Id] = cmeta
 			// TODO: make sure we can handle when the containerIDs is set after this function is triggered
-			info, ok := s.containerIDs[c.Id]
+			infos, ok := s.containerIDs[c.Id]
 			if ok {
-				s.namespaces[info.PIDNamespace] = info
+				for pid, info := range infos {
+					s.namespaces.Put(info.PIDNamespace, pid, info)
+				}
 			}
 			s.containersByOwner.Put(oID, c.Id, c)
 		}
@@ -315,10 +336,14 @@ func (s *Store) unlockedDeleteObjectMeta(meta *informer.ObjectMeta) {
 		s.log.Debug("deleting pod from store",
 			"ips", meta.Ips, "pod", meta.Name, "namespace", meta.Namespace, "containers", meta.Pod.Containers)
 		for _, c := range meta.Pod.Containers {
-			info, ok := s.containerIDs[c.Id]
+			infos, ok := s.containerIDs[c.Id]
 			if ok {
-				delete(s.containerIDs, c.Id)
-				delete(s.namespaces, info.PIDNamespace)
+				s.containerIDs.DeleteAll(c.Id)
+				for _, info := range infos {
+					s.namespaces.DeleteAll(info.PIDNamespace)
+					// delete all needs to be done only once, we could alternatively delete one by one pid
+					break
+				}
 			}
 			delete(s.podsByContainer, c.Id)
 			s.containersByOwner.Delete(oID, c.Id)
@@ -345,14 +370,19 @@ func (s *Store) PodByContainerID(cid string) *CachedObjMeta {
 func (s *Store) PodContainerByPIDNs(pidns uint32) (*CachedObjMeta, string) {
 	s.access.RLock()
 	defer s.access.RUnlock()
-	if info, ok := s.namespaces[pidns]; ok {
-		if om, ok := s.podsByContainer[info.ContainerID]; ok {
-			oID := fetchOwnerID(om.Meta)
-			containerName := ""
-			if containerInfo, ok := s.containersByOwner.Get(oID, info.ContainerID); ok {
-				containerName = containerInfo.Name
+	if infos, ok := s.namespaces[pidns]; ok {
+		for _, info := range infos {
+			if om, ok := s.podsByContainer[info.ContainerID]; ok {
+				oID := fetchOwnerID(om.Meta)
+				containerName := ""
+				if containerInfo, ok := s.containersByOwner.Get(oID, info.ContainerID); ok {
+					containerName = containerInfo.Name
+				}
+				return om, containerName
 			}
-			return om, containerName
+			// we break here, the namespace is the same for all pids in the container
+			// we need to check one only
+			break
 		}
 	}
 	return nil, ""

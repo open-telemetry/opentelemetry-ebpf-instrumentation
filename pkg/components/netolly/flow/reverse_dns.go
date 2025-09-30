@@ -14,8 +14,8 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
-	"go.opentelemetry.io/obi/pkg/components/rdns/ebpf/xdp"
-	"go.opentelemetry.io/obi/pkg/components/rdns/store"
+	"go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/xdp"
+	"go.opentelemetry.io/obi/pkg/internal/rdns/store"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
@@ -68,7 +68,7 @@ func ReverseDNSProvider(cfg *ReverseDNS, input, output *msg.Queue[[]*ebpf.Record
 		cache := expirable.NewLRU[ebpf.IPAddr, string](cfg.CacheLen, nil, cfg.CacheTTL)
 
 		log := rdlog()
-		in := input.Subscribe()
+		in := input.Subscribe(msg.SubscriberName("flow.ReverseDNS"))
 		return func(_ context.Context) {
 			defer output.Close()
 			log.Debug("starting reverse DNS node")

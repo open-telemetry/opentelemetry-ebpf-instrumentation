@@ -21,6 +21,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 func nrlog() *slog.Logger {
@@ -65,10 +66,11 @@ func NameResolutionProvider(ctxInfo *global.ContextInfo, cfg *NameResolverConfig
 	input, output *msg.Queue[[]request.Span],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if cfg == nil || len(cfg.Sources) == 0 {
-			// if no sources are configured, we just bypass the node
+		if cfg == nil {
+			// if no config is passed, we just bypass the node
 			return swarm.Bypass(input, output)
 		}
+
 		return nameResolver(ctx, ctxInfo, cfg, input, output)
 	}
 }
@@ -88,11 +90,6 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 	} else {
 		sources &= ^ResolverK8s
 	}
-	// after potentially remove k8s resolver, check again if
-	// this node needs to be bypassed
-	if sources == 0 {
-		return swarm.Bypass(input, output)
-	}
 
 	nr := NameResolver{
 		cfg:     cfg,
@@ -101,26 +98,16 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 		sources: sources,
 	}
 
-	in := input.Subscribe()
+	in := input.Subscribe(msg.SubscriberName("transform.NameResolver"))
 	return func(ctx context.Context) {
 		// output channel must be closed so later stages in the pipeline can finish in cascade
 		defer output.Close()
-		for {
-			select {
-			case <-ctx.Done():
-				nrlog().Debug("context done. Stopping")
-				return
-			case spans, ok := <-in:
-				if !ok {
-					nrlog().Debug("input channel closed, stopping")
-					return
-				}
-				for i := range spans {
-					nr.resolveNames(&spans[i])
-				}
-				output.Send(spans)
+		swarms.ForEachInput(ctx, in, nrlog().Debug, func(spans []request.Span) {
+			for i := range spans {
+				nr.resolveNames(&spans[i])
 			}
-		}
+			output.Send(spans)
+		})
 	}, nil
 }
 
@@ -142,10 +129,25 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 	var hn, pn, ns string
 	if span.IsClientSpan() {
 		hn, span.OtherNamespace = nr.resolve(&span.Service, span.Host)
+		if hn == "" || hn == span.Host {
+			hn = request.HostFromSchemeHost(span)
+		}
 		pn, ns = nr.resolve(&span.Service, span.Peer)
+		if pn == "" || pn == span.Peer {
+			pn = span.Service.UID.Name
+			if ns == "" {
+				ns = span.Service.UID.Namespace
+			}
+		}
 	} else {
 		pn, span.OtherNamespace = nr.resolve(&span.Service, span.Peer)
 		hn, ns = nr.resolve(&span.Service, span.Host)
+		if hn == "" || hn == span.Host {
+			hn = span.Service.UID.Name
+			if ns == "" {
+				ns = span.Service.UID.Namespace
+			}
+		}
 	}
 	if span.Service.UID.Namespace == "" && ns != "" {
 		span.Service.UID.Namespace = ns
