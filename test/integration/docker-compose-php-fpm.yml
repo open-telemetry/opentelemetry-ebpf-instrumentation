@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   nginx:
-    image: nginx:latest@sha256:75cad0ed4b9ea94413143f700eea1a71635806207ffb901b577c436a06ff4acd
+    image: nginx:latest@sha256:8adbdcb969e2676478ee2c7ad333956f0c8e0e4c5a7463f4611d7a2e7a7ff5dc
     mem_limit: 128m
     container_name: hatest-nginx
     ports:
