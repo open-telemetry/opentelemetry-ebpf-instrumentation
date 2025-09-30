@@ -102,16 +102,18 @@ read_sk_buff(struct __sk_buff *skb, protocol_info_t *tcp, connection_info_t *con
         }
     }
 
-    if (proto != IPPROTO_TCP) {
-        return false;
-    }
-
     u16 port;
     bpf_skb_load_bytes(skb, tcp->hdr_len + offsetof(struct __tcphdr, source), &port, sizeof(port));
     conn->s_port = __bpf_htons(port);
 
     bpf_skb_load_bytes(skb, tcp->hdr_len + offsetof(struct __tcphdr, dest), &port, sizeof(port));
     conn->d_port = __bpf_htons(port);
+
+    if (proto != IPPROTO_TCP) {
+        bpf_d_printk("not TCP");
+        d_print_http_connection_info(conn);
+        return false;
+    }
 
     u32 seq;
     bpf_skb_load_bytes(skb, tcp->hdr_len + offsetof(struct __tcphdr, seq), &seq, sizeof(seq));
