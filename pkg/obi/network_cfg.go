@@ -152,6 +152,7 @@ var defaultNetworkConfig = NetworkConfig{
 	RingBufferFlushPeriod: 10 * time.Second,
 	MaxFlowDuration:       60 * time.Second,
 	Direction:             "both",
+	Sampling:              10_000,
 	ListenInterfaces:      "watch",
 	ListenPollPeriod:      10 * time.Second,
 	ReverseDNS: flow.ReverseDNS{
