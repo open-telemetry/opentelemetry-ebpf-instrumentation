@@ -278,6 +278,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return is.MongoEnabled()
 	case request.EventTypeManualSpan:
 		return true
+	case request.EventTypeFailedConnect:
+		return true
 	}
 
 	return false
@@ -424,6 +426,12 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		}
 	case request.EventTypeManualSpan:
 		attrs = manualSpanAttributes(span)
+	case request.EventTypeFailedConnect:
+		attrs = []attribute.KeyValue{
+			request.ClientAddr(request.SpanHost(span)),
+			request.ServerAddr(request.PeerAsClient(span)),
+			request.ServerPort(span.HostPort),
+		}
 	}
 
 	if _, ok := optionalAttrs[attr.SkipSpanMetrics]; ok {

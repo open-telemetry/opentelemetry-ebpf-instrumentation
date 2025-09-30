@@ -44,6 +44,7 @@ const (
 	EventTypeGPUKernelLaunch
 	EventTypeGPUMalloc
 	EventTypeGPUMemcpy
+	EventTypeFailedConnect
 )
 
 const (
@@ -108,6 +109,8 @@ func (t EventType) String() string {
 		return "MongoClient"
 	case EventTypeManualSpan:
 		return "CUSTOM"
+	case EventTypeFailedConnect:
+		return "CONNECTION ERR"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}
@@ -452,6 +455,8 @@ func SpanStatusCode(span *Span) string {
 			return StatusCodeOk
 		}
 		return StatusCodeUnset
+	case EventTypeFailedConnect:
+		return StatusCodeError
 	}
 	return StatusCodeUnset
 }
@@ -598,6 +603,8 @@ func (s *Span) TraceName() string {
 		return semconv.DBSystemMongoDB.Value.AsString()
 	case EventTypeManualSpan:
 		return s.Method
+	case EventTypeFailedConnect:
+		return "TCP CONNECT"
 	}
 	return ""
 }

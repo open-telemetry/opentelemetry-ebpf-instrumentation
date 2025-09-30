@@ -256,7 +256,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
         return 0;
     }
 
-    bpf_dbg_printk("=== connect ret id=%d, pid=%d ===", id, pid_from_pid_tgid(id));
+    bpf_dbg_printk("=== connect ret id=%d, pid=%d, res %d ===", id, pid_from_pid_tgid(id), res);
 
     // The file descriptor is the value returned from the connect syscall.
     // If we got a negative file descriptor we don't have a connection, unless we are in progress
@@ -564,6 +564,35 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
 
     bpf_map_delete_elem(&active_send_args, &id);
     bpf_map_delete_elem(&active_send_sock_args, &sock_p);
+
+    return 0;
+}
+
+SEC("kprobe/sk_error_report")
+int BPF_KPROBE(obi_kprobe_sk_error_report, struct sock *sk) {
+    (void)ctx;
+
+    u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    sock_args_t *args = bpf_map_lookup_elem(&active_connect_args, &id);
+
+    bpf_dbg_printk("=== kprobe sk_error_report %d sock %llx args %llx ===", id, sk, args);
+
+    if (args) {
+        pid_connection_info_t info = {};
+
+        if (parse_sock_info(sk, &info.conn)) {
+            info.pid = pid_from_pid_tgid(id);
+            u16 orig_dport = info.conn.d_port;
+            sort_connection_info(&info.conn);
+            dbg_print_http_connection_info(&info.conn);
+            failed_to_connect_event(&info, orig_dport);
+        }
+    }
 
     return 0;
 }
