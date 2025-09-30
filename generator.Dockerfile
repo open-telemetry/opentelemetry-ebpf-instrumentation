@@ -40,6 +40,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     && rm protoc.zip
 
 # Install protoc-gen-go, protoc-gen-go-grpc, and eBPF tools.
+# TODO: use go.tool
 RUN --mount=type=cache,target=/go/pkg \
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest \
 	&& go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest \
