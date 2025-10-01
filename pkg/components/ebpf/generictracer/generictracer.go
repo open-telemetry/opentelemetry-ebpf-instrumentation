@@ -271,6 +271,10 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeTcpConnect,
 		},
+		"udp_sendmsg": {
+			Required: true,
+			Start:    p.bpfObjects.ObiKprobeUdpSendmsg,
+		},
 		"tcp_close": {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeTcpClose,

@@ -1,0 +1,177 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+#pragma once
+
+#include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_core_read.h>
+#include <bpfcore/bpf_endian.h>
+#include <bpfcore/bpf_helpers.h>
+
+#include <common/connection_info.h>
+#include <common/http_types.h>
+#include <common/ringbuf.h>
+#include <common/trace_common.h>
+#include <common/trace_util.h>
+
+#include <generictracer/k_tracer_defs.h>
+#include <generictracer/protocol_tcp.h>
+
+#include <maps/sock_pids.h>
+
+#include <pid/types/pid_info.h>
+
+#define DNS_QR_QUERY 0
+#define DNS_QR_RESP 1
+
+// https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
+union dnsflags {
+    struct {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        __u8 rcode : 4;  // response code
+        __u8 z : 3;      // reserved
+        __u8 ra : 1;     // recursion available
+        __u8 rd : 1;     // recursion desired
+        __u8 tc : 1;     // truncation
+        __u8 aa : 1;     // authoritative answer
+        __u8 opcode : 4; // kind of query
+        __u8 qr : 1;     // 0=query; 1=response
+#elif __BYTE_ORDER == __ORDER_BIG_ENDIAN__
+        __u8 qr : 1;     // 0=query; 1=response
+        __u8 opcode : 4; // kind of query
+        __u8 aa : 1;     // authoritative answer
+        __u8 tc : 1;     // truncation
+        __u8 rd : 1;     // recursion desired
+        __u8 ra : 1;     // recursion available
+        __u8 z : 3;      // reserved
+        __u8 rcode : 4;  // response code
+#else
+#error "Fix your compiler's __BYTE_ORDER__?!"
+#endif
+    };
+    __u16 flags;
+};
+
+struct dnshdr {
+    __u16 id;
+
+    union dnsflags flags;
+
+    __u16 qdcount; // number of question entries
+    __u16 ancount; // number of answer entries
+    __u16 nscount; // number of authority records
+    __u16 arcount; // number of additional records
+};
+
+#define DNS_MAX_LEN 516
+
+typedef struct dns_req {
+    u8 flags; // Must be fist we use it to tell what kind of packet we have on the ring buffer
+    u8 p_type;
+    u8 dns_q;
+    u8 _pad1[1];
+    u32 len;
+    pid_connection_info_t p_conn;
+    u16 id;
+    u8 _pad2[6];
+    tp_info_t tp;
+    u64 ts;
+    // we need this to filter traces from unsolicited processes that share the executable
+    // with other instrumented processes
+    pid_info pid;
+    unsigned char buf[DNS_MAX_LEN];
+} dns_req_t;
+
+static __always_inline u8 is_dns_port(u16 port) {
+    return port == 53 || port == 5353;
+}
+
+static __always_inline u8 is_dns(connection_info_t *conn) {
+    return is_dns_port(conn->s_port) || is_dns_port(conn->d_port);
+}
+
+static __always_inline u8 handle_dns(struct __sk_buff *skb,
+                                     connection_info_t *conn,
+                                     protocol_info_t *p_info) {
+
+    u16 dns_off = 0;
+    u16 l4_off = p_info->ip_len;
+    // Calculate the DNS offset in the packet
+    struct tcphdr tcph;
+
+    switch (p_info->l4_proto) {
+    case IPPROTO_UDP:
+        dns_off = l4_off + sizeof(struct udphdr);
+        break;
+    case IPPROTO_TCP:
+        // This is best effort, since we don't reassemble TCP segments.
+        if (bpf_skb_load_bytes(skb, l4_off, &tcph, sizeof tcph))
+            return 0;
+
+        // The data offset field in the header is specified in 32-bit words. We
+        // have to multiply this value by 4 to get the TCP header length in bytes.
+        __u8 tcp_header_len = tcph.doff * 4;
+
+        // Skip if we don't have any data to avoid handling control segments
+        dns_off = l4_off + tcp_header_len;
+        if (skb->len <= dns_off)
+            return 0;
+
+        // DNS is after the TCP header and the 2 bytes of the length of the DNS packet
+        dns_off += 2;
+        break;
+    default:
+        return 0;
+    }
+
+    union dnsflags flags;
+    bpf_skb_load_bytes(skb, dns_off + offsetof(struct dnshdr, flags), &flags.flags, sizeof(u16));
+
+    u8 qr = flags.qr;
+    if (qr == DNS_QR_QUERY || qr == DNS_QR_RESP) {
+        u16 id = 0;
+        bpf_skb_load_bytes(skb, dns_off + offsetof(struct dnshdr, id), &id, sizeof(u16));
+        u16 orig_dport = conn->d_port;
+        sort_connection_info(conn);
+        conn_pid_t *conn_pid = bpf_map_lookup_elem(&sock_pids, conn);
+
+        if (!conn_pid) {
+            bpf_d_printk("can't find connection info for dns call");
+            return 0;
+        }
+
+        dns_req_t *req = bpf_ringbuf_reserve(&events, sizeof(dns_req_t), 0);
+
+        if (req) {
+            __builtin_memcpy(&req->p_conn.conn, conn, sizeof(connection_info_t));
+            req->p_conn.pid = conn_pid->p_info.host_pid;
+
+            req->flags = EVENT_DNS_REQUEST;
+            req->p_type = skb->pkt_type;
+            req->len = skb->len;
+            req->dns_q = qr;
+            req->id = id;
+            req->ts = bpf_ktime_get_ns();
+            __builtin_memcpy(&req->pid, &conn_pid->p_info, sizeof(pid_info));
+
+            trace_key_t t_key = {0};
+            trace_key_from_pid_tid_with_p_key(&t_key, &conn_pid->p_key, conn_pid->id);
+
+            u8 found = find_trace_for_client_request_with_t_key(
+                &req->p_conn, orig_dport, &t_key, conn_pid->id, &req->tp);
+            bpf_dbg_printk("Looking up client trace info, found %d", found);
+            if (found) {
+                urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
+            } else {
+                init_new_trace(&req->tp);
+            }
+            read_skb_bytes(skb, dns_off, req->buf, sizeof(req->buf));
+            bpf_d_printk("sending dns trace");
+            bpf_ringbuf_submit(req, get_flags());
+        }
+
+        return 1;
+    }
+
+    return 0;
+}

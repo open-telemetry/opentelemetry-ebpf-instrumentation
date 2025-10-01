@@ -55,6 +55,14 @@ static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
     t_key->extra_id = extra_id;
 }
 
+static __always_inline void
+trace_key_from_pid_tid_with_p_key(trace_key_t *t_key, pid_key_t *p_key, u64 id) {
+    t_key->p_key = *p_key;
+
+    u64 extra_id = extra_runtime_id_with_task_id(id);
+    t_key->extra_id = extra_id;
+}
+
 static int tp_match(u32 index, void *data) {
     if (index >= (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) {
         return 1;
@@ -128,7 +136,7 @@ find_nginx_parent_trace(const pid_connection_info_t *p_conn, u16 orig_dport) {
 }
 
 static __always_inline const tp_info_pid_t *
-find_nodejs_parent_trace(const pid_connection_info_t *p_conn, u16 orig_dport) {
+find_nodejs_parent_trace(const pid_connection_info_t *p_conn, u16 orig_dport, u64 pid_tgid) {
     connection_info_part_t client_part = {};
     populate_ephemeral_info(&client_part, &p_conn->conn, orig_dport, p_conn->pid, FD_CLIENT);
     fd_info_t *fd_info = fd_info_for_conn(&client_part);
@@ -137,7 +145,6 @@ find_nodejs_parent_trace(const pid_connection_info_t *p_conn, u16 orig_dport) {
         return NULL;
     }
 
-    const u64 pid_tgid = bpf_get_current_pid_tgid();
     const u64 client_key = (pid_tgid << 32) | fd_info->fd;
 
     const s32 *node_parent_request_fd = bpf_map_lookup_elem(&nodejs_fd_map, &client_key);
@@ -192,21 +199,19 @@ static __always_inline const tp_info_pid_t *find_parent_process_trace(trace_key_
 }
 
 static __always_inline const tp_info_pid_t *find_parent_trace(const pid_connection_info_t *p_conn,
+                                                              trace_key_t *t_key,
+                                                              u64 pid_tgid,
                                                               u16 orig_dport) {
-    const tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport);
+    const tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
 
     if (node_tp) {
         return node_tp;
     }
 
-    trace_key_t t_key = {0};
-
-    trace_key_from_pid_tid(&t_key);
-
     bpf_dbg_printk("Looking up parent trace for pid=%d, ns=%lx, extra_id=%llx",
-                   t_key.p_key.pid,
-                   t_key.p_key.ns,
-                   t_key.extra_id);
+                   t_key->p_key.pid,
+                   t_key->p_key.ns,
+                   t_key->extra_id);
 
     const tp_info_pid_t *nginx_parent = find_nginx_parent_trace(p_conn, orig_dport);
 
@@ -214,7 +219,7 @@ static __always_inline const tp_info_pid_t *find_parent_trace(const pid_connecti
         return nginx_parent;
     }
 
-    const tp_info_pid_t *proc_parent = find_parent_process_trace(&t_key);
+    const tp_info_pid_t *proc_parent = find_parent_process_trace(t_key);
 
     if (proc_parent) {
         return proc_parent;
@@ -382,10 +387,13 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
     return found_tp;
 }
 
-static __always_inline u8 find_trace_for_client_request(const pid_connection_info_t *p_conn,
-                                                        u16 orig_dport,
-                                                        tp_info_t *tp) {
-    const tp_info_pid_t *server_tp = find_parent_trace(p_conn, orig_dport);
+static __always_inline u8
+find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
+                                         u16 orig_dport,
+                                         trace_key_t *t_key,
+                                         u64 pid_tgid,
+                                         tp_info_t *tp) {
+    const tp_info_pid_t *server_tp = find_parent_trace(p_conn, t_key, orig_dport, pid_tgid);
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");
@@ -395,4 +403,15 @@ static __always_inline u8 find_trace_for_client_request(const pid_connection_inf
     }
 
     return 0;
+}
+
+static __always_inline u8 find_trace_for_client_request(const pid_connection_info_t *p_conn,
+                                                        u16 orig_dport,
+                                                        tp_info_t *tp) {
+
+    trace_key_t t_key = {0};
+    trace_key_from_pid_tid(&t_key);
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+
+    return find_trace_for_client_request_with_t_key(p_conn, orig_dport, &t_key, pid_tgid, tp);
 }

@@ -84,6 +84,12 @@ static __always_inline void dbg_print_http_connection_info_part(connection_info_
                    *(u64 *)(&info->addr[8]),
                    info->port);
 }
+static __always_inline void d_print_http_connection_info_part(connection_info_part_t *info) {
+    bpf_d_printk("[conn part] s_h = %llx, s_l = %llx, s_port=%d",
+                 *(u64 *)(&info->addr),
+                 *(u64 *)(&info->addr[8]),
+                 info->port);
+}
 static __always_inline void d_print_http_connection_info(connection_info_t *info) {
     bpf_d_printk("[conn] s_h = %llx, s_l = %llx, s_port=%d",
                  *(u64 *)(&info->s_addr),
@@ -98,6 +104,8 @@ static __always_inline void d_print_http_connection_info(connection_info_t *info
 static __always_inline void dbg_print_http_connection_info(connection_info_t *info) {
 }
 static __always_inline void dbg_print_http_connection_info_part(connection_info_part_t *info) {
+}
+static __always_inline void d_print_http_connection_info_part(connection_info_part_t *info) {
 }
 static __always_inline void d_print_http_connection_info(connection_info_t *info) {
 }
@@ -122,6 +130,13 @@ static __always_inline void swap_connection_info_order(connection_info_t *info) 
     __builtin_memcpy(tmp_addr, info->s_addr, sizeof(tmp_addr));
     __builtin_memcpy(info->s_addr, info->d_addr, sizeof(info->s_addr));
     __builtin_memcpy(info->d_addr, tmp_addr, sizeof(info->d_addr));
+}
+
+static __always_inline void copy_connection_info(connection_info_t *dst, connection_info_t *src) {
+    dst->s_port = src->s_port;
+    dst->d_port = src->d_port;
+    __builtin_memcpy(dst->s_addr, src->s_addr, sizeof(src->s_addr));
+    __builtin_memcpy(dst->d_addr, src->d_addr, sizeof(src->d_addr));
 }
 
 // Since we track both send and receive connections, we need to sort the source and destination

@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+#include <common/dns.h>
 #include <common/pin_internal.h>
 #include <common/sock_port_ns.h>
 #include <common/sockaddr.h>
@@ -34,6 +35,7 @@
 #include <maps/fd_to_connection.h>
 #include <maps/msg_buffers.h>
 #include <maps/sk_buffers.h>
+#include <maps/sock_pids.h>
 
 #include <pid/pid.h>
 
@@ -202,6 +204,20 @@ int BPF_KPROBE(obi_kprobe_sys_connect) {
     return 0;
 }
 
+static __always_inline void store_sock_pid(struct sock *sk) {
+    connection_info_t conn;
+    if (parse_sock_info(sk, &conn)) {
+        sort_connection_info(&conn);
+
+        conn_pid_t conn_pid = {0};
+        task_pid(&conn_pid.p_info);
+        task_tid(&conn_pid.p_key);
+        conn_pid.id = bpf_get_current_pid_tgid();
+
+        bpf_map_update_elem(&sock_pids, &conn, &conn_pid, BPF_ANY);
+    }
+}
+
 // Used by connect so that we can grab the sock details
 SEC("kprobe/tcp_connect")
 int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
@@ -214,6 +230,7 @@ int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
     }
 
     u64 addr = (u64)sk;
+    store_sock_pid(sk);
 
     sock_args_t *args = bpf_map_lookup_elem(&active_connect_args, &id);
 
@@ -222,6 +239,24 @@ int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
     if (args) {
         args->addr = addr;
     }
+
+    return 0;
+}
+
+// Used by connect so that we can grab the sock details
+SEC("kprobe/udp_sendmsg")
+int BPF_KPROBE(obi_kprobe_udp_sendmsg, struct sock *sk) {
+    (void)ctx;
+
+    u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== udp_sendmsg %llx sock %llx ===", id, sk);
+
+    store_sock_pid(sk);
 
     return 0;
 }
@@ -850,7 +885,15 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
     protocol_info_t tcp = {};
     connection_info_t conn = {};
 
-    if (!read_sk_buff(skb, &tcp, &conn)) {
+    u8 success = read_sk_buff(skb, &tcp, &conn);
+
+    if (is_dns(&conn)) {
+        if (handle_dns(skb, &conn, &tcp)) {
+            return 0;
+        }
+    }
+
+    if (!success) {
         return 0;
     }
 

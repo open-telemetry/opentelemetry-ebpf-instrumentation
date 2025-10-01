@@ -44,7 +44,6 @@ read_sk_buff(struct __sk_buff *skb, protocol_info_t *tcp, connection_info_t *con
         bpf_skb_load_bytes(skb, ETH_HLEN, &hdr_len, sizeof(hdr_len));
         hdr_len &= 0x0f;
         hdr_len *= 4;
-        tcp->ip_len = hdr_len;
 
         /* verify hlen meets minimum size requirements */
         if (hdr_len < sizeof(struct iphdr)) {
@@ -70,6 +69,7 @@ read_sk_buff(struct __sk_buff *skb, protocol_info_t *tcp, connection_info_t *con
         __builtin_memcpy(conn->d_addr + sizeof(ip4ip6_prefix), &daddr, sizeof(daddr));
 
         tcp->hdr_len = ETH_HLEN + hdr_len;
+        tcp->ip_len = tcp->hdr_len;
         break;
     }
     case ETH_P_IPV6:
@@ -110,8 +110,6 @@ read_sk_buff(struct __sk_buff *skb, protocol_info_t *tcp, connection_info_t *con
     conn->d_port = __bpf_htons(port);
 
     if (proto != IPPROTO_TCP) {
-        bpf_d_printk("not TCP");
-        d_print_http_connection_info(conn);
         return false;
     }
 
