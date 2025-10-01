@@ -71,6 +71,8 @@ spec:
           value: "10ms"
         - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
           value: "10ms"
+        - name: OTEL_EBPF_NETWORK_SAMPLING
+          value: "0"
         - name: OTEL_EBPF_LOG_LEVEL
           value: "DEBUG"
         - name: OTEL_EBPF_BPF_DEBUG

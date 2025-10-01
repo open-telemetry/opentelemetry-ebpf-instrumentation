@@ -108,6 +108,8 @@ spec:
               value: "DEBUG"
             - name: OTEL_EBPF_BPF_DEBUG
               value: "TRUE"
+            - name: OTEL_EBPF_NETWORK_SAMPLING
+              value: "0"
             - name: OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT
               value: "8999"
             - name: OTEL_EBPF_KUBE_METADATA_ENABLE

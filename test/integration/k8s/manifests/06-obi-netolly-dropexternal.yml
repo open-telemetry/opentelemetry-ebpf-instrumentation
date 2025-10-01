@@ -77,6 +77,8 @@ spec:
               value: "10ms"
             - name: OTEL_EBPF_KUBE_CLUSTER_NAME
               value: "obi"
+            - name: OTEL_EBPF_NETWORK_SAMPLING
+              value: "0"
             # expecting to be replaced during the configuration YAML load
             - name: DEPLOYMENT_ENVIRONMENT
               value: "deployment.environment"
