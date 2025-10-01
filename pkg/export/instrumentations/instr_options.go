@@ -14,6 +14,7 @@ const (
 	InstrumentationKafka = "kafka"
 	InstrumentationGPU   = "gpu"
 	InstrumentationMongo = "mongo"
+	InstrumentationDNS   = "dns"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 	flagKafka
 	flagGPU
 	flagMongo
+	flagDNS
 )
 
 func strToFlag(str string) InstrumentationSelection {
@@ -45,6 +47,8 @@ func strToFlag(str string) InstrumentationSelection {
 		return flagGPU
 	case InstrumentationMongo:
 		return flagMongo
+	case InstrumentationDNS:
+		return flagDNS
 	}
 	return 0
 }
@@ -92,4 +96,8 @@ func (s InstrumentationSelection) GPUEnabled() bool {
 
 func (s InstrumentationSelection) MongoEnabled() bool {
 	return s&flagMongo != 0
+}
+
+func (s InstrumentationSelection) DNSEnabled() bool {
+	return s&flagDNS != 0
 }

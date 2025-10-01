@@ -68,6 +68,7 @@ var DefaultConfig = Config{
 		BatchLength:               100,
 		BatchTimeout:              time.Second,
 		HTTPRequestTimeout:        0,
+		DNSRequestTimeout:         5 * time.Second,
 		TCBackend:                 tcmanager.TCBackendAuto,
 		ContextPropagationEnabled: false,
 		ContextPropagation:        config.ContextPropagationDisabled,

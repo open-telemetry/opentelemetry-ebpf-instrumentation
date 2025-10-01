@@ -8,6 +8,7 @@
 #include <bpfcore/bpf_endian.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/common.h>
 #include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/ringbuf.h>
@@ -62,25 +63,6 @@ struct dnshdr {
     __u16 nscount; // number of authority records
     __u16 arcount; // number of additional records
 };
-
-#define DNS_MAX_LEN 516
-
-typedef struct dns_req {
-    u8 flags; // Must be fist we use it to tell what kind of packet we have on the ring buffer
-    u8 p_type;
-    u8 dns_q;
-    u8 _pad1[1];
-    u32 len;
-    pid_connection_info_t p_conn;
-    u16 id;
-    u8 _pad2[6];
-    tp_info_t tp;
-    u64 ts;
-    // we need this to filter traces from unsolicited processes that share the executable
-    // with other instrumented processes
-    pid_info pid;
-    unsigned char buf[DNS_MAX_LEN];
-} dns_req_t;
 
 static __always_inline u8 is_dns_port(u16 port) {
     return port == 53 || port == 5353;

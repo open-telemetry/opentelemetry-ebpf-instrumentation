@@ -23,6 +23,7 @@ import (
 	trace2 "go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
+	"go.opentelemetry.io/obi/pkg/components/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -280,6 +281,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return true
 	case request.EventTypeFailedConnect:
 		return true
+	case request.EventTypeDNS:
+		return is.DNSEnabled()
 	}
 
 	return false
@@ -431,6 +434,18 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.ClientAddr(request.SpanHost(span)),
 			request.ServerAddr(request.PeerAsClient(span)),
 			request.ServerPort(span.HostPort),
+		}
+	case request.EventTypeDNS:
+		attrs = []attribute.KeyValue{
+			request.ClientAddr(request.SpanHost(span)),
+			request.ServerAddr(request.PeerAsClient(span)),
+			request.ServerPort(span.HostPort),
+			semconv.DNSQuestionName(span.Path),
+			request.DNSAnswers(span.Statement),
+		}
+
+		if span.Status != 0 {
+			attrs = append(attrs, request.ErrorMessage(dnsparser.RCode(span.Status).String()))
 		}
 	}
 

@@ -45,6 +45,7 @@ const (
 	EventTypeGPUMalloc
 	EventTypeGPUMemcpy
 	EventTypeFailedConnect
+	EventTypeDNS
 )
 
 const (
@@ -111,6 +112,8 @@ func (t EventType) String() string {
 		return "CUSTOM"
 	case EventTypeFailedConnect:
 		return "CONNECTION ERR"
+	case EventTypeDNS:
+		return "DNS"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}
@@ -442,7 +445,7 @@ func SpanStatusCode(span *Span) string {
 		return HTTPSpanStatusCode(span)
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return GrpcSpanStatusCode(span)
-	case EventTypeSQLClient, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient:
+	case EventTypeSQLClient, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS:
 		if span.Status != 0 {
 			return StatusCodeError
 		}
@@ -605,6 +608,14 @@ func (s *Span) TraceName() string {
 		return s.Method
 	case EventTypeFailedConnect:
 		return "TCP CONNECT"
+	case EventTypeDNS:
+		if s.Path == "" {
+			if s.Method == "" {
+				return "DNS"
+			}
+			return s.Method
+		}
+		return s.Method + " " + s.Path
 	}
 	return ""
 }

@@ -102,6 +102,9 @@ type EBPFTracer struct {
 
 	// MongoDB requests cache size.
 	MongoRequestsCacheSize int `yaml:"mongo_requests_cache_size" env:"OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE"`
+
+	// DNS timeout after which we report failed event
+	DNSRequestTimeout time.Duration `yaml:"dns_request_timeout" env:"OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT"`
 }
 
 // Per-protocol data buffer size in bytes.

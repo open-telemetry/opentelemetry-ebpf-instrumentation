@@ -239,3 +239,22 @@ typedef struct mongo_go_client_req {
     connection_info_t conn;
     tp_info_t tp;
 } mongo_go_client_req_t;
+
+#define DNS_MAX_LEN 516
+
+typedef struct dns_req {
+    u8 flags; // Must be fist we use it to tell what kind of packet we have on the ring buffer
+    u8 p_type;
+    u8 dns_q;
+    u8 _pad1[1];
+    u32 len;
+    pid_connection_info_t p_conn;
+    u16 id;
+    u8 _pad2[6];
+    tp_info_t tp;
+    u64 ts;
+    // we need this to filter traces from unsolicited processes that share the executable
+    // with other instrumented processes
+    pid_info pid;
+    unsigned char buf[DNS_MAX_LEN];
+} dns_req_t;
