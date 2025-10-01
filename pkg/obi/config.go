@@ -132,7 +132,7 @@ var DefaultConfig = Config{
 			Port: 0, // disabled by default
 			Path: "/internal/metrics",
 		},
-		BpfMetricScrapeInterval: 15 * time.Second,
+		BpfMetricScrapeInterval: 30 * time.Minute,
 	},
 	Attributes: Attributes{
 		InstanceID: traces.InstanceIDConfig{
