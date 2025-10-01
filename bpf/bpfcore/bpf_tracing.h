@@ -520,7 +520,6 @@ struct pt_regs;
     }                                                                                              \
     static                                                                                         \
         __attribute__((always_inline)) typeof(name(0)) ____##name(unsigned long long *ctx, ##args)
-                                                                     ##args)
 
 struct pt_regs;
 
