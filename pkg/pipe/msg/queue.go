@@ -101,7 +101,7 @@ func (q *Queue[T]) Send(o T) {
 	q.chainedSend(o, []string{q.cfg.name})
 }
 
-// Send a message to all subscribers of this queue.
+// TrySend sends a message to all subscribers of this queue.
 // If there are no subscribers at the moment of sending the message, the message will be lost.
 // If there are subscribers, the message will be stored on their respective internal channels
 // until it is read by the subscribers. In these cases, TrySend returns true.
