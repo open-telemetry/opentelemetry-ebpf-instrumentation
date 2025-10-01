@@ -265,6 +265,11 @@ SEC("kprobe/tcp")
 int obi_protocol_tcp(void *ctx) {
     (void)ctx;
 
+    // it assumes that the actual protocol_args have been previously set
+    // from another BPF function.
+    // If that's not the case, the connection details might be empty.
+    // If the same thread manages multiple connections at the same thread,
+    // the retrieved data might end up being wrong.
     call_protocol_args_t *args = protocol_args();
 
     if (!args) {
