@@ -3,13 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Generate standard test matrix with configurable partitions
-# Usage: ./scripts/generate-integration-matrix.sh [test_tags] [search_dir] [partitions]
+# Usage: ./scripts/generate-integration-matrix.sh [test_tags] [search_dir] [partitions] [test_pattern]
 
 set -e
 
 TEST_TAGS="${1:-integration}"
 SEARCH_DIR="${2:-test/integration}"
 PARTITIONS="${3:-5}"
+TEST_PATTERN="${4:-Test}"
 
 # Get test names (embedded list-tests.sh logic)
 if [ -n "$TEST_TAGS" ]; then
@@ -26,7 +27,7 @@ if [ -z "$FILES" ]; then
 fi
 
 # Extract test function names from the files and randomize order
-TEST_NAMES=$(grep -h "^func Test" $FILES | sed 's/^func \([^(]*\).*/\1/' | sort -u | sort -R)
+TEST_NAMES=$(grep -h "^func $TEST_PATTERN" $FILES | sed 's/^func \([^(]*\).*/\1/' | sort -u | sort -R)
 
 if [ -z "$TEST_NAMES" ]; then
     echo "ERROR: No tests found for tags '$TEST_TAGS' in '$SEARCH_DIR'" >&2
@@ -35,17 +36,10 @@ fi
 
 TOTAL_TESTS=$(echo "$TEST_NAMES" | wc -l | tr -d " ")
 
-if [ "$TOTAL_TESTS" -lt 10 ]; then
-    echo "ERROR: Expected at least 10 tests, but found only $TOTAL_TESTS" >&2
-    echo "Found tests:" >&2
-    echo "$TEST_NAMES" >&2
-    exit 1
-fi
-
 BASE_TESTS_PER_SHARD=$((TOTAL_TESTS / PARTITIONS))
 EXTRA_TESTS=$((TOTAL_TESTS % PARTITIONS))
 
-echo "Total tests: $TOTAL_TESTS, Base tests per shard: $BASE_TESTS_PER_SHARD, Extra tests: $EXTRA_TESTS" >&2
+echo "Total tests matching '$TEST_PATTERN': $TOTAL_TESTS, Base tests per shard: $BASE_TESTS_PER_SHARD, Extra tests: $EXTRA_TESTS" >&2
 
 # Generate matrix JSON
 MATRIX_JSON='{"include":['

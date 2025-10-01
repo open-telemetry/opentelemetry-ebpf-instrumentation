@@ -101,8 +101,11 @@ $(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
 GOLICENSES = $(TOOLS)/go-licenses
 $(TOOLS)/go-licenses: PACKAGE=github.com/google/go-licenses/v2
 
+GOTESTSUM = $(TOOLS)/gotestsum
+$(TOOLS)/gotestsum: PACKAGE=gotest.tools/gotestsum
+
 .PHONY: tools
-tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES)
+tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM)
 
 ### Development Tools (end) #################################################
 
@@ -270,8 +273,29 @@ run-integration-test-k8s:
 
 .PHONY: run-integration-test-vm
 run-integration-test-vm:
-	@echo "### Running integration tests"
-	go test -p 1 -failfast -v -timeout 90m -a ./test/integration/... --tags=integration -run "^TestMultiProcess"
+	@echo "### Running integration tests (pattern: $(TEST_PATTERN))"
+	@TEST_TIMEOUT="60m"; \
+	TEST_PARALLEL="1"; \
+	if [ -f "/precompiled-tests/integration.test" ]; then \
+		echo "Using pre-compiled integration tests"; \
+		chmod +x /precompiled-tests/integration.test; \
+		/precompiled-tests/integration.test \
+			-test.parallel=$$TEST_PARALLEL \
+			-test.timeout=$$TEST_TIMEOUT \
+			-test.failfast \
+			-test.v \
+			-test.run="^($(TEST_PATTERN))\$$"; \
+	else \
+		echo "Pre-compiled tests not found, compiling in VM"; \
+		$(MAKE) $(GOTESTSUM); \
+		$(GOTESTSUM) -ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
+			-p $$TEST_PARALLEL \
+			-timeout $$TEST_TIMEOUT \
+			-failfast \
+			-v -a \
+			-tags=integration \
+			-run="^($(TEST_PATTERN))\$$" ./test/integration/...; \
+	fi
 
 .PHONY: run-integration-test-arm
 run-integration-test-arm:
@@ -282,6 +306,10 @@ run-integration-test-arm:
 .PHONY: integration-test-matrix-json
 integration-test-matrix-json:
 	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" test/integration "$${PARTITIONS:-5}"
+
+.PHONY: vm-integration-test-matrix-json
+vm-integration-test-matrix-json:
+	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" test/integration "$${PARTITIONS:-3}" "TestMultiProcess"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
