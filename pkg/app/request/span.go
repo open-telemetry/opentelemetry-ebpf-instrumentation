@@ -607,7 +607,7 @@ func (s *Span) TraceName() string {
 	case EventTypeManualSpan:
 		return s.Method
 	case EventTypeFailedConnect:
-		return "TCP CONNECT"
+		return "CONNECT"
 	case EventTypeDNS:
 		if s.Path == "" {
 			if s.Method == "" {

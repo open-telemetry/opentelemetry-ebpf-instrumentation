@@ -213,6 +213,7 @@ static __always_inline void store_sock_pid(struct sock *sk) {
         task_pid(&conn_pid.p_info);
         task_tid(&conn_pid.p_key);
         conn_pid.id = bpf_get_current_pid_tgid();
+        conn_pid.ts = bpf_ktime_get_ns();
 
         bpf_map_update_elem(&sock_pids, &conn, &conn_pid, BPF_ANY);
     }
@@ -618,15 +619,21 @@ int BPF_KPROBE(obi_kprobe_sk_error_report, struct sock *sk) {
 
     bpf_dbg_printk("=== kprobe sk_error_report %d sock %llx args %llx ===", id, sk, args);
 
-    if (args) {
-        pid_connection_info_t info = {};
+    pid_connection_info_t info = {};
+    if (parse_sock_info(sk, &info.conn)) {
+        info.pid = pid_from_pid_tgid(id);
+        u16 orig_dport = info.conn.d_port;
+        sort_connection_info(&info.conn);
 
-        if (parse_sock_info(sk, &info.conn)) {
-            info.pid = pid_from_pid_tgid(id);
-            u16 orig_dport = info.conn.d_port;
-            sort_connection_info(&info.conn);
+        if (args) {
             dbg_print_http_connection_info(&info.conn);
             failed_to_connect_event(&info, orig_dport, args->ts);
+        } else {
+            conn_pid_t *conn_pid = bpf_map_lookup_elem(&sock_pids, &info.conn);
+            if (conn_pid && conn_pid->id == id) {
+                dbg_print_http_connection_info(&info.conn);
+                failed_to_connect_event(&info, orig_dport, conn_pid->ts);
+            }
         }
     }
 

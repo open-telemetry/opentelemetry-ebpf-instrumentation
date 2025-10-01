@@ -16,6 +16,7 @@ typedef struct conn_pid {
     pid_info p_info;
     pid_key_t p_key;
     u64 id;
+    u64 ts;
 } conn_pid_t;
 
 // A map of sockets which we track to supply pid information
