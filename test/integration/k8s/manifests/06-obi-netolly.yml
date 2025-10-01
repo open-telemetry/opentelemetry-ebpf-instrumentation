@@ -90,3 +90,5 @@ spec:
               value: "1s"
             - name: OTEL_METRIC_EXPORT_INTERVAL
               value: "5000"
+            - name: OTEL_EBPF_NETWORK_SAMPLING
+              value: "0"
