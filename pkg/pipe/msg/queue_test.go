@@ -31,11 +31,37 @@ func TestNoSubscribers(t *testing.T) {
 	testutil.ChannelEmpty(t, sent, 5*time.Millisecond)
 }
 
+func TestNoSubscribers_Try(t *testing.T) {
+	// test that sender is not blocked if there aren't subscribers
+	q := NewQueue[int](ChannelBufferLen(0))
+	sent := make(chan int)
+	go func() {
+		assert.True(t, q.TrySend(1))
+		close(sent)
+	}()
+	testutil.ReadChannel(t, sent, timeout)
+	testutil.ChannelEmpty(t, sent, 5*time.Millisecond)
+}
+
 func TestMultipleSubscribers(t *testing.T) {
 	q := NewQueue[int]()
 	ch1 := q.Subscribe()
 	ch2 := q.Subscribe()
 	go q.Send(123)
+
+	assert.Equal(t, 123, testutil.ReadChannel(t, ch1, timeout))
+	assert.Equal(t, 123, testutil.ReadChannel(t, ch2, timeout))
+	testutil.ChannelEmpty(t, ch1, 5*time.Millisecond)
+	testutil.ChannelEmpty(t, ch2, 5*time.Millisecond)
+}
+
+func TestMultipleSubscribers_Try(t *testing.T) {
+	q := NewQueue[int]()
+	ch1 := q.Subscribe()
+	ch2 := q.Subscribe()
+	go func() {
+		assert.True(t, q.TrySend(123))
+	}()
 
 	assert.Equal(t, 123, testutil.ReadChannel(t, ch1, timeout))
 	assert.Equal(t, 123, testutil.ReadChannel(t, ch2, timeout))
@@ -53,12 +79,40 @@ func TestBypass(t *testing.T) {
 	testutil.ChannelEmpty(t, ch2, 5*time.Millisecond)
 }
 
+func TestBypass_Try(t *testing.T) {
+	q1 := NewQueue[int]()
+	q2 := NewQueue[int]()
+	ch2 := q2.Subscribe()
+	q1.Bypass(q2)
+
+	go func() {
+		assert.True(t, q1.TrySend(123))
+	}()
+
+	assert.Equal(t, 123, testutil.ReadChannel(t, ch2, timeout))
+	testutil.ChannelEmpty(t, ch2, 5*time.Millisecond)
+}
+
 func TestBypass_SubscribeAfterBypass(t *testing.T) {
 	q1 := NewQueue[int]()
 	q2 := NewQueue[int]()
 	q1.Bypass(q2)
 	ch2 := q2.Subscribe()
 	go q1.Send(123)
+	assert.Equal(t, 123, testutil.ReadChannel(t, ch2, timeout))
+	testutil.ChannelEmpty(t, ch2, 5*time.Millisecond)
+}
+
+func TestBypass_SubscribeAfterBypass_Try(t *testing.T) {
+	q1 := NewQueue[int]()
+	q2 := NewQueue[int]()
+	q1.Bypass(q2)
+	ch2 := q2.Subscribe()
+
+	go func() {
+		assert.True(t, q1.TrySend(123))
+	}()
+
 	assert.Equal(t, 123, testutil.ReadChannel(t, ch2, timeout))
 	testutil.ChannelEmpty(t, ch2, 5*time.Millisecond)
 }
@@ -76,6 +130,22 @@ func TestChainedBypass(t *testing.T) {
 	testutil.ChannelEmpty(t, ch3, 5*time.Millisecond)
 }
 
+func TestChainedBypass_Try(t *testing.T) {
+	q1 := NewQueue[int]()
+	q2 := NewQueue[int]()
+	q3 := NewQueue[int]()
+	q1.Bypass(q2)
+	q2.Bypass(q3)
+	ch3 := q3.Subscribe()
+
+	go func() {
+		assert.True(t, q1.TrySend(123))
+	}()
+
+	assert.Equal(t, 123, testutil.ReadChannel(t, ch3, timeout))
+	testutil.ChannelEmpty(t, ch3, 5*time.Millisecond)
+}
+
 func TestOneToManyBypass(t *testing.T) {
 	src := NewQueue[int]()
 	dst := NewQueue[int]()
@@ -84,6 +154,26 @@ func TestOneToManyBypass(t *testing.T) {
 	ch2 := dst.Subscribe()
 	ch3 := dst.Subscribe()
 	go src.Send(123)
+	assert.Equal(t, 123, testutil.ReadChannel(t, ch1, timeout))
+	assert.Equal(t, 123, testutil.ReadChannel(t, ch2, timeout))
+	assert.Equal(t, 123, testutil.ReadChannel(t, ch3, timeout))
+	testutil.ChannelEmpty(t, ch1, 5*time.Millisecond)
+	testutil.ChannelEmpty(t, ch2, 5*time.Millisecond)
+	testutil.ChannelEmpty(t, ch3, 5*time.Millisecond)
+}
+
+func TestOneToManyBypass_Try(t *testing.T) {
+	src := NewQueue[int]()
+	dst := NewQueue[int]()
+	src.Bypass(dst)
+	ch1 := dst.Subscribe()
+	ch2 := dst.Subscribe()
+	ch3 := dst.Subscribe()
+
+	go func() {
+		assert.True(t, src.TrySend(123))
+	}()
+
 	assert.Equal(t, 123, testutil.ReadChannel(t, ch1, timeout))
 	assert.Equal(t, 123, testutil.ReadChannel(t, ch2, timeout))
 	assert.Equal(t, 123, testutil.ReadChannel(t, ch3, timeout))
@@ -406,4 +496,24 @@ func TestBlockingPanics(t *testing.T) {
 			time.Sleep(2 * sendTimeout)
 		}, "a deadlock should have been detected")
 	})
+}
+
+func TestTrySend(t *testing.T) {
+	q1 := NewQueue[int](ChannelBufferLen(1), Name("q1"))
+	q2 := NewQueue[int](ChannelBufferLen(1), Name("q2"))
+	q2a1 := NewQueue[int](ChannelBufferLen(1), Name("q2a1"))
+	q2a2 := NewQueue[int](ChannelBufferLen(1), Name("q2a2"))
+
+	// q1 -> q2 -> q2a1 -> q2a2 // a dead path must not block if nobody subscribes to it
+	//         \-> ch           // path with actual subscribers
+	q1.Bypass(q2)
+	_ = q2.Subscribe(SubscriberName("test"))
+	q2.Bypass(q2a1)
+	q2a1.Bypass(q2a2)
+
+	// queue size is 1 -> this must succeed
+	assert.True(t, q1.TrySend(1))
+
+	// at this point, the queue is full, TrySend should return false
+	assert.False(t, q1.TrySend(2))
 }
