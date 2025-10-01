@@ -518,7 +518,8 @@ struct pt_regs;
                 ___bpf_ctx_cast(args));                                                            \
         _Pragma("GCC diagnostic pop")                                                              \
     }                                                                                              \
-    static __attribute__((always_inline)) typeof(name(0)) ____##name(unsigned long long *ctx,      \
+    static                                                                                         \
+        __attribute__((always_inline)) typeof(name(0)) ____##name(unsigned long long *ctx, ##args)
                                                                      ##args)
 
 struct pt_regs;
