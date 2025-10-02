@@ -94,11 +94,9 @@ spec:
               value: "tc"
             - name: OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT
               value: "100ms"
-            - name: OTEL_EBPF_NETWORK_RING_BUFFER_FLUSH_PERIOD
-              value: "2s"
+            - name: OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS
+              value: "20"
             - name: OTEL_EBPF_METRICS_INTERVAL
               value: "10ms"
             - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
-            - name: OTEL_EBPF_NETWORK_SAMPLING
-              value: "0"
