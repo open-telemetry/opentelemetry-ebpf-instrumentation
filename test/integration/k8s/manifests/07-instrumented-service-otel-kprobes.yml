@@ -126,5 +126,3 @@ spec:
           value: "autodetect"
         - name: OTEL_EBPF_NAME_RESOLVER_SOURCES
           value: "dns,k8s"
-        - name: OTEL_EBPF_NETWORK_SAMPLING
-          value: "0"

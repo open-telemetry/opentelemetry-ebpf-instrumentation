@@ -67,8 +67,6 @@ spec:
               value: "500ms"
             - name: OTEL_EBPF_METRICS_INTERVAL
               value: "10ms"
-            - name: OTEL_EBPF_NETWORK_SAMPLING
-              value: "0"
             - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
               value: "10ms"
             - name: OTEL_EBPF_NAME_RESOLVER_SOURCES

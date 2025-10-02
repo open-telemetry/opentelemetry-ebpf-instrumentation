@@ -221,7 +221,7 @@ func flowsAgent(
 		return iface
 	}
 
-	rbTracer := flow.NewRingBufTracer(fetcher, cfg.NetworkFlows.RingBufferFlushPeriod)
+	rbTracer := flow.NewRingBufTracer(fetcher)
 
 	return &Flows{
 		ctxInfo:        ctxInfo,
