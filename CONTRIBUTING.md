@@ -221,6 +221,7 @@ For more information about the maintainer role, see the [community repository](h
 
 * [Marc Tudurí](https://github.com/marctc), Grafana
 * [Mattia Meleleo](https://github.com/mmat11), Coralogix
+* [Nimrod Avni](https://github.com/NimrodAvni78), Coralogix
 * [Rafael Roquetto](https://github.com/rafaelroquetto), Grafana
 * [Stephen Lang](https://github.com/skl), Grafana
 
