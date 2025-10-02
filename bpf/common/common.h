@@ -52,8 +52,7 @@ enum large_buf_action : u8 {
 
 // Trace of an HTTP call invocation. It is instantiated by the return uprobe and forwarded to the
 // user space through the events ringbuffer.
-// TODO(matt): fix naming
-typedef struct http_request_trace_t {
+typedef struct http_request_trace {
     u8 type; // Must be first
     u8 _pad0[1];
     u16 status;
@@ -70,10 +69,9 @@ typedef struct http_request_trace_t {
     tp_info_t tp;
     connection_info_t conn;
     pid_info pid;
-} http_request_trace;
+} http_request_trace_t;
 
-// TODO(matt): fix naming
-typedef struct sql_request_trace_t {
+typedef struct sql_request_trace {
     u8 type; // Must be first
     u8 _pad[1];
     u16 status;
@@ -83,7 +81,7 @@ typedef struct sql_request_trace_t {
     tp_info_t tp;
     connection_info_t conn;
     unsigned char sql[SQL_MAX_LEN];
-} sql_request_trace;
+} sql_request_trace_t;
 
 typedef struct kafka_client_req {
     u8 type; // Must be first
@@ -194,18 +192,18 @@ typedef struct go_otel_key_value {
 
 #define OTEL_ATTRIBUTE_KEY_MAX_LEN (32)
 #define OTEL_ATTRIBUTE_VALUE_MAX_LEN (128)
-#define OTEL_ATTRUBUTE_MAX_COUNT (16)
+#define OTEL_ATTRIBUTE_MAX_COUNT (16)
 
-typedef struct otel_attirbute {
+typedef struct otel_attribute {
     u16 val_length;
     u8 vtype;
     u8 reserved;
     unsigned char key[OTEL_ATTRIBUTE_KEY_MAX_LEN];
     unsigned char value[OTEL_ATTRIBUTE_VALUE_MAX_LEN];
-} otel_attirbute_t;
+} otel_attribute_t;
 
 typedef struct otel_attributes {
-    otel_attirbute_t attrs[OTEL_ATTRUBUTE_MAX_COUNT];
+    otel_attribute_t attrs[OTEL_ATTRIBUTE_MAX_COUNT];
     u8 valid_attrs;
     u8 _apad;
 } otel_attributes_t;
