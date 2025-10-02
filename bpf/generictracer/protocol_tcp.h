@@ -265,6 +265,13 @@ SEC("kprobe/tcp")
 int obi_protocol_tcp(void *ctx) {
     (void)ctx;
 
+    // it assumes that the actual protocol_args have been previously set
+    // from another BPF function.
+    // If that's not the case, the connection details might be empty.
+    // If the same thread manages multiple connections at the same thread,
+    // in principle we should be anyway safe as this is part of a
+    // tail-call chain, so the current thread is currently inside the kernel
+    // (or blocked waiting for the kernel to complete) before it can service another connection.
     call_protocol_args_t *args = protocol_args();
 
     if (!args) {

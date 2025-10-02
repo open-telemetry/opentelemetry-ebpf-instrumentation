@@ -10,6 +10,9 @@
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
 
+// fd_map value is updated each time a new connection is detected, either at the client side
+// (sys_connect) or the server side (sys_accept).
+// It associates each connection with the PID/TID of the client/server handling it.
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, connection_info_part_t); // key: the connection info
