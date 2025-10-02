@@ -11,7 +11,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/components/netolly/flow/transport"
-	"go.opentelemetry.io/obi/pkg/components/testutil"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
