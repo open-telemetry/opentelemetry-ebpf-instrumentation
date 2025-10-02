@@ -103,7 +103,7 @@ typedef struct http2_grpc_request {
     tp_info_t tp;
 } http2_grpc_request_t;
 
-// Force emitting struct http_request_trace into the ELF for automatic creation of Golang struct
+// Force emitting struct http_info_t and http2_grpc_request_t into the ELF for automatic creation of Golang struct
 const http_info_t *unused __attribute__((unused));
 const http2_grpc_request_t *unused_http2 __attribute__((unused));
 

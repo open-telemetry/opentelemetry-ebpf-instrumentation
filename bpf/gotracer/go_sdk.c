@@ -427,7 +427,7 @@ int obi_uprobe_RecordError(struct pt_regs *ctx) {
                 "valid_attrs %d, len %d, go_str %s", valid_attrs, go_str.len, go_str.str);
 
             if ((go_str.len < OTEL_ATTRIBUTE_KEY_MAX_LEN) &&
-                (valid_attrs < OTEL_ATTRUBUTE_MAX_COUNT)) {
+                (valid_attrs < OTEL_ATTRIBUTE_MAX_COUNT)) {
                 __builtin_memcpy(
                     span->span_attrs.attrs[valid_attrs].key, ERROR_KEY, ERROR_KEY_SIZE);
                 bpf_probe_read_user(span->span_attrs.attrs[valid_attrs].value,
