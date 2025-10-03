@@ -146,8 +146,6 @@ static __always_inline bool is_socket_never_connected(struct sock *sk) {
     u8 sk_state = BPF_CORE_READ(sk, __sk_common.skc_state);
 
     // Socket was never connected if it's in these states:
-    return (sk_state == TCP_CLOSE ||    // Never connected or fully closed
-            sk_state == TCP_LISTEN ||   // Listening socket
-            sk_state == TCP_SYN_SENT || // Connection attempt in progress
+    return (sk_state == TCP_SYN_SENT || // Connection attempt in progress
             sk_state == TCP_SYN_RECV);  // SYN received but not established
 }
