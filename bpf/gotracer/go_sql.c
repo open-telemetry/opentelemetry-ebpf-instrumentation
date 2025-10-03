@@ -84,7 +84,7 @@ int obi_uprobe_queryReturn(struct pt_regs *ctx) {
     }
     bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
 
-    sql_request_trace *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace), 0);
+    sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
     if (trace) {
         task_pid(&trace->pid);
         trace->type = EVENT_SQL_CLIENT;

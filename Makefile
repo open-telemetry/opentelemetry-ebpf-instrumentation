@@ -101,8 +101,11 @@ $(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
 GOLICENSES = $(TOOLS)/go-licenses
 $(TOOLS)/go-licenses: PACKAGE=github.com/google/go-licenses/v2
 
+GOTESTSUM = $(TOOLS)/gotestsum
+$(TOOLS)/gotestsum: PACKAGE=gotest.tools/gotestsum
+
 .PHONY: tools
-tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES)
+tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM)
 
 ### Development Tools (end) #################################################
 
@@ -270,8 +273,29 @@ run-integration-test-k8s:
 
 .PHONY: run-integration-test-vm
 run-integration-test-vm:
-	@echo "### Running integration tests"
-	go test -p 1 -failfast -v -timeout 90m -a ./test/integration/... --tags=integration -run "^TestMultiProcess"
+	@echo "### Running integration tests (pattern: $(TEST_PATTERN))"
+	@TEST_TIMEOUT="60m"; \
+	TEST_PARALLEL="1"; \
+	if [ -f "/precompiled-tests/integration.test" ]; then \
+		echo "Using pre-compiled integration tests"; \
+		chmod +x /precompiled-tests/integration.test; \
+		/precompiled-tests/integration.test \
+			-test.parallel=$$TEST_PARALLEL \
+			-test.timeout=$$TEST_TIMEOUT \
+			-test.failfast \
+			-test.v \
+			-test.run="^($(TEST_PATTERN))\$$"; \
+	else \
+		echo "Pre-compiled tests not found, compiling in VM"; \
+		$(MAKE) $(GOTESTSUM); \
+		$(GOTESTSUM) -ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
+			-p $$TEST_PARALLEL \
+			-timeout $$TEST_TIMEOUT \
+			-failfast \
+			-v -a \
+			-tags=integration \
+			-run="^($(TEST_PATTERN))\$$" ./test/integration/...; \
+	fi
 
 .PHONY: run-integration-test-arm
 run-integration-test-arm:
@@ -281,40 +305,15 @@ run-integration-test-arm:
 
 .PHONY: integration-test-matrix-json
 integration-test-matrix-json:
-	@bash -c '\
-		set -e; \
-		TEST_NAMES=$$(cd test/integration && go test -tags integration -list . | grep "^Test" | sort); \
-		PARTITIONS=$${PARTITIONS:-5}; \
-		TOTAL_TESTS=$$(echo "$$TEST_NAMES" | wc -l | tr -d " "); \
-		if [ "$$TOTAL_TESTS" -lt 10 ]; then \
-			echo "ERROR: Expected at least 10 tests, but found only $$TOTAL_TESTS" >&2; \
-			echo "Found tests:" >&2; \
-			echo "$$TEST_NAMES" >&2; \
-			exit 1; \
-		fi; \
-		TESTS_PER_SHARD=$$(((TOTAL_TESTS + PARTITIONS - 1) / PARTITIONS)); \
-		echo "Total tests: $$TOTAL_TESTS, Tests per shard: $$TESTS_PER_SHARD" >&2; \
-		MATRIX_JSON="{\"include\":["; \
-		SHARD=0; \
-		FIRST_SHARD=true; \
-		while [ $$SHARD -lt $$PARTITIONS ]; do \
-			START=$$((SHARD * TESTS_PER_SHARD + 1)); \
-			END=$$(((SHARD + 1) * TESTS_PER_SHARD)); \
-			SHARD_TESTS=$$(echo "$$TEST_NAMES" | sed -n "$${START},$${END}p" | tr "\n" "|" | sed "s/|$$//"); \
-			if [ ! -z "$$SHARD_TESTS" ]; then \
-				if [ "$$FIRST_SHARD" = "false" ]; then \
-					MATRIX_JSON+=","; \
-				fi; \
-				FIRST_SHARD=false; \
-				TEST_COUNT=$$(echo "$$SHARD_TESTS" | tr "|" "\n" | wc -l | tr -d " "); \
-				MATRIX_JSON+="{\"id\":$$SHARD,\"description\":\"shard-$$SHARD ($$TEST_COUNT tests)\",\"test_pattern\":\"$$SHARD_TESTS\"}"; \
-				echo "Shard $$SHARD: $$TEST_COUNT tests" >&2; \
-			fi; \
-			SHARD=$$((SHARD + 1)); \
-		done; \
-		MATRIX_JSON+="]}"; \
-		echo "$$MATRIX_JSON"; \
-	'
+	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" test/integration "$${PARTITIONS:-5}"
+
+.PHONY: vm-integration-test-matrix-json
+vm-integration-test-matrix-json:
+	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" test/integration "$${PARTITIONS:-3}" "TestMultiProcess"
+
+.PHONY: k8s-integration-test-matrix-json
+k8s-integration-test-matrix-json:
+	@./scripts/generate-k8s-matrix.sh
 
 .PHONY: integration-test
 integration-test: prereqs prepare-integration-test
