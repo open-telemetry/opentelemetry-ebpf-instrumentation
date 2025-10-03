@@ -240,6 +240,7 @@ static __always_inline void setup_cp_support_conn_info(pid_connection_info_t *p_
     task_tid(&ct.t_key.p_key);
     u64 extra_id = extra_runtime_id();
     ct.t_key.extra_id = extra_id;
+    ct.ts = bpf_ktime_get_ns();
 
     // Support connection thread pools
     bpf_map_update_elem(&cp_support_connect_info, p_conn, &ct, BPF_ANY);
@@ -548,12 +549,27 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
 
     bpf_dbg_printk("=== kprobe tcp_close %d sock %llx ===", id, sk);
 
+    pid_connection_info_t info = {};
+    bool success = parse_sock_info(sk, &info.conn);
+
+    if (success) {
+        u16 orig_dport = info.conn.d_port;
+        sort_connection_info(&info.conn);
+        info.pid = pid_from_pid_tgid(id);
+
+        if (is_socket_never_connected(sk)) {
+            cp_support_data_t *ct = bpf_map_lookup_elem(&cp_support_connect_info, &info);
+            bpf_dbg_printk("=== never connected sock %d %llx ct=%llx ===", id, sk, ct);
+            if (ct) {
+                dbg_print_http_connection_info(&info.conn);
+                failed_to_connect_event(&info, orig_dport, ct->ts);
+            }
+        }
+    }
+
     ensure_sent_event(id, &sock_p);
 
-    pid_connection_info_t info = {};
-
-    if (parse_sock_info(sk, &info.conn)) {
-        sort_connection_info(&info.conn);
+    if (success) {
         //dbg_print_http_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
         terminate_http_request_if_needed(&info);
@@ -592,6 +608,7 @@ int BPF_KPROBE(obi_kprobe_sk_error_report, struct sock *sk) {
             sort_connection_info(&info.conn);
             dbg_print_http_connection_info(&info.conn);
             failed_to_connect_event(&info, orig_dport, args->ts);
+            bpf_map_delete_elem(&cp_support_connect_info, &info);
         }
     }
 
