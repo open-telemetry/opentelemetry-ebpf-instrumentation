@@ -567,7 +567,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         }
     }
 
-    ensure_sent_event(id, &sock_p);
+    force_sent_event(id, &sock_p);
 
     if (success) {
         //dbg_print_http_connection_info(&info.conn);

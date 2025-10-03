@@ -242,8 +242,14 @@ static __always_inline u8 is_duplicate_info(http_info_t *info) {
            current_immediate_epoch(ts) == current_immediate_epoch(info->start_monotime_ns);
 }
 
+static __always_inline void cleanup_http_info(pid_connection_info_t *pid_conn) {
+    bpf_map_delete_elem(&ongoing_http, pid_conn);
+}
+
 static __always_inline void finish_http(http_info_t *info, pid_connection_info_t *pid_conn) {
-    if (http_info_complete(info)) {
+    if (http_info_complete(info) && !info->submitted) {
+        info->submitted = 1;
+        bpf_map_update_elem(&ongoing_http, pid_conn, info, BPF_ANY);
         http_info_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_info_t), 0);
         if (trace) {
             bpf_dbg_printk("Sending trace %lx, response length %d", info, info->resp_len);
@@ -257,7 +263,8 @@ static __always_inline void finish_http(http_info_t *info, pid_connection_info_t
 
         // bpf_dbg_printk("Terminating trace for pid=%d", pid_from_pid_tgid(pid_tid));
         // dbg_print_http_connection_info(&info->conn_info); // commented out since GitHub CI doesn't like this call
-        bpf_map_delete_elem(&ongoing_http, pid_conn);
+        // Don't delete, we might be receiving still more packets
+        //bpf_map_delete_elem(&ongoing_http, pid_conn);
     }
 }
 
@@ -274,7 +281,7 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
                                                          u8 direction) {
     if (packet_type == PACKET_TYPE_REQUEST) {
         http_info_t *old_info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
-        if (old_info) {
+        if (old_info && !old_info->submitted) {
             u8 req_type = request_type_by_direction(direction, packet_type);
             if (!http_info_complete(old_info)) {
                 if (old_info->type == req_type && is_duplicate_info(old_info)) {
@@ -369,6 +376,7 @@ static __always_inline void process_http_request(
     info->start_monotime_ns = start_time;
     info->req_monotime_ns = req_time;
     info->status = 0;
+    info->submitted = 0;
     info->len = len;
     info->extra_id = extra_runtime_id(); // required for deleting the trace information
     info->task_tid = get_task_tid();     // required for deleting the trace information
@@ -556,6 +564,14 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
     __builtin_memcpy(&in->conn_info, &args->pid_conn.conn, sizeof(connection_info_t));
     in->ssl = args->ssl;
 
+    http_info_t *info =
+        get_or_set_http_info(in, &args->pid_conn, args->packet_type, args->direction);
+    if (!info) {
+        bpf_dbg_printk("No info (or duplicate), pid =%d?", args->pid_conn.pid);
+        dbg_print_http_connection_info(&args->pid_conn.conn);
+        return 0;
+    }
+
     // If we have the same process (or even thread) call itself through HTTP, the
     // connection information is identical. This means that the client call information
     // will be overwritten by the server call. In this situation we'll create a gap in
@@ -569,14 +585,6 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
         __builtin_memcpy(&self_ref_parent_id, &self_ref_tp->parent_id, sizeof(u64));
     }
     args->self_ref_parent_id = self_ref_parent_id;
-
-    http_info_t *info =
-        get_or_set_http_info(in, &args->pid_conn, args->packet_type, args->direction);
-    if (!info) {
-        bpf_dbg_printk("No info (or duplicate), pid =%d?", args->pid_conn.pid);
-        dbg_print_http_connection_info(&args->pid_conn.conn);
-        return 0;
-    }
 
     bpf_dbg_printk("=== http_buffer_event len=%d pid=%d still_reading=%d ===",
                    args->bytes_len,

@@ -39,7 +39,9 @@ static __always_inline void cleanup_ssl_trace_info(http_info_t *info, void *ssl)
         }
     }
 
-    bpf_map_delete_elem(&ssl_to_conn, &ssl);
+    // We can't delete this here. What if it's a large SSL request and we keep on
+    // receiving data after we've seen 200 OK?
+    //bpf_map_delete_elem(&ssl_to_conn, &ssl);
 }
 
 static __always_inline void
