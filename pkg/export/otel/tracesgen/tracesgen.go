@@ -428,8 +428,8 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		attrs = manualSpanAttributes(span)
 	case request.EventTypeFailedConnect:
 		attrs = []attribute.KeyValue{
-			request.ClientAddr(request.SpanHost(span)),
-			request.ServerAddr(request.PeerAsClient(span)),
+			request.ClientAddr(request.PeerAsClient(span)),
+			request.ServerAddr(request.SpanHost(span)),
 			request.ServerPort(span.HostPort),
 		}
 	}

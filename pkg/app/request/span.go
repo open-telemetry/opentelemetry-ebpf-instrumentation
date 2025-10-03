@@ -419,7 +419,7 @@ func (s *Span) IsValid() bool {
 
 func (s *Span) IsClientSpan() bool {
 	switch s.Type {
-	case EventTypeGRPCClient, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeSQLClient, EventTypeMongoClient:
+	case EventTypeGRPCClient, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect:
 		return true
 	}
 
@@ -604,7 +604,7 @@ func (s *Span) TraceName() string {
 	case EventTypeManualSpan:
 		return s.Method
 	case EventTypeFailedConnect:
-		return "TCP CONNECT"
+		return "CONNECT"
 	}
 	return ""
 }
