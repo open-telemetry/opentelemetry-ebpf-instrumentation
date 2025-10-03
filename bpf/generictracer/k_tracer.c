@@ -53,7 +53,7 @@ int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct so
 
     u64 addr = (u64)newsock;
 
-    sock_args_t args = {};
+    sock_args_t args = {0};
 
     args.addr = addr;
 
@@ -599,7 +599,7 @@ int BPF_KPROBE(obi_kprobe_sk_error_report, struct sock *sk) {
 
     bpf_dbg_printk("=== kprobe sk_error_report %d sock %llx args %llx ===", id, sk, args);
 
-    if (args) {
+    if (args && !args->failed) {
         pid_connection_info_t info = {};
 
         if (parse_sock_info(sk, &info.conn)) {
@@ -609,6 +609,8 @@ int BPF_KPROBE(obi_kprobe_sk_error_report, struct sock *sk) {
             dbg_print_http_connection_info(&info.conn);
             failed_to_connect_event(&info, orig_dport, args->ts);
             bpf_map_delete_elem(&cp_support_connect_info, &info);
+            // mark the args as failed so we don't duplicate the event
+            args->failed = 1;
         }
     }
 

@@ -15,7 +15,8 @@ typedef struct sock_args {
     u64 addr; // linux sock or socket address
     u64 ts;
     int fd;
-    u32 __pad;
+    u8 failed;
+    u8 __pad[3];
 } sock_args_t;
 
 static __always_inline bool parse_sock_info(struct sock *s, connection_info_t *info) {
