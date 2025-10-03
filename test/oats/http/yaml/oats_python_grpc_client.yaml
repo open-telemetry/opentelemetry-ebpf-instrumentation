@@ -1,9 +1,9 @@
 docker-compose:
   generator: generic
   files:
-    - ../docker-compose-beyla-python-grpc-client.yml
+    - ../docker-compose-python-grpc-client.yml
 input:
-  - path: '/query'
+  - path: "/query"
 
 interval: 500ms
 expected:
