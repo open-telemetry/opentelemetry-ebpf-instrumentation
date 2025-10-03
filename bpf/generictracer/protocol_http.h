@@ -268,6 +268,20 @@ static __always_inline void finish_http(http_info_t *info, pid_connection_info_t
     }
 }
 
+static __always_inline void force_finish_http(http_info_t *info, pid_connection_info_t *pid_conn) {
+    if (info->submitted) {
+        return;
+    }
+
+    if (!http_info_complete(info)) {
+        info->resp_len = 0;
+        info->end_monotime_ns = bpf_ktime_get_ns();
+        info->status = 409;
+    }
+
+    finish_http(info, pid_conn);
+}
+
 static __always_inline void update_http_sent_len(pid_connection_info_t *pid_conn, int sent_len) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info) {
@@ -319,6 +333,20 @@ static __always_inline void finish_possible_delayed_http_request(pid_connection_
     if (info && info->delayed) {
         finish_http(info, pid_conn);
     }
+}
+
+static __always_inline void
+force_finish_possible_delayed_http_request(pid_connection_info_t *pid_conn) {
+    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
+    if (info) {
+        if (info->delayed) {
+            finish_http(info, pid_conn);
+        } else {
+            bpf_dbg_printk("forcing HTTP event finish");
+            force_finish_http(info, pid_conn);
+        }
+    }
+    cleanup_http_info(pid_conn);
 }
 
 static __always_inline void cleanup_http_request_data(pid_connection_info_t *pid_conn,
