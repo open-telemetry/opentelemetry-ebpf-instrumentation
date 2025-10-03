@@ -199,7 +199,7 @@ func TCPFailedConnectToSpan(trace *TCPRequestInfo) request.Span {
 	)
 
 	if trace.ConnInfo.S_port != 0 || trace.ConnInfo.D_port != 0 {
-		peer, hostname = (*BPFConnInfo)(unsafe.Pointer(&trace.ConnInfo)).reqHostInfo()
+		hostname, peer = (*BPFConnInfo)(unsafe.Pointer(&trace.ConnInfo)).reqHostInfo()
 		peerPort = int(trace.ConnInfo.S_port)
 		hostPort = int(trace.ConnInfo.D_port)
 	}
