@@ -403,7 +403,7 @@ func TestBlockingPanics(t *testing.T) {
 			q1.Send(1)
 			q1.Send(2)
 
-			time.Sleep(2 * sendTimeout)
+			time.Sleep(2 * defaultSendTimeout)
 		}, "a deadlock should have been detected")
 	})
 }
