@@ -51,7 +51,9 @@ jobs:
           cache: false
 
       - name: Run oats tests
-        run: make oats-test-${{ matrix.basename }}
+        env:
+          MATRIX_BASENAME: ${{ matrix.basename }}
+        run: make oats-test-$MATRIX_BASENAME
 
       - name: Upload oats test logs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
