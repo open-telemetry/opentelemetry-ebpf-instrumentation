@@ -1038,7 +1038,7 @@ int obi_handle_buf_with_args(void *ctx) {
 
                         tp_info_pid_t *existing = bpf_map_lookup_elem(&server_traces, &t_key);
                         if (existing) {
-                            __builtin_memcpy(&existing->tp, &info->tp, sizeof(tp_info_t));
+                            existing->tp = info->tp;
                             set_trace_info_for_connection(
                                 &args->pid_conn.conn, TRACE_TYPE_SERVER, existing);
                         } else {

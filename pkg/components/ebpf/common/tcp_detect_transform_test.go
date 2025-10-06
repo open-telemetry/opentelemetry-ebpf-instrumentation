@@ -20,14 +20,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 )
 
-const (
-	tcpSend = 1
-	tcpRecv = 0
-)
-
 func TestTCPReqSQLParsing(t *testing.T) {
 	sql := randomStringWithSub("SELECT * FROM accounts ")
-	r := makeTCPReq(sql, tcpSend, 343534, 8080, 2000)
+	r := makeTCPReq(sql, directionSend, 343534, 8080, 2000)
 	op, table, sql := detectSQL(sql)
 	assert.Equal(t, "SELECT", op)
 	assert.Equal(t, "accounts", table)
@@ -45,7 +40,7 @@ func TestTCPReqSQLParsing(t *testing.T) {
 
 func TestTCPReqParsing(t *testing.T) {
 	sql := "Not a sql or any known protocol"
-	r := makeTCPReq(sql, tcpSend, 343534, 8080, 2000)
+	r := makeTCPReq(sql, directionSend, 343534, 8080, 2000)
 	op, table, _ := detectSQL(sql)
 	assert.Empty(t, op)
 	assert.Empty(t, table)
@@ -157,7 +152,7 @@ func TestRedisDetection(t *testing.T) {
 func TestTCPReqKafkaParsing(t *testing.T) {
 	// kafka message
 	b := []byte{0, 0, 0, 94, 0, 1, 0, 11, 0, 0, 0, 224, 0, 6, 115, 97, 114, 97, 109, 97, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 6, 64, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0}
-	r := makeTCPReq(string(b), tcpSend, 343534, 8080, 2000)
+	r := makeTCPReq(string(b), directionSend, 343534, 8080, 2000)
 	k, _, err := ProcessKafkaRequest(b, nil)
 	require.NoError(t, err)
 	s := TCPToKafkaToSpan(&r, k)
