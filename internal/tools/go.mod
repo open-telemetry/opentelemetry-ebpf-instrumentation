@@ -9,7 +9,7 @@ require (
 	github.com/grafana/go-offsets-tracker v0.1.7
 	github.com/onsi/ginkgo/v2 v2.25.3
 	gotest.tools/gotestsum v1.12.3
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20250926234817-7c50567748ae
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20251005175058-1c75cb0185ee
 	sigs.k8s.io/kind v0.29.0
 )
 
