@@ -437,7 +437,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    // Valid PID only works for kprobes since  Go programs don't add their
+    // Valid PID only works for kprobes since Go programs don't add their
     // PIDs to the PID map (we instrument the binaries), handled in the
     // previous check
     if (!valid_pid(id)) {
