@@ -58,6 +58,7 @@ const (
 	EventTypeTCPLargeBuffer = 12 // Dynamically sized TCP buffers
 	EventOTelSDKGo          = 13 // OTel SDK manual span
 	EventTypeGoMongo        = 14 // Go MongoDB spans
+	EventTypeFailedConnect  = 15 // Failed Connections
 )
 
 // Kernel-side classification
@@ -65,6 +66,7 @@ const (
 	ProtocolTypeUnknown uint8 = iota
 	ProtocolTypeMySQL
 	ProtocolTypePostgres
+	ProtocolTypeFailedConnect
 )
 
 var IntegrityModeOverride = false
@@ -241,6 +243,8 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return appendTCPLargeBuffer(parseCtx, record)
 	case EventOTelSDKGo:
 		return ReadGoOTelEventIntoSpan(record)
+	case EventTypeFailedConnect:
+		return ReadFailedConnectIntoSpan(record, filter)
 	}
 
 	event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)

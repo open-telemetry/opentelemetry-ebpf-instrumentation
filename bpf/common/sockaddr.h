@@ -13,8 +13,10 @@
 
 typedef struct sock_args {
     u64 addr; // linux sock or socket address
+    u64 ts;
     int fd;
-    u32 __pad;
+    u8 failed;
+    u8 __pad[3];
 } sock_args_t;
 
 static __always_inline bool parse_sock_info(struct sock *s, connection_info_t *info) {
@@ -133,4 +135,26 @@ parse_sockaddr_info(u32 pid, struct sockaddr *addr, connection_info_part_t *info
     info->pid = pid;
 
     return false;
+}
+
+static __always_inline bool is_tcp_socket_never_connected(struct sock *sk) {
+    if (!sk) {
+        return true;
+    }
+
+    // Read the socket state
+    u8 sk_state = BPF_CORE_READ(sk, __sk_common.skc_state);
+
+    // Socket was never connected if it's in these states:
+    if (sk_state == TCP_SYN_SENT || // Connection attempt in progress
+        sk_state == TCP_SYN_RECV    // SYN received but not established
+    ) {
+        return true;
+    }
+
+    struct tcp_sock *tp = (struct tcp_sock *)sk;
+    u64 bytes_sent = BPF_CORE_READ(tp, bytes_sent);
+    u64 bytes_received = BPF_CORE_READ(tp, bytes_received);
+
+    return (bytes_sent == 0 && bytes_received == 0);
 }

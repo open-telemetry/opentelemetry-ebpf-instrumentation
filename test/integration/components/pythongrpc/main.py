@@ -148,6 +148,16 @@ async def without_name():
     
     return {"message": "Called 142.251.32.78", "endpoint": "/without_name"}
 
+@app.get("/unknown")
+async def without_name():
+    try:
+        response = requests.get("http://8.8.8.9", verify=False, timeout=10)
+        print(f"Called http://8.8.8.9, status: {response.status_code}")
+    except Exception as e:
+        print(f"Error calling http://8.8.8.9: {e}")
+    
+    return {"message": "Called 8.8.8.9", "endpoint": "/unknown"}
+
 if __name__ == "__main__":
     print(f"Server running: port={8080} process_id={os.getpid()}")
 

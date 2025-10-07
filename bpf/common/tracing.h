@@ -49,6 +49,8 @@ trace_key_from_conn(trace_map_key_t *key, const connection_info_t *conn, u32 typ
     // TODO: d_port is likely the one changed, but if the server is using
     // ports in the ephemeral range this may not work.
     key->conn.d_port = 0;
+    *(u64 *)(key->conn.d_addr) = 0;
+    *(u64 *)(&key->conn.d_addr[8]) = 0;
     key->type = type;
 }
 

@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/common.h>
+#include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/large_buffers.h>
 #include <common/pin_internal.h>
@@ -129,6 +130,34 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     }
 
     return ret;
+}
+
+static __always_inline void
+failed_to_connect_event(pid_connection_info_t *pid_conn, u16 orig_dport, u64 connect_ts) {
+    tcp_req_t *req = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
+    if (req) {
+        req->flags = EVENT_FAILED_CONNECT;
+        req->conn_info = pid_conn->conn;
+        fixup_connection_info(&req->conn_info, TCP_SEND, orig_dport);
+        req->ssl = 0;
+        req->direction = TCP_SEND;
+        req->start_monotime_ns = connect_ts;
+        req->end_monotime_ns = bpf_ktime_get_ns();
+        req->resp_len = 0;
+        req->len = 0;
+        req->req_len = req->len;
+        req->extra_id = extra_runtime_id();
+        req->protocol_type = 0;
+        task_pid(&req->pid);
+        req->buf[0] = '\0';
+
+        req->tp.ts = bpf_ktime_get_ns();
+
+        bpf_dbg_printk("TCP connect failed event");
+
+        tcp_get_or_set_trace_info(req, pid_conn, 0, orig_dport);
+        bpf_ringbuf_submit(req, get_flags());
+    }
 }
 
 static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t *pid_conn,

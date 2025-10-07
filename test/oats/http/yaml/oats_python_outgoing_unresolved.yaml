@@ -1,7 +1,7 @@
 docker-compose:
   generator: generic
   files:
-    - ../docker-compose-beyla-python-unresolved.yml
+    - ../docker-compose-python-unresolved.yml
 input:
   - path: "/without_name"
 

@@ -53,7 +53,7 @@ int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct so
 
     u64 addr = (u64)newsock;
 
-    sock_args_t args = {};
+    sock_args_t args = {0};
 
     args.addr = addr;
 
@@ -195,6 +195,7 @@ int BPF_KPROBE(obi_kprobe_sys_connect) {
 
     sock_args_t args = {0};
     args.fd = fd;
+    args.ts = bpf_ktime_get_ns();
 
     bpf_map_update_elem(&active_connect_args, &id, &args, BPF_ANY);
 
@@ -219,10 +220,25 @@ int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
     bpf_dbg_printk("=== tcp connect %llx args %llx ===", id, args);
 
     if (args) {
+        pid_connection_info_t p_conn = {0};
+        if (parse_connect_sock_info(args, &p_conn.conn)) {
+            u32 host_pid = pid_from_pid_tgid(id);
+            p_conn.pid = host_pid;
+            // clean-up any stale connect info
+            bpf_map_delete_elem(&cp_support_connect_info, &p_conn);
+        }
+
         args->addr = addr;
     }
 
     return 0;
+}
+
+static __always_inline void cp_support_established(pid_connection_info_t *p_conn) {
+    cp_support_data_t *cp_support = bpf_map_lookup_elem(&cp_support_connect_info, p_conn);
+    if (cp_support) {
+        cp_support->established = 1;
+    }
 }
 
 // This helper sets up a map for tracking server to client calls, when
@@ -234,11 +250,18 @@ static __always_inline void setup_cp_support_conn_info(pid_connection_info_t *p_
                                                        u8 real_client) {
     cp_support_data_t ct = {
         .real_client = real_client,
+        .established = 0,
+        .failed = 0,
     };
+
+    if (!real_client) {
+        ct.established = 1;
+    }
 
     task_tid(&ct.t_key.p_key);
     u64 extra_id = extra_runtime_id();
     ct.t_key.extra_id = extra_id;
+    ct.ts = bpf_ktime_get_ns();
 
     // Support connection thread pools
     bpf_map_update_elem(&cp_support_connect_info, p_conn, &ct, BPF_ANY);
@@ -256,7 +279,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
         return 0;
     }
 
-    bpf_dbg_printk("=== connect ret id=%d, pid=%d ===", id, pid_from_pid_tgid(id));
+    bpf_dbg_printk("=== connect ret id=%d, pid=%d, res %d ===", id, pid_from_pid_tgid(id), res);
 
     // The file descriptor is the value returned from the connect syscall.
     // If we got a negative file descriptor we don't have a connection, unless we are in progress
@@ -274,20 +297,29 @@ int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
 
     if (parse_connect_sock_info(args, &info.p_conn.conn)) {
         u32 host_pid = pid_from_pid_tgid(id);
-        bpf_dbg_printk(
-            "=== connect ret id=%d, pid=%d fd=%d ===", id, pid_from_pid_tgid(id), args->fd);
-        // store fd to connection mapping
+        info.p_conn.pid = host_pid;
+        bpf_dbg_printk("=== connect ret id=%d, pid=%d fd=%d ===", id, host_pid, args->fd);
         store_connect_fd_info(host_pid, args->fd, &info.p_conn.conn);
 
         u16 orig_dport = info.p_conn.conn.d_port;
         dbg_print_http_connection_info(&info.p_conn.conn);
         sort_connection_info(&info.p_conn.conn);
-        info.p_conn.pid = pid_from_pid_tgid(id);
         info.orig_dport = orig_dport;
 
         bpf_map_update_elem(&pid_tid_to_conn, &id, &info, BPF_ANY); // Support SSL lookup
 
         setup_cp_support_conn_info(&info.p_conn, true);
+        if (args->failed) {
+            cp_support_data_t *cp_data =
+                bpf_map_lookup_elem(&cp_support_connect_info, &info.p_conn);
+            bpf_dbg_printk("=== connect ret args=%llx, failed=%d, cp_data %llx ===",
+                           args,
+                           args->failed,
+                           cp_data);
+            if (cp_data) {
+                cp_data->failed = 1;
+            }
+        }
     }
 
 cleanup:
@@ -343,6 +375,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
         s_args.p_conn.pid = pid_from_pid_tgid(id);
         s_args.orig_dport = orig_dport;
 
+        cp_support_established(&s_args.p_conn);
         connect_ssl_to_connection(id, &s_args.p_conn, TCP_SEND, orig_dport);
 
         void *ssl = is_ssl_connection(&s_args.p_conn);
@@ -442,6 +475,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
         s_args.orig_dport = orig_dport;
 
         connect_ssl_to_connection(id, &s_args.p_conn, TCP_SEND, orig_dport);
+        cp_support_established(&s_args.p_conn);
 
         void *ssl = is_ssl_connection(&s_args.p_conn);
         if (!ssl) {
@@ -547,12 +581,34 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
 
     bpf_dbg_printk("=== kprobe tcp_close %d sock %llx ===", id, sk);
 
+    pid_connection_info_t info = {};
+    bool success = parse_sock_info(sk, &info.conn);
+
+    if (success) {
+        u16 orig_dport = info.conn.d_port;
+        sort_connection_info(&info.conn);
+        info.pid = pid_from_pid_tgid(id);
+
+        if (is_tcp_socket_never_connected(sk)) {
+            cp_support_data_t *ct = bpf_map_lookup_elem(&cp_support_connect_info, &info);
+            bpf_dbg_printk("=== possibly never connected sock %d %llx ct=%llx ===", id, sk, ct);
+#ifdef BPF_DEBUG
+            if (ct) {
+                bpf_dbg_printk(
+                    "=== established %d, already failed %d ===", ct->established, ct->failed);
+            }
+#endif
+            if (ct && !ct->established && !ct->failed) {
+                dbg_print_http_connection_info(&info.conn);
+                failed_to_connect_event(&info, orig_dport, ct->ts);
+            }
+        }
+        bpf_map_delete_elem(&cp_support_connect_info, &info);
+    }
+
     ensure_sent_event(id, &sock_p);
 
-    pid_connection_info_t info = {};
-
-    if (parse_sock_info(sk, &info.conn)) {
-        sort_connection_info(&info.conn);
+    if (success) {
         //dbg_print_http_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
         terminate_http_request_if_needed(&info);
@@ -564,6 +620,41 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
 
     bpf_map_delete_elem(&active_send_args, &id);
     bpf_map_delete_elem(&active_send_sock_args, &sock_p);
+
+    return 0;
+}
+
+SEC("kprobe/sock_def_error_report")
+int BPF_KPROBE(obi_kprobe_sock_def_error_report, struct sock *sk) {
+    (void)ctx;
+
+    u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    sock_args_t *args = bpf_map_lookup_elem(&active_connect_args, &id);
+
+    bpf_dbg_printk("=== kprobe sock_def_error_report %d sock %llx args %llx ===", id, sk, args);
+
+    if (args && !args->failed) {
+        pid_connection_info_t info = {};
+
+        if (parse_sock_info(sk, &info.conn)) {
+            info.pid = pid_from_pid_tgid(id);
+            u16 orig_dport = info.conn.d_port;
+            sort_connection_info(&info.conn);
+            dbg_print_http_connection_info(&info.conn);
+            failed_to_connect_event(&info, orig_dport, args->ts);
+            // mark the args and cp_support_info as failed so we don't duplicate the event
+            cp_support_data_t *cp_data = bpf_map_lookup_elem(&cp_support_connect_info, &info);
+            if (cp_data) {
+                cp_data->failed = 1;
+            }
+            args->failed = 1;
+        }
+    }
 
     return 0;
 }
@@ -704,6 +795,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             sort_connection_info(&info.conn);
             info.pid = pid_from_pid_tgid(id);
             setup_cp_support_conn_info(&info, false);
+            cp_support_established(&info);
         }
         // Don't clean-up. This is called as backup path for the retprobe from
         // tcp_cleanup_rbuf which can come in with 0 bytes and we'll delete
@@ -735,6 +827,8 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         //dbg_print_http_connection_info(&info.conn);
         sort_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
+
+        cp_support_established(&info);
 
         void *ssl = is_ssl_connection(&info);
 

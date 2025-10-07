@@ -11,10 +11,10 @@ receivers:
             - "https://*"
 
 exporters:
-  debug:
-    verbosity: detailed
-    sampling_initial: 5
-    sampling_thereafter: 200
+  #debug:
+  #  verbosity: detailed
+  #  sampling_initial: 5
+  #  sampling_thereafter: 200
   prometheusremotewrite:
     endpoint: http://prometheus:9090/api/v1/write
     add_metric_suffixes: true
@@ -29,12 +29,12 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      #exporters: [otlp]
-      exporters: [otlp,debug]
+      exporters: [otlp]
+      #exporters: [otlp,debug]
     metrics:
       receivers: [otlp]
-      #exporters: [prometheusremotewrite]
-      exporters: [prometheusremotewrite,debug]
+      exporters: [prometheusremotewrite]
+      #exporters: [prometheusremotewrite,debug]
     logs:
       receivers: [otlp]
       exporters: [loki]
