@@ -313,7 +313,11 @@ vm-integration-test-matrix-json:
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
-	@./scripts/generate-k8s-matrix.sh
+	@./scripts/generate-dir-matrix.sh test/integration/k8s common
+
+.PHONY: oats-integration-test-matrix-json
+oats-integration-test-matrix-json:
+	@./scripts/generate-dir-matrix.sh test/oats
 
 .PHONY: integration-test
 integration-test: prereqs prepare-integration-test

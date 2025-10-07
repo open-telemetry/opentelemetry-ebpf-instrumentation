@@ -27,7 +27,7 @@ jobs:
           make k8s-integration-test-matrix-json >> $GITHUB_OUTPUT
 
   test:
-    name: ${{ matrix.description }}
+    name: ${{ matrix.basename }}
     needs: test-matrix
     permissions:
       # Required for codecov
@@ -99,7 +99,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: go-test-reports-${{ matrix.description }}-${{ github.run_number }}
+          name: go-test-reports-${{ matrix.basename }}-${{ github.run_number }}
           path: /home/runner/reports/*.log
           retention-days: 5
 
@@ -107,7 +107,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: go-test-logs-${{ matrix.description }}-${{ github.run_number }}
+          name: go-test-logs-${{ matrix.basename }}-${{ github.run_number }}
           path: |
             testoutput/*.log
             testoutput/kind
