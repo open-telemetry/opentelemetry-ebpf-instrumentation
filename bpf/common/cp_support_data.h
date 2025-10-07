@@ -13,5 +13,6 @@ typedef struct cp_support_data {
     u64 ts;
     u8 real_client;
     u8 established;
-    u8 _pad[6];
+    u8 failed;
+    u8 _pad[5];
 } cp_support_data_t;
