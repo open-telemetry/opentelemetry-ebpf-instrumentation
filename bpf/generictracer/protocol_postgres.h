@@ -51,6 +51,7 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
                                                       const void *u_buf,
                                                       u32 bytes_len,
                                                       u8 packet_type,
+                                                      u8 direction,
                                                       enum large_buf_action action) {
     tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)postgres_large_buffers_mem();
     if (!large_buf) {
@@ -62,7 +63,9 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
     large_buf->type = EVENT_TCP_LARGE_BUFFER;
     large_buf->packet_type = packet_type;
     large_buf->action = action;
-    __builtin_memcpy((void *)&large_buf->tp, (void *)&req->tp, sizeof(tp_info_t));
+    large_buf->direction = direction;
+    large_buf->conn_info = req->conn_info;
+    large_buf->tp = req->tp;
 
     large_buf->len = bytes_len;
     if (large_buf->len >= postgres_buffer_size) {

@@ -19,8 +19,8 @@ import (
 
 func TestTCPLargeBuffers(t *testing.T) {
 	pctx := NewEBPFParseContext(nil)
-	verifyLargeBuffer := func(traceID [16]uint8, spanID [8]uint8, packetType uint8, expectedBuf string) {
-		buf, ok := extractTCPLargeBuffer(pctx, traceID, spanID, packetType)
+	verifyLargeBuffer := func(traceID [16]uint8, packetType, direction uint8, connInfo BpfConnectionInfoT, expectedBuf string) {
+		buf, ok := extractTCPLargeBuffer(pctx, traceID, packetType, direction, connInfo)
 		require.True(t, ok, "Expected to find large buffer")
 		require.Equal(t, expectedBuf, unix.ByteSliceToString(buf), "Buffer content mismatch")
 	}
@@ -28,10 +28,13 @@ func TestTCPLargeBuffers(t *testing.T) {
 	firstEvent := TCPLargeBufferHeader{
 		Type:       12,
 		PacketType: 1,
+		Direction:  0,
 		Len:        10,
 	}
 	firstEvent.Tp.TraceId = [16]uint8{'1'}
-	firstEvent.Tp.SpanId = [8]uint8{'2'}
+	firstEvent.ConnInfo = BpfConnectionInfoT{
+		D_port: 2000,
+	}
 	firstBuf := "obi rocks!"
 
 	span, drop, err := appendTCPLargeBuffer(pctx, toRingbufRecord(t, firstEvent, firstBuf))
@@ -40,7 +43,7 @@ func TestTCPLargeBuffers(t *testing.T) {
 	require.Equal(t, request.Span{}, span)
 
 	// Verify normal write
-	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, firstEvent.PacketType, firstBuf)
+	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, firstBuf)
 
 	secondBuf := "obi rocks twice!"
 	firstEvent.Len = uint32(len(secondBuf))
@@ -49,10 +52,10 @@ func TestTCPLargeBuffers(t *testing.T) {
 	_, _, err = appendTCPLargeBuffer(pctx, toRingbufRecord(t, firstEvent, secondBuf))
 	require.NoError(t, err)
 	// Verify buffer overwrite
-	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, firstEvent.PacketType, secondBuf)
+	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, secondBuf)
 
 	// Verify second read error
-	_, ok := extractTCPLargeBuffer(pctx, firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, firstEvent.PacketType)
+	_, ok := extractTCPLargeBuffer(pctx, firstEvent.Tp.TraceId, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo)
 	require.False(t, ok, "Expected to not find large buffer after first read")
 
 	firstEvent.Len = uint32(len(firstBuf))
@@ -60,11 +63,11 @@ func TestTCPLargeBuffers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify no buffer read happens for different traceID/packet_type
-	_, ok = extractTCPLargeBuffer(pctx, [16]uint8{99}, firstEvent.Tp.SpanId, firstEvent.PacketType)
+	_, ok = extractTCPLargeBuffer(pctx, [16]uint8{99}, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo)
 	require.False(t, ok, "Expected to not find large buffer for this traceID")
-	_, ok = extractTCPLargeBuffer(pctx, firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, 3)
+	_, ok = extractTCPLargeBuffer(pctx, firstEvent.Tp.TraceId, 3, firstEvent.Direction, firstEvent.ConnInfo)
 	require.False(t, ok, "Expected to not find large buffer for this packet_type")
-	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, firstEvent.PacketType, firstBuf)
+	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, firstBuf)
 
 	// Test append to existing buffer
 	firstEvent.Len = 10
@@ -78,13 +81,15 @@ func TestTCPLargeBuffers(t *testing.T) {
 		Action:     largeBufferActionAppend,
 	}
 	appendEvent.Tp.TraceId = firstEvent.Tp.TraceId
-	appendEvent.Tp.SpanId = firstEvent.Tp.SpanId
+	appendEvent.ConnInfo = BpfConnectionInfoT{
+		D_port: 2000,
+	}
 	appendBuf := "append"
 
 	_, _, err = appendTCPLargeBuffer(pctx, toRingbufRecord(t, appendEvent, appendBuf))
 	require.NoError(t, err)
 	// The buffer should now be firstBuf + appendBuf
-	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, firstEvent.PacketType, firstBuf+appendBuf)
+	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, firstBuf+appendBuf)
 
 	// Test multiple appends
 	// Re-init buffer
@@ -97,7 +102,7 @@ func TestTCPLargeBuffers(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = appendTCPLargeBuffer(pctx, toRingbufRecord(t, appendEvent, "bar"))
 	require.NoError(t, err)
-	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, firstEvent.PacketType, firstBuf+"foobar")
+	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, firstBuf+"foobar")
 }
 
 func toRingbufRecord(t *testing.T, event TCPLargeBufferHeader, buf string) *ringbuf.Record {
