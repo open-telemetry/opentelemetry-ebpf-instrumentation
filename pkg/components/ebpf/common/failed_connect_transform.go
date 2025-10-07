@@ -6,9 +6,10 @@ package ebpfcommon
 import (
 	"unsafe"
 
+	trace2 "go.opentelemetry.io/otel/trace"
+
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
-	trace2 "go.opentelemetry.io/otel/trace"
 )
 
 func ReadFailedConnectIntoSpan(record *ringbuf.Record, filter ServiceFilter) (request.Span, bool, error) {
