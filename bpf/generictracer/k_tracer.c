@@ -404,8 +404,8 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                             // handle_buf_with_connection logic and then mark it as seen by making
                             // m_buf->pos be the size of the buffer.
                             if (!m_buf->pos) {
-                                size = sizeof(m_buf->buf);
-                                m_buf->pos = size;
+                                size = m_buf->real_size;
+                                m_buf->pos = sizeof(m_buf->buf);
                                 bpf_dbg_printk("msg_buffer: size %d, buf[%s]", size, buf);
                             } else {
                                 size = 0;
@@ -491,8 +491,8 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                 // handle_buf_with_connection logic and then mark it as seen by making
                 // m_buf->pos be the size of the buffer.
                 if (!m_buf->pos) {
-                    u16 size = sizeof(m_buf->buf);
-                    m_buf->pos = size;
+                    u16 size = m_buf->real_size;
+                    m_buf->pos = sizeof(m_buf->buf);
                     s_args.size = size;
                     bpf_dbg_printk("msg_buffer: size %d, buf[%s]", size, buf);
                     u64 sock_p = (u64)sk;
