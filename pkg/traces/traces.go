@@ -8,11 +8,11 @@ import (
 	"log/slog"
 
 	"go.opentelemetry.io/obi/pkg/components/exec"
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/traces"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
-	"go.opentelemetry.io/obi/pkg/traces/tracescfg"
 )
 
 func rlog() *slog.Logger {
@@ -20,7 +20,7 @@ func rlog() *slog.Logger {
 }
 
 func HostProcessEventDecoratorProvider(
-	cfg *tracescfg.InstanceIDConfig,
+	cfg *config.InstanceIDConfig,
 	input, output *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {

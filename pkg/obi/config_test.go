@@ -30,7 +30,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/kubeflags"
 	"go.opentelemetry.io/obi/pkg/netolly/cidr"
 	"go.opentelemetry.io/obi/pkg/services"
-	"go.opentelemetry.io/obi/pkg/traces/tracescfg"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -196,7 +195,7 @@ discovery:
 			BpfMetricScrapeInterval: 15 * time.Second,
 		},
 		Attributes: Attributes{
-			InstanceID: tracescfg.InstanceIDConfig{
+			InstanceID: config.InstanceIDConfig{
 				HostnameDNSResolution: true,
 			},
 			Kubernetes: transform.KubernetesDecorator{

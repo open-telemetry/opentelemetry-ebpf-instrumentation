@@ -10,10 +10,10 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/traces/hostname"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
-	"go.opentelemetry.io/obi/pkg/traces/tracescfg"
 )
 
 func rlog() *slog.Logger {
@@ -27,7 +27,7 @@ type ReadDecorator struct {
 	TracesInput     *msg.Queue[[]request.Span]
 	DecoratedTraces *msg.Queue[[]request.Span]
 
-	InstanceID tracescfg.InstanceIDConfig
+	InstanceID config.InstanceIDConfig
 }
 
 func ReadFromChannel(r *ReadDecorator) swarm.InstanceFunc {
@@ -62,7 +62,7 @@ func ReadFromChannel(r *ReadDecorator) swarm.InstanceFunc {
 // by the tracers (for example, the instance ID)
 type Decorator func(s *svc.Attrs, pid int)
 
-func HostNamePIDDecorator(cfg *tracescfg.InstanceIDConfig) Decorator {
+func HostNamePIDDecorator(cfg *config.InstanceIDConfig) Decorator {
 	// TODO: periodically update in case the current Beyla instance is created from a VM snapshot running as a different hostname
 	resolver := hostname.CreateResolver(cfg.OverrideHostname, "", cfg.HostnameDNSResolution)
 	fullHostName, _, err := resolver.Query()
