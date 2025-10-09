@@ -12,9 +12,10 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/svc"
-	"go.opentelemetry.io/obi/pkg/components/traces/hostname"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
+	"go.opentelemetry.io/obi/pkg/internal/traces/hostname"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/traces/tracescfg"
 )
 
 const testTimeout = 5 * time.Second
@@ -35,7 +36,7 @@ func TestReadDecorator(t *testing.T) {
 	}
 	for _, tc := range []testCase{{
 		desc:             "dns",
-		cfg:              ReadDecorator{InstanceID: InstanceIDConfig{HostnameDNSResolution: true}},
+		cfg:              ReadDecorator{InstanceID: tracescfg.InstanceIDConfig{HostnameDNSResolution: true}},
 		expectedInstance: dnsHostname + ":1234",
 		expectedHN:       dnsHostname,
 	}, {
@@ -44,7 +45,7 @@ func TestReadDecorator(t *testing.T) {
 		expectedHN:       localHostname,
 	}, {
 		desc:             "override hostname",
-		cfg:              ReadDecorator{InstanceID: InstanceIDConfig{OverrideHostname: "foooo"}},
+		cfg:              ReadDecorator{InstanceID: tracescfg.InstanceIDConfig{OverrideHostname: "foooo"}},
 		expectedInstance: "foooo:1234",
 		expectedHN:       "foooo",
 	}} {

@@ -9,28 +9,15 @@ import (
 	"strconv"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
-	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/svc"
-	"go.opentelemetry.io/obi/pkg/components/traces/hostname"
+	"go.opentelemetry.io/obi/pkg/internal/traces/hostname"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
+	"go.opentelemetry.io/obi/pkg/traces/tracescfg"
 )
 
 func rlog() *slog.Logger {
 	return slog.With("component", "traces.ReadDecorator")
-}
-
-// InstanceIDConfig configures how Beyla will get the Instance ID of the traces/metrics
-// from the current hostname + the instrumented process PID
-type InstanceIDConfig struct {
-	// HostnameDNSResolution is true if Beyla uses the DNS to resolve the local hostname or
-	// false if it uses the local hostname.
-	HostnameDNSResolution bool `yaml:"dns" env:"OTEL_EBPF_HOSTNAME_DNS_RESOLUTION"`
-	// OverrideHostname can be optionally set to avoid resolving any hostname and using this
-	// value. Beyla will anyway attach the process ID to the given hostname for composing
-	// the instance ID.
-	OverrideHostname string `yaml:"override_hostname" env:"OTEL_EBPF_HOSTNAME"`
 }
 
 // ReadDecorator is the input node of the processing graph. The eBPF tracers will send their
@@ -40,15 +27,11 @@ type ReadDecorator struct {
 	TracesInput     *msg.Queue[[]request.Span]
 	DecoratedTraces *msg.Queue[[]request.Span]
 
-	InstanceID InstanceIDConfig
+	InstanceID tracescfg.InstanceIDConfig
 }
 
-// decorator modifies a []request.Span slice to fill it with extra information that is not provided
-// by the tracers (for example, the instance ID)
-type decorator func(s *svc.Attrs, pid int)
-
 func ReadFromChannel(r *ReadDecorator) swarm.InstanceFunc {
-	decorate := hostNamePIDDecorator(&r.InstanceID)
+	decorate := HostNamePIDDecorator(&r.InstanceID)
 	tracesInput := r.TracesInput.Subscribe(msg.SubscriberName("traces.ReadDecorator"))
 	return swarm.DirectInstance(func(ctx context.Context) {
 		// output channel must be closed so later stages in the pipeline can finish in cascade
@@ -75,7 +58,11 @@ func ReadFromChannel(r *ReadDecorator) swarm.InstanceFunc {
 	})
 }
 
-func hostNamePIDDecorator(cfg *InstanceIDConfig) decorator {
+// Decorator modifies a []request.Span slice to fill it with extra information that is not provided
+// by the tracers (for example, the instance ID)
+type Decorator func(s *svc.Attrs, pid int)
+
+func HostNamePIDDecorator(cfg *tracescfg.InstanceIDConfig) Decorator {
 	// TODO: periodically update in case the current Beyla instance is created from a VM snapshot running as a different hostname
 	resolver := hostname.CreateResolver(cfg.OverrideHostname, "", cfg.HostnameDNSResolution)
 	fullHostName, _, err := resolver.Query()
@@ -91,25 +78,5 @@ func hostNamePIDDecorator(cfg *InstanceIDConfig) decorator {
 	return func(s *svc.Attrs, hostPID int) {
 		s.UID.Instance = fullHostName + ":" + strconv.Itoa(hostPID)
 		s.HostName = fullHostName
-	}
-}
-
-func HostProcessEventDecoratorProvider(
-	cfg *InstanceIDConfig,
-	input, output *msg.Queue[exec.ProcessEvent],
-) swarm.InstanceFunc {
-	return func(_ context.Context) (swarm.RunFunc, error) {
-		decorate := hostNamePIDDecorator(cfg)
-		in := input.Subscribe(msg.SubscriberName("HostProcessEventDecorator"))
-		// if kubernetes decoration is disabled, we just bypass the node
-		log := rlog().With("function", "HostProcessEventDecoratorProvider")
-		return func(ctx context.Context) {
-			defer output.Close()
-			swarms.ForEachInput(ctx, in, log.Debug, func(pe exec.ProcessEvent) {
-				decorate(&pe.File.Service, int(pe.File.Pid))
-				log.Debug("host decorating event", "event", pe, "ns", pe.File.Ns, "procPID", pe.File.Pid, "procPPID", pe.File.Ppid, "service", pe.File.Service.UID)
-				output.Send(pe)
-			})
-		}, nil
 	}
 }
