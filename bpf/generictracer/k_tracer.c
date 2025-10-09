@@ -65,50 +65,6 @@ int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct so
     return 0;
 }
 
-// We tap into accept and connect to figure out if a request is inbound or
-// outbound. However, in some cases servers can optimise the accept path if
-// the same request is sent over and over. For that reason, in case we miss the
-// initial accept, we establish an active filtered connection here. By default
-// sets the type to be server HTTP, in client mode we'll overwrite the
-// data in the map, since those cannot be optimised.
-SEC("kprobe/tcp_rcv_established")
-int BPF_KPROBE(obi_kprobe_tcp_rcv_established, struct sock *sk, struct sk_buff *skb) {
-    (void)ctx;
-    (void)skb;
-
-    u64 id = bpf_get_current_pid_tgid();
-
-    if (!valid_pid(id)) {
-        return 0;
-    }
-
-    bpf_dbg_printk("=== tcp_rcv_established id=%d ===", id);
-
-    ssl_pid_connection_info_t pid_info = {};
-
-    if (parse_sock_info(sk, &pid_info.p_conn.conn)) {
-        //u16 orig_dport = info.conn.d_port;
-        dbg_print_http_connection_info(&pid_info.p_conn.conn);
-        sort_connection_info(&pid_info.p_conn.conn);
-        pid_info.p_conn.pid = pid_from_pid_tgid(id);
-
-        ssl_pid_connection_info_t *prev_info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
-        // We only update here when we don't know the direction if we haven't previously
-        // set the information in sys_accept or sys_connect
-        if (!prev_info || (prev_info->p_conn.conn.d_port != pid_info.p_conn.conn.d_port) ||
-            (prev_info->p_conn.conn.s_port != pid_info.p_conn.conn.s_port)) {
-            // This is a current limitation for port ordering detection for SSL.
-            // tcp_rcv_established flip flops the ports and we can't tell if it's client or server call.
-            // If the source port for a client call is lower, we'll get this wrong.
-            // Set orig_dport to 0 to avoid swapping connection infos for clients
-            pid_info.orig_dport = 0;
-            bpf_map_update_elem(&pid_tid_to_conn, &id, &pid_info, BPF_ANY);
-        }
-    }
-
-    return 0;
-}
-
 // We tap into both sys_accept and sys_accept4.
 // We don't care about the accept entry arguments, since we get only peer information
 // we don't have the full picture for the socket.
