@@ -11,8 +11,8 @@ import (
 
 	"github.com/yl2chen/cidranger"
 
-	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"

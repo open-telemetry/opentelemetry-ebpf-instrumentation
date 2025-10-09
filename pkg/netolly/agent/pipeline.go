@@ -6,15 +6,16 @@ package agent
 import (
 	"context"
 
-	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
-	"go.opentelemetry.io/obi/pkg/components/netolly/export"
-	"go.opentelemetry.io/obi/pkg/components/netolly/flow"
-	"go.opentelemetry.io/obi/pkg/components/netolly/transform/cidr"
-	"go.opentelemetry.io/obi/pkg/components/netolly/transform/k8s"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/netolly/export"
+	"go.opentelemetry.io/obi/pkg/internal/netolly/flow"
+	"go.opentelemetry.io/obi/pkg/internal/netolly/transform/k8s"
+	"go.opentelemetry.io/obi/pkg/netolly/cidr"
+	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
@@ -84,7 +85,7 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		// If deduper is enabled, we know that interfaces are unset.
 		// As an optimization, we just pass here an empty-string interface namer
 		ifaceNamer := f.interfaceNamer
-		if f.cfg.NetworkFlows.Deduper == flow.DeduperFirstCome {
+		if f.cfg.NetworkFlows.Deduper == flowdef.DeduperFirstCome {
 			ifaceNamer = func(_ int) string {
 				return ""
 			}

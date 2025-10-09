@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package tracescfg
 
 // InstanceIDConfig configures how Beyla will get the Instance ID of the traces/metrics

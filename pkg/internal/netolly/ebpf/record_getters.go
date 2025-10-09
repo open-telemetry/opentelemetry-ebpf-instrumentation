@@ -6,9 +6,9 @@ package ebpf
 import (
 	"go.opentelemetry.io/otel/attribute"
 
-	"go.opentelemetry.io/obi/pkg/components/netolly/flow/transport"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/internal/netolly/flow/transport"
 )
 
 const (

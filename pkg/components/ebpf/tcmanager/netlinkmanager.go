@@ -17,7 +17,7 @@ import (
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 
-	"go.opentelemetry.io/obi/pkg/components/netolly/ifaces"
+	"go.opentelemetry.io/obi/pkg/internal/netolly/ifaces"
 )
 
 var nextTCHandle = atomic.Uint32{}

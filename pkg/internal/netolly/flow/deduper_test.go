@@ -29,8 +29,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
+	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -68,7 +69,7 @@ func TestDedupe(t *testing.T) {
 	input := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(100))
 	outputQueue := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(100))
 	output := outputQueue.Subscribe()
-	dedupe, err := DeduperProvider(&Deduper{Type: DeduperFirstCome, FCTTL: time.Minute}, input, outputQueue)(t.Context())
+	dedupe, err := DeduperProvider(&Deduper{Type: flowdef.DeduperFirstCome, FCTTL: time.Minute}, input, outputQueue)(t.Context())
 	require.NoError(t, err)
 	go dedupe(t.Context())
 
@@ -97,7 +98,7 @@ func TestDedupe_EvictFlows(t *testing.T) {
 	outputQu := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(100))
 	output := outputQu.Subscribe()
 
-	dedupe, err := DeduperProvider(&Deduper{Type: DeduperFirstCome, FCTTL: 15 * time.Second}, input, outputQu)(t.Context())
+	dedupe, err := DeduperProvider(&Deduper{Type: flowdef.DeduperFirstCome, FCTTL: 15 * time.Second}, input, outputQu)(t.Context())
 	require.NoError(t, err)
 	go dedupe(t.Context())
 

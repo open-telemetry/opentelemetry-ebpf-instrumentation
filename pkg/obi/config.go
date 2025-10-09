@@ -156,7 +156,7 @@ var DefaultConfig = Config{
 		Unmatch:      transform.UnmatchDefault,
 		WildcardChar: "*",
 	},
-	NetworkFlows: defaultNetworkConfig,
+	NetworkFlows: DefaultNetworkConfig,
 	Discovery: services.DiscoveryConfig{
 		ExcludeOTelInstrumentedServices: true,
 		DefaultExcludeServices: services.RegexDefinitionCriteria{

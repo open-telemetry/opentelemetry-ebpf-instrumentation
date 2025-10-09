@@ -27,7 +27,8 @@ import (
 	"log/slog"
 	"time"
 
-	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
@@ -36,11 +37,6 @@ func dlog() *slog.Logger {
 	return slog.With("component", "flow/Deduper")
 }
 
-const (
-	DeduperNone      = "none"
-	DeduperFirstCome = "first_come"
-)
-
 type Deduper struct {
 	Type               string
 	FCTTL              time.Duration
@@ -48,7 +44,7 @@ type Deduper struct {
 }
 
 func (d Deduper) Enabled() bool {
-	return d.Type == DeduperFirstCome
+	return d.Type == flowdef.DeduperFirstCome
 }
 
 var timeNow = time.Now
