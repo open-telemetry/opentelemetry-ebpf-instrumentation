@@ -232,7 +232,7 @@ coverage-report-html: cov-exclude-generated
 # image-build is only used for local development. GH actions that build and publish the image don't make use of it
 .PHONY: image-build
 image-build:
-	@echo "### Building and pushing the auto-instrumenter image"
+	@echo "### Building the auto-instrumenter image"
 	$(call check_defined, IMG_ORG, Your Docker repository user name)
 	$(OCI_BIN) buildx build --load -t ${IMG} .
 
