@@ -51,7 +51,6 @@ func GraphQLSpan(baseSpan *request.Span, req *http.Request, _ *http.Response) (r
 	}
 
 	// https://opentelemetry.io/docs/specs/semconv/graphql/graphql-spans/
-	// TODO(matt): errors?
 	baseSpan.SubType = request.HTTPSubtypeGraphQL
 	baseSpan.GraphQL = &request.GraphQL{
 		Document:      op.Document,

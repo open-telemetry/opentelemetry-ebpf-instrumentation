@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
-	ebpfhttp "go.opentelemetry.io/obi/pkg/components/ebpf/common/http"
+	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
 
@@ -154,10 +154,15 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 		return httpRequestToSpan(event, requestBuffer), false, nil
 	}
 
+	if !hasResponse {
+		// Large buffers disabled
+		return httpRequestToSpan(event, requestBuffer), false, nil
+	}
+
 	req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(requestBuffer)))
 	resp, err2 := http.ReadResponse(bufio.NewReader(bytes.NewReader(responseBuffer)), req)
-	if !hasResponse || err != nil || err2 != nil {
-		slog.Debug("HTTP large buffers disabled or not found, falling back to manual HTTP info parsing", "error", err)
+	if err != nil || err2 != nil {
+		slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "reqErr", err, "respErr", err2)
 		return httpRequestToSpan(event, requestBuffer), false, nil
 	}
 	defer req.Body.Close()

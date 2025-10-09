@@ -247,7 +247,7 @@ func spanAttributes(s *Span) SpanAttributes {
 		}
 		return attrs
 	case EventTypeHTTPClient:
-		attrs := SpanAttributes{
+		return SpanAttributes{
 			"method":     s.Method,
 			"status":     strconv.Itoa(s.Status),
 			"url":        s.Path,
@@ -255,7 +255,6 @@ func spanAttributes(s *Span) SpanAttributes {
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
 		}
-		return attrs
 	case EventTypeGRPC:
 		return SpanAttributes{
 			"method":     s.Path,
