@@ -13,4 +13,5 @@
 typedef struct msg_buffer {
     unsigned char buf[k_kprobes_http2_buf_size];
     u16 pos;
+    u16 real_size;
 } msg_buffer_t;
