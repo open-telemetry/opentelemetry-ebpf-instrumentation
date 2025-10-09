@@ -39,7 +39,6 @@ import (
 const timeout = 5 * time.Second
 
 func TestAppMetricsExpiration(t *testing.T) {
-	t.Skip("race conditions")
 	now := syncedClock{now: time.Now()}
 	timeNow = now.Now
 
@@ -111,7 +110,6 @@ func TestAppMetricsExpiration(t *testing.T) {
 		},
 		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
-	awaitSpanProcessing()
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
 	containsTargetInfoSDKVersion := regexp.MustCompile(`\ntarget_info\{.*telemetry_sdk_version=.*`)
@@ -146,7 +144,6 @@ func TestAppMetricsExpiration(t *testing.T) {
 			},
 		},
 	})
-	awaitSpanProcessing()
 	now.Advance(2 * time.Minute)
 
 	// THEN THE metrics that have been received during the timeout period are still visible
@@ -164,7 +161,6 @@ func TestAppMetricsExpiration(t *testing.T) {
 	promInput.Send([]request.Span{
 		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
-	awaitSpanProcessing()
 	now.Advance(2 * time.Minute)
 
 	// THEN they are reported again, starting from zero in the case of counters
