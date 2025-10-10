@@ -169,3 +169,53 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 		assert.Equal(t, "GET /back-again", spans[1].TraceName())
 	})
 }
+
+func TestSpanNameLimiter_CopiesOutput(t *testing.T) {
+	// OBI has to mark as AGGREGATED only span metrics while the traces/spans need to
+	// keep the original, high-cardinality span name.
+	// To achieve that, the SpanNameLimiter must copy the modified spans instead of
+	// modifying the original input array
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	outCh := output.Subscribe()
+	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
+		Limit: 3,
+		OTEL:  &otelcfg.MetricsConfig{Features: []string{otelcfg.FeatureSpan}, TTL: time.Minute},
+		Prom:  &prom.PrometheusConfig{Features: []string{otelcfg.FeatureSpan}, TTL: time.Minute},
+	}, input, output)(t.Context())
+	require.NoError(t, err)
+
+	go runSpanNameLimiter(t.Context())
+
+	svc := svc.Attrs{UID: svc.UID{Namespace: "ns", Name: "svc1", Instance: "i1"}}
+
+	// generate diverse span names to reach the maximum aggregation
+	input.Send([]request.Span{
+		{Service: svc, Type: request.EventTypeHTTP, Method: "GET", Route: "/foo-1"},
+		{Service: svc, Type: request.EventTypeHTTP, Method: "GET", Route: "/foo-2"},
+		{Service: svc, Type: request.EventTypeHTTP, Method: "GET", Route: "/foo-3"},
+	})
+	out := testutil.ReadChannel(t, outCh, testTimeout)
+	require.Len(t, out, 3)
+	assert.Equal(t, "GET /foo-1", out[0].TraceName())
+	assert.Equal(t, "GET /foo-2", out[1].TraceName())
+	assert.Equal(t, "GET /foo-3", out[2].TraceName())
+
+	// From here, the output of the span name limiter shows aggregated spans,
+	// but the original input spans remain untouched
+	original := []request.Span{
+		{Service: svc, Type: request.EventTypeHTTP, Method: "GET", Route: "/foo-4"},
+		{Service: svc, Type: request.EventTypeHTTP, Method: "GET", Route: "/foo-5"},
+		{Service: svc, Type: request.EventTypeHTTP, Method: "GET", Route: "/foo-6"},
+	}
+	input.Send(original)
+	out = testutil.ReadChannel(t, outCh, testTimeout)
+	require.Len(t, out, 3)
+	assert.Equal(t, "AGGREGATED", out[0].TraceName())
+	assert.Equal(t, "AGGREGATED", out[1].TraceName())
+	assert.Equal(t, "AGGREGATED", out[2].TraceName())
+
+	assert.Equal(t, "GET /foo-4", original[0].TraceName())
+	assert.Equal(t, "GET /foo-5", original[1].TraceName())
+	assert.Equal(t, "GET /foo-6", original[2].TraceName())
+}
