@@ -96,7 +96,7 @@ func TestSpanNameLimiter(t *testing.T) {
 	})
 
 	t.Run("do not aggregate when same route is provided many times", func(t *testing.T) {
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			input.Send([]request.Span{
 				{Service: svc2, Type: request.EventTypeHTTP, Method: "GET", Route: "/bar"},
 			})
@@ -126,14 +126,14 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 		svc1 := svc.Attrs{UID: svc.UID{Namespace: "ns", Name: "svc1", Instance: "i1"}}
 		svc2 := svc.Attrs{UID: svc.UID{Namespace: "ns", Name: "svc2", Instance: "i2"}}
 
-		for i := 0; i < maxCardinalityBeforeAggregation+1; i++ {
+		for i := range maxCardinalityBeforeAggregation + 1 {
 			input.Send([]request.Span{
 				{Service: svc1, Type: request.EventTypeHTTP, Method: "GET", Route: fmt.Sprintf("/foo-%d", i)},
 				{Service: svc2, Type: request.EventTypeHTTP, Method: "GET", Route: fmt.Sprintf("/bar-%d", i)},
 			})
 		}
 		// before max cardinality, nothing is aggregated
-		for i := 0; i < maxCardinalityBeforeAggregation; i++ {
+		for i := range maxCardinalityBeforeAggregation {
 			spans := testutil.ReadChannel(t, outCh, testTimeout)
 			require.Len(t, spans, 2)
 			assert.Equal(t, fmt.Sprintf("GET /foo-%d", i), spans[0].TraceName())
@@ -146,7 +146,7 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 		assert.Equal(t, "AGGREGATED", spans[1].TraceName())
 
 		// During TTL time, a service stops sending data while the other keeps going
-		for i := 0; i < 13; i++ {
+		for range 13 {
 			// will expect that te internal expiration timer is eventually triggered during this loop
 			time.Sleep(10 * time.Second)
 			input.Send([]request.Span{

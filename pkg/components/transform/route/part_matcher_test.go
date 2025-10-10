@@ -361,8 +361,7 @@ func BenchmarkPartialRouteMatcherSimple(b *testing.B) {
 		"/anything/else",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, path := range testPaths {
 			m.Find(path)
 		}
@@ -384,8 +383,7 @@ func BenchmarkPartialRouteMatcherComplex(b *testing.B) {
 		"/files/path/to/file.txt",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, path := range testPaths {
 			m.Find(path)
 		}

@@ -47,7 +47,7 @@ func TestForwardRingbuf_CapacityFull(t *testing.T) {
 
 	// WHEN it starts receiving trace events
 	get := [7]byte{'G', 'E', 'T', 0, 0, 0, 0}
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		t := HTTPRequestTrace{Type: 1, Method: get, ContentLength: int64(i)}
 		t.Pid.HostPid = 1
 		ringBuf.events <- t
@@ -98,7 +98,7 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 
 	// WHEN it receives, after a timeout, less events than its internal buffer
 	get := [7]byte{'G', 'E', 'T', 0, 0, 0, 0}
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		t := HTTPRequestTrace{Type: 1, Method: get, ContentLength: int64(i)}
 		t.Pid.HostPid = 1
 

@@ -41,12 +41,12 @@ func TestQueueOrdering(t *testing.T) {
 	q := NewQueue[int]()
 
 	go func() {
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			q.Enqueue(i)
 		}
 	}()
 
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		assert.Equal(t, i, q.Dequeue())
 	}
 }
@@ -54,7 +54,7 @@ func TestQueueOrdering(t *testing.T) {
 func TestSynchronization(t *testing.T) {
 	q := NewQueue[int]()
 	// enqueuing from concurrent goroutines
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		cnt := i
 		go q.Enqueue(cnt)
 	}
@@ -62,7 +62,7 @@ func TestSynchronization(t *testing.T) {
 	receivedValues := sync.Map{}
 	wg := sync.WaitGroup{}
 	wg.Add(1000)
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		// dequeuing from concurrent goroutines
 		go func() {
 			receivedValues.Store(q.Dequeue(), struct{}{})
@@ -79,7 +79,7 @@ func TestSynchronization(t *testing.T) {
 	testutil.ReadChannel(t, done, timeout)
 
 	// check that each enqueued value has been effectively dequeued
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		_, ok := receivedValues.Load(i)
 		assert.Truef(t, ok, "expected to receive value %d", i)
 	}

@@ -185,7 +185,7 @@ func benchProvider(b *testing.B, unmatch UnmatchType) {
 		{Type: request.EventTypeHTTP, Path: "/users/123/delete"},
 	}
 	go router(b.Context())
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		inCh <- benchmarkInput
 		<-outCh
 	}

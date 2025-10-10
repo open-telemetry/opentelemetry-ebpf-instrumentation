@@ -106,9 +106,7 @@ func NewAttrSelector(
 
 	definitions := getDefinitions(groups, extraGroupAttributes)
 
-	for section, group := range getDefinitions(groups, extraGroupAttributes) {
-		definitions[section] = group
-	}
+	maps.Copy(definitions, getDefinitions(groups, extraGroupAttributes))
 
 	// TODO: validate
 	return &AttrSelector{

@@ -133,10 +133,7 @@ func (event *BPFHTTPInfo) url() string {
 		return buf[space+1 : bufEnd]
 	}
 
-	end := nextSpace + space + 1
-	if end > bufEnd {
-		end = bufEnd
-	}
+	end := min(nextSpace+space+1, bufEnd)
 
 	return buf[space+1 : end]
 }

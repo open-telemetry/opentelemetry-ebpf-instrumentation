@@ -64,9 +64,7 @@ func BenchmarkGenerateTraces(b *testing.B) {
 
 	group := groupFromSpanAndAttributes(span, attrs)
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, attrs, "host-id", group, reporterName)
 
 		if traces.ResourceSpans().Len() == 0 {
@@ -478,7 +476,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 func TestTraceSampling(t *testing.T) {
 	spans := []request.Span{}
 	start := time.Now()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		span := request.Span{
 			Type:         request.EventTypeHTTP,
 			RequestStart: start.UnixNano(),
@@ -550,7 +548,7 @@ func TestTraceSampling(t *testing.T) {
 func TestTraceSkipSpanMetrics(t *testing.T) {
 	spans := []request.Span{}
 	start := time.Now()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		span := request.Span{
 			Type:         request.EventTypeHTTP,
 			RequestStart: start.UnixNano(),
@@ -820,7 +818,7 @@ func TestTracesInstrumentations(t *testing.T) {
 			assert.Len(t, tt.expected, len(traces), tt.name)
 			for i := 0; i < len(tt.expected); i++ {
 				found := false
-				for j := 0; j < len(traces); j++ {
+				for j := range traces {
 					assert.Equal(t, 1, traces[j].ResourceSpans().Len(), tt.name+":"+tt.expected[i])
 					if traces[j].ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Name() == tt.expected[i] {
 						found = true
@@ -1164,7 +1162,7 @@ func TestHostPeerAttributes(t *testing.T) {
 func TestTraceGrouping(t *testing.T) {
 	spans := []request.Span{}
 	start := time.Now()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		span := request.Span{
 			Type:         request.EventTypeHTTP,
 			RequestStart: start.UnixNano(),

@@ -233,7 +233,7 @@ func TestPortsFetchRequired(t *testing.T) {
 	// we send port that's not in our port range
 	eventsChan <- watcher.Event{Type: watcher.NewPort, Payload: 8090}
 	// 5 seconds should be enough to have the channel send something
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		assert.False(t, acc.portFetchRequired()) // once we see it true, next time it's false
 		time.Sleep(1 * time.Second)
 	}
@@ -317,7 +317,7 @@ func TestMinProcessAge(t *testing.T) {
 	assert.True(t, ok)
 	assert.False(t, acc.processTooNew(process))
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		procs, err = fetchProcessPorts(false)
 		require.NoError(t, err)
 	}

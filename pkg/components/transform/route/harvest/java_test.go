@@ -548,8 +548,7 @@ func BenchmarkHasAlphanumeric(b *testing.B) {
 		"очень длинная строка с unicode символами",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, s := range testStrings {
 			hasAlphanumeric(s)
 		}
@@ -564,8 +563,7 @@ func BenchmarkSanitizeParams(b *testing.B) {
 		"/api/complex/{param1:pattern1}/sub/{param2:pattern2}/final/{param3}",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, path := range testPaths {
 			sanitizeParams(path)
 		}
@@ -585,8 +583,7 @@ func BenchmarkSortRoutes(b *testing.B) {
 		"/api/orders/{orderId}/items/{itemId}",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// Make a copy for each iteration
 		routesCopy := make([]string, len(routes))
 		copy(routesCopy, routes)

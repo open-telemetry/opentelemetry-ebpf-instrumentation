@@ -520,7 +520,7 @@ func (f *fakeInternalMetrics) SumCount() (sum, count int) {
 
 func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecords int, timeout time.Duration) []collector.MetricRecord {
 	records := []collector.MetricRecord{}
-	for i := 0; i < numRecords; i++ {
+	for range numRecords {
 		select {
 		case item := <-inCh:
 			records = append(records, item)

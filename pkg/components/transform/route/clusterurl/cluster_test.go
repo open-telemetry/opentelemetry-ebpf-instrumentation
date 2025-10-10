@@ -73,8 +73,7 @@ func BenchmarkClusterURLWithCache(b *testing.B) {
 		"",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, testCase := range testCases {
 			_ = csf.ClusterURL(testCase)
 		}
@@ -101,8 +100,7 @@ func BenchmarkClusterURLWithoutCache(b *testing.B) {
 		"",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, testCase := range testCases {
 			_ = csf.ClusterURL(testCase)
 		}

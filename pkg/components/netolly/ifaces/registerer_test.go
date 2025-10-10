@@ -54,7 +54,7 @@ func TestRegisterer(t *testing.T) {
 	require.NoError(t, err)
 
 	// initial set of fetched elements
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		getEvent(t, outputEvents)
 	}
 	assert.Equal(t, "foo", registry.ifaces[1])
@@ -64,7 +64,7 @@ func TestRegisterer(t *testing.T) {
 	// updates
 	inputLinks <- upAndRunning("bae", 4)
 	inputLinks <- down("bar", 2)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		getEvent(t, outputEvents)
 	}
 
@@ -77,7 +77,7 @@ func TestRegisterer(t *testing.T) {
 	// will be ignored
 	inputLinks <- upAndRunning("fiu", 1)
 	inputLinks <- down("foo", 1)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		getEvent(t, outputEvents)
 	}
 
