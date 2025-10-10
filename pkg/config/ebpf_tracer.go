@@ -105,6 +105,9 @@ type EBPFTracer struct {
 
 	// MongoDB requests cache size.
 	MongoRequestsCacheSize int `yaml:"mongo_requests_cache_size" env:"OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE"`
+
+	// Configure data extraction/parsing based on protocol
+	PayloadExtraction PayloadExtraction `yaml:"payload_extraction"`
 }
 
 // Per-protocol data buffer size in bytes.

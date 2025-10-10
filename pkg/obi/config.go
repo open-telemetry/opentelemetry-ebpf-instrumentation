@@ -84,6 +84,13 @@ var DefaultConfig = Config{
 		MongoRequestsCacheSize:              1024,
 		KafkaTopicUUIDCacheSize:             1024,
 		OverrideBPFLoopEnabled:              false,
+		PayloadExtraction: config.PayloadExtraction{
+			HTTP: config.HTTPConfig{
+				GraphQL: config.GraphQLConfig{
+					Enabled: false,
+				},
+			},
+		},
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources:  []string{"k8s"},

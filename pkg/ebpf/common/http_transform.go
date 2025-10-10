@@ -4,18 +4,39 @@
 package ebpfcommon
 
 import (
+	"bufio"
 	"bytes"
 	"log/slog"
 	"net"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
+	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
 
+func removeQuery(url string) string {
+	idx := strings.IndexByte(url, '?')
+	if idx > 0 {
+		return url[:idx]
+	}
+	return url
+}
+
+type HTTPInfo struct {
+	BPFHTTPInfo
+	Method     string
+	URL        string
+	Host       string
+	Peer       string
+	HeaderHost string
+	Body       string
+}
+
 // misses serviceID
-func httpInfoToSpan(info *HTTPInfo) request.Span {
+func httpInfoToSpanLegacy(info *HTTPInfo) request.Span {
 	scheme := "http"
 	if info.Ssl == 1 {
 		scheme = "https"
@@ -48,21 +69,43 @@ func httpInfoToSpan(info *HTTPInfo) request.Span {
 	}
 }
 
-func removeQuery(url string) string {
-	idx := strings.IndexByte(url, '?')
-	if idx > 0 {
-		return url[:idx]
-	}
-	return url
-}
+func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, req *http.Request, resp *http.Response) request.Span {
+	peer, host := (*BPFConnInfo)(&event.ConnInfo).reqHostInfo()
 
-type HTTPInfo struct {
-	BPFHTTPInfo
-	Method     string
-	URL        string
-	Host       string
-	Peer       string
-	HeaderHost string
+	httpSpan := request.Span{
+		Type:           request.EventType(event.Type),
+		Method:         req.Method,
+		Path:           removeQuery(req.URL.String()),
+		Peer:           peer,
+		PeerPort:       int(event.ConnInfo.S_port),
+		Host:           host,
+		HostPort:       int(event.ConnInfo.D_port),
+		ContentLength:  req.ContentLength,
+		ResponseLength: resp.ContentLength,
+		RequestStart:   int64(event.ReqMonotimeNs),
+		Start:          int64(event.StartMonotimeNs),
+		End:            int64(event.EndMonotimeNs),
+		Status:         resp.StatusCode,
+		TraceID:        event.Tp.TraceId,
+		SpanID:         event.Tp.SpanId,
+		ParentSpanID:   event.Tp.ParentId,
+		TraceFlags:     event.Tp.Flags,
+		Pid: request.PidInfo{
+			HostPID:   event.Pid.HostPid,
+			UserPID:   event.Pid.UserPid,
+			Namespace: event.Pid.Ns,
+		},
+		Statement: req.URL.Scheme + request.SchemeHostSeparator + req.Host,
+	}
+
+	if !isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GraphQL.Enabled {
+		span, ok := ebpfhttp.GraphQLSpan(&httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
+	return httpSpan
 }
 
 func ReadHTTPInfoIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record, filter ServiceFilter) (request.Span, bool, error) {
@@ -80,23 +123,61 @@ func ReadHTTPInfoIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record, fi
 }
 
 func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (request.Span, bool, error) {
-	result := HTTPInfo{BPFHTTPInfo: *event}
-
 	var (
-		bufHost       string
-		bufPort       int
-		parsedHost    bool
-		requestBuffer = event.Buf[:]
+		requestBuffer, responseBuffer []byte
+		hasResponse                   bool
+		isClient                      = isClientEvent(event.Type)
 	)
 
 	if event.HasLargeBuffers == 1 {
-		b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionSend, event.ConnInfo)
+		b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, isClient), event.ConnInfo)
 		if ok {
 			requestBuffer = b
 		} else {
-			slog.Debug("missing large buffer for HTTP request", "traceID", event.Tp.TraceId, "spanID", event.Tp.SpanId)
+			slog.Debug("missing large buffer for HTTP request", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "packetType", packetTypeRequest)
 		}
+
+		b, ok = extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo)
+		if ok {
+			responseBuffer = b
+			hasResponse = true
+		} else {
+			slog.Debug("missing large buffer for HTTP response", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "packetType", packetTypeResponse)
+		}
+	} else {
+		requestBuffer = event.Buf[:]
 	}
+
+	if parseCtx != nil && !parseCtx.payloadExtraction.HTTP.GraphQL.Enabled {
+		// There's no need to parse HTTP headers/body,
+		// create the span directly.
+		return httpRequestToSpan(event, requestBuffer), false, nil
+	}
+
+	if !hasResponse {
+		// Large buffers disabled
+		return httpRequestToSpan(event, requestBuffer), false, nil
+	}
+
+	req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(requestBuffer)))
+	resp, err2 := http.ReadResponse(bufio.NewReader(bytes.NewReader(responseBuffer)), req)
+	if err != nil || err2 != nil {
+		slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "reqErr", err, "respErr", err2)
+		return httpRequestToSpan(event, requestBuffer), false, nil
+	}
+	defer req.Body.Close()
+	defer resp.Body.Close()
+
+	return httpRequestResponseToSpan(parseCtx, event, req, resp), false, nil
+}
+
+func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer []byte) request.Span {
+	var (
+		result     = HTTPInfo{BPFHTTPInfo: *event}
+		bufHost    string
+		bufPort    int
+		parsedHost bool
+	)
 
 	// When we can't find the connection info, we signal that through making the
 	// source and destination ports equal to max short. E.g. async SSL
@@ -122,7 +203,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 
 	result.HeaderHost = bufHost
 
-	return httpInfoToSpan(&result), false, nil
+	return httpInfoToSpanLegacy(&result)
 }
 
 func httpURLFromBuf(req []byte) string {
