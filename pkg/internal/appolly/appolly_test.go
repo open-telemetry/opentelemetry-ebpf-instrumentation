@@ -10,9 +10,9 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/components/connector"
 	"go.opentelemetry.io/obi/pkg/components/discover"
-	"go.opentelemetry.io/obi/pkg/components/ebpf"
 	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
+	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
 )

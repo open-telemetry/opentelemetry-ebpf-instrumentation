@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/pkg/components/ebpf/tcmanager"
 	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/components/kube"
 	"go.opentelemetry.io/obi/pkg/config"
@@ -126,7 +125,7 @@ discovery:
 			BatchLength:               100,
 			BatchTimeout:              time.Second,
 			HTTPRequestTimeout:        0,
-			TCBackend:                 tcmanager.TCBackendAuto,
+			TCBackend:                 config.TCBackendAuto,
 			ContextPropagationEnabled: false,
 			ContextPropagation:        config.ContextPropagationDisabled,
 			RedisDBCache: config.RedisDBCacheConfig{

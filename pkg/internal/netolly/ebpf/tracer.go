@@ -32,9 +32,10 @@ import (
 
 	"github.com/cilium/ebpf/rlimit"
 
-	convenience "go.opentelemetry.io/obi/pkg/components/ebpf/convenience"
-	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
-	"go.opentelemetry.io/obi/pkg/components/ebpf/tcmanager"
+	"go.opentelemetry.io/obi/pkg/config"
+	convenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/tcmanager"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
@@ -71,7 +72,7 @@ func NewFlowFetcher(
 	sampling, cacheMaxSize int,
 	ingress, egress bool,
 	ifaceManager *tcmanager.InterfaceManager,
-	tcBackend tcmanager.TCBackend,
+	tcBackend config.TCBackend,
 ) (*FlowFetcher, error) {
 	tlog := tlog()
 	if err := rlimit.RemoveMemlock(); err != nil {

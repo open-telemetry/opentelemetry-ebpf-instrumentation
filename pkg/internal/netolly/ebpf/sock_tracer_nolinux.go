@@ -6,7 +6,7 @@
 package ebpf
 
 import (
-	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
 
 type SockFlowFetcher struct{}

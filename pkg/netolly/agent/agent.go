@@ -30,9 +30,9 @@ import (
 	"net"
 	"time"
 
-	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
-	"go.opentelemetry.io/obi/pkg/components/ebpf/tcmanager"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/tcmanager"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/flow"
 	"go.opentelemetry.io/obi/pkg/obi"
