@@ -153,11 +153,9 @@ func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents 
 			log.Debug("running tracer for new process",
 				"inode", pt.FileInfo.Ino, "pid", pt.FileInfo.Pid, "exec", pt.FileInfo.CmdExePath)
 			if pt.Tracer != nil {
-				i.tracersWg.Add(1)
-				go func() {
-					defer i.tracersWg.Done()
+				i.tracersWg.Go(func() {
 					pt.Tracer.Run(ctx, i.ebpfEventContext, i.tracesInput)
-				}()
+				})
 			}
 			i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: pt.FileInfo})
 		case discover.EventDeleted:

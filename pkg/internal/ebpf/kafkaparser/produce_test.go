@@ -642,7 +642,7 @@ func TestParseProduceRequestEdgeCases(t *testing.T) {
 				binary.BigEndian.PutUint32(pkt[offset:], uint32(topicCount))
 				offset += 4
 
-				for i := 0; i < topicCount; i++ {
+				for i := range topicCount {
 					topicName := fmt.Sprintf("topic%d", i)
 					binary.BigEndian.PutUint16(pkt[offset:], uint16(len(topicName)))
 					offset += 2

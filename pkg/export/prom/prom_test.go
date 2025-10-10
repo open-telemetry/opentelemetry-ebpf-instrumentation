@@ -1047,7 +1047,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		uid := svc.UID{Name: "concurrent-service", Namespace: "default", Instance: "instance-1"}
 
 		// Simulate rapid updates to same service with different metadata
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			service := svc.Attrs{
 				UID:      uid,
 				HostName: fmt.Sprintf("host-%d", i),

@@ -635,7 +635,7 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 
 	// expect to receive only the records matching the Filters criteria
 	events := map[string]map[string]string{}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		var event collector.MetricRecord
 		test.Eventually(t, testTimeout, func(tt require.TestingT) {
 			event = testutil.ReadChannel(t, tc.Records(), testTimeout)

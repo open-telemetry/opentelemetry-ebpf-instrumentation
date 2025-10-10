@@ -432,7 +432,7 @@ func TestReadUUID(t *testing.T) {
 			packet: func() []byte {
 				pkt := make([]byte, 20)
 				// Set some recognizable UUID bytes
-				for i := 0; i < UUIDLen; i++ {
+				for i := range UUIDLen {
 					pkt[i] = byte(i)
 				}
 				return pkt
@@ -440,7 +440,7 @@ func TestReadUUID(t *testing.T) {
 			offset: 0,
 			expectedUUID: func() UUID {
 				var uuid UUID
-				for i := 0; i < UUIDLen; i++ {
+				for i := range UUIDLen {
 					uuid[i] = byte(i)
 				}
 				return uuid
@@ -461,7 +461,7 @@ func TestReadUUID(t *testing.T) {
 			packet: func() []byte {
 				pkt := make([]byte, 25)
 				// Set UUID starting at offset 5
-				for i := 0; i < UUIDLen; i++ {
+				for i := range UUIDLen {
 					pkt[5+i] = byte(i + 10)
 				}
 				return pkt
@@ -469,7 +469,7 @@ func TestReadUUID(t *testing.T) {
 			offset: 5,
 			expectedUUID: func() UUID {
 				var uuid UUID
-				for i := 0; i < UUIDLen; i++ {
+				for i := range UUIDLen {
 					uuid[i] = byte(i + 10)
 				}
 				return uuid

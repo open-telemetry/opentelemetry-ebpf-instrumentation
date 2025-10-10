@@ -44,10 +44,7 @@ func TestMaybeFastCGI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ilen := len(tt.input)
-			if ilen > tt.inputLen {
-				ilen = tt.inputLen
-			}
+			ilen := min(len(tt.input), tt.inputLen)
 			res := maybeFastCGI(tt.input[0:ilen])
 			assert.Equal(t, tt.expected, res)
 		})
@@ -113,10 +110,7 @@ func TestParseCGITable(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ilen := len(tt.input)
-			if ilen > tt.inputLen {
-				ilen = tt.inputLen
-			}
+			ilen := min(len(tt.input), tt.inputLen)
 			res := parseCGITable(tt.input[0:ilen])
 			assert.Equal(t, tt.expected, res)
 		})
@@ -218,14 +212,8 @@ func TestDetectFastCGI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ilen := len(tt.input)
-			if ilen > tt.inputLen {
-				ilen = tt.inputLen
-			}
-			olen := len(tt.output)
-			if olen > tt.outputLen {
-				olen = tt.outputLen
-			}
+			ilen := min(len(tt.input), tt.inputLen)
+			olen := min(len(tt.output), tt.outputLen)
 			method, path, status := detectFastCGI(tt.input[0:ilen], tt.output[0:olen])
 			assert.Equal(t, tt.expectedMethod, method)
 			assert.Equal(t, tt.expectedPath, path)

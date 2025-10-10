@@ -121,7 +121,7 @@ func TestNetMetricsExpiration(t *testing.T) {
 	// We just know it because OTEL will only sends foo/bar metric.
 	// If this test is flaky: it means it is actually failing
 	// repeating 10 times to make sure that only this metric is forwarded
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		metric := readChan(t, otlp.Records())
 		require.Equal(t, map[string]string{"src.name": "foo", "dst.name": "bar"}, metric.Attributes)
 		require.InEpsilon(t, 369, metric.IntVal, 0.001)
