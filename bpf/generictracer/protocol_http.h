@@ -604,14 +604,6 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
     __builtin_memcpy(&in->conn_info, &args->pid_conn.conn, sizeof(connection_info_t));
     in->ssl = args->ssl;
 
-    http_info_t *info =
-        get_or_set_http_info(in, &args->pid_conn, args->packet_type, args->direction);
-    if (!info) {
-        bpf_dbg_printk("No info (or duplicate), pid =%d?", args->pid_conn.pid);
-        dbg_print_http_connection_info(&args->pid_conn.conn);
-        return 0;
-    }
-
     // If we have the same process (or even thread) call itself through HTTP, the
     // connection information is identical. This means that the client call information
     // will be overwritten by the server call. In this situation we'll create a gap in
@@ -625,6 +617,14 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
         __builtin_memcpy(&self_ref_parent_id, &self_ref_tp->parent_id, sizeof(u64));
     }
     args->self_ref_parent_id = self_ref_parent_id;
+
+    http_info_t *info =
+        get_or_set_http_info(in, &args->pid_conn, args->packet_type, args->direction);
+    if (!info) {
+        bpf_dbg_printk("No info (or duplicate), pid =%d?", args->pid_conn.pid);
+        dbg_print_http_connection_info(&args->pid_conn.conn);
+        return 0;
+    }
 
     bpf_dbg_printk("=== http_buffer_event len=%d pid=%d still_reading=%d ===",
                    args->bytes_len,
