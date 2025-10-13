@@ -990,7 +990,6 @@ func testNestedHTTPSTracesKProbes(t *testing.T) {
 			jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
 		)
 		assert.Empty(t, sd, sd.String())
-
 	}, test.Interval(100*time.Millisecond))
 }
 
