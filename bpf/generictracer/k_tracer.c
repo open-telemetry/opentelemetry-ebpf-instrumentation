@@ -65,50 +65,6 @@ int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct so
     return 0;
 }
 
-// We tap into accept and connect to figure out if a request is inbound or
-// outbound. However, in some cases servers can optimise the accept path if
-// the same request is sent over and over. For that reason, in case we miss the
-// initial accept, we establish an active filtered connection here. By default
-// sets the type to be server HTTP, in client mode we'll overwrite the
-// data in the map, since those cannot be optimised.
-SEC("kprobe/tcp_rcv_established")
-int BPF_KPROBE(obi_kprobe_tcp_rcv_established, struct sock *sk, struct sk_buff *skb) {
-    (void)ctx;
-    (void)skb;
-
-    u64 id = bpf_get_current_pid_tgid();
-
-    if (!valid_pid(id)) {
-        return 0;
-    }
-
-    bpf_dbg_printk("=== tcp_rcv_established id=%d ===", id);
-
-    ssl_pid_connection_info_t pid_info = {};
-
-    if (parse_sock_info(sk, &pid_info.p_conn.conn)) {
-        //u16 orig_dport = info.conn.d_port;
-        dbg_print_http_connection_info(&pid_info.p_conn.conn);
-        sort_connection_info(&pid_info.p_conn.conn);
-        pid_info.p_conn.pid = pid_from_pid_tgid(id);
-
-        ssl_pid_connection_info_t *prev_info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
-        // We only update here when we don't know the direction if we haven't previously
-        // set the information in sys_accept or sys_connect
-        if (!prev_info || (prev_info->p_conn.conn.d_port != pid_info.p_conn.conn.d_port) ||
-            (prev_info->p_conn.conn.s_port != pid_info.p_conn.conn.s_port)) {
-            // This is a current limitation for port ordering detection for SSL.
-            // tcp_rcv_established flip flops the ports and we can't tell if it's client or server call.
-            // If the source port for a client call is lower, we'll get this wrong.
-            // Set orig_dport to 0 to avoid swapping connection infos for clients
-            pid_info.orig_dport = 0;
-            bpf_map_update_elem(&pid_tid_to_conn, &id, &pid_info, BPF_ANY);
-        }
-    }
-
-    return 0;
-}
-
 // We tap into both sys_accept and sys_accept4.
 // We don't care about the accept entry arguments, since we get only peer information
 // we don't have the full picture for the socket.
@@ -341,6 +297,21 @@ tcp_send_ssl_check(u64 id, void *ssl, pid_connection_info_t *p_conn, u16 orig_dp
     bpf_map_update_elem(&ssl_to_conn, &ssl, &ssl_conn, BPF_ANY);
 }
 
+static __always_inline void
+setup_connection_to_pid_mapping(u64 id, pid_connection_info_t *p_conn, u16 orig_dport) {
+    ssl_pid_connection_info_t *prev_info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
+    // We only update here when we don't know the direction if we haven't previously
+    // set the information in sys_accept or sys_connect
+    if (!prev_info || (prev_info->p_conn.conn.d_port != p_conn->conn.d_port) ||
+        (prev_info->p_conn.conn.s_port != p_conn->conn.s_port)) {
+        ssl_pid_connection_info_t ssl_conn = {0};
+        ssl_conn.orig_dport = orig_dport;
+        ssl_conn.p_conn = *p_conn;
+
+        bpf_map_update_elem(&pid_tid_to_conn, &id, &ssl_conn, BPF_ANY);
+    }
+}
+
 // Main HTTP read and write operations are handled with tcp_sendmsg and tcp_recvmsg
 
 // The size argument here will be always the total response size.
@@ -377,6 +348,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
 
         cp_support_established(&s_args.p_conn);
         connect_ssl_to_connection(id, &s_args.p_conn, TCP_SEND, orig_dport);
+        setup_connection_to_pid_mapping(id, &s_args.p_conn, orig_dport);
 
         void *ssl = is_ssl_connection(&s_args.p_conn);
         if (size > 0) {
@@ -475,6 +447,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
         s_args.orig_dport = orig_dport;
 
         connect_ssl_to_connection(id, &s_args.p_conn, TCP_SEND, orig_dport);
+        setup_connection_to_pid_mapping(id, &s_args.p_conn, orig_dport);
         cp_support_established(&s_args.p_conn);
 
         void *ssl = is_ssl_connection(&s_args.p_conn);
@@ -759,9 +732,11 @@ int BPF_KRETPROBE(obi_kretprobe_sock_recvmsg, int copied_len) {
 
     if (sock_ptr) {
         if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
+            u16 orig_dport = info.conn.d_port;
             sort_connection_info(&info.conn);
             info.pid = pid_from_pid_tgid(id);
             setup_cp_support_conn_info(&info, false);
+            setup_connection_to_pid_mapping(id, &info, orig_dport);
         }
     }
 
@@ -792,10 +767,12 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
 
     if (copied_len <= 0) {
         if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
+            u16 orig_dport = info.conn.d_port;
             sort_connection_info(&info.conn);
             info.pid = pid_from_pid_tgid(id);
             setup_cp_support_conn_info(&info, false);
             cp_support_established(&info);
+            setup_connection_to_pid_mapping(id, &info, orig_dport);
         }
         // Don't clean-up. This is called as backup path for the retprobe from
         // tcp_cleanup_rbuf which can come in with 0 bytes and we'll delete
@@ -829,6 +806,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         info.pid = pid_from_pid_tgid(id);
 
         cp_support_established(&info);
+        setup_connection_to_pid_mapping(id, &info, orig_dport);
 
         void *ssl = is_ssl_connection(&info);
 
