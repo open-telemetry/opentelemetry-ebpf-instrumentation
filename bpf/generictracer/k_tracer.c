@@ -1079,7 +1079,7 @@ int obi_handle_buf_with_args(void *ctx) {
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
 
-        if (info) {
+        if (info && !info->submitted) {
             // Still reading checks if we are processing buffers of a HTTP request
             // that has started, but we haven't seen a response yet.
             if (still_reading(info)) {
@@ -1131,10 +1131,7 @@ int obi_handle_buf_with_args(void *ctx) {
         } else if (!info) {
             // SSL requests will see both TCP traffic and text traffic, ignore the TCP if
             // we are processing SSL request. HTTP2 is already checked in handle_buf_with_connection.
-            http_info_t *http_info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
-            if (!http_info) {
-                bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
-            }
+            bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
         }
     }
 

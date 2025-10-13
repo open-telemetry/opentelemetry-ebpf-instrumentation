@@ -263,8 +263,11 @@ static __always_inline void finish_http(http_info_t *info, pid_connection_info_t
 
         // bpf_dbg_printk("Terminating trace for pid=%d", pid_from_pid_tgid(pid_tid));
         // dbg_print_http_connection_info(&info->conn_info); // commented out since GitHub CI doesn't like this call
-        // Don't delete, we might be receiving still more packets
-        //bpf_map_delete_elem(&ongoing_http, pid_conn);
+        // Don't delete requests that weren't delayed, we might be receiving still more packets, for
+        // example SSL.
+        if (info->delayed) {
+            bpf_map_delete_elem(&ongoing_http, pid_conn);
+        }
     }
 }
 
