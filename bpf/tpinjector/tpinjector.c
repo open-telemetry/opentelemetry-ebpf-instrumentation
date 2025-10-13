@@ -188,9 +188,10 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
 
     msg_buffer_t msg_buf = {
         .pos = 0,
+        .real_size = msg->size > k_kprobes_http2_buf_size ? k_kprobes_http2_buf_size : msg->size,
     };
 
-    bpf_probe_read_kernel(msg_buf.buf, MAX_PROTOCOL_BUF_SIZE, msg->data);
+    bpf_probe_read_kernel(msg_buf.buf, k_kprobes_http2_buf_size, msg->data);
 
     // We setup any call that looks like HTTP request to be extended.
     // This must match exactly to what the decision will be for

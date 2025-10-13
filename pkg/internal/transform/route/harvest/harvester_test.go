@@ -187,7 +187,7 @@ func TestHarvestRoutes_MultipleTimeouts(t *testing.T) {
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
 
 	// Test multiple calls to ensure timeout behavior is consistent
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		result, err := harvester.HarvestRoutes(fileInfo)
 
 		require.Error(t, err, "iteration %d should timeout", i)

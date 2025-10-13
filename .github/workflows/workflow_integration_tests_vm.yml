@@ -43,7 +43,7 @@ jobs:
       actions: write
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         kernel:
           - kernel-version: "5.15.152"

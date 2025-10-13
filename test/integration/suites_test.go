@@ -452,6 +452,16 @@ func TestSuite_PythonSelfReference(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonGraphQL(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-graphql.yml", path.Join(pathOutput, "test-suite-python-graphql.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python GraphQL", testPythonGraphQL)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_NodeJSDist(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-nodejs-dist.yml", path.Join(pathOutput, "test-suite-nodejs-dist.log"))
 	require.NoError(t, err)

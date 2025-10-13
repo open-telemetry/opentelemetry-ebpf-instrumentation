@@ -30,9 +30,6 @@
 // 100K and above we try to track the response actual time with kretprobes
 #define KPROBES_LARGE_RESPONSE_LEN 100000
 
-// Max of HTTP, HTTP2/GRPC and TCP buffers. Used in sk_msg
-#define MAX_PROTOCOL_BUF_SIZE 256
-
 #define CONN_INFO_FLAG_TRACE 0x1
 
 #define FLAGS_SIZE_BYTES 1

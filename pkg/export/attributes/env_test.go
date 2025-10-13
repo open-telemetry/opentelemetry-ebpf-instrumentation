@@ -44,7 +44,7 @@ func TestParseOTELResourceVariable_NoAllocs(t *testing.T) {
 func BenchmarkParseOTELResourceVariable(b *testing.B) {
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ParseOTELResourceVariable(resAttrs, func(_, _ string) {
 			// no‑op handler
 		})

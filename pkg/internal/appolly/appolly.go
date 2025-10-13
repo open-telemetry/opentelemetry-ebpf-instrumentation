@@ -14,16 +14,16 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/discover"
-	"go.opentelemetry.io/obi/pkg/components/ebpf"
-	ebpfcommon "go.opentelemetry.io/obi/pkg/components/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/pipe"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
-	"go.opentelemetry.io/obi/pkg/components/traces"
+	"go.opentelemetry.io/obi/pkg/ebpf"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
+	"go.opentelemetry.io/obi/pkg/traces"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -153,11 +153,9 @@ func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents 
 			log.Debug("running tracer for new process",
 				"inode", pt.FileInfo.Ino, "pid", pt.FileInfo.Pid, "exec", pt.FileInfo.CmdExePath)
 			if pt.Tracer != nil {
-				i.tracersWg.Add(1)
-				go func() {
-					defer i.tracersWg.Done()
+				i.tracersWg.Go(func() {
 					pt.Tracer.Run(ctx, i.ebpfEventContext, i.tracesInput)
-				}()
+				})
 			}
 			i.handleAndDispatchProcessEvent(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: pt.FileInfo})
 		case discover.EventDeleted:

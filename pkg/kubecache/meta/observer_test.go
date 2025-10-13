@@ -47,7 +47,7 @@ func TestNotificationErrors(t *testing.T) {
 	n.Subscribe(fo10)
 	n.Subscribe(fonever2)
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		n.Notify(&informer.Event{})
 	}
 

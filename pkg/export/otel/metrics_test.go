@@ -524,7 +524,7 @@ func (f *fakeInternalMetrics) SumCount() (sum, count int) {
 
 func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecords int, timeout time.Duration) []collector.MetricRecord {
 	records := []collector.MetricRecord{}
-	for i := 0; i < numRecords; i++ {
+	for range numRecords {
 		select {
 		case item := <-inCh:
 			records = append(records, item)
@@ -1195,7 +1195,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		uid := svc.UID{Name: "concurrent-service", Namespace: "default", Instance: "instance-1"}
 
 		// Simulate rapid updates to same service with different metadata
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			service := svc.Attrs{
 				UID:      uid,
 				HostName: fmt.Sprintf("host-%d", i),

@@ -45,7 +45,7 @@ func TestParseProcStatField(t *testing.T) {
 
 	expected := strings.FieldsFunc(procPidStat, f)
 
-	for i := 0; i < len(expected); i++ {
+	for i := range expected {
 		assert.Equal(t, expected[i], parseProcStatField(procPidStat, i+1))
 	}
 

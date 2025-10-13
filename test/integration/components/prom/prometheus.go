@@ -102,7 +102,7 @@ func parseMetric(text string) ScrapedMetric {
 	labelsStr, valueStr := split[0], split[1]
 	value, _ := strconv.ParseFloat(valueStr, 64)
 	labels := map[string]string{}
-	for _, keyValStr := range strings.Split(labelsStr, ",") {
+	for keyValStr := range strings.SplitSeq(labelsStr, ",") {
 		split := strings.Split(keyValStr, "=")
 		labels[split[0]] = strings.Trim(split[1], `"`)
 	}
