@@ -156,10 +156,6 @@ static __always_inline bool client_call(connection_info_t *info) {
     return likely_ephemeral_port(info->s_port) && !likely_ephemeral_port(info->d_port);
 }
 
-static __always_inline bool valid_connection(connection_info_t *info) {
-    return info->s_port != 0 && info->d_port != 0;
-}
-
 // We sort the connection info to ensure we can track requests and responses. However, if the destination port
 // is somehow in the ephemeral port range, it can be higher than the source port and we'd use the sorted connection
 // info in user space, effectively reversing the flow of the operation. We keep track of the original destination port
