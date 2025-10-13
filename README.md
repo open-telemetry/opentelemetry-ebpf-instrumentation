@@ -29,6 +29,10 @@ make oats-test
 use standard `go` command-line tooling to individually run each integration test suite under
 the [internal/test/integration](./internal/test/integration) and [internal/test/integration/k8s](./internal/test/integration/k8s) folder.
 
+## Zero-code Instrumentation
+
+To get started with OBI, refer to the [OpenTelemetry doc](https://opentelemetry.io/docs/zero-code/).
+
 ## Contributing
 
 See [CONTRIBUTING](CONTRIBUTING.md)
