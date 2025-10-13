@@ -63,7 +63,7 @@ const (
 	EventOTelSDKGo          = 13 // OTel SDK manual span
 	EventTypeGoMongo        = 14 // Go MongoDB spans
 	EventTypeFailedConnect  = 15 // Failed Connections
-	EventTypeDNS            = 15 // DNS events
+	EventTypeDNS            = 16 // DNS events
 )
 
 // Kernel-side classification
