@@ -145,7 +145,7 @@ func runRecordRoute(client pb.RouteGuideClient) {
 	r := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0))
 	pointCount := int(r.Int32N(100)) + 2 // Traverse at least two points
 	var points []*pb.Point
-	for i := 0; i < pointCount; i++ {
+	for range pointCount {
 		points = append(points, randomPoint(r))
 	}
 	slog.Info("Traversing points: ", "number", len(points))

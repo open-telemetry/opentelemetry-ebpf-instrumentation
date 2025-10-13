@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/caarlos0/env/v7 v7.1.0
-	go.opentelemetry.io/obi/test/integration/components/old_grpc/worker v0.0.0-20250929185644-67a6cb5f9789
+	go.opentelemetry.io/obi/test/integration/components/old_grpc/worker v0.0.0-20251006081738-6a84bd669ed8
 	google.golang.org/grpc v1.55.0
 	google.golang.org/protobuf v1.30.0
 )

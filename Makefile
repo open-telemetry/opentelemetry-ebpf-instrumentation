@@ -232,7 +232,7 @@ coverage-report-html: cov-exclude-generated
 # image-build is only used for local development. GH actions that build and publish the image don't make use of it
 .PHONY: image-build
 image-build:
-	@echo "### Building and pushing the auto-instrumenter image"
+	@echo "### Building the auto-instrumenter image"
 	$(call check_defined, IMG_ORG, Your Docker repository user name)
 	$(OCI_BIN) buildx build --load -t ${IMG} .
 
@@ -313,7 +313,11 @@ vm-integration-test-matrix-json:
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
-	@./scripts/generate-k8s-matrix.sh
+	@./scripts/generate-dir-matrix.sh test/integration/k8s common
+
+.PHONY: oats-integration-test-matrix-json
+oats-integration-test-matrix-json:
+	@./scripts/generate-dir-matrix.sh test/oats
 
 .PHONY: integration-test
 integration-test: prereqs prepare-integration-test

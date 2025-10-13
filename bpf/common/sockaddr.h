@@ -137,7 +137,7 @@ parse_sockaddr_info(u32 pid, struct sockaddr *addr, connection_info_part_t *info
     return false;
 }
 
-static __always_inline bool is_socket_never_connected(struct sock *sk) {
+static __always_inline bool is_tcp_socket_never_connected(struct sock *sk) {
     if (!sk) {
         return true;
     }
@@ -146,6 +146,15 @@ static __always_inline bool is_socket_never_connected(struct sock *sk) {
     u8 sk_state = BPF_CORE_READ(sk, __sk_common.skc_state);
 
     // Socket was never connected if it's in these states:
-    return (sk_state == TCP_SYN_SENT || // Connection attempt in progress
-            sk_state == TCP_SYN_RECV);  // SYN received but not established
+    if (sk_state == TCP_SYN_SENT || // Connection attempt in progress
+        sk_state == TCP_SYN_RECV    // SYN received but not established
+    ) {
+        return true;
+    }
+
+    struct tcp_sock *tp = (struct tcp_sock *)sk;
+    u64 bytes_sent = BPF_CORE_READ(tp, bytes_sent);
+    u64 bytes_received = BPF_CORE_READ(tp, bytes_received);
+
+    return (bytes_sent == 0 && bytes_received == 0);
 }

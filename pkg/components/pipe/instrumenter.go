@@ -11,13 +11,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
-	"go.opentelemetry.io/obi/pkg/components/traces"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/internal/traces"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -78,7 +78,12 @@ func newGraphBuilder(
 		DecoratedTraces: tracesReaderToRouter,
 	}), swarm.WithID("ReadFromChannel"))
 
-	routerToKubeDecorator := newQueue("routerToKubeDecorator")
+	routerToKubeDecorator := msg.NewQueue[[]request.Span](
+		msg.ChannelBufferLen(config.ChannelBufferLen),
+		msg.Name("routerToKubeDecorator"),
+		// make sure that we are able to wait for the informer sync timeout before failing the pipeline
+		// if a message gets bocked while the Kube decorator starts
+		msg.SendTimeout(config.Attributes.Kubernetes.InformersSyncTimeout+20*time.Second))
 	swi.Add(transform.RoutesProvider(
 		config.Routes,
 		tracesReaderToRouter,

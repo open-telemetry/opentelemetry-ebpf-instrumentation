@@ -264,7 +264,7 @@ func TestLongChains(t *testing.T) {
 	bypassAndSubscribe(3)
 	chans[queueLen-1] = queues[queueLen-1].Subscribe()
 	queues[0].Send(123)
-	for i := 0; i < queueLen; i++ {
+	for i := range queueLen {
 		assert.Equal(t, 123, testutil.ReadChannel(t, chans[i], timeout))
 	}
 }
@@ -347,7 +347,7 @@ func TestRandomConcurrentBypassSubscribeLongChains(t *testing.T) {
 	}
 	wg.Wait()
 	queues[0].Send(123)
-	for i := 0; i < queueLen; i++ {
+	for i := range queueLen {
 		assert.Equal(t, 123, testutil.ReadChannel(t, outChans[i], timeout))
 	}
 	if t.Failed() {
@@ -403,7 +403,7 @@ func TestBlockingPanics(t *testing.T) {
 			q1.Send(1)
 			q1.Send(2)
 
-			time.Sleep(2 * sendTimeout)
+			time.Sleep(2 * defaultSendTimeout)
 		}, "a deadlock should have been detected")
 	})
 }

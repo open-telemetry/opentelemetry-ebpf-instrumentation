@@ -449,6 +449,7 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
                                                   const void *u_buf,
                                                   u32 bytes_len,
                                                   u8 packet_type,
+                                                  u8 direction,
                                                   enum large_buf_action action) {
     if (http_buffer_size == 0) {
         return 0;
@@ -462,6 +463,8 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
 
     large_buf->type = EVENT_TCP_LARGE_BUFFER;
     large_buf->packet_type = packet_type;
+    large_buf->direction = direction;
+    large_buf->conn_info = req->conn_info;
     large_buf->action = action;
     large_buf->tp = req->tp;
 
@@ -504,8 +507,12 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
         bpf_dbg_printk("No META!");
     }
 
-    http_send_large_buffer(
-        info, (void *)args->u_buf, args->bytes_len, args->packet_type, k_large_buf_action_init);
+    http_send_large_buffer(info,
+                           (void *)args->u_buf,
+                           args->bytes_len,
+                           args->packet_type,
+                           args->direction,
+                           k_large_buf_action_init);
 
     // we copy some small part of the buffer to the info trace event, so that we can process an event even with
     // incomplete trace info in user space.
@@ -619,6 +626,7 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
                    pid_from_pid_tgid(bpf_get_current_pid_tgid()),
                    still_reading(info));
 
+    info->direction = args->direction;
     if (args->packet_type == PACKET_TYPE_REQUEST && (info->status == 0) &&
         (info->start_monotime_ns == 0)) {
         if (tp_loop_fn == bpf_strstr_tp_loop) {
@@ -628,6 +636,12 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
             return 0;
         }
     } else if ((args->packet_type == PACKET_TYPE_RESPONSE) && (info->status == 0)) {
+        http_send_large_buffer(info,
+                               (void *)args->u_buf,
+                               args->bytes_len,
+                               args->packet_type,
+                               args->direction,
+                               k_large_buf_action_init);
         handle_http_response(
             args->small_buf, &args->pid_conn, info, args->bytes_len, args->direction, args->ssl);
     } else if (still_reading(info)) {
@@ -635,6 +649,7 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
                                (void *)args->u_buf,
                                args->bytes_len,
                                args->packet_type,
+                               args->direction,
                                k_large_buf_action_append);
 
         info->len += args->bytes_len;

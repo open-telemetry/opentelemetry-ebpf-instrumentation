@@ -24,7 +24,7 @@ func TestSingleton(t *testing.T) {
 	// run multiple exporters concurrently
 	exporters := make(chan sdkmetric.Exporter, concurrency)
 	errs := make(chan error, concurrency)
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		go func() {
 			if exp, err := instancer.Instantiate(t.Context()); err != nil {
 				errs <- err

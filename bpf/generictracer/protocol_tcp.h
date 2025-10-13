@@ -124,13 +124,14 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     case k_protocol_type_mysql:
         if (mysql_buffer_size > 0) {
             u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
-            ret = mysql_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, action);
+            ret = mysql_send_large_buffer(
+                req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         }
         break;
     case k_protocol_type_postgres:
         if (postgres_buffer_size > 0) {
             u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
-            ret = postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, action);
+            ret = postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
         }
         break;
     case k_protocol_type_connect_failed:
@@ -146,7 +147,7 @@ static __always_inline void
 failed_to_connect_event(pid_connection_info_t *pid_conn, u16 orig_dport, u64 connect_ts) {
     tcp_req_t *req = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
     if (req) {
-        req->flags = EVENT_TCP_REQUEST;
+        req->flags = EVENT_FAILED_CONNECT;
         req->conn_info = pid_conn->conn;
         fixup_connection_info(&req->conn_info, TCP_SEND, orig_dport);
         req->ssl = 0;
@@ -157,7 +158,7 @@ failed_to_connect_event(pid_connection_info_t *pid_conn, u16 orig_dport, u64 con
         req->len = 0;
         req->req_len = req->len;
         req->extra_id = extra_runtime_id();
-        req->protocol_type = k_protocol_type_connect_failed;
+        req->protocol_type = 0;
         task_pid(&req->pid);
         req->buf[0] = '\0';
 

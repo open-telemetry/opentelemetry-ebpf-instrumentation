@@ -146,8 +146,10 @@ typedef struct tcp_large_buffer {
     u8 type; // Must be first
     u8 packet_type;
     enum large_buf_action action;
-    u8 _pad;
+    u8 direction;
     u32 len;
+    connection_info_t conn_info;
+    u32 _pad2;
     tp_info_t tp;
     u8 buf[];
 } tcp_large_buffer_t;

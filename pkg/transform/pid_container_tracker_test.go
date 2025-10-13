@@ -426,10 +426,10 @@ func TestPidContainerTracker_ConcurrentAccess(*testing.T) {
 	wg.Add(numGoroutines * 4) // 4 types of operations
 
 	// Concurrent track operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < numOperationsPerGoroutine; j++ {
+			for j := range numOperationsPerGoroutine {
 				event := &exec.ProcessEvent{
 					File: &exec.FileInfo{Pid: int32(id*1000 + j)},
 					Type: exec.ProcessEventCreated,
@@ -440,30 +440,30 @@ func TestPidContainerTracker_ConcurrentAccess(*testing.T) {
 	}
 
 	// Concurrent remove operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < numOperationsPerGoroutine; j++ {
+			for j := range numOperationsPerGoroutine {
 				tracker.remove(int32(id*1000 + j))
 			}
 		}(i)
 	}
 
 	// Concurrent removeAll operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < numOperationsPerGoroutine; j++ {
+			for range numOperationsPerGoroutine {
 				tracker.removeAll("container-" + string(rune(id)))
 			}
 		}(i)
 	}
 
 	// Concurrent info operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < numOperationsPerGoroutine; j++ {
+			for range numOperationsPerGoroutine {
 				tracker.info("container-" + string(rune(id)))
 			}
 		}(i)
@@ -522,8 +522,8 @@ func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 		const numProcessesPerContainer = 1000
 
 		// Track many processes
-		for containerID := 0; containerID < numContainers; containerID++ {
-			for pid := 0; pid < numProcessesPerContainer; pid++ {
+		for containerID := range numContainers {
+			for pid := range numProcessesPerContainer {
 				event := &exec.ProcessEvent{
 					File: &exec.FileInfo{
 						Pid:     int32(containerID*numProcessesPerContainer + pid),
@@ -536,19 +536,19 @@ func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 		}
 
 		// Verify all are tracked
-		for containerID := 0; containerID < numContainers; containerID++ {
+		for containerID := range numContainers {
 			stored, ok := tracker.info("container-" + string(rune(containerID)))
 			assert.True(t, ok)
 			assert.Len(t, stored, numProcessesPerContainer)
 		}
 
 		// Remove half the containers
-		for containerID := 0; containerID < numContainers/2; containerID++ {
+		for containerID := range numContainers / 2 {
 			tracker.removeAll("container-" + string(rune(containerID)))
 		}
 
 		// Verify removal
-		for containerID := 0; containerID < numContainers/2; containerID++ {
+		for containerID := range numContainers / 2 {
 			stored, ok := tracker.info("container-" + string(rune(containerID)))
 			if ok {
 				assert.Empty(t, stored)
