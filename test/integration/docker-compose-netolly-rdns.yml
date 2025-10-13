@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   curler:
-    image: alpine/curl@sha256:2f0ecea48fe8e7131314d6655f99d001f798cf566d57de0075c387a88487acc2
+    image: alpine/curl@sha256:1a6a3181d9f633b161c930efc62ff129947e1b9e7c6ac0e374c1bf93681e23d8
     command:
       - sh
       - -c
