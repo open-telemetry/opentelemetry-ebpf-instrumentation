@@ -436,7 +436,7 @@ func TestDecorationProcessEvents(t *testing.T) {
 
 	// this produces 6 events exactly
 	// all without metadata
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		deco := testutil.ReadChannel(t, outputCh, timeout)
 		assert.Equal(t, exec.ProcessEventCreated, deco.Type)
 		assert.Empty(t, deco.File.Service.UID.Namespace)
@@ -445,7 +445,7 @@ func TestDecorationProcessEvents(t *testing.T) {
 		assert.Empty(t, deco.File.Service.Metadata)
 	}
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		deco := testutil.ReadChannel(t, outputCh, timeout)
 		assert.Equal(t, exec.ProcessEventTerminated, deco.Type)
 		assert.Empty(t, deco.File.Service.UID.Namespace)

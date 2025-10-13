@@ -178,7 +178,7 @@ func TestBlockedClients(t *testing.T) {
 	allSent := make(chan struct{})
 	const createdPods = 1500
 	go func() {
-		for n := 0; n < createdPods; n++ {
+		for n := range createdPods {
 			if err := k8sClient.Create(ctx, &corev1.Pod{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      fmt.Sprintf("pod-%02d", n),
@@ -223,7 +223,7 @@ func TestAsynchronousStartup(t *testing.T) {
 	// generating some contents to force a new Kube Cache service to take a while
 	// to synchronize during initialization
 	const createdPods = 20
-	for n := 0; n < createdPods; n++ {
+	for n := range createdPods {
 		require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
 			ObjectMeta: v1.ObjectMeta{
 				Name:      fmt.Sprintf("async-pod-%02d", n),

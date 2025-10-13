@@ -38,14 +38,7 @@ typedef __u16 u16;
 typedef __u32 u32;
 typedef __u64 u64;
 
-typedef enum flow_init_state_t : u64 {
-    k_flow_uninitialized = 0,
-    k_flow_initializing = 1,
-    k_flow_initialized = 2
-} flow_init_state;
-
 typedef struct flow_metrics_t {
-    u64 packets;
     u64 bytes;
     // start_mono_time_ts and end_mono_time_ts are the start and end times as system monotonic timestamps
     // in nanoseconds, as output from bpf_ktime_get_ns() (kernel space)
@@ -53,13 +46,21 @@ typedef struct flow_metrics_t {
     u64 start_mono_time_ns;
     u64 end_mono_time_ns;
 
+    u32 packets;
+
+    // TCP Flags from https://www.ietf.org/rfc/rfc793.txt
+    u16 flags;
     // direction of the flow EGRESS / INGRESS
     u8 iface_direction;
-
     // who initiated of the connection: INITIATOR_SRC or INITIATOR_DST
     u8 initiator;
+    // The positive errno of a failed map insertion that caused a flow
+    // to be sent via ringbuffer.
+    // 0 otherwise
+    // https://chromium.googlesource.com/chromiumos/docs/+/master/constants/errnos.md
+    u8 errno;
 
-    u8 _pad[6];
+    u8 _pad[7];
 } flow_metrics;
 
 // Attributes that uniquely identify a flow

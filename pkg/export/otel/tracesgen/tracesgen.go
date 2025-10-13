@@ -314,6 +314,11 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.Route != "" {
 			attrs = append(attrs, semconv.HTTPRoute(span.Route))
 		}
+		if span.SubType == request.HTTPSubtypeGraphQL && span.GraphQL != nil {
+			attrs = append(attrs, semconv.GraphqlDocument(span.GraphQL.Document))
+			attrs = append(attrs, semconv.GraphqlOperationName(span.GraphQL.OperationName))
+			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
+		}
 	case request.EventTypeGRPC:
 		attrs = []attribute.KeyValue{
 			semconv.RPCMethod(span.Path),
@@ -431,8 +436,8 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		attrs = manualSpanAttributes(span)
 	case request.EventTypeFailedConnect:
 		attrs = []attribute.KeyValue{
-			request.ClientAddr(request.SpanHost(span)),
-			request.ServerAddr(request.PeerAsClient(span)),
+			request.ClientAddr(request.PeerAsClient(span)),
+			request.ServerAddr(request.SpanHost(span)),
 			request.ServerPort(span.HostPort),
 		}
 	case request.EventTypeDNS:
@@ -460,7 +465,7 @@ func spanKind(span *request.Span) trace2.SpanKind {
 	switch span.Type {
 	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer:
 		return trace2.SpanKindServer
-	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient:
+	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
 	case request.EventTypeKafkaClient:
 		switch span.Method {

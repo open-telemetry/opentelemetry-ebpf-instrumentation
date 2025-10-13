@@ -5,6 +5,7 @@ package kube
 
 import (
 	"log/slog"
+	"slices"
 	"sync"
 	"testing"
 	"text/template"
@@ -888,13 +889,11 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 			// Setup: mock InfoForPID for initial PIDs
 			if len(tt.setupPIDs) > 0 {
 				InfoForPID = func(pid uint32) (container.Info, error) {
-					for _, setupPID := range tt.setupPIDs {
-						if pid == setupPID {
-							return container.Info{
-								ContainerID:  tt.containerID,
-								PIDNamespace: tt.pidNS,
-							}, nil
-						}
+					if slices.Contains(tt.setupPIDs, pid) {
+						return container.Info{
+							ContainerID:  tt.containerID,
+							PIDNamespace: tt.pidNS,
+						}, nil
 					}
 					return container.Info{}, assert.AnError
 				}
@@ -931,13 +930,11 @@ func TestStore_MultiPID_CrossContainerScenarios(t *testing.T) {
 	// Mock InfoForPID to handle all scenarios
 	InfoForPID = func(pid uint32) (container.Info, error) {
 		for _, scenario := range scenarios {
-			for _, scenarioPID := range scenario.pids {
-				if pid == scenarioPID {
-					return container.Info{
-						ContainerID:  scenario.containerID,
-						PIDNamespace: scenario.pidNS,
-					}, nil
-				}
+			if slices.Contains(scenario.pids, pid) {
+				return container.Info{
+					ContainerID:  scenario.containerID,
+					PIDNamespace: scenario.pidNS,
+				}, nil
 			}
 		}
 		return container.Info{}, assert.AnError
@@ -1051,13 +1048,11 @@ func TestStore_PodContainerByPIDNs_MultiPID(t *testing.T) {
 	pids := []uint32{1001, 1002, 1003}
 
 	InfoForPID = func(pid uint32) (container.Info, error) {
-		for _, p := range pids {
-			if pid == p {
-				return container.Info{
-					ContainerID:  containerID,
-					PIDNamespace: pidNS,
-				}, nil
-			}
+		if slices.Contains(pids, pid) {
+			return container.Info{
+				ContainerID:  containerID,
+				PIDNamespace: pidNS,
+			}, nil
 		}
 		return container.Info{}, assert.AnError
 	}
@@ -1143,9 +1138,9 @@ func TestStore_MultiPID_ConcurrentAccess(t *testing.T) {
 		done := make(chan bool, numWorkers*2)
 
 		// Add workers
-		for i := 0; i < numWorkers; i++ {
+		for i := range numWorkers {
 			go func(workerID int) {
-				for j := 0; j < numOpsPerWorker; j++ {
+				for j := range numOpsPerWorker {
 					pid := uint32(workerID*1000 + j)
 					store.AddProcess(pid)
 				}
@@ -1154,9 +1149,9 @@ func TestStore_MultiPID_ConcurrentAccess(t *testing.T) {
 		}
 
 		// Delete workers (will delete some of the PIDs being added)
-		for i := 0; i < numWorkers; i++ {
+		for i := range numWorkers {
 			go func(workerID int) {
-				for j := 0; j < numOpsPerWorker/2; j++ {
+				for j := range numOpsPerWorker / 2 {
 					pid := uint32(workerID*1000 + j)
 					store.DeleteProcess(pid)
 				}
@@ -1165,7 +1160,7 @@ func TestStore_MultiPID_ConcurrentAccess(t *testing.T) {
 		}
 
 		// Wait for all workers to complete
-		for i := 0; i < numWorkers*2; i++ {
+		for range numWorkers * 2 {
 			<-done
 		}
 

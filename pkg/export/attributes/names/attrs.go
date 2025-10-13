@@ -55,6 +55,9 @@ const (
 	MessagingOpType        = Name("messaging.operation.type")
 	MessagingSystem        = Name(semconv.MessagingSystemKey)
 	MessagingDestination   = Name(semconv.MessagingDestinationNameKey)
+	GraphQLDocument        = Name(semconv.GraphqlDocumentKey)
+	GraphQLOperationName   = Name(semconv.GraphqlOperationNameKey)
+	GraphQLOperationType   = Name(semconv.GraphqlOperationTypeKey)
 	DNSAnswers             = Name("dns.answers")
 	ErrorMessage           = Name("error.message")
 

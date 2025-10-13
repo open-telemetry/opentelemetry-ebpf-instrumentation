@@ -253,7 +253,7 @@ int obi_app_egress(struct __sk_buff *skb) {
     bpf_dbg_printk("egress flags %x, sequence %x, valid %d", tcp.flags, tcp.seq, tp->valid);
     dbg_print_http_connection_info(&conn);
 
-    // If it's the fist packet of an request:
+    // If it's the first packet of a request:
     // We set the span information to match our TCP information. This
     // is done for L4 context propagation, where we use the SEQ/ACK
     // numbers for the Span ID. Since this is the first time we see

@@ -12,11 +12,10 @@ import (
 	"github.com/caarlos0/env/v9"
 	"gopkg.in/yaml.v3"
 
-	"go.opentelemetry.io/obi/pkg/components/ebpf/tcmanager"
 	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/components/kube"
-	"go.opentelemetry.io/obi/pkg/components/traces"
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/ebpf/tcmanager"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/debug"
@@ -68,8 +67,8 @@ var DefaultConfig = Config{
 		BatchLength:               100,
 		BatchTimeout:              time.Second,
 		HTTPRequestTimeout:        0,
+		TCBackend:                 config.TCBackendAuto,
 		DNSRequestTimeout:         5 * time.Second,
-		TCBackend:                 tcmanager.TCBackendAuto,
 		ContextPropagationEnabled: false,
 		ContextPropagation:        config.ContextPropagationDisabled,
 		RedisDBCache: config.RedisDBCacheConfig{
@@ -86,6 +85,13 @@ var DefaultConfig = Config{
 		MongoRequestsCacheSize:              1024,
 		KafkaTopicUUIDCacheSize:             1024,
 		OverrideBPFLoopEnabled:              false,
+		PayloadExtraction: config.PayloadExtraction{
+			HTTP: config.HTTPConfig{
+				GraphQL: config.GraphQLConfig{
+					Enabled: false,
+				},
+			},
+		},
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources:  []string{"k8s"},
@@ -136,7 +142,7 @@ var DefaultConfig = Config{
 		BpfMetricScrapeInterval: 15 * time.Second,
 	},
 	Attributes: Attributes{
-		InstanceID: traces.InstanceIDConfig{
+		InstanceID: config.InstanceIDConfig{
 			HostnameDNSResolution: true,
 		},
 		Kubernetes: transform.KubernetesDecorator{
@@ -157,7 +163,7 @@ var DefaultConfig = Config{
 		Unmatch:      transform.UnmatchDefault,
 		WildcardChar: "*",
 	},
-	NetworkFlows: defaultNetworkConfig,
+	NetworkFlows: DefaultNetworkConfig,
 	Discovery: services.DiscoveryConfig{
 		ExcludeOTelInstrumentedServices: true,
 		DefaultExcludeServices: services.RegexDefinitionCriteria{
@@ -263,7 +269,7 @@ const (
 // added to each span
 type Attributes struct {
 	Kubernetes           transform.KubernetesDecorator `yaml:"kubernetes"`
-	InstanceID           traces.InstanceIDConfig       `yaml:"instance_id"`
+	InstanceID           config.InstanceIDConfig       `yaml:"instance_id"`
 	Select               attributes.Selection          `yaml:"select"`
 	HostID               HostIDConfig                  `yaml:"host_id"`
 	ExtraGroupAttributes map[string][]attr.Name        `yaml:"extra_group_attributes"`
@@ -312,25 +318,6 @@ func (c *Config) Validate() error {
 			"or 'otel_metrics_export: { features: [network,application] }' in the YAML configuration file. " +
 			"Enable Prometheus export features using the 'OTEL_EBPF_PROMETHEUS_FEATURES=network,application' environment variable " +
 			"or 'prometheus_export: { features: [network,application] }' in the YAML configuration file.")
-	}
-	if c.EBPF.BatchLength == 0 {
-		return ConfigError("OTEL_EBPF_BPF_BATCH_LENGTH must be at least 1")
-	}
-	if !c.EBPF.TCBackend.Valid() {
-		return ConfigError("Invalid OTEL_EBPF_BPF_TC_BACKEND value")
-	}
-
-	// remove after deleting ContextPropagationEnabled
-	if c.EBPF.ContextPropagationEnabled && c.EBPF.ContextPropagation != config.ContextPropagationDisabled {
-		return ConfigError("context_propagation_enabled and context_propagation are mutually exclusive")
-	}
-
-	// TODO deprecated (REMOVE)
-	// remove after deleting ContextPropagationEnabled
-	if c.EBPF.ContextPropagationEnabled {
-		slog.Warn("DEPRECATION NOTICE: 'context_propagation_enabled' configuration option has been " +
-			"deprecated and will be removed in the future - use 'context_propagation' instead")
-		c.EBPF.ContextPropagation = config.ContextPropagationAll
 	}
 
 	if c.willUseTC() {

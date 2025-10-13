@@ -14,13 +14,13 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/components/exec"
-	"go.opentelemetry.io/obi/pkg/components/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/test/collector"
 )
@@ -121,7 +121,7 @@ func TestNetMetricsExpiration(t *testing.T) {
 	// We just know it because OTEL will only sends foo/bar metric.
 	// If this test is flaky: it means it is actually failing
 	// repeating 10 times to make sure that only this metric is forwarded
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		metric := readChan(t, otlp.Records())
 		require.Equal(t, map[string]string{"src.name": "foo", "dst.name": "bar"}, metric.Attributes)
 		require.InEpsilon(t, 369, metric.IntVal, 0.001)

@@ -77,6 +77,11 @@ const (
 	DBMySQL
 )
 
+const (
+	HTTPSubtypeNone    = 0 // http
+	HTTPSubtypeGraphQL = 1 // http + graphql
+)
+
 //nolint:cyclop
 func (t EventType) String() string {
 	switch t {
@@ -162,6 +167,12 @@ type MessagingInfo struct {
 	Partition int   `json:"partition"`
 }
 
+type GraphQL struct {
+	Document      string `json:"document"`
+	OperationName string `json:"operationName"`
+	OperationType string `json:"operationType"`
+}
+
 // Span contains the information being submitted by the following nodes in the graph.
 // It enables comfortable handling of data from Go.
 // REMINDER: any attribute here must be also added to the functions SpanOTELGetters,
@@ -198,6 +209,7 @@ type Span struct {
 	SQLCommand     string         `json:"-"`
 	SQLError       *SQLError      `json:"-"`
 	MessagingInfo  *MessagingInfo `json:"-"`
+	GraphQL        *GraphQL       `json:"-"`
 
 	// OverrideTraceName is set under some conditions, like spanmetrics reaching the maximum
 	// cardinality for trace names.
@@ -220,7 +232,7 @@ type SpanAttributes map[string]string
 func spanAttributes(s *Span) SpanAttributes {
 	switch s.Type {
 	case EventTypeHTTP:
-		return SpanAttributes{
+		attrs := SpanAttributes{
 			"method":      s.Method,
 			"status":      strconv.Itoa(s.Status),
 			"url":         s.Path,
@@ -231,6 +243,12 @@ func spanAttributes(s *Span) SpanAttributes {
 			"serverAddr":  SpanHost(s),
 			"serverPort":  strconv.Itoa(s.HostPort),
 		}
+		if s.SubType == HTTPSubtypeGraphQL && s.GraphQL != nil {
+			attrs["graphqlDocument"] = s.GraphQL.Document
+			attrs["graphqlOperationName"] = s.GraphQL.OperationName
+			attrs["graphqlOperationType"] = s.GraphQL.OperationType
+		}
+		return attrs
 	case EventTypeHTTPClient:
 		return SpanAttributes{
 			"method":     s.Method,
@@ -422,7 +440,7 @@ func (s *Span) IsValid() bool {
 
 func (s *Span) IsClientSpan() bool {
 	switch s.Type {
-	case EventTypeGRPCClient, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeSQLClient, EventTypeMongoClient:
+	case EventTypeGRPCClient, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect:
 		return true
 	}
 
@@ -546,7 +564,7 @@ func (s *Span) ServiceGraphKind() string {
 	switch s.Type {
 	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeRedisServer:
 		return "SPAN_KIND_SERVER"
-	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient:
+	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect:
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient:
 		switch s.Method {
@@ -565,6 +583,14 @@ func (s *Span) TraceName() string {
 	}
 	switch s.Type {
 	case EventTypeHTTP, EventTypeHTTPClient:
+		if s.Type == EventTypeHTTP && s.SubType == HTTPSubtypeGraphQL && s.GraphQL != nil {
+			if s.GraphQL.OperationType != "" {
+				return "GraphQL " + s.GraphQL.OperationType
+			} else {
+				return "GraphQL Operation"
+			}
+		}
+
 		name := s.Method
 		if s.Route != "" {
 			name += " " + s.Route

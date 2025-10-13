@@ -1,5 +1,5 @@
 # Dockerfile that will build a container that runs rust ironssl HTTP on port 8080
-FROM rust:latest@sha256:eabb786e74b520e7ea45baca03ea20c3e8c6dc037c392d457badf05d8e5818b5
+FROM rust:latest@sha256:976303ceda00c5f21d6fe97500927285c7e0f6a2e8df71ae18a6c8e9b37550a1
 EXPOSE 8080
 RUN mkdir -p /src
 COPY src/main.rs /src/main.rs

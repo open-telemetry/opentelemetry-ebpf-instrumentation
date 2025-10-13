@@ -154,6 +154,7 @@ static __always_inline int mysql_send_large_buffer(tcp_req_t *req,
                                                    const void *u_buf,
                                                    u32 bytes_len,
                                                    u8 packet_type,
+                                                   u8 direction,
                                                    enum large_buf_action action) {
     if (mysql_store_state_data(&pid_conn->conn, u_buf, bytes_len) < 0) {
         bpf_dbg_printk("mysql_send_large_buffer: 4 bytes packet, storing state data");
@@ -169,7 +170,9 @@ static __always_inline int mysql_send_large_buffer(tcp_req_t *req,
     large_buf->type = EVENT_TCP_LARGE_BUFFER;
     large_buf->packet_type = packet_type;
     large_buf->action = action;
-    __builtin_memcpy((void *)&large_buf->tp, (void *)&req->tp, sizeof(tp_info_t));
+    large_buf->direction = direction;
+    large_buf->conn_info = pid_conn->conn;
+    large_buf->tp = req->tp;
 
     int written =
         mysql_read_fixup_buffer(&pid_conn->conn, large_buf->buf, &large_buf->len, u_buf, bytes_len);
