@@ -57,6 +57,8 @@ static __always_inline void set_tcp_trace_info(
     tp_p->pid = pid; // used for avoiding finding stale server requests with client port reuse
     tp_p->req_type = EVENT_TCP_REQUEST;
 
+    // If we had some invalid connection, like SSL that cannot find connection info,
+    // don't set the trace info.
     if (valid_connection(conn)) {
         set_trace_info_for_connection(conn, type, tp_p);
         bpf_dbg_printk("Set traceinfo for conn");
