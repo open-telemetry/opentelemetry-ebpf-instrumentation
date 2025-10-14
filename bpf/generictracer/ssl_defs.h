@@ -76,7 +76,7 @@ static __always_inline void cleanup_trace_info_for_delayed_trace(pid_connection_
 
 static __always_inline void
 handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction) {
-    if (args && bytes_len > 0) {
+    if (args) {
         void *ssl = ((void *)args->ssl);
         u64 ssl_ptr = (u64)ssl;
         bpf_dbg_printk("SSL_buf id=%d ssl=%llx", id, ssl);
