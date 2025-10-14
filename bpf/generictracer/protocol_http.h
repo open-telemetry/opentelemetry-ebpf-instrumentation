@@ -434,6 +434,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
                                                  u8 direction,
                                                  u8 ssl) {
     process_http_response(info, small_buf);
+    cleanup_http_request_data(pid_conn, info);
 
     if ((direction != TCP_SEND) ||
         high_request_volume /*|| (ssl != NO_SSL) || (orig_len < KPROBES_LARGE_RESPONSE_LEN)*/) {
@@ -446,8 +447,6 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
             info->delayed = 1;
         }
     }
-
-    cleanup_http_request_data(pid_conn, info);
 }
 
 static __always_inline int http_send_large_buffer(http_info_t *req,
