@@ -5,7 +5,9 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
 
+#include <common/http_buf_size.h>
 #include <common/http_types.h>
+#include <common/msg_buffer.h>
 #include <common/send_args.h>
 #include <common/ssl_helpers.h>
 #include <common/tc_common.h>
@@ -188,10 +190,18 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
 
     msg_buffer_t msg_buf = {
         .pos = 0,
-        .real_size = msg->size > k_kprobes_http2_buf_size ? k_kprobes_http2_buf_size : msg->size,
+        .real_size = msg->size > k_msg_buffer_size_max ? k_msg_buffer_size_max : msg->size,
     };
 
-    bpf_probe_read_kernel(msg_buf.buf, k_kprobes_http2_buf_size, msg->data);
+    u16 copy_bytes =
+        msg_buf.real_size > k_kprobes_http2_buf_size ? msg_buf.real_size : k_kprobes_http2_buf_size;
+    unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+    if (!msg_ptr) {
+        bpf_dbg_printk("protocol_detector: failed to reserve msg_buffer space");
+        return 0;
+    }
+    bpf_probe_read_kernel(msg_ptr, copy_bytes & k_msg_buffer_size_max_mask, msg->data);
+    bpf_map_update_elem(&msg_buffer_mem, &(u32){0}, msg_ptr, BPF_ANY);
 
     // We setup any call that looks like HTTP request to be extended.
     // This must match exactly to what the decision will be for
@@ -206,7 +216,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
         return 0;
     }
 
-    if (is_http_request_buf((const unsigned char *)msg_buf.buf)) {
+    if (is_http_request_buf((const unsigned char *)msg_ptr)) {
         bpf_dbg_printk("Setting up request to be extended");
 
         return 1;
