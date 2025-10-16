@@ -369,8 +369,8 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                         if (m_buf) {
                             u32 cpu_id = bpf_get_smp_processor_id();
                             if (m_buf->cpu_id != cpu_id) {
-                                bpf_dbg_printk(
-                                    "cpu id mismatch, using stack-allocated fallback buffer");
+                                bpf_dbg_printk("tcp_sendmsg: cpu id mismatch, using "
+                                               "stack-allocated fallback buffer");
                                 buf = m_buf->fallback_buf;
                             } else {
                                 buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
@@ -470,7 +470,8 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                 unsigned char *buf = NULL;
                 u32 cpu_id = bpf_get_smp_processor_id();
                 if (m_buf->cpu_id != cpu_id) {
-                    bpf_dbg_printk("cpu id mismatch, using stack-allocated fallback buffer");
+                    bpf_dbg_printk("tcp_rate_check_app_limited: cpu id mismatch, using "
+                                   "stack-allocated fallback buffer");
                     buf = m_buf->fallback_buf;
                 } else {
                     buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
