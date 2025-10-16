@@ -191,8 +191,10 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
     msg_buffer_t msg_buf = {
         .pos = 0,
         .real_size = msg->size > k_msg_buffer_size_max ? k_msg_buffer_size_max : msg->size,
+        .cpu_id = bpf_get_smp_processor_id(),
     };
 
+    bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
     u16 copy_bytes =
         msg_buf.real_size > k_kprobes_http2_buf_size ? msg_buf.real_size : k_kprobes_http2_buf_size;
     unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});

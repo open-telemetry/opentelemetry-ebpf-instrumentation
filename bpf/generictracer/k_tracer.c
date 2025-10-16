@@ -367,10 +367,17 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                         msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
                         bpf_dbg_printk("No size, m_buf[%llx]", m_buf);
                         if (m_buf) {
-                            buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
-                            if (!buf) {
-                                bpf_dbg_printk("failed to get msg_buffer");
-                                return 0;
+                            u32 cpu_id = bpf_get_smp_processor_id();
+                            if (m_buf->cpu_id != cpu_id) {
+                                bpf_dbg_printk(
+                                    "cpu id mismatch, using stack-allocated fallback buffer");
+                                buf = m_buf->fallback_buf;
+                            } else {
+                                buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+                                if (!buf) {
+                                    bpf_dbg_printk("failed to get msg_buffer");
+                                    return 0;
+                                }
                             }
 
                             // The buffer setup for us by a sock_msg program is always the
@@ -460,10 +467,17 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
         if (!ssl) {
             msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
             if (m_buf) {
-                unsigned char **buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
-                if (!buf) {
-                    bpf_dbg_printk("failed to get msg_buffer");
-                    return 0;
+                unsigned char *buf = NULL;
+                u32 cpu_id = bpf_get_smp_processor_id();
+                if (m_buf->cpu_id != cpu_id) {
+                    bpf_dbg_printk("cpu id mismatch, using stack-allocated fallback buffer");
+                    buf = m_buf->fallback_buf;
+                } else {
+                    buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+                    if (!buf) {
+                        bpf_dbg_printk("failed to get msg_buffer");
+                        return 0;
+                    }
                 }
 
                 // The buffer setup for us by a sock_msg program is always the
