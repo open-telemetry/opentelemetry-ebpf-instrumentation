@@ -27,7 +27,7 @@ struct {
 // because we can't read the bvec physical pages.
 typedef struct msg_buffer {
     // This is a safety net in case there's been a CPU migration
-    // and the stored buffer in the per-cpu map cannot be user anymore.
+    // and the stored buffer in the per-cpu map cannot be used anymore.
     unsigned char fallback_buf[k_kprobes_http2_buf_size];
     u16 pos;
     u16 real_size;
