@@ -6,6 +6,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/http_buf_size.h>
 #include <common/pin_internal.h>
 
 enum {
@@ -25,6 +26,12 @@ struct {
 // We use this data structure to provide the buffer to the tcp_sendmsg logic,
 // because we can't read the bvec physical pages.
 typedef struct msg_buffer {
+    // This is a safety net in case there's been a CPU migration
+    // and the stored buffer in the per-cpu map cannot be user anymore.
+    unsigned char fallback_buf[k_kprobes_http2_buf_size];
     u16 pos;
     u16 real_size;
+    // Store the CPU id used to save the buffer in `msg_buffer_mem`. This
+    // will then be used as a guard in different execution contexts.
+    u32 cpu_id;
 } msg_buffer_t;
