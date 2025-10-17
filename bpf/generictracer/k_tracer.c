@@ -791,7 +791,9 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         }
     }
 
-    if (copied_len <= 0) {
+    // We want the full response (or most of it) to be able to parse HTTP headers/body.
+    // Drop 1 byte packets as they would end the request tracking prematurely.
+    if (copied_len <= 1) {
         if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
             u16 orig_dport = info.conn.d_port;
             sort_connection_info(&info.conn);
@@ -1146,10 +1148,14 @@ int obi_handle_buf_with_args(void *ctx) {
                     }
                 }
 
+                // Packet type can't be reliably determined in HTTP split packets. This should
+                // always be a request.
+                u8 packet_type = args->packet_type ? args->packet_type : PACKET_TYPE_REQUEST;
+
                 http_send_large_buffer(info,
                                        (void *)args->u_buf,
                                        args->bytes_len,
-                                       args->packet_type,
+                                       packet_type,
                                        args->direction,
                                        k_large_buf_action_append);
             } else if (still_responding(info)) {

@@ -98,6 +98,13 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		Statement: req.URL.Scheme + request.SchemeHostSeparator + req.Host,
 	}
 
+	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.AWS.Enabled {
+		span, ok := ebpfhttp.AWSS3Span(&httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
 	if !isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GraphQL.Enabled {
 		span, ok := ebpfhttp.GraphQLSpan(&httpSpan, req, resp)
 		if ok {

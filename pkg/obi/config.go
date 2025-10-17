@@ -100,6 +100,9 @@ var DefaultConfig = Config{
 				Elasticsearch: config.ElasticsearchConfig{
 					Enabled: false,
 				},
+				AWS: config.AWSConfig{
+					Enabled: false,
+				},
 			},
 		},
 		MaxTransactionTime: 5 * time.Minute,

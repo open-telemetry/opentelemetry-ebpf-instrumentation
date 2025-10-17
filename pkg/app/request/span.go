@@ -80,6 +80,7 @@ const (
 	HTTPSubtypeNone          = 0 // http
 	HTTPSubtypeGraphQL       = 1 // http + graphql
 	HTTPSubtypeElasticsearch = 2 // http + elasticsearch
+	HTTPSubtypeAWSS3         = 3 // http + aws s3
 )
 
 //nolint:cyclop
@@ -178,6 +179,20 @@ type Elasticsearch struct {
 	DBQueryText      string `json:"dbQueryText"`
 }
 
+type AWS struct {
+	// https://opentelemetry.io/docs/specs/semconv/object-stores/s3/
+	S3 AWSS3 `json:"s3"`
+}
+
+type AWSS3 struct {
+	RequestID         string `json:"requestId"`
+	ExtendedRequestID string `json:"extendedRequestId"`
+	Region            string `json:"region"`
+	Method            string `json:"method"`
+	Bucket            string `json:"bucket"`
+	Key               string `json:"key"`
+}
+
 // Span contains the information being submitted by the following nodes in the graph.
 // It enables comfortable handling of data from Go.
 // REMINDER: any attribute here must be also added to the functions SpanOTELGetters,
@@ -216,6 +231,7 @@ type Span struct {
 	MessagingInfo  *MessagingInfo `json:"-"`
 	GraphQL        *GraphQL       `json:"-"`
 	Elasticsearch  *Elasticsearch `json:"-"`
+	AWS            *AWS           `json:"-"`
 
 	// OverrideTraceName is set under some conditions, like spanmetrics reaching the maximum
 	// cardinality for trace names.
@@ -269,6 +285,14 @@ func spanAttributes(s *Span) SpanAttributes {
 			attrs["nodeName"] = s.Elasticsearch.NodeName
 			attrs["dbOperationName"] = s.Elasticsearch.DBOperationName
 			attrs["dbQueryText"] = s.Elasticsearch.DBQueryText
+		}
+		if s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
+			attrs["awsRequestID"] = s.AWS.S3.RequestID
+			attrs["awsExtendedRequestID"] = s.AWS.S3.ExtendedRequestID
+			attrs["awsRegion"] = s.AWS.S3.Region
+			attrs["awsS3Method"] = s.AWS.S3.Method
+			attrs["awsS3Bucket"] = s.AWS.S3.Bucket
+			attrs["awsS3Key"] = s.AWS.S3.Key
 		}
 		return attrs
 	case EventTypeGRPC:
@@ -618,6 +642,14 @@ func (s *Span) TraceName() string {
 				return dbOperationName + " " + s.Host + ":" + strconv.Itoa(s.HostPort)
 			default:
 				return dbOperationName
+			}
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
+			if s.AWS.S3.Method != "" {
+				return "s3." + s.AWS.S3.Method
+			} else {
+				return "s3.Operation"
 			}
 		}
 
