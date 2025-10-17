@@ -60,7 +60,7 @@ static __always_inline void cleanup_complete_ssl_server_trace(http_info_t *info,
 static __always_inline void
 finish_possible_delayed_tls_http_request(pid_connection_info_t *pid_conn, void *ssl) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
-    if (info) {
+    if (info && (info->delayed || info->submitted)) {
         cleanup_complete_ssl_server_trace(info, ssl);
         finish_http(info, pid_conn);
     }
