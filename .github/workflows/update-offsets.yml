@@ -17,6 +17,11 @@ jobs:
       uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       with:
         persist-credentials: true
+    - name: "Configure build temp and Go caches"
+      run: |
+        echo "TMPDIR=${{ runner.temp }}" >> $GITHUB_ENV
+        echo "GOCACHE=${{ runner.temp }}/gocache" >> $GITHUB_ENV
+        echo "GOMODCACHE=${{ runner.temp }}/gomodcache" >> $GITHUB_ENV
     - name: "Update Go"
       uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
       with:
