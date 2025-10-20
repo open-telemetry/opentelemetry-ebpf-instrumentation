@@ -156,8 +156,8 @@ lint-markdown-fix:
 
 .PHONY: update-offsets
 update-offsets: $(GO_OFFSETS_TRACKER)
-	@echo "### Updating pkg/components/goexec/offsets.json"
-	$(GO_OFFSETS_TRACKER) -i configs/offsets/tracker_input.json pkg/components/goexec/offsets.json
+	@echo "### Updating pkg/internal/goexec/offsets.json"
+	$(GO_OFFSETS_TRACKER) -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
 
 .PHONY: generate
 generate: export BPF_CLANG := $(CLANG)
@@ -449,4 +449,3 @@ check-clean-work-tree:
 		echo 'Working tree is not clean, did you forget to run "make"?' \
 		exit 1; \
 	fi
-
