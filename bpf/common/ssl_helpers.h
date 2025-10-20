@@ -73,6 +73,6 @@ connect_ssl_to_connection(u64 id, pid_connection_info_t *conn, u8 direction, u16
     set_active_ssl_connection(&ssl_conn, ssl);
 }
 
-static __always_inline void *is_ssl_connection(pid_connection_info_t *conn) {
-    return bpf_map_lookup_elem(&active_ssl_connections, conn);
+static __always_inline u64 *is_ssl_connection(pid_connection_info_t *conn) {
+    return (u64 *)bpf_map_lookup_elem(&active_ssl_connections, conn);
 }
