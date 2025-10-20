@@ -1,5 +1,9 @@
 name: Update offsets
 on:
+  push:
+    branches: ["main", "release-*"]
+  pull_request:
+    branches: ["main", "release-*"]
   schedule:
     - cron: '1 1 * * *'
   workflow_dispatch:
