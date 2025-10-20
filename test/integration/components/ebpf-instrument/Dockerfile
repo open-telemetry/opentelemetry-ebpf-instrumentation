@@ -17,14 +17,19 @@ COPY pkg/ pkg/
 COPY go.mod go.mod
 COPY go.sum go.sum
 COPY Makefile Makefile
+COPY test/integration/components/ebpf-instrument/ebpf_instrument_wrapper_minimal.sh /ebpf_instrument_wrapper_minimal.sh
 
 # Build
 RUN make compile-for-coverage
 
 # Create final image from minimal + built binary
-FROM scratch
+FROM ubuntu
 
-WORKDIR /
-COPY --from=builder /src/bin/ebpf-instrument .
+COPY --from=builder /src/bin/ebpf-instrument /ebpf-instrument
+# Wrap the executable in a script that waits for the processes to end
+# in order to avoid issues when tearing down the container on kernels 6.14+.
+# https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/781
+COPY --from=builder /ebpf_instrument_wrapper_minimal.sh /ebpf_instrument_wrapper_minimal.sh
+RUN chmod +x /ebpf_instrument_wrapper_minimal.sh
 
-ENTRYPOINT [ "/ebpf-instrument" ]
+ENTRYPOINT [ "/ebpf_instrument_wrapper_minimal.sh" ]
