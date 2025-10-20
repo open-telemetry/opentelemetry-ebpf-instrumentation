@@ -61,7 +61,11 @@ static __always_inline void
 finish_possible_delayed_tls_http_request(pid_connection_info_t *pid_conn, void *ssl) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info && (info->delayed || info->submitted)) {
-        cleanup_complete_ssl_server_trace(info, ssl);
+        // we need to check for server request, the same thread
+        // could be handling both client and server requests
+        if (info->type == EVENT_HTTP_REQUEST) {
+            cleanup_complete_ssl_server_trace(info, ssl);
+        }
         finish_http(info, pid_conn);
     }
 }
