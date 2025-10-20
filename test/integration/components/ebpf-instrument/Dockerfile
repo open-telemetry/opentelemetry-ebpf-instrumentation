@@ -23,7 +23,7 @@ COPY test/integration/components/ebpf-instrument/ebpf_instrument_wrapper_minimal
 RUN make compile-for-coverage
 
 # Create final image from minimal + built binary
-FROM ubuntu
+FROM ubuntu@sha256:66460d557b25769b102175144d538d88219c077c678a49af4afca6fbfc1b5252
 
 COPY --from=builder /src/bin/ebpf-instrument /ebpf-instrument
 # Wrap the executable in a script that waits for the processes to end
