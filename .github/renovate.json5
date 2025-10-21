@@ -24,6 +24,13 @@
     {
       "matchUpdateTypes": ["minor", "major"],
       "schedule": ["before 8am on Monday"]
+    },
+    {
+      "description": "Disable Go 1.17 testserver updates",
+      "matchFileNames": ["test/integration/components/testserver_1.17/Dockerfile"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["golang"],
+      "enabled": false
     }
   ],
   "labels": [
