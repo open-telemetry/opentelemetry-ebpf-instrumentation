@@ -1,6 +1,6 @@
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.9.3@sha256:f3c4bf640d4b7fadad4f3740acd61ade279842db90ffe23f616c3b837a3d24dd
+    image: confluentinc/cp-zookeeper:7.9.4@sha256:434514c38139e80a1561b20b01a78af7123b16561ce2ee3276c7e2c6c086802a
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -8,7 +8,7 @@ services:
       - "2181:2181"
 
   kafka:
-    image: confluentinc/cp-kafka:7.9.3@sha256:1d09a7cf4eb606a2242fccf311e399281612ef0a1afb682a7d0037daac2b3e3e
+    image: confluentinc/cp-kafka:7.9.4@sha256:0142ea2a6606e967ac22b5d58f6ba36de3e649980e6ac723a6341fc3c0406888
     depends_on:
       - zookeeper
     environment:

@@ -1,4 +1,4 @@
-FROM node:20-slim@sha256:f679d7699517426eb148a5698c717477fd3f8a48f6c1eaf771e390a9bb8268c8
+FROM node:20-slim@sha256:d68a804de261bfca9b12b9c8c4070f194043244d4342276c3b108fa150095ba5
 
 # Set the working directory to /build
 WORKDIR /
