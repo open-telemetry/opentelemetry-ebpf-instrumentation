@@ -280,7 +280,7 @@ static __always_inline void force_finish_http(http_info_t *info, pid_connection_
         if (!http_info_complete(info)) {
             info->resp_len = 0;
             info->end_monotime_ns = bpf_ktime_get_ns();
-            info->status = 409;
+            info->status = 499;
         }
     }
 
