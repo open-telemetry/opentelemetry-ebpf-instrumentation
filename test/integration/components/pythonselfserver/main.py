@@ -49,6 +49,10 @@ def api2():
 def smoke():
     return Response(status=200)
 
+@app3.route("/smoke1")
+def smoke1():
+    return Response(status=200)
+
 # API for the first application (Port 7771)
 @app3.route('/slow', methods=['GET'])
 def slow():
@@ -59,7 +63,7 @@ def slow():
         time.sleep(2)
 
         # Internal HTTPS call to the second API
-        response = requests.get('http://localhost:7773/smoke', headers=headers, verify=False)
+        response = requests.get('http://localhost:7773/smoke1', headers=headers, verify=False)
         return jsonify({
             "message": "Internal call to smoke succeeded",
         }), response.status_code

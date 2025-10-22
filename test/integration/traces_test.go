@@ -999,13 +999,9 @@ func testHTTPTracesNestedCallsTooLong(t *testing.T) {
 	// Run a request, since we have a single app, we should see always all requests
 	doHTTPGet(t, "http://localhost:7773/slow", 200)
 
-	// Give time for all spans to make it to jeager, we want to ensure the children
-	// also make it and are not nested properly
-	time.Sleep(5 * time.Second)
-
 	var trace jaeger.Trace
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=python-self&operation=GET%20%2Fslow")
+		resp, err := http.Get(jaegerQueryURL + "?service=python-self&operation=GET%20%2Fsmoke1")
 		require.NoError(t, err)
 		if resp == nil {
 			return
@@ -1013,7 +1009,18 @@ func testHTTPTracesNestedCallsTooLong(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/slow"})
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/smoke1"})
+		require.Len(t, traces, 1)
+		trace = traces[0]
+
+		resp, err = http.Get(jaegerQueryURL + "?service=python-self&operation=GET%20%2Fslow")
+		require.NoError(t, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		traces = tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/slow"})
 		require.Len(t, traces, 1)
 		trace = traces[0]
 
