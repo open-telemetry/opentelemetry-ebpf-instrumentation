@@ -404,11 +404,9 @@ static __always_inline u8 find_trace_for_client_request(const pid_connection_inf
         bpf_dbg_printk("Found existing server tp for client call");
 
         if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
-            bpf_dbg_printk("Parent and child are too far apart, marking server trace as invalid "
-                           "%lld >>> %lld (max: %lld)",
-                           tp->ts,
-                           server_tp->tp.ts,
-                           max_transaction_time);
+            bpf_dbg_printk("Parent and child are too far apart, marking server trace as invalid");
+            bpf_dbg_printk(
+                "%lld >>> %lld (max: %lld)", tp->ts, server_tp->tp.ts, max_transaction_time);
             server_tp->valid = 0;
             return 0;
         }

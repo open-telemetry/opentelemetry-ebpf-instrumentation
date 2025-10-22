@@ -100,6 +100,7 @@ func (p *Tracer) Constants() map[string]any {
 	return map[string]any{
 		"wakeup_data_bytes":      uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
 		"disable_black_box_cp":   blackBoxCP,
+		"max_transaction_time":   uint64(p.cfg.MaxTransactionTime.Nanoseconds()),
 		"attr_type_invalid":      uint64(attribute.INVALID),
 		"attr_type_bool":         uint64(attribute.BOOL),
 		"attr_type_int64":        uint64(attribute.INT64),

@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/exec"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -70,19 +71,7 @@ func (p *Tracer) SetupTailCalls() {
 }
 
 func (p *Tracer) Constants() map[string]any {
-	m := make(map[string]any, 1)
-
-	// The eBPF side does some basic filtering of events that do not belong to
-	// processes which we monitor. We filter more accurately in the userspace, but
-	// for performance reasons we enable the PID based filtering in eBPF.
-	// This must match httpfltr.go, otherwise we get partial events in userspace.
-	if p.cfg.Discovery.BPFPidFilterOff {
-		m["filter_pids"] = int32(0)
-	} else {
-		m["filter_pids"] = int32(1)
-	}
-
-	return m
+	return generictracer.GenericTracerConstants(p.cfg)
 }
 
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}

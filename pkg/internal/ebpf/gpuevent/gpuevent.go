@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -110,18 +111,7 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 }
 
 func (p *Tracer) Constants() map[string]any {
-	m := make(map[string]any, 2)
-
-	// The eBPF side does some basic filtering of events that do not belong to
-	// processes which we monitor. We filter more accurately in the userspace, but
-	// for performance reasons we enable the PID based filtering in eBPF.
-	if p.cfg.Discovery.BPFPidFilterOff {
-		m["filter_pids"] = int32(0)
-	} else {
-		m["filter_pids"] = int32(1)
-	}
-
-	return m
+	return generictracer.GenericTracerConstants(p.cfg)
 }
 
 func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, _ *goexec.Offsets) {
