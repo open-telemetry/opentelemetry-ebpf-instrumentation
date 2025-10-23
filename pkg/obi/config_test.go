@@ -125,6 +125,7 @@ discovery:
 			BatchLength:               100,
 			BatchTimeout:              time.Second,
 			HTTPRequestTimeout:        0,
+			MaxTransactionTime:        5 * time.Minute,
 			TCBackend:                 config.TCBackendAuto,
 			DNSRequestTimeout:         5 * time.Second,
 			ContextPropagationEnabled: false,

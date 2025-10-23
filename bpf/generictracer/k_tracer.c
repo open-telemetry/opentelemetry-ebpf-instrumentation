@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+#include <common/msg_buffer.h>
 #include <common/dns.h>
 #include <common/pin_internal.h>
 #include <common/sock_port_ns.h>
@@ -386,7 +387,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
         connect_ssl_to_connection(id, &s_args.p_conn, TCP_SEND, orig_dport);
         setup_connection_to_pid_mapping(id, &s_args.p_conn, orig_dport);
 
-        void *ssl = is_ssl_connection(&s_args.p_conn);
+        u64 *ssl = is_ssl_connection(&s_args.p_conn);
         if (size > 0) {
             if (!ssl) {
                 unsigned char *buf = iovec_memory();
@@ -402,7 +403,19 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                         msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
                         bpf_dbg_printk("No size, m_buf[%llx]", m_buf);
                         if (m_buf) {
-                            buf = m_buf->buf;
+                            u32 cpu_id = bpf_get_smp_processor_id();
+                            if (m_buf->cpu_id != cpu_id) {
+                                bpf_dbg_printk("tcp_sendmsg: cpu id mismatch, using "
+                                               "stack-allocated fallback buffer");
+                                buf = m_buf->fallback_buf;
+                            } else {
+                                buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+                                if (!buf) {
+                                    bpf_dbg_printk("failed to get msg_buffer");
+                                    return 0;
+                                }
+                            }
+
                             // The buffer setup for us by a sock_msg program is always the
                             // full buffer, but when we extend a packet to be able to inject
                             // a Traceparent field, it will actually be split in 3 chunks:
@@ -413,7 +426,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                             // m_buf->pos be the size of the buffer.
                             if (!m_buf->pos) {
                                 size = m_buf->real_size;
-                                m_buf->pos = sizeof(m_buf->buf);
+                                m_buf->pos = size;
                                 bpf_dbg_printk("msg_buffer: size %d, buf[%s]", size, buf);
                             } else {
                                 size = 0;
@@ -449,7 +462,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
             return 0;
         }
 
-        tcp_send_ssl_check(id, ssl, &s_args.p_conn, orig_dport);
+        tcp_send_ssl_check(id, (void *)(*ssl), &s_args.p_conn, orig_dport);
         bpf_map_delete_elem(&active_send_args, &id);
     }
 
@@ -486,11 +499,24 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
         setup_connection_to_pid_mapping(id, &s_args.p_conn, orig_dport);
         cp_support_established(&s_args.p_conn);
 
-        void *ssl = is_ssl_connection(&s_args.p_conn);
+        u64 *ssl = is_ssl_connection(&s_args.p_conn);
         if (!ssl) {
             msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
             if (m_buf) {
-                unsigned char *buf = m_buf->buf;
+                unsigned char *buf = NULL;
+                u32 cpu_id = bpf_get_smp_processor_id();
+                if (m_buf->cpu_id != cpu_id) {
+                    bpf_dbg_printk("tcp_rate_check_app_limited: cpu id mismatch, using "
+                                   "stack-allocated fallback buffer");
+                    buf = m_buf->fallback_buf;
+                } else {
+                    buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+                    if (!buf) {
+                        bpf_dbg_printk("failed to get msg_buffer");
+                        return 0;
+                    }
+                }
+
                 // The buffer setup for us by a sock_msg program is always the
                 // full buffer, but when we extend a packet to be able to inject
                 // a Traceparent field, it will actually be split in 3 chunks:
@@ -501,7 +527,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                 // m_buf->pos be the size of the buffer.
                 if (!m_buf->pos) {
                     u16 size = m_buf->real_size;
-                    m_buf->pos = sizeof(m_buf->buf);
+                    m_buf->pos = size;
                     s_args.size = size;
                     bpf_dbg_printk("msg_buffer: size %d, buf[%s]", size, buf);
                     u64 sock_p = (u64)sk;
@@ -518,7 +544,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
             }
         } else {
             make_inactive_sk_buffer(&s_args.p_conn.conn);
-            tcp_send_ssl_check(id, ssl, &s_args.p_conn, orig_dport);
+            tcp_send_ssl_check(id, (void *)(*ssl), &s_args.p_conn, orig_dport);
         }
     }
 
@@ -615,7 +641,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         bpf_map_delete_elem(&cp_support_connect_info, &info);
     }
 
-    ensure_sent_event(id, &sock_p);
+    force_sent_event(id, &sock_p);
 
     if (success) {
         //dbg_print_http_connection_info(&info.conn);
@@ -852,7 +878,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         cp_support_established(&info);
         setup_connection_to_pid_mapping(id, &info, orig_dport);
 
-        void *ssl = is_ssl_connection(&info);
+        u64 *ssl = is_ssl_connection(&info);
 
         if (!ssl) {
 
@@ -885,7 +911,8 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         } else {
             // must delete the backup buffer to avoid replay
             delete_backup_sk_buff(&info.conn);
-            bpf_dbg_printk("tcp_recvmsg for an identified SSL connection, ignoring [%llx]...", ssl);
+            bpf_dbg_printk("tcp_recvmsg for an identified SSL connection, ignoring [%llx]...",
+                           *ssl);
         }
     }
 
@@ -1131,7 +1158,7 @@ int obi_handle_buf_with_args(void *ctx) {
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
 
-        if (info) {
+        if (info && !info->submitted) {
             // Still reading checks if we are processing buffers of a HTTP request
             // that has started, but we haven't seen a response yet.
             if (still_reading(info)) {
@@ -1183,10 +1210,7 @@ int obi_handle_buf_with_args(void *ctx) {
         } else if (!info) {
             // SSL requests will see both TCP traffic and text traffic, ignore the TCP if
             // we are processing SSL request. HTTP2 is already checked in handle_buf_with_connection.
-            http_info_t *http_info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
-            if (!http_info) {
-                bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
-            }
+            bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
         }
     }
 

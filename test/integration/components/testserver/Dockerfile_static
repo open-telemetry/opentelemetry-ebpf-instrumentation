@@ -1,6 +1,6 @@
 # Build the testserver binary
 # Docker command must be invoked from the projec root directory
-FROM golang:1.25@sha256:d7098379b7da665ab25b99795465ec320b1ca9d4addb9f77409c4827dc904211 AS builder
+FROM golang:1.25@sha256:1a13867f40c6ba8c3e7c07ab5fa921cb58cf8402bcbe452f4d41cd614655e700 AS builder
 
 ARG TARGETARCH
 
@@ -19,7 +19,7 @@ RUN go build -tags -a -ldflags '-linkmode external -extldflags "-static"' -o tes
 
 # Create final image from minimal + built binary
 #TODO: use minimal image
-FROM debian:12@sha256:93492d1405a072c9d3b89110490e330e0b7eb37754cafc9520908b7fe6873f5f
+FROM debian:12@sha256:26f2a7cab45014541c65f9d140ccfa6aaefbb49686c6759bea9c6f7f5bb3d72f
 
 WORKDIR /
 RUN mkdir -p x509

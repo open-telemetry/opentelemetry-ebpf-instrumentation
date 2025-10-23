@@ -31,9 +31,16 @@ static __always_inline tcp_req_t *empty_tcp_req() {
 }
 
 static __always_inline void init_new_trace(tp_info_t *tp) {
+    bpf_d_printk("Generating new traceparent id");
     new_trace_id(tp);
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
     __builtin_memset(tp->parent_id, 0, sizeof(tp->span_id));
+
+#ifdef BPF_DEBUG
+    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+    make_tp_string(tp_buf, tp);
+    bpf_dbg_printk("tp: %s", tp_buf);
+#endif
 }
 
 static __always_inline void set_tcp_trace_info(
@@ -51,7 +58,6 @@ static __always_inline void set_tcp_trace_info(
     tp_p->req_type = EVENT_TCP_REQUEST;
 
     set_trace_info_for_connection(conn, type, tp_p);
-    bpf_dbg_printk("Set traceinfo for conn");
     dbg_print_http_connection_info(conn);
 
     server_or_client_trace(type, conn, tp_p, ssl, orig_dport);

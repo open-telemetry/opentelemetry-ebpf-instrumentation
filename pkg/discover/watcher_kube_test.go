@@ -16,9 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"go.opentelemetry.io/obi/pkg/components/helpers/container"
 	"go.opentelemetry.io/obi/pkg/components/imetrics"
 	"go.opentelemetry.io/obi/pkg/components/kube"
+	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kubecache/meta"
@@ -163,7 +163,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
       version: "v[0-9]*"
 `), &pipeConfig))
 
-	swi.Add(CriteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue))
+	swi.Add(criteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue))
 
 	nodesRunner, err := swi.Instance(t.Context())
 	require.NoError(t, err)

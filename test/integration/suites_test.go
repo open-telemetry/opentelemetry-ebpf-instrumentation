@@ -296,6 +296,7 @@ func TestSuite_NodeJS(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("NodeJS RED metrics", testREDMetricsNodeJSHTTP)
 	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
+	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedNodeJSLargeHTTPS)
 	require.NoError(t, compose.Close())
 }
 
@@ -449,6 +450,7 @@ func TestSuite_PythonSelfReference(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=7771`, `OTEL_EBPF_EXECUTABLE_PATH=`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Traces with self-references", testHTTPTracesNestedSelfCalls)
+	t.Run("Python Traces transaction too long", testHTTPTracesNestedCallsTooLong)
 	require.NoError(t, compose.Close())
 }
 

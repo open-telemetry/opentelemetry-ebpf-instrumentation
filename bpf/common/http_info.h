@@ -32,5 +32,6 @@ typedef struct http_info {
     unsigned char buf[FULL_BUF_SIZE];
     u8 has_large_buffers;
     u8 direction;
-    u8 _pad[4];
+    u8 submitted;
+    u8 _pad[3];
 } http_info_t;
