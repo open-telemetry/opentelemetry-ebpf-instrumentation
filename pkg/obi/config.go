@@ -128,7 +128,13 @@ var DefaultConfig = Config{
 		BatchTimeout:      15 * time.Second,
 		ReportersCacheLen: ReporterLRUSize,
 		Instrumentations: []string{
-			instrumentations.InstrumentationALL,
+			instrumentations.InstrumentationHTTP,
+			instrumentations.InstrumentationGRPC,
+			instrumentations.InstrumentationSQL,
+			instrumentations.InstrumentationRedis,
+			instrumentations.InstrumentationKafka,
+			instrumentations.InstrumentationMongo,
+			// no traces for DNS and GPU by default
 		},
 	},
 	Prometheus: prom.PrometheusConfig{

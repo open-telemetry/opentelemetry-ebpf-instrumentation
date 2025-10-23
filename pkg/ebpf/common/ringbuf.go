@@ -96,7 +96,7 @@ func ForwardRingbuf(
 		cfg: cfg, logger: logger, ringbuffer: ringbuffer,
 		closers: closers, reader: reader,
 		filter: filter, metrics: metrics,
-		parseContext: NewEBPFParseContext(cfg, spansChan),
+		parseContext: NewEBPFParseContext(cfg, spansChan, filter),
 	}
 	return rbf.readAndForward
 }

@@ -15,6 +15,9 @@ const (
 	InstrumentationGPU   = "gpu"
 	InstrumentationMongo = "mongo"
 	InstrumentationDNS   = "dns"
+	// Traces export selectively enables only some instrumentations by
+	// default. If you add a new instrumentation type, make sure you
+	// update the TracesConfig accordingly. Metrics do ALL == "*".
 )
 
 const (

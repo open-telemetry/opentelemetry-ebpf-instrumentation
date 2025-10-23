@@ -18,9 +18,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-func dnsEventExpireHandler(_ *msg.Queue[[]request.Span]) func(key dnsparser.DNSId, span *request.Span) {
-	return func(_ dnsparser.DNSId, _ *request.Span) {
-		// TODO: we need to find a way to send a reported error with failed to DNS resolve
+func dnsEventExpireHandler(spansChan *msg.Queue[[]request.Span], filter ServiceFilter) func(key dnsparser.DNSId, span *request.Span) {
+	return func(_ dnsparser.DNSId, span *request.Span) {
+		// final status is -1, which means we never received a response
+		if span.Status == -1 {
+			span.Status = int(dnsparser.RCodeRefused)
+			spansChan.Send(filter.Filter([]request.Span{*span}))
+		}
 	}
 }
 
@@ -103,6 +107,9 @@ func ReadDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	}
 
 	if len(addresses) > 0 {
+		if span.Statement != "" {
+			addresses = append(addresses, span.Statement)
+		}
 		span.Statement = strings.Join(addresses, ",")
 	}
 

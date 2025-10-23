@@ -491,7 +491,7 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	}
 
 	timeoutTicker := time.NewTicker(2 * time.Second)
-	parseContext := ebpfcommon.NewEBPFParseContext(&p.cfg.EBPF, eventsChan)
+	parseContext := ebpfcommon.NewEBPFParseContext(&p.cfg.EBPF, eventsChan, p.pidsFilter)
 
 	go p.watchForMisclassifedEvents(ctx)
 	go p.lookForTimeouts(ctx, parseContext, timeoutTicker, eventsChan)

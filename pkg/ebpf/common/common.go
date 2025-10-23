@@ -153,7 +153,7 @@ var MisclassifiedEvents = make(chan MisclassifiedEvent)
 
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
 
-func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.Span]) *EBPFParseContext {
+func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.Span], filter ServiceFilter) *EBPFParseContext {
 	var (
 		err                        error
 		redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
@@ -202,7 +202,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 
 		payloadExtraction = cfg.PayloadExtraction
 
-		dnsEvents = expirable.NewLRU(1024, dnsEventExpireHandler(spansChan), cfg.DNSRequestTimeout)
+		dnsEvents = expirable.NewLRU(1024, dnsEventExpireHandler(spansChan, filter), cfg.DNSRequestTimeout)
 	}
 
 	return &EBPFParseContext{
