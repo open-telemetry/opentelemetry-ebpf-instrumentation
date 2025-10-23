@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/pkg/components/helpers/maps"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	"go.opentelemetry.io/obi/pkg/discover/exec"
+	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 )
 
 func TestPidContainerTracker_Track(t *testing.T) {
