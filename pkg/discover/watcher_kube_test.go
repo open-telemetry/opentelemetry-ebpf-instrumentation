@@ -163,7 +163,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
       version: "v[0-9]*"
 `), &pipeConfig))
 
-	swi.Add(CriteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue))
+	swi.Add(criteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue))
 
 	nodesRunner, err := swi.Instance(t.Context())
 	require.NoError(t, err)

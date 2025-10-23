@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/pkg/components/exec"
-	maps2 "go.opentelemetry.io/obi/pkg/components/helpers/maps"
+	"go.opentelemetry.io/obi/pkg/components/helpers/maps"
 	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/discover/exec"
 )
 
 func TestPidContainerTracker_Track(t *testing.T) {
@@ -74,7 +74,7 @@ func TestPidContainerTracker_Track(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tracker := &pidContainerTracker{
-				missedPods:    maps2.Map2[string, int32, *exec.ProcessEvent]{},
+				missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
 				missedPodPids: make(map[int32]string),
 			}
 
@@ -174,7 +174,7 @@ func TestPidContainerTracker_Remove(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tracker := &pidContainerTracker{
-				missedPods:    maps2.Map2[string, int32, *exec.ProcessEvent]{},
+				missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
 				missedPodPids: make(map[int32]string),
 			}
 
@@ -277,7 +277,7 @@ func TestPidContainerTracker_RemoveAll(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tracker := &pidContainerTracker{
-				missedPods:    maps2.Map2[string, int32, *exec.ProcessEvent]{},
+				missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
 				missedPodPids: make(map[int32]string),
 			}
 
@@ -381,7 +381,7 @@ func TestPidContainerTracker_Info(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tracker := &pidContainerTracker{
-				missedPods:    maps2.Map2[string, int32, *exec.ProcessEvent]{},
+				missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
 				missedPodPids: make(map[int32]string),
 			}
 
@@ -415,7 +415,7 @@ func TestPidContainerTracker_Info(t *testing.T) {
 
 func TestPidContainerTracker_ConcurrentAccess(*testing.T) {
 	tracker := &pidContainerTracker{
-		missedPods:    maps2.Map2[string, int32, *exec.ProcessEvent]{},
+		missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
 		missedPodPids: make(map[int32]string),
 	}
 
@@ -479,7 +479,7 @@ func TestPidContainerTracker_ConcurrentAccess(*testing.T) {
 func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 	t.Run("multiple containers with overlapping PIDs", func(t *testing.T) {
 		tracker := &pidContainerTracker{
-			missedPods:    maps2.Map2[string, int32, *exec.ProcessEvent]{},
+			missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
 			missedPodPids: make(map[int32]string),
 		}
 
@@ -514,7 +514,7 @@ func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 
 	t.Run("large number of processes", func(t *testing.T) {
 		tracker := &pidContainerTracker{
-			missedPods:    maps2.Map2[string, int32, *exec.ProcessEvent]{},
+			missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
 			missedPodPids: make(map[int32]string),
 		}
 
@@ -565,7 +565,7 @@ func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 
 	t.Run("track remove track cycle", func(t *testing.T) {
 		tracker := &pidContainerTracker{
-			missedPods:    maps2.Map2[string, int32, *exec.ProcessEvent]{},
+			missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
 			missedPodPids: make(map[int32]string),
 		}
 
