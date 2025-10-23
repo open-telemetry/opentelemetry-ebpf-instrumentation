@@ -449,6 +449,7 @@ func TestSuite_PythonSelfReference(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=7771`, `OTEL_EBPF_EXECUTABLE_PATH=`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Traces with self-references", testHTTPTracesNestedSelfCalls)
+	t.Run("Python Traces transaction too long", testHTTPTracesNestedCallsTooLong)
 	require.NoError(t, compose.Close())
 }
 

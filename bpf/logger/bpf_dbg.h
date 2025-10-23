@@ -31,7 +31,7 @@ typedef struct log_info {
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 12);
+    __uint(max_entries, 1 << 15);
     __uint(pinning, OBI_PIN_INTERNAL);
 } debug_events SEC(".maps");
 

@@ -993,6 +993,72 @@ func testNestedHTTPSTracesKProbes(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 }
 
+func testHTTPTracesNestedCallsTooLong(t *testing.T) {
+	var parentID string
+
+	// Run a request, since we have a single app, we should see always all requests
+	doHTTPGet(t, "http://localhost:7773/slow", 200)
+
+	var trace jaeger.Trace
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=python-self&operation=GET%20%2Fsmoke1")
+		require.NoError(t, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/smoke1"})
+		require.Len(t, traces, 1)
+		trace = traces[0]
+
+		resp, err = http.Get(jaegerQueryURL + "?service=python-self&operation=GET%20%2Fslow")
+		require.NoError(t, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		traces = tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/slow"})
+		require.Len(t, traces, 1)
+		trace = traces[0]
+
+		// Check the information of the parent span
+		res := trace.FindByOperationName("GET /slow", "")
+		require.Len(t, res, 1)
+		server := res[0]
+		require.NotEmpty(t, server.TraceID)
+		require.NotEmpty(t, server.SpanID)
+		parentID = server.SpanID
+
+		// check span attributes
+		sd := server.Diff(
+			jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+			jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+			jaeger.Tag{Key: "url.path", Type: "string", Value: "/slow"},
+			jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(7773)},
+			jaeger.Tag{Key: "http.route", Type: "string", Value: "/slow"},
+			jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		)
+		assert.Empty(t, sd, sd.String())
+
+		children := trace.ChildrenOf(parentID)
+		clientCallChildren := 0
+
+		// We might've created the in-queue and processing spans, but
+		// none of those should have children
+		for _, c := range children {
+			children = trace.ChildrenOf(c.SpanID)
+			if len(children) > 0 {
+				clientCallChildren++
+			}
+		}
+
+		require.Equal(t, 0, clientCallChildren)
+	}, test.Interval(100*time.Millisecond))
+}
+
 func testHTTPTracesNestedSelfCalls(t *testing.T) {
 	var parentID string
 

@@ -106,6 +106,11 @@ type EBPFTracer struct {
 
 	// Configure data extraction/parsing based on protocol
 	PayloadExtraction PayloadExtraction `yaml:"payload_extraction"`
+
+	// Maximum time allowed for two requests to be correlated as parent -> child
+	// Some programs (e.g. load generators) keep on generating requests from the same thread in perpetuity,
+	// which can generate very large traces. We want to mark the parent trace as invalid if this happens.
+	MaxTransactionTime time.Duration `yaml:"max_transaction_time" env:"OTEL_EBPF_BPF_MAX_TRANSACTION_TIME"`
 }
 
 // Per-protocol data buffer size in bytes.

@@ -99,6 +99,7 @@ var DefaultConfig = Config{
 				},
 			},
 		},
+		MaxTransactionTime: 5 * time.Minute,
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources:  []string{"k8s"},
