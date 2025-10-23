@@ -28,6 +28,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
@@ -152,7 +153,7 @@ var MisclassifiedEvents = make(chan MisclassifiedEvent)
 
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
 
-func NewEBPFParseContext(cfg *config.EBPFTracer) *EBPFParseContext {
+func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.Span]) *EBPFParseContext {
 	var (
 		err                        error
 		redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
@@ -162,12 +163,11 @@ func NewEBPFParseContext(cfg *config.EBPFTracer) *EBPFParseContext {
 		kafkaTopicUUIDToName       *simplelru.LRU[kafkaparser.UUID, string]
 		mongoRequestCache          PendingMongoDBRequests
 		payloadExtraction          config.PayloadExtraction
+		dnsEvents                  *expirable.LRU[dnsparser.DNSId, *request.Span]
 	)
 
 	h2c, _ := lru.New[uint64, h2Connection](1024 * 10)
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largeBuffer](1024, nil, 5*time.Minute)
-
-	dnsEvents := expirable.NewLRU(1024, dnsEventExpireHandler, cfg.DNSRequestTimeout)
 
 	if cfg != nil {
 		if cfg.RedisDBCache.Enabled {
@@ -201,6 +201,8 @@ func NewEBPFParseContext(cfg *config.EBPFTracer) *EBPFParseContext {
 		mongoRequestCache = expirable.NewLRU[MongoRequestKey, *MongoRequestValue](cfg.MongoRequestsCacheSize, nil, 0)
 
 		payloadExtraction = cfg.PayloadExtraction
+
+		dnsEvents = expirable.NewLRU(1024, dnsEventExpireHandler(spansChan), cfg.DNSRequestTimeout)
 	}
 
 	return &EBPFParseContext{

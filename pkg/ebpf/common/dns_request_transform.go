@@ -10,14 +10,18 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"go.opentelemetry.io/obi/pkg/app/request"
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-func dnsEventExpireHandler(key dnsparser.DNSId, span *request.Span) {
-	// TODO: we need to find a way to send a reported error with failed to DNS resolve
+func dnsEventExpireHandler(_ *msg.Queue[[]request.Span]) func(key dnsparser.DNSId, span *request.Span) {
+	return func(_ dnsparser.DNSId, _ *request.Span) {
+		// TODO: we need to find a way to send a reported error with failed to DNS resolve
+	}
 }
 
 func ReadDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (request.Span, bool, error) {
@@ -41,9 +45,9 @@ func ReadDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 		hostPort = int(event.P_conn.Conn.D_port)
 	}
 
-	dnsId := dnsparser.DNSId{HostPID: event.Pid.HostPid, ID: event.Id}
+	dnsID := dnsparser.DNSId{HostPID: event.Pid.HostPid, ID: event.Id}
 
-	span, ok := parseCtx.dnsEvents.Get(dnsId)
+	span, ok := parseCtx.dnsEvents.Get(dnsID)
 
 	if !ok {
 		span = &request.Span{
@@ -102,14 +106,14 @@ func ReadDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 		span.Statement = strings.Join(addresses, ",")
 	}
 
-	parseCtx.dnsEvents.Add(dnsId, span)
+	parseCtx.dnsEvents.Add(dnsID, span)
 
 	var responseCode uint16
 
 	prevStatus := span.Status
 
-	if msg.Header.Response {
-		responseCode = uint16(msg.Header.RCode)
+	if msg.Response {
+		responseCode = uint16(msg.RCode)
 		span.Status = int(responseCode)
 		span.End = int64(event.Ts)
 	} else {
