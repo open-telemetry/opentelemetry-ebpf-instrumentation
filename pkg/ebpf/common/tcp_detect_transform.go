@@ -79,8 +79,6 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		}
 
 		return span, false, nil
-	case ProtocolTypeFailedConnect:
-		return TCPFailedConnectToSpan(event), false, nil
 	case ProtocolTypeUnknown:
 	default:
 	}

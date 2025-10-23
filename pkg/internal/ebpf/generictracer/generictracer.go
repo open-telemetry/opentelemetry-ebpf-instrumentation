@@ -282,7 +282,7 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 		},
 		"sock_def_error_report": {
 			Required: true,
-			Start:    p.bpfObjects.ObiKprobeSockDefErrorReport,
+			Start:    p.bpfObjects.ObiKprobeSkErrorReport,
 		},
 		"tcp_sendmsg": {
 			Required: true,

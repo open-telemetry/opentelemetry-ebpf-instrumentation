@@ -11,8 +11,8 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
-	"go.opentelemetry.io/obi/pkg/components/ebpf/common/dnsparser"
-	"go.opentelemetry.io/obi/pkg/components/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/otel/trace"
 )
 
