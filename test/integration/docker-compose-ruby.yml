@@ -13,7 +13,7 @@ services:
         condition: service_started
 
   nginx:
-    image: nginx:latest@sha256:8adbdcb969e2676478ee2c7ad333956f0c8e0e4c5a7463f4611d7a2e7a7ff5dc
+    image: nginx:latest@sha256:8675d20d9cc26027c683501905b5da78ec3c7fc2a8d58d8d617e858e5fe97a93
     container_name: nginx_server
     ports:
       - "8443:443" # Expose TLS port

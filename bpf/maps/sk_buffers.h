@@ -8,6 +8,7 @@
 
 #include <common/connection_info.h>
 #include <common/egress_key.h>
+#include <common/http_buf_size.h>
 #include <common/map_sizing.h>
 #include <common/msg_buffer.h>
 #include <common/pin_internal.h>

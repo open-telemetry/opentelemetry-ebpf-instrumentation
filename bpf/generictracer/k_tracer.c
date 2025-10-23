@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+#include <common/msg_buffer.h>
 #include <common/pin_internal.h>
 #include <common/sock_port_ns.h>
 #include <common/sockaddr.h>
@@ -366,7 +367,19 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                         msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
                         bpf_dbg_printk("No size, m_buf[%llx]", m_buf);
                         if (m_buf) {
-                            buf = m_buf->buf;
+                            u32 cpu_id = bpf_get_smp_processor_id();
+                            if (m_buf->cpu_id != cpu_id) {
+                                bpf_dbg_printk("tcp_sendmsg: cpu id mismatch, using "
+                                               "stack-allocated fallback buffer");
+                                buf = m_buf->fallback_buf;
+                            } else {
+                                buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+                                if (!buf) {
+                                    bpf_dbg_printk("failed to get msg_buffer");
+                                    return 0;
+                                }
+                            }
+
                             // The buffer setup for us by a sock_msg program is always the
                             // full buffer, but when we extend a packet to be able to inject
                             // a Traceparent field, it will actually be split in 3 chunks:
@@ -377,7 +390,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                             // m_buf->pos be the size of the buffer.
                             if (!m_buf->pos) {
                                 size = m_buf->real_size;
-                                m_buf->pos = sizeof(m_buf->buf);
+                                m_buf->pos = size;
                                 bpf_dbg_printk("msg_buffer: size %d, buf[%s]", size, buf);
                             } else {
                                 size = 0;
@@ -454,7 +467,20 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
         if (!ssl) {
             msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
             if (m_buf) {
-                unsigned char *buf = m_buf->buf;
+                unsigned char *buf = NULL;
+                u32 cpu_id = bpf_get_smp_processor_id();
+                if (m_buf->cpu_id != cpu_id) {
+                    bpf_dbg_printk("tcp_rate_check_app_limited: cpu id mismatch, using "
+                                   "stack-allocated fallback buffer");
+                    buf = m_buf->fallback_buf;
+                } else {
+                    buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+                    if (!buf) {
+                        bpf_dbg_printk("failed to get msg_buffer");
+                        return 0;
+                    }
+                }
+
                 // The buffer setup for us by a sock_msg program is always the
                 // full buffer, but when we extend a packet to be able to inject
                 // a Traceparent field, it will actually be split in 3 chunks:
@@ -465,7 +491,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                 // m_buf->pos be the size of the buffer.
                 if (!m_buf->pos) {
                     u16 size = m_buf->real_size;
-                    m_buf->pos = sizeof(m_buf->buf);
+                    m_buf->pos = size;
                     s_args.size = size;
                     bpf_dbg_printk("msg_buffer: size %d, buf[%s]", size, buf);
                     u64 sock_p = (u64)sk;

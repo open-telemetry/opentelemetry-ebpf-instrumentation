@@ -1,6 +1,6 @@
 ## Adopted from https://github.com/wbotelhos/how-to-create-a-http-server-with-elixir
 
-FROM elixir:1.18.4-slim@sha256:8d82441aebf44ac1ba43b5a0f220df2b893189fc54004ac5bdc954704c8c4e98
+FROM elixir:1.18.4-slim@sha256:7998946434dd3ddafc88effcf48d37bb5e2301cec3ec540048df9226c6da55ae
 
 WORKDIR /app
 

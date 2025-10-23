@@ -5,7 +5,9 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
 
+#include <common/http_buf_size.h>
 #include <common/http_types.h>
+#include <common/msg_buffer.h>
 #include <common/send_args.h>
 #include <common/ssl_helpers.h>
 #include <common/tc_common.h>
@@ -172,7 +174,8 @@ static __always_inline u8 is_tracked_go_request(const tp_info_pid_t *tp) {
 // limit when we eventually add HTTP2/gRPC support.
 static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
                                             u64 id,
-                                            const connection_info_t *conn) {
+                                            const connection_info_t *conn,
+                                            const egress_key_t *e_key) {
     bpf_dbg_printk("=== [protocol detector] %d size %d===", id, msg->size);
 
     send_args_t s_args = {.size = msg->size};
@@ -188,10 +191,20 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
 
     msg_buffer_t msg_buf = {
         .pos = 0,
-        .real_size = msg->size > k_kprobes_http2_buf_size ? k_kprobes_http2_buf_size : msg->size,
+        .real_size = msg->size > k_msg_buffer_size_max ? k_msg_buffer_size_max : msg->size,
+        .cpu_id = bpf_get_smp_processor_id(),
     };
 
-    bpf_probe_read_kernel(msg_buf.buf, k_kprobes_http2_buf_size, msg->data);
+    bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
+    u16 copy_bytes =
+        msg_buf.real_size > k_kprobes_http2_buf_size ? msg_buf.real_size : k_kprobes_http2_buf_size;
+    unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+    if (!msg_ptr) {
+        bpf_dbg_printk("protocol_detector: failed to reserve msg_buffer space");
+        return 0;
+    }
+    bpf_probe_read_kernel(msg_ptr, copy_bytes & k_msg_buffer_size_max_mask, msg->data);
+    bpf_map_update_elem(&msg_buffer_mem, &(u32){0}, msg_ptr, BPF_ANY);
 
     // We setup any call that looks like HTTP request to be extended.
     // This must match exactly to what the decision will be for
@@ -199,14 +212,12 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
     // outgoing_trace_map data used by Traffic Control to write the
     // actual 'Traceparent:...' string.
 
-    const egress_key_t e_key = make_key(conn);
-
-    if (bpf_map_update_elem(&msg_buffers, &e_key, &msg_buf, BPF_ANY)) {
+    if (bpf_map_update_elem(&msg_buffers, e_key, &msg_buf, BPF_ANY)) {
         // fail if we can't setup a msg buffer
         return 0;
     }
 
-    if (is_http_request_buf((const unsigned char *)msg_buf.buf)) {
+    if (is_http_request_buf((const unsigned char *)msg_ptr)) {
         bpf_dbg_printk("Setting up request to be extended");
 
         return 1;
@@ -413,7 +424,7 @@ static __always_inline bool handle_go_request(struct sk_msg_md *msg,
 
     // We have metadata setup by the Go uprobes telling us we should extend
     // this packet
-    if (!protocol_detector(msg, id, conn)) {
+    if (!protocol_detector(msg, id, conn, e_key)) {
         bpf_dbg_printk("found TLS or non HTTP go request, ignoring...");
         return false;
     }
@@ -456,7 +467,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
 
     // We must run the protocol detector always, the outgoing trace map
     // might be setup for TCP traffic for L4 propagation.
-    const u8 tracked = protocol_detector(msg, id, &conn);
+    const u8 tracked = protocol_detector(msg, id, &conn, &e_key);
 
     if (!tracked || msg->size <= MIN_HTTP_SIZE) {
         return SK_PASS;
