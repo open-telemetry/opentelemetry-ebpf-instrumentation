@@ -351,7 +351,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
         connect_ssl_to_connection(id, &s_args.p_conn, TCP_SEND, orig_dport);
         setup_connection_to_pid_mapping(id, &s_args.p_conn, orig_dport);
 
-        void *ssl = is_ssl_connection(&s_args.p_conn);
+        u64 *ssl = is_ssl_connection(&s_args.p_conn);
         if (size > 0) {
             if (!ssl) {
                 unsigned char *buf = iovec_memory();
@@ -426,7 +426,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
             return 0;
         }
 
-        tcp_send_ssl_check(id, ssl, &s_args.p_conn, orig_dport);
+        tcp_send_ssl_check(id, (void *)(*ssl), &s_args.p_conn, orig_dport);
         bpf_map_delete_elem(&active_send_args, &id);
     }
 
@@ -463,7 +463,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
         setup_connection_to_pid_mapping(id, &s_args.p_conn, orig_dport);
         cp_support_established(&s_args.p_conn);
 
-        void *ssl = is_ssl_connection(&s_args.p_conn);
+        u64 *ssl = is_ssl_connection(&s_args.p_conn);
         if (!ssl) {
             msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
             if (m_buf) {
@@ -508,7 +508,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
             }
         } else {
             make_inactive_sk_buffer(&s_args.p_conn.conn);
-            tcp_send_ssl_check(id, ssl, &s_args.p_conn, orig_dport);
+            tcp_send_ssl_check(id, (void *)(*ssl), &s_args.p_conn, orig_dport);
         }
     }
 
@@ -605,7 +605,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         bpf_map_delete_elem(&cp_support_connect_info, &info);
     }
 
-    ensure_sent_event(id, &sock_p);
+    force_sent_event(id, &sock_p);
 
     if (success) {
         //dbg_print_http_connection_info(&info.conn);
@@ -834,7 +834,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         cp_support_established(&info);
         setup_connection_to_pid_mapping(id, &info, orig_dport);
 
-        void *ssl = is_ssl_connection(&info);
+        u64 *ssl = is_ssl_connection(&info);
 
         if (!ssl) {
 
@@ -867,7 +867,8 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         } else {
             // must delete the backup buffer to avoid replay
             delete_backup_sk_buff(&info.conn);
-            bpf_dbg_printk("tcp_recvmsg for an identified SSL connection, ignoring [%llx]...", ssl);
+            bpf_dbg_printk("tcp_recvmsg for an identified SSL connection, ignoring [%llx]...",
+                           *ssl);
         }
     }
 
@@ -1105,7 +1106,7 @@ int obi_handle_buf_with_args(void *ctx) {
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
 
-        if (info) {
+        if (info && !info->submitted) {
             // Still reading checks if we are processing buffers of a HTTP request
             // that has started, but we haven't seen a response yet.
             if (still_reading(info)) {
@@ -1157,10 +1158,7 @@ int obi_handle_buf_with_args(void *ctx) {
         } else if (!info) {
             // SSL requests will see both TCP traffic and text traffic, ignore the TCP if
             // we are processing SSL request. HTTP2 is already checked in handle_buf_with_connection.
-            http_info_t *http_info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
-            if (!http_info) {
-                bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
-            }
+            bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
         }
     }
 

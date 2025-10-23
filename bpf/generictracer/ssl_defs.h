@@ -38,8 +38,6 @@ static __always_inline void cleanup_ssl_trace_info(http_info_t *info, void *ssl)
             delete_server_trace(&ssl_info->p_conn, &t_key);
         }
     }
-
-    bpf_map_delete_elem(&ssl_to_conn, &ssl);
 }
 
 static __always_inline void
@@ -58,8 +56,12 @@ static __always_inline void cleanup_complete_ssl_server_trace(http_info_t *info,
 static __always_inline void
 finish_possible_delayed_tls_http_request(pid_connection_info_t *pid_conn, void *ssl) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
-    if (info) {
-        cleanup_complete_ssl_server_trace(info, ssl);
+    if (info && (info->delayed || info->submitted)) {
+        // we need to check for server request, the same thread
+        // could be handling both client and server requests
+        if (info->type == EVENT_HTTP_REQUEST) {
+            cleanup_complete_ssl_server_trace(info, ssl);
+        }
         finish_http(info, pid_conn);
     }
 }
@@ -74,7 +76,7 @@ static __always_inline void cleanup_trace_info_for_delayed_trace(pid_connection_
 
 static __always_inline void
 handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction) {
-    if (args && bytes_len > 0) {
+    if (args) {
         void *ssl = ((void *)args->ssl);
         u64 ssl_ptr = (u64)ssl;
         bpf_dbg_printk("SSL_buf id=%d ssl=%llx", id, ssl);
