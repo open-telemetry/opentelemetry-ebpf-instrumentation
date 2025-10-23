@@ -131,8 +131,6 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
             ret = postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
         }
         break;
-    case k_protocol_type_connect_failed:
-        break;
     case k_protocol_type_unknown:
         break;
     }

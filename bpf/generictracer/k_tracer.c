@@ -659,8 +659,8 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
     return 0;
 }
 
-SEC("kprobe/sk_error_report")
-int BPF_KPROBE(obi_kprobe_sk_error_report, struct sock *sk) {
+SEC("kprobe/sock_def_error_report")
+int BPF_KPROBE(obi_kprobe_sock_def_error_report, struct sock *sk) {
     (void)ctx;
 
     u64 id = bpf_get_current_pid_tgid();
@@ -671,7 +671,7 @@ int BPF_KPROBE(obi_kprobe_sk_error_report, struct sock *sk) {
 
     sock_args_t *args = bpf_map_lookup_elem(&active_connect_args, &id);
 
-    bpf_dbg_printk("=== kprobe sk_error_report %d sock %llx args %llx ===", id, sk, args);
+    bpf_dbg_printk("=== kprobe sock_def_error_report %d sock %llx args %llx ===", id, sk, args);
 
     pid_connection_info_t info = {};
     if (parse_sock_info(sk, &info.conn)) {

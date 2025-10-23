@@ -36,8 +36,7 @@ struct {
 } debug_events SEC(".maps");
 
 enum bpf_func_id___x {
-    BPF_FUNC_snprintf___x = 42,        /* avoid zero */
-    BPF_FUNC_get_current_comm___x = 43 /* avoid zero */
+    BPF_FUNC_snprintf___x = 42, /* avoid zero */
 };
 
 #define bpf_dbg_helper(fmt, args...)                                                               \
