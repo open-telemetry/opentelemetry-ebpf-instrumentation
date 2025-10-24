@@ -406,7 +406,7 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
                                          trace_key_t *t_key,
                                          u64 pid_tgid,
                                          tp_info_t *tp) {
-    const tp_info_pid_t *server_tp = find_parent_trace(p_conn, orig_dport, t_key, pid_tgid);
+    const tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, t_key, orig_dport);
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");
