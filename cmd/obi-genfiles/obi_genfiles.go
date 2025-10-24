@@ -448,16 +448,22 @@ func runInContainer(wd string) {
 		fmt.Println("adjusted wd:", adjustedWD)
 	}
 
-	currentUser, err := user.Current()
-	if err != nil {
-		bail(fmt.Errorf("error getting current user id: %w", err))
+	args := make([]string, 0, 10)
+	args = append(args, "run", "--rm")
+	if strings.HasSuffix(cfg.OCIBin, "podman") {
+		args = append(args, "--userns=keep-id")
+	} else {
+		currentUser, err := user.Current()
+		if err != nil {
+			bail(fmt.Errorf("error getting current user id: %w", err))
+		}
+		args = append(args, "--user", currentUser.Uid+":"+currentUser.Gid)
 	}
+	args = append(args, "-v", adjustedWD+":/src:z")
+	args = append(args, "-e", "OTEL_EBPF_GENFILES_MODIFIED_ONLY="+strconv.FormatBool(cfg.GenModifiedOnly))
+	args = append(args, cfg.GenImage)
 
-	err = executeCommand(cfg.OCIBin, "run", "--rm",
-		"--user", currentUser.Uid+":"+currentUser.Gid,
-		"-v", adjustedWD+":/src",
-		"-e", "OTEL_EBPF_GENFILES_MODIFIED_ONLY="+strconv.FormatBool(cfg.GenModifiedOnly),
-		cfg.GenImage)
+	err := executeCommand(cfg.OCIBin, args...)
 	if err != nil {
 		bail(fmt.Errorf("error waiting for child process: %w", err))
 	}
