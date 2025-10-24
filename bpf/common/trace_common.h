@@ -201,8 +201,8 @@ static __always_inline tp_info_pid_t *find_parent_process_trace(trace_key_t *t_k
 }
 
 static __always_inline const tp_info_pid_t *find_parent_trace(const pid_connection_info_t *p_conn,
-                                                              trace_key_t *t_key,
                                                               u64 pid_tgid,
+                                                              trace_key_t *t_key,
                                                               u16 orig_dport) {
     const tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
 
@@ -406,7 +406,7 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
                                          trace_key_t *t_key,
                                          u64 pid_tgid,
                                          tp_info_t *tp) {
-    const tp_info_pid_t *server_tp = find_parent_trace(p_conn, t_key, orig_dport, pid_tgid);
+    const tp_info_pid_t *server_tp = find_parent_trace(p_conn, orig_dport, t_key, pid_tgid);
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");

@@ -87,8 +87,9 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
         break;
     case IPPROTO_TCP:
         // This is best effort, since we don't reassemble TCP segments.
-        if (bpf_skb_load_bytes(skb, l4_off, &tcph, sizeof tcph))
+        if (bpf_skb_load_bytes(skb, l4_off, &tcph, sizeof tcph)) {
             return 0;
+        }
 
         // The data offset field in the header is specified in 32-bit words. We
         // have to multiply this value by 4 to get the TCP header length in bytes.
@@ -96,8 +97,9 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
 
         // Skip if we don't have any data to avoid handling control segments
         dns_off = l4_off + tcp_header_len;
-        if (skb->len <= dns_off)
+        if (skb->len <= dns_off) {
             return 0;
+        }
 
         // DNS is after the TCP header and the 2 bytes of the length of the DNS packet
         dns_off += 2;
