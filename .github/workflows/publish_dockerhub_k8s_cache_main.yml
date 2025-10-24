@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   build-and-push-image:
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
     permissions:
       id-token: write
       packages: write
