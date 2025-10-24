@@ -449,3 +449,8 @@ check-clean-work-tree:
 		echo 'Working tree is not clean, did you forget to run "make"?' \
 		exit 1; \
 	fi
+
+.PHONY: check-go-mod
+check-go-mod:
+	go mod tidy
+	git diff -s --exit-code
