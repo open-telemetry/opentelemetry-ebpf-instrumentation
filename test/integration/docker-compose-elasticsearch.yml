@@ -1,0 +1,106 @@
+services:
+  elasticsearchserver:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.1.5 
+    container_name: elasticsearch-server
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false # Only for local testing
+  
+  testserver:
+    build:
+      context: ../../test/integration/components/elasticsearch/
+      dockerfile: Dockerfile
+    image: hatest-testserver-python-elasticsearch
+    ports:
+      - "${TEST_SERVICE_PORTS}"
+    depends_on:
+      otelcol:
+        condition: service_started
+      elasticsearchserver:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../..
+      dockerfile: ./test/integration/components/ebpf-instrument/Dockerfile
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../testoutput:/coverage
+      - ../../testoutput/run-python-elasticsearch:/var/run/beyla
+    image: hatest-obi
+    container_name: hatest-obi
+    privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
+    network_mode: "service:testserver"
+    pid: "service:testserver"
+    environment:
+      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config.yml"
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "json_indent"
+      OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_LOG_CONFIG: "yaml"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "beyla"
+      OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
+      OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
+      OTEL_EBPF_METRICS_FEATURES: "application"
+      OTEL_EBPF_BPF_BUFFER_SIZE_HTTP: 1024
+      OTEL_EBPF_HTTP_ELASTICSEARCH_ENABLED: true
+    depends_on:
+      testserver:
+        condition: service_started
+
+  # OpenTelemetry Collector
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.104.0@sha256:e07e325e303e86f4a87a617491e921b579a92da6d404007394757ac910bf9587
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317" # OTLP over gRPC receiver
+      - "4318:4318" # OTLP over HTTP receiver
+      - "9464" # Prometheus exporter
+      - "8888" # metrics endpoint
+    depends_on:
+      prometheus:
+        condition: service_started
+
+  # Prometheus
+  prometheus:
+    image: quay.io/prometheus/prometheus:v2.55.1@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57@sha256:8f165334f418ca53691ce358c19b4244226ed35c5d18408c5acf305af2065fb9
+    ports:
+      - "16686:16686" # Query frontend
+      - "4317" # OTEL GRPC traces collector
+      - "4318" # OTEL HTTP traces collector
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=debug
+# curl http://localhost:16686/api/services
+# curl http://localhost:16686/api/traces?service=testserver

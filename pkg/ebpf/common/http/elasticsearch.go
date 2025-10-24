@@ -122,6 +122,9 @@ func extractOperationName(req *http.Request) string {
 		return ""
 	}
 	parts := strings.Split(path, "/")
+	if len(parts) == 0 {
+		return ""
+	}
 	name := parts[len(parts)-1]
 	return strings.TrimPrefix(name, "_")
 }
@@ -137,8 +140,12 @@ func extractDBCollectionName(req *http.Request) string {
 	}
 
 	parts := strings.Split(path, "/")
-	if len(parts) > 0 {
-		return parts[0]
+	if len(parts) == 0 {
+		return ""
 	}
-	return ""
+	first := parts[0]
+	if strings.HasPrefix(first, "_") {
+		return ""
+	}
+	return first
 }

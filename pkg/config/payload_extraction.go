@@ -7,6 +7,10 @@ type PayloadExtraction struct {
 	HTTP HTTPConfig `yaml:"http"`
 }
 
+func (p PayloadExtraction) Enabled() bool {
+	return p.HTTP.GraphQL.Enabled || p.HTTP.Elasticsearch.Enabled
+}
+
 type HTTPConfig struct {
 	// GraphQL payload extraction and parsing
 	GraphQL GraphQLConfig `yaml:"graphql"`

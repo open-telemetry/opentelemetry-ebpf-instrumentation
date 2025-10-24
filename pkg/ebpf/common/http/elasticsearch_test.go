@@ -67,6 +67,26 @@ func TestParseElasticsearchRequest(t *testing.T) {
 			expected: elasticsearchOperation{},
 			wantErr:  true,
 		},
+		{
+			name:  "Valid Post request with wrong query JSON type",
+			input: newRequest(http.MethodPost, "/test_index/_search", `{"query": "not_object"}`),
+			expected: elasticsearchOperation{
+				DBQueryText:      "{\"query\":\"not_object\"}",
+				DBOperationName:  "search",
+				DBCollectionName: "test_index",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "Missing index in request URL",
+			input: newRequest(http.MethodGet, "/_search", `{"query":{"match_all":{}}}`),
+			expected: elasticsearchOperation{
+				DBQueryText:      "{\"query\":{\"match_all\":{}}}",
+				DBOperationName:  "search",
+				DBCollectionName: "",
+			},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

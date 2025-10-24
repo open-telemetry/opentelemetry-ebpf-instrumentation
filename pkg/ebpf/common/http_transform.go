@@ -154,7 +154,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 		requestBuffer = event.Buf[:]
 	}
 
-	if parseCtx != nil && !parseCtx.payloadExtraction.HTTP.GraphQL.Enabled && !parseCtx.payloadExtraction.HTTP.Elasticsearch.Enabled {
+	if parseCtx != nil && !parseCtx.payloadExtraction.Enabled() {
 		// There's no need to parse HTTP headers/body,
 		// create the span directly.
 		return httpRequestToSpan(event, requestBuffer), false, nil
