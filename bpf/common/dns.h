@@ -141,6 +141,7 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
             req->dns_q = qr;
             req->id = id;
             req->ts = bpf_ktime_get_ns();
+            req->tp.ts = bpf_ktime_get_ns();
             __builtin_memcpy(&req->pid, &conn_pid->p_info, sizeof(pid_info));
 
             trace_key_t t_key = {0};
