@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
-	"go.opentelemetry.io/obi/pkg/components/imetrics"
-	kube2 "go.opentelemetry.io/obi/pkg/components/kube"
-	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/app/svc"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/imetrics"
+	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 )
 
@@ -36,7 +36,7 @@ func TestSuffixPrefix(t *testing.T) {
 
 func TestResolvePodsFromK8s(t *testing.T) {
 	inf := &fakeInformer{}
-	db := kube2.NewStore(inf, kube2.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	pod1 := &informer.ObjectMeta{Name: "pod1", Kind: "Pod", Ips: []string{"10.0.0.1", "10.1.0.1"}}
 	pod2 := &informer.ObjectMeta{Name: "pod2", Namespace: "something", Kind: "Pod", Ips: []string{"10.0.0.2", "10.1.0.2"}}
 	pod3 := &informer.ObjectMeta{Name: "pod3", Kind: "Pod", Ips: []string{"10.0.0.3", "10.1.0.3"}}
@@ -108,7 +108,7 @@ func TestResolvePodsFromK8s(t *testing.T) {
 
 func TestResolveServiceFromK8s(t *testing.T) {
 	inf := &fakeInformer{}
-	db := kube2.NewStore(inf, kube2.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	pod1 := &informer.ObjectMeta{Name: "pod1", Kind: "Service", Ips: []string{"10.0.0.1", "10.1.0.1"}}
 	pod2 := &informer.ObjectMeta{Name: "pod2", Namespace: "something", Kind: "Service", Ips: []string{"10.0.0.2", "10.1.0.2"}}
 	pod3 := &informer.ObjectMeta{Name: "pod3", Kind: "Service", Ips: []string{"10.0.0.3", "10.1.0.3"}}
@@ -200,7 +200,7 @@ func TestCleanName(t *testing.T) {
 
 func TestResolveNodesFromK8s(t *testing.T) {
 	inf := &fakeInformer{}
-	db := kube2.NewStore(inf, kube2.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	node1 := &informer.ObjectMeta{Name: "node1", Kind: "Node", Ips: []string{"10.0.0.1", "10.1.0.1"}}
 	node2 := &informer.ObjectMeta{Name: "node2", Namespace: "something", Kind: "Node", Ips: []string{"10.0.0.2", "10.1.0.2"}}
 	node3 := &informer.ObjectMeta{Name: "node3", Kind: "Node", Ips: []string{"10.0.0.3", "10.1.0.3"}}
@@ -271,7 +271,7 @@ func TestResolveNodesFromK8s(t *testing.T) {
 
 func TestResolveClientFromHost(t *testing.T) {
 	inf := &fakeInformer{}
-	db := kube2.NewStore(inf, kube2.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	pod1 := &informer.ObjectMeta{Name: "pod1", Kind: "Service", Ips: []string{"10.0.0.1", "10.1.0.1"}}
 	pod2 := &informer.ObjectMeta{Name: "pod2", Namespace: "something", Kind: "Service", Ips: []string{"10.0.0.2", "10.1.0.2"}}
 	pod3 := &informer.ObjectMeta{Name: "pod3", Kind: "Service", Ips: []string{"10.0.0.3", "10.1.0.3"}}
