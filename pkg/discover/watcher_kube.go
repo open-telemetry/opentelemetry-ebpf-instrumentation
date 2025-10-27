@@ -11,6 +11,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/components/kube"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
+	kube2 "go.opentelemetry.io/obi/pkg/internal/kube"
 	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -262,7 +263,7 @@ func (wk *watcherKubeEnricher) getContainerInfo(pid PID) (container.Info, error)
 // withMetadata returns a copy with a new map to avoid race conditions in later stages of the pipeline
 func withMetadata(pp ProcessAttrs, info *informer.ObjectMeta, containerID string) ProcessAttrs {
 	ownerName := info.Name
-	if topOwner := kube.TopOwner(info.Pod); topOwner != nil {
+	if topOwner := kube2.TopOwner(info.Pod); topOwner != nil {
 		ownerName = topOwner.Name
 	}
 
