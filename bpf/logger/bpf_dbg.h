@@ -50,7 +50,7 @@ enum bpf_func_id___x {
             }                                                                                      \
             struct task_struct *task = (struct task_struct *)bpf_get_current_task();               \
             __trace__->pid = (u32)BPF_CORE_READ(task, pid);                                        \
-            BPF_CORE_READ_STR_INTO(__trace__->comm, task, comm);                                   \
+            BPF_CORE_READ_STR_INTO(&__trace__->comm, task, comm);                                  \
             bpf_ringbuf_submit(__trace__, 0);                                                      \
         }                                                                                          \
     }

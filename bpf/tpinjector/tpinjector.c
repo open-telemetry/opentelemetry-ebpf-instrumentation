@@ -324,7 +324,7 @@ extend_and_write_tp(struct sk_msg_md *msg, u32 offset, const tp_info_t *tp) {
     const long err = bpf_msg_push_data(msg, offset, EXTEND_SIZE, 0);
 
     if (err != 0) {
-        bpf_dbg_printk("failed to push data: %d", err);
+        bpf_d_printk("failed to push data: %d", err);
         return false;
     }
 
@@ -333,14 +333,14 @@ extend_and_write_tp(struct sk_msg_md *msg, u32 offset, const tp_info_t *tp) {
         "offset to split %d, available: %u, size %u", offset, msg->data_end - msg->data, msg->size);
 
     if (!msg->data) {
-        bpf_dbg_printk("null data");
+        bpf_d_printk("null data");
         return false;
     }
 
     unsigned char *ptr = msg->data + offset;
 
     if ((void *)ptr + EXTEND_SIZE >= msg->data_end) {
-        bpf_dbg_printk("not enough space");
+        bpf_d_printk("not enough space");
         return false;
     }
 
@@ -415,7 +415,7 @@ write_go_traceparent(struct sk_msg_md *msg, const egress_key_t *e_key, tp_info_p
     if (tp_pid->written) {
         clear_tp_info_pid(e_key);
     } else {
-        bpf_dbg_printk("failed to write go traceparent");
+        bpf_d_printk("failed to write go traceparent");
     }
 }
 
