@@ -130,6 +130,34 @@ func MessagingOperationType(val string) attribute.KeyValue {
 	return attribute.Key(attr.MessagingOpType).String(val)
 }
 
+func RPCSystem(val string) attribute.KeyValue {
+	return attribute.Key(attr.RPCSystem).String(val)
+}
+
+func RPCMethod(val string) attribute.KeyValue {
+	return attribute.Key(attr.RPCMethod).String(val)
+}
+
+func AWSRequestID(val string) attribute.KeyValue {
+	return attribute.Key(attr.AWSRequestID).String(val)
+}
+
+func AWSExtendedRequestID(val string) attribute.KeyValue {
+	return attribute.Key(attr.AWSExtendedRequestID).String(val)
+}
+
+func AWSS3Bucket(val string) attribute.KeyValue {
+	return attribute.Key(attr.AWSS3Bucket).String(val)
+}
+
+func AWSS3Key(val string) attribute.KeyValue {
+	return attribute.Key(attr.AWSS3Key).String(val)
+}
+
+func CloudRegion(val string) attribute.KeyValue {
+	return attribute.Key(attr.CloudRegion).String(val)
+}
+
 func SpanHost(span *Span) string {
 	if span.HostName != "" {
 		return span.HostName

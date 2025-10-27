@@ -181,6 +181,14 @@ func waitForTestComponentsSubStatus(t *testing.T, url, subpath string, status in
 	waitForTestComponentsSubWithTimeAndCode(t, url, subpath, status, 2)
 }
 
+func waitForTestComponentsNoMetrics(t *testing.T, url string) {
+	test.Eventually(t, 2*time.Minute, func(t require.TestingT) {
+		resp, err := http.Get(url)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	}, test.Interval(time.Second))
+}
+
 // does a smoke test to verify that all the components that started
 // asynchronously are up and communicating properly
 func waitForTestComponentsSubWithTime(t *testing.T, url, subpath string, minutes int) {

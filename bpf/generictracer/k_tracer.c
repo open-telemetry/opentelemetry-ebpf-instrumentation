@@ -779,7 +779,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
     pid_connection_info_t info = {};
 
     if (!args && !in_sock) {
-        goto done;
+        return 0;
     }
 
     void *sock_ptr = in_sock;
@@ -787,7 +787,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         if (args) {
             sock_ptr = (void *)args->sock_ptr;
         } else {
-            goto done;
+            return 0;
         }
     }
 
@@ -803,6 +803,13 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         // Don't clean-up. This is called as backup path for the retprobe from
         // tcp_cleanup_rbuf which can come in with 0 bytes and we'll delete
         // the data for completing the request.
+        return 0;
+    }
+
+    // We want the full response (or most of it) to be able to parse HTTP headers/body.
+    // Avoid processing 0 or 1 byte packets (eg. AWS api's response to PUT requests) as
+    // they would end the request tracking prematurely.
+    if (copied_len <= 1) {
         return 0;
     }
 
@@ -1146,10 +1153,14 @@ int obi_handle_buf_with_args(void *ctx) {
                     }
                 }
 
+                // Packet type can't be reliably determined in HTTP split packets. This should
+                // always be a request.
+                u8 packet_type = args->packet_type ? args->packet_type : PACKET_TYPE_REQUEST;
+
                 http_send_large_buffer(info,
                                        (void *)args->u_buf,
                                        args->bytes_len,
-                                       args->packet_type,
+                                       packet_type,
                                        args->direction,
                                        k_large_buf_action_append);
             } else if (still_responding(info)) {

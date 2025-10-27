@@ -343,6 +343,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
+
 		if span.SubType == request.HTTPSubtypeElasticsearch && span.Elasticsearch != nil {
 			attrs = append(attrs, request.DBCollectionName(span.Elasticsearch.DBCollectionName))
 			attrs = append(attrs, request.ElasticsearchNodeName(span.Elasticsearch.NodeName))
@@ -353,6 +354,17 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, request.DBOperationName(span.Elasticsearch.DBOperationName))
 			attrs = append(attrs, request.DBSystemName(semconv.DBSystemElasticsearch.Value.AsString()))
 			attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
+		}
+
+		if span.SubType == request.HTTPSubtypeAWSS3 && span.AWS != nil {
+			attrs = append(attrs, semconv.RPCService("S3"))
+			attrs = append(attrs, request.RPCSystem("aws-api"))
+			attrs = append(attrs, semconv.RPCMethod(span.AWS.S3.Method))
+			attrs = append(attrs, semconv.CloudRegion(span.AWS.S3.Region))
+			attrs = append(attrs, semconv.AWSRequestID(span.AWS.S3.RequestID))
+			attrs = append(attrs, request.AWSExtendedRequestID(span.AWS.S3.ExtendedRequestID))
+			attrs = append(attrs, semconv.AWSS3Bucket(span.AWS.S3.Bucket))
+			attrs = append(attrs, semconv.AWSS3Key(span.AWS.S3.Key))
 		}
 	case request.EventTypeGRPCClient:
 		attrs = []attribute.KeyValue{
