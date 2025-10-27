@@ -100,7 +100,7 @@ func traceFuncHelper(t *testing.T, tracePrinter TracePrinter) string {
 }
 
 func TestTracePrinterResolve_PrinterText(t *testing.T) {
-	expected := "(25µs[20µs]) HTTP 200 method path(route) [peer as peername.otherns:1234]->" +
+	expected := "(25µs[20µs]) HTTP(subType=0) 200 method path(route) [peer as peername.otherns:1234]->" +
 		"[host as hostname.foo:5678] contentLen:1024B responseLen:2048B svc=[foo/bar go]" +
 		" traceparent=[00-01020300000000000000000000000000-0102030000000000[0102040000000000]-01]\n"
 

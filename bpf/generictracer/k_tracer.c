@@ -779,7 +779,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
     pid_connection_info_t info = {};
 
     if (!args && !in_sock) {
-        goto done;
+        return 0;
     }
 
     void *sock_ptr = in_sock;
@@ -787,13 +787,11 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         if (args) {
             sock_ptr = (void *)args->sock_ptr;
         } else {
-            goto done;
+            return 0;
         }
     }
 
-    // We want the full response (or most of it) to be able to parse HTTP headers/body.
-    // Drop 1 byte packets as they would end the request tracking prematurely.
-    if (copied_len <= 1) {
+    if (copied_len <= 0) {
         if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
             u16 orig_dport = info.conn.d_port;
             sort_connection_info(&info.conn);
@@ -805,6 +803,13 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         // Don't clean-up. This is called as backup path for the retprobe from
         // tcp_cleanup_rbuf which can come in with 0 bytes and we'll delete
         // the data for completing the request.
+        return 0;
+    }
+
+    // We want the full response (or most of it) to be able to parse HTTP headers/body.
+    // Avoid processing 0 or 1 byte packets (eg. AWS api's response to PUT requests) as
+    // they would end the request tracking prematurely.
+    if (copied_len <= 1) {
         return 0;
     }
 
