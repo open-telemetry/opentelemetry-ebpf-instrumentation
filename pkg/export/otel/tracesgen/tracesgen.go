@@ -23,7 +23,7 @@ import (
 	trace2 "go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
-	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/app/svc"
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -345,6 +345,17 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
+		}
+		if span.SubType == request.HTTPSubtypeElasticsearch && span.Elasticsearch != nil {
+			attrs = append(attrs, request.DBCollectionName(span.Elasticsearch.DBCollectionName))
+			attrs = append(attrs, request.ElasticsearchNodeName(span.Elasticsearch.NodeName))
+			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
+			if _, ok := optionalAttrs[attr.DBQueryText]; ok {
+				attrs = append(attrs, request.DBQueryText(span.Elasticsearch.DBQueryText))
+			}
+			attrs = append(attrs, request.DBOperationName(span.Elasticsearch.DBOperationName))
+			attrs = append(attrs, request.DBSystemName(semconv.DBSystemElasticsearch.Value.AsString()))
+			attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
 		}
 	case request.EventTypeGRPCClient:
 		attrs = []attribute.KeyValue{

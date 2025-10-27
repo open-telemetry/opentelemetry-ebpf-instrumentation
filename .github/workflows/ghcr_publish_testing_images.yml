@@ -161,4 +161,3 @@ jobs:
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: python
           file: test/integration/components/pythonserver/Dockerfile
-
