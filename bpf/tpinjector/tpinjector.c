@@ -447,7 +447,7 @@ static __always_inline u8 already_tracked(const connection_info_t *conn, u64 pid
     p_conn.pid = host_pid;
 
     http_info_t *http_info = bpf_map_lookup_elem(&ongoing_http, &p_conn);
-    if (http_info) {
+    if (http_info && !(http_info->delayed || http_info->submitted)) {
         return 1;
     }
 
