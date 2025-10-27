@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/app/request"
-	"go.opentelemetry.io/obi/pkg/components/kube"
 	"go.opentelemetry.io/obi/pkg/components/pipe/global"
 	"go.opentelemetry.io/obi/pkg/components/svc"
 	"go.opentelemetry.io/obi/pkg/discover/exec"
@@ -20,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 	maps2 "go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	ikube "go.opentelemetry.io/obi/pkg/internal/kube"
+	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kubeflags"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
