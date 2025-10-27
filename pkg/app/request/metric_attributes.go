@@ -117,6 +117,11 @@ func GraphqlOperationType(val string) attribute.KeyValue {
 	return attribute.Key(attr.GraphQLOperationType).String(val)
 }
 
+func ElasticsearchNodeName(val string) attribute.KeyValue {
+	// TODO: replace it when it's available in the imported semconv version
+	return attribute.Key(attr.ElasticsearchNodeName).String(val)
+}
+
 func ErrorType(val string) attribute.KeyValue {
 	return attribute.Key(attr.ErrorType).String(val)
 }

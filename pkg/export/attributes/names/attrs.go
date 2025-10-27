@@ -160,6 +160,9 @@ const (
 	// Messaging
 	MessagingPartition   = Name("messaging.destination.partition.id")
 	MessagingKafkaOffset = Name("messaging.kafka.offset")
+
+	// Elasticsearch
+	ElasticsearchNodeName = Name("elasticsearch.node.name")
 )
 
 // Beyla specific GPU events

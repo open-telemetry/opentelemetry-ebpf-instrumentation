@@ -86,9 +86,15 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return DBSystemName(semconv.DBSystemRedis.Value.AsString())
 			case EventTypeMongoClient:
 				return DBSystemName(semconv.DBSystemMongoDB.Value.AsString())
+			case EventTypeHTTPClient:
+				if span.SubType == HTTPSubtypeElasticsearch {
+					return DBSystemName(semconv.DBSystemElasticsearch.Value.AsString())
+				}
 			}
 			return DBSystemName("unknown")
 		}
+	case attr.DBNamespace:
+		getter = func(span *Span) attribute.KeyValue { return DBNamespace(span.DBNamespace) }
 	case attr.ErrorType:
 		getter = func(span *Span) attribute.KeyValue {
 			if SpanStatusCode(span) == StatusCodeError {
@@ -138,6 +144,27 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return GraphqlOperationType(s.GraphQL.OperationType)
 			}
 			return GraphqlOperationType("")
+		}
+	case attr.ElasticsearchNodeName:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
+				return ElasticsearchNodeName(s.Elasticsearch.NodeName)
+			}
+			return ElasticsearchNodeName("")
+		}
+	case attr.DBCollectionName:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
+				return DBCollectionName(s.Elasticsearch.DBCollectionName)
+			}
+			return DBCollectionName("")
+		}
+	case attr.DBQueryText:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
+				return DBQueryText(s.Elasticsearch.DBQueryText)
+			}
+			return DBQueryText("")
 		}
 	}
 	// default: unlike the Prometheus getters, we don't check here for service name nor k8s metadata
