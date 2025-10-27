@@ -124,6 +124,11 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
             return 0;
         }
 
+        pid_connection_info_t p_conn = {
+            .conn = *conn,
+            .pid = conn_pid->p_info.host_pid,
+        };
+
         dns_req_t *req = bpf_ringbuf_reserve(&events, sizeof(dns_req_t), 0);
 
         if (req) {
@@ -142,7 +147,7 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
             trace_key_from_pid_tid_with_p_key(&t_key, &conn_pid->p_key, conn_pid->id);
 
             u8 found = find_trace_for_client_request_with_t_key(
-                &req->p_conn, orig_dport, &t_key, conn_pid->id, &req->tp);
+                &p_conn, orig_dport, &t_key, conn_pid->id, &req->tp);
             bpf_dbg_printk("Looking up client trace info, found %d", found);
             if (found) {
                 urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
