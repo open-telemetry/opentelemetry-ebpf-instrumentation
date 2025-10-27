@@ -288,9 +288,11 @@ static __always_inline void handle_traceparent_header(server_http_func_invocatio
                                                       go_addr_key_t *g_key,
                                                       unsigned char *traceparent_start) {
     if (inv) {
-        update_traceparent(inv, traceparent_start);
+        if (!valid_trace(inv->tp.trace_id)) {
+            update_traceparent(inv, traceparent_start);
+        }
     } else {
-        server_http_func_invocation_t minimal_inv = {};
+        server_http_func_invocation_t minimal_inv = {.tp = {0}};
         update_traceparent(&minimal_inv, traceparent_start);
         bpf_map_update_elem(&ongoing_http_server_requests, g_key, &minimal_inv, BPF_ANY);
     }

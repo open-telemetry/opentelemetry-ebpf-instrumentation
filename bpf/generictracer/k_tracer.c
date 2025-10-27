@@ -1110,7 +1110,7 @@ int obi_handle_buf_with_args(void *ctx) {
             // Still reading checks if we are processing buffers of a HTTP request
             // that has started, but we haven't seen a response yet.
             if (still_reading(info)) {
-                // Packets are split into chunks if Beyla injected the Traceparent
+                // Packets are split into chunks if OBI injected the Traceparent
                 // Make sure you look for split packets containing the real Traceparent.
                 // Essentially, when a packet is extended by our sock_msg program and
                 // passed down another service, the receiving side may reassemble the
