@@ -17,18 +17,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/debug"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/prom"
-	imetrics2 "go.opentelemetry.io/obi/pkg/imetrics"
 	"go.opentelemetry.io/obi/pkg/kube"
-	"go.opentelemetry.io/obi/pkg/kubeflags"
+	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/netolly/cidr"
-	"go.opentelemetry.io/obi/pkg/services"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -186,9 +186,9 @@ discovery:
 				ResponseSizeHistogram: []float64{0, 10, 20, 22},
 			},
 		},
-		InternalMetrics: imetrics2.Config{
-			Exporter: imetrics2.InternalMetricsExporterDisabled,
-			Prometheus: imetrics2.PrometheusConfig{
+		InternalMetrics: imetrics.Config{
+			Exporter: imetrics.InternalMetricsExporterDisabled,
+			Prometheus: imetrics.PrometheusConfig{
 				Port: 3210,
 				Path: "/internal/metrics",
 			},

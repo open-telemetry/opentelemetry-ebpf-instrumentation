@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
-	"go.opentelemetry.io/obi/pkg/kubecache/informer"
-	"go.opentelemetry.io/obi/pkg/kubecache/meta"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
 
 const timeout = 5 * time.Second

@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	trace2 "go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace"
 
-	"go.opentelemetry.io/obi/pkg/app/request"
-	"go.opentelemetry.io/obi/pkg/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -60,9 +60,9 @@ func traceFuncHelper(t *testing.T, tracePrinter TracePrinter) string {
 		RequestStart:   10000,
 		Start:          15000,
 		End:            35000,
-		TraceID:        trace2.TraceID{0x1, 0x2, 0x3},
-		SpanID:         trace2.SpanID{0x1, 0x2, 0x3},
-		ParentSpanID:   trace2.SpanID{0x1, 0x2, 0x4},
+		TraceID:        trace.TraceID{0x1, 0x2, 0x3},
+		SpanID:         trace.SpanID{0x1, 0x2, 0x3},
+		ParentSpanID:   trace.SpanID{0x1, 0x2, 0x4},
 		TraceFlags:     1,
 		PeerName:       "peername",
 		HostName:       "hostname",
