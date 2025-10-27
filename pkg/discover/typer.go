@@ -14,10 +14,10 @@ import (
 
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"go.opentelemetry.io/obi/pkg/components/imetrics"
-	"go.opentelemetry.io/obi/pkg/components/svc"
+	"go.opentelemetry.io/obi/pkg/app/svc"
 	"go.opentelemetry.io/obi/pkg/discover/exec"
 	"go.opentelemetry.io/obi/pkg/ebpf"
+	"go.opentelemetry.io/obi/pkg/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/kube"
