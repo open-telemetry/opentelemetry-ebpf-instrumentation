@@ -122,8 +122,6 @@ func (p *Tracer) Constants() map[string]any {
 		m["filter_pids"] = int32(1)
 	}
 
-	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
-
 	return m
 }
 
