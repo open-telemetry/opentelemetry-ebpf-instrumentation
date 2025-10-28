@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 	"go.opentelemetry.io/obi/test/integration/components/docker"
 	"go.opentelemetry.io/obi/test/integration/components/prom"
 )
@@ -67,7 +68,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 
 		// Make additional requests to ensure OTLP endpoints are hit
 		for i := 0; i < 3; i++ {
-			doHTTPGet(t, "http://localhost:8080/rolldice", 200)
+			ti.DoHTTPGet(t, "http://localhost:8080/rolldice", 200)
 			time.Sleep(1 * time.Second)
 		}
 
