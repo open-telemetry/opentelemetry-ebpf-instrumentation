@@ -206,7 +206,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
         msg_buf.real_size > k_kprobes_http2_buf_size ? msg_buf.real_size : k_kprobes_http2_buf_size;
     unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
     if (!msg_ptr) {
-        bpf_dbg_printk("protocol_detector: failed to reserve msg_buffer space");
+        bpf_d_printk("protocol_detector: failed to reserve msg_buffer space");
         return 0;
     }
     bpf_probe_read_kernel(msg_ptr, copy_bytes & k_msg_buffer_size_max_mask, msg->data);
@@ -224,7 +224,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
     }
 
     if (is_http_request_buf((const unsigned char *)msg_ptr)) {
-        bpf_dbg_printk("Setting up request to be extended");
+        //bpf_dbg_printk("Setting up request to be extended");
 
         return 1;
     }
@@ -535,7 +535,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
 
     bpf_tail_call(msg, &extender_jump_table, k_tail_write_msg_traceparent);
 
-    bpf_dbg_printk("tailcall failed");
+    bpf_d_printk("tailcall failed");
 
     return SK_PASS;
 }
@@ -561,7 +561,7 @@ int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
     if (tp_p->written) {
         set_tp_info_pid(e_key, tp_p);
     } else {
-        bpf_dbg_printk("failed to write traceparent");
+        bpf_d_printk("failed to write traceparent");
     }
 
     bpf_dbg_printk("BUF = [%s]", msg->data);
