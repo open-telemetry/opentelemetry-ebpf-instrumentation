@@ -12,11 +12,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"go.opentelemetry.io/obi/pkg/connector"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
+	"go.opentelemetry.io/obi/pkg/export/connector"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
-	imetrics2 "go.opentelemetry.io/obi/pkg/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/netolly/agent"
@@ -203,24 +203,24 @@ func internalMetrics(
 	config *obi.Config,
 	ctxInfo *global.ContextInfo,
 	promMgr *connector.PrometheusManager,
-) (imetrics2.Reporter, error) {
+) (imetrics.Reporter, error) {
 	switch {
-	case config.InternalMetrics.Exporter == imetrics2.InternalMetricsExporterOTEL:
+	case config.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL:
 		slog.Debug("reporting internal metrics as OpenTelemetry")
 		return otel.NewInternalMetricsReporter(ctx, ctxInfo, &config.Metrics, &config.InternalMetrics)
-	case config.InternalMetrics.Exporter == imetrics2.InternalMetricsExporterPrometheus || config.InternalMetrics.Prometheus.Port != 0:
+	case config.InternalMetrics.Exporter == imetrics.InternalMetricsExporterPrometheus || config.InternalMetrics.Prometheus.Port != 0:
 		slog.Debug("reporting internal metrics as Prometheus")
-		metrics := imetrics2.NewPrometheusReporter(&config.InternalMetrics, promMgr, nil)
+		metrics := imetrics.NewPrometheusReporter(&config.InternalMetrics, promMgr, nil)
 		// Prometheus manager also has its own internal metrics, so we need to pass the imetrics reporter
 		// TODO: remove this dependency cycle and let prommgr to create and return the PrometheusReporter
 		promMgr.InstrumentWith(metrics)
 		return metrics, nil
 	case config.Prometheus.Registry != nil:
 		slog.Debug("reporting internal metrics with Prometheus Registry")
-		return imetrics2.NewPrometheusReporter(&config.InternalMetrics, nil, config.Prometheus.Registry), nil
+		return imetrics.NewPrometheusReporter(&config.InternalMetrics, nil, config.Prometheus.Registry), nil
 	default:
 		slog.Debug("not reporting internal metrics")
-		return imetrics2.NoopReporter{}, nil
+		return imetrics.NoopReporter{}, nil
 	}
 }
 

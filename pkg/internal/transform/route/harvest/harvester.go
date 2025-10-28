@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/obi/pkg/app/svc"
-	"go.opentelemetry.io/obi/pkg/discover/exec"
-	route2 "go.opentelemetry.io/obi/pkg/internal/transform/route"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/internal/transform/route"
 )
 
 type RouteHarvester struct {
@@ -85,8 +85,9 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 		defer runtime.UnlockOSThread()
 		myUID, myGID, myPID := jvmAttachInitFunc()
 		defer func() {
-			err := jvmAttachCleanupFunc(myUID, myGID, myPID)
-			h.log.Error("route harvesting cleanup failed", "error", err)
+			if err := jvmAttachCleanupFunc(myUID, myGID, myPID); err != nil {
+				h.log.Error("route harvesting cleanup failed", "error", err)
+			}
 		}()
 	}
 
@@ -125,12 +126,12 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 	}
 }
 
-func RouteMatcherFromResult(r RouteHarvesterResult) route2.Matcher {
+func RouteMatcherFromResult(r RouteHarvesterResult) route.Matcher {
 	switch r.Kind {
 	case CompleteRoutes:
-		return route2.NewMatcher(r.Routes)
+		return route.NewMatcher(r.Routes)
 	case PartialRoutes:
-		return route2.NewPartialRouteMatcher(r.Routes)
+		return route.NewPartialRouteMatcher(r.Routes)
 	}
 
 	return nil

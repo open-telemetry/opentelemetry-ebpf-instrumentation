@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/buildinfo"
-	"go.opentelemetry.io/obi/pkg/kubecache"
-	"go.opentelemetry.io/obi/pkg/kubecache/instrument"
-	"go.opentelemetry.io/obi/pkg/kubecache/meta"
-	"go.opentelemetry.io/obi/pkg/kubecache/service"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache/instrument"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache/service"
 )
 
 // main code of te Kubernetes K8s informer's metadata cache service, when it runs as a separate service and not
