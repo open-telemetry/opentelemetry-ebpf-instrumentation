@@ -170,6 +170,25 @@ static __always_inline u8 is_tracked_go_request(const tp_info_pid_t *tp) {
     return tp != NULL && tp->valid;
 }
 
+static __always_inline u8 already_tracked(const pid_connection_info_t *p_conn) {
+    http_info_t *http_info = bpf_map_lookup_elem(&ongoing_http, p_conn);
+    if (http_info && !(http_info->delayed || http_info->submitted)) {
+        return 1;
+    }
+
+    tcp_req_t *tcp_info = bpf_map_lookup_elem(&ongoing_tcp_req, p_conn);
+    if (tcp_info) {
+        return 1;
+    }
+
+    http2_conn_info_data_t *http2_info = bpf_map_lookup_elem(&ongoing_http2_connections, p_conn);
+    if (http2_info) {
+        return 1;
+    }
+
+    return 0;
+}
+
 // This code is copied from the kprobe on tcp_sendmsg and it's called from
 // the sock_msg program, which does the packet extension for injecting the
 // Traceparent. Since the sock_msg runs before the kprobe on tcp_sendmsg, we
@@ -184,14 +203,14 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
                                             const egress_key_t *e_key) {
     bpf_dbg_printk("=== [protocol detector] %d size %d===", id, msg->size);
 
-    send_args_t s_args = {.size = msg->size};
-    __builtin_memcpy(&s_args.p_conn.conn, conn, sizeof(connection_info_t));
+    pid_connection_info_t p_conn = {};
+    __builtin_memcpy(&p_conn.conn, conn, sizeof(connection_info_t));
 
-    dbg_print_http_connection_info(&s_args.p_conn.conn);
-    sort_connection_info(&s_args.p_conn.conn);
-    s_args.p_conn.pid = pid_from_pid_tgid(id);
+    dbg_print_http_connection_info(&p_conn.conn);
+    sort_connection_info(&p_conn.conn);
+    p_conn.pid = pid_from_pid_tgid(id);
 
-    if (s_args.size == 0 || is_ssl_connection(&s_args.p_conn)) {
+    if (msg->size == 0 || is_ssl_connection(&p_conn)) {
         return 0;
     }
 
@@ -220,6 +239,14 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
 
     if (bpf_map_update_elem(&msg_buffers, e_key, &msg_buf, BPF_ANY)) {
         // fail if we can't setup a msg buffer
+        return 0;
+    }
+
+    // We should check if we have already seen this request and we've
+    // started tracking it. We only want to extend the first packet that
+    // looks like HTTP, not something that's passing HTTP in the body.
+    if (already_tracked(&p_conn)) {
+        bpf_dbg_printk("already extended before, ignoring this packet...");
         return 0;
     }
 
@@ -440,30 +467,6 @@ static __always_inline bool handle_go_request(struct sk_msg_md *msg,
     return true;
 }
 
-static __always_inline u8 already_tracked(const connection_info_t *conn, u64 pid_tid) {
-    pid_connection_info_t p_conn = {0};
-    p_conn.conn = *conn;
-    u32 host_pid = pid_from_pid_tgid(pid_tid);
-    p_conn.pid = host_pid;
-
-    http_info_t *http_info = bpf_map_lookup_elem(&ongoing_http, &p_conn);
-    if (http_info && !(http_info->delayed || http_info->submitted)) {
-        return 1;
-    }
-
-    tcp_req_t *tcp_info = bpf_map_lookup_elem(&ongoing_tcp_req, &p_conn);
-    if (tcp_info) {
-        return 1;
-    }
-
-    http2_conn_info_data_t *http2_info = bpf_map_lookup_elem(&ongoing_http2_connections, &p_conn);
-    if (http2_info) {
-        return 1;
-    }
-
-    return 0;
-}
-
 // Sock_msg program which detects packets where it should add space for
 // the 'Traceparent' string. It extends the HTTP header and writes the
 // Traceparent string.
@@ -483,15 +486,6 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     // PIDs to the PID map (we instrument the binaries), handled in the
     // previous check
     if (!valid_pid(id)) {
-        return SK_PASS;
-    }
-
-    // We should first check if we have already seen this request and we've
-    // started tracking it. We only want to extend the first packet that
-    // looks like HTTP, not something that's passing HTTP in the body.
-
-    if (already_tracked(&conn, id)) {
-        bpf_dbg_printk("already extended before, ignoring this packet...");
         return SK_PASS;
     }
 
