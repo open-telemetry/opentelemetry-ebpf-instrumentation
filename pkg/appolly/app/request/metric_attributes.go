@@ -126,8 +126,20 @@ func ErrorType(val string) attribute.KeyValue {
 	return attribute.Key(attr.ErrorType).String(val)
 }
 
+func MessagingOperationName(val string) attribute.KeyValue {
+	return attribute.Key(attr.MessagingOpName).String(val)
+}
+
 func MessagingOperationType(val string) attribute.KeyValue {
 	return attribute.Key(attr.MessagingOpType).String(val)
+}
+
+func MessagingDestinationName(val string) attribute.KeyValue {
+	return attribute.Key(attr.MessagingDestination).String(val)
+}
+
+func MessagingMessageID(val string) attribute.KeyValue {
+	return attribute.Key(attr.MessagingMessageID).String(val)
 }
 
 func RPCSystem(val string) attribute.KeyValue {
@@ -152,6 +164,10 @@ func AWSS3Bucket(val string) attribute.KeyValue {
 
 func AWSS3Key(val string) attribute.KeyValue {
 	return attribute.Key(attr.AWSS3Key).String(val)
+}
+
+func AWSSQSQueueURL(val string) attribute.KeyValue {
+	return attribute.Key(attr.AWSSQSQueueURL).String(val)
 }
 
 func CloudRegion(val string) attribute.KeyValue {
