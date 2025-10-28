@@ -1,29 +1,23 @@
 version: "3.8"
 
 services:
-  sqlserver:
-    build:
-      context: ../../test/integration/components/mysqldb
-      dockerfile: Dockerfile
-    image: mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: "p_ssW0rd"
-      MYSQL_PASSWORD: "p_ssW0rd"
-      MYSQL_DATABASE: "sakila"
+  localstack:
+    image: localstack/localstack:4.9@sha256:59373b4a27dba3ec15c4db0b7455f0cb68c8a42300e2cbbe362b440f9a131697
+    container_name: localstack
     ports:
-      - "3306:3306"
+      - "4566:4566"
 
   testserver:
     build:
-      context: ../../test/integration/components/pythonsql/
-      dockerfile: Dockerfile_mysql
-    image: hatest-testserver-python-sql
+      context: ../../test/integration/components/pythons3client/
+      dockerfile: Dockerfile
+    image: hatest-testserver-python-s3client
     ports:
       - "${TEST_SERVICE_PORTS}"
     depends_on:
-      otelcol:
+      localstack:
         condition: service_started
-      sqlserver:
+      otelcol:
         condition: service_started
 
   obi:
@@ -34,7 +28,7 @@ services:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../testoutput:/coverage
-      - ../../testoutput/run-python-mysql:/var/run/beyla
+      - ../../testoutput/run-python-graphql:/var/run/beyla
     image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     network_mode: "service:testserver"
@@ -47,18 +41,17 @@ services:
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_METRICS_INTERVAL: "10ms"
-      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "100ms"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "100ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_HOSTNAME: "beyla"
       OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
-      OTEL_EBPF_TRACES_INSTRUMENTATIONS: "sql"
-      OTEL_EBPF_METRICS_INSTRUMENTATIONS: "sql"
       OTEL_EBPF_METRICS_FEATURES: "application"
-      OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL: 1024
+      OTEL_EBPF_BPF_BUFFER_SIZE_HTTP: 1024
+      OTEL_EBPF_HTTP_AWS_ENABLED: true
     depends_on:
       testserver:
         condition: service_started

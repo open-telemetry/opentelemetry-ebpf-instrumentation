@@ -5,6 +5,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
 
+#include <common/common.h>
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
 #include <common/msg_buffer.h>
@@ -15,9 +16,14 @@
 #include <common/trace_util.h>
 #include <common/tracing.h>
 
+#include <generictracer/types/http2_conn_info_data.h>
+#include <generictracer/maps/ongoing_tcp_req.h>
+#include <generictracer/maps/ongoing_http2_connections.h>
+
 #include <logger/bpf_dbg.h>
 
 #include <maps/msg_buffers.h>
+#include <maps/ongoing_http.h>
 #include <maps/sock_dir.h>
 
 #include <tpinjector/maps/egress_key_mem.h>
@@ -157,7 +163,7 @@ static __always_inline void set_tp_info_pid(const egress_key_t *e_key, const tp_
 }
 
 static __always_inline void clear_tp_info_pid(const egress_key_t *e_key) {
-    bpf_map_delete_elem(&outgoing_trace_map, &e_key);
+    bpf_map_delete_elem(&outgoing_trace_map, e_key);
 }
 
 static __always_inline u8 is_tracked_go_request(const tp_info_pid_t *tp) {
@@ -434,6 +440,30 @@ static __always_inline bool handle_go_request(struct sk_msg_md *msg,
     return true;
 }
 
+static __always_inline u8 already_tracked(const connection_info_t *conn, u64 pid_tid) {
+    pid_connection_info_t p_conn = {0};
+    p_conn.conn = *conn;
+    u32 host_pid = pid_from_pid_tgid(pid_tid);
+    p_conn.pid = host_pid;
+
+    http_info_t *http_info = bpf_map_lookup_elem(&ongoing_http, &p_conn);
+    if (http_info && !(http_info->delayed || http_info->submitted)) {
+        return 1;
+    }
+
+    tcp_req_t *tcp_info = bpf_map_lookup_elem(&ongoing_tcp_req, &p_conn);
+    if (tcp_info) {
+        return 1;
+    }
+
+    http2_conn_info_data_t *http2_info = bpf_map_lookup_elem(&ongoing_http2_connections, &p_conn);
+    if (http2_info) {
+        return 1;
+    }
+
+    return 0;
+}
+
 // Sock_msg program which detects packets where it should add space for
 // the 'Traceparent' string. It extends the HTTP header and writes the
 // Traceparent string.
@@ -453,6 +483,15 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     // PIDs to the PID map (we instrument the binaries), handled in the
     // previous check
     if (!valid_pid(id)) {
+        return SK_PASS;
+    }
+
+    // We should first check if we have already seen this request and we've
+    // started tracking it. We only want to extend the first packet that
+    // looks like HTTP, not something that's passing HTTP in the body.
+
+    if (already_tracked(&conn, id)) {
+        bpf_dbg_printk("already extended before, ignoring this packet...");
         return SK_PASS;
     }
 

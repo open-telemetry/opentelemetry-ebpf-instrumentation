@@ -888,7 +888,7 @@ func ensureTracesMatch(t *testing.T, urlPath string) {
 		// Check the information of the nodejs parent span with retry
 		test.Eventually(t, testTimeout, func(t require.TestingT) {
 			res := trace.FindByOperationName("GET /traceme", "server")
-			require.Len(t, res, 1)
+			require.Len(t, res, 1, traceID)
 			parent := res[0]
 			require.NotEmpty(t, parent.TraceID)
 			require.Equal(t, traceID, parent.TraceID)
