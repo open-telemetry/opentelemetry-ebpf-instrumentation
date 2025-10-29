@@ -4,7 +4,7 @@ FROM node:20-slim@sha256:d68a804de261bfca9b12b9c8c4070f194043244d4342276c3b108fa
 WORKDIR /
 
 # Copy the source code into the image for building
-COPY test/integration/components/nodeclient/client* . 
+COPY internal/test/integration/components/nodeclient/client* .
 
 # Run the node app
 CMD [ "node", "client.js" ]

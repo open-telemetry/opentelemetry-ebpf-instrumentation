@@ -2,7 +2,7 @@ FROM golang:1.25@sha256:1a13867f40c6ba8c3e7c07ab5fa921cb58cf8402bcbe452f4d41cd61
 
 WORKDIR /src
 
-COPY test/integration/components/old_grpc/worker .
+COPY internal/test/integration/components/old_grpc/worker .
 
 RUN make compile
 

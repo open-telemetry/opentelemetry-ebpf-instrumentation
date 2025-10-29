@@ -9,7 +9,7 @@ ENV GOARCH=$TARGETARCH
 
 WORKDIR /
 
-COPY test/integration/components/ebpf-instrument/ebpf_instrument_wrapper.sh /ebpf_instrument_wrapper.sh
+COPY internal/test/integration/components/ebpf-instrument/ebpf_instrument_wrapper.sh /ebpf_instrument_wrapper.sh
 
 WORKDIR /src
 

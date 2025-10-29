@@ -17,7 +17,7 @@ COPY pkg/ pkg/
 COPY go.mod go.mod
 COPY go.sum go.sum
 COPY Makefile Makefile
-COPY test/integration/components/ebpf-instrument/ebpf_instrument_wrapper_minimal.sh /ebpf_instrument_wrapper_minimal.sh
+COPY internal/test/integration/components/ebpf-instrument/ebpf_instrument_wrapper_minimal.sh /ebpf_instrument_wrapper_minimal.sh
 
 # Build
 RUN make compile-for-coverage

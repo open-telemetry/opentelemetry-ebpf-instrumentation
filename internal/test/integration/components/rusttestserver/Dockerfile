@@ -4,7 +4,7 @@ FROM rust:latest@sha256:e11d5f1c3ce7dded4bbc4a40437d04a618e476ed52b05651fc967d8c
 WORKDIR /build
 
 # Copy the source code into the image for building
-COPY test/integration/components/rusttestserver .
+COPY internal/test/integration/components/rusttestserver .
 
 # Build
 RUN cargo build --release

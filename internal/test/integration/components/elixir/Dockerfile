@@ -5,7 +5,7 @@ FROM elixir:1.19.1-slim@sha256:e8f2d0054e6403125247359e59954939fd586830ba107e239
 WORKDIR /app
 
 # Copy the source code into the image for building
-COPY test/integration/components/elixir .
+COPY internal/test/integration/components/elixir .
 
 # Install dependencies
 RUN mix do deps.get, compile
