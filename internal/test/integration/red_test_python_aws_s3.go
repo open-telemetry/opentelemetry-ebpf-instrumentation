@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
 const (
@@ -34,6 +35,21 @@ func testPythonAWSS3(t *testing.T) {
 
 	waitForTestComponentsNoMetrics(t, address+"/health")
 	waitForTestComponentsNoMetrics(t, localstackAddress)
+
+	// Wait for /health to appear in jaeger
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		ti.DoHTTPGet(t, "http://localhost:8381/health", 200)
+		resp, err := http.Get(jaegerQueryURL + "?service=python3.12&operation=GET%20%2Fhealth")
+		require.NoError(t, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/health"})
+		require.Len(t, traces, 1)
+	}, test.Interval(1*time.Second))
 
 	s3Req(t, address+"/createbucket")
 	s3Req(t, address+"/createobject")

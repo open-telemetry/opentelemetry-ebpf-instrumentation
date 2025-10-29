@@ -59,6 +59,8 @@ const (
 	GraphQLDocument        = Name(semconv.GraphqlDocumentKey)
 	GraphQLOperationName   = Name(semconv.GraphqlOperationNameKey)
 	GraphQLOperationType   = Name(semconv.GraphqlOperationTypeKey)
+	DNSAnswers             = Name("dns.answers")
+	ErrorMessage           = Name("error.message")
 
 	K8sNamespaceName   = Name("k8s.namespace.name")
 	K8sPodName         = Name("k8s.pod.name")

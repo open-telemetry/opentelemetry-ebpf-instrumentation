@@ -24,7 +24,8 @@
 #define ETH_P_IPV6 0x86DD /* IPv6 over bluebook            */
 
 // Taken from uapi/linux/in.h
-#define IPPROTO_TCP 6 /* Transmission Control Protocol */
+#define IPPROTO_TCP 6  /* Transmission Control Protocol */
+#define IPPROTO_UDP 17 /* UDP message */
 
 // Taken from linux/include/net/tcp.h
 #define TCPHDR_FIN 0x01

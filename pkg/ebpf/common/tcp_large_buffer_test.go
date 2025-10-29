@@ -18,7 +18,7 @@ import (
 )
 
 func TestTCPLargeBuffers(t *testing.T) {
-	pctx := NewEBPFParseContext(nil)
+	pctx := NewEBPFParseContext(nil, nil, nil)
 	verifyLargeBuffer := func(traceID [16]uint8, packetType, direction uint8, connInfo BpfConnectionInfoT, expectedBuf string) {
 		buf, ok := extractTCPLargeBuffer(pctx, traceID, packetType, direction, connInfo)
 		require.True(t, ok, "Expected to find large buffer")

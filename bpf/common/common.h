@@ -47,6 +47,10 @@ enum large_buf_action : u8 {
     k_large_buf_action_append = 1,
 };
 
+enum {
+    k_dns_max_len = 516,
+};
+
 #define MAX_SPAN_NAME_LEN 64
 #define MAX_STATUS_DESCRIPTION_LEN 64
 
@@ -239,3 +243,20 @@ typedef struct mongo_go_client_req {
     connection_info_t conn;
     tp_info_t tp;
 } mongo_go_client_req_t;
+
+typedef struct dns_req {
+    u8 flags; // Must be first we use it to tell what kind of packet we have on the ring buffer
+    u8 p_type;
+    u8 dns_q;
+    u8 _pad1[1];
+    u32 len;
+    connection_info_t conn;
+    u16 id;
+    u8 _pad2[2];
+    tp_info_t tp;
+    u64 ts;
+    // we need this to filter traces from unsolicited processes that share the executable
+    // with other instrumented processes
+    pid_info pid;
+    unsigned char buf[k_dns_max_len];
+} dns_req_t;

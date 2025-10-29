@@ -124,7 +124,7 @@ func TestHTTP2Parsing(t *testing.T) {
 		},
 	}
 
-	parseContext := NewEBPFParseContext(nil)
+	parseContext := NewEBPFParseContext(nil, nil, nil)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -176,7 +176,7 @@ func TestHTTP2EventsParsing(t *testing.T) {
 			ignored:  false,
 		},
 	}
-	parseContext := NewEBPFParseContext(nil)
+	parseContext := NewEBPFParseContext(nil, nil, nil)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -211,7 +211,7 @@ func TestHTTP2EventsErrorParsing(t *testing.T) {
 		},
 	}
 
-	parseContext := NewEBPFParseContext(nil)
+	parseContext := NewEBPFParseContext(nil, nil, nil)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -252,7 +252,7 @@ func TestDynamicTableUpdates(t *testing.T) {
 		},
 	}
 
-	parseContext := NewEBPFParseContext(nil)
+	parseContext := NewEBPFParseContext(nil, nil, nil)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

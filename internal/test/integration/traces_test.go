@@ -884,20 +884,17 @@ func ensureTracesMatch(t *testing.T, urlPath string) {
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 			)
 			assert.Empty(t, sd, sd.String())
-		}, test.Interval(30*time.Millisecond))
 
-		// Check the information of the nodejs parent span with retry
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
-			res := trace.FindByOperationName("GET /traceme", "server")
+			res = trace.FindByOperationName("GET /traceme", "server")
 			require.Len(t, res, 1, traceID)
-			parent := res[0]
+			parent = res[0]
 			require.NotEmpty(t, parent.TraceID)
 			require.Equal(t, traceID, parent.TraceID)
 			require.NotEmpty(t, parent.SpanID)
 			// check duration is at least 2us
 			assert.Less(t, (2 * time.Microsecond).Microseconds(), parent.Duration)
 			// check span attributes
-			sd := parent.Diff(
+			sd = parent.Diff(
 				jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
 				jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
 				jaeger.Tag{Key: "url.path", Type: "string", Value: "/traceme"},
