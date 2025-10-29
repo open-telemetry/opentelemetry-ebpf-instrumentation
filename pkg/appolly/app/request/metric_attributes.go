@@ -238,6 +238,10 @@ func CudaKernel(val string) attribute.KeyValue {
 	return attribute.Key(attr.CudaKernelName).String(val)
 }
 
+func DNSQuestionName(val string) attribute.KeyValue {
+	return attribute.Key(attr.DNSQuestionName).String(val)
+}
+
 // These are defined here https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html#group__CUDART__TYPES_1gg18fa99055ee694244a270e4d5101e95bdeec295de8a74ac2a74f98ffb6c5d7c7
 // in the enum cudaMemcpyKind
 const (

@@ -7,6 +7,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
 
+	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -114,7 +115,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(span *Span) attribute.KeyValue { return DBNamespace(span.DBNamespace) }
 	case attr.ErrorType:
 		getter = func(span *Span) attribute.KeyValue {
-			if SpanStatusCode(span) == StatusCodeError {
+			if span.Type == EventTypeDNS && span.Status != int(dnsparser.RCodeSuccess) {
+				return ErrorType(dnsparser.RCode(span.Status).String())
+			} else if SpanStatusCode(span) == StatusCodeError {
 				return ErrorType("error")
 			}
 			return ErrorType("")
@@ -218,6 +221,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			return CloudRegion("")
 		}
+	case attr.DNSQuestionName:
+		getter = func(span *Span) attribute.KeyValue { return DNSQuestionName(span.Path) }
 	}
 	// default: unlike the Prometheus getters, we don't check here for service name nor k8s metadata
 	// because they are already attributes of the Resource instead of the attributes.
