@@ -21,8 +21,8 @@ FROM debian:bookworm-slim@sha256:78d2f66e0fec9e5a39fb2c72ea5e052b548df75602b5215
 
 WORKDIR /
 COPY --from=builder /src/http2srv .
-COPY --from=builder /src/test/integration/components/gohttp2/server/key.pem .
-COPY --from=builder /src/test/integration/components/gohttp2/server/cert.pem .
+COPY --from=builder /src/internal/test/integration/components/gohttp2/server/key.pem .
+COPY --from=builder /src/internal/test/integration/components/gohttp2/server/cert.pem .
 USER 0:0
 
 CMD [ "/http2srv" ]

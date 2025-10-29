@@ -22,8 +22,8 @@ FROM debian:bookworm-slim@sha256:78d2f66e0fec9e5a39fb2c72ea5e052b548df75602b5215
 WORKDIR /
 RUN mkdir -p x509
 COPY --from=builder /src/testserver .
-COPY --from=builder /src/test/integration/components/testserver/x509/server_test_cert.pem x509
-COPY --from=builder /src/test/integration/components/testserver/x509/server_test_key.pem x509
+COPY --from=builder /src/internal/test/integration/components/testserver/x509/server_test_cert.pem x509
+COPY --from=builder /src/internal/test/integration/components/testserver/x509/server_test_key.pem x509
 USER 0:0
 
 CMD [ "/testserver" ]
