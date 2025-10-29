@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 	"go.opentelemetry.io/obi/test/integration/components/docker"
 	"go.opentelemetry.io/obi/test/integration/components/jaeger"
 )
@@ -33,7 +34,7 @@ func testNestedTraces(t *testing.T) {
 	// being instrumented
 	t.Log("checking instrumentation status")
 	test.Eventually(t, 2*time.Minute, func(t require.TestingT) {
-		doHTTPGet(t, "http://localhost:5000/a", 200)
+		ti.DoHTTPGet(t, "http://localhost:5000/a", 200)
 
 		resp, err := http.Get(jaegerQueryURL + "?service=service-a&limit=1")
 		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
@@ -52,7 +53,7 @@ func testNestedTraces(t *testing.T) {
 	// Run couple of requests to make sure we flush out any transactions that might be
 	// stuck because of our tracking of full request times
 	for i := 0; i < 10; i++ {
-		doHTTPGet(t, "http://localhost:5000/a", 200)
+		ti.DoHTTPGet(t, "http://localhost:5000/a", 200)
 	}
 
 	// Get the first 5 traces

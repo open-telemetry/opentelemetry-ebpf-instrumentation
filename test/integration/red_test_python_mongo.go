@@ -18,6 +18,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 	"go.opentelemetry.io/obi/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/test/integration/components/prom"
 )
@@ -31,7 +32,7 @@ func testREDMetricsForPythonMongoLibrary(t *testing.T, testCase TestCase) {
 	// - take a large JSON file
 	// - returning a 200 code
 	for i := 0; i < 4; i++ {
-		doHTTPGet(t, uri+"/"+urlPath, 200)
+		ti.DoHTTPGet(t, uri+"/"+urlPath, 200)
 	}
 
 	// Eventually, Prometheus would make mongo operations visible

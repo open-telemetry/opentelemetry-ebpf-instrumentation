@@ -1,8 +1,6 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
 package integration
 
 import (
@@ -18,16 +16,21 @@ import (
 )
 
 const (
-	flushesMetricName            = "obi_ebpf_tracer_flushes"
-	promRequestsMetricName       = "obi_prometheus_http_requests_total"
+	flushesMetricName            = "_ebpf_tracer_flushes"
+	promRequestsMetricName       = "_prometheus_http_requests_total"
 	internalPrometheusMetricsURL = "http://localhost:8999/internal/metrics"
 )
 
-func testInternalPrometheusExport(t *testing.T) {
+// InternalPrometheusExport tests that internal metrics are properly exposed and updated
+func InternalPrometheusExport(t *testing.T, config *TestConfig) {
+	// Use config-specific metric names
+	flushesMetricName := config.MetricPrefix + flushesMetricName
+	promRequestsMetricName := config.MetricPrefix + promRequestsMetricName
+
 	// tests that internal metrics are properly exposed and updated
 	initialFlushedRecords := metricValue(t, flushesMetricName, nil)
 	for i := 0; i < 7; i++ {
-		doHTTPGet(t, instrumentedServiceStdURL+"/testing/some/flushes", http.StatusOK)
+		DoHTTPGet(t, instrumentedServiceStdURL+"/testing/some/flushes", http.StatusOK)
 	}
 	eventuallyIterations := 0
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
