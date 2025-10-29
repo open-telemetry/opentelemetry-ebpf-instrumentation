@@ -52,8 +52,6 @@ func NewClusterURLClassifier(config *Config) (*ClusterURLClassifier, error) {
 		validCharTable[c] = true
 	}
 
-	validCharTable[' '] = true
-
 	return &ClusterURLClassifier{
 		classifier:     classifier,
 		cache:          cache,
