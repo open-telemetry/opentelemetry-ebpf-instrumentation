@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 	"go.opentelemetry.io/obi/test/integration/components/prom"
 )
 
@@ -29,7 +30,7 @@ func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm string) 
 	// - returning a 204 code
 	for i := 0; i < 4; i++ {
 		for _, url := range urls {
-			doHTTPGet(t, url+path+"?delay=30&response=204", 204)
+			ti.DoHTTPGet(t, url+path+"?delay=30&response=204", 204)
 		}
 	}
 
@@ -80,7 +81,7 @@ func testREDMetricsForJavaOTelSDK(t *testing.T, urls []string) {
 	// - returning a 204 code
 	for i := 0; i < 4; i++ {
 		for _, url := range urls {
-			doHTTPGet(t, url+path+"?delay=30&response=204", 204)
+			ti.DoHTTPGet(t, url+path+"?delay=30&response=204", 204)
 		}
 	}
 

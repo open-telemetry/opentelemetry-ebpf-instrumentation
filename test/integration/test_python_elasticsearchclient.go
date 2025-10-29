@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 	"go.opentelemetry.io/obi/test/integration/components/jaeger"
 )
 
@@ -33,13 +34,13 @@ func testPythonElasticsearch(t *testing.T) {
 
 func populate(t *testing.T, url string) {
 	urlPath := "/doc"
-	doHTTPGet(t, url+urlPath, 200)
+	ti.DoHTTPGet(t, url+urlPath, 200)
 }
 
 func testElasticsearchSearch(t *testing.T, comm, url, index string) {
 	queryText := "{\"query\":{\"match\":{\"name\":\"OBI\"}}}"
 	urlPath := "/search"
-	doHTTPGet(t, url+urlPath, 200)
+	ti.DoHTTPGet(t, url+urlPath, 200)
 
 	assertElasticsearchOperation(t, comm, "search", queryText, index)
 }
