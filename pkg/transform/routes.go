@@ -60,6 +60,8 @@ type RoutesConfig struct {
 	IgnoredEvents IgnoreMode `yaml:"ignore_mode"`
 	// Character that will be used to replace route segments
 	WildcardChar string `yaml:"wildcard_char,omitempty"`
+	// Max allowed path segment cardinality (per service) for the heuristic matcher
+	MaxPathSegmentCardinality int `yaml:"max_path_segment_cardinality"`
 }
 
 func RoutesProvider(rc *RoutesConfig, input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
@@ -203,6 +205,10 @@ func setUnmatchToPath(_ *routerNode, str *request.Span) {
 func classifyFromPath(rc *routerNode, s *request.Span) {
 	if s.Route == "" && s.IsHTTPSpan() {
 		s.Route = rc.classifier.ClusterURL(s.Path)
+		if s.Service.PathTrie != nil {
+			s.Service.PathTrie.Insert(s.Route)
+			s.Route = s.Service.PathTrie.Lookup(s.Route)
+		}
 	}
 }
 
