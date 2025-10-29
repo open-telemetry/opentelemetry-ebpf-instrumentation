@@ -16,6 +16,7 @@ import (
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
 
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 	"go.opentelemetry.io/obi/test/integration/components/jaeger"
 )
 
@@ -37,7 +38,7 @@ func testPythonAWSS3(t *testing.T) {
 
 	// Wait for /health to appear in jaeger
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		doHTTPGet(t, "http://localhost:8381/health", 200)
+		ti.DoHTTPGet(t, "http://localhost:8381/health", 200)
 		resp, err := http.Get(jaegerQueryURL + "?service=python3.12&operation=GET%20%2Fhealth")
 		require.NoError(t, err)
 		if resp == nil {
