@@ -273,3 +273,11 @@ func Job(val string) attribute.KeyValue {
 func Instance(val string) attribute.KeyValue {
 	return attribute.Key(attr.MessagingOpType).String(val)
 }
+
+func DNSAnswers(val string) attribute.KeyValue {
+	return attribute.Key(attr.DNSAnswers).String(val)
+}
+
+func ErrorMessage(val string) attribute.KeyValue {
+	return attribute.Key(attr.ErrorMessage).String(val)
+}

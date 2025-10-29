@@ -127,6 +127,7 @@ discovery:
 			HTTPRequestTimeout:        0,
 			MaxTransactionTime:        5 * time.Minute,
 			TCBackend:                 config.TCBackendAuto,
+			DNSRequestTimeout:         5 * time.Second,
 			ContextPropagationEnabled: false,
 			ContextPropagation:        config.ContextPropagationDisabled,
 			RedisDBCache: config.RedisDBCacheConfig{
@@ -169,7 +170,13 @@ discovery:
 			BatchTimeout:      15 * time.Second,
 			ReportersCacheLen: ReporterLRUSize,
 			Instrumentations: []string{
-				instrumentations.InstrumentationALL,
+				instrumentations.InstrumentationHTTP,
+				instrumentations.InstrumentationGRPC,
+				instrumentations.InstrumentationSQL,
+				instrumentations.InstrumentationRedis,
+				instrumentations.InstrumentationKafka,
+				instrumentations.InstrumentationMongo,
+				// no traces for DNS and GPU by default
 			},
 		},
 		Prometheus: prom.PrometheusConfig{

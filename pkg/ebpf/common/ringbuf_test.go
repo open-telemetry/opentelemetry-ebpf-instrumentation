@@ -94,6 +94,7 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 		ReadBPFTraceAsSpan,
 		slog.With("test", "TestForwardRingbuf_Deadline"),
 		metrics,
+		nil,
 	)(t.Context(), forwardedMessagesQueue)
 
 	// WHEN it receives, after a timeout, less events than its internal buffer
@@ -133,6 +134,7 @@ func TestForwardRingbuf_Close(t *testing.T) {
 		ReadBPFTraceAsSpan,
 		slog.With("test", "TestForwardRingbuf_Close"),
 		metrics,
+		nil,
 		&closable,
 	)(t.Context(), msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100)))
 

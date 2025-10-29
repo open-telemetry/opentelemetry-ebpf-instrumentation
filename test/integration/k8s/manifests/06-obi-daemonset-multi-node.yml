@@ -44,7 +44,7 @@ spec:
         # kind, to force OBI writing the coverage data
         teardown: delete
     spec:
-      hostPID: true  #important!
+      hostPID: true #important!
       serviceAccountName: obi
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
@@ -65,9 +65,9 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               add:
-                - SYS_ADMIN     # <-- Important. Required for most eBPF probes to function correctly. TODO: We can break this down more
-                - SYS_PTRACE    # <-- Important. Allows OBI to access the container namespaces and inspect executables.
-                - NET_ADMIN     # <-- Important. Allows OBI to attach the Linux TC (Traffic Control) probes
+                - SYS_ADMIN # <-- Important. Required for most eBPF probes to function correctly. TODO: We can break this down more
+                - SYS_PTRACE # <-- Important. Allows OBI to access the container namespaces and inspect executables.
+                - NET_ADMIN # <-- Important. Allows OBI to attach the Linux TC (Traffic Control) probes
           volumeMounts:
             - mountPath: /config
               name: obi-config
@@ -88,4 +88,5 @@ spec:
               value: "all"
             - name: OTEL_EBPF_BPF_DEBUG
               value: "true"
-
+            - name: OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT
+              value: "0ms"
