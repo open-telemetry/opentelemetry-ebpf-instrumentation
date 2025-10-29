@@ -971,6 +971,8 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
 
     u8 success = read_sk_buff(skb, &tcp, &conn);
 
+    sort_connection_info(&conn);
+
     if (is_dns(&conn)) {
         if (handle_dns(skb, &conn, &tcp)) {
             return 0;
@@ -994,8 +996,6 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
     if (len > MIN_HTTP_SIZE) {
         len = MIN_HTTP_SIZE;
     }
-
-    sort_connection_info(&conn);
 
     sk_msg_buffer_t *sk_buf = bpf_map_lookup_elem(&sk_buffers, &conn);
     if (!sk_buf) {
