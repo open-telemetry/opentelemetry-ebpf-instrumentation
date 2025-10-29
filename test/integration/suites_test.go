@@ -378,6 +378,7 @@ func TestSuite_Python(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Python RED metrics", testREDMetricsPythonHTTP)
 	t.Run("Python RED metrics with timeouts", testREDMetricsTimeoutPythonHTTP)
+	t.Run("Python DNS RED metrics", testREDMetricsDNSPython)
 	require.NoError(t, compose.Close())
 }
 

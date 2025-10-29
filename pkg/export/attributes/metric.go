@@ -116,7 +116,7 @@ var (
 	}
 	DNSLookupDuration = Name{
 		Section: "dns.lookup.duration",
-		Prom:    "dns_lookup_duration_duration_seconds",
+		Prom:    "dns_lookup_duration_seconds",
 		OTEL:    "dns.lookup.duration",
 	}
 )

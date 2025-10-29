@@ -43,6 +43,23 @@ def users():
     content = request.json
     return content
 
+@app.route("/bad_dns")
+def bad_dns():
+    try:
+        requests.get("https://www.opentelemetry.invalid")
+    except Exception:
+        pass
+    return "Invalid DNS"
+
+@app.route("/ok_dns")
+def ok_dns():
+    try:
+        requests.get("https://opentelemetry.io")
+    except Exception:
+        pass
+
+    return "OK DNS"
+
 if __name__ == '__main__':
     print(f"Server running: port={8380} process_id={os.getpid()}")
     app.run(host="localhost", port=8380, debug=False)
