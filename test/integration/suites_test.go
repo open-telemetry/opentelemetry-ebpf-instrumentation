@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 	"go.opentelemetry.io/obi/test/integration/components/docker"
 )
 
@@ -22,6 +23,9 @@ func TestSuite(t *testing.T) {
 	require.NoError(t, err)
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=(pingclient|testserver)`)
 	require.NoError(t, compose.Up())
+
+	config := ti.DefaultOBIConfig()
+
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("RED JSON RPC metrics", testREDMetricsJSONRPCHTTP)
 	t.Run("HTTP traces", testHTTPTraces)
@@ -30,7 +34,7 @@ func TestSuite(t *testing.T) {
 	t.Run("GRPC traces", testGRPCTraces)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
 	t.Run("GRPC TLS RED metrics", testREDMetricsGRPCTLS)
-	t.Run("Internal Prometheus metrics", testInternalPrometheusExport)
+	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 	t.Run("Exemplars exist", testExemplarsExist)
 	t.Run("Testing Host Info metric", testHostInfo)
 	t.Run("Client RED metrics", testREDMetricsForClientHTTPLibrary)
@@ -86,11 +90,14 @@ func TestSuite_NoDebugInfo(t *testing.T) {
 
 	compose.Env = append(compose.Env, `TESTSERVER_DOCKERFILE_SUFFIX=_nodebug`)
 	require.NoError(t, compose.Up())
+
+	config := ti.DefaultOBIConfig()
+
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("HTTP traces", testHTTPTraces)
 	t.Run("GRPC traces", testGRPCTraces)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
-	t.Run("Internal Prometheus metrics", testInternalPrometheusExport)
+	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 
 	require.NoError(t, compose.Close())
 }
@@ -102,11 +109,14 @@ func TestSuite_StaticCompilation(t *testing.T) {
 
 	compose.Env = append(compose.Env, `TESTSERVER_DOCKERFILE_SUFFIX=_static`)
 	require.NoError(t, compose.Up())
+
+	config := ti.DefaultOBIConfig()
+
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("HTTP traces", testHTTPTraces)
 	t.Run("GRPC traces", testGRPCTraces)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
-	t.Run("Internal Prometheus metrics", testInternalPrometheusExport)
+	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 
 	require.NoError(t, compose.Close())
 }
@@ -117,12 +127,15 @@ func TestSuite_OldestGoVersion(t *testing.T) {
 
 	compose.Env = []string{`OTEL_GO_AUTO_TARGET_EXE=*testserver`}
 	require.NoError(t, compose.Up())
+
+	config := ti.DefaultOBIConfig()
+
 	t.Run("RED metrics", testREDMetricsOldHTTP)
 	t.Run("HTTP traces", testHTTPTraces)
 	t.Run("GRPC traces", testGRPCTraces)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
 	t.Run("HTTP traces (manual spans)", testHTTPTracesNestedManualSpans)
-	t.Run("Internal Prometheus metrics", testInternalPrometheusExport)
+	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 
 	require.NoError(t, compose.Close())
 }
@@ -191,9 +204,12 @@ func TestSuite_PrometheusScrape(t *testing.T) {
 	)
 
 	require.NoError(t, compose.Up())
+
+	config := ti.DefaultOBIConfig()
+
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
-	t.Run("Internal Prometheus metrics", testInternalPrometheusExport)
+	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 	t.Run("Testing OBI Build Info metric", testPrometheusOBIBuildInfo)
 	t.Run("Testing for no OBI self metrics", testPrometheusNoOBIEvents)
 	t.Run("Testing BPF metrics", testPrometheusBPFMetrics)
@@ -499,12 +515,14 @@ func TestSuite_DisableKeepAlives(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 
+	config := ti.DefaultOBIConfig()
+
 	// Run tests with keepalives disabled:
 	setHTTPClientDisableKeepAlives(true)
 	t.Run("RED metrics", testREDMetricsHTTP)
 
 	t.Run("HTTP DisableKeepAlives traces", testHTTPTraces)
-	t.Run("Internal Prometheus DisableKeepAlives metrics", testInternalPrometheusExport)
+	t.Run("Internal Prometheus DisableKeepAlives metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 	// Reset to defaults for any tests run afterward
 	setHTTPClientDisableKeepAlives(false)
 

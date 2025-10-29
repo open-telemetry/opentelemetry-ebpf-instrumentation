@@ -44,7 +44,6 @@ read_sk_buff(struct __sk_buff *skb, protocol_info_t *tcp, connection_info_t *con
         bpf_skb_load_bytes(skb, ETH_HLEN, &hdr_len, sizeof(hdr_len));
         hdr_len &= 0x0f;
         hdr_len *= 4;
-        tcp->ip_len = hdr_len;
 
         /* verify hlen meets minimum size requirements */
         if (hdr_len < sizeof(struct iphdr)) {
@@ -70,6 +69,7 @@ read_sk_buff(struct __sk_buff *skb, protocol_info_t *tcp, connection_info_t *con
         __builtin_memcpy(conn->d_addr + sizeof(ip4ip6_prefix), &daddr, sizeof(daddr));
 
         tcp->hdr_len = ETH_HLEN + hdr_len;
+        tcp->ip_len = tcp->hdr_len;
         break;
     }
     case ETH_P_IPV6:
@@ -102,16 +102,16 @@ read_sk_buff(struct __sk_buff *skb, protocol_info_t *tcp, connection_info_t *con
         }
     }
 
-    if (proto != IPPROTO_TCP) {
-        return false;
-    }
-
     u16 port;
     bpf_skb_load_bytes(skb, tcp->hdr_len + offsetof(struct __tcphdr, source), &port, sizeof(port));
     conn->s_port = __bpf_htons(port);
 
     bpf_skb_load_bytes(skb, tcp->hdr_len + offsetof(struct __tcphdr, dest), &port, sizeof(port));
     conn->d_port = __bpf_htons(port);
+
+    if (proto != IPPROTO_TCP) {
+        return false;
+    }
 
     u32 seq;
     bpf_skb_load_bytes(skb, tcp->hdr_len + offsetof(struct __tcphdr, seq), &seq, sizeof(seq));

@@ -25,11 +25,13 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type mongo_go_client_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -45,6 +47,7 @@ type (
 	TCPLargeBufferHeader BpfTcpLargeBufferT
 	GoOTelSpanTrace      BpfOtelSpanT
 	GoMongoClientInfo    BpfMongoGoClientReqT
+	DNSInfo              BpfDnsReqT
 )
 
 const (
@@ -59,6 +62,7 @@ const (
 	EventOTelSDKGo          = 13 // OTel SDK manual span
 	EventTypeGoMongo        = 14 // Go MongoDB spans
 	EventTypeFailedConnect  = 15 // Failed Connections
+	EventTypeDNS            = 16 // DNS events
 )
 
 // Kernel-side classification
@@ -133,6 +137,7 @@ type EBPFParseContext struct {
 	postgresPortals            *simplelru.LRU[postgresPortalsKey, string]
 	kafkaTopicUUIDToName       *simplelru.LRU[kafkaparser.UUID, string]
 	payloadExtraction          config.PayloadExtraction
+	dnsEvents                  *expirable.LRU[dnsparser.DNSId, *request.Span]
 }
 
 type EBPFEventContext struct {
@@ -148,7 +153,7 @@ var MisclassifiedEvents = make(chan MisclassifiedEvent)
 
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
 
-func NewEBPFParseContext(cfg *config.EBPFTracer) *EBPFParseContext {
+func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.Span], filter ServiceFilter) *EBPFParseContext {
 	var (
 		err                        error
 		redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
@@ -158,6 +163,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer) *EBPFParseContext {
 		kafkaTopicUUIDToName       *simplelru.LRU[kafkaparser.UUID, string]
 		mongoRequestCache          PendingMongoDBRequests
 		payloadExtraction          config.PayloadExtraction
+		dnsEvents                  *expirable.LRU[dnsparser.DNSId, *request.Span]
 	)
 
 	h2c, _ := lru.New[uint64, h2Connection](1024 * 10)
@@ -195,6 +201,8 @@ func NewEBPFParseContext(cfg *config.EBPFTracer) *EBPFParseContext {
 		mongoRequestCache = expirable.NewLRU[MongoRequestKey, *MongoRequestValue](cfg.MongoRequestsCacheSize, nil, 0)
 
 		payloadExtraction = cfg.PayloadExtraction
+
+		dnsEvents = expirable.NewLRU(1024, dnsEventExpireHandler(spansChan, filter), cfg.DNSRequestTimeout)
 	}
 
 	return &EBPFParseContext{
@@ -207,6 +215,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer) *EBPFParseContext {
 		postgresPortals:            postgresPortals,
 		kafkaTopicUUIDToName:       kafkaTopicUUIDToName,
 		payloadExtraction:          payloadExtraction,
+		dnsEvents:                  dnsEvents,
 	}
 }
 
@@ -249,6 +258,8 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return ReadGoOTelEventIntoSpan(record)
 	case EventTypeFailedConnect:
 		return ReadFailedConnectIntoSpan(record, filter)
+	case EventTypeDNS:
+		return readDNSEventIntoSpan(parseCtx, record)
 	}
 
 	event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)

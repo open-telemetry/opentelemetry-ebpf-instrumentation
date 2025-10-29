@@ -105,7 +105,7 @@ func TestReadTCPRequestIntoSpan_Overflow(t *testing.T) {
 	}
 
 	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
-	ctx := NewEBPFParseContext(&cfg)
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
 	binaryRecord := bytes.Buffer{}
 	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, tri))
 	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)

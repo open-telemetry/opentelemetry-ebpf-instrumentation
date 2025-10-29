@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 	"go.opentelemetry.io/obi/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/test/integration/components/prom"
 )
@@ -170,7 +171,7 @@ func testPythonSQLQuery(t *testing.T, comm, url, table, db string) {
 	t.Helper()
 
 	urlPath := "/query"
-	doHTTPGet(t, url+urlPath, 200)
+	ti.DoHTTPGet(t, url+urlPath, 200)
 
 	assertSQLOperation(t, comm, "SELECT", table, db)
 }
@@ -179,7 +180,7 @@ func testPythonSQLPreparedStatements(t *testing.T, comm, url, table, db string) 
 	t.Helper()
 
 	urlPath := "/prepquery"
-	doHTTPGet(t, url+urlPath, 200)
+	ti.DoHTTPGet(t, url+urlPath, 200)
 
 	assertSQLOperation(t, comm, "SELECT", table, db)
 }
@@ -188,7 +189,7 @@ func testPythonSQLError(t *testing.T, comm, url, db string) {
 	t.Helper()
 
 	urlPath := "/error"
-	doHTTPGet(t, url+urlPath, 200)
+	ti.DoHTTPGet(t, url+urlPath, 200)
 
 	assertSQLOperationErrored(t, comm, "SELECT", "obi.nonexisting", db)
 }
@@ -228,7 +229,7 @@ func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
 	// - take a large JSON file
 	// - returning a 200 code
 	for i := 0; i < 4; i++ {
-		doHTTPGet(t, url+urlPath, 200)
+		ti.DoHTTPGet(t, url+urlPath, 200)
 	}
 
 	// Eventually, Prometheus would make this query visible

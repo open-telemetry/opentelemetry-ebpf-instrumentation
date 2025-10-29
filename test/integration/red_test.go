@@ -22,34 +22,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 	"go.opentelemetry.io/obi/test/integration/components/prom"
 	grpcclient "go.opentelemetry.io/obi/test/integration/components/testserver/grpc/client"
 )
 
-const (
-	instrumentedServiceStdURL         = "http://localhost:8080"
-	instrumentedServiceGinURL         = "http://localhost:8081"
-	instrumentedServiceGorillaURL     = "http://localhost:8082"
-	instrumentedServiceGorillaMidURL  = "http://localhost:8083"
-	instrumentedServiceGorillaMid2URL = "http://localhost:8087"
-	instrumentedServiceStdTLSURL      = "https://localhost:8383"
-	instrumentedServiceJSONRPCURL     = "http://localhost:8088"
-	prometheusHostPort                = "localhost:9090"
-	jaegerQueryURL                    = "http://localhost:16686/api/traces"
-
-	testTimeout = 60 * time.Second
-)
-
 func rndStr() string {
 	return strconv.Itoa(rand.IntN(10000))
-}
-
-func waitForTestComponents(t *testing.T, url string) {
-	waitForTestComponentsSub(t, url, "/smoke")
-}
-
-func waitForTestComponentsHTTP2(t *testing.T, url string) {
-	waitForTestComponentsHTTP2Sub(t, url, "/smoke", 1)
 }
 
 func testREDMetricsHTTP(t *testing.T) {
@@ -380,11 +359,11 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 	// - take at least 30ms to respond
 	// - returning a 404 code
 	for i := 0; i < 4; i++ {
-		doHTTPGet(t, url+"/metrics", 200)
-		doHTTPGet(t, url+path+"?delay=30ms&status=404", 404)
+		ti.DoHTTPGet(t, url+"/metrics", 200)
+		ti.DoHTTPGet(t, url+path+"?delay=30ms&status=404", 404)
 		if url == instrumentedServiceGorillaURL {
-			doHTTPGet(t, url+"/echo", 203)
-			doHTTPGet(t, url+"/echoCall", 204)
+			ti.DoHTTPGet(t, url+"/echo", 203)
+			ti.DoHTTPGet(t, url+"/echoCall", 204)
 		}
 	}
 
@@ -669,10 +648,10 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	// - take at least 30ms to respond
 	// - returning a 404 code
 	for i := 0; i < 3; i++ {
-		doHTTPGet(t, url+"/metrics", 200)
-		doHTTPGet(t, url+path+"?delay=30ms&status=404", 404)
-		doHTTPGet(t, url+"/echo", 203)
-		doHTTPGet(t, url+"/echoCall", 204)
+		ti.DoHTTPGet(t, url+"/metrics", 200)
+		ti.DoHTTPGet(t, url+path+"?delay=30ms&status=404", 404)
+		ti.DoHTTPGet(t, url+"/echo", 203)
+		ti.DoHTTPGet(t, url+"/echoCall", 204)
 	}
 
 	// Eventually, Prometheus would make this query visible
@@ -931,7 +910,7 @@ func testREDMetricsForGoBasicOnly(t *testing.T, url string, comm string) {
 	// - take at least 30ms to respond
 	// - returning a 204 code
 	for i := 0; i < 4; i++ {
-		doHTTPGet(t, url+path+"?delay=30", 200)
+		ti.DoHTTPGet(t, url+path+"?delay=30", 200)
 	}
 
 	commMatch := `service_name="` + comm + `",`

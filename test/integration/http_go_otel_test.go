@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 	"go.opentelemetry.io/obi/test/integration/components/docker"
 	"go.opentelemetry.io/obi/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/test/integration/components/prom"
@@ -24,7 +25,7 @@ import (
 
 func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 	for i := 0; i < 4; i++ {
-		doHTTPGet(t, "http://localhost:8080"+route, 200)
+		ti.DoHTTPGet(t, "http://localhost:8080"+route, 200)
 	}
 
 	// Eventually, Prometheus would make this query visible
@@ -80,7 +81,7 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 
 func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 	for i := 0; i < 4; i++ {
-		doHTTPGet(t, "http://localhost:8080"+route, 200)
+		ti.DoHTTPGet(t, "http://localhost:8080"+route, 200)
 	}
 
 	test.Eventually(t, testTimeout, func(t require.TestingT) {

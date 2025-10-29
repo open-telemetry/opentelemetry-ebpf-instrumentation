@@ -8,6 +8,7 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <common/msg_buffer.h>
+#include <common/dns.h>
 #include <common/pin_internal.h>
 #include <common/sock_port_ns.h>
 #include <common/sockaddr.h>
@@ -35,6 +36,7 @@
 #include <maps/fd_to_connection.h>
 #include <maps/msg_buffers.h>
 #include <maps/sk_buffers.h>
+#include <maps/sock_pids.h>
 
 #include <pid/pid.h>
 
@@ -159,6 +161,21 @@ int BPF_KPROBE(obi_kprobe_sys_connect) {
     return 0;
 }
 
+static __always_inline void store_sock_pid(struct sock *sk) {
+    connection_info_t conn;
+    if (parse_sock_info(sk, &conn)) {
+        sort_connection_info(&conn);
+
+        conn_pid_t conn_pid = {0};
+        task_pid(&conn_pid.p_info);
+        task_tid(&conn_pid.p_key);
+        conn_pid.id = bpf_get_current_pid_tgid();
+        conn_pid.ts = bpf_ktime_get_ns();
+
+        bpf_map_update_elem(&sock_pids, &conn, &conn_pid, BPF_ANY);
+    }
+}
+
 // Used by connect so that we can grab the sock details
 SEC("kprobe/tcp_connect")
 int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
@@ -171,6 +188,7 @@ int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
     }
 
     u64 addr = (u64)sk;
+    store_sock_pid(sk);
 
     sock_args_t *args = bpf_map_lookup_elem(&active_connect_args, &id);
 
@@ -187,6 +205,23 @@ int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
 
         args->addr = addr;
     }
+
+    return 0;
+}
+
+SEC("kprobe/udp_sendmsg")
+int BPF_KPROBE(obi_kprobe_udp_sendmsg, struct sock *sk) {
+    (void)ctx;
+
+    u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== udp_sendmsg %llx sock %llx ===", id, sk);
+
+    store_sock_pid(sk);
 
     return 0;
 }
@@ -637,21 +672,29 @@ int BPF_KPROBE(obi_kprobe_sock_def_error_report, struct sock *sk) {
 
     bpf_dbg_printk("=== kprobe sock_def_error_report %d sock %llx args %llx ===", id, sk, args);
 
-    if (args && !args->failed) {
-        pid_connection_info_t info = {};
+    pid_connection_info_t info = {};
+    if (parse_sock_info(sk, &info.conn)) {
+        info.pid = pid_from_pid_tgid(id);
+        u16 orig_dport = info.conn.d_port;
+        sort_connection_info(&info.conn);
 
-        if (parse_sock_info(sk, &info.conn)) {
-            info.pid = pid_from_pid_tgid(id);
-            u16 orig_dport = info.conn.d_port;
-            sort_connection_info(&info.conn);
-            dbg_print_http_connection_info(&info.conn);
-            failed_to_connect_event(&info, orig_dport, args->ts);
-            // mark the args and cp_support_info as failed so we don't duplicate the event
-            cp_support_data_t *cp_data = bpf_map_lookup_elem(&cp_support_connect_info, &info);
-            if (cp_data) {
-                cp_data->failed = 1;
+        if (args) {
+            if (!args->failed) {
+                dbg_print_http_connection_info(&info.conn);
+                failed_to_connect_event(&info, orig_dport, args->ts);
+                // mark the args and cp_support_info as failed so we don't duplicate the event
+                cp_support_data_t *cp_data = bpf_map_lookup_elem(&cp_support_connect_info, &info);
+                if (cp_data) {
+                    cp_data->failed = 1;
+                }
+                args->failed = 1;
             }
-            args->failed = 1;
+        } else {
+            conn_pid_t *conn_pid = bpf_map_lookup_elem(&sock_pids, &info.conn);
+            if (conn_pid && conn_pid->id == id) {
+                dbg_print_http_connection_info(&info.conn);
+                failed_to_connect_event(&info, orig_dport, conn_pid->ts);
+            }
         }
     }
 
@@ -926,7 +969,15 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
     protocol_info_t tcp = {};
     connection_info_t conn = {};
 
-    if (!read_sk_buff(skb, &tcp, &conn)) {
+    u8 success = read_sk_buff(skb, &tcp, &conn);
+
+    if (is_dns(&conn)) {
+        if (handle_dns(skb, &conn, &tcp)) {
+            return 0;
+        }
+    }
+
+    if (!success) {
         return 0;
     }
 

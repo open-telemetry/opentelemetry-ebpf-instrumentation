@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 	"go.opentelemetry.io/obi/test/integration/components/jaeger"
 	grpcclient "go.opentelemetry.io/obi/test/integration/components/testserver/grpc/client"
 )
@@ -33,8 +34,8 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 	var traceID string
 	var parentID string
 
-	doHTTPGet(t, instrumentedServiceStdURL+"/metrics", 200)
-	doHTTPGet(t, instrumentedServiceStdURL+"/metrics", 200)
+	ti.DoHTTPGet(t, instrumentedServiceStdURL+"/metrics", 200)
+	ti.DoHTTPGet(t, instrumentedServiceStdURL+"/metrics", 200)
 
 	slug := "create-trace"
 	if doTraceID {
@@ -45,7 +46,7 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 		traceparent := createTraceparent(traceID, parentID)
 		doHTTPGetWithTraceparent(t, fmt.Sprintf("%s/%s?delay=10ms&status=%d", instrumentedServiceStdURL, slug, httpCode), httpCode, traceparent)
 	} else {
-		doHTTPGet(t, fmt.Sprintf("%s/%s?delay=10ms&status=%d", instrumentedServiceStdURL, slug, httpCode), httpCode)
+		ti.DoHTTPGet(t, fmt.Sprintf("%s/%s?delay=10ms&status=%d", instrumentedServiceStdURL, slug, httpCode), httpCode)
 	}
 
 	var trace jaeger.Trace
@@ -383,7 +384,7 @@ func testHTTPTracesNestedCalls(t *testing.T) {
 	doHTTPGetWithTraceparent(t, "http://localhost:8082/echo", 203, traceparent)
 	// Do some requests to make sure we see all events
 	for i := 0; i < 10; i++ {
-		doHTTPGet(t, "http://localhost:8082/metrics", 200)
+		ti.DoHTTPGet(t, "http://localhost:8082/metrics", 200)
 	}
 
 	var trace jaeger.Trace
@@ -514,7 +515,7 @@ func testHTTP2GRPCTracesNestedCalls(t *testing.T, contextPropagation bool) {
 	doHTTPGetWithTraceparent(t, "http://localhost:8080/echoCall", 204, traceparent)
 	// Do some requests to make sure we see all events
 	for i := 0; i < 10; i++ {
-		doHTTPGet(t, "http://localhost:8080/metrics", 200)
+		ti.DoHTTPGet(t, "http://localhost:8080/metrics", 200)
 	}
 
 	var trace jaeger.Trace
@@ -665,7 +666,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 	// Run couple of requests to make sure we flush out any transactions that might be
 	// stuck because of our tracking of full request times
 	for i := 0; i < 10; i++ {
-		doHTTPGet(t, "http://localhost:8091/dist", 200)
+		ti.DoHTTPGet(t, "http://localhost:8091/dist", 200)
 	}
 
 	// rust   -> java     -> nodejs   -> go            -> go jsonrpc -> python      -> rails
@@ -835,7 +836,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 
 	// test now with a different version of Java thread pool
 	for i := 0; i < 10; i++ {
-		doHTTPGet(t, "http://localhost:8086/jtraceA", 200)
+		ti.DoHTTPGet(t, "http://localhost:8086/jtraceA", 200)
 	}
 
 	t.Run("Traces RestClient client /jtraceA", func(t *testing.T) {
@@ -883,20 +884,17 @@ func ensureTracesMatch(t *testing.T, urlPath string) {
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 			)
 			assert.Empty(t, sd, sd.String())
-		}, test.Interval(30*time.Millisecond))
 
-		// Check the information of the nodejs parent span with retry
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
-			res := trace.FindByOperationName("GET /traceme", "server")
+			res = trace.FindByOperationName("GET /traceme", "server")
 			require.Len(t, res, 1, traceID)
-			parent := res[0]
+			parent = res[0]
 			require.NotEmpty(t, parent.TraceID)
 			require.Equal(t, traceID, parent.TraceID)
 			require.NotEmpty(t, parent.SpanID)
 			// check duration is at least 2us
 			assert.Less(t, (2 * time.Microsecond).Microseconds(), parent.Duration)
 			// check span attributes
-			sd := parent.Diff(
+			sd = parent.Diff(
 				jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
 				jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
 				jaeger.Tag{Key: "url.path", Type: "string", Value: "/traceme"},
@@ -916,7 +914,7 @@ func testNestedHTTPSTracesKProbes(t *testing.T) {
 	waitForRubyTestComponents(t, "https://localhost:3044")
 
 	// Add and check for specific trace ID
-	doHTTPGet(t, "https://localhost:8381/tracemetoo", 200)
+	ti.DoHTTPGet(t, "https://localhost:8381/tracemetoo", 200)
 
 	var trace jaeger.Trace
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -997,7 +995,7 @@ func testHTTPTracesNestedCallsTooLong(t *testing.T) {
 	var parentID string
 
 	// Run a request, since we have a single app, we should see always all requests
-	doHTTPGet(t, "http://localhost:7773/slow", 200)
+	ti.DoHTTPGet(t, "http://localhost:7773/slow", 200)
 
 	var trace jaeger.Trace
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -1065,7 +1063,7 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 	waitForTestComponentsRoute(t, "http://localhost:7773", "/smoke")
 
 	// Run a request, since we have a single app, we should see always all requests
-	doHTTPGet(t, "https://localhost:7771/api1", 200)
+	ti.DoHTTPGet(t, "https://localhost:7771/api1", 200)
 
 	var trace jaeger.Trace
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -1211,7 +1209,7 @@ func testHTTPTracesNestedNodeJSDistCalls(t *testing.T) {
 	waitForTestComponentsRoute(t, "http://localhost:5002", "/smoke")
 
 	// Run a request, since we have a single app, we should see always all requests
-	doHTTPGet(t, "http://localhost:5002/b", 200)
+	ti.DoHTTPGet(t, "http://localhost:5002/b", 200)
 
 	var trace jaeger.Trace
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -1323,10 +1321,10 @@ func testHTTPTracesNestedNodeJSDistCalls(t *testing.T) {
 func testHTTPTracesNestedManualSpans(t *testing.T) {
 	waitForTestComponents(t, "http://localhost:8080")
 
-	doHTTPGet(t, "http://localhost:8080/manual", 200)
+	ti.DoHTTPGet(t, "http://localhost:8080/manual", 200)
 	// Do some requests to make sure we see all events
 	for i := 0; i < 10; i++ {
-		doHTTPGet(t, "http://localhost:8082/metrics", 200)
+		ti.DoHTTPGet(t, "http://localhost:8082/metrics", 200)
 	}
 
 	var trace jaeger.Trace
@@ -1464,7 +1462,7 @@ func testHTTPTracesNestedNodeJSLargeHTTPS(t *testing.T) {
 	var parentID string
 
 	// Run a request, since we have a single app, we should see always all requests
-	doHTTPGet(t, "http://localhost:3031/api/test-apm", 200)
+	ti.DoHTTPGet(t, "http://localhost:3031/api/test-apm", 200)
 
 	var trace jaeger.Trace
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
