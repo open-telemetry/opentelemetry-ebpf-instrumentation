@@ -259,7 +259,7 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 	case EventTypeFailedConnect:
 		return ReadFailedConnectIntoSpan(record, filter)
 	case EventTypeDNS:
-		return ReadDNSEventIntoSpan(parseCtx, record)
+		return readDNSEventIntoSpan(parseCtx, record)
 	}
 
 	event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)

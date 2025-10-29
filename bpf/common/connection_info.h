@@ -131,13 +131,6 @@ static __always_inline void swap_connection_info_order(connection_info_t *info) 
     __builtin_memcpy(info->d_addr, tmp_addr, sizeof(info->d_addr));
 }
 
-static __always_inline void copy_connection_info(connection_info_t *dst, connection_info_t *src) {
-    dst->s_port = src->s_port;
-    dst->d_port = src->d_port;
-    __builtin_memcpy(dst->s_addr, src->s_addr, sizeof(src->s_addr));
-    __builtin_memcpy(dst->d_addr, src->d_addr, sizeof(src->d_addr));
-}
-
 // Since we track both send and receive connections, we need to sort the source and destination
 // pairs in a standardized way, we choose the server way of sorting, such that the ephemeral port
 // on the client is first.

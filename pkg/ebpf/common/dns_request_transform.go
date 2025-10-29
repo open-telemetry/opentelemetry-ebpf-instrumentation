@@ -28,7 +28,7 @@ func dnsEventExpireHandler(spansChan *msg.Queue[[]request.Span], filter ServiceF
 	}
 }
 
-func ReadDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (request.Span, bool, error) {
+func readDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (request.Span, bool, error) {
 	event, err := ReinterpretCast[DNSInfo](record.RawSample)
 	if err != nil {
 		return request.Span{}, true, err
@@ -44,9 +44,9 @@ func ReadDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	peer := ""
 	hostname := ""
 	hostPort := 0
-	if event.P_conn.Conn.S_port != 0 || event.P_conn.Conn.D_port != 0 {
-		peer, hostname = (*BPFConnInfo)(unsafe.Pointer(&event.P_conn.Conn)).reqHostInfo()
-		hostPort = int(event.P_conn.Conn.D_port)
+	if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
+		peer, hostname = (*BPFConnInfo)(unsafe.Pointer(&event.Conn)).reqHostInfo()
+		hostPort = int(event.Conn.D_port)
 	}
 
 	dnsID := dnsparser.DNSId{HostPID: event.Pid.HostPid, ID: event.Id}
@@ -60,7 +60,7 @@ func ReadDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 			Statement:     "",
 			Path:          "",
 			Peer:          peer,
-			PeerPort:      int(event.P_conn.Conn.S_port),
+			PeerPort:      int(event.Conn.S_port),
 			Host:          hostname,
 			HostPort:      hostPort,
 			ContentLength: 0,

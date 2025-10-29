@@ -251,7 +251,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
     }
 
     if (is_http_request_buf((const unsigned char *)msg_ptr)) {
-        //bpf_dbg_printk("Setting up request to be extended");
+        bpf_dbg_printk("Setting up request to be extended");
 
         return 1;
     }

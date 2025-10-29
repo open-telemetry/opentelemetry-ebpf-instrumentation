@@ -209,7 +209,6 @@ int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
     return 0;
 }
 
-// Used by connect so that we can grab the sock details
 SEC("kprobe/udp_sendmsg")
 int BPF_KPROBE(obi_kprobe_udp_sendmsg, struct sock *sk) {
     (void)ctx;

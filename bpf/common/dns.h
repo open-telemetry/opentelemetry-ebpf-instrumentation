@@ -22,46 +22,32 @@
 
 #include <pid/types/pid_info.h>
 
-#define DNS_QR_QUERY 0
-#define DNS_QR_RESP 1
+enum dns_qr_type : u8 { k_dns_qr_query = 0, k_dns_qr_resp = 1 };
 
 // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
 union dnsflags {
     struct {
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-        __u8 rcode : 4;  // response code
-        __u8 z : 3;      // reserved
-        __u8 ra : 1;     // recursion available
-        __u8 rd : 1;     // recursion desired
-        __u8 tc : 1;     // truncation
-        __u8 aa : 1;     // authoritative answer
-        __u8 opcode : 4; // kind of query
-        __u8 qr : 1;     // 0=query; 1=response
-#elif __BYTE_ORDER == __ORDER_BIG_ENDIAN__
-        __u8 qr : 1;     // 0=query; 1=response
-        __u8 opcode : 4; // kind of query
-        __u8 aa : 1;     // authoritative answer
-        __u8 tc : 1;     // truncation
-        __u8 rd : 1;     // recursion desired
-        __u8 ra : 1;     // recursion available
-        __u8 z : 3;      // reserved
-        __u8 rcode : 4;  // response code
-#else
-#error "Fix your compiler's __BYTE_ORDER__?!"
-#endif
+        u8 qr : 1;     // 0=query; 1=response
+        u8 opcode : 4; // kind of query
+        u8 aa : 1;     // authoritative answer
+        u8 tc : 1;     // truncation
+        u8 rd : 1;     // recursion desired
+        u8 ra : 1;     // recursion available
+        u8 z : 3;      // reserved
+        u8 rcode : 4;  // response code
     };
-    __u16 flags;
+    u16 flags;
 };
 
 struct dnshdr {
-    __u16 id;
+    u16 id;
 
     union dnsflags flags;
 
-    __u16 qdcount; // number of question entries
-    __u16 ancount; // number of answer entries
-    __u16 nscount; // number of authority records
-    __u16 arcount; // number of additional records
+    u16 qdcount; // number of question entries
+    u16 ancount; // number of answer entries
+    u16 nscount; // number of authority records
+    u16 arcount; // number of additional records
 };
 
 static __always_inline u8 is_dns_port(u16 port) {
@@ -110,9 +96,10 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
 
     union dnsflags flags;
     bpf_skb_load_bytes(skb, dns_off + offsetof(struct dnshdr, flags), &flags.flags, sizeof(u16));
+    flags.flags = bpf_ntohs(flags.flags); // Convert from network to host byte order
 
     u8 qr = flags.qr;
-    if (qr == DNS_QR_QUERY || qr == DNS_QR_RESP) {
+    if (qr == k_dns_qr_query || qr == k_dns_qr_resp) {
         u16 id = 0;
         bpf_skb_load_bytes(skb, dns_off + offsetof(struct dnshdr, id), &id, sizeof(u16));
         u16 orig_dport = conn->d_port;
@@ -132,8 +119,7 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
         dns_req_t *req = bpf_ringbuf_reserve(&events, sizeof(dns_req_t), 0);
 
         if (req) {
-            __builtin_memcpy(&req->p_conn.conn, conn, sizeof(connection_info_t));
-            req->p_conn.pid = conn_pid->p_info.host_pid;
+            __builtin_memcpy(&req->conn, conn, sizeof(connection_info_t));
 
             req->flags = EVENT_DNS_REQUEST;
             req->p_type = skb->pkt_type;
@@ -149,7 +135,7 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
 
             u8 found = find_trace_for_client_request_with_t_key(
                 &p_conn, orig_dport, &t_key, conn_pid->id, &req->tp);
-            bpf_dbg_printk("Looking up client trace info, found %d", found);
+            bpf_dbg_printk("handle_dns: looking up client trace info, found %d", found);
             if (found) {
                 urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
             } else {
