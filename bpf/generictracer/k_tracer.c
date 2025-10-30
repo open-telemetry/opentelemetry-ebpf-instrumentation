@@ -1129,7 +1129,8 @@ int obi_handle_buf_with_args(void *ctx) {
 
     if (is_http(args->small_buf, MIN_HTTP_SIZE, &args->packet_type)) {
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_http);
-    } else if (is_http2_or_grpc(args->small_buf, MIN_HTTP2_SIZE)) {
+    } else if (is_http2_or_grpc(args->small_buf, MIN_HTTP2_SIZE) &&
+               !already_tracked_http(&args->pid_conn)) {
         bpf_dbg_printk("Found HTTP2 or gRPC connection");
         http2_conn_info_data_t data = {
             .id = 0,
@@ -1149,13 +1150,15 @@ int obi_handle_buf_with_args(void *ctx) {
     http2_conn_info_data_t *h2g = bpf_map_lookup_elem(&ongoing_http2_connections, &args->pid_conn);
     if (h2g && (http2_flag_ssl(h2g->flags) == args->ssl)) {
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2);
-    } else if (is_mysql(&args->pid_conn.conn,
+    } else if (!already_tracked_http(&args->pid_conn) &&
+               is_mysql(&args->pid_conn.conn,
                         (const unsigned char *)args->u_buf,
                         args->bytes_len,
                         &args->protocol_type)) {
         bpf_dbg_printk("Found mysql connection");
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
-    } else if (is_postgres(&args->pid_conn.conn,
+    } else if (!already_tracked_http(&args->pid_conn) &&
+               is_postgres(&args->pid_conn.conn,
                            (const unsigned char *)args->u_buf,
                            args->bytes_len,
                            &args->protocol_type)) {
