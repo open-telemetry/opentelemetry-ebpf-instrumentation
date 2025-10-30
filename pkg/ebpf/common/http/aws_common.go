@@ -28,10 +28,14 @@ func parseAWSMeta(req *http.Request, resp *http.Response) (request.AWSMeta, erro
 	for k, v := range resp.Header {
 		lk := strings.ToLower(k)
 		if lk == requestIDHeader || lk == requestIDHeader2 || lk == requestIDHeader3 || lk == requestIDHeader4 {
-			meta.RequestID = v[0]
+			if len(v) > 0 {
+				meta.RequestID = v[0]
+			}
 		}
 		if lk == extendedRequestIDHeader {
-			meta.ExtendedRequestID = v[0]
+			if len(v) > 0 {
+				meta.ExtendedRequestID = v[0]
+			}
 		}
 	}
 	if meta.RequestID == "" {
