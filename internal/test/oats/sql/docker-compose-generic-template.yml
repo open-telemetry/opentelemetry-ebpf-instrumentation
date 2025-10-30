@@ -5,5 +5,4 @@ services:
     ports:
       - "{{ .GrafanaHTTPPort }}:3000"
       - "{{ .PrometheusHTTPPort }}:9090"
-      - 4317:4317
       - "{{ .TempoHTTPPort }}:3200"
