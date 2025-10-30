@@ -25,10 +25,31 @@
 enum dns_qr_type : u8 { k_dns_qr_query = 0, k_dns_qr_resp = 1 };
 
 // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
+//
+// 4.1.1. Header section format
+//
+// The header contains the following fields:
+//
+//                                     1  1  1  1  1  1
+//       0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5
+//     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+//     |                      ID                       |
+//     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+//     |QR|   Opcode  |AA|TC|RD|RA|   Z    |   RCODE   | <--- flags (1)
+//     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+//     |                    QDCOUNT                    |
+//     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+//     |                    ANCOUNT                    |
+//     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+//     |                    NSCOUNT                    |
+//     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+//     |                    ARCOUNT                    |
+//     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+
 struct dnshdr {
     u16 id;
 
-    u16 flags; // in network byte order
+    u16 flags; // flags (1) in network byte order
 
     u16 qdcount; // number of question entries
     u16 ancount; // number of answer entries
