@@ -3,8 +3,24 @@ name: PR OATS test
 on:
   push:
     branches: ["main", "release-*"]
+    paths:
+      - ".github/workflows/pull_request_oats_test.yml"
+      - "bpf/**"
+      - "cmd/**"
+      - "configs/**"
+      - "internal/**"
+      - "pkg/**"
+      - "scripts/**"
   pull_request:
     branches: ["main", "release-*"]
+    paths:
+      - ".github/workflows/pull_request_oats_test.yml"
+      - "bpf/**"
+      - "cmd/**"
+      - "configs/**"
+      - "internal/**"
+      - "pkg/**"
+      - "scripts/**"
 
 permissions:
   contents: read
