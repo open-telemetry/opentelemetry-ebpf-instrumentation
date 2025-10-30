@@ -17,9 +17,6 @@ jobs:
       pull-requests: write
     name: test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go: ["1.25"]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
@@ -27,7 +24,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version: ${{ matrix.go }}
+          go-version-file: "go.mod"
           cache: "false"
       - name: Run verification and unit tests
         run: make docker-generate verify cov-exclude-generated check-go-mod
@@ -48,6 +45,6 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version: stable
+          go-version-file: "go.mod"
           cache: "false"
       - run: make notices-update check-clean-work-tree

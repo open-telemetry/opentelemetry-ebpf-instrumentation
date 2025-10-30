@@ -1204,16 +1204,15 @@ int obi_handle_buf_with_args(void *ctx) {
                     }
                 }
 
-                // Packet type can't be reliably determined in HTTP split packets. This should
-                // always be a request.
-                u8 packet_type = args->packet_type ? args->packet_type : PACKET_TYPE_REQUEST;
-
-                http_send_large_buffer(info,
-                                       (void *)args->u_buf,
-                                       args->bytes_len,
-                                       packet_type,
-                                       args->direction,
-                                       k_large_buf_action_append);
+                http_send_large_buffer(
+                    info,
+                    (void *)args->u_buf,
+                    args->bytes_len,
+                    // Packet type can't be reliably determined in HTTP split packets. This should
+                    // always be a request.
+                    PACKET_TYPE_REQUEST,
+                    args->direction,
+                    k_large_buf_action_append);
             } else if (still_responding(info)) {
                 info->end_monotime_ns = bpf_ktime_get_ns();
             }

@@ -2,9 +2,25 @@ name: Pull request integration tests ARM
 
 on:
   push:
-    branches: [ 'main', 'release-*' ]
+    branches: ["main", "release-*"]
+    paths:
+      - ".github/workflows/pull_request_integration_tests_arm.yml"
+      - "bpf/**"
+      - "cmd/**"
+      - "configs/**"
+      - "internal/**"
+      - "pkg/**"
+      - "scripts/**"
   pull_request:
-    branches: [ 'main', 'release-*' ]
+    branches: ["main", "release-*"]
+    paths:
+      - ".github/workflows/pull_request_integration_tests_arm.yml"
+      - "bpf/**"
+      - "cmd/**"
+      - "configs/**"
+      - "internal/**"
+      - "pkg/**"
+      - "scripts/**"
 
 permissions:
   contents: read
@@ -19,9 +35,6 @@ jobs:
       actions: write
     name: test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go: [ '1.25' ]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
@@ -29,8 +42,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          cache: 'false'
-          go-version: ${{ matrix.go }}
+          cache: "false"
+          go-version-file: "go.mod"
       - name: Clean up disk space
         run: |
           docker system prune -af
