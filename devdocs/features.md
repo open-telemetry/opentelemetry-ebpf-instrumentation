@@ -13,4 +13,3 @@
 | GraphQL       | All but Go |         All | All                                                                                |  Yes   |                 No |                                                                                                                 N/A |
 | Elasticsearch | All but Go |      > 7.14 | /_search                                                                           |  Yes   |                 No |                                                                                                                 N/A |
 | Aws S3        | All but Go |             | ?                                                                                  |  Yes   |                 No |                                                                                                                 N/A |
-
