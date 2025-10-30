@@ -183,3 +183,8 @@ const (
 	CudaKernelName = Name("cuda.kernel.name")
 	CudaMemcpyKind = Name("cuda.memcpy.kind")
 )
+
+// DNS events
+const (
+	DNSQuestionName = Name("dns.question.name")
+)

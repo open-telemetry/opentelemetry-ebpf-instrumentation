@@ -54,23 +54,36 @@ var typeNames = map[Type]string{
 // An RCode is a DNS response status code.
 type RCode uint16
 
+// https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 // Header.RCode values.
 const (
-	RCodeSuccess        RCode = 0 // NoError
-	RCodeFormatError    RCode = 1 // FormErr
-	RCodeServerFailure  RCode = 2 // ServFail
-	RCodeNameError      RCode = 3 // NXDomain
-	RCodeNotImplemented RCode = 4 // NotImp
-	RCodeRefused        RCode = 5 // Refused
+	RCodeSuccess        RCode = 0  // NOERROR
+	RCodeFormatError    RCode = 1  // FORMERR
+	RCodeServerFailure  RCode = 2  // SERVFAIL
+	RCodeNameError      RCode = 3  // NXDOMAIN
+	RCodeNotImplemented RCode = 4  // NOTIMP
+	RCodeRefused        RCode = 5  // REFUSED
+	RcodeYXDomain       RCode = 6  // YXDOMAIN
+	RcodeYXRRSet        RCode = 7  // YXRRSET
+	RcodeNXRRSet        RCode = 8  // NXRRSET
+	RcodeNotAuth        RCode = 9  // NOTAUTH
+	RcodeNotZone        RCode = 10 // NOTZONE
+	RcodeDSO            RCode = 11 // DSOTYPENI
 )
 
 var rCodeNames = map[RCode]string{
-	RCodeSuccess:        "Success",
-	RCodeFormatError:    "FormatError",
-	RCodeServerFailure:  "ServerFailure",
-	RCodeNameError:      "NameError",
-	RCodeNotImplemented: "NotImplemented",
+	RCodeSuccess:        "NoError",
+	RCodeFormatError:    "FormErr",
+	RCodeServerFailure:  "ServFail",
+	RCodeNameError:      "NXDomain",
+	RCodeNotImplemented: "NotImp",
 	RCodeRefused:        "Refused",
+	RcodeYXDomain:       "YXDomain",
+	RcodeYXRRSet:        "YXRRSet",
+	RcodeNXRRSet:        "NXRRSet",
+	RcodeNotAuth:        "NotAuth",
+	RcodeNotZone:        "NotZone",
+	RcodeDSO:            "DSOTYPENI",
 }
 
 // String implements fmt.Stringer.String.

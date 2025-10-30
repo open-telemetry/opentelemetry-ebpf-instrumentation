@@ -374,10 +374,35 @@ func TestSuite_Python(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python.yml", path.Join(pathOutput, "test-suite-python.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8380`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8380`)
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_OPEN_PORT=8380`,
+		`OTEL_EBPF_EXECUTABLE_PATH=`,
+		`TEST_SERVICE_PORTS=8381:8380`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-java`,
+	)
 	require.NoError(t, compose.Up())
 	t.Run("Python RED metrics", testREDMetricsPythonHTTP)
 	t.Run("Python RED metrics with timeouts", testREDMetricsTimeoutPythonHTTP)
+	t.Run("Python DNS RED metrics", testREDMetricsDNSPython)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonProm(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python.yml", path.Join(pathOutput, "test-suite-python-prom.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_OPEN_PORT=8380`,
+		`OTEL_EBPF_EXECUTABLE_PATH=`,
+		`TEST_SERVICE_PORTS=8381:8380`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-promscrape`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("Python RED metrics", testREDMetricsPythonHTTP)
+	t.Run("Python RED metrics with timeouts", testREDMetricsTimeoutPythonHTTP)
+	t.Run("Python DNS RED metrics", testREDMetricsDNSPython)
 	require.NoError(t, compose.Close())
 }
 
@@ -453,7 +478,14 @@ func TestSuite_PythonTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python.yml", path.Join(pathOutput, "test-suite-python-tls.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8380`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8380`, `TESTSERVER_DOCKERFILE_SUFFIX=_tls`)
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_OPEN_PORT=8380`,
+		`OTEL_EBPF_EXECUTABLE_PATH=`,
+		`TEST_SERVICE_PORTS=8381:8380`,
+		`TESTSERVER_DOCKERFILE_SUFFIX=_tls`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-java`,
+	)
 	require.NoError(t, compose.Up())
 	t.Run("Python SSL RED metrics", testREDMetricsPythonHTTPS)
 	require.NoError(t, compose.Close())
