@@ -1,4 +1,4 @@
-module opentelemetry.io/obi/mongo
+module go.opentelemetry.io/obi/configs/offsets/mongo
 
 go 1.25.1
 
