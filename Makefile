@@ -368,7 +368,7 @@ oats-test-kafka: oats-prereq
 	cd internal/test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
 .PHONY: oats-test-http
-oats-test-http: oats-prereq
+oats-test-http:
 	mkdir -p internal/test/oats/http/$(TEST_OUTPUT)/run
 	cd internal/test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
