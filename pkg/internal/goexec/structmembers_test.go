@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/test/tools"
+	"go.opentelemetry.io/obi/internal/test/tools"
 )
 
 var (
@@ -51,16 +51,16 @@ func TestMain(m *testing.M) {
 	var err error
 	baseDir := tools.ProjectDir()
 	// Compiling the same executable twice, with and without debug data so we can inspect it later in the tests
-	debugData, err = compileELF(baseDir + "/test/cmd/pingserver/server.go").DWARF()
+	debugData, err = compileELF(baseDir + "/internal/test/cmd/pingserver/server.go").DWARF()
 	if err != nil {
 		panic(err)
 	}
-	smallELF = compileELF(baseDir+"/test/cmd/pingserver/server.go", "-ldflags", "-s -w")
-	grpcElf, err = compileELF(baseDir + "/test/cmd/grpc/server/server.go").DWARF()
+	smallELF = compileELF(baseDir+"/internal/test/cmd/pingserver/server.go", "-ldflags", "-s -w")
+	grpcElf, err = compileELF(baseDir + "/internal/test/cmd/grpc/server/server.go").DWARF()
 	if err != nil {
 		panic(err)
 	}
-	smallGRPCElf = compileELF(baseDir+"/test/cmd/grpc/server/server.go", "-ldflags", "-s -w")
+	smallGRPCElf = compileELF(baseDir+"/internal/test/cmd/grpc/server/server.go", "-ldflags", "-s -w")
 	m.Run()
 }
 
