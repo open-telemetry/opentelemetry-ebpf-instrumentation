@@ -42,7 +42,7 @@ CLANG_TIDY ?= clang-tidy
 CILIUM_EBPF_VER ?= $(call gomod-version,cilium/ebpf)
 
 # regular expressions for excluded file patterns
-EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)|(/cmd/obi-genfiles)"
+EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/internal/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)|(/cmd/obi-genfiles)"
 
 .DEFAULT_GOAL := all
 
@@ -263,13 +263,13 @@ cleanup-integration-test: $(KIND)
 run-integration-test:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./test/integration/... --tags=integration
+	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/... --tags=integration
 
 .PHONY: run-integration-test-k8s
 run-integration-test-k8s:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./test/integration/... --tags=integration_k8s
+	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/... --tags=integration_k8s
 
 .PHONY: run-integration-test-vm
 run-integration-test-vm:
@@ -294,30 +294,30 @@ run-integration-test-vm:
 			-failfast \
 			-v -a \
 			-tags=integration \
-			-run="^($(TEST_PATTERN))\$$" ./test/integration/...; \
+			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration/...; \
 	fi
 
 .PHONY: run-integration-test-arm
 run-integration-test-arm:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 90m -a ./test/integration/... --tags=integration -run "^TestMultiProcess"
+	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration/... --tags=integration -run "^TestMultiProcess"
 
 .PHONY: integration-test-matrix-json
 integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" test/integration "$${PARTITIONS:-5}"
+	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" internal/test/integration "$${PARTITIONS:-5}"
 
 .PHONY: vm-integration-test-matrix-json
 vm-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" test/integration "$${PARTITIONS:-3}" "TestMultiProcess"
+	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" internal/test/integration "$${PARTITIONS:-3}" "TestMultiProcess"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
-	@./scripts/generate-dir-matrix.sh test/integration/k8s common
+	@./scripts/generate-dir-matrix.sh internal/test/integration/k8s common
 
 .PHONY: oats-integration-test-matrix-json
 oats-integration-test-matrix-json:
-	@./scripts/generate-dir-matrix.sh test/oats
+	@./scripts/generate-dir-matrix.sh internal/test/oats
 
 .PHONY: integration-test
 integration-test: prereqs prepare-integration-test
@@ -354,28 +354,28 @@ oats-prereq: $(GINKGO) docker-generate
 
 .PHONY: oats-test-sql
 oats-test-sql: oats-prereq
-	mkdir -p test/oats/sql/$(TEST_OUTPUT)/run
-	cd test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	mkdir -p internal/test/oats/sql/$(TEST_OUTPUT)/run
+	cd internal/test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
 .PHONY: oats-test-redis
 oats-test-redis: oats-prereq
-	mkdir -p test/oats/redis/$(TEST_OUTPUT)/run
-	cd test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	mkdir -p internal/test/oats/redis/$(TEST_OUTPUT)/run
+	cd internal/test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
 .PHONY: oats-test-kafka
 oats-test-kafka: oats-prereq
-	mkdir -p test/oats/kafka/$(TEST_OUTPUT)/run
-	cd test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	mkdir -p internal/test/oats/kafka/$(TEST_OUTPUT)/run
+	cd internal/test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
 .PHONY: oats-test-http
 oats-test-http: oats-prereq
-	mkdir -p test/oats/http/$(TEST_OUTPUT)/run
-	cd test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	mkdir -p internal/test/oats/http/$(TEST_OUTPUT)/run
+	cd internal/test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
 .PHONY: oats-test-mongo
 oats-test-mongo: oats-prereq
-	mkdir -p test/oats/mongo/$(TEST_OUTPUT)/run
-	cd test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	mkdir -p internal/test/oats/mongo/$(TEST_OUTPUT)/run
+	cd internal/test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
 .PHONY: oats-test
 oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http
@@ -383,7 +383,7 @@ oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-te
 
 .PHONY: oats-test-debug
 oats-test-debug: oats-prereq
-	cd test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h $(GINKGO) -v -r
+	cd internal/test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h $(GINKGO) -v -r
 
 .PHONY: license-header-check
 license-header-check:
