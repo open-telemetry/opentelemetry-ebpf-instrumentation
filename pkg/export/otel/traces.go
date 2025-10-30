@@ -291,24 +291,15 @@ func createZapLoggerDev(sdkLogLevel string) *zap.Logger {
 	if sdkLogLevel == "" {
 		return zap.NewNop()
 	}
-	config := zap.NewDevelopmentConfig()
 
 	var level zapcore.Level
-	switch sdkLogLevel {
-	case "debug":
-		level = zapcore.DebugLevel
-	case "info":
-		level = zapcore.InfoLevel
-	case "warn":
-		level = zapcore.WarnLevel
-	case "error":
-		level = zapcore.ErrorLevel
-	default:
-		slog.Error("unknown trace exporter log level, use: debug, info, warn or error", "level", sdkLogLevel)
-		return zap.NewNop()
+	if err := level.UnmarshalText([]byte(sdkLogLevel)); err != nil {
+		slog.Error("unsupported trace exporter logger level", "error", err, "level", sdkLogLevel)
 	}
 
+	config := zap.NewProductionConfig()
 	config.Level = zap.NewAtomicLevelAt(level)
+
 	logger, err := config.Build()
 	if err != nil {
 		slog.Error("unable to create trace exporter logger", "error", err)
