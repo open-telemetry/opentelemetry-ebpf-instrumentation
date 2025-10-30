@@ -1,0 +1,39 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+module-sets:
+  obi:
+    version: v0.1.0
+    modules:
+      - go.opentelemetry.io/obi
+excluded-modules:
+  - go.opentelemetry.io/obi/NOTICES/github.com/hashicorp/go-version/go.mod
+  - go.opentelemetry.io/obi/NOTICES/github.com/hashicorp/golang-lru/v2/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/gomongov2/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_otel/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/gohttp2/client/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/gohttp2/server/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/gomongo/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/gokafka-seg/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/worker/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/gokafka/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/sqlclient/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/gosql/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/testserver_1.17/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_otel_grpc/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/goredis/go.mod
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_grpc_server_mux/go.mod
+  - go.opentelemetry.io/obi/internal/test/oats/redis/go.mod
+  - go.opentelemetry.io/obi/internal/test/oats/sql/go.mod
+  - go.opentelemetry.io/obi/internal/test/oats/kafka/go.mod
+  - go.opentelemetry.io/obi/internal/test/oats/mongo/go.mod
+  - go.opentelemetry.io/obi/internal/test/oats/http/go.mod
+  - go.opentelemetry.io/obi/internal/tools/go.mod
+  - go.opentelemetry.io/obi/configs/offsets/sarama/go.mod
+  - go.opentelemetry.io/obi/configs/offsets/redis/go.mod
+  - go.opentelemetry.io/obi/configs/offsets/mongov2/go.mod
+  - go.opentelemetry.io/obi/configs/offsets/mongo/go.mod
+  - go.opentelemetry.io/obi/configs/offsets/shopify/go.mod
+  - go.opentelemetry.io/obi/configs/offsets/kafkago/go.mod
+  - go.opentelemetry.io/obi/configs/offsets/otelsdk/go.mod
