@@ -967,17 +967,6 @@ func testHostInfo(t *testing.T) {
 	})
 }
 
-func testPrometheusDNS(t *testing.T) {
-	pq := prom.Client{HostPort: prometheusHostPort}
-	var results []prom.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		var err error
-		results, err = pq.Query(`dns_lookup_duration_seconds_count{}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	})
-}
-
 func testPrometheusBPFMetrics(t *testing.T) {
 	t.Skip("BPF metrics are not available in the test environment")
 	pq := prom.Client{HostPort: prometheusHostPort}
