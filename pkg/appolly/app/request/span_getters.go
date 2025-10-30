@@ -127,6 +127,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if span.Type == EventTypeKafkaClient || span.Type == EventTypeKafkaServer {
 				return semconv.MessagingSystem("kafka")
 			}
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
+				return semconv.MessagingSystem("aws-sqs")
+			}
 			return semconv.MessagingSystem("unknown")
 		}
 	case attr.MessagingDestination:
@@ -134,7 +137,31 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if span.Type == EventTypeKafkaClient || span.Type == EventTypeKafkaServer {
 				return semconv.MessagingDestinationName(span.Path)
 			}
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
+				return semconv.MessagingDestinationName(span.AWS.SQS.Destination)
+			}
 			return semconv.MessagingDestinationName("")
+		}
+	case attr.MessagingOpName:
+		getter = func(span *Span) attribute.KeyValue {
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
+				return MessagingOperationName(span.AWS.SQS.OperationName)
+			}
+			return MessagingOperationName("")
+		}
+	case attr.MessagingOpType:
+		getter = func(span *Span) attribute.KeyValue {
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
+				return MessagingOperationType(span.AWS.SQS.OperationType)
+			}
+			return MessagingOperationType("")
+		}
+	case attr.MessagingMessageID:
+		getter = func(span *Span) attribute.KeyValue {
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
+				return MessagingMessageID(span.AWS.SQS.MessageID)
+			}
+			return MessagingMessageID("")
 		}
 	case attr.CudaKernelName:
 		getter = func(span *Span) attribute.KeyValue { return CudaKernel(span.Method) }
@@ -189,14 +216,14 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.AWSRequestID:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
-				return AWSRequestID(s.AWS.S3.RequestID)
+				return AWSRequestID(s.AWS.S3.Meta.RequestID)
 			}
 			return AWSRequestID("")
 		}
 	case attr.AWSExtendedRequestID:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
-				return AWSExtendedRequestID(s.AWS.S3.ExtendedRequestID)
+				return AWSExtendedRequestID(s.AWS.S3.Meta.ExtendedRequestID)
 			}
 			return AWSExtendedRequestID("")
 		}
@@ -214,10 +241,17 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			return AWSS3Key("")
 		}
+	case attr.AWSSQSQueueURL:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSQS && s.AWS != nil {
+				return AWSSQSQueueURL(s.AWS.SQS.QueueURL)
+			}
+			return AWSSQSQueueURL("")
+		}
 	case attr.CloudRegion:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
-				return CloudRegion(s.AWS.S3.Region)
+				return CloudRegion(s.AWS.S3.Meta.Region)
 			}
 			return CloudRegion("")
 		}

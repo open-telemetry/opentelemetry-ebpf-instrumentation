@@ -360,14 +360,27 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		}
 
 		if span.SubType == request.HTTPSubtypeAWSS3 && span.AWS != nil {
+			s3 := span.AWS.S3
 			attrs = append(attrs, semconv.RPCService("S3"))
 			attrs = append(attrs, request.RPCSystem("aws-api"))
-			attrs = append(attrs, semconv.RPCMethod(span.AWS.S3.Method))
-			attrs = append(attrs, semconv.CloudRegion(span.AWS.S3.Region))
-			attrs = append(attrs, semconv.AWSRequestID(span.AWS.S3.RequestID))
-			attrs = append(attrs, request.AWSExtendedRequestID(span.AWS.S3.ExtendedRequestID))
-			attrs = append(attrs, semconv.AWSS3Bucket(span.AWS.S3.Bucket))
-			attrs = append(attrs, semconv.AWSS3Key(span.AWS.S3.Key))
+			attrs = append(attrs, semconv.RPCMethod(s3.Method))
+			attrs = append(attrs, semconv.CloudRegion(s3.Meta.Region))
+			attrs = append(attrs, semconv.AWSRequestID(s3.Meta.RequestID))
+			attrs = append(attrs, request.AWSExtendedRequestID(s3.Meta.ExtendedRequestID))
+			attrs = append(attrs, semconv.AWSS3Bucket(s3.Bucket))
+			attrs = append(attrs, semconv.AWSS3Key(s3.Key))
+		}
+
+		if span.SubType == request.HTTPSubtypeAWSSQS && span.AWS != nil {
+			sqs := span.AWS.SQS
+			attrs = append(attrs, request.MessagingOperationName(sqs.OperationName))
+			attrs = append(attrs, request.MessagingOperationType(sqs.OperationType))
+			attrs = append(attrs, request.MessagingDestinationName(sqs.Destination))
+			attrs = append(attrs, request.MessagingMessageID(sqs.MessageID))
+			attrs = append(attrs, semconv.CloudRegion(sqs.Meta.Region))
+			attrs = append(attrs, semconv.AWSRequestID(sqs.Meta.RequestID))
+			attrs = append(attrs, request.AWSExtendedRequestID(sqs.Meta.ExtendedRequestID))
+			attrs = append(attrs, request.AWSSQSQueueURL(sqs.QueueURL))
 		}
 	case request.EventTypeGRPCClient:
 		attrs = []attribute.KeyValue{

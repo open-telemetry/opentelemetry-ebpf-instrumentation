@@ -523,12 +523,22 @@ func TestSuite_PythonElasticsearch(t *testing.T) {
 }
 
 func TestSuite_PythonAWSS3(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-python-aws-s3.yml", path.Join(pathOutput, "test-suite-python-aws-s3.log"))
+	compose, err := docker.ComposeSuite("docker-compose-python-aws.yml", path.Join(pathOutput, "test-suite-python-aws-s3.log"))
 	require.NoError(t, err)
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python AWS S3", testPythonAWSS3)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonAWSSQS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-aws.yml", path.Join(pathOutput, "test-suite-python-aws-sqs.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python AWS SQS", testPythonAWSSQS)
 	require.NoError(t, compose.Close())
 }
 

@@ -9,9 +9,9 @@ services:
 
   testserver:
     build:
-      context: ../../test/integration/components/pythons3client/
+      context: ../../test/integration/components/pythonawsclient/
       dockerfile: Dockerfile
-    image: hatest-testserver-python-s3client
+    image: hatest-testserver-python-aws-client
     ports:
       - "${TEST_SERVICE_PORTS}"
     depends_on:
@@ -50,7 +50,7 @@ services:
       OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_METRICS_FEATURES: "application"
-      OTEL_EBPF_BPF_BUFFER_SIZE_HTTP: 1024
+      OTEL_EBPF_BPF_BUFFER_SIZE_HTTP: 2048
       OTEL_EBPF_HTTP_AWS_ENABLED: true
     depends_on:
       testserver:
