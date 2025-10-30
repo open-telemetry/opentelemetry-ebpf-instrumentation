@@ -58,7 +58,7 @@ static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
 }
 
 static __always_inline void
-trace_key_from_pid_tid_with_p_key(trace_key_t *t_key, pid_key_t *p_key, u64 id) {
+trace_key_from_pid_tid_with_p_key(trace_key_t *t_key, const pid_key_t *p_key, u64 id) {
     t_key->p_key = *p_key;
 
     u64 extra_id = extra_runtime_id_with_task_id(id);

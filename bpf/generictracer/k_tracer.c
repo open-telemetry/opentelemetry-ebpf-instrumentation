@@ -210,7 +210,7 @@ int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
 }
 
 SEC("kprobe/udp_sendmsg")
-int BPF_KPROBE(obi_kprobe_udp_sendmsg, struct sock *sk) {
+int BPF_KPROBE(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *msg, size_t len) {
     (void)ctx;
 
     u64 id = bpf_get_current_pid_tgid();
@@ -219,9 +219,30 @@ int BPF_KPROBE(obi_kprobe_udp_sendmsg, struct sock *sk) {
         return 0;
     }
 
-    bpf_dbg_printk("=== udp_sendmsg %llx sock %llx ===", id, sk);
+    bpf_dbg_printk("=== udp_sendmsg %llx sock %llx len %d ===", id, sk, len);
 
     store_sock_pid(sk);
+
+    send_args_t s_args = {.size = len};
+
+    if (parse_sock_info(sk, &s_args.p_conn.conn)) {
+        u16 orig_dport = s_args.p_conn.conn.d_port;
+        dbg_print_http_connection_info(&s_args.p_conn.conn);
+        if (is_dns(&s_args.p_conn.conn)) {
+            sort_connection_info(&s_args.p_conn.conn);
+            s_args.p_conn.pid = pid_from_pid_tgid(id);
+            s_args.orig_dport = orig_dport;
+
+            unsigned char *buf = iovec_memory();
+            if (buf) {
+                len = read_msghdr_buf(msg, buf, len);
+                if (len) {
+                    bpf_dbg_printk("Got buffer with len %d", len);
+                    handle_dns_buf(buf, len, &s_args.p_conn, orig_dport);
+                }
+            }
+        }
+    }
 
     return 0;
 }
@@ -806,9 +827,33 @@ int BPF_KRETPROBE(obi_kretprobe_sock_recvmsg, int copied_len) {
             info.pid = pid_from_pid_tgid(id);
             setup_cp_support_conn_info(&info, false);
             setup_connection_to_pid_mapping(id, &info, orig_dport);
+
+            if (is_dns(&info.conn)) {
+                sort_connection_info(&info.conn);
+
+                iovec_iter_ctx *iov_ctx = (iovec_iter_ctx *)&args->iovec_ctx;
+
+                if (!iov_ctx->iov && !iov_ctx->ubuf) {
+                    bpf_dbg_printk("iovec_ptr found in kprobe is NULL, ignoring this sock_recvmsg");
+
+                    goto done;
+                }
+
+                unsigned char *buf = iovec_memory();
+                if (buf) {
+                    copied_len = read_iovec_ctx(iov_ctx, buf, copied_len);
+                    if (!copied_len) {
+                        bpf_dbg_printk("Not copied anything");
+                    } else {
+                        bpf_d_printk("Got potential dns buffer with len %d", copied_len);
+                        handle_dns_buf(buf, copied_len, &info, orig_dport);
+                    }
+                }
+            }
         }
     }
 
+done:
     bpf_map_delete_elem(&active_recv_args, &id);
 
     return 0;

@@ -36,6 +36,12 @@ func (im *InMemory) Store(entry *DNSEntry) {
 	}
 }
 
+func (im *InMemory) StorePair(ip, name string) {
+	im.access.Lock()
+	defer im.access.Unlock()
+	im.entries[ip] = []string{name}
+}
+
 func (im *InMemory) GetHostnames(ip string) ([]string, error) {
 	im.access.RLock()
 	defer im.access.RUnlock()
