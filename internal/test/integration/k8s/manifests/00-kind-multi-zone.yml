@@ -12,7 +12,7 @@ nodes:
       - hostPath: ../../../configs
         containerPath: /configs
       # testoutput folder to store coverage data
-      - hostPath: ../../../../../../testoutput
+      - hostPath: ../../../../../testoutput
         containerPath: /testoutput
   - role: worker
     labels:
@@ -21,10 +21,10 @@ nodes:
       cluster.x-k8s.io/cluster-name: obi-k8s-test-cluster
     extraMounts:
       # configuration files that need to be mounted in the host
-      - hostPath: ../../../configs
+      - hostPath: ../../configs
         containerPath: /configs
       # testoutput folder to store coverage data
-      - hostPath: ../../../../../../testoutput
+      - hostPath: ../../../../testoutput
         containerPath: /testoutput
   - role: worker
     labels:
@@ -35,10 +35,10 @@ nodes:
       deployment/zone: otel
     extraMounts:
       # configuration files that need to be mounted in the host
-      - hostPath: ../../../configs
+      - hostPath: ../../configs
         containerPath: /configs
       # testoutput folder to store coverage data
-      - hostPath: ../../../../../../testoutput
+      - hostPath: ../../../../testoutput
         containerPath: /testoutput
     extraPortMappings:
       # to avoid having to do port-forwarding from the Go client (a bit cumbersome process),
@@ -50,4 +50,3 @@ nodes:
         hostPort: 38999
       - containerPort: 9090
         hostPort: 39090
-
