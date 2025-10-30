@@ -97,11 +97,15 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 	}
 
 	logger := slog.With("component", "transform.NameResolver")
+	dnsDB, err := store.NewInMemory(cfg.CacheLen)
+	if err != nil {
+		logger.Warn("failed to create reverse DNS cache", "error", err)
+	}
 
 	nr := NameResolver{
 		cfg:     cfg,
 		db:      kubeStore,
-		dnsDB:   store.NewInMemory(),
+		dnsDB:   dnsDB,
 		cache:   expirable.NewLRU[string, string](cfg.CacheLen, nil, cfg.CacheTTL),
 		sources: sources,
 		logger:  logger,
