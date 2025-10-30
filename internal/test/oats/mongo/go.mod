@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/test/oats/http
+module go.opentelemetry.io/obi/internal/test/oats/http
 
 go 1.25.0
 

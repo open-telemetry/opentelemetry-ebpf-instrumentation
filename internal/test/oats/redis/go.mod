@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/test/oats/redis
+module go.opentelemetry.io/obi/internal/test/oats/redis
 
 go 1.25.0
 

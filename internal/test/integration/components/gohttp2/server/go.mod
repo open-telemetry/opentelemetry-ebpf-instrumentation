@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/test/integration/components/go_http2/server
+module go.opentelemetry.io/obi/internal/test/integration/components/go_http2/server
 
 go 1.25.0
 

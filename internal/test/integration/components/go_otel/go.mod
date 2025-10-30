@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/test/integration/components/go_otel
+module go.opentelemetry.io/obi/internal/test/integration/components/go_otel
 
 go 1.25.0
 

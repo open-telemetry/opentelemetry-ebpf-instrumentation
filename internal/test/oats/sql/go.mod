@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/test/oats/sql
+module go.opentelemetry.io/obi/internal/test/oats/sql
 
 go 1.25.0
 

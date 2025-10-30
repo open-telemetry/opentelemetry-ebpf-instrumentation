@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/test/integration/components/gokafka
+module go.opentelemetry.io/obi/internal/test/integration/components/gokafka
 
 go 1.25.0
 

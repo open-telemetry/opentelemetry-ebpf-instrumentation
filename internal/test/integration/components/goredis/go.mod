@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/test/integration/components/goredis
+module go.opentelemetry.io/obi/internal/test/integration/components/goredis
 
 go 1.25.0
 

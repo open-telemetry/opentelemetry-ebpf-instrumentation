@@ -1,10 +1,10 @@
-module go.opentelemetry.io/obi/test/integration/components/old_grpc/backend
+module go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend
 
 go 1.25.0
 
 require (
 	github.com/caarlos0/env/v7 v7.1.0
-	go.opentelemetry.io/obi/test/integration/components/old_grpc/worker v0.0.0-20251020181413-b62a788abdb6
+	go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/worker v0.0.0-20251020181413-b62a788abdb6
 	google.golang.org/grpc v1.55.0
 	google.golang.org/protobuf v1.30.0
 )
@@ -19,4 +19,4 @@ require (
 
 replace go.opentelemetry.io/obi v0.0.0 => ../../../../../../../
 
-replace go.opentelemetry.io/obi/test/integration/components/old_grpc/worker => ../worker/
+replace go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/worker => ../worker/

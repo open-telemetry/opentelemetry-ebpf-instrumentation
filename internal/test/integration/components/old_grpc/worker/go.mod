@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/test/integration/components/old_grpc/worker
+module go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/worker
 
 go 1.25.0
 

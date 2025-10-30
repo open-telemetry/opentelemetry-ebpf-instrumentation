@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/test/integration/components/sqlclient
+module go.opentelemetry.io/obi/internal/test/integration/components/sqlclient
 
 go 1.25.0
 

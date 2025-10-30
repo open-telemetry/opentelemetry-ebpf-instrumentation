@@ -1,4 +1,4 @@
-module go.opentelemetry.io/obi/test/integration/components/gosql
+module go.opentelemetry.io/obi/internal/test/integration/components/gosql
 
 go 1.25.0
 
