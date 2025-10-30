@@ -104,8 +104,11 @@ $(TOOLS)/go-licenses: PACKAGE=github.com/google/go-licenses/v2
 GOTESTSUM = $(TOOLS)/gotestsum
 $(TOOLS)/gotestsum: PACKAGE=gotest.tools/gotestsum
 
+MULTIMOD = $(TOOLS)/multimod
+$(TOOLS)/multimod: PACKAGE=go.opentelemetry.io/build-tools/multimod
+
 .PHONY: tools
-tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM)
+tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM) $(MULTIMOD)
 
 ### Development Tools (end) #################################################
 
@@ -454,3 +457,18 @@ check-clean-work-tree:
 check-go-mod:
 	go mod tidy
 	git diff -s --exit-code
+
+.PHONY: verify-mods
+verify-mods: $(MULTIMOD)
+	$(MULTIMOD) verify
+
+.PHONY: prerelease
+prerelease: verify-mods
+	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
+	$(MULTIMOD) prerelease -m ${MODSET}
+
+COMMIT ?= "HEAD"
+.PHONY: add-tags
+add-tags: verify-mods
+	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
+	$(MULTIMOD) tag -m ${MODSET} -c ${COMMIT}

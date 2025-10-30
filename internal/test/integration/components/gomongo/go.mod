@@ -1,4 +1,4 @@
-module opentelemetry.io/obi/mongo
+module go.opentelemetry.io/obi/internal/test/integration/components/gomongo
 
 go 1.25.1
 
