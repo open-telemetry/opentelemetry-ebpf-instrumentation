@@ -295,6 +295,7 @@ func createZapLoggerDev(sdkLogLevel string) *zap.Logger {
 	var level zapcore.Level
 	if err := level.UnmarshalText([]byte(sdkLogLevel)); err != nil {
 		slog.Error("unsupported trace exporter logger level", "error", err, "level", sdkLogLevel)
+		return zap.NewNop()
 	}
 
 	config := zap.NewDevelopmentConfig()
