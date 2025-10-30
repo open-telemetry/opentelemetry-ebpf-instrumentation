@@ -55,6 +55,7 @@ services:
       OTEL_EBPF_METRICS_FEATURES: "application"
       OTEL_EBPF_BPF_BUFFER_SIZE_HTTP: 1024
       OTEL_EBPF_HTTP_ELASTICSEARCH_ENABLED: true
+      OTEL_EBPF_PROTOCOL_DEBUG_PRINT: true
     depends_on:
       testserver:
         condition: service_started

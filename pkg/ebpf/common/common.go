@@ -128,6 +128,7 @@ type MisclassifiedEvent struct {
 }
 
 type EBPFParseContext struct {
+	protocolDebug              bool
 	h2c                        *lru.Cache[uint64, h2Connection]
 	redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
 	largeBuffers               *expirable.LRU[largeBufferKey, *largeBuffer]
@@ -156,6 +157,7 @@ func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") 
 func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.Span], filter ServiceFilter) *EBPFParseContext {
 	var (
 		err                        error
+		protocolDebug              bool
 		redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
 		mysqlPreparedStatements    *simplelru.LRU[mysqlPreparedStatementsKey, string]
 		postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, string]
@@ -170,6 +172,8 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largeBuffer](1024, nil, 5*time.Minute)
 
 	if cfg != nil {
+		protocolDebug = cfg.ProtocolDebug
+
 		if cfg.RedisDBCache.Enabled {
 			redisDBCache, err = simplelru.NewLRU[BpfConnectionInfoT, int](cfg.RedisDBCache.MaxSize, nil)
 			if err != nil {
@@ -206,6 +210,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	}
 
 	return &EBPFParseContext{
+		protocolDebug:              protocolDebug,
 		h2c:                        h2c,
 		redisDBCache:               redisDBCache,
 		largeBuffers:               largeBuffers,
