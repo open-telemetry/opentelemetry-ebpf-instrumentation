@@ -6,7 +6,7 @@ require (
 	github.com/caarlos0/env/v7 v7.1.0
 	go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/worker v0.0.0-20251020181413-b62a788abdb6
 	google.golang.org/grpc v1.56.3
-	google.golang.org/protobuf v1.30.0
+	google.golang.org/protobuf v1.33.0
 )
 
 require (
