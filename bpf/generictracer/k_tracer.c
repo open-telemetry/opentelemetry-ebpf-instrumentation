@@ -1129,7 +1129,8 @@ int obi_handle_buf_with_args(void *ctx) {
 
     if (is_http(args->small_buf, MIN_HTTP_SIZE, &args->packet_type)) {
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_http);
-    } else if (is_http2_or_grpc(args->small_buf, MIN_HTTP2_SIZE)) {
+    } else if (is_http2_or_grpc(args->small_buf, MIN_HTTP2_SIZE) &&
+               (args->protocol_type != k_protocol_type_http)) {
         bpf_dbg_printk("Found HTTP2 or gRPC connection");
         http2_conn_info_data_t data = {
             .id = 0,

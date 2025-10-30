@@ -43,6 +43,11 @@ static __always_inline void init_new_trace(tp_info_t *tp) {
 #endif
 }
 
+static __always_inline u8 already_tracked_tcp(const pid_connection_info_t *p_conn) {
+    tcp_req_t *tcp_info = bpf_map_lookup_elem(&ongoing_tcp_req, p_conn);
+    return tcp_info != 0;
+}
+
 static __always_inline void set_tcp_trace_info(
     u32 type, connection_info_t *conn, tp_info_t *tp, u32 pid, u8 ssl, u16 orig_dport) {
     tp_info_pid_t *tp_p = tp_buf();
@@ -130,6 +135,8 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
             u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
             ret = postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
         }
+        break;
+    case k_protocol_type_http:
         break;
     case k_protocol_type_unknown:
         break;
