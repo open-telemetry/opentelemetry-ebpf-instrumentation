@@ -21,6 +21,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -31,7 +32,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
-	"go.opentelemetry.io/obi/test/collector"
 )
 
 var fakeMux = sync.Mutex{}
