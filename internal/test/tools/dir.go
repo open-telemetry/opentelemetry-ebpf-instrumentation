@@ -22,14 +22,30 @@ func ProjectDir() string {
 		panic("can't get runtime caller(0) file path")
 	}
 	thisDir := filepath.Dir(thisFile)
-
-	// If we move this file path, this probably will need to change
-	// Unit tests are provided to avoid a file move to break other tests
-	projectDirFromHere := path.Join(thisDir, "..", "..", "..")
-
-	abs, err := filepath.Abs(projectDirFromHere)
+	var err error
+	thisDir, err = filepath.Abs(thisDir)
 	if err != nil {
-		panic("can't get project's absolute file: " + err.Error())
+		panic("can't get current file absolute path: " + err.Error())
 	}
-	return filepath.Clean(abs)
+
+	// Move up until we find the project's root folder, which is the directory that
+	// contains the "go.mod" and "go.sum" files.
+	// It's important that this file is not placed in another subproject with its own "go.mod" and "go.sum"
+	isProjectRoot := func(dir string) bool {
+		for _, f := range []string{"go.mod", "go.sum"} {
+			if _, err := os.Stat(path.Join(dir, f)); err != nil {
+				return false
+			}
+		}
+		return true
+	}
+
+	for i := 0; i < 50; i++ { // Limit directory traversal to prevent infinite loops
+		if isProjectRoot(thisDir) {
+			break
+		}
+		thisDir = filepath.Dir(thisDir)
+	}
+
+	return filepath.Clean(thisDir)
 }

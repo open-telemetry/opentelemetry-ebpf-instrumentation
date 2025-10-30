@@ -313,7 +313,7 @@ func testServiceGraphMetricsForHTTPLibrary(t *testing.T, svcNs string) {
 }
 
 func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
-	jsonBody, err := os.ReadFile(path.Join(pathRoot, "test", "integration", "components", "testserver", "jsonrpc", "body", "formated.json"))
+	jsonBody, err := os.ReadFile(path.Join(pathRoot, "internal", "test", "integration", "components", "testserver", "jsonrpc", "body", "formated.json"))
 	require.NoError(t, err)
 	urlPath := "/jsonrpc"
 	expectedMethod := "Arith.M"
