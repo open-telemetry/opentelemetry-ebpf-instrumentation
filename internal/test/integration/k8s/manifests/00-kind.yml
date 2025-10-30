@@ -7,7 +7,7 @@ nodes:
       cluster.x-k8s.io/cluster-name: obi-k8s-test-cluster
     extraMounts:
       # configuration files that need to be mounted in the host
-      - hostPath: ../../../configs
+      - hostPath: ../../configs
         containerPath: /configs
       # testoutput folder to store coverage data
       - hostPath: ../../../../../testoutput

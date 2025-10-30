@@ -9,7 +9,7 @@ nodes:
       topology.kubernetes.io/zone: control-plane-zone
     extraMounts:
       # configuration files that need to be mounted in the host
-      - hostPath: ../../../configs
+      - hostPath: ../../configs
         containerPath: /configs
       # testoutput folder to store coverage data
       - hostPath: ../../../../../testoutput

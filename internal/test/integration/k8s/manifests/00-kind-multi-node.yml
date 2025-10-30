@@ -13,7 +13,7 @@ nodes:
             node-labels: "deployment/zone=go-progs"  
     extraMounts:
       # configuration files that need to be mounted in the host
-      - hostPath: ../../../configs
+      - hostPath: ../../configs
         containerPath: /configs
       # testoutput folder to store coverage data
       - hostPath: ../../../../../testoutput
@@ -37,7 +37,7 @@ nodes:
             node-labels: "deployment/zone=other-progs"  
     extraMounts:
       # configuration files that need to be mounted in the host
-      - hostPath: ../../../configs
+      - hostPath: ../../configs
         containerPath: /configs
       # testoutput folder to store coverage data
       - hostPath: ../../../../../testoutput
@@ -51,7 +51,7 @@ nodes:
             node-labels: "deployment/zone=otel"  
     extraMounts:
       # configuration files that need to be mounted in the host
-      - hostPath: ../../../configs
+      - hostPath: ../../configs
         containerPath: /configs
       # testoutput folder to store coverage data
       - hostPath: ../../../../../testoutput
@@ -73,7 +73,7 @@ nodes:
       cluster.x-k8s.io/cluster-name: obi-k8s-test-cluster
     extraMounts:
       # configuration files that need to be mounted in the host
-      - hostPath: ../../../configs
+      - hostPath: ../../configs
         containerPath: /configs
       # testoutput folder to store coverage data
       - hostPath: ../../../../../testoutput
