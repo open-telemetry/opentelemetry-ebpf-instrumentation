@@ -2,7 +2,7 @@ version: "3.9"
 services:
   sqlserver:
     build:
-      context: ../../../integration/components/postgresql
+      context: ../../integration/components/postgresql
       dockerfile: Dockerfile
     image: postgres
     environment:
@@ -11,7 +11,7 @@ services:
       - "5432:5432"
   testserver:
     build:
-      context: ../../../integration/components/gosql
+      context: ../../integration/components/gosql
       dockerfile: Dockerfile
     image: gosqlclient
     ports:
