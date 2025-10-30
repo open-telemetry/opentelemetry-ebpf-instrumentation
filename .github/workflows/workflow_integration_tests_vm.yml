@@ -6,7 +6,7 @@ on:
     paths: ["bpf/**"]
   pull_request:
     branches: ["main", "release-*"]
-    # paths: ["bpf/**"]
+    paths: ["bpf/**"]
 
 permissions:
   contents: read
