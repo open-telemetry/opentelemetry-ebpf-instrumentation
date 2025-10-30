@@ -490,6 +490,8 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
 
     req->has_large_buffers = true;
 
+    bpf_dbg_printk("sending large buffer, size=%d", bytes_len);
+
     bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
     return 0;
 }
