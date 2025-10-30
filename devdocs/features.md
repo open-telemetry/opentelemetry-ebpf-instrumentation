@@ -1,6 +1,6 @@
 # Supported Protocols
 
-| Protocol      | Languages  |    Versions | Methods                                                                            | Secure | Propagates Context |                                                                                                         Limitations 
+| Protocol      | Languages  |    Versions | Methods                                                                            | Secure | Propagates Context |                                                                                                         Limitations
 |:--------------|:----------:|------------:|------------------------------------------------------------------------------------|:------:|-------------------:|--------------------------------------------------------------------------------------------------------------------:|
 | HTTP          |    All     | 1.0/1.1/2.0 | All                                                                                |  Yes   |                Yes |                                                                                                                 N/A |
 | gRPC          |    All     |        1.0+ | All                                                                                |  Yes   |         Only in Go |                       For non go langagues, can't get method for long living connections, will mark method with `*` |
