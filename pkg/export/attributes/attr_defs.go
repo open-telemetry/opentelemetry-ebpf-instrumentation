@@ -229,6 +229,7 @@ func getDefinitions(
 		map[attr.Name]Default{
 			attr.MessagingSystem:      true,
 			attr.MessagingDestination: true,
+			attr.ServerAddr:           true,
 		},
 		extraGroupAttributes[GroupMessaging],
 	)
@@ -277,6 +278,7 @@ func getDefinitions(
 		DBClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
 			Attributes: map[attr.Name]Default{
+				attr.ServerAddr:   true,
 				attr.DBOperation:  true,
 				attr.DBSystemName: true,
 				attr.ErrorType:    true,
