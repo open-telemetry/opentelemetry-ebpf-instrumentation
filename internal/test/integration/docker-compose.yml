@@ -4,7 +4,7 @@ services:
   testserver:
     build:
       context: ../../..
-      dockerfile: test/integration/components/testserver/Dockerfile${TESTSERVER_DOCKERFILE_SUFFIX}
+      dockerfile: internal/test/integration/components/testserver/Dockerfile${TESTSERVER_DOCKERFILE_SUFFIX}
     image: hatest-testserver
     ports:
       - "8080:8080"
@@ -22,7 +22,7 @@ services:
   pingclient:
     build:
       context: ../../..
-      dockerfile: test/integration/components/pingclient/Dockerfile
+      dockerfile: internal/test/integration/components/pingclient/Dockerfile
     image: hatest-pingclient
     environment:
       LOG_LEVEL: DEBUG

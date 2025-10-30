@@ -4,7 +4,7 @@ services:
   testserver:
     build:
       context: ../../..
-      dockerfile: test/integration/components/testserver/Dockerfile${TESTSERVER_DOCKERFILE_SUFFIX}
+      dockerfile: internal/test/integration/components/testserver/Dockerfile${TESTSERVER_DOCKERFILE_SUFFIX}
     image: hatest-testserver
     ports:
       - "8080:8080"

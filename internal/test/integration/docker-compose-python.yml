@@ -4,7 +4,7 @@ services:
   testserver:
     build:
       context: ../../..
-      dockerfile: test/integration/components/pythonserver/Dockerfile${TESTSERVER_DOCKERFILE_SUFFIX}
+      dockerfile: internal/test/integration/components/pythonserver/Dockerfile${TESTSERVER_DOCKERFILE_SUFFIX}
     image: hatest-testserver-python
     ports:
       - "${TEST_SERVICE_PORTS}"

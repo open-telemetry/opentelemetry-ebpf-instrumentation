@@ -4,7 +4,7 @@ services:
   testserver:
     build:
       context: ../../..
-      dockerfile: test/integration/components/pythonselfserver/Dockerfile
+      dockerfile: internal/test/integration/components/pythonselfserver/Dockerfile
     image: hatest-testserver-python
     ports:
       - 7771:7771

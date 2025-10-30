@@ -4,7 +4,7 @@ services:
   testserver:
     build:
       context: ../../..
-      dockerfile: test/integration/components/testserver/Dockerfile
+      dockerfile: internal/test/integration/components/testserver/Dockerfile
     image: hatest-testserver
     ports:
       - "8080:8080"

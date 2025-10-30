@@ -4,7 +4,7 @@ services:
   nodeclient:
     build:
       context: ../../..
-      dockerfile: test/integration/components/nodeclient/Dockerfile
+      dockerfile: internal/test/integration/components/nodeclient/Dockerfile
     image: hatest-nodeclient
     command:
       - node
