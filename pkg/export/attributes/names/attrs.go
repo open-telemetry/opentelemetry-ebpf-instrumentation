@@ -53,7 +53,9 @@ const (
 	RPCService             = Name(semconv.RPCServiceKey)
 	RPCGRPCStatusCode      = Name(semconv.RPCGRPCStatusCodeKey)
 	HTTPRoute              = Name(semconv.HTTPRouteKey)
+	MessagingOpName        = Name("messaging.operation.name")
 	MessagingOpType        = Name("messaging.operation.type")
+	MessagingMessageID     = Name(semconv.MessagingMessageIDKey)
 	MessagingSystem        = Name(semconv.MessagingSystemKey)
 	MessagingDestination   = Name(semconv.MessagingDestinationNameKey)
 	GraphQLDocument        = Name(semconv.GraphqlDocumentKey)
@@ -172,6 +174,7 @@ const (
 	AWSExtendedRequestID = Name("aws.extended_request_id")
 	AWSS3Bucket          = Name("aws.s3.bucket")
 	AWSS3Key             = Name("aws.s3.key")
+	AWSSQSQueueURL       = Name("aws.sqs.queue_url")
 
 	// Cloud
 	CloudRegion = Name(semconv.CloudRegionKey)
@@ -182,4 +185,9 @@ const (
 	// GPU/Cuda related attributes
 	CudaKernelName = Name("cuda.kernel.name")
 	CudaMemcpyKind = Name("cuda.memcpy.kind")
+)
+
+// DNS events
+const (
+	DNSQuestionName = Name("dns.question.name")
 )

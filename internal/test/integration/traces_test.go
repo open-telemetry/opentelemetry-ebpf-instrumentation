@@ -858,14 +858,12 @@ func ensureTracesMatch(t *testing.T, urlPath string) {
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/" + urlPath})
 		require.LessOrEqual(t, 5, len(traces))
 		multipleTraces = traces
-	}, test.Interval(500*time.Millisecond))
 
-	// Ensure all 5 traces have proper full chain Java -> Node
-	for _, trace := range multipleTraces {
-		var traceID string
+		// Ensure all 5 traces have proper full chain Java -> Node
+		for _, trace := range multipleTraces {
+			var traceID string
 
-		// Check the information of the java parent span with retry
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+			// Check the information of the java parent span with retry
 			res := trace.FindByOperationName("GET /"+urlPath, "server")
 			require.Len(t, res, 1)
 			parent := res[0]
@@ -903,8 +901,8 @@ func ensureTracesMatch(t *testing.T, urlPath string) {
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 			)
 			assert.Empty(t, sd, sd.String())
-		}, test.Interval(30*time.Millisecond))
-	}
+		}
+	}, test.Interval(500*time.Millisecond))
 }
 
 func testNestedHTTPSTracesKProbes(t *testing.T) {

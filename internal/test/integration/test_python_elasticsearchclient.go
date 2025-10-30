@@ -63,7 +63,7 @@ func assertElasticsearchOperation(t *testing.T, comm, op, queryText, index strin
 		var tq jaeger.TracesQuery
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op})
-		require.GreaterOrEqual(t, len(traces), 1)
+		require.GreaterOrEqual(t, len(traces), 1, resp.Body)
 		lastTrace := traces[len(traces)-1]
 		span := lastTrace.Spans[0]
 
