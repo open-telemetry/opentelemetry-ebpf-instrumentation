@@ -2,6 +2,8 @@
 name: Push to DockerHub (main)
 on:
   push:
+    tags:
+      - "v*.*.*"
     branches:
       - main
 
