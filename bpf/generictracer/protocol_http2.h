@@ -39,6 +39,11 @@ static __always_inline u8 http2_flag_new(u8 flags) {
     return flags & http2_conn_flag_new;
 }
 
+static __always_inline u8 already_tracked_http2(const pid_connection_info_t *p_conn) {
+    http2_conn_info_data_t *http2_info = bpf_map_lookup_elem(&ongoing_http2_connections, p_conn);
+    return http2_info != 0;
+}
+
 static __always_inline http2_grpc_request_t *empty_http2_info() {
     int zero = 0;
     http2_grpc_request_t *value = bpf_map_lookup_elem(&http2_info_mem, &zero);

@@ -1,0 +1,39 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+module-sets:
+  obi:
+    version: v0.1.0
+    modules:
+      - go.opentelemetry.io/obi
+excluded-modules:
+  - github.com/hashicorp/go-version
+  - github.com/hashicorp/golang-lru/v2
+  - go.opentelemetry.io/obi/configs/offsets/kafkago
+  - go.opentelemetry.io/obi/configs/offsets/mongo
+  - go.opentelemetry.io/obi/configs/offsets/mongov2
+  - go.opentelemetry.io/obi/configs/offsets/otelsdk
+  - go.opentelemetry.io/obi/configs/offsets/redis
+  - go.opentelemetry.io/obi/configs/offsets/sarama
+  - go.opentelemetry.io/obi/configs/offsets/shopify
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_grpc_server_mux
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/client
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/server
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_otel
+  - go.opentelemetry.io/obi/internal/test/integration/components/go_otel_grpc
+  - go.opentelemetry.io/obi/internal/test/integration/components/gokafka
+  - go.opentelemetry.io/obi/internal/test/integration/components/gokafka-seg
+  - go.opentelemetry.io/obi/internal/test/integration/components/gomongo
+  - go.opentelemetry.io/obi/internal/test/integration/components/gomongov2
+  - go.opentelemetry.io/obi/internal/test/integration/components/goredis
+  - go.opentelemetry.io/obi/internal/test/integration/components/gosql
+  - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend
+  - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/worker
+  - go.opentelemetry.io/obi/internal/test/integration/components/sqlclient
+  - go.opentelemetry.io/obi/internal/test/integration/components/testserver_1.17
+  - go.opentelemetry.io/obi/internal/test/oats/http
+  - go.opentelemetry.io/obi/internal/test/oats/kafka
+  - go.opentelemetry.io/obi/internal/test/oats/mongo
+  - go.opentelemetry.io/obi/internal/test/oats/redis
+  - go.opentelemetry.io/obi/internal/test/oats/sql
+  - go.opentelemetry.io/obi/internal/tools

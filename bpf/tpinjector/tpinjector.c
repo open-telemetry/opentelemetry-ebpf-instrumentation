@@ -16,9 +16,9 @@
 #include <common/trace_util.h>
 #include <common/tracing.h>
 
-#include <generictracer/types/http2_conn_info_data.h>
-#include <generictracer/maps/ongoing_tcp_req.h>
-#include <generictracer/maps/ongoing_http2_connections.h>
+#include <generictracer/protocol_http.h>
+#include <generictracer/protocol_tcp.h>
+#include <generictracer/protocol_http2.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -171,22 +171,8 @@ static __always_inline u8 is_tracked_go_request(const tp_info_pid_t *tp) {
 }
 
 static __always_inline u8 already_tracked(const pid_connection_info_t *p_conn) {
-    http_info_t *http_info = bpf_map_lookup_elem(&ongoing_http, p_conn);
-    if (http_info && !(http_info->delayed || http_info->submitted)) {
-        return 1;
-    }
-
-    tcp_req_t *tcp_info = bpf_map_lookup_elem(&ongoing_tcp_req, p_conn);
-    if (tcp_info) {
-        return 1;
-    }
-
-    http2_conn_info_data_t *http2_info = bpf_map_lookup_elem(&ongoing_http2_connections, p_conn);
-    if (http2_info) {
-        return 1;
-    }
-
-    return 0;
+    return already_tracked_http(p_conn) || already_tracked_tcp(p_conn) ||
+           already_tracked_http2(p_conn);
 }
 
 // This code is copied from the kprobe on tcp_sendmsg and it's called from
