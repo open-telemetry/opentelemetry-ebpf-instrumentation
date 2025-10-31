@@ -348,13 +348,13 @@ func (pa *pollAccounter) checkNewProcessNotification(pid PID, reportedProcs, not
 	return false
 }
 
-func makeProcessAgeFunc() func(int32) time.Duration {
+func ProcessAgeFunc() func(int32) time.Duration {
 	r := procStatReader{}
 	return r.processAge
 }
 
 // overridden in tests
-var processAgeFunc = makeProcessAgeFunc()
+var processAgeFunc = ProcessAgeFunc()
 
 // see https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
 func parseProcStatField(buf string, field int) string {

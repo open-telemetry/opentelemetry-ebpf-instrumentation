@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -20,6 +21,7 @@ type RouteHarvester struct {
 	java     *JavaRoutes
 	disabled map[svc.InstrumentableType]struct{}
 	timeout  time.Duration
+	mux      *sync.Mutex
 
 	// testing related
 	javaExtractRoutes func(pid int32) (*RouteHarvesterResult, error)
@@ -59,6 +61,7 @@ func NewRouteHarvester(disabled []string, timeout time.Duration) *RouteHarvester
 		java:     NewJavaRoutesHarvester(),
 		disabled: dMap,
 		timeout:  timeout,
+		mux:      &sync.Mutex{},
 	}
 
 	h.javaExtractRoutes = h.java.ExtractRoutes
@@ -67,6 +70,10 @@ func NewRouteHarvester(disabled []string, timeout time.Duration) *RouteHarvester
 }
 
 func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvesterResult, error) {
+	// Ensure we harvest one by one
+	h.mux.Lock()
+	defer h.mux.Unlock()
+
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), h.timeout)
 	defer cancel()
@@ -135,4 +142,12 @@ func RouteMatcherFromResult(r RouteHarvesterResult) route.Matcher {
 	}
 
 	return nil
+}
+
+func (h *RouteHarvester) HarvestRoutesDelay(fileInfo *exec.FileInfo) (bool, time.Duration) {
+	if fileInfo.Service.SDKLanguage == svc.InstrumentableJava {
+		return true, time.Second * 60
+	}
+
+	return false, 0
 }
