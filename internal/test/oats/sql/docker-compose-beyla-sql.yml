@@ -46,6 +46,7 @@ services:
       OTEL_EBPF_BPF_DEBUG: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
       OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES: 512
+      OTEL_EBPF_NAME_RESOLVER_SOURCES: "rdns"
     depends_on:
       testserver:
         condition: service_started
