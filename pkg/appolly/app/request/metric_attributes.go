@@ -176,7 +176,7 @@ func CloudRegion(val string) attribute.KeyValue {
 }
 
 func PeerService(val string) attribute.KeyValue {
-	return attribute.Key(semconv.PeerServiceKey).String(val)
+	return semconv.PeerService(val)
 }
 
 func SpanHost(span *Span) string {
