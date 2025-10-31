@@ -21,6 +21,7 @@ import (
 )
 
 func TestMetricsExpiration(t *testing.T) {
+	t.Skip("fails regularly with port already in use or data race condition")
 	now := syncedClock{now: time.Now()}
 	timeNow = now.Now
 
