@@ -16,6 +16,7 @@ expected:
             db.collection.name: accounting.contacts
             db.system.name: postgresql
             db.query.text: "SELECT * FROM accounting.contacts WHERE id = 1"
+            peer.service: sqlserver
   metrics:
     - promql: 'db_client_operation_duration_sum{db_system_name="postgresql"}'
       value: "> 0"

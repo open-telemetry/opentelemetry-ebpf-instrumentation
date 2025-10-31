@@ -291,7 +291,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 5, attrs.Len())
+		assert.Equal(t, 6, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
@@ -313,7 +313,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 5, attrs.Len())
+		assert.Equal(t, 6, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
@@ -335,7 +335,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 6, attrs.Len())
+		assert.Equal(t, 7, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
@@ -360,7 +360,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, ptrace.StatusCodeError, status.Code())
 		assert.Equal(t, "SQL Server errored: error_code=8 sql_state=#1234 message=SQL error message", status.Message())
 
-		assert.Equal(t, 8, attrs.Len())
+		assert.Equal(t, 9, attrs.Len())
 
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "obi.nonexisting")
@@ -404,7 +404,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 6, attrs.Len())
+		assert.Equal(t, 7, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "insert")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "mycollection")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mydatabase")
@@ -427,7 +427,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 7, attrs.Len())
+		assert.Equal(t, 8, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "insert")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "mycollection")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mydatabase")
