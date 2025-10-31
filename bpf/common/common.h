@@ -253,7 +253,6 @@ typedef struct dns_req {
     u16 id;
     u8 _pad2[2];
     tp_info_t tp;
-    u64 ts;
     // we need this to filter traces from unsolicited processes that share the executable
     // with other instrumented processes
     pid_info pid;

@@ -110,7 +110,6 @@ static __always_inline void populate_dns_record(dns_req_t *req,
     req->len = size;
     req->dns_q = qr;
     req->id = bpf_ntohs(id);
-    req->ts = bpf_ktime_get_ns();
     req->tp.ts = bpf_ktime_get_ns();
     req->pid = conn_pid->p_info;
 
