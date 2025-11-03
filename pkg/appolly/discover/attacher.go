@@ -283,7 +283,10 @@ func (ta *traceAttacher) harvestRoutes(ie *ebpf.Instrumentable, reused bool) {
 		procAge := ta.processAgeFunc(ie.FileInfo.Pid)
 		if procAge < delayTime {
 			time.AfterFunc(delayTime-procAge, func() {
-				ta.harvestRoutesProcessor(ie, reused)
+				// sanity check that the program is still up and running and it's the same command
+				if exePath, ready := ExecutableReady(PID(ie.FileInfo.Pid)); ready && exePath == ie.FileInfo.CmdExePath {
+					ta.harvestRoutesProcessor(ie, reused)
+				}
 			})
 
 			return

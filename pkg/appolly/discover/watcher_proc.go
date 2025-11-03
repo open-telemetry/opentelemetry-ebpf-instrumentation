@@ -74,7 +74,7 @@ func ProcessWatcherFunc(cfg *obi.Config, ebpfContext *ebpfcommon.EBPFEventContex
 		pids:              map[PID]ProcessAttrs{},
 		pidPorts:          map[pidPort]ProcessAttrs{},
 		listProcesses:     fetchProcessPorts,
-		executableReady:   executableReady,
+		executableReady:   ExecutableReady,
 		loadBPFWatcher:    loadBPFWatcher,
 		loadBPFLogger:     loadBPFLogger,
 		fetchPorts:        true,  // must be true until we've activated the bpf watcher component
@@ -284,7 +284,7 @@ func (pa *pollAccounter) snapshot(fetchedProcs map[PID]ProcessAttrs) []Event[Pro
 	return events
 }
 
-func executableReady(pid PID) (string, bool) {
+func ExecutableReady(pid PID) (string, bool) {
 	proc, err := process.NewProcess(int32(pid))
 	if err != nil {
 		return "", false
