@@ -20,6 +20,7 @@ typedef enum {
     // http
     _url_ptr_pos,
     _path_ptr_pos,
+    _pattern_ptr_pos,
     _host_ptr_pos,
     _scheme_ptr_pos,
     _method_ptr_pos,

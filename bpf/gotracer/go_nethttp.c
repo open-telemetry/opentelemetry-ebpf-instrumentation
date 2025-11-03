@@ -66,6 +66,7 @@ typedef struct server_http_func_invocation {
     u64 content_length;
     u64 response_length;
     u64 status;
+    u64 req_addr;
     u64 rpc_request_addr; // pointer to the jsonrpc Request
     tp_info_t tp;
     u8 method[METHOD_MAX_LEN];
@@ -121,6 +122,7 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
         .start_monotime_ns = bpf_ktime_get_ns(),
         .tp = {0},
         .status = 0,
+        .req_addr = (u64)req,
         .content_length = 0,
         .response_length = 0,
     };
@@ -391,6 +393,18 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->host[0] = '\0';
     trace->scheme[0] = '\0';
+    trace->pattern[0] = '\0';
+
+    if (invocation->req_addr) {
+        off_table_t *ot = get_offsets_table();
+
+        u64 pattern_off = go_offset_of(ot, (go_offset){.v = _pattern_ptr_pos});
+        read_go_str("pattern",
+                    (void *)invocation->req_addr,
+                    pattern_off,
+                    &trace->pattern,
+                    sizeof(trace->pattern));
+    }
 
     goroutine_metadata *g_metadata = bpf_map_lookup_elem(&ongoing_goroutines, &g_key);
     if (g_metadata) {
@@ -425,6 +439,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     bpf_dbg_printk("tp: %s", tp_buf);
     bpf_dbg_printk("method: %s", trace->method);
     bpf_dbg_printk("path: %s", trace->path);
+    bpf_dbg_printk("pattern: %s", trace->pattern);
 
     // submit the completed trace via ringbuffer
     bpf_ringbuf_submit(trace, get_flags());
