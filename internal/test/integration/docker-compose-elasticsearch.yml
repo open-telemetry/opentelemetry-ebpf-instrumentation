@@ -1,6 +1,6 @@
 services:
   elasticsearchserver:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.1.5@sha256:38604132e9d6cf4cd0acc090b3de645361dc142384e5341338aecb863741c630 
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.2.0@sha256:5dde04a980faf9105d6380c39469c645579684f1eab571f224989c22253c13e3 
     container_name: elasticsearch-server
     ports:
       - "9200:9200"
