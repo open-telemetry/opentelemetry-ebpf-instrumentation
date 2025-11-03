@@ -257,6 +257,9 @@ discovery:
 			},
 			DefaultOtlpGRPCPort:   4317,
 			RouteHarvesterTimeout: 10 * time.Second,
+			RouteHarvestConfig: services.RouteHarvestingConfig{
+				JavaHarvestDelay: 60 * time.Second,
+			},
 		},
 		NodeJS: NodeJSConfig{
 			Enabled: true,
