@@ -76,7 +76,8 @@ func assertSQSOperation(t require.TestingT, op, expectedQueueURL, expectedMessag
 
 	tag, found = jaeger.FindIn(span.Tags, "cloud.region")
 	require.True(t, found)
-	require.Empty(t, tag.Value)
+	// localstack doesn't have a region, so we should match the default AWS one which is "us-east-1"
+	require.Equal(t, "us-east-1", tag.Value)
 
 	tag, found = jaeger.FindIn(span.Tags, "aws.sqs.queue_url")
 	require.True(t, found)
