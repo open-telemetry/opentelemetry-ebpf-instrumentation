@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
 	github.com/caarlos0/env/v9 v9.0.0
-	github.com/cilium/ebpf v0.19.0
+	github.com/cilium/ebpf v0.20.0
 	github.com/containers/common v0.64.2
 	github.com/gavv/monotime v0.0.0-20190418164738-30dba4353424
 	github.com/gin-gonic/gin v1.10.1
@@ -64,7 +64,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.38.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/arch v0.20.0
-	golang.org/x/mod v0.28.0
+	golang.org/x/mod v0.29.0
 	golang.org/x/net v0.46.0
 	golang.org/x/sync v0.17.0
 	golang.org/x/sys v0.37.0
