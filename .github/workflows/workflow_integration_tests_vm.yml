@@ -35,7 +35,8 @@ jobs:
       - name: build matrix
         id: build-matrix
         env:
-          # 3 partitions, one for each of: TestMultiProcess, TestMultiProcessAppCP, TestMultiProcessAppCPNoIP
+          # 3 partitions, one for each of:
+          # TestMultiProcess, TestMultiProcessAppCP, TestMultiProcessAppCPNoIP
           PARTITIONS: 3
           TEST_TAGS: integration
         run: |
