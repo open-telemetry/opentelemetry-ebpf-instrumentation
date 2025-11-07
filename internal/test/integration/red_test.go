@@ -881,6 +881,42 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	require.Empty(t, results)
 }
 
+func testREDMetricsForHTTPLibraryNoRouteLowCardinality(t *testing.T, url, svcName string) {
+	validNames := []string{"user", "customer", "test", "option", "metric"}
+
+	// Call 3 times the instrumented service, forcing it to:
+	// - take at least 30ms to respond
+	// - returning a 404 code
+	for i := 0; i < 3; i++ {
+		for _, s := range validNames {
+			ti.DoHTTPGet(t, url+"/api/"+s+"?delay=30ms&status=404", 404)
+		}
+	}
+
+	// Eventually, Prometheus would make this query visible
+	pq := prom.Client{HostPort: prometheusHostPort}
+	var results []prom.Result
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		var err error
+		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
+			`http_request_method="GET",` +
+			`http_response_status_code="404",` +
+			`service_namespace="integration-test",` +
+			`service_name="` + svcName + `",` +
+			`http_route="/api/*"}`)
+		require.NoError(t, err)
+		// check duration_count has 3 calls and all the arguments
+		enoughPromResults(t, results)
+		val := totalPromCount(t, results)
+		assert.LessOrEqual(t, 3, val)
+		if len(results) > 0 {
+			res := results[0]
+			addr := res.Metric["client_address"]
+			assert.NotNil(t, addr)
+		}
+	})
+}
+
 func testREDMetricsHTTPNoRoute(t *testing.T) {
 	for _, testCaseURL := range []string{
 		instrumentedServiceGorillaURL,
@@ -888,6 +924,17 @@ func testREDMetricsHTTPNoRoute(t *testing.T) {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
 			testREDMetricsForHTTPLibraryNoRoute(t, testCaseURL, "testserver")
+		})
+	}
+}
+
+func testREDMetricsHTTPNoRouteLowCardinality(t *testing.T) {
+	for _, testCaseURL := range []string{
+		instrumentedServiceStdURL,
+	} {
+		t.Run(testCaseURL, func(t *testing.T) {
+			waitForTestComponents(t, testCaseURL)
+			testREDMetricsForHTTPLibraryNoRouteLowCardinality(t, testCaseURL, "testserver")
 		})
 	}
 }
