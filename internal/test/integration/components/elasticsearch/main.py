@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 import os
 import uvicorn
 import requests
@@ -8,34 +8,44 @@ import sys
 
 app = FastAPI()
 HEADERS = {'Content-Type': 'application/json'}
-ELASTICSEARCH_HOST = "http://elasticsearchserver:9200"
 
 @app.get("/health")
-async def health():
-    HEALTH_URL = ELASTICSEARCH_HOST + "/_cluster/health"
-    
+async def health(request: Request):
+    host_url = request.query_params.get("host_url")
+    if host_url is None:
+        raise HTTPException(
+            status_code=400, 
+            detail="The 'host_url' query parameter is required."
+        )
+    server_url = host_url + "/_cluster/health"
     try:
-        response = requests.get(HEALTH_URL, timeout=5)
+        response = requests.get(server_url, timeout=5)
         response.raise_for_status() 
         status = response.json().get("status", "red")
         
         if status in ("red","yellow"):
             raise HTTPException(
                 status_code=503, 
-                detail={"status": "red","message": "Elasticsearch cluster unhealthy"})
-        return {"status": status, "message": "Elasticsearch cluster healthy"}
+                detail={"status": "red","message": "Cluster unhealthy"})
+        return {"status": status, "message": "Cluster healthy"}
 
     except requests.RequestException as e:
         raise HTTPException(
             status_code=503, 
-            detail={"status": "error","message": f"Cannot reach Elasticsearch cluster: {str(e)}"})
+            detail={"status": "error","message": f"Cannot reach Cluster: {str(e)}"})
 
 @app.get("/doc")
-async def doc():
-    ELASTICSEARCH_URL = ELASTICSEARCH_HOST + "/test_index/_doc/1"
+async def doc(request: Request):
+    host_url = request.query_params.get("host_url")
+    if host_url is None:
+        raise HTTPException(
+            status_code=400, 
+            detail="The 'host_url' query parameter is required."
+        )
+    server_url = host_url + "/test_index/_doc/1"
     
     try:
-        response = requests.get(ELASTICSEARCH_URL, headers=HEADERS)
+        response = requests.get(server_url, headers=HEADERS)
 
     except Exception as e:
         print(json.dumps({"error": str(e)}))
@@ -44,8 +54,14 @@ async def doc():
 
 
 @app.get("/search")
-async def search():
-    ELASTICSEARCH_URL = ELASTICSEARCH_HOST + "/test_index/_search"
+async def search(request: Request):
+    host_url = request.query_params.get("host_url")
+    if host_url is None:
+        raise HTTPException(
+            status_code=400, 
+            detail="The 'host_url' query parameter is required."
+        )
+    server_url = host_url + "/test_index/_search"
     query_body = {
         "query": {
             "match": {
@@ -54,7 +70,7 @@ async def search():
             }
         }
     try:
-        response = requests.post(ELASTICSEARCH_URL, json=query_body, headers=HEADERS)
+        response = requests.post(server_url, json=query_body, headers=HEADERS)
 
     except Exception as e:
         print(json.dumps({"error": str(e)}))
@@ -62,8 +78,14 @@ async def search():
     return {"status": "OK"}
 
 @app.get("/msearch")
-async def msearch():
-    ELASTICSEARCH_URL = ELASTICSEARCH_HOST + "/_msearch"
+async def msearch(request: Request):
+    host_url = request.query_params.get("host_url")
+    if host_url is None:
+        raise HTTPException(
+            status_code=400, 
+            detail="The 'host_url' query parameter is required."
+        )
+    server_url = host_url + "/_msearch"
     searches = [
         {},
         {
@@ -83,7 +105,7 @@ async def msearch():
         }
     ]
     try:
-        response = requests.post(ELASTICSEARCH_URL, json=searches, headers=HEADERS)
+        response = requests.post(server_url, json=searches, headers=HEADERS)
 
     except Exception as e:
         print(json.dumps({"error": str(e)}))
@@ -92,8 +114,14 @@ async def msearch():
 
 
 @app.get("/bulk")
-async def bulk():
-    ELASTICSEARCH_URL = ELASTICSEARCH_HOST + "/_bulk"
+async def bulk(request: Request):
+    host_url = request.query_params.get("host_url")
+    if host_url is None:
+        raise HTTPException(
+            status_code=400, 
+            detail="The 'host_url' query parameter is required."
+        )
+    server_url = host_url + "/_bulk"
     actions=[
         {
             "index": {
@@ -132,7 +160,7 @@ async def bulk():
         }
     ]
     try:
-        response = requests.post(ELASTICSEARCH_URL, json=actions, headers=HEADERS)
+        response = requests.post(server_url, json=actions, headers=HEADERS)
 
     except Exception as e:
         print(json.dumps({"error": str(e)}))

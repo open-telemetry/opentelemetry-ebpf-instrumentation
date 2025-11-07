@@ -356,7 +356,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 				attrs = append(attrs, request.DBQueryText(span.Elasticsearch.DBQueryText))
 			}
 			attrs = append(attrs, request.DBOperationName(span.Elasticsearch.DBOperationName))
-			attrs = append(attrs, request.DBSystemName(semconv.DBSystemElasticsearch.Value.AsString()))
+			attrs = append(attrs, request.DBSystemName(span.Elasticsearch.DBSystemName))
 			attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
 		}
 

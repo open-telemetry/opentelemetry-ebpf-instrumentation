@@ -21,28 +21,38 @@ import (
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
-func testPythonElasticsearch(t *testing.T) {
-	url := "http://localhost:8381"
-	comm := "python3.12"
-	index := "test_index"
+const (
+	comm          = "python3.12"
+	testIndex     = "test_index"
+	testServerURL = "http://localhost:8381"
+)
 
-	waitForTestComponentsRoute(t, url, "/health")
-	testElasticsearchSearch(t, comm, url, index)
+func testPythonElasticsearch(t *testing.T, dbSystemName string) {
+	var url string
+	switch dbSystemName {
+	case "elasticsearch":
+		url = "http://elasticsearchserver:9200"
+	case "opensearch":
+		url = "http://opensearchserver:9200"
+	}
+	queryParam := "?host_url=" + url
+	waitForTestComponentsNoMetrics(t, testServerURL+"/health"+queryParam)
+	testElasticsearchSearch(t, dbSystemName, queryParam)
 	// populate the server is optional, the elasticsearch request will fail
 	// but we will have the span
-	testElasticsearchMsearch(t, comm, url)
-	testElasticsearchBulk(t, comm, url)
-	testElasticsearchDoc(t, comm, url, index)
+	testElasticsearchMsearch(t, dbSystemName, queryParam)
+	testElasticsearchBulk(t, dbSystemName, queryParam)
+	testElasticsearchDoc(t, dbSystemName, queryParam)
 }
 
-func testElasticsearchSearch(t *testing.T, comm, url, index string) {
+func testElasticsearchSearch(t *testing.T, dbSystemName, queryParam string) {
 	queryText := "{\"query\": {\"match\": {\"name\": \"OBI\"}}}"
 	urlPath := "/search"
-	ti.DoHTTPGet(t, url+urlPath, 200)
-	assertElasticsearchOperation(t, comm, "search", queryText, index)
+	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
+	assertElasticsearchOperation(t, dbSystemName, "search", queryText, testIndex)
 }
 
-func assertElasticsearchOperation(t *testing.T, comm, op, queryText, index string) {
+func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, index string) {
 	params := neturl.Values{}
 	params.Add("service", comm)
 	var operationName string
@@ -85,7 +95,7 @@ func assertElasticsearchOperation(t *testing.T, comm, op, queryText, index strin
 
 		tag, found = jaeger.FindIn(span.Tags, "db.system.name")
 		assert.True(t, found)
-		assert.Equal(t, "elasticsearch", tag.Value)
+		assert.Equal(t, dbSystemName, tag.Value)
 
 		tag, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
 		assert.True(t, found)
@@ -93,23 +103,23 @@ func assertElasticsearchOperation(t *testing.T, comm, op, queryText, index strin
 	}, test.Interval(100*time.Millisecond))
 }
 
-func testElasticsearchMsearch(t *testing.T, comm, url string) {
+func testElasticsearchMsearch(t *testing.T, dbSystemName, queryParam string) {
 	queryText := "[{}, {\"query\": {\"match\": {\"message\": \"this is a test\"}}}, {\"index\": \"my-index-000002\"}, {\"query\": {\"match_all\": {}}}]"
 	urlPath := "/msearch"
-	ti.DoHTTPGet(t, url+urlPath, 200)
-	assertElasticsearchOperation(t, comm, "msearch", queryText, "")
+	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
+	assertElasticsearchOperation(t, dbSystemName, "msearch", queryText, "")
 }
 
-func testElasticsearchBulk(t *testing.T, comm, url string) {
+func testElasticsearchBulk(t *testing.T, dbSystemName, queryParam string) {
 	queryText := "[{\"index\": {\"_index\": \"test\", \"_id\": \"1\"}}, {\"field1\": \"value1\"}, {\"delete\": {\"_index\": \"test\", \"_id\": \"2\"}}, {\"create\": {\"_index\": \"test\", \"_id\": \"3\"}}, {\"field1\": \"value3\"}, {\"update\": {\"_id\": \"1\", \"_index\": \"test\"}}, {\"doc\": {\"field2\": \"value2\"}}]"
 	urlPath := "/bulk"
-	ti.DoHTTPGet(t, url+urlPath, 200)
-	assertElasticsearchOperation(t, comm, "bulk", queryText, "")
+	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
+	assertElasticsearchOperation(t, dbSystemName, "bulk", queryText, "")
 }
 
-func testElasticsearchDoc(t *testing.T, comm, url, index string) {
+func testElasticsearchDoc(t *testing.T, dbSystemName, queryParam string) {
 	queryText := ""
 	urlPath := "/doc"
-	ti.DoHTTPGet(t, url+urlPath, 200)
-	assertElasticsearchOperation(t, comm, "doc", queryText, index)
+	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
+	assertElasticsearchOperation(t, dbSystemName, "doc", queryText, testIndex)
 }

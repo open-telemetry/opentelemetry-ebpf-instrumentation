@@ -20,6 +20,7 @@ type elasticsearchOperation struct {
 	NodeName         string
 	DBQueryText      string
 	DBCollectionName string
+	DBSytemName      string
 }
 
 var elasticsearchOperationMethods = map[string]map[string]struct{}{
@@ -37,7 +38,8 @@ var elasticsearchOperationMethods = map[string]map[string]struct{}{
 }
 
 func ElasticsearchSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
-	if !isElasticsearchResponse(resp) {
+	dbSystemName := elasticsearchSystemName(resp)
+	if dbSystemName == "" {
 		return *baseSpan, false
 	}
 
@@ -66,8 +68,18 @@ func ElasticsearchSpan(baseSpan *request.Span, req *http.Request, resp *http.Res
 		DBOperationName:  operationName,
 		DBCollectionName: op.DBCollectionName,
 		DBQueryText:      op.DBQueryText,
+		DBSystemName:     dbSystemName,
 	}
 	return *baseSpan, true
+}
+
+func elasticsearchSystemName(resp *http.Response) string {
+	if isElasticsearchResponse(resp) {
+		return "elasticsearch"
+	} else if isOpensearchResponse(resp) {
+		return "opensearch"
+	}
+	return ""
 }
 
 func parseElasticsearchRequest(req *http.Request) (elasticsearchOperation, error) {
@@ -104,7 +116,16 @@ func isElasticsearchResponse(resp *http.Response) bool {
 	return headerValue == expectedValue
 }
 
-// extractElasticsearchOperationName is a generic function used to extract the operation name
+// isOpensearchResponse checks if X-Opensearch-Version HTTP header is present.
+// Note: this header should be present from release 3.0.0
+// https://github.com/opensearch-project/OpenSearch/blob/dc4efa821904cc2d7ea7ef61c0f577d3fc0d8be9/server/src/main/java/org/opensearch/http/DefaultRestChannel.java#L73
+func isOpensearchResponse(resp *http.Response) bool {
+	headerValue := resp.Header.Get("X-OpenSearch-Version")
+	expectedValue := "OpenSearch/"
+	return strings.Contains(headerValue, expectedValue)
+}
+
+// extractOperationName is a generic function used to extract the operation name
 // that is the endpoint identifier provided in the request
 // we can have different operations where the name of the operation is found in
 // the last or second to last part of the url
