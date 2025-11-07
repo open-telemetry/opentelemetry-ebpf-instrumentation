@@ -5,6 +5,7 @@ package clusterurl
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,7 +27,7 @@ func TestPathTrie_BasicInsertAndLookup(t *testing.T) {
 	assert.Equal(t, "/test/*/files/*/test", result)
 
 	// Lookup should now return collapsed path
-	result = trie.Lookup("test/anything-new/files/something/test")
+	result = trie.lookup("test/anything-new/files/something/test")
 	assert.Equal(t, "/test/*/files/*/test", result)
 }
 
@@ -42,7 +43,7 @@ func TestPathTrie_CardinalityThreshold(t *testing.T) {
 	assert.Equal(t, "/api/*/users", trie.Insert("api/v4/users"))
 
 	// Verify lookup uses collapsed path
-	assert.Equal(t, "/api/*/users", trie.Lookup("api/v999/users"))
+	assert.Equal(t, "/api/*/users", trie.lookup("api/v999/users"))
 }
 
 func TestPathTrie_CardinalitySecondaryThreshold(t *testing.T) {
@@ -53,7 +54,7 @@ func TestPathTrie_CardinalitySecondaryThreshold(t *testing.T) {
 	assert.Equal(t, "/api/v1/items/sports_car", trie.Insert("api/v1/items/sports_car"))
 	assert.Equal(t, "/api/v1/items/t-shirt", trie.Insert("api/v1/items/t-shirt"))
 
-	assert.Equal(t, "/api/v1/items/t-shirt", trie.Lookup("api/v1/items/t-shirt"))
+	assert.Equal(t, "/api/v1/items/t-shirt", trie.lookup("api/v1/items/t-shirt"))
 
 	// Add paths up to threshold
 	assert.Equal(t, "/api/v1/customers", trie.Insert("api/v1/customers"))
@@ -70,13 +71,13 @@ func TestPathTrie_CardinalitySecondaryThreshold(t *testing.T) {
 	for i := range 3 {
 		trie.Insert("api/v4/items" + strconv.Itoa(i))
 	}
-	assert.Equal(t, "/api/*/*", trie.Lookup("api/v4/items"))
-	assert.Equal(t, "/api/*/*/t-shirt", trie.Lookup("api/v4/items/t-shirt"))
+	assert.Equal(t, "/api/*/*", trie.lookup("api/v4/items"))
+	assert.Equal(t, "/api/*/*/t-shirt", trie.lookup("api/v4/items/t-shirt"))
 
 	// trigger the third level collapse
 	assert.Equal(t, "/api/*/*/*", trie.Insert("api/v1/customers/list"))
 
-	assert.Equal(t, "/api/*/*/*", trie.Lookup("api/v4/items/t-shirt"))
+	assert.Equal(t, "/api/*/*/*", trie.lookup("api/v4/items/t-shirt"))
 }
 
 func TestPathTrie_CascadingCollapse(t *testing.T) {
@@ -101,7 +102,7 @@ func TestPathTrie_EmptyPath(t *testing.T) {
 	trie := NewPathTrie(2)
 
 	assert.Empty(t, trie.Insert(""))
-	assert.Empty(t, trie.Lookup(""))
+	assert.Empty(t, trie.lookup(""))
 }
 
 func TestPathTrie_SingleSegment(t *testing.T) {
@@ -110,7 +111,7 @@ func TestPathTrie_SingleSegment(t *testing.T) {
 	result := trie.Insert("test")
 	assert.Equal(t, "/test", result)
 
-	result = trie.Lookup("test")
+	result = trie.lookup("test")
 	assert.Equal(t, "/test", result)
 }
 
@@ -122,15 +123,15 @@ func TestPathTrie_PreserveExistingPaths(t *testing.T) {
 	trie.Insert("api/users/456")
 
 	// Before collapse, lookups should return exact matches
-	assert.Equal(t, "/api/users/123", trie.Lookup("api/users/123"))
-	assert.Equal(t, "/api/users/456", trie.Lookup("api/users/456"))
+	assert.Equal(t, "/api/users/123", trie.lookup("api/users/123"))
+	assert.Equal(t, "/api/users/456", trie.lookup("api/users/456"))
 
 	// Trigger collapse
 	trie.Insert("api/users/789")
 
 	// After collapse, all should use wildcard
-	assert.Equal(t, "/api/users/*", trie.Lookup("api/users/123"))
-	assert.Equal(t, "/api/users/*", trie.Lookup("api/users/999"))
+	assert.Equal(t, "/api/users/*", trie.lookup("api/users/123"))
+	assert.Equal(t, "/api/users/*", trie.lookup("api/users/999"))
 }
 
 func TestPathTrie_ComplexPaths(t *testing.T) {
@@ -147,13 +148,13 @@ func TestPathTrie_ComplexPaths(t *testing.T) {
 	}
 
 	// Should not collapse yet (cardinality = 3, threshold = 3)
-	result := trie.Lookup(paths[0])
+	result := trie.lookup(paths[0])
 	assert.Contains(t, result, "bar-attach-generic-product-apjkmyp")
 
 	// Fourth path should trigger collapse
 	trie.Insert("bar/test/test/fourth-product/files/version-def/test")
 
-	result = trie.Lookup("bar/test/test/any-product/files/any-version/test")
+	result = trie.lookup("bar/test/test/any-product/files/any-version/test")
 	assert.Equal(t, "/bar/test/test/*/files/*/test", result)
 }
 
@@ -188,6 +189,61 @@ func BenchmarkPathTrie_Lookup(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		trie.Lookup("api/v1/users/999/posts/888")
+		trie.lookup("api/v1/users/999/posts/888")
 	}
+}
+
+// lookup returns the normalized path for a given input path
+// This is used to query existing paths without modifying the trie
+// At the moment this is only used in testing.
+func (pt *PathTrie) lookup(path string) string {
+	pt.mu.RLock()
+	defer pt.mu.RUnlock()
+
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	if len(segments) == 0 || (len(segments) == 1 && segments[0] == "") {
+		return path
+	}
+
+	return pt.lookupSegments(segments)
+}
+
+func (pt *PathTrie) lookupSegments(segments []string) string {
+	current := pt.root
+	result := make([]string, 0, len(segments))
+
+	for _, segment := range segments {
+		if segment == "" {
+			result = append(result, segment)
+			continue
+		}
+
+		// If node is collapsed, use wildcard
+		if current.collapsed {
+			result = append(result, "*")
+			current = current.children["*"]
+			continue
+		}
+
+		// Try to find exact match
+		child, exists := current.children[segment]
+		if !exists {
+			// No exact match, check for wildcard
+			if wildcardChild, hasWildcard := current.children["*"]; hasWildcard {
+				result = append(result, "*")
+				current = wildcardChild
+				continue
+			}
+			// Not found at all, return segment as-is and stop traversing
+			result = append(result, segment)
+			// Can't traverse further, append remaining segments
+			result = append(result, segments[len(result):]...)
+			break
+		}
+
+		result = append(result, segment)
+		current = child
+	}
+
+	return "/" + strings.Join(result, "/")
 }

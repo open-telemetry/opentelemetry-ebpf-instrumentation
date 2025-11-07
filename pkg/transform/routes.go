@@ -231,8 +231,7 @@ func classifyFromPathWithCappedCardinality(rc *routerNode, s *request.Span) {
 	if s.Route == "" && s.IsHTTPSpan() {
 		s.Route = rc.classifier.ClusterURL(s.Path)
 		if s.Service.PathTrie != nil {
-			s.Service.PathTrie.Insert(s.Route)
-			s.Route = s.Service.PathTrie.Lookup(s.Route)
+			s.Route = s.Service.PathTrie.Insert(s.Route)
 		}
 	}
 }
