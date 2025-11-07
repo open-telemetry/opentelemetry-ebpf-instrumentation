@@ -46,6 +46,11 @@ static __always_inline u32 trace_type_from_meta(http_connection_metadata_t *meta
     return TRACE_TYPE_SERVER;
 }
 
+static __always_inline u8 already_tracked_http(const pid_connection_info_t *p_conn) {
+    http_info_t *http_info = bpf_map_lookup_elem(&ongoing_http, p_conn);
+    return (http_info && !(http_info->delayed || http_info->submitted));
+}
+
 static __always_inline void
 http_get_or_create_trace_info(http_connection_metadata_t *meta,
                               u32 pid,
@@ -484,6 +489,8 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
     total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);
 
     req->has_large_buffers = true;
+
+    bpf_dbg_printk("sending large buffer, size=%d", bytes_len);
 
     bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
     return 0;

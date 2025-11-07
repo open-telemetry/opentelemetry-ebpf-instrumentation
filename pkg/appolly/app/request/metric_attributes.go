@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -126,8 +127,20 @@ func ErrorType(val string) attribute.KeyValue {
 	return attribute.Key(attr.ErrorType).String(val)
 }
 
+func MessagingOperationName(val string) attribute.KeyValue {
+	return attribute.Key(attr.MessagingOpName).String(val)
+}
+
 func MessagingOperationType(val string) attribute.KeyValue {
 	return attribute.Key(attr.MessagingOpType).String(val)
+}
+
+func MessagingDestinationName(val string) attribute.KeyValue {
+	return attribute.Key(attr.MessagingDestination).String(val)
+}
+
+func MessagingMessageID(val string) attribute.KeyValue {
+	return attribute.Key(attr.MessagingMessageID).String(val)
 }
 
 func RPCSystem(val string) attribute.KeyValue {
@@ -154,8 +167,16 @@ func AWSS3Key(val string) attribute.KeyValue {
 	return attribute.Key(attr.AWSS3Key).String(val)
 }
 
+func AWSSQSQueueURL(val string) attribute.KeyValue {
+	return attribute.Key(attr.AWSSQSQueueURL).String(val)
+}
+
 func CloudRegion(val string) attribute.KeyValue {
 	return attribute.Key(attr.CloudRegion).String(val)
+}
+
+func PeerService(val string) attribute.KeyValue {
+	return semconv.PeerService(val)
 }
 
 func SpanHost(span *Span) string {
@@ -224,6 +245,18 @@ func HostAsServer(span *Span) string {
 	return SpanHost(span)
 }
 
+func PeerServiceFromSpan(span *Span) string {
+	if !span.IsClientSpan() {
+		return ""
+	}
+
+	if span.OtherNamespace != "" && span.OtherNamespace != span.Service.UID.Namespace && span.HostName != "" {
+		return span.HostName + "." + span.OtherNamespace
+	}
+
+	return span.HostName
+}
+
 func PeerAsClient(span *Span) string {
 	if span.OtherNamespace != "" && span.OtherNamespace != span.Service.UID.Namespace && span.PeerName != "" {
 		if !span.IsClientSpan() {
@@ -236,6 +269,10 @@ func PeerAsClient(span *Span) string {
 
 func CudaKernel(val string) attribute.KeyValue {
 	return attribute.Key(attr.CudaKernelName).String(val)
+}
+
+func DNSQuestionName(val string) attribute.KeyValue {
+	return attribute.Key(attr.DNSQuestionName).String(val)
 }
 
 // These are defined here https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html#group__CUDART__TYPES_1gg18fa99055ee694244a270e4d5101e95bdeec295de8a74ac2a74f98ffb6c5d7c7

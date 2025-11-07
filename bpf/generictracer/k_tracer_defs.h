@@ -30,13 +30,23 @@ typedef struct recv_args {
 } recv_args_t;
 
 static __always_inline enum protocol_type
-protocol_type_for_conn_info(const connection_info_t *info) {
-    const enum protocol_type *cached_protocol_type = bpf_map_lookup_elem(&protocol_cache, info);
+protocol_type_for_conn_info(const pid_connection_info_t *info) {
+    const enum protocol_type *cached_protocol_type =
+        bpf_map_lookup_elem(&protocol_cache, &info->conn);
+    if (!cached_protocol_type) {
+        if (already_tracked_http(info)) {
+            return k_protocol_type_http;
+        }
+    }
     return cached_protocol_type ? *cached_protocol_type : k_protocol_type_unknown;
 }
 
-static __always_inline call_protocol_args_t *make_protocol_args(
-    connection_info_t *info, void *u_buf, int bytes_len, u8 ssl, u8 direction, u16 orig_dport) {
+static __always_inline call_protocol_args_t *make_protocol_args(const pid_connection_info_t *info,
+                                                                void *u_buf,
+                                                                int bytes_len,
+                                                                u8 ssl,
+                                                                u8 direction,
+                                                                u16 orig_dport) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
@@ -60,7 +70,7 @@ static __always_inline void handle_buf_with_connection(void *ctx,
                                                        u8 direction,
                                                        u16 orig_dport) {
     call_protocol_args_t *args =
-        make_protocol_args(&pid_conn->conn, u_buf, bytes_len, ssl, direction, orig_dport);
+        make_protocol_args(pid_conn, u_buf, bytes_len, ssl, direction, orig_dport);
     if (!args) {
         return;
     }

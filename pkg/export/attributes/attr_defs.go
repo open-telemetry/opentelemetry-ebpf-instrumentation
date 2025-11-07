@@ -229,6 +229,7 @@ func getDefinitions(
 		map[attr.Name]Default{
 			attr.MessagingSystem:      true,
 			attr.MessagingDestination: true,
+			attr.ServerAddr:           true,
 		},
 		extraGroupAttributes[GroupMessaging],
 	)
@@ -277,6 +278,7 @@ func getDefinitions(
 		DBClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
 			Attributes: map[attr.Name]Default{
+				attr.ServerAddr:   true,
 				attr.DBOperation:  true,
 				attr.DBSystemName: true,
 				attr.ErrorType:    true,
@@ -319,6 +321,13 @@ func getDefinitions(
 			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.CudaMemcpyKind: true,
+			},
+		},
+		DNSLookupDuration.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.DNSQuestionName: true,
+				attr.ErrorType:       true,
 			},
 		},
 		// span and service graph metrics don't yet implement attribute selection,
