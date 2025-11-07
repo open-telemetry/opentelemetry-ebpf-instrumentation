@@ -14,7 +14,7 @@ type PathNode struct {
 	segment string
 
 	// children maps segment values to their nodes
-	// e.g., children["bar-attach-generic-product-apjkmyp"] = &PathNode{...}
+	// e.g., children["bar/attach/generic-product-apjkmyp"] = &PathNode{...}
 	children map[string]*PathNode
 
 	// collapsed indicates if this node has been collapsed to "*"
@@ -170,9 +170,6 @@ func (pt *PathTrie) mergeChildren(target, source *PathNode) {
 		} else {
 			// New child, add it
 			target.children[segment] = child
-			if segment == "*" {
-				target.cardinality = pt.maxCardinality
-			}
 			target.cardinality++
 		}
 	}

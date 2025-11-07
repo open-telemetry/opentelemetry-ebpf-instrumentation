@@ -29,6 +29,9 @@ const (
 	UnmatchWildcard = UnmatchType("wildcard")
 	// UnmatchHeuristic detects the route field using a heuristic
 	UnmatchHeuristic = UnmatchType("heuristic")
+	// UnmatchLowCardinality uses the same classifier as the Heuristic, but
+	// it also has a second level Trie based cache to cap the max cardinality
+	UnmatchLowCardinality = UnmatchType("low-cardinality")
 
 	UnmatchDefault = UnmatchHeuristic
 )
@@ -145,6 +148,19 @@ func (rn *routerNode) provideRoutes(_ context.Context) (swarm.RunFunc, error) {
 	}, nil
 }
 
+func makeHeuristicClassifier(rc *RoutesConfig) (*clusterurl.ClusterURLClassifier, error) {
+	classifierCfg := clusterurl.DefaultConfig()
+	if rc.WildcardChar != "" {
+		classifierCfg.ReplaceWith = rc.WildcardChar[0]
+	}
+	classifier, err := clusterurl.NewClusterURLClassifier(classifierCfg)
+	if err != nil {
+		return nil, fmt.Errorf("chooseUnmatchPolicy: unable to create cluster URL classifier: %w", err)
+	}
+
+	return classifier, nil
+}
+
 func chooseUnmatchPolicy(rn *routerNode) (func(rn *routerNode, span *request.Span), error) {
 	var unmatchAction func(rn *routerNode, span *request.Span)
 	rc := rn.config
@@ -168,16 +184,19 @@ func chooseUnmatchPolicy(rn *routerNode) (func(rn *routerNode, span *request.Spa
 	case UnmatchPath:
 		unmatchAction = setUnmatchToPath
 	case UnmatchHeuristic:
-		classifierCfg := clusterurl.DefaultConfig()
-		if rc.WildcardChar != "" {
-			classifierCfg.ReplaceWith = rc.WildcardChar[0]
-		}
-		classifier, err := clusterurl.NewClusterURLClassifier(classifierCfg)
+		classifier, err := makeHeuristicClassifier(rc)
 		if err != nil {
-			return nil, fmt.Errorf("chooseUnmatchPolicy: unable to create cluster URL classifier: %w", err)
+			return nil, err
 		}
 		rn.classifier = classifier
 		unmatchAction = classifyFromPath
+	case UnmatchLowCardinality:
+		classifier, err := makeHeuristicClassifier(rc)
+		if err != nil {
+			return nil, err
+		}
+		rn.classifier = classifier
+		unmatchAction = classifyFromPathWithCappedCardinality
 	default:
 		slog.With("component", "RoutesProvider").
 			Warn("invalid 'unmatch' value in configuration, defaulting to '"+string(UnmatchDefault)+"'",
@@ -203,6 +222,12 @@ func setUnmatchToPath(_ *routerNode, str *request.Span) {
 }
 
 func classifyFromPath(rc *routerNode, s *request.Span) {
+	if s.Route == "" && s.IsHTTPSpan() {
+		s.Route = rc.classifier.ClusterURL(s.Path)
+	}
+}
+
+func classifyFromPathWithCappedCardinality(rc *routerNode, s *request.Span) {
 	if s.Route == "" && s.IsHTTPSpan() {
 		s.Route = rc.classifier.ClusterURL(s.Path)
 		if s.Service.PathTrie != nil {

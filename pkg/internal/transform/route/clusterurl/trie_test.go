@@ -4,6 +4,7 @@
 package clusterurl
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -65,7 +66,11 @@ func TestPathTrie_CardinalitySecondaryThreshold(t *testing.T) {
 	assert.Equal(t, "/api/v2/items", trie.Insert("api/v2/items"))
 	assert.Equal(t, "/api/v3/items", trie.Insert("api/v3/items"))
 
-	assert.Equal(t, "/api/*/*", trie.Insert("api/v4/items"))
+	assert.Equal(t, "/api/*/items", trie.Insert("api/v4/items"))
+	for i := range 3 {
+		trie.Insert("api/v4/items" + strconv.Itoa(i))
+	}
+	assert.Equal(t, "/api/*/*", trie.Lookup("api/v4/items"))
 	assert.Equal(t, "/api/*/*/t-shirt", trie.Lookup("api/v4/items/t-shirt"))
 
 	// trigger the third level collapse
@@ -156,15 +161,20 @@ func BenchmarkPathTrie_Insert(b *testing.B) {
 	trie := NewPathTrie(10)
 
 	paths := []string{
-		"api/v1/users/123/posts/456",
-		"api/v1/users/789/posts/012",
-		"api/v2/products/abc/reviews/def",
-		"api/v3/orders/xyz/items/pqr",
+		"/users/fdklsd/j4elk/23993/job/2",
+		"/v1/products/22",
+		"/products/1/org/3",
+		"/attach?session_id=ddfsdsf&track_id=sjdklnfldsn",
+		"GET /user_space/",
+		"/api/hello.world",
+		"123/ljgdflgjf",
+		"",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		trie.Insert(paths[i%len(paths)])
+	for b.Loop() {
+		for i := 0; i < len(paths); i++ {
+			trie.Insert(paths[i])
+		}
 	}
 }
 
@@ -173,7 +183,7 @@ func BenchmarkPathTrie_Lookup(b *testing.B) {
 
 	// Pre-populate trie
 	for i := 0; i < 100; i++ {
-		trie.Insert("api/v1/users/123/posts/456")
+		trie.Insert("api/v1/users/" + strconv.Itoa(i) + "/posts/456")
 	}
 
 	b.ResetTimer()
