@@ -45,11 +45,38 @@ func NewPathTrie(maxCardinality int) *PathTrie {
 	}
 }
 
+func isHTTPOp(op string) bool {
+	return op == "GET" || op == "POST" || op == "PATCH" || op == "DELETE" || op == "OPTIONS" || op == "HEAD"
+}
+
+func (pt *PathTrie) cleanup(path string) string {
+	i := strings.Index(path, "?")
+	if i >= 0 {
+		path = path[:i]
+	}
+
+	if path == "" || path[0] == '/' {
+		return path
+	}
+
+	i = strings.Index(path, " ")
+	if i > 0 {
+		op := path[:i]
+		if isHTTPOp(op) && i < len(path) {
+			return path[i+1:]
+		}
+	}
+
+	return path
+}
+
 // Insert adds a path to the trie and returns the normalized path
 // If a segment exceeds maxCardinality, it collapses to "*"
 func (pt *PathTrie) Insert(path string) string {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
+
+	path = pt.cleanup(path)
 
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 	if len(segments) == 0 || (len(segments) == 1 && segments[0] == "") {

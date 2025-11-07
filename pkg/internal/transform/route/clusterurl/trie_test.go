@@ -158,6 +158,19 @@ func TestPathTrie_ComplexPaths(t *testing.T) {
 	assert.Equal(t, "/bar/test/test/*/files/*/test", result)
 }
 
+func TestPathTrie_Weird(t *testing.T) {
+	trie := NewPathTrie(100)
+
+	// In case we get paths without cleaned up HTTP path
+	assert.Equal(t, "/attach", trie.Insert("/attach?session_id=ddfsdsf&track_id=sjdklnfldsn"))
+	assert.Equal(t, "/user_space", trie.Insert("GET /user_space?kernel_space"))
+
+	// Non-HTTP
+	assert.Equal(t, "/MET /user_space", trie.Insert("MET /user_space?kernel_space"))
+	assert.Equal(t, "/MET ", trie.Insert("MET "))
+	assert.Equal(t, "/MET", trie.Insert("MET"))
+}
+
 func BenchmarkPathTrie_Insert(b *testing.B) {
 	trie := NewPathTrie(10)
 
@@ -176,20 +189,6 @@ func BenchmarkPathTrie_Insert(b *testing.B) {
 		for i := 0; i < len(paths); i++ {
 			trie.Insert(paths[i])
 		}
-	}
-}
-
-func BenchmarkPathTrie_Lookup(b *testing.B) {
-	trie := NewPathTrie(10)
-
-	// Pre-populate trie
-	for i := 0; i < 100; i++ {
-		trie.Insert("api/v1/users/" + strconv.Itoa(i) + "/posts/456")
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		trie.lookup("api/v1/users/999/posts/888")
 	}
 }
 
