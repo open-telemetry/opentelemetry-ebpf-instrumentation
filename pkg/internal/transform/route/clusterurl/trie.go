@@ -170,6 +170,9 @@ func (pt *PathTrie) mergeChildren(target, source *PathNode) {
 		} else {
 			// New child, add it
 			target.children[segment] = child
+			if segment == "*" {
+				target.cardinality = pt.maxCardinality
+			}
 			target.cardinality++
 		}
 	}

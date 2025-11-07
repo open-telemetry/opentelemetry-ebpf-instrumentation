@@ -44,6 +44,36 @@ func TestPathTrie_CardinalityThreshold(t *testing.T) {
 	assert.Equal(t, "/api/*/users", trie.Lookup("api/v999/users"))
 }
 
+func TestPathTrie_CardinalitySecondaryThreshold(t *testing.T) {
+	trie := NewPathTrie(3)
+
+	// Add paths up to threshold
+	assert.Equal(t, "/api/v1/items/teddy_bear", trie.Insert("api/v1/items/teddy_bear"))
+	assert.Equal(t, "/api/v1/items/sports_car", trie.Insert("api/v1/items/sports_car"))
+	assert.Equal(t, "/api/v1/items/t-shirt", trie.Insert("api/v1/items/t-shirt"))
+
+	assert.Equal(t, "/api/v1/items/t-shirt", trie.Lookup("api/v1/items/t-shirt"))
+
+	// Add paths up to threshold
+	assert.Equal(t, "/api/v1/customers", trie.Insert("api/v1/customers"))
+	assert.Equal(t, "/api/v1/admin", trie.Insert("api/v1/admin"))
+
+	// Next insert should trigger collapse
+	assert.Equal(t, "/api/v1/*", trie.Insert("api/v1/users"))
+
+	// Let's trigger the secondary collapse now
+	assert.Equal(t, "/api/v2/items", trie.Insert("api/v2/items"))
+	assert.Equal(t, "/api/v3/items", trie.Insert("api/v3/items"))
+
+	assert.Equal(t, "/api/*/*", trie.Insert("api/v4/items"))
+	assert.Equal(t, "/api/*/*/t-shirt", trie.Lookup("api/v4/items/t-shirt"))
+
+	// trigger the third level collapse
+	assert.Equal(t, "/api/*/*/*", trie.Insert("api/v1/customers/list"))
+
+	assert.Equal(t, "/api/*/*/*", trie.Lookup("api/v4/items/t-shirt"))
+}
+
 func TestPathTrie_CascadingCollapse(t *testing.T) {
 	trie := NewPathTrie(2)
 
