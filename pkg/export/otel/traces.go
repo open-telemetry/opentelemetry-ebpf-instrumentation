@@ -6,7 +6,6 @@ package otel
 import (
 	"context"
 	"fmt"
-	"go.opentelemetry.io/collector/config/configtelemetry"
 	"log/slog"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
+	"go.opentelemetry.io/collector/config/configtelemetry"
 	"go.opentelemetry.io/collector/config/configtls"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/exporter"
