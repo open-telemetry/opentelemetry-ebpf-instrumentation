@@ -19,9 +19,11 @@ import (
 	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
+	"go.opentelemetry.io/collector/config/configtelemetry"
 	"go.opentelemetry.io/collector/config/configtls"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/exporter"
+	"go.opentelemetry.io/collector/exporter/debugexporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/exporter/otlpexporter"
 	"go.opentelemetry.io/collector/exporter/otlphttpexporter"
@@ -279,6 +281,18 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 			return nil, err
 		}
 		exp = instrumentTracesExporter(im, exp)
+		return exp, nil
+	case otelcfg.ProtocolDebug:
+		slog.Debug("instantiating Debug TracesReporter", "protocol", proto)
+		factory := debugexporter.NewFactory()
+		config := factory.CreateDefaultConfig().(*debugexporter.Config)
+		config.UseInternalLogger = false
+		config.Verbosity = configtelemetry.LevelDetailed
+		set := getTraceSettings(factory.Type(), cfg.SDKLogLevel)
+		exp, err := factory.CreateTraces(ctx, set, config)
+		if err != nil {
+			return nil, err
+		}
 		return exp, nil
 	default:
 		slog.Error(fmt.Sprintf("invalid protocol value: %q. Accepted values are: %s, %s, %s",
