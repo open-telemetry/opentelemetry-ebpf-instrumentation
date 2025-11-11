@@ -6,7 +6,33 @@ services:
       - "9200:9200"
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false # Only for local testing
+      - xpack.security.enabled=false
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'   
+          memory: 2G  
+        reservations:
+          cpus: '0.25' 
+          memory: 1G   
+  
+  opensearchserver:
+    image: opensearchproject/opensearch:3.3.1@sha256:773b05b026c01e7d520f6b857f486b7312d9290e14f2aebe4630eb80787e9eb3
+    container_name: opensearch-server
+    ports:
+      - "9201:9200"
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'   
+          memory: 2G  
+        reservations:
+          cpus: '0.25' 
+          memory: 1G   
   
   testserver:
     build:
@@ -19,6 +45,8 @@ services:
       otelcol:
         condition: service_started
       elasticsearchserver:
+        condition: service_started
+      opensearchserver:
         condition: service_started
 
   obi:

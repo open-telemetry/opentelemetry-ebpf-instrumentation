@@ -106,7 +106,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return DBSystemName(semconv.DBSystemMongoDB.Value.AsString())
 			case EventTypeHTTPClient:
 				if span.SubType == HTTPSubtypeElasticsearch {
-					return DBSystemName(semconv.DBSystemElasticsearch.Value.AsString())
+					return DBSystemName(span.Elasticsearch.DBSystemName)
 				}
 			}
 			return DBSystemName("unknown")
