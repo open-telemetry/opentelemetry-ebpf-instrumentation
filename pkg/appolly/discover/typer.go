@@ -118,7 +118,7 @@ func makeServiceAttrs(processMatch *ProcessMatch, routesCfg *transform.RoutesCon
 		}
 	}
 
-	var wildcard = byte('*')
+	wildcard := byte('*')
 	if routesCfg.WildcardChar != "" {
 		wildcard = routesCfg.WildcardChar[0]
 	}
