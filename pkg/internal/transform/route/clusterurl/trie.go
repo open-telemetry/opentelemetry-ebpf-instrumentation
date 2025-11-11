@@ -32,16 +32,18 @@ type PathTrie struct {
 	root           *PathNode
 	maxCardinality int
 	mu             sync.RWMutex
+	replaceWith    string
 }
 
 // NewPathTrie creates a new path trie with the given max cardinality
-func NewPathTrie(maxCardinality int) *PathTrie {
+func NewPathTrie(maxCardinality int, replacement byte) *PathTrie {
 	return &PathTrie{
 		root: &PathNode{
 			segment:  "",
 			children: make(map[string]*PathNode),
 		},
 		maxCardinality: maxCardinality,
+		replaceWith:    string(replacement),
 	}
 }
 
@@ -98,16 +100,16 @@ func (pt *PathTrie) insertSegments(segments []string) string {
 
 		// If current node is already collapsed, all children become wildcards
 		if current.collapsed {
-			result = append(result, "*")
+			result = append(result, pt.replaceWith)
 			// Continue with the wildcard child
-			if current.children["*"] == nil {
-				current.children["*"] = &PathNode{
-					segment:    "*",
+			if current.children[pt.replaceWith] == nil {
+				current.children[pt.replaceWith] = &PathNode{
+					segment:    pt.replaceWith,
 					children:   make(map[string]*PathNode),
 					isWildcard: true,
 				}
 			}
-			current = current.children["*"]
+			current = current.children[pt.replaceWith]
 			continue
 		}
 
@@ -119,8 +121,8 @@ func (pt *PathTrie) insertSegments(segments []string) string {
 			if current.cardinality >= pt.maxCardinality {
 				// Collapse this level
 				pt.collapseNode(current)
-				result = append(result, "*")
-				current = current.children["*"]
+				result = append(result, pt.replaceWith)
+				current = current.children[pt.replaceWith]
 				continue
 			}
 
@@ -135,8 +137,8 @@ func (pt *PathTrie) insertSegments(segments []string) string {
 			// Check if we just hit the threshold
 			if current.cardinality > pt.maxCardinality {
 				pt.collapseNode(current)
-				result = append(result, "*")
-				current = current.children["*"]
+				result = append(result, pt.replaceWith)
+				current = current.children[pt.replaceWith]
 				continue
 			}
 		}
@@ -158,10 +160,10 @@ func (pt *PathTrie) collapseNode(node *PathNode) {
 	node.collapsed = true
 
 	// Create or get wildcard node
-	wildcardNode, hasWildcard := node.children["*"]
+	wildcardNode, hasWildcard := node.children[pt.replaceWith]
 	if !hasWildcard {
 		wildcardNode = &PathNode{
-			segment:    "*",
+			segment:    pt.replaceWith,
 			children:   make(map[string]*PathNode),
 			isWildcard: true,
 		}
@@ -169,7 +171,7 @@ func (pt *PathTrie) collapseNode(node *PathNode) {
 
 	// Merge all children into the wildcard node
 	for segment, child := range node.children {
-		if segment == "*" {
+		if segment == pt.replaceWith {
 			continue // Skip the wildcard itself
 		}
 		pt.mergeChildren(wildcardNode, child)
@@ -177,7 +179,7 @@ func (pt *PathTrie) collapseNode(node *PathNode) {
 
 	// Replace all children with just the wildcard
 	node.children = map[string]*PathNode{
-		"*": wildcardNode,
+		pt.replaceWith: wildcardNode,
 	}
 	node.cardinality = 1
 

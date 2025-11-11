@@ -118,6 +118,11 @@ func makeServiceAttrs(processMatch *ProcessMatch, routesCfg *transform.RoutesCon
 		}
 	}
 
+	var wildcard = byte('*')
+	if routesCfg.WildcardChar != "" {
+		wildcard = routesCfg.WildcardChar[0]
+	}
+
 	s := svc.Attrs{
 		UID: svc.UID{
 			Name:      name,
@@ -126,7 +131,7 @@ func makeServiceAttrs(processMatch *ProcessMatch, routesCfg *transform.RoutesCon
 		ProcPID:     processMatch.Process.Pid,
 		ExportModes: exportModes,
 		Sampler:     samplerFromConfig(samplerConfig),
-		PathTrie:    clusterurl.NewPathTrie(routesCfg.MaxPathSegmentCardinality),
+		PathTrie:    clusterurl.NewPathTrie(routesCfg.MaxPathSegmentCardinality, wildcard),
 	}
 
 	if routesConfig != nil {

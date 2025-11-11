@@ -124,7 +124,7 @@ func TestUnmatchedAuto(t *testing.T) {
 }
 
 func TestUnmatchedAutoLowCardinality(t *testing.T) {
-	trie := clusterurl.NewPathTrie(3)
+	trie := clusterurl.NewPathTrie(3, '*')
 	for _, tc := range []UnmatchType{UnmatchLowCardinality} {
 		t.Run(string(tc), func(t *testing.T) {
 			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))

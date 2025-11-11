@@ -12,7 +12,7 @@ import (
 )
 
 func TestPathTrie_BasicInsertAndLookup(t *testing.T) {
-	trie := NewPathTrie(2)
+	trie := NewPathTrie(2, '*')
 
 	// Insert first path
 	result := trie.Insert("test/bar-attach-generic-product-apjkmyp/files/multi-test-version-jwbCm/test")
@@ -32,7 +32,7 @@ func TestPathTrie_BasicInsertAndLookup(t *testing.T) {
 }
 
 func TestPathTrie_CardinalityThreshold(t *testing.T) {
-	trie := NewPathTrie(3)
+	trie := NewPathTrie(3, '*')
 
 	// Add paths up to threshold
 	assert.Equal(t, "/api/v1/users", trie.Insert("api/v1/users"))
@@ -47,7 +47,7 @@ func TestPathTrie_CardinalityThreshold(t *testing.T) {
 }
 
 func TestPathTrie_CardinalitySecondaryThreshold(t *testing.T) {
-	trie := NewPathTrie(3)
+	trie := NewPathTrie(3, '*')
 
 	// Add paths up to threshold
 	assert.Equal(t, "/api/v1/items/teddy_bear", trie.Insert("api/v1/items/teddy_bear"))
@@ -81,7 +81,7 @@ func TestPathTrie_CardinalitySecondaryThreshold(t *testing.T) {
 }
 
 func TestPathTrie_CascadingCollapse(t *testing.T) {
-	trie := NewPathTrie(2)
+	trie := NewPathTrie(2, '*')
 
 	// Build tree: /root/child1/grandchild1
 	//             /root/child1/grandchild2
@@ -99,14 +99,14 @@ func TestPathTrie_CascadingCollapse(t *testing.T) {
 }
 
 func TestPathTrie_EmptyPath(t *testing.T) {
-	trie := NewPathTrie(2)
+	trie := NewPathTrie(2, '*')
 
 	assert.Empty(t, trie.Insert(""))
 	assert.Empty(t, trie.lookup(""))
 }
 
 func TestPathTrie_SingleSegment(t *testing.T) {
-	trie := NewPathTrie(2)
+	trie := NewPathTrie(2, '*')
 
 	result := trie.Insert("test")
 	assert.Equal(t, "/test", result)
@@ -116,7 +116,7 @@ func TestPathTrie_SingleSegment(t *testing.T) {
 }
 
 func TestPathTrie_PreserveExistingPaths(t *testing.T) {
-	trie := NewPathTrie(2)
+	trie := NewPathTrie(2, '*')
 
 	// Insert paths
 	trie.Insert("api/users/123")
@@ -135,7 +135,7 @@ func TestPathTrie_PreserveExistingPaths(t *testing.T) {
 }
 
 func TestPathTrie_ComplexPaths(t *testing.T) {
-	trie := NewPathTrie(3)
+	trie := NewPathTrie(3, '*')
 
 	paths := []string{
 		"bar/test/test/bar-attach-generic-product-apjkmyp/files/multi-test-version-jwbCm/test",
@@ -159,7 +159,7 @@ func TestPathTrie_ComplexPaths(t *testing.T) {
 }
 
 func TestPathTrie_Weird(t *testing.T) {
-	trie := NewPathTrie(100)
+	trie := NewPathTrie(100, '*')
 
 	// In case we get paths without cleaned up HTTP path
 	assert.Equal(t, "/attach", trie.Insert("/attach?session_id=ddfsdsf&track_id=sjdklnfldsn"))
@@ -172,7 +172,7 @@ func TestPathTrie_Weird(t *testing.T) {
 }
 
 func BenchmarkPathTrie_Insert(b *testing.B) {
-	trie := NewPathTrie(10)
+	trie := NewPathTrie(10, '*')
 
 	paths := []string{
 		"/users/fdklsd/j4elk/23993/job/2",
