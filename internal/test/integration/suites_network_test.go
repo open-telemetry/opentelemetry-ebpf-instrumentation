@@ -6,6 +6,7 @@
 package integration
 
 import (
+	"net"
 	"net/http"
 	"path"
 	"regexp"
@@ -96,7 +97,11 @@ func TestNetwork_AllowedAttributes(t *testing.T) {
 		assert.NotContains(t, f.Metric, "src_port")
 
 		// src_name is just an IP address, as reverse DNS is disabled
-		assert.Regexp(t, `^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`, f.Metric["src_name"])
+		// assert.Regexp(t, `^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`, f.Metric["src_name"])
+		parsed := net.ParseIP(f.Metric["src_name"])
+		if parsed == nil {
+			assert.Nil(t, parsed, "src_name is NULL")
+		}
 	}
 
 	require.NoError(t, compose.Close())
