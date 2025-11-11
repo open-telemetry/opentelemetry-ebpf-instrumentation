@@ -1,0 +1,34 @@
+# Configuration for GitHub's automatically generated release notes.
+#
+# Applies to both manual releases, and those triggered by a release workflow.
+# https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+
+changelog:
+  exclude:
+    authors:
+      # e.g. Automatic update of offsets.json
+      - otelbot[bot]
+
+  categories:
+    # General is a "catch all", so be sure to exclude any labels that are
+    # captured under another category.
+    - title: General
+      labels:
+        - "*"
+      exclude:
+        labels:
+          - bug
+          - dependencies
+          - documentation
+
+    - title: Fixed
+      labels:
+        - bug
+
+    - title: Documentation
+      labels:
+        - documentation
+
+    - title: Dependencies
+      labels:
+        - dependencies

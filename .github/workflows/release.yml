@@ -1,0 +1,27 @@
+name: Release
+
+on:
+  push:
+    tags:
+      # N.B. These workflows also trigger on this tag pattern:
+      # - publish_dockerhub_main.yml
+      # - publish_dockerhub_k8s_cache_main.yml
+      - "v*.*.*"
+
+# https://docs.zizmor.sh/audits/#excessive-permissions
+permissions: {}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # https://github.com/softprops/action-gh-release#permissions
+    steps:
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          repository: open-telemetry/opentelemetry-ebpf-instrumentation
+          generate_release_notes: true

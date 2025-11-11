@@ -518,7 +518,12 @@ func TestSuite_PythonElasticsearch(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
-	t.Run("Python Elasticsearch", testPythonElasticsearch)
+	t.Run("Python Elasticsearch", func(t *testing.T) {
+		testPythonElasticsearch(t, "elasticsearch")
+	})
+	t.Run("Python Opensearch", func(t *testing.T) {
+		testPythonElasticsearch(t, "opensearch")
+	})
 	require.NoError(t, compose.Close())
 }
 
