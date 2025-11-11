@@ -40,7 +40,6 @@ const (
 	// http
 	URLPtrPos
 	PathPtrPos
-	PatternPtrPos
 	HostPtrPos
 	SchemePtrPos
 	MethodPtrPos
@@ -130,7 +129,6 @@ var structMembers = map[string]structInfo{
 			"Method":        MethodPtrPos,
 			"ContentLength": ContentLengthPtrPos,
 			"Header":        ReqHeaderPtrPos,
-			"Pattern":       PatternPtrPos,
 		},
 	},
 	"net/url.URL": {
@@ -442,14 +440,6 @@ func structMemberOffsets(elfFile *elf.File) (FieldOffsets, error) {
 func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]string, log *slog.Logger) FieldOffsets {
 	for lib, ver := range libVersions {
 		switch lib {
-		case "net/http.Request":
-			ver = cleanLibVersion(ver, true, lib, log)
-
-			if v, err := version.NewVersion(ver); err == nil {
-				if v.LessThan(goOneTwentyThree) {
-					fieldOffsets[PatternPtrPos] = uint64(0)
-				}
-			}
 		case "google.golang.org/grpc":
 			ver = cleanLibVersion(ver, true, lib, log)
 

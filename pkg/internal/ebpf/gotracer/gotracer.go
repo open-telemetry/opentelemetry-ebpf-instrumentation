@@ -124,7 +124,6 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		// http
 		goexec.URLPtrPos,
 		goexec.PathPtrPos,
-		goexec.PatternPtrPos,
 		goexec.HostPtrPos,
 		goexec.SchemePtrPos,
 		goexec.MethodPtrPos,
@@ -528,6 +527,14 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"go.mongodb.org/mongo-driver/v2/mongo.(*Collection).Distinct": {{
 			Start: p.bpfObjects.ObiUprobeMongoOpDistinct,
+		}},
+		// Route extraction
+		// Go mux router
+		"net/http.(*ServeMux).findHandler": {{
+			End: p.bpfObjects.ObiUprobeFindHandlerRet,
+		}},
+		"net/http.(*serveMux121).findHandler": {{
+			End: p.bpfObjects.ObiUprobeFindHandlerRet,
 		}},
 	}
 

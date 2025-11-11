@@ -464,7 +464,7 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
     bpf_dbg_printk("method ptr = %lx, method_len = %d", method_ptr, method_len);
 
     // Get method from the incoming call arguments
-    if (!read_go_str_n("method", method_ptr, (u64)method_len, &trace->path, sizeof(trace->path))) {
+    if (!read_go_str_n("method", method_ptr, (u64)method_len, trace->path, sizeof(trace->path))) {
         bpf_dbg_printk("can't read grpc client method");
         bpf_ringbuf_discard(trace, 0);
         goto done;

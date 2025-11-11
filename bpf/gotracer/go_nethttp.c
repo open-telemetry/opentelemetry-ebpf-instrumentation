@@ -66,11 +66,11 @@ typedef struct server_http_func_invocation {
     u64 content_length;
     u64 response_length;
     u64 status;
-    u64 req_addr;
     u64 rpc_request_addr; // pointer to the jsonrpc Request
     tp_info_t tp;
     u8 method[METHOD_MAX_LEN];
     u8 path[PATH_MAX_LEN];
+    u8 pattern[PATTERN_MAX_LEN];
     u8 _pad[5];
 } server_http_func_invocation_t;
 
@@ -122,13 +122,13 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
         .start_monotime_ns = bpf_ktime_get_ns(),
         .tp = {0},
         .status = 0,
-        .req_addr = (u64)req,
         .content_length = 0,
         .response_length = 0,
     };
 
     invocation.method[0] = 0;
     invocation.path[0] = 0;
+    invocation.pattern[0] = 0;
 
     if (req) {
         server_trace_parent(goroutine_addr, &invocation.tp, decoded_tp);
@@ -181,6 +181,31 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
     }
 
 done:
+    return 0;
+}
+
+SEC("uprobe/findHandler")
+int obi_uprobe_findHandlerRet(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/proc findHandler returns === ");
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+
+    bpf_dbg_printk("goroutine_addr %lx, inv %llx", goroutine_addr, invocation);
+
+    if (invocation) {
+        u64 len = (u64)GO_PARAM4(ctx);
+        void *ptr = GO_PARAM3(ctx);
+        if (ptr) {
+            bpf_dbg_printk("reading pattern information with len %d", len);
+            read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
+        }
+    }
+
     return 0;
 }
 
@@ -395,17 +420,6 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->scheme[0] = '\0';
     trace->pattern[0] = '\0';
 
-    if (invocation->req_addr) {
-        off_table_t *ot = get_offsets_table();
-
-        u64 pattern_off = go_offset_of(ot, (go_offset){.v = _pattern_ptr_pos});
-        read_go_str("pattern",
-                    (void *)invocation->req_addr,
-                    pattern_off,
-                    &trace->pattern,
-                    sizeof(trace->pattern));
-    }
-
     goroutine_metadata *g_metadata = bpf_map_lookup_elem(&ongoing_goroutines, &g_key);
     if (g_metadata) {
         trace->go_start_monotime_ns = g_metadata->timestamp;
@@ -432,6 +446,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->content_length = invocation->content_length;
     __builtin_memcpy(trace->method, invocation->method, sizeof(trace->method));
     __builtin_memcpy(trace->path, invocation->path, sizeof(trace->path));
+    __builtin_memcpy(trace->pattern, invocation->pattern, sizeof(trace->pattern));
     trace->status = (u16)invocation->status;
     trace->response_length = invocation->response_length;
 
@@ -488,7 +503,7 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
     if (!read_go_str("method",
                      req,
                      go_offset_of(ot, (go_offset){.v = _method_ptr_pos}),
-                     &trace.method,
+                     trace.method,
                      sizeof(trace.method))) {
         bpf_dbg_printk("can't read http Request.Method");
         return;
@@ -508,7 +523,7 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
         if (!read_go_str("path",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _path_ptr_pos}),
-                         &trace.path,
+                         trace.path,
                          sizeof(trace.path))) {
             bpf_dbg_printk("can't read http Request.URL.Path");
             return;
@@ -517,7 +532,7 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
         if (!read_go_str("host",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _host_ptr_pos}),
-                         &trace.host,
+                         trace.host,
                          sizeof(trace.host))) {
             bpf_dbg_printk("can't read http Request.URL.Host");
             return;
@@ -526,7 +541,7 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
         if (!read_go_str("scheme",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _scheme_ptr_pos}),
-                         &trace.scheme,
+                         trace.scheme,
                          sizeof(trace.scheme))) {
             bpf_dbg_printk("can't read http Request.URL.Scheme");
             return;
