@@ -223,10 +223,13 @@ int obi_uprobe_muxSetMatch(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr %lx, inv %llx", goroutine_addr, invocation);
 
     if (invocation && !invocation->pattern[0]) {
+        off_table_t *ot = get_offsets_table();
+
         void *path = GO_PARAM2(ctx);
         if (path) {
             bpf_dbg_printk("reading template from %llx", path);
-            read_go_str("pattern", path, 0, invocation->pattern, PATTERN_MAX_LEN);
+            u64 templ_off = go_offset_of(ot, (go_offset){.v = _mux_template_pos});
+            read_go_str("pattern", path, templ_off, invocation->pattern, PATTERN_MAX_LEN);
             bpf_dbg_printk("pattern %s", invocation->pattern);
         }
     }
@@ -245,18 +248,37 @@ int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
     server_http_func_invocation_t *invocation =
         bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
 
-    bpf_dbg_printk("goroutine_addr %lx, inv %llx", goroutine_addr, invocation);
+    off_table_t *ot = get_offsets_table();
+    u64 fullpath_off = go_offset_of(ot, (go_offset){.v = _gin_fullpath_pos});
 
-    if (invocation && !invocation->pattern[0]) {
-        void *handlers = GO_PARAM1(ctx);
-        if (handlers) {
-            void *ptr = GO_PARAM6(ctx);
-            u64 len = (u64)GO_PARAM7(ctx);
+    bpf_dbg_printk(
+        "goroutine_addr %lx, inv %llx, fullpath_off %d", goroutine_addr, invocation, fullpath_off);
 
-            if (ptr) {
-                bpf_dbg_printk("reading fullPath from %llx", ptr);
-                read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
-                bpf_dbg_printk("pattern %s", invocation->pattern);
+    if (fullpath_off == _gin_fullpath_off_pre_17 || fullpath_off == _gin_fullpath_off_post_17) {
+        if (invocation && !invocation->pattern[0]) {
+            void *handlers = GO_PARAM1(ctx);
+            if (handlers) {
+                // duplicated because of verifier complaints with choosing one or the other
+                // registers
+                if (fullpath_off == _gin_fullpath_off_pre_17) {
+                    void *ptr = GO_PARAM8(ctx);
+                    u64 len = (u64)GO_PARAM9(ctx);
+
+                    if (ptr) {
+                        bpf_dbg_printk("pre gin 1.7.0 fullPath from %llx", ptr);
+                        read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
+                        bpf_dbg_printk("pattern %s", invocation->pattern);
+                    }
+                } else {
+                    void *ptr = GO_PARAM6(ctx);
+                    u64 len = (u64)GO_PARAM7(ctx);
+
+                    if (ptr) {
+                        bpf_dbg_printk("post gin 1.7.0 fullPath from %llx", ptr);
+                        read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
+                        bpf_dbg_printk("pattern %s", invocation->pattern);
+                    }
+                }
             }
         }
     }

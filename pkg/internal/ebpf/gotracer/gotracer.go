@@ -186,6 +186,8 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.MongoOpNamePos,
 		goexec.MongoOpDBPos,
 		goexec.MongoOneThirteenOne,
+		goexec.MuxTemplatePos,
+		goexec.GinFullpathPos,
 	} {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
