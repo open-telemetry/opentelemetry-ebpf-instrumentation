@@ -430,7 +430,7 @@ enum bpf_enum_value_kind {
  */
 #define BPF_CORE_READ(src, a, ...)                                                                 \
     ({                                                                                             \
-        ___type((src), a, ##__VA_ARGS__) __r;                                                      \
+        ___type((src), a, ##__VA_ARGS__) __r = {};                                                 \
         BPF_CORE_READ_INTO(&__r, (src), a, ##__VA_ARGS__);                                         \
         __r;                                                                                       \
     })
