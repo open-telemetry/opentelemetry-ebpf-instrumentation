@@ -139,7 +139,7 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
         if (!read_go_str("method",
                          req,
                          go_offset_of(ot, (go_offset){.v = _method_ptr_pos}),
-                         &invocation.method,
+                         invocation.method,
                          sizeof(invocation.method))) {
             bpf_dbg_printk("can't read http Request.Method");
             goto done;
@@ -155,7 +155,7 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
             !read_go_str("path",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _path_ptr_pos}),
-                         &invocation.path,
+                         invocation.path,
                          sizeof(invocation.path))) {
             bpf_dbg_printk("can't read http Request.URL.Path");
             goto done;
@@ -203,6 +203,31 @@ int obi_uprobe_findHandlerRet(struct pt_regs *ctx) {
         if (ptr) {
             bpf_dbg_printk("reading pattern information with len %d", len);
             read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
+        }
+    }
+
+    return 0;
+}
+
+SEC("uprobe/muxSetMatch")
+int obi_uprobe_muxSetMatch(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/proc gorilla mux setMatch === ");
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+
+    bpf_dbg_printk("goroutine_addr %lx, inv %llx", goroutine_addr, invocation);
+
+    if (invocation && !invocation->pattern[0]) {
+        void *path = GO_PARAM2(ctx);
+        if (path) {
+            bpf_dbg_printk("reading template from %llx", path);
+            read_go_str("pattern", path, 0, invocation->pattern, PATTERN_MAX_LEN);
+            bpf_dbg_printk("pattern %s", invocation->pattern);
         }
     }
 

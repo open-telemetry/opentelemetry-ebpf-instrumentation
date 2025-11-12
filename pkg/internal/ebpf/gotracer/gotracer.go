@@ -536,6 +536,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*serveMux121).findHandler": {{
 			End: p.bpfObjects.ObiUprobeFindHandlerRet,
 		}},
+		// Gorilla mux router
+		"github.com/gorilla/mux.routeRegexpGroup.setMatch": {{
+			Start: p.bpfObjects.ObiUprobeMuxSetMatch,
+		}},
 	}
 
 	if p.supportsContextPropagation() {
