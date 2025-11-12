@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"os"
 	"time"
-
-	"golang.org/x/net/http2"
 )
 
 func checkErr(err error, msg string) {
@@ -31,14 +29,20 @@ func main() {
 	}
 }
 
+func newHTTP2Transport() *http.Transport {
+	protocols := &http.Protocols{}
+	protocols.SetHTTP2(true)
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Protocols = protocols
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	return tr
+}
+
 func RoundTripExample() {
 	req, err := http.NewRequestWithContext(context.Background(), "GET", os.Getenv("TARGET_URL")+"/pingrt", nil)
 	checkErr(err, "during new request")
 
-	tr := &http2.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-
+	tr := newHTTP2Transport()
 	resp, err := tr.RoundTrip(req)
 	checkErr(err, "during roundtrip")
 
@@ -49,9 +53,7 @@ func RoundTripExample() {
 
 func HttpClientExample() {
 	client := http.Client{
-		Transport: &http2.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
+		Transport: newHTTP2Transport(),
 	}
 
 	resp, err := client.Get(os.Getenv("TARGET_URL") + "/ping")
@@ -64,9 +66,7 @@ func HttpClientExample() {
 
 func HttpClientDoExample() {
 	client := http.Client{
-		Transport: &http2.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
+		Transport: newHTTP2Transport(),
 	}
 
 	req, err := http.NewRequestWithContext(context.Background(), "GET", os.Getenv("TARGET_URL")+"/pingdo", nil)

@@ -21,12 +21,10 @@ import (
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
-
-	"go.opentelemetry.io/otel/attribute"
-
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/pkg/test/httplib"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 /*
@@ -309,9 +307,7 @@ func doHTTP2Post(t *testing.T, path string, status int, jsonBody []byte) {
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
-	tr := &http2.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
+	tr := httplib.NewHTTP2Transport()
 
 	r, err := tr.RoundTrip(req)
 
@@ -326,9 +322,7 @@ func waitForTestComponentsHTTP2Sub(t *testing.T, url, subpath string, minutes in
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
 		require.NoError(t, err)
-		tr := &http2.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
+		tr := httplib.NewHTTP2Transport()
 
 		r, err := tr.RoundTrip(req)
 		require.NoError(t, err)

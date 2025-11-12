@@ -5,12 +5,11 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net/http"
 	"os"
 
-	"golang.org/x/net/http2"
+	"go.opentelemetry.io/obi/pkg/test/httplib"
 )
 
 func checkErr(err error, msg string) {
@@ -25,9 +24,7 @@ func roundTripExample() {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, os.Getenv("TARGET_URL")+"/pingrt", nil)
 	checkErr(err, "during new request")
 
-	tr := &http2.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
+	tr := httplib.NewHTTP2Transport()
 
 	resp, err := tr.RoundTrip(req)
 	checkErr(err, "during roundtrip")
@@ -42,12 +39,13 @@ func main() {
 		fmt.Fprintf(w, "Hello, %v, http: %v\n", r.URL.Path, r.TLS == nil)
 	})
 
+	protocols := &http.Protocols{}
+	protocols.SetHTTP2(true)
 	server := &http.Server{
-		Addr:    "0.0.0.0:8080",
-		Handler: handler,
+		Addr:      "0.0.0.0:8080",
+		Handler:   handler,
+		Protocols: protocols,
 	}
-	err := http2.ConfigureServer(server, nil)
-	checkErr(err, "configuring server")
 
 	roundTripExample()
 	fmt.Printf("Listening [0.0.0.0:8080]...\n")
