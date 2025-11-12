@@ -71,13 +71,17 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 }
 
 func stripPattern(p string) string {
+	if p != "" && p[0] == '/' {
+		return p
+	}
+
 	for _, s := range []string{"GET ", "PUT ", "POST ", "PATCH ", "DELETE ", "OPTIONS ", "HEAD "} {
 		if strings.HasPrefix(p, s) {
 			return p[len(s):]
 		}
 	}
 
-	return p
+	return ""
 }
 
 func SQLRequestTraceToSpan(trace *SQLRequestTrace) request.Span {
