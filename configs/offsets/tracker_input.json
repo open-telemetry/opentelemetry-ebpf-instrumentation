@@ -134,5 +134,12 @@
         "Database"
       ]
     }
+  },
+  "github.com/gorilla/mux": {
+    "inspect": "./configs/offsets/mux/inspect.go",
+    "versions": ">= v1.5.0",
+    "fields": {
+      "github.com/gorilla/mux.routeRegexp": ["template"]
+    }
   }
 }

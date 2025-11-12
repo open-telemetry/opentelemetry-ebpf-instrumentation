@@ -148,6 +148,20 @@
         ]
       }
     },
+    "github.com/gorilla/mux.routeRegexp": {
+      "template": {
+        "versions": {
+          "oldest": "1.5.0",
+          "newest": "1.8.1"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "1.5.0"
+          }
+        ]
+      }
+    },
     "github.com/redis/go-redis/v9/internal/pool.Conn": {
       "bw": {
         "versions": {
@@ -326,7 +340,7 @@
       "fr": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.46.0"
+          "newest": "0.47.0"
         },
         "offsets": [
           {
@@ -362,7 +376,7 @@
       "nextStreamID": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.46.0"
+          "newest": "0.47.0"
         },
         "offsets": [
           {
@@ -390,7 +404,7 @@
       "tconn": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.46.0"
+          "newest": "0.47.0"
         },
         "offsets": [
           {
@@ -404,7 +418,7 @@
       "w": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.46.0"
+          "newest": "0.47.0"
         },
         "offsets": [
           {
@@ -418,7 +432,7 @@
       "Fields": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.46.0"
+          "newest": "0.47.0"
         },
         "offsets": [
           {
@@ -432,7 +446,7 @@
       "conn": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.46.0"
+          "newest": "0.47.0"
         },
         "offsets": [
           {
@@ -446,7 +460,7 @@
       "w": {
         "versions": {
           "oldest": "0.12.0",
-          "newest": "0.46.0"
+          "newest": "0.47.0"
         },
         "offsets": [
           {
