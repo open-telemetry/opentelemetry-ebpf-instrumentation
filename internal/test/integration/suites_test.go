@@ -38,6 +38,7 @@ func TestSuite(t *testing.T) {
 	t.Run("Exemplars exist", testExemplarsExist)
 	t.Run("Testing Host Info metric", testHostInfo)
 	t.Run("Client RED metrics", testREDMetricsForClientHTTPLibrary)
+	t.Run("Harvested auto routes", testREDMetricsHTTPAutoRoutes)
 
 	require.NoError(t, compose.Close())
 }

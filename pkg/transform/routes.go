@@ -117,7 +117,7 @@ func (rn *routerNode) provideRoutes(_ context.Context) (swarm.RunFunc, error) {
 						setSpanIgnoreMode(ignoreMode, s)
 					}
 				}
-				if routesEnabled {
+				if s.Route == "" && routesEnabled {
 					s.Route = matcher.Find(s.Path)
 				}
 				if s.Route == "" && s.IsHTTPSpan() {

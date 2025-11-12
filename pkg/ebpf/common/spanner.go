@@ -22,6 +22,9 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 
 	if pattern != "" {
 		pattern = stripPattern(pattern)
+		if pattern == "/" {
+			pattern = ""
+		}
 	}
 
 	peer := ""
