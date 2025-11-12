@@ -95,6 +95,7 @@ func getDefinitions(
 			attr.ClientPort:     false,
 			attr.SrcZone:        false,
 			attr.DstZone:        false,
+			attr.NetworkType:    false,
 			attr.IfaceDirection: Default(ifaceDirEnabled),
 			attr.Iface:          Default(ifaceDirEnabled),
 		},

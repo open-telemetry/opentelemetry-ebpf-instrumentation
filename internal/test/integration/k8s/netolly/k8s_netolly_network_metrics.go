@@ -62,6 +62,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		metric := results[0].Metric
 		assertIsIP(t, metric["src_address"])
 		assertIsIP(t, metric["dst_address"])
+		assert.Equal(t, "ipv4", metric["network_type"])
 		assert.Equal(t, "my-kube", metric["k8s_cluster_name"])
 		assert.Equal(t, "default", metric["k8s_src_namespace"])
 		assert.Equal(t, "internal-pinger-net", metric["k8s_src_name"])
