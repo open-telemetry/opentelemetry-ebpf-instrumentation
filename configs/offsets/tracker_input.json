@@ -141,5 +141,12 @@
     "fields": {
       "github.com/gorilla/mux.routeRegexp": ["template"]
     }
+  },
+  "github.com/gin-gonic/gin": {
+    "inspect": "./configs/offsets/gin/inspect.go",
+    "versions": ">= v1.6.0,!= v1.7.5",
+    "fields": {
+      "github.com/gin-gonic/gin.nodeValue": ["fullPath"]
+    }
   }
 }
