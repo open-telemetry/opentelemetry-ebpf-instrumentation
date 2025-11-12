@@ -234,6 +234,36 @@ int obi_uprobe_muxSetMatch(struct pt_regs *ctx) {
     return 0;
 }
 
+SEC("uprobe/ginGetValue")
+int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/proc gin getValue returns === ");
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+
+    bpf_dbg_printk("goroutine_addr %lx, inv %llx", goroutine_addr, invocation);
+
+    if (invocation && !invocation->pattern[0]) {
+        void *handlers = GO_PARAM1(ctx);
+        if (handlers) {
+            void *ptr = GO_PARAM6(ctx);
+            u64 len = (u64)GO_PARAM7(ctx);
+
+            if (ptr) {
+                bpf_dbg_printk("reading fullPath from %llx", ptr);
+                read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
+                bpf_dbg_printk("pattern %s", invocation->pattern);
+            }
+        }
+    }
+
+    return 0;
+}
+
 SEC("uprobe/readRequest")
 int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/proc readRequest === ");

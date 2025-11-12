@@ -540,6 +540,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"github.com/gorilla/mux.routeRegexpGroup.setMatch": {{
 			Start: p.bpfObjects.ObiUprobeMuxSetMatch,
 		}},
+		// Gin router
+		"github.com/gin-gonic/gin.(*node).getValue": {{
+			End: p.bpfObjects.ObiUprobeGinGetValueRet,
+		}},
 	}
 
 	if p.supportsContextPropagation() {
