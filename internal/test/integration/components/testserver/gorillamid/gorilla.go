@@ -29,7 +29,10 @@ func Setup(port, stdPort int) {
 		// Set response header and encode JSON
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(diceID)
+		err := json.NewEncoder(w).Encode(diceID)
+		if err != nil {
+			log.Error("error encoding json", "error", err)
+		}
 	}).Methods("GET")
 
 	r.PathPrefix("/").HandlerFunc(std.HTTPHandler(log, stdPort))

@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -257,7 +257,7 @@ func echoCall(rw http.ResponseWriter) {
 	rw.WriteHeader(http.StatusNoContent)
 }
 
-var rd = rand.New(rand.NewSource(time.Now().Unix()))
+var rd = rand.New(rand.NewPCG(uint64(time.Now().Unix()), 0))
 
 func rolldice(w http.ResponseWriter, r *http.Request) {
 	// Print all headers
@@ -270,13 +270,12 @@ func rolldice(w http.ResponseWriter, r *http.Request) {
 
 	id := r.PathValue("id")
 
-	n := rd.Intn(6) + 1
+	n := rd.IntN(6) + 1
 
 	// Add response headers
 	w.Header().Set("Content-Type", "text/plain")
-	w.Header().Set("X-Dice-Roll", fmt.Sprintf("%d", n))
+	w.Header().Set("X-Dice-Roll", strconv.Itoa(n))
 
-	//regularGetRequest(r.Context(), "htt://localhost:34343")
 	slog.Info("rolldice called", "id", id, "dice", n)
 	time.Sleep(200 * time.Millisecond)
 

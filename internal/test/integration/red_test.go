@@ -1023,10 +1023,10 @@ func testREDMetricsRouteHarvesting(t *testing.T, url, svcName, svcNameSpace, rou
 
 func testREDMetricsHTTPAutoRoutes(t *testing.T) {
 	for _, testParts := range [][]string{
-		[]string{instrumentedServiceStdURL, "/rolldice/{id}"},
-		[]string{instrumentedServiceGorillaURL, "/rolldice/{id}"},
-		[]string{instrumentedServiceGinURL, "/rolldice/:id"},
-		[]string{instrumentedServiceGorillaMidURL, "/rolldice/{id}"},
+		{instrumentedServiceStdURL, "/rolldice/{id}"},
+		{instrumentedServiceGorillaURL, "/rolldice/{id}"},
+		{instrumentedServiceGinURL, "/rolldice/:id"},
+		{instrumentedServiceGorillaMidURL, "/rolldice/{id}"},
 	} {
 		t.Run(testParts[0], func(t *testing.T) {
 			waitForTestComponents(t, testParts[0])
