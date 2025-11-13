@@ -631,6 +631,16 @@ func TestSuiteNoRoutes(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuiteNoRoutesLowCardinality(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-no-routes-low-cardinality.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, "INSTRUMENTER_CONFIG_SUFFIX=-no-route-lc")
+	require.NoError(t, compose.Up())
+	t.Run("RED metrics", testREDMetricsHTTPNoRouteLowCardinality)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_Elixir(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-elixir.yml", path.Join(pathOutput, "test-suite-elixir.log"))
 	require.NoError(t, err)

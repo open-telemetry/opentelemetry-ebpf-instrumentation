@@ -66,6 +66,11 @@ func TestClusterURL(t *testing.T) {
 	assert.Equal(t, "/*", csf.ClusterURL("/1#"))
 	assert.Equal(t, "a", csf.ClusterURL("a#"))
 	assert.Equal(t, "/a/b/c/d/e/f/g/h/i", csf.ClusterURL("/a/b/c/d/e/f/g/h/i/j"))
+	assert.Equal(t, "/api/user", csf.ClusterURL("/api/user"))
+	assert.Equal(t, "/api/customer", csf.ClusterURL("/api/customer"))
+	assert.Equal(t, "/api/test", csf.ClusterURL("/api/test"))
+	assert.Equal(t, "/api/option", csf.ClusterURL("/api/option"))
+	assert.Equal(t, "/api/metric", csf.ClusterURL("/api/metric"))
 }
 
 func BenchmarkClusterURLWithCache(b *testing.B) {

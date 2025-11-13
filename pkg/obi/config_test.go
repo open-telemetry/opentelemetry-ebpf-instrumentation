@@ -228,8 +228,9 @@ discovery:
 			MetricSpanNameAggregationLimit: 100,
 		},
 		Routes: &transform.RoutesConfig{
-			Unmatch:      transform.UnmatchHeuristic,
-			WildcardChar: "*",
+			Unmatch:                   transform.UnmatchHeuristic,
+			WildcardChar:              "*",
+			MaxPathSegmentCardinality: 10,
 		},
 		NameResolver: &transform.NameResolverConfig{
 			Sources:  []string{"k8s", "dns"},

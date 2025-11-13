@@ -181,8 +181,9 @@ var DefaultConfig = Config{
 		MetricSpanNameAggregationLimit: 100,
 	},
 	Routes: &transform.RoutesConfig{
-		Unmatch:      transform.UnmatchDefault,
-		WildcardChar: "*",
+		Unmatch:                   transform.UnmatchDefault,
+		WildcardChar:              "*",
+		MaxPathSegmentCardinality: 10,
 	},
 	NetworkFlows: DefaultNetworkConfig,
 	Discovery: services.DiscoveryConfig{

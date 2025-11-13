@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
+	"go.opentelemetry.io/obi/pkg/internal/transform/route/clusterurl"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -117,6 +119,65 @@ func TestUnmatchedAuto(t *testing.T) {
 				Route: "/customer/*/job/*",
 				Type:  request.EventTypeHTTPClient,
 			}}, testutil.ReadChannel(t, out, testTimeout))
+		})
+	}
+}
+
+func TestUnmatchedAutoLowCardinality(t *testing.T) {
+	trie := clusterurl.NewPathTrie(3, '*')
+	for _, tc := range []UnmatchType{UnmatchLowCardinality} {
+		t.Run(string(tc), func(t *testing.T) {
+			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			router, err := RoutesProvider(&RoutesConfig{Unmatch: tc, WildcardChar: "*"},
+				input, output)(t.Context())
+			require.NoError(t, err)
+			out := output.Subscribe()
+			defer input.Close()
+			go router(t.Context())
+			input.Send([]request.Span{{Path: "/v1/user/1234", Type: request.EventTypeHTTP, Service: svc.Attrs{PathTrie: trie}}})
+			s := testutil.ReadChannel(t, out, testTimeout)
+			// Heuristic only detects the last component as an ID, 1234 -> *
+			assert.Equal(t, "/v1/user/1234", s[0].Path)
+			assert.Equal(t, "/v1/user/*", s[0].Route)
+			input.Send([]request.Span{{Path: "/v2/user/1234", Type: request.EventTypeHTTP, Service: svc.Attrs{PathTrie: trie}}})
+			// Heuristic only detects the last component as an ID, 1234 -> *
+			s = testutil.ReadChannel(t, out, testTimeout)
+			assert.Equal(t, "/v2/user/1234", s[0].Path)
+			assert.Equal(t, "/v2/user/*", s[0].Route)
+			input.Send([]request.Span{{Path: "/v3/user/1234", Type: request.EventTypeHTTP, Service: svc.Attrs{PathTrie: trie}}})
+			// Heuristic only detects the last component as an ID, 1234 -> *
+			s = testutil.ReadChannel(t, out, testTimeout)
+			assert.Equal(t, "/v3/user/1234", s[0].Path)
+			assert.Equal(t, "/v3/user/*", s[0].Route)
+			input.Send([]request.Span{{Path: "/v4/user/1234", Type: request.EventTypeHTTPClient, Service: svc.Attrs{PathTrie: trie}}})
+			// We finally blow the cardinality of the first path segment, v4 -> *
+			s = testutil.ReadChannel(t, out, testTimeout)
+			assert.Equal(t, "/v4/user/1234", s[0].Path)
+			assert.Equal(t, "/*/user/*", s[0].Route)
+			input.Send([]request.Span{{Path: "/v1/user/1234", Type: request.EventTypeHTTPClient, Service: svc.Attrs{PathTrie: trie}}})
+			// From now on, even previously matched routes are collapsed
+			s = testutil.ReadChannel(t, out, testTimeout)
+			assert.Equal(t, "/v1/user/1234", s[0].Path)
+			assert.Equal(t, "/*/user/*", s[0].Route)
+			// let's blow cardinality of the second path component, "user"
+			input.Send([]request.Span{{Path: "/v1/user-one/1234", Type: request.EventTypeHTTPClient, Service: svc.Attrs{PathTrie: trie}}})
+			s = testutil.ReadChannel(t, out, testTimeout)
+			assert.Equal(t, "/v1/user-one/1234", s[0].Path)
+			assert.Equal(t, "/*/user-one/*", s[0].Route)
+			input.Send([]request.Span{{Path: "/v1/user-two/1234", Type: request.EventTypeHTTPClient, Service: svc.Attrs{PathTrie: trie}}})
+			s = testutil.ReadChannel(t, out, testTimeout)
+			assert.Equal(t, "/v1/user-two/1234", s[0].Path)
+			assert.Equal(t, "/*/user-two/*", s[0].Route)
+			input.Send([]request.Span{{Path: "/v1/user-three/1234", Type: request.EventTypeHTTPClient, Service: svc.Attrs{PathTrie: trie}}})
+			s = testutil.ReadChannel(t, out, testTimeout)
+			assert.Equal(t, "/v1/user-three/1234", s[0].Path)
+			assert.Equal(t, "/*/*/*", s[0].Route)
+			input.Send([]request.Span{{Path: "/v1/user/1234", Type: request.EventTypeHTTPClient, Service: svc.Attrs{PathTrie: trie}}})
+			// From now on, even previously matched routes are collapsed
+			s = testutil.ReadChannel(t, out, testTimeout)
+			assert.Equal(t, "/v1/user/1234", s[0].Path)
+			assert.Equal(t, "/*/*/*", s[0].Route)
 		})
 	}
 }

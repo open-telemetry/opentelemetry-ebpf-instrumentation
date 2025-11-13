@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 func testMatch(t *testing.T, m Event[ProcessMatch], name string,
@@ -551,7 +552,7 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	require.Len(t, planetMatch.Criteria, 2)
 
-	planetAttrs := makeServiceAttrs(&planetMatch)
+	planetAttrs := makeServiceAttrs(&planetMatch, &transform.RoutesConfig{})
 
 	assert.True(t, planetAttrs.ExportModes.CanExportTraces())
 	assert.False(t, planetAttrs.ExportModes.CanExportMetrics())
@@ -562,7 +563,7 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	require.Len(t, satelliteMatch.Criteria, 2)
 
-	satelliteAttrs := makeServiceAttrs(&satelliteMatch)
+	satelliteAttrs := makeServiceAttrs(&satelliteMatch, &transform.RoutesConfig{})
 
 	assert.False(t, satelliteAttrs.ExportModes.CanExportTraces())
 	assert.False(t, satelliteAttrs.ExportModes.CanExportMetrics())
@@ -572,7 +573,7 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	require.Len(t, starMatch.Criteria, 2)
 
-	starAttrs := makeServiceAttrs(&starMatch)
+	starAttrs := makeServiceAttrs(&starMatch, &transform.RoutesConfig{})
 
 	assert.False(t, starAttrs.ExportModes.CanExportTraces())
 	assert.True(t, starAttrs.ExportModes.CanExportMetrics())
@@ -582,7 +583,7 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	require.Len(t, asteroidMatch.Criteria, 2)
 
-	asteroidAttrs := makeServiceAttrs(&asteroidMatch)
+	asteroidAttrs := makeServiceAttrs(&asteroidMatch, &transform.RoutesConfig{})
 
 	assert.True(t, asteroidAttrs.ExportModes.CanExportTraces())
 	assert.True(t, asteroidAttrs.ExportModes.CanExportMetrics())
