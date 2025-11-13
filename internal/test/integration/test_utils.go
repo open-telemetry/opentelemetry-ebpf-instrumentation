@@ -21,10 +21,12 @@ import (
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/otel/attribute"
+
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
 	"go.opentelemetry.io/obi/pkg/test/httplib"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 /*
