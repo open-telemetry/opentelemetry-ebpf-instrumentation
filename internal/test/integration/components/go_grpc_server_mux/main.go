@@ -15,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
@@ -43,13 +45,10 @@ func main() {
 	}()
 
 	reflection.Register(grpcServ)
-	protocols := &http.Protocols{}
-	protocols.SetHTTP2(true)
-	protocols.SetUnencryptedHTTP2(true) // h2c
-	protocols.SetHTTP1(true)
 
 	mixedHandler := newHTTPandGRPCMux(httpMux, grpcServ)
-	http1Server := &http.Server{Handler: mixedHandler, Protocols: protocols}
+	http2Server := &http2.Server{}
+	http1Server := &http.Server{Handler: h2c.NewHandler(mixedHandler, http2Server)}
 
 	var lis net.Listener
 	var err error
