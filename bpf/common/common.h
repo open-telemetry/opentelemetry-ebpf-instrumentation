@@ -26,6 +26,7 @@
 #define K_TCP_RES_LEN 128
 
 #define PATH_MAX_LEN 100
+#define PATTERN_MAX_LEN 96
 #define METHOD_MAX_LEN 7 // Longest method: OPTIONS
 #define REMOTE_ADDR_MAX_LEN                                                                        \
     50 // We need 48: 39(ip v6 max) + 1(: separator) + 7(port length max value 65535) + 1(null terminator)
@@ -69,6 +70,7 @@ typedef struct http_request_trace {
     s64 content_length;
     s64 response_length;
     unsigned char path[PATH_MAX_LEN];
+    unsigned char pattern[PATTERN_MAX_LEN];
     unsigned char host[HOST_MAX_LEN];
     tp_info_t tp;
     connection_info_t conn;

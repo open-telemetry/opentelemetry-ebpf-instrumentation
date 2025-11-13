@@ -141,3 +141,104 @@ func Test_EmptyHostInfo(t *testing.T) {
 	assert.Empty(t, src)
 	assert.Empty(t, dest)
 }
+
+func TestStripPattern(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "already starts with slash",
+			input:    "/api/users",
+			expected: "/api/users",
+		},
+		{
+			name:     "GET prefix",
+			input:    "GET /api/users",
+			expected: "/api/users",
+		},
+		{
+			name:     "POST prefix",
+			input:    "POST /api/users",
+			expected: "/api/users",
+		},
+		{
+			name:     "PUT prefix",
+			input:    "PUT /api/users",
+			expected: "/api/users",
+		},
+		{
+			name:     "PATCH prefix",
+			input:    "PATCH /api/users",
+			expected: "/api/users",
+		},
+		{
+			name:     "DELETE prefix",
+			input:    "DELETE /api/users",
+			expected: "/api/users",
+		},
+		{
+			name:     "OPTIONS prefix",
+			input:    "OPTIONS /api/users",
+			expected: "/api/users",
+		},
+		{
+			name:     "HEAD prefix",
+			input:    "HEAD /api/users",
+			expected: "/api/users",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "no prefix no slash",
+			input:    "api/users",
+			expected: "",
+		},
+		{
+			name:     "root path",
+			input:    "/",
+			expected: "/",
+		},
+		{
+			name:     "GET with root path",
+			input:    "GET /",
+			expected: "/",
+		},
+		{
+			name:     "method without trailing space (not matched)",
+			input:    "GET/api/users",
+			expected: "",
+		},
+		{
+			name:     "lowercase method (not matched)",
+			input:    "get /api/users",
+			expected: "",
+		},
+		{
+			name:     "path with parameters",
+			input:    "GET /api/users/:id",
+			expected: "/api/users/:id",
+		},
+		{
+			name:     "path with wildcard",
+			input:    "POST /api/files/*path",
+			expected: "/api/files/*path",
+		},
+		{
+			name:     "nonsense",
+			input:    "THIS IS A TEST",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := stripPattern(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

@@ -148,6 +148,38 @@
         ]
       }
     },
+    "github.com/gin-gonic/gin.nodeValue": {
+      "fullPath": {
+        "versions": {
+          "oldest": "1.6.0",
+          "newest": "1.11.0"
+        },
+        "offsets": [
+          {
+            "offset": 56,
+            "since": "1.6.0"
+          },
+          {
+            "offset": 40,
+            "since": "1.7.0"
+          }
+        ]
+      }
+    },
+    "github.com/gorilla/mux.routeRegexp": {
+      "template": {
+        "versions": {
+          "oldest": "1.5.0",
+          "newest": "1.8.1"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "1.5.0"
+          }
+        ]
+      }
+    },
     "github.com/redis/go-redis/v9/internal/pool.Conn": {
       "bw": {
         "versions": {

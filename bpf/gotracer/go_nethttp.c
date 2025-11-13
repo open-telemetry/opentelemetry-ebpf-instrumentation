@@ -70,6 +70,7 @@ typedef struct server_http_func_invocation {
     tp_info_t tp;
     u8 method[METHOD_MAX_LEN];
     u8 path[PATH_MAX_LEN];
+    u8 pattern[PATTERN_MAX_LEN];
     u8 _pad[5];
 } server_http_func_invocation_t;
 
@@ -127,6 +128,7 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
 
     invocation.method[0] = 0;
     invocation.path[0] = 0;
+    invocation.pattern[0] = 0;
 
     if (req) {
         server_trace_parent(goroutine_addr, &invocation.tp, decoded_tp);
@@ -137,7 +139,7 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
         if (!read_go_str("method",
                          req,
                          go_offset_of(ot, (go_offset){.v = _method_ptr_pos}),
-                         &invocation.method,
+                         invocation.method,
                          sizeof(invocation.method))) {
             bpf_dbg_printk("can't read http Request.Method");
             goto done;
@@ -153,7 +155,7 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
             !read_go_str("path",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _path_ptr_pos}),
-                         &invocation.path,
+                         invocation.path,
                          sizeof(invocation.path))) {
             bpf_dbg_printk("can't read http Request.URL.Path");
             goto done;
@@ -179,6 +181,108 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
     }
 
 done:
+    return 0;
+}
+
+SEC("uprobe/findHandler")
+int obi_uprobe_findHandlerRet(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/proc findHandler returns === ");
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+
+    bpf_dbg_printk("goroutine_addr %lx, inv %llx", goroutine_addr, invocation);
+
+    if (invocation) {
+        u64 len = (u64)GO_PARAM4(ctx);
+        void *ptr = GO_PARAM3(ctx);
+        if (ptr) {
+            bpf_dbg_printk("reading pattern information with len %d", len);
+            read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
+        }
+    }
+
+    return 0;
+}
+
+SEC("uprobe/muxSetMatch")
+int obi_uprobe_muxSetMatch(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/proc gorilla mux setMatch === ");
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+
+    bpf_dbg_printk("goroutine_addr %lx, inv %llx", goroutine_addr, invocation);
+
+    if (invocation && !invocation->pattern[0]) {
+        off_table_t *ot = get_offsets_table();
+
+        void *path = GO_PARAM2(ctx);
+        if (path) {
+            bpf_dbg_printk("reading template from %llx", path);
+            u64 templ_off = go_offset_of(ot, (go_offset){.v = _mux_template_pos});
+            read_go_str("pattern", path, templ_off, invocation->pattern, PATTERN_MAX_LEN);
+            bpf_dbg_printk("pattern %s", invocation->pattern);
+        }
+    }
+
+    return 0;
+}
+
+SEC("uprobe/ginGetValue")
+int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/proc gin getValue returns === ");
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+
+    off_table_t *ot = get_offsets_table();
+    u64 fullpath_off = go_offset_of(ot, (go_offset){.v = _gin_fullpath_pos});
+
+    bpf_dbg_printk(
+        "goroutine_addr %lx, inv %llx, fullpath_off %d", goroutine_addr, invocation, fullpath_off);
+
+    if (fullpath_off == _gin_fullpath_off_pre_17 || fullpath_off == _gin_fullpath_off_post_17) {
+        if (invocation && !invocation->pattern[0]) {
+            void *handlers = GO_PARAM1(ctx);
+            if (handlers) {
+                // duplicated because of verifier complaints with choosing one or the other
+                // registers
+                if (fullpath_off == _gin_fullpath_off_pre_17) {
+                    void *ptr = GO_PARAM8(ctx);
+                    u64 len = (u64)GO_PARAM9(ctx);
+
+                    if (ptr) {
+                        bpf_dbg_printk("pre gin 1.7.0 fullPath from %llx", ptr);
+                        read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
+                        bpf_dbg_printk("pattern %s", invocation->pattern);
+                    }
+                } else {
+                    void *ptr = GO_PARAM6(ctx);
+                    u64 len = (u64)GO_PARAM7(ctx);
+
+                    if (ptr) {
+                        bpf_dbg_printk("post gin 1.7.0 fullPath from %llx", ptr);
+                        read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
+                        bpf_dbg_printk("pattern %s", invocation->pattern);
+                    }
+                }
+            }
+        }
+    }
+
     return 0;
 }
 
@@ -391,6 +495,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->host[0] = '\0';
     trace->scheme[0] = '\0';
+    trace->pattern[0] = '\0';
 
     goroutine_metadata *g_metadata = bpf_map_lookup_elem(&ongoing_goroutines, &g_key);
     if (g_metadata) {
@@ -418,6 +523,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->content_length = invocation->content_length;
     __builtin_memcpy(trace->method, invocation->method, sizeof(trace->method));
     __builtin_memcpy(trace->path, invocation->path, sizeof(trace->path));
+    __builtin_memcpy(trace->pattern, invocation->pattern, sizeof(trace->pattern));
     trace->status = (u16)invocation->status;
     trace->response_length = invocation->response_length;
 
@@ -425,6 +531,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     bpf_dbg_printk("tp: %s", tp_buf);
     bpf_dbg_printk("method: %s", trace->method);
     bpf_dbg_printk("path: %s", trace->path);
+    bpf_dbg_printk("pattern: %s", trace->pattern);
 
     // submit the completed trace via ringbuffer
     bpf_ringbuf_submit(trace, get_flags());
@@ -473,7 +580,7 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
     if (!read_go_str("method",
                      req,
                      go_offset_of(ot, (go_offset){.v = _method_ptr_pos}),
-                     &trace.method,
+                     trace.method,
                      sizeof(trace.method))) {
         bpf_dbg_printk("can't read http Request.Method");
         return;
@@ -493,7 +600,7 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
         if (!read_go_str("path",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _path_ptr_pos}),
-                         &trace.path,
+                         trace.path,
                          sizeof(trace.path))) {
             bpf_dbg_printk("can't read http Request.URL.Path");
             return;
@@ -502,7 +609,7 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
         if (!read_go_str("host",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _host_ptr_pos}),
-                         &trace.host,
+                         trace.host,
                          sizeof(trace.host))) {
             bpf_dbg_printk("can't read http Request.URL.Host");
             return;
@@ -511,7 +618,7 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
         if (!read_go_str("scheme",
                          url_ptr,
                          go_offset_of(ot, (go_offset){.v = _scheme_ptr_pos}),
-                         &trace.scheme,
+                         trace.scheme,
                          sizeof(trace.scheme))) {
             bpf_dbg_printk("can't read http Request.URL.Scheme");
             return;

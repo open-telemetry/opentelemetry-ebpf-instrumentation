@@ -996,3 +996,41 @@ func testPrometheusNoOBIEvents(t *testing.T) {
 		require.Empty(t, results)
 	})
 }
+
+func testREDMetricsRouteHarvesting(t *testing.T, url, svcName, svcNameSpace, route string) {
+	pq := prom.Client{HostPort: prometheusHostPort}
+	path := "/rolldice/4"
+
+	for i := 0; i < 4; i++ {
+		ti.DoHTTPGet(t, url+path, 200)
+	}
+
+	// Test span metrics
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		results, err := pq.Query(`http_server_request_duration_seconds_count{` +
+			`http_request_method="GET",` +
+			`http_response_status_code="200",` +
+			`service_name="` + svcName + `",` +
+			`service_namespace="` + svcNameSpace + `",` +
+			`http_route="` + route + `",` +
+			`url_path="` + path + `"}`)
+		require.NoError(t, err)
+		enoughPromResults(t, results)
+		val := totalPromCount(t, results)
+		assert.LessOrEqual(t, 3, val, route)
+	})
+}
+
+func testREDMetricsHTTPAutoRoutes(t *testing.T) {
+	for _, testParts := range [][]string{
+		{instrumentedServiceStdURL, "/rolldice/{id}"},
+		{instrumentedServiceGorillaURL, "/rolldice/{id}"},
+		{instrumentedServiceGinURL, "/rolldice/:id"},
+		{instrumentedServiceGorillaMidURL, "/rolldice/{id}"},
+	} {
+		t.Run(testParts[0], func(t *testing.T) {
+			waitForTestComponents(t, testParts[0])
+			testREDMetricsRouteHarvesting(t, testParts[0], "testserver", "integration-test", testParts[1])
+		})
+	}
+}
