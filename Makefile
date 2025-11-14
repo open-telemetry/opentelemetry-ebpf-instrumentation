@@ -35,7 +35,7 @@ DEPENDENCIES_DOCKERFILE=./dependencies.Dockerfile
 
 # BPF code generator dependencies
 CLANG ?= clang
-CFLAGS := -O2 -g -Wunaligned-access -Wpacked -Wpadded -Wall -Werror $(CFLAGS)
+CFLAGS := -std=gnu17 -O2 -g -Wunaligned-access -Wpacked -Wpadded -Wall -Werror $(CFLAGS)
 
 CLANG_TIDY ?= clang-tidy
 
