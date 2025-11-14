@@ -208,3 +208,7 @@ static __always_inline void populate_ephemeral_info(connection_info_part_t *part
     part->type = type;
     part->pid = pid;
 }
+
+static __always_inline u8 is_empty_connection_info(const connection_info_t *conn) {
+    return conn->s_port == 0 && conn->d_port == 0;
+}

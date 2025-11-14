@@ -7,5 +7,6 @@
 #include "libssl.c"
 #include "nginx.c"
 #include "nodejs.c"
+#include "java_tls.c"
 
 char __license[] SEC("license") = "Dual MIT/GPL";
