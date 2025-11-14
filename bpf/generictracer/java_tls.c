@@ -17,22 +17,22 @@
 
 #include <pid/pid.h>
 
-enum { ioctl_magic_id = 0x0b10b1 };
+enum { k_ioctl_magic_id = 0x0b10b1 };
 enum {
-    ioctl_java_send = 1,
-    ioctl_java_recv = 2,
+    k_ioctl_java_send = 1,
+    k_ioctl_java_recv = 2,
 };
 
-enum { ioctl_invalid_op = 0xff };
+enum { k_ioctl_invalid_op = 0xff };
 
 static __always_inline u8 cmd_to_op(u8 cmd) {
     switch (cmd) {
-    case ioctl_java_send:
+    case k_ioctl_java_send:
         return TCP_SEND;
-    case ioctl_java_recv:
+    case k_ioctl_java_recv:
         return TCP_RECV;
     default:
-        return ioctl_invalid_op;
+        return k_ioctl_invalid_op;
     }
 }
 
@@ -56,7 +56,7 @@ int BPF_KPROBE(
     }
 
     // some other IOCTL by the app
-    if (cmd != ioctl_magic_id) {
+    if (cmd != k_ioctl_magic_id) {
         return 0;
     }
 
@@ -71,7 +71,7 @@ int BPF_KPROBE(
 
     u8 op = cmd_to_op(op_cmd);
 
-    if (op == ioctl_invalid_op) {
+    if (op == k_ioctl_invalid_op) {
         bpf_dbg_printk("unknown cmd = %d", op_cmd);
         return 0;
     }
@@ -88,7 +88,7 @@ int BPF_KPROBE(
         ssl_pid_connection_info_t *l = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
         bpf_dbg_printk("lookup for empty connection info %llx", l);
         if (l) {
-            __builtin_memcpy(&p_conn, &l->p_conn, sizeof(pid_connection_info_t));
+            p_conn = l->p_conn;
         }
     }
 
