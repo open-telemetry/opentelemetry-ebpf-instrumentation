@@ -31,7 +31,8 @@ spec:
 
   containers:
     - name: httppinger
-      image: httppinger:dev
+      image: ghcr.io/open-telemetry/obi-testimg:httppinger-net
+      imagePullPolicy: IfNotPresent       
       env:
         - name: TARGET_URL
           value: "http://otherinstance:8080"
@@ -88,8 +89,8 @@ spec:
             claimName: testoutput
       containers:
         - name: otherinstance
-          image: testserver:dev
-          imagePullPolicy: Never # loaded into Kind from localhost
+          image: ghcr.io/open-telemetry/obi-testimg:gotestserver-net
+          imagePullPolicy: IfNotPresent 
           ports:
             # exposing hostports to enable operation from tests
             - containerPort: 8080
