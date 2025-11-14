@@ -126,7 +126,7 @@ typedef struct redis_client_req {
 
 // Here we track unknown TCP requests that are not HTTP, HTTP2 or gRPC
 typedef struct tcp_req {
-    u8 flags; // Must be fist we use it to tell what kind of packet we have on the ring buffer
+    u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 ssl;
     u8 direction;
     u8 has_large_buffers;
@@ -247,7 +247,7 @@ typedef struct mongo_go_client_req {
 } mongo_go_client_req_t;
 
 typedef struct dns_req {
-    u8 flags; // Must be first we use it to tell what kind of packet we have on the ring buffer
+    u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 dns_q;
     u8 _pad1[2];
     u32 len;

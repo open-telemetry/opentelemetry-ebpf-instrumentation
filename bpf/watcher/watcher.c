@@ -16,7 +16,7 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 #define WATCH_BIND 0x1
 
 typedef struct watch_info {
-    u64 flags; // Must be fist we use it to tell what kind of packet we have on the ring buffer
+    u64 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u64 payload;
 } watch_info_t;
 
