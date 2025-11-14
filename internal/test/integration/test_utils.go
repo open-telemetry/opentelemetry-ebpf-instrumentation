@@ -26,7 +26,6 @@ import (
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
-	"go.opentelemetry.io/obi/pkg/test/httplib"
 )
 
 /*
@@ -309,7 +308,7 @@ func doHTTP2Post(t *testing.T, path string, status int, jsonBody []byte) {
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
-	tr := httplib.NewHTTP2Transport()
+	tr := newHTTP2Transport()
 
 	r, err := tr.RoundTrip(req)
 
@@ -324,7 +323,7 @@ func waitForTestComponentsHTTP2Sub(t *testing.T, url, subpath string, minutes in
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
 		require.NoError(t, err)
-		tr := httplib.NewHTTP2Transport()
+		tr := newHTTP2Transport()
 
 		r, err := tr.RoundTrip(req)
 		require.NoError(t, err)
@@ -351,4 +350,15 @@ func otelAttributeToJaegerTag(attr attribute.KeyValue) jaeger.Tag {
 		Type:  strings.ToLower(attr.Value.Type().String()),
 		Value: value,
 	}
+}
+
+// newHTTP2Transport creates an HTTP transport configured
+// to use HTTP/2 with TLS verification disabled.
+func newHTTP2Transport() *http.Transport {
+	protocols := &http.Protocols{}
+	protocols.SetHTTP2(true)
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Protocols = protocols
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	return tr
 }

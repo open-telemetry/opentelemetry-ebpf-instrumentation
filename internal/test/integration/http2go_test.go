@@ -114,8 +114,15 @@ func TestHTTP2Go(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-http2.yml", path.Join(pathOutput, "test-suite-http2.log"))
 	require.NoError(t, err)
 
+	testHTTP2GO(t, compose, false)
+}
+
+func testHTTP2GO(t *testing.T, compose *docker.Compose, useHTTPProtocols bool) {
 	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
+	if useHTTPProtocols {
+		compose.Env = append(compose.Env, `TEST_HTTP2_PROTOCOLS=1`)
+	}
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {
@@ -137,4 +144,11 @@ func TestHTTP2Go(t *testing.T) {
 	}
 
 	require.NoError(t, compose.Close())
+}
+
+func TestHTTP2GoWithHTTPProtocols(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-http2.yml", path.Join(pathOutput, "test-suite-http2-protocols.log"))
+	require.NoError(t, err)
+
+	testHTTP2GO(t, compose, true)
 }

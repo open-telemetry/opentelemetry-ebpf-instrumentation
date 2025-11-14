@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+
+	"golang.org/x/net/http2"
 )
 
 func checkErr(err error, msg string) {
@@ -22,13 +24,17 @@ func main() {
 		fmt.Fprintf(w, "Hello, %v, http: %v\n", r.URL.Path, r.TLS == nil)
 	})
 
-	protocols := &http.Protocols{}
-	protocols.SetHTTP2(true)
-
 	server := &http.Server{
-		Addr:      "0.0.0.0:7373",
-		Protocols: protocols,
-		Handler:   handler,
+		Addr:    "0.0.0.0:7373",
+		Handler: handler,
+	}
+
+	if os.Getenv("TEST_HTTP2_PROTOCOLS") == "1" {
+		protocols := &http.Protocols{}
+		protocols.SetHTTP2(true)
+		server.Protocols = protocols
+	} else {
+		http2.ConfigureServer(server, nil)
 	}
 
 	fmt.Printf("Listening [0.0.0.0:7373]...\n")
