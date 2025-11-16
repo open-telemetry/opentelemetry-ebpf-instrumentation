@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	common "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -206,10 +206,10 @@ func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tra
 
 	if err != nil && (strings.Contains(err.Error(), "unknown func bpf_probe_write_user") ||
 		strings.Contains(err.Error(), "cannot use helper bpf_probe_write_user")) {
-		plog.Warn("Failed to enable Go write memory distributed tracing context-propagation on a " +
-			"Linux Kernel without write memory support. " +
-			"To avoid seeing this message, please ensure you have correctly mounted /sys/kernel/security. " +
-			"and ensure beyla has the SYS_ADMIN linux capability. " +
+		plog.Warn("Failed to enable Go write memory distributed tracing context-propagation" +
+			"and/or log enricher on a Linux Kernel without write memory support. " +
+			"To avoid seeing this message, please ensure you have correctly mounted /sys/kernel/security " +
+			"and ensure OBI has the SYS_ADMIN linux capability. " +
 			"For more details set OTEL_EBPF_LOG_LEVEL=DEBUG.")
 
 		common.IntegrityModeOverride = true

@@ -25,6 +25,7 @@ This document explains how OpenTelemetry context propagation works in the eBPF i
   - [tp_info_pid_t::written (u8)](#tp_info_pid_twritten-u8)
 - [The incoming_trace_map](#the-incoming_trace_map)
 - [Summary](#summary)
+- [Logs correlation](#logs-correlation)
 
 ## Overview
 
@@ -338,3 +339,12 @@ Unlike `outgoing_trace_map`, there is no coordination between layers - each laye
    - Go/SSL: uprobes → tpinjector → kprobe → tctracer
    - Plain HTTP (sockmap): tpinjector → kprobe → tctracer
    - Non-sockmap: kprobe → tctracer
+
+## Logs correlation
+
+OBI allows injecting trace context into JSON logs. The following requirements must be met:
+
+- Linux kernel version **6.0 or later** (overwriting user memory requires a `UBUF`-type `iov_iter`)
+- `CAP_SYS_ADMIN` capability and permission to use `bpf_probe_write_user` (kernel security lockdown mode should be `[none]`)
+- The target application writes logs in **JSON format**
+- The target application does **not** use async primitives (not supported yet)

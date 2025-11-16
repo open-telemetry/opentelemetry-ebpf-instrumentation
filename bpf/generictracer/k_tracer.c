@@ -9,6 +9,7 @@
 
 #include <common/common.h>
 #include <common/connection_info.h>
+#include <common/iov_iter.h>
 #include <common/msg_buffer.h>
 #include <common/dns.h>
 #include <common/pin_internal.h>
@@ -705,7 +706,8 @@ static __always_inline void setup_recvmsg(u64 id, struct sock *sk, struct msghdr
         .sock_ptr = (u64)sk,
     };
 
-    get_iovec_ctx((iovec_iter_ctx *)&args.iovec_ctx, msg);
+    struct iov_iter___dummy *iov_iter = (struct iov_iter___dummy *)&msg->msg_iter;
+    get_iovec_ctx((iovec_iter_ctx *)&args.iovec_ctx, iov_iter);
 
     bpf_map_update_elem(&active_recv_args, &id, &args, BPF_ANY);
 }

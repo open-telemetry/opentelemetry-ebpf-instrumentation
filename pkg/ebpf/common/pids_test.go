@@ -40,7 +40,7 @@ func TestFilter_SameNS(t *testing.T) {
 	readNamespacePIDs = func(pid int32) ([]uint32, error) {
 		return []uint32{uint32(pid)}, nil
 	}
-	pf := newPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeGo)
 	pf.AllowPID(456, 33, &svc.Attrs{}, PIDTypeGo)
 	pf.AllowPID(789, 33, &svc.Attrs{}, PIDTypeGo)
@@ -58,7 +58,7 @@ func TestFilter_DifferentNS(t *testing.T) {
 	readNamespacePIDs = func(pid int32) ([]uint32, error) {
 		return []uint32{uint32(pid)}, nil
 	}
-	pf := newPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 	pf.AllowPID(123, 22, &svc.Attrs{}, PIDTypeGo)
 	pf.AllowPID(456, 22, &svc.Attrs{}, PIDTypeGo)
 	pf.AllowPID(666, 22, &svc.Attrs{}, PIDTypeGo)
@@ -72,7 +72,7 @@ func TestFilter_Block(t *testing.T) {
 	readNamespacePIDs = func(pid int32) ([]uint32, error) {
 		return []uint32{uint32(pid)}, nil
 	}
-	pf := newPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeGo)
 	pf.AllowPID(456, 33, &svc.Attrs{}, PIDTypeGo)
 	pf.BlockPID(123, 33)
@@ -90,7 +90,7 @@ func TestFilter_NewNSLater(t *testing.T) {
 	readNamespacePIDs = func(pid int32) ([]uint32, error) {
 		return []uint32{uint32(pid)}, nil
 	}
-	pf := newPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeGo)
 	pf.AllowPID(456, 33, &svc.Attrs{}, PIDTypeGo)
 	pf.AllowPID(789, 33, &svc.Attrs{}, PIDTypeGo)
@@ -130,7 +130,7 @@ func TestFilter_NewNSLater(t *testing.T) {
 
 func TestFilter_ExportsOTelDetection(t *testing.T) {
 	const defaultOtlpPort = 4317
-	pf := newPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
 	s := svc.Attrs{}
 	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/random/server/span", RequestStart: 100, End: 200, Status: 200}
@@ -159,7 +159,7 @@ func TestFilter_ExportsOTelDetection(t *testing.T) {
 
 func TestFilter_ExportsOTelSpanDetection(t *testing.T) {
 	const defaultOtlpPort = 4317
-	pf := newPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
 	s := svc.Attrs{}
 	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/random/server/span", RequestStart: 100, End: 200, Status: 200}
@@ -192,7 +192,7 @@ func TestFilter_TriggersOTelFiltering(t *testing.T) {
 	readNamespacePIDs = func(pid int32) ([]uint32, error) {
 		return []uint32{uint32(pid)}, nil
 	}
-	pf := newPIDsFilter(&services.DiscoveryConfig{ExcludeOTelInstrumentedServices: true, ExcludeOTelInstrumentedServicesSpanMetrics: true}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf := NewPIDsFilter(&services.DiscoveryConfig{ExcludeOTelInstrumentedServices: true, ExcludeOTelInstrumentedServicesSpanMetrics: true}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
 	commonSvc := svc.Attrs{}
 	pf.AllowPID(33, 33, &commonSvc, PIDTypeGo)
@@ -237,7 +237,7 @@ func TestFilter_TriggersOTelSpanFiltering(t *testing.T) {
 	readNamespacePIDs = func(pid int32) ([]uint32, error) {
 		return []uint32{uint32(pid)}, nil
 	}
-	pf := newPIDsFilter(&services.DiscoveryConfig{ExcludeOTelInstrumentedServices: true}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf := NewPIDsFilter(&services.DiscoveryConfig{ExcludeOTelInstrumentedServices: true}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
 	commonSvc := svc.Attrs{}
 	pf.AllowPID(33, 33, &commonSvc, PIDTypeGo)
@@ -291,7 +291,7 @@ func TestFilter_Cleanup(t *testing.T) {
 		assert.Fail(t, "fix your test, unknown pid")
 		return nil, nil
 	}
-	pf := newPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeGo)
 	pf.AllowPID(456, 33, &svc.Attrs{}, PIDTypeGo)
 	pf.AllowPID(789, 33, &svc.Attrs{}, PIDTypeGo)
