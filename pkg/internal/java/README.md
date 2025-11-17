@@ -1,7 +1,7 @@
 # OpenTelemetry eBPF Instrumentation (OBI) Java Agent
 
-A Java instrumentation agent for Java TLS observability using eBPF integration. 
-This agent intercepts sync and async TLS network I/O operations in Java applications and 
+A Java instrumentation agent for Java TLS observability using eBPF integration.
+This agent intercepts sync and async TLS network I/O operations in Java applications and
 communicates with eBPF programs for distributed tracing and monitoring.
 
 ## 🚀 Features
@@ -16,17 +16,18 @@ communicates with eBPF programs for distributed tracing and monitoring.
 There are two main ways Java will create TLS traffic:
 
 1. Synchronous by using `SSLSocket`.
-2. Asynchronous by using `SSLEngine` to encrypt/decrypt and some mechanism to send the data, 
+2. Asynchronous by using `SSLEngine` to encrypt/decrypt and some mechanism to send the data,
 which is typically done though socket channels. We support the native JDK `SocketChannel`
 implementations and `Netty's` socket channels.
 
 With this bytecode instrumentation, we intercept the TLS traffic and we ship the data to
 OBI along with the connection information. We communicate with OBI via making a native C
-library call to `ioctl`, which in turn makes a syscall. OBI attaches a kprobe to 
+library call to `ioctl`, which in turn makes a syscall. OBI attaches a kprobe to
 `do_vfs_ioctl` and intercepts the data sent from the Java agent.
 
 OBI cares about two main pieces of information to be able to correctly report and nest the
 TLS Java calls:
+
 1. The unencrypted TLS buffers.
 2. The connection information.
 
@@ -35,15 +36,16 @@ communication is all done on the same thread and by the same Java class. In this
 we simply inject a wrapper around the `SSLSocket` and capture the required buffers and
 connection information.
 
-Asynchronous traffic is more complex. Typically, the encryption, decryption and the 
-communication are not done on the same thread, and definitely not done by the same class. 
-In order to match the connection information to the unencrypted buffers, the agent injects 
+Asynchronous traffic is more complex. Typically, the encryption, decryption and the
+communication are not done on the same thread, and definitely not done by the same class.
+In order to match the connection information to the unencrypted buffers, the agent injects
 code to do the following:
-1. At the time of encryption/decryption (via SSLEngine) we create keys from the 
-encrypted text (which should be random with enough length) and map that to the 
+
+1. At the time of encryption/decryption (via SSLEngine) we create keys from the
+encrypted text (which should be random with enough length) and map that to the
 unencrypted buffer.
 2. At the time of socket communication we have the connection information, and the
-encrypted buffer. We consult the map of decrypted buffers, based on the encrypted 
+encrypted buffer. We consult the map of decrypted buffers, based on the encrypted
 buffer keys and join that with the connection information. Once we have both parts
 we make the same C library call to `ioctl`.
 
@@ -61,16 +63,20 @@ we make the same C library call to `ioctl`.
 The project consists of two main modules:
 
 ### 1. Agent Module (`agent/`)
+
 The core instrumentation logic using ByteBuddy for bytecode manipulation:
+
 - **Instrumentations**: Socket, SocketChannel, SSLEngine, Netty
 - **eBPF Communication**: Via JNA and `ioctl` syscalls for minimal kernel impact
 - **Data Structures**: Connection tracking, SSL session management
 - **Utilities**: Optimized ByteBuffer extraction and manipulation
 
 ### 2. Loader Module (`loader/`)
+
 A lightweight loader that:
+
 - Extracts the agent JAR from resources
-- Loads the agent using a separate classloader to avoid conflicts with the 
+- Loads the agent using a separate classloader to avoid conflicts with the
   target application
 - Ensures JNA is available in the bootstrap classloader
 - Handles agent attachment (both premain and agentmain)
@@ -98,6 +104,7 @@ A lightweight loader that:
 ## 🔨 Building
 
 ### Prerequisites
+
 - JDK 8 or higher
 - Gradle 8.0+
 
@@ -119,6 +126,7 @@ A lightweight loader that:
 ```
 
 The final agent JAR will be located at:
+
 ```
 build/obi-java-agent.jar
 ```
@@ -165,15 +173,16 @@ or for dynamic attach
 jattach <PID of Java program> load instrument false "/path/to/obi-java-agent.jar=debugBB=true"
 ```
 
-
 ## 🔍 Instrumented Components
 
 ### 1. **javax.net.ssl.SSLSocket** for synchronous TLS
+
 - `getInputStream()` - Returns wrapped InputStream
 - `getOutputStream()` - Returns wrapped OutputStream
 - Tracks connection metadata (local/remote address, ports)
 
 ### 2. **java.nio.channels.SocketChannel** for asynchronous TLS
+
 - `read(ByteBuffer)` - Single buffer reads
 - `read(ByteBuffer[])` - Scatter reads
 - `write(ByteBuffer)` - Single buffer writes
@@ -184,6 +193,7 @@ jattach <PID of Java program> load instrument false "/path/to/obi-java-agent.jar
 - `tryClose` - clean-up
 
 ### 3. **javax.net.ssl.SSLEngine** for asynchronous TLS
+
 - `wrap(ByteBuffer)` - Encrypting outbound data
 - `wrap(ByteBuffer[])` - Encrypting outbound data
 - `unwrap(ByteBuffer)` - Decrypting inbound data
@@ -191,6 +201,7 @@ jattach <PID of Java program> load instrument false "/path/to/obi-java-agent.jar
 - SSL session to connection mapping
 
 ### 4. **io.netty.handler.ssl.SslHandler** for Netty channels (which don't use JDK SocketChannel)
+
 - `wrap()` - Extracts connection info
 - `unwrap()` - Extracts connection info
 
@@ -233,6 +244,7 @@ jattach <PID of Java program> load instrument false "/path/to/obi-java-agent.jar
 See `agent/src/jmh/java/io/opentelemetry/obi/java/instrumentations/util/BENCHMARK_README.md` for detailed benchmarking documentation.
 
 Example results (ns/op, lower is better):
+
 ```
 Benchmark                              (bufferType)  (bufferSize)   Score
 flattenDstByteBufferArray                    heap           64    245.3
@@ -256,4 +268,4 @@ flattenDstByteBufferArray                  direct           64    523.1
 
 ## 📝 License
 
-Apache 2.0 License 
+Apache 2.0 License

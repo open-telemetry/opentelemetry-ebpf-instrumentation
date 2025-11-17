@@ -5,16 +5,20 @@ This directory contains JMH (Java Microbenchmark Harness) benchmarks for the `By
 ## Running the Benchmarks
 
 ### Prerequisites
+
 - JDK 8 or higher
 - Gradle
 
 ### Run all benchmarks
+
 From the root directory:
+
 ```bash
 ./gradlew :agent:jmh
 ```
 
 ### Run specific benchmark method
+
 ```bash
 ./gradlew :agent:jmh -Pjmh.includes=benchmarkFlattenDstByteBufferArray
 ```
@@ -24,16 +28,19 @@ From the root directory:
 The benchmarks test the following scenarios:
 
 ### Buffer Types
+
 - **heap**: Standard heap-allocated ByteBuffers (`ByteBuffer.allocate()`)
 - **direct**: Direct (off-heap) ByteBuffers (`ByteBuffer.allocateDirect()`)
 
 ### Buffer Sizes
+
 - 16 bytes
 - 64 bytes
 - 256 bytes
 - 1024 bytes
 
 ### Array Lengths (for array-based benchmarks)
+
 - 2 buffers
 - 8 buffers
 - 16 buffers
@@ -49,6 +56,7 @@ The benchmarks test the following scenarios:
 ## Interpreting Results
 
 JMH will output results showing:
+
 - **Score**: Average time per operation (in nanoseconds by default)
 - **Error**: Margin of error
 - **Units**: Time unit (ns/op = nanoseconds per operation)
@@ -63,28 +71,38 @@ ByteBufferExtractorBenchmark.benchmarkFlattenDstByteBufferArray         64      
 ByteBufferExtractorBenchmark.benchmarkFlattenDstByteBufferArray         64        direct  avgt    5  234.567 ± 23.456  ns/op
 ```
 
-## Memory Profiling Commands:
+## Memory Profiling Commands
 
-1. GC Profiler (shows garbage collection stats)
+### GC Profiler (shows garbage collection stats)
+
 ```
 ./gradlew :agent:jmh -Pjmh.profilers=gc
 ```
-2. Memory Allocation Profiler
+
+### Memory Allocation Profiler
+
 ```
 ./gradlew :agent:jmh -Pjmh.profilers=gc,stack
 ```
-3. Heap Allocation Profiler (detailed allocation tracking)
+
+### Heap Allocation Profiler (detailed allocation tracking)
+
 ```
 ./gradlew :agent:jmh -Pjmh.profilers=gc,hs_gc
 ```
-4. Multiple Profilers (comprehensive memory analysis)
+
+### Multiple Profilers (comprehensive memory analysis)
+
 ```
 ./gradlew :agent:jmh -Pjmh.profilers=gc,stack,hs_gc
 ```
-5. Specific benchmark with profiler
+
+### Specific benchmark with profiler
+
 ```
 ./gradlew :agent:jmh -Pjmh.includes=benchmarkFlattenDstByteBufferArray -Pjmh.profilers=gc
 ```
+
 Available Memory-Related Profilers:
 
 - gc - GC profiling (heap allocations, GC time, counts)
