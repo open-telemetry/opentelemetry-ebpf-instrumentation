@@ -12,6 +12,29 @@ import com.sun.jna.Pointer;
 import io.opentelemetry.obi.java.instrumentations.data.Connection;
 import org.junit.jupiter.api.Test;
 
+// Memory Layout of Pointer p (after pos.write(new byte[] {42}))
+// ═══════════════════════════════════════════════════════════════
+
+// Offset    Size    Value    Description
+// ───────────────────────────────────────────────────────────────
+//   0        1B      0x01     OperationType.SEND.code
+//                           ┌─────────────────────────────┐
+//   1       36B      ...    |ConnectionInfo (36 bytes)    │ packetPrefixSize
+//                           │ (socket connection data)    │ = 1 + 36 + 4
+//                           └─────────────────────────────┘
+//  37        4B      0x01     Buffer length (int = 1)
+//                           ┌─────────────────────────────┐
+//  41        1B      0x2A   |Data byte: 42                │ Actual payload
+//                           └─────────────────────────────┘
+
+// Total size: 1 + 36 + 4 + 1 = 42 bytes
+
+// Test assertions:
+// ───────────────────────────────────────────────────────────────
+// p.getByte(0)           → 1    (OperationType.SEND)
+// p.getInt(1 + 36)       → 1    (Buffer length at offset 37)
+// p.getByte(1 + 36 + 4)  → 42   (Data byte at offset 41)
+
 class IOCTLPacketTest {
 
   @Test

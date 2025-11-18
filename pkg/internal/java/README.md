@@ -101,6 +101,41 @@ A lightweight loader that:
    └──────────┘
 ```
 
+### 3. Communicating with the eBPF side
+
+The Java code prepares a packet which is supplied to the `ioctl` C library call. The
+packet will contain information about the connection as well as the decrypted payload.
+
+The `ioctl` call uses custom constant (`0x0b10b1`) for the `id` parameter. We look for
+this magic number on the eBPF side to ensure the `ioctl` call is for our purpose.
+
+The payload we send to the eBPF side has this format:
+
+```
+Memory Layout of Pointer p (after pos.write(new byte[] {42}))
+═══════════════════════════════════════════════════════════════
+
+Offset    Size    Value    Description
+───────────────────────────────────────────────────────────────
+  0        1B      0x01     OperationType.SEND.code
+                          ┌─────────────────────────────┐
+  1       36B      ...    |ConnectionInfo (36 bytes)    │ packetPrefixSize
+                          │ (socket connection data)    │ = 1 + 36 + 4
+                          └─────────────────────────────┘
+ 37        4B      0x01     Buffer length (int = 1)
+                          ┌─────────────────────────────┐
+ 41        1B      0x2A   |Data byte: 42                │ Actual payload
+                          └─────────────────────────────┘
+
+Total size: 1 + 36 + 4 + 1 = 42 bytes
+
+Test assertions:
+───────────────────────────────────────────────────────────────
+p.getByte(0)           → 1    (OperationType.SEND)
+p.getInt(1 + 36)       → 1    (Buffer length at offset 37)
+p.getByte(1 + 36 + 4)  → 42   (Data byte at offset 41)
+```
+
 ## 🔨 Building
 
 ### Prerequisites
