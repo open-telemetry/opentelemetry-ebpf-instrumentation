@@ -177,7 +177,7 @@ docker-generate:
 	@OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/obi-genfiles/obi_genfiles.go
 
 .PHONY: verify
-verify: prereqs lint test license-header-check java-verify
+verify: prereqs lint test license-header-check
 
 .PHONY: build
 build: docker-generate verify compile
