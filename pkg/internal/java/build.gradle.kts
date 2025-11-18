@@ -28,3 +28,8 @@ val copyLoaderJar by tasks.registering(Copy::class) {
 tasks.named("jar") {
     dependsOn(copyLoaderJar)
 }
+
+// Ensure root test task depends on copyLoaderJar
+tasks.named("test") {
+    dependsOn(copyLoaderJar)
+}
