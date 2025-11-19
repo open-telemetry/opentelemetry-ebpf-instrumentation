@@ -93,7 +93,6 @@ internal/test/integration/components/gomongo/mongosrv
 pkg/internal/java/agent/build
 pkg/internal/java/build
 pkg/internal/java/agent/target
-pkg/internal/java/gradle
 pkg/internal/java/loader/build
 pkg/internal/java/loader/out
 pkg/internal/java/loader/src/main/resources/agent

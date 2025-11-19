@@ -233,6 +233,37 @@ coverage-report-html: cov-exclude-generated
 	@echo "### Generating HTML coverage report"
 	go tool cover --html=$(TEST_OUTPUT)/cover.txt
 
+# Java agent targets
+JAVA_AGENT_DIR := pkg/internal/java
+
+.PHONY: java-build
+java-build:
+	@echo "### Building Java agent"
+	cd $(JAVA_AGENT_DIR) && ./gradlew build
+
+.PHONY: java-test
+java-test:
+	@echo "### Testing Java agent"
+	cd $(JAVA_AGENT_DIR) && ./gradlew test
+
+.PHONY: java-spotless-check
+java-spotless-check:
+	@echo "### Checking Java code formatting"
+	cd $(JAVA_AGENT_DIR) && ./gradlew spotlessCheck
+
+.PHONY: java-spotless-apply
+java-spotless-apply:
+	@echo "### Formatting Java code"
+	cd $(JAVA_AGENT_DIR) && ./gradlew spotlessApply
+
+.PHONY: java-clean
+java-clean:
+	@echo "### Cleaning Java agent build artifacts"
+	cd $(JAVA_AGENT_DIR) && ./gradlew clean
+
+.PHONY: java-verify
+java-verify: java-spotless-check java-test java-build
+
 # image-build is only used for local development. GH actions that build and publish the image don't make use of it
 .PHONY: image-build
 image-build:

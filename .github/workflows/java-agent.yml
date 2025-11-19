@@ -1,0 +1,68 @@
+name: Java Agent CI
+
+on:
+  push:
+    branches: ["main", "release-*"]
+    paths:
+      - "pkg/internal/java/**"
+      - ".github/workflows/java-agent.yml"
+  pull_request:
+    branches: ["main", "release-*"]
+    paths:
+      - "pkg/internal/java/**"
+      - ".github/workflows/java-agent.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: pkg/internal/java
+
+jobs:
+  build:
+    name: Build and test (Java ${{ matrix.test-java }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        test-java: [8, 11, 17, 21]
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK ${{ matrix.test-java }} for testing
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.test-java }}
+
+      - name: Set up JDK for running Gradle
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          distribution: temurin
+          java-version-file: pkg/internal/java/.java-version
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
+        with:
+          cache-disabled: true
+
+      - name: Check code formatting (Spotless)
+        run: ./gradlew spotlessCheck --no-daemon --stacktrace
+
+      - name: Build agent
+        run: ./gradlew build --no-daemon --stacktrace
+
+      - name: Upload build artifacts
+        if: matrix.test-java == 21
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: obi-java-agent
+          path: pkg/internal/java/build/obi-java-agent.jar
+          retention-days: 7
