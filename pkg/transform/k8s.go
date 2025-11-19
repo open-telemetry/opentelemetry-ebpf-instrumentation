@@ -151,7 +151,7 @@ func (md *metadataDecorator) nodeLoop(ctx context.Context) {
 		for i := range spans {
 			md.do(&spans[i])
 		}
-		md.output.Send(spans)
+		md.output.SendCtx(ctx, spans)
 	})
 }
 

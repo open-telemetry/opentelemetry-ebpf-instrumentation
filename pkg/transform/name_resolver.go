@@ -119,7 +119,7 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 			for i := range spans {
 				nr.resolveNames(&spans[i])
 			}
-			output.Send(spans)
+			output.SendCtx(ctx, spans)
 		})
 	}, nil
 }
