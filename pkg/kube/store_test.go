@@ -5,6 +5,7 @@ package kube
 
 import (
 	"log/slog"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
@@ -102,7 +104,7 @@ func TestContainerInfoWithTemplate(t *testing.T) {
 				},
 				{
 					Id:  "container4",
-					Env: map[string]string{"OTEL_RESOURCE_ATTRIBUTES": "service.namespace=boo,other.attr=goo"},
+					Env: map[string]string{"OTEL_RESOURCE_ATTRIBUTES": "service.namespace=boo,other.attr=goo,unresolved=$(unresolved),other.unresolved.attr=${not_sure}"},
 				},
 			},
 		},
@@ -147,6 +149,24 @@ func TestContainerInfoWithTemplate(t *testing.T) {
 			name, namespace := store.ServiceNameNamespaceForIP("3.1.1.1")
 			assert.Equal(t, "namespaceA/applicationA/componentB", name)
 			assert.Equal(t, "namespaceA", namespace)
+		})
+		t.Run("check for resource metadata", func(t *testing.T) {
+			qName := qualifiedName{name: "podA", namespace: "namespaceA", kind: "Pod"}
+			oMeta, ok := store.objectMetaByQName[qName]
+			assert.True(t, ok)
+
+			podAMeta := map[attr.Name]string{"service.name": "customName", "service.namespace": "boo", "other.attr": "goo"}
+
+			// these two are missing - unresolved: unresolved=$(unresolved),other.unresolved.attr=${not_sure}
+			if !reflect.DeepEqual(oMeta.OTELResourceMeta, podAMeta) {
+				t.Errorf("Metadata = %#v, want %#v", oMeta.OTELResourceMeta, podAMeta)
+			}
+
+			qName = qualifiedName{name: "service", namespace: "namespaceA", kind: "Service"}
+			oMeta, ok = store.objectMetaByQName[qName]
+			assert.True(t, ok)
+
+			assert.Empty(t, oMeta.OTELResourceMeta)
 		})
 	})
 

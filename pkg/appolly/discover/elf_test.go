@@ -61,6 +61,11 @@ func TestSetServiceEnvVariables(t *testing.T) {
 			envVars:    map[string]string{"OTEL_RESOURCE_ATTRIBUTES": "service.namespace,otel-ns"},
 			expectMeta: map[attr.Name]string{},
 		},
+		{
+			name:       "Unresolved values in name and namespace",
+			envVars:    map[string]string{"OTEL_RESOURCE_ATTRIBUTES": "service.namespace=${test-ns},service.name=$(otel-ns)"},
+			expectMeta: map[attr.Name]string{},
+		},
 	}
 
 	for _, tt := range tests {
