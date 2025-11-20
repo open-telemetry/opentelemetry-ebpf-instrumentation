@@ -326,7 +326,7 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 		},
 		"do_vfs_ioctl": {
 			Required: true,
-			Start:    p.bpfObjects.BeylaKprobeDoVfsIoctl,
+			Start:    p.bpfObjects.ObiKprobeDoVfsIoctl,
 		},
 	}
 
