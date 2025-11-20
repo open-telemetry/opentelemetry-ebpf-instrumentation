@@ -37,8 +37,7 @@ static __always_inline u8 cmd_to_op(u8 cmd) {
 }
 
 SEC("kprobe/do_vfs_ioctl")
-int BPF_KPROBE(
-    beyla_kprobe_do_vfs_ioctl, void *filp, unsigned int fd, unsigned int cmd, void *arg) {
+int BPF_KPROBE(obi_kprobe_do_vfs_ioctl, void *filp, unsigned int fd, unsigned int cmd, void *arg) {
     (void)ctx;
     (void)filp;
 
