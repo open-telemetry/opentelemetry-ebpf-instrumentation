@@ -156,7 +156,7 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 		case EventCreated:
 			svcID := makeServiceAttrs(&ev.Obj, t.cfg.Routes)
 
-			if elfFile, err := findExecElf(ev.Obj.Process, svcID, t.k8sInformer.IsKubeEnabled()); err != nil {
+			if elfFile, err := findExecElf(ev.Obj.Process, svcID); err != nil {
 				t.log.Debug("error finding process ELF. Ignoring", "error", err)
 			} else {
 				t.currentPids[ev.Obj.Process.Pid] = elfFile
