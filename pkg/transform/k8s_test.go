@@ -115,6 +115,28 @@ func TestDecoration(t *testing.T) {
 			}},
 		},
 	}})
+	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: &informer.ObjectMeta{
+		Name: "env-var-takes-precedence-but-not-unresolved", Namespace: "the-ns", Kind: "Pod",
+		Annotations: map[string]string{
+			"resource.opentelemetry.io/service.name":      "otel-override-name",
+			"resource.opentelemetry.io/service.namespace": "otel-override-ns",
+		},
+		Labels: map[string]string{
+			"app.kubernetes.io/name":    "a-cool-name",
+			"app.kubernetes.io/part-of": "a-cool-namespace",
+		},
+		Pod: &informer.PodInfo{
+			NodeName:     "the-node",
+			Uid:          "uid-67",
+			StartTimeStr: "2020-01-02 12:56:56",
+			Containers: []*informer.ContainerInfo{{
+				Name: "a-container", Id: "container-67",
+				Env: map[string]string{
+					"OTEL_RESOURCE_ATTRIBUTES": "service.name=$(env-svc-name-second-time),service.namespace=env-svc-ns-second-time",
+				},
+			}},
+		},
+	}})
 	// we need to add PID metadata for all the pod/containers above
 	// by convention, the mocked pid namespace will be PID+1000
 	kube.InfoForPID = func(pid uint32) (container.Info, error) {
@@ -123,7 +145,7 @@ func TestDecoration(t *testing.T) {
 			PIDNamespace: 1000 + pid,
 		}, nil
 	}
-	for _, pid := range []uint32{12, 34, 56, 78, 33, 66} {
+	for _, pid := range []uint32{12, 34, 56, 78, 33, 66, 67} {
 		store.AddProcess(pid)
 	}
 	inputQueue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
@@ -263,6 +285,27 @@ func TestDecoration(t *testing.T) {
 			"k8s.cluster.name":   "the-cluster",
 			"service.name":       "env-svc-name",
 			"service.namespace":  "env-svc-ns",
+		}, deco[0].Service.Metadata)
+	})
+	t.Run("user can override service name and ns via env vars, taking precedence over any other criteria, but not if the vars are unresolved", func(t *testing.T) {
+		inputQueue.Send([]request.Span{{
+			Pid: request.PidInfo{Namespace: 1067}, Service: autoNameSvc,
+		}})
+		deco := testutil.ReadChannel(t, outputCh, timeout)
+		require.Len(t, deco, 1)
+		assert.Equal(t, "env-svc-ns-second-time", deco[0].Service.UID.Namespace)
+		assert.Equal(t, "otel-override-name", deco[0].Service.UID.Name)
+		assert.Equal(t, "the-ns.env-var-takes-precedence-but-not-unresolved.a-container", deco[0].Service.UID.Instance)
+		assert.Equal(t, map[attr.Name]string{
+			"k8s.node.name":      "the-node",
+			"k8s.namespace.name": "the-ns",
+			"k8s.pod.name":       "env-var-takes-precedence-but-not-unresolved",
+			"k8s.container.name": "a-container",
+			"k8s.pod.uid":        "uid-67",
+			"k8s.pod.start_time": "2020-01-02 12:56:56",
+			"k8s.cluster.name":   "the-cluster",
+			"service.name":       "otel-override-name",
+			"service.namespace":  "env-svc-ns-second-time",
 		}, deco[0].Service.Metadata)
 	})
 	t.Run("process without pod Info won't be decorated", func(t *testing.T) {
