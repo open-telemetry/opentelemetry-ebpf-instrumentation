@@ -1037,7 +1037,7 @@ func appendK8sLabelValuesService(values []string, service *svc.Attrs) []string {
 }
 
 func labelNamesSpans() []string {
-	return []string{serviceNameKey, serviceNamespaceKey, spanNameKey, statusCodeKey, spanKindKey, serviceInstanceKey, serviceJobKey, sourceKey}
+	return []string{serviceNameKey, serviceNamespaceKey, spanNameKey, statusCodeKey, spanKindKey, serviceInstanceKey, serviceJobKey, sourceKey, telemetryLanguageKey}
 }
 
 func (r *metricsReporter) labelValuesSpans(span *request.Span) []string {
@@ -1050,6 +1050,7 @@ func (r *metricsReporter) labelValuesSpans(span *request.Span) []string {
 		span.Service.UID.Instance, // app instance ID
 		span.Service.Job(),
 		attr.VendorPrefix,
+		span.Service.SDKLanguage.String(),
 	}
 }
 
