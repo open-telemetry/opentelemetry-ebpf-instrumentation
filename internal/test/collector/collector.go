@@ -111,9 +111,9 @@ func (tc *TestCollector) traceEvent(writer http.ResponseWriter, body []byte) {
 	json, _ := req.MarshalJSON()
 	log.Debug("received trace", "json", string(json))
 
-	forEach[ptrace.ResourceSpans](req.Traces().ResourceSpans(), func(rs ptrace.ResourceSpans) {
-		forEach[ptrace.ScopeSpans](rs.ScopeSpans(), func(ss ptrace.ScopeSpans) {
-			forEach[ptrace.Span](ss.Spans(), func(s ptrace.Span) {
+	for _, rs := range req.Traces().ResourceSpans().All() {
+		for _, ss := range rs.ScopeSpans().All() {
+			for _, s := range ss.Spans().All() {
 				switch s.Kind() {
 				case ptrace.SpanKindServer, ptrace.SpanKindInternal, ptrace.SpanKindClient:
 					tr := TraceRecord{
@@ -138,9 +138,9 @@ func (tc *TestCollector) traceEvent(writer http.ResponseWriter, body []byte) {
 				default:
 					log.Warn("unsupported trace kind", "kind", s.Kind().String())
 				}
-			})
-		})
-	})
+			}
+		}
+	}
 }
 
 func (tc *TestCollector) ResetRecords() {
@@ -170,18 +170,17 @@ func (tc *TestCollector) metricEvent(writer http.ResponseWriter, body []byte) {
 	json, _ := req.MarshalJSON()
 	log.Debug("received metric", "json", string(json))
 
-	forEach[pmetric.ResourceMetrics](req.Metrics().ResourceMetrics(), func(rm pmetric.ResourceMetrics) {
+	for _, rm := range req.Metrics().ResourceMetrics().All() {
 		resourceAttrs := map[string]string{}
 		rm.Resource().Attributes().Range(func(k string, v pcommon.Value) bool {
 			resourceAttrs[k] = v.AsString()
 			return true
 		})
-
-		forEach[pmetric.ScopeMetrics](rm.ScopeMetrics(), func(sm pmetric.ScopeMetrics) {
-			forEach[pmetric.Metric](sm.Metrics(), func(m pmetric.Metric) {
+		for _, sm := range rm.ScopeMetrics().All() {
+			for _, m := range sm.Metrics().All() {
 				switch m.Type() {
 				case pmetric.MetricTypeSum:
-					forEach[pmetric.NumberDataPoint](m.Sum().DataPoints(), func(ndp pmetric.NumberDataPoint) {
+					for _, ndp := range m.Sum().DataPoints().All() {
 						mr := MetricRecord{
 							Name:               m.Name(),
 							Unit:               m.Unit(),
@@ -196,9 +195,9 @@ func (tc *TestCollector) metricEvent(writer http.ResponseWriter, body []byte) {
 							return true
 						})
 						tc.Records() <- mr
-					})
+					}
 				case pmetric.MetricTypeHistogram:
-					forEach[pmetric.HistogramDataPoint](m.Histogram().DataPoints(), func(hdp pmetric.HistogramDataPoint) {
+					for _, hdp := range m.Histogram().DataPoints().All() {
 						// for simplicity, reporting only sum histogram data
 						if !hdp.HasSum() {
 							return
@@ -217,9 +216,9 @@ func (tc *TestCollector) metricEvent(writer http.ResponseWriter, body []byte) {
 							return true
 						})
 						tc.Records() <- mr
-					})
+					}
 				case pmetric.MetricTypeGauge:
-					forEach[pmetric.NumberDataPoint](m.Gauge().DataPoints(), func(ndp pmetric.NumberDataPoint) {
+					for _, ndp := range m.Gauge().DataPoints().All() {
 						mr := MetricRecord{
 							Name:               m.Name(),
 							Unit:               m.Unit(),
@@ -234,13 +233,13 @@ func (tc *TestCollector) metricEvent(writer http.ResponseWriter, body []byte) {
 							return true
 						})
 						tc.Records() <- mr
-					})
+					}
 				default:
 					log.Warn("unsupported metric type", "type", m.Type().String())
 				}
-			})
-		})
-	})
+			}
+		}
+	}
 }
 
 // MetricRecord stores some metadata from the received metrics
@@ -260,15 +259,4 @@ type TraceRecord struct {
 	Attributes         map[string]string
 	Name               string
 	Kind               ptrace.SpanKind
-}
-
-type slice[T any] interface {
-	At(int) T
-	Len() int
-}
-
-func forEach[T any](sl slice[T], fn func(T)) {
-	for i := 0; i < sl.Len(); i++ {
-		fn(sl.At(i))
-	}
 }
