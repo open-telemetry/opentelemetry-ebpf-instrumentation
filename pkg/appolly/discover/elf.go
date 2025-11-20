@@ -95,13 +95,13 @@ func setServiceEnvVariables(service svc.Attrs, envVars map[string]string) svc.At
 	// Set the service name and namespace, if we found non-empty, resolved names, in the OTEL variables.
 	// 1. For service name, first consider OTEL_SERVICE_NAME, then look for service.name in OTEL_RESOURCE_ATTRIBUTES
 	// 2. For service namespace, look in OTEL_RESOURCE_ATTRIBUTES
-	if svcName, ok := service.EnvVars[envServiceName]; ok && svcName != "" && !strings.HasPrefix(svcName, "$") {
+	if svcName := service.EnvVars[envServiceName]; svcName != "" && !strings.HasPrefix(svcName, "$") {
 		service.UID.Name = svcName
-	} else if svcName, ok := allVars[serviceNameKey]; ok && svcName != "" && !strings.HasPrefix(svcName, "$") {
+	} else if svcName := allVars[serviceNameKey]; svcName != "" && !strings.HasPrefix(svcName, "$") {
 		service.UID.Name = svcName
 	}
 
-	if svcNamespace, ok := allVars[serviceNamespaceKey]; ok && svcNamespace != "" && !strings.HasPrefix(svcNamespace, "$") {
+	if svcNamespace := allVars[serviceNamespaceKey]; svcNamespace != "" && !strings.HasPrefix(svcNamespace, "$") {
 		service.UID.Namespace = svcNamespace
 	}
 
