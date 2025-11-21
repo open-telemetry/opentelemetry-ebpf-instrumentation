@@ -129,6 +129,7 @@ func testSpanMetricsForHTTPLibraryOTelFormat(t *testing.T, svcName, svcNs string
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
 			`span_name="GET /basic/:rnd",` +
+			`service_version="1.0.0",` +
 			`telemetry_sdk_language="go"` +
 			`}`)
 		require.NoError(t, err)
@@ -182,6 +183,7 @@ func testSpanMetricsForHTTPLibrary(t *testing.T, svcName, svcNs string) {
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
 			`span_name="GET /basic/:rnd",` +
+			`service_version="1.0.0",` +
 			`telemetry_sdk_language="go"` +
 			`}`)
 		require.NoError(t, err)

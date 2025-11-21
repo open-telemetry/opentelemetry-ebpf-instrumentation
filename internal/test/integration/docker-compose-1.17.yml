@@ -15,6 +15,7 @@ services:
       - "5051:5051"
     environment:
       LOG_LEVEL: DEBUG
+      OTEL_RESOURCE_ATTRIBUTES: "service.version=1.0.0"
 
   obi:
     build:
@@ -44,6 +45,8 @@ services:
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT: 8999
       OTEL_EBPF_HOSTNAME: "beyla"
+      OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES: "service.version"
+      OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES: "service.version"
     ports:
       - "8999:8999" # Prometheus scrape port, if enabled via config
 
