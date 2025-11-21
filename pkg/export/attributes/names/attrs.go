@@ -63,6 +63,7 @@ const (
 	GraphQLOperationType   = Name(semconv.GraphqlOperationTypeKey)
 	DNSAnswers             = Name("dns.answers")
 	ErrorMessage           = Name("error.message")
+	TelemetrySDKLanguage   = Name(semconv.TelemetrySDKLanguageKey)
 
 	K8sNamespaceName   = Name("k8s.namespace.name")
 	K8sPodName         = Name("k8s.pod.name")

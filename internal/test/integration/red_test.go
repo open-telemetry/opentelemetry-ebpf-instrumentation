@@ -128,7 +128,8 @@ func testSpanMetricsForHTTPLibraryOTelFormat(t *testing.T, svcName, svcNs string
 			`status_code="STATUS_CODE_UNSET",` + // 404 is OK for server spans
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
-			`span_name="GET /basic/:rnd"` +
+			`span_name="GET /basic/:rnd",` +
+			`telemetry_sdk_language="go"` +
 			`}`)
 		require.NoError(t, err)
 		// check span metric latency exists
@@ -180,7 +181,8 @@ func testSpanMetricsForHTTPLibrary(t *testing.T, svcName, svcNs string) {
 			`status_code="STATUS_CODE_UNSET",` + // 404 is OK for server spans
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
-			`span_name="GET /basic/:rnd"` +
+			`span_name="GET /basic/:rnd",` +
+			`telemetry_sdk_language="go"` +
 			`}`)
 		require.NoError(t, err)
 		// check span metric latency exists

@@ -789,6 +789,7 @@ func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Sp
 			attr.SpanName,
 			attr.StatusCode,
 			attr.Source,
+			attr.TelemetrySDKLanguage,
 		}),
 		// hostID is not taken from the span but common to the metrics reporter,
 		// so the getter is injected here directly
