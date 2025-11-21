@@ -64,6 +64,7 @@ metadata:
     # kind, to force OBI writing the coverage data
     teardown: delete
     deployment.environment: integration-test
+    app.kubernetes.io/service.version: 3.2.1
   annotations:
     resource.opentelemetry.io/deployment.environment: 'to-be-ignored-in-favor-of-env'
 spec:
@@ -86,10 +87,15 @@ spec:
           hostPort: 8080
           name: http0
       env:
+        - name: SERVICE_VERSION_ID
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.labels['app.kubernetes.io/service.version']
         - name: LOG_LEVEL
           value: "DEBUG"
         - name: OTEL_RESOURCE_ATTRIBUTES
-          value: "service.name=mypythonapp,service.version=3.2.1"
+          value: "service.name=mypythonapp,service.version=$(SERVICE_VERSION_ID)"
     - name: obi
       image: obi:dev
       imagePullPolicy: Never # loaded into Kind from localhost
