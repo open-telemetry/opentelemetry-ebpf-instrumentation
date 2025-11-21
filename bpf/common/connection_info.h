@@ -67,8 +67,11 @@ typedef struct connection_info_part {
     u8 __pad;
 } connection_info_part_t;
 
-#ifdef BPF_DEBUG
 static __always_inline void dbg_print_http_connection_info(connection_info_t *info) {
+    if (!k_bpf_debug) {
+        return;
+    }
+
     bpf_dbg_printk("[conn] s_h = %llx, s_l = %llx, s_port=%d",
                    *(u64 *)(&info->s_addr),
                    *(u64 *)(&info->s_addr[8]),
@@ -79,18 +82,30 @@ static __always_inline void dbg_print_http_connection_info(connection_info_t *in
                    info->d_port);
 }
 static __always_inline void dbg_print_http_connection_info_part(connection_info_part_t *info) {
+    if (!k_bpf_debug) {
+        return;
+    }
+
     bpf_dbg_printk("[conn part] s_h = %llx, s_l = %llx, s_port=%d",
                    *(u64 *)(&info->addr),
                    *(u64 *)(&info->addr[8]),
                    info->port);
 }
 static __always_inline void d_print_http_connection_info_part(connection_info_part_t *info) {
+    if (!k_bpf_debug) {
+        return;
+    }
+
     bpf_d_printk("[conn part] s_h = %llx, s_l = %llx, s_port=%d",
                  *(u64 *)(&info->addr),
                  *(u64 *)(&info->addr[8]),
                  info->port);
 }
 static __always_inline void d_print_http_connection_info(connection_info_t *info) {
+    if (!k_bpf_debug) {
+        return;
+    }
+
     bpf_d_printk("[conn] s_h = %llx, s_l = %llx, s_port=%d",
                  *(u64 *)(&info->s_addr),
                  *(u64 *)(&info->s_addr[8]),
@@ -100,16 +115,6 @@ static __always_inline void d_print_http_connection_info(connection_info_t *info
                  *(u64 *)(&info->d_addr[8]),
                  info->d_port);
 }
-#else
-static __always_inline void dbg_print_http_connection_info(connection_info_t *info) {
-}
-static __always_inline void dbg_print_http_connection_info_part(connection_info_part_t *info) {
-}
-static __always_inline void d_print_http_connection_info_part(connection_info_part_t *info) {
-}
-static __always_inline void d_print_http_connection_info(connection_info_t *info) {
-}
-#endif
 
 const u8 ip4ip6_prefix[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
 

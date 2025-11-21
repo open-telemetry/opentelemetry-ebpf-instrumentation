@@ -20,6 +20,8 @@
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>
 
+#include <logger/bpf_dbg.h>
+
 #include <maps/accepted_connections.h>
 #include <maps/active_ssl_connections.h>
 #include <maps/ongoing_http.h>
@@ -78,6 +80,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         set_trace_info_for_connection(conn, TRACE_TYPE_CLIENT, tp_p);
 
         // clean up so that TC does not pick it up
+        // FIXME do we really?
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
         return;
     }
@@ -121,11 +124,11 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         bpf_dbg_printk("Using old traceparent id");
     }
 
-#ifdef BPF_DEBUG
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, &tp_p->tp);
-    bpf_dbg_printk("tp: %s", tp_buf);
-#endif
+    if (k_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, &tp_p->tp);
+        bpf_dbg_printk("tp: %s", tp_buf);
+    }
 
     u8 skip_tp_parsing = 0;
 
@@ -175,10 +178,12 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
                 if (meta && meta->type != EVENT_HTTP_CLIENT) {
                     decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
                 }
-#ifdef BPF_DEBUG
-                make_tp_string(tp_buf, &tp_p->tp);
-                bpf_dbg_printk("new tp: %s", tp_buf);
-#endif
+
+                if (k_bpf_debug) {
+                    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+                    make_tp_string(tp_buf, &tp_p->tp);
+                    bpf_dbg_printk("new tp: %s", tp_buf);
+                }
             } else {
                 bpf_dbg_printk("No additional traceparent in headers, using what was made before");
             }

@@ -21,6 +21,8 @@
 #include <generictracer/maps/ongoing_tcp_req.h>
 #include <generictracer/maps/tcp_req_mem.h>
 
+#include <logger/bpf_dbg.h>
+
 static __always_inline tcp_req_t *empty_tcp_req() {
     int zero = 0;
     tcp_req_t *value = bpf_map_lookup_elem(&tcp_req_mem, &zero);
@@ -36,11 +38,11 @@ static __always_inline void init_new_trace(tp_info_t *tp) {
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
     __builtin_memset(tp->parent_id, 0, sizeof(tp->span_id));
 
-#ifdef BPF_DEBUG
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, tp);
-    bpf_dbg_printk("tp: %s", tp_buf);
-#endif
+    if (k_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, tp);
+        bpf_dbg_printk("tp: %s", tp_buf);
+    }
 }
 
 static __always_inline u8 already_tracked_tcp(const pid_connection_info_t *p_conn) {

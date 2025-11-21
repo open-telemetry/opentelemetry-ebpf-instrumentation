@@ -144,6 +144,39 @@ func TestMultiProcessAppCPNoIP(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestMultiProcessAppCPTCPOnly(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp-tcp-only.log"))
+	require.NoError(t, err)
+
+	// Test TCP-only context propagation (no HTTP headers, only TCP options)
+	// Explicitly disable request header tracking since we're not injecting HTTP headers
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=tcp`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=false`)
+
+	require.NoError(t, compose.Up())
+
+	t.Run("Nested traces with TCP-only propagation", func(t *testing.T) {
+		testNestedHTTPTracesKProbes(t)
+	})
+
+	require.NoError(t, compose.Close())
+}
+
+func TestMultiProcessAppCPHeadersAndTCP(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp-headers-tcp.log"))
+	require.NoError(t, err)
+
+	// Test combined headers and TCP context propagation
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers,tcp`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`)
+
+	require.NoError(t, compose.Up())
+
+	t.Run("Nested traces with headers and TCP propagation", func(t *testing.T) {
+		testNestedHTTPTracesKProbes(t)
+	})
+
+	require.NoError(t, compose.Close())
+}
+
 // Addresses bug https://github.com/grafana/beyla/issues/370 for Go executables
 // Prevents that two instances of the same process report traces or metrics by duplicate
 func checkReportedOnlyOnce(t *testing.T, baseURL, serviceName string) {

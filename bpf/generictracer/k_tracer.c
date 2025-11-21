@@ -7,6 +7,8 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+#include <common/common.h>
+#include <common/connection_info.h>
 #include <common/msg_buffer.h>
 #include <common/dns.h>
 #include <common/pin_internal.h>
@@ -647,12 +649,12 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         if (is_tcp_socket_never_connected(sk)) {
             cp_support_data_t *ct = bpf_map_lookup_elem(&cp_support_connect_info, &info);
             bpf_dbg_printk("=== possibly never connected sock %d %llx ct=%llx ===", id, sk, ct);
-#ifdef BPF_DEBUG
-            if (ct) {
+
+            if (k_bpf_debug && ct) {
                 bpf_dbg_printk(
                     "=== established %d, already failed %d ===", ct->established, ct->failed);
             }
-#endif
+
             if (ct && !ct->established && !ct->failed) {
                 dbg_print_http_connection_info(&info.conn);
                 failed_to_connect_event(&info, orig_dport, ct->ts);
@@ -922,7 +924,6 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
 
     if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
         const u16 orig_dport = info.conn.d_port;
-        //dbg_print_http_connection_info(&info.conn);
         sort_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
 
@@ -983,14 +984,14 @@ int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
 
     bpf_dbg_printk("=== tcp_cleanup_rbuf id=%d copied_len %d ===", id, copied);
 
-#ifdef BPF_DEBUG
-    connection_info_t conn = {};
+    if (k_bpf_debug) {
+        connection_info_t conn = {};
 
-    if (parse_sock_info(sk, &conn)) {
-        sort_connection_info(&conn);
-        dbg_print_http_connection_info(&conn);
+        if (parse_sock_info(sk, &conn)) {
+            sort_connection_info(&conn);
+            dbg_print_http_connection_info(&conn);
+        }
     }
-#endif
 
     return return_recvmsg(ctx, sk, id, copied);
 }

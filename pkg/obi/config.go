@@ -423,8 +423,7 @@ func (c *Config) otelNetO11yEnabled() bool {
 
 func (c *Config) willUseTC() bool {
 	// remove after deleting ContextPropagationEnabled
-	return c.EBPF.ContextPropagation == config.ContextPropagationAll ||
-		c.EBPF.ContextPropagation == config.ContextPropagationIPOptionsOnly ||
+	return c.EBPF.ContextPropagation.HasIPOptions() ||
 		c.EBPF.ContextPropagationEnabled ||
 		(c.Enabled(FeatureNetO11y) && c.NetworkFlows.Source == EbpfSourceTC)
 }
