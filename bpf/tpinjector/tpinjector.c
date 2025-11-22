@@ -47,6 +47,11 @@ enum {
 volatile const u32 inject_flags =
     k_inject_http_headers | k_inject_tcp_options; // default: both enabled
 
+// TCP option kind for OpenTelemetry context propagation
+// Kind 25 is unassigned per IANA TCP Parameters registry (released 2000-12-18)
+// Better than experimental options (253-254) which must not be shipped as defaults
+enum { k_tcp_option_kind_otel = 25 };
+
 enum { k_tail_write_msg_traceparent = 0 };
 
 SCRATCH_MEM_SIZED(tp_str_buf, 64)
@@ -318,7 +323,7 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
         return;
     }
 
-    struct tp_option opt = {.kind = 25, .len = sizeof(struct tp_option)};
+    struct tp_option opt = {.kind = k_tcp_option_kind_otel, .len = sizeof(struct tp_option)};
 
     __builtin_memcpy(opt.trace_id, tp_pid->tp.trace_id, sizeof(opt.trace_id));
     __builtin_memcpy(opt.span_id, tp_pid->tp.span_id, sizeof(opt.span_id));
@@ -340,7 +345,7 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
 
 static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops) {
     struct tp_option opt = {};
-    opt.kind = 25;
+    opt.kind = k_tcp_option_kind_otel;
 
     const long ret = bpf_load_hdr_opt(skops, &opt, sizeof(opt), 0);
 
