@@ -80,7 +80,6 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         set_trace_info_for_connection(conn, TRACE_TYPE_CLIENT, tp_p);
 
         // clean up so that TC does not pick it up
-        // FIXME do we really?
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
         return;
     }
