@@ -344,7 +344,7 @@ integration-test-matrix-json:
 
 .PHONY: vm-integration-test-matrix-json
 vm-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" internal/test/integration "$${PARTITIONS:-3}" "TestMultiProcess"
+	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" internal/test/integration "$${PARTITIONS:-5}" "TestMultiProcess"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
