@@ -571,11 +571,11 @@ func TestDefaultLegacyExclusionFilter(t *testing.T) {
 }
 
 func TestWillUseTC(t *testing.T) {
-	env := envMap{"OTEL_EBPF_BPF_ENABLE_CONTEXT_PROPAGATION": "true"}
+	env := envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "ip"}
 	cfg := loadConfig(t, env)
 	assert.True(t, cfg.willUseTC())
 
-	env = envMap{"OTEL_EBPF_BPF_ENABLE_CONTEXT_PROPAGATION": "false"}
+	env = envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "headers"}
 	cfg = loadConfig(t, env)
 	assert.False(t, cfg.willUseTC())
 
