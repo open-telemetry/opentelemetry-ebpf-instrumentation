@@ -13,6 +13,7 @@ Context propagation allows distributed tracing by injecting trace context (trace
 ## Configuration
 
 Context propagation is controlled via `OTEL_EBPF_BPF_CONTEXT_PROPAGATION` which accepts a comma-separated list:
+
 - `headers` - Inject HTTP headers
 - `tcp` - Inject TCP options
 - `ip` - Inject IP options
@@ -20,6 +21,7 @@ Context propagation is controlled via `OTEL_EBPF_BPF_CONTEXT_PROPAGATION` which 
 - `disabled` - Disable context propagation
 
 Examples:
+
 - `headers,tcp` - HTTP headers for plaintext HTTP, TCP options otherwise
 - `tcp,ip` - TCP options with IP options as fallback
 - `tcp` - TCP options only
@@ -84,6 +86,7 @@ The `written` flag implements mutual exclusion through the natural execution ord
 #### Case 1: Traffic in sockmap with Go/SSL uprobes
 
 **For SSL/TLS:**
+
 ```
 1. Uprobe sets valid=0, written=0 in outgoing_trace_map
 2. tpinjector (sk_msg) runs:
@@ -97,6 +100,7 @@ Result: TCP options only ✓
 ```
 
 **For Go HTTP with headers+tcp:**
+
 ```
 1. Uprobe sets valid=1, written=0 in outgoing_trace_map
 2. tpinjector runs:
@@ -112,6 +116,7 @@ Result: HTTP headers + TCP options ✓
 #### Case 2: Traffic in sockmap without uprobes (plain HTTP via kprobes)
 
 **For plaintext HTTP with headers+tcp:**
+
 ```
 1. tpinjector runs first:
    - Protocol detector identifies HTTP
@@ -127,6 +132,7 @@ Result: HTTP headers + TCP options ✓
 ```
 
 **For plaintext HTTP with tcp only:**
+
 ```
 1. tpinjector runs first:
    - Protocol detector identifies HTTP
@@ -144,6 +150,7 @@ Result: TCP options only ✓
 #### Case 3: Traffic NOT in sockmap (tpinjector doesn't run)
 
 **For any traffic:**
+
 ```
 1. Kprobe sets valid=1, written=0 in outgoing_trace_map
 2. tpinjector doesn't run (socket not in sockmap)
@@ -188,6 +195,7 @@ Unlike egress (which uses mutual exclusion), ingress uses a **"last one wins"** 
    - **Overwrites** previous values
 
 This creates a natural priority hierarchy:
+
 - **IP options**: Lowest priority (most likely to be stripped by middleboxes)
 - **TCP options**: Medium priority (better reliability)
 - **HTTP headers**: Highest priority (W3C standard, most reliable)
@@ -206,50 +214,60 @@ This creates a natural priority hierarchy:
 ### tp_info_pid_t::valid (u8)
 
 State machine tracking the injection lifecycle:
+
 - **0**: Invalid/SSL (don't inject) OR injection complete (set by tctracer after IP injection)
 - **1**: First packet seen, needs L4 span ID setup
 - **2**: L4 span ID setup done, ready for injection
 
 **Set to 0:**
+
 - Go uprobes: SSL connections (`go_nethttp.c`)
 - Kprobes: SSL connections (`trace_common.h`)
 - tctracer: After successful IP option injection (`tctracer.c::encode_data_in_ip_options`)
 - trace_common: Conflicting requests or timeouts (`trace_common.h`)
 
 **Set to 1:**
+
 - tpinjector: Creating new trace (`tpinjector.c::create_trace_info`)
 - protocol_http: Creating new trace (`protocol_http.h::protocol_http`)
 - protocol_tcp: Creating new trace (`protocol_tcp.h`)
 
 **Set to 2:**
+
 - tctracer: After populating span ID from TCP seq/ack (`tctracer.c::obi_app_egress`)
 
 **Checked:**
+
 - tpinjector: Skip protocol detection for SSL (`tpinjector.c::handle_existing_tp_pid`)
 - tctracer: First packet handling and injection decision (`tctracer.c::obi_app_egress`)
 
 ### tp_info_pid_t::written (u8)
 
 Coordination flag for mutual exclusion between egress injection layers:
+
 - **0**: Not yet handled by tpinjector (sk_msg layer)
 - **1**: Already handled by tpinjector (TCP options or HTTP headers injected)
 
 **Purpose**: Implements the fallback hierarchy by preventing lower layers from injecting when higher layers already succeeded.
 
 **Set to 0:**
+
 - tpinjector: Initializing new trace (`tpinjector.c::create_trace_info`)
 - protocol_http: Initializing new trace (`protocol_http.h::protocol_http`)
 - Go uprobes: Creating client requests (`go_nethttp.c`)
 
 **Set to 1:**
+
 - tpinjector: After scheduling TCP options (`tpinjector.c::schedule_write_tcp_option`)
 - tpinjector: After injecting HTTP headers (`tpinjector.c::write_http_traceparent`, `tpinjector.c::obi_packet_extender`)
 
 **Checked:**
+
 - protocol_http: Skip processing if tpinjector handled it (`protocol_http.h::protocol_http`)
 - tctracer: Skip IP injection if upper layer handled it (`tctracer.c::obi_app_egress`)
 
 **Key Behavior**: The `written` flag serves two purposes:
+
 1. **protocol_http optimization**: Reuse existing trace info, avoid regenerating span IDs
 2. **tctracer mutual exclusion**: Signal that upper layer already injected context
 
