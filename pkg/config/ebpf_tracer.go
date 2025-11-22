@@ -4,9 +4,7 @@
 package config
 
 import (
-	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 )
@@ -62,9 +60,6 @@ type EBPFTracer struct {
 
 	// Must be at least 0
 	HTTPRequestTimeout time.Duration `yaml:"http_request_timeout" env:"OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT" validate:"gte=0"`
-
-	// Deprecated: equivalent to ContextPropagationAll
-	ContextPropagationEnabled bool `yaml:"enable_context_propagation" env:"OTEL_EBPF_BPF_ENABLE_CONTEXT_PROPAGATION" validate:"boolean"`
 
 	// Enables distributed context propagation.
 	// Can be a combination of: headers, tcp, ip (e.g., "headers,tcp" or "all")
@@ -133,25 +128,6 @@ type EBPFBufferSizes struct {
 	HTTP     uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP" validate:"lte=8192"`
 	MySQL    uint32 `yaml:"mysql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL" validate:"lte=8192"`
 	Postgres uint32 `yaml:"postgres" env:"OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES" validate:"lte=8192"`
-}
-
-func (c *EBPFTracer) Validate() error {
-	// TODO remove after deleting ContextPropagationEnabled
-	if c.ContextPropagationEnabled && c.ContextPropagation != ContextPropagationDisabled {
-		return errors.New("ebpf.enable_context_propagation and ebpf.context_propagation in the YAML configuration file or OTEL_EBPF_BPF_ENABLE_CONTEXT_PROPAGATION and OTEL_EBPF_BPF_CONTEXT_PROPAGATION are mutually exclusive")
-	}
-
-	return nil
-}
-
-func (c *EBPFTracer) IsContextPropagationEnabled() {
-	// TODO deprecated (REMOVE)
-	// remove after deleting ContextPropagationEnabled
-	if c.ContextPropagationEnabled {
-		slog.Warn("DEPRECATION NOTICE: 'ebpf.enable_context_propagation' configuration option has been " +
-			"deprecated and will be removed in the future - use 'ebpf.context_propagation' instead")
-		c.ContextPropagation = ContextPropagationAll
-	}
 }
 
 // HasHeaders returns true if HTTP headers context propagation is enabled
