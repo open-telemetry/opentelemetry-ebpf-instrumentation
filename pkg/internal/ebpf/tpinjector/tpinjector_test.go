@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
@@ -72,7 +73,7 @@ func TestTracer_Constants_InjectFlags(t *testing.T) {
 				},
 			}
 			err := cfg.EBPF.ContextPropagation.UnmarshalText([]byte(tt.contextPropagation))
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			tracer := New(cfg)
 			constants := tracer.Constants()
