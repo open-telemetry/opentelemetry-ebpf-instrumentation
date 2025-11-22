@@ -165,60 +165,60 @@ func TestContextPropagationMode_MarshalText(t *testing.T) {
 
 func TestContextPropagationMode_HasMethods(t *testing.T) {
 	tests := []struct {
-		name           string
-		mode           ContextPropagationMode
-		wantHeaders    bool
-		wantTCP        bool
-		wantIPOptions  bool
-		wantIsEnabled  bool
+		name          string
+		mode          ContextPropagationMode
+		wantHeaders   bool
+		wantTCP       bool
+		wantIPOptions bool
+		wantIsEnabled bool
 	}{
 		{
-			name:           "all",
-			mode:           ContextPropagationAll,
-			wantHeaders:    true,
-			wantTCP:        true,
-			wantIPOptions:  true,
-			wantIsEnabled:  true,
+			name:          "all",
+			mode:          ContextPropagationAll,
+			wantHeaders:   true,
+			wantTCP:       true,
+			wantIPOptions: true,
+			wantIsEnabled: true,
 		},
 		{
-			name:           "disabled",
-			mode:           ContextPropagationDisabled,
-			wantHeaders:    false,
-			wantTCP:        false,
-			wantIPOptions:  false,
-			wantIsEnabled:  false,
+			name:          "disabled",
+			mode:          ContextPropagationDisabled,
+			wantHeaders:   false,
+			wantTCP:       false,
+			wantIPOptions: false,
+			wantIsEnabled: false,
 		},
 		{
-			name:           "headers only",
-			mode:           ContextPropagationHeaders,
-			wantHeaders:    true,
-			wantTCP:        false,
-			wantIPOptions:  false,
-			wantIsEnabled:  true,
+			name:          "headers only",
+			mode:          ContextPropagationHeaders,
+			wantHeaders:   true,
+			wantTCP:       false,
+			wantIPOptions: false,
+			wantIsEnabled: true,
 		},
 		{
-			name:           "tcp only",
-			mode:           ContextPropagationTCP,
-			wantHeaders:    false,
-			wantTCP:        true,
-			wantIPOptions:  false,
-			wantIsEnabled:  true,
+			name:          "tcp only",
+			mode:          ContextPropagationTCP,
+			wantHeaders:   false,
+			wantTCP:       true,
+			wantIPOptions: false,
+			wantIsEnabled: true,
 		},
 		{
-			name:           "ip only",
-			mode:           ContextPropagationIPOptions,
-			wantHeaders:    false,
-			wantTCP:        false,
-			wantIPOptions:  true,
-			wantIsEnabled:  true,
+			name:          "ip only",
+			mode:          ContextPropagationIPOptions,
+			wantHeaders:   false,
+			wantTCP:       false,
+			wantIPOptions: true,
+			wantIsEnabled: true,
 		},
 		{
-			name:           "headers and tcp",
-			mode:           ContextPropagationHeaders | ContextPropagationTCP,
-			wantHeaders:    true,
-			wantTCP:        true,
-			wantIPOptions:  false,
-			wantIsEnabled:  true,
+			name:          "headers and tcp",
+			mode:          ContextPropagationHeaders | ContextPropagationTCP,
+			wantHeaders:   true,
+			wantTCP:       true,
+			wantIPOptions: false,
+			wantIsEnabled: true,
 		},
 	}
 
