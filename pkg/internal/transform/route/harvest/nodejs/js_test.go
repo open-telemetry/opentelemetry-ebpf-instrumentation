@@ -1,0 +1,806 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package nodejs
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestRouteExtractor_ExpressApp(t *testing.T) {
+	extractor := NewRouteExtractor()
+	exampleFile := filepath.Join("test_files", "express-app.js")
+	err := extractor.scanFile(exampleFile)
+	require.NoError(t, err)
+
+	routes := extractor.GetRoutes()
+	require.NotEmpty(t, routes, "should extract routes from express-app.js")
+
+	// Expected routes from express-app.js
+	expectedRoutes := []RoutePattern{
+		{Method: "GET", Path: "/"},
+		{Method: "POST", Path: "/users"},
+		{Method: "GET", Path: "/users/:id"},
+		{Method: "PUT", Path: "/users/:userId/posts/:postId"},
+		{Method: "DELETE", Path: "/api/v1/items/:id"},
+		{Method: "ALL", Path: "/books"},
+		{Method: "ALL", Path: "/books/:id"},
+		{Method: "GET", Path: "/profile"},
+		{Method: "POST", Path: "/settings"},
+		{Method: "PATCH", Path: "/account/:accountId"},
+		{Method: "ALL", Path: "/admin/*"},
+	}
+
+	// Verify we found the expected number of routes
+	assert.GreaterOrEqual(t, len(routes), len(expectedRoutes), "should find at least the expected routes")
+
+	// Check that each expected route exists
+	for _, expected := range expectedRoutes {
+		found := false
+		for _, actual := range routes {
+			if actual.Method == expected.Method && actual.Path == expected.Path {
+				found = true
+				assert.NotEmpty(t, actual.File, "file should be set")
+				assert.Greater(t, actual.Line, 0, "line number should be positive")
+				break
+			}
+		}
+		assert.True(t, found, "should find route %s %s", expected.Method, expected.Path)
+	}
+}
+
+func TestRouteExtractor_FastifyApp(t *testing.T) {
+	extractor := NewRouteExtractor()
+	exampleFile := filepath.Join("test_files", "fastify-app.js")
+	err := extractor.scanFile(exampleFile)
+	require.NoError(t, err)
+
+	routes := extractor.GetRoutes()
+	require.NotEmpty(t, routes, "should extract routes from fastify-app.js")
+
+	// Expected routes from fastify-app.js
+	expectedRoutes := []RoutePattern{
+		{Method: "GET", Path: "/"},
+		{Method: "POST", Path: "/users"},
+		{Method: "GET", Path: "/users/:id"},
+		{Method: "PUT", Path: "/posts/:postId/comments/:commentId"},
+		{Method: "GET", Path: "/search"},
+		{Method: "POST", Path: "/api/v2/items"},
+		{Method: "DELETE", Path: "/api/v2/items/:id"},
+		{Method: "PATCH", Path: "/settings/:key"},
+		{Method: "DELETE", Path: "/cache"},
+	}
+
+	// Verify we found the expected number of routes
+	assert.GreaterOrEqual(t, len(routes), len(expectedRoutes), "should find at least the expected routes")
+
+	// Check that each expected route exists
+	for _, expected := range expectedRoutes {
+		found := false
+		for _, actual := range routes {
+			if actual.Method == expected.Method && actual.Path == expected.Path {
+				found = true
+				assert.NotEmpty(t, actual.File, "file should be set")
+				assert.Greater(t, actual.Line, 0, "line number should be positive")
+				break
+			}
+		}
+		assert.True(t, found, "should find route %s %s", expected.Method, expected.Path)
+	}
+}
+
+func TestRouteExtractor_HttpDispatcherApp(t *testing.T) {
+	extractor := NewRouteExtractor()
+	exampleFile := filepath.Join("test_files", "httpdispatcher-app.js")
+	err := extractor.scanFile(exampleFile)
+	require.NoError(t, err)
+
+	routes := extractor.GetRoutes()
+	require.NotEmpty(t, routes, "should extract routes from httpdispatcher-app.js")
+
+	// Expected routes from httpdispatcher-app.js
+	expectedRoutes := []RoutePattern{
+		{Method: "GET", Path: "/health"},
+		{Method: "GET", Path: "/users"},
+		{Method: "POST", Path: "/^\\/ratings\\/[0-9]*//"},                    // Regex route
+		{Method: "GET", Path: "/^\\/ratings\\/[0-9]*//"},                     // Regex route
+		{Method: "PUT", Path: "/^\\/api\\/v1\\/products\\/[a-zA-Z0-9-]+$//"}, // Regex route
+		{Method: "DELETE", Path: "/items/:id"},
+		{Method: "GET", Path: "/^\\/files\\/.*\\.pdf$//"}, // Regex route
+	}
+
+	// Verify we found the expected number of routes
+	assert.GreaterOrEqual(t, len(routes), len(expectedRoutes), "should find at least the expected routes")
+
+	// Check that each expected route exists
+	for _, expected := range expectedRoutes {
+		found := false
+		for _, actual := range routes {
+			if actual.Method == expected.Method && actual.Path == expected.Path {
+				found = true
+				assert.NotEmpty(t, actual.File, "file should be set")
+				assert.Greater(t, actual.Line, 0, "line number should be positive")
+				break
+			}
+		}
+		assert.True(t, found, "should find route %s %s", expected.Method, expected.Path)
+	}
+}
+
+func TestRouteExtractor_AllExamples(t *testing.T) {
+	extractor := NewRouteExtractor()
+	examplesDir := "test_files"
+	err := extractor.ScanDirectory(examplesDir)
+	require.NoError(t, err)
+
+	routes := extractor.GetRoutes()
+	require.NotEmpty(t, routes, "should extract routes from all example files")
+
+	// Group routes by file
+	routesByFile := make(map[string][]RoutePattern)
+	for _, route := range routes {
+		filename := filepath.Base(route.File)
+		routesByFile[filename] = append(routesByFile[filename], route)
+	}
+
+	// Verify we found routes in each example file
+	assert.NotEmpty(t, routesByFile["express-app.js"], "should have routes from express-app.js")
+	assert.NotEmpty(t, routesByFile["fastify-app.js"], "should have routes from fastify-app.js")
+	assert.NotEmpty(t, routesByFile["httpdispatcher-app.js"], "should have routes from httpdispatcher-app.js")
+
+	// Verify route details
+	for filename, fileRoutes := range routesByFile {
+		t.Run(filename, func(t *testing.T) {
+			for _, route := range fileRoutes {
+				assert.NotEmpty(t, route.Method, "method should not be empty")
+				assert.NotEmpty(t, route.Path, "path should not be empty")
+				assert.Contains(t, route.File, filename, "file should match")
+				assert.Greater(t, route.Line, 0, "line should be positive")
+			}
+		})
+	}
+}
+
+func TestRouteExtractor_ParameterizedRoutes(t *testing.T) {
+	extractor := NewRouteExtractor()
+	examplesDir := "test_files"
+	err := extractor.ScanDirectory(examplesDir)
+	require.NoError(t, err)
+
+	routes := extractor.GetRoutes()
+
+	// Find routes with parameters
+	paramRoutes := []RoutePattern{}
+	for _, route := range routes {
+		if strings.Contains(route.Path, ":") {
+			paramRoutes = append(paramRoutes, route)
+		}
+	}
+
+	// Verify parameter syntax
+	assert.NotEmpty(t, paramRoutes, "should find routes with parameters")
+	for _, route := range paramRoutes {
+		assert.Contains(t, route.Path, ":", "parameterized route should contain :")
+		t.Logf("Found parameterized route: %s %s", route.Method, route.Path)
+	}
+}
+
+func TestRouteExtractor_RegexRoutes(t *testing.T) {
+	extractor := NewRouteExtractor()
+	exampleFile := filepath.Join("test_files", "httpdispatcher-app.js")
+	err := extractor.scanFile(exampleFile)
+	require.NoError(t, err)
+
+	routes := extractor.GetRoutes()
+
+	// Find routes with regex patterns (wrapped in /)
+	regexRoutes := []RoutePattern{}
+	for _, route := range routes {
+		if strings.HasPrefix(route.Path, "/") && strings.HasSuffix(route.Path, "/") && len(route.Path) > 2 {
+			regexRoutes = append(regexRoutes, route)
+		}
+	}
+
+	// Verify regex patterns are preserved
+	assert.NotEmpty(t, regexRoutes, "should find regex routes")
+	for _, route := range regexRoutes {
+		assert.True(t, strings.HasPrefix(route.Path, "/"), "regex route should start with /")
+		assert.True(t, strings.HasSuffix(route.Path, "/"), "regex route should end with /")
+		t.Logf("Found regex route: %s %s", route.Method, route.Path)
+	}
+}
+
+// Unit tests for individual handler functions
+
+func TestExpressPendingRoute(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		expected *RoutePattern
+		found    bool
+	}{
+		{
+			name:  "valid route() with single quotes",
+			line:  "  app.route('/books')",
+			found: true,
+			expected: &RoutePattern{
+				Method: "ALL",
+				Path:   "/books",
+			},
+		},
+		{
+			name:  "valid route() with double quotes",
+			line:  `  router.route("/users/:id")`,
+			found: true,
+			expected: &RoutePattern{
+				Method: "ALL",
+				Path:   "/users/:id",
+			},
+		},
+		{
+			name:  "valid route() with backticks",
+			line:  "  app.route(`/api/v1/items`)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "ALL",
+				Path:   "/api/v1/items",
+			},
+		},
+		{
+			name:  "route with parameters",
+			line:  "  app.route('/users/:userId/posts/:postId')",
+			found: true,
+			expected: &RoutePattern{
+				Method: "ALL",
+				Path:   "/users/:userId/posts/:postId",
+			},
+		},
+		{
+			name:  "not a route() pattern",
+			line:  "  app.get('/users', handler)",
+			found: false,
+		},
+		{
+			name:  "route() with variable",
+			line:  "  app.route(apiPath)",
+			found: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			extractor := NewRouteExtractor()
+			found := extractor.expressPendingRoute("test.js", tt.line, 10)
+
+			assert.Equal(t, tt.found, found, "found status should match")
+
+			if tt.found {
+				require.Len(t, extractor.routes, 1, "should have one route")
+				actual := extractor.routes[0]
+				assert.Equal(t, tt.expected.Method, actual.Method)
+				assert.Equal(t, tt.expected.Path, actual.Path)
+				assert.Equal(t, "test.js", actual.File)
+				assert.Equal(t, 10, actual.Line)
+			} else {
+				assert.Empty(t, extractor.routes, "should have no routes")
+			}
+		})
+	}
+}
+
+func TestHandleTypicalRoute(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		expected *RoutePattern
+		found    bool
+	}{
+		{
+			name:  "app.get with single quotes",
+			line:  "  app.get('/users', handler)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "GET",
+				Path:   "/users",
+			},
+		},
+		{
+			name:  "router.post with double quotes",
+			line:  `  router.post("/items", createItem)`,
+			found: true,
+			expected: &RoutePattern{
+				Method: "POST",
+				Path:   "/items",
+			},
+		},
+		{
+			name:  "app.put with backticks",
+			line:  "  app.put(`/users/:id`, updateUser)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "PUT",
+				Path:   "/users/:id",
+			},
+		},
+		{
+			name:  "app.delete",
+			line:  "  app.delete('/items/:id', deleteItem)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "DELETE",
+				Path:   "/items/:id",
+			},
+		},
+		{
+			name:  "app.patch",
+			line:  "  app.patch('/users/:id', patchUser)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "PATCH",
+				Path:   "/users/:id",
+			},
+		},
+		{
+			name:  "app.all",
+			line:  "  app.all('/admin/*', authMiddleware)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "ALL",
+				Path:   "/admin/*",
+			},
+		},
+		{
+			name:  "nested path parameters",
+			line:  "  router.put('/users/:userId/posts/:postId', handler)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "PUT",
+				Path:   "/users/:userId/posts/:postId",
+			},
+		},
+		{
+			name:  "not a route pattern",
+			line:  "  console.log('test')",
+			found: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			extractor := NewRouteExtractor()
+			found := extractor.handleTypicalRoute("test.js", tt.line, 15)
+
+			assert.Equal(t, tt.found, found)
+
+			if tt.found {
+				require.Len(t, extractor.routes, 1)
+				actual := extractor.routes[0]
+				assert.Equal(t, tt.expected.Method, actual.Method)
+				assert.Equal(t, tt.expected.Path, actual.Path)
+				assert.Equal(t, "test.js", actual.File)
+				assert.Equal(t, 15, actual.Line)
+			} else {
+				assert.Empty(t, extractor.routes)
+			}
+		})
+	}
+}
+
+func TestHandleFastifyRoute(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		expected *RoutePattern
+		found    bool
+	}{
+		{
+			name:  "fastify.route with method and url",
+			line:  `  fastify.route({ method: 'GET', url: '/users' })`,
+			found: true,
+			expected: &RoutePattern{
+				Method: "GET",
+				Path:   "/users",
+			},
+		},
+		{
+			name:  "route with POST method",
+			line:  `  fastify.route({ method: 'POST', url: '/items', handler: createItem })`,
+			found: true,
+			expected: &RoutePattern{
+				Method: "POST",
+				Path:   "/items",
+			},
+		},
+		{
+			name:  "route with double quotes",
+			line:  `  fastify.route({ method: "DELETE", url: "/items/:id" })`,
+			found: true,
+			expected: &RoutePattern{
+				Method: "DELETE",
+				Path:   "/items/:id",
+			},
+		},
+		{
+			name:  "route with backticks",
+			line:  "  fastify.route({ method: `PUT`, url: `/users/:id` })",
+			found: true,
+			expected: &RoutePattern{
+				Method: "PUT",
+				Path:   "/users/:id",
+			},
+		},
+		{
+			name:  "not a fastify.route pattern",
+			line:  "  fastify.get('/users', handler)",
+			found: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			extractor := NewRouteExtractor()
+			found := extractor.handleFastifyRoute("test.js", tt.line, 20)
+
+			assert.Equal(t, tt.found, found)
+
+			if tt.found {
+				require.Len(t, extractor.routes, 1)
+				actual := extractor.routes[0]
+				assert.Equal(t, tt.expected.Method, actual.Method)
+				assert.Equal(t, tt.expected.Path, actual.Path)
+				assert.Equal(t, "test.js", actual.File)
+				assert.Equal(t, 20, actual.Line)
+			} else {
+				assert.Empty(t, extractor.routes)
+			}
+		})
+	}
+}
+
+func TestHandleHapi(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		expected *RoutePattern
+		found    bool
+	}{
+		{
+			name:  "hapi server.route with GET",
+			line:  `  server.route({ method: 'GET', path: '/users' })`,
+			found: true,
+			expected: &RoutePattern{
+				Method: "GET",
+				Path:   "/users",
+			},
+		},
+		{
+			name:  "hapi with path parameters",
+			line:  `  server.route({ method: 'POST', path: '/users/{id}', handler: createUser })`,
+			found: true,
+			expected: &RoutePattern{
+				Method: "POST",
+				Path:   "/users/{id}",
+			},
+		},
+		{
+			name:  "hapi with double quotes",
+			line:  `  server.route({ method: "DELETE", path: "/items/{id}" })`,
+			found: true,
+			expected: &RoutePattern{
+				Method: "DELETE",
+				Path:   "/items/{id}",
+			},
+		},
+		{
+			name:  "not a hapi pattern",
+			line:  "  server.get('/users')",
+			found: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			extractor := NewRouteExtractor()
+			found := extractor.handleHapi("test.js", tt.line, 25)
+
+			assert.Equal(t, tt.found, found)
+
+			if tt.found {
+				require.Len(t, extractor.routes, 1)
+				actual := extractor.routes[0]
+				assert.Equal(t, tt.expected.Method, actual.Method)
+				assert.Equal(t, tt.expected.Path, actual.Path)
+				assert.Equal(t, "test.js", actual.File)
+				assert.Equal(t, 25, actual.Line)
+			} else {
+				assert.Empty(t, extractor.routes)
+			}
+		})
+	}
+}
+
+func TestHandleRestify(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		expected *RoutePattern
+		found    bool
+	}{
+		{
+			name:  "restify server.get",
+			line:  "  server.get('/users', handler)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "GET",
+				Path:   "/users",
+			},
+		},
+		{
+			name:  "restify server.post",
+			line:  "  server.post('/items', createItem)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "POST",
+				Path:   "/items",
+			},
+		},
+		{
+			name:  "restify server.del (normalized to DELETE)",
+			line:  "  server.del('/items/:id', deleteItem)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "DELETE",
+				Path:   "/items/:id",
+			},
+		},
+		{
+			name:  "restify server.opts (normalized to OPTIONS)",
+			line:  "  server.opts('/api', optionsHandler)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "OPTIONS",
+				Path:   "/api",
+			},
+		},
+		{
+			name:  "restify server.put",
+			line:  "  server.put('/users/:id', updateUser)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "PUT",
+				Path:   "/users/:id",
+			},
+		},
+		{
+			name:  "not a restify pattern",
+			line:  "  server.listen(3000)",
+			found: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			extractor := NewRouteExtractor()
+			found := extractor.handleRestify("test.js", tt.line, 30)
+
+			assert.Equal(t, tt.found, found)
+
+			if tt.found {
+				require.Len(t, extractor.routes, 1)
+				actual := extractor.routes[0]
+				assert.Equal(t, tt.expected.Method, actual.Method)
+				assert.Equal(t, tt.expected.Path, actual.Path)
+				assert.Equal(t, "test.js", actual.File)
+				assert.Equal(t, 30, actual.Line)
+			} else {
+				assert.Empty(t, extractor.routes)
+			}
+		})
+	}
+}
+
+func TestHandleNestJS(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		expected *RoutePattern
+		found    bool
+	}{
+		{
+			name:  "NestJS @Get decorator",
+			line:  "  @Get('/users')",
+			found: true,
+			expected: &RoutePattern{
+				Method: "GET",
+				Path:   "/users",
+			},
+		},
+		{
+			name:  "NestJS @Post decorator",
+			line:  "  @Post('/items')",
+			found: true,
+			expected: &RoutePattern{
+				Method: "POST",
+				Path:   "/items",
+			},
+		},
+		{
+			name:  "NestJS @Delete with parameter",
+			line:  "  @Delete('/items/:id')",
+			found: true,
+			expected: &RoutePattern{
+				Method: "DELETE",
+				Path:   "/items/:id",
+			},
+		},
+		{
+			name:  "NestJS @Put decorator",
+			line:  "  @Put('/users/:id')",
+			found: true,
+			expected: &RoutePattern{
+				Method: "PUT",
+				Path:   "/users/:id",
+			},
+		},
+		{
+			name:  "NestJS @Patch decorator",
+			line:  "  @Patch('/settings')",
+			found: true,
+			expected: &RoutePattern{
+				Method: "PATCH",
+				Path:   "/settings",
+			},
+		},
+		{
+			name:  "NestJS decorator with empty path (defaults to /)",
+			line:  "  @Get()",
+			found: false,
+		},
+		{
+			name:  "NestJS @Get with empty string (defaults to /)",
+			line:  "  @Get('')",
+			found: true,
+			expected: &RoutePattern{
+				Method: "GET",
+				Path:   "/",
+			},
+		},
+		{
+			name:  "not a NestJS decorator",
+			line:  "  function getUsers() {}",
+			found: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			extractor := NewRouteExtractor()
+			found := extractor.handleNestJS("test.ts", tt.line, 35)
+
+			assert.Equal(t, tt.found, found)
+
+			if tt.found {
+				require.Len(t, extractor.routes, 1)
+				actual := extractor.routes[0]
+				assert.Equal(t, tt.expected.Method, actual.Method)
+				assert.Equal(t, tt.expected.Path, actual.Path)
+				assert.Equal(t, "test.ts", actual.File)
+				assert.Equal(t, 35, actual.Line)
+			} else {
+				assert.Empty(t, extractor.routes)
+			}
+		})
+	}
+}
+
+func TestHandleHTTPDispatcher(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		expected *RoutePattern
+		found    bool
+	}{
+		{
+			name:  "dispatcher.onGet with string path",
+			line:  "  dispatcher.onGet('/users', handler)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "GET",
+				Path:   "/users",
+			},
+		},
+		{
+			name:  "dispatcher.onPost with string path",
+			line:  "  dispatcher.onPost('/items', createItem)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "POST",
+				Path:   "/items",
+			},
+		},
+		{
+			name:  "dispatcher.onGet with regex pattern",
+			line:  "  dispatcher.onGet(/^\\/ratings\\/[0-9]*/, handler)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "GET",
+				Path:   "/^\\/ratings\\/[0-9]*//",
+			},
+		},
+		{
+			name:  "dispatcher.onPost with regex pattern",
+			line:  "  dispatcher.onPost(/^\\/api\\/v1\\/products\\/[a-zA-Z0-9-]+$/, createProduct)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "POST",
+				Path:   "/^\\/api\\/v1\\/products\\/[a-zA-Z0-9-]+$//",
+			},
+		},
+		{
+			name:  "dispatcher.onDelete with string path and parameter",
+			line:  "  dispatcher.onDelete('/items/:id', deleteItem)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "DELETE",
+				Path:   "/items/:id",
+			},
+		},
+		{
+			name:  "dispatcher.onPut with regex",
+			line:  "  dispatcher.onPut(/^\\/files\\/.*\\.pdf$/, uploadPdf)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "PUT",
+				Path:   "/^\\/files\\/.*\\.pdf$//",
+			},
+		},
+		{
+			name:  "dispatcher.onPatch",
+			line:  "  dispatcher.onPatch('/settings/:key', patchSetting)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "PATCH",
+				Path:   "/settings/:key",
+			},
+		},
+		{
+			name:  "dispatcher.onAll",
+			line:  "  dispatcher.onAll('/admin/*', authMiddleware)",
+			found: true,
+			expected: &RoutePattern{
+				Method: "ALL",
+				Path:   "/admin/*",
+			},
+		},
+		{
+			name:  "not a dispatcher pattern",
+			line:  "  dispatcher.setErrorHandler(errorHandler)",
+			found: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			extractor := NewRouteExtractor()
+			found := extractor.handleHTTPDispatcher("test.js", tt.line, 40)
+
+			assert.Equal(t, tt.found, found)
+
+			if tt.found {
+				require.Len(t, extractor.routes, 1)
+				actual := extractor.routes[0]
+				assert.Equal(t, tt.expected.Method, actual.Method)
+				assert.Equal(t, tt.expected.Path, actual.Path)
+				assert.Equal(t, "test.js", actual.File)
+				assert.Equal(t, 40, actual.Line)
+			} else {
+				assert.Empty(t, extractor.routes)
+			}
+		})
+	}
+}
