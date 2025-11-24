@@ -199,11 +199,18 @@ func (h *RouteHarvester) HarvestRoutesDelay(fileInfo *exec.FileInfo) (bool, time
 	return false, 0
 }
 
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// for testing purposes
+var isDirFunc = isDir
+
 func findScriptDirectory(root, firstArg, cwd string) string {
 	if strings.HasPrefix(firstArg, "/") {
 		path := filepath.Join(root, firstArg)
-		info, err := os.Stat(path)
-		if err == nil && info.IsDir() {
+		if isDirFunc(path) {
 			return path
 		}
 
@@ -211,8 +218,7 @@ func findScriptDirectory(root, firstArg, cwd string) string {
 		if lastSlashPos > 1 {
 			path := filepath.Join(root, firstArg[:lastSlashPos])
 
-			info, err := os.Stat(path)
-			if err == nil && info.IsDir() {
+			if isDirFunc(path) {
 				return path
 			}
 		}
