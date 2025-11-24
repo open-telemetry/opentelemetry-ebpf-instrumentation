@@ -67,18 +67,6 @@ struct tp_option {
     unsigned char span_id[SPAN_ID_SIZE_BYTES];
 };
 
-static __always_inline void
-encode_hex_skb(unsigned char *dst, const unsigned char *src, u32 src_len) {
-
-#pragma clang loop unroll(full)
-    for (u32 i = 0, j = 0; i < src_len; i++) {
-        unsigned char p = src[i];
-
-        dst[j++] = hex[(p >> 4) & 0xff];
-        dst[j++] = hex[p & 0x0f];
-    }
-}
-
 static __always_inline const char *tp_string_from_opt(const struct tp_option *opt) {
     unsigned char *buf = tp_str_buf_mem();
 
@@ -94,13 +82,13 @@ static __always_inline const char *tp_string_from_opt(const struct tp_option *op
     *ptr++ = '-';
 
     // Trace ID
-    encode_hex_skb(ptr, opt->trace_id, TRACE_ID_SIZE_BYTES);
+    encode_hex(ptr, opt->trace_id, TRACE_ID_SIZE_BYTES);
     ptr += TRACE_ID_CHAR_LEN;
 
     *ptr++ = '-';
 
     // SpanID
-    encode_hex_skb(ptr, opt->span_id, SPAN_ID_SIZE_BYTES);
+    encode_hex(ptr, opt->span_id, SPAN_ID_SIZE_BYTES);
     ptr += SPAN_ID_CHAR_LEN;
 
     *ptr++ = '-';
@@ -304,7 +292,7 @@ static __always_inline void bpf_sock_ops_opt_len_cb(struct bpf_sock_ops *skops) 
     const long ret = bpf_reserve_hdr_opt(skops, sizeof(struct tp_option), 0);
 
     if (ret != 0) {
-        bpf_dbg_printk("failed to reserve TCP option: %d", ret);
+        bpf_dbg_printk("bpf_sock_ops_opt_len_cb: failed to reserve TCP option: %d", ret);
         return;
     }
 }
@@ -319,7 +307,7 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
     const tp_info_pid_t *tp_pid = bpf_sk_storage_get(&sk_tp_info_pid_map, sk, NULL, 0);
 
     if (!tp_pid) {
-        bpf_dbg_printk("tp info not found");
+        bpf_dbg_printk("bpf_sock_ops_write_hdr_cb: tp info not found");
         return;
     }
 
@@ -331,14 +319,14 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
     const long ret = bpf_store_hdr_opt(skops, &opt, sizeof(opt), 0);
 
     if (ret != 0) {
-        bpf_dbg_printk("failed to store option: %d", ret);
+        bpf_dbg_printk("bpf_sock_ops_write_hdr_cb: failed to store option: %d", ret);
     }
 
     if (k_bpf_debug) {
         const char *tp_str = tp_string_from_opt(&opt);
 
         if (tp_str) {
-            bpf_dbg_printk("written TP to TCP options: %s", tp_str);
+            bpf_dbg_printk("bpf_sock_ops_write_hdb_cb: written TP to TCP options: %s", tp_str);
         }
     }
 }
@@ -354,7 +342,7 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
     }
 
     if (ret < 0) {
-        bpf_dbg_printk("error parsing TCP option = %d", ret);
+        bpf_dbg_printk("bpf_sock_ops_parse_hdr_cb: error parsing TCP option = %d", ret);
         return;
     }
 
@@ -362,7 +350,7 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
         const char *tp_str = tp_string_from_opt(&opt);
 
         if (tp_str) {
-            bpf_dbg_printk("found TP in TCP options: %s", tp_str);
+            bpf_dbg_printk("bpf_sock_ops_parse_hdr_cb: found TP in TCP options: %s", tp_str);
         }
     }
 
@@ -542,13 +530,13 @@ make_tp_string_skb(unsigned char *buf, const tp_info_t *tp, const unsigned char 
     *buf++ = '-';
 
     // Trace ID
-    encode_hex_skb(buf, tp->trace_id, TRACE_ID_SIZE_BYTES);
+    encode_hex(buf, tp->trace_id, TRACE_ID_SIZE_BYTES);
     buf += TRACE_ID_CHAR_LEN;
 
     *buf++ = '-';
 
     // SpanID
-    encode_hex_skb(buf, tp->span_id, SPAN_ID_SIZE_BYTES);
+    encode_hex(buf, tp->span_id, SPAN_ID_SIZE_BYTES);
     buf += SPAN_ID_CHAR_LEN;
 
     *buf++ = '-';
@@ -688,8 +676,6 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     const u64 id = bpf_get_current_pid_tgid();
     const connection_info_t conn = get_connection_info(msg);
     const egress_key_t e_key = make_key(&conn);
-
-    bpf_dbg_printk("%s pid = %u", __FUNCTION__, id >> 32);
 
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
 
