@@ -117,7 +117,7 @@ discovery:
 		Port:             cfg.Port,
 		ServiceName:      "svc-name",
 		ChannelBufferLen: 33,
-		LogLevel:         "INFO",
+		LogLevel:         LogLevelInfo,
 		ShutdownTimeout:  30 * time.Second,
 		EnforceSysCaps:   false,
 		TracePrinter:     "json",
