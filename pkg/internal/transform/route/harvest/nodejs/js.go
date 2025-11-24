@@ -39,10 +39,13 @@ type FrameworkPatterns struct {
 	NestJS *regexp.Regexp
 	// HttpDispatcher: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
 	HttpDispatcher *regexp.Regexp
+	// Fallback
+	Fallback *regexp.Regexp
 
 	// Path Cleanup regexes
 	RegexPattern         *regexp.Regexp
 	MultipleSlashPattern *regexp.Regexp
+	CleanID              *regexp.Regexp
 	// ValidPathChars matches valid URL path characters per RFC 3986
 	// Includes: unreserved (A-Za-z0-9-._~)
 	ValidPathChars *regexp.Regexp
@@ -72,10 +75,14 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// Supports both string literals and regex literals
 		HttpDispatcher: regexp.MustCompile(`\.on(Get|Post|Put|Patch|Delete|Head|Options|All)\s*\(\s*(?:['"\x60]([^'"\x60]+)['"\x60]|/((?:[^\\,]|\\.)+))`),
 
+		// Fallback
+		Fallback: regexp.MustCompile(`['"\x60](/[^'"\x60]+)['"\x60]`),
+
 		// Cleanup
 		RegexPattern:         regexp.MustCompile(`[\\^$]`),
 		MultipleSlashPattern: regexp.MustCompile(`//+`),
 		ValidPathChars:       regexp.MustCompile(`^[A-Za-z0-9\-._~]+$`),
+		CleanID:              regexp.MustCompile(`[^A-Za-z0-9\-._]+`),
 	}
 }
 
@@ -205,6 +212,20 @@ func (e *RouteExtractor) handleHTTPDispatcher(filePath, line string, lineNum int
 	return false
 }
 
+func (e *RouteExtractor) handleFallback(filePath, line string, lineNum int) bool {
+	if matches := e.patterns.Fallback.FindStringSubmatch(line); len(matches) > 0 {
+		e.routes = append(e.routes, RoutePattern{
+			Method: "ALL",
+			Path:   matches[0],
+			File:   filePath,
+			Line:   lineNum,
+		})
+		return true
+	}
+
+	return false
+}
+
 func (e *RouteExtractor) scanFile(filePath string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -271,6 +292,12 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 		if e.handleHTTPDispatcher(filePath, line, lineNum) {
 			continue
 		}
+
+		// Fallback when none matches
+		if e.handleFallback(filePath, line, lineNum) {
+			continue
+		}
+
 		save = line
 	}
 
@@ -337,13 +364,40 @@ func (e *RouteExtractor) CleanupRegexPath(path string) string {
 	keep := make([]string, 0, len(parts))
 
 	for i, p := range parts {
-		if strings.Trim(p, " ") == "" {
+		p := strings.Trim(p, " ")
+		if p == "" {
 			continue
 		}
-		if p[0] != ':' && p[0] != '{' && !e.patterns.ValidPathChars.MatchString(p) {
-			parts[i] = ":id"
+		switch p[0] {
+		case ':':
+			p = ":" + e.patterns.CleanID.ReplaceAllString(parts[i], "")
+			keep = append(keep, p)
+			continue
+		case '{':
+			if p[len(p)-1] == '}' {
+				p = "{" + e.patterns.CleanID.ReplaceAllString(parts[i], "") + "}"
+				keep = append(keep, p)
+				continue
+			}
+		case '[':
+			if p[len(p)-1] == ']' {
+				p = "[" + e.patterns.CleanID.ReplaceAllString(parts[i], "") + "]"
+				keep = append(keep, p)
+				continue
+			}
+
 		}
-		keep = append(keep, parts[i])
+
+		qPos := strings.Index(p, "?")
+		if qPos >= 0 {
+			p = p[:qPos]
+		}
+
+		if !e.patterns.ValidPathChars.MatchString(p) {
+			p = ":id"
+		}
+
+		keep = append(keep, p)
 	}
 
 	pattern = strings.Join(keep, "/")

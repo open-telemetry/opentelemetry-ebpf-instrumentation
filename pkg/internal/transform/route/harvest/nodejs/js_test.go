@@ -934,7 +934,7 @@ func TestCleanupRegexPath(t *testing.T) {
 		{
 			name:     "path with query params pattern (should be cleaned)",
 			input:    "/^\\/api\\/users\\?[a-z]+$/",
-			expected: "/api/:id",
+			expected: "/api/users",
 		},
 		{
 			name:     "deeply nested path with multiple patterns",
@@ -965,6 +965,46 @@ func TestCleanupRegexPath(t *testing.T) {
 			name:     "path with file extension in pattern",
 			input:    "/^\\/downloads\\/[a-z]+\\.zip$/",
 			expected: "/downloads/:id",
+		},
+		{
+			name:     "complex negative lookahead pattern",
+			input:    "/((?!_next/static|_next/image|favicon.ico|sign-in|new-user|forgot-password|email-url-expired|sign-up|confirm-email-url|auth/callback|votes|monitoring|events).*)",
+			expected: "/:id/:id/:id/:id",
+		},
+		{
+			name:     "path with file extension and subdirectory",
+			input:    "/app/supabase/prod-eu.crt",
+			expected: "/app/supabase/prod-eu.crt",
+		},
+		{
+			name:     "path with query string parameter",
+			input:    "/sign-up?email=${encodeURIComponent(email)}",
+			expected: "/sign-up",
+		},
+		{
+			name:     "path with query string parameter",
+			input:    "/forgot-password?message=Error sending password reset email",
+			expected: "/forgot-password",
+		},
+		{
+			name:     "path with wildcard parameter",
+			input:    "/events/edit/:path*",
+			expected: "/events/edit/:path",
+		},
+		{
+			name:     "next.js dynamic route with brackets",
+			input:    "/my-events/[eventId]",
+			expected: "/my-events/[eventId]",
+		},
+		{
+			name:     "template literal with single variable",
+			input:    "/events/${eventId}",
+			expected: "/events/{eventId}",
+		},
+		{
+			name:     "template literal with multiple variables",
+			input:    "/votes/${tenantId}/${eventId}",
+			expected: "/votes/{tenantId}/{eventId}",
 		},
 	}
 
