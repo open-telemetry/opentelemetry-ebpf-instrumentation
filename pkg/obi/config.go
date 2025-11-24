@@ -72,13 +72,12 @@ var DefaultConfig = Config{
 	ShutdownTimeout:  10 * time.Second,
 	EnforceSysCaps:   false,
 	EBPF: config.EBPFTracer{
-		BatchLength:               100,
-		BatchTimeout:              time.Second,
-		HTTPRequestTimeout:        0,
-		TCBackend:                 config.TCBackendAuto,
-		DNSRequestTimeout:         5 * time.Second,
-		ContextPropagationEnabled: false,
-		ContextPropagation:        config.ContextPropagationDisabled,
+		BatchLength:        100,
+		BatchTimeout:       time.Second,
+		HTTPRequestTimeout: 0,
+		TCBackend:          config.TCBackendAuto,
+		DNSRequestTimeout:  5 * time.Second,
+		ContextPropagation: config.ContextPropagationDisabled,
 		RedisDBCache: config.RedisDBCacheConfig{
 			Enabled: false,
 			MaxSize: 1000,
@@ -407,9 +406,6 @@ func (c *Config) Validate() error {
 		return ConfigError("you can't enable OTEL internal metrics without enabling OTEL metrics")
 	}
 
-	// TODO deprecated (REMOVE)
-	c.EBPF.IsContextPropagationEnabled()
-
 	return nil
 }
 
@@ -422,10 +418,7 @@ func (c *Config) otelNetO11yEnabled() bool {
 }
 
 func (c *Config) willUseTC() bool {
-	// remove after deleting ContextPropagationEnabled
-	return c.EBPF.ContextPropagation == config.ContextPropagationAll ||
-		c.EBPF.ContextPropagation == config.ContextPropagationIPOptionsOnly ||
-		c.EBPF.ContextPropagationEnabled ||
+	return c.EBPF.ContextPropagation.HasIPOptions() ||
 		(c.Enabled(FeatureNetO11y) && c.NetworkFlows.Source == EbpfSourceTC)
 }
 

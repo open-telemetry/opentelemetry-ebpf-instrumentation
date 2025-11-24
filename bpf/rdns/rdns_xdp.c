@@ -180,25 +180,27 @@ static __always_inline void parse_dns_response(struct xdp_md *ctx,
         return;
     }
 
-#ifdef BPF_DEBUG
-    const __u16 id = bpf_ntohs(*(const __be16 *)(data));
-    const __u8 ra = get_bit(flags1, RA_OFFSET);
-    const __u8 aa = get_bit(flags0, AA_OFFSET);
-    const __u8 tc = get_bit(flags0, TC_OFFSET);
-    const __u8 rd = get_bit(flags0, RD_OFFSET);
-    bpf_dbg_printk("Found possible DNS response: %x!\n", id);
-    bpf_dbg_printk("flags[0] = %x\n", flags0);
-    bpf_dbg_printk("id: %x, qr: %u, opcode: %u, aa: %u, tc: %u, rd: %u, ra: %u\n",
-                   id,
-                   qr,
-                   opcode,
-                   aa,
-                   tc,
-                   rd,
-                   ra);
-    bpf_dbg_printk("flags[1] = %x\n", flags1);
-    bpf_dbg_printk("z: %u, rcode: %u, qdcount = %u, ancount = %u\n", z, rcode, ancount, qdcount);
-#endif //BPF_DEBUG
+    if (k_bpf_debug) {
+        [[maybe_unused]] const __u16 id = bpf_ntohs(*(const __be16 *)(data));
+        [[maybe_unused]] const __u8 ra = get_bit(flags1, RA_OFFSET);
+        [[maybe_unused]] const __u8 aa = get_bit(flags0, AA_OFFSET);
+        [[maybe_unused]] const __u8 tc = get_bit(flags0, TC_OFFSET);
+        [[maybe_unused]] const __u8 rd = get_bit(flags0, RD_OFFSET);
+
+        bpf_dbg_printk("Found possible DNS response: %x!\n", id);
+        bpf_dbg_printk("flags[0] = %x\n", flags0);
+        bpf_dbg_printk("id: %x, qr: %u, opcode: %u, aa: %u, tc: %u, rd: %u, ra: %u\n",
+                       id,
+                       qr,
+                       opcode,
+                       aa,
+                       tc,
+                       rd,
+                       ra);
+        bpf_dbg_printk("flags[1] = %x\n", flags1);
+        bpf_dbg_printk(
+            "z: %u, rcode: %u, qdcount = %u, ancount = %u\n", z, rcode, ancount, qdcount);
+    }
 
     // Parse question sections
     __u32 __attribute__((unused)) dns_packet_size = 0;

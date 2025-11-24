@@ -108,6 +108,13 @@ type capTestData struct {
 	useTC   bool
 }
 
+func contextPropagationMode(useTC bool) config.ContextPropagationMode {
+	if useTC {
+		return config.ContextPropagationIPOptions
+	}
+	return config.ContextPropagationDisabled
+}
+
 var capTests = []capTestData{
 	// core
 	{osCap: unix.CAP_BPF, class: capCore, kernMaj: 6, kernMin: 10, useTC: false},
@@ -150,7 +157,7 @@ func TestCheckOSCapabilities(t *testing.T) {
 
 		cfg := Config{
 			NetworkFlows: NetworkConfig{Enable: data.class == capNet, Source: netSource(data.useTC)},
-			EBPF:         config.EBPFTracer{ContextPropagationEnabled: data.useTC},
+			EBPF:         config.EBPFTracer{ContextPropagation: contextPropagationMode(data.useTC)},
 		}
 		if data.class == capApp {
 			// activates app o11y feature

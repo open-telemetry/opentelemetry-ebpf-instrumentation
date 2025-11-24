@@ -15,6 +15,8 @@
 
 #pragma once
 
+#include <bpfcore/vmlinux.h>
+
 #include <bpfcore/utils.h>
 
 #include <pid/pid_helpers.h>

@@ -22,6 +22,8 @@
 
 #ifdef BPF_DEBUG
 
+enum { k_bpf_debug = 1 };
+
 typedef struct log_info {
     u64 pid;
     unsigned char log[80];
@@ -64,6 +66,9 @@ enum bpf_func_id___x {
         bpf_printk(fmt, ##args);                                                                   \
     }
 #else
+
+enum { k_bpf_debug = 0 };
+
 #define bpf_dbg_printk(fmt, args...)
 #define bpf_d_printk(fmt, args...)
 #endif

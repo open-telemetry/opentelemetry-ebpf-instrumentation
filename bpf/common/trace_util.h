@@ -34,8 +34,8 @@ static __always_inline void urand_bytes(unsigned char *buf, u32 size) {
     }
 }
 
-static __always_inline void decode_hex(unsigned char *dst, const unsigned char *src, int src_len) {
-    for (int i = 1, j = 0; i < src_len; i += 2) {
+static __always_inline void decode_hex(unsigned char *dst, const unsigned char *src, u32 src_len) {
+    for (u32 i = 1, j = 0; i < src_len; i += 2) {
         unsigned char p = src[i - 1];
         unsigned char q = src[i];
 
@@ -49,8 +49,8 @@ static __always_inline void decode_hex(unsigned char *dst, const unsigned char *
     }
 }
 
-static __always_inline void encode_hex(unsigned char *dst, const unsigned char *src, int src_len) {
-    for (int i = 0, j = 0; i < src_len; i++) {
+static __always_inline void encode_hex(unsigned char *dst, const unsigned char *src, u32 src_len) {
+    for (u32 i = 0, j = 0; i < src_len; i++) {
         unsigned char p = src[i];
         dst[j++] = hex[(p >> 4) & 0xff];
         dst[j++] = hex[p & 0x0f];

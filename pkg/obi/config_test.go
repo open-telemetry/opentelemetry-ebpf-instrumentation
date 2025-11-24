@@ -122,14 +122,13 @@ discovery:
 		EnforceSysCaps:   false,
 		TracePrinter:     "json",
 		EBPF: config.EBPFTracer{
-			BatchLength:               100,
-			BatchTimeout:              time.Second,
-			HTTPRequestTimeout:        0,
-			MaxTransactionTime:        5 * time.Minute,
-			TCBackend:                 config.TCBackendAuto,
-			DNSRequestTimeout:         5 * time.Second,
-			ContextPropagationEnabled: false,
-			ContextPropagation:        config.ContextPropagationDisabled,
+			BatchLength:        100,
+			BatchTimeout:       time.Second,
+			HTTPRequestTimeout: 0,
+			MaxTransactionTime: 5 * time.Minute,
+			TCBackend:          config.TCBackendAuto,
+			DNSRequestTimeout:  5 * time.Second,
+			ContextPropagation: config.ContextPropagationDisabled,
 			RedisDBCache: config.RedisDBCacheConfig{
 				Enabled: false,
 				MaxSize: 1000,
@@ -572,11 +571,11 @@ func TestDefaultLegacyExclusionFilter(t *testing.T) {
 }
 
 func TestWillUseTC(t *testing.T) {
-	env := envMap{"OTEL_EBPF_BPF_ENABLE_CONTEXT_PROPAGATION": "true"}
+	env := envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "ip"}
 	cfg := loadConfig(t, env)
 	assert.True(t, cfg.willUseTC())
 
-	env = envMap{"OTEL_EBPF_BPF_ENABLE_CONTEXT_PROPAGATION": "false"}
+	env = envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "headers"}
 	cfg = loadConfig(t, env)
 	assert.False(t, cfg.willUseTC())
 

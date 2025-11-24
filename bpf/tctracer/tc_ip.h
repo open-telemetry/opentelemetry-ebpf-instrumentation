@@ -20,12 +20,14 @@ static __always_inline void populate_span_id_from_tcp_info(tp_info_t *tp, protoc
 }
 
 static __always_inline void print_tp(tp_info_pid_t *new_tp) {
-#ifdef BPF_DEBUG
+    if (!k_bpf_debug) {
+        return;
+    }
+
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
 
     make_tp_string(tp_buf, &new_tp->tp);
     bpf_dbg_printk("tp: %s", tp_buf);
-#endif
 }
 
 static __always_inline void
