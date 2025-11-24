@@ -26,12 +26,6 @@ const (
 	ContextPropagationAll = ContextPropagationHeaders | ContextPropagationTCP | ContextPropagationIPOptions
 )
 
-// Deprecated aliases for backwards compatibility
-const (
-	ContextPropagationHeadersOnly   = ContextPropagationHeaders
-	ContextPropagationIPOptionsOnly = ContextPropagationIPOptions
-)
-
 // EBPFTracer configuration for eBPF programs
 type EBPFTracer struct {
 	// Enables logging of eBPF program events

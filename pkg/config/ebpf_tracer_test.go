@@ -240,33 +240,6 @@ func TestContextPropagationMode_HasMethods(t *testing.T) {
 	}
 }
 
-func TestContextPropagationMode_BackwardsCompatibility(t *testing.T) {
-	// Test that old constants still work
-	tests := []struct {
-		name string
-		mode ContextPropagationMode
-		want ContextPropagationMode
-	}{
-		{
-			name: "HeadersOnly equals Headers",
-			mode: ContextPropagationHeadersOnly,
-			want: ContextPropagationHeaders,
-		},
-		{
-			name: "IPOptionsOnly equals IPOptions",
-			mode: ContextPropagationIPOptionsOnly,
-			want: ContextPropagationIPOptions,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.mode != tt.want {
-				t.Errorf("Backwards compatibility broken: %v != %v", tt.mode, tt.want)
-			}
-		})
-	}
-}
 
 func TestContextPropagationMode_TracerLoading(t *testing.T) {
 	// Test which tracers should be loaded for each configuration
