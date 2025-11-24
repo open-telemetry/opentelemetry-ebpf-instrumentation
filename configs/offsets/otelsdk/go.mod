@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/configs/offsets/otelsdk
 
-go 1.25.0
+go 1.25.3
 
 require go.opentelemetry.io/otel v1.37.0
 

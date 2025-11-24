@@ -57,6 +57,7 @@ export BPF_CLANG=clang
 export BPF_CFLAGS="-O2 -g -Wall -Werror"
 export OTEL_EBPF_GENFILES_RUN_LOCALLY=1
 export OTEL_EBPF_GENFILES_MODULE_ROOT="/src"
+export GOCACHE=/tmp/go-build
 obi_genfiles
 EOF
 

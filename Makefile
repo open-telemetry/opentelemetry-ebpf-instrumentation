@@ -25,7 +25,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.2
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.3
 
 OCI_BIN ?= docker
 

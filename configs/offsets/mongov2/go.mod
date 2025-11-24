@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/configs/offsets/mongov2
 
-go 1.25.1
+go 1.25.3
 
 require go.mongodb.org/mongo-driver/v2 v2.3.1
 
