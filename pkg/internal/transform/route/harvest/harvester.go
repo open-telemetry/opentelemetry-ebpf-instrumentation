@@ -5,7 +5,10 @@ package harvest
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -14,7 +17,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route"
+	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest/nodejs"
 )
 
 type RouteHarvester struct {
@@ -110,7 +115,8 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 			}
 		}()
 
-		if fileInfo.Service.SDKLanguage == svc.InstrumentableJava {
+		switch fileInfo.Service.SDKLanguage {
+		case svc.InstrumentableJava:
 			if _, ok := h.disabled[svc.InstrumentableJava]; !ok {
 				r, err := h.javaExtractRoutes(fileInfo.Pid)
 				if err != nil {
@@ -121,7 +127,45 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 			} else {
 				resultChan <- result{r: nil}
 			}
-		} else {
+		case svc.InstrumentableNodejs:
+			if _, ok := h.disabled[svc.InstrumentableNodejs]; !ok {
+				rootDir := ebpfcommon.RootDirectoryForPID(fileInfo.Pid)
+				_, args, err := ebpfcommon.CMDLineForPID(fileInfo.Pid)
+				if err != nil {
+					resultChan <- result{err: err}
+					return
+				}
+				workdir, err := ebpfcommon.CWDForPID(fileInfo.Pid)
+				if err != nil {
+					resultChan <- result{err: err}
+					return
+				}
+				jsExtractor := nodejs.NewRouteExtractor()
+
+				firstArg := jsExtractor.FirstArg(args)
+
+				dir := findScriptDirectory(rootDir, firstArg, workdir)
+				if dir == "" {
+					resultChan <- result{err: fmt.Errorf("failed to find script directory for pid %d, script %s, cwd %s", fileInfo.Pid, firstArg, workdir)}
+					return
+				}
+				err = jsExtractor.ScanDirectory(dir)
+
+				if err != nil {
+					resultChan <- result{err: err}
+					return
+				}
+
+				r := RouteHarvesterResult{
+					Routes: jsExtractor.GetHarvestedRoutes(),
+					Kind:   CompleteRoutes,
+				}
+
+				resultChan <- result{r: &r}
+			} else {
+				resultChan <- result{r: nil}
+			}
+		default:
 			resultChan <- result{r: nil}
 		}
 	}()
@@ -153,4 +197,26 @@ func (h *RouteHarvester) HarvestRoutesDelay(fileInfo *exec.FileInfo) (bool, time
 	}
 
 	return false, 0
+}
+
+func findScriptDirectory(root, firstArg, cwd string) string {
+	if strings.HasPrefix(firstArg, "/") {
+		path := filepath.Join(root, firstArg)
+		info, err := os.Stat(path)
+		if err == nil && info.IsDir() {
+			return path
+		}
+
+		lastSlashPos := strings.LastIndex(firstArg, "/")
+		if lastSlashPos > 1 {
+			path := filepath.Join(root, firstArg[:lastSlashPos])
+
+			info, err := os.Stat(path)
+			if err == nil && info.IsDir() {
+				return path
+			}
+		}
+	}
+
+	return filepath.Join(root, cwd)
 }

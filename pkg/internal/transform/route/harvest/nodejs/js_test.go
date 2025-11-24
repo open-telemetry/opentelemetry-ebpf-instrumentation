@@ -804,3 +804,175 @@ func TestHandleHTTPDispatcher(t *testing.T) {
 		})
 	}
 }
+
+func TestCleanupRegexPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "pattern with special chars",
+			input:    "/^\\/test\\/[a-z]+\\-[0-9]+$/",
+			expected: "/test/:id",
+		},
+		{
+			name:     "regex with wildcard",
+			input:    "/^\\/files\\/.*\\.pdf$/",
+			expected: "/files/:id",
+		},
+		{
+			name:     "simple string path (not regex)",
+			input:    "/users/:id",
+			expected: "/users/:id",
+		},
+		{
+			name:     "regex with character class",
+			input:    "/^\\/api\\/v1\\/products\\/[a-zA-Z0-9-]+$/",
+			expected: "/api/v1/products/:id",
+		},
+		{
+			name:     "regex with numeric pattern",
+			input:    "/^\\/ratings\\/[0-9]*/",
+			expected: "/ratings/:id",
+		},
+		{
+			name:     "regex with multiple patterns",
+			input:    "/^\\/users\\/[0-9]+\\/posts\\/[a-z]+$/",
+			expected: "/users/:id/posts/:id",
+		},
+		{
+			name:     "regex with .+ wildcard",
+			input:    "/^\\/documents\\/.+$/",
+			expected: "/documents/:id",
+		},
+		{
+			name:     "complex pattern with multiple character classes",
+			input:    "/^\\/api\\/[a-z]+\\/items\\/[0-9]+$/",
+			expected: "/api/:id/items/:id",
+		},
+		{
+			name:     "pattern with optional quantifier",
+			input:    "/^\\/path\\/[a-z]?$/",
+			expected: "/path/:id",
+		},
+		{
+			name:     "empty regex pattern",
+			input:    "//",
+			expected: "/",
+		},
+		{
+			name:     "non-regex path",
+			input:    "/api/users",
+			expected: "/api/users",
+		},
+		{
+			name:     "path with existing parameter",
+			input:    "/users/:userId",
+			expected: "/users/:userId",
+		},
+		{
+			name:     "regex without anchors",
+			input:    "/\\/users\\/[0-9]+/",
+			expected: "/users/:id",
+		},
+		{
+			name:     "multiple consecutive slashes",
+			input:    "/api///users///:id",
+			expected: "/api/users/:id",
+		},
+		{
+			name:     "regex resulting in multiple slashes",
+			input:    "/^\\/\\/api\\/\\/users/",
+			expected: "/api/users",
+		},
+		{
+			name:     "trailing slash removed",
+			input:    "/^\\/api\\/users\\/$/",
+			expected: "/api/users",
+		},
+		{
+			name:     "root path keeps single slash",
+			input:    "/^\\/$/",
+			expected: "/",
+		},
+		{
+			name:     "path with trailing slash in non-regex",
+			input:    "/api/users/",
+			expected: "/api/users",
+		},
+		{
+			name:     "complex regex with multiple consecutive :id",
+			input:    "/^\\/[a-z]+\\/[0-9]+\\/[a-z]+$/",
+			expected: "/:id/:id/:id",
+		},
+		{
+			name:     "regex with escaped special characters",
+			input:    "/^\\/api\\/v1\\/[a-zA-Z0-9_\\-]+$/",
+			expected: "/api/v1/:id",
+		},
+		{
+			name:     "path with underscores preserved",
+			input:    "/^\\/api_v1\\/users$/",
+			expected: "/api_v1/users",
+		},
+		{
+			name:     "path with hyphens preserved",
+			input:    "/^\\/api-v1\\/items$/",
+			expected: "/api-v1/items",
+		},
+		{
+			name:     "mixed wildcards and character classes",
+			input:    "/^\\/files\\/.+\\/[0-9]+\\/.*$/",
+			expected: "/files/:id/:id/:id",
+		},
+		{
+			name:     "very short regex",
+			input:    "/^$/",
+			expected: "/",
+		},
+		{
+			name:     "path with query params pattern (should be cleaned)",
+			input:    "/^\\/api\\/users\\?[a-z]+$/",
+			expected: "/api/:id",
+		},
+		{
+			name:     "deeply nested path with multiple patterns",
+			input:    "/^\\/api\\/v[0-9]+\\/users\\/[a-z0-9]+\\/posts\\/[0-9]+\\/comments$/",
+			expected: "/api/:id/users/:id/posts/:id/comments",
+		},
+		{
+			name:     "path starting without slash",
+			input:    "api/users",
+			expected: "api/users",
+		},
+		{
+			name:     "Hapi or fastify paths with curlies",
+			input:    "/api/users/{userId}",
+			expected: "/api/users/{userId}",
+		},
+		{
+			name:     "single slash",
+			input:    "/",
+			expected: "/",
+		},
+		{
+			name:     "regex with only anchors",
+			input:    "/^$/",
+			expected: "/",
+		},
+		{
+			name:     "path with file extension in pattern",
+			input:    "/^\\/downloads\\/[a-z]+\\.zip$/",
+			expected: "/downloads/:id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			extractor := NewRouteExtractor()
+			result := extractor.CleanupRegexPath(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

@@ -39,6 +39,13 @@ type FrameworkPatterns struct {
 	NestJS *regexp.Regexp
 	// HttpDispatcher: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
 	HttpDispatcher *regexp.Regexp
+
+	// Path Cleanup regexes
+	RegexPattern         *regexp.Regexp
+	MultipleSlashPattern *regexp.Regexp
+	// ValidPathChars matches valid URL path characters per RFC 3986
+	// Includes: unreserved (A-Za-z0-9-._~)
+	ValidPathChars *regexp.Regexp
 }
 
 func newFrameworkPatterns() *FrameworkPatterns {
@@ -64,6 +71,11 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// Matches: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
 		// Supports both string literals and regex literals
 		HttpDispatcher: regexp.MustCompile(`\.on(Get|Post|Put|Patch|Delete|Head|Options|All)\s*\(\s*(?:['"\x60]([^'"\x60]+)['"\x60]|/((?:[^\\,]|\\.)+))`),
+
+		// Cleanup
+		RegexPattern:         regexp.MustCompile(`[\\^$]`),
+		MultipleSlashPattern: regexp.MustCompile(`//+`),
+		ValidPathChars:       regexp.MustCompile(`^[A-Za-z0-9\-._~]+$`),
 	}
 }
 
@@ -296,4 +308,81 @@ func (e *RouteExtractor) ScanDirectory(root string) error {
 
 func (e *RouteExtractor) GetRoutes() []RoutePattern {
 	return e.routes
+}
+
+// CleanupRegexPath converts regex route patterns to simplified path patterns
+// with dynamic segments replaced by :id placeholder.
+// Example: "/^\\/api\\/v1\\/products\\/[a-zA-Z0-9-]+$/" -> "/api/v1/products/:id"
+func (e *RouteExtractor) CleanupRegexPath(path string) string {
+	// If it's not a regex pattern (doesn't start /), return as-is
+	if !strings.HasPrefix(path, "/") || len(path) < 2 {
+		return path
+	}
+
+	// Remove the leading and trailing / markers
+	pattern := path
+
+	// Replace the typical regex patterns found in http dispatcher
+	pattern = e.patterns.RegexPattern.ReplaceAllString(pattern, "")
+
+	// Replace multiple consecutive slashes with a single slash
+	pattern = e.patterns.MultipleSlashPattern.ReplaceAllString(pattern, "/")
+
+	// Remove trailing slash
+	if len(pattern) > 1 && strings.HasSuffix(pattern, "/") {
+		pattern = pattern[:len(pattern)-1]
+	}
+
+	parts := strings.Split(pattern, "/")
+	keep := make([]string, 0, len(parts))
+
+	for i, p := range parts {
+		if strings.Trim(p, " ") == "" {
+			continue
+		}
+		if p[0] != ':' && p[0] != '{' && !e.patterns.ValidPathChars.MatchString(p) {
+			parts[i] = ":id"
+		}
+		keep = append(keep, parts[i])
+	}
+
+	pattern = strings.Join(keep, "/")
+
+	// Ensure the path starts with /
+	if !strings.HasPrefix(pattern, "/") {
+		pattern = "/" + pattern
+	}
+
+	return pattern
+}
+
+func (e *RouteExtractor) GetHarvestedRoutes() []string {
+	dedup := map[string]struct{}{}
+
+	for _, r := range e.routes {
+		route := e.CleanupRegexPath(r.Path)
+		if route != "" && route != "/" {
+			dedup[route] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(dedup))
+	for k := range dedup {
+		result = append(result, k)
+	}
+
+	return result
+}
+
+func (e *RouteExtractor) FirstArg(args []string) string {
+	firstArg := ""
+	for _, a := range args {
+		if a == "" || a[0] == '-' || a == "inspect" {
+			continue
+		}
+		firstArg = a
+		break
+	}
+
+	return firstArg
 }
