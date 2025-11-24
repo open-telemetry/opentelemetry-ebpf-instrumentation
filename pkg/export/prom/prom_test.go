@@ -65,7 +65,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []string{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost},
+			Features:                    []otelcfg.Feature{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost},
 			Instrumentations:            []string{instrumentations.InstrumentationALL},
 		},
 		&attributes.SelectorConfig{
@@ -390,7 +390,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 
 func TestMetricsDiscarded(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []string{otelcfg.FeatureApplication},
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
 	}
 	mr := metricsReporter{
 		cfg: &mc,
@@ -444,7 +444,7 @@ func TestMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []string{otelcfg.FeatureSpanOTel},
+		Features: []otelcfg.Feature{otelcfg.FeatureSpanOTel},
 	}
 	mr := metricsReporter{
 		cfg: &mc,
@@ -490,7 +490,7 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []string{otelcfg.FeatureGraph},
+		Features: []otelcfg.Feature{otelcfg.FeatureGraph},
 	}
 	mr := metricsReporter{
 		cfg: &mc,
@@ -580,7 +580,7 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 
 func TestProcessPIDEvents(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []string{otelcfg.FeatureApplication},
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
 	}
 	mr := metricsReporter{
 		cfg:         &mc,
@@ -670,7 +670,7 @@ func makePromExporter(
 			Path:                        "/metrics",
 			TTL:                         300 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []string{otelcfg.FeatureApplication},
+			Features:                    []otelcfg.Feature{otelcfg.FeatureApplication},
 			Instrumentations:            instrumentations,
 		},
 		&attributes.SelectorConfig{

@@ -40,7 +40,7 @@ func TestMetricsExpiration(t *testing.T) {
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []string{otelcfg.FeatureNetwork},
+			Features:                    []otelcfg.Feature{otelcfg.FeatureNetwork},
 		}, SelectorCfg: &attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.NetworkFlow.Section: attributes.InclusionLists{

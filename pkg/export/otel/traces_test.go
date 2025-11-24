@@ -565,7 +565,7 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 
 	t.Run("test with span metrics on", func(t *testing.T) {
 		mc := otelcfg.MetricsConfig{
-			Features: []string{otelcfg.FeatureSpan},
+			Features: []otelcfg.Feature{otelcfg.FeatureSpan},
 		}
 
 		receiver := makeTracesTestReceiverWithSpanMetrics(mc.AnySpanMetricsEnabled(), []string{"http"})

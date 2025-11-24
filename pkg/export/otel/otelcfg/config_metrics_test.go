@@ -208,28 +208,28 @@ func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 }
 
 func TestMetricsConfig_Enabled(t *testing.T) {
-	assert.True(t, (&MetricsConfig{Features: []string{FeatureApplication, FeatureNetwork}, CommonEndpoint: "foo"}).Enabled())
-	assert.True(t, (&MetricsConfig{Features: []string{FeatureApplication}, MetricsEndpoint: "foo"}).Enabled())
-	assert.True(t, (&MetricsConfig{MetricsEndpoint: "foo", Features: []string{FeatureNetwork}}).Enabled())
+	assert.True(t, (&MetricsConfig{Features: []Feature{FeatureApplication, FeatureNetwork}, CommonEndpoint: "foo"}).Enabled())
+	assert.True(t, (&MetricsConfig{Features: []Feature{FeatureApplication}, MetricsEndpoint: "foo"}).Enabled())
+	assert.True(t, (&MetricsConfig{MetricsEndpoint: "foo", Features: []Feature{FeatureNetwork}}).Enabled())
 	assert.True(t, (&MetricsConfig{
-		Features:             []string{FeatureNetwork},
+		Features:             []Feature{FeatureNetwork},
 		OTLPEndpointProvider: func() (string, bool) { return "something", false },
 	}).Enabled())
 	assert.True(t, (&MetricsConfig{
-		Features:             []string{FeatureNetwork},
+		Features:             []Feature{FeatureNetwork},
 		OTLPEndpointProvider: func() (string, bool) { return "something", true },
 	}).Enabled())
 }
 
 func TestMetricsConfig_Disabled(t *testing.T) {
-	assert.False(t, (&MetricsConfig{Features: []string{FeatureApplication}}).Enabled())
-	assert.False(t, (&MetricsConfig{Features: []string{FeatureNetwork, FeatureApplication}}).Enabled())
-	assert.False(t, (&MetricsConfig{Features: []string{FeatureNetwork}}).Enabled())
+	assert.False(t, (&MetricsConfig{Features: []Feature{FeatureApplication}}).Enabled())
+	assert.False(t, (&MetricsConfig{Features: []Feature{FeatureNetwork, FeatureApplication}}).Enabled())
+	assert.False(t, (&MetricsConfig{Features: []Feature{FeatureNetwork}}).Enabled())
 	// application feature is not enabled
 	assert.False(t, (&MetricsConfig{CommonEndpoint: "foo"}).Enabled())
 	assert.False(t, (&MetricsConfig{}).Enabled())
 	assert.False(t, (&MetricsConfig{
-		Features:             []string{FeatureApplication},
+		Features:             []Feature{FeatureApplication},
 		OTLPEndpointProvider: func() (string, bool) { return "", false },
 	}).Enabled())
 }

@@ -48,7 +48,7 @@ func TestMetricAttributes(t *testing.T) {
 		Interval:          10 * time.Millisecond,
 		ReportersCacheLen: 100,
 		TTL:               5 * time.Minute,
-		Features:          []string{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
+		Features:          []otelcfg.Feature{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
 	}
 	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
 		MetricAttributeGroups: attributes.GroupKubernetes,
@@ -107,7 +107,7 @@ func TestMetricAttributes_Filter(t *testing.T) {
 		MetricsEndpoint:   "http://foo",
 		Interval:          10 * time.Millisecond,
 		ReportersCacheLen: 100,
-		Features:          []string{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
+		Features:          []otelcfg.Feature{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
 	}
 	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
 		MetricAttributeGroups: attributes.GroupKubernetes,
@@ -147,16 +147,16 @@ func TestMetricAttributes_Filter(t *testing.T) {
 
 func TestNetMetricsConfig_Enabled(t *testing.T) {
 	assert.True(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureApplication, otelcfg.FeatureNetwork}, CommonEndpoint: "foo",
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication, otelcfg.FeatureNetwork}, CommonEndpoint: "foo",
 	}}.Enabled())
 	assert.True(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureNetwork, otelcfg.FeatureApplication}, MetricsEndpoint: "foo",
+		Features: []otelcfg.Feature{otelcfg.FeatureNetwork, otelcfg.FeatureApplication}, MetricsEndpoint: "foo",
 	}}.Enabled())
 }
 
 func TestNetMetricsConfig_Disabled(t *testing.T) {
-	fa := []string{otelcfg.FeatureApplication}
-	fn := []string{otelcfg.FeatureNetwork}
+	fa := []otelcfg.Feature{otelcfg.FeatureApplication}
+	fn := []otelcfg.Feature{otelcfg.FeatureNetwork}
 	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
 	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
 	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())

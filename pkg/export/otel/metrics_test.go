@@ -56,7 +56,7 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	internalMetrics := &fakeInternalMetrics{}
 	mcfg := &otelcfg.MetricsConfig{
 		CommonEndpoint: coll.URL, Interval: 10 * time.Millisecond, ReportersCacheLen: 16,
-		Features: []string{otelcfg.FeatureApplication}, Instrumentations: []string{instrumentations.InstrumentationHTTP},
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication}, Instrumentations: []string{instrumentations.InstrumentationHTTP},
 	}
 	reporter, err := ReportMetrics(&global.ContextInfo{
 		Metrics:             internalMetrics,
@@ -240,7 +240,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 
 			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-			otelExporter := makeMetricsReporter(ctx, t, tt.instr, []string{otelcfg.FeatureApplication}, otlp, metrics, processEvents).reportMetrics
+			otelExporter := makeMetricsReporter(ctx, t, tt.instr, []otelcfg.Feature{otelcfg.FeatureApplication}, otlp, metrics, processEvents).reportMetrics
 			require.NoError(t, err)
 
 			go otelExporter(ctx)
@@ -306,7 +306,7 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	otelExporter := makeMetricsReporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, []string{otelcfg.FeatureApplication}, otlp, metrics, processEvents).reportMetrics
+	otelExporter := makeMetricsReporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, []otelcfg.Feature{otelcfg.FeatureApplication}, otlp, metrics, processEvents).reportMetrics
 	go otelExporter(ctx)
 
 	metrics.Send([]request.Span{
@@ -322,7 +322,7 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 
 func TestMetricsDiscarded(t *testing.T) {
 	mc := otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureApplication},
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
 	}
 	mr := MetricsReporter{
 		cfg: &mc,
@@ -367,7 +367,7 @@ func TestMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mc := otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureSpan},
+		Features: []otelcfg.Feature{otelcfg.FeatureSpan},
 	}
 	mr := MetricsReporter{
 		cfg: &mc,
@@ -412,7 +412,7 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
 	mc := otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureGraph},
+		Features: []otelcfg.Feature{otelcfg.FeatureGraph},
 	}
 	mr := MetricsReporter{
 		cfg: &mc,
@@ -457,7 +457,7 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 
 func TestProcessPIDEvents(t *testing.T) {
 	mc := otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureApplication},
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
 	}
 	mr := MetricsReporter{
 		cfg:        &mc,
@@ -537,7 +537,7 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 }
 
 func makeMetricsReporter(
-	ctx context.Context, t *testing.T, instrumentations []string, features []string, otlp *collector.TestCollector,
+	ctx context.Context, t *testing.T, instrumentations []string, features []otelcfg.Feature, otlp *collector.TestCollector,
 	input *msg.Queue[[]request.Span], processEvents *msg.Queue[exec.ProcessEvent],
 ) *MetricsReporter {
 	mcfg := &otelcfg.MetricsConfig{
@@ -579,7 +579,7 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	mr := makeMetricsReporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, []string{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost}, otlp, metrics, processEvents)
+	mr := makeMetricsReporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, []otelcfg.Feature{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost}, otlp, metrics, processEvents)
 	otelExporter := mr.reportMetrics
 	go otelExporter(ctx)
 

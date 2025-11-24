@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -25,7 +26,7 @@ func TestRunDontPanic(t *testing.T) {
 		description: "otel endpoint but feature excluded",
 		configProvider: func() obi.Config {
 			cfg := obi.DefaultConfig
-			cfg.Metrics.Features = []string{"application"}
+			cfg.Metrics.Features = []otelcfg.Feature{otelcfg.FeatureApplication}
 			cfg.NetworkFlows.Enable = true
 			cfg.Metrics.CommonEndpoint = "http://localhost"
 			return cfg
@@ -34,7 +35,7 @@ func TestRunDontPanic(t *testing.T) {
 		description: "prom endpoint but feature excluded",
 		configProvider: func() obi.Config {
 			cfg := obi.DefaultConfig
-			cfg.Prometheus.Features = []string{"application"}
+			cfg.Prometheus.Features = []otelcfg.Feature{otelcfg.FeatureApplication}
 			cfg.NetworkFlows.Enable = true
 			cfg.Prometheus.Port = 9090
 			return cfg
@@ -43,7 +44,7 @@ func TestRunDontPanic(t *testing.T) {
 		description: "otel endpoint, otel feature excluded, but prom enabled",
 		configProvider: func() obi.Config {
 			cfg := obi.DefaultConfig
-			cfg.Metrics.Features = []string{"application"}
+			cfg.Metrics.Features = []otelcfg.Feature{otelcfg.FeatureApplication}
 			cfg.NetworkFlows.Enable = true
 			cfg.Metrics.CommonEndpoint = "http://localhost"
 			cfg.Prometheus.Port = 9090
@@ -55,9 +56,9 @@ func TestRunDontPanic(t *testing.T) {
 			cfg := obi.DefaultConfig
 			cfg.NetworkFlows.Enable = true
 			cfg.Prometheus.Port = 9090
-			cfg.Prometheus.Features = []string{"application"}
+			cfg.Prometheus.Features = []otelcfg.Feature{otelcfg.FeatureApplication}
 			cfg.Metrics.CommonEndpoint = "http://localhost"
-			cfg.Metrics.Features = []string{"application"}
+			cfg.Metrics.Features = []otelcfg.Feature{otelcfg.FeatureApplication}
 			return cfg
 		},
 	}}
