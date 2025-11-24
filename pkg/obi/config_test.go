@@ -155,7 +155,7 @@ discovery:
 				ResponseSizeHistogram: otelcfg.DefaultBuckets.ResponseSizeHistogram,
 			},
 			Features: []otelcfg.Feature{otelcfg.FeatureApplication},
-			Instrumentations: []string{
+			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
 			},
 			HistogramAggregation: "base2_exponential_bucket_histogram",
@@ -168,7 +168,7 @@ discovery:
 			MaxQueueSize:      4096,
 			BatchTimeout:      15 * time.Second,
 			ReportersCacheLen: ReporterLRUSize,
-			Instrumentations: []string{
+			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationHTTP,
 				instrumentations.InstrumentationGRPC,
 				instrumentations.InstrumentationSQL,
@@ -181,7 +181,7 @@ discovery:
 		Prometheus: prom.PrometheusConfig{
 			Path:     "/metrics",
 			Features: []otelcfg.Feature{otelcfg.FeatureApplication},
-			Instrumentations: []string{
+			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
 			},
 			TTL:                         time.Second,

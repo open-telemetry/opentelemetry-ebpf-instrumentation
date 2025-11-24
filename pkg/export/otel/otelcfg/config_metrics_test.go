@@ -19,7 +19,7 @@ func TestHTTPMetricsEndpointOptions(t *testing.T) {
 	mcfg := MetricsConfig{
 		CommonEndpoint:  "https://localhost:3131",
 		MetricsEndpoint: "https://localhost:3232/v1/metrics",
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationHTTP,
 		},
 	}
@@ -30,7 +30,7 @@ func TestHTTPMetricsEndpointOptions(t *testing.T) {
 
 	mcfg = MetricsConfig{
 		CommonEndpoint: "https://localhost:3131/otlp",
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationHTTP,
 		},
 	}
@@ -42,7 +42,7 @@ func TestHTTPMetricsEndpointOptions(t *testing.T) {
 	mcfg = MetricsConfig{
 		CommonEndpoint:  "https://localhost:3131",
 		MetricsEndpoint: "http://localhost:3232",
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationHTTP,
 		},
 	}
@@ -53,7 +53,7 @@ func TestHTTPMetricsEndpointOptions(t *testing.T) {
 	mcfg = MetricsConfig{
 		CommonEndpoint:     "https://localhost:3232",
 		InsecureSkipVerify: true,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationHTTP,
 		},
 	}
@@ -72,14 +72,14 @@ func testMetricsHTTPOptions(t *testing.T, expected OTLPOptions, mcfg *MetricsCon
 
 func TestMissingSchemeInMetricsEndpoint(t *testing.T) {
 	defer RestoreEnvAfterExecution()()
-	opts, err := httpMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "http://foo:3030", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
+	opts, err := httpMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "http://foo:3030", Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}})
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 
-	_, err = httpMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo:3030", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
+	_, err = httpMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo:3030", Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}})
 	require.Error(t, err)
 
-	_, err = httpMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo", Instrumentations: []string{instrumentations.InstrumentationHTTP}})
+	_, err = httpMetricEndpointOptions(&MetricsConfig{CommonEndpoint: "foo", Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}})
 	require.Error(t, err)
 }
 
@@ -93,7 +93,7 @@ func TestGRPCMetricsEndpointOptions(t *testing.T) {
 	mcfg := MetricsConfig{
 		CommonEndpoint:   "https://localhost:3131",
 		MetricsEndpoint:  "https://localhost:3232",
-		Instrumentations: []string{instrumentations.InstrumentationHTTP},
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 	}
 
 	t.Run("testing with two endpoints", func(t *testing.T) {
@@ -102,7 +102,7 @@ func TestGRPCMetricsEndpointOptions(t *testing.T) {
 
 	mcfg = MetricsConfig{
 		CommonEndpoint:   "https://localhost:3131",
-		Instrumentations: []string{instrumentations.InstrumentationHTTP},
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 	}
 
 	t.Run("testing with only common endpoint", func(t *testing.T) {
@@ -112,7 +112,7 @@ func TestGRPCMetricsEndpointOptions(t *testing.T) {
 	mcfg = MetricsConfig{
 		CommonEndpoint:   "https://localhost:3131",
 		MetricsEndpoint:  "http://localhost:3232",
-		Instrumentations: []string{instrumentations.InstrumentationHTTP},
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 	}
 	t.Run("testing with insecure endpoint", func(t *testing.T) {
 		testMetricsGRPCOptions(t, OTLPOptions{Endpoint: "localhost:3232", Insecure: true, Headers: map[string]string{}}, &mcfg)
@@ -121,7 +121,7 @@ func TestGRPCMetricsEndpointOptions(t *testing.T) {
 	mcfg = MetricsConfig{
 		CommonEndpoint:     "https://localhost:3232",
 		InsecureSkipVerify: true,
-		Instrumentations:   []string{instrumentations.InstrumentationHTTP},
+		Instrumentations:   []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 	}
 
 	t.Run("testing with skip TLS verification", func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestMetricsSetupHTTP_Protocol(t *testing.T) {
 				MetricsEndpoint:  tc.Endpoint,
 				Protocol:         tc.ProtoVal,
 				MetricsProtocol:  tc.MetricProtoVal,
-				Instrumentations: []string{instrumentations.InstrumentationHTTP},
+				Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tc.ExpectedProtoEnv, os.Getenv(envProtocol))
@@ -188,7 +188,7 @@ func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 		t.Setenv(envProtocol, "foo-proto")
 		t.Setenv(envMetricsProtocol, "bar-proto")
 		_, err := httpMetricEndpointOptions(&MetricsConfig{
-			CommonEndpoint: "http://host:3333", Protocol: "foo", MetricsProtocol: "bar", Instrumentations: []string{instrumentations.InstrumentationHTTP},
+			CommonEndpoint: "http://host:3333", Protocol: "foo", MetricsProtocol: "bar", Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "foo-proto", os.Getenv(envProtocol))
@@ -198,7 +198,7 @@ func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 		defer RestoreEnvAfterExecution()()
 		t.Setenv(envProtocol, "foo-proto")
 		_, err := httpMetricEndpointOptions(&MetricsConfig{
-			CommonEndpoint: "http://host:3333", Protocol: "foo", Instrumentations: []string{instrumentations.InstrumentationHTTP},
+			CommonEndpoint: "http://host:3333", Protocol: "foo", Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 		})
 		require.NoError(t, err)
 		_, ok := os.LookupEnv(envMetricsProtocol)

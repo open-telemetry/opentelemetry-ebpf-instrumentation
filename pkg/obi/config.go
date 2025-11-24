@@ -130,7 +130,7 @@ var DefaultConfig = Config{
 		ReportersCacheLen:    ReporterLRUSize,
 		HistogramAggregation: otel.AggregationExplicit,
 		Features:             []otelcfg.Feature{otelcfg.FeatureApplication},
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 		TTL: defaultMetricsTTL,
@@ -141,7 +141,7 @@ var DefaultConfig = Config{
 		MaxQueueSize:      4096,
 		BatchTimeout:      15 * time.Second,
 		ReportersCacheLen: ReporterLRUSize,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationHTTP,
 			instrumentations.InstrumentationGRPC,
 			instrumentations.InstrumentationSQL,
@@ -155,7 +155,7 @@ var DefaultConfig = Config{
 		Path:     "/metrics",
 		Buckets:  otelcfg.DefaultBuckets,
 		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 		TTL:                         defaultMetricsTTL,

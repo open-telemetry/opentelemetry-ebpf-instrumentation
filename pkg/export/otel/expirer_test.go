@@ -44,7 +44,7 @@ func TestNetMetricsExpiration(t *testing.T) {
 		MetricsProtocol: otelcfg.ProtocolHTTPProtobuf,
 		Features:        []otelcfg.Feature{otelcfg.FeatureNetwork},
 		TTL:             3 * time.Minute,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 	}
@@ -170,7 +170,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 		Features:          []otelcfg.Feature{otelcfg.FeatureApplication},
 		TTL:               3 * time.Minute,
 		ReportersCacheLen: 100,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 	}
@@ -309,7 +309,7 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 		Features:          []otelcfg.Feature{otelcfg.FeatureApplication},
 		TTL:               3 * time.Minute,
 		ReportersCacheLen: 100,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 	}

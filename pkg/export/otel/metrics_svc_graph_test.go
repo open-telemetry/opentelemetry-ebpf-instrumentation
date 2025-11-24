@@ -89,7 +89,7 @@ func makeSvcGraphExporter(
 		Features:          []otelcfg.Feature{otelcfg.FeatureGraph},
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 100,
-		Instrumentations:  []string{instrumentations.InstrumentationALL},
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 	otelExporter, err := ReportSvcGraphMetrics(
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},

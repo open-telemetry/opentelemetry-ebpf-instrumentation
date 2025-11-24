@@ -77,7 +77,7 @@ func TestBasicPipeline(t *testing.T) {
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 	}
@@ -159,7 +159,7 @@ func TestTracerPipeline(t *testing.T) {
 			MaxQueueSize:      10,
 			TracesEndpoint:    tc.ServerEndpoint,
 			ReportersCacheLen: 16,
-			Instrumentations:  []string{instrumentations.InstrumentationALL},
+			Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
 		Attributes: obi.Attributes{InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gCtx, tracesInput, processEvents)
@@ -196,7 +196,7 @@ func TestMergedMetricsTracePipeline(t *testing.T) {
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 	}
@@ -205,7 +205,7 @@ func TestMergedMetricsTracePipeline(t *testing.T) {
 		MaxQueueSize:      10,
 		TracesEndpoint:    tc.ServerEndpoint,
 		ReportersCacheLen: 16,
-		Instrumentations:  []string{instrumentations.InstrumentationALL},
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 
 	gb := newGraphBuilder(&obi.Config{
@@ -251,7 +251,7 @@ func TestTracerPipelineBadTimestamps(t *testing.T) {
 			BatchTimeout:      10 * time.Millisecond,
 			TracesEndpoint:    tc.ServerEndpoint,
 			ReportersCacheLen: 16,
-			Instrumentations:  []string{instrumentations.InstrumentationALL},
+			Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
 	}, gctx(0, nil), tracesInput, processEvents)
 	// Override eBPF tracer to send some fake data
@@ -285,7 +285,7 @@ func TestRouteConsolidation(t *testing.T) {
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 	}
@@ -419,7 +419,7 @@ func TestGRPCPipeline(t *testing.T) {
 		MetricsEndpoint: tc.ServerEndpoint, Interval: time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 	}
@@ -482,7 +482,7 @@ func TestTraceGRPCPipeline(t *testing.T) {
 		Traces: otelcfg.TracesConfig{
 			TracesEndpoint: tc.ServerEndpoint,
 			BatchTimeout:   time.Millisecond, ReportersCacheLen: 16,
-			Instrumentations: []string{instrumentations.InstrumentationALL},
+			Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
 		Attributes: obi.Attributes{InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0, nil), tracesInput, processEvents)
@@ -517,7 +517,7 @@ func TestBasicPipelineInfo(t *testing.T) {
 		MetricsEndpoint: tc.ServerEndpoint,
 		Interval:        10 * time.Millisecond, ReportersCacheLen: 16,
 		TTL: 5 * time.Minute,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 	}
@@ -580,7 +580,7 @@ func TestTracerPipelineInfo(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	gb := newGraphBuilder(&obi.Config{
-		Traces:     otelcfg.TracesConfig{TracesEndpoint: tc.ServerEndpoint, ReportersCacheLen: 16, Instrumentations: []string{instrumentations.InstrumentationALL}},
+		Traces:     otelcfg.TracesConfig{TracesEndpoint: tc.ServerEndpoint, ReportersCacheLen: 16, Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL}},
 		Attributes: obi.Attributes{InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0, nil), tracesInput, processEvents)
 	// Override eBPF tracer to send some fake data
@@ -612,7 +612,7 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
-		Instrumentations:  []string{instrumentations.InstrumentationALL},
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 	gb := newGraphBuilder(&obi.Config{
 		Metrics: cfg,
