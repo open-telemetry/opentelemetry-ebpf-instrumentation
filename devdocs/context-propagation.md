@@ -99,18 +99,29 @@ The `written` flag implements mutual exclusion through the natural execution ord
 Result: TCP options only ✓
 ```
 
-**For Go HTTP with headers+tcp:**
+**For Go HTTP (plaintext):**
+
+Go supports two approaches for HTTP header injection:
+- **Approach 1 (uprobe)**: Use `bpf_probe_write_user` to inject directly into Go's HTTP buffer
+- **Approach 2 (sk_msg)**: Use tpinjector to extend the packet
+
+The uprobe attempts approach 1 first. If successful, it deletes the `outgoing_trace_map` entry to prevent approach 2 from running:
 
 ```
-1. Uprobe sets valid=1, written=0 in outgoing_trace_map
-2. tpinjector runs:
+1. uprobe_persistConnRoundTrip sets valid=1, written=0 in outgoing_trace_map
+2. uprobe_writeSubset attempts bpf_probe_write_user:
+   - If successful: deletes outgoing_trace_map entry
+   - If failed: entry remains for tpinjector
+3. tpinjector runs (only if entry still exists):
    - Schedules TCP options
-   - Injects HTTP headers, sets written=1
-3. protocol_http runs:
-   - Sees written=1, reuses trace, deletes outgoing_trace_map
-4. tctracer runs:
-   - Lookup fails (entry deleted), no IP injection
-Result: HTTP headers + TCP options ✓
+   - Injects HTTP headers via sk_msg, sets written=1
+4. protocol_http runs:
+   - If written=1: reuses trace, deletes outgoing_trace_map
+   - If written=0: creates new trace
+5. tctracer runs:
+   - If entry deleted: no IP injection
+   - If entry exists with written=0: injects IP options
+Result: HTTP headers (via uprobe OR sk_msg) + TCP options ✓
 ```
 
 #### Case 2: Traffic in sockmap without uprobes (plain HTTP via kprobes)
