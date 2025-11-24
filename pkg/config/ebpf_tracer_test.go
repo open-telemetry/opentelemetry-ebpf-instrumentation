@@ -240,7 +240,6 @@ func TestContextPropagationMode_HasMethods(t *testing.T) {
 	}
 }
 
-
 func TestContextPropagationMode_TracerLoading(t *testing.T) {
 	// Test which tracers should be loaded for each configuration
 	// tpinjector handles: HTTP headers (sk_msg) and TCP options (BPF_SOCK_OPS)
