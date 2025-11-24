@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/configs/offsets/sarama
 
-go 1.25.0
+go 1.25.3
 
 require github.com/IBM/sarama v1.46.2
 

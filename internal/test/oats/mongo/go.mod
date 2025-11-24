@@ -1,6 +1,6 @@
-module go.opentelemetry.io/obi/internal/test/oats/http
+module go.opentelemetry.io/obi/internal/test/oats/mongo
 
-go 1.25.0
+go 1.25.3
 
 require (
 	github.com/grafana/oats v0.0.3
