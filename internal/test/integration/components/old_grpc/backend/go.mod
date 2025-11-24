@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend
 
-go 1.25.0
+go 1.25.4
 
 require (
 	github.com/caarlos0/env/v7 v7.1.0
