@@ -150,7 +150,6 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 					return
 				}
 				err = jsExtractor.ScanDirectory(dir)
-
 				if err != nil {
 					resultChan <- result{err: err}
 					return

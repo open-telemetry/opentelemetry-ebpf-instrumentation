@@ -37,8 +37,8 @@ type FrameworkPatterns struct {
 	Restify *regexp.Regexp
 	// NestJS decorators: @Get('/path'), @Post('/path')
 	NestJS *regexp.Regexp
-	// HttpDispatcher: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
-	HttpDispatcher *regexp.Regexp
+	// HTTPDispatcher: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
+	HTTPDispatcher *regexp.Regexp
 	// Fallback
 	Fallback *regexp.Regexp
 
@@ -73,9 +73,9 @@ func newFrameworkPatterns() *FrameworkPatterns {
 
 		// Matches: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
 		// Supports both string literals and regex literals
-		HttpDispatcher: regexp.MustCompile(`\.on(Get|Post|Put|Patch|Delete|Head|Options|All)\s*\(\s*(?:['"\x60]([^'"\x60]+)['"\x60]|/((?:[^\\,]|\\.)+))`),
+		HTTPDispatcher: regexp.MustCompile(`\.on(Get|Post|Put|Patch|Delete|Head|Options|All)\s*\(\s*(?:['"\x60]([^'"\x60]+)['"\x60]|/((?:[^\\,]|\\.)+))`),
 
-		// Fallback
+		// Fallback (e.g. NextJS)
 		Fallback: regexp.MustCompile(`['"\x60](/[^'"\x60]+)['"\x60]`),
 
 		// Cleanup
@@ -192,7 +192,7 @@ func (e *RouteExtractor) handleNestJS(filePath, line string, lineNum int) bool {
 }
 
 func (e *RouteExtractor) handleHTTPDispatcher(filePath, line string, lineNum int) bool {
-	if matches := e.patterns.HttpDispatcher.FindStringSubmatch(line); len(matches) > 2 {
+	if matches := e.patterns.HTTPDispatcher.FindStringSubmatch(line); len(matches) > 2 {
 		method := strings.ToUpper(matches[1])
 		// Extract path - either from string literal (group 2) or regex literal (group 3)
 		path := matches[2]

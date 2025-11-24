@@ -46,7 +46,7 @@ func TestRouteExtractor_ExpressApp(t *testing.T) {
 			if actual.Method == expected.Method && actual.Path == expected.Path {
 				found = true
 				assert.NotEmpty(t, actual.File, "file should be set")
-				assert.Greater(t, actual.Line, 0, "line number should be positive")
+				assert.Positive(t, actual.Line, "line number should be positive")
 				break
 			}
 		}
@@ -86,7 +86,7 @@ func TestRouteExtractor_FastifyApp(t *testing.T) {
 			if actual.Method == expected.Method && actual.Path == expected.Path {
 				found = true
 				assert.NotEmpty(t, actual.File, "file should be set")
-				assert.Greater(t, actual.Line, 0, "line number should be positive")
+				assert.Positive(t, actual.Line, "line number should be positive")
 				break
 			}
 		}
@@ -124,7 +124,7 @@ func TestRouteExtractor_HttpDispatcherApp(t *testing.T) {
 			if actual.Method == expected.Method && actual.Path == expected.Path {
 				found = true
 				assert.NotEmpty(t, actual.File, "file should be set")
-				assert.Greater(t, actual.Line, 0, "line number should be positive")
+				assert.Positive(t, actual.Line, "line number should be positive")
 				break
 			}
 		}
@@ -160,7 +160,7 @@ func TestRouteExtractor_AllExamples(t *testing.T) {
 				assert.NotEmpty(t, route.Method, "method should not be empty")
 				assert.NotEmpty(t, route.Path, "path should not be empty")
 				assert.Contains(t, route.File, filename, "file should match")
-				assert.Greater(t, route.Line, 0, "line should be positive")
+				assert.Positive(t, route.Line, "line should be positive")
 			}
 		})
 	}

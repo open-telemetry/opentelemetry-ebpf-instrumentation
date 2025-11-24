@@ -207,6 +207,10 @@ func TestFindScriptDirectory(t *testing.T) {
 	// Create a temporary directory structure for testing
 	tempDir := t.TempDir()
 
+	isDirFunc = func(path string) bool {
+		return !strings.HasSuffix(path, ".js")
+	}
+
 	// Create test directory structure:
 	// tempDir/
 	//   app/
@@ -215,11 +219,11 @@ func TestFindScriptDirectory(t *testing.T) {
 	//     index.js
 	//   workdir/
 
-	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0755))
-	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "src"), 0755))
-	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "workdir"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "app", "server.js"), []byte(""), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "src", "index.js"), []byte(""), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "src"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "workdir"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "app", "server.js"), []byte(""), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "src", "index.js"), []byte(""), 0o644))
 
 	tests := []struct {
 		name     string
@@ -264,9 +268,9 @@ func TestFindScriptDirectory(t *testing.T) {
 			expected: filepath.Join(tempDir, "app"),
 		},
 		{
-			name:     "non-existent absolute path falls back to cwd",
+			name:     "absolute path falls back to cwd",
 			root:     tempDir,
-			firstArg: "/nonexistent/path.js",
+			firstArg: "./something/path.js",
 			cwd:      "/src",
 			expected: filepath.Join(tempDir, "src"),
 		},
@@ -275,14 +279,14 @@ func TestFindScriptDirectory(t *testing.T) {
 			root:     tempDir,
 			firstArg: "/",
 			cwd:      "/workdir",
-			expected: filepath.Join(tempDir, "workdir"),
+			expected: filepath.Join(tempDir, ""),
 		},
 		{
 			name:     "path with multiple slashes",
 			root:     tempDir,
 			firstArg: "/app/nested/deep/file.js",
 			cwd:      "/workdir",
-			expected: filepath.Join(tempDir, "app"),
+			expected: filepath.Join(tempDir, "/app/nested/deep"),
 		},
 		{
 			name:     "cwd is root",

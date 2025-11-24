@@ -4,6 +4,7 @@
 package ebpfcommon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -131,7 +132,7 @@ func cmdLineForPath(cmdlinePath string) (string, []string, error) {
 	}
 
 	if len(data) == 0 {
-		return "", nil, fmt.Errorf("empty cmd line")
+		return "", nil, errors.New("empty cmd line")
 	}
 
 	// Parse null-separated arguments
@@ -152,7 +153,7 @@ func cmdLineForPath(cmdlinePath string) (string, []string, error) {
 	}
 
 	if len(components) == 0 {
-		return "", nil, fmt.Errorf("no command found")
+		return "", nil, errors.New("no command found")
 	}
 
 	executable := components[0]
