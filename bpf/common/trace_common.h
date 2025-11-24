@@ -347,7 +347,7 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
     tp_info_pid_t *existing_tp = bpf_map_lookup_elem(&incoming_trace_map, conn);
     if (existing_tp) {
         found_tp = 1;
-        bpf_dbg_printk("Found incoming (TCP) tp for server request");
+        bpf_dbg_printk("Found incoming (TCP/IP) tp for server request");
         __builtin_memcpy(tp->trace_id, existing_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, existing_tp->tp.span_id, sizeof(tp->parent_id));
         bpf_map_delete_elem(&incoming_trace_map, conn);
