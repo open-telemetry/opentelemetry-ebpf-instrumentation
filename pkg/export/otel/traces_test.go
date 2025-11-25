@@ -491,7 +491,7 @@ func TestTraceSampling(t *testing.T) {
 		spans = append(spans, span)
 	}
 
-	receiver := makeTracesTestReceiver([]string{"http"})
+	receiver := makeTracesTestReceiver([]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP})
 
 	t.Run("test sample all", func(t *testing.T) {
 		sampler := sdktrace.AlwaysSample()
@@ -565,10 +565,10 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 
 	t.Run("test with span metrics on", func(t *testing.T) {
 		mc := otelcfg.MetricsConfig{
-			Features: []string{otelcfg.FeatureSpan},
+			Features: []otelcfg.Feature{otelcfg.FeatureSpan},
 		}
 
-		receiver := makeTracesTestReceiverWithSpanMetrics(mc.AnySpanMetricsEnabled(), []string{"http"})
+		receiver := makeTracesTestReceiverWithSpanMetrics(mc.AnySpanMetricsEnabled(), []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP})
 
 		sampler := sdktrace.AlwaysSample()
 		attrs, err := receiver.getConstantAttributes()
@@ -604,7 +604,7 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 	})
 
 	t.Run("test with span metrics off", func(t *testing.T) {
-		receiver := makeTracesTestReceiver([]string{"http"})
+		receiver := makeTracesTestReceiver([]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP})
 
 		sampler := sdktrace.AlwaysSample()
 		attrs, err := receiver.getConstantAttributes()
@@ -748,32 +748,32 @@ func TestTracesInstrumentations(t *testing.T) {
 	tests := []InstrTest{
 		{
 			name:     "all instrumentations",
-			instr:    []string{instrumentations.InstrumentationALL},
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "insert mycollection"},
 		},
 		{
 			name:     "http only",
-			instr:    []string{instrumentations.InstrumentationHTTP},
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 			expected: []string{"GET /foo", "PUT /bar"},
 		},
 		{
 			name:     "grpc only",
-			instr:    []string{instrumentations.InstrumentationGRPC},
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
 			expected: []string{"/grpcFoo", "/grpcGoo"},
 		},
 		{
 			name:     "redis only",
-			instr:    []string{instrumentations.InstrumentationRedis},
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationRedis},
 			expected: []string{"SET", "GET"},
 		},
 		{
 			name:     "sql only",
-			instr:    []string{instrumentations.InstrumentationSQL},
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
 			expected: []string{"SELECT credentials"},
 		},
 		{
 			name:     "kafka only",
-			instr:    []string{instrumentations.InstrumentationKafka},
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationKafka},
 			expected: []string{"publish important-topic", "process important-topic"},
 		},
 		{
@@ -783,17 +783,17 @@ func TestTracesInstrumentations(t *testing.T) {
 		},
 		{
 			name:     "sql and redis",
-			instr:    []string{instrumentations.InstrumentationSQL, instrumentations.InstrumentationRedis},
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationSQL, instrumentations.InstrumentationRedis},
 			expected: []string{"SELECT credentials", "SET", "GET"},
 		},
 		{
 			name:     "kafka and grpc",
-			instr:    []string{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
 			expected: []string{"/grpcFoo", "/grpcGoo", "publish important-topic", "process important-topic"},
 		},
 		{
 			name:     "mongo",
-			instr:    []string{instrumentations.InstrumentationMongo},
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationMongo},
 			expected: []string{"insert mycollection"},
 		},
 	}
@@ -894,7 +894,7 @@ func TestTracesSkipsInstrumented(t *testing.T) {
 		},
 	}
 
-	tr := makeTracesTestReceiver([]string{instrumentations.InstrumentationALL})
+	tr := makeTracesTestReceiver([]instrumentations.Instrumentation{instrumentations.InstrumentationALL})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1177,7 +1177,7 @@ func TestTraceGrouping(t *testing.T) {
 		spans = append(spans, span)
 	}
 
-	receiver := makeTracesTestReceiver([]string{"http"})
+	receiver := makeTracesTestReceiver([]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP})
 
 	t.Run("test sample all, same service", func(t *testing.T) {
 		sampler := sdktrace.AlwaysSample()
@@ -1230,7 +1230,7 @@ func ensureTraceAttrNotExists(t *testing.T, attrs pcommon.Map, key attribute.Key
 	assert.False(t, ok)
 }
 
-func makeTracesTestReceiver(instr []string) *tracesOTELReceiver {
+func makeTracesTestReceiver(instr []instrumentations.Instrumentation) *tracesOTELReceiver {
 	return makeTracesReceiver(
 		otelcfg.TracesConfig{
 			CommonEndpoint:    "http://something",
@@ -1245,7 +1245,7 @@ func makeTracesTestReceiver(instr []string) *tracesOTELReceiver {
 	)
 }
 
-func makeTracesTestReceiverWithSpanMetrics(enabled bool, instr []string) *tracesOTELReceiver {
+func makeTracesTestReceiverWithSpanMetrics(enabled bool, instr []instrumentations.Instrumentation) *tracesOTELReceiver {
 	return makeTracesReceiver(
 		otelcfg.TracesConfig{
 			CommonEndpoint:    "http://something",

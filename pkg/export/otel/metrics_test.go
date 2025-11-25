@@ -56,7 +56,7 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	internalMetrics := &fakeInternalMetrics{}
 	mcfg := &otelcfg.MetricsConfig{
 		CommonEndpoint: coll.URL, Interval: 10 * time.Millisecond, ReportersCacheLen: 16,
-		Features: []string{otelcfg.FeatureApplication}, Instrumentations: []string{instrumentations.InstrumentationHTTP},
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication}, Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 	}
 	reporter, err := ReportMetrics(&global.ContextInfo{
 		Metrics:             internalMetrics,
@@ -132,7 +132,7 @@ type fakeInternalMetrics struct {
 
 type InstrTest struct {
 	name      string
-	instr     []string
+	instr     []instrumentations.Instrumentation
 	expected  []string
 	extraColl int
 }
@@ -143,7 +143,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 	tests := []InstrTest{
 		{
 			name:      "all instrumentations",
-			instr:     []string{instrumentations.InstrumentationALL},
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 			extraColl: 4,
 			expected: []string{
 				"http.server.request.duration",
@@ -160,7 +160,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:      "http only",
-			instr:     []string{instrumentations.InstrumentationHTTP},
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 			extraColl: 2,
 			expected: []string{
 				"http.server.request.duration",
@@ -169,7 +169,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:      "grpc only",
-			instr:     []string{instrumentations.InstrumentationGRPC},
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
 			extraColl: 0,
 			expected: []string{
 				"rpc.server.duration",
@@ -178,7 +178,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:      "redis only",
-			instr:     []string{instrumentations.InstrumentationRedis},
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationRedis},
 			extraColl: 0,
 			expected: []string{
 				"db.client.operation.duration",
@@ -187,7 +187,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:      "sql only",
-			instr:     []string{instrumentations.InstrumentationSQL},
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
 			extraColl: 0,
 			expected: []string{
 				"db.client.operation.duration",
@@ -195,7 +195,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:      "kafka only",
-			instr:     []string{instrumentations.InstrumentationKafka},
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationKafka},
 			extraColl: 0,
 			expected: []string{
 				"messaging.publish.duration",
@@ -210,7 +210,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:      "sql and redis",
-			instr:     []string{instrumentations.InstrumentationSQL, instrumentations.InstrumentationRedis},
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationSQL, instrumentations.InstrumentationRedis},
 			extraColl: 0,
 			expected: []string{
 				"db.client.operation.duration",
@@ -220,7 +220,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:      "kafka and grpc",
-			instr:     []string{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
 			extraColl: 0,
 			expected: []string{
 				"rpc.server.duration",
@@ -240,7 +240,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 
 			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-			otelExporter := makeMetricsReporter(ctx, t, tt.instr, []string{otelcfg.FeatureApplication}, otlp, metrics, processEvents).reportMetrics
+			otelExporter := makeMetricsReporter(ctx, t, tt.instr, []otelcfg.Feature{otelcfg.FeatureApplication}, otlp, metrics, processEvents).reportMetrics
 			require.NoError(t, err)
 
 			go otelExporter(ctx)
@@ -306,7 +306,7 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	otelExporter := makeMetricsReporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, []string{otelcfg.FeatureApplication}, otlp, metrics, processEvents).reportMetrics
+	otelExporter := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, []otelcfg.Feature{otelcfg.FeatureApplication}, otlp, metrics, processEvents).reportMetrics
 	go otelExporter(ctx)
 
 	metrics.Send([]request.Span{
@@ -322,7 +322,7 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 
 func TestMetricsDiscarded(t *testing.T) {
 	mc := otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureApplication},
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
 	}
 	mr := MetricsReporter{
 		cfg: &mc,
@@ -367,7 +367,7 @@ func TestMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mc := otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureSpan},
+		Features: []otelcfg.Feature{otelcfg.FeatureSpan},
 	}
 	mr := MetricsReporter{
 		cfg: &mc,
@@ -412,7 +412,7 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
 	mc := otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureGraph},
+		Features: []otelcfg.Feature{otelcfg.FeatureGraph},
 	}
 	mr := MetricsReporter{
 		cfg: &mc,
@@ -457,7 +457,7 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 
 func TestProcessPIDEvents(t *testing.T) {
 	mc := otelcfg.MetricsConfig{
-		Features: []string{otelcfg.FeatureApplication},
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
 	}
 	mr := MetricsReporter{
 		cfg:        &mc,
@@ -537,7 +537,7 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 }
 
 func makeMetricsReporter(
-	ctx context.Context, t *testing.T, instrumentations []string, features []string, otlp *collector.TestCollector,
+	ctx context.Context, t *testing.T, instrumentations []instrumentations.Instrumentation, features []otelcfg.Feature, otlp *collector.TestCollector,
 	input *msg.Queue[[]request.Span], processEvents *msg.Queue[exec.ProcessEvent],
 ) *MetricsReporter {
 	mcfg := &otelcfg.MetricsConfig{
@@ -579,7 +579,7 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	mr := makeMetricsReporter(ctx, t, []string{instrumentations.InstrumentationHTTP}, []string{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost}, otlp, metrics, processEvents)
+	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, []otelcfg.Feature{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost}, otlp, metrics, processEvents)
 	otelExporter := mr.reportMetrics
 	go otelExporter(ctx)
 

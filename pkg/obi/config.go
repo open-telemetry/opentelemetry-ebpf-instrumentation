@@ -30,6 +30,15 @@ import (
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
+type LogLevel string
+
+const (
+	LogLevelDebug LogLevel = "DEBUG"
+	LogLevelInfo  LogLevel = "INFO"
+	LogLevelWarn  LogLevel = "WARN"
+	LogLevelError LogLevel = "ERROR"
+)
+
 // CustomValidations is a map of tag:function for custom validations
 type CustomValidations map[string]validator.Func
 
@@ -68,7 +77,7 @@ var (
 
 var DefaultConfig = Config{
 	ChannelBufferLen: 10,
-	LogLevel:         "INFO",
+	LogLevel:         LogLevelInfo,
 	ShutdownTimeout:  10 * time.Second,
 	EnforceSysCaps:   false,
 	EBPF: config.EBPFTracer{
@@ -120,8 +129,8 @@ var DefaultConfig = Config{
 		Buckets:              otelcfg.DefaultBuckets,
 		ReportersCacheLen:    ReporterLRUSize,
 		HistogramAggregation: otel.AggregationExplicit,
-		Features:             []string{otelcfg.FeatureApplication},
-		Instrumentations: []string{
+		Features:             []otelcfg.Feature{otelcfg.FeatureApplication},
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 		TTL: defaultMetricsTTL,
@@ -132,7 +141,7 @@ var DefaultConfig = Config{
 		MaxQueueSize:      4096,
 		BatchTimeout:      15 * time.Second,
 		ReportersCacheLen: ReporterLRUSize,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationHTTP,
 			instrumentations.InstrumentationGRPC,
 			instrumentations.InstrumentationSQL,
@@ -145,8 +154,8 @@ var DefaultConfig = Config{
 	Prometheus: prom.PrometheusConfig{
 		Path:     "/metrics",
 		Buckets:  otelcfg.DefaultBuckets,
-		Features: []string{otelcfg.FeatureApplication},
-		Instrumentations: []string{
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 		TTL:                         defaultMetricsTTL,
@@ -259,7 +268,7 @@ type Config struct {
 	// Discovery configuration
 	Discovery services.DiscoveryConfig `yaml:"discovery"`
 
-	LogLevel string `yaml:"log_level" env:"OTEL_EBPF_LOG_LEVEL"`
+	LogLevel LogLevel `yaml:"log_level" env:"OTEL_EBPF_LOG_LEVEL"`
 
 	// Timeout for a graceful shutdown
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"OTEL_EBPF_SHUTDOWN_TIMEOUT"`

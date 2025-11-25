@@ -65,8 +65,8 @@ func TestAppMetricsExpiration(t *testing.T) {
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []string{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost},
-			Instrumentations:            []string{instrumentations.InstrumentationALL},
+			Features:                    []otelcfg.Feature{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost},
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
@@ -188,7 +188,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 
 type InstrTest struct {
 	name       string
-	instr      []string
+	instr      []instrumentations.Instrumentation
 	expected   []string
 	unexpected []string
 }
@@ -197,7 +197,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 	tests := []InstrTest{
 		{
 			name:  "all instrumentations",
-			instr: []string{instrumentations.InstrumentationALL},
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 			expected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
@@ -211,7 +211,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:  "http only",
-			instr: []string{instrumentations.InstrumentationHTTP},
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 			expected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
@@ -226,7 +226,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:  "grpc only",
-			instr: []string{instrumentations.InstrumentationGRPC},
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
 			expected: []string{
 				"rpc_server_duration_seconds",
 				"rpc_client_duration_seconds",
@@ -241,7 +241,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:  "redis only",
-			instr: []string{instrumentations.InstrumentationRedis},
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationRedis},
 			expected: []string{
 				"db_client_operation_duration_seconds",
 				"db_client_operation_duration_seconds",
@@ -257,7 +257,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:  "sql only",
-			instr: []string{instrumentations.InstrumentationSQL},
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
 			expected: []string{
 				"db_client_operation_duration_seconds",
 			},
@@ -272,7 +272,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:  "kafka only",
-			instr: []string{instrumentations.InstrumentationKafka},
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationKafka},
 			expected: []string{
 				"messaging_publish_duration_seconds",
 				"messaging_process_duration_seconds",
@@ -301,7 +301,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:  "sql and redis",
-			instr: []string{instrumentations.InstrumentationSQL, instrumentations.InstrumentationRedis},
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationSQL, instrumentations.InstrumentationRedis},
 			expected: []string{
 				"db_client_operation_duration_seconds",
 			},
@@ -316,7 +316,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:  "kafka and grpc",
-			instr: []string{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
 			expected: []string{
 				"rpc_server_duration_seconds",
 				"rpc_client_duration_seconds",
@@ -331,7 +331,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		},
 		{
 			name:  "mongo",
-			instr: []string{instrumentations.InstrumentationMongo},
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationMongo},
 			expected: []string{
 				"db_client_operation_duration_seconds",
 			},
@@ -390,7 +390,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 
 func TestMetricsDiscarded(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []string{otelcfg.FeatureApplication},
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
 	}
 	mr := metricsReporter{
 		cfg: &mc,
@@ -444,7 +444,7 @@ func TestMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []string{otelcfg.FeatureSpanOTel},
+		Features: []otelcfg.Feature{otelcfg.FeatureSpanOTel},
 	}
 	mr := metricsReporter{
 		cfg: &mc,
@@ -490,7 +490,7 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []string{otelcfg.FeatureGraph},
+		Features: []otelcfg.Feature{otelcfg.FeatureGraph},
 	}
 	mr := metricsReporter{
 		cfg: &mc,
@@ -580,7 +580,7 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 
 func TestProcessPIDEvents(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []string{otelcfg.FeatureApplication},
+		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
 	}
 	mr := metricsReporter{
 		cfg:         &mc,
@@ -659,7 +659,7 @@ func (c *syncedClock) Advance(t time.Duration) {
 }
 
 func makePromExporter(
-	ctx context.Context, t *testing.T, instrumentations []string, openPort int,
+	ctx context.Context, t *testing.T, instrumentations []instrumentations.Instrumentation, openPort int,
 	input *msg.Queue[[]request.Span],
 ) swarm.RunFunc {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
@@ -670,7 +670,7 @@ func makePromExporter(
 			Path:                        "/metrics",
 			TTL:                         300 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []string{otelcfg.FeatureApplication},
+			Features:                    []otelcfg.Feature{otelcfg.FeatureApplication},
 			Instrumentations:            instrumentations,
 		},
 		&attributes.SelectorConfig{

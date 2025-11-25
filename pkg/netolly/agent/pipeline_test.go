@@ -46,7 +46,7 @@ func TestFilter(t *testing.T) {
 			Prometheus: prom.PrometheusConfig{
 				Path:     "/metrics",
 				Port:     promPort,
-				Features: []string{otelcfg.FeatureNetwork},
+				Features: []otelcfg.Feature{otelcfg.FeatureNetwork},
 				TTL:      time.Hour,
 			},
 			Filters: filter.AttributesConfig{

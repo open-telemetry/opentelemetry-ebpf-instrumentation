@@ -42,9 +42,9 @@ func TestNetMetricsExpiration(t *testing.T) {
 		Interval:        50 * time.Millisecond,
 		CommonEndpoint:  otlp.ServerEndpoint,
 		MetricsProtocol: otelcfg.ProtocolHTTPProtobuf,
-		Features:        []string{otelcfg.FeatureNetwork},
+		Features:        []otelcfg.Feature{otelcfg.FeatureNetwork},
 		TTL:             3 * time.Minute,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 	}
@@ -167,10 +167,10 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          []string{otelcfg.FeatureApplication},
+		Features:          []otelcfg.Feature{otelcfg.FeatureApplication},
 		TTL:               3 * time.Minute,
 		ReportersCacheLen: 100,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 	}
@@ -306,10 +306,10 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          []string{otelcfg.FeatureApplication},
+		Features:          []otelcfg.Feature{otelcfg.FeatureApplication},
 		TTL:               3 * time.Minute,
 		ReportersCacheLen: 100,
-		Instrumentations: []string{
+		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
 	}

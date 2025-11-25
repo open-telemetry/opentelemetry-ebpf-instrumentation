@@ -117,7 +117,7 @@ discovery:
 		Port:             cfg.Port,
 		ServiceName:      "svc-name",
 		ChannelBufferLen: 33,
-		LogLevel:         "INFO",
+		LogLevel:         LogLevelInfo,
 		ShutdownTimeout:  30 * time.Second,
 		EnforceSysCaps:   false,
 		TracePrinter:     "json",
@@ -154,8 +154,8 @@ discovery:
 				RequestSizeHistogram:  otelcfg.DefaultBuckets.RequestSizeHistogram,
 				ResponseSizeHistogram: otelcfg.DefaultBuckets.ResponseSizeHistogram,
 			},
-			Features: []string{"application"},
-			Instrumentations: []string{
+			Features: []otelcfg.Feature{otelcfg.FeatureApplication},
+			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
 			},
 			HistogramAggregation: "base2_exponential_bucket_histogram",
@@ -168,7 +168,7 @@ discovery:
 			MaxQueueSize:      4096,
 			BatchTimeout:      15 * time.Second,
 			ReportersCacheLen: ReporterLRUSize,
-			Instrumentations: []string{
+			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationHTTP,
 				instrumentations.InstrumentationGRPC,
 				instrumentations.InstrumentationSQL,
@@ -180,8 +180,8 @@ discovery:
 		},
 		Prometheus: prom.PrometheusConfig{
 			Path:     "/metrics",
-			Features: []string{otelcfg.FeatureApplication},
-			Instrumentations: []string{
+			Features: []otelcfg.Feature{otelcfg.FeatureApplication},
+			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
 			},
 			TTL:                         time.Second,
@@ -617,7 +617,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name: "otel metrics enabled, but not spans",
 			metrics: otelcfg.MetricsConfig{
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
-				Features:        []string{otelcfg.FeatureApplication},
+				Features:        []otelcfg.Feature{otelcfg.FeatureApplication},
 			},
 			prometheus:  prom.PrometheusConfig{},
 			wantEnabled: false,
@@ -626,7 +626,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name: "otel metrics enabled with spans",
 			metrics: otelcfg.MetricsConfig{
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
-				Features:        []string{otelcfg.FeatureSpanOTel},
+				Features:        []otelcfg.Feature{otelcfg.FeatureSpanOTel},
 			},
 			prometheus:  prom.PrometheusConfig{},
 			wantEnabled: true,
@@ -636,7 +636,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			metrics: otelcfg.MetricsConfig{},
 			prometheus: prom.PrometheusConfig{
 				Port:     9090,
-				Features: []string{otelcfg.FeatureApplication},
+				Features: []otelcfg.Feature{otelcfg.FeatureApplication},
 			},
 			wantEnabled: false,
 		},
@@ -644,18 +644,18 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name:    "prometheus span metrics enabled",
 			metrics: otelcfg.MetricsConfig{},
 			prometheus: prom.PrometheusConfig{
+				Features: []otelcfg.Feature{otelcfg.FeatureGraph},
 				Port:     9090,
-				Features: []string{otelcfg.FeatureGraph},
 			},
 			wantEnabled: true,
 		},
 		{
 			name: "both have features, but not enabled",
 			metrics: otelcfg.MetricsConfig{
-				Features: []string{otelcfg.FeatureApplication},
+				Features: []otelcfg.Feature{otelcfg.FeatureApplication},
 			},
 			prometheus: prom.PrometheusConfig{
-				Features: []string{otelcfg.FeatureGraph},
+				Features: []otelcfg.Feature{otelcfg.FeatureGraph},
 			},
 			wantEnabled: false,
 		},

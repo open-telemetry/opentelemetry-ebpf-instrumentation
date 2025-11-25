@@ -10,7 +10,7 @@ import (
 )
 
 func TestInstrumentationSelection(t *testing.T) {
-	is := NewInstrumentationSelection([]string{"http", "sql", "redis"})
+	is := NewInstrumentationSelection([]Instrumentation{InstrumentationHTTP, InstrumentationSQL, InstrumentationRedis})
 	assert.True(t, is.HTTPEnabled())
 	assert.True(t, is.SQLEnabled())
 	assert.True(t, is.DBEnabled())
@@ -19,7 +19,7 @@ func TestInstrumentationSelection(t *testing.T) {
 	assert.False(t, is.KafkaEnabled())
 	assert.False(t, is.MQEnabled())
 
-	is = NewInstrumentationSelection([]string{"grpc", "kafka"})
+	is = NewInstrumentationSelection([]Instrumentation{InstrumentationGRPC, InstrumentationKafka})
 	assert.False(t, is.HTTPEnabled())
 	assert.False(t, is.SQLEnabled())
 	assert.False(t, is.DBEnabled())
@@ -30,7 +30,7 @@ func TestInstrumentationSelection(t *testing.T) {
 }
 
 func TestInstrumentationSelection_All(t *testing.T) {
-	is := NewInstrumentationSelection([]string{"*"})
+	is := NewInstrumentationSelection([]Instrumentation{InstrumentationALL})
 	assert.True(t, is.HTTPEnabled())
 	assert.True(t, is.SQLEnabled())
 	assert.True(t, is.DBEnabled())

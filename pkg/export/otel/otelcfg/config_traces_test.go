@@ -19,7 +19,7 @@ func TestHTTPTracesEndpoint(t *testing.T) {
 	tcfg := TracesConfig{
 		CommonEndpoint:   "https://localhost:3131",
 		TracesEndpoint:   "https://localhost:3232/v1/traces",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 
 	t.Run("testing with two endpoints", func(t *testing.T) {
@@ -28,7 +28,7 @@ func TestHTTPTracesEndpoint(t *testing.T) {
 
 	tcfg = TracesConfig{
 		CommonEndpoint:   "https://localhost:3131/otlp",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 
 	t.Run("testing with only common endpoint", func(t *testing.T) {
@@ -38,7 +38,7 @@ func TestHTTPTracesEndpoint(t *testing.T) {
 	tcfg = TracesConfig{
 		CommonEndpoint:   "https://localhost:3131",
 		TracesEndpoint:   "http://localhost:3232",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 	t.Run("testing with insecure endpoint", func(t *testing.T) {
 		testHTTPTracesOptions(t, OTLPOptions{Scheme: "http", Endpoint: "localhost:3232", Insecure: true, Headers: map[string]string{}}, &tcfg)
@@ -47,7 +47,7 @@ func TestHTTPTracesEndpoint(t *testing.T) {
 	tcfg = TracesConfig{
 		CommonEndpoint:     "https://localhost:3232",
 		InsecureSkipVerify: true,
-		Instrumentations:   []string{instrumentations.InstrumentationALL},
+		Instrumentations:   []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 
 	t.Run("testing with skip TLS verification", func(t *testing.T) {
@@ -64,14 +64,14 @@ func testHTTPTracesOptions(t *testing.T, expected OTLPOptions, tcfg *TracesConfi
 
 func TestMissingSchemeInHTTPTracesEndpoint(t *testing.T) {
 	defer RestoreEnvAfterExecution()()
-	opts, err := HTTPTracesEndpointOptions(&TracesConfig{CommonEndpoint: "http://foo:3030", Instrumentations: []string{instrumentations.InstrumentationALL}})
+	opts, err := HTTPTracesEndpointOptions(&TracesConfig{CommonEndpoint: "http://foo:3030", Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL}})
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 
-	_, err = HTTPTracesEndpointOptions(&TracesConfig{CommonEndpoint: "foo:3030", Instrumentations: []string{instrumentations.InstrumentationALL}})
+	_, err = HTTPTracesEndpointOptions(&TracesConfig{CommonEndpoint: "foo:3030", Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL}})
 	require.Error(t, err)
 
-	_, err = HTTPTracesEndpointOptions(&TracesConfig{CommonEndpoint: "foo", Instrumentations: []string{instrumentations.InstrumentationALL}})
+	_, err = HTTPTracesEndpointOptions(&TracesConfig{CommonEndpoint: "foo", Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL}})
 	require.Error(t, err)
 }
 
@@ -120,7 +120,7 @@ func TestHTTPTracesEndpointHeaders(t *testing.T) {
 
 			opts, err := HTTPTracesEndpointOptions(&TracesConfig{
 				TracesEndpoint:   "https://localhost:1234/v1/traces",
-				Instrumentations: []string{instrumentations.InstrumentationALL},
+				Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tc.ExpectedHeaders, opts.Headers)
@@ -131,13 +131,13 @@ func TestHTTPTracesEndpointHeaders(t *testing.T) {
 func TestGRPCTracesEndpointOptions(t *testing.T) {
 	defer RestoreEnvAfterExecution()()
 	t.Run("do not accept URLs without a scheme", func(t *testing.T) {
-		_, err := GRPCTracesEndpointOptions(&TracesConfig{CommonEndpoint: "foo:3939", Instrumentations: []string{instrumentations.InstrumentationALL}})
+		_, err := GRPCTracesEndpointOptions(&TracesConfig{CommonEndpoint: "foo:3939", Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL}})
 		require.Error(t, err)
 	})
 	tcfg := TracesConfig{
 		CommonEndpoint:   "https://localhost:3131",
 		TracesEndpoint:   "https://localhost:3232",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 
 	t.Run("testing with two endpoints", func(t *testing.T) {
@@ -146,7 +146,7 @@ func TestGRPCTracesEndpointOptions(t *testing.T) {
 
 	tcfg = TracesConfig{
 		CommonEndpoint:   "https://localhost:3131",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 
 	t.Run("testing with only common endpoint", func(t *testing.T) {
@@ -156,7 +156,7 @@ func TestGRPCTracesEndpointOptions(t *testing.T) {
 	tcfg = TracesConfig{
 		CommonEndpoint:   "https://localhost:3131",
 		TracesEndpoint:   "http://localhost:3232",
-		Instrumentations: []string{instrumentations.InstrumentationALL},
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 	t.Run("testing with insecure endpoint", func(t *testing.T) {
 		testTracesGRPCOptions(t, OTLPOptions{Endpoint: "localhost:3232", Insecure: true, Headers: map[string]string{}}, &tcfg)
@@ -165,7 +165,7 @@ func TestGRPCTracesEndpointOptions(t *testing.T) {
 	tcfg = TracesConfig{
 		CommonEndpoint:     "https://localhost:3232",
 		InsecureSkipVerify: true,
-		Instrumentations:   []string{instrumentations.InstrumentationALL},
+		Instrumentations:   []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 
 	t.Run("testing with skip TLS verification", func(t *testing.T) {
@@ -218,7 +218,7 @@ func TestGRPCTracesEndpointHeaders(t *testing.T) {
 
 			opts, err := GRPCTracesEndpointOptions(&TracesConfig{
 				TracesEndpoint:   "https://localhost:1234/v1/traces",
-				Instrumentations: []string{instrumentations.InstrumentationALL},
+				Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tc.ExpectedHeaders, opts.Headers)
@@ -270,7 +270,7 @@ func TestTracesSetupHTTP_Protocol(t *testing.T) {
 				TracesEndpoint:   tc.Endpoint,
 				Protocol:         tc.ProtoVal,
 				TracesProtocol:   tc.TraceProtoVal,
-				Instrumentations: []string{instrumentations.InstrumentationALL},
+				Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tc.ExpectedProtoEnv, os.Getenv(envProtocol))
@@ -289,7 +289,7 @@ func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 			CommonEndpoint:   "http://host:3333",
 			Protocol:         "foo",
 			TracesProtocol:   "bar",
-			Instrumentations: []string{instrumentations.InstrumentationALL},
+			Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "foo-proto", os.Getenv(envProtocol))
@@ -301,7 +301,7 @@ func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 		_, err := HTTPTracesEndpointOptions(&TracesConfig{
 			CommonEndpoint:   "http://host:3333",
 			Protocol:         "foo",
-			Instrumentations: []string{instrumentations.InstrumentationALL},
+			Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		})
 		require.NoError(t, err)
 		_, ok := os.LookupEnv(envTracesProtocol)
