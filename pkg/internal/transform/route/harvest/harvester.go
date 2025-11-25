@@ -58,10 +58,10 @@ func (e *HarvestError) Error() string {
 func NewRouteHarvester(cfg *services.RouteHarvestingConfig, disabled []string, timeout time.Duration) *RouteHarvester {
 	dMap := map[svc.InstrumentableType]struct{}{}
 	for _, lang := range disabled {
-		if strings.ToLower(lang) == "java" {
+		if strings.ToLower(lang) == svc.InstrumentableJava.String() {
 			dMap[svc.InstrumentableJava] = struct{}{}
 		}
-		if strings.ToLower(lang) == "nodejs" || strings.ToLower(lang) == "node.js" {
+		if strings.ToLower(lang) == svc.InstrumentableNodejs.String() {
 			dMap[svc.InstrumentableNodejs] = struct{}{}
 		}
 	}
