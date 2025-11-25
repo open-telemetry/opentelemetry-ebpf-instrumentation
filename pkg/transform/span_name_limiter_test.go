@@ -16,6 +16,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
@@ -31,8 +32,8 @@ func TestSpanNameLimiter(t *testing.T) {
 	outCh := output.Subscribe()
 	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
 		Limit: maxCardinalityBeforeAggregation,
-		OTEL:  &otelcfg.MetricsConfig{Features: []otelcfg.Feature{otelcfg.FeatureSpan}, TTL: time.Minute},
-		Prom:  &prom.PrometheusConfig{Features: []otelcfg.Feature{otelcfg.FeatureSpan}, TTL: time.Minute},
+		OTEL:  &otelcfg.MetricsConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
+		Prom:  &prom.PrometheusConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 
@@ -116,8 +117,8 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 		outCh := output.Subscribe()
 		runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
 			Limit: maxCardinalityBeforeAggregation,
-			OTEL:  &otelcfg.MetricsConfig{Features: []otelcfg.Feature{otelcfg.FeatureSpan}, TTL: time.Minute},
-			Prom:  &prom.PrometheusConfig{Features: []otelcfg.Feature{otelcfg.FeatureSpan}, TTL: time.Minute},
+			OTEL:  &otelcfg.MetricsConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
+			Prom:  &prom.PrometheusConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
 		}, input, output)(t.Context())
 		require.NoError(t, err)
 
@@ -180,8 +181,8 @@ func TestSpanNameLimiter_CopiesOutput(t *testing.T) {
 	outCh := output.Subscribe()
 	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
 		Limit: 3,
-		OTEL:  &otelcfg.MetricsConfig{Features: []otelcfg.Feature{otelcfg.FeatureSpan}, TTL: time.Minute},
-		Prom:  &prom.PrometheusConfig{Features: []otelcfg.Feature{otelcfg.FeatureSpan}, TTL: time.Minute},
+		OTEL:  &otelcfg.MetricsConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
+		Prom:  &prom.PrometheusConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 

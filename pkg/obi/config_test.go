@@ -19,6 +19,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/debug"
@@ -149,12 +150,12 @@ discovery:
 			MetricsEndpoint:   "localhost:3030",
 			Protocol:          otelcfg.ProtocolUnset,
 			ReportersCacheLen: ReporterLRUSize,
-			Buckets: otelcfg.Buckets{
+			Buckets: export.Buckets{
 				DurationHistogram:     []float64{0, 1, 2},
-				RequestSizeHistogram:  otelcfg.DefaultBuckets.RequestSizeHistogram,
-				ResponseSizeHistogram: otelcfg.DefaultBuckets.ResponseSizeHistogram,
+				RequestSizeHistogram:  export.DefaultBuckets.RequestSizeHistogram,
+				ResponseSizeHistogram: export.DefaultBuckets.ResponseSizeHistogram,
 			},
-			Features: []otelcfg.Feature{otelcfg.FeatureApplication},
+			Features: []export.Feature{export.FeatureApplication},
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
 			},
@@ -180,14 +181,14 @@ discovery:
 		},
 		Prometheus: prom.PrometheusConfig{
 			Path:     "/metrics",
-			Features: []otelcfg.Feature{otelcfg.FeatureApplication},
+			Features: []export.Feature{export.FeatureApplication},
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
 			},
 			TTL:                         time.Second,
 			SpanMetricsServiceCacheSize: 10000,
-			Buckets: otelcfg.Buckets{
-				DurationHistogram:     otelcfg.DefaultBuckets.DurationHistogram,
+			Buckets: export.Buckets{
+				DurationHistogram:     export.DefaultBuckets.DurationHistogram,
 				RequestSizeHistogram:  []float64{0, 10, 20, 22},
 				ResponseSizeHistogram: []float64{0, 10, 20, 22},
 			},
@@ -617,7 +618,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name: "otel metrics enabled, but not spans",
 			metrics: otelcfg.MetricsConfig{
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
-				Features:        []otelcfg.Feature{otelcfg.FeatureApplication},
+				Features:        []export.Feature{export.FeatureApplication},
 			},
 			prometheus:  prom.PrometheusConfig{},
 			wantEnabled: false,
@@ -626,7 +627,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name: "otel metrics enabled with spans",
 			metrics: otelcfg.MetricsConfig{
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
-				Features:        []otelcfg.Feature{otelcfg.FeatureSpanOTel},
+				Features:        []export.Feature{export.FeatureSpanOTel},
 			},
 			prometheus:  prom.PrometheusConfig{},
 			wantEnabled: true,
@@ -636,7 +637,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			metrics: otelcfg.MetricsConfig{},
 			prometheus: prom.PrometheusConfig{
 				Port:     9090,
-				Features: []otelcfg.Feature{otelcfg.FeatureApplication},
+				Features: []export.Feature{export.FeatureApplication},
 			},
 			wantEnabled: false,
 		},
@@ -644,7 +645,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name:    "prometheus span metrics enabled",
 			metrics: otelcfg.MetricsConfig{},
 			prometheus: prom.PrometheusConfig{
-				Features: []otelcfg.Feature{otelcfg.FeatureGraph},
+				Features: []export.Feature{export.FeatureGraph},
 				Port:     9090,
 			},
 			wantEnabled: true,
@@ -652,10 +653,10 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 		{
 			name: "both have features, but not enabled",
 			metrics: otelcfg.MetricsConfig{
-				Features: []otelcfg.Feature{otelcfg.FeatureApplication},
+				Features: []export.Feature{export.FeatureApplication},
 			},
 			prometheus: prom.PrometheusConfig{
-				Features: []otelcfg.Feature{otelcfg.FeatureGraph},
+				Features: []export.Feature{export.FeatureGraph},
 			},
 			wantEnabled: false,
 		},

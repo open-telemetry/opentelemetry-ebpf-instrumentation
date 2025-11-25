@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	prom2 "go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
@@ -46,7 +46,7 @@ func TestFilter(t *testing.T) {
 			Prometheus: prom.PrometheusConfig{
 				Path:     "/metrics",
 				Port:     promPort,
-				Features: []otelcfg.Feature{otelcfg.FeatureNetwork},
+				Features: []export.Feature{export.FeatureNetwork},
 				TTL:      time.Hour,
 			},
 			Filters: filter.AttributesConfig{

@@ -12,6 +12,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -48,7 +49,7 @@ func TestMetricAttributes(t *testing.T) {
 		Interval:          10 * time.Millisecond,
 		ReportersCacheLen: 100,
 		TTL:               5 * time.Minute,
-		Features:          []otelcfg.Feature{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
+		Features:          []export.Feature{export.FeatureNetwork, export.FeatureNetworkInterZone},
 	}
 	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
 		MetricAttributeGroups: attributes.GroupKubernetes,
@@ -107,7 +108,7 @@ func TestMetricAttributes_Filter(t *testing.T) {
 		MetricsEndpoint:   "http://foo",
 		Interval:          10 * time.Millisecond,
 		ReportersCacheLen: 100,
-		Features:          []otelcfg.Feature{otelcfg.FeatureNetwork, otelcfg.FeatureNetworkInterZone},
+		Features:          []export.Feature{export.FeatureNetwork, export.FeatureNetworkInterZone},
 	}
 	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
 		MetricAttributeGroups: attributes.GroupKubernetes,
@@ -147,16 +148,16 @@ func TestMetricAttributes_Filter(t *testing.T) {
 
 func TestNetMetricsConfig_Enabled(t *testing.T) {
 	assert.True(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{
-		Features: []otelcfg.Feature{otelcfg.FeatureApplication, otelcfg.FeatureNetwork}, CommonEndpoint: "foo",
+		Features: []export.Feature{export.FeatureApplication, export.FeatureNetwork}, CommonEndpoint: "foo",
 	}}.Enabled())
 	assert.True(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{
-		Features: []otelcfg.Feature{otelcfg.FeatureNetwork, otelcfg.FeatureApplication}, MetricsEndpoint: "foo",
+		Features: []export.Feature{export.FeatureNetwork, export.FeatureApplication}, MetricsEndpoint: "foo",
 	}}.Enabled())
 }
 
 func TestNetMetricsConfig_Disabled(t *testing.T) {
-	fa := []otelcfg.Feature{otelcfg.FeatureApplication}
-	fn := []otelcfg.Feature{otelcfg.FeatureNetwork}
+	fa := []export.Feature{export.FeatureApplication}
+	fn := []export.Feature{export.FeatureNetwork}
 	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
 	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
 	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())

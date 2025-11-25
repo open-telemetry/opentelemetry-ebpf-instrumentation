@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -42,7 +43,7 @@ func TestNetMetricsExpiration(t *testing.T) {
 		Interval:        50 * time.Millisecond,
 		CommonEndpoint:  otlp.ServerEndpoint,
 		MetricsProtocol: otelcfg.ProtocolHTTPProtobuf,
-		Features:        []otelcfg.Feature{otelcfg.FeatureNetwork},
+		Features:        []export.Feature{export.FeatureNetwork},
 		TTL:             3 * time.Minute,
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
@@ -167,7 +168,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          []otelcfg.Feature{otelcfg.FeatureApplication},
+		Features:          []export.Feature{export.FeatureApplication},
 		TTL:               3 * time.Minute,
 		ReportersCacheLen: 100,
 		Instrumentations: []instrumentations.Instrumentation{
@@ -306,7 +307,7 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          []otelcfg.Feature{otelcfg.FeatureApplication},
+		Features:          []export.Feature{export.FeatureApplication},
 		TTL:               3 * time.Minute,
 		ReportersCacheLen: 100,
 		Instrumentations: []instrumentations.Instrumentation{

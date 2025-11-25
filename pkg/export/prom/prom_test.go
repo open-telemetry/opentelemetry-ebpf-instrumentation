@@ -25,12 +25,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -65,7 +65,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []otelcfg.Feature{otelcfg.FeatureApplication, otelcfg.FeatureApplicationHost},
+			Features:                    []export.Feature{export.FeatureApplication, export.FeatureApplicationHost},
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
 		&attributes.SelectorConfig{
@@ -390,7 +390,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 
 func TestMetricsDiscarded(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
+		Features: []export.Feature{export.FeatureApplication},
 	}
 	mr := metricsReporter{
 		cfg: &mc,
@@ -444,7 +444,7 @@ func TestMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []otelcfg.Feature{otelcfg.FeatureSpanOTel},
+		Features: []export.Feature{export.FeatureSpanOTel},
 	}
 	mr := metricsReporter{
 		cfg: &mc,
@@ -490,7 +490,7 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []otelcfg.Feature{otelcfg.FeatureGraph},
+		Features: []export.Feature{export.FeatureGraph},
 	}
 	mr := metricsReporter{
 		cfg: &mc,
@@ -580,7 +580,7 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 
 func TestProcessPIDEvents(t *testing.T) {
 	mc := PrometheusConfig{
-		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
+		Features: []export.Feature{export.FeatureApplication},
 	}
 	mr := metricsReporter{
 		cfg:         &mc,
@@ -670,7 +670,7 @@ func makePromExporter(
 			Path:                        "/metrics",
 			TTL:                         300 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []otelcfg.Feature{otelcfg.FeatureApplication},
+			Features:                    []export.Feature{export.FeatureApplication},
 			Instrumentations:            instrumentations,
 		},
 		&attributes.SelectorConfig{

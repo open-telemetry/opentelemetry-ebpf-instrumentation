@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -40,7 +40,7 @@ func TestMetricsExpiration(t *testing.T) {
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []otelcfg.Feature{otelcfg.FeatureNetwork},
+			Features:                    []export.Feature{export.FeatureNetwork},
 		}, SelectorCfg: &attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.NetworkFlow.Section: attributes.InclusionLists{

@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -73,7 +74,7 @@ func TestBasicPipeline(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	cfg := otelcfg.MetricsConfig{
-		Features:        []otelcfg.Feature{otelcfg.FeatureApplication},
+		Features:        []export.Feature{export.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -192,7 +193,7 @@ func TestMergedMetricsTracePipeline(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	mCfg := otelcfg.MetricsConfig{
-		Features:        []otelcfg.Feature{otelcfg.FeatureApplication},
+		Features:        []export.Feature{export.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -281,7 +282,7 @@ func TestRouteConsolidation(t *testing.T) {
 
 	cfg := otelcfg.MetricsConfig{
 		SDKLogLevel:     "debug",
-		Features:        []otelcfg.Feature{otelcfg.FeatureApplication},
+		Features:        []export.Feature{export.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -415,7 +416,7 @@ func TestGRPCPipeline(t *testing.T) {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 
 	cfg := otelcfg.MetricsConfig{
-		Features:        []otelcfg.Feature{otelcfg.FeatureApplication},
+		Features:        []export.Feature{export.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint, Interval: time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -513,7 +514,7 @@ func TestBasicPipelineInfo(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	cfg := otelcfg.MetricsConfig{
-		Features:        []otelcfg.Feature{otelcfg.FeatureApplication},
+		Features:        []export.Feature{export.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint,
 		Interval:        10 * time.Millisecond, ReportersCacheLen: 16,
 		TTL: 5 * time.Minute,
@@ -608,7 +609,7 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	cfg := otelcfg.MetricsConfig{
 		SDKLogLevel:     "debug",
-		Features:        []otelcfg.Feature{otelcfg.FeatureApplication},
+		Features:        []export.Feature{export.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
