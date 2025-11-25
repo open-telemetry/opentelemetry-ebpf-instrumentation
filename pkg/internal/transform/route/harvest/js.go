@@ -1,15 +1,18 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package nodejs
+package harvest
 
 import (
 	"bufio"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 )
 
 // /root is purposefully missing, since we need it to star the file walk
@@ -489,4 +492,42 @@ func (e *RouteExtractor) FirstArg(args []string) string {
 	}
 
 	return firstArg
+}
+
+// testing
+var rootDirForPID = ebpfcommon.RootDirectoryForPID
+var cmdlineForPID = ebpfcommon.CMDLineForPID
+var cwdForPID = ebpfcommon.CWDForPID
+
+func ExtractNodejsRoutes(pid int32) (*RouteHarvesterResult, error) {
+	rootDir := rootDirForPID(pid)
+	_, args, err := cmdlineForPID(pid)
+	if err != nil {
+		return nil, fmt.Errorf("error finding cmd line, error %v", err)
+	}
+	workdir, err := cwdForPID(pid)
+	if err != nil {
+		return nil, fmt.Errorf("error finding cwd, error %v", err)
+	}
+	jsExtractor := NewRouteExtractor()
+
+	firstArg := jsExtractor.FirstArg(args)
+
+	dir := FindScriptDirectory(rootDir, firstArg, workdir)
+	if dir == "" {
+		return nil, fmt.Errorf("failed to find script directory for pid %d, script %s, cwd %s", pid, firstArg, workdir)
+	}
+	err = jsExtractor.ScanDirectory(dir)
+	if err != nil {
+		return nil, fmt.Errorf("error scanning directory, error %v", err)
+	}
+
+	routes := jsExtractor.GetHarvestedRoutes()
+
+	r := RouteHarvesterResult{
+		Routes: routes,
+		Kind:   CompleteRoutes,
+	}
+
+	return &r, nil
 }

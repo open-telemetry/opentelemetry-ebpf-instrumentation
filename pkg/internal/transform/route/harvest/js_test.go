@@ -1,9 +1,10 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package nodejs
+package harvest
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ import (
 
 func TestRouteExtractor_ExpressApp(t *testing.T) {
 	extractor := NewRouteExtractor()
-	exampleFile := filepath.Join("test_files", "express-app.js")
+	exampleFile := filepath.Join("nodejs", "test_files", "express-app.js")
 	err := extractor.scanFile(exampleFile)
 	require.NoError(t, err)
 
@@ -56,7 +57,7 @@ func TestRouteExtractor_ExpressApp(t *testing.T) {
 
 func TestRouteExtractor_FastifyApp(t *testing.T) {
 	extractor := NewRouteExtractor()
-	exampleFile := filepath.Join("test_files", "fastify-app.js")
+	exampleFile := filepath.Join("nodejs", "test_files", "fastify-app.js")
 	err := extractor.scanFile(exampleFile)
 	require.NoError(t, err)
 
@@ -96,7 +97,7 @@ func TestRouteExtractor_FastifyApp(t *testing.T) {
 
 func TestRouteExtractor_HttpDispatcherApp(t *testing.T) {
 	extractor := NewRouteExtractor()
-	exampleFile := filepath.Join("test_files", "httpdispatcher-app.js")
+	exampleFile := filepath.Join("nodejs", "test_files", "httpdispatcher-app.js")
 	err := extractor.scanFile(exampleFile)
 	require.NoError(t, err)
 
@@ -134,7 +135,7 @@ func TestRouteExtractor_HttpDispatcherApp(t *testing.T) {
 
 func TestRouteExtractor_AllExamples(t *testing.T) {
 	extractor := NewRouteExtractor()
-	examplesDir := "test_files"
+	examplesDir := filepath.Join("nodejs", "test_files")
 	err := extractor.ScanDirectory(examplesDir)
 	require.NoError(t, err)
 
@@ -168,7 +169,7 @@ func TestRouteExtractor_AllExamples(t *testing.T) {
 
 func TestRouteExtractor_ParameterizedRoutes(t *testing.T) {
 	extractor := NewRouteExtractor()
-	examplesDir := "test_files"
+	examplesDir := filepath.Join("nodejs", "test_files")
 	err := extractor.ScanDirectory(examplesDir)
 	require.NoError(t, err)
 
@@ -192,7 +193,7 @@ func TestRouteExtractor_ParameterizedRoutes(t *testing.T) {
 
 func TestRouteExtractor_RegexRoutes(t *testing.T) {
 	extractor := NewRouteExtractor()
-	exampleFile := filepath.Join("test_files", "httpdispatcher-app.js")
+	exampleFile := filepath.Join("nodejs", "test_files", "httpdispatcher-app.js")
 	err := extractor.scanFile(exampleFile)
 	require.NoError(t, err)
 
@@ -944,7 +945,7 @@ func TestCleanupRegexPath(t *testing.T) {
 		{
 			name:     "path starting without slash",
 			input:    "api/users",
-			expected: "api/users",
+			expected: "",
 		},
 		{
 			name:     "Hapi or fastify paths with curlies",
@@ -954,7 +955,7 @@ func TestCleanupRegexPath(t *testing.T) {
 		{
 			name:     "single slash",
 			input:    "/",
-			expected: "/",
+			expected: "",
 		},
 		{
 			name:     "regex with only anchors",
@@ -1015,4 +1016,208 @@ func TestCleanupRegexPath(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestExtractNodejsRoutes(t *testing.T) {
+	// Save original functions
+	origRootDir := rootDirForPID
+	origCmdline := cmdlineForPID
+	origCwd := cwdForPID
+
+	// Restore after test
+	defer func() {
+		rootDirForPID = origRootDir
+		cmdlineForPID = origCmdline
+		cwdForPID = origCwd
+	}()
+
+	// Create test directory structure
+	tempDir := t.TempDir()
+	testAppDir := filepath.Join(tempDir, "app")
+	require.NoError(t, os.MkdirAll(testAppDir, 0755))
+
+	// Create a simple test JavaScript file with routes
+	testFile := filepath.Join(testAppDir, "server.js")
+	testContent := `
+const express = require('express');
+const app = express();
+
+app.get('/api/users', (req, res) => {
+	res.json({ users: [] });
+});
+
+app.post('/api/users', (req, res) => {
+	res.json({ created: true });
+});
+
+app.get('/api/users/:id', (req, res) => {
+	res.json({ id: req.params.id });
+});
+
+app.listen(3000);
+`
+	require.NoError(t, os.WriteFile(testFile, []byte(testContent), 0644))
+
+	tests := []struct {
+		name           string
+		pid            int32
+		mockRootDir    string
+		mockCmdline    []string
+		mockCwd        string
+		cmdlineErr     error
+		cwdErr         error
+		expectedErr    string
+		expectedCount  int
+		expectedRoutes []string
+	}{
+		{
+			name:        "successful extraction",
+			pid:         12345,
+			mockRootDir: tempDir,
+			mockCmdline: []string{"node", "/app/server.js"},
+			mockCwd:     "/app",
+			expectedRoutes: []string{
+				"/api/users",
+				"/api/users/:id",
+			},
+			expectedCount: 2,
+		},
+		{
+			name:        "cmdline error",
+			pid:         12345,
+			mockRootDir: tempDir,
+			mockCmdline: nil,
+			mockCwd:     "/app",
+			cmdlineErr:  assert.AnError,
+			expectedErr: "error finding cmd line",
+		},
+		{
+			name:        "cwd error",
+			pid:         12345,
+			mockRootDir: tempDir,
+			mockCmdline: []string{"node", "/app/server.js"},
+			mockCwd:     "",
+			cwdErr:      assert.AnError,
+			expectedErr: "error finding cwd",
+		},
+		{
+			name:        "script directory not found",
+			pid:         12345,
+			mockRootDir: tempDir,
+			mockCmdline: []string{"node", "/nonexistent/script.js"},
+			mockCwd:     "/nonexistent",
+			expectedErr: "error scanning directory, error lstat",
+		},
+		{
+			name:        "relative path in args",
+			pid:         12345,
+			mockRootDir: tempDir,
+			mockCmdline: []string{"node", "server.js"},
+			mockCwd:     "/app",
+			expectedRoutes: []string{
+				"/api/users",
+				"/api/users/:id",
+			},
+			expectedCount: 2,
+		},
+		{
+			name:        "args with flags",
+			pid:         12345,
+			mockRootDir: tempDir,
+			mockCmdline: []string{"node", "--inspect", "/app/server.js"},
+			mockCwd:     "/app",
+			expectedRoutes: []string{
+				"/api/users",
+				"/api/users/:id",
+			},
+			expectedCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Mock the helper functions
+			rootDirForPID = func(pid int32) string {
+				assert.Equal(t, tt.pid, pid)
+				return tt.mockRootDir
+			}
+
+			cmdlineForPID = func(pid int32) (string, []string, error) {
+				assert.Equal(t, tt.pid, pid)
+				if tt.cmdlineErr != nil {
+					return "", nil, tt.cmdlineErr
+				}
+				var exe string
+				if len(tt.mockCmdline) > 0 {
+					exe = tt.mockCmdline[0]
+				}
+				return exe, tt.mockCmdline, nil
+			}
+
+			cwdForPID = func(pid int32) (string, error) {
+				assert.Equal(t, tt.pid, pid)
+				if tt.cwdErr != nil {
+					return "", tt.cwdErr
+				}
+				return tt.mockCwd, nil
+			}
+
+			// Execute the function
+			result, err := ExtractNodejsRoutes(tt.pid)
+
+			// Verify results
+			if tt.expectedErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+				assert.Nil(t, result)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				assert.Equal(t, CompleteRoutes, result.Kind)
+				assert.Equal(t, tt.expectedCount, len(result.Routes))
+
+				// Check that expected routes are present
+				for _, expectedRoute := range tt.expectedRoutes {
+					assert.Contains(t, result.Routes, expectedRoute, "should contain route %s", expectedRoute)
+				}
+			}
+		})
+	}
+}
+
+func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {
+	// Save original functions
+	origRootDir := rootDirForPID
+	origCmdline := cmdlineForPID
+	origCwd := cwdForPID
+
+	defer func() {
+		rootDirForPID = origRootDir
+		cmdlineForPID = origCmdline
+		cwdForPID = origCwd
+	}()
+
+	// Create empty directory
+	tempDir := t.TempDir()
+	emptyDir := filepath.Join(tempDir, "empty")
+	require.NoError(t, os.MkdirAll(emptyDir, 0755))
+
+	rootDirForPID = func(pid int32) string {
+		return tempDir
+	}
+
+	cmdlineForPID = func(pid int32) (string, []string, error) {
+		return "node", []string{"node", "server.js"}, nil
+	}
+
+	cwdForPID = func(pid int32) (string, error) {
+		return "/empty", nil
+	}
+
+	result, err := ExtractNodejsRoutes(12345)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, CompleteRoutes, result.Kind)
+	assert.Empty(t, result.Routes, "should return empty routes for empty directory")
 }

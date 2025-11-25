@@ -5,7 +5,6 @@ package harvest
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -17,9 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
-	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route"
-	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest/nodejs"
 )
 
 type RouteHarvester struct {
@@ -32,6 +29,7 @@ type RouteHarvester struct {
 
 	// testing related
 	javaExtractRoutes func(pid int32) (*RouteHarvesterResult, error)
+	nodeExtractRoutes func(pid int32) (*RouteHarvesterResult, error)
 }
 
 type RouteHarvesterResultKind uint8
@@ -76,6 +74,7 @@ func NewRouteHarvester(cfg *services.RouteHarvestingConfig, disabled []string, t
 	}
 
 	h.javaExtractRoutes = h.java.ExtractRoutes
+	h.nodeExtractRoutes = ExtractNodejsRoutes
 
 	return h
 }
@@ -132,46 +131,14 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 			}
 		case svc.InstrumentableNodejs:
 			if _, ok := h.disabled[svc.InstrumentableNodejs]; !ok {
-				rootDir := ebpfcommon.RootDirectoryForPID(fileInfo.Pid)
-				_, args, err := ebpfcommon.CMDLineForPID(fileInfo.Pid)
+				r, err := h.nodeExtractRoutes(fileInfo.Pid)
 				if err != nil {
-					h.log.Debug("error finding cmd line", "error", err)
 					resultChan <- result{err: err}
 					return
 				}
-				workdir, err := ebpfcommon.CWDForPID(fileInfo.Pid)
-				if err != nil {
-					h.log.Debug("error finding cwd line", "error", err)
-					resultChan <- result{err: err}
-					return
-				}
-				jsExtractor := nodejs.NewRouteExtractor()
+				h.log.Debug("found node js application routes", "routes", r.Routes)
 
-				firstArg := jsExtractor.FirstArg(args)
-
-				dir := findScriptDirectory(rootDir, firstArg, workdir)
-				if dir == "" {
-					h.log.Debug("failed to find script directory", "directory", dir, "root", rootDir, "firstArg", firstArg, "cwd", workdir)
-					resultChan <- result{err: fmt.Errorf("failed to find script directory for pid %d, script %s, cwd %s", fileInfo.Pid, firstArg, workdir)}
-					return
-				}
-				h.log.Debug("found node js application directory", "directory", dir, "root", rootDir, "firstArg", firstArg, "cwd", workdir)
-				err = jsExtractor.ScanDirectory(dir)
-				if err != nil {
-					h.log.Debug("error scanning", "error", err)
-					resultChan <- result{err: err}
-					return
-				}
-
-				routes := jsExtractor.GetHarvestedRoutes()
-				h.log.Debug("found node js application routes", "routes", routes)
-
-				r := RouteHarvesterResult{
-					Routes: routes,
-					Kind:   CompleteRoutes,
-				}
-
-				resultChan <- result{r: &r}
+				resultChan <- result{r: r}
 			} else {
 				resultChan <- result{r: nil}
 			}
@@ -217,7 +184,7 @@ func isDir(path string) bool {
 // for testing purposes
 var isDirFunc = isDir
 
-func findScriptDirectory(root, firstArg, cwd string) string {
+func FindScriptDirectory(root, firstArg, cwd string) string {
 	if strings.HasPrefix(firstArg, "/") {
 		path := filepath.Join(root, firstArg)
 		if isDirFunc(path) {

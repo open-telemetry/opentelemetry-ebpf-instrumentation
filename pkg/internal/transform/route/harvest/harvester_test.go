@@ -203,6 +203,33 @@ func TestHarvestRoutes_MultipleTimeouts(t *testing.T) {
 	}
 }
 
+func TestHarvestNodejsRoutes_Successful(t *testing.T) {
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 1*time.Second)
+	harvester.nodeExtractRoutes = successfulExtractRoutes
+
+	fileInfo := createTestFileInfo(svc.InstrumentableNodejs)
+
+	result, err := harvester.HarvestRoutes(fileInfo)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"/api/users", "/api/orders"}, result.Routes)
+	assert.Equal(t, CompleteRoutes, result.Kind)
+}
+
+func TestHarvestNodejsRoutes_Error(t *testing.T) {
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 1*time.Second)
+	harvester.nodeExtractRoutes = errorExtractRoutes
+
+	fileInfo := createTestFileInfo(svc.InstrumentableNodejs)
+
+	result, err := harvester.HarvestRoutes(fileInfo)
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "failed to connect to Java process")
+}
+
 func TestFindScriptDirectory(t *testing.T) {
 	// Create a temporary directory structure for testing
 	tempDir := t.TempDir()
@@ -299,7 +326,7 @@ func TestFindScriptDirectory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := findScriptDirectory(tt.root, tt.firstArg, tt.cwd)
+			result := FindScriptDirectory(tt.root, tt.firstArg, tt.cwd)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -358,7 +385,7 @@ func TestFindScriptDirectory_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := findScriptDirectory(tt.root, tt.firstArg, tt.cwd)
+			result := FindScriptDirectory(tt.root, tt.firstArg, tt.cwd)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
