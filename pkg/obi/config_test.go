@@ -154,7 +154,7 @@ discovery:
 				RequestSizeHistogram:  otelcfg.DefaultBuckets.RequestSizeHistogram,
 				ResponseSizeHistogram: otelcfg.DefaultBuckets.ResponseSizeHistogram,
 			},
-			Features: []string{"application"},
+			Features: []otelcfg.MetricFeature{"application"},
 			Instrumentations: []string{
 				instrumentations.InstrumentationALL,
 			},
@@ -180,7 +180,7 @@ discovery:
 		},
 		Prometheus: prom.PrometheusConfig{
 			Path:     "/metrics",
-			Features: []string{otelcfg.FeatureApplication},
+			Features: []otelcfg.MetricFeature{otelcfg.FeatureApplication},
 			Instrumentations: []string{
 				instrumentations.InstrumentationALL,
 			},
@@ -617,7 +617,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name: "otel metrics enabled, but not spans",
 			metrics: otelcfg.MetricsConfig{
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
-				Features:        []string{otelcfg.FeatureApplication},
+				Features:        []otelcfg.MetricFeature{otelcfg.FeatureApplication},
 			},
 			prometheus:  prom.PrometheusConfig{},
 			wantEnabled: false,
@@ -626,7 +626,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name: "otel metrics enabled with spans",
 			metrics: otelcfg.MetricsConfig{
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
-				Features:        []string{otelcfg.FeatureSpanOTel},
+				Features:        []otelcfg.MetricFeature{otelcfg.FeatureSpanOTel},
 			},
 			prometheus:  prom.PrometheusConfig{},
 			wantEnabled: true,
@@ -636,7 +636,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			metrics: otelcfg.MetricsConfig{},
 			prometheus: prom.PrometheusConfig{
 				Port:     9090,
-				Features: []string{otelcfg.FeatureApplication},
+				Features: []otelcfg.MetricFeature{otelcfg.FeatureApplication},
 			},
 			wantEnabled: false,
 		},
@@ -645,17 +645,17 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			metrics: otelcfg.MetricsConfig{},
 			prometheus: prom.PrometheusConfig{
 				Port:     9090,
-				Features: []string{otelcfg.FeatureGraph},
+				Features: []otelcfg.MetricFeature{otelcfg.FeatureGraph},
 			},
 			wantEnabled: true,
 		},
 		{
 			name: "both have features, but not enabled",
 			metrics: otelcfg.MetricsConfig{
-				Features: []string{otelcfg.FeatureApplication},
+				Features: []otelcfg.MetricFeature{otelcfg.FeatureApplication},
 			},
 			prometheus: prom.PrometheusConfig{
-				Features: []string{otelcfg.FeatureGraph},
+				Features: []otelcfg.MetricFeature{otelcfg.FeatureGraph},
 			},
 			wantEnabled: false,
 		},

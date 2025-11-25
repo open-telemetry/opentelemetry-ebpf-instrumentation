@@ -58,20 +58,22 @@ const (
 	envResourceAttrs   = "OTEL_RESOURCE_ATTRIBUTES"
 )
 
+type MetricFeature string
+
 const (
 	UsualPortGRPC = "4317"
 	UsualPortHTTP = "4318"
 
-	FeatureNetwork          = "network"
-	FeatureNetworkInterZone = "network_inter_zone"
-	FeatureApplication      = "application"
-	FeatureSpan             = "application_span"
-	FeatureSpanOTel         = "application_span_otel"
-	FeatureSpanSizes        = "application_span_sizes"
-	FeatureGraph            = "application_service_graph"
-	FeatureProcess          = "application_process"
-	FeatureApplicationHost  = "application_host"
-	FeatureEBPF             = "ebpf"
+	FeatureNetwork          MetricFeature = "network"
+	FeatureNetworkInterZone MetricFeature = "network_inter_zone"
+	FeatureApplication      MetricFeature = "application"
+	FeatureSpan             MetricFeature = "application_span"
+	FeatureSpanOTel         MetricFeature = "application_span_otel"
+	FeatureSpanSizes        MetricFeature = "application_span_sizes"
+	FeatureGraph            MetricFeature = "application_service_graph"
+	FeatureProcess          MetricFeature = "application_process"
+	FeatureApplicationHost  MetricFeature = "application_host"
+	FeatureEBPF             MetricFeature = "ebpf"
 )
 
 func omitFieldsForYAML(input any, omitFields map[string]struct{}) map[string]any {

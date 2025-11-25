@@ -73,7 +73,7 @@ func TestBasicPipeline(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	cfg := otelcfg.MetricsConfig{
-		Features:        []string{otelcfg.FeatureApplication},
+		Features:        []otelcfg.MetricFeature{otelcfg.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -192,7 +192,7 @@ func TestMergedMetricsTracePipeline(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	mCfg := otelcfg.MetricsConfig{
-		Features:        []string{otelcfg.FeatureApplication},
+		Features:        []otelcfg.MetricFeature{otelcfg.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -281,7 +281,7 @@ func TestRouteConsolidation(t *testing.T) {
 
 	cfg := otelcfg.MetricsConfig{
 		SDKLogLevel:     "debug",
-		Features:        []string{otelcfg.FeatureApplication},
+		Features:        []otelcfg.MetricFeature{otelcfg.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -415,7 +415,7 @@ func TestGRPCPipeline(t *testing.T) {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 
 	cfg := otelcfg.MetricsConfig{
-		Features:        []string{otelcfg.FeatureApplication},
+		Features:        []otelcfg.MetricFeature{otelcfg.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint, Interval: time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -513,7 +513,7 @@ func TestBasicPipelineInfo(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	cfg := otelcfg.MetricsConfig{
-		Features:        []string{otelcfg.FeatureApplication},
+		Features:        []otelcfg.MetricFeature{otelcfg.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint,
 		Interval:        10 * time.Millisecond, ReportersCacheLen: 16,
 		TTL: 5 * time.Minute,
@@ -608,7 +608,7 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	cfg := otelcfg.MetricsConfig{
 		SDKLogLevel:     "debug",
-		Features:        []string{otelcfg.FeatureApplication},
+		Features:        []otelcfg.MetricFeature{otelcfg.FeatureApplication},
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
