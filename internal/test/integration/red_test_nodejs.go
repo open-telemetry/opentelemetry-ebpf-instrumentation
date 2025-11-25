@@ -68,7 +68,7 @@ func testREDMetricsForNodeHTTPLibraryRoutes(t *testing.T, url, comm, namespace s
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
-			`http_request_method="POST",` +
+			`http_request_method="GET",` +
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
