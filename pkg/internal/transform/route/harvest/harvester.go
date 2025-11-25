@@ -221,7 +221,7 @@ func findScriptDirectory(root, firstArg, cwd string) string {
 	if strings.HasPrefix(firstArg, "/") {
 		path := filepath.Join(root, firstArg)
 		if isDirFunc(path) {
-			return path
+			return path + string(filepath.Separator)
 		}
 
 		lastSlashPos := strings.LastIndex(firstArg, "/")
@@ -229,7 +229,7 @@ func findScriptDirectory(root, firstArg, cwd string) string {
 			path := filepath.Join(root, firstArg[:lastSlashPos])
 
 			if isDirFunc(path) {
-				return path
+				return path + string(filepath.Separator)
 			}
 		}
 	}
