@@ -495,19 +495,21 @@ func (e *RouteExtractor) FirstArg(args []string) string {
 }
 
 // testing
-var rootDirForPID = ebpfcommon.RootDirectoryForPID
-var cmdlineForPID = ebpfcommon.CMDLineForPID
-var cwdForPID = ebpfcommon.CWDForPID
+var (
+	rootDirForPID = ebpfcommon.RootDirectoryForPID
+	cmdlineForPID = ebpfcommon.CMDLineForPID
+	cwdForPID     = ebpfcommon.CWDForPID
+)
 
 func ExtractNodejsRoutes(pid int32) (*RouteHarvesterResult, error) {
 	rootDir := rootDirForPID(pid)
 	_, args, err := cmdlineForPID(pid)
 	if err != nil {
-		return nil, fmt.Errorf("error finding cmd line, error %v", err)
+		return nil, fmt.Errorf("error finding cmd line, error %w", err)
 	}
 	workdir, err := cwdForPID(pid)
 	if err != nil {
-		return nil, fmt.Errorf("error finding cwd, error %v", err)
+		return nil, fmt.Errorf("error finding cwd, error %w", err)
 	}
 	jsExtractor := NewRouteExtractor()
 
@@ -519,7 +521,7 @@ func ExtractNodejsRoutes(pid int32) (*RouteHarvesterResult, error) {
 	}
 	err = jsExtractor.ScanDirectory(dir)
 	if err != nil {
-		return nil, fmt.Errorf("error scanning directory, error %v", err)
+		return nil, fmt.Errorf("error scanning directory, error %w", err)
 	}
 
 	routes := jsExtractor.GetHarvestedRoutes()

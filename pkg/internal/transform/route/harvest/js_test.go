@@ -1034,7 +1034,7 @@ func TestExtractNodejsRoutes(t *testing.T) {
 	// Create test directory structure
 	tempDir := t.TempDir()
 	testAppDir := filepath.Join(tempDir, "app")
-	require.NoError(t, os.MkdirAll(testAppDir, 0755))
+	require.NoError(t, os.MkdirAll(testAppDir, 0o755))
 
 	// Create a simple test JavaScript file with routes
 	testFile := filepath.Join(testAppDir, "server.js")
@@ -1056,7 +1056,7 @@ app.get('/api/users/:id', (req, res) => {
 
 app.listen(3000);
 `
-	require.NoError(t, os.WriteFile(testFile, []byte(testContent), 0644))
+	require.NoError(t, os.WriteFile(testFile, []byte(testContent), 0o644))
 
 	tests := []struct {
 		name           string
@@ -1174,7 +1174,7 @@ app.listen(3000);
 				require.NoError(t, err)
 				require.NotNil(t, result)
 				assert.Equal(t, CompleteRoutes, result.Kind)
-				assert.Equal(t, tt.expectedCount, len(result.Routes))
+				assert.Len(t, result.Routes, tt.expectedCount)
 
 				// Check that expected routes are present
 				for _, expectedRoute := range tt.expectedRoutes {
@@ -1200,17 +1200,17 @@ func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {
 	// Create empty directory
 	tempDir := t.TempDir()
 	emptyDir := filepath.Join(tempDir, "empty")
-	require.NoError(t, os.MkdirAll(emptyDir, 0755))
+	require.NoError(t, os.MkdirAll(emptyDir, 0o755))
 
-	rootDirForPID = func(pid int32) string {
+	rootDirForPID = func(_ int32) string {
 		return tempDir
 	}
 
-	cmdlineForPID = func(pid int32) (string, []string, error) {
+	cmdlineForPID = func(_ int32) (string, []string, error) {
 		return "node", []string{"node", "server.js"}, nil
 	}
 
-	cwdForPID = func(pid int32) (string, error) {
+	cwdForPID = func(_ int32) (string, error) {
 		return "/empty", nil
 	}
 
