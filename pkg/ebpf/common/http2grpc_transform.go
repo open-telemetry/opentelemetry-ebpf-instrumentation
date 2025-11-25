@@ -115,6 +115,8 @@ func handleHeaderField(hf *bhpack.HeaderField) bool {
 		if validContentType.MatchString(val) {
 			return true
 		}
+	case "grpc-status":
+		return true
 	}
 
 	return false
