@@ -5,11 +5,48 @@ package nodejs
 
 import (
 	"bufio"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
+
+// /root is purposefully missing, since we need it to star the file walk
+// we skip later any root directories we find that don't match our original
+// path
+var skipDirs = map[string]string{
+	// Linux root file system
+	"bin":        "Essential command binaries",
+	"boot":       "Boot loader files",
+	"dev":        "Device files",
+	"etc":        "System configuration files",
+	"home":       "User home directories",
+	"lib":        "Essential shared libraries",
+	"lib64":      "64-bit libraries",
+	"media":      "Removable media mount points",
+	"mnt":        "Temporary mount points",
+	"opt":        "Optional software packages",
+	"proc":       "Process and kernel information",
+	"run":        "Runtime data",
+	"sbin":       "System binaries",
+	"srv":        "Service data",
+	"sys":        "Kernel and device information",
+	"tmp":        "Temporary files",
+	"usr":        "User programs and data",
+	"var":        "Variable data",
+	"lost+found": "Recovered files",
+	"snap":       "Snap packages",
+	"flatpak":    "Flatpak packages",
+	"ostree":     "Used by rpm-ostree/Fedora Silverblue for atomic updates",
+	"sysroot":    "Used in some immutable/atomic variants as the actual root filesystem",
+	// Node specific
+	"node_modules": "Standard node modules",
+	".npm":         "npm build cache",
+	".git":         "git source control",
+	"dist":         "distribution directories",
+	"build":        "build directories",
+}
 
 // RoutePattern represents an extracted HTTP route
 type RoutePattern struct {
@@ -87,6 +124,7 @@ func newFrameworkPatterns() *FrameworkPatterns {
 }
 
 type RouteExtractor struct {
+	log      *slog.Logger
 	patterns *FrameworkPatterns
 	routes   []RoutePattern
 }
@@ -95,6 +133,7 @@ func NewRouteExtractor() *RouteExtractor {
 	return &RouteExtractor{
 		patterns: newFrameworkPatterns(),
 		routes:   []RoutePattern{},
+		log:      slog.With("component", "route.harvester.js"),
 	}
 }
 
@@ -314,10 +353,19 @@ func (e *RouteExtractor) ScanDirectory(root string) error {
 			return err
 		}
 
+		e.log.Debug("scanning", "path", path, "name", info.Name())
+
 		// Skip node_modules, .git, and other common dirs
 		if info.IsDir() {
 			name := info.Name()
-			if name == "node_modules" || name == ".git" || name == "dist" || name == "build" {
+			// skip the nested root directory in the original /proc/<pid>/root
+			if name == "root" && path != root {
+				return filepath.SkipDir
+			}
+
+			// check if the list of directories hits any known dirs for nodejs or linux
+			// we should be avoiding
+			if _, ok := skipDirs[name]; ok {
 				return filepath.SkipDir
 			}
 			return nil
@@ -326,7 +374,9 @@ func (e *RouteExtractor) ScanDirectory(root string) error {
 		// Only scan JS/TS file types
 		ext := filepath.Ext(path)
 		if ext == ".js" || ext == ".ts" || ext == ".mjs" || ext == ".cjs" {
-			return e.scanFile(path)
+			if err := e.scanFile(path); err != nil {
+				e.log.Debug("error processing file", "file", path, "error", err)
+			}
 		}
 
 		return nil
@@ -341,9 +391,9 @@ func (e *RouteExtractor) GetRoutes() []RoutePattern {
 // with dynamic segments replaced by :id placeholder.
 // Example: "/^\\/api\\/v1\\/products\\/[a-zA-Z0-9-]+$/" -> "/api/v1/products/:id"
 func (e *RouteExtractor) CleanupRegexPath(path string) string {
-	// If it's not a regex pattern (doesn't start /), return as-is
+	// If it's not a regex pattern (doesn't start /), return blank
 	if !strings.HasPrefix(path, "/") || len(path) < 2 {
-		return path
+		return ""
 	}
 
 	// Remove the leading and trailing / markers

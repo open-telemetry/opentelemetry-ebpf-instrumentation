@@ -61,6 +61,9 @@ func NewRouteHarvester(cfg *services.RouteHarvestingConfig, disabled []string, t
 		if strings.ToLower(lang) == "java" {
 			dMap[svc.InstrumentableJava] = struct{}{}
 		}
+		if strings.ToLower(lang) == "nodejs" || strings.ToLower(lang) == "node.js" {
+			dMap[svc.InstrumentableNodejs] = struct{}{}
+		}
 	}
 
 	h := &RouteHarvester{
@@ -132,11 +135,13 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 				rootDir := ebpfcommon.RootDirectoryForPID(fileInfo.Pid)
 				_, args, err := ebpfcommon.CMDLineForPID(fileInfo.Pid)
 				if err != nil {
+					h.log.Debug("error finding cmd line", "error", err)
 					resultChan <- result{err: err}
 					return
 				}
 				workdir, err := ebpfcommon.CWDForPID(fileInfo.Pid)
 				if err != nil {
+					h.log.Debug("error finding cwd line", "error", err)
 					resultChan <- result{err: err}
 					return
 				}
@@ -146,17 +151,23 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 
 				dir := findScriptDirectory(rootDir, firstArg, workdir)
 				if dir == "" {
+					h.log.Debug("failed to find script directory", "directory", dir, "root", rootDir, "firstArg", firstArg, "cwd", workdir)
 					resultChan <- result{err: fmt.Errorf("failed to find script directory for pid %d, script %s, cwd %s", fileInfo.Pid, firstArg, workdir)}
 					return
 				}
+				h.log.Debug("found node js application directory", "directory", dir, "root", rootDir, "firstArg", firstArg, "cwd", workdir)
 				err = jsExtractor.ScanDirectory(dir)
 				if err != nil {
+					h.log.Debug("error scanning", "error", err)
 					resultChan <- result{err: err}
 					return
 				}
 
+				routes := jsExtractor.GetHarvestedRoutes()
+				h.log.Debug("found node js application routes", "routes", routes)
+
 				r := RouteHarvesterResult{
-					Routes: jsExtractor.GetHarvestedRoutes(),
+					Routes: routes,
 					Kind:   CompleteRoutes,
 				}
 
@@ -223,5 +234,10 @@ func findScriptDirectory(root, firstArg, cwd string) string {
 		}
 	}
 
-	return filepath.Join(root, cwd)
+	result := filepath.Join(root, cwd)
+	if result != "" && result[len(result)-1] != filepath.Separator {
+		result += string(filepath.Separator)
+	}
+
+	return result
 }
