@@ -2,6 +2,12 @@
 
 This document the steps required to add a new TCP protocol based BPF tracer to OBI.
 
+## Table Of Contents
+
+- [Investigate the protocol](#investigate-the-protocol)
+- [Add the new protocol to the BPF program](#add-new-tcp-based-bpf-tracer)
+- [Other considerations](#other-considerations)
+
 ## Investigate the protocol
 
 First, you need to understand the protocol used by the application you want to trace. OBI captures TCP packets and you need to add the logic to identify the packets that belong to the protocol you want to trace. The are basically two cases:

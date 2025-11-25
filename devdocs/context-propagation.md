@@ -2,6 +2,30 @@
 
 This document explains how OpenTelemetry context propagation works in the eBPF instrumentation, including the coordination between different injection layers and the mutual exclusion mechanism.
 
+## Table Of Contents
+
+- [Overview](#overview)
+- [Configuration](#configuration)
+- [Egress (Sending) Flow](#egress-sending-flow)
+  - [Execution Order](#execution-order)
+    - [Scenario A: Go HTTP or SSL/TLS (uprobes involved)](#scenario-a-go-http-or-ssltls-uprobes-involved)
+    - [Scenario B: Plain HTTP (no uprobes, kprobes only)](#scenario-b-plain-http-no-uprobes-kprobes-only)
+    - [Scenario C: Non-HTTP TCP (no uprobes, socket not in sockmap)](#scenario-c-non-http-tcp-no-uprobes-socket-not-in-sockmap)
+  - [Mutual Exclusion Mechanism](#mutual-exclusion-mechanism)
+    - [Case 1: Traffic in sockmap with Go/SSL uprobes](#case-1-traffic-in-sockmap-with-gossl-uprobes)
+    - [Case 2: Traffic in sockmap without uprobes (plain HTTP via kprobes)](#case-2-traffic-in-sockmap-without-uprobes-plain-http-via-kprobes)
+    - [Case 3: Traffic NOT in sockmap (tpinjector doesn't run)](#case-3-traffic-not-in-sockmap-tpinjector-doesnt-run)
+    - [Case 4: TCP option injection fails](#case-4-tcp-option-injection-fails)
+- [Ingress (Receiving) Flow](#ingress-receiving-flow)
+  - [Execution Order](#execution-order)
+  - ["Last One Wins" Strategy](#last-one-wins-strategy)
+  - [Why "Last One Wins" on Ingress?](#why-last-one-wins-on-ingress)
+- [The outgoing_trace_map](#the-outgoing_trace_map)
+  - [tp_info_pid_t::valid (u8)](#tp_info_pid_tvalid-u8)
+  - [tp_info_pid_t::written (u8)](#tp_info_pid_twritten-u8)
+- [The incoming_trace_map](#the-incoming_trace_map)
+- [Summary](#summary)
+
 ## Overview
 
 Context propagation allows distributed tracing by injecting trace context (trace ID, span ID) into outgoing requests. The eBPF instrumentation supports multiple injection methods organized in a fallback hierarchy:
@@ -102,6 +126,7 @@ Result: TCP options only ✓
 **For Go HTTP (plaintext):**
 
 Go supports two approaches for HTTP header injection:
+
 - **Approach 1 (uprobe)**: Use `bpf_probe_write_user` to inject directly into Go's HTTP buffer
 - **Approach 2 (sk_msg)**: Use tpinjector to extend the packet
 

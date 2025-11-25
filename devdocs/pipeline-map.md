@@ -8,6 +8,11 @@ The dashed boxes are optional stages that will run only under certain conditions
 
 Check the in-code documentation for more information about each symbol.
 
+## Table Of Contents
+
+- [Application instrumentation pipeline](#application-instrumentation-pipeline)
+- [Network metrics pipeline](#network-metrics-pipeline)
+
 ## Application instrumentation pipeline
 
 ```mermaid

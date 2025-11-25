@@ -6,6 +6,15 @@ This repository already includes the configuration needed for working on the eBP
 
 You do not need to configure this file. You only need to set up VS Code to use it correctly.
 
+## Table Of Contents
+
+- [What You Need To Do](#what-you-need-to-do)
+  - [1. Install clangd and disable IntelliSense](#1-install-clangd-and-disable-intellisense)
+  - [2. Why clangd is the correct backend](#2-why-clangd-is-the-correct-backend)
+  - [3. What you get when clangd is active](#3-what-you-get-when-clangd-is-active)
+  - [4. Verify that clangd is active](#4-verify-that-clangd-is-active)
+  - [Optional: Make VS Code Treat .h Files as C](#optional-make-vs-code-treat-h-files-as-c)
+
 ## What You Need To Do
 
 ### 1. Install clangd and disable IntelliSense
