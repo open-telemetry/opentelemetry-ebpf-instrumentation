@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -86,7 +87,7 @@ func makeSvcGraphExporter(
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          []otelcfg.Feature{otelcfg.FeatureGraph},
+		Features:          []export.Feature{export.FeatureGraph},
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 100,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},

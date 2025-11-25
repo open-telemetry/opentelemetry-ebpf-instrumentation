@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
 
@@ -208,28 +209,28 @@ func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 }
 
 func TestMetricsConfig_Enabled(t *testing.T) {
-	assert.True(t, (&MetricsConfig{Features: []Feature{FeatureApplication, FeatureNetwork}, CommonEndpoint: "foo"}).Enabled())
-	assert.True(t, (&MetricsConfig{Features: []Feature{FeatureApplication}, MetricsEndpoint: "foo"}).Enabled())
-	assert.True(t, (&MetricsConfig{MetricsEndpoint: "foo", Features: []Feature{FeatureNetwork}}).Enabled())
+	assert.True(t, (&MetricsConfig{Features: []export.Feature{export.FeatureApplication, export.FeatureNetwork}, CommonEndpoint: "foo"}).Enabled())
+	assert.True(t, (&MetricsConfig{Features: []export.Feature{export.FeatureApplication}, MetricsEndpoint: "foo"}).Enabled())
+	assert.True(t, (&MetricsConfig{MetricsEndpoint: "foo", Features: []export.Feature{export.FeatureNetwork}}).Enabled())
 	assert.True(t, (&MetricsConfig{
-		Features:             []Feature{FeatureNetwork},
+		Features:             []export.Feature{export.FeatureNetwork},
 		OTLPEndpointProvider: func() (string, bool) { return "something", false },
 	}).Enabled())
 	assert.True(t, (&MetricsConfig{
-		Features:             []Feature{FeatureNetwork},
+		Features:             []export.Feature{export.FeatureNetwork},
 		OTLPEndpointProvider: func() (string, bool) { return "something", true },
 	}).Enabled())
 }
 
 func TestMetricsConfig_Disabled(t *testing.T) {
-	assert.False(t, (&MetricsConfig{Features: []Feature{FeatureApplication}}).Enabled())
-	assert.False(t, (&MetricsConfig{Features: []Feature{FeatureNetwork, FeatureApplication}}).Enabled())
-	assert.False(t, (&MetricsConfig{Features: []Feature{FeatureNetwork}}).Enabled())
+	assert.False(t, (&MetricsConfig{Features: []export.Feature{export.FeatureApplication}}).Enabled())
+	assert.False(t, (&MetricsConfig{Features: []export.Feature{export.FeatureNetwork, export.FeatureApplication}}).Enabled())
+	assert.False(t, (&MetricsConfig{Features: []export.Feature{export.FeatureNetwork}}).Enabled())
 	// application feature is not enabled
 	assert.False(t, (&MetricsConfig{CommonEndpoint: "foo"}).Enabled())
 	assert.False(t, (&MetricsConfig{}).Enabled())
 	assert.False(t, (&MetricsConfig{
-		Features:             []Feature{FeatureApplication},
+		Features:             []export.Feature{export.FeatureApplication},
 		OTLPEndpointProvider: func() (string, bool) { return "", false },
 	}).Enabled())
 }

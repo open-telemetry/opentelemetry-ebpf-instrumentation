@@ -19,13 +19,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -116,11 +116,11 @@ type PrometheusConfig struct {
 
 	// Features of metrics that can be exported. Accepted values: application, network, application_process,
 	// application_span, application_service_graph, ...
-	Features []otelcfg.Feature `yaml:"features" env:"OTEL_EBPF_PROMETHEUS_FEATURES" envSeparator:","`
+	Features []export.Feature `yaml:"features" env:"OTEL_EBPF_PROMETHEUS_FEATURES" envSeparator:","`
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
 	Instrumentations []instrumentations.Instrumentation `yaml:"instrumentations" env:"OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS" envSeparator:","`
 
-	Buckets otelcfg.Buckets `yaml:"buckets"`
+	Buckets export.Buckets `yaml:"buckets"`
 
 	// TTL is the time since a metric was updated for the last time until it is
 	// removed from the metrics set.
@@ -153,27 +153,27 @@ func (p *PrometheusConfig) AnySpanMetricsEnabled() bool {
 }
 
 func (p *PrometheusConfig) SpanMetricsSizesEnabled() bool {
-	return slices.Contains(p.Features, otelcfg.FeatureSpanSizes)
+	return slices.Contains(p.Features, export.FeatureSpanSizes)
 }
 
 func (p *PrometheusConfig) SpanMetricsEnabled() bool {
-	return slices.Contains(p.Features, otelcfg.FeatureSpan) || slices.Contains(p.Features, otelcfg.FeatureSpanOTel)
+	return slices.Contains(p.Features, export.FeatureSpan) || slices.Contains(p.Features, export.FeatureSpanOTel)
 }
 
 func (p *PrometheusConfig) InvalidSpanMetricsConfig() bool {
-	return slices.Contains(p.Features, otelcfg.FeatureSpan) && slices.Contains(p.Features, otelcfg.FeatureSpanOTel)
+	return slices.Contains(p.Features, export.FeatureSpan) && slices.Contains(p.Features, export.FeatureSpanOTel)
 }
 
 func (p *PrometheusConfig) HostMetricsEnabled() bool {
-	return slices.Contains(p.Features, otelcfg.FeatureApplicationHost)
+	return slices.Contains(p.Features, export.FeatureApplicationHost)
 }
 
 func (p *PrometheusConfig) OTelMetricsEnabled() bool {
-	return slices.Contains(p.Features, otelcfg.FeatureApplication)
+	return slices.Contains(p.Features, export.FeatureApplication)
 }
 
 func (p *PrometheusConfig) ServiceGraphMetricsEnabled() bool {
-	return slices.Contains(p.Features, otelcfg.FeatureGraph)
+	return slices.Contains(p.Features, export.FeatureGraph)
 }
 
 func (p *PrometheusConfig) NetworkMetricsEnabled() bool {
@@ -181,15 +181,15 @@ func (p *PrometheusConfig) NetworkMetricsEnabled() bool {
 }
 
 func (p *PrometheusConfig) NetworkFlowBytesEnabled() bool {
-	return slices.Contains(p.Features, otelcfg.FeatureNetwork)
+	return slices.Contains(p.Features, export.FeatureNetwork)
 }
 
 func (p *PrometheusConfig) NetworkInterzoneMetricsEnabled() bool {
-	return slices.Contains(p.Features, otelcfg.FeatureNetworkInterZone)
+	return slices.Contains(p.Features, export.FeatureNetworkInterZone)
 }
 
 func (p *PrometheusConfig) EBPFEnabled() bool {
-	return slices.Contains(p.Features, otelcfg.FeatureEBPF)
+	return slices.Contains(p.Features, export.FeatureEBPF)
 }
 
 func (p *PrometheusConfig) EndpointEnabled() bool {
@@ -309,7 +309,7 @@ func PrometheusEndpoint(
 }
 
 func (p *PrometheusConfig) spanMetricsLatencyName() string {
-	if slices.Contains(p.Features, otelcfg.FeatureSpan) {
+	if slices.Contains(p.Features, export.FeatureSpan) {
 		return SpanMetricsLatency
 	}
 
@@ -317,7 +317,7 @@ func (p *PrometheusConfig) spanMetricsLatencyName() string {
 }
 
 func (p *PrometheusConfig) spanMetricsCallsName() string {
-	if slices.Contains(p.Features, otelcfg.FeatureSpan) {
+	if slices.Contains(p.Features, export.FeatureSpan) {
 		return SpanMetricsCalls
 	}
 

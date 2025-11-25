@@ -11,6 +11,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/cache"
@@ -69,8 +70,8 @@ func SpanNameLimiter(cfg SpanNameLimiterConfig, input, output *msg.Queue[[]reque
 
 func enabled(cfg *SpanNameLimiterConfig) bool {
 	return cfg.Limit > 0 &&
-		(slices.Contains(cfg.OTEL.Features, otelcfg.FeatureSpan) ||
-			slices.Contains(cfg.Prom.Features, otelcfg.FeatureSpan))
+		(slices.Contains(cfg.OTEL.Features, export.FeatureSpan) ||
+			slices.Contains(cfg.Prom.Features, export.FeatureSpan))
 }
 
 func (l *spanNameLimiter) doLimit(ctx context.Context) {

@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/tcmanager"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/debug"
@@ -126,10 +127,10 @@ var DefaultConfig = Config{
 		MetricsProtocol: otelcfg.ProtocolUnset,
 		// Matches Alloy and Grafana recommended scrape interval
 		OTELIntervalMS:       60_000,
-		Buckets:              otelcfg.DefaultBuckets,
+		Buckets:              export.DefaultBuckets,
 		ReportersCacheLen:    ReporterLRUSize,
 		HistogramAggregation: otel.AggregationExplicit,
-		Features:             []otelcfg.Feature{otelcfg.FeatureApplication},
+		Features:             []export.Feature{export.FeatureApplication},
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
@@ -153,8 +154,8 @@ var DefaultConfig = Config{
 	},
 	Prometheus: prom.PrometheusConfig{
 		Path:     "/metrics",
-		Buckets:  otelcfg.DefaultBuckets,
-		Features: []otelcfg.Feature{otelcfg.FeatureApplication},
+		Buckets:  export.DefaultBuckets,
+		Features: []export.Feature{export.FeatureApplication},
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},

@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -365,7 +366,7 @@ func (mr *MetricsReporter) otelMetricOptions(mlog *slog.Logger) []metric.Option 
 }
 
 func (mr *MetricsReporter) usesLegacySpanNames() bool {
-	return slices.Contains(mr.cfg.Features, otelcfg.FeatureSpan)
+	return slices.Contains(mr.cfg.Features, export.FeatureSpan)
 }
 
 func (mr *MetricsReporter) spanMetricsLatencyName() string {
