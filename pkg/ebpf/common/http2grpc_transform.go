@@ -35,8 +35,10 @@ const (
 
 const initialHeaderTableSize = 4096
 
-var validPath = regexp.MustCompile(`^[A-Za-z0-9\-/._~]+$`)
-var validContentType = regexp.MustCompile(`^[A-Za-z\-/\+]+$`)
+var (
+	validPath        = regexp.MustCompile(`^[A-Za-z0-9\-/._~]+$`)
+	validContentType = regexp.MustCompile(`^[A-Za-z\-/\+]+$`)
+)
 
 type h2Connection struct {
 	hdec     *bhpack.Decoder
