@@ -661,7 +661,7 @@ static __always_inline void inject_ip_options(struct __sk_buff *skb,
     }
 
     if (tp->written) {
-        bpf_dbg_printk("tp already written by L7, not injecting IP options");
+        bpf_dbg_printk("%s: tp already written by L7, not injecting IP options", __FUNCTION__);
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
         return;
     }

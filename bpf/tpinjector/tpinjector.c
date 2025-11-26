@@ -225,7 +225,7 @@ static __always_inline connection_info_t sk_msg_extract_key_ip6(struct sk_msg_md
 
 static __always_inline bool
 create_trace_info(u64 id, const connection_info_t *conn, tp_info_pid_t *tp_p) {
-    bpf_dbg_printk("=== %s ===", __FUNCTION__);
+    bpf_dbg_printk("=== obi_packet_extender(%s) ===", __FUNCTION__);
 
     pid_connection_info_t *p_conn = pid_conn_info_buf();
 
@@ -248,11 +248,11 @@ create_trace_info(u64 id, const connection_info_t *conn, tp_info_pid_t *tp_p) {
     urand_bytes(tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
 
     if (find_trace_for_client_request(p_conn, p_conn->conn.d_port, &tp_p->tp)) {
-        bpf_dbg_printk("found existing tp info");
+        bpf_dbg_printk("obi_packet_extender(%s): found existing tp info", __FUNCTION__);
         return true;
     }
 
-    bpf_dbg_printk("generating tp info");
+    bpf_dbg_printk("obi_packet_extender(%s): generating tp info", __FUNCTION__);
 
     new_trace_id(&tp_p->tp);
     __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
@@ -292,7 +292,7 @@ static __always_inline void bpf_sock_ops_opt_len_cb(struct bpf_sock_ops *skops) 
     const long ret = bpf_reserve_hdr_opt(skops, sizeof(struct tp_option), 0);
 
     if (ret != 0) {
-        bpf_dbg_printk("bpf_sock_ops_opt_len_cb: failed to reserve TCP option: %d", ret);
+        bpf_dbg_printk("%s: failed to reserve TCP option: %d", __FUNCTION__, ret);
         return;
     }
 }
@@ -307,7 +307,7 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
     const tp_info_pid_t *tp_pid = bpf_sk_storage_get(&sk_tp_info_pid_map, sk, NULL, 0);
 
     if (!tp_pid) {
-        bpf_dbg_printk("bpf_sock_ops_write_hdr_cb: tp info not found");
+        bpf_dbg_printk("%s: tp info not found", __FUNCTION__);
         return;
     }
 
@@ -323,14 +323,14 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
     const long ret = bpf_store_hdr_opt(skops, &opt, sizeof(opt), 0);
 
     if (ret != 0) {
-        bpf_dbg_printk("bpf_sock_ops_write_hdr_cb: failed to store option: %d", ret);
+        bpf_dbg_printk("%s: failed to store option: %d", __FUNCTION__, ret);
     }
 
     if (k_bpf_debug) {
         const char *tp_str = tp_string_from_opt(&opt);
 
         if (tp_str) {
-            bpf_dbg_printk("bpf_sock_ops_write_hdb_cb: written TP to TCP options: %s", tp_str);
+            bpf_dbg_printk("%s: written TP to TCP options: %s", __FUNCTION__, tp_str);
         }
     }
 }
@@ -346,7 +346,7 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
     }
 
     if (ret < 0) {
-        bpf_dbg_printk("bpf_sock_ops_parse_hdr_cb: error parsing TCP option = %d", ret);
+        bpf_dbg_printk("%s: error parsing TCP option: %d", __FUNCTION__, ret);
         return;
     }
 
@@ -354,7 +354,7 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
         const char *tp_str = tp_string_from_opt(&opt);
 
         if (tp_str) {
-            bpf_dbg_printk("bpf_sock_ops_parse_hdr_cb: found TP in TCP options: %s", tp_str);
+            bpf_dbg_printk("%s: found TP in TCP options: %s", __FUNCTION__, tp_str);
         }
     }
 
@@ -416,7 +416,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
                                             u64 id,
                                             const connection_info_t *conn,
                                             const egress_key_t *e_key) {
-    bpf_dbg_printk("=== [protocol detector] %d size %d===", id, msg->size);
+    bpf_dbg_printk("%s: id=%d, size=%d", __FUNCTION__, id, msg->size);
 
     pid_connection_info_t p_conn = {};
     __builtin_memcpy(&p_conn.conn, conn, sizeof(connection_info_t));
@@ -443,7 +443,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
     unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
     if (!msg_ptr) {
-        bpf_d_printk("protocol_detector: failed to reserve msg_buffer space");
+        bpf_d_printk("%s: failed to reserve msg_buffer space", __FUNCTION__);
         return 0;
     }
 
@@ -465,12 +465,12 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
     // started tracking it. We only want to extend the first packet that
     // looks like HTTP, not something that's passing HTTP in the body.
     if (already_tracked(&p_conn)) {
-        bpf_dbg_printk("already extended before, ignoring this packet...");
+        bpf_dbg_printk("%s: already extended before, ignoring this packet...", __FUNCTION__);
         return 0;
     }
 
     if (is_http_request_buf((const unsigned char *)msg_ptr)) {
-        bpf_dbg_printk("Setting up request to be extended");
+        bpf_dbg_printk("%s: setting up request to be extended", __FUNCTION__);
 
         return 1;
     }
@@ -550,7 +550,7 @@ make_tp_string_skb(unsigned char *buf, const tp_info_t *tp, const unsigned char 
     *buf++ = '\r';
     *buf++ = '\n';
 
-    bpf_dbg_printk("obi_packet_extender: %s", tp_string);
+    bpf_dbg_printk("obi_packet_extender(%s): %s", __FUNCTION__, tp_string);
 }
 
 static __always_inline bool
@@ -558,23 +558,25 @@ extend_and_write_tp(struct sk_msg_md *msg, u32 offset, const tp_info_t *tp) {
     const long err = bpf_msg_push_data(msg, offset, EXTEND_SIZE, 0);
 
     if (err != 0) {
-        bpf_d_printk("failed to push data: %d", err);
+        bpf_d_printk("%s: failed to push data: %d", __FUNCTION__, err);
         return false;
     }
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
-    bpf_dbg_printk(
-        "offset to split %d, available: %u, size %u", offset, msg->data_end - msg->data, msg->size);
+    bpf_dbg_printk("extend_and_write_tp: offset to split=%d, available=%u, size=%u",
+                   offset,
+                   msg->data_end - msg->data,
+                   msg->size);
 
     if (!msg->data) {
-        bpf_d_printk("null data");
+        bpf_d_printk("%s: null data", __FUNCTION__);
         return false;
     }
 
     unsigned char *ptr = msg->data + offset;
 
     if ((void *)ptr + EXTEND_SIZE >= msg->data_end) {
-        bpf_d_printk("not enough space");
+        bpf_d_printk("%s: not enough space", __FUNCTION__);
         return false;
     }
 
@@ -634,7 +636,7 @@ static __always_inline void write_http_traceparent(struct sk_msg_md *msg, tp_inf
 
     bpf_tail_call(msg, &extender_jump_table, k_tail_write_msg_traceparent);
 
-    bpf_d_printk("tailcall failed");
+    bpf_d_printk("%s: tailcall failed", __FUNCTION__);
 }
 
 static __always_inline void handle_existing_tp_pid(struct sk_msg_md *msg,
@@ -698,10 +700,10 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     if (!valid_pid(id)) {
         return SK_PASS;
     }
-
-    bpf_dbg_printk("MSG %llx:%d ->", conn.s_ip[3], conn.s_port);
-    bpf_dbg_printk("MSG TO %llx:%d", conn.d_ip[3], conn.d_port);
-    bpf_dbg_printk("MSG SIZE: %u", msg->size);
+    bpf_dbg_printk("=== %s ===", __FUNCTION__);
+    bpf_dbg_printk("%s: MSG=%llx:%d ->", __FUNCTION__, conn.s_ip[3], conn.s_port);
+    bpf_dbg_printk("%s: MSG TO=%llx:%d", __FUNCTION__, conn.d_ip[3], conn.d_port);
+    bpf_dbg_printk("%s: MSG SIZE=%u", __FUNCTION__, msg->size);
 
     if (msg->size <= MIN_HTTP_SIZE) {
         // not enough data to detect anything, bail
@@ -721,9 +723,11 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    bpf_dbg_printk("len %d, s_port %d, buf: %s", msg->size, msg->local_port, msg->data);
-    bpf_dbg_printk("ptr = %llx, end = %llx", ctx_msg_data(msg), ctx_msg_data_end(msg));
-    bpf_dbg_printk("BUF: '%s'", ctx_msg_data(msg));
+    bpf_dbg_printk("%s: len=%d, s_port=%d", __FUNCTION__, msg->size, msg->local_port);
+    bpf_dbg_printk("%s: buf=[%s]", __FUNCTION__, msg->data);
+    bpf_dbg_printk(
+        "%s: ptr=%llx, end=%llx", __FUNCTION__, ctx_msg_data(msg), ctx_msg_data_end(msg));
+    bpf_dbg_printk("%s: BUF=[%s]", __FUNCTION__, ctx_msg_data(msg));
 
     // we've found the start of a new HTTP request, let's generate new TP info for it
     tp_info_pid_t *tp_p = tp_buf();
@@ -748,7 +752,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     if (inject_flags & k_inject_http_headers) {
         // write the HTTP headers
         bpf_tail_call(msg, &extender_jump_table, k_tail_write_msg_traceparent);
-        bpf_d_printk("tailcall failed");
+        bpf_d_printk("%s: tailcall failed", __FUNCTION__);
     }
 
     return SK_PASS;
@@ -762,17 +766,17 @@ int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
     tp_info_pid_t *tp_p = tp_buf();
 
     if (!tp_p) {
-        bpf_dbg_printk("empty tp_buf");
+        bpf_dbg_printk("%s: empty tp_buf", __FUNCTION__);
         return SK_PASS;
     }
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
 
     if (!write_msg_traceparent(msg, &tp_p->tp)) {
-        bpf_d_printk("failed to write traceparent");
+        bpf_d_printk("%s: failed to write traceparent", __FUNCTION__);
     }
 
-    bpf_dbg_printk("BUF = [%s]", msg->data);
+    bpf_dbg_printk("%s: BUF=[%s]", __FUNCTION__, msg->data);
 
     return SK_PASS;
 }
