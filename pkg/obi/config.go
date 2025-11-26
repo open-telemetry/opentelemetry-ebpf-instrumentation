@@ -130,7 +130,7 @@ var DefaultConfig = Config{
 		Buckets:              export.DefaultBuckets,
 		ReportersCacheLen:    ReporterLRUSize,
 		HistogramAggregation: otel.AggregationExplicit,
-		Features:             []export.Feature{export.FeatureApplication},
+		Features:             export.FeatureApplication,
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
@@ -155,7 +155,7 @@ var DefaultConfig = Config{
 	Prometheus: prom.PrometheusConfig{
 		Path:     "/metrics",
 		Buckets:  export.DefaultBuckets,
-		Features: []export.Feature{export.FeatureApplication},
+		Features: export.FeatureApplication,
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},

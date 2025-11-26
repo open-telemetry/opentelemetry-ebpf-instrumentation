@@ -32,8 +32,8 @@ func TestSpanNameLimiter(t *testing.T) {
 	outCh := output.Subscribe()
 	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
 		Limit: maxCardinalityBeforeAggregation,
-		OTEL:  &otelcfg.MetricsConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
-		Prom:  &prom.PrometheusConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
+		OTEL:  &otelcfg.MetricsConfig{Features: export.FeatureSpan, TTL: time.Minute},
+		Prom:  &prom.PrometheusConfig{Features: export.FeatureSpan, TTL: time.Minute},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 
@@ -117,8 +117,8 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 		outCh := output.Subscribe()
 		runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
 			Limit: maxCardinalityBeforeAggregation,
-			OTEL:  &otelcfg.MetricsConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
-			Prom:  &prom.PrometheusConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
+			OTEL:  &otelcfg.MetricsConfig{Features: export.FeatureSpan, TTL: time.Minute},
+			Prom:  &prom.PrometheusConfig{Features: export.FeatureSpan, TTL: time.Minute},
 		}, input, output)(t.Context())
 		require.NoError(t, err)
 
@@ -181,8 +181,8 @@ func TestSpanNameLimiter_CopiesOutput(t *testing.T) {
 	outCh := output.Subscribe()
 	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
 		Limit: 3,
-		OTEL:  &otelcfg.MetricsConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
-		Prom:  &prom.PrometheusConfig{Features: []export.Feature{export.FeatureSpan}, TTL: time.Minute},
+		OTEL:  &otelcfg.MetricsConfig{Features: export.FeatureSpan, TTL: time.Minute},
+		Prom:  &prom.PrometheusConfig{Features: export.FeatureSpan, TTL: time.Minute},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 

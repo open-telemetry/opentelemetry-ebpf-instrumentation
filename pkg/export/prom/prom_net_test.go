@@ -40,7 +40,7 @@ func TestMetricsExpiration(t *testing.T) {
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    []export.Feature{export.FeatureNetwork},
+			Features:                    export.FeatureNetwork,
 		}, SelectorCfg: &attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.NetworkFlow.Section: attributes.InclusionLists{
