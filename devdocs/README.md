@@ -8,4 +8,4 @@ This directory contains documentation that is not useful for our users but might
 - [Profiling](profiling.md): how to profile OBI.
 - [Features](features.md): features supported by OBI.
 - [Context Propagation Architecture](context-propagation.md): how OpenTelemetry context propagation works in the eBPF instrumentation.
-- [Protocols](context-propagation.md): how OpenTelemetry context propagation works in the eBPF instrumentation.
+- [Protocols](protocols.md): documentation about supported protocols.
