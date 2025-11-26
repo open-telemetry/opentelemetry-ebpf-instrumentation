@@ -51,7 +51,7 @@ After successfully parsing a metadata response, OBI stores the topic names and t
 when parsing a fetch request of version 13 or above, OBI looks up the topic id in the cache to get the topic name.
 This cache can be configured via the `ebpf.KafkaTopicUUIDCacheSize` config option.
 if OBI does not find the topic id in the cache, it sets the topic name to `*`.
-this works but with some limitations:
+This works but with some limitations:
 
 - Since metadata requests are usually sent at the beginning of a consumer lifecycle, or perhaps after a rebalance, OBI might miss some topic ids if the metadata request was sent before OBI started.
 - Currently the metadata response is capped at 128 bytes, if the response is larger than that, which in large clusters is very likely since the metadata response contains all broker metadata, OBI will miss the topic id mappings.
