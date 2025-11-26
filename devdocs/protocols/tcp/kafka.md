@@ -19,7 +19,7 @@ the `request_api_key` defines the type of request, for example, `produce` or `fe
 the `request_api_version` defines the version of the request, each message type has its own set of versions, and they increment independently.
 the `correlation_id` is used to correlate requests and responses.
 
-current request types OBI is tracking are:
+Current request types OBI is tracking are:
 
 - *Produce (api key 0)*: OBI tracks these requests and produces `produce` spans.
 - *Fetch (api key 1)*: OBI tracks these requests and produces `consume` spans.
