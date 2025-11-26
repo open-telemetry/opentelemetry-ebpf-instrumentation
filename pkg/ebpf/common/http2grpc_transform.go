@@ -102,6 +102,13 @@ func handleHeaderField(hf *bhpack.HeaderField) bool {
 		if isHTTPOp(val) {
 			return true
 		}
+	case ":scheme":
+		val := strings.ToUpper(hf.Value)
+		if val == "HTTP" {
+			return true
+		}
+	case "traceparent":
+		return true
 	case ":path":
 		val := hf.Value
 		if pos := strings.Index(val, "?"); pos >= 0 {
