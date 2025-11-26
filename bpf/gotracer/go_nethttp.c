@@ -691,6 +691,7 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->go_start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
+    trace->pattern[0] = '\0';
 
     // Copy the values read on request start
     __builtin_memcpy(trace->method, data->method, sizeof(trace->method));
