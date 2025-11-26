@@ -47,7 +47,7 @@ each parser also tries to handle all different versions of each message type, as
 
 From fetch api version 13 and above, the topic names are no longer present in the fetch request, and were changed to include the topic ids instead.
 In order to be able to track the topic names, OBI tracks the metadata requests and responses, in the metadata response, the topic names and their corresponding topic ids are present.
-after successfully parsing a metadata response, OBI stores the topic names and their corresponding topic ids in the `KafkaTopicUUIDToName` cache
+After successfully parsing a metadata response, OBI stores the topic names and their corresponding topic ids in the `KafkaTopicUUIDToName` cache
 when parsing a fetch request of version 13 or above, OBI looks up the topic id in the cache to get the topic name.
 this cache can be configured via the `ebpf.KafkaTopicUUIDCacheSize` config option.
 if OBI does not find the topic id in the cache, it sets the topic name to `*`.
