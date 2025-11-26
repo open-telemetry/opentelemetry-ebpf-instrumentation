@@ -41,7 +41,7 @@ Currently the Kafka packet is sent to userspace, and goes through the function `
 and gets parsed into a potential Kafka info structure by the function `ProcessKafkaEvent` in [Kafka_detect_transform.go](../../../pkg/ebpf/common/Kafka_detect_transform.go)
 most of the Kafka parsing logic is in the file [Kafka_parser package](../../../pkg/internal/ebpf/Kafkaparser), where each message type has its own parser.
 It's important to state that these parser ignore any fields that are not relevant for tracing, as well as being able to work on truncated packets (as the BPF program captures only the first 256 bytes of each packet without large buffers).
-each parser also tries to handle all different versions of each message type, as well as any nested structures.
+Each parser also tries to handle all different versions of each message type, as well as any nested structures.
 
 ### Tracking topic names for fetch requests v13 and above
 
