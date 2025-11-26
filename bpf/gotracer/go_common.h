@@ -103,6 +103,7 @@ typedef struct sql_func_invocation {
     u64 start_monotime_ns;
     u64 sql_param;
     u64 query_len;
+    u64 driver_conn_ptr; // Pointer to driverConn (to get *DB)
     tp_info_t tp;
     connection_info_t conn;
     u8 _pad[4];
@@ -114,6 +115,13 @@ struct {
     __type(value, sql_func_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_sql_queries SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, u64); // key: pointer to *DB
+    __type(value, unsigned char[256]); // value: hostname from DSN
+    __uint(max_entries, 1024);
+} sql_db_hostname SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);

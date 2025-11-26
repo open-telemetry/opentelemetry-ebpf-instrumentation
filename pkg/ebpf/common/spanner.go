@@ -106,6 +106,10 @@ func SQLRequestTraceToSpan(trace *SQLRequestTrace) request.Span {
 		hostPort = int(trace.Conn.D_port)
 	}
 
+	// Use hostname from DSN if available (captured from sql.Open)
+	// This preserves the original hostname before DNS resolution
+	dsnHostname := cstr(trace.Hostname[:])
+
 	return request.Span{
 		Type:          request.EventType(trace.Type),
 		Method:        method,
@@ -114,6 +118,7 @@ func SQLRequestTraceToSpan(trace *SQLRequestTrace) request.Span {
 		PeerPort:      peerPort,
 		Host:          hostname,
 		HostPort:      hostPort,
+		HostName:      dsnHostname,
 		ContentLength: 0,
 		RequestStart:  int64(trace.StartMonotimeNs),
 		Start:         int64(trace.StartMonotimeNs),
