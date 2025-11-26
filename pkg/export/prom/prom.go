@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -116,7 +115,7 @@ type PrometheusConfig struct {
 
 	// Features of metrics that can be exported. Accepted values: application, network, application_process,
 	// application_span, application_service_graph, ...
-	Features []export.Feature `yaml:"features" env:"OTEL_EBPF_PROMETHEUS_FEATURES" envSeparator:","`
+	Features export.Features `yaml:"features" env:"OTEL_EBPF_PROMETHEUS_FEATURES" envSeparator:","`
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
 	Instrumentations []instrumentations.Instrumentation `yaml:"instrumentations" env:"OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS" envSeparator:","`
 
@@ -153,27 +152,27 @@ func (p *PrometheusConfig) AnySpanMetricsEnabled() bool {
 }
 
 func (p *PrometheusConfig) SpanMetricsSizesEnabled() bool {
-	return slices.Contains(p.Features, export.FeatureSpanSizes)
+	return p.Features.Has(export.FeatureSpanSizes)
 }
 
 func (p *PrometheusConfig) SpanMetricsEnabled() bool {
-	return slices.Contains(p.Features, export.FeatureSpan) || slices.Contains(p.Features, export.FeatureSpanOTel)
+	return p.Features.Any(export.FeatureSpan | export.FeatureSpanOTel)
 }
 
 func (p *PrometheusConfig) InvalidSpanMetricsConfig() bool {
-	return slices.Contains(p.Features, export.FeatureSpan) && slices.Contains(p.Features, export.FeatureSpanOTel)
+	return p.Features.Has(export.FeatureSpan | export.FeatureSpanOTel)
 }
 
 func (p *PrometheusConfig) HostMetricsEnabled() bool {
-	return slices.Contains(p.Features, export.FeatureApplicationHost)
+	return p.Features.Has(export.FeatureApplicationHost)
 }
 
 func (p *PrometheusConfig) OTelMetricsEnabled() bool {
-	return slices.Contains(p.Features, export.FeatureApplication)
+	return p.Features.Has(export.FeatureApplication)
 }
 
 func (p *PrometheusConfig) ServiceGraphMetricsEnabled() bool {
-	return slices.Contains(p.Features, export.FeatureGraph)
+	return p.Features.Has(export.FeatureGraph)
 }
 
 func (p *PrometheusConfig) NetworkMetricsEnabled() bool {
@@ -181,15 +180,15 @@ func (p *PrometheusConfig) NetworkMetricsEnabled() bool {
 }
 
 func (p *PrometheusConfig) NetworkFlowBytesEnabled() bool {
-	return slices.Contains(p.Features, export.FeatureNetwork)
+	return p.Features.Has(export.FeatureNetwork)
 }
 
 func (p *PrometheusConfig) NetworkInterzoneMetricsEnabled() bool {
-	return slices.Contains(p.Features, export.FeatureNetworkInterZone)
+	return p.Features.Has(export.FeatureNetworkInterZone)
 }
 
 func (p *PrometheusConfig) EBPFEnabled() bool {
-	return slices.Contains(p.Features, export.FeatureEBPF)
+	return p.Features.Has(export.FeatureEBPF)
 }
 
 func (p *PrometheusConfig) EndpointEnabled() bool {
@@ -309,7 +308,7 @@ func PrometheusEndpoint(
 }
 
 func (p *PrometheusConfig) spanMetricsLatencyName() string {
-	if slices.Contains(p.Features, export.FeatureSpan) {
+	if p.Features.Has(export.FeatureSpan) {
 		return SpanMetricsLatency
 	}
 
@@ -317,7 +316,7 @@ func (p *PrometheusConfig) spanMetricsLatencyName() string {
 }
 
 func (p *PrometheusConfig) spanMetricsCallsName() string {
-	if slices.Contains(p.Features, export.FeatureSpan) {
+	if p.Features.Has(export.FeatureSpan) {
 		return SpanMetricsCalls
 	}
 

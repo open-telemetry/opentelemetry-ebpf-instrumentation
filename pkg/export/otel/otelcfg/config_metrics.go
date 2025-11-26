@@ -9,7 +9,6 @@ import (
 	"maps"
 	"net/url"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -48,7 +47,7 @@ type MetricsConfig struct {
 	// Features of metrics that can be exported. Accepted values: application, network, application_process,
 	// application_span, application_service_graph, ...
 	// envDefault is provided to avoid breaking changes
-	Features []export.Feature `yaml:"features" env:"OTEL_EBPF_METRICS_FEATURES,expand" envDefault:"${OTEL_EBPF_METRIC_FEATURES}" envSeparator:","`
+	Features export.Features `yaml:"features" env:"OTEL_EBPF_METRICS_FEATURES,expand" envDefault:"${OTEL_EBPF_METRIC_FEATURES}" envSeparator:","`
 
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
 	Instrumentations []instrumentations.Instrumentation `yaml:"instrumentations" env:"OTEL_EBPF_METRICS_INSTRUMENTATIONS" envSeparator:","`
@@ -134,27 +133,27 @@ func (m *MetricsConfig) AnySpanMetricsEnabled() bool {
 }
 
 func (m *MetricsConfig) SpanMetricsSizesEnabled() bool {
-	return slices.Contains(m.Features, export.FeatureSpanSizes)
+	return m.Features.Has(export.FeatureSpanSizes)
 }
 
 func (m *MetricsConfig) SpanMetricsEnabled() bool {
-	return slices.Contains(m.Features, export.FeatureSpan) || slices.Contains(m.Features, export.FeatureSpanOTel)
+	return m.Features.Any(export.FeatureSpan | export.FeatureSpanOTel)
 }
 
 func (m *MetricsConfig) InvalidSpanMetricsConfig() bool {
-	return slices.Contains(m.Features, export.FeatureSpan) && slices.Contains(m.Features, export.FeatureSpanOTel)
+	return m.Features.Has(export.FeatureSpan | export.FeatureSpanOTel)
 }
 
 func (m *MetricsConfig) HostMetricsEnabled() bool {
-	return slices.Contains(m.Features, export.FeatureApplicationHost)
+	return m.Features.Has(export.FeatureApplicationHost)
 }
 
 func (m *MetricsConfig) ServiceGraphMetricsEnabled() bool {
-	return slices.Contains(m.Features, export.FeatureGraph)
+	return m.Features.Has(export.FeatureGraph)
 }
 
 func (m *MetricsConfig) OTelMetricsEnabled() bool {
-	return slices.Contains(m.Features, export.FeatureApplication)
+	return m.Features.Has(export.FeatureApplication)
 }
 
 func (m *MetricsConfig) NetworkMetricsEnabled() bool {
@@ -162,11 +161,11 @@ func (m *MetricsConfig) NetworkMetricsEnabled() bool {
 }
 
 func (m *MetricsConfig) NetworkFlowBytesEnabled() bool {
-	return slices.Contains(m.Features, export.FeatureNetwork)
+	return m.Features.Has(export.FeatureNetwork)
 }
 
 func (m *MetricsConfig) NetworkInterzoneMetricsEnabled() bool {
-	return slices.Contains(m.Features, export.FeatureNetworkInterZone)
+	return m.Features.Has(export.FeatureNetworkInterZone)
 }
 
 func (m *MetricsConfig) Enabled() bool {

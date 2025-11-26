@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
@@ -366,7 +365,7 @@ func (mr *MetricsReporter) otelMetricOptions(mlog *slog.Logger) []metric.Option 
 }
 
 func (mr *MetricsReporter) usesLegacySpanNames() bool {
-	return slices.Contains(mr.cfg.Features, export.FeatureSpan)
+	return mr.cfg.Features.Has(export.FeatureSpan)
 }
 
 func (mr *MetricsReporter) spanMetricsLatencyName() string {
