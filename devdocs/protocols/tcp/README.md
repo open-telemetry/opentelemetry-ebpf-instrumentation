@@ -4,5 +4,5 @@ This directory contains documentation for the supported protocol parsers that OB
 
 ## Table Of Contents
 
-- [kafka](kafka.md): Kafka protocol parser.
+- [Kafka](kafka.md): Kafka protocol parser.
 - [New Tracer](new-tcp-tracer.md): how to add a new TCP protocol based BPF tracer to OBI.
