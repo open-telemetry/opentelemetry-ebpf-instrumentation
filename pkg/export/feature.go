@@ -53,6 +53,10 @@ func (f Features) Has(feature Features) bool {
 	return maps.Bits(f).Has(maps.Bits(feature))
 }
 
+func (f Features) Any(feature Features) bool {
+	return maps.Bits(f).Any(maps.Bits(feature))
+}
+
 func (f *Features) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.SequenceNode {
 		return fmt.Errorf("feature: unexpected YAML node kind %v", value.Kind)

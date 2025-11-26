@@ -137,7 +137,7 @@ func (m *MetricsConfig) SpanMetricsSizesEnabled() bool {
 }
 
 func (m *MetricsConfig) SpanMetricsEnabled() bool {
-	return m.Features.Has(export.FeatureSpan) || m.Features.Has(export.FeatureSpanOTel)
+	return m.Features.Any(export.FeatureSpan | export.FeatureSpanOTel)
 }
 
 func (m *MetricsConfig) InvalidSpanMetricsConfig() bool {

@@ -156,7 +156,7 @@ func (p *PrometheusConfig) SpanMetricsSizesEnabled() bool {
 }
 
 func (p *PrometheusConfig) SpanMetricsEnabled() bool {
-	return p.Features.Has(export.FeatureSpan) || p.Features.Has(export.FeatureSpanOTel)
+	return p.Features.Any(export.FeatureSpan | export.FeatureSpanOTel)
 }
 
 func (p *PrometheusConfig) InvalidSpanMetricsConfig() bool {
