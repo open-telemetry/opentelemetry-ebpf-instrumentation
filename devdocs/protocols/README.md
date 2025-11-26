@@ -4,4 +4,4 @@ This directory contains documentation for the supported protocol parser that OBI
 
 ## Table Of Contents
 
-- [tcp](tcp/README.md): Protocol parsers based on raw TCP packets.
+- [TCP](tcp/README.md): Protocol parsers based on raw TCP packets.
