@@ -1,6 +1,6 @@
 # OBI Protocols
 
-This directory contains for the supported protocol parser that OBI provides.
+This directory contains documentation for the supported protocol parser that OBI provides.
 
 ## Table Of Contents
 

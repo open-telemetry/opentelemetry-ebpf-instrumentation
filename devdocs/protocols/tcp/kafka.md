@@ -32,7 +32,7 @@ current request types obi is tracking are:
 From a specific version onwards, kafka introduced flexible messages, flexible messages introduce multiple changes to the message format, including:
 
 - change from `Request Header v1` to `Request Header v2`, which introduces a new field `tagged_fields` at the end of the header.
-- change in the way strings and arrays are encoded (using varints instead of fixed length integers). examples are `NULLABLE_STRING` and `ARRAY` were changed to `COMPACT_NULLABLE_STRING` and `COMPACT_ARRAY` respectively.
+- change in the way strings and arrays are encoded (using varints instead of fixed length integers). Examples are `NULLABLE_STRING` and `ARRAY` were changed to `COMPACT_NULLABLE_STRING` and `COMPACT_ARRAY` respectively.
 each message type has its own version from which it becomes flexible, you can find it in the `flexibleVersions` json field in the [kafka message definitions](https://github.com/apache/kafka/tree/9983331d917fe8f57c37c88f0749b757e5af0c87/clients/src/main/resources/common/message).
 
 ## Protocol Parsing
