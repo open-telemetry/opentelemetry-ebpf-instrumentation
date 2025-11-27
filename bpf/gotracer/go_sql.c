@@ -73,6 +73,8 @@ int obi_uprobe_execDC(struct pt_regs *ctx) {
 }
 
 typedef struct sql_open_invocation {
+    u64 driver_ptr;
+    u64 driver_len;
     u64 dsn_ptr;
     u64 dsn_len;
 } sql_open_invocation_t;
@@ -90,6 +92,8 @@ int obi_uprobe_sqlOpen(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
 
+    void *driver_ptr = GO_PARAM1(ctx);
+    void *driver_len = GO_PARAM2(ctx);
     void *dsn_ptr = GO_PARAM3(ctx);
     void *dsn_len = GO_PARAM4(ctx);
 
@@ -97,6 +101,8 @@ int obi_uprobe_sqlOpen(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     sql_open_invocation_t invocation = {
+        .driver_ptr = (u64)driver_ptr,
+        .driver_len = (u64)driver_len,
         .dsn_ptr = (u64)dsn_ptr,
         .dsn_len = (u64)dsn_len,
     };
@@ -126,17 +132,27 @@ int obi_uretprobe_sqlOpen(struct pt_regs *ctx) {
         return 0;
     }
 
-    unsigned char dsn[256] = {0};
-    u64 copy_len = invocation->dsn_len;
-    if (copy_len > sizeof(dsn) - 1) {
-        copy_len = sizeof(dsn) - 1;
-    }
+    sql_db_info_t db_info = {0};
 
-    bpf_probe_read(dsn, copy_len, (void *)invocation->dsn_ptr);
-    dsn[copy_len] = '\0';
+    // Copy driver name
+    u64 driver_len = invocation->driver_len;
+    if (driver_len > sizeof(db_info.driver) - 1) {
+        driver_len = sizeof(db_info.driver) - 1;
+    }
+    bpf_probe_read(db_info.driver, driver_len, (void *)invocation->driver_ptr);
+    db_info.driver[driver_len] = '\0';
+
+    // Copy DSN
+    u64 dsn_len = invocation->dsn_len;
+    if (dsn_len > sizeof(db_info.dsn) - 1) {
+        dsn_len = sizeof(db_info.dsn) - 1;
+    }
+    bpf_probe_read(db_info.dsn, dsn_len, (void *)invocation->dsn_ptr);
+    db_info.dsn[dsn_len] = '\0';
+
     u64 db_key = (u64)db_ptr;
-    bpf_map_update_elem(&sql_db_hostname, &db_key, dsn, BPF_ANY);
-    bpf_dbg_printk("Stored DSN snippet for DB %llx", db_key);
+    bpf_map_update_elem(&sql_db_hostname, &db_key, &db_info, BPF_ANY);
+    bpf_dbg_printk("Stored driver=%s DSN for DB %llx", db_info.driver, db_key);
 
     bpf_map_delete_elem(&ongoing_sql_opens, &g_key);
     return 0;
@@ -190,12 +206,14 @@ int obi_uprobe_queryReturn(struct pt_regs *ctx) {
             bpf_dbg_printk("DB pointer: %llx", db_ptr);
 
             if (db_ptr != 0) {
-                unsigned char *hostname = bpf_map_lookup_elem(&sql_db_hostname, &db_ptr);
-                if (hostname) {
-                    __builtin_memcpy(trace->hostname, hostname, sizeof(trace->hostname));
-                    bpf_dbg_printk("Found hostname");
+                sql_db_info_t *db_info = bpf_map_lookup_elem(&sql_db_hostname, &db_ptr);
+                if (db_info) {
+                    // Copy both driver and DSN to trace->hostname
+                    // Format: "driver|dsn" for userspace parsing
+                    __builtin_memcpy(trace->hostname, db_info, sizeof(sql_db_info_t));
+                    bpf_dbg_printk("Found DB info for DB %llx", db_ptr);
                 } else {
-                    bpf_dbg_printk("No hostname found for DB %llx", db_ptr);
+                    bpf_dbg_printk("No DB info found for DB %llx", db_ptr);
                     trace->hostname[0] = '\0';
                 }
             } else {

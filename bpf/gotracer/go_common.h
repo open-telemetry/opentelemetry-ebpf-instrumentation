@@ -116,10 +116,15 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_sql_queries SEC(".maps");
 
+typedef struct sql_db_info {
+    unsigned char driver[16]; // driver name (e.g., "mysql", "postgres")
+    unsigned char dsn[256];   // DSN string for parsing
+} sql_db_info_t;
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64); // key: pointer to *DB
-    __type(value, unsigned char[256]); // value: hostname from DSN
+    __type(key, u64);             // key: pointer to *DB
+    __type(value, sql_db_info_t); // value: driver + DSN for parsing
     __uint(max_entries, 1024);
 } sql_db_hostname SEC(".maps");
 
