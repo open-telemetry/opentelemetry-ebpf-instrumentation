@@ -404,8 +404,7 @@ func (c *Config) Validate() error {
 	}
 
 	if c.Enabled(FeatureAppO11y) &&
-		((c.Prometheus.Enabled() && c.Prometheus.InvalidSpanMetricsConfig()) ||
-			(c.Metrics.EndpointEnabled() && c.MeterProvider.Features.InvalidSpanMetricsConfig())) {
+		((c.Prometheus.EndpointEnabled() || c.Metrics.EndpointEnabled()) && c.MeterProvider.Features.InvalidSpanMetricsConfig()) {
 		return ConfigError("you can only enable one format of span metrics," +
 			" application_span or application_span_otel")
 	}
@@ -425,7 +424,7 @@ func (c *Config) Validate() error {
 }
 
 func (c *Config) promNetO11yEnabled() bool {
-	return c.Prometheus.Enabled() && c.Prometheus.NetworkMetricsEnabled()
+	return c.Prometheus.EndpointEnabled() && c.MeterProvider.Features.AnyNetworkMetricsEnabled()
 }
 
 func (c *Config) otelNetO11yEnabled() bool {

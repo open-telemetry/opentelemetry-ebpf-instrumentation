@@ -81,9 +81,9 @@ func normalizeConfig(cfg *obi.Config) {
 	if cfg.Metrics.EndpointEnabled() && cfg.Metrics.DeprFeatures != 0 {
 		// if the user has overridden otel_metrics_export > features
 		cfg.MeterProvider.Features = cfg.Metrics.DeprFeatures
-	} else if cfg.Prometheus.EndpointEnabled() && cfg.Prometheus.Features != 0 {
+	} else if cfg.Prometheus.EndpointEnabled() && cfg.Prometheus.DeprFeatures != 0 {
 		// if the user has overridden prometheus_export > features
-		cfg.MeterProvider.Features = cfg.Prometheus.Features
+		cfg.MeterProvider.Features = cfg.Prometheus.DeprFeatures
 	}
 	// Deprecated: to be removed together with OTEL_EBPF_NETWORK_METRICS bool flag
 	if cfg.NetworkFlows.Enable {

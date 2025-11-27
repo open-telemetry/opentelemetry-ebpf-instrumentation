@@ -111,10 +111,9 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	}, &decfg.MeterProvider{Features: export2.FeatureNetwork}, filteredFlows), swarm.WithID("OTelExporter"))
 
 	swi.Add(prom.NetPrometheusEndpoint(f.ctxInfo, &prom.NetPrometheusConfig{
-		Config:          &f.cfg.Prometheus,
-		SelectorCfg:     selectorCfg,
-		GloballyEnabled: f.cfg.NetworkFlows.Enable,
-	}, filteredFlows), swarm.WithID("PrometheusExporter"))
+		Config:      &f.cfg.Prometheus,
+		SelectorCfg: selectorCfg,
+	}, &f.cfg.MeterProvider, filteredFlows), swarm.WithID("PrometheusExporter"))
 
 	swi.Add(swarm.DirectInstance(export.FlowPrinterProvider(f.cfg.NetworkFlows.Print, filteredFlows)),
 		swarm.WithID("FlowPrinter"))

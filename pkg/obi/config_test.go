@@ -468,7 +468,7 @@ func TestConfig_NetworkImplicitProm(t *testing.T) {
 	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_EXECUTABLE_PATH
 	// (Compatibility with OpenTelemetry)
 	t.Setenv("OTEL_EBPF_PROMETHEUS_PORT", "9090")
-	t.Setenv("OTEL_EBPF_PROMETHEUS_FEATURES", "network")
+	t.Setenv("OTEL_EBPF_METRICS_FEATURES", "network")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.True(t, cfg.Enabled(FeatureNetO11y)) // Net o11y should be on

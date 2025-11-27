@@ -130,7 +130,7 @@ func newGraphBuilder(
 		setupMetricsSubPipeline(config, ctxInfo, swi, exportableSpans, selectorCfg, processEventsCh)
 	}
 
-	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus),
+	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus, &config.MeterProvider),
 		swarm.WithID("BPFMetrics"))
 
 	// The returned builder later invokes its "Build" function that, given
@@ -188,6 +188,7 @@ func setupMetricsSubPipeline(
 	swi.Add(prom.PrometheusEndpoint(
 		ctxInfo,
 		&config.Prometheus,
+		&config.MeterProvider,
 		selectorCfg,
 		unresolvedCfg,
 		spanNameAggregatedMetrics,

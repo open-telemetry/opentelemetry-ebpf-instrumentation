@@ -158,7 +158,7 @@ func otlpOptions(cfg *obi.Config) (map[string]string, error) {
 			options["otel.traces.exporter"] = "none"
 		}
 
-		if cfg.Metrics.Enabled() {
+		if cfg.Metrics.EndpointEnabled() {
 			options["otel.exporter.otlp.metrics.endpoint"] = metricsEndpoint
 			options["otel.exporter.otlp.metrics.protocol"] = string(cfg.Metrics.GetProtocol())
 			options["otel.metric.export.interval"] = strconv.Itoa(int(cfg.Metrics.GetInterval().Milliseconds()))

@@ -10,9 +10,11 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/expire"
+	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -25,13 +27,6 @@ import (
 type NetPrometheusConfig struct {
 	Config      *PrometheusConfig
 	SelectorCfg *attributes.SelectorConfig
-	// Deprecated: to be removed in Beyla 3.0 with OTEL_EBPF_NETWORK_METRICS bool flag
-	GloballyEnabled bool
-}
-
-// Enabled returns whether the node needs to be activated
-func (p NetPrometheusConfig) Enabled() bool {
-	return p.Config != nil && p.Config.EndpointEnabled() && (p.Config.NetworkMetricsEnabled() || p.GloballyEnabled)
 }
 
 type netMetricsReporter struct {
@@ -53,14 +48,15 @@ type netMetricsReporter struct {
 func NetPrometheusEndpoint(
 	ctxInfo *global.ContextInfo,
 	cfg *NetPrometheusConfig,
+	meterProvider *decfg.MeterProvider,
 	input *msg.Queue[[]*ebpf.Record],
 ) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {
-		if !cfg.Enabled() {
+		if !cfg.Config.EndpointEnabled() || !meterProvider.Features.Any(export.FeatureNetwork|export.FeatureNetworkInterZone) {
 			// This node is not going to be instantiated. Let the swarm library just ignore it.
 			return swarm.EmptyRunFunc()
 		}
-		reporter, err := newNetReporter(ctxInfo, cfg, input)
+		reporter, err := newNetReporter(ctxInfo, cfg, meterProvider, input)
 		if err != nil {
 			return nil, err
 		}
@@ -74,6 +70,7 @@ func NetPrometheusEndpoint(
 func newNetReporter(
 	ctxInfo *global.ContextInfo,
 	cfg *NetPrometheusConfig,
+	meterProvider *decfg.MeterProvider,
 	input *msg.Queue[[]*ebpf.Record],
 ) (*netMetricsReporter, error) {
 	group := ctxInfo.MetricAttributeGroups
@@ -97,7 +94,7 @@ func newNetReporter(
 
 	var register []prometheus.Collector
 	log := slog.With("component", "prom.NetworkEndpoint")
-	if cfg.GloballyEnabled || mr.cfg.NetworkFlowBytesEnabled() {
+	if meterProvider.Features.Any(export.FeatureNetwork) {
 		log.Debug("registering network flow bytes metric")
 		mr.flowAttrs = attributes.PrometheusGetters(
 			ebpf.RecordStringGetters,
@@ -110,7 +107,7 @@ func newNetReporter(
 		register = append(register, mr.flowBytes)
 	}
 
-	if mr.cfg.NetworkInterzoneMetricsEnabled() {
+	if meterProvider.Features.Any(export.FeatureNetworkInterZone) {
 		log.Debug("registering network inter-zone metric")
 		mr.interZoneAttrs = attributes.PrometheusGetters(
 			ebpf.RecordStringGetters,

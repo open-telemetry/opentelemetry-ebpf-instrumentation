@@ -55,7 +55,7 @@ func TestNormalizeConfig_MeterProvider(t *testing.T) {
 		expected: export.FeatureApplication,
 		cfg: obi.Config{
 			Metrics:       otelcfg.MetricsConfig{DeprFeatures: export.FeatureEBPF},
-			Prometheus:    prom.PrometheusConfig{Features: export.FeatureNetwork},
+			Prometheus:    prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
 			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplication},
 		},
 	}, {
@@ -63,7 +63,7 @@ func TestNormalizeConfig_MeterProvider(t *testing.T) {
 		expected: export.FeatureEBPF,
 		cfg: obi.Config{
 			Metrics:       otelcfg.MetricsConfig{MetricsEndpoint: "http://foo", DeprFeatures: export.FeatureEBPF},
-			Prometheus:    prom.PrometheusConfig{Features: export.FeatureNetwork},
+			Prometheus:    prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
 			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplication},
 		},
 	}, {
@@ -71,7 +71,7 @@ func TestNormalizeConfig_MeterProvider(t *testing.T) {
 		expected: export.FeatureApplication,
 		cfg: obi.Config{
 			Metrics:       otelcfg.MetricsConfig{MetricsEndpoint: "http://foo"},
-			Prometheus:    prom.PrometheusConfig{Features: export.FeatureNetwork},
+			Prometheus:    prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
 			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplication},
 		},
 	}, {
@@ -79,7 +79,7 @@ func TestNormalizeConfig_MeterProvider(t *testing.T) {
 		expected: export.FeatureNetwork,
 		cfg: obi.Config{
 			Metrics:       otelcfg.MetricsConfig{DeprFeatures: export.FeatureEBPF},
-			Prometheus:    prom.PrometheusConfig{Port: 8080, Features: export.FeatureNetwork},
+			Prometheus:    prom.PrometheusConfig{Port: 8080, DeprFeatures: export.FeatureNetwork},
 			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplication},
 		},
 	}, {
