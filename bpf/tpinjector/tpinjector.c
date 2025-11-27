@@ -311,6 +311,10 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
         return;
     }
 
+    // cleanup the storage to prevent it from being written more than once
+    // (including during responses);
+    bpf_sk_storage_delete(&sk_tp_info_pid_map, sk);
+
     struct tp_option opt = {.kind = k_tcp_option_kind_otel, .len = sizeof(struct tp_option)};
 
     __builtin_memcpy(opt.trace_id, tp_pid->tp.trace_id, sizeof(opt.trace_id));
