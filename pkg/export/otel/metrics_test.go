@@ -242,7 +242,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 
 			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-			otelExporter := makeMetricsReporter(ctx, t, tt.instr, export.FeatureApplication, otlp, metrics, processEvents).reportMetrics
+			otelExporter := makeMetricsReporter(ctx, t, tt.instr, export.FeatureApplicationRED, otlp, metrics, processEvents).reportMetrics
 			require.NoError(t, err)
 
 			go otelExporter(ctx)
@@ -308,7 +308,7 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	otelExporter := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, export.FeatureApplication, otlp, metrics, processEvents).reportMetrics
+	otelExporter := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, export.FeatureApplicationRED, otlp, metrics, processEvents).reportMetrics
 	go otelExporter(ctx)
 
 	metrics.Send([]request.Span{
@@ -325,7 +325,7 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 func TestMetricsDiscarded(t *testing.T) {
 	mr := MetricsReporter{
 		cfg:           &otelcfg.MetricsConfig{},
-		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplication},
+		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplicationRED},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -368,7 +368,7 @@ func TestMetricsDiscarded(t *testing.T) {
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mr := MetricsReporter{
 		cfg:           &otelcfg.MetricsConfig{},
-		meterProvider: &decfg.MeterProvider{Features: export.FeatureSpan},
+		meterProvider: &decfg.MeterProvider{Features: export.FeatureSpanLegacy},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -411,7 +411,7 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
 	mr := MetricsReporter{
 		cfg:           &otelcfg.MetricsConfig{},
-		meterProvider: &decfg.MeterProvider{Features: export.FeatureSpan},
+		meterProvider: &decfg.MeterProvider{Features: export.FeatureSpanLegacy},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -454,7 +454,7 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 func TestProcessPIDEvents(t *testing.T) {
 	mr := MetricsReporter{
 		cfg:           &otelcfg.MetricsConfig{},
-		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplication},
+		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplicationRED},
 		pidTracker:    NewPidServiceTracker(),
 	}
 
@@ -572,7 +572,7 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, export.FeatureApplication|export.FeatureApplicationHost, otlp, metrics, processEvents)
+	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, export.FeatureApplicationRED|export.FeatureApplicationHost, otlp, metrics, processEvents)
 	otelExporter := mr.reportMetrics
 	go otelExporter(ctx)
 
@@ -1101,7 +1101,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			reporter := &MetricsReporter{
 				cfg:                &otelcfg.MetricsConfig{},
 				log:                slog.Default(),
-				meterProvider:      &decfg.MeterProvider{Features: export.FeatureApplication},
+				meterProvider:      &decfg.MeterProvider{Features: export.FeatureApplicationRED},
 				targetMetrics:      make(map[svc.UID]*TargetMetrics),
 				pidTracker:         NewPidServiceTracker(),
 				createEventMetrics: mockEventsStore.createEventMetrics,

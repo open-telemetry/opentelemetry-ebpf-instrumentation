@@ -10,7 +10,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/expire"
@@ -52,7 +51,7 @@ func NetPrometheusEndpoint(
 	input *msg.Queue[[]*ebpf.Record],
 ) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {
-		if !cfg.Config.EndpointEnabled() || !meterProvider.Features.Any(export.FeatureNetwork|export.FeatureNetworkInterZone) {
+		if !cfg.Config.EndpointEnabled() || !meterProvider.Features.AnyNetwork() {
 			// This node is not going to be instantiated. Let the swarm library just ignore it.
 			return swarm.EmptyRunFunc()
 		}
@@ -94,7 +93,7 @@ func newNetReporter(
 
 	var register []prometheus.Collector
 	log := slog.With("component", "prom.NetworkEndpoint")
-	if meterProvider.Features.Any(export.FeatureNetwork) {
+	if meterProvider.Features.NetworkBytes() {
 		log.Debug("registering network flow bytes metric")
 		mr.flowAttrs = attributes.PrometheusGetters(
 			ebpf.RecordStringGetters,
@@ -107,7 +106,7 @@ func newNetReporter(
 		register = append(register, mr.flowBytes)
 	}
 
-	if meterProvider.Features.Any(export.FeatureNetworkInterZone) {
+	if meterProvider.Features.NetworkInterZone() {
 		log.Debug("registering network inter-zone metric")
 		mr.interZoneAttrs = attributes.PrometheusGetters(
 			ebpf.RecordStringGetters,

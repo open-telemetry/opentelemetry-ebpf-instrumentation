@@ -58,7 +58,7 @@ var allMetrics = attributes.Selection{
 }
 
 var mpConfig = decfg.MeterProvider{
-	Features: export.FeatureApplication,
+	Features: export.FeatureApplicationRED,
 }
 
 func allMetricsBut(patterns ...string) attributes.Selection {

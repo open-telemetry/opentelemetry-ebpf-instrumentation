@@ -146,7 +146,7 @@ discovery:
 		},
 		NetworkFlows: nc,
 		MeterProvider: decfg.MeterProvider{
-			Features: export.FeatureApplication,
+			Features: export.FeatureApplicationRED,
 		},
 		Metrics: otelcfg.MetricsConfig{
 			OTELIntervalMS:    60_000,
@@ -623,7 +623,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
 			},
 			prometheus:  prom.PrometheusConfig{},
-			mp:          decfg.MeterProvider{Features: export.FeatureApplication},
+			mp:          decfg.MeterProvider{Features: export.FeatureApplicationRED},
 			wantEnabled: false,
 		},
 		{
@@ -641,7 +641,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			prometheus: prom.PrometheusConfig{
 				Port: 9090,
 			},
-			mp:          decfg.MeterProvider{Features: export.FeatureApplication},
+			mp:          decfg.MeterProvider{Features: export.FeatureApplicationRED},
 			wantEnabled: false,
 		},
 		{
@@ -657,7 +657,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name:        "both have features, but not enabled",
 			metrics:     otelcfg.MetricsConfig{},
 			prometheus:  prom.PrometheusConfig{},
-			mp:          decfg.MeterProvider{Features: export.FeatureApplication | export.FeatureGraph},
+			mp:          decfg.MeterProvider{Features: export.FeatureApplicationRED | export.FeatureGraph},
 			wantEnabled: false,
 		},
 	}

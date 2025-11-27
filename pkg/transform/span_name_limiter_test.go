@@ -35,7 +35,7 @@ func TestSpanNameLimiter(t *testing.T) {
 		Limit:         maxCardinalityBeforeAggregation,
 		OTEL:          &otelcfg.MetricsConfig{TTL: time.Minute},
 		Prom:          &prom.PrometheusConfig{TTL: time.Minute},
-		MeterProvider: &decfg.MeterProvider{Features: export.FeatureSpan},
+		MeterProvider: &decfg.MeterProvider{Features: export.FeatureSpanLegacy},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 
@@ -121,7 +121,7 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 			Limit:         maxCardinalityBeforeAggregation,
 			OTEL:          &otelcfg.MetricsConfig{TTL: time.Minute},
 			Prom:          &prom.PrometheusConfig{TTL: time.Minute},
-			MeterProvider: &decfg.MeterProvider{Features: export.FeatureSpan},
+			MeterProvider: &decfg.MeterProvider{Features: export.FeatureSpanLegacy},
 		}, input, output)(t.Context())
 		require.NoError(t, err)
 
@@ -186,7 +186,7 @@ func TestSpanNameLimiter_CopiesOutput(t *testing.T) {
 		Limit:         3,
 		OTEL:          &otelcfg.MetricsConfig{TTL: time.Minute},
 		Prom:          &prom.PrometheusConfig{TTL: time.Minute},
-		MeterProvider: &decfg.MeterProvider{Features: export.FeatureSpan},
+		MeterProvider: &decfg.MeterProvider{Features: export.FeatureSpanLegacy},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 

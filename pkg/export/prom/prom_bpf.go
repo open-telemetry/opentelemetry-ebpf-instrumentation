@@ -13,7 +13,6 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel"
@@ -81,7 +80,7 @@ func internalMetricsOTELEnabled(internalMetrics imetrics.Reporter) bool {
 }
 
 func promMetricsEnabled(cfg *PrometheusConfig, mpCfg *decfg.MeterProvider) bool {
-	return cfg.EndpointEnabled() && mpCfg.Features.Has(export.FeatureEBPF)
+	return cfg.EndpointEnabled() && mpCfg.Features.BPF()
 }
 
 func bpfCollectorEnabled(cfg *PrometheusConfig, mpCfg *decfg.MeterProvider, internalMetrics imetrics.Reporter) bool {

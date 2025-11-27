@@ -68,7 +68,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&decfg.MeterProvider{Features: export.FeatureApplication | export.FeatureApplicationHost},
+		&decfg.MeterProvider{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -392,7 +392,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 func TestMetricsDiscarded(t *testing.T) {
 	mr := metricsReporter{
 		cfg:           &PrometheusConfig{},
-		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplication},
+		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplicationRED},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -488,7 +488,7 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
 	mr := metricsReporter{
 		cfg:           &PrometheusConfig{},
-		meterProvider: &decfg.MeterProvider{Features: export.FeatureSpan},
+		meterProvider: &decfg.MeterProvider{Features: export.FeatureSpanLegacy},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -576,7 +576,7 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 func TestProcessPIDEvents(t *testing.T) {
 	mr := metricsReporter{
 		cfg:           &PrometheusConfig{},
-		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplication},
+		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplicationRED},
 		serviceMap:    map[svc.UID]svc.Attrs{},
 		pidsTracker:   otel.NewPidServiceTracker(),
 	}
@@ -665,7 +665,7 @@ func makePromExporter(
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            instrumentations,
 		},
-		&decfg.MeterProvider{Features: export.FeatureApplication},
+		&decfg.MeterProvider{Features: export.FeatureApplicationRED},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{

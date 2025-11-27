@@ -124,7 +124,7 @@ var DefaultConfig = Config{
 		CacheTTL: 5 * time.Minute,
 	},
 	MeterProvider: decfg.MeterProvider{
-		Features: export.FeatureApplication,
+		Features: export.FeatureApplicationRED,
 	},
 	Metrics: otelcfg.MetricsConfig{
 		Protocol:        otelcfg.ProtocolUnset,
@@ -424,11 +424,11 @@ func (c *Config) Validate() error {
 }
 
 func (c *Config) promNetO11yEnabled() bool {
-	return c.Prometheus.EndpointEnabled() && c.MeterProvider.Features.AnyNetworkMetricsEnabled()
+	return c.Prometheus.EndpointEnabled() && c.MeterProvider.Features.AnyNetwork()
 }
 
 func (c *Config) otelNetO11yEnabled() bool {
-	return c.Metrics.EndpointEnabled() && c.MeterProvider.Features.AnyNetworkMetricsEnabled()
+	return c.Metrics.EndpointEnabled() && c.MeterProvider.Features.AnyNetwork()
 }
 
 func (c *Config) willUseTC() bool {
@@ -449,7 +449,7 @@ func (c *Config) Enabled(feature Feature) bool {
 }
 
 func (c *Config) SpanMetricsEnabledForTraces() bool {
-	return c.MeterProvider.Features.AnySpanMetricsEnabled() &&
+	return c.MeterProvider.Features.AnySpanMetrics() &&
 		(c.Metrics.EndpointEnabled() || c.Prometheus.EndpointEnabled())
 }
 

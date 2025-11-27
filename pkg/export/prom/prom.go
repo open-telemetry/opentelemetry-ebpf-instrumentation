@@ -249,11 +249,7 @@ func PrometheusEndpoint(
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {
-		if !cfg.EndpointEnabled() || !mcfg.Features.Any(
-			export.FeatureApplication|
-				export.FeatureApplicationHost|
-				export.FeatureSpan|
-				export.FeatureSpanOTel) {
+		if !cfg.EndpointEnabled() || !mcfg.Features.AppOrSpan() {
 			return swarm.EmptyRunFunc()
 		}
 		reporter, err := newReporter(ctxInfo, cfg, mcfg, selectorCfg, unresolved, input, processEventCh)
@@ -268,14 +264,14 @@ func PrometheusEndpoint(
 }
 
 func spanMetricsLatencyName(mp *decfg.MeterProvider) string {
-	if mp.Features.Has(export.FeatureSpan) {
+	if mp.Features.LegacySpanMetrics() {
 		return SpanMetricsLatency
 	}
 	return SpanMetricsLatencyOTel
 }
 
 func spanMetricsCallsName(mp *decfg.MeterProvider) string {
-	if mp.Features.Has(export.FeatureSpan) {
+	if mp.Features.LegacySpanMetrics() {
 		return SpanMetricsCalls
 	}
 	return SpanMetricsCallsOTel
@@ -371,7 +367,7 @@ func newReporter(
 			attrsProvider.For(attributes.DNSLookupDuration))
 	}
 
-	if meterProvider.Features.Has(export.FeatureGraph) {
+	if meterProvider.Features.ServiceGraph() {
 		attrSvcGraph = attributes.PrometheusGetters(attributeGetters, []attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source})
 	}
 
@@ -537,7 +533,7 @@ func newReporter(
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
 			}, labelNames(attrHTTPClientResponseSize)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		spanMetricsLatency: optionalHistogramProvider(meterProvider.Features.Has(export.FeatureSpan), func() *Expirer[prometheus.Histogram] {
+		spanMetricsLatency: optionalHistogramProvider(meterProvider.Features.SpanMetrics(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            spanMetricsLatencyName(meterProvider),
 				Help:                            "duration of service calls (client and server), in seconds, in trace span metrics format",
@@ -547,37 +543,37 @@ func newReporter(
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
 			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		spanMetricsCallsTotal: optionalCounterProvider(meterProvider.Features.Has(export.FeatureSpan), func() *Expirer[prometheus.Counter] {
+		spanMetricsCallsTotal: optionalCounterProvider(meterProvider.Features.SpanMetrics(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: spanMetricsCallsName(meterProvider),
 				Help: "number of service calls in trace span metrics format",
 			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		spanMetricsRequestSizeTotal: optionalCounterProvider(meterProvider.Features.Any(export.FeatureSpanSizes), func() *Expirer[prometheus.Counter] {
+		spanMetricsRequestSizeTotal: optionalCounterProvider(meterProvider.Features.SpanSizes(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: SpanMetricsRequestSizes,
 				Help: "size of service calls, in bytes, in trace span metrics format",
 			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		spanMetricsResponseSizeTotal: optionalCounterProvider(meterProvider.Features.Any(export.FeatureSpanSizes), func() *Expirer[prometheus.Counter] {
+		spanMetricsResponseSizeTotal: optionalCounterProvider(meterProvider.Features.SpanSizes(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: SpanMetricsResponseSizes,
 				Help: "size of service responses, in bytes, in trace span metrics format",
 			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		tracesTargetInfo: optionalDirectGaugeProvider(meterProvider.Features.AnySpanMetricsEnabled(), func() *prometheus.GaugeVec {
+		tracesTargetInfo: optionalDirectGaugeProvider(meterProvider.Features.AnySpanMetrics(), func() *prometheus.GaugeVec {
 			return prometheus.NewGaugeVec(prometheus.GaugeOpts{
 				Name: TracesTargetInfo,
 				Help: "target service information in trace span metric format",
 			}, labelNamesTargetInfo(kubeEnabled, extraMetadataLabels))
 		}),
-		tracesHostInfo: optionalGaugeProvider(meterProvider.Features.Any(export.FeatureApplicationHost), func() *Expirer[prometheus.Gauge] {
+		tracesHostInfo: optionalGaugeProvider(meterProvider.Features.AppHost(), func() *Expirer[prometheus.Gauge] {
 			return NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
 				Name: TracesHostInfo,
 				Help: "A metric with a constant '1' value labeled by the host id ",
 			}, hostInfoLabelNames).MetricVec, clock.Time, cfg.TTL)
 		}),
-		serviceGraphClient: optionalHistogramProvider(meterProvider.Features.Has(export.FeatureGraph), func() *Expirer[prometheus.Histogram] {
+		serviceGraphClient: optionalHistogramProvider(meterProvider.Features.ServiceGraph(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            ServiceGraphClient,
 				Help:                            "duration of client service calls, in seconds, in trace service graph metrics format",
@@ -587,7 +583,7 @@ func newReporter(
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
 			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		serviceGraphServer: optionalHistogramProvider(meterProvider.Features.Has(export.FeatureGraph), func() *Expirer[prometheus.Histogram] {
+		serviceGraphServer: optionalHistogramProvider(meterProvider.Features.ServiceGraph(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            ServiceGraphServer,
 				Help:                            "duration of server service calls, in seconds, in trace service graph metrics format",
@@ -597,13 +593,13 @@ func newReporter(
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
 			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		serviceGraphFailed: optionalCounterProvider(meterProvider.Features.Has(export.FeatureGraph), func() *Expirer[prometheus.Counter] {
+		serviceGraphFailed: optionalCounterProvider(meterProvider.Features.ServiceGraph(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphFailed,
 				Help: "number of failed service calls in trace service graph metrics format",
 			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		serviceGraphTotal: optionalCounterProvider(meterProvider.Features.Has(export.FeatureGraph), func() *Expirer[prometheus.Counter] {
+		serviceGraphTotal: optionalCounterProvider(meterProvider.Features.ServiceGraph(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphTotal,
 				Help: "number of service calls in trace service graph metrics format",
@@ -677,7 +673,7 @@ func newReporter(
 		registeredMetrics = append(registeredMetrics, mr.beylaInfo)
 	}
 
-	if meterProvider.Features.Any(export.FeatureApplication) {
+	if meterProvider.Features.AppRED() {
 		if is.HTTPEnabled() {
 			registeredMetrics = append(registeredMetrics,
 				mr.httpClientRequestSize,
@@ -714,21 +710,21 @@ func newReporter(
 		}
 	}
 
-	if meterProvider.Features.Has(export.FeatureSpan) {
+	if meterProvider.Features.SpanMetrics() {
 		registeredMetrics = append(registeredMetrics,
 			mr.spanMetricsLatency,
 			mr.spanMetricsCallsTotal,
 		)
 	}
 
-	if meterProvider.Features.Any(export.FeatureSpanSizes) {
+	if meterProvider.Features.SpanSizes() {
 		registeredMetrics = append(registeredMetrics,
 			mr.spanMetricsRequestSizeTotal,
 			mr.spanMetricsResponseSizeTotal,
 		)
 	}
 
-	if meterProvider.Features.Has(export.FeatureGraph) {
+	if meterProvider.Features.ServiceGraph() {
 		registeredMetrics = append(registeredMetrics,
 			mr.serviceGraphClient,
 			mr.serviceGraphServer,
@@ -737,11 +733,11 @@ func newReporter(
 		)
 	}
 
-	if meterProvider.Features.AnySpanMetricsEnabled() {
+	if meterProvider.Features.AnySpanMetrics() {
 		registeredMetrics = append(registeredMetrics, mr.tracesTargetInfo)
 	}
 
-	if meterProvider.Features.Any(export.FeatureApplicationHost) {
+	if meterProvider.Features.AppHost() {
 		registeredMetrics = append(registeredMetrics, mr.tracesHostInfo)
 	}
 
@@ -824,11 +820,11 @@ func (r *metricsReporter) collectMetrics(ctx context.Context) {
 }
 
 func (r *metricsReporter) otelMetricsObserved(span *request.Span) bool {
-	return r.meterProvider.Features.Any(export.FeatureApplication) && !span.Service.ExportsOTelMetrics()
+	return r.meterProvider.Features.AppRED() && !span.Service.ExportsOTelMetrics()
 }
 
 func (r *metricsReporter) otelSpanMetricsObserved(span *request.Span) bool {
-	return r.meterProvider.Features.AnySpanMetricsEnabled() && !span.Service.ExportsOTelMetricsSpan()
+	return r.meterProvider.Features.AnySpanMetrics() && !span.Service.ExportsOTelMetricsSpan()
 }
 
 func (r *metricsReporter) otelSpanFiltered(span *request.Span) bool {
@@ -845,7 +841,7 @@ func (r *metricsReporter) observe(span *request.Span) {
 	}
 	t := span.Timings()
 	r.beylaInfo.WithLabelValues(span.Service.SDKLanguage.String()).Metric.Set(1.0)
-	if r.meterProvider.Features.Any(export.FeatureApplicationHost) {
+	if r.meterProvider.Features.AppHost() {
 		r.tracesHostInfo.WithLabelValues(r.hostID).Metric.Set(1.0)
 	}
 	duration := t.End.Sub(t.RequestStart).Seconds()
@@ -941,19 +937,19 @@ func (r *metricsReporter) observe(span *request.Span) {
 	}
 
 	if r.otelSpanMetricsObserved(span) {
-		if r.meterProvider.Features.Has(export.FeatureSpan) {
+		if r.meterProvider.Features.SpanMetrics() {
 			lv := r.labelValuesSpans(span)
 			r.spanMetricsLatency.WithLabelValues(lv...).Metric.Observe(duration)
 			r.spanMetricsCallsTotal.WithLabelValues(lv...).Metric.Add(1)
 		}
 
-		if r.meterProvider.Features.Any(export.FeatureSpanSizes) {
+		if r.meterProvider.Features.SpanSizes() {
 			lv := r.labelValuesSpans(span)
 			r.spanMetricsRequestSizeTotal.WithLabelValues(lv...).Metric.Add(float64(span.RequestBodyLength()))
 			r.spanMetricsResponseSizeTotal.WithLabelValues(lv...).Metric.Add(float64(span.ResponseBodyLength()))
 		}
 
-		if r.meterProvider.Features.Has(export.FeatureGraph) {
+		if r.meterProvider.Features.ServiceGraph() {
 			if !span.IsSelfReferenceSpan() || r.cfg.AllowServiceGraphSelfReferences {
 				lvg := labelValues(span, r.attrSvcGraph)
 
@@ -1130,7 +1126,7 @@ func (r *metricsReporter) createTargetInfo(service *svc.Attrs) {
 }
 
 func (r *metricsReporter) createTracesTargetInfo(service *svc.Attrs) {
-	if !r.meterProvider.Features.AnySpanMetricsEnabled() {
+	if !r.meterProvider.Features.AnySpanMetrics() {
 		return
 	}
 	targetInfoLabelValues := r.labelValuesTargetInfo(service)
@@ -1151,7 +1147,7 @@ func (r *metricsReporter) deleteTargetInfoMetric(service *svc.Attrs) {
 }
 
 func (r *metricsReporter) deleteTracesTargetInfoMetric(service *svc.Attrs) {
-	if !r.meterProvider.Features.AnySpanMetricsEnabled() {
+	if !r.meterProvider.Features.AnySpanMetrics() {
 		return
 	}
 	targetInfoLabelValues := r.labelValuesTargetInfo(service)
@@ -1216,7 +1212,7 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 		if deleted, origUID := r.disassociatePIDFromService(pe.File.Pid); deleted {
 			mlog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
 			r.deleteTargetInfos(origUID, &pe.File.Service)
-			if r.meterProvider.Features.Any(export.FeatureApplicationHost) && r.pidsTracker.Count() == 0 {
+			if r.meterProvider.Features.AppHost() && r.pidsTracker.Count() == 0 {
 				mlog().Debug("No more PIDs tracked, expiring host info metric")
 				r.tracesHostInfo.entries.DeleteAll()
 			}

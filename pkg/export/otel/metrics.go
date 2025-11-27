@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
-	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -164,11 +163,7 @@ func ReportMetrics(
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !(cfg.EndpointEnabled() && mcfg.Features.Any(
-			export.FeatureApplication|
-				export.FeatureApplicationHost|
-				export.FeatureSpan|
-				export.FeatureSpanOTel)) {
+		if !(cfg.EndpointEnabled() && mcfg.Features.AppOrSpan()) {
 			return swarm.EmptyRunFunc()
 		}
 		otelcfg.SetupInternalOTELSDKLogger(cfg.SDKLogLevel)
@@ -314,7 +309,7 @@ func newMetricsReporter(
 	systemMetrics := mr.newMetricsInstance(nil)
 	systemMeter := systemMetrics.provider.Meter(reporterName)
 
-	if meterProvider.Features.Any(export.FeatureApplicationHost) {
+	if meterProvider.Features.AppHost() {
 		err := mr.setupHostInfoMeter(systemMeter)
 		if err != nil {
 			return nil, fmt.Errorf("setting up host metrics: %w", err)
@@ -334,7 +329,7 @@ func newMetricsReporter(
 
 func (mr *MetricsReporter) otelMetricOptions(mlog *slog.Logger) []metric.Option {
 	var opts []metric.Option
-	if !mr.meterProvider.Features.Any(export.FeatureApplication) {
+	if !mr.meterProvider.Features.AppRED() {
 		return opts
 	}
 
@@ -375,7 +370,7 @@ func (mr *MetricsReporter) otelMetricOptions(mlog *slog.Logger) []metric.Option 
 }
 
 func (mr *MetricsReporter) usesLegacySpanNames() bool {
-	return mr.meterProvider.Features.Has(export.FeatureSpan)
+	return mr.meterProvider.Features.LegacySpanMetrics()
 }
 
 func (mr *MetricsReporter) spanMetricsLatencyName() string {
@@ -387,7 +382,7 @@ func (mr *MetricsReporter) spanMetricsLatencyName() string {
 }
 
 func (mr *MetricsReporter) spanMetricOptions(mlog *slog.Logger) []metric.Option {
-	if !mr.meterProvider.Features.Any(export.FeatureSpan) {
+	if !mr.meterProvider.Features.SpanMetrics() {
 		return []metric.Option{}
 	}
 
@@ -410,7 +405,7 @@ func (mr *MetricsReporter) setupTargetInfo(meter instrument.Meter) error {
 
 // nolint: cyclop
 func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) error {
-	if !mr.meterProvider.Features.Any(export.FeatureApplication) {
+	if !mr.meterProvider.Features.AppRED() {
 		return nil
 	}
 
@@ -557,7 +552,7 @@ func (mr *MetricsReporter) spanMetricsCallsName() string {
 }
 
 func (mr *MetricsReporter) setupSpanSizeMeters(m *Metrics, meter instrument.Meter) error {
-	if !mr.meterProvider.Features.Any(export.FeatureSpanSizes) {
+	if !mr.meterProvider.Features.SpanSizes() {
 		return nil
 	}
 
@@ -594,7 +589,7 @@ func (mr *MetricsReporter) setupTracesTargetInfo(meter instrument.Meter) error {
 }
 
 func (mr *MetricsReporter) setupSpanMeters(m *Metrics, meter instrument.Meter) error {
-	if !mr.meterProvider.Features.Any(export.FeatureSpan) {
+	if !mr.meterProvider.Features.SpanMetrics() {
 		return nil
 	}
 
@@ -681,21 +676,21 @@ func (mr *MetricsReporter) newMetricSet(service *svc.Attrs) (*Metrics, error) {
 	meter := m.provider.Meter(reporterName)
 	var err error
 
-	if mr.meterProvider.Features.Any(export.FeatureApplication) {
+	if mr.meterProvider.Features.AppRED() {
 		err = mr.setupOtelMeters(&m, meter)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	if mr.meterProvider.Features.Any(export.FeatureSpan) {
+	if mr.meterProvider.Features.SpanMetrics() {
 		err = mr.setupSpanMeters(&m, meter)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	if mr.meterProvider.Features.Any(export.FeatureSpanSizes) {
+	if mr.meterProvider.Features.SpanSizes() {
 		err = mr.setupSpanSizeMeters(&m, meter)
 		if err != nil {
 			return nil, err
@@ -818,13 +813,12 @@ func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Sp
 }
 
 func otelMetricsAccepted(span *request.Span, mr *MetricsReporter) bool {
-	return mr.meterProvider.Features.Any(export.FeatureApplication) && !span.Service.ExportsOTelMetrics()
+	return mr.meterProvider.Features.AppRED() && !span.Service.ExportsOTelMetrics()
 }
 
 func otelSpanMetricsAccepted(span *request.Span, mr *MetricsReporter) bool {
-	return mr.meterProvider.Features.Any(
-		export.FeatureSpan|export.FeatureSpanSizes|export.FeatureSpanOTel,
-	) && !span.Service.ExportsOTelMetricsSpan()
+	return mr.meterProvider.Features.AnySpanMetrics() &&
+		!span.Service.ExportsOTelMetricsSpan()
 }
 
 //nolint:cyclop
@@ -921,7 +915,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			}
 		}
 
-		if mr.meterProvider.Features.SpanMetricsEnabled() {
+		if mr.meterProvider.Features.SpanMetrics() {
 			sml, attrs := r.spanMetricsLatency.ForRecord(span)
 			sml.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 
@@ -929,7 +923,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			smct.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 		}
 
-		if mr.meterProvider.Features.Any(export.FeatureSpanSizes) {
+		if mr.meterProvider.Features.SpanSizes() {
 			smst, attrs := r.spanMetricsRequestSizeTotal.ForRecord(span)
 			smst.Add(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
 
@@ -958,7 +952,7 @@ func (mr *MetricsReporter) deleteTargetInfo(attrs *attribute.Set) {
 }
 
 func (mr *MetricsReporter) createTracesTargetInfo(attrs *attribute.Set) {
-	if !mr.meterProvider.Features.AnySpanMetricsEnabled() {
+	if !mr.meterProvider.Features.AnySpanMetrics() {
 		return
 	}
 
@@ -970,7 +964,7 @@ func (mr *MetricsReporter) createTracesTargetInfo(attrs *attribute.Set) {
 }
 
 func (mr *MetricsReporter) deleteTracesTargetInfo(attrs *attribute.Set) {
-	if attrs == nil || !mr.meterProvider.Features.AnySpanMetricsEnabled() {
+	if attrs == nil || !mr.meterProvider.Features.AnySpanMetrics() {
 		return
 	}
 
@@ -1034,7 +1028,7 @@ func (mr *MetricsReporter) ensureTargetMetrics(service *svc.Attrs) *TargetMetric
 
 	targetMetrics.resourceAttributes = attribute.NewSet(mr.resourceAttrsForService(service)...)
 
-	if mr.meterProvider.Features.AnySpanMetricsEnabled() {
+	if mr.meterProvider.Features.AnySpanMetrics() {
 		targetMetrics.tracesResourceAttributes = mr.tracesResourceAttributes(service)
 	} else {
 		targetMetrics.tracesResourceAttributes = *attribute.EmptySet()
@@ -1120,7 +1114,7 @@ func (mr *MetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 
 			mr.deleteTargetMetrics(&origUID)
 
-			if mr.meterProvider.Features.Any(export.FeatureApplicationHost) && mr.pidTracker.Count() == 0 {
+			if mr.meterProvider.Features.AppHost() && mr.pidTracker.Count() == 0 {
 				mlog().Debug("No more PIDs tracked, expiring host info metric")
 				mr.hostInfo.RemoveAllMetrics(mr.ctx)
 			}
@@ -1149,7 +1143,7 @@ func (mr *MetricsReporter) onSpan(spans []request.Span) {
 		}
 		reporter.record(s, mr)
 
-		if mr.meterProvider.Features.Any(export.FeatureApplicationHost) {
+		if mr.meterProvider.Features.AppHost() {
 			hostInfo, attrs := mr.hostInfo.ForRecord(s)
 			hostInfo.Record(mr.ctx, 1, instrument.WithAttributeSet(attrs))
 		}

@@ -15,7 +15,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
 
 	"go.opentelemetry.io/obi/pkg/buildinfo"
-	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/expire"
@@ -38,7 +37,7 @@ type NetMetricsConfig struct {
 
 func (mc *NetMetricsConfig) Enabled() bool {
 	return mc.Metrics != nil && mc.Metrics.EndpointEnabled() &&
-		mc.MeterProvider.Features.AnyNetworkMetricsEnabled()
+		mc.MeterProvider.Features.AnyNetwork()
 }
 
 func nmlog() *slog.Logger {
@@ -133,7 +132,7 @@ func newMetricsExporter(
 		clock:     clock,
 		expireTTL: cfg.Metrics.TTL,
 	}
-	if mpCfg.Features.Any(export.FeatureNetwork) {
+	if mpCfg.Features.NetworkBytes() {
 		log := log.With("metricFamily", "FlowBytes")
 		bytesMetric, err := ebpfEvents.Int64Counter(attributes.NetworkFlow.OTEL,
 			metric2.WithDescription("total bytes_sent value of network flows observed by probe since its launch"),
@@ -152,7 +151,7 @@ func newMetricsExporter(
 		nme.flowBytes = NewExpirer[*ebpf.Record, metric2.Int64Counter, float64](ctx, bytesMetric, attrs, clock.Time, cfg.Metrics.TTL)
 	}
 
-	if mpCfg.Features.Any(export.FeatureNetworkInterZone) {
+	if mpCfg.Features.NetworkInterZone() {
 		log := log.With("metricFamily", "InterZoneBytes")
 		bytesMetric, err := ebpfEvents.Int64Counter(attributes.NetworkInterZone.OTEL,
 			metric2.WithDescription("total bytes_sent value between Cloud availability zones"),

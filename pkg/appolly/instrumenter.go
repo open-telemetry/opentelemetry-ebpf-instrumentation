@@ -124,7 +124,7 @@ func newGraphBuilder(
 	// some nodes (ipNodesFilter, span name limiter...) are only passed to the metrics export nodes.
 	// Nodes directly handling raw traces will still get the unfiltered exportableSpans queue.
 	// If no metrics exporter is configured, we will not start the metrics subpipeline to save resources.
-	exportingMetrics := config.MeterProvider.Features.AnyApplicationEnabled() &&
+	exportingMetrics := config.MeterProvider.Features.AnyAppO11yMetric() &&
 		(config.Metrics.EndpointEnabled() || config.Prometheus.EndpointEnabled())
 	if exportingMetrics {
 		setupMetricsSubPipeline(config, ctxInfo, swi, exportableSpans, selectorCfg, processEventsCh)
