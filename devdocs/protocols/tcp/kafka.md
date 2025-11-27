@@ -4,7 +4,7 @@ This document describes the Kafka protocol parser that OBI provides.
 
 ## Protocol Overview
 
-The Kafka protocol definition [Kafka protocol definition](https://Kafka.apache.org/protocol#protocol_messages) defines the schema and types of Kafka messages.
+The [Kafka protocol definition](https://Kafka.apache.org/protocol#protocol_messages) defines the schema and types of Kafka messages.
 Each message in Kafka starts with a header in the following format:
 
 ```
