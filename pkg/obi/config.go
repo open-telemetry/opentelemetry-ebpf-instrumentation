@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
@@ -122,6 +123,9 @@ var DefaultConfig = Config{
 		CacheLen: 1024,
 		CacheTTL: 5 * time.Minute,
 	},
+	MeterProvider: decfg.MeterProvider{
+		Features: export.FeatureApplication,
+	},
 	Metrics: otelcfg.MetricsConfig{
 		Protocol:        otelcfg.ProtocolUnset,
 		MetricsProtocol: otelcfg.ProtocolUnset,
@@ -130,7 +134,6 @@ var DefaultConfig = Config{
 		Buckets:              export.DefaultBuckets,
 		ReportersCacheLen:    ReporterLRUSize,
 		HistogramAggregation: otel.AggregationExplicit,
-		Features:             export.FeatureApplication,
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
@@ -153,9 +156,8 @@ var DefaultConfig = Config{
 		},
 	},
 	Prometheus: prom.PrometheusConfig{
-		Path:     "/metrics",
-		Buckets:  export.DefaultBuckets,
-		Features: export.FeatureApplication,
+		Path:    "/metrics",
+		Buckets: export.DefaultBuckets,
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
@@ -265,6 +267,9 @@ type Config struct {
 	// Deprecated: Service namespace should be set in the instrumentation target (env vars, kube metadata...)
 	// as this is a reminiscence of past times when we only supported one executable per instance.
 	ServiceNamespace string `yaml:"service_namespace" env:"OTEL_EBPF_SERVICE_NAMESPACE"`
+
+	// MeterProvider is a placeholder for the progressive support of the OTEL declarative configuration.
+	MeterProvider decfg.MeterProvider `yaml:"meter_provider"`
 
 	// Discovery configuration
 	Discovery services.DiscoveryConfig `yaml:"discovery"`
@@ -379,8 +384,8 @@ func (c *Config) Validate() error {
 		return ConfigError("OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT duration must be greater than 0s")
 	}
 
-	if c.Enabled(FeatureNetO11y) && !c.Metrics.Enabled() &&
-		!c.Prometheus.Enabled() && !c.NetworkFlows.Print {
+	if c.Enabled(FeatureNetO11y) && !c.Metrics.EndpointEnabled() &&
+		!c.Prometheus.EndpointEnabled() && !c.NetworkFlows.Print {
 		return ConfigError("enabling network metrics requires to enable at least the OpenTelemetry" +
 			" metrics exporter: otel_metrics_export or prometheus_export sections in the YAML configuration file; or the" +
 			" OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_METRICS_ENDPOINT or OTEL_EBPF_PROMETHEUS_PORT environment variables. For debugging" +
@@ -392,15 +397,15 @@ func (c *Config) Validate() error {
 	}
 
 	if c.Enabled(FeatureAppO11y) && !c.TracePrinter.Enabled() &&
-		!c.Metrics.Enabled() && !c.Traces.Enabled() &&
-		!c.Prometheus.Enabled() && !c.TracePrinter.Enabled() {
+		!c.Metrics.EndpointEnabled() && !c.Traces.Enabled() &&
+		!c.Prometheus.EndpointEnabled() && !c.TracePrinter.Enabled() {
 		return ConfigError("you need to define at least one exporter: trace_printer," +
 			" otel_metrics_export, otel_traces_export or prometheus_export")
 	}
 
 	if c.Enabled(FeatureAppO11y) &&
 		((c.Prometheus.Enabled() && c.Prometheus.InvalidSpanMetricsConfig()) ||
-			(c.Metrics.Enabled() && c.Metrics.InvalidSpanMetricsConfig())) {
+			(c.Metrics.EndpointEnabled() && c.MeterProvider.Features.InvalidSpanMetricsConfig())) {
 		return ConfigError("you can only enable one format of span metrics," +
 			" application_span or application_span_otel")
 	}
@@ -412,7 +417,7 @@ func (c *Config) Validate() error {
 	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && c.InternalMetrics.Prometheus.Port != 0 {
 		return ConfigError("you can't enable both OTEL and Prometheus internal metrics")
 	}
-	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && !c.Metrics.Enabled() {
+	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && !c.Metrics.EndpointEnabled() {
 		return ConfigError("you can't enable OTEL internal metrics without enabling OTEL metrics")
 	}
 
@@ -424,7 +429,7 @@ func (c *Config) promNetO11yEnabled() bool {
 }
 
 func (c *Config) otelNetO11yEnabled() bool {
-	return c.Metrics.Enabled() && c.Metrics.NetworkMetricsEnabled()
+	return c.Metrics.EndpointEnabled() && c.MeterProvider.Features.AnyNetworkMetricsEnabled()
 }
 
 func (c *Config) willUseTC() bool {
@@ -445,10 +450,8 @@ func (c *Config) Enabled(feature Feature) bool {
 }
 
 func (c *Config) SpanMetricsEnabledForTraces() bool {
-	otelSpanMetricsEnabled := c.Metrics.Enabled() && c.Metrics.AnySpanMetricsEnabled()
-	promSpanMetricsEnabled := c.Prometheus.Enabled() && c.Prometheus.AnySpanMetricsEnabled()
-
-	return otelSpanMetricsEnabled || promSpanMetricsEnabled
+	return c.MeterProvider.Features.AnySpanMetricsEnabled() &&
+		(c.Metrics.EndpointEnabled() || c.Prometheus.EndpointEnabled())
 }
 
 // ExternalLogger sets the logging capabilities of OBI.

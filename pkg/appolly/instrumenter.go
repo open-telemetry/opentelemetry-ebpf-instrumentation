@@ -124,9 +124,8 @@ func newGraphBuilder(
 	// some nodes (ipNodesFilter, span name limiter...) are only passed to the metrics export nodes.
 	// Nodes directly handling raw traces will still get the unfiltered exportableSpans queue.
 	// If no metrics exporter is configured, we will not start the metrics subpipeline to save resources.
-	exportingMetrics := config.Metrics.Enabled() ||
-		config.Metrics.ServiceGraphMetricsEnabled() ||
-		config.Prometheus.Enabled()
+	exportingMetrics := config.MeterProvider.Features.AnyApplicationEnabled() &&
+		(config.Metrics.EndpointEnabled() || config.Prometheus.EndpointEnabled())
 	if exportingMetrics {
 		setupMetricsSubPipeline(config, ctxInfo, swi, exportableSpans, selectorCfg, processEventsCh)
 	}
@@ -155,9 +154,10 @@ func setupMetricsSubPipeline(
 
 	spanNameAggregatedMetrics := newQueue("spanNameAggregatedMetrics")
 	swi.Add(transform.SpanNameLimiter(transform.SpanNameLimiterConfig{
-		Limit: config.Attributes.MetricSpanNameAggregationLimit,
-		OTEL:  &config.Metrics,
-		Prom:  &config.Prometheus,
+		Limit:         config.Attributes.MetricSpanNameAggregationLimit,
+		OTEL:          &config.Metrics,
+		Prom:          &config.Prometheus,
+		MeterProvider: &config.MeterProvider,
 	}, exportableSpans, spanNameAggregatedMetrics))
 
 	unresolvedCfg := request.UnresolvedNames{
@@ -169,6 +169,7 @@ func setupMetricsSubPipeline(
 	swi.Add(otel.ReportMetrics(
 		ctxInfo,
 		&config.Metrics,
+		&config.MeterProvider,
 		selectorCfg,
 		unresolvedCfg,
 		spanNameAggregatedMetrics,
@@ -178,6 +179,7 @@ func setupMetricsSubPipeline(
 	swi.Add(otel.ReportSvcGraphMetrics(
 		ctxInfo,
 		&config.Metrics,
+		&config.MeterProvider,
 		unresolvedCfg,
 		spanNameAggregatedMetrics,
 		processEventsCh,

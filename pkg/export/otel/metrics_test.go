@@ -30,6 +30,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -57,12 +58,12 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	internalMetrics := &fakeInternalMetrics{}
 	mcfg := &otelcfg.MetricsConfig{
 		CommonEndpoint: coll.URL, Interval: 10 * time.Millisecond, ReportersCacheLen: 16,
-		Features: export.FeatureApplication, Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		DeprFeatures: export.FeatureApplication, Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 	}
 	reporter, err := ReportMetrics(&global.ContextInfo{
 		Metrics:             internalMetrics,
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
-	}, mcfg, &attributes.SelectorConfig{}, request.UnresolvedNames{}, exportMetrics, processEvents,
+	}, mcfg, &mpConfig, &attributes.SelectorConfig{}, request.UnresolvedNames{}, exportMetrics, processEvents,
 	)(t.Context())
 	require.NoError(t, err)
 	go reporter(t.Context())
@@ -322,11 +323,9 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 }
 
 func TestMetricsDiscarded(t *testing.T) {
-	mc := otelcfg.MetricsConfig{
-		Features: export.FeatureApplication,
-	}
 	mr := MetricsReporter{
-		cfg: &mc,
+		cfg:           &otelcfg.MetricsConfig{},
+		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplication},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -367,11 +366,9 @@ func TestMetricsDiscarded(t *testing.T) {
 }
 
 func TestSpanMetricsDiscarded(t *testing.T) {
-	mc := otelcfg.MetricsConfig{
-		Features: export.FeatureSpan,
-	}
 	mr := MetricsReporter{
-		cfg: &mc,
+		cfg:           &otelcfg.MetricsConfig{},
+		meterProvider: &decfg.MeterProvider{Features: export.FeatureSpan},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -412,11 +409,9 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 }
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
-	mc := otelcfg.MetricsConfig{
-		Features: export.FeatureGraph,
-	}
 	mr := MetricsReporter{
-		cfg: &mc,
+		cfg:           &otelcfg.MetricsConfig{},
+		meterProvider: &decfg.MeterProvider{Features: export.FeatureSpan},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -457,12 +452,10 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 }
 
 func TestProcessPIDEvents(t *testing.T) {
-	mc := otelcfg.MetricsConfig{
-		Features: export.FeatureApplication,
-	}
 	mr := MetricsReporter{
-		cfg:        &mc,
-		pidTracker: NewPidServiceTracker(),
+		cfg:           &otelcfg.MetricsConfig{},
+		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplication},
+		pidTracker:    NewPidServiceTracker(),
 	}
 
 	svcA := svc.Attrs{
@@ -545,7 +538,6 @@ func makeMetricsReporter(
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          features,
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 100,
 		Instrumentations:  instrumentations,
@@ -553,7 +545,7 @@ func makeMetricsReporter(
 	mr, err := newMetricsReporter(
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
-		mcfg,
+		mcfg, &decfg.MeterProvider{Features: features},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -1109,6 +1101,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			reporter := &MetricsReporter{
 				cfg:                &otelcfg.MetricsConfig{},
 				log:                slog.Default(),
+				meterProvider:      &decfg.MeterProvider{Features: export.FeatureApplication},
 				targetMetrics:      make(map[svc.UID]*TargetMetrics),
 				pidTracker:         NewPidServiceTracker(),
 				createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1153,6 +1146,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
+			meterProvider:      &decfg.MeterProvider{Features: export.FeatureProcess},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1187,6 +1181,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
+			meterProvider:      &decfg.MeterProvider{Features: export.FeatureProcess},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,

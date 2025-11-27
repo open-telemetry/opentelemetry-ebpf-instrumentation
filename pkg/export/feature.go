@@ -77,3 +77,35 @@ func (f *Features) UnmarshalText(text []byte) error {
 	*f = LoadFeatures(strings.Split(string(text), ","))
 	return nil
 }
+
+func (f Features) AnyApplicationEnabled() bool {
+	return f.Any(
+		FeatureApplication |
+			FeatureSpan |
+			FeatureSpanOTel |
+			FeatureSpanSizes |
+			FeatureGraph |
+			FeatureProcess |
+			FeatureApplicationHost)
+}
+
+func (f Features) AnyEnabled() bool {
+	return f != 0
+}
+
+func (f Features) SpanMetricsEnabled() bool {
+	return f.Any(FeatureSpan | FeatureSpanOTel)
+}
+
+func (f Features) AnySpanMetricsEnabled() bool {
+	return f.Any(FeatureSpan | FeatureSpanOTel | FeatureSpanSizes)
+}
+
+func (f Features) AnyNetworkMetricsEnabled() bool {
+	return f.Any(FeatureNetwork | FeatureNetworkInterZone)
+}
+
+// InvalidSpanMetricsConfig is used to make sure that you can't define both legacy and OTEL span metrics at the same time
+func (f Features) InvalidSpanMetricsConfig() bool {
+	return f.Has(FeatureSpan | FeatureSpanOTel)
+}

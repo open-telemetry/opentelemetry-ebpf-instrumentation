@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/kube"
@@ -144,6 +145,9 @@ discovery:
 			KafkaTopicUUIDCacheSize:             1024,
 		},
 		NetworkFlows: nc,
+		MeterProvider: decfg.MeterProvider{
+			Features: export.FeatureApplication,
+		},
 		Metrics: otelcfg.MetricsConfig{
 			OTELIntervalMS:    60_000,
 			CommonEndpoint:    "localhost:3131",
@@ -155,7 +159,6 @@ discovery:
 				RequestSizeHistogram:  export.DefaultBuckets.RequestSizeHistogram,
 				ResponseSizeHistogram: export.DefaultBuckets.ResponseSizeHistogram,
 			},
-			Features: export.FeatureApplication,
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
 			},
@@ -180,8 +183,7 @@ discovery:
 			},
 		},
 		Prometheus: prom.PrometheusConfig{
-			Path:     "/metrics",
-			Features: export.FeatureApplication,
+			Path: "/metrics",
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
 			},
@@ -606,6 +608,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 		name        string
 		metrics     otelcfg.MetricsConfig
 		prometheus  prom.PrometheusConfig
+		mp          decfg.MeterProvider
 		wantEnabled bool
 	}{
 		{
@@ -618,46 +621,43 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name: "otel metrics enabled, but not spans",
 			metrics: otelcfg.MetricsConfig{
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
-				Features:        export.FeatureApplication,
 			},
 			prometheus:  prom.PrometheusConfig{},
+			mp:          decfg.MeterProvider{Features: export.FeatureApplication},
 			wantEnabled: false,
 		},
 		{
 			name: "otel metrics enabled with spans",
 			metrics: otelcfg.MetricsConfig{
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
-				Features:        export.FeatureSpanOTel,
 			},
 			prometheus:  prom.PrometheusConfig{},
+			mp:          decfg.MeterProvider{Features: export.FeatureSpanOTel},
 			wantEnabled: true,
 		},
 		{
 			name:    "prometheus metrics enabled, but not spans",
 			metrics: otelcfg.MetricsConfig{},
 			prometheus: prom.PrometheusConfig{
-				Port:     9090,
-				Features: export.FeatureApplication,
+				Port: 9090,
 			},
+			mp:          decfg.MeterProvider{Features: export.FeatureApplication},
 			wantEnabled: false,
 		},
 		{
 			name:    "prometheus span metrics enabled",
 			metrics: otelcfg.MetricsConfig{},
 			prometheus: prom.PrometheusConfig{
-				Features: export.FeatureGraph,
-				Port:     9090,
+				Port: 9090,
 			},
+			mp:          decfg.MeterProvider{Features: export.FeatureSpanOTel},
 			wantEnabled: true,
 		},
 		{
-			name: "both have features, but not enabled",
-			metrics: otelcfg.MetricsConfig{
-				Features: export.FeatureApplication,
-			},
-			prometheus: prom.PrometheusConfig{
-				Features: export.FeatureGraph,
-			},
+			name:        "both have features, but not enabled",
+			metrics:     otelcfg.MetricsConfig{},
+			prometheus:  prom.PrometheusConfig{},
+			mp:          decfg.MeterProvider{Features: export.FeatureApplication | export.FeatureGraph},
 			wantEnabled: false,
 		},
 	}
@@ -665,8 +665,9 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &Config{
-				Metrics:    tc.metrics,
-				Prometheus: tc.prometheus,
+				Metrics:       tc.metrics,
+				Prometheus:    tc.prometheus,
+				MeterProvider: tc.mp,
 			}
 			got := cfg.SpanMetricsEnabledForTraces()
 			assert.Equal(t, tc.wantEnabled, got)

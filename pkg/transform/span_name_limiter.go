@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/cache"
@@ -38,9 +39,10 @@ type routesCount struct {
 }
 
 type SpanNameLimiterConfig struct {
-	Limit int
-	OTEL  *otelcfg.MetricsConfig
-	Prom  *prom.PrometheusConfig
+	Limit         int
+	MeterProvider *decfg.MeterProvider
+	OTEL          *otelcfg.MetricsConfig
+	Prom          *prom.PrometheusConfig
 }
 
 // SpanNameLimiter applies only to metrics. If span metrics are enabled and
@@ -69,8 +71,7 @@ func SpanNameLimiter(cfg SpanNameLimiterConfig, input, output *msg.Queue[[]reque
 
 func enabled(cfg *SpanNameLimiterConfig) bool {
 	return cfg.Limit > 0 &&
-		(cfg.OTEL.Features.Has(export.FeatureSpan) ||
-			cfg.Prom.Features.Has(export.FeatureSpan))
+		cfg.MeterProvider.Features.Any(export.FeatureSpan)
 }
 
 func (l *spanNameLimiter) doLimit(ctx context.Context) {

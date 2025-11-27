@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -27,6 +28,8 @@ import (
 )
 
 const timeout = 20 * time.Second
+
+var mpConfig = decfg.MeterProvider{Features: export.FeatureAll}
 
 func TestNetMetricsExpiration(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
@@ -43,7 +46,7 @@ func TestNetMetricsExpiration(t *testing.T) {
 		Interval:        50 * time.Millisecond,
 		CommonEndpoint:  otlp.ServerEndpoint,
 		MetricsProtocol: otelcfg.ProtocolHTTPProtobuf,
-		Features:        export.FeatureNetwork,
+		DeprFeatures:    export.FeatureNetwork,
 		TTL:             3 * time.Minute,
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
@@ -60,7 +63,8 @@ func TestNetMetricsExpiration(t *testing.T) {
 					},
 				},
 			},
-		}, metrics)(ctx)
+			MeterProvider: &decfg.MeterProvider{Features: export.FeatureNetwork},
+		}, &mpConfig, metrics)(ctx)
 	require.NoError(t, err)
 
 	go otelExporter(ctx)
@@ -168,7 +172,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          export.FeatureApplication,
+		DeprFeatures:      export.FeatureApplication,
 		TTL:               3 * time.Minute,
 		ReportersCacheLen: 100,
 		Instrumentations: []instrumentations.Instrumentation{
@@ -179,7 +183,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 		&global.ContextInfo{
 			MetricAttributeGroups: g,
 			OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: cfg},
-		}, cfg, &attributes.SelectorConfig{
+		}, cfg, &mpConfig, &attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
 					Include: []string{"url.path", "k8s.app.version"},
@@ -307,7 +311,7 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          export.FeatureApplication,
+		DeprFeatures:      export.FeatureApplication,
 		TTL:               3 * time.Minute,
 		ReportersCacheLen: 100,
 		Instrumentations: []instrumentations.Instrumentation{
@@ -316,7 +320,7 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	}
 	otelExporter, err := ReportMetrics(
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
-		cfg,
+		cfg, &mpConfig,
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{

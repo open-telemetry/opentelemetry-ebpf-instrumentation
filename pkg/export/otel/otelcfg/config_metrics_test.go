@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
 
@@ -206,33 +205,6 @@ func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 		assert.False(t, ok)
 		assert.Equal(t, "foo-proto", os.Getenv(envProtocol))
 	})
-}
-
-func TestMetricsConfig_Enabled(t *testing.T) {
-	assert.True(t, (&MetricsConfig{Features: export.FeatureApplication | export.FeatureNetwork, CommonEndpoint: "foo"}).Enabled())
-	assert.True(t, (&MetricsConfig{Features: export.FeatureApplication, MetricsEndpoint: "foo"}).Enabled())
-	assert.True(t, (&MetricsConfig{MetricsEndpoint: "foo", Features: export.FeatureNetwork}).Enabled())
-	assert.True(t, (&MetricsConfig{
-		Features:             export.FeatureNetwork,
-		OTLPEndpointProvider: func() (string, bool) { return "something", false },
-	}).Enabled())
-	assert.True(t, (&MetricsConfig{
-		Features:             export.FeatureNetwork,
-		OTLPEndpointProvider: func() (string, bool) { return "something", true },
-	}).Enabled())
-}
-
-func TestMetricsConfig_Disabled(t *testing.T) {
-	assert.False(t, (&MetricsConfig{Features: export.FeatureApplication}).Enabled())
-	assert.False(t, (&MetricsConfig{Features: export.FeatureNetwork | export.FeatureApplication}).Enabled())
-	assert.False(t, (&MetricsConfig{Features: export.FeatureNetwork}).Enabled())
-	// application feature is not enabled
-	assert.False(t, (&MetricsConfig{CommonEndpoint: "foo"}).Enabled())
-	assert.False(t, (&MetricsConfig{}).Enabled())
-	assert.False(t, (&MetricsConfig{
-		Features:             export.FeatureApplication,
-		OTLPEndpointProvider: func() (string, bool) { return "", false },
-	}).Enabled())
 }
 
 func TestMetricsInterval(t *testing.T) {

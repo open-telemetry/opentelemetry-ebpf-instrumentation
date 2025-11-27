@@ -49,7 +49,7 @@ func TestMetricAttributes(t *testing.T) {
 		Interval:          10 * time.Millisecond,
 		ReportersCacheLen: 100,
 		TTL:               5 * time.Minute,
-		Features:          export.FeatureNetwork | export.FeatureNetworkInterZone,
+		DeprFeatures:      export.FeatureNetwork | export.FeatureNetworkInterZone,
 	}
 	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
 		MetricAttributeGroups: attributes.GroupKubernetes,
@@ -58,7 +58,7 @@ func TestMetricAttributes(t *testing.T) {
 		SelectionCfg: map[attributes.Section]attributes.InclusionLists{
 			attributes.NetworkFlow.Section: {Include: []string{"*"}},
 		},
-	}, Metrics: mcfg}, msg.NewQueue[[]*ebpf.Record]())
+	}, Metrics: mcfg}, &mpConfig, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 
 	_, reportedAttributes := me.flowBytes.ForRecord(in)
@@ -108,7 +108,7 @@ func TestMetricAttributes_Filter(t *testing.T) {
 		MetricsEndpoint:   "http://foo",
 		Interval:          10 * time.Millisecond,
 		ReportersCacheLen: 100,
-		Features:          export.FeatureNetwork | export.FeatureNetworkInterZone,
+		DeprFeatures:      export.FeatureNetwork | export.FeatureNetworkInterZone,
 	}
 	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
 		MetricAttributeGroups: attributes.GroupKubernetes,
@@ -122,7 +122,7 @@ func TestMetricAttributes_Filter(t *testing.T) {
 					"k8s.dst.name",
 				}},
 			},
-		}, Metrics: mcfg}, msg.NewQueue[[]*ebpf.Record]())
+		}, Metrics: mcfg}, &mpConfig, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 
 	_, reportedAttributes := me.flowBytes.ForRecord(in)
@@ -144,27 +144,6 @@ func TestMetricAttributes_Filter(t *testing.T) {
 	} {
 		assert.False(t, reportedAttributes.HasValue(mustNotContain))
 	}
-}
-
-func TestNetMetricsConfig_Enabled(t *testing.T) {
-	assert.True(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{
-		Features: export.FeatureApplication | export.FeatureNetwork, CommonEndpoint: "foo",
-	}}.Enabled())
-	assert.True(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{
-		Features: export.FeatureNetwork | export.FeatureProcess, MetricsEndpoint: "foo",
-	}}.Enabled())
-}
-
-func TestNetMetricsConfig_Disabled(t *testing.T) {
-	fa := export.FeatureApplication
-	fn := export.FeatureNetwork
-	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
-	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
-	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
-	// network feature is not enabled
-	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{CommonEndpoint: "foo"}}.Enabled())
-	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{MetricsEndpoint: "foo", Features: fa}}.Enabled())
-	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{}}.Enabled())
 }
 
 func TestGetFilteredNetworkResourceAttrs(t *testing.T) {
