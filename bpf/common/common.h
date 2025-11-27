@@ -35,7 +35,7 @@
 #define HOST_LEN 64 // can be a fully qualified DNS name
 #define TRACEPARENT_LEN 55
 #define SQL_MAX_LEN 500
-#define SQL_HOSTNAME_MAX_LEN 256
+#define SQL_HOSTNAME_MAX_LEN 272
 #define KAFKA_MAX_LEN 256
 #define REDIS_MAX_LEN 256
 #define MONGO_MAX_LEN 256
