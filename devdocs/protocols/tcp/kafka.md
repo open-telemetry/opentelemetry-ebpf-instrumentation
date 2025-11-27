@@ -24,8 +24,6 @@ Current request types OBI is tracking are:
 - *Produce (api key 0)*: OBI tracks these requests and produces `produce` spans.
 - *Fetch (api key 1)*: OBI tracks these requests and produces `consume` spans.
 - *Metadata (api key 3)*: OBI tracks these requests (and mainly the responses) to correlate topic names with fetch requests from v13 and above.
-  
-(unfortunately there is no way to anchor the documentation to a specific message.)
 
 ### Flexible Messages
 
