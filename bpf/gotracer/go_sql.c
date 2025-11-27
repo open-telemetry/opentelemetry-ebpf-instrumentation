@@ -104,53 +104,6 @@ int obi_uprobe_sqlOpen(struct pt_regs *ctx) {
     return 0;
 }
 
-// Helper function to extract hostname from DSN (user:pass@tcp(hostname:port)/database)
-static __always_inline u8 extract_hostname_from_dsn(const unsigned char *dsn,
-                                                      u64 dsn_len,
-                                                      unsigned char *hostname,
-                                                      u64 max_hostname_len) {
-    u8 found = 0;
-    u64 start_idx = 0;
-
-    // Search for "@tcp(" in the DSN
-    for (u64 i = 0; i < dsn_len - 5 && i < 512; i++) {
-        unsigned char c1, c2, c3, c4, c5;
-        bpf_probe_read(&c1, 1, &dsn[i]);
-        bpf_probe_read(&c2, 1, &dsn[i + 1]);
-        bpf_probe_read(&c3, 1, &dsn[i + 2]);
-        bpf_probe_read(&c4, 1, &dsn[i + 3]);
-        bpf_probe_read(&c5, 1, &dsn[i + 4]);
-
-        if (c1 == '@' && c2 == 't' && c3 == 'c' && c4 == 'p' && c5 == '(') {
-            start_idx = i + 5;
-            found = 1;
-            break;
-        }
-    }
-
-    if (!found) {
-        return 0;
-    }
-
-    // Extract hostname until we hit ')' or reach max length
-    u64 hostname_len = 0;
-    for (u64 i = start_idx; i < dsn_len && i < start_idx + max_hostname_len - 1 && i < 512; i++) {
-        unsigned char c;
-        bpf_probe_read(&c, 1, &dsn[i]);
-        if (c == ')' || c == '\0') {
-            break;
-        }
-        hostname[hostname_len++] = c;
-    }
-
-    if (hostname_len > 0 && hostname_len < max_hostname_len) {
-        hostname[hostname_len] = '\0';
-        return 1;
-    }
-
-    return 0;
-}
-
 SEC("uprobe/sqlOpen")
 int obi_uretprobe_sqlOpen(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uretprobe/sql.Open === ");
@@ -172,17 +125,17 @@ int obi_uretprobe_sqlOpen(struct pt_regs *ctx) {
         return 0;
     }
 
-    unsigned char hostname[256] = {0};
-    u8 extracted = extract_hostname_from_dsn((const unsigned char *)invocation->dsn_ptr,
-                                              invocation->dsn_len,
-                                              hostname,
-                                              sizeof(hostname));
-
-    if (extracted) {
-        u64 db_key = (u64)db_ptr;
-        bpf_map_update_elem(&sql_db_hostname, &db_key, hostname, BPF_ANY);
-        bpf_dbg_printk("Stored hostname for DB %llx: %s", db_key, hostname);
+    unsigned char dsn[256] = {0};
+    u64 copy_len = invocation->dsn_len;
+    if (copy_len > sizeof(dsn) - 1) {
+        copy_len = sizeof(dsn) - 1;
     }
+
+    bpf_probe_read(dsn, copy_len, (void *)invocation->dsn_ptr);
+    dsn[copy_len] = '\0';
+    u64 db_key = (u64)db_ptr;
+    bpf_map_update_elem(&sql_db_hostname, &db_key, dsn, BPF_ANY);
+    bpf_dbg_printk("Stored DSN snippet for DB %llx", db_key);
 
     bpf_map_delete_elem(&ongoing_sql_opens, &g_key);
     return 0;
@@ -239,7 +192,7 @@ int obi_uprobe_queryReturn(struct pt_regs *ctx) {
                 unsigned char *hostname = bpf_map_lookup_elem(&sql_db_hostname, &db_ptr);
                 if (hostname) {
                     __builtin_memcpy(trace->hostname, hostname, sizeof(trace->hostname));
-                    bpf_dbg_printk("Found hostname: %s", trace->hostname);
+                    bpf_dbg_printk("Found hostname");
                 } else {
                     bpf_dbg_printk("No hostname found for DB %llx", db_ptr);
                     trace->hostname[0] = '\0';

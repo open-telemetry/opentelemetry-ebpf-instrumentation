@@ -159,6 +159,7 @@ require (
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/xo/dburl v0.23.8 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/collector v0.140.0 // indirect
 	go.opentelemetry.io/collector/client v1.46.0 // indirect

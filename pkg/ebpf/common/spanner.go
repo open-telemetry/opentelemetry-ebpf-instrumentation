@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unsafe"
 
+	"github.com/xo/dburl"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
 )
@@ -106,9 +107,10 @@ func SQLRequestTraceToSpan(trace *SQLRequestTrace) request.Span {
 		hostPort = int(trace.Conn.D_port)
 	}
 
-	// Use hostname from DSN if available (captured from sql.Open)
+	// Parse hostname from DSN (captured from sql.Open)
 	// This preserves the original hostname before DNS resolution
-	dsnHostname := cstr(trace.Hostname[:])
+	dsn := cstr(trace.Hostname[:])
+	dsnHostname := parseHostnameFromDSN(dsn)
 
 	return request.Span{
 		Type:          request.EventType(trace.Type),
@@ -135,4 +137,18 @@ func SQLRequestTraceToSpan(trace *SQLRequestTrace) request.Span {
 		},
 		Statement: sql,
 	}
+}
+
+// parseHostnameFromDSN extracts hostname:port from DSN using dburl library
+func parseHostnameFromDSN(dsn string) string {
+	if dsn == "" {
+		return ""
+	}
+
+	u, err := dburl.Parse(dsn)
+	if err != nil {
+		return ""
+	}
+
+	return u.Host
 }
