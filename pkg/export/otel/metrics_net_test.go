@@ -12,7 +12,6 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -49,7 +48,6 @@ func TestMetricAttributes(t *testing.T) {
 		Interval:          10 * time.Millisecond,
 		ReportersCacheLen: 100,
 		TTL:               5 * time.Minute,
-		DeprFeatures:      export.FeatureNetwork | export.FeatureNetworkInterZone,
 	}
 	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
 		MetricAttributeGroups: attributes.GroupKubernetes,
@@ -108,7 +106,6 @@ func TestMetricAttributes_Filter(t *testing.T) {
 		MetricsEndpoint:   "http://foo",
 		Interval:          10 * time.Millisecond,
 		ReportersCacheLen: 100,
-		DeprFeatures:      export.FeatureNetwork | export.FeatureNetworkInterZone,
 	}
 	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
 		MetricAttributeGroups: attributes.GroupKubernetes,

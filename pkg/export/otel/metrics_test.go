@@ -58,7 +58,7 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	internalMetrics := &fakeInternalMetrics{}
 	mcfg := &otelcfg.MetricsConfig{
 		CommonEndpoint: coll.URL, Interval: 10 * time.Millisecond, ReportersCacheLen: 16,
-		DeprFeatures: export.FeatureApplication, Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 	}
 	reporter, err := ReportMetrics(&global.ContextInfo{
 		Metrics:             internalMetrics,

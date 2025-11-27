@@ -68,7 +68,7 @@ func (i *SDKInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string,
 }
 
 func (i *SDKInjector) Enabled() bool {
-	return i.cfg.EBPF.UseOTelSDKForJava && (i.cfg.Traces.Enabled() || i.cfg.Metrics.Enabled())
+	return i.cfg.EBPF.UseOTelSDKForJava && (i.cfg.Traces.Enabled() || i.cfg.Metrics.EndpointEnabled())
 }
 
 func (i *SDKInjector) NewExecutable(ie *ebpf.Instrumentable) error {
