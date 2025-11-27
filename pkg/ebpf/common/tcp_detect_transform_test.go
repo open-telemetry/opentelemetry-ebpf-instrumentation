@@ -6,8 +6,12 @@ package ebpfcommon
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
+	"log"
 	"math/rand/v2"
+	"os"
 	"strings"
 	"testing"
 
@@ -45,6 +49,39 @@ func TestTCPReqParsing(t *testing.T) {
 	assert.Empty(t, op)
 	assert.Empty(t, table)
 	assert.NotNil(t, r)
+
+	// Verify fallback debug logs appear when no protocol matches
+	cfg := config.EBPFTracer{HeuristicSQLDetect: false, ProtocolDebug: true}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+
+	pipeR, pipeW, _ := os.Pipe()
+	stdout := os.Stdout
+	os.Stdout = pipeW
+	var output bytes.Buffer
+	done := make(chan bool)
+	go func() {
+		_, err := io.Copy(&output, pipeR)
+		if err != nil && !errors.Is(err, io.EOF) {
+			log.Printf("io.Copy error: %v", err)
+		}
+		done <- true
+	}()
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.Equal(t, request.Span{}, span)
+	assert.True(t, ignore)
+
+	pipeW.Close()
+	os.Stdout = stdout
+	<-done
+	pipeR.Close()
+
+	assert.Contains(t, output.String(), "![>]")
+	assert.Contains(t, output.String(), "![<]")
 }
 
 func TestSQLDetection(t *testing.T) {
