@@ -8,81 +8,115 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/net/http2"
+
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/bhpack"
 )
 
 func TestHTTP2QuickDetection(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    []byte
-		inputLen int
-		expected bool
+		name          string
+		input         []byte
+		inputLen      int
+		expected      bool
+		expectedQuick bool
 	}{
 		{
-			name:     "Status instead of start",
-			input:    []byte{0, 0, 29, 1, 4, 0, 0, 1, 101, 136, 224, 223, 222, 221, 97, 150, 223, 105, 126, 148, 19, 106, 101, 182, 165, 4, 1, 52, 160, 92, 184, 23, 174, 1, 197, 49, 104, 223, 0, 0, 44, 0, 0, 0, 0, 1, 101, 1, 0, 0, 0, 39, 31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 18, 98, 11, 14, 113, 12, 241, 116, 150, 98, 206, 79, 75, 83, 98, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-			inputLen: 100,
-			expected: true,
+			name:          "Test no :path, but has :scheme",
+			input:         []byte{0, 0, 77, 1, 4, 0, 0, 7, 35, 195, 194, 131, 134, 193, 192, 191, 190, 0, 11, 116, 114, 97, 99, 101, 112, 97, 114, 101, 110, 116, 55, 48, 48, 45, 52, 53, 53, 49, 102, 50, 57, 102, 101, 102, 54, 97, 50, 57, 56, 51, 52, 51, 48, 102, 98, 101, 49, 101, 53, 101, 99, 99, 101, 100, 55, 54, 45, 55, 52, 102, 49, 48, 55, 98, 98, 52, 55, 98, 53, 52, 57, 57, 54, 45, 48, 49, 0, 0, 4, 8, 0, 0, 0, 7, 35, 0, 0, 0, 5, 0, 0, 5, 0, 1, 0, 0, 7, 35, 0, 0, 0, 0, 0, 0, 0, 4, 8, 0, 0, 0, 0, 0, 0, 0, 20, 12},
+			inputLen:      10000,
+			expected:      true,
+			expectedQuick: true,
 		},
 		{
-			name:     "Empty",
-			input:    []byte{},
-			inputLen: 100,
-			expected: false,
+			name:          "Test no :path, but has :scheme and traceparent",
+			input:         []byte{0, 0, 134, 1, 4, 0, 0, 7, 15, 195, 194, 131, 134, 193, 192, 191, 190, 0, 11, 116, 114, 97, 99, 101, 112, 97, 114, 101, 110, 116, 55, 48, 48, 45, 50, 50, 98, 100, 57, 52, 52, 99, 50, 98, 50, 52, 97, 52, 102, 98, 52, 55, 102, 102, 101, 56, 98, 102, 57, 97, 100, 51, 54, 52, 57, 53, 45, 50, 50, 102, 53, 56, 98, 55, 53, 100, 100, 50, 99, 51, 55, 98, 101, 45, 48, 49, 0, 7, 98, 97, 103, 103, 97, 103, 101, 47, 115, 101, 115, 115, 105, 111, 110, 46, 105, 100, 61, 98, 50, 54, 49, 101, 51, 98, 101, 45, 102, 55, 102, 55, 45, 52, 54, 99, 55, 45, 98, 99, 55, 100, 45, 98, 99, 100, 97, 100, 101, 48, 102, 57, 97, 54, 102, 0, 0, 4, 8, 0, 0, 0, 7, 15, 0, 0, 0, 5, 0, 0, 5, 0, 1, 0, 0, 7, 15, 0, 0, 0, 0, 0, 0, 0, 4, 8, 0, 0, 0, 0, 0, 0, 0, 20, 12},
+			inputLen:      10000,
+			expected:      true,
+			expectedQuick: true,
 		},
 		{
-			name:     "Short",
-			input:    []byte{0, 0, 70, 1, 4},
-			inputLen: 3,
-			expected: false,
+			name:          "Status instead of start",
+			input:         []byte{0, 0, 29, 1, 4, 0, 0, 1, 101, 136, 224, 223, 222, 221, 97, 150, 223, 105, 126, 148, 19, 106, 101, 182, 165, 4, 1, 52, 160, 92, 184, 23, 174, 1, 197, 49, 104, 223, 0, 0, 44, 0, 0, 0, 0, 1, 101, 1, 0, 0, 0, 39, 31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 18, 98, 11, 14, 113, 12, 241, 116, 150, 98, 206, 79, 75, 83, 98, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			inputLen:      100,
+			expectedQuick: true,
+			expected:      false,
 		},
 		{
-			name:     "Regular HTTP2/gRPC Frame",
-			input:    []byte{0, 0, 70, 1, 4, 0, 0, 0, 19, 204, 131, 4, 147, 96, 233, 45, 18, 22, 147, 175, 12, 155, 139, 103, 115, 16, 172, 98, 42, 97, 145, 31, 134, 126, 167, 0, 22, 16, 7, 36, 140, 179, 27, 50, 202, 25, 101, 105, 182, 93, 33, 66, 211, 97, 41, 64, 0, 182, 66, 44, 219, 242, 186, 217, 2, 203, 196, 3, 143, 182, 209, 86, 0, 127, 203, 202, 201, 200, 199, 0, 0, 5, 0, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-			inputLen: 10000,
-			expected: true,
+			name:          "Empty",
+			input:         []byte{},
+			inputLen:      100,
+			expectedQuick: false,
+			expected:      false,
 		},
 		{
-			name:     "Reset frame before HTTP2/gRPC Frame",
-			input:    []byte{0, 0, 4, 3, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 70, 1, 4, 0, 0, 0, 21, 205, 131, 4, 147, 96, 233, 45, 18, 22, 147, 175, 12, 155, 139, 103, 115, 16, 172, 98, 42, 97, 145, 31, 134, 126, 167, 0, 22, 44, 99, 27, 33, 124, 174, 72, 228, 109, 129, 233, 27, 125, 246, 133, 44, 101, 28, 111, 70, 32, 178, 85, 163, 108, 97, 149, 199, 99, 121, 169, 90, 149, 225, 188, 176, 3, 204, 203, 202, 201, 200, 0, 0, 5, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-			inputLen: 10000,
-			expected: true,
+			name:          "Short",
+			input:         []byte{0, 0, 70, 1, 4},
+			inputLen:      3,
+			expectedQuick: false,
+			expected:      false,
 		},
 		{
-			name:     "Too short of input len, but enough to parse the reset frame",
-			input:    []byte{0, 0, 4, 3, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 70, 1, 4, 0, 0, 0, 21, 205, 131, 4, 147, 96, 233, 45, 18, 22, 147, 175, 12, 155, 139, 103, 115, 16, 172, 98, 42, 97, 145, 31, 134, 126, 167, 0, 22, 44, 99, 27, 33, 124, 174, 72, 228, 109, 129, 233, 27, 125, 246, 133, 44, 101, 28, 111, 70, 32, 178, 85, 163, 108, 97, 149, 199, 99, 121, 169, 90, 149, 225, 188, 176, 3, 204, 203, 202, 201, 200, 0, 0, 5, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-			inputLen: frameHeaderLen + 2,
-			expected: false,
+			name:          "Regular HTTP2/gRPC Frame",
+			input:         []byte{0, 0, 70, 1, 4, 0, 0, 0, 19, 204, 131, 4, 147, 96, 233, 45, 18, 22, 147, 175, 12, 155, 139, 103, 115, 16, 172, 98, 42, 97, 145, 31, 134, 126, 167, 0, 22, 16, 7, 36, 140, 179, 27, 50, 202, 25, 101, 105, 182, 93, 33, 66, 211, 97, 41, 64, 0, 182, 66, 44, 219, 242, 186, 217, 2, 203, 196, 3, 143, 182, 209, 86, 0, 127, 203, 202, 201, 200, 199, 0, 0, 5, 0, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			inputLen:      10000,
+			expectedQuick: true,
+			expected:      true,
 		},
 		{
-			name:     "Kafka frame instead of HTTP2",
-			input:    []byte{0, 0, 0, 1, 0, 0, 0, 7, 0, 0, 0, 2, 0, 6, 115, 97, 114, 97, 109, 97, 255, 255, 255, 255, 0, 0, 39, 16, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 72},
-			inputLen: 10000,
-			expected: false,
+			name:          "Reset frame before HTTP2/gRPC Frame",
+			input:         []byte{0, 0, 4, 3, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 70, 1, 4, 0, 0, 0, 21, 205, 131, 4, 147, 96, 233, 45, 18, 22, 147, 175, 12, 155, 139, 103, 115, 16, 172, 98, 42, 97, 145, 31, 134, 126, 167, 0, 22, 44, 99, 27, 33, 124, 174, 72, 228, 109, 129, 233, 27, 125, 246, 133, 44, 101, 28, 111, 70, 32, 178, 85, 163, 108, 97, 149, 199, 99, 121, 169, 90, 149, 225, 188, 176, 3, 204, 203, 202, 201, 200, 0, 0, 5, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			inputLen:      10000,
+			expectedQuick: true,
+			expected:      true,
 		},
 		{
-			name:     "No headers frame (manually tweaked the type to fail)",
-			input:    []byte{0, 0, 4, 3, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 70, 2, 4, 0, 0, 0, 21, 205, 131, 4, 147, 96, 233, 45, 18, 22, 147, 175, 12, 155, 139, 103, 115, 16, 172, 98, 42, 97, 145, 31, 134, 126, 167, 0, 22, 44, 99, 27, 33, 124, 174, 72, 228, 109, 129, 233, 27, 125, 246, 133, 44, 101, 28, 111, 70, 32, 178, 85, 163, 108, 97, 149, 199, 99, 121, 169, 90, 149, 225, 188, 176, 3, 204, 203, 202, 201, 200, 0, 0, 5, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-			inputLen: 10000,
-			expected: false,
+			name:          "Too short of input len, but enough to parse the reset frame",
+			input:         []byte{0, 0, 4, 3, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 70, 1, 4, 0, 0, 0, 21, 205, 131, 4, 147, 96, 233, 45, 18, 22, 147, 175, 12, 155, 139, 103, 115, 16, 172, 98, 42, 97, 145, 31, 134, 126, 167, 0, 22, 44, 99, 27, 33, 124, 174, 72, 228, 109, 129, 233, 27, 125, 246, 133, 44, 101, 28, 111, 70, 32, 178, 85, 163, 108, 97, 149, 199, 99, 121, 169, 90, 149, 225, 188, 176, 3, 204, 203, 202, 201, 200, 0, 0, 5, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			inputLen:      frameHeaderLen + 2,
+			expectedQuick: false,
+			expected:      false,
 		},
 		{
-			name:     "Truncated frame, len should be 70 of the second frame",
-			input:    []byte{0, 0, 4, 3, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 70, 2, 4, 0, 0, 0, 21, 205, 131},
-			inputLen: 10000,
-			expected: false,
+			name:          "Kafka frame instead of HTTP2",
+			input:         []byte{0, 0, 0, 1, 0, 0, 0, 7, 0, 0, 0, 2, 0, 6, 115, 97, 114, 97, 109, 97, 255, 255, 255, 255, 0, 0, 39, 16, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 72},
+			inputLen:      10000,
+			expectedQuick: false,
+			expected:      false,
 		},
 		{
-			name:     "HTTP2/gRPC Header Frame",
-			input:    []byte{0x0, 0x0, 0x7f, 0x1, 0x0, 0x0, 0x0, 0x6, 0x11, 0x83, 0x86, 0x10, 0x5, 0x3a, 0x70, 0x61, 0x74, 0x68, 0x10, 0x2f, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x2f, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x10, 0xa, 0x3a, 0x61, 0x75, 0x74, 0x68, 0x6f, 0x72, 0x69, 0x74, 0x79, 0x11, 0x34, 0x33, 0x2e, 0x31, 0x33, 0x35, 0x2e, 0x38, 0x34, 0x2e, 0x31, 0x33, 0x3a, 0x39, 0x38, 0x34, 0x38, 0x10, 0xc, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x2d, 0x74, 0x79, 0x70, 0x65, 0x10, 0x61, 0x70, 0x70, 0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x10, 0xa, 0x75, 0x73, 0x65, 0x72, 0x2d, 0x61, 0x67, 0x65, 0x6e, 0x74, 0xe, 0x67, 0x72, 0x70, 0x63, 0x2d, 0x67, 0x6f, 0x2f, 0x31, 0x2e, 0x36, 0x39, 0x2e, 0x32, 0x10, 0x2, 0x74, 0x65, 0x8, 0x74, 0x72, 0x61, 0x69, 0x6c, 0x65, 0x72, 0x73, 0x0, 0x0, 0x32, 0x9, 0x4, 0x0, 0x0, 0x6, 0x11, 0x10, 0x14, 0x67, 0x72, 0x70, 0x63, 0x2d, 0x61, 0x63, 0x63, 0x65, 0x70, 0x74, 0x2d, 0x65, 0x6e, 0x63, 0x6f, 0x64, 0x69, 0x6e, 0x67, 0x4, 0x67, 0x7a, 0x69, 0x70, 0x10, 0xc, 0x67, 0x72, 0x70, 0x63, 0x2d, 0x74, 0x69, 0x6d, 0x65, 0x6f, 0x75, 0x74, 0x8, 0x32, 0x39, 0x39, 0x39, 0x39, 0x31, 0x34, 0x75},
-			inputLen: 10000,
-			expected: true,
+			name:          "No headers frame (manually tweaked the type to fail)",
+			input:         []byte{0, 0, 4, 3, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 70, 2, 4, 0, 0, 0, 21, 205, 131, 4, 147, 96, 233, 45, 18, 22, 147, 175, 12, 155, 139, 103, 115, 16, 172, 98, 42, 97, 145, 31, 134, 126, 167, 0, 22, 44, 99, 27, 33, 124, 174, 72, 228, 109, 129, 233, 27, 125, 246, 133, 44, 101, 28, 111, 70, 32, 178, 85, 163, 108, 97, 149, 199, 99, 121, 169, 90, 149, 225, 188, 176, 3, 204, 203, 202, 201, 200, 0, 0, 5, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			inputLen:      10000,
+			expectedQuick: false,
+			expected:      false,
+		},
+		{
+			name:          "Truncated frame, len should be 70 of the second frame",
+			input:         []byte{0, 0, 4, 3, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 70, 2, 4, 0, 0, 0, 21, 205, 131},
+			inputLen:      10000,
+			expectedQuick: false,
+			expected:      false,
+		},
+		{
+			name:          "HTTP2/gRPC Header Frame",
+			input:         []byte{0x0, 0x0, 0x7f, 0x1, 0x0, 0x0, 0x0, 0x6, 0x11, 0x83, 0x86, 0x10, 0x5, 0x3a, 0x70, 0x61, 0x74, 0x68, 0x10, 0x2f, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x2f, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x10, 0xa, 0x3a, 0x61, 0x75, 0x74, 0x68, 0x6f, 0x72, 0x69, 0x74, 0x79, 0x11, 0x34, 0x33, 0x2e, 0x31, 0x33, 0x35, 0x2e, 0x38, 0x34, 0x2e, 0x31, 0x33, 0x3a, 0x39, 0x38, 0x34, 0x38, 0x10, 0xc, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x2d, 0x74, 0x79, 0x70, 0x65, 0x10, 0x61, 0x70, 0x70, 0x6c, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x10, 0xa, 0x75, 0x73, 0x65, 0x72, 0x2d, 0x61, 0x67, 0x65, 0x6e, 0x74, 0xe, 0x67, 0x72, 0x70, 0x63, 0x2d, 0x67, 0x6f, 0x2f, 0x31, 0x2e, 0x36, 0x39, 0x2e, 0x32, 0x10, 0x2, 0x74, 0x65, 0x8, 0x74, 0x72, 0x61, 0x69, 0x6c, 0x65, 0x72, 0x73, 0x0, 0x0, 0x32, 0x9, 0x4, 0x0, 0x0, 0x6, 0x11, 0x10, 0x14, 0x67, 0x72, 0x70, 0x63, 0x2d, 0x61, 0x63, 0x63, 0x65, 0x70, 0x74, 0x2d, 0x65, 0x6e, 0x63, 0x6f, 0x64, 0x69, 0x6e, 0x67, 0x4, 0x67, 0x7a, 0x69, 0x70, 0x10, 0xc, 0x67, 0x72, 0x70, 0x63, 0x2d, 0x74, 0x69, 0x6d, 0x65, 0x6f, 0x75, 0x74, 0x8, 0x32, 0x39, 0x39, 0x39, 0x39, 0x31, 0x34, 0x75},
+			inputLen:      10000,
+			expectedQuick: true,
+			expected:      true,
+		},
+		{
+			name:          "gRPC proper frame",
+			input:         []byte{0, 0, 113, 1, 4, 0, 0, 0, 33, 218, 131, 4, 154, 96, 233, 45, 18, 22, 147, 175, 122, 114, 147, 169, 237, 78, 226, 217, 220, 196, 43, 26, 232, 25, 11, 170, 201, 11, 103, 134, 126, 167, 0, 22, 33, 75, 27, 66, 40, 218, 125, 217, 6, 251, 236, 198, 240, 192, 32, 145, 240, 189, 35, 77, 137, 233, 86, 109, 231, 70, 243, 79, 21, 240, 62, 217, 89, 3, 139, 0, 63, 127, 1, 161, 65, 80, 131, 30, 165, 205, 36, 17, 137, 192, 149, 152, 202, 180, 174, 202, 234, 205, 56, 71, 86, 140, 142, 200, 180, 100, 144, 114, 20, 18, 190, 55, 37, 217, 216, 215, 214, 213, 0, 0, 170, 0, 0, 0, 0, 0, 33, 0, 0, 0, 0, 165, 10, 36, 98, 50, 54, 49, 101, 51, 98, 101, 45, 102, 55, 102, 55, 45, 52, 54, 99, 55, 45, 98, 99, 55, 100, 45, 98, 99, 100, 97, 100, 101, 48, 102, 57, 97, 54, 102, 18, 3, 66, 82, 76, 26, 68, 10, 25, 49, 54, 48, 48, 32, 65, 109, 112, 104, 105, 116, 104, 101, 97, 116, 114, 101, 32, 80, 97, 114, 107, 119, 97, 121, 18, 13, 77, 111, 117, 110, 116, 97, 105, 110, 32, 86, 105, 101, 119, 26, 2, 67, 65, 34, 13, 85, 110, 105, 116, 101, 100, 32, 83, 116, 97, 116, 101, 115, 42, 5, 57, 52, 48, 52, 51, 42, 19, 115, 111, 109, 101, 111},
+			inputLen:      10000,
+			expected:      true,
+			expectedQuick: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			res := isLikelyHTTP2(tt.input, tt.inputLen)
-			assert.Equal(t, tt.expected, res)
+			assert.Equal(t, tt.expectedQuick, res)
 			res1 := isHTTP2(tt.input, tt.inputLen)
 			assert.Equal(t, tt.expected, res1)
 		})
@@ -313,4 +347,204 @@ func makeBPFHTTP2InfoNewRequest(buf, rbuf []byte, length int) BPFHTTP2Info {
 	info.NewConnId = 1
 
 	return info
+}
+
+func TestHandleHeaderField(t *testing.T) {
+	tests := []struct {
+		name     string
+		hf       *bhpack.HeaderField
+		expected bool
+	}{
+		// Valid :method values
+		{
+			name:     "Valid method GET",
+			hf:       &bhpack.HeaderField{Name: ":method", Value: "get"},
+			expected: true,
+		},
+		{
+			name:     "Valid method POST",
+			hf:       &bhpack.HeaderField{Name: ":method", Value: "post"},
+			expected: true,
+		},
+		{
+			name:     "Valid method PATCH",
+			hf:       &bhpack.HeaderField{Name: ":method", Value: "patch"},
+			expected: true,
+		},
+		{
+			name:     "Valid method DELETE",
+			hf:       &bhpack.HeaderField{Name: ":method", Value: "delete"},
+			expected: true,
+		},
+		{
+			name:     "Valid method OPTIONS",
+			hf:       &bhpack.HeaderField{Name: ":method", Value: "options"},
+			expected: true,
+		},
+		{
+			name:     "Valid method HEAD",
+			hf:       &bhpack.HeaderField{Name: ":method", Value: "head"},
+			expected: true,
+		},
+		{
+			name:     "Invalid method PUT",
+			hf:       &bhpack.HeaderField{Name: ":method", Value: "PUT"},
+			expected: false,
+		},
+		{
+			name:     "Invalid method TRACE",
+			hf:       &bhpack.HeaderField{Name: ":method", Value: "TRACE"},
+			expected: false,
+		},
+		{
+			name:     "Invalid method CONNECT",
+			hf:       &bhpack.HeaderField{Name: ":method", Value: "CONNECT"},
+			expected: false,
+		},
+		{
+			name:     "Invalid method arbitrary",
+			hf:       &bhpack.HeaderField{Name: ":method", Value: "CUSTOM"},
+			expected: false,
+		},
+
+		// Valid :path values
+		{
+			name:     "Valid path simple",
+			hf:       &bhpack.HeaderField{Name: ":path", Value: "/api/users"},
+			expected: true,
+		},
+		{
+			name:     "Valid path with numbers",
+			hf:       &bhpack.HeaderField{Name: ":path", Value: "/api/users/123"},
+			expected: true,
+		},
+		{
+			name:     "Valid path with hyphens",
+			hf:       &bhpack.HeaderField{Name: ":path", Value: "/api/user-service"},
+			expected: true,
+		},
+		{
+			name:     "Valid path with dots",
+			hf:       &bhpack.HeaderField{Name: ":path", Value: "/api/v1.0/users"},
+			expected: true,
+		},
+		{
+			name:     "Valid path with dots and params separator",
+			hf:       &bhpack.HeaderField{Name: ":path", Value: "/api/v1.0/users?hello=world&test=2"},
+			expected: true,
+		},
+		{
+			name:     "Valid path with underscores",
+			hf:       &bhpack.HeaderField{Name: ":path", Value: "/api/user_service"},
+			expected: true,
+		},
+		{
+			name:     "Valid path with tildes",
+			hf:       &bhpack.HeaderField{Name: ":path", Value: "/~username/files"},
+			expected: true,
+		},
+		{
+			name:     "Invalid path with query",
+			hf:       &bhpack.HeaderField{Name: ":path", Value: "/api/users?id=123"},
+			expected: true,
+		},
+		{
+			name:     "Invalid path with special chars",
+			hf:       &bhpack.HeaderField{Name: ":path", Value: "/api/users/!@#"},
+			expected: false,
+		},
+		{
+			name:     "Invalid path with spaces",
+			hf:       &bhpack.HeaderField{Name: ":path", Value: "/api/user service"},
+			expected: false,
+		},
+
+		// Valid content-type values
+		{
+			name:     "Valid content-type grpc",
+			hf:       &bhpack.HeaderField{Name: "content-type", Value: "application/grpc"},
+			expected: true,
+		},
+		{
+			name:     "Valid content-type grpc+proto",
+			hf:       &bhpack.HeaderField{Name: "content-type", Value: "application/grpc+proto"},
+			expected: true,
+		},
+		{
+			name:     "Valid content-type grpc+json",
+			hf:       &bhpack.HeaderField{Name: "content-type", Value: "application/grpc+json"},
+			expected: true,
+		},
+		{
+			name:     "Valid content-type json",
+			hf:       &bhpack.HeaderField{Name: "content-type", Value: "application/json"},
+			expected: true,
+		},
+		{
+			name:     "Valid content-type xml",
+			hf:       &bhpack.HeaderField{Name: "content-type", Value: "application/xml"},
+			expected: true,
+		},
+		{
+			name:     "Valid content-type with hyphen",
+			hf:       &bhpack.HeaderField{Name: "content-type", Value: "application/x-protobuf"},
+			expected: true,
+		},
+		{
+			name:     "Invalid content-type with charset",
+			hf:       &bhpack.HeaderField{Name: "content-type", Value: "application/json; charset=utf-8"},
+			expected: false,
+		},
+		{
+			name:     "Invalid content-type with spaces",
+			hf:       &bhpack.HeaderField{Name: "content-type", Value: "application / json"},
+			expected: false,
+		},
+		{
+			name:     "Invalid content-type with numbers",
+			hf:       &bhpack.HeaderField{Name: "content-type", Value: "application/grpc123"},
+			expected: false,
+		},
+
+		// Other headers (should return false)
+		{
+			name:     "Unknown header",
+			hf:       &bhpack.HeaderField{Name: "user-agent", Value: "grpc-go/1.69.2"},
+			expected: false,
+		},
+		{
+			name:     "Empty header name",
+			hf:       &bhpack.HeaderField{Name: "", Value: "value"},
+			expected: false,
+		},
+		{
+			name:     "Empty header value",
+			hf:       &bhpack.HeaderField{Name: ":method", Value: ""},
+			expected: false,
+		},
+
+		// Case sensitivity tests
+		{
+			name:     "Method name uppercase :METHOD",
+			hf:       &bhpack.HeaderField{Name: ":METHOD", Value: "GET"},
+			expected: true,
+		},
+		{
+			name:     "Content-Type uppercase",
+			hf:       &bhpack.HeaderField{Name: "Content-Type", Value: "application/grpc"},
+			expected: true,
+		},
+		{
+			name:     "Mixed case path header",
+			hf:       &bhpack.HeaderField{Name: ":Path", Value: "/api/users"},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := handleHeaderField(tt.hf)
+			assert.Equal(t, tt.expected, result, "Expected %v for %s:%s", tt.expected, tt.hf.Name, tt.hf.Value)
+		})
+	}
 }

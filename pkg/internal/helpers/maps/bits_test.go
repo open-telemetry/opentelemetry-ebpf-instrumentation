@@ -46,3 +46,16 @@ func TestBits_Transform(t *testing.T) {
 	assert.False(t, bits.Has(0b1000))
 	assert.False(t, bits.Has(0xb10000)) // key non-existing i the mappers
 }
+
+func TestBits_Any(t *testing.T) {
+	bits := MappedBits([]key{1, 2}, mapper)
+	assert.True(t, bits.Has(0b0001))
+	assert.True(t, bits.Has(0b0010))
+	assert.False(t, bits.Has(0b0100))
+	assert.False(t, bits.Has(0b1000))
+	assert.True(t, bits.Has(0b0011))
+	assert.False(t, bits.Has(0b0101))
+	assert.True(t, bits.Any(0b0101))
+	assert.False(t, bits.Any(0b1000))
+	assert.False(t, bits.Any(0b1100))
+}

@@ -87,7 +87,7 @@ func makeSvcGraphExporter(
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          []export.Feature{export.FeatureGraph},
+		Features:          export.FeatureGraph,
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 100,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},

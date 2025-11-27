@@ -155,7 +155,7 @@ discovery:
 				RequestSizeHistogram:  export.DefaultBuckets.RequestSizeHistogram,
 				ResponseSizeHistogram: export.DefaultBuckets.ResponseSizeHistogram,
 			},
-			Features: []export.Feature{export.FeatureApplication},
+			Features: export.FeatureApplication,
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
 			},
@@ -181,7 +181,7 @@ discovery:
 		},
 		Prometheus: prom.PrometheusConfig{
 			Path:     "/metrics",
-			Features: []export.Feature{export.FeatureApplication},
+			Features: export.FeatureApplication,
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
 			},
@@ -618,7 +618,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name: "otel metrics enabled, but not spans",
 			metrics: otelcfg.MetricsConfig{
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
-				Features:        []export.Feature{export.FeatureApplication},
+				Features:        export.FeatureApplication,
 			},
 			prometheus:  prom.PrometheusConfig{},
 			wantEnabled: false,
@@ -627,7 +627,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name: "otel metrics enabled with spans",
 			metrics: otelcfg.MetricsConfig{
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
-				Features:        []export.Feature{export.FeatureSpanOTel},
+				Features:        export.FeatureSpanOTel,
 			},
 			prometheus:  prom.PrometheusConfig{},
 			wantEnabled: true,
@@ -637,7 +637,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			metrics: otelcfg.MetricsConfig{},
 			prometheus: prom.PrometheusConfig{
 				Port:     9090,
-				Features: []export.Feature{export.FeatureApplication},
+				Features: export.FeatureApplication,
 			},
 			wantEnabled: false,
 		},
@@ -645,7 +645,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			name:    "prometheus span metrics enabled",
 			metrics: otelcfg.MetricsConfig{},
 			prometheus: prom.PrometheusConfig{
-				Features: []export.Feature{export.FeatureGraph},
+				Features: export.FeatureGraph,
 				Port:     9090,
 			},
 			wantEnabled: true,
@@ -653,10 +653,10 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 		{
 			name: "both have features, but not enabled",
 			metrics: otelcfg.MetricsConfig{
-				Features: []export.Feature{export.FeatureApplication},
+				Features: export.FeatureApplication,
 			},
 			prometheus: prom.PrometheusConfig{
-				Features: []export.Feature{export.FeatureGraph},
+				Features: export.FeatureGraph,
 			},
 			wantEnabled: false,
 		},

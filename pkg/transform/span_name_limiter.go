@@ -6,7 +6,6 @@ package transform
 import (
 	"context"
 	"log/slog"
-	"slices"
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -70,8 +69,8 @@ func SpanNameLimiter(cfg SpanNameLimiterConfig, input, output *msg.Queue[[]reque
 
 func enabled(cfg *SpanNameLimiterConfig) bool {
 	return cfg.Limit > 0 &&
-		(slices.Contains(cfg.OTEL.Features, export.FeatureSpan) ||
-			slices.Contains(cfg.Prom.Features, export.FeatureSpan))
+		(cfg.OTEL.Features.Has(export.FeatureSpan) ||
+			cfg.Prom.Features.Has(export.FeatureSpan))
 }
 
 func (l *spanNameLimiter) doLimit(ctx context.Context) {

@@ -49,7 +49,7 @@ func TestMetricAttributes(t *testing.T) {
 		Interval:          10 * time.Millisecond,
 		ReportersCacheLen: 100,
 		TTL:               5 * time.Minute,
-		Features:          []export.Feature{export.FeatureNetwork, export.FeatureNetworkInterZone},
+		Features:          export.FeatureNetwork | export.FeatureNetworkInterZone,
 	}
 	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
 		MetricAttributeGroups: attributes.GroupKubernetes,
@@ -108,7 +108,7 @@ func TestMetricAttributes_Filter(t *testing.T) {
 		MetricsEndpoint:   "http://foo",
 		Interval:          10 * time.Millisecond,
 		ReportersCacheLen: 100,
-		Features:          []export.Feature{export.FeatureNetwork, export.FeatureNetworkInterZone},
+		Features:          export.FeatureNetwork | export.FeatureNetworkInterZone,
 	}
 	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
 		MetricAttributeGroups: attributes.GroupKubernetes,
@@ -148,16 +148,16 @@ func TestMetricAttributes_Filter(t *testing.T) {
 
 func TestNetMetricsConfig_Enabled(t *testing.T) {
 	assert.True(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{
-		Features: []export.Feature{export.FeatureApplication, export.FeatureNetwork}, CommonEndpoint: "foo",
+		Features: export.FeatureApplication | export.FeatureNetwork, CommonEndpoint: "foo",
 	}}.Enabled())
 	assert.True(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{
-		Features: []export.Feature{export.FeatureNetwork, export.FeatureApplication}, MetricsEndpoint: "foo",
+		Features: export.FeatureNetwork | export.FeatureProcess, MetricsEndpoint: "foo",
 	}}.Enabled())
 }
 
 func TestNetMetricsConfig_Disabled(t *testing.T) {
-	fa := []export.Feature{export.FeatureApplication}
-	fn := []export.Feature{export.FeatureNetwork}
+	fa := export.FeatureApplication
+	fn := export.FeatureNetwork
 	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
 	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())
 	assert.False(t, NetMetricsConfig{Metrics: &otelcfg.MetricsConfig{Features: fn}}.Enabled())

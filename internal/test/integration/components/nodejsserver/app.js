@@ -26,6 +26,11 @@ app.get("/smoke", (req, res, next) => {
   res.sendStatus(200);
 });
 
+app.get("/users/:userId", (req, res, next) => {
+  res.json("Hello! " + req.params.userId);
+});
+
+
 app.get("/dist", (req, res, next) => {
   http.get("http://grafana.com", {}, (r) => {
     if (r.statusCode !== 301) {
