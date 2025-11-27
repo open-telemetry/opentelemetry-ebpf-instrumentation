@@ -26,7 +26,8 @@
 
 #include <gotracer/go_common.h>
 
-static __always_inline void set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *query_len) {
+static __always_inline void
+set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *query_len) {
     sql_func_invocation_t invocation = {.start_monotime_ns = bpf_ktime_get_ns(),
                                         .sql_param = (u64)sql_param,
                                         .query_len = (u64)query_len,
