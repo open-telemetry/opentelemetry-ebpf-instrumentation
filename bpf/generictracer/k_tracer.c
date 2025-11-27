@@ -37,7 +37,6 @@
 #include <maps/fd_map.h>
 #include <maps/fd_to_connection.h>
 #include <maps/msg_buffers.h>
-#include <maps/sk_buffers.h>
 #include <maps/sock_pids.h>
 
 #include <pid/pid.h>
@@ -469,7 +468,6 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                     u64 sock_p = (u64)sk;
                     bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
                     bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
-                    make_inactive_sk_buffer(&s_args.p_conn.conn);
 
                     // Logically last for !ssl.
                     handle_buf_with_connection(
@@ -555,9 +553,6 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                     u64 sock_p = (u64)sk;
                     bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
                     bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
-                    // must set that any backup buffer on this connection is invalid
-                    // to avoid replay
-                    make_inactive_sk_buffer(&s_args.p_conn.conn);
 
                     // Logically last for !ssl.
                     handle_buf_with_connection(
@@ -565,7 +560,6 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                 }
             }
         } else {
-            make_inactive_sk_buffer(&s_args.p_conn.conn);
             tcp_send_ssl_check(id, (void *)(*ssl), &s_args.p_conn, orig_dport);
         }
     }
@@ -578,6 +572,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
 // but it's possible that the kernel sends the data in smaller chunks.
 SEC("kretprobe/tcp_sendmsg")
 int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg, int sent_len) {
+    (void)ctx;
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -595,28 +590,6 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg, int sent_len) {
             MIN_HTTP_SIZE) { // Sometimes app servers don't send close, but small responses back
             finish_possible_delayed_http_request(&s_args->p_conn);
         }
-
-        // The send_msg buffer couldn't be read, maybe kernel buffers. We consult
-        // the buffers captured by the socket filter
-        if (s_args->size == -1) {
-            sk_msg_buffer_t *msg_buf = bpf_map_lookup_elem(&sk_buffers, &s_args->p_conn.conn);
-            if (msg_buf && buffer_is_active(msg_buf)) {
-                bpf_dbg_printk(
-                    "found backup sk_buffer: size %d, buf[%s]", msg_buf->size, msg_buf->buf);
-
-                bpf_map_delete_elem(&active_send_args, &id);
-                handle_buf_with_connection(ctx,
-                                           &s_args->p_conn,
-                                           msg_buf->buf,
-                                           msg_buf->size,
-                                           NO_SSL,
-                                           TCP_SEND,
-                                           s_args->orig_dport);
-            }
-        }
-        // We don't want to delete the backup buffer here, since with some
-        // proxies the data is directly forwarded to the other side and
-        // we need the buffer in recvmsg.
     }
 
     bpf_map_delete_elem(&active_send_args, &id);
@@ -670,7 +643,6 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         info.pid = pid_from_pid_tgid(id);
         terminate_http_request_if_needed(&info);
         bpf_map_delete_elem(&ongoing_tcp_req, &info);
-        delete_backup_sk_buff(&info.conn);
         cleanup_tcp_trace_info_if_needed(&info);
         bpf_map_delete_elem(&accepted_connections, &info.conn);
     }
@@ -933,36 +905,15 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         u64 *ssl = is_ssl_connection(&info);
 
         if (!ssl) {
-
             bpf_dbg_printk("buf = %llx, copied_len %d", buf, copied_len);
 
-            if (!buf || !copied_len) {
-                sk_msg_buffer_t *msg_buf = bpf_map_lookup_elem(&sk_buffers, &info.conn);
-                // we don't check for inactive here, we don't need to, once
-                // we consume a buffer we delete the backup buffer regardless.
-                // When proxies forward the traffic to pipes, the buffer will
-                // likely be marked as inactive on the sendmsg side to avoid
-                // double sending, but we have no other buffer available other than
-                // the backup.
-                if (msg_buf) {
-                    buf = msg_buf->buf;
-                    copied_len = msg_buf->size;
-                }
-                // must delete the backup buffer to avoid replay
-                delete_backup_sk_buff(&info.conn);
-            }
-
             if (buf && copied_len) {
-                // must delete the backup buffer to avoid replay
-                delete_backup_sk_buff(&info.conn);
                 bpf_map_delete_elem(&active_recv_args, &id);
                 // doesn't return must be logically last statement
                 handle_buf_with_connection(
                     ctx, &info, buf, copied_len, NO_SSL, TCP_RECV, orig_dport);
             }
         } else {
-            // must delete the backup buffer to avoid replay
-            delete_backup_sk_buff(&info.conn);
             bpf_dbg_printk("tcp_recvmsg for an identified SSL connection, ignoring [%llx]...",
                            *ssl);
         }
@@ -1041,18 +992,6 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
         len = MIN_HTTP_SIZE;
     }
 
-    sort_connection_info(&conn);
-
-    sk_msg_buffer_t *sk_buf = bpf_map_lookup_elem(&sk_buffers, &conn);
-    if (!sk_buf) {
-        sk_buf = empty_sk_buffer();
-    }
-    if (sk_buf) {
-        read_skb_bytes(skb, tcp.hdr_len, sk_buf->buf, sizeof(sk_buf->buf));
-        sk_buf->size = len;
-        bpf_map_update_elem(&sk_buffers, &conn, sk_buf, BPF_ANY);
-    }
-
     u8 packet_type = 0;
     if (is_http(
             buf,
@@ -1061,11 +1000,12 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
         // this can be very verbose
         //bpf_d_printk("http buf %s", buf);
         //d_print_http_connection_info(&conn);
-
         if (packet_type == PACKET_TYPE_REQUEST) {
             u64 cookie = bpf_get_socket_cookie(skb);
             //bpf_printk("=== http_filter cookie = %llx, len=%d %s ===", cookie, len, buf);
             //dbg_print_http_connection_info(&conn);
+
+            sort_connection_info(&conn);
 
             // The code below is looking to see if we have recorded black-box trace info on
             // another interface. We do this for client calls, where essentially the original
