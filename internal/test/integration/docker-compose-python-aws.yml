@@ -8,10 +8,7 @@ services:
       - "4566:4566"
 
   testserver:
-    build:
-      context: ../../../internal/test/integration/components/pythonawsclient/
-      dockerfile: Dockerfile
-    image: hatest-testserver-python-aws-client
+    image: ghcr.io/open-telemetry/obi-testimg:python_aws_s3-0.0.1
     ports:
       - "${TEST_SERVICE_PORTS}"
     depends_on:

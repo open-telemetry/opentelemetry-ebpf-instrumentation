@@ -201,18 +201,25 @@ func TestToRequestTrace_BadHost(t *testing.T) {
 		End:          789012,
 		HostPort:     0,
 		Service:      svc.Attrs{},
-		Statement:    "http;example.c",
+		Statement:    "http;",
 	}
 	assert.Equal(t, expected, result)
 
 	s, p := httpHostFromBuf(record.Buf[:])
-	assert.Equal(t, "example.c", s)
+	assert.Empty(t, s)
 	assert.Equal(t, -1, p)
 
 	var record1 BPFHTTPInfo
 	copy(record1.Buf[:], "GET /hello HTTP/1.1\r\nHost: example.c:23")
 
 	s, p = httpHostFromBuf(record1.Buf[:])
+	assert.Empty(t, s)
+	assert.Equal(t, -1, p)
+
+	var record4 BPFHTTPInfo
+	copy(record4.Buf[:], "GET /hello HTTP/1.1\r\nHost: example.c:23\r")
+
+	s, p = httpHostFromBuf(record4.Buf[:])
 	assert.Equal(t, "example.c", s)
 	assert.Equal(t, 23, p)
 
