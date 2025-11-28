@@ -396,7 +396,7 @@ static __always_inline void handle_traceparent_header(server_http_func_invocatio
             update_traceparent(inv, traceparent_start);
         }
     } else {
-        server_http_func_invocation_t minimal_inv = {.tp = {0}};
+        server_http_func_invocation_t minimal_inv = {0};
         update_traceparent(&minimal_inv, traceparent_start);
         bpf_map_update_elem(&ongoing_http_server_requests, g_key, &minimal_inv, BPF_ANY);
     }
@@ -935,7 +935,7 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
         bpf_dbg_printk("looked up tp %llx", tp);
 
         if (tp) {
-            server_http_func_invocation_t inv = {};
+            server_http_func_invocation_t inv = {0};
             __builtin_memcpy(&inv.tp, tp, sizeof(tp_info_t));
             bpf_dbg_printk("Found traceparent in HTTP2 headers");
             bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &inv, BPF_ANY);
