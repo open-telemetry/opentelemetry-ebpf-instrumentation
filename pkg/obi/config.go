@@ -368,10 +368,9 @@ func (c *Config) Validate() error {
 
 	if !c.Enabled(FeatureNetO11y) && !c.Enabled(FeatureAppO11y) {
 		return ConfigError("at least one of 'network' or 'application' features must be enabled. " +
-			"Enable OpenTelemetry export features using the 'OTEL_EBPF_METRIC_FEATURES=network,application' environment variable " +
-			"or 'otel_metrics_export: { features: [network,application] }' in the YAML configuration file. " +
-			"Enable Prometheus export features using the 'OTEL_EBPF_PROMETHEUS_FEATURES=network,application' environment variable " +
-			"or 'prometheus_export: { features: [network,application] }' in the YAML configuration file.")
+			"Enable an OpenTelemetry or Prometheus metrics export, then enable any of the network* or application*" +
+			"features using the 'OTEL_EBPF_METRICS_FEATURES=network,application' environment variable " +
+			"or 'meter_provicer: { features: [network,application] }' in the YAML configuration file. ")
 	}
 
 	if c.willUseTC() {
@@ -489,6 +488,8 @@ func LoadConfig(file io.Reader) (*Config, error) {
 		return nil, fmt.Errorf("reading env vars: %w", err)
 	}
 
+	cfg.normalize()
+
 	return &cfg, nil
 }
 
@@ -499,4 +500,22 @@ func registerCustomValidations(validate *validator.Validate, customValidations C
 		}
 	}
 	return nil
+}
+
+// normalizeConfig normalizes user input to a common set of assumptions that are global to OBI
+func (c *Config) normalize() {
+	c.Attributes.Select.Normalize()
+	// backwards compatibility assumptions for the deprecated Metric feature sections in OTEL and Prom metrics config.
+	// Old, deprecated properties would take precedence over meter_provider > features, to avoid breaking changes.
+	if c.Metrics.EndpointEnabled() && c.Metrics.DeprFeatures != 0 {
+		// if the user has overridden otel_metrics_export > features
+		c.MeterProvider.Features = c.Metrics.DeprFeatures
+	} else if c.Prometheus.EndpointEnabled() && c.Prometheus.DeprFeatures != 0 {
+		// if the user has overridden prometheus_export > features
+		c.MeterProvider.Features = c.Prometheus.DeprFeatures
+	}
+	// Deprecated: to be removed together with OTEL_EBPF_NETWORK_METRICS bool flag
+	if c.NetworkFlows.Enable {
+		c.MeterProvider.Features |= export.FeatureNetwork
+	}
 }

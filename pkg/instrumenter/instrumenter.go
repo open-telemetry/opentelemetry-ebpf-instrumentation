@@ -12,7 +12,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -32,8 +31,6 @@ func Run(
 	ctx context.Context, cfg *obi.Config,
 	opts ...Option,
 ) error {
-	normalizeConfig(cfg)
-
 	ctxInfo, err := buildCommonContextInfo(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("can't build common context info: %w", err)
@@ -71,24 +68,6 @@ func Run(
 	}
 	slog.Debug("OBI main node finished")
 	return nil
-}
-
-// normalizeConfig normalizes user input to a common set of assumptions that are global to OBI
-func normalizeConfig(cfg *obi.Config) {
-	cfg.Attributes.Select.Normalize()
-	// backwards compatibility assumptions for the deprecated Metric feature sections in OTEL and Prom metrics config.
-	// Old, deprecated properties would take precedence over meter_provider > features, to avoid breaking changes.
-	if cfg.Metrics.EndpointEnabled() && cfg.Metrics.DeprFeatures != 0 {
-		// if the user has overridden otel_metrics_export > features
-		cfg.MeterProvider.Features = cfg.Metrics.DeprFeatures
-	} else if cfg.Prometheus.EndpointEnabled() && cfg.Prometheus.DeprFeatures != 0 {
-		// if the user has overridden prometheus_export > features
-		cfg.MeterProvider.Features = cfg.Prometheus.DeprFeatures
-	}
-	// Deprecated: to be removed together with OTEL_EBPF_NETWORK_METRICS bool flag
-	if cfg.NetworkFlows.Enable {
-		cfg.MeterProvider.Features |= export.FeatureNetwork
-	}
 }
 
 func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) error {

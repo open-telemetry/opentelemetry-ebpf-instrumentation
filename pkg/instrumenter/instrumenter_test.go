@@ -9,10 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/pkg/export"
-	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
-	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -42,70 +38,4 @@ func TestServiceNameTemplate(t *testing.T) {
 	temp, err = buildServiceNameTemplate(cfg)
 	require.NoError(t, err)
 	assert.Nil(t, temp)
-}
-
-func TestNormalizeConfig_MeterProvider(t *testing.T) {
-	type testCase struct {
-		name     string
-		expected export.Features
-		cfg      obi.Config
-	}
-	testCases := []testCase{{
-		name:     "default global meter provider",
-		expected: export.FeatureApplicationRED,
-		cfg: obi.Config{
-			Metrics:       otelcfg.MetricsConfig{DeprFeatures: export.FeatureEBPF},
-			Prometheus:    prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
-			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
-		},
-	}, {
-		name:     "OTEL endpoint and legacy features are defined",
-		expected: export.FeatureEBPF,
-		cfg: obi.Config{
-			Metrics:       otelcfg.MetricsConfig{MetricsEndpoint: "http://foo", DeprFeatures: export.FeatureEBPF},
-			Prometheus:    prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
-			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
-		},
-	}, {
-		name:     "OTEL endpoint defined but legacy features are not",
-		expected: export.FeatureApplicationRED,
-		cfg: obi.Config{
-			Metrics:       otelcfg.MetricsConfig{MetricsEndpoint: "http://foo"},
-			Prometheus:    prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
-			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
-		},
-	}, {
-		name:     "Prom endpoint and legacy features are defined",
-		expected: export.FeatureNetwork,
-		cfg: obi.Config{
-			Metrics:       otelcfg.MetricsConfig{DeprFeatures: export.FeatureEBPF},
-			Prometheus:    prom.PrometheusConfig{Port: 8080, DeprFeatures: export.FeatureNetwork},
-			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
-		},
-	}, {
-		name:     "Prom endpoint defined but legacy features are not",
-		expected: export.FeatureApplicationRED,
-		cfg: obi.Config{
-			Metrics:       otelcfg.MetricsConfig{MetricsEndpoint: "http://foo"},
-			Prometheus:    prom.PrometheusConfig{Port: 8080},
-			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
-		},
-	}}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := tc.cfg
-			normalizeConfig(&cfg)
-			assert.Equal(t, tc.expected, cfg.MeterProvider.Features)
-		})
-	}
-}
-
-func TestNormalizeConfig_Network(t *testing.T) {
-	obi := obi.Config{
-		NetworkFlows:  obi.NetworkConfig{Enable: true},
-		MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
-	}
-	normalizeConfig(&obi)
-	assert.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork,
-		obi.MeterProvider.Features)
 }
