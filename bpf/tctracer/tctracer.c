@@ -189,9 +189,7 @@ static __always_inline u8 inject_tc_ip_options_ipv4(struct __sk_buff *skb,
     // Verify no existing IP options before injection
     // This function should only be called when tcp->ip_len == k_min_ip_len (verified by caller)
     // but we double-check here for safety
-    u8 ihl_byte;
-    bpf_skb_load_bytes(skb, ETH_HLEN, &ihl_byte, sizeof(ihl_byte));
-    const u8 current_ihl = (ihl_byte & 0x0f) * 4;
+    const u8 current_ihl = read_ihl(skb);
 
     if (current_ihl != k_min_ip_len) {
         bpf_dbg_printk("IP options already present (IHL=%d), not injecting", current_ihl);
@@ -501,11 +499,9 @@ inject_ip_options(struct __sk_buff *skb, connection_info_t *conn, protocol_info_
         .s_port = conn->s_port,
     };
 
-    bpf_dbg_printk("inject_ip_options");
     tp_info_pid_t *tp = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
 
     if (!tp) {
-        bpf_dbg_printk("inject_ip_options - no tp");
         return;
     }
 
