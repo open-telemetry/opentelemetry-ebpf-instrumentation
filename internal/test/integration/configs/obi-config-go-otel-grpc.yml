@@ -2,11 +2,12 @@ routes:
   unmatched: path
 prometheus_export:
   port: 8999
-  features:
-    - application
-    - application_process
 otel_traces_export:
   endpoint: http://jaeger:4318
+meter_provider:
+  obi_features:
+    - application
+    - application_process
 attributes:
   kubernetes:
     cluster_name: obi-k8s-test-cluster
