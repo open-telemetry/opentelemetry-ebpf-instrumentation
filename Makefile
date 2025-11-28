@@ -488,7 +488,7 @@ check-clean-work-tree:
 .PHONY: check-go-mod
 check-go-mod:
 	go mod tidy
-	git diff -s --exit-code
+	git diff --quiet -- go.mod go.sum
 
 .PHONY: verify-mods
 verify-mods: $(MULTIMOD)
