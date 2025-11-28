@@ -63,7 +63,7 @@ func TestNetMetricsExpiration(t *testing.T) {
 				},
 			},
 			MeterProvider: &decfg.MeterProvider{Features: export.FeatureNetwork},
-		}, &mpConfig, metrics)(ctx)
+		}, metrics)(ctx)
 	require.NoError(t, err)
 
 	go otelExporter(ctx)

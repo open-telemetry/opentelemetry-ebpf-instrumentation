@@ -52,11 +52,15 @@ func TestMetricAttributes(t *testing.T) {
 	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
 		MetricAttributeGroups: attributes.GroupKubernetes,
 		OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
-	}, &NetMetricsConfig{SelectorCfg: &attributes.SelectorConfig{
-		SelectionCfg: map[attributes.Section]attributes.InclusionLists{
-			attributes.NetworkFlow.Section: {Include: []string{"*"}},
+	}, &NetMetricsConfig{
+		SelectorCfg: &attributes.SelectorConfig{
+			SelectionCfg: map[attributes.Section]attributes.InclusionLists{
+				attributes.NetworkFlow.Section: {Include: []string{"*"}},
+			},
 		},
-	}, Metrics: mcfg}, &mpConfig, msg.NewQueue[[]*ebpf.Record]())
+		Metrics:       mcfg,
+		MeterProvider: &mpConfig,
+	}, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 
 	_, reportedAttributes := me.flowBytes.ForRecord(in)
@@ -111,15 +115,19 @@ func TestMetricAttributes_Filter(t *testing.T) {
 		MetricAttributeGroups: attributes.GroupKubernetes,
 		OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
 	},
-		&NetMetricsConfig{SelectorCfg: &attributes.SelectorConfig{
-			SelectionCfg: map[attributes.Section]attributes.InclusionLists{
-				attributes.NetworkFlow.Section: {Include: []string{
-					"src.address",
-					"k8s.src.name",
-					"k8s.dst.name",
-				}},
+		&NetMetricsConfig{
+			SelectorCfg: &attributes.SelectorConfig{
+				SelectionCfg: map[attributes.Section]attributes.InclusionLists{
+					attributes.NetworkFlow.Section: {Include: []string{
+						"src.address",
+						"k8s.src.name",
+						"k8s.dst.name",
+					}},
+				},
 			},
-		}, Metrics: mcfg}, &mpConfig, msg.NewQueue[[]*ebpf.Record]())
+			Metrics:       mcfg,
+			MeterProvider: &mpConfig,
+		}, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 
 	_, reportedAttributes := me.flowBytes.ForRecord(in)

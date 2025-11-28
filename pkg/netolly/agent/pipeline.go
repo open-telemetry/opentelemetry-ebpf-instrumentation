@@ -6,10 +6,8 @@ package agent
 import (
 	"context"
 
-	export2 "go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel"
-	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
@@ -106,14 +104,16 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	// Not all the nodes are mandatory here. Is the responsibility of each Provider function to decide
 	// whether each node is going to be instantiated or just ignored.
 	swi.Add(otel.NetMetricsExporterProvider(f.ctxInfo, &otel.NetMetricsConfig{
-		Metrics:     &f.cfg.Metrics,
-		SelectorCfg: selectorCfg,
-	}, &decfg.MeterProvider{Features: export2.FeatureNetwork}, filteredFlows), swarm.WithID("OTelExporter"))
+		Metrics:       &f.cfg.Metrics,
+		SelectorCfg:   selectorCfg,
+		MeterProvider: &f.cfg.MeterProvider,
+	}, filteredFlows), swarm.WithID("OTelExporter"))
 
 	swi.Add(prom.NetPrometheusEndpoint(f.ctxInfo, &prom.NetPrometheusConfig{
-		Config:      &f.cfg.Prometheus,
-		SelectorCfg: selectorCfg,
-	}, &f.cfg.MeterProvider, filteredFlows), swarm.WithID("PrometheusExporter"))
+		Config:        &f.cfg.Prometheus,
+		SelectorCfg:   selectorCfg,
+		MeterProvider: &f.cfg.MeterProvider,
+	}, filteredFlows), swarm.WithID("PrometheusExporter"))
 
 	swi.Add(swarm.DirectInstance(export.FlowPrinterProvider(f.cfg.NetworkFlows.Print, filteredFlows)),
 		swarm.WithID("FlowPrinter"))

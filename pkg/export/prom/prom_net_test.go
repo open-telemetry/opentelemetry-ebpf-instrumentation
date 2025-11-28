@@ -52,7 +52,8 @@ func TestMetricsExpiration(t *testing.T) {
 					},
 				},
 			},
-		}, mpConfig, metrics)(ctx)
+			MeterProvider: mpConfig,
+		}, metrics)(ctx)
 	require.NoError(t, err)
 
 	go exporter(ctx)

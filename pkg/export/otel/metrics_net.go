@@ -82,7 +82,6 @@ type netMetricsExporter struct {
 func NetMetricsExporterProvider(
 	ctxInfo *global.ContextInfo,
 	cfg *NetMetricsConfig,
-	mpCfg *decfg.MeterProvider,
 	input *msg.Queue[[]*ebpf.Record],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
@@ -93,7 +92,7 @@ func NetMetricsExporterProvider(
 		if cfg.SelectorCfg.SelectionCfg == nil {
 			cfg.SelectorCfg.SelectionCfg = make(attributes.Selection)
 		}
-		exporter, err := newMetricsExporter(ctx, ctxInfo, cfg, mpCfg, input)
+		exporter, err := newMetricsExporter(ctx, ctxInfo, cfg, input)
 		if err != nil {
 			return nil, err
 		}
@@ -105,7 +104,6 @@ func newMetricsExporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
 	cfg *NetMetricsConfig,
-	mpCfg *decfg.MeterProvider,
 	input *msg.Queue[[]*ebpf.Record],
 ) (*netMetricsExporter, error) {
 	log := nmlog()
@@ -132,7 +130,7 @@ func newMetricsExporter(
 		clock:     clock,
 		expireTTL: cfg.Metrics.TTL,
 	}
-	if mpCfg.Features.NetworkBytes() {
+	if cfg.MeterProvider.Features.NetworkBytes() {
 		log := log.With("metricFamily", "FlowBytes")
 		bytesMetric, err := ebpfEvents.Int64Counter(attributes.NetworkFlow.OTEL,
 			metric2.WithDescription("total bytes_sent value of network flows observed by probe since its launch"),
@@ -151,7 +149,7 @@ func newMetricsExporter(
 		nme.flowBytes = NewExpirer[*ebpf.Record, metric2.Int64Counter, float64](ctx, bytesMetric, attrs, clock.Time, cfg.Metrics.TTL)
 	}
 
-	if mpCfg.Features.NetworkInterZone() {
+	if cfg.MeterProvider.Features.NetworkInterZone() {
 		log := log.With("metricFamily", "InterZoneBytes")
 		bytesMetric, err := ebpfEvents.Int64Counter(attributes.NetworkInterZone.OTEL,
 			metric2.WithDescription("total bytes_sent value between Cloud availability zones"),

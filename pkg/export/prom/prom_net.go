@@ -24,8 +24,14 @@ import (
 
 // NetPrometheusConfig for network metrics just wraps the global prom.NetPrometheusConfig as provided by the user
 type NetPrometheusConfig struct {
-	Config      *PrometheusConfig
-	SelectorCfg *attributes.SelectorConfig
+	Config        *PrometheusConfig
+	SelectorCfg   *attributes.SelectorConfig
+	MeterProvider *decfg.MeterProvider
+}
+
+// Enabled returns whether the node needs to be activated
+func (p NetPrometheusConfig) Enabled() bool {
+	return p.Config != nil && p.Config.EndpointEnabled() && (p.MeterProvider.Features.AnyNetwork())
 }
 
 type netMetricsReporter struct {
@@ -47,15 +53,14 @@ type netMetricsReporter struct {
 func NetPrometheusEndpoint(
 	ctxInfo *global.ContextInfo,
 	cfg *NetPrometheusConfig,
-	meterProvider *decfg.MeterProvider,
 	input *msg.Queue[[]*ebpf.Record],
 ) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {
-		if !cfg.Config.EndpointEnabled() || !meterProvider.Features.AnyNetwork() {
+		if !cfg.Enabled() {
 			// This node is not going to be instantiated. Let the swarm library just ignore it.
 			return swarm.EmptyRunFunc()
 		}
-		reporter, err := newNetReporter(ctxInfo, cfg, meterProvider, input)
+		reporter, err := newNetReporter(ctxInfo, cfg, input)
 		if err != nil {
 			return nil, err
 		}
@@ -69,7 +74,6 @@ func NetPrometheusEndpoint(
 func newNetReporter(
 	ctxInfo *global.ContextInfo,
 	cfg *NetPrometheusConfig,
-	meterProvider *decfg.MeterProvider,
 	input *msg.Queue[[]*ebpf.Record],
 ) (*netMetricsReporter, error) {
 	group := ctxInfo.MetricAttributeGroups
@@ -93,7 +97,7 @@ func newNetReporter(
 
 	var register []prometheus.Collector
 	log := slog.With("component", "prom.NetworkEndpoint")
-	if meterProvider.Features.NetworkBytes() {
+	if cfg.MeterProvider.Features.NetworkBytes() {
 		log.Debug("registering network flow bytes metric")
 		mr.flowAttrs = attributes.PrometheusGetters(
 			ebpf.RecordStringGetters,
@@ -106,7 +110,7 @@ func newNetReporter(
 		register = append(register, mr.flowBytes)
 	}
 
-	if meterProvider.Features.NetworkInterZone() {
+	if cfg.MeterProvider.Features.NetworkInterZone() {
 		log.Debug("registering network inter-zone metric")
 		mr.interZoneAttrs = attributes.PrometheusGetters(
 			ebpf.RecordStringGetters,
