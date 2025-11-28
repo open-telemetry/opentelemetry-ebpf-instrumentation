@@ -177,6 +177,24 @@ func TestMultiProcessAppCPHeadersAndTCP(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestMultiProcessAppCPIPOnly(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp-ip-only.log"))
+	require.NoError(t, err)
+
+	// Test IP-only context propagation (no HTTP headers, no TCP options, only IP options)
+	// Explicitly disable request header tracking since we're not injecting HTTP headers
+	// Bypass JSON-RPC to avoid loopback interface and enable IP option injection over network
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=ip`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=false`, `BYPASS_JSONRPC=true`)
+
+	require.NoError(t, compose.Up())
+
+	t.Run("Nested traces with IP-only propagation", func(t *testing.T) {
+		testNestedHTTPTracesKProbes(t)
+	})
+
+	require.NoError(t, compose.Close())
+}
+
 // Addresses bug https://github.com/grafana/beyla/issues/370 for Go executables
 // Prevents that two instances of the same process report traces or metrics by duplicate
 func checkReportedOnlyOnce(t *testing.T, baseURL, serviceName string) {
