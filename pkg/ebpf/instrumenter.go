@@ -342,7 +342,7 @@ func (i *instrumenter) handleSockFilterErr(originalErr error, filter *ebpf.Progr
 	if err != nil {
 		return originalErr
 	}
-	return fmt.Errorf("ran out of memory, socket filter has a jitted size of %d, consider increasing the value net.core.optmem_max kernel parameter to be larger then the program size, this will not effect existing sockets but only future ones created", jittedSize)
+	return fmt.Errorf("cannot allocate memory, socket filter has a jitted size of %d, consider increasing the value net.core.optmem_max kernel parameter to be larger then the program jitted size, this will not affect existing sockets but only future ones created", jittedSize)
 }
 
 func attachSocketFilter(filter *ebpf.Program) (int, error) {
