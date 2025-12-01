@@ -102,8 +102,12 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
     u64 st_offset = go_offset_of(ot, (go_offset){.v = _grpc_stream_st_ptr_pos});
 
     u64 new_handle_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_six_nine});
-    bpf_dbg_printk("stream pointer %llx, new_handle_stream %d", stream_ptr, new_handle_stream);
-    if (new_handle_stream == 1) {
+    u64 reduce_pointers_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_seven_seven});
+    bpf_dbg_printk("stream pointer %llx, new_handle_stream %d, reduce_pointers %d",
+                   stream_ptr,
+                   new_handle_stream,
+                   reduce_pointers_stream);
+    if (new_handle_stream == 1 && reduce_pointers_stream != 1) {
         // Read the embedded object ptr
         bpf_probe_read(
             &stream_stream_ptr,
@@ -245,8 +249,9 @@ int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
     u16 *status_ptr = bpf_map_lookup_elem(&ongoing_grpc_request_status, &g_key);
     u16 status = 0;
     if (status_ptr != NULL) {
-        bpf_dbg_printk("can't read grpc invocation status");
         status = *status_ptr;
+    } else {
+        bpf_dbg_printk("can't read grpc invocation status");
     }
 
     void *stream_ptr = (void *)invocation->stream;

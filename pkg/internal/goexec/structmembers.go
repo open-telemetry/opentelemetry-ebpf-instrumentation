@@ -26,6 +26,7 @@ type GoOffset uint32
 var (
 	grpcOneSixZero      = version.Must(version.NewVersion("1.60.0"))
 	grpcOneSixNine      = version.Must(version.NewVersion("1.69.0"))
+	grpcOneSevenSeven   = version.Must(version.NewVersion("1.77.0"))
 	mongoOneThirteenOne = version.Must(version.NewVersion("1.13.1"))
 )
 
@@ -89,6 +90,7 @@ const (
 	// grpc versioning
 	GrpcOneSixZero
 	GrpcOneSixNine
+	GrpcOneSevenSeven
 	// grpc 1.69
 	GrpcServerStreamStream
 	GrpcServerStreamStPtr
@@ -467,6 +469,11 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 					fieldOffsets[GrpcOneSixNine] = uint64(1)
 				} else {
 					fieldOffsets[GrpcOneSixNine] = uint64(0)
+				}
+				if v.GreaterThanOrEqual(grpcOneSevenSeven) {
+					fieldOffsets[GrpcOneSevenSeven] = uint64(1)
+				} else {
+					fieldOffsets[GrpcOneSevenSeven] = uint64(0)
 				}
 			} else {
 				log.Debug("can't parse version for", "library", lib)

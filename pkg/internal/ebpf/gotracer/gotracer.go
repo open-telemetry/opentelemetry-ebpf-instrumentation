@@ -187,6 +187,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		// grpc versioning
 		goexec.GrpcOneSixZero,
 		goexec.GrpcOneSixNine,
+		goexec.GrpcOneSevenSeven,
 		goexec.GrpcServerStreamStream,
 		goexec.GrpcServerStreamStPtr,
 		goexec.GrpcClientStreamStream,

@@ -70,6 +70,7 @@ typedef enum {
     // grpc versioning
     _grpc_one_six_zero,
     _grpc_one_six_nine,
+    _grpc_one_seven_seven,
     // grpc 1.69
     _grpc_server_stream_stream,
     _grpc_server_stream_st_ptr_pos,
