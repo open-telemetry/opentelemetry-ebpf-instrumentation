@@ -321,7 +321,7 @@ func (i *instrumenter) sockfilters(p Tracer) error {
 			if i.metrics != nil {
 				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingSockFilter)
 			}
-			return fmt.Errorf("error attaching socket filter: %w", i.handleSockFilterErr(err, filter))
+			return fmt.Errorf("attaching socket filter: %w", i.handleSockFilterErr(err, filter))
 		}
 
 		p.AddCloser(&ebpfcommon.Filter{Fd: fd})
