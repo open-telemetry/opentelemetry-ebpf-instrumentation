@@ -27,6 +27,7 @@ var (
 	grpcOneSixZero      = version.Must(version.NewVersion("1.60.0"))
 	grpcOneSixNine      = version.Must(version.NewVersion("1.69.0"))
 	grpcOneSevenSeven   = version.Must(version.NewVersion("1.77.0"))
+	http2ZeroFortyFive  = version.Must(version.NewVersion("0.45.0"))
 	mongoOneThirteenOne = version.Must(version.NewVersion("1.13.1"))
 )
 
@@ -91,6 +92,8 @@ const (
 	GrpcOneSixZero
 	GrpcOneSixNine
 	GrpcOneSevenSeven
+	// HTTP2 versioning
+	HTTP2ZeroFortyFive
 	// grpc 1.69
 	GrpcServerStreamStream
 	GrpcServerStreamStPtr
@@ -487,6 +490,18 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 				} else {
 					fieldOffsets[MongoOneThirteenOne] = uint64(0)
 				}
+			}
+		case "golang.org/x/net":
+			ver = cleanLibVersion(ver, true, lib, log)
+
+			if v, err := version.NewVersion(ver); err == nil {
+				if v.GreaterThanOrEqual(http2ZeroFortyFive) {
+					fieldOffsets[HTTP2ZeroFortyFive] = uint64(1)
+				} else {
+					fieldOffsets[HTTP2ZeroFortyFive] = uint64(0)
+				}
+			} else {
+				log.Debug("can't parse version for", "library", lib)
 			}
 		}
 	}

@@ -188,6 +188,9 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.GrpcOneSixZero,
 		goexec.GrpcOneSixNine,
 		goexec.GrpcOneSevenSeven,
+		// HTTP2 versioning
+		goexec.HTTP2ZeroFortyFive,
+		// grpc
 		goexec.GrpcServerStreamStream,
 		goexec.GrpcServerStreamStPtr,
 		goexec.GrpcClientStreamStream,
@@ -571,7 +574,7 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}}
 		m["golang.org/x/net/http2.(*Framer).WriteHeaders"] = []*ebpfcommon.ProbeDesc{
 			{ // http2 context propagation
-				Start: p.bpfObjects.ObiUprobeHttp2FramerWriteHeaders,
+				Start: p.bpfObjects.ObiUprobeGolangHttp2FramerWriteHeaders,
 				End:   p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns,
 			},
 			{ // for grpc
@@ -580,7 +583,7 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			},
 		}
 		m["net/http.(*http2Framer).WriteHeaders"] = []*ebpfcommon.ProbeDesc{{ // http2 context propagation
-			Start: p.bpfObjects.ObiUprobeHttp2FramerWriteHeaders,
+			Start: p.bpfObjects.ObiUprobeNetHttp2FramerWriteHeaders,
 			End:   p.bpfObjects.ObiUprobeHttp2FramerWriteHeadersReturns,
 		}}
 	}

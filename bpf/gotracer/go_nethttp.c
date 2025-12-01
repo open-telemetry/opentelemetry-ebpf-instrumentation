@@ -1079,27 +1079,24 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } framer_invocation_map SEC(".maps");
 
-SEC("uprobe/http2FramerWriteHeaders")
-int obi_uprobe_http2FramerWriteHeaders(struct pt_regs *ctx) {
+static __always_inline void
+on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) {
     bpf_dbg_printk("=== uprobe/proc http2 Framer writeHeaders === ");
     void *framer = GO_PARAM1(ctx);
 
     if (!framer) {
         bpf_dbg_printk("framer is nil");
-        return 0;
+        return;
     }
 
-    u64 stream_id = (u64)GO_PARAM2(ctx);
-
-    off_table_t *ot = get_offsets_table();
     u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
 
     if (framer_w_pos == -1) {
         bpf_dbg_printk("framer w not found");
-        return 0;
+        return;
     }
 
-    bpf_dbg_printk("framer=%llx, stream_id=%lld", framer, ((u64)stream_id));
+    bpf_dbg_printk("framer=%llx, stream_id=%llu", framer, stream_id);
 
     stream_key_t s_key = {
         .stream_id = stream_id,
@@ -1153,11 +1150,41 @@ int obi_uprobe_http2FramerWriteHeaders(struct pt_regs *ctx) {
     }
 
     bpf_map_delete_elem(&http2_req_map, &s_key);
+}
+
+SEC("uprobe/golang_http2FramerWriteHeaders")
+int obi_uprobe_golang_http2FramerWriteHeaders(struct pt_regs *ctx) {
+    off_table_t *ot = get_offsets_table();
+
+    const u64 stream_id = golang_stream_id(ctx, ot);
+
+    if (stream_id == 0) {
+        return 0;
+    }
+
+    on_http2FramerWriteHeaders(ctx, ot, stream_id);
+
+    return 0;
+}
+
+SEC("uprobe/net_http2FramerWriteHeaders")
+int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
+    off_table_t *ot = get_offsets_table();
+
+    const u64 stream_id = (u64)GO_PARAM2(ctx);
+
+    on_http2FramerWriteHeaders(ctx, ot, stream_id);
+
     return 0;
 }
 #else
-SEC("uprobe/http2FramerWriteHeaders")
-int obi_uprobe_http2FramerWriteHeaders(struct pt_regs *ctx) {
+SEC("uprobe/golang_http2FramerWriteHeaders")
+int obi_uprobe_golang_http2FramerWriteHeaders(struct pt_regs *ctx) {
+    return 0;
+}
+
+SEC("uprobe/net_http2FramerWriteHeaders")
+int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
     return 0;
 }
 #endif
