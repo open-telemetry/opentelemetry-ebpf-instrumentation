@@ -88,8 +88,8 @@ func TestGrpcOffsetsFromDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsetsFromDwarf(grpcElf)
 	// this test might fail if a future Go gRPC version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
-		GrpcServerStreamStPtr:  uint64(8),
-		GrpcStreamMethodPtrPos: uint64(24),
+		GrpcServerStreamStPtr:  uint64(0x148),
+		GrpcStreamMethodPtrPos: uint64(0x10),
 		GrpcStatusSPos:         uint64(0),
 		ConnFdPos:              uint64(0),
 		FdLaddrPos:             uint64(96),
@@ -114,8 +114,8 @@ func TestGrpcOffsetsWithoutDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsets(smallGRPCElf)
 	// this test might fail if a future Go gRPC version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
-		GrpcServerStreamStPtr:  uint64(8),
-		GrpcStreamMethodPtrPos: uint64(24),
+		GrpcServerStreamStPtr:  uint64(0x148),
+		GrpcStreamMethodPtrPos: uint64(0x10),
 		GrpcStatusSPos:         uint64(0),
 		GrpcStatusCodePtrPos:   uint64(40),
 		ConnFdPos:              uint64(0),

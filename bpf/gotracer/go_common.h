@@ -473,3 +473,26 @@ static __always_inline void process_meta_frame_headers(void *frame, tp_info_t *t
         }
     }
 }
+
+static __always_inline u64 golang_stream_id(struct pt_regs *ctx, off_table_t *ot) {
+    const u64 on_stack = go_offset_of(ot, (go_offset){.v = _http2_zero_forty_five_zero});
+
+    if (!on_stack) {
+        return (u64)GO_PARAM2(ctx);
+    }
+
+    const void *sp = (const void *)PT_REGS_SP(ctx);
+
+    bpf_dbg_printk("golang_stream_id: sp = %llx", sp);
+
+    u64 stream_id = 0;
+
+    const u8 k_stream_id_offset = 0x8;
+
+    if (bpf_probe_read_user(&stream_id, sizeof(u64), sp + k_stream_id_offset) != 0) {
+        bpf_dbg_printk("couldn't read stream_id");
+        return 0;
+    }
+
+    return stream_id;
+}

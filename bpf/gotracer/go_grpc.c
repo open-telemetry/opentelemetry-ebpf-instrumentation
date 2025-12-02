@@ -21,6 +21,7 @@
 
 #include <gotracer/go_byte_arr.h>
 #include <gotracer/go_common.h>
+#include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 #include <gotracer/go_stream_key.h>
 #include <gotracer/hpack.h>
@@ -102,8 +103,12 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
     u64 st_offset = go_offset_of(ot, (go_offset){.v = _grpc_stream_st_ptr_pos});
 
     u64 new_handle_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_six_nine});
-    bpf_dbg_printk("stream pointer %llx, new_handle_stream %d", stream_ptr, new_handle_stream);
-    if (new_handle_stream == 1) {
+    u64 reduce_pointers_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_seven_seven});
+    bpf_dbg_printk("stream pointer %llx, new_handle_stream %d, reduce_pointers %d",
+                   stream_ptr,
+                   new_handle_stream,
+                   reduce_pointers_stream);
+    if (new_handle_stream == 1 && reduce_pointers_stream != 1) {
         // Read the embedded object ptr
         bpf_probe_read(
             &stream_stream_ptr,
@@ -245,8 +250,9 @@ int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
     u16 *status_ptr = bpf_map_lookup_elem(&ongoing_grpc_request_status, &g_key);
     u16 status = 0;
     if (status_ptr != NULL) {
-        bpf_dbg_printk("can't read grpc invocation status");
         status = *status_ptr;
+    } else {
+        bpf_dbg_printk("can't read grpc invocation status");
     }
 
     void *stream_ptr = (void *)invocation->stream;
@@ -669,8 +675,14 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
     }
 
     u64 new_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_six_nine});
-    bpf_dbg_printk("stream pointer %llx, new_stream %d", stream, new_stream);
-    if (new_stream == 1) {
+
+    u64 reduce_pointers_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_seven_seven});
+    bpf_dbg_printk("stream pointer %llx, new_stream %d, reduce_pointers %d",
+                   stream,
+                   new_stream,
+                   reduce_pointers_stream);
+
+    if (new_stream == 1 && reduce_pointers_stream != 1) {
         bpf_probe_read_user(&stream,
                             sizeof(stream),
                             stream +
@@ -720,9 +732,14 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/proc grpc Framer writeHeaders === ");
 
     void *framer = GO_PARAM1(ctx);
-    u64 stream_id = (u64)GO_PARAM2(ctx);
-
     off_table_t *ot = get_offsets_table();
+
+    u64 stream_id = golang_stream_id(ctx, ot);
+
+    if (stream_id == 0) {
+        return 0;
+    }
+
     u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
 
     if (framer_w_pos == -1) {
@@ -731,7 +748,7 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     }
 
     bpf_dbg_printk(
-        "framer=%llx, stream_id=%lld, framer_w_pos %llx", framer, ((u64)stream_id), framer_w_pos);
+        "framer=%llx, stream_id=%llu, framer_w_pos %llx", framer, stream_id, framer_w_pos);
 
     void *w_ptr = (void *)(framer + framer_w_pos + 16);
     bpf_probe_read(&w_ptr, sizeof(w_ptr), (void *)(framer + framer_w_pos + 8));
