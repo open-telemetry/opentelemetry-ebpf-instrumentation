@@ -342,7 +342,7 @@ func (i *instrumenter) handleSockFilterErr(originalErr error, filter *ebpf.Progr
 	if err != nil {
 		return fmt.Errorf("getting jited size: %w", originalErr)
 	}
-	return fmt.Errorf("%s, socket filter has a jited size of %d, consider increasing the value net.core.optmem_max kernel parameter to be larger then the program jitted size, this will not affect existing sockets but only future ones created", originalErr.Error(), jitedSize)
+	return fmt.Errorf("%s, socket filter has a jited size of %d, consider increasing the value net.core.optmem_max kernel parameter to be larger then the program jited size, this will not affect existing sockets but only future ones created", originalErr.Error(), jitedSize)
 }
 
 func attachSocketFilter(filter *ebpf.Program) (int, error) {
