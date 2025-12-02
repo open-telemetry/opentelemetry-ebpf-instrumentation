@@ -336,11 +336,11 @@ func (i *instrumenter) handleSockFilterErr(originalErr error, filter *ebpf.Progr
 	}
 	info, err := filter.Info()
 	if err != nil {
-		return fmt.Errorf("getting program info: %v", originalErr)
+		return fmt.Errorf("getting program info: %w", originalErr)
 	}
 	jitedSize, err := info.JitedSize()
 	if err != nil {
-		return fmt.Errorf("getting jited size: %v", originalErr)
+		return fmt.Errorf("getting jited size: %w", originalErr)
 	}
 	return fmt.Errorf("%s, socket filter has a jited size of %d, consider increasing the value net.core.optmem_max kernel parameter to be larger then the program jitted size, this will not affect existing sockets but only future ones created", originalErr.Error(), jitedSize)
 }
