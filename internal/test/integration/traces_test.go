@@ -6,6 +6,8 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1522,4 +1524,97 @@ func testHTTPTracesNestedNodeJSLargeHTTPS(t *testing.T) {
 
 	// We must see two children
 	require.Len(t, children, 2)
+}
+
+func testPythonAsyncEndpoint(t *testing.T, endpoint string) {
+	waitForTestComponentsSub(t, "http://localhost:8391", "/health")
+
+	encodedEndpoint := url.PathEscape(endpoint)
+
+	for i := 1; i <= 4; i++ {
+		go ti.DoHTTPGet(t, "http://localhost:8391"+endpoint+strconv.Itoa(i), 200)
+	}
+
+	for i := 1; i <= 4; i++ {
+		slug := strconv.Itoa(i)
+		urlPath := endpoint + slug
+		var trace jaeger.Trace
+		test.Eventually(t, testTimeout, func(t require.TestingT) {
+			resp, err := http.Get(jaegerQueryURL + "?service=python3.12&operation=GET%20" + encodedEndpoint + slug)
+			require.NoError(t, err)
+			if resp == nil {
+				return
+			}
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			var tq jaeger.TracesQuery
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+			traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath})
+			require.GreaterOrEqual(t, len(traces), 1)
+			trace = traces[0]
+
+			res := trace.FindByOperationName("GET "+urlPath, "server")
+			require.GreaterOrEqual(t, len(res), 1)
+			server := res[0]
+			require.NotEmpty(t, server.TraceID)
+			require.NotEmpty(t, server.SpanID)
+
+			sd := server.Diff(
+				jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+				jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+				jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath},
+				jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8391)},
+				jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+			)
+			assert.Empty(t, sd, sd.String())
+
+			res = trace.FindByOperationName("GET /", "client")
+			require.GreaterOrEqual(t, len(res), 1)
+			client := res[0]
+			require.NotEmpty(t, client.TraceID)
+			require.Equal(t, server.TraceID, client.TraceID)
+			require.NotEmpty(t, client.SpanID)
+
+			sd = client.Diff(
+				jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+				jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+				jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},
+				jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
+			)
+			assert.Empty(t, sd, sd.String())
+
+			res = trace.FindByOperationName("GET /", "server")
+			require.GreaterOrEqual(t, len(res), 1)
+			for _, ts := range res {
+				require.Equal(t, server.TraceID, ts.TraceID)
+				parent, ok := trace.ParentOf(&ts)
+				require.True(t, ok)
+				require.Equal(t, server.TraceID, parent.TraceID)
+
+				sd = ts.Diff(
+					jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+					jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+					jaeger.Tag{Key: "url.path", Type: "string", Value: "/"},
+					jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},
+					jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+				)
+				assert.Empty(t, sd, sd.String())
+			}
+		}, test.Interval(100*time.Millisecond))
+	}
+}
+
+func testPythonAsyncSequential(t *testing.T) {
+	testPythonAsyncEndpoint(t, "/sequential/")
+}
+
+func testPythonAsyncToThread(t *testing.T) {
+	testPythonAsyncEndpoint(t, "/to-thread/")
+}
+
+func testPythonAsyncParallel(t *testing.T) {
+	testPythonAsyncEndpoint(t, "/parallel/")
+}
+
+func testPythonAsyncCreateTask(t *testing.T) {
+	testPythonAsyncEndpoint(t, "/create-task/")
 }

@@ -418,6 +418,20 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Start:    p.bpfObjects.ObiRbObjCallInitKw,
 			}},
 		},
+		"libpython3.": { // python asyncio (from python 3.9)
+			"context_run": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeContextRun,
+			}},
+			"PyContext_CopyCurrent": {{
+				Required: false,
+				End:      p.bpfObjects.ObiUprobeContextNewFromVarsRet,
+			}},
+			"context_new_from_vars": {{ // In Docker, PyContext_CopyCurrent has tail recursion optimization, so we need this function instead
+				Required: false,
+				End:      p.bpfObjects.ObiUprobeContextNewFromVarsRet,
+			}},
+		},
 	}
 }
 

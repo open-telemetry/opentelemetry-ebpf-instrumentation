@@ -464,6 +464,17 @@ func TestSuite_JavaKafkaLargeBuffer(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonAsync(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async.yml", path.Join(pathOutput, "test-suite-python-async.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Python Async Sequential", testPythonAsyncSequential)
+	t.Run("Python Async To Thread", testPythonAsyncToThread)
+	t.Run("Python Async Parallel", testPythonAsyncParallel)
+	t.Run("Python Async Create Task", testPythonAsyncCreateTask)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonRedis(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-redis.yml", path.Join(pathOutput, "test-suite-python-redis.log"))
 	require.NoError(t, err)

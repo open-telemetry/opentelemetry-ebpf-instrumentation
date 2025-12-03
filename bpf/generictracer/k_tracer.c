@@ -644,6 +644,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         bpf_map_delete_elem(&accepted_connections, &info.conn);
     }
 
+    bpf_map_delete_elem(&pid_tid_to_conn, &id);
     bpf_map_delete_elem(&active_send_args, &id);
     bpf_map_delete_elem(&active_send_sock_args, &sock_p);
 

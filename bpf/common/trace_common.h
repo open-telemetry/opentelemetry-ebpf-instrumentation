@@ -31,6 +31,8 @@
 #include <maps/server_traces.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>
+#include <maps/python_thread_context.h>
+#include <maps/python_context_trace.h>
 
 #include <generictracer/types/puma_task_id.h>
 
@@ -220,6 +222,41 @@ static __always_inline tp_info_pid_t *find_parent_process_trace(trace_key_t *t_k
     return NULL;
 }
 
+static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t *t_key) {
+    // Up to 5 levels of thread nesting allowed
+    enum { k_max_depth = 5 };
+    trace_key_t key = *t_key;
+
+    for (u8 i = 0; i < k_max_depth; ++i) {
+        tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces, &key);
+
+        if (server_tp) {
+            bpf_dbg_printk(
+                "find_python_parent: FOUND tid=%d extra=%llx", key.p_key.tid, key.extra_id);
+            return server_tp;
+        }
+
+        // Not this thread's server request, try Python context chain
+        u64 *context_ptr = bpf_map_lookup_elem(&python_thread_context, &key);
+        if (!context_ptr) {
+            bpf_dbg_printk(
+                "find_python_parent: MISS tid=%d extra=%llx", key.p_key.tid, key.extra_id);
+            break;
+        }
+
+        trace_key_t *p_key = bpf_map_lookup_elem(&python_context_trace, context_ptr);
+        if (!p_key) {
+            bpf_dbg_printk(
+                "find_python_parent: ctx MISS tid=%d ctx=%llx", key.p_key.tid, *context_ptr);
+            break;
+        }
+
+        key = *p_key;
+    }
+
+    return NULL;
+}
+
 static __always_inline tp_info_pid_t *find_parent_java_trace(trace_key_t *t_key) {
     // Up to 3 levels of thread nesting allowed
     enum { k_max_depth = 3 };
@@ -265,6 +302,12 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
                    t_key->p_key.ns,
                    t_key->extra_id);
 
+    tp_info_pid_t *python_parent = find_python_parent_trace(t_key);
+
+    if (python_parent) {
+        return python_parent;
+    }
+
     tp_info_pid_t *nginx_parent = find_nginx_parent_trace(p_conn, orig_dport);
 
     if (nginx_parent) {
@@ -272,6 +315,7 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
     }
 
     tp_info_pid_t *puma_parent = find_puma_parent_trace(pid_tgid);
+
     if (puma_parent) {
         return puma_parent;
     }
@@ -354,6 +398,11 @@ static __always_inline void server_or_client_trace(
     if (type == EVENT_HTTP_REQUEST) {
         trace_key_t t_key = {0};
         task_tid(&t_key.p_key);
+        bpf_dbg_printk("server_or_client: host_id=%llx, after task_tid: pid=%d tid=%d ns=%x",
+                       id,
+                       t_key.p_key.pid,
+                       t_key.p_key.tid,
+                       t_key.p_key.ns);
         t_key.extra_id = extra_runtime_id();
 
         connection_info_part_t conn_part = {};
@@ -374,8 +423,11 @@ static __always_inline void server_or_client_trace(
             return;
         }
 
-        bpf_dbg_printk(
-            "Saving thread server span for ns=%x, extra_id=%llx", t_key.p_key.ns, t_key.extra_id);
+        bpf_dbg_printk("STORE server_traces[pid=%d,tid=%d,ns=%x,extra_id=%llx]",
+                       t_key.p_key.pid,
+                       t_key.p_key.tid,
+                       t_key.p_key.ns,
+                       t_key.extra_id);
         bpf_map_update_elem(&server_traces, &t_key, tp_p, BPF_ANY);
     } else {
         // Setup a pid, so that we can find it in TC.
