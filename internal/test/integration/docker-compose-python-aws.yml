@@ -8,7 +8,7 @@ services:
       - "4566:4566"
 
   testserver:
-    image: ghcr.io/open-telemetry/obi-testimg:python_aws_s3-0.0.1
+    image: ghcr.io/open-telemetry/obi-testimg:python_aws_s3-0.0.1@sha256:6c113d604dc62f999425c70d82ce678f13498eef364f797bc18f2c3ed2988b15
     ports:
       - "${TEST_SERVICE_PORTS}"
     depends_on:
