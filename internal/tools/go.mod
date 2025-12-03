@@ -7,10 +7,10 @@ require (
 	github.com/golangci/golangci-lint/v2 v2.4.0
 	github.com/google/go-licenses/v2 v2.0.1
 	github.com/grafana/go-offsets-tracker v0.1.7
-	github.com/onsi/ginkgo/v2 v2.25.3
+	github.com/onsi/ginkgo/v2 v2.27.2
 	go.opentelemetry.io/build-tools/multimod v0.28.1
 	gotest.tools/gotestsum v1.12.3
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20251020210837-fb2beabd029b
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20251126220622-4b46eb04d57f
 	sigs.k8s.io/kind v0.29.0
 )
 
@@ -234,7 +234,7 @@ require (
 	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	go.yaml.in/yaml/v2 v2.4.2 // indirect
+	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20250620022241-b7579e27df2b // indirect
