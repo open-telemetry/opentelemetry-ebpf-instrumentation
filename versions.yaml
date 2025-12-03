@@ -3,15 +3,17 @@
 
 module-sets:
   obi:
-    version: v0.2.0
+    version: v0.3.0
     modules:
       - go.opentelemetry.io/obi
 excluded-modules:
   - github.com/hashicorp/go-version
   - github.com/hashicorp/golang-lru/v2
+  - go.opentelemetry.io/obi/configs/offsets/gin
   - go.opentelemetry.io/obi/configs/offsets/kafkago
   - go.opentelemetry.io/obi/configs/offsets/mongo
   - go.opentelemetry.io/obi/configs/offsets/mongov2
+  - go.opentelemetry.io/obi/configs/offsets/mux
   - go.opentelemetry.io/obi/configs/offsets/otelsdk
   - go.opentelemetry.io/obi/configs/offsets/redis
   - go.opentelemetry.io/obi/configs/offsets/sarama
