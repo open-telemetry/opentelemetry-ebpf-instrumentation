@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 		docker.ImageBuild{Tag: "testserver:dev", Dockerfile: k8s.DockerfileTestServer},
 		docker.ImageBuild{Tag: "obi:dev", Dockerfile: k8s.DockerfileOBI},
 		docker.ImageBuild{Tag: "quay.io/prometheus/prometheus:v2.55.1"},
-		docker.ImageBuild{Tag: "otel/opentelemetry-collector-contrib:0.103.0"},
+		docker.ImageBuild{Tag: "otel/opentelemetry-collector-contrib:0.104.0"},
 		docker.ImageBuild{Tag: "jaegertracing/all-in-one:1.57"},
 		docker.ImageBuild{Tag: "grpcpinger:dev", Dockerfile: k8s.DockerfilePinger},
 	); err != nil {
@@ -47,7 +47,7 @@ func TestMain(m *testing.M) {
 		kube.LocalImage("obi:dev"),
 		kube.LocalImage("grpcpinger:dev"),
 		kube.LocalImage("quay.io/prometheus/prometheus:v2.55.1"),
-		kube.LocalImage("otel/opentelemetry-collector-contrib:0.103.0"),
+		kube.LocalImage("otel/opentelemetry-collector-contrib:0.104.0"),
 		kube.LocalImage("jaegertracing/all-in-one:1.57"),
 		kube.Deploy(testpath.Manifests+"/01-volumes.yml"),
 		kube.Deploy(testpath.Manifests+"/01-serviceaccount.yml"),
