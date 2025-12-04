@@ -258,12 +258,15 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
             tcp_get_or_set_trace_info(req, pid_conn, ssl, orig_dport);
 
+            bpf_dbg_printk("===== tcp_send_large_buffer 1 ======");
             tcp_send_large_buffer(
                 req, pid_conn, u_buf, bytes_len, direction, protocol_type, k_large_buf_action_init);
 
             bpf_map_update_elem(&ongoing_tcp_req, pid_conn, req, BPF_ANY);
         }
     } else if (existing->direction != direction) {
+        bpf_dbg_printk("===== tcp_send_large_buffer 2 ======");
+
         if (tcp_send_large_buffer(existing,
                                   pid_conn,
                                   u_buf,
@@ -305,6 +308,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         existing->len += bytes_len;
         existing->req_len = existing->len;
         existing->protocol_type = protocol_type;
+        bpf_dbg_printk("===== tcp_send_large_buffer 3 ======");
 
         tcp_send_large_buffer(existing,
                               pid_conn,
