@@ -2,16 +2,13 @@ version: "3.8"
 
 services:
   localstack:
-    image: localstack/localstack:4.10@sha256:a65ee2a9d45a7a34a1f1faae515d2e577ce11210312c077700ccc82daefec238
+    image: localstack/localstack:4.11@sha256:3071c9c72a1e9dbc23ad33540617ad7825ffeba80a8f421eff798b97850f9de5
     container_name: localstack
     ports:
       - "4566:4566"
 
   testserver:
-    build:
-      context: ../../../internal/test/integration/components/pythonawsclient/
-      dockerfile: Dockerfile
-    image: hatest-testserver-python-aws-client
+    image: ghcr.io/open-telemetry/obi-testimg:python_aws_s3-0.0.1@sha256:6c113d604dc62f999425c70d82ce678f13498eef364f797bc18f2c3ed2988b15
     ports:
       - "${TEST_SERVICE_PORTS}"
     depends_on:

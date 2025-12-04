@@ -1,4 +1,4 @@
-FROM python:3.12@sha256:de96c54f25e2d69597a72bd3309d723110e59586845c5675c8cb83afb808af18
+FROM python:3.12@sha256:01f36278bcca9fb4a5bdda7edc85be44218190a9371f642d8f852f36ad9fa23d
 EXPOSE 8080
 RUN pip install boto3 fastapi uvicorn
 COPY main.py /main.py

@@ -28,21 +28,22 @@ jobs:
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           persist-credentials: false
 
       - name: build matrix
         id: build-matrix
         env:
-          # 5 partitions, one for each of:
+          # 6 partitions, one for each of:
           #  1. TestMultiProcess
           #  2. TestMultiProcessAppCP
           #  3. TestMultiProcessAppCPNoIP
           #  4. TestMultiProcessAppCPTCPOnly
           #  5. TestMultiProcessAppCPHeadersAndTCP
+          #  6. TestMultiProcessAppCPIPOnly
 
-          PARTITIONS: 5
+          PARTITIONS: 6
           TEST_TAGS: integration
         run: |
           echo -n "matrix=" >> $GITHUB_OUTPUT
@@ -68,7 +69,7 @@ jobs:
             arch: "x86_64"
         test: ${{ fromJson(needs.vm-test-matrix.outputs.matrix).include }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           persist-credentials: false
 
