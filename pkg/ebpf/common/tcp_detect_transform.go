@@ -48,6 +48,10 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 
 	// We might know already the protocol for this event
 	switch event.ProtocolType {
+	case ProtocolTypeKafka:
+		var span request.Span
+		fmt.Println("Yeeeeeeeee kafkaaaaaa")
+		return span, false, nil
 	case ProtocolTypeMySQL:
 		span, err := handleMySQL(parseCtx, event, requestBuffer, responseBuffer)
 		if errors.Is(err, errFallback) {

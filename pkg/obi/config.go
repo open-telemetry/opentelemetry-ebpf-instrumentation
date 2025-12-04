@@ -97,6 +97,7 @@ var DefaultConfig = Config{
 			HTTP:     0,
 			MySQL:    0,
 			Postgres: 0,
+			Kafka:    0,
 		},
 		MySQLPreparedStatementsCacheSize:    1024,
 		PostgresPreparedStatementsCacheSize: 1024,

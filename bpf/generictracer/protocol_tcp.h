@@ -15,6 +15,7 @@
 #include <common/trace_common.h>
 
 #include <generictracer/protocol_common.h>
+#include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
 
@@ -140,6 +141,14 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
         if (postgres_buffer_size > 0) {
             u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
             ret = postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
+        }
+        break;
+    case k_protocol_type_kafka:
+        bpf_dbg_printk("====== k_protocol_type_kafka =======");
+        if (kafka_buffer_size > 0) {
+            u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
+            ret = kafka_send_large_buffer(
+                req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         }
         break;
     case k_protocol_type_http:
