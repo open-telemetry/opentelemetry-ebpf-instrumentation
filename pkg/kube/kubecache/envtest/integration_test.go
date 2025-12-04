@@ -376,6 +376,8 @@ func TestFilterByTimestamp(t *testing.T) {
 	assert.Contains(t, newestObjects, evnt.Resource.Name)
 	delete(newestObjects, evnt.Resource.Name)
 	evnt = testutil.ReadChannel(t, svcClient.Messages, timeout)
+	require.NotNil(t, evnt)
+	require.NotNil(t, evnt.Resource)
 	assert.Contains(t, newestObjects, evnt.Resource.Name)
 	evnt = testutil.ReadChannel(t, svcClient.Messages, timeout)
 	assert.Equal(t, informer.EventType_SYNC_FINISHED, evnt.Type)
