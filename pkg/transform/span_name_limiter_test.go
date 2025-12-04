@@ -17,8 +17,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export"
-	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -32,10 +32,10 @@ func TestSpanNameLimiter(t *testing.T) {
 	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	outCh := output.Subscribe()
 	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
-		Limit:         maxCardinalityBeforeAggregation,
-		OTEL:          &otelcfg.MetricsConfig{TTL: time.Minute},
-		Prom:          &prom.PrometheusConfig{TTL: time.Minute},
-		MeterProvider: &decfg.MeterProvider{Features: export.FeatureSpanLegacy},
+		Limit:      maxCardinalityBeforeAggregation,
+		OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
+		Prom:       &prom.PrometheusConfig{TTL: time.Minute},
+		MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 
@@ -118,10 +118,10 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 		output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 		outCh := output.Subscribe()
 		runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
-			Limit:         maxCardinalityBeforeAggregation,
-			OTEL:          &otelcfg.MetricsConfig{TTL: time.Minute},
-			Prom:          &prom.PrometheusConfig{TTL: time.Minute},
-			MeterProvider: &decfg.MeterProvider{Features: export.FeatureSpanLegacy},
+			Limit:      maxCardinalityBeforeAggregation,
+			OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
+			Prom:       &prom.PrometheusConfig{TTL: time.Minute},
+			MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 		}, input, output)(t.Context())
 		require.NoError(t, err)
 
@@ -183,10 +183,10 @@ func TestSpanNameLimiter_CopiesOutput(t *testing.T) {
 	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	outCh := output.Subscribe()
 	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
-		Limit:         3,
-		OTEL:          &otelcfg.MetricsConfig{TTL: time.Minute},
-		Prom:          &prom.PrometheusConfig{TTL: time.Minute},
-		MeterProvider: &decfg.MeterProvider{Features: export.FeatureSpanLegacy},
+		Limit:      3,
+		OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
+		Prom:       &prom.PrometheusConfig{TTL: time.Minute},
+		MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 

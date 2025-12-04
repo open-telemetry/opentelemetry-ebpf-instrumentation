@@ -30,8 +30,8 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
-	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -324,8 +324,8 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 
 func TestMetricsDiscarded(t *testing.T) {
 	mr := MetricsReporter{
-		cfg:           &otelcfg.MetricsConfig{},
-		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplicationRED},
+		cfg:       &otelcfg.MetricsConfig{},
+		commonCfg: &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -367,8 +367,8 @@ func TestMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mr := MetricsReporter{
-		cfg:           &otelcfg.MetricsConfig{},
-		meterProvider: &decfg.MeterProvider{Features: export.FeatureSpanLegacy},
+		cfg:       &otelcfg.MetricsConfig{},
+		commonCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -410,8 +410,8 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
 	mr := MetricsReporter{
-		cfg:           &otelcfg.MetricsConfig{},
-		meterProvider: &decfg.MeterProvider{Features: export.FeatureSpanLegacy},
+		cfg:       &otelcfg.MetricsConfig{},
+		commonCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -453,9 +453,9 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 
 func TestProcessPIDEvents(t *testing.T) {
 	mr := MetricsReporter{
-		cfg:           &otelcfg.MetricsConfig{},
-		meterProvider: &decfg.MeterProvider{Features: export.FeatureApplicationRED},
-		pidTracker:    NewPidServiceTracker(),
+		cfg:        &otelcfg.MetricsConfig{},
+		commonCfg:  &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		pidTracker: NewPidServiceTracker(),
 	}
 
 	svcA := svc.Attrs{
@@ -545,7 +545,7 @@ func makeMetricsReporter(
 	mr, err := newMetricsReporter(
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
-		mcfg, &decfg.MeterProvider{Features: features},
+		mcfg, &perapp.MetricsConfig{Features: features},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -1101,7 +1101,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			reporter := &MetricsReporter{
 				cfg:                &otelcfg.MetricsConfig{},
 				log:                slog.Default(),
-				meterProvider:      &decfg.MeterProvider{Features: export.FeatureApplicationRED},
+				commonCfg:          &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 				targetMetrics:      make(map[svc.UID]*TargetMetrics),
 				pidTracker:         NewPidServiceTracker(),
 				createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1146,7 +1146,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
-			meterProvider:      &decfg.MeterProvider{Features: export.FeatureProcess},
+			commonCfg:          &perapp.MetricsConfig{Features: export.FeatureProcess},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1181,7 +1181,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
-			meterProvider:      &decfg.MeterProvider{Features: export.FeatureProcess},
+			commonCfg:          &perapp.MetricsConfig{Features: export.FeatureProcess},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,

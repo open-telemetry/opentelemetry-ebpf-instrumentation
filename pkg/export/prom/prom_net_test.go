@@ -15,13 +15,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
-	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-var mpConfig = &decfg.MeterProvider{Features: export.FeatureNetwork | export.FeatureNetworkInterZone}
+var mpConfig = &perapp.MetricsConfig{Features: export.FeatureNetwork | export.FeatureNetworkInterZone}
 
 func TestMetricsExpiration(t *testing.T) {
 	t.Skip("fails regularly with port already in use or data race condition")
@@ -52,7 +52,7 @@ func TestMetricsExpiration(t *testing.T) {
 					},
 				},
 			},
-			MeterProvider: mpConfig,
+			CommonCfg: mpConfig,
 		}, metrics)(ctx)
 	require.NoError(t, err)
 

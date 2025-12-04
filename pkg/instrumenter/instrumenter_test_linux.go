@@ -26,16 +26,16 @@ func TestRunDontPanic(t *testing.T) {
 		description: "otel endpoint but feature excluded",
 		configProvider: func() obi.Config {
 			cfg := obi.DefaultConfig
-			cfg.MeterProvider.Features = export.FeatureApplicationRED
+			cfg.Metrics.Features = export.FeatureApplicationRED
 			cfg.NetworkFlows.Enable = true
-			cfg.Metrics.CommonEndpoint = "http://localhost"
+			cfg.OTELMetrics.CommonEndpoint = "http://localhost"
 			return cfg
 		},
 	}, {
 		description: "prom endpoint but feature excluded",
 		configProvider: func() obi.Config {
 			cfg := obi.DefaultConfig
-			cfg.MeterProvider.Features = export.FeatureApplicationRED
+			cfg.Metrics.Features = export.FeatureApplicationRED
 			cfg.NetworkFlows.Enable = true
 			cfg.Prometheus.Port = 9090
 			return cfg
@@ -44,9 +44,9 @@ func TestRunDontPanic(t *testing.T) {
 		description: "otel endpoint, otel feature excluded, but prom enabled",
 		configProvider: func() obi.Config {
 			cfg := obi.DefaultConfig
-			cfg.MeterProvider.Features = export.FeatureApplicationRED
+			cfg.Metrics.Features = export.FeatureApplicationRED
 			cfg.NetworkFlows.Enable = true
-			cfg.Metrics.CommonEndpoint = "http://localhost"
+			cfg.OTELMetrics.CommonEndpoint = "http://localhost"
 			cfg.Prometheus.Port = 9090
 			return cfg
 		},
@@ -56,8 +56,8 @@ func TestRunDontPanic(t *testing.T) {
 			cfg := obi.DefaultConfig
 			cfg.NetworkFlows.Enable = true
 			cfg.Prometheus.Port = 9090
-			cfg.Metrics.CommonEndpoint = "http://localhost"
-			cfg.MeterProvider.Features = export.FeatureApplicationRED
+			cfg.OTELMetrics.CommonEndpoint = "http://localhost"
+			cfg.Metrics.Features = export.FeatureApplicationRED
 			return cfg
 		},
 	}}

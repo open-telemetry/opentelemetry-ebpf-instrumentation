@@ -5,8 +5,8 @@ metadata:
 data:
   obi-config.yml: |
     log_level: debug
-    meter_provider:
-      obi_features: ["network", "network_inter_zone"]
+    metrics:
+      features: ["network", "network_inter_zone"]
     otel_metrics_export:
       endpoint: http://otelcol.default:4317
     network:

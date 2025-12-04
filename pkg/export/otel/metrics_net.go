@@ -18,10 +18,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/expire"
-	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	metric2 "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -30,14 +30,14 @@ import (
 
 // NetMetricsConfig extends MetricsConfig for Network Metrics
 type NetMetricsConfig struct {
-	Metrics       *otelcfg.MetricsConfig
-	MeterProvider *decfg.MeterProvider
-	SelectorCfg   *attributes.SelectorConfig
+	Metrics     *otelcfg.MetricsConfig
+	CommonCfg   *perapp.MetricsConfig
+	SelectorCfg *attributes.SelectorConfig
 }
 
 func (mc *NetMetricsConfig) Enabled() bool {
 	return mc.Metrics != nil && mc.Metrics.EndpointEnabled() &&
-		mc.MeterProvider.Features.AnyNetwork()
+		mc.CommonCfg.Features.AnyNetwork()
 }
 
 func nmlog() *slog.Logger {
@@ -130,7 +130,7 @@ func newMetricsExporter(
 		clock:     clock,
 		expireTTL: cfg.Metrics.TTL,
 	}
-	if cfg.MeterProvider.Features.NetworkBytes() {
+	if cfg.CommonCfg.Features.NetworkBytes() {
 		log := log.With("metricFamily", "FlowBytes")
 		bytesMetric, err := ebpfEvents.Int64Counter(attributes.NetworkFlow.OTEL,
 			metric2.WithDescription("total bytes_sent value of network flows observed by probe since its launch"),
@@ -149,7 +149,7 @@ func newMetricsExporter(
 		nme.flowBytes = NewExpirer[*ebpf.Record, metric2.Int64Counter, float64](ctx, bytesMetric, attrs, clock.Time, cfg.Metrics.TTL)
 	}
 
-	if cfg.MeterProvider.Features.NetworkInterZone() {
+	if cfg.CommonCfg.Features.NetworkInterZone() {
 		log := log.With("metricFamily", "InterZoneBytes")
 		bytesMetric, err := ebpfEvents.Int64Counter(attributes.NetworkInterZone.OTEL,
 			metric2.WithDescription("total bytes_sent value between Cloud availability zones"),

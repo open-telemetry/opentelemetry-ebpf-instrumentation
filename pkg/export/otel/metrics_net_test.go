@@ -58,8 +58,8 @@ func TestMetricAttributes(t *testing.T) {
 				attributes.NetworkFlow.Section: {Include: []string{"*"}},
 			},
 		},
-		Metrics:       mcfg,
-		MeterProvider: &mpConfig,
+		Metrics:   mcfg,
+		CommonCfg: &mpConfig,
 	}, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 
@@ -125,8 +125,8 @@ func TestMetricAttributes_Filter(t *testing.T) {
 					}},
 				},
 			},
-			Metrics:       mcfg,
-			MeterProvider: &mpConfig,
+			Metrics:   mcfg,
+			CommonCfg: &mpConfig,
 		}, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 

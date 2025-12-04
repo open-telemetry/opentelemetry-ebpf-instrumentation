@@ -20,8 +20,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
-	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -29,7 +29,7 @@ import (
 
 const timeout = 20 * time.Second
 
-var mpConfig = decfg.MeterProvider{Features: export.FeatureAll}
+var mpConfig = perapp.MetricsConfig{Features: export.FeatureAll}
 
 func TestNetMetricsExpiration(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
@@ -62,7 +62,7 @@ func TestNetMetricsExpiration(t *testing.T) {
 					},
 				},
 			},
-			MeterProvider: &decfg.MeterProvider{Features: export.FeatureNetwork},
+			CommonCfg: &perapp.MetricsConfig{Features: export.FeatureNetwork},
 		}, metrics)(ctx)
 	require.NoError(t, err)
 

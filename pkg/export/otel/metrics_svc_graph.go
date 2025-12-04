@@ -20,10 +20,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
-	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	instrument "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -58,7 +58,7 @@ type SvcGraphMetricsReporter struct {
 	log *slog.Logger
 }
 
-// SvcGraphMetrics is a set of metrics associated with a given OTEL MeterProvider.
+// SvcGraphMetrics is a set of metrics associated with a given OTEL Metrics.
 // There is a Metrics instance for each service/process instrumented by OBI.
 type SvcGraphMetrics struct {
 	ctx                      context.Context
@@ -76,7 +76,7 @@ type SvcGraphMetrics struct {
 func ReportSvcGraphMetrics(
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
-	mpCfg *decfg.MeterProvider,
+	mpCfg *perapp.MetricsConfig,
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEvents *msg.Queue[exec.ProcessEvent],

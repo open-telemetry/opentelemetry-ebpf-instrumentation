@@ -25,8 +25,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
-	"go.opentelemetry.io/obi/pkg/export/otel/decfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
@@ -145,11 +145,11 @@ discovery:
 			KafkaTopicUUIDCacheSize:             1024,
 		},
 		NetworkFlows: nc,
-		MeterProvider: decfg.MeterProvider{
+		Metrics: perapp.MetricsConfig{
 			// after normalization, network feature is added from network > enable: true
 			Features: export.FeatureApplicationRED | export.FeatureNetwork,
 		},
-		Metrics: otelcfg.MetricsConfig{
+		OTELMetrics: otelcfg.MetricsConfig{
 			OTELIntervalMS:    60_000,
 			CommonEndpoint:    "localhost:3131",
 			MetricsEndpoint:   "localhost:3030",
@@ -609,7 +609,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 		name        string
 		metrics     otelcfg.MetricsConfig
 		prometheus  prom.PrometheusConfig
-		mp          decfg.MeterProvider
+		mp          perapp.MetricsConfig
 		wantEnabled bool
 	}{
 		{
@@ -624,7 +624,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
 			},
 			prometheus:  prom.PrometheusConfig{},
-			mp:          decfg.MeterProvider{Features: export.FeatureApplicationRED},
+			mp:          perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 			wantEnabled: false,
 		},
 		{
@@ -633,7 +633,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 				MetricsEndpoint: "http://localhost:4318/v1/metrics",
 			},
 			prometheus:  prom.PrometheusConfig{},
-			mp:          decfg.MeterProvider{Features: export.FeatureSpanOTel},
+			mp:          perapp.MetricsConfig{Features: export.FeatureSpanOTel},
 			wantEnabled: true,
 		},
 		{
@@ -642,7 +642,7 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			prometheus: prom.PrometheusConfig{
 				Port: 9090,
 			},
-			mp:          decfg.MeterProvider{Features: export.FeatureApplicationRED},
+			mp:          perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 			wantEnabled: false,
 		},
 		{
@@ -651,14 +651,14 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 			prometheus: prom.PrometheusConfig{
 				Port: 9090,
 			},
-			mp:          decfg.MeterProvider{Features: export.FeatureSpanOTel},
+			mp:          perapp.MetricsConfig{Features: export.FeatureSpanOTel},
 			wantEnabled: true,
 		},
 		{
 			name:        "both have features, but not enabled",
 			metrics:     otelcfg.MetricsConfig{},
 			prometheus:  prom.PrometheusConfig{},
-			mp:          decfg.MeterProvider{Features: export.FeatureApplicationRED | export.FeatureGraph},
+			mp:          perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureGraph},
 			wantEnabled: false,
 		},
 	}
@@ -666,9 +666,9 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &Config{
-				Metrics:       tc.metrics,
-				Prometheus:    tc.prometheus,
-				MeterProvider: tc.mp,
+				OTELMetrics: tc.metrics,
+				Prometheus:  tc.prometheus,
+				Metrics:     tc.mp,
 			}
 			got := cfg.SpanMetricsEnabledForTraces()
 			assert.Equal(t, tc.wantEnabled, got)
@@ -685,7 +685,7 @@ func loadConfig(t *testing.T, env envMap) *Config {
 	return cfg
 }
 
-func TestNormalizeConfig_MeterProvider(t *testing.T) {
+func TestNormalizeConfig_MetricFeatures(t *testing.T) {
 	type testCase struct {
 		name     string
 		expected export.Features
@@ -695,58 +695,58 @@ func TestNormalizeConfig_MeterProvider(t *testing.T) {
 		name:     "default global meter provider",
 		expected: export.FeatureApplicationRED,
 		cfg: Config{
-			Metrics:       otelcfg.MetricsConfig{DeprFeatures: export.FeatureEBPF},
-			Prometheus:    prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
-			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
+			OTELMetrics: otelcfg.MetricsConfig{DeprFeatures: export.FeatureEBPF},
+			Prometheus:  prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
+			Metrics:     perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 		},
 	}, {
 		name:     "OTEL endpoint and legacy features are defined",
 		expected: export.FeatureEBPF,
 		cfg: Config{
-			Metrics:       otelcfg.MetricsConfig{MetricsEndpoint: "http://foo", DeprFeatures: export.FeatureEBPF},
-			Prometheus:    prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
-			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
+			OTELMetrics: otelcfg.MetricsConfig{MetricsEndpoint: "http://foo", DeprFeatures: export.FeatureEBPF},
+			Prometheus:  prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
+			Metrics:     perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 		},
 	}, {
 		name:     "OTEL endpoint defined but legacy features are not",
 		expected: export.FeatureApplicationRED,
 		cfg: Config{
-			Metrics:       otelcfg.MetricsConfig{MetricsEndpoint: "http://foo"},
-			Prometheus:    prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
-			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
+			OTELMetrics: otelcfg.MetricsConfig{MetricsEndpoint: "http://foo"},
+			Prometheus:  prom.PrometheusConfig{DeprFeatures: export.FeatureNetwork},
+			Metrics:     perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 		},
 	}, {
 		name:     "Prom endpoint and legacy features are defined",
 		expected: export.FeatureNetwork,
 		cfg: Config{
-			Metrics:       otelcfg.MetricsConfig{DeprFeatures: export.FeatureEBPF},
-			Prometheus:    prom.PrometheusConfig{Port: 8080, DeprFeatures: export.FeatureNetwork},
-			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
+			OTELMetrics: otelcfg.MetricsConfig{DeprFeatures: export.FeatureEBPF},
+			Prometheus:  prom.PrometheusConfig{Port: 8080, DeprFeatures: export.FeatureNetwork},
+			Metrics:     perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 		},
 	}, {
 		name:     "Prom endpoint defined but legacy features are not",
 		expected: export.FeatureApplicationRED,
 		cfg: Config{
-			Metrics:       otelcfg.MetricsConfig{MetricsEndpoint: "http://foo"},
-			Prometheus:    prom.PrometheusConfig{Port: 8080},
-			MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
+			OTELMetrics: otelcfg.MetricsConfig{MetricsEndpoint: "http://foo"},
+			Prometheus:  prom.PrometheusConfig{Port: 8080},
+			Metrics:     perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 		},
 	}}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := tc.cfg
 			cfg.normalize()
-			assert.Equal(t, tc.expected, cfg.MeterProvider.Features)
+			assert.Equal(t, tc.expected, cfg.Metrics.Features)
 		})
 	}
 }
 
 func TestNormalizeConfig_Network(t *testing.T) {
 	obi := Config{
-		NetworkFlows:  NetworkConfig{Enable: true},
-		MeterProvider: decfg.MeterProvider{Features: export.FeatureApplicationRED},
+		NetworkFlows: NetworkConfig{Enable: true},
+		Metrics:      perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 	}
 	obi.normalize()
 	assert.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork,
-		obi.MeterProvider.Features)
+		obi.Metrics.Features)
 }
