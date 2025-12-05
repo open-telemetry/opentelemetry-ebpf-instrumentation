@@ -22,8 +22,8 @@ func TestFeatureYAML(t *testing.T) {
 	assert.True(t, doc.Features.has(FeatureApplicationRED))
 	assert.True(t, doc.Features.has(FeatureSpanOTel))
 	assert.True(t, doc.Features.has(FeatureApplicationRED|FeatureSpanOTel))
-	assert.False(t, doc.Features.has(FeatureProcess))
-	assert.False(t, doc.Features.has(FeatureApplicationRED|FeatureProcess))
+	assert.False(t, doc.Features.has(FeatureSpanLegacy))
+	assert.False(t, doc.Features.has(FeatureApplicationRED|FeatureSpanLegacy))
 	assert.False(t, doc.Features.has(FeatureAll))
 }
 
@@ -36,7 +36,7 @@ func TestFeatureEnv(t *testing.T) {
 
 	assert.True(t, doc.Features.has(FeatureNetwork))
 	assert.False(t, doc.Features.has(FeatureSpanOTel))
-	assert.False(t, doc.Features.has(FeatureProcess))
+	assert.False(t, doc.Features.has(FeatureSpanLegacy))
 	assert.False(t, doc.Features.has(FeatureAll))
 }
 
@@ -49,7 +49,7 @@ func TestFeatureEnv_Separator(t *testing.T) {
 
 	assert.True(t, doc.Features.has(FeatureNetwork))
 	assert.True(t, doc.Features.has(FeatureApplicationRED|FeatureSpanOTel))
-	assert.False(t, doc.Features.has(FeatureProcess))
+	assert.False(t, doc.Features.has(FeatureSpanLegacy))
 	assert.False(t, doc.Features.has(FeatureAll))
 }
 
@@ -62,7 +62,7 @@ func TestFeatureEnv_All(t *testing.T) {
 
 	assert.True(t, doc.Features.has(FeatureNetwork))
 	assert.True(t, doc.Features.has(FeatureApplicationRED|FeatureSpanOTel))
-	assert.True(t, doc.Features.has(FeatureProcess))
+	assert.True(t, doc.Features.has(FeatureSpanLegacy))
 	assert.True(t, doc.Features.has(FeatureAll))
 }
 
@@ -75,7 +75,7 @@ func TestFeatureYAML_All(t *testing.T) {
 
 	assert.True(t, doc.Features.has(FeatureApplicationRED))
 	assert.True(t, doc.Features.has(FeatureSpanOTel))
-	assert.True(t, doc.Features.has(FeatureProcess))
+	assert.True(t, doc.Features.has(FeatureSpanLegacy))
 	assert.True(t, doc.Features.has(FeatureAll))
 }
 

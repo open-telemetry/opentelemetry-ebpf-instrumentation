@@ -9,7 +9,6 @@ data:
       features:
         - application
         - network
-        - application_process
         - application_span
         - application_service_graph
     attributes:

@@ -24,7 +24,6 @@ const (
 	FeatureSpanOTel
 	FeatureSpanSizes
 	FeatureGraph
-	FeatureProcess
 	FeatureApplicationHost
 	FeatureEBPF
 	FeatureAll = Features(^uint(0)) // all bits to 1
@@ -40,12 +39,20 @@ var FeatureMapper = map[string]maps.Bits{
 	"application_span_otel":     maps.Bits(FeatureSpanOTel),
 	"application_span_sizes":    maps.Bits(FeatureSpanSizes),
 	"application_service_graph": maps.Bits(FeatureGraph),
-	"application_process":       maps.Bits(FeatureProcess),
 	"application_host":          maps.Bits(FeatureApplicationHost),
 	"ebpf":                      maps.Bits(FeatureEBPF),
 	"all":                       maps.Bits(FeatureAll),
 	"*":                         maps.Bits(FeatureAll),
 }
+
+// AppO11yFeatures is a bitmask of all metrics that are enabled by default for Application RED
+// It can be overridden by extension packages
+var AppO11yFeatures = FeatureApplicationRED |
+	FeatureSpanLegacy |
+	FeatureSpanOTel |
+	FeatureSpanSizes |
+	FeatureGraph |
+	FeatureApplicationHost
 
 func LoadFeatures(features []string) Features {
 	return Features(maps.MappedBits(features, FeatureMapper))
@@ -81,14 +88,7 @@ func (f *Features) UnmarshalText(text []byte) error {
 }
 
 func (f Features) AnyAppO11yMetric() bool {
-	return f.any(
-		FeatureApplicationRED |
-			FeatureSpanLegacy |
-			FeatureSpanOTel |
-			FeatureSpanSizes |
-			FeatureGraph |
-			FeatureProcess |
-			FeatureApplicationHost)
+	return f.any(AppO11yFeatures)
 }
 
 func (f Features) SpanMetrics() bool {

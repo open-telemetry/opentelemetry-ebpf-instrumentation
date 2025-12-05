@@ -4,7 +4,6 @@ prometheus_export:
   port: 8999
   features:
     - application
-    - application_process
 otel_traces_export:
   endpoint: http://jaeger:4318
 discovery:
