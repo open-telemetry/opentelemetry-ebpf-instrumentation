@@ -24,7 +24,6 @@ const (
 	FeatureSpanOTel
 	FeatureSpanSizes
 	FeatureGraph
-	FeatureProcess
 	FeatureApplicationHost
 	FeatureEBPF
 	FeatureAll = Features(^uint(0)) // all bits to 1
@@ -32,23 +31,36 @@ const (
 
 // FeatureMapper stays public so any extension package can add and remove feature
 // definitions before loading them.
-var FeatureMapper = map[string]maps.Bits{
-	"network":                   maps.Bits(FeatureNetwork),
-	"network_inter_zone":        maps.Bits(FeatureNetworkInterZone),
-	"application":               maps.Bits(FeatureApplicationRED),
-	"application_span":          maps.Bits(FeatureSpanLegacy),
-	"application_span_otel":     maps.Bits(FeatureSpanOTel),
-	"application_span_sizes":    maps.Bits(FeatureSpanSizes),
-	"application_service_graph": maps.Bits(FeatureGraph),
-	"application_process":       maps.Bits(FeatureProcess),
-	"application_host":          maps.Bits(FeatureApplicationHost),
-	"ebpf":                      maps.Bits(FeatureEBPF),
-	"all":                       maps.Bits(FeatureAll),
-	"*":                         maps.Bits(FeatureAll),
+var FeatureMapper = map[string]Features{
+	"network":                   FeatureNetwork,
+	"network_inter_zone":        FeatureNetworkInterZone,
+	"application":               FeatureApplicationRED,
+	"application_span":          FeatureSpanLegacy,
+	"application_span_otel":     FeatureSpanOTel,
+	"application_span_sizes":    FeatureSpanSizes,
+	"application_service_graph": FeatureGraph,
+	"application_host":          FeatureApplicationHost,
+	"ebpf":                      FeatureEBPF,
+	"all":                       FeatureAll,
+	"*":                         FeatureAll,
 }
 
+// AppO11yFeatures is a bitmask of all metrics that are enabled by default for Application RED
+// It can be overridden by extension packages
+var AppO11yFeatures = FeatureApplicationRED |
+	FeatureSpanLegacy |
+	FeatureSpanOTel |
+	FeatureSpanSizes |
+	FeatureGraph |
+	FeatureApplicationHost
+
 func LoadFeatures(features []string) Features {
-	return Features(maps.MappedBits(features, FeatureMapper))
+	// convert the public data type to the internal representation
+	feats := Features(0)
+	for _, f := range features {
+		feats |= FeatureMapper[f]
+	}
+	return feats
 }
 
 func (f Features) has(feature Features) bool {
@@ -81,14 +93,7 @@ func (f *Features) UnmarshalText(text []byte) error {
 }
 
 func (f Features) AnyAppO11yMetric() bool {
-	return f.any(
-		FeatureApplicationRED |
-			FeatureSpanLegacy |
-			FeatureSpanOTel |
-			FeatureSpanSizes |
-			FeatureGraph |
-			FeatureProcess |
-			FeatureApplicationHost)
+	return f.any(AppO11yFeatures)
 }
 
 func (f Features) SpanMetrics() bool {

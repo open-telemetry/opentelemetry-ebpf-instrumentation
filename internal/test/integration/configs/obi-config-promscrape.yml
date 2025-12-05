@@ -6,7 +6,6 @@ prometheus_export:
   port: 8999
   features:
     - application
-    - application_process
   extra_resource_attributes: ["deployment_environment"]
 attributes:
   select:

@@ -7,7 +7,6 @@ otel_traces_export:
 metrics:
   features:
     - application
-    - application_process
 attributes:
   kubernetes:
     cluster_name: obi-k8s-test-cluster

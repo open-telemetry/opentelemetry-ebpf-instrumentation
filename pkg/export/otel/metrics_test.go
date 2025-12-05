@@ -1146,7 +1146,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
-			commonCfg:          &perapp.MetricsConfig{Features: export.FeatureProcess},
+			commonCfg:          &perapp.MetricsConfig{},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1181,7 +1181,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
-			commonCfg:          &perapp.MetricsConfig{Features: export.FeatureProcess},
+			commonCfg:          &perapp.MetricsConfig{},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,

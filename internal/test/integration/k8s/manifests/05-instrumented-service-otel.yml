@@ -113,6 +113,6 @@ spec:
             - name: OTEL_EBPF_KUBE_METADATA_ENABLE
               value: "autodetect"
             - name: OTEL_EBPF_METRIC_FEATURES 
-              value: "application,application_span,application_service_graph,application_process"
+              value: "application,application_span,application_service_graph"
             - name: OTEL_EBPF_NAME_RESOLVER_SOURCES
               value: "dns,k8s"
