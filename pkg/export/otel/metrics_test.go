@@ -31,6 +31,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -57,12 +58,12 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	internalMetrics := &fakeInternalMetrics{}
 	mcfg := &otelcfg.MetricsConfig{
 		CommonEndpoint: coll.URL, Interval: 10 * time.Millisecond, ReportersCacheLen: 16,
-		Features: export.FeatureApplication, Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 	}
 	reporter, err := ReportMetrics(&global.ContextInfo{
 		Metrics:             internalMetrics,
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
-	}, mcfg, &attributes.SelectorConfig{}, request.UnresolvedNames{}, exportMetrics, processEvents,
+	}, mcfg, &mpConfig, &attributes.SelectorConfig{}, request.UnresolvedNames{}, exportMetrics, processEvents,
 	)(t.Context())
 	require.NoError(t, err)
 	go reporter(t.Context())
@@ -241,7 +242,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 
 			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-			otelExporter := makeMetricsReporter(ctx, t, tt.instr, export.FeatureApplication, otlp, metrics, processEvents).reportMetrics
+			otelExporter := makeMetricsReporter(ctx, t, tt.instr, export.FeatureApplicationRED, otlp, metrics, processEvents).reportMetrics
 			require.NoError(t, err)
 
 			go otelExporter(ctx)
@@ -307,7 +308,7 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	otelExporter := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, export.FeatureApplication, otlp, metrics, processEvents).reportMetrics
+	otelExporter := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, export.FeatureApplicationRED, otlp, metrics, processEvents).reportMetrics
 	go otelExporter(ctx)
 
 	metrics.Send([]request.Span{
@@ -322,11 +323,9 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 }
 
 func TestMetricsDiscarded(t *testing.T) {
-	mc := otelcfg.MetricsConfig{
-		Features: export.FeatureApplication,
-	}
 	mr := MetricsReporter{
-		cfg: &mc,
+		cfg:       &otelcfg.MetricsConfig{},
+		commonCfg: &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -367,11 +366,9 @@ func TestMetricsDiscarded(t *testing.T) {
 }
 
 func TestSpanMetricsDiscarded(t *testing.T) {
-	mc := otelcfg.MetricsConfig{
-		Features: export.FeatureSpan,
-	}
 	mr := MetricsReporter{
-		cfg: &mc,
+		cfg:       &otelcfg.MetricsConfig{},
+		commonCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -412,11 +409,9 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 }
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
-	mc := otelcfg.MetricsConfig{
-		Features: export.FeatureGraph,
-	}
 	mr := MetricsReporter{
-		cfg: &mc,
+		cfg:       &otelcfg.MetricsConfig{},
+		commonCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -457,11 +452,9 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 }
 
 func TestProcessPIDEvents(t *testing.T) {
-	mc := otelcfg.MetricsConfig{
-		Features: export.FeatureApplication,
-	}
 	mr := MetricsReporter{
-		cfg:        &mc,
+		cfg:        &otelcfg.MetricsConfig{},
+		commonCfg:  &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 		pidTracker: NewPidServiceTracker(),
 	}
 
@@ -545,7 +538,6 @@ func makeMetricsReporter(
 		Interval:          50 * time.Millisecond,
 		CommonEndpoint:    otlp.ServerEndpoint,
 		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
-		Features:          features,
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 100,
 		Instrumentations:  instrumentations,
@@ -553,7 +545,7 @@ func makeMetricsReporter(
 	mr, err := newMetricsReporter(
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
-		mcfg,
+		mcfg, &perapp.MetricsConfig{Features: features},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -580,7 +572,7 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, export.FeatureApplication|export.FeatureApplicationHost, otlp, metrics, processEvents)
+	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, export.FeatureApplicationRED|export.FeatureApplicationHost, otlp, metrics, processEvents)
 	otelExporter := mr.reportMetrics
 	go otelExporter(ctx)
 
@@ -1109,6 +1101,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			reporter := &MetricsReporter{
 				cfg:                &otelcfg.MetricsConfig{},
 				log:                slog.Default(),
+				commonCfg:          &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 				targetMetrics:      make(map[svc.UID]*TargetMetrics),
 				pidTracker:         NewPidServiceTracker(),
 				createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1153,6 +1146,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
+			commonCfg:          &perapp.MetricsConfig{Features: export.FeatureProcess},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1187,6 +1181,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
+			commonCfg:          &perapp.MetricsConfig{Features: export.FeatureProcess},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,

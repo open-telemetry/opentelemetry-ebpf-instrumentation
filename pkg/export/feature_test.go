@@ -19,12 +19,12 @@ func TestFeatureYAML(t *testing.T) {
 	require.NoError(t,
 		yaml.Unmarshal([]byte(`features: [application, application_span_otel]`), &doc))
 
-	assert.True(t, doc.Features.Has(FeatureApplication))
-	assert.True(t, doc.Features.Has(FeatureSpanOTel))
-	assert.True(t, doc.Features.Has(FeatureApplication|FeatureSpanOTel))
-	assert.False(t, doc.Features.Has(FeatureProcess))
-	assert.False(t, doc.Features.Has(FeatureApplication|FeatureProcess))
-	assert.False(t, doc.Features.Has(FeatureAll))
+	assert.True(t, doc.Features.has(FeatureApplicationRED))
+	assert.True(t, doc.Features.has(FeatureSpanOTel))
+	assert.True(t, doc.Features.has(FeatureApplicationRED|FeatureSpanOTel))
+	assert.False(t, doc.Features.has(FeatureProcess))
+	assert.False(t, doc.Features.has(FeatureApplicationRED|FeatureProcess))
+	assert.False(t, doc.Features.has(FeatureAll))
 }
 
 func TestFeatureEnv(t *testing.T) {
@@ -34,10 +34,10 @@ func TestFeatureEnv(t *testing.T) {
 	t.Setenv("FOO", "network")
 	require.NoError(t, env.Parse(&doc))
 
-	assert.True(t, doc.Features.Has(FeatureNetwork))
-	assert.False(t, doc.Features.Has(FeatureSpanOTel))
-	assert.False(t, doc.Features.Has(FeatureProcess))
-	assert.False(t, doc.Features.Has(FeatureAll))
+	assert.True(t, doc.Features.has(FeatureNetwork))
+	assert.False(t, doc.Features.has(FeatureSpanOTel))
+	assert.False(t, doc.Features.has(FeatureProcess))
+	assert.False(t, doc.Features.has(FeatureAll))
 }
 
 func TestFeatureEnv_Separator(t *testing.T) {
@@ -47,10 +47,10 @@ func TestFeatureEnv_Separator(t *testing.T) {
 	t.Setenv("FOO", "network,application,application_span_otel")
 	require.NoError(t, env.Parse(&doc))
 
-	assert.True(t, doc.Features.Has(FeatureNetwork))
-	assert.True(t, doc.Features.Has(FeatureApplication|FeatureSpanOTel))
-	assert.False(t, doc.Features.Has(FeatureProcess))
-	assert.False(t, doc.Features.Has(FeatureAll))
+	assert.True(t, doc.Features.has(FeatureNetwork))
+	assert.True(t, doc.Features.has(FeatureApplicationRED|FeatureSpanOTel))
+	assert.False(t, doc.Features.has(FeatureProcess))
+	assert.False(t, doc.Features.has(FeatureAll))
 }
 
 func TestFeatureEnv_All(t *testing.T) {
@@ -60,10 +60,10 @@ func TestFeatureEnv_All(t *testing.T) {
 	t.Setenv("FOO", "all")
 	require.NoError(t, env.Parse(&doc))
 
-	assert.True(t, doc.Features.Has(FeatureNetwork))
-	assert.True(t, doc.Features.Has(FeatureApplication|FeatureSpanOTel))
-	assert.True(t, doc.Features.Has(FeatureProcess))
-	assert.True(t, doc.Features.Has(FeatureAll))
+	assert.True(t, doc.Features.has(FeatureNetwork))
+	assert.True(t, doc.Features.has(FeatureApplicationRED|FeatureSpanOTel))
+	assert.True(t, doc.Features.has(FeatureProcess))
+	assert.True(t, doc.Features.has(FeatureAll))
 }
 
 func TestFeatureYAML_All(t *testing.T) {
@@ -73,10 +73,10 @@ func TestFeatureYAML_All(t *testing.T) {
 	require.NoError(t,
 		yaml.Unmarshal([]byte(`features: ["*"]`), &doc))
 
-	assert.True(t, doc.Features.Has(FeatureApplication))
-	assert.True(t, doc.Features.Has(FeatureSpanOTel))
-	assert.True(t, doc.Features.Has(FeatureProcess))
-	assert.True(t, doc.Features.Has(FeatureAll))
+	assert.True(t, doc.Features.has(FeatureApplicationRED))
+	assert.True(t, doc.Features.has(FeatureSpanOTel))
+	assert.True(t, doc.Features.has(FeatureProcess))
+	assert.True(t, doc.Features.has(FeatureAll))
 }
 
 func TestFeatureYAML_Error(t *testing.T) {

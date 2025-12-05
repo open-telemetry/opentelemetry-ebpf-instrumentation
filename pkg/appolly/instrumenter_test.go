@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube"
@@ -56,6 +57,10 @@ var allMetrics = attributes.Selection{
 	"*": attributes.InclusionLists{Include: []string{"*"}},
 }
 
+var mpConfig = perapp.MetricsConfig{
+	Features: export.FeatureApplicationRED,
+}
+
 func allMetricsBut(patterns ...string) attributes.Selection {
 	return attributes.Selection{
 		attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -74,7 +79,6 @@ func TestBasicPipeline(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	cfg := otelcfg.MetricsConfig{
-		Features:        export.FeatureApplication,
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -84,7 +88,8 @@ func TestBasicPipeline(t *testing.T) {
 	}
 	gb := newGraphBuilder(&obi.Config{
 		NameResolver: obi.DefaultConfig.NameResolver,
-		Metrics:      cfg,
+		Metrics:      mpConfig,
+		OTELMetrics:  cfg,
 		Attributes:   obi.Attributes{Select: allMetrics, InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0, &cfg), tracesInput, processEvents)
 
@@ -193,7 +198,6 @@ func TestMergedMetricsTracePipeline(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	mCfg := otelcfg.MetricsConfig{
-		Features:        export.FeatureApplication,
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -210,8 +214,9 @@ func TestMergedMetricsTracePipeline(t *testing.T) {
 	}
 
 	gb := newGraphBuilder(&obi.Config{
-		Metrics: mCfg,
-		Traces:  tCfg,
+		OTELMetrics: mCfg,
+		Traces:      tCfg,
+		Metrics:     mpConfig,
 		Attributes: obi.Attributes{
 			Select:                         allMetrics,
 			InstanceID:                     config.InstanceIDConfig{OverrideHostname: "the-host"},
@@ -282,7 +287,6 @@ func TestRouteConsolidation(t *testing.T) {
 
 	cfg := otelcfg.MetricsConfig{
 		SDKLogLevel:     "debug",
-		Features:        export.FeatureApplication,
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -291,9 +295,10 @@ func TestRouteConsolidation(t *testing.T) {
 		},
 	}
 	gb := newGraphBuilder(&obi.Config{
-		Metrics:    cfg,
-		Routes:     &transform.RoutesConfig{Patterns: []string{"/user/{id}", "/products/{id}/push"}},
-		Attributes: obi.Attributes{Select: allMetricsBut("client.address", "url.path"), InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
+		OTELMetrics: cfg,
+		Metrics:     mpConfig,
+		Routes:      &transform.RoutesConfig{Patterns: []string{"/user/{id}", "/products/{id}/push"}},
+		Attributes:  obi.Attributes{Select: allMetricsBut("client.address", "url.path"), InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(attributes.GroupHTTPRoutes, &cfg), tracesInput, processEvents)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("svc-1", "/user/1234", 200))
@@ -416,7 +421,6 @@ func TestGRPCPipeline(t *testing.T) {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 
 	cfg := otelcfg.MetricsConfig{
-		Features:        export.FeatureApplication,
 		MetricsEndpoint: tc.ServerEndpoint, Interval: time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
@@ -425,8 +429,9 @@ func TestGRPCPipeline(t *testing.T) {
 		},
 	}
 	gb := newGraphBuilder(&obi.Config{
-		Metrics:    cfg,
-		Attributes: obi.Attributes{Select: allMetrics, InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
+		OTELMetrics: cfg,
+		Metrics:     mpConfig,
+		Attributes:  obi.Attributes{Select: allMetrics, InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0, &cfg), tracesInput, processEvents)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newGRPCRequest("grpc-svc", "/foo/bar", 3))
@@ -514,7 +519,6 @@ func TestBasicPipelineInfo(t *testing.T) {
 	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	cfg := otelcfg.MetricsConfig{
-		Features:        export.FeatureApplication,
 		MetricsEndpoint: tc.ServerEndpoint,
 		Interval:        10 * time.Millisecond, ReportersCacheLen: 16,
 		TTL: 5 * time.Minute,
@@ -523,7 +527,8 @@ func TestBasicPipelineInfo(t *testing.T) {
 		},
 	}
 	gb := newGraphBuilder(&obi.Config{
-		Metrics: cfg,
+		OTELMetrics: cfg,
+		Metrics:     mpConfig,
 		Attributes: obi.Attributes{
 			Select:     allMetrics,
 			InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"},
@@ -609,14 +614,14 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	cfg := otelcfg.MetricsConfig{
 		SDKLogLevel:     "debug",
-		Features:        export.FeatureApplication,
 		MetricsEndpoint: tc.ServerEndpoint, Interval: 10 * time.Millisecond,
 		ReportersCacheLen: 16,
 		TTL:               5 * time.Minute,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 	}
 	gb := newGraphBuilder(&obi.Config{
-		Metrics: cfg,
+		OTELMetrics: cfg,
+		Metrics:     mpConfig,
 		Filters: filter.AttributesConfig{
 			Application: map[string]filter.MatchDefinition{"url.path": {Match: "/user/*"}},
 		},

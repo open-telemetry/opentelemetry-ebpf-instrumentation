@@ -15,10 +15,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
+
+var mpConfig = &perapp.MetricsConfig{Features: export.FeatureNetwork | export.FeatureNetworkInterZone}
 
 func TestMetricsExpiration(t *testing.T) {
 	t.Skip("fails regularly with port already in use or data race condition")
@@ -35,19 +38,22 @@ func TestMetricsExpiration(t *testing.T) {
 	metrics := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(20))
 	exporter, err := NetPrometheusEndpoint(
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&NetPrometheusConfig{Config: &PrometheusConfig{
-			Port:                        openPort,
-			Path:                        "/metrics",
-			TTL:                         3 * time.Minute,
-			SpanMetricsServiceCacheSize: 10,
-			Features:                    export.FeatureNetwork,
-		}, SelectorCfg: &attributes.SelectorConfig{
-			SelectionCfg: attributes.Selection{
-				attributes.NetworkFlow.Section: attributes.InclusionLists{
-					Include: []string{"src_name", "dst_name"},
+		&NetPrometheusConfig{
+			Config: &PrometheusConfig{
+				Port:                        openPort,
+				Path:                        "/metrics",
+				TTL:                         3 * time.Minute,
+				SpanMetricsServiceCacheSize: 10,
+			},
+			SelectorCfg: &attributes.SelectorConfig{
+				SelectionCfg: attributes.Selection{
+					attributes.NetworkFlow.Section: attributes.InclusionLists{
+						Include: []string{"src_name", "dst_name"},
+					},
 				},
 			},
-		}}, metrics)(ctx)
+			CommonCfg: mpConfig,
+		}, metrics)(ctx)
 	require.NoError(t, err)
 
 	go exporter(ctx)

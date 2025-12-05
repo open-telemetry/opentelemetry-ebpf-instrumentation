@@ -19,8 +19,8 @@ type Features maps.Bits
 const (
 	FeatureNetwork Features = 1 << iota
 	FeatureNetworkInterZone
-	FeatureApplication
-	FeatureSpan
+	FeatureApplicationRED
+	FeatureSpanLegacy
 	FeatureSpanOTel
 	FeatureSpanSizes
 	FeatureGraph
@@ -33,8 +33,8 @@ const (
 var featureMapper = map[string]maps.Bits{
 	"network":                   maps.Bits(FeatureNetwork),
 	"network_inter_zone":        maps.Bits(FeatureNetworkInterZone),
-	"application":               maps.Bits(FeatureApplication),
-	"application_span":          maps.Bits(FeatureSpan),
+	"application":               maps.Bits(FeatureApplicationRED),
+	"application_span":          maps.Bits(FeatureSpanLegacy),
 	"application_span_otel":     maps.Bits(FeatureSpanOTel),
 	"application_span_sizes":    maps.Bits(FeatureSpanSizes),
 	"application_service_graph": maps.Bits(FeatureGraph),
@@ -49,11 +49,11 @@ func LoadFeatures(features []string) Features {
 	return Features(maps.MappedBits(features, featureMapper))
 }
 
-func (f Features) Has(feature Features) bool {
+func (f Features) has(feature Features) bool {
 	return maps.Bits(f).Has(maps.Bits(feature))
 }
 
-func (f Features) Any(feature Features) bool {
+func (f Features) any(feature Features) bool {
 	return maps.Bits(f).Any(maps.Bits(feature))
 }
 
@@ -76,4 +76,72 @@ func (f *Features) UnmarshalYAML(value *yaml.Node) error {
 func (f *Features) UnmarshalText(text []byte) error {
 	*f = LoadFeatures(strings.Split(string(text), ","))
 	return nil
+}
+
+func (f Features) AnyAppO11yMetric() bool {
+	return f.any(
+		FeatureApplicationRED |
+			FeatureSpanLegacy |
+			FeatureSpanOTel |
+			FeatureSpanSizes |
+			FeatureGraph |
+			FeatureProcess |
+			FeatureApplicationHost)
+}
+
+func (f Features) SpanMetrics() bool {
+	return f.any(FeatureSpanLegacy | FeatureSpanOTel)
+}
+
+func (f Features) AnySpanMetrics() bool {
+	return f.any(FeatureSpanLegacy | FeatureSpanOTel | FeatureSpanSizes)
+}
+
+func (f Features) AnyNetwork() bool {
+	return f.any(FeatureNetwork | FeatureNetworkInterZone)
+}
+
+func (f Features) AppOrSpan() bool {
+	return f.any(FeatureApplicationRED |
+		FeatureSpanSizes |
+		FeatureApplicationHost |
+		FeatureSpanLegacy |
+		FeatureSpanOTel)
+}
+
+func (f Features) LegacySpanMetrics() bool {
+	return f.any(FeatureSpanLegacy)
+}
+
+func (f Features) ServiceGraph() bool {
+	return f.any(FeatureGraph)
+}
+
+func (f Features) AppHost() bool {
+	return f.any(FeatureApplicationHost)
+}
+
+func (f Features) AppRED() bool {
+	return f.any(FeatureApplicationRED)
+}
+
+func (f Features) SpanSizes() bool {
+	return f.any(FeatureSpanSizes)
+}
+
+func (f Features) NetworkBytes() bool {
+	return f.any(FeatureNetwork)
+}
+
+func (f Features) NetworkInterZone() bool {
+	return f.any(FeatureNetworkInterZone)
+}
+
+func (f Features) BPF() bool {
+	return f.any(FeatureEBPF)
+}
+
+// InvalidSpanMetricsConfig is used to make sure that you can't define both legacy and OTEL span metrics at the same time
+func (f Features) InvalidSpanMetricsConfig() bool {
+	return f.has(FeatureSpanLegacy | FeatureSpanOTel)
 }
