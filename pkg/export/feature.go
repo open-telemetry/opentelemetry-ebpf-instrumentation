@@ -30,7 +30,9 @@ const (
 	FeatureAll = Features(^uint(0)) // all bits to 1
 )
 
-var featureMapper = map[string]maps.Bits{
+// FeatureMapper stays public so any extension package can add and remove feature
+// definitions before loading them.
+var FeatureMapper = map[string]maps.Bits{
 	"network":                   maps.Bits(FeatureNetwork),
 	"network_inter_zone":        maps.Bits(FeatureNetworkInterZone),
 	"application":               maps.Bits(FeatureApplicationRED),
@@ -46,7 +48,7 @@ var featureMapper = map[string]maps.Bits{
 }
 
 func LoadFeatures(features []string) Features {
-	return Features(maps.MappedBits(features, featureMapper))
+	return Features(maps.MappedBits(features, FeatureMapper))
 }
 
 func (f Features) has(feature Features) bool {
