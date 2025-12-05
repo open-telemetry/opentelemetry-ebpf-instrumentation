@@ -116,7 +116,7 @@ func testREDMetricsPythonHTTP(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForPythonHTTPLibrary(t, testCaseURL, "python3.11", "integration-test")
+			testREDMetricsForPythonHTTPLibrary(t, testCaseURL, "python3.14", "integration-test")
 		})
 	}
 }
@@ -127,7 +127,7 @@ func testREDMetricsTimeoutPythonHTTP(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsTimeoutForPythonHTTPLibrary(t, testCaseURL, "python3.11", "integration-test")
+			testREDMetricsTimeoutForPythonHTTPLibrary(t, testCaseURL, "python3.14", "integration-test")
 		})
 	}
 }
@@ -138,7 +138,7 @@ func testREDMetricsDNSPython(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsDNSForPython(t, testCaseURL, "python3.11", "integration-test")
+			testREDMetricsDNSForPython(t, testCaseURL, "python3.14", "integration-test")
 		})
 	}
 }
@@ -149,7 +149,7 @@ func testREDMetricsPythonHTTPS(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForPythonHTTPLibrary(t, testCaseURL, "python3.11", "integration-test")
+			testREDMetricsForPythonHTTPLibrary(t, testCaseURL, "python3.14", "integration-test")
 		})
 	}
 }

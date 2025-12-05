@@ -96,7 +96,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: rust
-          file: internal/test/integration/components/rusttestserver/Dockerfile/rusttestserver/Dockerfile
+          file: internal/test/integration/components/rusttestserver/Dockerfile
 
       - name: rust-ssl
         uses: ./.github/actions/integration-test-image-build
@@ -104,7 +104,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: rust-ssl
-          file: internal/test/integration/components/rusttestserver/Dockerfile/rustssltestserver/Dockerfile
+          file: internal/test/integration/components/rustssltestserver/Dockerfile
 
       - name: rails
         uses: ./.github/actions/integration-test-image-build
@@ -112,7 +112,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: rails
-          file: internal/test/integration/components/rusttestserver/Dockerfile/rubytestserver/testapi/Dockerfile
+          file: internal/test/integration/components/rubytestserver/testapi/Dockerfile
 
       - name: rails-ssl
         uses: ./.github/actions/integration-test-image-build
@@ -120,7 +120,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: rails-ssl
-          file: internal/test/integration/components/rusttestserver/Dockerfile/rubytestserver/testapi/Dockerfile_tls
+          file: internal/test/integration/components/rubytestserver/testapi/Dockerfile_tls
 
       - name: java-jar
         uses: ./.github/actions/integration-test-image-build
@@ -128,7 +128,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: java-jar
-          file: internal/test/integration/components/rusttestserver/Dockerfile/javatestserver/Dockerfile_jar
+          file: internal/test/integration/components/javatestserver/Dockerfile_jar
 
       - name: java-native
         uses: ./.github/actions/integration-test-image-build
@@ -136,7 +136,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: java-native
-          file: internal/test/integration/components/rusttestserver/Dockerfile/javatestserver/Dockerfile
+          file: internal/test/integration/components/javatestserver/Dockerfile
 
       - name: node
         uses: ./.github/actions/integration-test-image-build
@@ -144,7 +144,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: node
-          file: internal/test/integration/components/rusttestserver/Dockerfile/nodejsserver/Dockerfile
+          file: internal/test/integration/components/nodejsserver/Dockerfile
 
       - name: go
         uses: ./.github/actions/integration-test-image-build
@@ -152,7 +152,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: go
-          file: internal/test/integration/components/rusttestserver/Dockerfile/testserver/Dockerfile
+          file: internal/test/integration/components/testserver/Dockerfile
 
       - name: python
         uses: ./.github/actions/integration-test-image-build
@@ -160,4 +160,4 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: python
-          file: internal/test/integration/components/rusttestserver/Dockerfile/pythonserver/Dockerfile
+          file: internal/test/integration/components/pythonserver/Dockerfile
