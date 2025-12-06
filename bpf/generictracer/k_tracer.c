@@ -1154,7 +1154,7 @@ int obi_handle_buf_with_args(void *ctx) {
                         (const unsigned char *)args->u_buf,
                         args->bytes_len,
                         &args->protocol_type,
-                        infer_packet_type(args->direction, args->pid_conn.conn.d_port))) {
+                        args->direction)) {
         bpf_dbg_printk("Found kafka connection");
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
     } else { // large request tracking and generic TCP
