@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
@@ -44,11 +45,11 @@ func TestFilter(t *testing.T) {
 		},
 		cfg: &obi.Config{
 			Prometheus: prom.PrometheusConfig{
-				Path:     "/metrics",
-				Port:     promPort,
-				Features: export.FeatureNetwork,
-				TTL:      time.Hour,
+				Path: "/metrics",
+				Port: promPort,
+				TTL:  time.Hour,
 			},
+			Metrics: perapp.MetricsConfig{Features: export.FeatureNetwork},
 			Filters: filter.AttributesConfig{
 				Network: map[string]filter.MatchDefinition{"transport": {Match: "TCP"}},
 			},

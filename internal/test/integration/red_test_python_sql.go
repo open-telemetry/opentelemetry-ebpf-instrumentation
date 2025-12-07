@@ -196,7 +196,7 @@ func testPythonSQLError(t *testing.T, comm, url, db string) {
 
 func testPythonPostgres(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
-	comm := "python3.12"
+	comm := "python3.14"
 	table := "accounting.contacts"
 	db := "postgresql"
 
@@ -210,7 +210,7 @@ func testPythonPostgres(t *testing.T) {
 
 func testPythonMySQL(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
-	comm := "python3.12"
+	comm := "python3.14"
 	table := "actor"
 	db := "mysql"
 
@@ -284,7 +284,7 @@ func testREDMetricsPythonSQLSSL(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponentsSub(t, testCaseURL, "/query")
-			testREDMetricsForPythonSQLSSL(t, testCaseURL, "python3.12", "integration-test")
+			testREDMetricsForPythonSQLSSL(t, testCaseURL, "python3.14", "integration-test")
 		})
 	}
 }

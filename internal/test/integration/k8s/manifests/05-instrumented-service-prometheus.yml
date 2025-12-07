@@ -123,7 +123,7 @@ spec:
             - name: OTEL_EBPF_KUBE_METADATA_ENABLE
               value: "autodetect"
             - name: OTEL_EBPF_PROMETHEUS_FEATURES
-              value: "application,application_span,application_service_graph,application_process"
+              value: "application,application_span,application_service_graph"
             - name: OTEL_EBPF_METRICS_TTL
               value: "30m0s"
             - name: OTEL_EBPF_NAME_RESOLVER_SOURCES

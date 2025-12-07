@@ -31,8 +31,6 @@ func Run(
 	ctx context.Context, cfg *obi.Config,
 	opts ...Option,
 ) error {
-	normalizeConfig(cfg)
-
 	ctxInfo, err := buildCommonContextInfo(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("can't build common context info: %w", err)
@@ -70,11 +68,6 @@ func Run(
 	}
 	slog.Debug("OBI main node finished")
 	return nil
-}
-
-// normalizeConfig normalizes user input to a common set of assumptions that are global to OBI
-func normalizeConfig(cfg *obi.Config) {
-	cfg.Attributes.Select.Normalize()
 }
 
 func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) error {
@@ -169,7 +162,7 @@ func buildCommonContextInfo(
 	promMgr := &connector.PrometheusManager{}
 	ctxInfo := &global.ContextInfo{
 		Prometheus:          promMgr,
-		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: &config.Metrics},
+		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: &config.OTELMetrics},
 	}
 	if config.Attributes.HostID.Override == "" {
 		ctxInfo.FetchHostID(ctx, config.Attributes.HostID.FetchTimeout)
@@ -207,7 +200,7 @@ func internalMetrics(
 	switch {
 	case config.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL:
 		slog.Debug("reporting internal metrics as OpenTelemetry")
-		return otel.NewInternalMetricsReporter(ctx, ctxInfo, &config.Metrics, &config.InternalMetrics)
+		return otel.NewInternalMetricsReporter(ctx, ctxInfo, &config.OTELMetrics, &config.InternalMetrics)
 	case config.InternalMetrics.Exporter == imetrics.InternalMetricsExporterPrometheus || config.InternalMetrics.Prometheus.Port != 0:
 		slog.Debug("reporting internal metrics as Prometheus")
 		metrics := imetrics.NewPrometheusReporter(&config.InternalMetrics, promMgr, nil)

@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -31,9 +32,10 @@ func TestSpanNameLimiter(t *testing.T) {
 	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	outCh := output.Subscribe()
 	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
-		Limit: maxCardinalityBeforeAggregation,
-		OTEL:  &otelcfg.MetricsConfig{Features: export.FeatureSpan, TTL: time.Minute},
-		Prom:  &prom.PrometheusConfig{Features: export.FeatureSpan, TTL: time.Minute},
+		Limit:      maxCardinalityBeforeAggregation,
+		OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
+		Prom:       &prom.PrometheusConfig{TTL: time.Minute},
+		MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 
@@ -116,9 +118,10 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 		output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 		outCh := output.Subscribe()
 		runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
-			Limit: maxCardinalityBeforeAggregation,
-			OTEL:  &otelcfg.MetricsConfig{Features: export.FeatureSpan, TTL: time.Minute},
-			Prom:  &prom.PrometheusConfig{Features: export.FeatureSpan, TTL: time.Minute},
+			Limit:      maxCardinalityBeforeAggregation,
+			OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
+			Prom:       &prom.PrometheusConfig{TTL: time.Minute},
+			MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 		}, input, output)(t.Context())
 		require.NoError(t, err)
 
@@ -180,9 +183,10 @@ func TestSpanNameLimiter_CopiesOutput(t *testing.T) {
 	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	outCh := output.Subscribe()
 	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
-		Limit: 3,
-		OTEL:  &otelcfg.MetricsConfig{Features: export.FeatureSpan, TTL: time.Minute},
-		Prom:  &prom.PrometheusConfig{Features: export.FeatureSpan, TTL: time.Minute},
+		Limit:      3,
+		OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
+		Prom:       &prom.PrometheusConfig{TTL: time.Minute},
+		MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}, input, output)(t.Context())
 	require.NoError(t, err)
 

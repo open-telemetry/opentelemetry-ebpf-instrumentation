@@ -26,7 +26,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -565,11 +564,7 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 	}
 
 	t.Run("test with span metrics on", func(t *testing.T) {
-		mc := otelcfg.MetricsConfig{
-			Features: export.FeatureSpan,
-		}
-
-		receiver := makeTracesTestReceiverWithSpanMetrics(mc.AnySpanMetricsEnabled(), []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP})
+		receiver := makeTracesTestReceiverWithSpanMetrics(true, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP})
 
 		sampler := sdktrace.AlwaysSample()
 		attrs, err := receiver.getConstantAttributes()

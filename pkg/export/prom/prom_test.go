@@ -31,6 +31,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -65,9 +66,9 @@ func TestAppMetricsExpiration(t *testing.T) {
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    export.FeatureApplication | export.FeatureApplicationHost,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
+		&perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -389,11 +390,9 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 }
 
 func TestMetricsDiscarded(t *testing.T) {
-	mc := PrometheusConfig{
-		Features: export.FeatureApplication,
-	}
 	mr := metricsReporter{
-		cfg: &mc,
+		cfg:       &PrometheusConfig{},
+		commonCfg: &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -443,11 +442,9 @@ func TestMetricsDiscarded(t *testing.T) {
 }
 
 func TestSpanMetricsDiscarded(t *testing.T) {
-	mc := PrometheusConfig{
-		Features: export.FeatureSpanOTel,
-	}
 	mr := metricsReporter{
-		cfg: &mc,
+		cfg:       &PrometheusConfig{},
+		commonCfg: &perapp.MetricsConfig{Features: export.FeatureSpanOTel},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -489,11 +486,9 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 }
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
-	mc := PrometheusConfig{
-		Features: export.FeatureGraph,
-	}
 	mr := metricsReporter{
-		cfg: &mc,
+		cfg:       &PrometheusConfig{},
+		commonCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -579,11 +574,9 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 }
 
 func TestProcessPIDEvents(t *testing.T) {
-	mc := PrometheusConfig{
-		Features: export.FeatureApplication,
-	}
 	mr := metricsReporter{
-		cfg:         &mc,
+		cfg:         &PrometheusConfig{},
+		commonCfg:   &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 		serviceMap:  map[svc.UID]svc.Attrs{},
 		pidsTracker: otel.NewPidServiceTracker(),
 	}
@@ -670,9 +663,9 @@ func makePromExporter(
 			Path:                        "/metrics",
 			TTL:                         300 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
-			Features:                    export.FeatureApplication,
 			Instrumentations:            instrumentations,
 		},
+		&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
