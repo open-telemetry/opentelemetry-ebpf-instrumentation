@@ -3,6 +3,10 @@
 
 #pragma once
 
+#include "common/connection_info.h"
+#include "common/tp_info.h"
+#include "generictracer/maps/puma_tasks.h"
+#include "logger/bpf_dbg.h"
 #include <bpfcore/utils.h>
 
 #include <common/cp_support_data.h>
@@ -23,6 +27,8 @@
 #include <maps/server_traces.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>
+
+#include <generictracer/types/puma_task_id.h>
 
 #include <pid/pid_helpers.h>
 
@@ -137,6 +143,24 @@ static __always_inline tp_info_pid_t *find_nginx_parent_trace(const pid_connecti
     return NULL;
 }
 
+static __always_inline tp_info_pid_t *find_puma_parent_trace(u64 id) {
+    puma_task_id_t *task_id = bpf_map_lookup_elem(&puma_worker_tasks, &id);
+    bpf_dbg_printk("puma lookup task_id %llx", task_id);
+    if (!task_id) {
+        return 0;
+    }
+
+    bpf_dbg_printk("found ary %llx, item %llx", task_id->ary, task_id->item);
+
+    connection_info_part_t *conn_part = bpf_map_lookup_elem(&puma_task_connections, task_id);
+    bpf_dbg_printk("puma parent lookup conn %llx", conn_part);
+    if (conn_part) {
+        return bpf_map_lookup_elem(&server_traces_aux, conn_part);
+    }
+
+    return 0;
+}
+
 static __always_inline tp_info_pid_t *
 find_nodejs_parent_trace(const pid_connection_info_t *p_conn, u16 orig_dport, u64 pid_tgid) {
     connection_info_part_t client_part = {};
@@ -219,6 +243,11 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
 
     if (nginx_parent) {
         return nginx_parent;
+    }
+
+    tp_info_pid_t *puma_parent = find_puma_parent_trace(pid_tgid);
+    if (puma_parent) {
+        return puma_parent;
     }
 
     tp_info_pid_t *proc_parent = find_parent_process_trace(t_key);

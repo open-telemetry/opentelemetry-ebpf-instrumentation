@@ -8,5 +8,6 @@
 #include "nginx.c"
 #include "nodejs.c"
 #include "java_tls.c"
+#include "ruby.c"
 
 char __license[] SEC("license") = "Dual MIT/GPL";

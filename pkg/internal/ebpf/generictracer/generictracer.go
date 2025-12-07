@@ -421,6 +421,16 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Start:    p.bpfObjects.ObiUvFsAccess,
 			}},
 		},
+		"libruby": {
+			"rb_ary_shift": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiRbAryShift,
+			}},
+			"rb_ary_push": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiRbAryPush,
+			}},
+		},
 	}
 }
 
