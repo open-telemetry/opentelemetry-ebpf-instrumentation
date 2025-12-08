@@ -7,7 +7,7 @@ require (
 	github.com/golangci/golangci-lint/v2 v2.4.0
 	github.com/google/go-licenses/v2 v2.0.1
 	github.com/grafana/go-offsets-tracker v0.1.7
-	github.com/onsi/ginkgo/v2 v2.27.2
+	github.com/onsi/ginkgo/v2 v2.27.3
 	go.opentelemetry.io/build-tools/multimod v0.28.1
 	gotest.tools/gotestsum v1.12.3
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20251126220622-4b46eb04d57f
