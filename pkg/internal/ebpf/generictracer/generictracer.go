@@ -426,9 +426,9 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Required: false,
 				Start:    p.bpfObjects.ObiRbAryShift,
 			}},
-			"rb_ary_push": {{
+			"rb_obj_call_init_kw": {{
 				Required: false,
-				Start:    p.bpfObjects.ObiRbAryPush,
+				Start:    p.bpfObjects.ObiRbObjCallInitKw,
 			}},
 		},
 	}

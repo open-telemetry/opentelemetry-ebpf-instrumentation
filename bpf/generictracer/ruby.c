@@ -50,18 +50,20 @@ https://github.com/puma/puma/blob/731b97d2a5c7838c9d736462e259e629655b00a1/lib/p
 
 
 The approach we take to handle this is the follows:
-1. Uprobe on "rb_ary_push", where we match the name of the server thread. This thread may be pushing
-to random arrays, but we don't care the LRU map will flush the unwanted items.
+1. Uprobe on "rb_obj_call_init_kw", where we match the name of the server thread. Initially, a probe on
+   "rb_ary_push" was considered, but this proved to be very expensive. Instead we look for calls to
+   object initializations by this thread. This thread may be initializing random objects, but we don't care, 
+   since the LRU map will flush the unwanted items. The "puma srv" thread is a light allocator.
 2. At the time the "push" probe runs, we looks to see if we have recorded info in the accept4 kprobe. If we have,
-   then we record metadata so that the worker thread can find it. What we record is the array pointer and
-   the item pointer combination. Since Ruby GC (so far) doesn't move objects, this should work 100% of the
-   time. Even if they decide to move and compact the objects, the chances of this todo queue from moving a
-   lot is very small. If the references ever move, we'll fail to correlate the server and client call in
+   then we record metadata so that the worker thread can find it. What we record is the item pointer. 
+   Since Ruby GC (so far) doesn't move objects, this should work 100% of the
+   time. Even if they decide to move and compact the objects, the chances of this new object from moving
+   is very small. If the references ever move, we'll fail to correlate the server and client call in
    that instance.
 3. Uprobe on "rb_ary_shift", where we match for the "puma srv tp" worker threads and we read the head
    of the todo array. We handle two cases, Ruby embedded arrays and Ruby heap arrays. Ruby frozen arrays
    don't matter, since we would be throwing an exception on shift if this array was frozen.
-4. At the time of the "shift" probe, we take the array and the item pair and record the pair for the 
+4. At the time of the "shift" probe, we take the item pointer and record it for the 
    current thread. 
 5. find_parent_trace in trace_common.h, looks up the puma metadata for the current pid:tgid pair. It
    would find the metadata recorded by the "rb_ary_shft" uprobe, i.e. the "puma srv tp NNN" worker, which
@@ -74,8 +76,8 @@ In a sense, this design is very similar to what happens with nginx request track
 the array:item pair for the work, rather than the file descriptors.
  */
 
-SEC("uprobe/ruby:rb_ary_push")
-int obi_rb_ary_push(struct pt_regs *ctx) {
+SEC("uprobe/ruby:rb_obj_call_init_kw")
+int obi_rb_obj_call_init_kw(struct pt_regs *ctx) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -88,22 +90,20 @@ int obi_rb_ary_push(struct pt_regs *ctx) {
         return 0;
     }
 
-    u64 ary = (u64)PT_REGS_PARM1(ctx);
-    u64 item = (u64)PT_REGS_PARM2(ctx);
+    u64 item = (u64)PT_REGS_PARM1(ctx);
 
     if (!obi_bpf_memcmp(buf, PUMA_WORKER, sizeof(PUMA_WORKER) - 1) ||
         !obi_bpf_memcmp(buf, PUMA_SRV_THREAD, sizeof(PUMA_SRV_THREAD) - 1)) {
-        //bpf_printk("rb_ary_push <==> ary %llx, item %llx, thread %s", ary, item, buf);
+        //bpf_printk("rb_obj_call_init_kw <==> ary %llx, item %llx, thread %s", ary, item, buf);
         return 0;
     } else if (!obi_bpf_memcmp(buf, PUMA_SRV, sizeof(PUMA_SRV) - 1)) {
-
-        bpf_printk("rb_ary_push ==> ary %llx, item %llx, thread %s", ary, item, buf);
-
         ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
         if (!info) {
-            bpf_dbg_printk("rb_ary_push no connection info for id %lld", id);
+            bpf_dbg_printk("rb_obj_call_init_kw no connection info for id %lld", id);
             return 0;
         }
+
+        bpf_dbg_printk("rb_obj_call_init_kw ==> item %llx, thread %s", item, buf);
 
         u32 host_pid = pid_from_pid_tgid(id);
         connection_info_part_t conn_part = {};
@@ -111,8 +111,8 @@ int obi_rb_ary_push(struct pt_regs *ctx) {
             &conn_part, &info->p_conn.conn, info->orig_dport, host_pid, FD_SERVER);
 
         puma_task_id_t task_id = {
-            .ary = ary,
             .item = item,
+            .pid = host_pid,
         };
 
         bpf_map_update_elem(&puma_task_connections, &task_id, &conn_part, BPF_ANY);
@@ -169,9 +169,11 @@ int obi_rb_ary_shift(struct pt_regs *ctx) {
             }
         }
 
+        u32 host_pid = pid_from_pid_tgid(id);
+
         puma_task_id_t task_id = {
-            .ary = ary,
             .item = item,
+            .pid = host_pid,
         };
 
         bpf_map_update_elem(&puma_worker_tasks, &id, &task_id, BPF_ANY);
