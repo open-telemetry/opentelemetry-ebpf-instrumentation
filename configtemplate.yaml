@@ -1,0 +1,785 @@
+# eBPF instrumentation settings
+ebpf:
+  bpf_debug: bool
+  # Enables logging of eBPF program events.
+
+  wakeup_len: int
+  # Number of messages to accumulate in the eBPF ringbuffer before sending a wakeup request.
+  # High values could add noticeable metric delay in low traffic services.
+  # Accepted values: integer >= 0
+
+  batch_length: int
+  # Number of traces to batch before forwarding to the next stage.
+  # Accepted values: integer >= 1
+
+  batch_timeout: int
+  # Timeout to forward the data batch if it didn't reach the batch_length size.
+
+  track_request_headers: bool
+  # If enabled, the kprobes based HTTP request tracking will start tracking the request
+  # headers to process any 'Traceparent' fields.
+
+  http_request_timeout: int
+  # Timeout for HTTP request tracking.
+  
+  context_propagation: int
+  # Enables distributed context propagation.
+  # Accepted values: 0,1,2,3
+  # all             - Full context propagation (headers, tcp, ip)
+  # headers         - HTTP headers only
+  # tcp             - TCP options only
+  # ip              - IP options only
+  # disabled        - Disabled
+
+  override_bpfloop_enabled: bool
+  # Skip kernel version check for bpf_loop functionality.
+  # Some modified kernels have this backported prior to version 5.17.
+
+  traffic_control_backend: string
+  # Select the TC attachment backend.
+  # Accepted values:
+  #   tc            - Netlink backend
+  #   tcx           - TCX backend
+
+  disable_black_box_cp: bool
+  # Disables OBI black-box context propagation. Used for testing purposes only.
+
+  high_request_volume: bool
+  # Optimizes for getting requests information immediately when request response is seen
+
+  heuristic_sql_detect: bool
+  # Enables the heuristic based detection of SQL requests. This can be used to detect
+  # talking to databases other than the ones we recognize in OBI, like Postgres and MySQL
+
+  instrument_gpu: bool
+  # Enables GPU instrumentation for CUDA kernel launches and allocations.
+
+  protocol_debug_print: bool
+  # Enables debug printing of protocol data.
+
+  use_otel_sdk_for_java: bool
+  # Enables Java instrumentation with OpenTelemetry JDK Agent.
+
+  redis_db_cache:
+    enabled: bool
+    # Enable Redis DB cache.
+
+    max_size: int
+    # Maximum size of Redis DB cache.
+    # Accepted values: integer > 0
+
+  buffer_sizes:
+  # Limit max data buffer size per protocol.
+    http: int
+    # HTTP data buffer size in bytes.
+    # Accepted values: integer <= 8192, 0 = disabled
+
+    mysql: int
+    # MySQL data buffer size in bytes.
+    # Accepted values: integer <= 8192, 0 = disabled
+
+    postgres: int
+    # Postgres data buffer size in bytes.
+    # Accepted values: integer <= 8192, 0 = disabled
+
+  mysql_prepared_statements_cache_size: int
+  # MySQL prepared statements cache size.
+  # Accepted values: integer > 0
+
+  postgres_prepared_statements_cache_size: int
+  # Postgres prepared statements cache size.
+  # Accepted values: integer > 0
+
+  kafka_topic_uuid_cache_size: int
+  # Kafka Topic UUID to Name cache size.
+  # Accepted values: integer > 0
+
+  mongo_requests_cache_size: int
+  # MongoDB requests cache size.
+  # Accepted values: integer > 0
+
+  payload_extraction:
+    # Configure data extraction/parsing based on protocol.
+    # See PayloadExtraction struct for detailed fields.
+
+  max_transaction_time: int
+	# Maximum time allowed for two requests to be correlated as parent -> child
+	# Some programs (e.g. load generators) keep on generating requests from the same thread in perpetuity,
+	# which can generate very large traces. We want to mark the parent trace as invalid if this happens.
+
+  dns_request_timeout: int
+  # DNS timeout after which failed event is reported.
+
+# NetworkFlows configuration for Network Observability feature
+network:
+  enable: bool
+	# Enable network metrics.
+	# Default value is false (disabled)
+	# Deprecated: add "network" to otel_metrics_export.features or prometheus_export.features
+
+  source: string
+  # Source type for network events.
+  # Accepted values:
+  #   tc            - Traffic Control (The tc implementation cannot be used when there are other tc eBPF probes, e.g. Cilium CNI)
+  #   socket_filter - Socket filter implementation
+
+  agent_ip: string
+  # agent_ip allows overriding the reported Agent IP address on each flow.
+  # Accepted values: valid IP address string
+
+  agent_ip_iface: string
+  # agent_ip_iface specifies which interface should the agent pick the IP address from in order to report it in the agent_ip field on each flow
+  # Accepted values:
+  #   external      - Default, external interface
+  #   local         - Local interface  
+  #   name:<interface name>  - Specific interface name (e.g. "name:eth0")
+  # Has no effect if agent_ip is set.
+
+  agent_ip_type: string
+  # agent_ip_type specifies the type of IP address to report in the agent_ip field of each flow.
+  # Accepted values:
+  #   any           - Default, any IP type
+  #   ipv4          - IPv4 addresses only
+  #   ipv6          - IPv6 addresses only
+  # Has no effect if agent_ip is set.
+
+  interfaces: "[]string"
+  #  Interfaces contains the interface names from where flows will be collected. If empty, the agent
+	#  will fetch all the interfaces in the system, excepting the ones listed in ExcludeInterfaces.
+	#  If an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression,
+	#  otherwise it will be matched as a case-sensitive string.
+
+  exclude_interfaces: "[]string"
+	#  ExcludeInterfaces contains the interface names that will be excluded from flow tracing. Default:
+	#  "lo" (loopback).
+	#  If an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression,
+	#  otherwise it will be matched as a case-sensitive string.
+
+  protocols: "[]string"
+  # Transport protocols to include in flow tracing.
+  # Accepted values: array of protocol names
+  # Example: ["tcp", "udp"]
+
+  exclude_protocols: "[]string"
+  # Transport protocols to exclude from flow tracing.
+  # Accepted values: array of protocol names
+  # Has no effect if protocols list is defined.
+
+  cache_max_flows: int
+  # cache_max_flows specifies how many flows can be accumulated in the accounting cache before
+  # being flushed for its later export. 
+  # Default value is 5000.
+  # Decrease it if you see the "received message larger than max" error in OBI logs.
+
+
+  cache_active_timeout: int
+	# cache_active_timeout specifies the maximum duration that flows are kept in the accounting
+	# cache before being flushed for its later export.
+
+  deduper: string
+  # Deduper specifies the deduper type. Accepted values are "none" (disabled) and "first_come".
+	# When enabled, it will detect duplicate flows (flows that have been detected e.g. through
+	# both the physical and a virtual interface).
+	# "first_come" will forward only flows from the first interface the flows are received from.
+	# Default value: first_come
+  # Accepted values:
+  #   none        - Disabled
+  #   first_come  - Forward only from first interface (default)
+
+  deduper_fc_ttl: int
+  # deduper_fc_ttl specifies the expiry duration of the flows "first_come" deduplicator. After
+  # a flow hasn't been received for that expiry time, the deduplicator forgets it. That means
+  # that a flow from a connection that has been inactive during that period could be forwarded
+  # again from a different interface.
+  # Defaults to 2 * cache_active_timeout if not set.
+
+  direction: string
+  # Flow direction to trace.
+  # Accepted values:
+  #   ingress     - Incoming flows only
+  #   egress      - Outgoing flows only
+  #   both        - Both directions (default)
+
+  sampling: int
+  # sampling holds the rate at which packets should be sampled and sent to the target collector.
+  # Accepted values: integer > 0
+  # Example: 100 (samples 1 out of 100 packets)
+
+  listen_interfaces: string
+  # listen_interfaces specifies the mechanism used by the agent to listen for added or removed network interfaces.
+  # Accepted values:
+  #   watch       - Immediate tracing of new interfaces (default)
+  #   poll        - Periodic querying of interfaces  (frequency specified by listen_poll_period)
+
+  listen_poll_period: int
+  # Polling period when listen_interfaces is "poll".
+
+  reverse_dns:
+    # ReverseDNS allows flows that haven't been previously decorated with any source/destination name
+    # to override the name with the network hostname of the source and destination IPs.
+    # This is an experimental feature and it is not guaranteed to work on most virtualized environments
+    # for external traffic.
+    # See flow.ReverseDNS struct for detailed fields.
+
+  print_flows: bool
+  # Print the network flows in the Standard Output, if true
+
+  cidrs: "[]string"
+  # CIDR definitions for src.cidr and dst.cidr attributes.
+  # Accepted values: array of CIDR notation strings
+  # Example: ["192.168.0.0/16", "10.0.0.0/8", "0.0.0.0/0"]
+  # If IP matches multiple CIDRs, narrowest CIDR is used.
+
+
+# Attribute filtering configuration
+filter:
+  application: map
+    # Application record filtering by attribute values.
+    # Accepted values: map[string]MatchDefinition
+    # Maps attribute names to their match definitions.
+    # Example:
+    #   http.method:
+    #     match: "GET|POST"
+    #     not_match: "DELETE"
+
+  network: map
+    # Network record filtering by attribute values.
+    # Accepted values: map[string]MatchDefinition
+    # Maps attribute names to their match definitions.
+    # Example:
+    #   src.port:
+    #     match: "80|443"
+    #     not_match: "22"
+
+  # MatchDefinition fields:
+  #   match: string
+  #     Glob pattern that the attribute must match to let the record pass.
+  #     Accepted values: glob pattern string
+  #     See https://pkg.go.dev/github.com/gobwas/glob@v0.2.3#Glob
+  #   not_match: string  
+  #     Glob pattern that the attribute MUST NOT match to let the record pass.
+  #     Accepted values: glob pattern string
+  #     See https://pkg.go.dev/github.com/gobwas/glob@v0.2.3#Glob
+
+
+
+# Attributes configures the decoration of some extra attributes that will be
+# added to each span
+attributes:
+  kubernetes:
+    enable: string
+    # Enable Kubernetes metadata decoration.
+    # Accepted values:
+    #   true        - Enable Kubernetes metadata
+    #   false       - Disable Kubernetes metadata
+    #   autodetect  - Auto-detect (default)
+
+    cluster_name: string
+    # Override cluster name.
+    # If empty, tries to retrieve from Cloud Provider Metadata (EC2, GCP, Azure).
+
+    kubeconfig_path: string
+    # kubeconfig_path is optional.
+    # If unset, it will look in the usual location.
+
+    informers_sync_timeout: int
+    # Timeout for Kubernetes informers synchronization.
+
+    informers_resync_period: int
+    # Resync period for Kubernetes informers.
+    # Higher values will reduce the load on the Kube API.
+    # Default: 30m
+
+    drop_external: bool
+    # Drop flows where source/destination IPs are not matched to any Kubernetes entity.
+    # Assumes they are cluster-external ( will drop in NetO11y component only).
+
+    disable_informers: "[]string"
+    # disable_informers allows selectively disabling some informers. Accepted value is a list
+    # that might contain node or service. Disabling any of them
+    # will cause metadata to be incomplete but will reduce the load of the Kube API.
+    # Note: Pods informer cannot be disabled
+    # For that purpose, you should disable the whole kubernetes metadata decoration.
+
+    meta_cache_address: string
+    # Host:port address of the beyla-k8s-cache service instance.
+
+    meta_restrict_local_node: bool
+    # meta_restrict_local_node will download only the metadata from the Pods that are located in the same
+    # node as the Beyla instance. It will also restrict the Node information to the local node.
+
+    resource_labels: map
+    # resource_labels allows Beyla overriding the OTEL Resource attributes from a map of user-defined labels.
+
+    service_name_template: string
+    # Override service.name with custom template value.
+    # Uses Go template language.
+    # Accepted values: Go template string
+
+  instance_id:
+    # instance_id configures how OBI will get the Instance ID of the traces/metrics from the current hostname + the instrumented process PID
+    dns: bool
+    # dns is true if OBI uses DNS to resolve the local hostname.
+    # If false, uses the local hostname directly.
+
+    override_hostname: string
+    # override_hostname can be optionally set to avoid resolving any hostname and using this
+    # value. OBI will anyway attach the process ID to the given hostname for composing
+    # the instance ID.
+
+
+  select: <Selection>
+    # Selection specifies which attributes are allowed for each metric.
+    # The key is the metric name (either in Prometheus or OpenTelemetry format)
+    # The value is the enumeration of included/excluded attribute globs
+    # See https://pkg.go.dev/go.opentelemetry.io/obi/pkg/export/attributes#Selection for detailed fields.
+
+  host_id:
+    override: string
+    # Override the reported host.id in OBI.
+    # If empty, OBI will try to fetch from Cloud Providers.
+    
+    fetch_timeout: int
+    # fetch_timeout specifies the timeout for trying to fetch the HostID from diverse Cloud Providers
+
+  extra_group_attributes: map
+    # Extra group attributes mapping.
+    # Accepted values: map[string][]attr.Name
+    # Maps group names to lists of attribute names.
+
+  rename_unresolved_hosts: string
+    # rename_unresolved_hosts will replace HostName and PeerName attributes when they are empty or contain
+    # unresolved IP addresses to reduce cardinality.
+    # Set this value to the empty string to disable this feature.
+  rename_unresolved_hosts_outgoing: string
+  rename_unresolved_hosts_incoming: string
+
+  metric_span_names_limit: int
+    # MetricSpanNameAggregationLimit works PER SERVICE and only relates to span_metrics.
+    # When the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED.
+    # Accepted values: integer (0 or negative to disable)
+    # If the value <= 0, it is disabled.
+
+#  Routes is an optional node. If not set, data will be directly forwarded to exporters.
+routes:
+  unmatched: string
+  # Unmatch specifies what to do when a route pattern is not matched.
+  # Accepted values:
+  #   unset           - leaves the Route field as empty
+  #   path            - sets the Route field to the same values as the Path
+  #   wildcard        - sets the route field to a generic asterisk symbol
+  #   heuristic       - detects the route field using a heuristic
+  #   low-cardinality - uses the same classifier as heuristic, but also caps max cardinality
+
+  patterns: "[]string"
+  # Patterns of the paths that will match to a route.
+  # Accepted values: array of strings (path patterns)
+
+  wildcard_char: string
+  # Character that will be used to replace route segments.
+  # Example: "*"
+
+  max_path_segment_cardinality: int
+  # Max allowed path segment cardinality (per service) for the heuristic matcher.
+
+
+
+# Name resolver configuration
+name_resolver:
+  sources: "[]string"
+  # Sources for name resolving. Accepted values: dns, k8s
+  # Example: ["dns", "k8s"]
+
+  cache_len: int
+  # CacheLen specifies the max size of the LRU cache that is checked before performing the name lookup.
+  # Default: 256
+
+  cache_expiry: int
+  # CacheTTL specifies the time-to-live of a cached IP->hostname entry.
+  # After the cached entry becomes older than this time, the IP->hostname entry will be looked up again.
+  # Accepted values: duration string 
+
+# OpenTelemetry metrics exporter
+otel_metrics_export:
+  interval: string
+  # Metrics collection interval.
+  # Accepted values: duration string (e.g. "60s", "5m")
+
+  endpoint: string
+  # Endpoint for OTLP metrics exporter.
+  # Example: "http://localhost:4317"
+
+  protocol: string
+  # Protocol for OTLP exporter.
+  # Accepted values:
+  #   grpc         - Use gRPC transport
+  #   http/protobuf - Use HTTP transport with protobuf encoding
+  #   http/json    - Use HTTP transport with JSON encoding
+  #   debug        - Debug mode (for testing)
+  #   ""           - Unset (uses default or auto-detect)
+
+  insecure_skip_verify: bool
+  # Skip TLS certificate verification.
+
+  buckets:
+    duration_histogram: "[]float64"
+    # Histogram buckets for duration metrics.
+    # Accepted values: array of float64 
+
+    request_size_histogram: "[]float64"
+    # Histogram buckets for request size metrics.
+    # Accepted values: array of float64
+
+    response_size_histogram: "[]float64"
+    # Histogram buckets for response size metrics.
+    # Accepted values: array of float64
+
+  histogram_aggregation: string
+  # Default histogram aggregation method.
+
+  reporters_cache_len: int
+  # Cache size for metrics reporters.
+
+  otel_sdk_log_level: string
+  # Log level for the OpenTelemetry SDK (independent of global log_level).
+
+  features: "[]string"
+  # Features of metrics to export.
+  # Accepted values (array of strings):
+  #   application, network, application_process, application_span, application_service_graph, etc.
+  # Example: ["application", "network"]
+
+  instrumentations: "[]string"
+  # Instrumentations to enable for metrics.
+  # Accepted values (list of strings):
+  #   http, grpc, sql.. etc.
+  # Example: ["http", "grpc", "sql"]
+
+  ttl: string
+  # TTL is the time since a metric was updated for the last time until it is removed from the metrics set.
+  # Accepted values: duration string (e.g. "5m", "1h")
+
+  allow_service_graph_self_references: bool
+  # Allow self-references in service graph metrics.
+
+# OpenTelemetry traces exporter
+otel_traces_export:
+  endpoint: string
+  # Endpoint for OTLP traces exporter.
+  # Example: "http://localhost:4317"
+
+  protocol: string
+  # Protocol for OTLP exporter.
+  # Accepted values:
+  #   grpc         - Use gRPC transport
+  #   http/protobuf - Use HTTP transport with protobuf encoding
+  #   http/json    - Use HTTP transport with JSON encoding
+  #   debug        - Debug mode (for testing)
+  #   ""           - Unset (uses default or auto-detect)
+
+  instrumentations: "[]string"
+  # Allows configuration of which instrumentations should be enabled.
+  # Accepted values (list of strings):
+  #   http, grpc, sql... etc.
+  # Example: ["http", "grpc", "sql"]
+
+  insecure_skip_verify: bool
+  # Skip TLS certificate verification.
+
+  sampler:
+  # Sampler standard configuration https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler We don't support, yet, the jaeger and xray samplers.
+
+  max_queue_size: int
+  # Maximum number of queued traces before sending.
+
+  batch_timeout: string
+  # Timeout for batching traces before sending.
+  # Accepted values: duration string 
+
+  backoff_initial_interval: string
+  # Initial interval to wait after first export failure before retrying.
+  # Accepted values: duration string 
+
+  backoff_max_interval: string
+  # backoff_max_interval is the upper bound on backoff interval.
+  # Accepted values: duration string 
+
+  backoff_max_elapsed_time: string
+  # backoff_max_elapsed_time is the maximum amount of time (including retries) spent trying to send a request/batch.
+  # Accepted values: duration string 
+
+  reporters_cache_len: int
+  # Cache size for trace reporters.
+
+  otel_sdk_log_level: string
+  # Log level for the OpenTelemetry SDK (independent of global log_level).
+
+prometheus_export:
+# Prometheus metrics exporter
+  port: int
+  # Port for Prometheus metrics server.
+
+  path: string
+  # Path for Prometheus metrics endpoint.
+  # Example: "/metrics"
+
+  disable_build_info: bool
+  # Disable build info metric.
+
+  features: "[]string"
+  # Features of metrics that are can be exported.
+  # Accepted values (array of strings):
+  #   application, network
+  # Example: ["application", "network"]
+
+  instrumentations: "[]string"
+  # Allows configuration of which instrumentations should be enabled.
+  # Accepted values (list of strings):
+  # http, grpc, sql... etc.
+  # Example: ["http", "grpc", "sql"]
+
+  buckets:
+    duration_histogram: "[]float64"
+    # Histogram buckets for duration metrics.
+    # Accepted values: array of float64 (e.g. [0, 0.005, 0.01, ...])
+
+    request_size_histogram: "[]float64"
+    # Histogram buckets for request size metrics.
+    # Accepted values: array of float64
+
+    response_size_histogram: "[]float64"
+    # Histogram buckets for response size metrics.
+    # Accepted values: array of float64
+
+  ttl: int
+  # TTL is the time since a metric was updated for the last time until it is removed from the metrics set.
+  # Accepted values: duration
+
+  service_cache_size: int
+
+  allow_service_graph_self_references: bool
+
+  extra_resource_attributes: "[]string"
+	# ExtraResourceLabels adds extra metadata labels to Prometheus metrics from sources whose availability can't be known
+	# beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute,
+	# you should add `deployment.environment`.
+
+# Trace printer (for debugging)
+trace_printer: string
+# Options:
+#   disabled     - Disable trace printing
+#   counter      - Print trace counts only
+#   text         - Print traces in text format
+#   json         - Print traces in JSON format
+#   json_indent  - Print traces in indented JSON format
+
+open_port: <PortEnum>
+# Port allows selecting the instrumented executable that owns the Port value. If this value is set (and
+# different to zero), the value of the Exec property won't take effect.
+# It's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter
+# will instrument all the service calls in all the ports, not only the port specified here.
+
+
+# Service/process discovery settings
+discovery:
+  #  Instrument selects the services to instrument via Globs. If this section is set,
+	#  both the Services and ExcludeServices section is ignored.
+	#  If the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be
+	#  automatically added to the instrument criteria, with the lowest preference.
+  instrument:
+    - # PortEnum defines an enumeration of ports. It allows defining a set of single ports as well a set of
+      # port ranges. When unmarshalled from text, it accepts a comma-separated
+      # list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089). For example, this would be a valid
+      # port range: 80,443,8000-8999
+      open_ports: <PortEnum>
+      # The globpattern value can be a string matching the following glob pattern syntax:
+      #   *   matches any sequence of non-separator characters
+      #   **  matches any sequence of characters
+      #   ?   matches any single non-separator character
+      #   [ ] character class (with optional ! for negation)
+      #   { } pattern alternatives, comma-separated
+      #   c   matches character c (except special characters)
+      #   \c  matches character c (escaped)
+      # Path allows defining the regular expression matching the full executable path.
+      exe_path: <globpattern>
+      # Kubernetes object metadata
+      k8s_namespace: <globpattern>
+      k8s_pod_name: <globpattern>
+      k8s_deployment_name: <globpattern>
+      k8s_replicaset_name: <globpattern>
+      k8s_daemonset_name: <globpattern>
+      k8s_statefulset_name: <globpattern>
+      k8s_job_name: <globpattern>
+      k8s_cronjob_name: <globpattern>
+      k8s_owner_name: <globpattern>
+      k8s_container_name: <globpattern>
+      # Kubernetes pod labels
+      k8s_pod_labels:
+        <label_key>: <globpattern>
+      k8s_pod_annotations:
+        <annotation_key>: <globpattern>
+      #  ContainersOnly restricts the discovery to processes which are running inside a container
+      containers_only: bool
+      # Configures what to export. Allowed values are 'metrics', 'traces',
+      #  or an empty array (disabled). An unspecified value (nil) will use the
+      #  default configuration value
+      exports: []
+      sampler: # check https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/main/pkg/appolly/services/attr_glob.go#L82
+      routes: # check https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/main/pkg/appolly/services/attr_glob.go#L84
+	
+  #  ExcludeInstrument works analogously to Instrument, but the applications matching this section won't be instrumented
+	#  even if they match the Instrument selection.
+  exclude_instrument:
+    - # PortEnum defines an enumeration of ports. It allows defining a set of single ports as well a set of
+      # port ranges. When unmarshalled from text, it accepts a comma-separated
+      # list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089). For example, this would be a valid
+      # port range: 80,443,8000-8999
+      open_ports: <PortEnum>
+      # The globpattern value can be a string matching the following glob pattern syntax:
+      #   *   matches any sequence of non-separator characters
+      #   **  matches any sequence of characters
+      #   ?   matches any single non-separator character
+      #   [ ] character class (with optional ! for negation)
+      #   { } pattern alternatives, comma-separated
+      #   c   matches character c (except special characters)
+      #   \c  matches character c (escaped)
+      # Path allows defining the regular expression matching the full executable path.
+      exe_path: <globpattern>
+      # Kubernetes object metadata
+      k8s_namespace: <globpattern>
+      k8s_pod_name: <globpattern>
+      k8s_deployment_name: <globpattern>
+      k8s_replicaset_name: <globpattern>
+      k8s_daemonset_name: <globpattern>
+      k8s_statefulset_name: <globpattern>
+      k8s_job_name: <globpattern>
+      k8s_cronjob_name: <globpattern>
+      k8s_owner_name: <globpattern>
+      k8s_container_name: <globpattern>
+      # Kubernetes pod labels
+      k8s_pod_labels:
+        <label_key>: <globpattern>
+      k8s_pod_annotations:
+        <annotation_key>: <globpattern>
+      #  ContainersOnly restricts the discovery to processes which are running inside a container
+      containers_only: bool
+      # Configures what to export. Allowed values are 'metrics', 'traces',
+      #  or an empty array (disabled). An unspecified value (nil) will use the
+      #  default configuration value
+      exports: []
+      sampler: # check https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/main/pkg/appolly/services/attr_glob.go#L82
+      routes: # check https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/main/pkg/appolly/services/attr_glob.go#L84
+
+
+  # DefaultExcludeInstrument by default prevents self-instrumentation of OBI as well as related services (Beyla, Alloy and OpenTelemetry collector)
+	# It must be set to an empty string or a different value if self-instrumentation is desired.
+  default_exclude_instrument:
+    - # PortEnum defines an enumeration of ports. It allows defining a set of single ports as well a set of
+      # port ranges. When unmarshalled from text, it accepts a comma-separated
+      # list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089). For example, this would be a valid
+      # port range: 80,443,8000-8999
+      open_ports: <PortEnum>
+      # The globpattern value can be a string matching the following glob pattern syntax:
+      #   *   matches any sequence of non-separator characters
+      #   **  matches any sequence of characters
+      #   ?   matches any single non-separator character
+      #   [ ] character class (with optional ! for negation)
+      #   { } pattern alternatives, comma-separated
+      #   c   matches character c (except special characters)
+      #   \c  matches character c (escaped)
+      # Path allows defining the regular expression matching the full executable path.
+      exe_path: <globpattern>
+      # Kubernetes object metadata
+      k8s_namespace: <globpattern>
+      k8s_pod_name: <globpattern>
+      k8s_deployment_name: <globpattern>
+      k8s_replicaset_name: <globpattern>
+      k8s_daemonset_name: <globpattern>
+      k8s_statefulset_name: <globpattern>
+      k8s_job_name: <globpattern>
+      k8s_cronjob_name: <globpattern>
+      k8s_owner_name: <globpattern>
+      k8s_container_name: <globpattern>
+      # Kubernetes pod labels
+      k8s_pod_labels:
+        <label_key>: <globpattern>
+      k8s_pod_annotations:
+        <annotation_key>: <globpattern>
+      #  ContainersOnly restricts the discovery to processes which are running inside a container
+      containers_only: bool
+      # Configures what to export. Allowed values are 'metrics', 'traces',
+      #  or an empty array (disabled). An unspecified value (nil) will use the
+      #  default configuration value
+      exports: []
+      sampler: # check https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/main/pkg/appolly/services/attr_glob.go#L82
+      routes: # check https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/blob/main/pkg/appolly/services/attr_glob.go#L84
+
+  # poll_interval specifies, for the poll service watcher, the interval time between process inspections (type: duration, e.g. "10s")
+  poll_interval: int
+
+  # skip_go_specific_tracers enables use of generic HTTP tracers only, no Go-specifics will be used (type: bool)
+  skip_go_specific_tracers: bool
+
+  # bpf_pid_filter_off disables kernel-side PID filtering, forces user-space filtering (type: bool, debugging only)
+  bpf_pid_filter_off: bool
+
+  # exclude_otel_instrumented_services disables instrumentation of services which are already instrumented (type: bool)
+  exclude_otel_instrumented_services: bool
+
+  # default_otlp_grpc_port specifies the default OTLP gRPC port to fallback on when missing environment variables (type: int, default: 4317)
+  default_otlp_grpc_port: int
+
+  # min_process_age specifies the minimum process age to be considered for discovery (type: duration, e.g. "5s")
+  min_process_age: int
+
+  # exclude_otel_instrumented_services_span_metrics disables generation of span metrics for services which are already instrumented (type: bool)
+  exclude_otel_instrumented_services_span_metrics: bool
+
+  # route_harvester_timeout specifies the timeout for route harvesting (type: duration, e.g. "10s")
+  route_harvester_timeout: int
+
+  # disabled_route_harvesters lists route harvesters to disable (type: array of string)
+  disabled_route_harvesters: []
+  
+  route_harvest_config:
+    java_harvest_delay: int
+
+log_level: string
+# Default: "INFO"
+
+shutdown_timeout: int
+# Timeout for a graceful shutdown
+
+enforce_sys_caps: bool
+# Check for required system capabilities and bail if they are not
+# present. If set to 'false', OBI will still print a list of missing
+# capabilities, but the execution will continue
+
+# From this comment, the properties are useful for development purposes. They might be helpful for customer support.
+channel_buffer_len: int
+profile_port: int
+internal_metrics:
+# Internal metrics configuration for monitoring OBI itself.
+  prometheus:
+    port: int
+    # Port for internal Prometheus metrics server.
+    # Accepted values: integer (port number, 0 = disabled)
+    path: string
+    # Path for internal Prometheus metrics endpoint.
+    # Accepted values: string (URL path)
+  exporter: string
+  # Internal metrics exporter type.
+  # Accepted values:
+  #   prometheus  - Prometheus exporter
+  #   otel        - OpenTelemetry exporter
+  #   disabled    - No-op exporter (disabled)
+  bpf_metric_scrape_interval: int
+
+log_config: string
+# log_config enables the logging of the configuration on startup
+# Accepted values:
+#   yaml        - Log config in YAML format
+#   json        - Log config in JSON format
+
+nodejs:
+  enabled: bool
