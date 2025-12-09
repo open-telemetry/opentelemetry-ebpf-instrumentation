@@ -167,3 +167,51 @@ func testHTTPTracesNestedNginx(t *testing.T) {
 		}, test.Interval(100*time.Millisecond))
 	}
 }
+
+// Assumes we've run the metrics tests
+func testHTTPTracesNestedNginxSQL(t *testing.T) {
+	for i := 1; i <= 4; i++ {
+		go ti.DoHTTPGet(t, "https://localhost:8443/users/"+strconv.Itoa(i), 200)
+	}
+
+	for i := 1; i <= 4; i++ {
+		slug := strconv.Itoa(i)
+		var trace jaeger.Trace
+		test.Eventually(t, testTimeout, func(t require.TestingT) {
+			resp, err := http.Get(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
+			require.NoError(t, err)
+			if resp == nil {
+				return
+			}
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			var tq jaeger.TracesQuery
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+			traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/users/" + slug})
+			require.GreaterOrEqual(t, len(traces), 1)
+			trace = traces[0]
+
+			// Check the information of the server span
+			res := trace.FindByOperationName("GET /users/"+slug, "server")
+			require.GreaterOrEqual(t, len(res), 1)
+			server := res[0]
+			require.NotEmpty(t, server.TraceID)
+			require.NotEmpty(t, server.SpanID)
+
+			// check client call
+			res = trace.FindByOperationName("GET /users/"+slug, "client")
+			require.GreaterOrEqual(t, len(res), 1)
+			client := res[0]
+			require.NotEmpty(t, client.TraceID)
+			require.Equal(t, server.TraceID, client.TraceID)
+			require.NotEmpty(t, client.SpanID)
+
+			// check SQL client call
+			res = trace.FindByOperationName("SELECT users", "client")
+			require.GreaterOrEqual(t, len(res), 1)
+			client = res[0]
+			require.NotEmpty(t, client.TraceID)
+			require.Equal(t, server.TraceID, client.TraceID)
+			require.NotEmpty(t, client.SpanID)
+		}, test.Interval(100*time.Millisecond))
+	}
+}
