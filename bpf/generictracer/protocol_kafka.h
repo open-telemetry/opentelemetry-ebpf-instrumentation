@@ -99,6 +99,8 @@ typedef struct {
 
 static const kafka_api_version_info_t API_VERSION_LOOKUP_TABLE[API_VERSION_LOOKUP_TABLE_SIZE] = {
     /* 3 (METADATA)*/ {.api_key = 3, .min_version = 0, .max_version = 13},
+    {.api_key = 18, .min_version = 0, .max_version = 30}, // pino for test
+    {.api_key = 22, .min_version = 0, .max_version = 30}, // pino for test
 };
 
 bool is_api_version_supported(s16 api_key, s16 api_version) {
@@ -114,6 +116,18 @@ bool is_api_version_supported(s16 api_key, s16 api_version) {
     }
     return false;
 }
+
+bool is_api_key_supported(s16 api_key) {
+    for (int i = 0; i < API_VERSION_LOOKUP_TABLE_SIZE; i++) {
+        const kafka_api_version_info_t *info = &API_VERSION_LOOKUP_TABLE[i];
+
+        if (api_key == info->api_key) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static __always_inline int read_kafka_message_size(const unsigned char *data, size_t data_len) {
     if (data_len < k_kafka_hdr_message_size) {
         return -1;
@@ -122,7 +136,8 @@ static __always_inline int read_kafka_message_size(const unsigned char *data, si
     int message_size = 0;
     bpf_probe_read(&message_size, k_kafka_hdr_message_size, (const void *)data);
     message_size = bpf_ntohl(message_size);
-    bpf_dbg_printk("read_kafka_message_size, message_size %d", message_size);
+    bpf_dbg_printk(
+        "read_kafka_message_size, message_size %d", message_size);
 
     if (message_size < k_kafka_min_response_message_size_value ||
         message_size > k_kafka_message_size_max) {
@@ -157,7 +172,7 @@ static __always_inline int kafka_store_state_data(const connection_info_t *conn_
     if (bpf_map_update_elem(&kafka_state, &state_key, &new_state_data, BPF_ANY) < 0) {
         bpf_dbg_printk("====== kafka_store_state_data  bpf_map_update_elem error =======");
     }
-    bpf_dbg_printk("====== kafka_store_state_data stored message_size: %d ======", message_size);
+    bpf_dbg_printk("====== kafka_store_state_data stored message_size: %d ======",message_size);
     return -1;
 }
 
@@ -181,28 +196,29 @@ static __always_inline int kafka_parse_fixup_request_header(const connection_inf
     if (message_size == (data_len - k_kafka_hdr_message_size)) {
         bpf_dbg_printk("====== kafka_parse_fixup_request_header full data =======");
         bpf_dbg_printk("====== kafka_parse_fixup_request_header hdr->message_size %d =======",
-                       message_size);
-        unsigned char tmp[12];
-        if (bpf_probe_read(&tmp, 12, (const void *)data) == 0) {
-            bpf_dbg_printk("====== kafka_parse_fixup_request_header data %llu =======",
-                           (unsigned long long)(uintptr_t)data);
-            bpf_dbg_printk("tmp kafka_parse_fixup_request_header message_size: %d %d %d %d",
-                           tmp[0],
-                           tmp[1],
-                           tmp[2],
-                           tmp[3]);
-            bpf_dbg_printk(
-                "tmp kafka_parse_fixup_request_header request_api_key: %d %d", tmp[4], tmp[5]);
-            bpf_dbg_printk(
-                "tmp kafka_parse_fixup_request_header request_api_version: %d %d", tmp[6], tmp[7]);
-            bpf_dbg_printk("tmp kafka_parse_fixup_request_header correlation_id: %d %d %d %d",
-                           tmp[8],
-                           tmp[9],
-                           tmp[10],
-                           tmp[11]);
-        } else {
-            bpf_dbg_printk("bpf_probe_read error for tmp");
-        }
+            message_size);
+            unsigned char tmp[12];
+            if (bpf_probe_read(&tmp, 12, (const void *)data) == 0) {
+                bpf_dbg_printk("====== kafka_parse_fixup_request_header data %llu =======",
+                               (unsigned long long)(uintptr_t)data);
+                bpf_dbg_printk("tmp kafka_parse_fixup_request_header message_size: %d %d %d %d",
+                               tmp[0],
+                               tmp[1],
+                               tmp[2],
+                               tmp[3]);
+                bpf_dbg_printk(
+                    "tmp kafka_parse_fixup_request_header request_api_key: %d %d", tmp[4], tmp[5]);
+                bpf_dbg_printk("tmp kafka_parse_fixup_request_header request_api_version: %d %d",
+                               tmp[6],
+                               tmp[7]);
+                bpf_dbg_printk("tmp kafka_parse_fixup_request_header correlation_id: %d %d %d %d",
+                               tmp[8],
+                               tmp[9],
+                               tmp[10],
+                               tmp[11]);
+            } else {
+                bpf_dbg_printk("bpf_probe_read error for tmp");
+            }
         struct kafka_request_hdr test = {};
         if (bpf_probe_read(&test, sizeof(test), (const void *)data) == 0) {
             bpf_dbg_printk("====== kafka_parse_fixup_request_header data %llu =======",
@@ -227,8 +243,7 @@ static __always_inline int kafka_parse_fixup_request_header(const connection_inf
                        k_kafka_hdr_request_api_key,
                        (const void *)(data + k_kafka_hdr_message_size));
         hdr->request_api_key = bpf_ntohs(hdr->request_api_key);
-        if (hdr->request_api_key !=
-            k_kafka_api_key_metadata) { // right now we are interested only in metadata
+        if (!is_api_key_supported(hdr->request_api_key)) { // right now we are interested only in metadata
             bpf_dbg_printk("kafka_parse_fixup_request_header: api_request_key provided %d, is "
                            "not metadata %d",
                            hdr->request_api_key,
@@ -316,8 +331,7 @@ static __always_inline int kafka_parse_fixup_request_header(const connection_inf
         hdr->request_api_key = bpf_ntohs(hdr->request_api_key);
         bpf_dbg_printk("====== 2 kafka_parse_fixup_request_header hdr->request_api_key %d =======",
                        hdr->request_api_key);
-        if (hdr->request_api_key !=
-            k_kafka_api_key_metadata) { // right now we are interested only in metadata
+        if (!is_api_key_supported(hdr->request_api_key)) { // right now we are interested only in metadata
             bpf_dbg_printk(
                 "kafka_parse_fixup_request_header: api_request_key provided %d, is not metadata %d",
                 hdr->request_api_key,
@@ -526,57 +540,61 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
         return -1;
     }
 
-    // check if this response matches an ongoing request
-    struct kafka_correlation_data *correlation_data =
-        bpf_map_lookup_elem(&kafka_ongoing_requests, &pid_conn->conn);
-    if (!correlation_data) {
-        bpf_dbg_printk("kafka_send_large_buffer: no ongoing request found for this response");
+    
+        // check if this response matches an ongoing request
+        struct kafka_correlation_data *correlation_data =
+            bpf_map_lookup_elem(&kafka_ongoing_requests, &pid_conn->conn);
+        if (!correlation_data) {
+            bpf_dbg_printk("kafka_send_large_buffer: no ongoing request found for this response");
+            return 0;
+        }
+        struct kafka_response_hdr hdr = {};
+        if (check_kafka_response_header(u_buf, bytes_len, &hdr) == 0) {
+            bpf_dbg_printk("kafka_send_large_buffer: failed to check kafka response header");
+            return 0;
+        }
+        if (hdr.correlation_id != correlation_data->correlation_id) {
+            bpf_dbg_printk("kafka_send_large_buffer: request correlation_id != response "
+                           "correlation_id, %d != %d",
+                           correlation_data->correlation_id,
+                           hdr.correlation_id);
+            return 0;
+        }
+        bpf_map_delete_elem(&kafka_ongoing_requests, &pid_conn->conn);
+
+        tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)kafka_large_buffers_mem();
+        if (!large_buf) {
+            bpf_dbg_printk(
+                "kafka_send_large_buffer: failed to reserve space for Kafka large buffer");
+            return 0;
+        }
+
+        large_buf->type = EVENT_TCP_LARGE_BUFFER;
+        large_buf->packet_type = packet_type;
+        large_buf->action = action;
+        large_buf->direction = direction;
+        large_buf->conn_info = pid_conn->conn;
+        large_buf->tp = req->tp;
+
+        int written = kafka_read_fixup_buffer(
+            &pid_conn->conn, large_buf->buf, &large_buf->len, u_buf, bytes_len, packet_type);
+        if (written < 0) {
+            bpf_dbg_printk(
+                "kafka_send_large_buffer: failed to read buffer, not sending large buffer");
+            return 0;
+        }
+
+        u32 total_size = sizeof(tcp_large_buffer_t);
+        total_size += written > sizeof(void *) ? written : sizeof(void *);
+
+        req->has_large_buffers = true;
+        bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
+
+        bpf_dbg_printk(
+            "kafka_send_large_buffer: sent large buffer packet_type %d, correlation_id %d",
+            packet_type,
+            hdr.correlation_id);
         return 0;
-    }
-    struct kafka_response_hdr hdr = {};
-    if (check_kafka_response_header(u_buf, bytes_len, &hdr) == 0) {
-        bpf_dbg_printk("kafka_send_large_buffer: failed to check kafka response header");
-        return 0;
-    }
-    if (hdr.correlation_id != correlation_data->correlation_id) {
-        bpf_dbg_printk("kafka_send_large_buffer: request correlation_id != response "
-                       "correlation_id, %d != %d",
-                       correlation_data->correlation_id,
-                       hdr.correlation_id);
-        return 0;
-    }
-    bpf_map_delete_elem(&kafka_ongoing_requests, &pid_conn->conn);
-
-    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)kafka_large_buffers_mem();
-    if (!large_buf) {
-        bpf_dbg_printk("kafka_send_large_buffer: failed to reserve space for Kafka large buffer");
-        return 0;
-    }
-
-    large_buf->type = EVENT_TCP_LARGE_BUFFER;
-    large_buf->packet_type = packet_type;
-    large_buf->action = action;
-    large_buf->direction = direction;
-    large_buf->conn_info = pid_conn->conn;
-    large_buf->tp = req->tp;
-
-    int written = kafka_read_fixup_buffer(
-        &pid_conn->conn, large_buf->buf, &large_buf->len, u_buf, bytes_len, packet_type);
-    if (written < 0) {
-        bpf_dbg_printk("kafka_send_large_buffer: failed to read buffer, not sending large buffer");
-        return 0;
-    }
-
-    u32 total_size = sizeof(tcp_large_buffer_t);
-    total_size += written > sizeof(void *) ? written : sizeof(void *);
-
-    req->has_large_buffers = true;
-    bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
-
-    bpf_dbg_printk("kafka_send_large_buffer: sent large buffer packet_type %d, correlation_id %d",
-                   packet_type,
-                   hdr.correlation_id);
-    return 0;
 
     bpf_dbg_printk("kafka_send_large_buffer: is a request, not sending large buffer");
     return -1;
