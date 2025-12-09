@@ -23,7 +23,8 @@
       "net/http.http2serverConn": ["conn"],
       "net/http.http2Framer": ["w"],
       "net/http.http2MetaHeadersFrame": ["Fields"],
-      "net/rpc.Request": ["ServiceMethod"]
+      "net/rpc.Request": ["ServiceMethod"],
+      "database/sql.driverConn": ["ci"]
     }
   },
   "golang.org/x/net": {
@@ -147,6 +148,14 @@
     "versions": ">= v1.6.0,!= v1.7.5",
     "fields": {
       "github.com/gin-gonic/gin.nodeValue": ["fullPath"]
+    }
+  },
+  "github.com/go-sql-driver/mysql": {
+    "inspect": "./configs/offsets/mysql/inspect.go",
+    "versions": ">= v1.5.0",
+    "fields": {
+      "github.com/go-sql-driver/mysql.mysqlConn": ["cfg"],
+      "github.com/go-sql-driver/mysql.Config": ["Addr"]
     }
   }
 }

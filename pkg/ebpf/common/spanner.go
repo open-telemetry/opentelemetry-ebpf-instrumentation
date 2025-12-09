@@ -97,13 +97,19 @@ func SQLRequestTraceToSpan(trace *SQLRequestTrace) request.Span {
 
 	peer := ""
 	peerPort := 0
-	hostname := ""
+	host := ""
 	hostPort := 0
 
 	if trace.Conn.S_port != 0 || trace.Conn.D_port != 0 {
-		peer, hostname = (*BPFConnInfo)(unsafe.Pointer(&trace.Conn)).reqHostInfo()
+		peer, host = (*BPFConnInfo)(unsafe.Pointer(&trace.Conn)).reqHostInfo()
 		peerPort = int(trace.Conn.S_port)
 		hostPort = int(trace.Conn.D_port)
+	}
+
+	addr := cstr(trace.Hostname[:])
+	hostname := addr
+	if idx := strings.LastIndex(addr, ":"); idx != -1 {
+		hostname = addr[:idx]
 	}
 
 	return request.Span{
@@ -112,7 +118,8 @@ func SQLRequestTraceToSpan(trace *SQLRequestTrace) request.Span {
 		Path:          path,
 		Peer:          peer,
 		PeerPort:      peerPort,
-		Host:          hostname,
+		Host:          host,
+		HostName:      hostname,
 		HostPort:      hostPort,
 		ContentLength: 0,
 		RequestStart:  int64(trace.StartMonotimeNs),
