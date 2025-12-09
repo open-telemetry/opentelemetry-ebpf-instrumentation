@@ -109,6 +109,15 @@ const (
 	MongoOpNamePos
 	MongoOpDBPos
 	MongoOneThirteenOne
+	// mysql driver
+	MySQLConnCfgPos
+	MySQLConfigAddrPos
+	// postgresql driver (pgx)
+	PgConnConfigPos
+	PgConfigHostPos
+	// postgresql stdlib driver
+	PgStdlibConnPos
+	PgxConnPgConnPos
 	// route harvesting offsets
 	MuxTemplatePos
 	GinFullpathPos
@@ -412,6 +421,42 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"Name":     MongoOpNamePos,
 			"Database": MongoOpDBPos,
+		},
+	},
+	"github.com/go-sql-driver/mysql.mysqlConn": {
+		lib: "github.com/go-sql-driver/mysql",
+		fields: map[string]GoOffset{
+			"cfg": MySQLConnCfgPos,
+		},
+	},
+	"github.com/go-sql-driver/mysql.Config": {
+		lib: "github.com/go-sql-driver/mysql",
+		fields: map[string]GoOffset{
+			"Addr": MySQLConfigAddrPos,
+		},
+	},
+	"github.com/jackc/pgx/v5/pgconn.PgConn": {
+		lib: "github.com/jackc/pgx/v5",
+		fields: map[string]GoOffset{
+			"config": PgConnConfigPos,
+		},
+	},
+	"github.com/jackc/pgx/v5/pgconn.Config": {
+		lib: "github.com/jackc/pgx/v5",
+		fields: map[string]GoOffset{
+			"Host": PgConfigHostPos,
+		},
+	},
+	"github.com/jackc/pgx/v5/stdlib.Conn": {
+		lib: "github.com/jackc/pgx/v5",
+		fields: map[string]GoOffset{
+			"conn": PgStdlibConnPos,
+		},
+	},
+	"github.com/jackc/pgx/v5.Conn": {
+		lib: "github.com/jackc/pgx/v5",
+		fields: map[string]GoOffset{
+			"pgConn": PgxConnPgConnPos,
 		},
 	},
 	"github.com/gorilla/mux.routeRegexp": {

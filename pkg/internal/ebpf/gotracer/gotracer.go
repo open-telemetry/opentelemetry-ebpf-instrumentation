@@ -203,6 +203,15 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.MongoOpNamePos,
 		goexec.MongoOpDBPos,
 		goexec.MongoOneThirteenOne,
+		// mysql driver
+		goexec.MySQLConnCfgPos,
+		goexec.MySQLConfigAddrPos,
+		// postgresql driver (pgx)
+		goexec.PgConnConfigPos,
+		goexec.PgConfigHostPos,
+		// postgresql stdlib driver
+		goexec.PgStdlibConnPos,
+		goexec.PgxConnPgConnPos,
 		goexec.MuxTemplatePos,
 		goexec.GinFullpathPos,
 	} {

@@ -88,12 +88,20 @@ typedef enum {
     _mongo_op_name_pos,
     _mongo_db_name_pos,
     _mongo_op_name_new,
+    // mysql driver
+    _mysql_conn_cfg_pos,
+    _mysql_config_addr_pos,
+    // postgresql driver (pgx)
+    _pgconn_config_pos,
+    _pgconfig_host_pos,
+    // postgresql stdlib driver
+    _pgstdlib_conn_pos,
+    _pgx_conn_pgconn_pos,
     // route resolution
     _mux_template_pos,
     _gin_fullpath_pos,
     _last_go_offset,
 } go_offset_const;
-
 enum {
     _gin_fullpath_off_pre_17 = 56,
     _gin_fullpath_off_post_17 = 40,
