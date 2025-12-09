@@ -44,10 +44,11 @@ static __always_inline u32 task_netns() {
 static __always_inline u8 infer_packet_type(u8 direction, u16 port) {
     u32 netns = task_netns();
     bool is_server = is_listening(port, netns);
-
     if ((direction == TCP_RECV && is_server) || (direction == TCP_SEND && !is_server)) {
+        bpf_dbg_printk("===== infer_packet_type === netns %d, is_server %d, port %d, direction %d, packet_type 1", netns, is_server, port, direction);
         return PACKET_TYPE_REQUEST;
     }
+    bpf_dbg_printk("===== infer_packet_type === netns %d, is_server %d, port %d, direction %d, packet_type 2", netns, is_server, port, direction);
     return PACKET_TYPE_RESPONSE;
 }
 
