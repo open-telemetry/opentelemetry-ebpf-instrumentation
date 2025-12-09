@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 // Name of an attribute. This is the common internal representation of a metric attribute name,
@@ -33,7 +33,7 @@ const (
 	ClientAddr             = Name("client.address")
 	ServerAddr             = Name("server.address")
 	ServerPort             = Name("server.port")
-	HTTPRequestBodySize    = Name("http.request.body.size")
+	HTTPRequestBodySize    = Name(semconv.HTTPRequestBodySizeKey)
 	HTTPResponseBodySize   = Name("http.response.body.size")
 	SpanKind               = Name("span.kind")
 	SpanName               = Name("span.name")
@@ -58,9 +58,9 @@ const (
 	MessagingMessageID     = Name(semconv.MessagingMessageIDKey)
 	MessagingSystem        = Name(semconv.MessagingSystemKey)
 	MessagingDestination   = Name(semconv.MessagingDestinationNameKey)
-	GraphQLDocument        = Name(semconv.GraphqlDocumentKey)
-	GraphQLOperationName   = Name(semconv.GraphqlOperationNameKey)
-	GraphQLOperationType   = Name(semconv.GraphqlOperationTypeKey)
+	GraphQLDocument        = Name(semconv.GraphQLDocumentKey)
+	GraphQLOperationName   = Name(semconv.GraphQLOperationNameKey)
+	GraphQLOperationType   = Name(semconv.GraphQLOperationTypeKey)
 	DNSAnswers             = Name("dns.answers")
 	ErrorMessage           = Name("error.message")
 	TelemetrySDKLanguage   = Name(semconv.TelemetrySDKLanguageKey)
