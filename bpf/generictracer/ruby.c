@@ -3,6 +3,7 @@
 
 //go:build obi_bpf_ignore
 
+#include "common/connection_info.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
@@ -176,7 +177,13 @@ int obi_rb_ary_shift(struct pt_regs *ctx) {
             .pid = host_pid,
         };
 
-        bpf_map_update_elem(&puma_worker_tasks, &id, &task_id, BPF_ANY);
+        connection_info_part_t *conn_part = bpf_map_lookup_elem(&puma_task_connections, &task_id);
+        if (conn_part) {
+            bpf_dbg_printk("stored item to id correlation, id = %llx, item %llx", id, item);
+            bpf_map_update_elem(&puma_worker_tasks, &id, &task_id, BPF_ANY);
+        } else {
+            bpf_dbg_printk("untracked item %llx, ignoring...", item);
+        }
     }
 
     return 0;
