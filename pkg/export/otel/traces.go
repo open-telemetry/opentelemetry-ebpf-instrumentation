@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
@@ -327,8 +328,15 @@ func createZapLoggerDev(sdkLogLevel string) *zap.Logger {
 func getTraceSettings(dataTypeMetrics component.Type, sdkLogLevel string) exporter.Settings {
 	traceProvider := tracenoop.NewTracerProvider()
 	meterProvider := metric.NewMeterProvider()
+
+	zapLogger := zap.NewNop()
+
+	if strings.ToLower(sdkLogLevel) == "debug" {
+		zapLogger = createZapLoggerDev(sdkLogLevel)
+	}
+
 	telemetrySettings := component.TelemetrySettings{
-		Logger:         createZapLoggerDev(sdkLogLevel),
+		Logger:         zapLogger,
 		MeterProvider:  meterProvider,
 		TracerProvider: traceProvider,
 		Resource:       pcommon.NewResource(),
