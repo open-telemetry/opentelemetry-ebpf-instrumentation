@@ -23,5 +23,5 @@ WORKDIR /
 COPY --from=builder /build .
 COPY --from=builder /usr/local/bundle /usr/local/bundle
 
-# Run the node app
+# Run the app
 CMD [ "rails", "server", "-p", "3040", "-b", "0.0.0.0" ]
