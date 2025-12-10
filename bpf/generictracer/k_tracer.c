@@ -113,7 +113,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
         u16 orig_dport = info.p_conn.conn.d_port;
         dbg_print_http_connection_info(&info.p_conn.conn);
         sort_connection_info(&info.p_conn.conn);
-        info.p_conn.pid = pid_from_pid_tgid(id);
+        info.p_conn.pid = host_pid;
         info.orig_dport = orig_dport;
 
         // to support SSL on missing handshake

@@ -17,6 +17,7 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_core_read.h>
+#include <bpfcore/bpf_tracing.h>
 
 #include <common/pin_internal.h>
 
