@@ -36,18 +36,27 @@ static __always_inline u8 cmd_to_op(u8 cmd) {
     }
 }
 
-SEC("kprobe/do_vfs_ioctl")
-int BPF_KPROBE(obi_kprobe_do_vfs_ioctl, void *filp, unsigned int fd, unsigned int cmd, void *arg) {
-    (void)ctx;
-    (void)filp;
-
+SEC("kprobe/sys_ioctl")
+// unsigned int fd, unsigned int cmd, void *arg
+int BPF_KPROBE(obi_kprobe_sys_ioctl) {
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
     }
 
-    bpf_dbg_printk("=== do_vfs_ioctl id=%d ===", id);
+    bpf_dbg_printk("=== sys_ioctl id=%d ===", id);
+
+    // unwrap the syscall arguments in __ctx
+    struct pt_regs *__ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
+
+    unsigned int fd = 0;
+    unsigned int cmd = 0;
+    void *arg = 0;
+
+    bpf_probe_read(&fd, sizeof(unsigned int), (void *)&PT_REGS_PARM1(__ctx));
+    bpf_probe_read(&cmd, sizeof(unsigned int), (void *)&PT_REGS_PARM2(__ctx));
+    bpf_probe_read(&arg, sizeof(void *), (void *)&PT_REGS_PARM3(__ctx));
 
     // it must be fd == 0 if we are considering this request
     if (fd) {

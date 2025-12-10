@@ -323,9 +323,9 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeInetCskListenStop,
 		},
-		"do_vfs_ioctl": {
+		"sys_ioctl": {
 			Required: true,
-			Start:    p.bpfObjects.ObiKprobeDoVfsIoctl,
+			Start:    p.bpfObjects.ObiKprobeSysIoctl,
 		},
 	}
 
