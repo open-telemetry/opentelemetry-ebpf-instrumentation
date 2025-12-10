@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
@@ -129,7 +128,12 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 			traces := tracesgen.GenerateTracesWithAttributes(tr.attributeCache, &sample.Span.Service, envResourceAttrs, tr.ctxInfo.HostID, spanGroup, reporterName, tr.ctxInfo.ExtraResourceAttributes...)
 			err := exp.ConsumeTraces(ctx, traces)
 			if err != nil {
-				slog.Error("error sending trace to consumer", "error", err)
+				// We can't do if errors.Is(err, queue.ErrQueueIsFull), since the queue package is internal
+				if err.Error() == "sending queue is full" {
+					slog.Debug("error sending trace to consumer", "error", err)
+				} else {
+					slog.Error("error sending trace to consumer", "error", err)
+				}
 			}
 		}
 	}
@@ -329,14 +333,8 @@ func getTraceSettings(dataTypeMetrics component.Type, sdkLogLevel string) export
 	traceProvider := tracenoop.NewTracerProvider()
 	meterProvider := metric.NewMeterProvider()
 
-	zapLogger := zap.NewNop()
-
-	if strings.ToLower(sdkLogLevel) == "debug" {
-		zapLogger = createZapLoggerDev(sdkLogLevel)
-	}
-
 	telemetrySettings := component.TelemetrySettings{
-		Logger:         zapLogger,
+		Logger:         createZapLoggerDev(sdkLogLevel),
 		MeterProvider:  meterProvider,
 		TracerProvider: traceProvider,
 		Resource:       pcommon.NewResource(),
