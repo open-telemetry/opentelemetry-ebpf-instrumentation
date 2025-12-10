@@ -1,0 +1,3 @@
+# ACL file for VerneMQ - Allow all operations for anonymous users
+allow publish
+allow subscribe
