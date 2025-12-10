@@ -3,11 +3,11 @@
 
 //go:build obi_bpf_ignore
 
-#include "common/connection_info.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+#include <common/connection_info.h>
 #include <common/strings.h>
 
 #include <generictracer/maps/pid_tid_to_conn.h>
@@ -20,6 +20,7 @@
 #include <pid/pid.h>
 
 enum { k_comm_len = 12 };
+enum { k_rb_ary_embedded_ptr_pos = 0x10, k_rb_ary_heap_ptr_pos = 0x20 };
 const char PUMA_WORKER[] = "puma srv tp";
 const char PUMA_SRV[] = "puma srv";
 const char PUMA_SRV_THREAD[] = "puma srv th";
@@ -124,43 +125,38 @@ int obi_rb_obj_call_init_kw(struct pt_regs *ctx) {
 
 SEC("uprobe/ruby:rb_ary_shift")
 int obi_rb_ary_shift(struct pt_regs *ctx) {
-    (void)ctx;
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
     }
 
-    u64 ary = (u64)PT_REGS_PARM1(ctx);
-    if (!ary) {
+    u64 item_ptr = (u64)PT_REGS_PARM1(ctx);
+
+    if (!item_ptr) {
         return 0;
     }
-
-    u64 item_ptr = (u64)PT_REGS_PARM1(ctx);
 
     u64 flags = 0;
     bpf_probe_read_user(&flags, sizeof(u64), (void *)(item_ptr));
 
-    u8 embedded_arr = 1;
-
     // See if the array is not embedded anymore and we have to
-    // find the heap pointer.
-    if ((flags & 0x2000) == 0) {
-        bpf_dbg_printk("rb_ary_shift ret ==> empty slice");
-        embedded_arr = 0;
-    }
+    // find the heap pointer. If the 0x2000 flag is set, the array
+    // is embedded.
+    const u8 embedded_arr = flags & 0x2000;
 
     u64 item = 0;
-    bpf_probe_read_user(&item, sizeof(u64), (void *)(item_ptr + 0x10));
+    bpf_probe_read_user(&item, sizeof(u64), (void *)(item_ptr + k_rb_ary_embedded_ptr_pos));
 
-    bpf_dbg_printk("rb_ary_shift ret ==> slice %llx, item %llx", item_ptr, item);
+    bpf_dbg_printk("rb_ary_shift ret ==> slice %llx, item %llx, flags %x", item_ptr, item, flags);
 
     // If we don't have an embedded array, item is the current array length.
     // Zero length means we don't have elements in the array.
     if (item) {
         if (!embedded_arr) {
             u64 heap_arr_ptr = 0;
-            bpf_probe_read_user(&heap_arr_ptr, sizeof(u64), (void *)(item_ptr + 0x20));
+            bpf_probe_read_user(
+                &heap_arr_ptr, sizeof(u64), (void *)(item_ptr + k_rb_ary_heap_ptr_pos));
             if (heap_arr_ptr) {
                 bpf_probe_read_user(&item, sizeof(u64), (void *)(heap_arr_ptr));
                 bpf_dbg_printk("heap %llx, value item %llx", heap_arr_ptr, item);

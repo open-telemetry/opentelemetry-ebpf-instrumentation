@@ -3,20 +3,22 @@
 
 #pragma once
 
-#include "common/connection_info.h"
-#include "common/tp_info.h"
-#include "generictracer/maps/puma_tasks.h"
-#include "logger/bpf_dbg.h"
 #include <bpfcore/utils.h>
 
+#include <common/connection_info.h>
 #include <common/cp_support_data.h>
 #include <common/http_types.h>
 #include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
+#include <common/tp_info.h>
 #include <common/trace_key.h>
 #include <common/trace_util.h>
 #include <common/tracing.h>
+
+#include <generictracer/maps/puma_tasks.h>
+
+#include <logger/bpf_dbg.h>
 
 #include <maps/clone_map.h>
 #include <maps/cp_support_connect_info.h>
@@ -147,7 +149,7 @@ static __always_inline tp_info_pid_t *find_puma_parent_trace(u64 id) {
     puma_task_id_t *task_id = bpf_map_lookup_elem(&puma_worker_tasks, &id);
     bpf_dbg_printk("puma lookup task_id %llx", task_id);
     if (!task_id) {
-        return 0;
+        return NULL;
     }
 
     bpf_dbg_printk("found item %llx", task_id->item);
@@ -158,7 +160,7 @@ static __always_inline tp_info_pid_t *find_puma_parent_trace(u64 id) {
         return bpf_map_lookup_elem(&server_traces_aux, conn_part);
     }
 
-    return 0;
+    return NULL;
 }
 
 static __always_inline tp_info_pid_t *
