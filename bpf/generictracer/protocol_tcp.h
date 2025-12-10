@@ -58,6 +58,10 @@ static __always_inline void set_tcp_trace_info(
         return;
     }
 
+    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+    make_tp_string(tp_buf, tp);
+    bpf_d_printk("tp: %s", tp_buf);
+
     tp_p->tp = *tp;
     tp_p->tp.flags = 1;
     tp_p->valid = 1;
