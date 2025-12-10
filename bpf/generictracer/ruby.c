@@ -143,7 +143,7 @@ int obi_rb_ary_shift(struct pt_regs *ctx) {
     // See if the array is not embedded anymore and we have to
     // find the heap pointer. If the 0x2000 flag is set, the array
     // is embedded.
-    const u8 embedded_arr = flags & 0x2000;
+    const u16 embedded_arr = flags & 0x2000;
 
     u64 item = 0;
     bpf_probe_read_user(&item, sizeof(u64), (void *)(item_ptr + k_rb_ary_embedded_ptr_pos));
