@@ -198,6 +198,66 @@ func TestCleanName(t *testing.T) {
 	assert.Equal(t, "service", nr.cleanName(&s, "127.0.0.1", "service.k8snamespace.svc.cluster.local."))
 }
 
+func TestParseK8sFQDN(t *testing.T) {
+	tests := []struct {
+		name         string
+		fqdn         string
+		expectedName string
+		expectedNS   string
+	}{
+		{
+			name:         "standard K8s FQDN",
+			fqdn:         "bar-server.bar-ns.svc.cluster.local",
+			expectedName: "bar-server",
+			expectedNS:   "bar-ns",
+		},
+		{
+			name:         "with trailing dot",
+			fqdn:         "myservice.mynamespace.svc.cluster.local.",
+			expectedName: "myservice",
+			expectedNS:   "mynamespace",
+		},
+		{
+			name:         "case insensitive suffix",
+			fqdn:         "svc.ns.SVC.CLUSTER.LOCAL",
+			expectedName: "svc",
+			expectedNS:   "ns",
+		},
+		{
+			name:         "just service name (no namespace in FQDN)",
+			fqdn:         "myservice.svc.cluster.local",
+			expectedName: "myservice",
+			expectedNS:   "",
+		},
+		{
+			name:         "not a K8s FQDN - plain hostname",
+			fqdn:         "example.com",
+			expectedName: "example.com",
+			expectedNS:   "",
+		},
+		{
+			name:         "not a K8s FQDN - IP address",
+			fqdn:         "10.0.0.1",
+			expectedName: "10.0.0.1",
+			expectedNS:   "",
+		},
+		{
+			name:         "empty string",
+			fqdn:         "",
+			expectedName: "",
+			expectedNS:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			name, ns := parseK8sFQDN(tt.fqdn)
+			assert.Equal(t, tt.expectedName, name)
+			assert.Equal(t, tt.expectedNS, ns)
+		})
+	}
+}
+
 func TestResolveNodesFromK8s(t *testing.T) {
 	inf := &fakeInformer{}
 	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
@@ -340,4 +400,58 @@ func TestResolveClientFromHost(t *testing.T) {
 	assert.Empty(t, serverSpan.OtherNamespace)
 	assert.Equal(t, "pod2", serverSpan.HostName) // we don't match the IP in k8s, but we have a service name
 	assert.Equal(t, "something", serverSpan.Service.UID.Namespace)
+}
+
+// TestResolveClientFromHost_K8sFQDN demonstrates the following scenario:
+//   - A client (foo-client) makes an HTTP request to a K8s Service (bar-server)
+//   - The destination IP seen by eBPF is the Pod IP (after kube-proxy NAT)
+//   - The Pod IP is not in the K8s informer cache
+//   - The HTTP Host header contains the K8s Service FQDN
+func TestResolveClientFromHost_K8sFQDN(t *testing.T) {
+	// Create a K8s store with NO matching entries for the destination Pod IP
+	// This simulates the case where the Pod IP can't be resolved via K8s metadata
+	inf := &fakeInformer{}
+	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+
+	// Add only the source pod to the store, not the destination
+	sourcePod := &informer.ObjectMeta{
+		Name:      "foo-client-abc123",
+		Namespace: "foo-ns",
+		Kind:      "Pod",
+		Ips:       []string{"10.0.1.1"},
+		Pod: &informer.PodInfo{
+			Owners: []*informer.Owner{{Kind: "Deployment", Name: "foo-client"}},
+		},
+	}
+	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: sourcePod})
+
+	// The destination Pod IP (10.0.2.5) is NOT in the store
+	// This simulates the NAT scenario where we see the Pod IP but can't resolve it
+	nr := NameResolver{
+		db:      db,
+		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		sources: resolverSources([]string{"k8s"}),
+	}
+
+	// Create a client span representing an HTTP call to a K8s Service
+	// The HTTP Host header contains the K8s Service FQDN
+	clientSpan := request.Span{
+		Type: request.EventTypeHTTPClient,
+		Peer: "10.0.1.1",
+		// Destination: Pod IP after NAT (NOT in K8s store)
+		Host: "10.0.2.5",
+		// HTTP Host header captured by eBPF, stored as "scheme;host"
+		Statement: "http;bar-server.bar-ns.svc.cluster.local",
+		Service: svc.Attrs{
+			UID: svc.UID{
+				Name:      "foo-client",
+				Namespace: "foo-ns",
+			},
+		},
+	}
+
+	nr.resolveNames(&clientSpan)
+
+	assert.Equal(t, "bar-server", clientSpan.HostName)
+	assert.Equal(t, "bar-ns", clientSpan.OtherNamespace)
 }
