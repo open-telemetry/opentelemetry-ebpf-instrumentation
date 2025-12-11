@@ -660,19 +660,9 @@ static __always_inline void inject_ip_options(struct __sk_buff *skb,
         return;
     }
 
-    // this shouldn't ever be reached, as the tp should have already been
-    // deleted by the kprobes when tp->written == 1, but it does not hurt to
-    // be robust
     if (tp->written) {
         bpf_dbg_printk("tp already written by L7, not injecting IP options");
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
-        return;
-    }
-
-    // The following code sets up the context information in L4 and it
-    // does it only once. If it successfully injected the information it
-    // will set valid to 0 so that we only run the L7 part from now on.
-    if (!tp->valid) {
         return;
     }
 
@@ -681,13 +671,13 @@ static __always_inline void inject_ip_options(struct __sk_buff *skb,
 
         inject_tc_ip_options_ipv6(skb, tp);
 
-        tp->valid = 0;
+        bpf_map_delete_elem(&outgoing_trace_map, &e_key);
     } else if (skb->protocol == bpf_htons(ETH_P_IP)) {
         bpf_dbg_printk("Adding the trace_id in the IP Options");
 
         inject_tc_ip_options_ipv4(skb, tp);
 
-        tp->valid = 0;
+        bpf_map_delete_elem(&outgoing_trace_map, &e_key);
 
         // We look up metadata setup by the Go uprobes or the kprobes on
         // a transaction we consider outgoing HTTP request. We will extend this in
