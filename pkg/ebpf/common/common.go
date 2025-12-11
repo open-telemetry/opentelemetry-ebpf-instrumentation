@@ -70,7 +70,7 @@ const (
 	ProtocolTypeUnknown uint8 = iota
 	ProtocolTypeMySQL
 	ProtocolTypePostgres
-	ProtocolTypeHttp // not used, written for consistency
+	ProtocolTypeHTTP // not used, written for consistency
 	ProtocolTypeKafka
 )
 

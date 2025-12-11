@@ -145,8 +145,7 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
         break;
     case k_protocol_type_kafka:
         if (kafka_buffer_size > 0) {
-            ret = kafka_send_large_buffer(
-                req, pid_conn, u_buf, bytes_len, direction, action);
+            ret = kafka_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
         }
         break;
     case k_protocol_type_http:
@@ -264,7 +263,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             bpf_map_update_elem(&ongoing_tcp_req, pid_conn, req, BPF_ANY);
         }
     } else if (existing->direction != direction) {
-        existing->is_server = is_server; // pino not sure
+        existing->is_server = is_server;
         if (tcp_send_large_buffer(existing,
                                   pid_conn,
                                   u_buf,
