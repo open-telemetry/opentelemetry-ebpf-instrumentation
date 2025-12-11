@@ -2,7 +2,7 @@ services:
   vernemq:
     restart: always
     container_name: vernemq-mqtt-broker
-    image: vernemq/vernemq:latest
+    image: vernemq/vernemq:latest@sha256:ad60e4c04f4fa6cadeea43ecf37351b8a76d7c343ecb5e86eda6053aed0cf524
     ports:
       - "1883:1883" # MQTT port
     environment:
