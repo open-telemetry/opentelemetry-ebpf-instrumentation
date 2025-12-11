@@ -67,7 +67,7 @@ typedef struct connection_info_part {
     u8 __pad;
 } connection_info_part_t;
 
-static __always_inline void dbg_print_http_connection_info(connection_info_t *info) {
+static __always_inline void dbg_print_http_connection_info(const connection_info_t *info) {
     if (!k_bpf_debug) {
         return;
     }
