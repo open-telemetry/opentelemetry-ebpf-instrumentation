@@ -144,6 +144,19 @@ func isValidRDNS(ip string) bool {
 		ip != "::"
 }
 
+// parseK8sFQDN returns the service name and namespace from a Kubernetes FQDN.
+func parseK8sFQDN(fqdn string) (string, string) {
+	fqdn = strings.TrimSuffix(fqdn, ".")
+	base := trimSuffixIgnoreCase(fqdn, ".svc.cluster.local")
+	if base == fqdn {
+		return fqdn, "" // not a K8s FQDN
+	}
+	if parts := strings.SplitN(base, ".", 2); len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return base, ""
+}
+
 func (nr *NameResolver) resolveNames(span *request.Span) {
 	var hn, pn, ns string
 
@@ -154,7 +167,10 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 	if span.IsClientSpan() {
 		hn, span.OtherNamespace = nr.resolve(&span.Service, span.Host)
 		if hn == "" || hn == span.Host {
-			hn = request.HostFromSchemeHost(span)
+			hostHeader := request.HostFromSchemeHost(span)
+			if hostHeader != "" {
+				hn, span.OtherNamespace = parseK8sFQDN(hostHeader)
+			}
 		}
 		pn, ns = nr.resolve(&span.Service, span.Peer)
 		if pn == "" || pn == span.Peer {
