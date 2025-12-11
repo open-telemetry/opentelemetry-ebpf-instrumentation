@@ -215,7 +215,7 @@ func TestHostnameResolver_FullAndInternalAreLocalhost(t *testing.T) {
 	assert.Equal(t, shortName, short)
 }
 
-func TestHostnameResolver_FailureOnFistInvocation(t *testing.T) {
+func TestHostnameResolver_FailureOnFirstInvocation(t *testing.T) {
 	tests := []struct {
 		name          string
 		fqdn          func(string) (string, error)
