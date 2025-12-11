@@ -83,9 +83,6 @@ type EBPFTracer struct {
 	// Enables debug printing of the protocol data
 	ProtocolDebug bool `yaml:"protocol_debug_print" env:"OTEL_EBPF_PROTOCOL_DEBUG_PRINT" validate:"boolean"`
 
-	// Enables Java instrumentation with the OpenTelemetry JDK Agent
-	UseOTelSDKForJava bool `yaml:"use_otel_sdk_for_java" env:"OTEL_EBPF_USE_OTEL_SDK_FOR_JAVA" validate:"boolean"`
-
 	RedisDBCache RedisDBCacheConfig `yaml:"redis_db_cache"`
 
 	// Limit max data buffer size per protocol.

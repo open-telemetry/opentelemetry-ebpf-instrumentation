@@ -11,4 +11,3 @@ type SDKInjector struct{}
 
 func NewSDKInjector(_ any) *SDKInjector        { return nil }
 func (*SDKInjector) NewExecutable(_ any) error { return nil }
-func (*SDKInjector) Enabled() bool             { return false }
