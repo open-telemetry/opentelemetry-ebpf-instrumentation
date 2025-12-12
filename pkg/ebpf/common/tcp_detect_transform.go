@@ -178,6 +178,7 @@ func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req []byte, 
 		l = len(event.Rbuf)
 	}
 	resp = event.Rbuf[:l]
+
 	if event.HasLargeBuffers == 1 {
 		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, !event.IsServer), event.ConnInfo); ok {
 			req = b
