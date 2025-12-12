@@ -27,8 +27,7 @@ ns_pid_ppid(struct task_struct *task, int *pid, int *ppid, u32 *pid_ns_id) {
     bpf_probe_read_kernel(&upid, sizeof(upid), &ns_ppid->numbers[p_level]);
     *ppid = upid.nr;
 
-    struct ns_common ns = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns);
-    *pid_ns_id = ns.inum;
+    *pid_ns_id = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns.inum);
 }
 
 // sets the pid_info value from the current task
@@ -78,8 +77,7 @@ static __always_inline void task_tid(pid_key_t *tid) {
     tid->pid = (u32)upid.nr;
 
     // set PIDs namespace
-    struct ns_common ns = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns);
-    tid->ns = (u32)ns.inum;
+    tid->ns = (u32)BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns.inum);
 }
 
 static __always_inline u32 pid_from_pid_tgid(u64 id) {
