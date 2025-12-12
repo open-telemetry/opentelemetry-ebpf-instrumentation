@@ -128,7 +128,7 @@ func TestMultiProcessAppCP(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
-func TestMultiProcessAppCPNoIP(t *testing.T) {
+func TestMultiProcessAppCPHeadersOnly(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp-no-ip.log"))
 	require.NoError(t, err)
 
@@ -155,22 +155,6 @@ func TestMultiProcessAppCPTCPOnly(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	t.Run("Nested traces with TCP-only propagation", func(t *testing.T) {
-		testNestedHTTPTracesKProbes(t)
-	})
-
-	require.NoError(t, compose.Close())
-}
-
-func TestMultiProcessAppCPHeadersAndTCP(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp-headers-tcp.log"))
-	require.NoError(t, err)
-
-	// Test combined headers and TCP context propagation
-	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers,tcp`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`)
-
-	require.NoError(t, compose.Up())
-
-	t.Run("Nested traces with headers and TCP propagation", func(t *testing.T) {
 		testNestedHTTPTracesKProbes(t)
 	})
 

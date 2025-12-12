@@ -60,14 +60,14 @@ func TestContextPropagationMode_UnmarshalText(t *testing.T) {
 			want:  ContextPropagationHeaders | ContextPropagationIPOptions,
 		},
 		{
-			name:  "all three",
-			input: "headers,tcp,ip",
+			name:  "all two",
+			input: "headers,tcp",
 			want:  ContextPropagationAll,
 		},
 		{
 			name:  "with spaces",
 			input: " headers , tcp , ip ",
-			want:  ContextPropagationAll,
+			want:  ContextPropagationHeaders | ContextPropagationTCP | ContextPropagationIPOptions,
 		},
 		{
 			name:    "invalid value",
@@ -133,7 +133,7 @@ func TestContextPropagationMode_MarshalText(t *testing.T) {
 		{
 			name: "headers and tcp",
 			mode: ContextPropagationHeaders | ContextPropagationTCP,
-			want: "headers,tcp",
+			want: "all",
 		},
 		{
 			name: "tcp and ip",
@@ -177,7 +177,7 @@ func TestContextPropagationMode_HasMethods(t *testing.T) {
 			mode:          ContextPropagationAll,
 			wantHeaders:   true,
 			wantTCP:       true,
-			wantIPOptions: true,
+			wantIPOptions: false,
 			wantIsEnabled: true,
 		},
 		{
@@ -290,7 +290,7 @@ func TestContextPropagationMode_TracerLoading(t *testing.T) {
 			name:         "all",
 			mode:         ContextPropagationAll,
 			wantTPInject: true,
-			wantTCTracer: true,
+			wantTCTracer: false,
 		},
 		{
 			name:         "disabled",

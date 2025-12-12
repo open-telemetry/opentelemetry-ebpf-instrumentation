@@ -589,7 +589,7 @@ func TestWillUseTC(t *testing.T) {
 
 	env = envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "all"}
 	cfg = loadConfig(t, env)
-	assert.True(t, cfg.willUseTC())
+	assert.False(t, cfg.willUseTC())
 
 	env = envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "headers"}
 	cfg = loadConfig(t, env)
