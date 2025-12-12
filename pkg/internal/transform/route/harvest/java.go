@@ -13,10 +13,25 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/grafana/jvmtools/jvm"
 )
 
 type JavaRoutes struct {
-	log *slog.Logger
+	log      *slog.Logger
+	Attacher JavaAttacher
+}
+
+type JavaAttacher interface {
+	Init()
+	Cleanup()
+	Attach(pid int, argv []string) (io.ReadCloser, error)
+	IsJ9() bool
+}
+
+type RealJavaAttacher struct {
+	JavaAttacher
+	Attacher *jvm.JAttacher
 }
 
 const (
@@ -27,8 +42,10 @@ const (
 var validURLPath = regexp.MustCompile(`^[A-Za-z0-9\-_{}\./]+$`)
 
 func NewJavaRoutesHarvester() *JavaRoutes {
+	logger := slog.With("component", "route.harvester.java")
 	return &JavaRoutes{
-		log: slog.With("component", "route.harvester.java"),
+		log:      logger,
+		Attacher: RealJavaAttacher{Attacher: jvm.NewJAttacher(logger)},
 	}
 }
 
@@ -133,8 +150,13 @@ func (h *JavaRoutes) processSymbolLine(lineBytes []byte, routes []string) []stri
 }
 
 func (h *JavaRoutes) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
+	if h.Attacher.IsJ9() {
+		h.log.Info("route harvesting not supported for OpenJ9")
+		return &RouteHarvesterResult{Routes: nil, Kind: PartialRoutes}, nil
+	}
+
 	routes := []string{}
-	out, err := jvmAttachFunc(int(pid), []string{"jcmd", "VM.symboltable -verbose"}, h.log)
+	out, err := h.Attacher.Attach(int(pid), []string{"jcmd", "VM.symboltable -verbose"})
 	if err != nil {
 		return nil, err
 	}
@@ -163,4 +185,20 @@ func (h *JavaRoutes) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
 	h.log.Debug("java routes", "routes", routes)
 
 	return &RouteHarvesterResult{Routes: routes, Kind: PartialRoutes}, nil
+}
+
+func (j RealJavaAttacher) Init() {
+	j.Attacher.Init()
+}
+
+func (j RealJavaAttacher) Cleanup() {
+	j.Attacher.Cleanup()
+}
+
+func (j RealJavaAttacher) Attach(pid int, argv []string) (io.ReadCloser, error) {
+	return j.Attacher.Attach(pid, argv)
+}
+
+func (j RealJavaAttacher) IsJ9() bool {
+	return j.Attacher.IsJ9()
 }
