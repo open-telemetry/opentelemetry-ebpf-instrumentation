@@ -20,10 +20,10 @@ const (
 	ContextPropagationDisabled  ContextPropagationMode = 0
 	ContextPropagationHeaders   ContextPropagationMode = 1 << 0 // HTTP headers
 	ContextPropagationTCP       ContextPropagationMode = 1 << 1 // TCP options
-	ContextPropagationIPOptions ContextPropagationMode = 1 << 2 // IP options
+	ContextPropagationIPOptions ContextPropagationMode = 1 << 2 // IP options (dangerous)
 
 	// Convenience aliases
-	ContextPropagationAll = ContextPropagationHeaders | ContextPropagationTCP | ContextPropagationIPOptions
+	ContextPropagationAll = ContextPropagationHeaders | ContextPropagationTCP
 )
 
 // EBPFTracer configuration for eBPF programs
