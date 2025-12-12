@@ -29,13 +29,19 @@ enum {
     IPPROTO_DSTOPTS = 60,  // IPv6 destination options
 };
 
-enum { k_ip4_option_code = 0x88 };
-
-// use an experimental option value defined by RFC-4727
+// use experimental option values defined by RFC-4727
 // see https://www.rfc-editor.org/rfc/rfc4727.html#section-8
 // and https://www.rfc-editor.org/rfc/rfc8200#section-4.1
 // as each individual bit plays a role
-enum : u8 { k_ip6_option_code = 0x1e };
+enum : u8 {
+    k_ip4_option_code = 0x5e,
+    k_ip6_option_code = 0x1e,
+};
+
+enum {
+    k_tp_written_l7 = 1,
+    k_tp_written_tc = 2,
+};
 
 typedef struct ipv4_opt_t {
     u8 type;
