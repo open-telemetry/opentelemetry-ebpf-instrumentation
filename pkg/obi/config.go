@@ -119,7 +119,7 @@ var DefaultConfig = Config{
 		MaxTransactionTime: 5 * time.Minute,
 	},
 	NameResolver: &transform.NameResolverConfig{
-		Sources:  []string{"k8s"},
+		Sources:  []transform.Source{transform.SourceK8s},
 		CacheLen: 1024,
 		CacheTTL: 5 * time.Minute,
 	},

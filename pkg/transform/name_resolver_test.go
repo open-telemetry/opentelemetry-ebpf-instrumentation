@@ -56,7 +56,7 @@ func TestResolvePodsFromK8s(t *testing.T) {
 	nr := NameResolver{
 		db:      db,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
-		sources: resolverSources([]string{"dns", "k8s"}),
+		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
 	name, namespace := nr.resolveFromK8s("10.0.0.1")
@@ -127,7 +127,7 @@ func TestResolveServiceFromK8s(t *testing.T) {
 	nr := NameResolver{
 		db:      db,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
-		sources: resolverSources([]string{"dns", "k8s"}),
+		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
 	name, namespace := nr.resolveFromK8s("10.0.0.1")
@@ -279,7 +279,7 @@ func TestResolveNodesFromK8s(t *testing.T) {
 	nr := NameResolver{
 		db:      db,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
-		sources: resolverSources([]string{"dns", "k8s"}),
+		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
 	name, namespace := nr.resolveFromK8s("10.0.0.1")
@@ -350,7 +350,7 @@ func TestResolveClientFromHost(t *testing.T) {
 	nr := NameResolver{
 		db:      db,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
-		sources: resolverSources([]string{"k8s"}),
+		sources: resolverSources([]Source{SourceK8s}),
 	}
 
 	name, namespace := nr.resolveFromK8s("10.0.0.1")
@@ -430,7 +430,7 @@ func TestResolveClientFromHost_K8sFQDN(t *testing.T) {
 	nr := NameResolver{
 		db:      db,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
-		sources: resolverSources([]string{"k8s"}),
+		sources: resolverSources([]Source{SourceK8s}),
 	}
 
 	// Create a client span representing an HTTP call to a K8s Service

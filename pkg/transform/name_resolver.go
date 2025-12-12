@@ -29,25 +29,37 @@ func nrlog() *slog.Logger {
 	return slog.With("component", "transform.NameResolver")
 }
 
+type Source string
+
+const (
+	SourceDNS        Source = "dns"
+	SourceK8s        Source = "k8s"
+	SourceKube       Source = "kube"
+	SourceKubernetes Source = "kubernetes"
+	SourceRDNS       Source = "rdns"
+)
+
 const (
 	ResolverDNS = maps.Bits(1 << iota)
 	ResolverK8s
 	ResolverRDNS
 )
 
-func resolverSources(str []string) maps.Bits {
-	return maps.MappedBits(str, map[string]maps.Bits{
-		"dns":        ResolverDNS,
-		"k8s":        ResolverK8s,
-		"kube":       ResolverK8s,
-		"kubernetes": ResolverK8s,
-		"rdns":       ResolverRDNS,
-	}, maps.WithTransform(strings.ToLower))
+func resolverSources(src []Source) maps.Bits {
+	return maps.MappedBits(src, map[Source]maps.Bits{
+		SourceDNS:        ResolverDNS,
+		SourceK8s:        ResolverK8s,
+		SourceKube:       ResolverK8s,
+		SourceKubernetes: ResolverK8s,
+		SourceRDNS:       ResolverRDNS,
+	}, maps.WithTransform(func(s Source) Source {
+		return Source(strings.ToLower(string(s)))
+	}))
 }
 
 type NameResolverConfig struct {
-	// Sources for name resolving. Accepted values: dns, k8s
-	Sources []string `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:"," envDefault:"k8s"`
+	// Sources for name resolving. Accepted values: dns, k8s, rdns
+	Sources []Source `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:"," envDefault:"k8s"`
 	// CacheLen specifies the max size of the LRU cache that is checked before
 	// performing the name lookup. Default: 256
 	CacheLen int `yaml:"cache_len" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_LEN"`
