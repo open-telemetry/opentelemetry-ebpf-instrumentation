@@ -206,10 +206,10 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 	}
 	// don't set names if the peer and host names have been already decorated
 	// in a previous stage (e.g. Kubernetes decorator)
-	if pn != "" {
+	if pn != "" && span.PeerName == "" {
 		span.PeerName = pn
 	}
-	if hn != "" {
+	if hn != "" && span.HostName == "" {
 		span.HostName = hn
 	}
 }
