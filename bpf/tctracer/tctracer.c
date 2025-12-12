@@ -29,13 +29,19 @@ enum {
     IPPROTO_DSTOPTS = 60,  // IPv6 destination options
 };
 
-enum { k_ip4_option_code = 0x88 };
-
-// use an experimental option value defined by RFC-4727
+// use experimental option values defined by RFC-4727
 // see https://www.rfc-editor.org/rfc/rfc4727.html#section-8
 // and https://www.rfc-editor.org/rfc/rfc8200#section-4.1
 // as each individual bit plays a role
-enum : u8 { k_ip6_option_code = 0x1e };
+enum : u8 {
+    k_ip4_option_code = 0x5e,
+    k_ip6_option_code = 0x1e,
+};
+
+enum {
+    k_tp_written_l7 = 1,
+    k_tp_written_tc = 2,
+};
 
 typedef struct ipv4_opt_t {
     u8 type;
@@ -660,7 +666,7 @@ static __always_inline void inject_ip_options(struct __sk_buff *skb,
         return;
     }
 
-    if (tp->written) {
+    if (tp->written == k_tp_written_l7) {
         bpf_dbg_printk("tp already written by L7, not injecting IP options");
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
         return;
@@ -671,26 +677,28 @@ static __always_inline void inject_ip_options(struct __sk_buff *skb,
 
         inject_tc_ip_options_ipv6(skb, tp);
 
-        bpf_map_delete_elem(&outgoing_trace_map, &e_key);
+        tp->written = k_tp_written_tc;
     } else if (skb->protocol == bpf_htons(ETH_P_IP)) {
         bpf_dbg_printk("Adding the trace_id in the IP Options");
 
         inject_tc_ip_options_ipv4(skb, tp);
 
-        bpf_map_delete_elem(&outgoing_trace_map, &e_key);
+        if (tp->written != k_tp_written_tc) {
+            tp->written = k_tp_written_tc;
 
-        // We look up metadata setup by the Go uprobes or the kprobes on
-        // a transaction we consider outgoing HTTP request. We will extend this in
-        // the future for other protocols, e.g. gRPC/HTTP2.
-        // The metadata always comes setup with the state field valid = 1, which
-        // means we haven't seen this request yet.
-        // If it's the first packet of a request:
-        // We set the span information to match our TCP information. This
-        // is done for L4 context propagation, where we use the SEQ/ACK
-        // numbers for the Span ID. Since this is the first time we see
-        // these SEQ,ACK ids, we update the random Span ID the metadata has
-        // to match what we send over the wire.
-        update_outgoing_request_span_id(conn, &e_key, tp);
+            // We look up metadata setup by the Go uprobes or the kprobes on
+            // a transaction we consider outgoing HTTP request. We will extend this in
+            // the future for other protocols, e.g. gRPC/HTTP2.
+            // The metadata always comes setup with the state field valid = 1, which
+            // means we haven't seen this request yet.
+            // If it's the first packet of a request:
+            // We set the span information to match our TCP information. This
+            // is done for L4 context propagation, where we use the SEQ/ACK
+            // numbers for the Span ID. Since this is the first time we see
+            // these SEQ,ACK ids, we update the random Span ID the metadata has
+            // to match what we send over the wire.
+            update_outgoing_request_span_id(conn, &e_key, tp);
+        }
     }
 }
 
