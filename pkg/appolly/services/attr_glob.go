@@ -9,6 +9,8 @@ import (
 
 	"github.com/gobwas/glob"
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 )
 
 // GlobDefinitionCriteria allows defining a group of services to be instrumented according to a set
@@ -82,6 +84,9 @@ type GlobAttributes struct {
 	SamplerConfig *SamplerConfig `yaml:"sampler"`
 
 	Routes *CustomRoutesConfig `yaml:"routes"`
+
+	// MetricsConfig can define custom metrics configuration for this service
+	MetricsConfig perapp.MetricsConfig `yaml:"metrics"`
 }
 
 // GlobAttr provides a YAML handler for glob.Glob so the type can be parsed from YAML or environment variables
