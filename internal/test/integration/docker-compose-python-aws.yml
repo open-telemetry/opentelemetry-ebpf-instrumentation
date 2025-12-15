@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   localstack:
-    image: localstack/localstack:4.11@sha256:3071c9c72a1e9dbc23ad33540617ad7825ffeba80a8f421eff798b97850f9de5
+    image: localstack/localstack:4.12@sha256:0df3a97da57de03a588c05d9b8f390f15c7033fc7c4512f94619d344bc3cd317
     container_name: localstack
     ports:
       - "4566:4566"
