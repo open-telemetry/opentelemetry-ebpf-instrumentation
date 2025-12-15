@@ -178,10 +178,10 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 
 	if span.IsClientSpan() {
 		hn = span.HostName
-		resolvedHn, otherNs := nr.resolve(&span.Service, span.Host)
+		var resolvedHn string
+		resolvedHn, span.OtherNamespace = nr.resolve(&span.Service, span.Host)
 		if resolvedHn != "" && resolvedHn != span.Host {
 			hn = resolvedHn
-			span.OtherNamespace = otherNs
 		}
 		if hn == "" || hn == span.Host {
 			hostHeader := request.HostFromSchemeHost(span)
@@ -211,11 +211,11 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 	}
 	// don't set names if the peer and host names have been already decorated
 	// in a previous stage (e.g. Kubernetes decorator)
-	if hn != "" {
-		span.HostName = hn
-	}
 	if pn != "" {
 		span.PeerName = pn
+	}
+	if hn != "" {
+		span.HostName = hn
 	}
 }
 
