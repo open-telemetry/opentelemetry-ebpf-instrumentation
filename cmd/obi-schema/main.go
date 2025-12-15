@@ -31,10 +31,6 @@ import (
 // This is populated by scanning source files at startup.
 var enumRegistry = make(map[string][]any)
 
-// defaultValues maps "TypeName.PropertyName" to their default values from DefaultConfig.
-// TypeName is the struct type name, PropertyName is the field name.
-var defaultValues = make(map[string]any)
-
 func init() {
 	// Find the module root by looking for go.mod
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -69,9 +65,6 @@ func init() {
 			fmt.Fprintf(os.Stderr, "Warning: error scanning %s: %v\n", pkg, err)
 		}
 	}
-
-	// Extract default values from DefaultConfig
-	//extractDefaults(reflect.ValueOf(obi.DefaultConfig))
 }
 
 func findModuleRoot(start string) string {
@@ -181,184 +174,6 @@ func extractConstValueAndType(expr ast.Expr, inheritedType string) (typeName str
 	return "", nil
 }
 
-// extractDefaults recursively extracts default values from a struct value.
-// It populates the defaultValues map with "TypeName.PropertyName" as keys.
-func extractDefaults(v reflect.Value) {
-	// Handle pointers by dereferencing
-	if v.Kind() == reflect.Ptr {
-		if v.IsNil() {
-			return
-		}
-		v = v.Elem()
-	}
-
-	// Only process structs
-	if v.Kind() != reflect.Struct {
-		return
-	}
-
-	t := v.Type()
-	typeName := t.Name()
-
-	for i := 0; i < v.NumField(); i++ {
-		field := t.Field(i)
-		fieldValue := v.Field(i)
-
-		// Skip unexported fields
-		if !field.IsExported() {
-			continue
-		}
-
-		// Get the property name (matching jsonschema library behavior)
-		propName := getFieldName(field)
-		if propName == "" {
-			continue
-		}
-
-		// Build the key as "TypeName.PropertyName"
-		key := typeName + "." + propName
-
-		// Store default value based on field type
-		storeDefaultValue(key, fieldValue, field.Type)
-
-		// Recursively process nested structs
-		actualValue := fieldValue
-		actualType := field.Type
-		if actualValue.Kind() == reflect.Ptr {
-			if !actualValue.IsNil() {
-				actualValue = actualValue.Elem()
-				actualType = actualType.Elem()
-			} else {
-				continue
-			}
-		}
-		//if actualValue.Kind() == reflect.Struct && !isSpecialType(actualType) {
-		//	extractDefaults(fieldValue)
-		//}
-	}
-}
-
-// getFieldName returns the schema property name for a struct field.
-// This matches the behavior of invopop/jsonschema: use json tag if present,
-// otherwise use the struct field name.
-func getFieldName(field reflect.StructField) string {
-	// Check json tag first (matching jsonschema library behavior)
-	if tag := field.Tag.Get("json"); tag != "" {
-		parts := strings.Split(tag, ",")
-		if parts[0] != "" && parts[0] != "-" {
-			return parts[0]
-		}
-		if parts[0] == "-" {
-			return ""
-		}
-	}
-	// Fall back to struct field name (jsonschema library default)
-	return field.Name
-}
-
-// isSpecialType returns true for types that should be treated as leaf values.
-// func isSpecialType(t reflect.Type) bool {
-// 	// Handle time.Duration specially
-// 	if t == reflect.TypeOf(time.Duration(0)) {
-// 		return true
-// 	}
-// 	// Handle time.Time specially
-// 	if t == reflect.TypeOf(time.Time{}) {
-// 		return true
-// 	}
-// 	return false
-// }
-
-// storeDefaultValue stores the default value for a field if it's non-zero.
-func storeDefaultValue(path string, v reflect.Value, t reflect.Type) {
-	// Handle pointers
-	if v.Kind() == reflect.Ptr {
-		if v.IsNil() {
-			return
-		}
-		v = v.Elem()
-		t = t.Elem()
-	}
-
-	// Skip zero values (we only want actual defaults)
-	if v.IsZero() {
-		return
-	}
-
-	// Convert to JSON-friendly value
-	var value any
-	switch v.Kind() {
-	case reflect.String:
-		value = v.String()
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		// Special handling for time.Duration
-		if t == reflect.TypeOf(time.Duration(0)) {
-			value = time.Duration(v.Int()).String()
-		} else {
-			value = v.Int()
-		}
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		value = v.Uint()
-	case reflect.Float32, reflect.Float64:
-		value = v.Float()
-	case reflect.Bool:
-		value = v.Bool()
-	case reflect.Slice:
-		if v.Len() > 0 {
-			slice := make([]any, v.Len())
-			for i := 0; i < v.Len(); i++ {
-				elem := v.Index(i)
-				if elem.Kind() == reflect.String {
-					slice[i] = elem.String()
-				} else if elem.CanInterface() {
-					slice[i] = fmt.Sprintf("%v", elem.Interface())
-				}
-			}
-			value = slice
-		}
-	default:
-		// For complex types, skip for now
-		return
-	}
-
-	if value != nil {
-		defaultValues[path] = value
-	}
-}
-
-// applyDefaults applies default values to the generated schema.
-func applyDefaults(schema *jsonschema.Schema) {
-	// Apply defaults to the root schema (Config type)
-	applyDefaultsToSchema(schema, "Config")
-
-	// Apply defaults to all definitions
-	for defName, defSchema := range schema.Definitions {
-		applyDefaultsToSchema(defSchema, defName)
-	}
-}
-
-// applyDefaultsToSchema applies defaults to schema properties.
-// typeName is the struct type name that this schema corresponds to.
-func applyDefaultsToSchema(schema *jsonschema.Schema, typeName string) {
-	if schema == nil || schema.Properties == nil {
-		return
-	}
-
-	// Process properties in this schema
-	for pair := schema.Properties.Oldest(); pair != nil; pair = pair.Next() {
-		propName := pair.Key
-		propSchema := pair.Value
-
-		// Build the key as "TypeName.PropertyName"
-		key := typeName + "." + propName
-
-		// Apply default if we have one
-		if defaultVal, ok := defaultValues[key]; ok {
-			propSchema.Default = defaultVal
-		}
-	}
-}
-
 func main() {
 	outputFile := flag.String("output", "", "Output file path (default: stdout)")
 	flag.Parse()
@@ -376,9 +191,6 @@ func main() {
 	schema := reflector.Reflect(&obi.Config{})
 	schema.Title = "OBI Configuration Schema"
 	schema.Description = "JSON Schema for OpenTelemetry eBPF Instrumentation (OBI) configuration"
-
-	// Apply default values from DefaultConfig
-	applyDefaults(schema)
 
 	data, err := json.MarshalIndent(schema, "", "  ")
 	if err != nil {
