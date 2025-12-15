@@ -25,8 +25,7 @@ type JavaRoutes struct {
 type JavaAttacher interface {
 	Init()
 	Cleanup()
-	Attach(pid int, argv []string) (io.ReadCloser, error)
-	IsJ9() bool
+	Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error)
 }
 
 type RealJavaAttacher struct {
@@ -150,15 +149,15 @@ func (h *JavaRoutes) processSymbolLine(lineBytes []byte, routes []string) []stri
 }
 
 func (h *JavaRoutes) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
-	if h.Attacher.IsJ9() {
-		h.log.Info("route harvesting not supported for OpenJ9")
-		return &RouteHarvesterResult{Routes: nil, Kind: PartialRoutes}, nil
-	}
-
 	routes := []string{}
-	out, err := h.Attacher.Attach(int(pid), []string{"jcmd", "VM.symboltable -verbose"})
+	out, err := h.Attacher.Attach(int(pid), []string{"jcmd", "VM.symboltable -verbose"}, true)
 	if err != nil {
 		return nil, err
+	}
+
+	if out == nil {
+		h.log.Info("route harvesting not supported on this JVM")
+		return &RouteHarvesterResult{Routes: nil, Kind: PartialRoutes}, nil
 	}
 
 	defer out.Close()
@@ -195,10 +194,6 @@ func (j RealJavaAttacher) Cleanup() {
 	j.Attacher.Cleanup()
 }
 
-func (j RealJavaAttacher) Attach(pid int, argv []string) (io.ReadCloser, error) {
-	return j.Attacher.Attach(pid, argv)
-}
-
-func (j RealJavaAttacher) IsJ9() bool {
-	return j.Attacher.IsJ9()
+func (j RealJavaAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
+	return j.Attacher.Attach(pid, argv, ignoreOnJ9)
 }

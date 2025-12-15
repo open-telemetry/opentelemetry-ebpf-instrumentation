@@ -404,7 +404,7 @@ func TestJavaRoutes_ExtractRoutes(t *testing.T) {
 	// This test simulates the entire flow without mocking
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			harvester.Attacher = FakeJavaAttacher{attachFunc: func(pid int, argv []string) (io.ReadCloser, error) {
+			harvester.Attacher = FakeJavaAttacher{attachFunc: func(pid int, argv []string, _ bool) (io.ReadCloser, error) {
 				assert.Equal(t, int(tt.pid), pid)
 				assert.Equal(t, []string{"jcmd", "VM.symboltable -verbose"}, argv)
 
@@ -434,7 +434,7 @@ func TestJavaRoutes_ExtractRoutes_Integration(t *testing.T) {
 	harvester := NewJavaRoutesHarvester()
 
 	// This test simulates the entire flow without mocking
-	harvester.Attacher = FakeJavaAttacher{attachFunc: func(pid int, argv []string) (io.ReadCloser, error) {
+	harvester.Attacher = FakeJavaAttacher{attachFunc: func(pid int, argv []string, _ bool) (io.ReadCloser, error) {
 		symbolTableOutput := `Symbol table:
 Header: ...
 17: /api/users
@@ -606,7 +606,7 @@ func NewReaderCloser(r io.Reader) *ReaderCloser {
 
 type FakeJavaAttacher struct {
 	JavaAttacher
-	attachFunc func(pid int, argv []string) (io.ReadCloser, error)
+	attachFunc func(int, []string, bool) (io.ReadCloser, error)
 }
 
 func (j FakeJavaAttacher) Init() {
@@ -615,10 +615,6 @@ func (j FakeJavaAttacher) Init() {
 func (j FakeJavaAttacher) Cleanup() {
 }
 
-func (j FakeJavaAttacher) Attach(pid int, argv []string) (io.ReadCloser, error) {
-	return j.attachFunc(pid, argv)
-}
-
-func (j FakeJavaAttacher) IsJ9() bool {
-	return false
+func (j FakeJavaAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
+	return j.attachFunc(pid, argv, ignoreOnJ9)
 }
