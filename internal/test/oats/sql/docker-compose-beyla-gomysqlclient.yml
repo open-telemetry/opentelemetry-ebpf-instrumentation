@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   mysqlserver:
-    image: mysql:8.0
+    image: mysql:8.0@sha256:0275a35e79c60caae68fac520602d9f6897feb9b0941a1471196b1a01760e581
     environment:
       MYSQL_ROOT_PASSWORD: mysql
       MYSQL_DATABASE: sqltest
