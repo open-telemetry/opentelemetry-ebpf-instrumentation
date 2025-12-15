@@ -514,3 +514,24 @@ check-ebpf-ver-synced:
 		echo "ebpf lib version out of sync between go.mod and bpf/bpfcore/placeholder.go!"; \
 		exit 1; \
 	fi
+
+CONFIG_SCHEMA_FILE ?= docs/config-schema.json
+
+.PHONY: generate-config-schema
+generate-config-schema:
+	@echo "### Generating JSON schema for OBI configuration"
+	@mkdir -p $(dir $(CONFIG_SCHEMA_FILE))
+	go run ./cmd/obi-schema -output $(CONFIG_SCHEMA_FILE)
+
+.PHONY: check-config-schema
+check-config-schema:
+	@echo "### Checking if JSON schema is up-to-date"
+	@mkdir -p $(dir $(CONFIG_SCHEMA_FILE))
+	@go run ./cmd/obi-schema -output $(CONFIG_SCHEMA_FILE).tmp
+	@if ! diff -q $(CONFIG_SCHEMA_FILE) $(CONFIG_SCHEMA_FILE).tmp > /dev/null 2>&1; then \
+		echo "JSON schema is out of date. Run 'make generate-config-schema' to update it."; \
+		rm -f $(CONFIG_SCHEMA_FILE).tmp; \
+		exit 1; \
+	fi
+	@rm -f $(CONFIG_SCHEMA_FILE).tmp
+	@echo "JSON schema is up-to-date"
