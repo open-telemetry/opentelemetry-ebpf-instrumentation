@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -33,6 +35,10 @@ func (d dummyCriterion) GetNamespace() string                                   
 func (d dummyCriterion) GetExportModes() services.ExportModes                           { return d.export }
 func (d dummyCriterion) GetSamplerConfig() *services.SamplerConfig                      { return d.sampler }
 func (d dummyCriterion) GetRoutesConfig() *services.CustomRoutesConfig                  { return d.routes }
+
+func (d dummyCriterion) MetricsConfig() perapp.SvcMetricsConfig {
+	return perapp.SvcMetricsConfig{Features: export.FeatureApplicationRED}
+}
 
 func TestMakeServiceAttrs(t *testing.T) {
 	pi := services.ProcessInfo{Pid: 1234}
