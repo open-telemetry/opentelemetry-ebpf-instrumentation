@@ -46,7 +46,7 @@ static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
     // Read the type pointer (at ci_offset + 0) to validate driver type
     void *ci_type_ptr = NULL;
     int res =
-        bpf_probe_read(&ci_type_ptr, sizeof(ci_type_ptr), (void *)(driver_conn_ptr + ci_offset));
+        bpf_probe_read_user(&ci_type_ptr, sizeof(ci_type_ptr), (void *)(driver_conn_ptr + ci_offset));
 
     if (res || !ci_type_ptr) {
         bpf_dbg_printk("can't read driverConn.ci type pointer");
