@@ -5,9 +5,10 @@ package config
 
 import (
 	"fmt"
-	"github.com/invopop/jsonschema"
 	"strings"
 	"time"
+
+	"github.com/invopop/jsonschema"
 )
 
 type ContextPropagationMode uint8
@@ -24,11 +25,11 @@ const (
 	ContextPropagationIPOptions ContextPropagationMode = 1 << 2 // IP options (dangerous)
 
 	// Convenience aliases
-	ContextPropagationAll = ContextPropagationHeaders | ContextPropagationTCP
+	ContextPropagationAll           = ContextPropagationHeaders | ContextPropagationTCP
 	ContextPropagationDisabledText  = "disabled"
 	ContextPropagationAllText       = "all"
 	ContextPropagationHeadersText   = "headers"
-	ContextPropagationHttpText      = "http"
+	ContextPropagationHTTPText      = "http"
 	ContextPropagationTCPText       = "tcp"
 	ContextPropagationIPOptionsText = "ip"
 )
@@ -167,7 +168,7 @@ func (m *ContextPropagationMode) UnmarshalText(text []byte) error {
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		switch part {
-		case ContextPropagationHeadersText, ContextPropagationHttpText:
+		case ContextPropagationHeadersText, ContextPropagationHTTPText:
 			result |= ContextPropagationHeaders
 		case ContextPropagationTCPText:
 			result |= ContextPropagationTCP
@@ -222,7 +223,7 @@ func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
 				Type: "array",
 				Items: &jsonschema.Schema{
 					Type: "string",
-					Enum: []any{ContextPropagationHeadersText, ContextPropagationHttpText, ContextPropagationTCPText, ContextPropagationIPOptionsText},
+					Enum: []any{ContextPropagationHeadersText, ContextPropagationHTTPText, ContextPropagationTCPText, ContextPropagationIPOptionsText},
 				},
 				MinItems:    &minItems,
 				UniqueItems: true,
