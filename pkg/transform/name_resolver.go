@@ -177,7 +177,12 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 	}
 
 	if span.IsClientSpan() {
-		hn, span.OtherNamespace = nr.resolve(&span.Service, span.Host)
+		hn = span.HostName
+		resolvedHn, otherNs := nr.resolve(&span.Service, span.Host)
+		if resolvedHn != "" && resolvedHn != span.Host {
+			hn = resolvedHn
+			span.OtherNamespace = otherNs
+		}
 		if hn == "" || hn == span.Host {
 			hostHeader := request.HostFromSchemeHost(span)
 			if hostHeader != "" {
@@ -206,14 +211,16 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 	}
 	// don't set names if the peer and host names have been already decorated
 	// in a previous stage (e.g. Kubernetes decorator)
-	if pn != "" && span.PeerName == "" {
-		span.PeerName = pn
-	}
-	if hn != "" && span.HostName == "" {
+	if hn != "" {
 		span.HostName = hn
+	}
+	if pn != "" {
+		span.PeerName = pn
 	}
 }
 
+// resolve attempts to resolve an IP address to a hostname using available resolution methods.
+// If resolution fails (no K8s metadata, no DNS/RDNS entry), it returns the IP itself.
 func (nr *NameResolver) resolve(svc *svc.Attrs, ip string) (string, string) {
 	var name, ns string
 

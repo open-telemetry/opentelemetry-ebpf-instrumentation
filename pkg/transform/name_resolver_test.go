@@ -455,3 +455,33 @@ func TestResolveClientFromHost_K8sFQDN(t *testing.T) {
 	assert.Equal(t, "bar-server", clientSpan.HostName)
 	assert.Equal(t, "bar-ns", clientSpan.OtherNamespace)
 }
+
+func TestPreserveBPFHostnameWhenResolutionFails(t *testing.T) {
+	inf := &fakeInformer{}
+	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+
+	nr := NameResolver{
+		db:      db,
+		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		sources: resolverSources([]string{"k8s"}),
+		logger:  nrlog(),
+	}
+
+	sqlClientSpan := request.Span{
+		Type:     request.EventTypeSQLClient,
+		Peer:     "10.0.1.1",
+		Host:     "172.18.0.5",
+		HostName: "mysqlserver",
+		Service: svc.Attrs{
+			UID: svc.UID{
+				Name:      "myapp",
+				Namespace: "default",
+			},
+		},
+	}
+
+	nr.resolveNames(&sqlClientSpan)
+
+	assert.Equal(t, "mysqlserver", sqlClientSpan.HostName)
+	assert.Empty(t, sqlClientSpan.OtherNamespace)
+}
