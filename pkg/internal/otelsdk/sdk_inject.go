@@ -128,7 +128,11 @@ func (i *SDKInjector) attachJDKAgent(pid int32, path string) error {
 	defer runtime.UnlockOSThread()
 	attacher := jvm.NewJAttacher(i.log)
 	attacher.Init()
-	defer attacher.Cleanup()
+	defer func() {
+		if err := attacher.Cleanup(); err != nil {
+			slog.Warn("error on JVM attach cleanup", "error", err)
+		}
+	}()
 
 	out, err := attacher.Attach(int(pid), []string{"load", "instrument", "false", path}, false)
 	if err != nil {
@@ -159,7 +163,11 @@ func (i *SDKInjector) jdkAgentAlreadyLoaded(pid int32) (bool, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	attacher.Init()
-	defer attacher.Cleanup()
+	defer func() {
+		if err := attacher.Cleanup(); err != nil {
+			slog.Warn("error on JVM attach cleanup", "error", err)
+		}
+	}()
 
 	// OpenJ9 doesn't support listing loaded classes
 	out, err := attacher.Attach(int(pid), []string{"jcmd", "VM.class_hierarchy"}, true)
@@ -188,7 +196,11 @@ func (i *SDKInjector) verifyJVMVersion(pid int32) bool {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	attacher.Init()
-	defer attacher.Cleanup()
+	defer func() {
+		if err := attacher.Cleanup(); err != nil {
+			slog.Warn("error on JVM attach cleanup", "error", err)
+		}
+	}()
 
 	// OpenJ9 doesn't support VM.version command
 	out, err := attacher.Attach(int(pid), []string{"jcmd", "VM.version"}, true)

@@ -31,6 +31,7 @@ type JavaAttacher interface {
 type RealJavaAttacher struct {
 	JavaAttacher
 	Attacher *jvm.JAttacher
+	logger   *slog.Logger
 }
 
 const (
@@ -44,7 +45,7 @@ func NewJavaRoutesHarvester() *JavaRoutes {
 	logger := slog.With("component", "route.harvester.java")
 	return &JavaRoutes{
 		log:      logger,
-		Attacher: RealJavaAttacher{Attacher: jvm.NewJAttacher(logger)},
+		Attacher: RealJavaAttacher{Attacher: jvm.NewJAttacher(logger), logger: logger},
 	}
 }
 
@@ -191,7 +192,9 @@ func (j RealJavaAttacher) Init() {
 }
 
 func (j RealJavaAttacher) Cleanup() {
-	j.Attacher.Cleanup()
+	if err := j.Attacher.Cleanup(); err != nil {
+		j.logger.Warn("error on JVM attach cleanup", "error", err)
+	}
 }
 
 func (j RealJavaAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {

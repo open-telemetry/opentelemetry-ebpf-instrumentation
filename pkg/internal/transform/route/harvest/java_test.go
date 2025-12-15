@@ -434,7 +434,7 @@ func TestJavaRoutes_ExtractRoutes_Integration(t *testing.T) {
 	harvester := NewJavaRoutesHarvester()
 
 	// This test simulates the entire flow without mocking
-	harvester.Attacher = FakeJavaAttacher{attachFunc: func(pid int, argv []string, _ bool) (io.ReadCloser, error) {
+	harvester.Attacher = FakeJavaAttacher{attachFunc: func(_ int, _ []string, _ bool) (io.ReadCloser, error) {
 		symbolTableOutput := `Symbol table:
 Header: ...
 17: /api/users
@@ -449,7 +449,6 @@ Header: ...
 110: /static/{filename}
 `
 		return NewReaderCloser(strings.NewReader(symbolTableOutput)), nil
-
 	}}
 
 	result, err := harvester.ExtractRoutes(1234)
