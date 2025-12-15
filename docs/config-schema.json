@@ -153,15 +153,18 @@
       "properties": {
         "Services": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
-          "description": "Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically\nadded to the services definition criteria, with the lowest preference.\nDeprecated: Use Instrument instead"
+          "description": "Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically\nadded to the services definition criteria, with the lowest preference.\nUse Instrument instead",
+          "deprecated": true
         },
         "ExcludeServices": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
-          "description": "ExcludeServices works analogously to Services, but the applications matching this section won't be instrumented\neven if they match the Services selection.\nDeprecated: Use ExcludeInstrument instead"
+          "description": "ExcludeServices works analogously to Services, but the applications matching this section won't be instrumented\neven if they match the Services selection.\nUse ExcludeInstrument instead",
+          "deprecated": true
         },
         "DefaultExcludeServices": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
-          "description": "DefaultExcludeServices by default prevents self-instrumentation of Beyla as well as related services (Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired.\nDeprecated: Use DefaultExcludeInstrument instead"
+          "description": "DefaultExcludeServices by default prevents self-instrumentation of Beyla as well as related services (Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired.\nUse DefaultExcludeInstrument instead",
+          "deprecated": true
         },
         "Instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
@@ -401,11 +404,13 @@
       "properties": {
         "Name": {
           "type": "string",
-          "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\nDeprecated: Name should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it."
+          "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\nName should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
+          "deprecated": true
         },
         "Namespace": {
           "type": "string",
-          "description": "Namespace will define a namespace for the matching service. If unset, it will be left empty.\nDeprecated: Namespace should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it."
+          "description": "Namespace will define a namespace for the matching service. If unset, it will be left empty.\nNamespace should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
+          "deprecated": true
         },
         "OpenPorts": {
           "$ref": "#/$defs/PortEnum",
@@ -622,7 +627,8 @@
         },
         "MetaSourceLabels": {
           "$ref": "#/$defs/MetaSourceLabels",
-          "description": "MetaSourceLabels allows Beyla overriding the service name and namespace of an application from\nthe given labels.\nDeprecated: kept for backwards-compatibility with Beyla 1.9"
+          "description": "MetaSourceLabels allows Beyla overriding the service name and namespace of an application from\nthe given labels.\nkept for backwards-compatibility with Beyla 1.9",
+          "deprecated": true
         },
         "ResourceLabels": {
           "$ref": "#/$defs/ResourceLabels",
@@ -721,7 +727,8 @@
         },
         "DeprFeatures": {
           "type": "integer",
-          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nenvDefault is provided to avoid breaking changes\nDeprecated: use top-level MetricsConfig.Features instead."
+          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nenvDefault is provided to avoid breaking changes\nuse top-level MetricsConfig.Features instead.",
+          "deprecated": true
         },
         "Instrumentations": {
           "items": {
@@ -802,7 +809,8 @@
       "properties": {
         "Enable": {
           "type": "boolean",
-          "description": "Enable network metrics.\nDefault value is false (disabled)\nDeprecated: add \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES\nTODO OBI 3.0: remove"
+          "description": "Enable network metrics.\nDefault value is false (disabled)\nadd \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES\nTODO OBI 3.0: remove",
+          "deprecated": true
         },
         "Source": {
           "type": "string",
@@ -966,7 +974,8 @@
         },
         "DeprFeatures": {
           "type": "integer",
-          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nDeprecated: use top-level MetricsConfig.Features instead."
+          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nuse top-level MetricsConfig.Features instead.",
+          "deprecated": true
         },
         "Instrumentations": {
           "items": {
@@ -1049,11 +1058,13 @@
       "properties": {
         "Name": {
           "type": "string",
-          "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\nDeprecated: Name should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it."
+          "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\nName should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
+          "deprecated": true
         },
         "Namespace": {
           "type": "string",
-          "description": "Namespace will define a namespace for the matching service. If unset, it will be left empty.\nDeprecated: Namespace should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it."
+          "description": "Namespace will define a namespace for the matching service. If unset, it will be left empty.\nNamespace should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
+          "deprecated": true
         },
         "OpenPorts": {
           "$ref": "#/$defs/PortEnum",
@@ -1065,7 +1076,8 @@
         },
         "PathRegexp": {
           "$ref": "#/$defs/RegexpAttr",
-          "description": "PathRegexp is deprecated but kept here for backwards compatibility with Beyla 1.0.x.\nDeprecated. Please use Path (exe_path YAML attribute)"
+          "description": "PathRegexp is deprecated but kept here for backwards compatibility with Beyla 1.0.x.\nPlease use Path (exe_path YAML attribute)",
+          "deprecated": true
         },
         "Metadata": {
           "additionalProperties": {
@@ -1180,11 +1192,13 @@
             "type": "string"
           },
           "type": "array",
-          "description": "Deprecated. To be removed and replaced by a collector-like filtering mechanism"
+          "description": "To be removed and replaced by a collector-like filtering mechanism",
+          "deprecated": true
         },
         "IgnoredEvents": {
           "type": "string",
-          "description": "Deprecated. To be removed and replaced by a collector-like filtering mechanism"
+          "description": "To be removed and replaced by a collector-like filtering mechanism",
+          "deprecated": true
         },
         "WildcardChar": {
           "type": "string",
@@ -1374,7 +1388,8 @@
     },
     "Exec": {
       "$ref": "#/$defs/RegexpAttr",
-      "description": "Exec allows selecting the instrumented executable whose complete path contains the Exec value.\nDeprecated: Use OTEL_EBPF_AUTO_TARGET_EXE"
+      "description": "Exec allows selecting the instrumented executable whose complete path contains the Exec value.\nUse OTEL_EBPF_AUTO_TARGET_EXE",
+      "deprecated": true
     },
     "AutoTargetExe": {
       "$ref": "#/$defs/GlobAttr",
@@ -1386,11 +1401,13 @@
     },
     "ServiceName": {
       "type": "string",
-      "description": "ServiceName is taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility)\nUsing env and envDefault is a trick to get the value either from one of either variables.\nDeprecated: Service name should be set in the instrumentation target (env vars, kube metadata...)\nas this is a reminiscence of past times when we only supported one executable per instance."
+      "description": "ServiceName is taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility)\nUsing env and envDefault is a trick to get the value either from one of either variables.\nService name should be set in the instrumentation target (env vars, kube metadata...)\nas this is a reminiscence of past times when we only supported one executable per instance.",
+      "deprecated": true
     },
     "ServiceNamespace": {
       "type": "string",
-      "description": "Deprecated: Service namespace should be set in the instrumentation target (env vars, kube metadata...)\nas this is a reminiscence of past times when we only supported one executable per instance."
+      "description": "Service namespace should be set in the instrumentation target (env vars, kube metadata...)\nas this is a reminiscence of past times when we only supported one executable per instance.",
+      "deprecated": true
     },
     "Metrics": {
       "$ref": "#/$defs/MetricsConfig",

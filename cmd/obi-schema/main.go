@@ -192,6 +192,9 @@ func main() {
 	schema.Title = "OBI Configuration Schema"
 	schema.Description = "JSON Schema for OpenTelemetry eBPF Instrumentation (OBI) configuration"
 
+	// Process deprecated annotations from comments
+	processDeprecated(schema)
+
 	data, err := json.MarshalIndent(schema, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error marshaling schema: %v\n", err)
@@ -206,6 +209,126 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Schema written to %s\n", *outputFile)
 	} else {
 		fmt.Println(string(data))
+	}
+}
+
+// processDeprecated walks through all schemas and extracts "Deprecated:" from
+// descriptions, setting the Deprecated field accordingly.
+func processDeprecated(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+
+	// Process the schema's own description
+	processSchemaDeprecation(schema)
+
+	// Process properties
+	if schema.Properties != nil {
+		for pair := schema.Properties.Oldest(); pair != nil; pair = pair.Next() {
+			processDeprecated(pair.Value)
+		}
+	}
+
+	// Process definitions
+	for _, defSchema := range schema.Definitions {
+		processDeprecated(defSchema)
+	}
+
+	// Process nested schemas
+	for _, s := range schema.AllOf {
+		processDeprecated(s)
+	}
+	for _, s := range schema.AnyOf {
+		processDeprecated(s)
+	}
+	for _, s := range schema.OneOf {
+		processDeprecated(s)
+	}
+	processDeprecated(schema.Not)
+	processDeprecated(schema.If)
+	processDeprecated(schema.Then)
+	processDeprecated(schema.Else)
+	processDeprecated(schema.Items)
+	processDeprecated(schema.Contains)
+	processDeprecated(schema.AdditionalProperties)
+	for _, s := range schema.PrefixItems {
+		processDeprecated(s)
+	}
+	for _, s := range schema.PatternProperties {
+		processDeprecated(s)
+	}
+	for _, s := range schema.DependentSchemas {
+		processDeprecated(s)
+	}
+}
+
+// processSchemaDeprecation checks if a schema's description contains
+// "Deprecated:" and sets the Deprecated field accordingly.
+func processSchemaDeprecation(schema *jsonschema.Schema) {
+	if schema == nil || schema.Description == "" {
+		return
+	}
+
+	desc := schema.Description
+	lowerDesc := strings.ToLower(desc)
+
+	// Check for "Deprecated:" at the start of the description
+	if strings.HasPrefix(lowerDesc, "deprecated:") {
+		schema.Deprecated = true
+		schema.Description = strings.TrimSpace(desc[len("deprecated:"):])
+		return
+	}
+	if strings.HasPrefix(lowerDesc, "deprecated.") {
+		schema.Deprecated = true
+		schema.Description = strings.TrimSpace(desc[len("deprecated."):])
+		return
+	}
+	if lowerDesc == "deprecated" {
+		schema.Deprecated = true
+		schema.Description = ""
+		return
+	}
+
+	// Check for "Deprecated:" at the start of any line (for multi-line comments)
+	lines := strings.Split(desc, "\n")
+	for i, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		lowerLine := strings.ToLower(trimmedLine)
+
+		if strings.HasPrefix(lowerLine, "deprecated:") {
+			schema.Deprecated = true
+			// Remove the deprecated line and merge remaining content
+			deprecationMsg := strings.TrimSpace(trimmedLine[len("deprecated:"):])
+			// Keep lines before, skip the "Deprecated:" line, keep lines after
+			var newLines []string
+			newLines = append(newLines, lines[:i]...)
+			if deprecationMsg != "" {
+				newLines = append(newLines, deprecationMsg)
+			}
+			newLines = append(newLines, lines[i+1:]...)
+			schema.Description = strings.TrimSpace(strings.Join(newLines, "\n"))
+			return
+		}
+		if strings.HasPrefix(lowerLine, "deprecated.") {
+			schema.Deprecated = true
+			deprecationMsg := strings.TrimSpace(trimmedLine[len("deprecated."):])
+			var newLines []string
+			newLines = append(newLines, lines[:i]...)
+			if deprecationMsg != "" {
+				newLines = append(newLines, deprecationMsg)
+			}
+			newLines = append(newLines, lines[i+1:]...)
+			schema.Description = strings.TrimSpace(strings.Join(newLines, "\n"))
+			return
+		}
+		if lowerLine == "deprecated" {
+			schema.Deprecated = true
+			var newLines []string
+			newLines = append(newLines, lines[:i]...)
+			newLines = append(newLines, lines[i+1:]...)
+			schema.Description = strings.TrimSpace(strings.Join(newLines, "\n"))
+			return
+		}
 	}
 }
 
