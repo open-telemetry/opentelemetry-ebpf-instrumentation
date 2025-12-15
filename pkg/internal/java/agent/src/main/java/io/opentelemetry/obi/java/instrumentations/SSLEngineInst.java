@@ -70,6 +70,9 @@ public class SSLEngineInst {
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer dst) {
+      if (engine == null || dst == null) {
+        return;
+      }
       if (engine.getSession().getId().length == 0) {
         return;
       }
@@ -84,6 +87,10 @@ public class SSLEngineInst {
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
       Connection c = SSLStorage.getConnectionForSession(engine);
+
+      if (src == null || dst == null) {
+        return;
+      }
 
       if (c == null) {
         String bufKey = ByteBufferExtractor.keyFromUsedBuffer(src);
@@ -141,6 +148,9 @@ public class SSLEngineInst {
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer[] dsts) {
+      if (engine == null || dsts == null) {
+        return;
+      }
       if (dsts.length == 0 || engine.getSession().getId().length == 0) {
         return;
       }
@@ -158,6 +168,9 @@ public class SSLEngineInst {
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer[] dsts,
         @Advice.Return SSLEngineResult result) {
+      if (engine == null || dsts == null) {
+        return;
+      }
       Connection c = SSLStorage.getConnectionForSession(engine);
 
       if (c == null) {
@@ -225,6 +238,9 @@ public class SSLEngineInst {
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer src) {
+      if (engine == null || src == null) {
+        return;
+      }
       if (engine.getSession().getId().length == 0) {
         return;
       }
@@ -246,6 +262,9 @@ public class SSLEngineInst {
         @Advice.Argument(0) final ByteBuffer src,
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
+      if (engine == null || src == null || dst == null) {
+        return;
+      }
       if (engine.getSession().getId().length == 0) {
         SSLStorage.unencrypted.remove();
         return;
@@ -290,6 +309,9 @@ public class SSLEngineInst {
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer[] srcs) {
+      if (engine == null || srcs == null) {
+        return;
+      }
       if (srcs.length == 0 || engine.getSession().getId().length == 0) {
         return;
       }
@@ -307,6 +329,9 @@ public class SSLEngineInst {
         @Advice.Argument(0) final ByteBuffer[] srcs,
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
+      if (engine == null || srcs == null || dst == null) {
+        return;
+      }
       if (srcs.length == 0 || engine.getSession().getId().length == 0) {
         SSLStorage.unencrypted.remove();
         return;

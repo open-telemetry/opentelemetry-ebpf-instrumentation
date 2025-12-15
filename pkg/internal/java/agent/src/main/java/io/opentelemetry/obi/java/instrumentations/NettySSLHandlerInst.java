@@ -44,6 +44,9 @@ public class NettySSLHandlerInst {
         if (SSLStorage.getBootDebugOn().get(null).equals(true)) {
           logger.info("Netty SSL handler unwrap");
         }
+        if (ctx == null) {
+          return;
+        }
 
         Object c =
             SSLStorage.getBootExtractMethod()
@@ -82,6 +85,11 @@ public class NettySSLHandlerInst {
         if (SSLStorage.getBootDebugOn().get(null).equals(true)) {
           logger.info("Netty SSL handler wrap");
         }
+
+        if (ctx == null) {
+          return;
+        }
+
         Object c =
             SSLStorage.getBootExtractMethod()
                 .invoke(null, ctx); // static method, so null as instance

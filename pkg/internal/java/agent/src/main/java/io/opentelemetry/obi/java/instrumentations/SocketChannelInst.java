@@ -90,6 +90,10 @@ public class SocketChannelInst {
         return;
       }
 
+      if (src == null || localSocket == null || remoteSocket == null) {
+        return;
+      }
+
       int oldPos = src.position();
 
       Integer savedPos = SSLStorage.bufPos.get();
@@ -130,6 +134,9 @@ public class SocketChannelInst {
   public static final class WriteAdviceArray {
     @Advice.OnMethodEnter
     public static void write(@Advice.Argument(0) final ByteBuffer[] srcs) {
+      if (srcs == null) {
+        return;
+      }
       int[] positions = new int[srcs.length];
       for (int i = 0; i < srcs.length; i++) {
         positions[i] = srcs[i].position();
@@ -144,7 +151,8 @@ public class SocketChannelInst {
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
         @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
       if (!(localSocket instanceof InetSocketAddress)
-          || !(remoteSocket instanceof InetSocketAddress)) {
+          || !(remoteSocket instanceof InetSocketAddress)
+          || (srcs == null)) {
         SSLStorage.bufPositions.remove();
         return;
       }
@@ -209,7 +217,8 @@ public class SocketChannelInst {
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
         @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
       if (!(localSocket instanceof InetSocketAddress)
-          || !(remoteSocket instanceof InetSocketAddress)) {
+          || !(remoteSocket instanceof InetSocketAddress)
+          || (dst == null)) {
         return;
       }
       InetSocketAddress localSocketAddress = (InetSocketAddress) localSocket;
@@ -239,7 +248,8 @@ public class SocketChannelInst {
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
         @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
       if (!(localSocket instanceof InetSocketAddress)
-          || !(remoteSocket instanceof InetSocketAddress)) {
+          || !(remoteSocket instanceof InetSocketAddress)
+          || (dsts == null)) {
         return;
       }
       InetSocketAddress localSocketAddress = (InetSocketAddress) localSocket;
