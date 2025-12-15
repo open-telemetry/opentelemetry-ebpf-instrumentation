@@ -463,7 +463,7 @@ func TestPreserveBPFHostnameWhenResolutionFails(t *testing.T) {
 	nr := NameResolver{
 		db:      db,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
-		sources: resolverSources([]string{"k8s"}),
+		sources: resolverSources([]Source{SourceK8s}),
 		logger:  nrlog(),
 	}
 
