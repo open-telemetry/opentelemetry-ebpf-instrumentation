@@ -165,7 +165,7 @@ var DefaultConfig = Config{
 		SpanMetricsServiceCacheSize: 10000,
 	},
 	TracePrinter: debug.TracePrinterDisabled,
-	InternalMetrics: imetrics.Config{
+	InternalMetrics: imetrics.InternalMetricsConfig{
 		Exporter: imetrics.InternalMetricsExporterDisabled,
 		Prometheus: imetrics.PrometheusConfig{
 			Port: 0, // disabled by default
@@ -287,12 +287,11 @@ type Config struct {
 	// From this comment, the properties below will remain undocumented, as they
 	// are useful for development purposes. They might be helpful for customer support.
 
-	ChannelBufferLen int             `yaml:"channel_buffer_len" env:"OTEL_EBPF_CHANNEL_BUFFER_LEN"`
-	ProfilePort      int             `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
-	InternalMetrics  imetrics.Config `yaml:"internal_metrics"`
-
-	// LogConfig enables the logging of the configuration on startup.
-	LogConfig LogConfigOption `yaml:"log_config" env:"OTEL_EBPF_LOG_CONFIG"`
+	ChannelBufferLen int                            `yaml:"channel_buffer_len" env:"OTEL_EBPF_CHANNEL_BUFFER_LEN"`
+	ProfilePort      int                            `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
+	InternalMetrics  imetrics.InternalMetricsConfig `yaml:"internal_metrics"`
+	// format of the log configuration during startup
+	LogConfig LogConfigOption `yaml:"log_config,omitempty" env:"OTEL_EBPF_LOG_CONFIG"`
 
 	NodeJS NodeJSConfig `yaml:"nodejs"`
 }
