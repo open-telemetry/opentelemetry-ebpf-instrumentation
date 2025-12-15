@@ -133,10 +133,54 @@ func TestRouteExtractor_HttpDispatcherApp(t *testing.T) {
 	}
 }
 
+func TestRouteExtractor_NextJSManifest(t *testing.T) {
+	extractor := NewRouteExtractor()
+	// The routes-manifest.json is in test_files/.next/
+	examplesDir := filepath.Join("nodejs", "test_files")
+	err := extractor.extractNextJSRoutesFromManifest(examplesDir)
+	require.NoError(t, err)
+
+	routes := extractor.GetRoutes()
+	require.NotEmpty(t, routes, "should extract routes from routes-manifest.json")
+
+	// Expected routes from routes-manifest.json
+	// Note: root "/" is filtered out by GetHarvestedRoutes
+	expectedRoutes := []RoutePattern{
+		{Method: "ALL", Path: "/blog"},
+		{Method: "ALL", Path: "/users"},
+		{Method: "ALL", Path: "/favicon.ico"},
+		{Method: "ALL", Path: "/blog/:slug"},
+		{Method: "ALL", Path: "/users/:userId"},
+		{Method: "ALL", Path: "/users/:userId/posts/:postId"},
+	}
+
+	// Verify we found the expected number of routes
+	assert.GreaterOrEqual(t, len(routes), len(expectedRoutes), "should find at least the expected routes")
+
+	// Check that each expected route exists
+	for _, expected := range expectedRoutes {
+		found := false
+		for _, actual := range routes {
+			if actual.Method == expected.Method && actual.Path == expected.Path {
+				found = true
+				assert.NotEmpty(t, actual.File, "file should be set")
+				assert.Equal(t, 0, actual.Line, "line number should be 0 for manifest routes")
+				break
+			}
+		}
+		assert.True(t, found, "should find route %s %s", expected.Method, expected.Path)
+	}
+}
+
 func TestRouteExtractor_AllExamples(t *testing.T) {
 	extractor := NewRouteExtractor()
 	examplesDir := filepath.Join("nodejs", "test_files")
-	err := extractor.ScanDirectory(examplesDir)
+
+	// Extract Next.js routes from manifest first
+	err := extractor.extractNextJSRoutesFromManifest(examplesDir)
+	require.NoError(t, err)
+
+	err = extractor.ScanDirectory(examplesDir)
 	require.NoError(t, err)
 
 	routes := extractor.GetRoutes()
@@ -153,6 +197,7 @@ func TestRouteExtractor_AllExamples(t *testing.T) {
 	assert.NotEmpty(t, routesByFile["express-app.js"], "should have routes from express-app.js")
 	assert.NotEmpty(t, routesByFile["fastify-app.js"], "should have routes from fastify-app.js")
 	assert.NotEmpty(t, routesByFile["httpdispatcher-app.js"], "should have routes from httpdispatcher-app.js")
+	assert.NotEmpty(t, routesByFile["routes-manifest.json"], "should have routes from routes-manifest.json")
 
 	// Verify route details
 	for filename, fileRoutes := range routesByFile {
@@ -161,7 +206,12 @@ func TestRouteExtractor_AllExamples(t *testing.T) {
 				assert.NotEmpty(t, route.Method, "method should not be empty")
 				assert.NotEmpty(t, route.Path, "path should not be empty")
 				assert.Contains(t, route.File, filename, "file should match")
-				assert.Positive(t, route.Line, "line should be positive")
+				// Manifest routes have line 0, JS files have positive line numbers
+				if filename == "routes-manifest.json" {
+					assert.Equal(t, 0, route.Line, "manifest routes should have line 0")
+				} else {
+					assert.Positive(t, route.Line, "line should be positive")
+				}
 			}
 		})
 	}
@@ -1465,7 +1515,9 @@ func TestExtractNextJSRoutesFromManifest(t *testing.T) {
 			if tt.removeReadPerm {
 				require.NoError(t, os.Chmod(manifestPath, 0o000))
 				// Restore permissions after test
-				defer os.Chmod(manifestPath, 0o644)
+				defer func() {
+					_ = os.Chmod(manifestPath, 0o644)
+				}()
 			}
 
 			// Create extractor and run the method
