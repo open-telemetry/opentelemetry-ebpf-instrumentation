@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/grafana/jvmtools/jvm"
@@ -123,7 +124,17 @@ func (i *SDKInjector) extractAgent(ie *ebpf.Instrumentable) (string, error) {
 }
 
 func (i *SDKInjector) attachJDKAgent(pid int32, path string) error {
-	out, err := jvm.Jattach(int(pid), []string{"load", "instrument", "false", path}, i.log)
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	attacher := jvm.NewJAttacher(i.log)
+	attacher.Init()
+	defer func() {
+		if err := attacher.Cleanup(); err != nil {
+			slog.Warn("error on JVM attach cleanup", "error", err)
+		}
+	}()
+
+	out, err := attacher.Attach(int(pid), []string{"load", "instrument", "false", path}, false)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return err
@@ -148,10 +159,25 @@ func (i *SDKInjector) attachJDKAgent(pid int32, path string) error {
 }
 
 func (i *SDKInjector) jdkAgentAlreadyLoaded(pid int32) (bool, error) {
-	out, err := jvm.Jattach(int(pid), []string{"jcmd", "VM.class_hierarchy"}, i.log)
+	attacher := jvm.NewJAttacher(i.log)
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	attacher.Init()
+	defer func() {
+		if err := attacher.Cleanup(); err != nil {
+			slog.Warn("error on JVM attach cleanup", "error", err)
+		}
+	}()
+
+	// OpenJ9 doesn't support listing loaded classes
+	out, err := attacher.Attach(int(pid), []string{"jcmd", "VM.class_hierarchy"}, true)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return false, err
+	}
+
+	if out == nil {
+		return false, nil
 	}
 
 	scanner := bufio.NewScanner(out)
@@ -166,10 +192,25 @@ func (i *SDKInjector) jdkAgentAlreadyLoaded(pid int32) (bool, error) {
 }
 
 func (i *SDKInjector) verifyJVMVersion(pid int32) bool {
-	out, err := jvm.Jattach(int(pid), []string{"jcmd", "VM.version"}, i.log)
+	attacher := jvm.NewJAttacher(i.log)
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	attacher.Init()
+	defer func() {
+		if err := attacher.Cleanup(); err != nil {
+			slog.Warn("error on JVM attach cleanup", "error", err)
+		}
+	}()
+
+	// OpenJ9 doesn't support VM.version command
+	out, err := attacher.Attach(int(pid), []string{"jcmd", "VM.version"}, true)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return false
+	}
+
+	if out == nil {
+		return true
 	}
 
 	scanner := bufio.NewScanner(out)
