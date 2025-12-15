@@ -5,6 +5,10 @@
     "helpers:pinGitHubActionDigestsToSemver"
   ],
   "ignorePaths": [
+    // the following components are used to test the behavior of OBI with legacy versions of libraries
+    // so we don't want to get them updated
+    "internal/test/integration/components/testserver_1.17",
+    "internal/test/integration/components/old_grpc",
     // github.com/Shopify/sarama has been moved to github.com/IBM/sarama
     // but we keep supporting the go-offsets for the outdated library, which must not
     // be updated.
