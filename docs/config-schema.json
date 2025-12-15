@@ -256,7 +256,7 @@
       "properties": {
         "BpfDebug": {
           "type": "boolean",
-          "description": "Enables loggin\ng of eBPF program events"
+          "description": "Enables logging of eBPF program events"
         },
         "WakeupLen": {
           "type": "integer",
@@ -326,10 +326,6 @@
         "ProtocolDebug": {
           "type": "boolean",
           "description": "Enables debug printing of the protocol data"
-        },
-        "UseOTelSDKForJava": {
-          "type": "boolean",
-          "description": "Enables Java instrumentation with the OpenTelemetry JDK Agent"
         },
         "RedisDBCache": {
           "$ref": "#/$defs/RedisDBCacheConfig"
@@ -723,9 +719,9 @@
           "type": "string",
           "description": "SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode\nand the Info messages leak internal details that are not usually valuable for the final user."
         },
-        "Features": {
+        "DeprFeatures": {
           "type": "integer",
-          "description": "Features of metrics that can be exported. Accepted values: application, network, application_process,\napplication_span, application_service_graph, ...\nenvDefault is provided to avoid breaking changes"
+          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nenvDefault is provided to avoid breaking changes\nDeprecated: use top-level MetricsConfig.Features instead."
         },
         "Instrumentations": {
           "items": {
@@ -783,7 +779,7 @@
             "type": "string"
           },
           "type": "array",
-          "description": "Sources for name resolving. Accepted values: dns, k8s"
+          "description": "Sources for name resolving. Accepted values: dns, k8s, rdns"
         },
         "CacheLen": {
           "type": "integer",
@@ -806,7 +802,7 @@
       "properties": {
         "Enable": {
           "type": "boolean",
-          "description": "Enable network metrics.\nDefault value is false (disabled)\nDeprecated: add \"network\" to OTEL_EBPF_METRIC_FEATURES or OTEL_EBPF_PROMETHEUS_FEATURES\nTODO OBI 3.0: remove"
+          "description": "Enable network metrics.\nDefault value is false (disabled)\nDeprecated: add \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES\nTODO OBI 3.0: remove"
         },
         "Source": {
           "type": "string",
@@ -968,9 +964,9 @@
         "DisableBuildInfo": {
           "type": "boolean"
         },
-        "Features": {
+        "DeprFeatures": {
           "type": "integer",
-          "description": "Features of metrics that can be exported. Accepted values: application, network, application_process,\napplication_span, application_service_graph, ..."
+          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nDeprecated: use top-level MetricsConfig.Features instead."
         },
         "Instrumentations": {
           "items": {
@@ -1357,7 +1353,7 @@
     "NameResolver": {
       "$ref": "#/$defs/NameResolverConfig"
     },
-    "Metrics": {
+    "OTELMetrics": {
       "$ref": "#/$defs/MetricsConfig"
     },
     "Traces": {
@@ -1395,6 +1391,10 @@
     "ServiceNamespace": {
       "type": "string",
       "description": "Deprecated: Service namespace should be set in the instrumentation target (env vars, kube metadata...)\nas this is a reminiscence of past times when we only supported one executable per instance."
+    },
+    "Metrics": {
+      "$ref": "#/$defs/MetricsConfig",
+      "description": "Metrics is a placeholder for the progressive support of the OTEL declarative configuration."
     },
     "Discovery": {
       "$ref": "#/$defs/DiscoveryConfig",
