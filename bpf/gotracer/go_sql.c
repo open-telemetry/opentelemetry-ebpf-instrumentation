@@ -80,7 +80,7 @@ static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
 // Extracts MySQL server hostname from a validated mysqlConn pointer.
 // Follows the pointer chain: mysqlConn -> cfg (*Config) -> Addr (string)
 static __always_inline bool
-read_mysql_hostname_from_mysqlconn(void *mysql_conn_ptr, char *hostname, int max_len) {
+read_mysql_hostname_from_mysqlconn(void *mysql_conn_ptr, char *hostname, u64 max_len) {
     if (!mysql_conn_ptr) {
         return 0;
     }
