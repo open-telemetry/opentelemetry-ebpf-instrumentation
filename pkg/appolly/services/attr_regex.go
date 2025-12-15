@@ -65,6 +65,7 @@ type RegexSelector struct {
 	// Path allows defining the regular expression matching the full executable path.
 	Path RegexpAttr `yaml:"exe_path"`
 	// PathRegexp is deprecated but kept here for backwards compatibility with Beyla 1.0.x.
+
 	// Deprecated. Please use Path (exe_path YAML attribute)
 	PathRegexp RegexpAttr `yaml:"exe_path_regexp"`
 

@@ -163,7 +163,7 @@
         },
         "DefaultExcludeServices": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
-          "description": "DefaultExcludeServices by default prevents self-instrumentation of Beyla as well as related services (Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired.\nUse DefaultExcludeInstrument instead",
+          "description": "DefaultExcludeServices by default prevents self-instrumentation of OBI as well as related services (Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired.\nUse DefaultExcludeInstrument instead",
           "deprecated": true
         },
         "Instrument": {
@@ -176,7 +176,7 @@
         },
         "DefaultExcludeInstrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
-          "description": "DefaultExcludeInstrument by default prevents self-instrumentation of OBI as well as related services (Beyla, Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired."
+          "description": "DefaultExcludeInstrument by default prevents self-instrumentation of OBI as well as related services (OBI, Beyla, Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired."
         },
         "PollInterval": {
           "type": "string",
@@ -619,20 +619,20 @@
         },
         "MetaCacheAddress": {
           "type": "string",
-          "description": "MetaCacheAddress is the host:port address of the beyla-k8s-cache service instance"
+          "description": "MetaCacheAddress is the host:port address of the obi-k8s-cache service instance"
         },
         "MetaRestrictLocalNode": {
           "type": "boolean",
-          "description": "MetaRestrictLocalNode will download only the metadata from the Pods that are located in the same\nnode as the Beyla instance. It will also restrict the Node information to the local node."
+          "description": "MetaRestrictLocalNode will download only the metadata from the Pods that are located in the same\nnode as the OBI instance. It will also restrict the Node information to the local node."
         },
         "MetaSourceLabels": {
           "$ref": "#/$defs/MetaSourceLabels",
-          "description": "MetaSourceLabels allows Beyla overriding the service name and namespace of an application from\nthe given labels.\nkept for backwards-compatibility with Beyla 1.9",
+          "description": "Deprecated MetaSourceLabels allows OBI overriding the service name and namespace of an application from\nthe given labels.",
           "deprecated": true
         },
         "ResourceLabels": {
           "$ref": "#/$defs/ResourceLabels",
-          "description": "ResourceLabels allows Beyla overriding the OTEL Resource attributes from a map of user-defined labels."
+          "description": "ResourceLabels allows OBI overriding the OTEL Resource attributes from a map of user-defined labels."
         },
         "ServiceNameTemplate": {
           "type": "string",
@@ -1015,8 +1015,7 @@
           "type": "boolean"
         },
         "Registry": {
-          "$ref": "#/$defs/Registry",
-          "description": "Registry is only used for embedding Beyla within the Grafana Agent.\nIt must be nil when Beyla runs as standalone"
+          "$ref": "#/$defs/Registry"
         },
         "ExtraResourceLabels": {
           "items": {
@@ -1076,7 +1075,7 @@
         },
         "PathRegexp": {
           "$ref": "#/$defs/RegexpAttr",
-          "description": "PathRegexp is deprecated but kept here for backwards compatibility with Beyla 1.0.x.\nPlease use Path (exe_path YAML attribute)",
+          "description": "Please use Path (exe_path YAML attribute)",
           "deprecated": true
         },
         "Metadata": {

@@ -133,6 +133,7 @@ type PrometheusConfig struct {
 
 	// Registry is only used for embedding Beyla within the Grafana Agent.
 	// It must be nil when Beyla runs as standalone
+
 	Registry *prometheus.Registry `yaml:"-"`
 
 	// ExtraResourceLabels adds extra metadata labels to Prometheus metrics from sources whose availability can't be known
