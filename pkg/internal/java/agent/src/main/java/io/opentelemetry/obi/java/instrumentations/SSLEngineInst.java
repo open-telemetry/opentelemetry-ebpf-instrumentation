@@ -16,7 +16,6 @@ import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import io.opentelemetry.obi.java.instrumentations.util.ByteBufferExtractor;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.logging.Logger;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import net.bytebuddy.agent.builder.AgentBuilder;
@@ -26,7 +25,6 @@ import net.bytebuddy.matcher.ElementMatcher;
 import net.bytebuddy.matcher.ElementMatchers;
 
 public class SSLEngineInst {
-  private static final Logger logger = Logger.getLogger("SSLEngineInst");
 
   public static ElementMatcher<? super TypeDescription> type() {
     return ElementMatchers.isSubTypeOf(SSLEngine.class);
@@ -102,7 +100,7 @@ public class SSLEngineInst {
 
         if (c == null) {
           if (SSLStorage.debugOn) {
-            logger.info("Can't find connection " + engine);
+            System.err.println("[SSLEngineInst] Can't find connection " + engine);
           }
         } else {
           SSLStorage.setConnectionForSession(engine, c);
@@ -119,7 +117,7 @@ public class SSLEngineInst {
 
         Integer savedPos = SSLStorage.bufPos.get();
         if (savedPos == null) {
-          logger.warning("Error reading saved Buffer pos");
+          System.err.println("[SSLEngineInst] ");
           return;
         }
 
@@ -130,7 +128,8 @@ public class SSLEngineInst {
         byte[] b = dstBuffer.array();
 
         if (SSLStorage.debugOn) {
-          logger.info("unwrap:" + new String(b, java.nio.charset.StandardCharsets.UTF_8));
+          System.err.println(
+              "[SSLEngineInst] unwrap:" + new String(b, java.nio.charset.StandardCharsets.UTF_8));
         }
 
         Pointer p = new Memory(IOCTLPacket.packetPrefixSize + b.length);
@@ -185,7 +184,7 @@ public class SSLEngineInst {
 
         if (c == null) {
           if (SSLStorage.debugOn) {
-            logger.info("Can't find connection for dst array");
+            System.err.println("[SSLEngineInst] Can't find connection for dst array");
           }
         } else {
           SSLStorage.setConnectionForSession(engine, c);
@@ -201,7 +200,7 @@ public class SSLEngineInst {
         int[] oldDstPositions = new int[dsts.length];
         int[] savedDstPositions = SSLStorage.bufPositions.get();
         if (savedDstPositions == null) {
-          logger.warning("Can't find saved destination positions");
+          System.err.println("[SSLEngineInst]");
           return;
         }
 
@@ -220,7 +219,9 @@ public class SSLEngineInst {
         int len = dstBuffer.position();
 
         if (SSLStorage.debugOn) {
-          logger.info("unwrap array:" + new String(b, java.nio.charset.StandardCharsets.UTF_8));
+          System.err.println(
+              "[SSLEngineInst] unwrap array:"
+                  + new String(b, java.nio.charset.StandardCharsets.UTF_8));
         }
 
         Pointer p = new Memory(IOCTLPacket.packetPrefixSize + len);
@@ -273,18 +274,22 @@ public class SSLEngineInst {
       if (result.bytesConsumed() > 0) {
         BytesWithLen bLen = SSLStorage.unencrypted.get();
         if (bLen == null) {
-          logger.warning("Error, empty bytes");
           return;
         }
 
         if (SSLStorage.debugOn) {
-          logger.info("wrap :" + new String(bLen.buf, java.nio.charset.StandardCharsets.UTF_8));
+          System.err.println(
+              "[SSLEngineInst] wrap :"
+                  + new String(bLen.buf, java.nio.charset.StandardCharsets.UTF_8));
         }
 
         Connection c = (Connection) SSLStorage.nettyConnection.get();
         if (SSLStorage.debugOn) {
-          logger.info(
-              "Found netty connection " + c + " thread " + Thread.currentThread().getName());
+          System.err.println(
+              "[SSLEngineInst] Found netty connection "
+                  + c
+                  + " thread "
+                  + Thread.currentThread().getName());
         }
         if (c != null) {
           Pointer p = new Memory(IOCTLPacket.packetPrefixSize + bLen.len);
@@ -294,7 +299,7 @@ public class SSLEngineInst {
         } else {
           String encrypted = ByteBufferExtractor.keyFromUsedBuffer(dst);
           if (SSLStorage.debugOn) {
-            logger.info("buf mapping on: " + encrypted);
+            System.err.println("[SSLEngineInst] buf mapping on: " + encrypted);
           }
           SSLStorage.setBufferMapping(encrypted, bLen);
         }
@@ -340,13 +345,12 @@ public class SSLEngineInst {
       if (result.bytesConsumed() > 0) {
         BytesWithLen bLen = SSLStorage.unencrypted.get();
         if (bLen == null) {
-          logger.warning("Error, empty bytes");
           return;
         }
 
         if (SSLStorage.debugOn) {
-          logger.info(
-              "wrap array :["
+          System.err.println(
+              "[SSLEngineInst] wrap array :["
                   + bLen.len
                   + "]"
                   + new String(bLen.buf, java.nio.charset.StandardCharsets.UTF_8));
@@ -354,8 +358,11 @@ public class SSLEngineInst {
 
         Connection c = (Connection) SSLStorage.nettyConnection.get();
         if (SSLStorage.debugOn) {
-          logger.info(
-              "Found netty connection " + c + " thread " + Thread.currentThread().getName());
+          System.err.println(
+              "[SSLEngineInst] Found netty connection "
+                  + c
+                  + " thread "
+                  + Thread.currentThread().getName());
         }
         if (c != null) {
           Pointer p = new Memory(IOCTLPacket.packetPrefixSize + bLen.len);
@@ -365,7 +372,7 @@ public class SSLEngineInst {
         } else {
           String encrypted = ByteBufferExtractor.keyFromUsedBuffer(dst);
           if (SSLStorage.debugOn) {
-            logger.info("buf array mapping on: " + encrypted);
+            System.err.println("[SSLEngineInst] buf array mapping on: " + encrypted);
           }
           SSLStorage.setBufferMapping(encrypted, bLen);
         }

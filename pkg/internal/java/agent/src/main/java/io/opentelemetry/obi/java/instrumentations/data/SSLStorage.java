@@ -9,13 +9,9 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javax.net.ssl.SSLEngine;
 
 public class SSLStorage {
-  private static final Logger logger = Logger.getLogger("SSLStorage");
-
   public static Method bootExtractMethod = null;
   public static Field bootNettyConnectionField = null;
 
@@ -100,7 +96,7 @@ public class SSLStorage {
         bootExtractMethod =
             extractorClass.getMethod("extractConnectionFromChannelHandlerContext", Object.class);
       } catch (Exception x) {
-        logger.log(Level.SEVERE, "Failed to get boot extract method", x);
+        System.err.println("[SSLStorage] Failed to get boot extract method " + x);
       }
     }
     return bootExtractMethod;
@@ -113,7 +109,7 @@ public class SSLStorage {
             Class.forName("io.opentelemetry.obi.java.instrumentations.data.SSLStorage", true, null);
         bootNettyConnectionField = sslStorageClass.getDeclaredField("nettyConnection");
       } catch (Exception x) {
-        logger.log(Level.SEVERE, "Failed to get boot netty connection field", x);
+        System.err.println("[SSLStorage] Failed to get boot netty connection field " + x);
       }
     }
 
@@ -127,7 +123,7 @@ public class SSLStorage {
             Class.forName("io.opentelemetry.obi.java.instrumentations.data.SSLStorage", true, null);
         bootDebugOn = sslStorageClass.getDeclaredField("debugOn");
       } catch (Exception x) {
-        logger.log(Level.SEVERE, "Failed to get boot debug on", x);
+        System.err.println("[SSLStorage] Failed to get boot debug on " + x);
       }
     }
 
