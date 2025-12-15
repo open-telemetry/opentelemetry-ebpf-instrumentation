@@ -99,6 +99,7 @@ typedef enum {
     _gin_fullpath_pos,
     _last_go_offset,
 } go_offset_const;
+
 enum {
     _gin_fullpath_off_pre_17 = 56,
     _gin_fullpath_off_post_17 = 40,

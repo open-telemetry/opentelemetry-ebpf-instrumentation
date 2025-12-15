@@ -45,8 +45,8 @@ static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
     // driverConn.ci is a Go interface [type_ptr (8 bytes), data_ptr (8 bytes)]
     // Read the type pointer (at ci_offset + 0) to validate driver type
     void *ci_type_ptr = NULL;
-    int res =
-        bpf_probe_read_user(&ci_type_ptr, sizeof(ci_type_ptr), (void *)(driver_conn_ptr + ci_offset));
+    int res = bpf_probe_read_user(
+        &ci_type_ptr, sizeof(ci_type_ptr), (void *)(driver_conn_ptr + ci_offset));
 
     if (res != 0) {
         bpf_dbg_printk("can't read driverConn.ci type pointer");
@@ -69,7 +69,7 @@ static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
     res = bpf_probe_read(
         &mysql_conn_ptr, sizeof(mysql_conn_ptr), (void *)(driver_conn_ptr + ci_offset + 8));
 
-    if (res || !mysql_conn_ptr) {
+    if (res != 0 || !mysql_conn_ptr) {
         bpf_dbg_printk("can't read MySQL connection data pointer");
         return NULL;
     }
@@ -94,7 +94,7 @@ read_mysql_hostname_from_mysqlconn(void *mysql_conn_ptr, char *hostname, u64 max
         sizeof(cfg_ptr),
         (void *)((u64)mysql_conn_ptr + go_offset_of(ot, (go_offset){.v = _mysql_conn_cfg_pos})));
 
-    if (res || !cfg_ptr) {
+    if (res != 0 || !cfg_ptr) {
         bpf_dbg_printk("can't read mysql.mysqlConn.cfg");
         return 0;
     }
@@ -123,12 +123,13 @@ static __always_inline void extract_sql_hostname(sql_request_trace_t *trace, u64
     }
 
     void *mysql_conn_ptr = get_mysql_conn_ptr(driver_conn_ptr);
-    if (mysql_conn_ptr) {
-        if (read_mysql_hostname_from_mysqlconn(
-                mysql_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
-            bpf_dbg_printk("extracted MySQL hostname: %s", trace->hostname);
-            return;
-        }
+    if (!mysql_conn_ptr) {
+        return;
+    }
+
+    if (read_mysql_hostname_from_mysqlconn(
+            mysql_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
+        bpf_dbg_printk("extracted MySQL hostname: %s", trace->hostname);
     }
 }
 
