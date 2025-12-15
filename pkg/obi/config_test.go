@@ -236,7 +236,7 @@ discovery:
 			MaxPathSegmentCardinality: 10,
 		},
 		NameResolver: &transform.NameResolverConfig{
-			Sources:  []string{"k8s", "dns"},
+			Sources:  []transform.Source{transform.SourceK8s, transform.SourceDNS},
 			CacheLen: 1024,
 			CacheTTL: 5 * time.Minute,
 		},
