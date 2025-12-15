@@ -223,12 +223,12 @@ func (nr *NameResolver) resolve(svc *svc.Attrs, ip string, fallback string) (str
 	if len(ip) > 0 {
 		var peer string
 		peer, ns = nr.dnsResolve(svc, ip)
+		name = ip
+		if fallback != "" {
+			name = fallback
+		}
 		if len(peer) > 0 && peer != ip {
 			name = peer
-		} else if fallback != "" {
-			name = fallback
-		} else {
-			name = ip
 		}
 	} else if fallback != "" {
 		name = fallback
