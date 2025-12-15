@@ -234,7 +234,7 @@ static __always_inline void print_tp(const char *prefix, const tp_info_t *tp) {
     tp_buf[TP_MAX_VAL_LENGTH] = '\0';
 
     make_tp_string(tp_buf, tp);
-    bpf_dbg_printk("%s tp: %s", prefix, tp_buf);
+    bpf_dbg_printk("prefix=%s, tp=%s", prefix, tp_buf);
 }
 
 static __always_inline void update_outgoing_request_span_id(const connection_info_t *conn,
@@ -661,7 +661,7 @@ static __always_inline void inject_ip_options(struct __sk_buff *skb,
     }
 
     if (tp->written) {
-        bpf_dbg_printk("%s: tp already written by L7, not injecting IP options", __FUNCTION__);
+        bpf_dbg_printk("tp already written by L7, not injecting IP options");
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
         return;
     }

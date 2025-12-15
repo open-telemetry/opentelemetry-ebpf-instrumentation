@@ -6,14 +6,22 @@ The goal is to ensure that our logs are not just data dumps, but more structured
 
 ## Table Of Contents
 
+- [Print functions](#print-functions)
 - [Formatting data](#formatting-data)
   - [Multiple variables (key-value pairs)](#multiple-variables-key-value-pairs)
   - [Single result or status](#single-result-or-status)
-  - [Avoiding concatenation](#avoiding-concatenation)
-- [Function name in log messages](#function-name-in-log-messages)
-  - [Function name in eBPF probe](#function-name-in-ebpf-probe)
-  - [Function name in generic functions](#function-name-in-generic-functions)
-- [Compatibility and workarounds](#compatibility-and-workarounds)
+  - [Buffer](#buffer)
+- [eBPF probe name](#ebpf-probe-name)
+- [Generic function name](#generic-function-name)
+
+### Print functions
+
+There are two macros to print debug information:
+
+- `bpf_dbg_printk`: calls `bpf_printk` and then `bpf_dbg_helper`. The latter uses [bpf_snprintf](https://docs.ebpf.io/linux/helper-function/bpf_snprintf/) to automatically print the name of the calling function. Finally use a ringbuf to send everything to userspace. Note: `bpf_snprintf` is available since **kernel version 5.13**.
+- `bpf_d_printk`: calls `bpf_printk`.
+
+The preferred version is `bpf_dbg_printk`, but there are also cases where `bpf_d_printk` is used. In the latter case, remember to use `__FUNCTION__` which is a compile-time string literal (not a runtime function call) to get the name of the current function.
 
 ### Formatting data
 
@@ -24,94 +32,70 @@ This section will cover the difference between using **`=`** and **`:`**.
 The equals sign **`=`** is best for creating clear key-value pairs, especially when logging multiple variables. Example:
 
 ```c
-bpf_dbg_printk("%s: id=%d, size=%d", __FUNCTION__, id, msg->size);
+bpf_dbg_printk("id=%d, size=%d", id, msg->size);
 ```
 
-Log output: `protocol_detector: id=12, size=33`.
+Log output: `id=12, size=33 [protocol_detector]`.
 
 #### Single result or status
 
 The colon **`:`** is best for introducing a single, consequential piece of information that completes or explains the preceding human-readable sentence. Example:
 
 ```c
-bpf_d_printk("%s: failed to push data: %d", __FUNCTION__, err);
+bpf_dbg_printk("failed to store option: %d", ret);
 ```
 
-Log output: `extend_and_write_tp: failed to push data: -1`.
+Log output: `failed to store option: -1 [bpf_sock_ops_write_hdr_cb]`.
 
-#### Avoiding concatenation
+#### Buffer
 
-Addressing issues like logging multiple variables without a separator (e.g., avoiding `%x%x`). Example:
+For logging the contents of a buffer like `msg->data`, it is best to use a key like `buf=` (or other name) followed by brackets **`[]`** around the string. Example:
 
 ```c
-bpf_dbg_printk("%s: found HTTP info, resetting the span id to seq=%x, ack=%x", __FUNCTION__, tcp->seq, tcp->ack);
+bpf_dbg_printk("buf=[%s]", msg->data);
 ```
 
-Log output: `update_outgoing_request_span_id: found HTTP info, resetting the span id to seq=5a3b9c1d, ack=0e2f`.
+Log output: `BUF=[Hello OBI!] [protocol_detector]`
 
-For logging the contents of a buffer like `msg->data`, it is best to use a key like `BUF=` followed by brackets **`[]`** around the string. Example:
+### eBPF probe name
+
+At the beginning of an eBPF probe (not every probe, as it can be too verbose\!) write the probe name between **`===`**:
 
 ```c
-bpf_dbg_printk("%s: BUF=[%s]", __FUNCTION__, msg->data);
+bpf_dbg_printk("=== sk_msg ===");
 ```
 
-Log output: `obi_packet_extender_write_msg_tp: BUF=[Hello]`
+Log output: `=== sk_msg === [obi_packet_extender_write_msg_tp]`.
 
-### Function name in log messages
+Notes:
 
-This section ensures every log message is contextualized.
+- **`At the beginning`** does not mean as the first instruction, but you need to find the best place, like after some initial checks (example: after `if (!valid_pid(id)) {...}`).
+- The triple equals signs are reserved exclusively for entry points of eBPF probes.
 
-We use **`__FUNCTION__`** which is a compile-time string literal (not a runtime function call) to print the function name.
-
-#### Function name in eBPF probe
-
-At the beginning of an eBPF probe (not every probe, as it can be too verbose\!), print the function name in the following way:
-
-```c
-bpf_dbg_printk("=== %s ===", __FUNCTION__);
-```
-
-Log output: `=== obi_kprobe_do_vfs_ioctl ===`.
-
-Note that **`at the beginning`** does not mean as the first instruction, but you need to find the best place, like after some initial checks (example: after `if (!valid_pid(id)) {...}`).
+### Generic function name
 
 The rest of the print statements in the eBPF probe function will be without **`===`** with the **`:`** after the eBPF probe function name. Example:
 
 ```c
-bpf_d_printk("%s: tailcall failed", __FUNCTION__);
+bpf_dbg_printk("tcp event...");
 ```
 
-Log output: `obi_packet_extender: tailcall failed`.
+Log output: `tcp event... [obi_protocol_tcp]`.
 
-#### Function name in generic functions
+Note that the function name of an eBPF probe may differ slightly from the one written in the code. For example, `obi_kprobe_tcp_recvmsg` may appear as `____obi_kprobe_tcp_recvmsg`.
 
-To print the function name in a generic function, use the **`__FUNCTION__`** identifier in **every log statement** without the bounding **`===`**. The triple equals signs are reserved exclusively for entry points of eBPF probes. Example:
+Same procedure is used in a generic function. Example:
 
 ```c
-bpf_dbg_printk("%s: found IPv6 header", __FUNCTION__);
+bpf_dbg_printk("setting up request to be extended");
 ```
 
-Log output: `encode_data_in_ip_options: found IPv6 header`.
+Log output: `setting up request to be extended [protocol_detector]`.
 
-**Special case**: there can be certain functions that are only called by an eBPF probe, and it can be useful to have both the eBPF probe function name and the function name of the current function. Example:
+As said before there are cases where it is ok to use `bpf_d_printk`, in those cases just do as follows:
 
 ```c
-bpf_dbg_printk("=== obi_packet_extender(%s) ===", __FUNCTION__);
+bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
 ```
 
-Log output: `=== obi_packet_extender(create_trace_info) ===`.
-
-In this case the rest of the print statements in the function will be without **`===`** with the **`:`** after the eBPF probe function name and current function name. Example:
-
-```c
-bpf_dbg_printk("obi_packet_extender(%s): generating tp info", __FUNCTION__);
-```
-
-Log output: `obi_packet_extender(create_trace_info): generating tp info`.
-
-### Compatibility and workarounds
-
-It can happen, sometimes, that the number of arguments to print is 3, but when `__FUNCTION__` is included, the total reaches 4. In these cases, `bpf_dbg_printk` calls `bpf_printk`, which subsequently calls `___bpf_pick_printk`. This chain then selects and calls `__bpf_vprintk` (for 4+ arguments), which finally invokes `bpf_trace_vprintk`. Since `bpf_trace_vprintk` is only available starting in [kernel version 5.16](https://docs.ebpf.io/linux/helper-function/bpf_trace_vprintk/), two options are available to avoid errors when loading the eBPF program:
-
-1. Split the print into two separate calls: one with one argument and one with two arguments, where `__FUNCTION__` is added to both.
-2. Hardcode the function name instead of using `__FUNCTION__`, so that the total number of arguments remains three.
+Log output: `tailcall failed [write_http_traceparent]`.
