@@ -23,16 +23,29 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
+const ObiJavaAgentFileName = "obi-java-agent.jar"
+
 type JavaInjector struct {
-	log *slog.Logger
-	cfg *obi.Config
+	log       *slog.Logger
+	cfg       *obi.Config
+	agentPath string
 }
 
-func NewJavaInjector(cfg *obi.Config) *JavaInjector {
-	return &JavaInjector{
-		cfg: cfg,
-		log: slog.With("component", "javaagent.Injector"),
+func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
+	agentPath, err := getLocalAgentPath()
+	if err != nil {
+		return nil, fmt.Errorf("unable to find the local OBI java agent jar, error %w", err)
 	}
+
+	if _, err := os.Stat(agentPath); err != nil {
+		return nil, fmt.Errorf("OBI java agent jar not found in build, error %w", err)
+	}
+
+	return &JavaInjector{
+		cfg:       cfg,
+		log:       slog.With("component", "javaagent.Injector"),
+		agentPath: agentPath,
+	}, nil
 }
 
 func dirOK(root, dir string) bool {
@@ -76,7 +89,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 		}
 
 		if loaded {
-			i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not instrumenting.")
+			i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not reloading")
 			return errors.New("OpenTelemetry eBPF Java Agent already loaded")
 		}
 
@@ -99,6 +112,28 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	return errors.New("OpenTelemetry eBPF Java instrumentation not possible")
 }
 
+func getLocalAgentPath() (string, error) {
+	// Get the path to OBI
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+
+	// Resolve any symlinks
+	exePath, err = filepath.EvalSymlinks(exePath)
+	if err != nil {
+		return "", err
+	}
+
+	// Get the directory containing OBI
+	exeDir := filepath.Dir(exePath)
+
+	// Construct the path to the file relative to the executable
+	filePath := filepath.Join(exeDir, ObiJavaAgentFileName)
+
+	return filePath, nil
+}
+
 func (i *JavaInjector) extractAgent(ie *ebpf.Instrumentable) (string, error) {
 	root := ebpfcommon.RootDirectoryForPID(ie.FileInfo.Pid)
 	tempDir, err := i.findTempDir(root, ie)
@@ -110,15 +145,25 @@ func (i *JavaInjector) extractAgent(ie *ebpf.Instrumentable) (string, error) {
 
 	i.log.Info("found injection directory for process", "pid", ie.FileInfo.Pid, "path", fullTempDir)
 
-	const agentFile = "obi-java-agent.jar"
+	agentPathHost := filepath.Join(fullTempDir, ObiJavaAgentFileName)
 
-	agentPathHost := filepath.Join(fullTempDir, agentFile)
-
-	if err = os.WriteFile(agentPathHost, _agentBytes, 0o644); err != nil {
-		return "", fmt.Errorf("error writing file: %w", err)
+	source, err := os.Open(i.agentPath)
+	if err != nil {
+		return "", fmt.Errorf("unable to access OBI java agent: %w", err)
 	}
 
-	agentPathContainer := filepath.Join(tempDir, agentFile)
+	defer source.Close()
+	// Create file with read permissions for owner, group, and others (0644)
+	target, err := os.OpenFile(agentPathHost, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return "", fmt.Errorf("unable to create target OBI java agent: %w", err)
+	}
+	defer target.Close()
+	if _, err = target.ReadFrom(source); err != nil {
+		return "", fmt.Errorf("error writing java agent to target location: %w", err)
+	}
+
+	agentPathContainer := filepath.Join(tempDir, ObiJavaAgentFileName)
 
 	return agentPathContainer, nil
 }
@@ -226,5 +271,3 @@ func (i *JavaInjector) verifyJVMVersion(pid int32) bool {
 
 	return false
 }
-
-var _agentBytes []byte
