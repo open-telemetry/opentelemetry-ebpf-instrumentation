@@ -19,7 +19,6 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.Arrays;
-import java.util.logging.Logger;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
@@ -27,8 +26,6 @@ import net.bytebuddy.matcher.ElementMatcher;
 import net.bytebuddy.matcher.ElementMatchers;
 
 public class SocketChannelInst {
-  private static final Logger logger = Logger.getLogger("SocketChannelInst");
-
   public static ElementMatcher<? super TypeDescription> type() {
     return ElementMatchers.isSubTypeOf(SocketChannel.class)
         .and(ElementMatchers.not(ElementMatchers.isAbstract()))
@@ -90,11 +87,14 @@ public class SocketChannelInst {
         return;
       }
 
+      if (src == null || localSocket == null || remoteSocket == null) {
+        return;
+      }
+
       int oldPos = src.position();
 
       Integer savedPos = SSLStorage.bufPos.get();
       if (savedPos == null) {
-        logger.warning("Error reading saved source buffer pos");
         return;
       }
 
@@ -103,7 +103,7 @@ public class SocketChannelInst {
       src.position(oldPos);
 
       if (SSLStorage.debugOn) {
-        logger.info("write advice, lookup: " + bufKey);
+        System.err.println("[SocketChannelInst] write advice, lookup: " + bufKey);
       }
 
       BytesWithLen unencrypted = SSLStorage.getUnencryptedBuffer(bufKey);
@@ -130,6 +130,9 @@ public class SocketChannelInst {
   public static final class WriteAdviceArray {
     @Advice.OnMethodEnter
     public static void write(@Advice.Argument(0) final ByteBuffer[] srcs) {
+      if (srcs == null) {
+        return;
+      }
       int[] positions = new int[srcs.length];
       for (int i = 0; i < srcs.length; i++) {
         positions[i] = srcs[i].position();
@@ -144,7 +147,8 @@ public class SocketChannelInst {
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
         @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
       if (!(localSocket instanceof InetSocketAddress)
-          || !(remoteSocket instanceof InetSocketAddress)) {
+          || !(remoteSocket instanceof InetSocketAddress)
+          || (srcs == null)) {
         SSLStorage.bufPositions.remove();
         return;
       }
@@ -152,7 +156,6 @@ public class SocketChannelInst {
       int[] oldSrcPositions = new int[srcs.length];
       int[] savedSrcPositions = SSLStorage.bufPositions.get();
       if (savedSrcPositions == null) {
-        logger.warning("Can't find saved source positions");
         return;
       }
 
@@ -172,14 +175,11 @@ public class SocketChannelInst {
       SSLStorage.bufPositions.remove();
 
       if (SSLStorage.debugOn) {
-        logger.info("write array advice, lookup: " + bufKey);
+        System.err.println("[SocketChannelInst] write array advice, lookup: " + bufKey);
       }
 
       BytesWithLen unencrypted = SSLStorage.getUnencryptedBuffer(bufKey);
       if (unencrypted == null) {
-        if (SSLStorage.debugOn) {
-          logger.warning("unable to find buffer mapping");
-        }
         return;
       }
 
@@ -209,7 +209,8 @@ public class SocketChannelInst {
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
         @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
       if (!(localSocket instanceof InetSocketAddress)
-          || !(remoteSocket instanceof InetSocketAddress)) {
+          || !(remoteSocket instanceof InetSocketAddress)
+          || (dst == null)) {
         return;
       }
       InetSocketAddress localSocketAddress = (InetSocketAddress) localSocket;
@@ -226,7 +227,7 @@ public class SocketChannelInst {
         String bufKey = ByteBufferExtractor.keyFromUsedBuffer(dst);
         SSLStorage.setConnectionForBuf(bufKey, c);
         if (SSLStorage.debugOn) {
-          logger.info("Setting connection for: " + bufKey);
+          System.err.println("[SocketChannelInst] Setting connection for: " + bufKey);
         }
       }
     }
@@ -239,7 +240,8 @@ public class SocketChannelInst {
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
         @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
       if (!(localSocket instanceof InetSocketAddress)
-          || !(remoteSocket instanceof InetSocketAddress)) {
+          || !(remoteSocket instanceof InetSocketAddress)
+          || (dsts == null)) {
         return;
       }
       InetSocketAddress localSocketAddress = (InetSocketAddress) localSocket;
@@ -259,7 +261,7 @@ public class SocketChannelInst {
         SSLStorage.setConnectionForBuf(bufKey, c);
 
         if (SSLStorage.debugOn) {
-          logger.info("Setting connection for: " + bufKey);
+          System.err.println("[SocketChannelInst] Setting connection for: " + bufKey);
         }
       }
     }
@@ -287,7 +289,7 @@ public class SocketChannelInst {
       Connection tracked = SSLStorage.getActiveConnection(c);
 
       if (SSLStorage.debugOn) {
-        logger.info("Cleanup connection " + tracked);
+        System.err.println("[SocketChannelInst] Cleanup connection " + tracked);
       }
 
       if (tracked != null) {

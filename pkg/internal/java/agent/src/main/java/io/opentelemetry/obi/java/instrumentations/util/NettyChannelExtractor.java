@@ -9,11 +9,8 @@ import io.opentelemetry.obi.java.instrumentations.data.Connection;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class NettyChannelExtractor {
-  private static final Logger logger = Logger.getLogger("NettyChannelExtractor");
 
   // Called always by reflection, that's why unused
   @SuppressWarnings("unused")
@@ -33,8 +30,8 @@ public class NettyChannelExtractor {
       InetSocketAddress remoteAddress = (InetSocketAddress) remoteAddressMethod.invoke(channel);
 
       if (SSLStorage.debugOn) {
-        logger.info("Netty channel localAddress: " + localAddress);
-        logger.info("Netty channel remoteAddress: " + remoteAddress);
+        System.err.println("[NettyChannelExtractor] Netty channel localAddress: " + localAddress);
+        System.err.println("[NettyChannelExtractor] Netty channel remoteAddress: " + remoteAddress);
       }
       c =
           new Connection(
@@ -43,7 +40,7 @@ public class NettyChannelExtractor {
               remoteAddress.getAddress(),
               remoteAddress.getPort());
     } catch (Exception x) {
-      logger.log(Level.SEVERE, "Failed to extract netty channel data", x);
+      System.err.println("[NettyChannelExtractor] Failed to extract netty channel data " + x);
     }
 
     return c;
