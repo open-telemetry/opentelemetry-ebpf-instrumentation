@@ -90,12 +90,12 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 
 		if loaded {
 			i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not reloading")
-			return errors.New("OpenTelemetry eBPF Java Agent already loaded")
+			return nil
 		}
 
 		i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid)
 
-		agentPath, err := i.extractAgent(ie)
+		agentPath, err := i.copyAgent(ie)
 		if err != nil {
 			i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid, "error", err)
 			return err
@@ -128,13 +128,13 @@ func getLocalAgentPath() (string, error) {
 	// Get the directory containing OBI
 	exeDir := filepath.Dir(exePath)
 
-	// Construct the path to the file relative to the executable
+	// Construct the path to the file relative to OBI
 	filePath := filepath.Join(exeDir, ObiJavaAgentFileName)
 
 	return filePath, nil
 }
 
-func (i *JavaInjector) extractAgent(ie *ebpf.Instrumentable) (string, error) {
+func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
 	root := ebpfcommon.RootDirectoryForPID(ie.FileInfo.Pid)
 	tempDir, err := i.findTempDir(root, ie)
 	if err != nil {

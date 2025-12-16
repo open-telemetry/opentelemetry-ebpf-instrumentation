@@ -112,7 +112,9 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 				case EventCreated:
 					ta.nodeInjector.NewExecutable(&instr.Obj)
 					if ta.javaInjector != nil {
-						ta.javaInjector.NewExecutable(&instr.Obj)
+						if err := ta.javaInjector.NewExecutable(&instr.Obj); err != nil {
+							ta.log.Warn("unable to attach java agent to process, Java TLS telemetry will not work", "pid", instr.Obj.FileInfo.Pid, "error", err)
+						}
 					}
 
 					ta.processInstances.Inc(instr.Obj.FileInfo.Ino)
