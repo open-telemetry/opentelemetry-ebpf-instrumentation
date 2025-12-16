@@ -5,7 +5,6 @@ package harvest
 
 import (
 	"io"
-	"log/slog"
 	"strings"
 	"testing"
 
@@ -402,18 +401,19 @@ func TestJavaRoutes_ExtractRoutes(t *testing.T) {
 		},
 	}
 
+	// This test simulates the entire flow without mocking
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			jvmAttachFunc = func(pid int, args []string, _ *slog.Logger) (io.ReadCloser, error) {
+			harvester.Attacher = FakeJavaAttacher{attachFunc: func(pid int, argv []string, _ bool) (io.ReadCloser, error) {
 				assert.Equal(t, int(tt.pid), pid)
-				assert.Equal(t, []string{"jcmd", "VM.symboltable -verbose"}, args)
+				assert.Equal(t, []string{"jcmd", "VM.symboltable -verbose"}, argv)
 
 				if tt.mockError != nil {
 					return nil, tt.mockError
 				}
 
 				return NewReaderCloser(strings.NewReader(tt.mockOutput)), nil
-			}
+			}}
 
 			result, err := harvester.ExtractRoutes(tt.pid)
 
@@ -434,7 +434,8 @@ func TestJavaRoutes_ExtractRoutes_Integration(t *testing.T) {
 	harvester := NewJavaRoutesHarvester()
 
 	// This test simulates the entire flow without mocking
-	symbolTableOutput := `Symbol table:
+	harvester.Attacher = FakeJavaAttacher{attachFunc: func(_ int, _ []string, _ bool) (io.ReadCloser, error) {
+		symbolTableOutput := `Symbol table:
 Header: ...
 17: /api/users
 25: /api/users/{id:\\d+}
@@ -447,9 +448,8 @@ Header: ...
 99: /META-INF/resources
 110: /static/{filename}
 `
-	jvmAttachFunc = func(_ int, _ []string, _ *slog.Logger) (io.ReadCloser, error) {
 		return NewReaderCloser(strings.NewReader(symbolTableOutput)), nil
-	}
+	}}
 
 	result, err := harvester.ExtractRoutes(1234)
 
@@ -601,4 +601,19 @@ func (rc *ReaderCloser) Close() error {
 
 func NewReaderCloser(r io.Reader) *ReaderCloser {
 	return &ReaderCloser{Reader: r}
+}
+
+type FakeJavaAttacher struct {
+	JavaAttacher
+	attachFunc func(int, []string, bool) (io.ReadCloser, error)
+}
+
+func (j FakeJavaAttacher) Init() {
+}
+
+func (j FakeJavaAttacher) Cleanup() {
+}
+
+func (j FakeJavaAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
+	return j.attachFunc(pid, argv, ignoreOnJ9)
 }

@@ -25,11 +25,120 @@
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_str.h>
 
-static __always_inline void set_sql_info(void *goroutine_addr, void *sql_param, void *query_len) {
+// Validates that driverConn.ci points to a MySQL connection and returns the mysqlConn pointer.
+static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
+    if (driver_conn_ptr == 0) {
+        return NULL;
+    }
+
+    off_table_t *ot = get_offsets_table();
+
+    // Get driverConn.ci offset
+    u64 ci_offset = go_offset_of(ot, (go_offset){.v = _driverconn_ci_pos});
+    if (!ci_offset) {
+        bpf_dbg_printk("can't get driverConn.ci offset");
+        return NULL;
+    }
+
+    // driverConn.ci is a Go interface [type_ptr (8 bytes), data_ptr (8 bytes)]
+    // Read the type pointer (at ci_offset + 0) to validate driver type
+    void *ci_type_ptr = NULL;
+    int res = bpf_probe_read_user(
+        &ci_type_ptr, sizeof(ci_type_ptr), (void *)(driver_conn_ptr + ci_offset));
+
+    if (res != 0) {
+        bpf_dbg_printk("can't read driverConn.ci type pointer");
+        return NULL;
+    }
+
+    u64 mysql_type_addr = go_offset_of(ot, (go_offset){.v = _mysql_conn_type_off});
+    if (!mysql_type_addr) {
+        bpf_dbg_printk("can't read mysql.mysqlConn offset");
+        return NULL;
+    }
+
+    bpf_dbg_printk("validating mysql conn type %llx with %llx", mysql_type_addr, ci_type_ptr);
+    if ((u64)ci_type_ptr != mysql_type_addr) {
+        bpf_dbg_printk("connection type doesn't match from mysql.mysqlConn");
+        return NULL;
+    }
+
+    void *mysql_conn_ptr = 0;
+    res = bpf_probe_read(
+        &mysql_conn_ptr, sizeof(mysql_conn_ptr), (void *)(driver_conn_ptr + ci_offset + 8));
+
+    if (res != 0 || !mysql_conn_ptr) {
+        bpf_dbg_printk("can't read MySQL connection data pointer");
+        return NULL;
+    }
+
+    return mysql_conn_ptr;
+}
+
+// Extracts MySQL server hostname from a validated mysqlConn pointer.
+// Follows the pointer chain: mysqlConn -> cfg (*Config) -> Addr (string)
+static __always_inline bool
+read_mysql_hostname_from_mysqlconn(void *mysql_conn_ptr, char *hostname, u64 max_len) {
+    if (!mysql_conn_ptr) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+
+    // Dereference mysqlConn.cfg to get pointer to Config struct
+    void *cfg_ptr = 0;
+    int res = bpf_probe_read(
+        &cfg_ptr,
+        sizeof(cfg_ptr),
+        (void *)((u64)mysql_conn_ptr + go_offset_of(ot, (go_offset){.v = _mysql_conn_cfg_pos})));
+
+    if (res != 0 || !cfg_ptr) {
+        bpf_dbg_printk("can't read mysql.mysqlConn.cfg");
+        return 0;
+    }
+
+    // Read Config.Addr string field
+    if (!read_go_str("mysql hostname",
+                     cfg_ptr,
+                     go_offset_of(ot, (go_offset){.v = _mysql_config_addr_pos}),
+                     hostname,
+                     max_len)) {
+        bpf_dbg_printk("can't read mysql.Config.Addr");
+        return 0;
+    }
+
+    return 1;
+}
+
+// SQL hostname extraction with driver type routing.
+// Attempts to extract hostname by trying supported database drivers
+static __always_inline void extract_sql_hostname(sql_request_trace_t *trace, u64 driver_conn_ptr) {
+    trace->hostname[0] = '\0';
+
+    if (driver_conn_ptr == 0) {
+        bpf_dbg_printk("sql hostname extraction skipped: driver_conn_ptr is null");
+        return;
+    }
+
+    void *mysql_conn_ptr = get_mysql_conn_ptr(driver_conn_ptr);
+    if (!mysql_conn_ptr) {
+        return;
+    }
+
+    if (read_mysql_hostname_from_mysqlconn(
+            mysql_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
+        bpf_dbg_printk("extracted MySQL hostname: %s", trace->hostname);
+    }
+}
+
+static __always_inline void
+set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *query_len) {
     sql_func_invocation_t invocation = {.start_monotime_ns = bpf_ktime_get_ns(),
                                         .sql_param = (u64)sql_param,
                                         .query_len = (u64)query_len,
+                                        .driver_conn_ptr = (u64)driver_conn,
                                         .conn = {0},
                                         .tp = {0}};
 
@@ -49,10 +158,11 @@ int obi_uprobe_queryDC(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
 
+    void *driver_conn = GO_PARAM6(ctx);
     void *sql_param = GO_PARAM8(ctx);
     void *query_len = GO_PARAM9(ctx);
 
-    set_sql_info(goroutine_addr, sql_param, query_len);
+    set_sql_info(goroutine_addr, driver_conn, sql_param, query_len);
     return 0;
 }
 
@@ -62,9 +172,11 @@ int obi_uprobe_execDC(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
 
+    void *driver_conn = GO_PARAM4(ctx);
     void *sql_param = GO_PARAM6(ctx);
     void *query_len = GO_PARAM7(ctx);
-    set_sql_info(goroutine_addr, sql_param, query_len);
+
+    set_sql_info(goroutine_addr, driver_conn, sql_param, query_len);
     return 0;
 }
 
@@ -109,6 +221,8 @@ int obi_uprobe_queryReturn(struct pt_regs *ctx) {
         bpf_dbg_printk("Found sql statement %s", trace->sql);
 
         __builtin_memcpy(&trace->conn, &invocation->conn, sizeof(connection_info_t));
+
+        extract_sql_hostname(trace, invocation->driver_conn_ptr);
 
         // submit the completed trace via ringbuffer
         bpf_ringbuf_submit(trace, get_flags());

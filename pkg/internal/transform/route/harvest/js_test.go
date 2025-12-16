@@ -133,10 +133,54 @@ func TestRouteExtractor_HttpDispatcherApp(t *testing.T) {
 	}
 }
 
+func TestRouteExtractor_NextJSManifest(t *testing.T) {
+	extractor := NewRouteExtractor()
+	// The routes-manifest.json is in test_files/.next/
+	examplesDir := filepath.Join("nodejs", "test_files")
+	err := extractor.extractNextJSRoutesFromManifest(examplesDir)
+	require.NoError(t, err)
+
+	routes := extractor.GetRoutes()
+	require.NotEmpty(t, routes, "should extract routes from routes-manifest.json")
+
+	// Expected routes from routes-manifest.json
+	// Note: root "/" is filtered out by GetHarvestedRoutes
+	expectedRoutes := []RoutePattern{
+		{Method: "ALL", Path: "/blog"},
+		{Method: "ALL", Path: "/users"},
+		{Method: "ALL", Path: "/favicon.ico"},
+		{Method: "ALL", Path: "/blog/:slug"},
+		{Method: "ALL", Path: "/users/:userId"},
+		{Method: "ALL", Path: "/users/:userId/posts/:postId"},
+	}
+
+	// Verify we found the expected number of routes
+	assert.GreaterOrEqual(t, len(routes), len(expectedRoutes), "should find at least the expected routes")
+
+	// Check that each expected route exists
+	for _, expected := range expectedRoutes {
+		found := false
+		for _, actual := range routes {
+			if actual.Method == expected.Method && actual.Path == expected.Path {
+				found = true
+				assert.NotEmpty(t, actual.File, "file should be set")
+				assert.Equal(t, 0, actual.Line, "line number should be 0 for manifest routes")
+				break
+			}
+		}
+		assert.True(t, found, "should find route %s %s", expected.Method, expected.Path)
+	}
+}
+
 func TestRouteExtractor_AllExamples(t *testing.T) {
 	extractor := NewRouteExtractor()
 	examplesDir := filepath.Join("nodejs", "test_files")
-	err := extractor.ScanDirectory(examplesDir)
+
+	// Extract Next.js routes from manifest first
+	err := extractor.extractNextJSRoutesFromManifest(examplesDir)
+	require.NoError(t, err)
+
+	err = extractor.ScanDirectory(examplesDir)
 	require.NoError(t, err)
 
 	routes := extractor.GetRoutes()
@@ -153,6 +197,7 @@ func TestRouteExtractor_AllExamples(t *testing.T) {
 	assert.NotEmpty(t, routesByFile["express-app.js"], "should have routes from express-app.js")
 	assert.NotEmpty(t, routesByFile["fastify-app.js"], "should have routes from fastify-app.js")
 	assert.NotEmpty(t, routesByFile["httpdispatcher-app.js"], "should have routes from httpdispatcher-app.js")
+	assert.NotEmpty(t, routesByFile["routes-manifest.json"], "should have routes from routes-manifest.json")
 
 	// Verify route details
 	for filename, fileRoutes := range routesByFile {
@@ -161,7 +206,12 @@ func TestRouteExtractor_AllExamples(t *testing.T) {
 				assert.NotEmpty(t, route.Method, "method should not be empty")
 				assert.NotEmpty(t, route.Path, "path should not be empty")
 				assert.Contains(t, route.File, filename, "file should match")
-				assert.Positive(t, route.Line, "line should be positive")
+				// Manifest routes have line 0, JS files have positive line numbers
+				if filename == "routes-manifest.json" {
+					assert.Equal(t, 0, route.Line, "manifest routes should have line 0")
+				} else {
+					assert.Positive(t, route.Line, "line should be positive")
+				}
 			}
 		})
 	}
@@ -1058,17 +1108,65 @@ app.listen(3000);
 `
 	require.NoError(t, os.WriteFile(testFile, []byte(testContent), 0o644))
 
+	// Create a separate Next.js app directory for the manifest test
+	nextAppDir := filepath.Join(tempDir, "nextapp")
+	require.NoError(t, os.MkdirAll(nextAppDir, 0o755))
+
+	// Create .next directory with manifest
+	nextDir := filepath.Join(nextAppDir, ".next")
+	require.NoError(t, os.MkdirAll(nextDir, 0o755))
+
+	manifestContent := `{
+		"staticRoutes": [
+			{"page": "/"},
+			{"page": "/about"}
+		],
+		"dynamicRoutes": [
+			{"page": "/products/[id]"},
+			{"page": "/blog/[...slug]"}
+		]
+	}`
+	manifestPath := filepath.Join(nextDir, "routes-manifest.json")
+	require.NoError(t, os.WriteFile(manifestPath, []byte(manifestContent), 0o644))
+
+	// Create a JavaScript file in .next directory that would add unwanted routes if scanned
+	nextServerFile := filepath.Join(nextDir, "server.js")
+	nextServerContent := `
+const express = require('express');
+const app = express();
+
+// This route should NOT appear in results because .next is skipped
+app.get('/should-not-appear', (req, res) => {
+	res.send('build artifact');
+});
+`
+	require.NoError(t, os.WriteFile(nextServerFile, []byte(nextServerContent), 0o644))
+
+	// Create a regular server file outside .next
+	nextAppServerFile := filepath.Join(nextAppDir, "server.js")
+	nextAppServerContent := `
+const express = require('express');
+const app = express();
+
+// This route SHOULD appear because it's in the main app directory
+app.get('/api/health', (req, res) => {
+	res.json({ status: 'ok' });
+});
+`
+	require.NoError(t, os.WriteFile(nextAppServerFile, []byte(nextAppServerContent), 0o644))
+
 	tests := []struct {
-		name           string
-		pid            int32
-		mockRootDir    string
-		mockCmdline    []string
-		mockCwd        string
-		cmdlineErr     error
-		cwdErr         error
-		expectedErr    string
-		expectedCount  int
-		expectedRoutes []string
+		name              string
+		pid               int32
+		mockRootDir       string
+		mockCmdline       []string
+		mockCwd           string
+		cmdlineErr        error
+		cwdErr            error
+		expectedErr       string
+		expectedCount     int
+		expectedRoutes    []string
+		notExpectedRoutes []string // Routes that should NOT be present
 	}{
 		{
 			name:        "successful extraction",
@@ -1132,6 +1230,23 @@ app.listen(3000);
 			},
 			expectedCount: 2,
 		},
+		{
+			name:        "prefers Next.js manifest and skips .next directory",
+			pid:         12346,
+			mockRootDir: tempDir,
+			mockCmdline: []string{"node", "/nextapp/server.js"},
+			mockCwd:     "/nextapp",
+			expectedRoutes: []string{
+				"/about",        // from manifest (root "/" is filtered out by GetHarvestedRoutes)
+				"/products/:id", // from manifest
+				"/blog/:slug",   // from manifest
+				"/api/health",   // from server.js in main app directory
+			},
+			notExpectedRoutes: []string{
+				"/should-not-appear", // from .next/server.js - should be skipped
+			},
+			expectedCount: 4, // 3 from manifest (excluding /) + 1 from server.js
+		},
 	}
 
 	for _, tt := range tests {
@@ -1180,6 +1295,11 @@ app.listen(3000);
 				for _, expectedRoute := range tt.expectedRoutes {
 					assert.Contains(t, result.Routes, expectedRoute, "should contain route %s", expectedRoute)
 				}
+
+				// Check that routes that should NOT be present are absent
+				for _, notExpectedRoute := range tt.notExpectedRoutes {
+					assert.NotContains(t, result.Routes, notExpectedRoute, "should not contain route %s", notExpectedRoute)
+				}
 			}
 		})
 	}
@@ -1220,4 +1340,217 @@ func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, CompleteRoutes, result.Kind)
 	assert.Empty(t, result.Routes, "should return empty routes for empty directory")
+}
+
+func TestExtractNextJSRoutesFromManifest(t *testing.T) {
+	tests := []struct {
+		name            string
+		manifestContent string
+		expectedRoutes  []RoutePattern
+		shouldError     bool
+		removeReadPerm  bool   // if true, remove read permissions to simulate permission error
+		skipManifest    bool   // if true, skip creating the manifest file to test not found scenario
+		errorContains   string // expected error message substring
+	}{
+		{
+			name: "static and dynamic routes",
+			manifestContent: `{
+				"staticRoutes": [
+					{"page": "/"},
+					{"page": "/about"},
+					{"page": "/contact"}
+				],
+				"dynamicRoutes": [
+					{"page": "/users/[id]"},
+					{"page": "/posts/[slug]"}
+				]
+			}`,
+			expectedRoutes: []RoutePattern{
+				{Method: "ALL", Path: "/"},
+				{Method: "ALL", Path: "/about"},
+				{Method: "ALL", Path: "/contact"},
+				{Method: "ALL", Path: "/users/:id"},
+				{Method: "ALL", Path: "/posts/:slug"},
+			},
+		},
+		{
+			name: "catch-all routes",
+			manifestContent: `{
+				"staticRoutes": [
+					{"page": "/api/health"}
+				],
+				"dynamicRoutes": [
+					{"page": "/docs/[...slug]"},
+					{"page": "/blog/[year]/[month]/[...rest]"}
+				]
+			}`,
+			expectedRoutes: []RoutePattern{
+				{Method: "ALL", Path: "/api/health"},
+				{Method: "ALL", Path: "/docs/:slug"},
+				{Method: "ALL", Path: "/blog/:year/:month/:rest"},
+			},
+		},
+		{
+			name: "only static routes",
+			manifestContent: `{
+				"staticRoutes": [
+					{"page": "/"},
+					{"page": "/login"},
+					{"page": "/signup"}
+				],
+				"dynamicRoutes": []
+			}`,
+			expectedRoutes: []RoutePattern{
+				{Method: "ALL", Path: "/"},
+				{Method: "ALL", Path: "/login"},
+				{Method: "ALL", Path: "/signup"},
+			},
+		},
+		{
+			name: "only dynamic routes",
+			manifestContent: `{
+				"staticRoutes": [],
+				"dynamicRoutes": [
+					{"page": "/products/[id]"},
+					{"page": "/categories/[slug]/items/[itemId]"}
+				]
+			}`,
+			expectedRoutes: []RoutePattern{
+				{Method: "ALL", Path: "/products/:id"},
+				{Method: "ALL", Path: "/categories/:slug/items/:itemId"},
+			},
+		},
+		{
+			name: "empty manifest",
+			manifestContent: `{
+				"staticRoutes": [],
+				"dynamicRoutes": []
+			}`,
+			expectedRoutes: []RoutePattern{},
+		},
+		{
+			name: "nested dynamic routes",
+			manifestContent: `{
+				"staticRoutes": [],
+				"dynamicRoutes": [
+					{"page": "/users/[userId]/posts/[postId]/comments/[commentId]"}
+				]
+			}`,
+			expectedRoutes: []RoutePattern{
+				{Method: "ALL", Path: "/users/:userId/posts/:postId/comments/:commentId"},
+			},
+		},
+		{
+			name: "mixed parameter types",
+			manifestContent: `{
+				"staticRoutes": [],
+				"dynamicRoutes": [
+					{"page": "/api/[version]/users/[userId]"},
+					{"page": "/files/[...path]"}
+				]
+			}`,
+			expectedRoutes: []RoutePattern{
+				{Method: "ALL", Path: "/api/:version/users/:userId"},
+				{Method: "ALL", Path: "/files/:path"},
+			},
+		},
+		{
+			name: "complex paths",
+			manifestContent: `{
+				"staticRoutes": [
+					{"page": "/api/auth/signin"},
+					{"page": "/api/auth/signout"}
+				],
+				"dynamicRoutes": [
+					{"page": "/api/users/[userId]/profile"},
+					{"page": "/api/posts/[postId]/comments/[commentId]"},
+					{"page": "/blog/[year]/[month]/[day]/[slug]"},
+					{"page": "/docs/[...slug]"}
+				]
+			}`,
+			expectedRoutes: []RoutePattern{
+				{Method: "ALL", Path: "/api/auth/signin"},
+				{Method: "ALL", Path: "/api/auth/signout"},
+				{Method: "ALL", Path: "/api/users/:userId/profile"},
+				{Method: "ALL", Path: "/api/posts/:postId/comments/:commentId"},
+				{Method: "ALL", Path: "/blog/:year/:month/:day/:slug"},
+				{Method: "ALL", Path: "/docs/:slug"},
+			},
+		},
+		{
+			name:            "manifest not found",
+			manifestContent: `{"staticRoutes": [], "dynamicRoutes": []}`,
+			skipManifest:    true,
+			expectedRoutes:  []RoutePattern{},
+		},
+		{
+			name:            "invalid JSON",
+			manifestContent: `{ "staticRoutes": [ invalid json `,
+			shouldError:     true,
+			errorContains:   "decode next.js routes-manifest",
+		},
+		{
+			name:            "file permission error",
+			manifestContent: `{"staticRoutes": [], "dynamicRoutes": []}`,
+			shouldError:     true,
+			removeReadPerm:  true,
+			errorContains:   "open next.js routes-manifest",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create temporary directory structure
+			tempDir := t.TempDir()
+			nextDir := filepath.Join(tempDir, ".next")
+			require.NoError(t, os.MkdirAll(nextDir, 0o755))
+
+			// Write manifest file
+			manifestPath := filepath.Join(nextDir, "routes-manifest.json")
+			if !tt.skipManifest {
+				require.NoError(t, os.WriteFile(manifestPath, []byte(tt.manifestContent), 0o644))
+			}
+
+			// Remove read permissions if testing permission error
+			if tt.removeReadPerm {
+				require.NoError(t, os.Chmod(manifestPath, 0o000))
+				// Restore permissions after test
+				defer func() {
+					_ = os.Chmod(manifestPath, 0o644)
+				}()
+			}
+
+			// Create extractor and run the method
+			extractor := NewRouteExtractor()
+			err := extractor.extractNextJSRoutesFromManifest(tempDir)
+
+			if tt.shouldError {
+				require.Error(t, err)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			routes := extractor.GetRoutes()
+
+			// Verify the number of routes
+			assert.Len(t, routes, len(tt.expectedRoutes), "should have expected number of routes")
+
+			// Check each expected route
+			for _, expected := range tt.expectedRoutes {
+				found := false
+				for _, actual := range routes {
+					if actual.Method == expected.Method && actual.Path == expected.Path {
+						found = true
+						assert.Equal(t, manifestPath, actual.File, "file should be manifest path")
+						assert.Equal(t, 0, actual.Line, "line should be 0 for manifest routes")
+						break
+					}
+				}
+				assert.True(t, found, "should find route %s %s", expected.Method, expected.Path)
+			}
+		})
+	}
 }

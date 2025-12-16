@@ -455,3 +455,119 @@ func TestResolveClientFromHost_K8sFQDN(t *testing.T) {
 	assert.Equal(t, "bar-server", clientSpan.HostName)
 	assert.Equal(t, "bar-ns", clientSpan.OtherNamespace)
 }
+
+func TestPreserveBPFHostnameWhenResolutionFails(t *testing.T) {
+	inf := &fakeInformer{}
+	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+
+	nr := NameResolver{
+		db:      db,
+		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		sources: resolverSources([]Source{SourceK8s}),
+		logger:  nrlog(),
+	}
+
+	sqlClientSpan := request.Span{
+		Type:     request.EventTypeSQLClient,
+		Peer:     "10.0.1.1",
+		Host:     "172.18.0.5",
+		HostName: "mysqlserver",
+		Service: svc.Attrs{
+			UID: svc.UID{
+				Name:      "myapp",
+				Namespace: "default",
+			},
+		},
+	}
+
+	nr.resolveNames(&sqlClientSpan)
+
+	assert.Equal(t, "mysqlserver", sqlClientSpan.HostName)
+	assert.Empty(t, sqlClientSpan.OtherNamespace)
+}
+
+func TestResolver(t *testing.T) {
+	inf := &fakeInformer{}
+	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+
+	pod := &informer.ObjectMeta{
+		Name:      "resolved-pod",
+		Namespace: "test-ns",
+		Kind:      "Pod",
+		Ips:       []string{"10.0.0.100"},
+	}
+	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod})
+
+	nr := NameResolver{
+		db:      db,
+		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		sources: resolverSources([]Source{SourceK8s, SourceDNS, SourceRDNS}),
+		logger:  nrlog(),
+	}
+
+	svcAttrs := svc.Attrs{
+		UID: svc.UID{
+			Name:      "test-service",
+			Namespace: "default",
+		},
+	}
+
+	tests := []struct {
+		name              string
+		ip                string
+		fallback          string
+		expectedName      string
+		expectedNamespace string
+	}{
+		{
+			name:              "resolution fails with fallback",
+			ip:                "10.0.0.99",
+			fallback:          "fallback-hostname",
+			expectedName:      "fallback-hostname",
+			expectedNamespace: "default",
+		},
+		{
+			name:              "resolution fails without fallback",
+			ip:                "10.0.0.99",
+			fallback:          "",
+			expectedName:      "10.0.0.99",
+			expectedNamespace: "default",
+		},
+		{
+			name:              "k8s resolution overrides fallback",
+			ip:                "10.0.0.100",
+			fallback:          "fallback-hostname",
+			expectedName:      "resolved-pod",
+			expectedNamespace: "test-ns",
+		},
+		{
+			name:              "k8s resolution without fallback",
+			ip:                "10.0.0.100",
+			fallback:          "",
+			expectedName:      "resolved-pod",
+			expectedNamespace: "test-ns",
+		},
+		{
+			name:              "empty ip with fallback",
+			ip:                "",
+			fallback:          "fallback-hostname",
+			expectedName:      "fallback-hostname",
+			expectedNamespace: "",
+		},
+		{
+			name:              "empty ip without fallback",
+			ip:                "",
+			fallback:          "",
+			expectedName:      "",
+			expectedNamespace: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			name, ns := nr.resolve(&svcAttrs, tt.ip, tt.fallback)
+			assert.Equal(t, tt.expectedName, name)
+			assert.Equal(t, tt.expectedNamespace, ns)
+		})
+	}
+}
