@@ -69,7 +69,7 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	go reporter(t.Context())
 
 	// send some dummy traces
-	exportMetrics.Send([]request.Span{{Type: request.EventTypeHTTP}})
+	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
 
 	var previousSum, previousCount int
 	test.Eventually(t, timeout, func(t require.TestingT) {
@@ -84,7 +84,7 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	})
 
 	// send another trace
-	exportMetrics.Send([]request.Span{{Type: request.EventTypeHTTP}})
+	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
 
 	// after some time, the number of calls should be higher than before
 	test.Eventually(t, timeout, func(t require.TestingT) {
@@ -106,7 +106,7 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	})
 
 	var previousErrCount int
-	exportMetrics.Send([]request.Span{{Type: request.EventTypeHTTP}})
+	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
 	test.Eventually(t, timeout, func(t require.TestingT) {
 		previousSum, previousCount = internalMetrics.SumCount()
 		// calls should start returning errors
@@ -115,7 +115,7 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	})
 
 	// after a while, metrics count should not increase but errors do
-	exportMetrics.Send([]request.Span{{Type: request.EventTypeHTTP}})
+	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
 	test.Eventually(t, timeout, func(t require.TestingT) {
 		sum, cnt := internalMetrics.SumCount()
 		assert.Equal(t, previousSum, sum)
@@ -261,16 +261,16 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			*/
 			// WHEN it receives metrics
 			metrics.Send([]request.Span{
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/foo", RequestStart: 100, End: 200},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPCClient, Path: "/bar", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Path: "SELECT", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/foo", RequestStart: 100, End: 200},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPCClient, Path: "/bar", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Path: "SELECT", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 			})
 
 			// Read the exported metrics, add +extraColl for HTTP size metrics
@@ -312,7 +312,7 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	go otelExporter(ctx)
 
 	metrics.Send([]request.Span{
-		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
+		{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
 	})
 
 	res := readNChan(t, otlp.Records(), 1, timeout)
@@ -328,12 +328,12 @@ func TestMetricsDiscarded(t *testing.T) {
 		jointMetricsCfg: &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 	}
 
-	svcNoExport := svc.Attrs{}
+	svcNoExport := svc.Attrs{Features: export.FeatureAll}
 
-	svcExportMetrics := svc.Attrs{}
+	svcExportMetrics := svc.Attrs{Features: export.FeatureAll}
 	svcExportMetrics.SetExportsOTelMetrics()
 
-	svcExportTraces := svc.Attrs{}
+	svcExportTraces := svc.Attrs{Features: export.FeatureAll}
 	svcExportTraces.SetExportsOTelTraces()
 
 	tests := []struct {
@@ -371,12 +371,12 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 		jointMetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}
 
-	svcNoExport := svc.Attrs{}
+	svcNoExport := svc.Attrs{Features: export.FeatureAll}
 
-	svcExportMetrics := svc.Attrs{}
+	svcExportMetrics := svc.Attrs{Features: export.FeatureAll}
 	svcExportMetrics.SetExportsOTelMetrics()
 
-	svcExportSpanMetrics := svc.Attrs{}
+	svcExportSpanMetrics := svc.Attrs{Features: export.FeatureAll}
 	svcExportSpanMetrics.SetExportsOTelMetricsSpan()
 
 	tests := []struct {
@@ -414,12 +414,12 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 		jointMetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}
 
-	svcNoExport := svc.Attrs{}
+	svcNoExport := svc.Attrs{Features: export.FeatureAll}
 
-	svcExportMetrics := svc.Attrs{}
+	svcExportMetrics := svc.Attrs{Features: export.FeatureAll}
 	svcExportMetrics.SetExportsOTelMetrics()
 
-	svcExportSpanMetrics := svc.Attrs{}
+	svcExportSpanMetrics := svc.Attrs{Features: export.FeatureAll}
 	svcExportSpanMetrics.SetExportsOTelMetricsSpan()
 
 	tests := []struct {
@@ -459,10 +459,12 @@ func TestProcessPIDEvents(t *testing.T) {
 	}
 
 	svcA := svc.Attrs{
-		UID: svc.UID{Name: "A", Instance: "A"},
+		Features: export.FeatureAll,
+		UID:      svc.UID{Name: "A", Instance: "A"},
 	}
 	svcB := svc.Attrs{
-		UID: svc.UID{Name: "B", Instance: "B"},
+		Features: export.FeatureAll,
+		UID:      svc.UID{Name: "B", Instance: "B"},
 	}
 
 	mr.setupPIDToServiceRelationship(1, svcA.UID)
@@ -572,7 +574,8 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, export.FeatureApplicationRED|export.FeatureApplicationHost, otlp, metrics, processEvents)
+	feats := export.FeatureApplicationRED | export.FeatureApplicationHost
+	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, feats, otlp, metrics, processEvents)
 	otelExporter := mr.reportMetrics
 	go otelExporter(ctx)
 
@@ -582,13 +585,14 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 		Type: exec.ProcessEventCreated,
 		File: &exec.FileInfo{
 			Service: svc.Attrs{
-				UID: svc.UID{Instance: "foo"},
+				Features: feats,
+				UID:      svc.UID{Instance: "foo"},
 			},
 		},
 	})
 
 	metrics.Send([]request.Span{
-		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
+		{Service: svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
 	})
 
 	test.Eventually(t, timeout, func(t require.TestingT) {
@@ -601,7 +605,8 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 		Type: exec.ProcessEventTerminated,
 		File: &exec.FileInfo{
 			Service: svc.Attrs{
-				UID: svc.UID{Instance: "foo"},
+				Features: feats,
+				UID:      svc.UID{Instance: "foo"},
 			},
 		},
 	})
@@ -626,6 +631,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 		{
 			name: "No filtering configuration",
 			service: &svc.Attrs{
+				Features: export.FeatureAll,
 				UID: svc.UID{
 					Name:      "test-service",
 					Instance:  "test-instance",
@@ -659,6 +665,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 		{
 			name: "Filter out host attributes",
 			service: &svc.Attrs{
+				Features: export.FeatureAll,
 				UID: svc.UID{
 					Name:      "test-service",
 					Instance:  "test-instance",
@@ -698,6 +705,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 		{
 			name: "Filter out k8s attributes",
 			service: &svc.Attrs{
+				Features: export.FeatureAll,
 				UID: svc.UID{
 					Name:      "test-service",
 					Instance:  "test-instance",
@@ -737,6 +745,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 		{
 			name: "Only include specific attributes",
 			service: &svc.Attrs{
+				Features: export.FeatureAll,
 				UID: svc.UID{
 					Name:      "test-service",
 					Instance:  "test-instance",
@@ -884,6 +893,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 				File: &exec.FileInfo{
 					Pid: 1234,
 					Service: svc.Attrs{
+						Features: export.FeatureApplicationRED,
 						UID: svc.UID{
 							Name:      "test-service",
 							Namespace: "default",
@@ -895,6 +905,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			expectedCreate: []svc.Attrs{
 				{
+					Features: export.FeatureApplicationRED,
 					UID: svc.UID{
 						Name:      "test-service",
 						Namespace: "default",
@@ -910,6 +921,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 					Namespace: "default",
 					Instance:  "instance-1",
 				}: {
+					Features: export.FeatureApplicationRED,
 					UID: svc.UID{
 						Name:      "test-service",
 						Namespace: "default",
@@ -929,6 +941,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 					Instance:  "instance-1",
 				}
 				r.targetMetrics[uid] = attrsToTargetMetrics(r, &svc.Attrs{
+					Features: export.FeatureApplicationRED,
 					UID:      uid,
 					HostName: "old-host",
 				})
@@ -938,6 +951,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 				File: &exec.FileInfo{
 					Pid: 1234,
 					Service: svc.Attrs{
+						Features: export.FeatureApplicationRED,
 						UID: svc.UID{
 							Name:      "test-service",
 							Namespace: "default",
@@ -949,6 +963,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			expectedCreate: []svc.Attrs{
 				{
+					Features: export.FeatureApplicationRED,
 					UID: svc.UID{
 						Name:      "test-service",
 						Namespace: "default",
@@ -959,6 +974,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			expectedDelete: []svc.Attrs{
 				{
+					Features: export.FeatureApplicationRED,
 					UID: svc.UID{
 						Name:      "test-service",
 						Namespace: "default",
@@ -973,6 +989,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 					Namespace: "default",
 					Instance:  "instance-1",
 				}: {
+					Features: export.FeatureApplicationRED,
 					UID: svc.UID{
 						Name:      "test-service",
 						Namespace: "default",
@@ -995,6 +1012,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 
 				// Add stale service to service map
 				r.targetMetrics[staleUID] = attrsToTargetMetrics(r, &svc.Attrs{
+					Features: export.FeatureApplicationRED,
 					UID:      staleUID,
 					HostName: "test-host",
 				})
@@ -1004,6 +1022,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 				File: &exec.FileInfo{
 					Pid: 1234,
 					Service: svc.Attrs{
+						Features: export.FeatureApplicationRED,
 						UID: svc.UID{
 							Name:      "new-service",
 							Namespace: "default",
@@ -1015,6 +1034,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			expectedCreate: []svc.Attrs{
 				{
+					Features: export.FeatureApplicationRED,
 					UID: svc.UID{
 						Name:      "new-service",
 						Namespace: "default",
@@ -1025,6 +1045,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			expectedDelete: []svc.Attrs{
 				{
+					Features: export.FeatureApplicationRED,
 					UID: svc.UID{
 						Name:      "old-service",
 						Namespace: "default",
@@ -1039,6 +1060,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 					Namespace: "default",
 					Instance:  "instance-1",
 				}: {
+					Features: export.FeatureApplicationRED,
 					UID: svc.UID{
 						Name:      "new-service",
 						Namespace: "default",
@@ -1065,6 +1087,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 				File: &exec.FileInfo{
 					Pid: 1234,
 					Service: svc.Attrs{
+						Features: export.FeatureApplicationRED,
 						UID: svc.UID{
 							Name:      "new-service",
 							Namespace: "default",
@@ -1082,6 +1105,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 					Namespace: "default",
 					Instance:  "instance-1",
 				}: {
+					Features: export.FeatureApplicationRED,
 					UID: svc.UID{
 						Name:      "new-service",
 						Namespace: "default",
@@ -1154,7 +1178,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		}
 
 		uid := svc.UID{Name: "multi-pid-service", Namespace: "default", Instance: "instance-1"}
-		service := svc.Attrs{UID: uid, HostName: "test-host"}
+		service := svc.Attrs{Features: export.FeatureAll, UID: uid, HostName: "test-host"}
 
 		// Add first PID
 		event1 := exec.ProcessEvent{
@@ -1193,6 +1217,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		// Simulate rapid updates to same service with different metadata
 		for i := range 5 {
 			service := svc.Attrs{
+				Features: export.FeatureAll,
 				UID:      uid,
 				HostName: fmt.Sprintf("host-%d", i),
 			}
