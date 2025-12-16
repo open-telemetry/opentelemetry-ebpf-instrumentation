@@ -70,7 +70,6 @@ type Matcher struct {
 type ProcessMatch struct {
 	Criteria []services.Selector
 	Process  *services.ProcessInfo
-	Features export.Features
 }
 
 func (m *Matcher) Run(ctx context.Context) {

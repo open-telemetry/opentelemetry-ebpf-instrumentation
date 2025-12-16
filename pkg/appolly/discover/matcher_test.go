@@ -552,7 +552,8 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	require.Len(t, planetMatch.Criteria, 2)
 
-	planetAttrs := makeServiceAttrs(&planetMatch, &transform.RoutesConfig{})
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
+	planetAttrs := ty.makeServiceAttrs(&planetMatch)
 
 	assert.True(t, planetAttrs.ExportModes.CanExportTraces())
 	assert.False(t, planetAttrs.ExportModes.CanExportMetrics())
@@ -563,7 +564,7 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	require.Len(t, satelliteMatch.Criteria, 2)
 
-	satelliteAttrs := makeServiceAttrs(&satelliteMatch, &transform.RoutesConfig{})
+	satelliteAttrs := ty.makeServiceAttrs(&satelliteMatch)
 
 	assert.False(t, satelliteAttrs.ExportModes.CanExportTraces())
 	assert.False(t, satelliteAttrs.ExportModes.CanExportMetrics())
@@ -573,7 +574,7 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	require.Len(t, starMatch.Criteria, 2)
 
-	starAttrs := makeServiceAttrs(&starMatch, &transform.RoutesConfig{})
+	starAttrs := ty.makeServiceAttrs(&starMatch)
 
 	assert.False(t, starAttrs.ExportModes.CanExportTraces())
 	assert.True(t, starAttrs.ExportModes.CanExportMetrics())
@@ -583,7 +584,7 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	require.Len(t, asteroidMatch.Criteria, 2)
 
-	asteroidAttrs := makeServiceAttrs(&asteroidMatch, &transform.RoutesConfig{})
+	asteroidAttrs := ty.makeServiceAttrs(&asteroidMatch)
 
 	assert.True(t, asteroidAttrs.ExportModes.CanExportTraces())
 	assert.True(t, asteroidAttrs.ExportModes.CanExportMetrics())

@@ -324,8 +324,8 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 
 func TestMetricsDiscarded(t *testing.T) {
 	mr := MetricsReporter{
-		cfg:       &otelcfg.MetricsConfig{},
-		commonCfg: &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		cfg:             &otelcfg.MetricsConfig{},
+		jointMetricsCfg: &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -367,8 +367,8 @@ func TestMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mr := MetricsReporter{
-		cfg:       &otelcfg.MetricsConfig{},
-		commonCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
+		cfg:             &otelcfg.MetricsConfig{},
+		jointMetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -410,8 +410,8 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
 	mr := MetricsReporter{
-		cfg:       &otelcfg.MetricsConfig{},
-		commonCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
+		cfg:             &otelcfg.MetricsConfig{},
+		jointMetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
 	}
 
 	svcNoExport := svc.Attrs{}
@@ -453,9 +453,9 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 
 func TestProcessPIDEvents(t *testing.T) {
 	mr := MetricsReporter{
-		cfg:        &otelcfg.MetricsConfig{},
-		commonCfg:  &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
-		pidTracker: NewPidServiceTracker(),
+		cfg:             &otelcfg.MetricsConfig{},
+		jointMetricsCfg: &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		pidTracker:      NewPidServiceTracker(),
 	}
 
 	svcA := svc.Attrs{
@@ -857,7 +857,7 @@ func newMockEventMetrics() *mockEventMetrics {
 	}
 }
 
-func (m *mockEventMetrics) createEventMetrics(targetMetrics *TargetMetrics) {
+func (m *mockEventMetrics) createEventMetrics(_ *svc.Attrs, targetMetrics *TargetMetrics) {
 	m.createCalls = append(m.createCalls, targetMetrics)
 }
 
@@ -1101,7 +1101,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			reporter := &MetricsReporter{
 				cfg:                &otelcfg.MetricsConfig{},
 				log:                slog.Default(),
-				commonCfg:          &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+				jointMetricsCfg:    &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 				targetMetrics:      make(map[svc.UID]*TargetMetrics),
 				pidTracker:         NewPidServiceTracker(),
 				createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1146,7 +1146,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
-			commonCfg:          &perapp.MetricsConfig{},
+			jointMetricsCfg:    &perapp.MetricsConfig{},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,
@@ -1181,7 +1181,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		reporter := &MetricsReporter{
 			cfg:                &otelcfg.MetricsConfig{},
 			log:                slog.Default(),
-			commonCfg:          &perapp.MetricsConfig{},
+			jointMetricsCfg:    &perapp.MetricsConfig{},
 			targetMetrics:      make(map[svc.UID]*TargetMetrics),
 			pidTracker:         NewPidServiceTracker(),
 			createEventMetrics: mockEventsStore.createEventMetrics,

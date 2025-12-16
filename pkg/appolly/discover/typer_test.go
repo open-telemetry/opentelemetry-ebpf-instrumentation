@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -48,7 +49,8 @@ func TestMakeServiceAttrs(t *testing.T) {
 			dummyCriterion{name: "svc1", namespace: "ns1", export: services.ExportModeUnset},
 		},
 	}
-	attrs := makeServiceAttrs(proc, &transform.RoutesConfig{})
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
+	attrs := ty.makeServiceAttrs(proc)
 	assert.Equal(t, "svc1", attrs.UID.Name)
 	assert.Equal(t, "ns1", attrs.UID.Namespace)
 	assert.Equal(t, int32(1234), attrs.ProcPID)
@@ -67,7 +69,7 @@ func TestMakeServiceAttrs(t *testing.T) {
 			dummyCriterion{sampler: sampler, routes: routes},
 		},
 	}
-	attrs2 := makeServiceAttrs(proc2, &transform.RoutesConfig{})
+	attrs2 := ty.makeServiceAttrs(proc2)
 	assert.NotNil(t, attrs2.Sampler)
 	assert.NotNil(t, attrs2.CustomInRouteMatcher)
 	assert.NotNil(t, attrs2.CustomOutRouteMatcher)
