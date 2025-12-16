@@ -3,7 +3,7 @@
 
 //go:build linux
 
-package otelsdk
+package javaagent
 
 import (
 	"bufio"
@@ -23,15 +23,15 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-type SDKInjector struct {
+type JavaInjector struct {
 	log *slog.Logger
 	cfg *obi.Config
 }
 
-func NewSDKInjector(cfg *obi.Config) *SDKInjector {
-	return &SDKInjector{
+func NewJavaInjector(cfg *obi.Config) *JavaInjector {
+	return &JavaInjector{
 		cfg: cfg,
-		log: slog.With("component", "otelsdk.Injector"),
+		log: slog.With("component", "javaagent.Injector"),
 	}
 }
 
@@ -42,7 +42,7 @@ func dirOK(root, dir string) bool {
 	return err == nil && info.IsDir()
 }
 
-func (i *SDKInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string, error) {
+func (i *JavaInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string, error) {
 	if tmpDir, ok := ie.FileInfo.Service.EnvVars["TMPDIR"]; ok {
 		if dirOK(root, tmpDir) {
 			return tmpDir, nil
@@ -62,7 +62,7 @@ func (i *SDKInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string,
 	return "", errors.New("couldn't find suitable temp directory for injection")
 }
 
-func (i *SDKInjector) NewExecutable(ie *ebpf.Instrumentable) error {
+func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	if ie.Type == svc.InstrumentableJava {
 		ok := i.verifyJVMVersion(ie.FileInfo.Pid)
 		if !ok {
@@ -99,7 +99,7 @@ func (i *SDKInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	return errors.New("OpenTelemetry eBPF Java instrumentation not possible")
 }
 
-func (i *SDKInjector) extractAgent(ie *ebpf.Instrumentable) (string, error) {
+func (i *JavaInjector) extractAgent(ie *ebpf.Instrumentable) (string, error) {
 	root := ebpfcommon.RootDirectoryForPID(ie.FileInfo.Pid)
 	tempDir, err := i.findTempDir(root, ie)
 	if err != nil {
@@ -123,7 +123,7 @@ func (i *SDKInjector) extractAgent(ie *ebpf.Instrumentable) (string, error) {
 	return agentPathContainer, nil
 }
 
-func (i *SDKInjector) attachJDKAgent(pid int32, path string) error {
+func (i *JavaInjector) attachJDKAgent(pid int32, path string) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	attacher := jvm.NewJAttacher(i.log)
@@ -158,7 +158,7 @@ func (i *SDKInjector) attachJDKAgent(pid int32, path string) error {
 	return nil
 }
 
-func (i *SDKInjector) jdkAgentAlreadyLoaded(pid int32) (bool, error) {
+func (i *JavaInjector) jdkAgentAlreadyLoaded(pid int32) (bool, error) {
 	attacher := jvm.NewJAttacher(i.log)
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -191,7 +191,7 @@ func (i *SDKInjector) jdkAgentAlreadyLoaded(pid int32) (bool, error) {
 	return false, nil
 }
 
-func (i *SDKInjector) verifyJVMVersion(pid int32) bool {
+func (i *JavaInjector) verifyJVMVersion(pid int32) bool {
 	attacher := jvm.NewJAttacher(i.log)
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
