@@ -27,13 +27,7 @@
 #include <gotracer/go_common.h>
 #include <gotracer/go_str.h>
 
-// Store hostname by goroutine for PostgreSQL (lib/pq)
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // goroutine key
-    __type(value, char[SQL_HOSTNAME_MAX_LEN]);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} pq_hostnames SEC(".maps");
+#include <maps/go_sql.h>
 
 // Validates that driverConn.ci points to a MySQL connection and returns the mysqlConn pointer.
 static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
@@ -126,20 +120,6 @@ static __always_inline void
 extract_sql_hostname(sql_request_trace_t *trace, u64 driver_conn_ptr, void *goroutine_addr) {
     trace->hostname[0] = '\0';
 
-    if (driver_conn_ptr == 0) {
-        bpf_dbg_printk("sql hostname extraction skipped: driver_conn_ptr is null");
-        return;
-    }
-
-    void *mysql_conn_ptr = get_mysql_conn_ptr(driver_conn_ptr);
-    if (mysql_conn_ptr) {
-        if (read_mysql_hostname_from_mysqlconn(
-                mysql_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
-            bpf_dbg_printk("extracted MySQL hostname: %s", trace->hostname);
-            return;
-        }
-    }
-
     if (goroutine_addr) {
         go_addr_key_t g_key = {};
         go_addr_key_from_id(&g_key, goroutine_addr);
@@ -148,7 +128,23 @@ extract_sql_hostname(sql_request_trace_t *trace, u64 driver_conn_ptr, void *goro
         if (pq_hostname) {
             __builtin_memcpy(trace->hostname, pq_hostname, sizeof(trace->hostname));
             bpf_dbg_printk("extracted lib/pq hostname: %s", trace->hostname);
+            return;
         }
+    }
+
+    if (driver_conn_ptr == 0) {
+        bpf_dbg_printk("sql hostname extraction skipped: driver_conn_ptr is null");
+        return;
+    }
+
+    void *mysql_conn_ptr = get_mysql_conn_ptr(driver_conn_ptr);
+    if (!mysql_conn_ptr) {
+        return;
+    }
+
+    if (read_mysql_hostname_from_mysqlconn(
+            mysql_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
+        bpf_dbg_printk("extracted MySQL hostname: %s", trace->hostname);
     }
 }
 
