@@ -323,11 +323,6 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 }
 
 func TestMetricsDiscarded(t *testing.T) {
-	mr := MetricsReporter{
-		cfg:             &otelcfg.MetricsConfig{},
-		jointMetricsCfg: &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
-	}
-
 	svcNoExport := svc.Attrs{Features: export.FeatureAll}
 
 	svcExportMetrics := svc.Attrs{Features: export.FeatureAll}
@@ -360,17 +355,12 @@ func TestMetricsDiscarded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !otelMetricsAccepted(&tt.span, &mr), tt.name)
+			assert.Equal(t, tt.discarded, !otelMetricsAccepted(&tt.span), tt.name)
 		})
 	}
 }
 
 func TestSpanMetricsDiscarded(t *testing.T) {
-	mr := MetricsReporter{
-		cfg:             &otelcfg.MetricsConfig{},
-		jointMetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
-	}
-
 	svcNoExport := svc.Attrs{Features: export.FeatureAll}
 
 	svcExportMetrics := svc.Attrs{Features: export.FeatureAll}
@@ -403,17 +393,12 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !otelSpanMetricsAccepted(&tt.span, &mr), tt.name)
+			assert.Equal(t, tt.discarded, !otelSpanMetricsAccepted(&tt.span), tt.name)
 		})
 	}
 }
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
-	mr := MetricsReporter{
-		cfg:             &otelcfg.MetricsConfig{},
-		jointMetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
-	}
-
 	svcNoExport := svc.Attrs{Features: export.FeatureAll}
 
 	svcExportMetrics := svc.Attrs{Features: export.FeatureAll}
@@ -446,7 +431,7 @@ func TestSpanMetricsDiscardedGraph(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.discarded, !otelSpanMetricsAccepted(&tt.span, &mr), tt.name)
+			assert.Equal(t, tt.discarded, !otelSpanMetricsAccepted(&tt.span), tt.name)
 		})
 	}
 }

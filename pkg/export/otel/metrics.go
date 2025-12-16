@@ -809,11 +809,11 @@ func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Sp
 		})
 }
 
-func otelMetricsAccepted(span *request.Span, mr *MetricsReporter) bool {
+func otelMetricsAccepted(span *request.Span) bool {
 	return span.Service.Features.AppRED() && !span.Service.ExportsOTelMetrics()
 }
 
-func otelSpanMetricsAccepted(span *request.Span, mr *MetricsReporter) bool {
+func otelSpanMetricsAccepted(span *request.Span) bool {
 	return span.Service.Features.AnySpanMetrics() &&
 		!span.Service.ExportsOTelMetricsSpan()
 }
@@ -825,7 +825,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 
 	ctx := trace.ContextWithSpanContext(r.ctx, trace.SpanContext{}.WithTraceID(span.TraceID).WithSpanID(span.SpanID).WithTraceFlags(trace.TraceFlags(span.TraceFlags)))
 
-	if otelMetricsAccepted(span, mr) {
+	if otelMetricsAccepted(span) {
 		switch span.Type {
 		case request.EventTypeHTTP:
 			if mr.is.HTTPEnabled() {
@@ -903,7 +903,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 		}
 	}
 
-	if otelSpanMetricsAccepted(span, mr) {
+	if otelSpanMetricsAccepted(span) {
 		var extraAttrs []attribute.KeyValue
 
 		for _, l := range mr.spanExtraAttrs {
@@ -1128,8 +1128,8 @@ func (mr *MetricsReporter) onSpan(spans []request.Span) {
 		if !s.Service.ExportModes.CanExportMetrics() {
 			continue
 		}
-		// If we are ignoring this span because of route patterns, don't do anything
-		if request.IgnoreMetrics(s) {
+		// If we are ignoring this span because of route patterns or disabled features, don't do anything
+		if !s.Service.Features.AppOrSpan() || request.IgnoreMetrics(s) {
 			continue
 		}
 		reporter, err := mr.reporters.For(&s.Service)

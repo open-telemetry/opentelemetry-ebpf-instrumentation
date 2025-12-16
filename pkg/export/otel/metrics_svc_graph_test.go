@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -43,8 +44,8 @@ func TestServiceGraphMetrics(t *testing.T) {
 		otelExporter(ctx)
 	}()
 
-	clientID := svc.Attrs{ProcPID: 33, UID: svc.UID{Name: "client", Instance: "the-client"}}
-	serverID := svc.Attrs{ProcPID: 66, UID: svc.UID{Name: "server", Instance: "the-server"}}
+	clientID := svc.Attrs{Features: export.FeatureAll, ProcPID: 33, UID: svc.UID{Name: "client", Instance: "the-client"}}
+	serverID := svc.Attrs{Features: export.FeatureAll, ProcPID: 66, UID: svc.UID{Name: "server", Instance: "the-server"}}
 
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventCreated,
