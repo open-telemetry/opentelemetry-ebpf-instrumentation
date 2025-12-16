@@ -16,7 +16,7 @@ public class Loader {
     String agentResourcePath = "agent/agent.zip";
 
     try {
-      Class.forName("io.opentelemetry.obi.java.ebpf.ProxyOutputStream");
+      Class.forName("io.opentelemetry.obi.java.Agent", false, Loader.class.getClassLoader());
       System.err.println("agent already loaded, ignoring load request.");
       return;
     } catch (ClassNotFoundException ignore) {
