@@ -68,9 +68,8 @@ type KubernetesDecorator struct {
 
 	// Deprecated: kept for backwards-compatibility with Beyla 1.9
 
-	// Deprecated MetaSourceLabels allows OBI overriding the service name and namespace of an application from
+	// Deprecated: MetaSourceLabels allows OBI overriding the service name and namespace of an application from
 	// the given labels.
-	// Deprecated
 	MetaSourceLabels kube.MetaSourceLabels `yaml:"meta_source_labels"`
 
 	// ResourceLabels allows OBI overriding the OTEL Resource attributes from a map of user-defined labels.

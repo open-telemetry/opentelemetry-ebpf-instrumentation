@@ -18,7 +18,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"time"
 
@@ -31,15 +30,8 @@ import (
 // This is populated by scanning source files at startup.
 var enumRegistry = make(map[string][]any)
 
-func init() {
-	// Find the module root by looking for go.mod
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		fmt.Fprintln(os.Stderr, "Warning: could not determine source location for enum extraction")
-		return
-	}
-
-	moduleRoot := findModuleRoot(filepath.Dir(thisFile))
+func scanModuleEnums() {
+	moduleRoot := findModuleRoot(filepath.Dir("../.."))
 	if moduleRoot == "" {
 		fmt.Fprintln(os.Stderr, "Warning: could not find module root for enum extraction")
 		return
@@ -62,7 +54,9 @@ func init() {
 	for _, pkg := range packagesToScan {
 		pkgPath := filepath.Join(moduleRoot, pkg)
 		if err := scanPackageForEnums(pkgPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: error scanning %s: %v\n", pkg, err)
+			// exit and error
+			fmt.Fprintf(os.Stderr, "Error scanning package %s for enums: %v\n", pkg, err)
+			os.Exit(1)
 		}
 	}
 }
@@ -82,16 +76,27 @@ func findModuleRoot(start string) string {
 }
 
 func scanPackageForEnums(pkgPath string) error {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, pkgPath, nil, parser.ParseComments)
+	entries, err := os.ReadDir(pkgPath)
 	if err != nil {
 		return err
 	}
 
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			extractEnumsFromFile(file)
+	fset := token.NewFileSet()
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
 		}
+		// Skip test files
+		if strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+
+		filePath := filepath.Join(pkgPath, entry.Name())
+		file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
+		if err != nil {
+			return fmt.Errorf("parsing %s: %w", filePath, err)
+		}
+		extractEnumsFromFile(file)
 	}
 	return nil
 }
@@ -177,7 +182,6 @@ func extractConstValueAndType(expr ast.Expr, inheritedType string) (typeName str
 func main() {
 	outputFile := flag.String("output", "", "Output file path (default: stdout)")
 	flag.Parse()
-
 	reflector := &jsonschema.Reflector{
 		RequiredFromJSONSchemaTags: true,
 		AllowAdditionalProperties:  true,
@@ -188,6 +192,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Warning: could not add Go comments: %v\n", err)
 	}
 
+	scanModuleEnums()
 	schema := reflector.Reflect(&obi.Config{})
 	schema.Title = "OBI Configuration Schema"
 	schema.Description = "JSON Schema for OpenTelemetry eBPF Instrumentation (OBI) configuration"
@@ -278,11 +283,6 @@ func processSchemaDeprecation(schema *jsonschema.Schema) {
 		schema.Description = strings.TrimSpace(desc[len("deprecated:"):])
 		return
 	}
-	if strings.HasPrefix(lowerDesc, "deprecated.") {
-		schema.Deprecated = true
-		schema.Description = strings.TrimSpace(desc[len("deprecated."):])
-		return
-	}
 	if lowerDesc == "deprecated" {
 		schema.Deprecated = true
 		schema.Description = ""
@@ -300,18 +300,6 @@ func processSchemaDeprecation(schema *jsonschema.Schema) {
 			// Remove the deprecated line and merge remaining content
 			deprecationMsg := strings.TrimSpace(trimmedLine[len("deprecated:"):])
 			// Keep lines before, skip the "Deprecated:" line, keep lines after
-			var newLines []string
-			newLines = append(newLines, lines[:i]...)
-			if deprecationMsg != "" {
-				newLines = append(newLines, deprecationMsg)
-			}
-			newLines = append(newLines, lines[i+1:]...)
-			schema.Description = strings.TrimSpace(strings.Join(newLines, "\n"))
-			return
-		}
-		if strings.HasPrefix(lowerLine, "deprecated.") {
-			schema.Deprecated = true
-			deprecationMsg := strings.TrimSpace(trimmedLine[len("deprecated."):])
 			var newLines []string
 			newLines = append(newLines, lines[:i]...)
 			if deprecationMsg != "" {

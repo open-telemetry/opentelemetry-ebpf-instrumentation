@@ -627,7 +627,7 @@
         },
         "MetaSourceLabels": {
           "$ref": "#/$defs/MetaSourceLabels",
-          "description": "Deprecated MetaSourceLabels allows OBI overriding the service name and namespace of an application from\nthe given labels.",
+          "description": "MetaSourceLabels allows OBI overriding the service name and namespace of an application from\nthe given labels.",
           "deprecated": true
         },
         "ResourceLabels": {
@@ -665,7 +665,8 @@
         }
       },
       "type": "object",
-      "description": "MetaSourceLabels allow overriding some metadata from kubernetes labels Deprecated."
+      "description": "MetaSourceLabels allow overriding some metadata from kubernetes labels, Left for backwards-compatibility.",
+      "deprecated": true
     },
     "MetricsConfig": {
       "properties": {
@@ -1454,7 +1455,7 @@
         "yaml",
         "json"
       ],
-      "description": "format of the log configuration during startup"
+      "description": "Format of the log configuration during startup"
     },
     "NodeJS": {
       "$ref": "#/$defs/NodeJSConfig"

@@ -290,7 +290,7 @@ type Config struct {
 	ChannelBufferLen int                            `yaml:"channel_buffer_len" env:"OTEL_EBPF_CHANNEL_BUFFER_LEN"`
 	ProfilePort      int                            `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
 	InternalMetrics  imetrics.InternalMetricsConfig `yaml:"internal_metrics"`
-	// format of the log configuration during startup
+	// Format of the log configuration during startup
 	LogConfig LogConfigOption `yaml:"log_config,omitempty" env:"OTEL_EBPF_LOG_CONFIG"`
 
 	NodeJS NodeJSConfig `yaml:"nodejs"`

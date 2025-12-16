@@ -66,7 +66,7 @@ type RegexSelector struct {
 	Path RegexpAttr `yaml:"exe_path"`
 	// PathRegexp is deprecated but kept here for backwards compatibility with Beyla 1.0.x.
 
-	// Deprecated. Please use Path (exe_path YAML attribute)
+	// Deprecated: Please use Path (exe_path YAML attribute)
 	PathRegexp RegexpAttr `yaml:"exe_path_regexp"`
 
 	// Metadata stores other attributes, such as Kubernetes object metadata
