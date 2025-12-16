@@ -47,7 +47,13 @@ enum bpf_func_id___x {
         log_info_t *__trace__ = bpf_ringbuf_reserve(&debug_events, sizeof(log_info_t), 0);         \
         if (__trace__) {                                                                           \
             if (bpf_core_enum_value_exists(enum bpf_func_id___x, BPF_FUNC_snprintf___x)) {         \
-                BPF_SNPRINTF((char *)__trace__->log, sizeof(__trace__->log), fmt, ##args);         \
+                /* snprintf is available: Include the function name and the formatted message */   \
+                /* we use __FUNCTION__  and " [%s]" to append the function name to the log   */    \
+                BPF_SNPRINTF((char *)__trace__->log,                                               \
+                             sizeof(__trace__->log),                                               \
+                             fmt " [%s]",                                                          \
+                             ##args,                                                               \
+                             __FUNCTION__);                                                        \
             } else {                                                                               \
                 __builtin_memcpy(__trace__->log, fmt, sizeof(__trace__->log));                     \
             }                                                                                      \
