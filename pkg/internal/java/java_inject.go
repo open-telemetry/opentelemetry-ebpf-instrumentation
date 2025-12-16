@@ -7,6 +7,7 @@ package javaagent
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -25,6 +26,14 @@ import (
 
 const ObiJavaAgentFileName = "obi-java-agent.jar"
 
+type JavaInjectError struct {
+	Message string
+}
+
+func (e *JavaInjectError) Error() string {
+	return e.Message
+}
+
 type JavaInjector struct {
 	log       *slog.Logger
 	cfg       *obi.Config
@@ -32,6 +41,10 @@ type JavaInjector struct {
 }
 
 func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
+	if !cfg.Java.Enabled {
+		return nil, nil
+	}
+
 	agentPath, err := getLocalAgentPath()
 	if err != nil {
 		return nil, fmt.Errorf("unable to find the local OBI java agent jar, error %w", err)
@@ -76,40 +89,73 @@ func (i *JavaInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string
 }
 
 func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
-	if ie.Type == svc.InstrumentableJava {
-		ok := i.verifyJVMVersion(ie.FileInfo.Pid)
-		if !ok {
-			i.log.Info("unsupported Java version for OpenTelemetry eBPF instrumentation")
-			return errors.New("unsupported Java VM version")
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), i.cfg.Java.Timeout)
+	defer cancel()
 
-		loaded, err := i.jdkAgentAlreadyLoaded(ie.FileInfo.Pid)
-		if err != nil {
-			return err
-		}
-
-		if loaded {
-			i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not reloading")
-			return nil
-		}
-
-		i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid)
-
-		agentPath, err := i.copyAgent(ie)
-		if err != nil {
-			i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid, "error", err)
-			return err
-		}
-
-		if err = i.attachJDKAgent(ie.FileInfo.Pid, agentPath); err != nil {
-			i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid, "path", agentPath, "error", err)
-			return err
-		}
-
-		return nil
+	// Channel to receive the result
+	type result struct {
+		attached bool
+		err      error
 	}
 
-	return errors.New("OpenTelemetry eBPF Java instrumentation not possible")
+	resultChan := make(chan result, 1)
+
+	if ie.Type == svc.InstrumentableJava {
+		// Run the attach procedure in a goroutine, so that we can terminate on stuck attach
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					resultChan <- result{err: &JavaInjectError{Message: "attach failed"}}
+				}
+			}()
+
+			ok := i.verifyJVMVersion(ie.FileInfo.Pid)
+			if !ok {
+				resultChan <- result{err: &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}}
+				return
+			}
+
+			loaded, err := i.jdkAgentAlreadyLoaded(ie.FileInfo.Pid)
+			if err != nil {
+				resultChan <- result{err: err}
+				return
+			}
+
+			if loaded {
+				i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not reloading")
+				resultChan <- result{attached: false}
+				return
+			}
+
+			i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid)
+
+			agentPath, err := i.copyAgent(ie)
+			if err != nil {
+				i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid, "error", err)
+				resultChan <- result{err: err}
+				return
+			}
+
+			if err = i.attachJDKAgent(ie.FileInfo.Pid, agentPath); err != nil {
+				i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid, "path", agentPath, "error", err)
+				resultChan <- result{err: err}
+				return
+			}
+
+			resultChan <- result{attached: true}
+		}()
+
+		// Wait for either completion or timeout
+		select {
+		case result := <-resultChan:
+			return result.err
+		case <-ctx.Done():
+			i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", ie.FileInfo.Pid)
+			return &JavaInjectError{Message: "java attach timed out"}
+		}
+	}
+
+	return nil
 }
 
 func getLocalAgentPath() (string, error) {

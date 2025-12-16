@@ -268,6 +268,10 @@ discovery:
 		NodeJS: NodeJSConfig{
 			Enabled: true,
 		},
+		Java: JavaConfig{
+			Enabled: true,
+			Timeout: 10 * time.Second,
+		},
 	}, cfg)
 }
 
