@@ -1,6 +1,6 @@
 # Main binary configuration
 CMD ?= ebpf-instrument
-JAVA_AGENT = ?= obi-java-agent.jar
+JAVA_AGENT ?= obi-java-agent.jar
 MAIN_GO_FILE ?= cmd/$(CMD)/main.go
 
 CACHE_CMD ?= k8s-cache
