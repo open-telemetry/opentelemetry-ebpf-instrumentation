@@ -9,4 +9,4 @@ COPY pkg/internal/java .
 RUN ./gradlew build --no-daemon
 
 FROM scratch AS export
-COPY --from=builder /build/build/obi-java-agent.jar /bin/obi-java-agent.jar
+COPY --from=builder /build/build/obi-java-agent.jar /obi-java-agent.jar

@@ -438,7 +438,7 @@ license-header-check:
 	   fi
 
 .PHONY: artifact
-artifact: docker-generate compile
+artifact: docker-generate compile java-docker-build
 	@echo "### Packing generated artifact"
 	cp LICENSE ./bin
 	cp NOTICE ./bin
