@@ -148,12 +148,60 @@ func testJavaKafka(t *testing.T) {
 				},
 				{
 					// TODO: in here we can't recognize the topic name since the metadata response is cut to the first 4 bytes
-					// in java, to get this to work we need to use eBPF large buffers for kafka, will do so in a future PR
+					// in java, to get this to work we need to use eBPF large buffers for kafka -> testJavaKafkaLargeBuffer
 					Name: "process *",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "consumer"),
 						attribute.String("messaging.operation.type", "process"),
 						attribute.String("messaging.destination.name", "*"),
+						attribute.String("messaging.client_id", "consumer-1-1"),
+						attribute.Int64("messaging.destination.partition.id", 0),
+					},
+				},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		for i := range testCase.Spans {
+			testCase.Spans[i].Attributes = append(testCase.Spans[i].Attributes, commonAttrs...)
+		}
+
+		t.Run(testCase.Route, func(t *testing.T) {
+			waitForKafkaTestComponents(t, testCase.Route, "/"+testCase.Subpath)
+			runKafkaTestCase(t, testCase)
+		})
+	}
+}
+
+func testJavaKafkaLargeBuffer(t *testing.T) {
+	commonAttrs := []attribute.KeyValue{
+		attribute.String("messaging.system", "kafka"),
+		attribute.Int("server.port", 9092),
+	}
+
+	testCases := []TestCase{
+		{
+			Route:   "http://localhost:8381",
+			Subpath: "message",
+			Comm:    "javakafka-lb",
+			Spans: []TestCaseSpan{
+				{
+					Name: "publish theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree",
+					Attributes: []attribute.KeyValue{
+						attribute.String("span.kind", "producer"),
+						attribute.String("messaging.operation.type", "publish"),
+						attribute.String("messaging.destination.name", "theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree"),
+						attribute.String("messaging.client_id", "producer-1"),
+						attribute.Int64("messaging.destination.partition.id", 0),
+					},
+				},
+				{
+					Name: "process theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree",
+					Attributes: []attribute.KeyValue{
+						attribute.String("span.kind", "consumer"),
+						attribute.String("messaging.operation.type", "process"),
+						attribute.String("messaging.destination.name", "theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree"),
 						attribute.String("messaging.client_id", "consumer-1-1"),
 						attribute.Int64("messaging.destination.partition.id", 0),
 					},
