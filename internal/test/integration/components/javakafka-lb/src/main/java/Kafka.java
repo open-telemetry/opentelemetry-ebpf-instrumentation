@@ -20,10 +20,33 @@ public class Kafka {
 
     public static void main(String[] args) {
         try {
+            HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
+            server.createContext("/message", new HttpHandler() {
+                @Override
+                public void handle(HttpExchange exchange) throws IOException {
+                    String response = "OK";
+                    exchange.sendResponseHeaders(200, response.length());
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(response.getBytes());
+                    os.close();
+                }
+            });
+            System.out.println("Waiting...");
+            // Wait so OBI can catch the process alive
+            try {
+                Thread.sleep(10000);
+            } catch (Exception ignore) {}
+            System.out.println("Started!");
+            
+            String bootstrapServers = System.getenv("KAFKA_BOOTSTRAP_SERVERS");
+
+            if (bootstrapServers == null || bootstrapServers.isEmpty()) {
+                bootstrapServers = "localhost:9092";
+            }
             // Producer
             Properties producerProps = new Properties();
             // Connects to all three nodes of the cluster
-            producerProps.put("bootstrap.servers", "kafka1:9092,kafka2:9092,kafka3:9092");
+            producerProps.put("bootstrap.servers", bootstrapServers);
             producerProps.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
             producerProps.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
             producerProps.put("partitioner.class", "org.apache.kafka.clients.producer.RoundRobinPartitioner"); // Explicit partitioner
@@ -34,14 +57,14 @@ public class Kafka {
                     producer.send(new ProducerRecord<>("theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree", "key", "value"));
                     System.out.println("Produced message");
                     try {
-                        Thread.sleep(500);
+                        Thread.sleep(1000);
                     } catch (Exception ignore) {}
                 }
             });
 
             // Consumer
             Properties consumerProps = new Properties();
-            consumerProps.put("bootstrap.servers", "kafka1:9092,kafka2:9092,kafka3:9092");
+            consumerProps.put("bootstrap.servers", bootstrapServers);
             consumerProps.put("group.id", "1");
             consumerProps.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
             consumerProps.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
@@ -57,18 +80,6 @@ public class Kafka {
                     for (ConsumerRecord<String, String> record : records) {
                         System.out.printf("Consumed message: offset = %d, key = %s, value = %s%n", record.offset(), record.key(), record.value());
                     }
-                }
-            });
-
-            HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
-            server.createContext("/message", new HttpHandler() {
-                @Override
-                public void handle(HttpExchange exchange) throws IOException {
-                    String response = "OK";
-                    exchange.sendResponseHeaders(200, response.length());
-                    OutputStream os = exchange.getResponseBody();
-                    os.write(response.getBytes());
-                    os.close();
                 }
             });
 

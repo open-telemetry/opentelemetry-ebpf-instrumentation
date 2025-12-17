@@ -1,8 +1,8 @@
 services:
-  kafka1:
+  kafkakafkakafkakafka000000000000000000000000000001:
     image: docker.io/bitnamilegacy/kafka:4.0.0@sha256:f45d5b813412e1ef7ce67b467309a84e4c6dc03d7626a0b6da867db9b69bd107
     hostname: kafka1
-    container_name: kafka1
+    container_name: kafka-1
     ports:
       - "9092:9092"
       - "9093:9093"
@@ -11,9 +11,9 @@ services:
     - KAFKA_CFG_NODE_ID=1
     - KAFKA_BROKER_ID=1
     - KAFKA_CFG_PROCESS_ROLES=broker,controller
-    - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka1:9093,2@kafka2:9093,3@kafka3:9093
+    - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafkakafkakafkakafka000000000000000000000000000001:9093,2@kafkakafkakafkakafka000000000000000000000000000002:9093,3@kafkakafkakafkakafka000000000000000000000000000003:9093
     - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-    - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka1:9092
+    - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafkakafkakafkakafka000000000000000000000000000001:9092
     - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
     - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
     - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
@@ -25,13 +25,15 @@ services:
     - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=3
     - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=2
     - ALLOW_PLAINTEXT_LISTENER=yes
+    - KAFKA_CFG_TRANSACTION_STATE_LOG_NUM_PARTITIONS=1
+    - KAFKA_CFG_OFFSETS_TOPIC_NUM_PARTITIONS=1
     volumes:
-      - ./kafka1/data:/bitnami/kafka
+      - kafka1_data:/bitnami/kafka
 
-  kafka2:
+  kafkakafkakafkakafka000000000000000000000000000002:
     image: docker.io/bitnamilegacy/kafka:4.0.0@sha256:f45d5b813412e1ef7ce67b467309a84e4c6dc03d7626a0b6da867db9b69bd107
     hostname: kafka2
-    container_name: kafka2
+    container_name: kafka-2
     ports:
       - "9094:9092"
       - "9095:9093"
@@ -40,9 +42,9 @@ services:
     - KAFKA_CFG_NODE_ID=2
     - KAFKA_BROKER_ID=2
     - KAFKA_CFG_PROCESS_ROLES=broker,controller
-    - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka1:9093,2@kafka2:9093,3@kafka3:9093
+    - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafkakafkakafkakafka000000000000000000000000000001:9093,2@kafkakafkakafkakafka000000000000000000000000000002:9093,3@kafkakafkakafkakafka000000000000000000000000000003:9093
     - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-    - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka2:9092
+    - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafkakafkakafkakafka000000000000000000000000000002:9092
     - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
     - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
     - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
@@ -54,13 +56,15 @@ services:
     - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=3
     - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=2
     - ALLOW_PLAINTEXT_LISTENER=yes
+    - KAFKA_CFG_TRANSACTION_STATE_LOG_NUM_PARTITIONS=1
+    - KAFKA_CFG_OFFSETS_TOPIC_NUM_PARTITIONS=1
     volumes:
-      - ./kafka2/data:/bitnami/kafka
+      - kafka2_data:/bitnami/kafka
 
-  kafka3:
+  kafkakafkakafkakafka000000000000000000000000000003:
     image: docker.io/bitnamilegacy/kafka:4.0.0@sha256:f45d5b813412e1ef7ce67b467309a84e4c6dc03d7626a0b6da867db9b69bd107
     hostname: kafka3
-    container_name: kafka3
+    container_name: kafka-3
     ports:
       - "9096:9092"
       - "9097:9093"
@@ -69,9 +73,9 @@ services:
     - KAFKA_CFG_NODE_ID=3
     - KAFKA_BROKER_ID=3
     - KAFKA_CFG_PROCESS_ROLES=broker,controller
-    - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka1:9093,2@kafka2:9093,3@kafka3:9093
+    - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafkakafkakafkakafka000000000000000000000000000001:9093,2@kafkakafkakafkakafka000000000000000000000000000002:9093,3@kafkakafkakafkakafka000000000000000000000000000003:9093
     - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-    - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka3:9092
+    - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafkakafkakafkakafka000000000000000000000000000003:9092
     - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
     - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
     - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
@@ -83,8 +87,10 @@ services:
     - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=3
     - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=2
     - ALLOW_PLAINTEXT_LISTENER=yes
+    - KAFKA_CFG_TRANSACTION_STATE_LOG_NUM_PARTITIONS=1
+    - KAFKA_CFG_OFFSETS_TOPIC_NUM_PARTITIONS=1
     volumes:
-      - ./kafka3/data:/bitnami/kafka
+      - kafka3_data:/bitnami/kafka
       
   testserver:
     build:
@@ -93,15 +99,18 @@ services:
     image: hatest-testserver-java-kafka-lb
     ports:
       - "${TEST_SERVICE_PORTS}"
+    environment:
+    - KAFKA_BOOTSTRAP_SERVERS=kafka0001:9092,kafkakafkakafkakafka000000000000000000000000000002:9092,kafkakafkakafkakafka000000000000000000000000000003:9092
     depends_on:
       otelcol:
         condition: service_started
-      kafka1:
+      kafkakafkakafkakafka000000000000000000000000000001:
         condition: service_started
-      kafka2:
+      kafkakafkakafkakafka000000000000000000000000000002:
         condition: service_started
-      kafka3:
+      kafkakafkakafkakafka000000000000000000000000000003:
         condition: service_started
+
   obi:
     build:
       context: ../../..
@@ -188,4 +197,6 @@ services:
     command: ["--query.ui-config=/etc/jaeger/ui-config.json"]
 
 volumes:
-  kafka-volume:
+  kafka1_data:
+  kafka2_data:
+  kafka3_data:
