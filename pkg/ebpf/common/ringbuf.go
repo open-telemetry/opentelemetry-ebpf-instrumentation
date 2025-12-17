@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/helpers/errmsg"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -185,7 +186,8 @@ func (rbf *ringBufForwarder) processAndForward(record ringbuf.Record, spansChan 
 	defer rbf.access.Unlock()
 	s, ignore, err := rbf.reader(rbf.parseContext, rbf.cfg, &record, rbf.filter)
 	if err != nil {
-		rbf.logger.Debug("error parsing perf event", "error", err)
+		// The level of the error log depends on the type of returned error
+		errmsg.Log(rbf.logger, slog.LevelWarn, err, "error parsing perf event")
 		return
 	}
 	if ignore {

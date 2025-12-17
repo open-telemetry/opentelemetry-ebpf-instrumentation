@@ -4,17 +4,16 @@
 package ebpfcommon
 
 import (
+	"log/slog"
 	"net"
 	"strings"
-	"unsafe"
 
 	"golang.org/x/net/dns/dnsmessage"
-
-	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/helpers/errmsg"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -38,14 +37,14 @@ func readDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 
 	msg := dnsmessage.Message{}
 	if err := msg.Unpack(event.Buf[:l]); err != nil {
-		return request.Span{}, true, err
+		return request.Span{}, true, errmsg.LoggableError{Cause: err, LogLevel: slog.LevelDebug}
 	}
 
 	peer := ""
 	hostname := ""
 	hostPort := 0
 	if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
-		peer, hostname = (*BPFConnInfo)(unsafe.Pointer(&event.Conn)).reqHostInfo()
+		peer, hostname = (*BPFConnInfo)(&event.Conn).reqHostInfo()
 		hostPort = int(event.Conn.D_port)
 	}
 
@@ -67,10 +66,10 @@ func readDNSEventIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 			RequestStart:  int64(event.Tp.Ts),
 			Start:         int64(event.Tp.Ts),
 			End:           int64(event.Tp.Ts + 1),
-			TraceID:       trace.TraceID(event.Tp.TraceId),
-			SpanID:        trace.SpanID(event.Tp.SpanId),
-			ParentSpanID:  trace.SpanID(event.Tp.ParentId),
-			Status:        int(-1),
+			TraceID:       event.Tp.TraceId,
+			SpanID:        event.Tp.SpanId,
+			ParentSpanID:  event.Tp.ParentId,
+			Status:        -1,
 			Pid: request.PidInfo{
 				HostPID:   event.Pid.HostPid,
 				UserPID:   event.Pid.UserPid,
