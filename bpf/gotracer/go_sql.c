@@ -27,6 +27,8 @@
 #include <gotracer/go_common.h>
 #include <gotracer/go_str.h>
 
+#include <maps/go_sql.h>
+
 // Validates that driverConn.ci points to a MySQL connection and returns the mysqlConn pointer.
 static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
     if (driver_conn_ptr == 0) {
@@ -114,8 +116,21 @@ read_mysql_hostname_from_mysqlconn(void *mysql_conn_ptr, char *hostname, u64 max
 
 // SQL hostname extraction with driver type routing.
 // Attempts to extract hostname by trying supported database drivers
-static __always_inline void extract_sql_hostname(sql_request_trace_t *trace, u64 driver_conn_ptr) {
+static __always_inline void
+extract_sql_hostname(sql_request_trace_t *trace, u64 driver_conn_ptr, void *goroutine_addr) {
     trace->hostname[0] = '\0';
+
+    if (goroutine_addr) {
+        go_addr_key_t g_key = {};
+        go_addr_key_from_id(&g_key, goroutine_addr);
+
+        char *pq_hostname = bpf_map_lookup_elem(&pq_hostnames, &g_key);
+        if (pq_hostname) {
+            __builtin_memcpy(trace->hostname, pq_hostname, sizeof(trace->hostname));
+            bpf_dbg_printk("extracted lib/pq hostname: %s", trace->hostname);
+            return;
+        }
+    }
 
     if (driver_conn_ptr == 0) {
         bpf_dbg_printk("sql hostname extraction skipped: driver_conn_ptr is null");
@@ -222,12 +237,35 @@ int obi_uprobe_queryReturn(struct pt_regs *ctx) {
 
         __builtin_memcpy(&trace->conn, &invocation->conn, sizeof(connection_info_t));
 
-        extract_sql_hostname(trace, invocation->driver_conn_ptr);
+        extract_sql_hostname(trace, invocation->driver_conn_ptr, goroutine_addr);
 
         // submit the completed trace via ringbuffer
         bpf_ringbuf_submit(trace, get_flags());
     } else {
         bpf_dbg_printk("can't reserve space in the ringbuffer");
     }
+    return 0;
+}
+
+SEC("uprobe/pq_network_return")
+int obi_uprobe_pq_network_return(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/pq.network return ===");
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    // network returns (string, string) where 2nd return is address ("host:port")
+    void *address_ptr = (void *)GO_PARAM3(ctx);
+    u64 address_len = (u64)GO_PARAM4(ctx);
+
+    bpf_dbg_printk("address_ptr=%llx address_len=%d", address_ptr, address_len);
+
+    char address[SQL_HOSTNAME_MAX_LEN] = {0};
+    if (read_go_str_n("pq address", address_ptr, address_len, address, sizeof(address))) {
+        bpf_dbg_printk("pq.network address: %s", address);
+        bpf_map_update_elem(&pq_hostnames, &g_key, address, BPF_ANY);
+    }
+
     return 0;
 }

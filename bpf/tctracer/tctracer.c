@@ -234,7 +234,7 @@ static __always_inline void print_tp(const char *prefix, const tp_info_t *tp) {
     tp_buf[TP_MAX_VAL_LENGTH] = '\0';
 
     make_tp_string(tp_buf, tp);
-    bpf_dbg_printk("%s tp: %s", prefix, tp_buf);
+    bpf_dbg_printk("prefix=%s, tp=%s", prefix, tp_buf);
 }
 
 static __always_inline void update_outgoing_request_span_id(const connection_info_t *conn,
