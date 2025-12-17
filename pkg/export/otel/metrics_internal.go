@@ -160,7 +160,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 
 	informerLag, err := meter.Float64Histogram(
-		attr.VendorPrefix+".kube.cache.forward.lag.seconds",
+		attr.VendorPrefix+".kube.cache.forward.lag",
 		instrument.WithDescription("How long, in seconds, it takes since a Kubernetes event happens until it is forwarded to the subscribers"),
 		instrument.WithUnit("s"),
 		instrument.WithExplicitBucketBoundaries(
