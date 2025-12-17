@@ -7,9 +7,11 @@ package javaagent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -100,6 +102,16 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 
 	resultChan := make(chan result, 1)
 
+	attacher := jvm.NewJAttacher(i.log)
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	defer func() {
+		if err := attacher.Cleanup(); err != nil {
+			slog.Warn("error on JVM attach cleanup", "error", err)
+		}
+	}()
+
 	if ie.Type == svc.InstrumentableJava {
 		// Run the attach procedure in a goroutine, so that we can terminate on stuck attach
 		go func() {
@@ -109,13 +121,13 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 				}
 			}()
 
-			ok := i.verifyJVMVersion(ie.FileInfo.Pid)
+			ok := i.verifyJVMVersion(attacher, ie.FileInfo.Pid)
 			if !ok {
 				resultChan <- result{err: &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}}
 				return
 			}
 
-			loaded, err := i.jdkAgentAlreadyLoaded(ie.FileInfo.Pid)
+			loaded, err := i.jdkAgentAlreadyLoaded(attacher, ie.FileInfo.Pid)
 			if err != nil {
 				resultChan <- result{err: err}
 				return
@@ -136,7 +148,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 				return
 			}
 
-			if err = i.attachJDKAgent(ie.FileInfo.Pid, agentPath); err != nil {
+			if err = i.attachJDKAgent(attacher, ie.FileInfo.Pid, agentPath); err != nil {
 				i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid, "path", agentPath, "error", err)
 				resultChan <- result{err: err}
 				return
@@ -214,52 +226,72 @@ func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
 	return agentPathContainer, nil
 }
 
-func (i *JavaInjector) attachJDKAgent(pid int32, path string) error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	attacher := jvm.NewJAttacher(i.log)
+func returnCodeLine(line string) (bool, error) {
+	if strings.Contains(line, "return code: 0") || strings.Contains(line, "ATTACH_ACK") {
+		return true, nil
+	} else if strings.Contains(line, "return code:") {
+		return true, fmt.Errorf("error executing command for the JVM %s", line)
+	}
+
+	return false, nil
+}
+
+func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid int32, path string) error {
 	attacher.Init()
+
 	defer func() {
 		if err := attacher.Cleanup(); err != nil {
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
-
 	out, err := attacher.Attach(int(pid), []string{"load", "instrument", "false", path}, false)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return err
 	}
 
-	scanner := bufio.NewScanner(out)
+	defer out.Close()
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.Contains(line, "return code: 0") {
-			return nil
-		} else if strings.Contains(line, "return code:") {
-			i.log.Error("error executing command for the JVM", "pid", pid, "message", line)
-			return err
+	reader := bufio.NewReader(out)
+	buf := bytes.Buffer{}
+	for {
+		b, err := reader.ReadByte()
+		if err != nil {
+			if err == io.EOF { // hotspot terminates with EOF
+				_, err := returnCodeLine(buf.String())
+				if err != nil {
+					return err
+				}
+			}
+			return fmt.Errorf("error reading line %w", err)
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		i.log.Warn("error reading JVM output", "error", err)
+
+		buf.WriteByte(b)
+		if b == '\n' {
+			if end, err := returnCodeLine(buf.String()); end {
+				return err
+			}
+
+			buf.Reset()
+		} else if b == 0 { // j9 terminates with 0
+			if end, err := returnCodeLine(buf.String()); end {
+				return err
+			}
+			break
+		}
 	}
 
 	return nil
 }
 
-func (i *JavaInjector) jdkAgentAlreadyLoaded(pid int32) (bool, error) {
-	attacher := jvm.NewJAttacher(i.log)
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid int32) (bool, error) {
 	attacher.Init()
+
 	defer func() {
 		if err := attacher.Cleanup(); err != nil {
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
-
 	// OpenJ9 doesn't support listing loaded classes
 	out, err := attacher.Attach(int(pid), []string{"jcmd", "VM.class_hierarchy"}, true)
 	if err != nil {
@@ -282,17 +314,14 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(pid int32) (bool, error) {
 	return false, nil
 }
 
-func (i *JavaInjector) verifyJVMVersion(pid int32) bool {
-	attacher := jvm.NewJAttacher(i.log)
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid int32) bool {
 	attacher.Init()
+
 	defer func() {
 		if err := attacher.Cleanup(); err != nil {
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
-
 	// OpenJ9 doesn't support VM.version command
 	out, err := attacher.Attach(int(pid), []string{"jcmd", "VM.version"}, true)
 	if err != nil {
