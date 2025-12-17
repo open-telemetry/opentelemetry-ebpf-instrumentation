@@ -87,7 +87,7 @@ public class SocketChannelInst {
         return;
       }
 
-      if (src == null || localSocket == null || remoteSocket == null) {
+      if (src == null) {
         return;
       }
 
