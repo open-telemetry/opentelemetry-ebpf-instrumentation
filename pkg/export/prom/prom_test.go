@@ -578,12 +578,10 @@ func TestProcessPIDEvents(t *testing.T) {
 	}
 
 	svcA := svc.Attrs{
-		Features: export.FeatureApplicationRED,
-		UID:      svc.UID{Name: "A", Instance: "A"},
+		UID: svc.UID{Name: "A", Instance: "A"},
 	}
 	svcB := svc.Attrs{
-		Features: export.FeatureApplicationRED,
-		UID:      svc.UID{Name: "B", Instance: "B"},
+		UID: svc.UID{Name: "B", Instance: "B"},
 	}
 
 	mr.setupPIDToServiceRelationship(1, svcA.UID)
