@@ -30,25 +30,34 @@ import (
 // This is populated by scanning source files at startup.
 var enumRegistry = make(map[string][]any)
 
+// envVarRegistry maps (typeName, yamlFieldName) to environment variable names.
+// This is populated by scanning source files at startup.
+var envVarRegistry = make(map[string]map[string]string)
+
+// packagesToScan lists packages that contain types used in the config
+var packagesToScan = []string{
+	"pkg/obi",
+	"pkg/config",
+	"pkg/export",
+	"pkg/export/debug",
+	"pkg/export/imetrics",
+	"pkg/export/instrumentations",
+	"pkg/export/otel/otelcfg",
+	"pkg/export/otel",
+	"pkg/export/otel/perapp",
+	"pkg/export/prom",
+	"pkg/kube/kubeflags",
+	"pkg/internal/netolly/flow",
+	"pkg/transform",
+	"pkg/filter",
+	"pkg/appolly/services",
+}
+
 func scanModuleEnums() {
 	moduleRoot := findModuleRoot(filepath.Dir("../.."))
 	if moduleRoot == "" {
 		fmt.Fprintln(os.Stderr, "Warning: could not find module root for enum extraction")
 		return
-	}
-
-	// Scan packages that contain enum types used in the config
-	packagesToScan := []string{
-		"pkg/obi",
-		"pkg/config",
-		"pkg/export",
-		"pkg/export/debug",
-		"pkg/export/imetrics",
-		"pkg/export/instrumentations",
-		"pkg/export/otel/otelcfg",
-		"pkg/export/otel",
-		"pkg/kube/kubeflags",
-		"pkg/internal/netolly/flow",
 	}
 
 	for _, pkg := range packagesToScan {
@@ -59,6 +68,114 @@ func scanModuleEnums() {
 			os.Exit(1)
 		}
 	}
+}
+
+func scanModuleEnvVars() {
+	moduleRoot := findModuleRoot(filepath.Dir("../.."))
+	if moduleRoot == "" {
+		fmt.Fprintln(os.Stderr, "Warning: could not find module root for env var extraction")
+		return
+	}
+
+	for _, pkg := range packagesToScan {
+		pkgPath := filepath.Join(moduleRoot, pkg)
+		if err := scanPackageForEnvVars(pkgPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Error scanning package %s for env vars: %v\n", pkg, err)
+			os.Exit(1)
+		}
+	}
+}
+
+func scanPackageForEnvVars(pkgPath string) error {
+	entries, err := os.ReadDir(pkgPath)
+	if err != nil {
+		return err
+	}
+
+	fset := token.NewFileSet()
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+		if strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+
+		filePath := filepath.Join(pkgPath, entry.Name())
+		file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
+		if err != nil {
+			return fmt.Errorf("parsing %s: %w", filePath, err)
+		}
+		extractEnvVarsFromFile(file)
+	}
+	return nil
+}
+
+func extractEnvVarsFromFile(file *ast.File) {
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.TYPE {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+
+			structType, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+
+			typeName := typeSpec.Name.Name
+			if envVarRegistry[typeName] == nil {
+				envVarRegistry[typeName] = make(map[string]string)
+			}
+
+			for _, field := range structType.Fields.List {
+				if field.Tag == nil {
+					continue
+				}
+
+				tag := strings.Trim(field.Tag.Value, "`")
+				yamlName := extractTagValue(tag, "yaml")
+				envVar := extractTagValue(tag, "env")
+
+				if yamlName != "" && envVar != "" {
+					// Remove options from yaml tag (e.g., "field,omitempty" -> "field")
+					if idx := strings.Index(yamlName, ","); idx != -1 {
+						yamlName = yamlName[:idx]
+					}
+					// Remove options from env tag (e.g., "VAR,expand" -> "VAR")
+					if idx := strings.Index(envVar, ","); idx != -1 {
+						envVar = envVar[:idx]
+					}
+					// Skip env vars that are just variable expansions
+					if !strings.HasPrefix(envVar, "${") {
+						envVarRegistry[typeName][yamlName] = envVar
+					}
+				}
+			}
+		}
+	}
+}
+
+// extractTagValue extracts the value for a given key from a struct tag string.
+func extractTagValue(tag, key string) string {
+	// Look for key:"value"
+	search := key + `:"`
+	idx := strings.Index(tag, search)
+	if idx == -1 {
+		return ""
+	}
+	start := idx + len(search)
+	end := strings.Index(tag[start:], `"`)
+	if end == -1 {
+		return ""
+	}
+	return tag[start : start+end]
 }
 
 func findModuleRoot(start string) string {
@@ -194,12 +311,16 @@ func main() {
 	}
 
 	scanModuleEnums()
+	scanModuleEnvVars()
 	schema := reflector.Reflect(&obi.Config{})
 	schema.Title = "OBI Configuration Schema"
 	schema.Description = "JSON Schema for OpenTelemetry eBPF Instrumentation (OBI) configuration"
 
 	// Process deprecated annotations from comments
 	processDeprecated(schema)
+
+	// Add environment variable annotations
+	processEnvVars(schema)
 
 	data, err := json.MarshalIndent(schema, "", "  ")
 	if err != nil {
@@ -215,6 +336,47 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Schema written to %s\n", *outputFile)
 	} else {
 		fmt.Println(string(data))
+	}
+}
+
+// processEnvVars walks through all schemas and adds x-env-var extension
+// for properties that have corresponding environment variables.
+func processEnvVars(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+
+	// Process definitions - these are named types
+	for typeName, defSchema := range schema.Definitions {
+		if envVars, ok := envVarRegistry[typeName]; ok {
+			addEnvVarsToProperties(defSchema, envVars)
+		}
+		// Recursively process nested schemas
+		processEnvVars(defSchema)
+	}
+
+	// Process root schema properties (for Config type)
+	if envVars, ok := envVarRegistry["Config"]; ok {
+		addEnvVarsToProperties(schema, envVars)
+	}
+}
+
+// addEnvVarsToProperties adds x-env-var extension to properties that have env vars.
+func addEnvVarsToProperties(schema *jsonschema.Schema, envVars map[string]string) {
+	if schema == nil || schema.Properties == nil {
+		return
+	}
+
+	for pair := schema.Properties.Oldest(); pair != nil; pair = pair.Next() {
+		propName := pair.Key
+		propSchema := pair.Value
+
+		if envVar, ok := envVars[propName]; ok {
+			if propSchema.Extras == nil {
+				propSchema.Extras = make(map[string]any)
+			}
+			propSchema.Extras["x-env-var"] = envVar
+		}
 	}
 }
 
