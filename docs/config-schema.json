@@ -396,9 +396,14 @@
       "description": "ExportModes specifies which signals are going to be exported for a given service, via the public methods CanExportTraces and CanExportMetrics."
     },
     "GlobAttr": {
-      "properties": {},
-      "type": "object",
-      "description": "GlobAttr provides a YAML handler for glob.Glob so the type can be parsed from YAML or environment variables"
+      "type": "string",
+      "format": "glob",
+      "description": "Glob pattern to match against the attribute value",
+      "examples": [
+        "app-*",
+        "service-??",
+        "prod-*-db"
+      ]
     },
     "GlobAttributes": {
       "properties": {
@@ -421,10 +426,7 @@
           "description": "Path allows defining the regular expression matching the full executable path."
         },
         "Metadata": {
-          "additionalProperties": {
-            "$ref": "#/$defs/GlobAttr"
-          },
-          "type": "object",
+          "$ref": "#/$defs/MetadataGlobMap",
           "description": "Metadata stores other attributes, such as Kubernetes object metadata"
         },
         "PodLabels": {
@@ -667,6 +669,358 @@
       "type": "object",
       "description": "MetaSourceLabels allow overriding some metadata from kubernetes labels, Left for backwards-compatibility.",
       "deprecated": true
+    },
+    "MetadataGlobMap": {
+      "properties": {
+        "k8s_daemonset_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
+          "$ref": "#/$defs/GlobAttr",
+          "$defs": {
+            "GlobAttr": {
+              "type": "string",
+              "format": "glob",
+              "description": "Glob pattern to match against the attribute value",
+              "examples": [
+                "app-*",
+                "service-??",
+                "prod-*-db"
+              ]
+            }
+          }
+        },
+        "k8s_statefulset_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
+          "$ref": "#/$defs/GlobAttr",
+          "$defs": {
+            "GlobAttr": {
+              "type": "string",
+              "format": "glob",
+              "description": "Glob pattern to match against the attribute value",
+              "examples": [
+                "app-*",
+                "service-??",
+                "prod-*-db"
+              ]
+            }
+          }
+        },
+        "k8s_job_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
+          "$ref": "#/$defs/GlobAttr",
+          "$defs": {
+            "GlobAttr": {
+              "type": "string",
+              "format": "glob",
+              "description": "Glob pattern to match against the attribute value",
+              "examples": [
+                "app-*",
+                "service-??",
+                "prod-*-db"
+              ]
+            }
+          }
+        },
+        "k8s_owner_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
+          "$ref": "#/$defs/GlobAttr",
+          "$defs": {
+            "GlobAttr": {
+              "type": "string",
+              "format": "glob",
+              "description": "Glob pattern to match against the attribute value",
+              "examples": [
+                "app-*",
+                "service-??",
+                "prod-*-db"
+              ]
+            }
+          }
+        },
+        "k8s_container_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
+          "$ref": "#/$defs/GlobAttr",
+          "$defs": {
+            "GlobAttr": {
+              "type": "string",
+              "format": "glob",
+              "description": "Glob pattern to match against the attribute value",
+              "examples": [
+                "app-*",
+                "service-??",
+                "prod-*-db"
+              ]
+            }
+          }
+        },
+        "k8s_namespace": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
+          "$ref": "#/$defs/GlobAttr",
+          "$defs": {
+            "GlobAttr": {
+              "type": "string",
+              "format": "glob",
+              "description": "Glob pattern to match against the attribute value",
+              "examples": [
+                "app-*",
+                "service-??",
+                "prod-*-db"
+              ]
+            }
+          }
+        },
+        "k8s_pod_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
+          "$ref": "#/$defs/GlobAttr",
+          "$defs": {
+            "GlobAttr": {
+              "type": "string",
+              "format": "glob",
+              "description": "Glob pattern to match against the attribute value",
+              "examples": [
+                "app-*",
+                "service-??",
+                "prod-*-db"
+              ]
+            }
+          }
+        },
+        "k8s_deployment_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
+          "$ref": "#/$defs/GlobAttr",
+          "$defs": {
+            "GlobAttr": {
+              "type": "string",
+              "format": "glob",
+              "description": "Glob pattern to match against the attribute value",
+              "examples": [
+                "app-*",
+                "service-??",
+                "prod-*-db"
+              ]
+            }
+          }
+        },
+        "k8s_replicaset_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
+          "$ref": "#/$defs/GlobAttr",
+          "$defs": {
+            "GlobAttr": {
+              "type": "string",
+              "format": "glob",
+              "description": "Glob pattern to match against the attribute value",
+              "examples": [
+                "app-*",
+                "service-??",
+                "prod-*-db"
+              ]
+            }
+          }
+        },
+        "k8s_cronjob_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
+          "$ref": "#/$defs/GlobAttr",
+          "$defs": {
+            "GlobAttr": {
+              "type": "string",
+              "format": "glob",
+              "description": "Glob pattern to match against the attribute value",
+              "examples": [
+                "app-*",
+                "service-??",
+                "prod-*-db"
+              ]
+            }
+          }
+        }
+      },
+      "type": "object",
+      "description": "Metadata attributes to match against the instrumented service"
+    },
+    "MetadataRegexMap": {
+      "properties": {
+        "k8s_namespace": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
+          "$ref": "#/$defs/RegexpAttr",
+          "$defs": {
+            "RegexpAttr": {
+              "type": "string",
+              "format": "regex",
+              "description": "Regular expression to match against the executable file path",
+              "examples": [
+                "^app-.*",
+                "^service-..$",
+                "^prod-.*-db$"
+              ]
+            }
+          }
+        },
+        "k8s_pod_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
+          "$ref": "#/$defs/RegexpAttr",
+          "$defs": {
+            "RegexpAttr": {
+              "type": "string",
+              "format": "regex",
+              "description": "Regular expression to match against the executable file path",
+              "examples": [
+                "^app-.*",
+                "^service-..$",
+                "^prod-.*-db$"
+              ]
+            }
+          }
+        },
+        "k8s_deployment_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
+          "$ref": "#/$defs/RegexpAttr",
+          "$defs": {
+            "RegexpAttr": {
+              "type": "string",
+              "format": "regex",
+              "description": "Regular expression to match against the executable file path",
+              "examples": [
+                "^app-.*",
+                "^service-..$",
+                "^prod-.*-db$"
+              ]
+            }
+          }
+        },
+        "k8s_replicaset_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
+          "$ref": "#/$defs/RegexpAttr",
+          "$defs": {
+            "RegexpAttr": {
+              "type": "string",
+              "format": "regex",
+              "description": "Regular expression to match against the executable file path",
+              "examples": [
+                "^app-.*",
+                "^service-..$",
+                "^prod-.*-db$"
+              ]
+            }
+          }
+        },
+        "k8s_cronjob_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
+          "$ref": "#/$defs/RegexpAttr",
+          "$defs": {
+            "RegexpAttr": {
+              "type": "string",
+              "format": "regex",
+              "description": "Regular expression to match against the executable file path",
+              "examples": [
+                "^app-.*",
+                "^service-..$",
+                "^prod-.*-db$"
+              ]
+            }
+          }
+        },
+        "k8s_daemonset_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
+          "$ref": "#/$defs/RegexpAttr",
+          "$defs": {
+            "RegexpAttr": {
+              "type": "string",
+              "format": "regex",
+              "description": "Regular expression to match against the executable file path",
+              "examples": [
+                "^app-.*",
+                "^service-..$",
+                "^prod-.*-db$"
+              ]
+            }
+          }
+        },
+        "k8s_statefulset_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
+          "$ref": "#/$defs/RegexpAttr",
+          "$defs": {
+            "RegexpAttr": {
+              "type": "string",
+              "format": "regex",
+              "description": "Regular expression to match against the executable file path",
+              "examples": [
+                "^app-.*",
+                "^service-..$",
+                "^prod-.*-db$"
+              ]
+            }
+          }
+        },
+        "k8s_job_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
+          "$ref": "#/$defs/RegexpAttr",
+          "$defs": {
+            "RegexpAttr": {
+              "type": "string",
+              "format": "regex",
+              "description": "Regular expression to match against the executable file path",
+              "examples": [
+                "^app-.*",
+                "^service-..$",
+                "^prod-.*-db$"
+              ]
+            }
+          }
+        },
+        "k8s_owner_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
+          "$ref": "#/$defs/RegexpAttr",
+          "$defs": {
+            "RegexpAttr": {
+              "type": "string",
+              "format": "regex",
+              "description": "Regular expression to match against the executable file path",
+              "examples": [
+                "^app-.*",
+                "^service-..$",
+                "^prod-.*-db$"
+              ]
+            }
+          }
+        },
+        "k8s_container_name": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
+          "$ref": "#/$defs/RegexpAttr",
+          "$defs": {
+            "RegexpAttr": {
+              "type": "string",
+              "format": "regex",
+              "description": "Regular expression to match against the executable file path",
+              "examples": [
+                "^app-.*",
+                "^service-..$",
+                "^prod-.*-db$"
+              ]
+            }
+          }
+        }
+      },
+      "type": "object",
+      "description": "Metadata attributes to match against the instrumented service"
     },
     "MetricsConfig": {
       "properties": {
@@ -1080,10 +1434,7 @@
           "deprecated": true
         },
         "Metadata": {
-          "additionalProperties": {
-            "$ref": "#/$defs/RegexpAttr"
-          },
-          "type": "object",
+          "$ref": "#/$defs/MetadataRegexMap",
           "description": "Metadata stores other attributes, such as Kubernetes object metadata"
         },
         "PodLabels": {
@@ -1119,9 +1470,14 @@
       "description": "RegexSelector that specify a given instrumented service."
     },
     "RegexpAttr": {
-      "properties": {},
-      "type": "object",
-      "description": "RegexpAttr stores a regular expression representing an executable file path."
+      "type": "string",
+      "format": "regex",
+      "description": "Regular expression to match against the executable file path",
+      "examples": [
+        "^app-.*",
+        "^service-..$",
+        "^prod-.*-db$"
+      ]
     },
     "Registry": {
       "properties": {},

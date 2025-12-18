@@ -5,6 +5,8 @@ package services
 
 import (
 	"fmt"
+	"github.com/invopop/jsonschema"
+	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"iter"
 	"regexp"
 
@@ -45,6 +47,20 @@ func (dc RegexDefinitionCriteria) PortOfInterest(port int) bool {
 	return false
 }
 
+type MetadataRegexMap map[string]*RegexpAttr
+
+func (MetadataRegexMap) JSONSchema() *jsonschema.Schema {
+	propMap := orderedmap.New[string, *jsonschema.Schema]()
+	for k := range allowedAttributeNames {
+		propMap.Set(k, jsonschema.Reflect(&RegexpAttr{}))
+	}
+	return &jsonschema.Schema{
+		Properties:  propMap,
+		Type:        "object",
+		Description: "Metadata attributes to match against the instrumented service",
+	}
+}
+
 // RegexSelector that specify a given instrumented service.
 // Each instance has to define either the OpenPorts or Path property, or both. These are used to match
 // a given executable. If both OpenPorts and Path are defined, the inspected executable must fulfill both
@@ -70,7 +86,7 @@ type RegexSelector struct {
 	PathRegexp RegexpAttr `yaml:"exe_path_regexp"`
 
 	// Metadata stores other attributes, such as Kubernetes object metadata
-	Metadata map[string]*RegexpAttr `yaml:",inline"`
+	Metadata MetadataRegexMap `yaml:",inline"`
 
 	// PodLabels allows matching against the labels of a pod
 	PodLabels map[string]*RegexpAttr `yaml:"k8s_pod_labels"`
@@ -94,6 +110,15 @@ type RegexSelector struct {
 // RegexpAttr stores a regular expression representing an executable file path.
 type RegexpAttr struct {
 	re *regexp.Regexp
+}
+
+func (RegexpAttr) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:        "string",
+		Description: "Regular expression to match against the executable file path",
+		Format:      "regex",
+		Examples:    []any{`^app-.*`, `^service-..$`, `^prod-.*-db$`},
+	}
 }
 
 func NewRegexp(pattern string) RegexpAttr {
