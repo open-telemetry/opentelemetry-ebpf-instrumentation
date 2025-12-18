@@ -507,25 +507,10 @@
         "routes": {
           "$ref": "#/$defs/CustomRoutesConfig"
         },
-        "k8s_namespace": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_deployment_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_replicaset_name": {
+        "k8s_pod_name": {
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_daemonset_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_job_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_owner_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_pod_name": {
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_statefulset_name": {
@@ -535,6 +520,21 @@
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_container_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_namespace": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_deployment_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_replicaset_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_job_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_owner_name": {
           "$ref": "#/$defs/GlobAttr"
         }
       },
@@ -818,6 +818,12 @@
         },
         "otel_sdk_log_level": {
           "type": "string",
+          "enum": [
+            "debug",
+            "error",
+            "info",
+            "warn"
+          ],
           "description": "SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode\nand the Info messages leak internal details that are not usually valuable for the final user.",
           "x-env-var": "OTEL_EBPF_SDK_LOG_LEVEL"
         },
@@ -1236,12 +1242,6 @@
         "routes": {
           "$ref": "#/$defs/CustomRoutesConfig"
         },
-        "k8s_cronjob_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_container_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
         "k8s_namespace": {
           "$ref": "#/$defs/RegexpAttr"
         },
@@ -1249,9 +1249,6 @@
           "$ref": "#/$defs/RegexpAttr"
         },
         "k8s_replicaset_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_daemonset_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
         "k8s_job_name": {
@@ -1263,7 +1260,16 @@
         "k8s_pod_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
+        "k8s_daemonset_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
         "k8s_statefulset_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_cronjob_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_container_name": {
           "$ref": "#/$defs/RegexpAttr"
         }
       },

@@ -26,8 +26,8 @@ type MetricsConfig struct {
 	// OTEL_EBPF_METRICS_INTERVAL takes precedence over it.
 	OTELIntervalMS int `env:"OTEL_METRIC_EXPORT_INTERVAL"`
 
-	CommonEndpoint  string `yaml:"-" env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
-	MetricsEndpoint string `yaml:"endpoint" env:"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"`
+	CommonEndpoint  string `yaml:"-" env:"OTEL_EXPORTER_OTLP_ENDPOINT" ,jsonschema:"format=uri"`
+	MetricsEndpoint string `yaml:"endpoint" env:"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT" ,jsonschema:"format=uri"`
 
 	Protocol        Protocol `yaml:"protocol" env:"OTEL_EXPORTER_OTLP_PROTOCOL"`
 	MetricsProtocol Protocol `yaml:"-" env:"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL"`
@@ -42,7 +42,7 @@ type MetricsConfig struct {
 
 	// SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode
 	// and the Info messages leak internal details that are not usually valuable for the final user.
-	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_SDK_LOG_LEVEL"`
+	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_SDK_LOG_LEVEL" jsonschema:"enum=debug,enum=error,enum=info,enum=warn"`
 
 	// Features of metrics that can be exported. Accepted values: application, network,
 	// application_span, application_service_graph, ...
