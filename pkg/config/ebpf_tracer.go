@@ -25,13 +25,13 @@ const (
 	ContextPropagationIPOptions ContextPropagationMode = 1 << 2 // IP options (dangerous)
 
 	// Convenience aliases
-	ContextPropagationAll           = ContextPropagationHeaders | ContextPropagationTCP
-	ContextPropagationDisabledText  = "disabled"
-	ContextPropagationAllText       = "all"
-	ContextPropagationHeadersText   = "headers"
-	ContextPropagationHTTPText      = "http"
-	ContextPropagationTCPText       = "tcp"
-	ContextPropagationIPOptionsText = "ip"
+	ContextPropagationAll         = ContextPropagationHeaders | ContextPropagationTCP
+	StrContextPropagationDisabled = "disabled"
+	StrContextPropagationAll      = "all"
+	StrContextPropagationHeaders  = "headers"
+	StrContextPropagationHttp     = "http"
+	StrContextPropagationTCP      = "tcp"
+	StrContextPropagationIP       = "ip"
 )
 
 // EBPFTracer configuration for eBPF programs
@@ -153,10 +153,10 @@ func (m *ContextPropagationMode) UnmarshalText(text []byte) error {
 
 	// Handle simple cases first
 	switch str {
-	case ContextPropagationAllText:
+	case StrContextPropagationAll:
 		*m = ContextPropagationAll
 		return nil
-	case ContextPropagationDisabledText, "":
+	case StrContextPropagationDisabled, "":
 		*m = ContextPropagationDisabled
 		return nil
 	}
@@ -168,11 +168,11 @@ func (m *ContextPropagationMode) UnmarshalText(text []byte) error {
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		switch part {
-		case ContextPropagationHeadersText, ContextPropagationHTTPText:
+		case StrContextPropagationHeaders, StrContextPropagationHttp:
 			result |= ContextPropagationHeaders
-		case ContextPropagationTCPText:
+		case StrContextPropagationTCP:
 			result |= ContextPropagationTCP
-		case ContextPropagationIPOptionsText:
+		case StrContextPropagationIP:
 			result |= ContextPropagationIPOptions
 		default:
 			return fmt.Errorf("invalid value for context_propagation: '%s' (valid: all, disabled, headers, tcp, ip)", part)
@@ -216,14 +216,14 @@ func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
 		OneOf: []*jsonschema.Schema{
 			{
 				Type:        "string",
-				Enum:        []any{ContextPropagationAllText, ContextPropagationDisabledText, ""},
+				Enum:        []any{StrContextPropagationAll, StrContextPropagationDisabled, ""},
 				Description: "Enable all propagation methods, disable propagation, or use empty string for disabled",
 			},
 			{
 				Type: "array",
 				Items: &jsonschema.Schema{
 					Type: "string",
-					Enum: []any{ContextPropagationHeadersText, ContextPropagationHTTPText, ContextPropagationTCPText, ContextPropagationIPOptionsText},
+					Enum: []any{StrContextPropagationHeaders, StrContextPropagationHttp, StrContextPropagationTCP, StrContextPropagationIP},
 				},
 				MinItems:    &minItems,
 				UniqueItems: true,
