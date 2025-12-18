@@ -38,7 +38,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, pid int32) string {
+			setupTempDir: func(t *testing.T, _ int32) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "tmp"), 0o755))
@@ -56,7 +56,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, pid int32) string {
+			setupTempDir: func(t *testing.T, _ int32) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				customTmpDir := filepath.Join(procRoot, "custom", "tmp")
@@ -77,7 +77,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, pid int32) string {
+			setupTempDir: func(t *testing.T, _ int32) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "var", "tmp"), 0o755))
@@ -95,7 +95,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, pid int32) string {
+			setupTempDir: func(t *testing.T, _ int32) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				require.NoError(t, os.MkdirAll(procRoot, 0o755))
@@ -112,7 +112,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 			setupAgent: func(t *testing.T) string {
 				return filepath.Join(t.TempDir(), "nonexistent", ObiJavaAgentFileName)
 			},
-			setupTempDir: func(t *testing.T, pid int32) string {
+			setupTempDir: func(t *testing.T, _ int32) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "tmp"), 0o755))
@@ -131,7 +131,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, pid int32) string {
+			setupTempDir: func(t *testing.T, _ int32) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				tmpPath := filepath.Join(procRoot, "tmp")
@@ -153,7 +153,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, content, 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, pid int32) string {
+			setupTempDir: func(t *testing.T, _ int32) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "tmp"), 0o755))
@@ -174,7 +174,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 			// Override the root directory function
 			originalRootFunc := rootDirForPID
 			defer func() { rootDirForPID = originalRootFunc }()
-			rootDirForPID = func(pid int32) string {
+			rootDirForPID = func(_ int32) string {
 				return filepath.Join(tmpDir, "proc", "root")
 			}
 
@@ -362,7 +362,7 @@ func TestDirOK(t *testing.T) {
 		},
 		{
 			name: "empty root path",
-			setupDirs: func(t *testing.T) (string, string) {
+			setupDirs: func(_ *testing.T) (string, string) {
 				return "", "/tmp"
 			},
 			expected: true,
@@ -394,7 +394,8 @@ func TestDirOK(t *testing.T) {
 				require.NoError(t, os.MkdirAll(dirPath, 0o755))
 				require.NoError(t, os.Chmod(dirPath, 0o000))
 				t.Cleanup(func() {
-					os.Chmod(dirPath, 0o755)
+					err := os.Chmod(dirPath, 0o755)
+					assert.NoError(t, err)
 				})
 				return root, dir
 			},
