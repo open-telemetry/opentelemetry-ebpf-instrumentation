@@ -5,9 +5,9 @@ package export
 
 import (
 	"fmt"
-	"github.com/invopop/jsonschema"
 	"strings"
 
+	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"

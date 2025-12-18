@@ -5,11 +5,11 @@ package services
 
 import (
 	"fmt"
-	"github.com/invopop/jsonschema"
-	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"iter"
 
 	"github.com/gobwas/glob"
+	"github.com/invopop/jsonschema"
+	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"gopkg.in/yaml.v3"
 )
 

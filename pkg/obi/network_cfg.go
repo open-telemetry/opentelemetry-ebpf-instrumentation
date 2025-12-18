@@ -22,11 +22,11 @@
 package obi
 
 import (
-	"github.com/invopop/jsonschema"
 	"strings"
 	"time"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/invopop/jsonschema"
 
 	"go.opentelemetry.io/obi/pkg/internal/netolly/flow"
 	"go.opentelemetry.io/obi/pkg/netolly/cidr"

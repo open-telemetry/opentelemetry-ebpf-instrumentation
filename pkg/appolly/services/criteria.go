@@ -6,13 +6,13 @@ package services
 import (
 	"bytes"
 	"fmt"
-	"github.com/invopop/jsonschema"
 	"iter"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
 )
 
