@@ -88,7 +88,17 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
 
     pid_connection_info_t p_conn = {0};
     bpf_probe_read(&p_conn.conn, sizeof(connection_info_t), arg + 1);
-    u16 orig_dport = p_conn.conn.d_port;
+    d_print_http_connection_info(&p_conn.conn);
+    u16 orig_dport = 0;
+    // What we get from Java is correct, unlike the reversed information we
+    // get from the kernel probes. So we need to fake the orig_dport to match
+    // what the rest of the APIs expect.
+    if (op == TCP_RECV) {
+        orig_dport = p_conn.conn.s_port;
+    } else {
+        orig_dport = p_conn.conn.d_port;
+    }
+
     sort_connection_info(&p_conn.conn);
     p_conn.pid = pid_from_pid_tgid(id);
 
