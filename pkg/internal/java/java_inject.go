@@ -192,8 +192,11 @@ func getLocalAgentPath() (string, error) {
 	return filePath, nil
 }
 
+// to be changed in tests
+var rootDirForPID func(int32) string = ebpfcommon.RootDirectoryForPID
+
 func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
-	root := ebpfcommon.RootDirectoryForPID(ie.FileInfo.Pid)
+	root := rootDirForPID(ie.FileInfo.Pid)
 	tempDir, err := i.findTempDir(root, ie)
 	if err != nil {
 		return "", fmt.Errorf("error accessing temp directory: %w", err)
