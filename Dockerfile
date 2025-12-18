@@ -28,6 +28,17 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 	/generate.sh \
 	&& make compile
 
+# Build the Java OBI agent
+FROM gradle:9.2.1-jdk21-corretto AS javaagent-builder
+
+WORKDIR /build
+
+# Copy build files
+COPY pkg/internal/java .
+
+# Build the project
+RUN ./gradlew build --no-daemon
+
 # Create final image from minimal + built binary
 FROM scratch
 
@@ -36,6 +47,7 @@ LABEL maintainer="The OpenTelemetry Authors"
 WORKDIR /
 
 COPY --from=builder /src/bin/ebpf-instrument .
+COPY --from=javaagent-builder /build/build/obi-java-agent.jar .
 COPY LICENSE NOTICE .
 COPY NOTICES ./NOTICES
 

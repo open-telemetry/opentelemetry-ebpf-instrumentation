@@ -1,5 +1,6 @@
 # Main binary configuration
 CMD ?= ebpf-instrument
+JAVA_AGENT ?= obi-java-agent.jar
 MAIN_GO_FILE ?= cmd/$(CMD)/main.go
 
 CACHE_CMD ?= k8s-cache
@@ -240,6 +241,12 @@ JAVA_AGENT_DIR := pkg/internal/java
 java-build:
 	@echo "### Building Java agent"
 	cd $(JAVA_AGENT_DIR) && ./gradlew build
+	cp $(JAVA_AGENT_DIR)/build/$(JAVA_AGENT) bin/
+
+.PHONY: java-docker-build
+java-docker-build:
+	@echo "### Building Java agent with Docker"
+	$(OCI_BIN) build --output type=local,dest=./bin --target=export -f javaagent.Dockerfile .
 
 .PHONY: java-test
 java-test:
@@ -431,11 +438,11 @@ license-header-check:
 	   fi
 
 .PHONY: artifact
-artifact: docker-generate compile
+artifact: docker-generate compile java-docker-build
 	@echo "### Packing generated artifact"
 	cp LICENSE ./bin
 	cp NOTICE ./bin
-	tar -C ./bin -cvzf bin/opentelemetry-ebpf-instrumentation.tar.gz ebpf-instrument LICENSE NOTICE
+	tar -C ./bin -cvzf bin/opentelemetry-ebpf-instrumentation.tar.gz $(CMD) LICENSE NOTICE $(JAVA_AGENT)
 
 .PHONY: clean-testoutput
 clean-testoutput:

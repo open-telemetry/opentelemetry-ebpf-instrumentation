@@ -96,3 +96,5 @@ pkg/internal/java/loader/build
 pkg/internal/java/loader/out
 pkg/internal/java/loader/src/main/resources/agent
 pkg/internal/java/.gradle
+internal/test/integration/components/java_tls/netty_tls/target
+internal/test/integration/components/java_tls/sync_async_tls/target
