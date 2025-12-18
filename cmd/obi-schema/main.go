@@ -23,6 +23,7 @@ import (
 
 	"github.com/invopop/jsonschema"
 
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -33,6 +34,10 @@ var enumRegistry = make(map[string][]any)
 // envVarRegistry maps (typeName, yamlFieldName) to environment variable names.
 // This is populated by scanning source files at startup.
 var envVarRegistry = make(map[string]map[string]string)
+
+// inlineFieldRegistry maps typeName to a list of inline field type names.
+// This is populated by scanning source files at startup.
+var inlineFieldRegistry = make(map[string][]string)
 
 // packagesToScan lists packages that contain types used in the config
 var packagesToScan = []string{
@@ -142,6 +147,16 @@ func extractEnvVarsFromFile(file *ast.File) {
 				tag := strings.Trim(field.Tag.Value, "`")
 				yamlName := extractTagValue(tag, "yaml")
 				envVar := extractTagValue(tag, "env")
+
+				// Check for inline fields (yaml:",inline")
+				if strings.Contains(yamlName, "inline") || yamlName == ",inline" {
+					// Get the type name of the inline field
+					inlineTypeName := exprToTypeName(field.Type)
+					if inlineTypeName != "" {
+						inlineFieldRegistry[typeName] = append(inlineFieldRegistry[typeName], inlineTypeName)
+					}
+					continue
+				}
 
 				if yamlName != "" && envVar != "" {
 					// Remove options from yaml tag (e.g., "field,omitempty" -> "field")
@@ -316,6 +331,9 @@ func main() {
 	schema.Title = "OBI Configuration Schema"
 	schema.Description = "JSON Schema for OpenTelemetry eBPF Instrumentation (OBI) configuration"
 
+	// Process inline fields first (merge properties from inline types)
+	processInlineFields(schema)
+
 	// Process deprecated annotations from comments
 	processDeprecated(schema)
 
@@ -336,6 +354,53 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Schema written to %s\n", *outputFile)
 	} else {
 		fmt.Println(string(data))
+	}
+}
+
+// inlineTypeSchemas maps inline type names to functions that return their schema.
+// This is needed because these types implement JSONSchema() and aren't in definitions.
+var inlineTypeSchemas = map[string]func() *jsonschema.Schema{
+	"MetadataGlobMap":  func() *jsonschema.Schema { return services.MetadataGlobMap(nil).JSONSchema() },
+	"MetadataRegexMap": func() *jsonschema.Schema { return services.MetadataRegexMap(nil).JSONSchema() },
+}
+
+// processInlineFields merges properties from inline field types into their parent schemas.
+func processInlineFields(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+
+	// Process each definition that has inline fields
+	for typeName, inlineTypes := range inlineFieldRegistry {
+		defSchema, ok := schema.Definitions[typeName]
+		if !ok {
+			continue
+		}
+
+		for _, inlineTypeName := range inlineTypes {
+			// First try to get from definitions
+			inlineSchema, ok := schema.Definitions[inlineTypeName]
+			if !ok {
+				// Try to get from our inline type schema registry
+				if schemaFunc, found := inlineTypeSchemas[inlineTypeName]; found {
+					inlineSchema = schemaFunc()
+				}
+			}
+
+			if inlineSchema == nil {
+				continue
+			}
+
+			// Merge properties from inline schema into parent schema
+			if inlineSchema.Properties != nil && defSchema.Properties != nil {
+				for pair := inlineSchema.Properties.Oldest(); pair != nil; pair = pair.Next() {
+					// Only add if not already present
+					if _, exists := defSchema.Properties.Get(pair.Key); !exists {
+						defSchema.Properties.Set(pair.Key, pair.Value)
+					}
+				}
+			}
+		}
 	}
 }
 

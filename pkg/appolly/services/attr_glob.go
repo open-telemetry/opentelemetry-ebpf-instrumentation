@@ -51,7 +51,9 @@ type MetadataGlobMap map[string]*GlobAttr
 func (MetadataGlobMap) JSONSchema() *jsonschema.Schema {
 	propMap := orderedmap.New[string, *jsonschema.Schema]()
 	for k := range allowedAttributeNames {
-		propMap.Set(k, jsonschema.Reflect(&GlobAttr{}))
+		propMap.Set(k, &jsonschema.Schema{
+			Ref: "#/$defs/GlobAttr",
+		})
 	}
 	return &jsonschema.Schema{
 		Properties:  propMap,

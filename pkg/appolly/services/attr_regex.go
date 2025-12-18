@@ -52,7 +52,9 @@ type MetadataRegexMap map[string]*RegexpAttr
 func (MetadataRegexMap) JSONSchema() *jsonschema.Schema {
 	propMap := orderedmap.New[string, *jsonschema.Schema]()
 	for k := range allowedAttributeNames {
-		propMap.Set(k, jsonschema.Reflect(&RegexpAttr{}))
+		propMap.Set(k, &jsonschema.Schema{
+			Ref: "#/$defs/RegexpAttr",
+		})
 	}
 	return &jsonschema.Schema{
 		Properties:  propMap,
