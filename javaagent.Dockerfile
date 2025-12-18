@@ -1,4 +1,4 @@
-FROM gradle:9.2.1-jdk21-corretto AS builder
+FROM gradle:9.2.1-jdk21-corretto@sha256:3392a25fbe142defde5a13ec7e7171cac8c08ec6bcec00b44705d9a24b544fa3 AS builder
 
 WORKDIR /build
 
