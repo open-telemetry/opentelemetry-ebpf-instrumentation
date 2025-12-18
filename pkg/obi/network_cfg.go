@@ -70,10 +70,10 @@ type NetworkConfig struct {
 
 	// Specify the source type for network events, e.g tc or socket_filter. The tc implementation
 	// cannot be used when there are other tc eBPF probes, e.g. Cilium CNI.
-	Source string `yaml:"source" env:"OTEL_EBPF_NETWORK_SOURCE"  validate:"oneof=tc socket_filter"`
+	Source string `yaml:"source" env:"OTEL_EBPF_NETWORK_SOURCE"  validate:"oneof=tc socket_filter" jsonschema:"type=string,enum=tc,enum=socket_filter"`
 
 	// AgentIP allows overriding the reported Agent IP address on each flow.
-	AgentIP string `yaml:"agent_ip" env:"OTEL_EBPF_NETWORK_AGENT_IP" validate:"omitempty,ip"`
+	AgentIP string `yaml:"agent_ip" env:"OTEL_EBPF_NETWORK_AGENT_IP" validate:"omitempty,ip" jsonschema:"type=string,format=ip"`
 
 	// AgentIPIface specifies which interface should the agent pick the IP address from in order to
 	// report it in the AgentIP field on each flow. Accepted values are: external (default), local,
@@ -120,7 +120,7 @@ type NetworkConfig struct {
 	DeduperFCTTL time.Duration `yaml:"deduper_fc_ttl" env:"OTEL_EBPF_NETWORK_DEDUPER_FC_TTL" validate:"omitempty,gt=0"`
 	// Direction allows selecting which flows to trace according to its direction. Accepted values
 	// are "ingress", "egress" or "both" (default).
-	Direction string `yaml:"direction" env:"OTEL_EBPF_NETWORK_DIRECTION" validate:"oneof=ingress egress both"`
+	Direction string `yaml:"direction" env:"OTEL_EBPF_NETWORK_DIRECTION" validate:"oneof=ingress egress both" jsonschema:"type=string,enum=ingress,enum=egress,enum=both"`
 	// Sampling holds the rate at which packets should be sampled and sent to the target collector.
 	// E.g. if set to 100, one out of 100 packets, on average, will be sent to the target collector.
 	Sampling int `yaml:"sampling" env:"OTEL_EBPF_NETWORK_SAMPLING" validate:"omitempty,gt=0"`

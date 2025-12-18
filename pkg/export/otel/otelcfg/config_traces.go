@@ -28,7 +28,7 @@ type TracesConfig struct {
 	TracesProtocol Protocol `yaml:"-" env:"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"`
 
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
-	Instrumentations []instrumentations.Instrumentation `yaml:"instrumentations" env:"OTEL_EBPF_TRACES_INSTRUMENTATIONS" envSeparator:","`
+	Instrumentations []instrumentations.Instrumentation `yaml:"instrumentations" env:"OTEL_EBPF_TRACES_INSTRUMENTATIONS" envSeparator:"," jsonschema:"uniqueItems=true"`
 
 	// InsecureSkipVerify is not standard, so we don't follow the same naming convention
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify" env:"OTEL_EBPF_INSECURE_SKIP_VERIFY"`

@@ -51,7 +51,7 @@ type MetricsConfig struct {
 	DeprFeatures export.Features `yaml:"features"`
 
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
-	Instrumentations []instrumentations.Instrumentation `yaml:"instrumentations" env:"OTEL_EBPF_METRICS_INSTRUMENTATIONS" envSeparator:","`
+	Instrumentations []instrumentations.Instrumentation `yaml:"instrumentations" env:"OTEL_EBPF_METRICS_INSTRUMENTATIONS" envSeparator:"," jsonschema:"uniqueItems=true"`
 
 	// TTL is the time since a metric was updated for the last time until it is
 	// removed from the metrics set.

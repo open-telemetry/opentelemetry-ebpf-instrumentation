@@ -202,12 +202,12 @@
         },
         "poll_interval": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "PollInterval specifies, for the poll service watcher, the interval time between\nprocess inspections",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_DISCOVERY_POLL_INTERVAL"
         },
@@ -233,12 +233,12 @@
         },
         "min_process_age": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "Min process age to be considered for discovery.",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_MIN_PROCESS_AGE"
         },
@@ -249,11 +249,11 @@
         },
         "route_harvester_timeout": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_ROUTE_HARVESTER_TIMEOUT"
         },
@@ -307,12 +307,12 @@
         },
         "batch_timeout": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "BatchTimeout specifies the timeout to forward the data batch if it didn't\nreach the BatchLength size",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_BATCH_TIMEOUT"
         },
@@ -323,12 +323,12 @@
         },
         "http_request_timeout": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "Must be at least 0",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT"
         },
@@ -410,23 +410,23 @@
         },
         "max_transaction_time": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "Maximum time allowed for two requests to be correlated as parent -\u003e child\nSome programs (e.g. load generators) keep on generating requests from the same thread in perpetuity,\nwhich can generate very large traces. We want to mark the parent trace as invalid if this happens.",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_MAX_TRANSACTION_TIME"
         },
         "dns_request_timeout": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "DNS timeout after which we report failed event",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT"
         }
@@ -445,9 +445,35 @@
       "type": "object"
     },
     "ExportModes": {
-      "properties": {},
-      "type": "object",
-      "description": "ExportModes specifies which signals are going to be exported for a given service, via the public methods CanExportTraces and CanExportMetrics."
+      "items": {
+        "type": "string",
+        "enum": [
+          "metrics",
+          "traces"
+        ]
+      },
+      "type": "array",
+      "description": "List of signals to export. If undefined or null, all signals are exported. If an empty list, no signals are exported."
+    },
+    "Features": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "*",
+          "network_inter_zone",
+          "application",
+          "application_span_sizes",
+          "application_service_graph",
+          "network",
+          "application_span",
+          "application_span_otel",
+          "application_host",
+          "ebpf",
+          "all"
+        ]
+      },
+      "type": "array",
+      "description": "List of metric features to enable."
     },
     "GlobAttr": {
       "type": "string",
@@ -507,31 +533,31 @@
         "routes": {
           "$ref": "#/$defs/CustomRoutesConfig"
         },
-        "k8s_pod_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_daemonset_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_statefulset_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_cronjob_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_container_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
         "k8s_namespace": {
           "$ref": "#/$defs/GlobAttr"
         },
-        "k8s_deployment_name": {
+        "k8s_pod_name": {
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_replicaset_name": {
           "$ref": "#/$defs/GlobAttr"
         },
+        "k8s_daemonset_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_container_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_deployment_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_statefulset_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
         "k8s_job_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_cronjob_name": {
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_owner_name": {
@@ -583,12 +609,12 @@
         },
         "fetch_timeout": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "FetchTimeout specifies the timeout for trying to fetch the HostID from diverse Cloud Providers",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_HOST_ID_FETCH_TIMEOUT"
         }
@@ -646,11 +672,11 @@
         },
         "bpf_metric_scrape_interval": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL"
         }
@@ -681,22 +707,22 @@
         },
         "informers_sync_timeout": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT"
         },
         "informers_resync_period": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "InformersResyncPeriod defaults to 30m. Higher values will reduce the load on the Kube API.",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_KUBE_INFORMERS_RESYNC_PERIOD"
         },
@@ -773,11 +799,11 @@
       "properties": {
         "interval": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_METRICS_INTERVAL"
         },
@@ -828,7 +854,7 @@
           "x-env-var": "OTEL_EBPF_SDK_LOG_LEVEL"
         },
         "features": {
-          "type": "integer",
+          "$ref": "#/$defs/Features",
           "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nenvDefault is provided to avoid breaking changes\nuse top-level MetricsConfig.Features instead.",
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
@@ -849,17 +875,18 @@
             ]
           },
           "type": "array",
+          "uniqueItems": true,
           "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...",
           "x-env-var": "OTEL_EBPF_METRICS_INSTRUMENTATIONS"
         },
         "ttl": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "TTL is the time since a metric was updated for the last time until it is\nremoved from the metrics set.",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_METRICS_TTL"
         },
@@ -902,12 +929,12 @@
         },
         "cache_expiry": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "CacheTTL specifies the time-to-live of a cached IP-\u003ehostname entry. After the\ncached entry becomes older than this time, the IP-\u003ehostname entry will be looked\nup again.",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_CACHE_TTL"
         }
@@ -924,11 +951,16 @@
         },
         "source": {
           "type": "string",
+          "enum": [
+            "tc",
+            "socket_filter"
+          ],
           "description": "Specify the source type for network events, e.g tc or socket_filter. The tc implementation\ncannot be used when there are other tc eBPF probes, e.g. Cilium CNI.",
           "x-env-var": "OTEL_EBPF_NETWORK_SOURCE"
         },
         "agent_ip": {
           "type": "string",
+          "format": "ip",
           "description": "AgentIP allows overriding the reported Agent IP address on each flow.",
           "x-env-var": "OTEL_EBPF_NETWORK_AGENT_IP"
         },
@@ -986,12 +1018,12 @@
         },
         "cache_active_timeout": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "CacheActiveTimeout specifies the maximum duration that flows are kept in the accounting\ncache before being flushed for its later export.",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT"
         },
@@ -1006,17 +1038,22 @@
         },
         "deduper_fc_ttl": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "DeduperFCTTL specifies the expiry duration of the flows \"first_come\" deduplicator. After\na flow hasn't been received for that expiry time, the deduplicator forgets it. That means\nthat a flow from a connection that has been inactive during that period could be forwarded\nagain from a different interface.\nIf the value is not set, it will default to 2 * CacheActiveTimeout",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_NETWORK_DEDUPER_FC_TTL"
         },
         "direction": {
           "type": "string",
+          "enum": [
+            "ingress",
+            "egress",
+            "both"
+          ],
           "description": "Direction allows selecting which flows to trace according to its direction. Accepted values\nare \"ingress\", \"egress\" or \"both\" (default).",
           "x-env-var": "OTEL_EBPF_NETWORK_DIRECTION"
         },
@@ -1036,12 +1073,12 @@
         },
         "listen_poll_period": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "ListenPollPeriod specifies the periodicity to query the network interfaces when the\nListenInterfaces value is set to \"poll\".",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_NETWORK_LISTEN_POLL_PERIOD"
         },
@@ -1104,7 +1141,7 @@
           "x-env-var": "OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"
         },
         "features": {
-          "type": "integer",
+          "$ref": "#/$defs/Features",
           "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nuse top-level MetricsConfig.Features instead.",
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_PROMETHEUS_FEATURES"
@@ -1133,12 +1170,12 @@
         },
         "ttl": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "TTL is the time since a metric was updated for the last time until it is\nremoved from the metrics set.",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_PROMETHEUS_TTL"
         },
@@ -1245,31 +1282,31 @@
         "k8s_namespace": {
           "$ref": "#/$defs/RegexpAttr"
         },
-        "k8s_deployment_name": {
+        "k8s_pod_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
         "k8s_replicaset_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
-        "k8s_job_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_owner_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_pod_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
         "k8s_daemonset_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_container_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_deployment_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
         "k8s_statefulset_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
+        "k8s_job_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
         "k8s_cronjob_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
-        "k8s_container_name": {
+        "k8s_owner_name": {
           "$ref": "#/$defs/RegexpAttr"
         }
       },
@@ -1299,6 +1336,11 @@
       "properties": {
         "type": {
           "type": "string",
+          "enum": [
+            "none",
+            "local",
+            "ebpf"
+          ],
           "description": "Type of ReverseDNS. Values are \"none\" (default), \"local\" and \"ebpf\"",
           "x-env-var": "OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE"
         },
@@ -1309,12 +1351,12 @@
         },
         "cache_expiry": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "CacheTTL only applies to the \"local\" and \"ebpf\" ReverseDNS type. It\nspecifies the time-to-live of a cached IP-\u003ehostname entry. After the\ncached entry becomes older than this time, the IP-\u003ehostname entry will be looked\nup again.",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL"
         }
@@ -1326,11 +1368,11 @@
       "properties": {
         "java_harvest_delay": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_JAVA_ROUTE_HARVEST_DELAY"
         }
@@ -1377,6 +1419,7 @@
         },
         "wildcard_char": {
           "type": "string",
+          "maxLength": 1,
           "description": "Character that will be used to replace route segments"
         },
         "max_path_segment_cardinality": {
@@ -1449,6 +1492,7 @@
             ]
           },
           "type": "array",
+          "uniqueItems": true,
           "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...",
           "x-env-var": "OTEL_EBPF_TRACES_INSTRUMENTATIONS"
         },
@@ -1467,44 +1511,44 @@
         },
         "batch_timeout": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT"
         },
         "backoff_initial_interval": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "Configuration options for BackOffConfig of the traces exporter.\nSee https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go\nBackOffInitialInterval the time to wait after the first failure before retrying.",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BACKOFF_INITIAL_INTERVAL"
         },
         "backoff_max_interval": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "BackOffMaxInterval is the upper bound on backoff interval.",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BACKOFF_MAX_INTERVAL"
         },
         "backoff_max_elapsed_time": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "pattern": "^[0-9]+(ms|s|m)$",
           "description": "BackOffMaxElapsedTime is the maximum amount of time (including retries) spent trying to send a request/batch.",
           "examples": [
             "30s",
             "5m",
-            "1h30m"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BACKOFF_MAX_ELAPSED_TIME"
         },
@@ -1609,12 +1653,12 @@
     },
     "shutdown_timeout": {
       "type": "string",
-      "pattern": "^[0-9]+(ms|s|m|h|d)$",
+      "pattern": "^[0-9]+(ms|s|m)$",
       "description": "Timeout for a graceful shutdown",
       "examples": [
         "30s",
         "5m",
-        "1h30m"
+        "1ms"
       ],
       "x-env-var": "OTEL_EBPF_SHUTDOWN_TIMEOUT"
     },
