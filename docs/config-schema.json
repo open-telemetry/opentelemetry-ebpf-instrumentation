@@ -507,13 +507,7 @@
         "routes": {
           "$ref": "#/$defs/CustomRoutesConfig"
         },
-        "k8s_pod_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_daemonset_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_owner_name": {
+        "k8s_namespace": {
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_deployment_name": {
@@ -522,19 +516,25 @@
         "k8s_replicaset_name": {
           "$ref": "#/$defs/GlobAttr"
         },
-        "k8s_statefulset_name": {
+        "k8s_daemonset_name": {
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_job_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_owner_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_pod_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_statefulset_name": {
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_cronjob_name": {
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_container_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_namespace": {
           "$ref": "#/$defs/GlobAttr"
         }
       },
@@ -1236,9 +1236,6 @@
         "routes": {
           "$ref": "#/$defs/CustomRoutesConfig"
         },
-        "k8s_job_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
         "k8s_cronjob_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
@@ -1248,19 +1245,22 @@
         "k8s_namespace": {
           "$ref": "#/$defs/RegexpAttr"
         },
-        "k8s_pod_name": {
+        "k8s_deployment_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_replicaset_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
         "k8s_daemonset_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
+        "k8s_job_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
         "k8s_owner_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
-        "k8s_deployment_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_replicaset_name": {
+        "k8s_pod_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
         "k8s_statefulset_name": {
@@ -1385,6 +1385,14 @@
       "properties": {
         "name": {
           "type": "string",
+          "enum": [
+            "always_on",
+            "always_off",
+            "traceidratio",
+            "parentbased_always_on",
+            "parentbased_always_off",
+            "parentbased_traceidratio"
+          ],
           "x-env-var": "OTEL_TRACES_SAMPLER"
         },
         "arg": {
