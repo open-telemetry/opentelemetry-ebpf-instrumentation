@@ -6,6 +6,7 @@ package services
 import (
 	"bytes"
 	"fmt"
+	"github.com/invopop/jsonschema"
 	"iter"
 	"regexp"
 	"strconv"
@@ -164,6 +165,15 @@ type StringMatcher interface {
 // port range: 80,443,8000-8999
 type PortEnum struct {
 	Ranges []PortRange
+}
+
+func (PortEnum) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:        "string",
+		Pattern:     validPortEnum.String(),
+		Description: "A comma-separated list of numeric ports or port ranges (e.g. 80,443,8000-8999)",
+		Examples:    []any{"80", "8080-8090", "80,443,8000-8999"},
+	}
 }
 
 type PortRange struct {
