@@ -22,6 +22,7 @@
 package obi
 
 import (
+	"github.com/invopop/jsonschema"
 	"strings"
 	"time"
 
@@ -41,6 +42,25 @@ const (
 	NetworkAgentIPIfaceLocal     = "local"
 )
 
+type AgentTypeIface string
+
+func (AgentTypeIface) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		OneOf: []*jsonschema.Schema{
+			{
+				Type: "string",
+				Enum: []any{NetworkAgentIPIfaceExternal, NetworkAgentIPIfaceLocal},
+			},
+			{
+				Type:    "string",
+				Pattern: `^name:.+$`,
+			},
+		},
+		Title:       "Agent Type Interface",
+		Description: "Specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each flow. Accepted values are: external, local, or name:<interface name> (e.g. name:eth0).",
+	}
+}
+
 type NetworkConfig struct {
 	// Enable network metrics.
 	// Default value is false (disabled)
@@ -59,11 +79,11 @@ type NetworkConfig struct {
 	// report it in the AgentIP field on each flow. Accepted values are: external (default), local,
 	// or name:<interface name> (e.g. name:eth0).
 	// If the AgentIP configuration property is set, this property has no effect.
-	AgentIPIface string `yaml:"agent_ip_iface" env:"OTEL_EBPF_NETWORK_AGENT_IP_IFACE" validate:"agentIPIface"`
+	AgentIPIface AgentTypeIface `yaml:"agent_ip_iface" env:"OTEL_EBPF_NETWORK_AGENT_IP_IFACE" validate:"agentIPIface"`
 	// AgentIPType specifies which type of IP address (IPv4 or IPv6 or any) should the agent report
 	// in the AgentID field of each flow. Accepted values are: any (default), ipv4, ipv6.
 	// If the AgentIP configuration property is set, this property has no effect.
-	AgentIPType string `yaml:"agent_ip_type" env:"OTEL_EBPF_NETWORK_AGENT_IP_TYPE" validate:"omitempty,oneof=any ipv4 ipv6"`
+	AgentIPType string `yaml:"agent_ip_type" env:"OTEL_EBPF_NETWORK_AGENT_IP_TYPE" validate:"omitempty,oneof=any ipv4 ipv6" jsonschema:"type=string,enum=any,enum=ipv4,enum=ipv6"`
 	// Interfaces contains the interface names from where flows will be collected. If empty, the agent
 	// will fetch all the interfaces in the system, excepting the ones listed in ExcludeInterfaces.
 	// If an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression,
@@ -91,7 +111,7 @@ type NetworkConfig struct {
 	// both the physical and a virtual interface).
 	// "first_come" will forward only flows from the first interface the flows are received from.
 	// Default value: first_come
-	Deduper string `yaml:"deduper" env:"OTEL_EBPF_NETWORK_DEDUPER" validate:"oneof=none first_come"`
+	Deduper string `yaml:"deduper" env:"OTEL_EBPF_NETWORK_DEDUPER" validate:"oneof=none first_come" jsonschema:"type=string,enum=none,enum=first_come"`
 	// DeduperFCTTL specifies the expiry duration of the flows "first_come" deduplicator. After
 	// a flow hasn't been received for that expiry time, the deduplicator forgets it. That means
 	// that a flow from a connection that has been inactive during that period could be forwarded
@@ -109,7 +129,7 @@ type NetworkConfig struct {
 	// If the value is "watch", interfaces are traced immediately after they are created. This is
 	// the recommended setting for most configurations. "poll" value is a fallback mechanism that
 	// periodically queries the current network interfaces (frequency specified by ListenPollPeriod).
-	ListenInterfaces string `yaml:"listen_interfaces" env:"OTEL_EBPF_NETWORK_LISTEN_INTERFACES" validate:"oneof=watch poll"`
+	ListenInterfaces string `yaml:"listen_interfaces" env:"OTEL_EBPF_NETWORK_LISTEN_INTERFACES" validate:"oneof=watch poll" jsonschema:"type=string,enum=watch,enum=poll"`
 	// ListenPollPeriod specifies the periodicity to query the network interfaces when the
 	// ListenInterfaces value is set to "poll".
 	ListenPollPeriod time.Duration `yaml:"listen_poll_period" env:"OTEL_EBPF_NETWORK_LISTEN_POLL_PERIOD" validate:"gte=0"`

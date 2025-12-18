@@ -12,6 +12,23 @@
       },
       "type": "object"
     },
+    "AgentTypeIface": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "external",
+            "local"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^name:.+$"
+        }
+      ],
+      "title": "Agent Type Interface",
+      "description": "Specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each flow. Accepted values are: external, local, or name:\u003cinterface name\u003e (e.g. name:eth0)."
+    },
     "AttributeFamilyConfig": {
       "additionalProperties": {
         "$ref": "#/$defs/MatchDefinition"
@@ -880,7 +897,7 @@
           "x-env-var": "OTEL_EBPF_NETWORK_AGENT_IP"
         },
         "agent_ip_iface": {
-          "type": "string",
+          "$ref": "#/$defs/AgentTypeIface",
           "description": "AgentIPIface specifies which interface should the agent pick the IP address from in order to\nreport it in the AgentIP field on each flow. Accepted values are: external (default), local,\nor name:\u003cinterface name\u003e (e.g. name:eth0).\nIf the AgentIP configuration property is set, this property has no effect.",
           "x-env-var": "OTEL_EBPF_NETWORK_AGENT_IP_IFACE"
         },
@@ -944,6 +961,10 @@
         },
         "deduper": {
           "type": "string",
+          "enum": [
+            "none",
+            "first_come"
+          ],
           "description": "Deduper specifies the deduper type. Accepted values are \"none\" (disabled) and \"first_come\".\nWhen enabled, it will detect duplicate flows (flows that have been detected e.g. through\nboth the physical and a virtual interface).\n\"first_come\" will forward only flows from the first interface the flows are received from.\nDefault value: first_come",
           "x-env-var": "OTEL_EBPF_NETWORK_DEDUPER"
         },
@@ -970,6 +991,10 @@
         },
         "listen_interfaces": {
           "type": "string",
+          "enum": [
+            "watch",
+            "poll"
+          ],
           "description": "ListenInterfaces specifies the mechanism used by the agent to listen for added or removed\nnetwork interfaces. Accepted values are \"watch\" (default) or \"poll\".\nIf the value is \"watch\", interfaces are traced immediately after they are created. This is\nthe recommended setting for most configurations. \"poll\" value is a fallback mechanism that\nperiodically queries the current network interfaces (frequency specified by ListenPollPeriod).",
           "x-env-var": "OTEL_EBPF_NETWORK_LISTEN_INTERFACES"
         },
