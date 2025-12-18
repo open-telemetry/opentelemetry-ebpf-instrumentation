@@ -44,7 +44,7 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 	require.Empty(t, results, "expected no HTTP requests, got %d", len(results))
 
 	// Ensure we see the expected spans in Jaeger
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	test.Eventually(t, 2*testTimeout, func(t require.TestingT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
 			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&limit=1000")

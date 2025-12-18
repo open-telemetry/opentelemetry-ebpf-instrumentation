@@ -31,13 +31,7 @@ public class Kafka {
                     os.close();
                 }
             });
-            System.out.println("Waiting...");
-            // Wait so OBI can catch the process alive
-            try {
-                Thread.sleep(10000);
-            } catch (Exception ignore) {}
-            System.out.println("Started!");
-            
+
             String bootstrapServers = System.getenv("KAFKA_BOOTSTRAP_SERVERS");
 
             if (bootstrapServers == null || bootstrapServers.isEmpty()) {
@@ -50,14 +44,14 @@ public class Kafka {
             producerProps.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
             producerProps.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
             producerProps.put("partitioner.class", "org.apache.kafka.clients.producer.RoundRobinPartitioner"); // Explicit partitioner
-
+            //producerProps.put("metadata.max.age.ms","5000");
             Thread producerThread = new Thread(() -> {
                 KafkaProducer<String, String> producer = new KafkaProducer<>(producerProps);
                 for (;;) {
                     producer.send(new ProducerRecord<>("theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree", "key", "value"));
                     System.out.println("Produced message");
                     try {
-                        Thread.sleep(1000);
+                        Thread.sleep(5000);
                     } catch (Exception ignore) {}
                 }
             });
@@ -69,6 +63,9 @@ public class Kafka {
             consumerProps.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
             consumerProps.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
             consumerProps.put("auto.offset.reset", "earliest");
+            // force to refresh metadata info because it can happen that OBI cannot catch it earlier
+            // otherwise we can just sleep at the beginning 
+            consumerProps.put("metadata.max.age.ms","10000"); 
 
             Thread consumerThread = new Thread(() -> {
                 KafkaConsumer<String, String> consumer = new KafkaConsumer<>(consumerProps);
@@ -76,7 +73,7 @@ public class Kafka {
 
                 while (true) {
                     System.out.println("Polling for new messages...");
-                    ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(1000));
+                    ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(5000));
                     for (ConsumerRecord<String, String> record : records) {
                         System.out.printf("Consumed message: offset = %d, key = %s, value = %s%n", record.offset(), record.key(), record.value());
                     }
