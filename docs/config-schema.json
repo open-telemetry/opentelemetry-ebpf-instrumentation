@@ -4,7 +4,7 @@
   "$defs": {
     "AWSConfig": {
       "properties": {
-        "Enabled": {
+        "enabled": {
           "type": "boolean",
           "description": "Enable AWS services (S3, SQS, etc.) payload extraction and parsing"
         }
@@ -20,19 +20,19 @@
     },
     "Attributes": {
       "properties": {
-        "Kubernetes": {
+        "kubernetes": {
           "$ref": "#/$defs/KubernetesDecorator"
         },
-        "InstanceID": {
+        "instance_id": {
           "$ref": "#/$defs/InstanceIDConfig"
         },
-        "Select": {
+        "select": {
           "$ref": "#/$defs/Selection"
         },
-        "HostID": {
+        "host_id": {
           "$ref": "#/$defs/HostIDConfig"
         },
-        "ExtraGroupAttributes": {
+        "extra_group_attributes": {
           "additionalProperties": {
             "items": {
               "type": "string"
@@ -41,17 +41,17 @@
           },
           "type": "object"
         },
-        "RenameUnresolvedHosts": {
+        "rename_unresolved_hosts": {
           "type": "string",
           "description": "RenameUnresolvedHosts will replace HostName and PeerName attributes when they are empty or contain\nunresolved IP addresses to reduce cardinality.\nSet this value to the empty string to disable this feature."
         },
-        "RenameUnresolvedHostsOutgoing": {
+        "rename_unresolved_hosts_outgoing": {
           "type": "string"
         },
-        "RenameUnresolvedHostsIncoming": {
+        "rename_unresolved_hosts_incoming": {
           "type": "string"
         },
-        "MetricSpanNameAggregationLimit": {
+        "metric_span_names_limit": {
           "type": "integer",
           "description": "MetricSpanNameAggregationLimit works PER SERVICE and only relates to span_metrics.\nWhen the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED.\nIf the value \u003c= 0, it is disabled."
         }
@@ -61,10 +61,10 @@
     },
     "AttributesConfig": {
       "properties": {
-        "Application": {
+        "application": {
           "$ref": "#/$defs/AttributeFamilyConfig"
         },
-        "Network": {
+        "network": {
           "$ref": "#/$defs/AttributeFamilyConfig"
         }
       },
@@ -73,19 +73,19 @@
     },
     "Buckets": {
       "properties": {
-        "DurationHistogram": {
+        "duration_histogram": {
           "items": {
             "type": "number"
           },
           "type": "array"
         },
-        "RequestSizeHistogram": {
+        "request_size_histogram": {
           "items": {
             "type": "number"
           },
           "type": "array"
         },
-        "ResponseSizeHistogram": {
+        "response_size_histogram": {
           "items": {
             "type": "number"
           },
@@ -127,13 +127,13 @@
     },
     "CustomRoutesConfig": {
       "properties": {
-        "Incoming": {
+        "incoming": {
           "items": {
             "type": "string"
           },
           "type": "array"
         },
-        "Outgoing": {
+        "outgoing": {
           "items": {
             "type": "string"
           },
@@ -151,34 +151,34 @@
     },
     "DiscoveryConfig": {
       "properties": {
-        "Services": {
+        "services": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
           "description": "Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically\nadded to the services definition criteria, with the lowest preference.\nUse Instrument instead",
           "deprecated": true
         },
-        "ExcludeServices": {
+        "exclude_services": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
           "description": "ExcludeServices works analogously to Services, but the applications matching this section won't be instrumented\neven if they match the Services selection.\nUse ExcludeInstrument instead",
           "deprecated": true
         },
-        "DefaultExcludeServices": {
+        "default_exclude_services": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
           "description": "DefaultExcludeServices by default prevents self-instrumentation of OBI as well as related services (Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired.\nUse DefaultExcludeInstrument instead",
           "deprecated": true
         },
-        "Instrument": {
+        "instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
           "description": "Instrument selects the services to instrument via Globs. If this section is set,\nboth the Services and ExcludeServices section is ignored.\nIf the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be\nautomatically added to the instrument criteria, with the lowest preference."
         },
-        "ExcludeInstrument": {
+        "exclude_instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
           "description": "ExcludeInstrument works analogously to Instrument, but the applications matching this section won't be instrumented\neven if they match the Instrument selection."
         },
-        "DefaultExcludeInstrument": {
+        "default_exclude_instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
           "description": "DefaultExcludeInstrument by default prevents self-instrumentation of OBI as well as related services (OBI, Beyla, Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired."
         },
-        "PollInterval": {
+        "poll_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "PollInterval specifies, for the poll service watcher, the interval time between\nprocess inspections",
@@ -188,23 +188,23 @@
             "1h30m"
           ]
         },
-        "SkipGoSpecificTracers": {
+        "skip_go_specific_tracers": {
           "type": "boolean",
           "description": "This can be enabled to use generic HTTP tracers only, no Go-specifics will be used:"
         },
-        "BPFPidFilterOff": {
+        "bpf_pid_filter_off": {
           "type": "boolean",
           "description": "Debugging only option. Make sure the kernel side doesn't filter any PIDs, force user space filtering."
         },
-        "ExcludeOTelInstrumentedServices": {
+        "exclude_otel_instrumented_services": {
           "type": "boolean",
           "description": "Disables instrumentation of services which are already instrumented"
         },
-        "DefaultOtlpGRPCPort": {
+        "default_otlp_grpc_port": {
           "type": "integer",
           "description": "DefaultOtlpGRPCPort specifies the default OTLP gRPC port (4317) to fallback on when missing environment variables on service, for\nchecking for grpc export requests, defaults to 4317"
         },
-        "MinProcessAge": {
+        "min_process_age": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "Min process age to be considered for discovery.",
@@ -214,11 +214,11 @@
             "1h30m"
           ]
         },
-        "ExcludeOTelInstrumentedServicesSpanMetrics": {
+        "exclude_otel_instrumented_services_span_metrics": {
           "type": "boolean",
           "description": "Disables generation of span metrics of services which are already instrumented"
         },
-        "RouteHarvesterTimeout": {
+        "route_harvester_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "examples": [
@@ -227,13 +227,13 @@
             "1h30m"
           ]
         },
-        "DisabledRouteHarvesters": {
+        "disabled_route_harvesters": {
           "items": {
             "type": "string"
           },
           "type": "array"
         },
-        "RouteHarvestConfig": {
+        "route_harvester_advanced": {
           "$ref": "#/$defs/RouteHarvestingConfig"
         }
       },
@@ -242,13 +242,13 @@
     },
     "EBPFBufferSizes": {
       "properties": {
-        "HTTP": {
+        "http": {
           "type": "integer"
         },
-        "MySQL": {
+        "mysql": {
           "type": "integer"
         },
-        "Postgres": {
+        "postgres": {
           "type": "integer"
         }
       },
@@ -257,19 +257,19 @@
     },
     "EBPFTracer": {
       "properties": {
-        "BpfDebug": {
+        "bpf_debug": {
           "type": "boolean",
           "description": "Enables logging of eBPF program events"
         },
-        "WakeupLen": {
+        "wakeup_len": {
           "type": "integer",
           "description": "WakeupLen specifies how many messages need to be accumulated in the eBPF ringbuffer\nbefore sending a wakeup request.\nHigh values of WakeupLen could add a noticeable metric delay in services with low\nrequests/second.\nMust be at least 0\nTODO: see if there is a way to force eBPF to wakeup userspace on timeout"
         },
-        "BatchLength": {
+        "batch_length": {
           "type": "integer",
           "description": "BatchLength allows specifying how many traces will be batched at the initial\nstage before being forwarded to the next stage\nMust be at least 1"
         },
-        "BatchTimeout": {
+        "batch_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "BatchTimeout specifies the timeout to forward the data batch if it didn't\nreach the BatchLength size",
@@ -279,11 +279,11 @@
             "1h30m"
           ]
         },
-        "TrackRequestHeaders": {
+        "track_request_headers": {
           "type": "boolean",
           "description": "If enabled, the kprobes based HTTP request tracking will start tracking the request\nheaders to process any 'Traceparent' fields."
         },
-        "HTTPRequestTimeout": {
+        "http_request_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "Must be at least 0",
@@ -293,15 +293,15 @@
             "1h30m"
           ]
         },
-        "ContextPropagation": {
+        "context_propagation": {
           "$ref": "#/$defs/ContextPropagationMode",
           "description": "Enables distributed context propagation.\nCan be a combination of: headers, tcp, ip (e.g., \"headers,tcp\" or \"all\")"
         },
-        "OverrideBPFLoopEnabled": {
+        "override_bpfloop_enabled": {
           "type": "boolean",
           "description": "Skips checking the kernel version for bpf_loop functionality. Some modified kernels have this\nbackported prior to version 5.17."
         },
-        "TCBackend": {
+        "traffic_control_backend": {
           "type": "string",
           "enum": [
             "tc",
@@ -310,54 +310,54 @@
           ],
           "description": "Select the TC attachment backend: accepted values are 'tc' (netlink), and 'tcx'"
         },
-        "DisableBlackBoxCP": {
+        "disable_black_box_cp": {
           "type": "boolean",
           "description": "Disables OBI black-box context propagation. Used for testing purposes only."
         },
-        "HighRequestVolume": {
+        "high_request_volume": {
           "type": "boolean",
           "description": "Optimizes for getting requests information immediately when request response is seen"
         },
-        "HeuristicSQLDetect": {
+        "heuristic_sql_detect": {
           "type": "boolean",
           "description": "Enables the heuristic based detection of SQL requests. This can be used to detect\ntalking to databases other than the ones we recognize in OBI, like Postgres and MySQL"
         },
-        "InstrumentGPU": {
+        "instrument_gpu": {
           "type": "boolean",
           "description": "Enables GPU instrumentation for CUDA kernel launches and allocations"
         },
-        "ProtocolDebug": {
+        "protocol_debug_print": {
           "type": "boolean",
           "description": "Enables debug printing of the protocol data"
         },
-        "RedisDBCache": {
+        "redis_db_cache": {
           "$ref": "#/$defs/RedisDBCacheConfig"
         },
-        "BufferSizes": {
+        "buffer_sizes": {
           "$ref": "#/$defs/EBPFBufferSizes",
           "description": "Limit max data buffer size per protocol."
         },
-        "MySQLPreparedStatementsCacheSize": {
+        "mysql_prepared_statements_cache_size": {
           "type": "integer",
           "description": "MySQL prepared statements cache size."
         },
-        "PostgresPreparedStatementsCacheSize": {
+        "postgres_prepared_statements_cache_size": {
           "type": "integer",
           "description": "Postgres prepared statements cache size."
         },
-        "KafkaTopicUUIDCacheSize": {
+        "kafka_topic_uuid_cache_size": {
           "type": "integer",
           "description": "Kafka Topic UUID to Name cache size."
         },
-        "MongoRequestsCacheSize": {
+        "mongo_requests_cache_size": {
           "type": "integer",
           "description": "MongoDB requests cache size."
         },
-        "PayloadExtraction": {
+        "payload_extraction": {
           "$ref": "#/$defs/PayloadExtraction",
           "description": "Configure data extraction/parsing based on protocol"
         },
-        "MaxTransactionTime": {
+        "max_transaction_time": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "Maximum time allowed for two requests to be correlated as parent -\u003e child\nSome programs (e.g. load generators) keep on generating requests from the same thread in perpetuity,\nwhich can generate very large traces. We want to mark the parent trace as invalid if this happens.",
@@ -367,7 +367,7 @@
             "1h30m"
           ]
         },
-        "DNSRequestTimeout": {
+        "dns_request_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "DNS timeout after which we report failed event",
@@ -383,7 +383,7 @@
     },
     "ElasticsearchConfig": {
       "properties": {
-        "Enabled": {
+        "enabled": {
           "type": "boolean",
           "description": "Enable Elasticsearch payload extraction and parsing"
         }
@@ -407,54 +407,50 @@
     },
     "GlobAttributes": {
       "properties": {
-        "Name": {
+        "name": {
           "type": "string",
           "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\nName should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
           "deprecated": true
         },
-        "Namespace": {
+        "namespace": {
           "type": "string",
           "description": "Namespace will define a namespace for the matching service. If unset, it will be left empty.\nNamespace should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
           "deprecated": true
         },
-        "OpenPorts": {
+        "open_ports": {
           "$ref": "#/$defs/PortEnum",
           "description": "OpenPorts allows defining a group of ports that this service could open. It accepts a comma-separated\nlist of port numbers (e.g. 80) and port ranges (e.g. 8080-8089)"
         },
-        "Path": {
+        "exe_path": {
           "$ref": "#/$defs/GlobAttr",
           "description": "Path allows defining the regular expression matching the full executable path."
         },
-        "Metadata": {
-          "$ref": "#/$defs/MetadataGlobMap",
-          "description": "Metadata stores other attributes, such as Kubernetes object metadata"
-        },
-        "PodLabels": {
+        "k8s_pod_labels": {
           "additionalProperties": {
             "$ref": "#/$defs/GlobAttr"
           },
           "type": "object",
           "description": "PodLabels allows matching against the labels of a pod"
         },
-        "PodAnnotations": {
+        "k8s_pod_annotations": {
           "additionalProperties": {
             "$ref": "#/$defs/GlobAttr"
           },
           "type": "object",
           "description": "PodAnnotations allows matching against the annotations of a pod"
         },
-        "ContainersOnly": {
+        "containers_only": {
           "type": "boolean",
           "description": "ContainersOnly restricts the discovery to processes which are running inside a container"
         },
-        "ExportModes": {
+        "exports": {
           "$ref": "#/$defs/ExportModes",
           "description": "Configures what to export. Allowed values are 'metrics', 'traces',\nor an empty array (disabled). An unspecified value (nil) will use the\ndefault configuration value"
         },
-        "SamplerConfig": {
+        "sampler": {
           "$ref": "#/$defs/SamplerConfig"
         },
-        "Routes": {
+        "routes": {
           "$ref": "#/$defs/CustomRoutesConfig"
         }
       },
@@ -469,7 +465,7 @@
     },
     "GraphQLConfig": {
       "properties": {
-        "Enabled": {
+        "enabled": {
           "type": "boolean",
           "description": "Enable GraphQL payload extraction and parsing"
         }
@@ -478,15 +474,15 @@
     },
     "HTTPConfig": {
       "properties": {
-        "GraphQL": {
+        "graphql": {
           "$ref": "#/$defs/GraphQLConfig",
           "description": "GraphQL payload extraction and parsing"
         },
-        "Elasticsearch": {
+        "elasticsearch": {
           "$ref": "#/$defs/ElasticsearchConfig",
           "description": "Elasticsearch payload extraction and parsing"
         },
-        "AWS": {
+        "aws": {
           "$ref": "#/$defs/AWSConfig",
           "description": "AWS payload extraction and parsing"
         }
@@ -495,11 +491,11 @@
     },
     "HostIDConfig": {
       "properties": {
-        "Override": {
+        "override": {
           "type": "string",
           "description": "Override allows overriding the reported host.id in OBI"
         },
-        "FetchTimeout": {
+        "fetch_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "FetchTimeout specifies the timeout for trying to fetch the HostID from diverse Cloud Providers",
@@ -514,14 +510,14 @@
     },
     "InclusionLists": {
       "properties": {
-        "Include": {
+        "include": {
           "items": {
             "type": "string"
           },
           "type": "array",
           "description": "Include is a list of metric attributes that have to be reported. It can be an attribute\nname or a wildcard (e.g. k8s.dst.* to include all the attributes starting with k8s.dst).\nIf no include list is provided, the default attribute set will be reported."
         },
-        "Exclude": {
+        "exclude": {
           "items": {
             "type": "string"
           },
@@ -533,11 +529,11 @@
     },
     "InstanceIDConfig": {
       "properties": {
-        "HostnameDNSResolution": {
+        "dns": {
           "type": "boolean",
           "description": "HostnameDNSResolution is true if OBI uses the DNS to resolve the local hostname or\nfalse if it uses the local hostname."
         },
-        "OverrideHostname": {
+        "override_hostname": {
           "type": "string",
           "description": "OverrideHostname can be optionally set to avoid resolving any hostname and using this\nvalue. OBI will anyway attach the process ID to the given hostname for composing\nthe instance ID."
         }
@@ -547,10 +543,10 @@
     },
     "InternalMetricsConfig": {
       "properties": {
-        "Prometheus": {
+        "prometheus": {
           "$ref": "#/$defs/PrometheusConfig"
         },
-        "Exporter": {
+        "exporter": {
           "type": "string",
           "enum": [
             "disabled",
@@ -558,7 +554,7 @@
             "otel"
           ]
         },
-        "BpfMetricScrapeInterval": {
+        "bpf_metric_scrape_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "examples": [
@@ -573,7 +569,7 @@
     },
     "KubernetesDecorator": {
       "properties": {
-        "Enable": {
+        "enable": {
           "type": "string",
           "enum": [
             "true",
@@ -581,15 +577,15 @@
             "autodetect"
           ]
         },
-        "ClusterName": {
+        "cluster_name": {
           "type": "string",
           "description": "ClusterName overrides cluster name. If empty, the NetO11y module will try to retrieve\nit from the Cloud Provider Metadata (EC2, GCP and Azure), and leave it empty if it fails to."
         },
-        "KubeconfigPath": {
+        "kubeconfig_path": {
           "type": "string",
           "description": "KubeconfigPath is optional. If unset, it will look in the usual location."
         },
-        "InformersSyncTimeout": {
+        "informers_sync_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "examples": [
@@ -598,7 +594,7 @@
             "1h30m"
           ]
         },
-        "InformersResyncPeriod": {
+        "informers_resync_period": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "InformersResyncPeriod defaults to 30m. Higher values will reduce the load on the Kube API.",
@@ -608,35 +604,35 @@
             "1h30m"
           ]
         },
-        "DropExternal": {
+        "drop_external": {
           "type": "boolean",
           "description": "DropExternal will drop, in NetO11y component, any flow where the source or destination\nIPs are not matched to any kubernetes entity, assuming they are cluster-external"
         },
-        "DisableInformers": {
+        "disable_informers": {
           "items": {
             "type": "string"
           },
           "type": "array",
           "description": "DisableInformers allows selectively disabling some informers. Accepted value is a list\nthat might contain node or service. Disabling any of them\nwill cause metadata to be incomplete but will reduce the load of the Kube API.\nPods informer can't be disabled. For that purpose, you should disable the whole\nkubernetes metadata decoration."
         },
-        "MetaCacheAddress": {
+        "meta_cache_address": {
           "type": "string",
           "description": "MetaCacheAddress is the host:port address of the obi-k8s-cache service instance"
         },
-        "MetaRestrictLocalNode": {
+        "meta_restrict_local_node": {
           "type": "boolean",
           "description": "MetaRestrictLocalNode will download only the metadata from the Pods that are located in the same\nnode as the OBI instance. It will also restrict the Node information to the local node."
         },
-        "MetaSourceLabels": {
+        "meta_source_labels": {
           "$ref": "#/$defs/MetaSourceLabels",
           "description": "MetaSourceLabels allows OBI overriding the service name and namespace of an application from\nthe given labels.",
           "deprecated": true
         },
-        "ResourceLabels": {
+        "resource_labels": {
           "$ref": "#/$defs/ResourceLabels",
           "description": "ResourceLabels allows OBI overriding the OTEL Resource attributes from a map of user-defined labels."
         },
-        "ServiceNameTemplate": {
+        "service_name_template": {
           "type": "string",
           "description": "ServiceNameTemplate allows to override the service.name with a custom value. Uses the go template language."
         }
@@ -645,11 +641,11 @@
     },
     "MatchDefinition": {
       "properties": {
-        "Match": {
+        "match": {
           "type": "string",
           "description": "Match stores the glob that a given attribute must match to let the record pass"
         },
-        "NotMatch": {
+        "not_match": {
           "type": "string",
           "description": "NotMatch stores the glob that a given attribute MUST NOT match to let the record pass"
         }
@@ -659,10 +655,10 @@
     },
     "MetaSourceLabels": {
       "properties": {
-        "ServiceName": {
+        "service_name": {
           "type": "string"
         },
-        "ServiceNamespace": {
+        "service_namespace": {
           "type": "string"
         }
       },
@@ -670,361 +666,9 @@
       "description": "MetaSourceLabels allow overriding some metadata from kubernetes labels, Left for backwards-compatibility.",
       "deprecated": true
     },
-    "MetadataGlobMap": {
-      "properties": {
-        "k8s_daemonset_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
-          "$ref": "#/$defs/GlobAttr",
-          "$defs": {
-            "GlobAttr": {
-              "type": "string",
-              "format": "glob",
-              "description": "Glob pattern to match against the attribute value",
-              "examples": [
-                "app-*",
-                "service-??",
-                "prod-*-db"
-              ]
-            }
-          }
-        },
-        "k8s_statefulset_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
-          "$ref": "#/$defs/GlobAttr",
-          "$defs": {
-            "GlobAttr": {
-              "type": "string",
-              "format": "glob",
-              "description": "Glob pattern to match against the attribute value",
-              "examples": [
-                "app-*",
-                "service-??",
-                "prod-*-db"
-              ]
-            }
-          }
-        },
-        "k8s_job_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
-          "$ref": "#/$defs/GlobAttr",
-          "$defs": {
-            "GlobAttr": {
-              "type": "string",
-              "format": "glob",
-              "description": "Glob pattern to match against the attribute value",
-              "examples": [
-                "app-*",
-                "service-??",
-                "prod-*-db"
-              ]
-            }
-          }
-        },
-        "k8s_owner_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
-          "$ref": "#/$defs/GlobAttr",
-          "$defs": {
-            "GlobAttr": {
-              "type": "string",
-              "format": "glob",
-              "description": "Glob pattern to match against the attribute value",
-              "examples": [
-                "app-*",
-                "service-??",
-                "prod-*-db"
-              ]
-            }
-          }
-        },
-        "k8s_container_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
-          "$ref": "#/$defs/GlobAttr",
-          "$defs": {
-            "GlobAttr": {
-              "type": "string",
-              "format": "glob",
-              "description": "Glob pattern to match against the attribute value",
-              "examples": [
-                "app-*",
-                "service-??",
-                "prod-*-db"
-              ]
-            }
-          }
-        },
-        "k8s_namespace": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
-          "$ref": "#/$defs/GlobAttr",
-          "$defs": {
-            "GlobAttr": {
-              "type": "string",
-              "format": "glob",
-              "description": "Glob pattern to match against the attribute value",
-              "examples": [
-                "app-*",
-                "service-??",
-                "prod-*-db"
-              ]
-            }
-          }
-        },
-        "k8s_pod_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
-          "$ref": "#/$defs/GlobAttr",
-          "$defs": {
-            "GlobAttr": {
-              "type": "string",
-              "format": "glob",
-              "description": "Glob pattern to match against the attribute value",
-              "examples": [
-                "app-*",
-                "service-??",
-                "prod-*-db"
-              ]
-            }
-          }
-        },
-        "k8s_deployment_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
-          "$ref": "#/$defs/GlobAttr",
-          "$defs": {
-            "GlobAttr": {
-              "type": "string",
-              "format": "glob",
-              "description": "Glob pattern to match against the attribute value",
-              "examples": [
-                "app-*",
-                "service-??",
-                "prod-*-db"
-              ]
-            }
-          }
-        },
-        "k8s_replicaset_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
-          "$ref": "#/$defs/GlobAttr",
-          "$defs": {
-            "GlobAttr": {
-              "type": "string",
-              "format": "glob",
-              "description": "Glob pattern to match against the attribute value",
-              "examples": [
-                "app-*",
-                "service-??",
-                "prod-*-db"
-              ]
-            }
-          }
-        },
-        "k8s_cronjob_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/glob-attr",
-          "$ref": "#/$defs/GlobAttr",
-          "$defs": {
-            "GlobAttr": {
-              "type": "string",
-              "format": "glob",
-              "description": "Glob pattern to match against the attribute value",
-              "examples": [
-                "app-*",
-                "service-??",
-                "prod-*-db"
-              ]
-            }
-          }
-        }
-      },
-      "type": "object",
-      "description": "Metadata attributes to match against the instrumented service"
-    },
-    "MetadataRegexMap": {
-      "properties": {
-        "k8s_namespace": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
-          "$ref": "#/$defs/RegexpAttr",
-          "$defs": {
-            "RegexpAttr": {
-              "type": "string",
-              "format": "regex",
-              "description": "Regular expression to match against the executable file path",
-              "examples": [
-                "^app-.*",
-                "^service-..$",
-                "^prod-.*-db$"
-              ]
-            }
-          }
-        },
-        "k8s_pod_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
-          "$ref": "#/$defs/RegexpAttr",
-          "$defs": {
-            "RegexpAttr": {
-              "type": "string",
-              "format": "regex",
-              "description": "Regular expression to match against the executable file path",
-              "examples": [
-                "^app-.*",
-                "^service-..$",
-                "^prod-.*-db$"
-              ]
-            }
-          }
-        },
-        "k8s_deployment_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
-          "$ref": "#/$defs/RegexpAttr",
-          "$defs": {
-            "RegexpAttr": {
-              "type": "string",
-              "format": "regex",
-              "description": "Regular expression to match against the executable file path",
-              "examples": [
-                "^app-.*",
-                "^service-..$",
-                "^prod-.*-db$"
-              ]
-            }
-          }
-        },
-        "k8s_replicaset_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
-          "$ref": "#/$defs/RegexpAttr",
-          "$defs": {
-            "RegexpAttr": {
-              "type": "string",
-              "format": "regex",
-              "description": "Regular expression to match against the executable file path",
-              "examples": [
-                "^app-.*",
-                "^service-..$",
-                "^prod-.*-db$"
-              ]
-            }
-          }
-        },
-        "k8s_cronjob_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
-          "$ref": "#/$defs/RegexpAttr",
-          "$defs": {
-            "RegexpAttr": {
-              "type": "string",
-              "format": "regex",
-              "description": "Regular expression to match against the executable file path",
-              "examples": [
-                "^app-.*",
-                "^service-..$",
-                "^prod-.*-db$"
-              ]
-            }
-          }
-        },
-        "k8s_daemonset_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
-          "$ref": "#/$defs/RegexpAttr",
-          "$defs": {
-            "RegexpAttr": {
-              "type": "string",
-              "format": "regex",
-              "description": "Regular expression to match against the executable file path",
-              "examples": [
-                "^app-.*",
-                "^service-..$",
-                "^prod-.*-db$"
-              ]
-            }
-          }
-        },
-        "k8s_statefulset_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
-          "$ref": "#/$defs/RegexpAttr",
-          "$defs": {
-            "RegexpAttr": {
-              "type": "string",
-              "format": "regex",
-              "description": "Regular expression to match against the executable file path",
-              "examples": [
-                "^app-.*",
-                "^service-..$",
-                "^prod-.*-db$"
-              ]
-            }
-          }
-        },
-        "k8s_job_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
-          "$ref": "#/$defs/RegexpAttr",
-          "$defs": {
-            "RegexpAttr": {
-              "type": "string",
-              "format": "regex",
-              "description": "Regular expression to match against the executable file path",
-              "examples": [
-                "^app-.*",
-                "^service-..$",
-                "^prod-.*-db$"
-              ]
-            }
-          }
-        },
-        "k8s_owner_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
-          "$ref": "#/$defs/RegexpAttr",
-          "$defs": {
-            "RegexpAttr": {
-              "type": "string",
-              "format": "regex",
-              "description": "Regular expression to match against the executable file path",
-              "examples": [
-                "^app-.*",
-                "^service-..$",
-                "^prod-.*-db$"
-              ]
-            }
-          }
-        },
-        "k8s_container_name": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "https://go.opentelemetry.io/obi/pkg/appolly/services/regexp-attr",
-          "$ref": "#/$defs/RegexpAttr",
-          "$defs": {
-            "RegexpAttr": {
-              "type": "string",
-              "format": "regex",
-              "description": "Regular expression to match against the executable file path",
-              "examples": [
-                "^app-.*",
-                "^service-..$",
-                "^prod-.*-db$"
-              ]
-            }
-          }
-        }
-      },
-      "type": "object",
-      "description": "Metadata attributes to match against the instrumented service"
-    },
     "MetricsConfig": {
       "properties": {
-        "Interval": {
+        "interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "examples": [
@@ -1037,13 +681,10 @@
           "type": "integer",
           "description": "OTELIntervalMS supports metric intervals as specified by the standard OTEL definition.\nOTEL_EBPF_METRICS_INTERVAL takes precedence over it."
         },
-        "CommonEndpoint": {
+        "endpoint": {
           "type": "string"
         },
-        "MetricsEndpoint": {
-          "type": "string"
-        },
-        "Protocol": {
+        "protocol": {
           "type": "string",
           "enum": [
             "",
@@ -1053,39 +694,29 @@
             "debug"
           ]
         },
-        "MetricsProtocol": {
-          "type": "string",
-          "enum": [
-            "",
-            "grpc",
-            "http/protobuf",
-            "http/json",
-            "debug"
-          ]
-        },
-        "InsecureSkipVerify": {
+        "insecure_skip_verify": {
           "type": "boolean",
           "description": "InsecureSkipVerify is not standard, so we don't follow the same naming convention"
         },
-        "Buckets": {
+        "buckets": {
           "$ref": "#/$defs/Buckets"
         },
-        "HistogramAggregation": {
+        "histogram_aggregation": {
           "type": "string"
         },
-        "ReportersCacheLen": {
+        "reporters_cache_len": {
           "type": "integer"
         },
-        "SDKLogLevel": {
+        "otel_sdk_log_level": {
           "type": "string",
           "description": "SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode\nand the Info messages leak internal details that are not usually valuable for the final user."
         },
-        "DeprFeatures": {
+        "features": {
           "type": "integer",
           "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nenvDefault is provided to avoid breaking changes\nuse top-level MetricsConfig.Features instead.",
           "deprecated": true
         },
-        "Instrumentations": {
+        "instrumentations": {
           "items": {
             "type": "string",
             "enum": [
@@ -1103,7 +734,7 @@
           "type": "array",
           "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql..."
         },
-        "TTL": {
+        "ttl": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "TTL is the time since a metric was updated for the last time until it is\nremoved from the metrics set.",
@@ -1113,18 +744,10 @@
             "1h30m"
           ]
         },
-        "AllowServiceGraphSelfReferences": {
+        "allow_service_graph_self_references": {
           "type": "boolean"
         },
-        "OTLPEndpointProvider": {
-          "type": "null",
-          "description": "OTLPEndpointProvider allows overriding the OTLP Endpoint. It needs to return an endpoint and\na boolean indicating if the endpoint is common for both traces and metrics"
-        },
-        "InjectHeaders": {
-          "type": "null",
-          "description": "InjectHeaders allows injecting custom headers to the HTTP OTLP exporter"
-        },
-        "ExtraSpanResourceLabels": {
+        "extra_span_resource_attributes": {
           "items": {
             "type": "string"
           },
@@ -1136,18 +759,18 @@
     },
     "NameResolverConfig": {
       "properties": {
-        "Sources": {
+        "sources": {
           "items": {
             "type": "string"
           },
           "type": "array",
           "description": "Sources for name resolving. Accepted values: dns, k8s, rdns"
         },
-        "CacheLen": {
+        "cache_len": {
           "type": "integer",
           "description": "CacheLen specifies the max size of the LRU cache that is checked before\nperforming the name lookup. Default: 256"
         },
-        "CacheTTL": {
+        "cache_expiry": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "CacheTTL specifies the time-to-live of a cached IP-\u003ehostname entry. After the\ncached entry becomes older than this time, the IP-\u003ehostname entry will be looked\nup again.",
@@ -1162,60 +785,60 @@
     },
     "NetworkConfig": {
       "properties": {
-        "Enable": {
+        "enable": {
           "type": "boolean",
           "description": "Enable network metrics.\nDefault value is false (disabled)\nadd \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES\nTODO OBI 3.0: remove",
           "deprecated": true
         },
-        "Source": {
+        "source": {
           "type": "string",
           "description": "Specify the source type for network events, e.g tc or socket_filter. The tc implementation\ncannot be used when there are other tc eBPF probes, e.g. Cilium CNI."
         },
-        "AgentIP": {
+        "agent_ip": {
           "type": "string",
           "description": "AgentIP allows overriding the reported Agent IP address on each flow."
         },
-        "AgentIPIface": {
+        "agent_ip_iface": {
           "type": "string",
           "description": "AgentIPIface specifies which interface should the agent pick the IP address from in order to\nreport it in the AgentIP field on each flow. Accepted values are: external (default), local,\nor name:\u003cinterface name\u003e (e.g. name:eth0).\nIf the AgentIP configuration property is set, this property has no effect."
         },
-        "AgentIPType": {
+        "agent_ip_type": {
           "type": "string",
           "description": "AgentIPType specifies which type of IP address (IPv4 or IPv6 or any) should the agent report\nin the AgentID field of each flow. Accepted values are: any (default), ipv4, ipv6.\nIf the AgentIP configuration property is set, this property has no effect."
         },
-        "Interfaces": {
+        "interfaces": {
           "items": {
             "type": "string"
           },
           "type": "array",
           "description": "Interfaces contains the interface names from where flows will be collected. If empty, the agent\nwill fetch all the interfaces in the system, excepting the ones listed in ExcludeInterfaces.\nIf an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression,\notherwise it will be matched as a case-sensitive string."
         },
-        "ExcludeInterfaces": {
+        "exclude_interfaces": {
           "items": {
             "type": "string"
           },
           "type": "array",
           "description": "ExcludeInterfaces contains the interface names that will be excluded from flow tracing. Default:\n\"lo\" (loopback).\nIf an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression,\notherwise it will be matched as a case-sensitive string."
         },
-        "Protocols": {
+        "protocols": {
           "items": {
             "type": "string"
           },
           "type": "array",
           "description": "Protocols causes OBI to drop flows whose transport protocol is not in this list."
         },
-        "ExcludeProtocols": {
+        "exclude_protocols": {
           "items": {
             "type": "string"
           },
           "type": "array",
           "description": "ExcludeProtocols causes OBI to drop flows whose transport protocol is in this list.\nIf the Protocols list is already defined, ExcludeProtocols has no effect."
         },
-        "CacheMaxFlows": {
+        "cache_max_flows": {
           "type": "integer",
           "description": "CacheMaxFlows specifies how many flows can be accumulated in the accounting cache before\nbeing flushed for its later export. Default value is 5000.\nDecrease it if you see the \"received message larger than max\" error in OBI logs."
         },
-        "CacheActiveTimeout": {
+        "cache_active_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "CacheActiveTimeout specifies the maximum duration that flows are kept in the accounting\ncache before being flushed for its later export.",
@@ -1225,11 +848,11 @@
             "1h30m"
           ]
         },
-        "Deduper": {
+        "deduper": {
           "type": "string",
           "description": "Deduper specifies the deduper type. Accepted values are \"none\" (disabled) and \"first_come\".\nWhen enabled, it will detect duplicate flows (flows that have been detected e.g. through\nboth the physical and a virtual interface).\n\"first_come\" will forward only flows from the first interface the flows are received from.\nDefault value: first_come"
         },
-        "DeduperFCTTL": {
+        "deduper_fc_ttl": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "DeduperFCTTL specifies the expiry duration of the flows \"first_come\" deduplicator. After\na flow hasn't been received for that expiry time, the deduplicator forgets it. That means\nthat a flow from a connection that has been inactive during that period could be forwarded\nagain from a different interface.\nIf the value is not set, it will default to 2 * CacheActiveTimeout",
@@ -1239,19 +862,19 @@
             "1h30m"
           ]
         },
-        "Direction": {
+        "direction": {
           "type": "string",
           "description": "Direction allows selecting which flows to trace according to its direction. Accepted values\nare \"ingress\", \"egress\" or \"both\" (default)."
         },
-        "Sampling": {
+        "sampling": {
           "type": "integer",
           "description": "Sampling holds the rate at which packets should be sampled and sent to the target collector.\nE.g. if set to 100, one out of 100 packets, on average, will be sent to the target collector."
         },
-        "ListenInterfaces": {
+        "listen_interfaces": {
           "type": "string",
           "description": "ListenInterfaces specifies the mechanism used by the agent to listen for added or removed\nnetwork interfaces. Accepted values are \"watch\" (default) or \"poll\".\nIf the value is \"watch\", interfaces are traced immediately after they are created. This is\nthe recommended setting for most configurations. \"poll\" value is a fallback mechanism that\nperiodically queries the current network interfaces (frequency specified by ListenPollPeriod)."
         },
-        "ListenPollPeriod": {
+        "listen_poll_period": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "ListenPollPeriod specifies the periodicity to query the network interfaces when the\nListenInterfaces value is set to \"poll\".",
@@ -1261,15 +884,15 @@
             "1h30m"
           ]
         },
-        "ReverseDNS": {
+        "reverse_dns": {
           "$ref": "#/$defs/ReverseDNS",
           "description": "ReverseDNS allows flows that haven't been previously decorated with any source/destination name\nto override the name with the network hostname of the source and destination IPs.\nThis is an experimental feature and it is not guaranteed to work on most virtualized environments\nfor external traffic."
         },
-        "Print": {
+        "print_flows": {
           "type": "boolean",
           "description": "Print the network flows in the Standard Output, if true"
         },
-        "CIDRs": {
+        "cidrs": {
           "$ref": "#/$defs/Definitions",
           "description": "CIDRs list, to be set as the \"src.cidr\" and \"dst.cidr\"\nattribute as a function of the source and destination IP addresses.\nIf an IP does not match any address here, the attributes won't be set.\nIf an IP matches multiple CIDR definitions, the flow will be decorated with the\nnarrowest CIDR. By this reason, you can safely add a 0.0.0.0/0 entry to group there\nall the traffic that does not match any of the other CIDRs."
         }
@@ -1278,7 +901,7 @@
     },
     "NodeJSConfig": {
       "properties": {
-        "Enabled": {
+        "enabled": {
           "type": "boolean"
         }
       },
@@ -1286,7 +909,7 @@
     },
     "PayloadExtraction": {
       "properties": {
-        "HTTP": {
+        "http": {
           "$ref": "#/$defs/HTTPConfig"
         }
       },
@@ -1318,21 +941,21 @@
     },
     "PrometheusConfig": {
       "properties": {
-        "Port": {
+        "port": {
           "type": "integer"
         },
-        "Path": {
+        "path": {
           "type": "string"
         },
-        "DisableBuildInfo": {
+        "disable_build_info": {
           "type": "boolean"
         },
-        "DeprFeatures": {
+        "features": {
           "type": "integer",
           "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nuse top-level MetricsConfig.Features instead.",
           "deprecated": true
         },
-        "Instrumentations": {
+        "instrumentations": {
           "items": {
             "type": "string",
             "enum": [
@@ -1350,10 +973,10 @@
           "type": "array",
           "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql..."
         },
-        "Buckets": {
+        "buckets": {
           "$ref": "#/$defs/Buckets"
         },
-        "TTL": {
+        "ttl": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "TTL is the time since a metric was updated for the last time until it is\nremoved from the metrics set.",
@@ -1363,23 +986,20 @@
             "1h30m"
           ]
         },
-        "SpanMetricsServiceCacheSize": {
+        "service_cache_size": {
           "type": "integer"
         },
-        "AllowServiceGraphSelfReferences": {
+        "allow_service_graph_self_references": {
           "type": "boolean"
         },
-        "Registry": {
-          "$ref": "#/$defs/Registry"
-        },
-        "ExtraResourceLabels": {
+        "extra_resource_attributes": {
           "items": {
             "type": "string"
           },
           "type": "array",
           "description": "ExtraResourceLabels adds extra metadata labels to Prometheus metrics from sources whose availability can't be known\nbeforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute,\nyou should add `deployment.environment`."
         },
-        "ExtraSpanResourceLabels": {
+        "extra_span_resource_attributes": {
           "items": {
             "type": "string"
           },
@@ -1392,10 +1012,10 @@
     },
     "RedisDBCacheConfig": {
       "properties": {
-        "Enabled": {
+        "enabled": {
           "type": "boolean"
         },
-        "MaxSize": {
+        "max_size": {
           "type": "integer"
         }
       },
@@ -1410,59 +1030,55 @@
     },
     "RegexSelector": {
       "properties": {
-        "Name": {
+        "name": {
           "type": "string",
           "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\nName should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
           "deprecated": true
         },
-        "Namespace": {
+        "namespace": {
           "type": "string",
           "description": "Namespace will define a namespace for the matching service. If unset, it will be left empty.\nNamespace should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
           "deprecated": true
         },
-        "OpenPorts": {
+        "open_ports": {
           "$ref": "#/$defs/PortEnum",
           "description": "OpenPorts allows defining a group of ports that this service could open. It accepts a comma-separated\nlist of port numbers (e.g. 80) and port ranges (e.g. 8080-8089)"
         },
-        "Path": {
+        "exe_path": {
           "$ref": "#/$defs/RegexpAttr",
           "description": "Path allows defining the regular expression matching the full executable path."
         },
-        "PathRegexp": {
+        "exe_path_regexp": {
           "$ref": "#/$defs/RegexpAttr",
           "description": "Please use Path (exe_path YAML attribute)",
           "deprecated": true
         },
-        "Metadata": {
-          "$ref": "#/$defs/MetadataRegexMap",
-          "description": "Metadata stores other attributes, such as Kubernetes object metadata"
-        },
-        "PodLabels": {
+        "k8s_pod_labels": {
           "additionalProperties": {
             "$ref": "#/$defs/RegexpAttr"
           },
           "type": "object",
           "description": "PodLabels allows matching against the labels of a pod"
         },
-        "PodAnnotations": {
+        "k8s_pod_annotations": {
           "additionalProperties": {
             "$ref": "#/$defs/RegexpAttr"
           },
           "type": "object",
           "description": "PodAnnotations allows matching against the annotations of a pod"
         },
-        "ContainersOnly": {
+        "containers_only": {
           "type": "boolean",
           "description": "Restrict the discovery to processes which are running inside a container"
         },
-        "ExportModes": {
+        "exports": {
           "$ref": "#/$defs/ExportModes",
           "description": "Configures what to export. Allowed values are 'metrics', 'traces',\nor an empty array (disabled). An unspecified value (nil) will use the\ndefault configuration value"
         },
-        "SamplerConfig": {
+        "sampler": {
           "$ref": "#/$defs/SamplerConfig"
         },
-        "Routes": {
+        "routes": {
           "$ref": "#/$defs/CustomRoutesConfig"
         }
       },
@@ -1479,10 +1095,6 @@
         "^prod-.*-db$"
       ]
     },
-    "Registry": {
-      "properties": {},
-      "type": "object"
-    },
     "ResourceLabels": {
       "additionalProperties": {
         "items": {
@@ -1494,15 +1106,15 @@
     },
     "ReverseDNS": {
       "properties": {
-        "Type": {
+        "type": {
           "type": "string",
           "description": "Type of ReverseDNS. Values are \"none\" (default), \"local\" and \"ebpf\""
         },
-        "CacheLen": {
+        "cache_len": {
           "type": "integer",
           "description": "CacheLen only applies to the \"local\" and \"ebpf\" ReverseDNS type. It\nspecifies the max size of the LRU cache that is checked before\nperforming the name lookup. Default: 256"
         },
-        "CacheTTL": {
+        "cache_expiry": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "CacheTTL only applies to the \"local\" and \"ebpf\" ReverseDNS type. It\nspecifies the time-to-live of a cached IP-\u003ehostname entry. After the\ncached entry becomes older than this time, the IP-\u003ehostname entry will be looked\nup again.",
@@ -1518,7 +1130,7 @@
     },
     "RouteHarvestingConfig": {
       "properties": {
-        "JavaHarvestDelay": {
+        "java_harvest_delay": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "examples": [
@@ -1532,18 +1144,18 @@
     },
     "RoutesConfig": {
       "properties": {
-        "Unmatch": {
+        "unmatched": {
           "type": "string",
           "description": "Unmatch specifies what to do when a route pattern is not matched"
         },
-        "Patterns": {
+        "patterns": {
           "items": {
             "type": "string"
           },
           "type": "array",
           "description": "Patterns of the paths that will match to a route"
         },
-        "IgnorePatterns": {
+        "ignored_patterns": {
           "items": {
             "type": "string"
           },
@@ -1551,16 +1163,16 @@
           "description": "To be removed and replaced by a collector-like filtering mechanism",
           "deprecated": true
         },
-        "IgnoredEvents": {
+        "ignore_mode": {
           "type": "string",
           "description": "To be removed and replaced by a collector-like filtering mechanism",
           "deprecated": true
         },
-        "WildcardChar": {
+        "wildcard_char": {
           "type": "string",
           "description": "Character that will be used to replace route segments"
         },
-        "MaxPathSegmentCardinality": {
+        "max_path_segment_cardinality": {
           "type": "integer",
           "description": "Max allowed path segment cardinality (per service) for the heuristic matcher"
         }
@@ -1570,10 +1182,10 @@
     },
     "SamplerConfig": {
       "properties": {
-        "Name": {
+        "name": {
           "type": "string"
         },
-        "Arg": {
+        "arg": {
           "type": "string"
         }
       },
@@ -1589,13 +1201,10 @@
     },
     "TracesConfig": {
       "properties": {
-        "CommonEndpoint": {
+        "endpoint": {
           "type": "string"
         },
-        "TracesEndpoint": {
-          "type": "string"
-        },
-        "Protocol": {
+        "protocol": {
           "type": "string",
           "enum": [
             "",
@@ -1605,17 +1214,7 @@
             "debug"
           ]
         },
-        "TracesProtocol": {
-          "type": "string",
-          "enum": [
-            "",
-            "grpc",
-            "http/protobuf",
-            "http/json",
-            "debug"
-          ]
-        },
-        "Instrumentations": {
+        "instrumentations": {
           "items": {
             "type": "string",
             "enum": [
@@ -1633,18 +1232,18 @@
           "type": "array",
           "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql..."
         },
-        "InsecureSkipVerify": {
+        "insecure_skip_verify": {
           "type": "boolean",
           "description": "InsecureSkipVerify is not standard, so we don't follow the same naming convention"
         },
-        "SamplerConfig": {
+        "sampler": {
           "$ref": "#/$defs/SamplerConfig"
         },
-        "MaxQueueSize": {
+        "max_queue_size": {
           "type": "integer",
           "description": "Configuration options below this line will remain undocumented at the moment,\nbut can be useful for performance-tuning of some customers."
         },
-        "BatchTimeout": {
+        "batch_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "examples": [
@@ -1653,7 +1252,7 @@
             "1h30m"
           ]
         },
-        "BackOffInitialInterval": {
+        "backoff_initial_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "Configuration options for BackOffConfig of the traces exporter.\nSee https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go\nBackOffInitialInterval the time to wait after the first failure before retrying.",
@@ -1663,7 +1262,7 @@
             "1h30m"
           ]
         },
-        "BackOffMaxInterval": {
+        "backoff_max_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "BackOffMaxInterval is the upper bound on backoff interval.",
@@ -1673,7 +1272,7 @@
             "1h30m"
           ]
         },
-        "BackOffMaxElapsedTime": {
+        "backoff_max_elapsed_time": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m|h|d)$",
           "description": "BackOffMaxElapsedTime is the maximum amount of time (including retries) spent trying to send a request/batch.",
@@ -1683,56 +1282,48 @@
             "1h30m"
           ]
         },
-        "ReportersCacheLen": {
+        "reporters_cache_len": {
           "type": "integer"
         },
-        "SDKLogLevel": {
+        "otel_sdk_log_level": {
           "type": "string",
           "description": "SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode\nand the Info messages leak internal details that are not usually valuable for the final user."
-        },
-        "OTLPEndpointProvider": {
-          "type": "null",
-          "description": "OTLPEndpointProvider allows overriding the OTLP Endpoint. It needs to return an endpoint and\na boolean indicating if the endpoint is common for both traces and metrics"
-        },
-        "InjectHeaders": {
-          "type": "null",
-          "description": "InjectHeaders allows injecting custom headers to the HTTP OTLP exporter"
         }
       },
       "type": "object"
     }
   },
   "properties": {
-    "EBPF": {
+    "ebpf": {
       "$ref": "#/$defs/EBPFTracer"
     },
-    "NetworkFlows": {
+    "network": {
       "$ref": "#/$defs/NetworkConfig",
       "description": "NetworkFlows configuration for Network Observability feature"
     },
-    "Filters": {
+    "filter": {
       "$ref": "#/$defs/AttributesConfig"
     },
-    "Attributes": {
+    "attributes": {
       "$ref": "#/$defs/Attributes"
     },
-    "Routes": {
+    "routes": {
       "$ref": "#/$defs/RoutesConfig",
       "description": "Routes is an optional node. If not set, data will be directly forwarded to exporters."
     },
-    "NameResolver": {
+    "name_resolver": {
       "$ref": "#/$defs/NameResolverConfig"
     },
-    "OTELMetrics": {
+    "otel_metrics_export": {
       "$ref": "#/$defs/MetricsConfig"
     },
-    "Traces": {
+    "otel_traces_export": {
       "$ref": "#/$defs/TracesConfig"
     },
-    "Prometheus": {
+    "prometheus_export": {
       "$ref": "#/$defs/PrometheusConfig"
     },
-    "TracePrinter": {
+    "trace_printer": {
       "type": "string",
       "enum": [
         "disabled",
@@ -1742,7 +1333,7 @@
         "json_indent"
       ]
     },
-    "Exec": {
+    "executable_path": {
       "$ref": "#/$defs/RegexpAttr",
       "description": "Exec allows selecting the instrumented executable whose complete path contains the Exec value.\nUse OTEL_EBPF_AUTO_TARGET_EXE",
       "deprecated": true
@@ -1751,29 +1342,29 @@
       "$ref": "#/$defs/GlobAttr",
       "description": "AutoTargetExe selects the executable to instrument matching a Glob against the executable path.\nTo set this value via YAML, use discovery \u003e instrument.\nIt also accepts OTEL_GO_AUTO_TARGET_EXE for compatibility with opentelemetry-go-instrumentation"
     },
-    "Port": {
+    "open_port": {
       "$ref": "#/$defs/PortEnum",
       "description": "Port allows selecting the instrumented executable that owns the Port value. If this value is set (and\ndifferent to zero), the value of the Exec property won't take effect.\nIt's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter\nwill instrument all the service calls in all the ports, not only the port specified here."
     },
-    "ServiceName": {
+    "service_name": {
       "type": "string",
       "description": "ServiceName is taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility)\nUsing env and envDefault is a trick to get the value either from one of either variables.\nService name should be set in the instrumentation target (env vars, kube metadata...)\nas this is a reminiscence of past times when we only supported one executable per instance.",
       "deprecated": true
     },
-    "ServiceNamespace": {
+    "service_namespace": {
       "type": "string",
       "description": "Service namespace should be set in the instrumentation target (env vars, kube metadata...)\nas this is a reminiscence of past times when we only supported one executable per instance.",
       "deprecated": true
     },
-    "Metrics": {
+    "metrics": {
       "$ref": "#/$defs/MetricsConfig",
       "description": "Metrics is a placeholder for the progressive support of the OTEL declarative configuration."
     },
-    "Discovery": {
+    "discovery": {
       "$ref": "#/$defs/DiscoveryConfig",
       "description": "Discovery configuration"
     },
-    "LogLevel": {
+    "log_level": {
       "type": "string",
       "enum": [
         "DEBUG",
@@ -1782,7 +1373,7 @@
         "ERROR"
       ]
     },
-    "ShutdownTimeout": {
+    "shutdown_timeout": {
       "type": "string",
       "pattern": "^[0-9]+(ms|s|m|h|d)$",
       "description": "Timeout for a graceful shutdown",
@@ -1792,20 +1383,20 @@
         "1h30m"
       ]
     },
-    "EnforceSysCaps": {
+    "enforce_sys_caps": {
       "type": "boolean",
       "description": "Check for required system capabilities and bail if they are not\npresent. If set to 'false', OBI will still print a list of missing\ncapabilities, but the execution will continue"
     },
-    "ChannelBufferLen": {
+    "channel_buffer_len": {
       "type": "integer"
     },
-    "ProfilePort": {
+    "profile_port": {
       "type": "integer"
     },
-    "InternalMetrics": {
+    "internal_metrics": {
       "$ref": "#/$defs/InternalMetricsConfig"
     },
-    "LogConfig": {
+    "log_config": {
       "type": "string",
       "enum": [
         "yaml",
@@ -1813,7 +1404,7 @@
       ],
       "description": "Format of the log configuration during startup"
     },
-    "NodeJS": {
+    "nodejs": {
       "$ref": "#/$defs/NodeJSConfig"
     }
   },

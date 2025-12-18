@@ -186,6 +186,7 @@ func main() {
 		RequiredFromJSONSchemaTags: true,
 		AllowAdditionalProperties:  true,
 		ExpandedStruct:             true,
+		FieldNameTag:               "yaml",
 		Mapper:                     customMapper,
 	}
 	if err := reflector.AddGoComments("go.opentelemetry.io/obi", "./"); err != nil {
