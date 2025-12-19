@@ -107,7 +107,7 @@ static __always_inline int kafka_read_message_size(const unsigned char *data, si
 
     if (message_size < k_kafka_min_response_message_size_value ||
         message_size > k_kafka_message_size_max) {
-        bpf_dbg_printk("kafka_read_message_size: invalid message_size: %d", message_size);
+        bpf_dbg_printk("invalid message_size: %d", message_size);
         return -1;
     }
     return message_size;
@@ -151,7 +151,7 @@ kafka_check_request_header_fields_without_message_size(struct kafka_request_hdr 
     bpf_probe_read(&hdr->request_api_key, k_kafka_hdr_request_api_key, (const void *)(data));
     hdr->request_api_key = bpf_ntohs(hdr->request_api_key);
     if (hdr->request_api_key != k_kafka_api_key_metadata) {
-        bpf_dbg_printk("kafka_check_request_header_fields_without_message_size: request_api_key "
+        bpf_dbg_printk("request_api_key "
                        "provided %d, is not metadata(%d)",
                        hdr->request_api_key,
                        k_kafka_api_key_metadata);
@@ -164,7 +164,7 @@ kafka_check_request_header_fields_without_message_size(struct kafka_request_hdr 
     hdr->request_api_version = bpf_ntohs(hdr->request_api_version);
     if (hdr->request_api_version < k_kafka_min_metadata_api_version ||
         hdr->request_api_version > k_kafka_max_metadata_api_version) {
-        bpf_dbg_printk("kafka_check_request_header_fields_without_message_size: provided "
+        bpf_dbg_printk("provided "
                        "api_version %d not supported for the provided request_api_key %d ",
                        hdr->request_api_version,
                        hdr->request_api_key);
@@ -176,8 +176,7 @@ kafka_check_request_header_fields_without_message_size(struct kafka_request_hdr 
     hdr->correlation_id = bpf_ntohl(hdr->correlation_id);
 
     if (hdr->correlation_id < 0) {
-        bpf_dbg_printk("kafka_parse_fixup_request_header: invalid correlation_id: %d",
-                       hdr->correlation_id);
+        bpf_dbg_printk("invalid correlation_id: %d", hdr->correlation_id);
         return -1;
     }
     return 0;
@@ -220,7 +219,7 @@ static __always_inline int kafka_parse_fixup_request_header(const connection_inf
         return 0;
     }
 
-    bpf_dbg_printk("kafka_parse_fixup_request_header: failed to parse kafka request header");
+    bpf_dbg_printk("failed to parse kafka request header");
     return -1;
 }
 
@@ -232,8 +231,7 @@ kafka_check_response_header_correlation_id(struct kafka_response_hdr *hdr,
     bpf_probe_read(&hdr->correlation_id, k_kafka_hdr_correlation_id, (const void *)data);
     hdr->correlation_id = bpf_ntohl(hdr->correlation_id);
     if (hdr->correlation_id < 0) {
-        bpf_dbg_printk("kafka_check_response_header_correlation_id: invalid correlation_id: %d",
-                       hdr->correlation_id);
+        bpf_dbg_printk("invalid correlation_id: %d", hdr->correlation_id);
         return -1;
     }
     return 0;
@@ -275,7 +273,7 @@ static __always_inline int kafka_parse_fixup_response_header(const connection_in
         return 0;
     }
 
-    bpf_dbg_printk("kafka_parse_fixup_response_header: failed to parse kafka response header");
+    bpf_dbg_printk("failed to parse kafka response header");
     return -1;
 }
 
@@ -300,8 +298,7 @@ static __always_inline int kafka_read_fixup_response_buffer(const connection_inf
         bpf_map_delete_elem(&kafka_state, conn_info);
     } else {
         if (data_len < k_kafka_min_response_message_size_value) {
-            bpf_dbg_printk("kafka_read_fixup_response_buffer: response data_len is too short: %d",
-                           data_len);
+            bpf_dbg_printk("response data_len is too short: %d", data_len);
             return -1;
         }
     }
@@ -309,7 +306,7 @@ static __always_inline int kafka_read_fixup_response_buffer(const connection_inf
     *buf_len = data_len + offset;
     if (*buf_len >= kafka_buffer_size) {
         *buf_len = kafka_buffer_size;
-        bpf_dbg_printk("WARN: kafka_read_fixup_response_buffer: buffer is full, truncating data");
+        bpf_dbg_printk("WARN: buffer is full, truncating data");
     }
 
     bpf_probe_read(buf + offset, *buf_len & k_large_buf_payload_max_size_mask, (const void *)data);
@@ -328,7 +325,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
                                                    enum large_buf_action action) {
 
     if (kafka_store_state_data(&pid_conn->conn, u_buf, bytes_len, direction) < 0) {
-        bpf_dbg_printk("kafka_send_large_buffer: 4 bytes packet, storing state data");
+        bpf_dbg_printk("4 bytes packet, storing state data");
         return -1;
     }
 
@@ -336,19 +333,19 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
     struct kafka_correlation_data *correlation_data =
         bpf_map_lookup_elem(&kafka_ongoing_requests, &pid_conn->conn);
     if (!correlation_data) {
-        bpf_dbg_printk("kafka_send_large_buffer: no ongoing request found for this response");
+        bpf_dbg_printk("no ongoing request found for this response");
         return 0;
     }
 
     struct kafka_response_hdr hdr = {};
     if (kafka_parse_fixup_response_header(&pid_conn->conn, &hdr, u_buf, bytes_len, direction) !=
         0) {
-        bpf_dbg_printk("kafka_send_large_buffer: failed to check kafka response header");
+        bpf_dbg_printk("failed to check kafka response header");
         return 0;
     }
 
     if (hdr.correlation_id != correlation_data->correlation_id) {
-        bpf_dbg_printk("kafka_send_large_buffer: request correlation_id != response "
+        bpf_dbg_printk("request correlation_id != response "
                        "correlation_id, %d != %d",
                        correlation_data->correlation_id,
                        hdr.correlation_id);
@@ -359,7 +356,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
 
     tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)kafka_large_buffers_mem();
     if (!large_buf) {
-        bpf_dbg_printk("kafka_send_large_buffer: failed to reserve space for Kafka large buffer");
+        bpf_dbg_printk("failed to reserve space for Kafka large buffer");
         return 0;
     }
 
@@ -378,7 +375,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
     int written = kafka_read_fixup_response_buffer(
         &pid_conn->conn, large_buf->buf, &large_buf->len, u_buf, bytes_len, direction);
     if (written < 0) {
-        bpf_dbg_printk("kafka_send_large_buffer: failed to read buffer, not sending large buffer");
+        bpf_dbg_printk("failed to read buffer, not sending large buffer");
         return 0;
     }
 
@@ -401,7 +398,7 @@ static __always_inline u8 is_kafka(connection_info_t *conn_info,
     }
 
     if (kafka_store_state_data(conn_info, data, (size_t)data_len, direction) < 0) {
-        bpf_dbg_printk("is_kafka: 4 bytes packet, storing state data");
+        bpf_dbg_printk("4 bytes packet, storing state data");
         return 0;
     }
 
@@ -411,32 +408,32 @@ static __always_inline u8 is_kafka(connection_info_t *conn_info,
         struct kafka_correlation_data correlation_data = {};
         correlation_data.correlation_id = req_hdr.correlation_id;
         bpf_map_update_elem(&kafka_ongoing_requests, conn_info, &correlation_data, BPF_ANY);
-        bpf_dbg_printk("is_kafka: kafka! request_api_key %d, correlation_id=%d",
+        bpf_dbg_printk("kafka! request_api_key %d, correlation_id=%d",
                        req_hdr.request_api_key,
                        req_hdr.correlation_id);
     } else {
         if (kafka_parse_fixup_response_header(conn_info, &res_hdr, data, data_len, direction) !=
             0) {
-            bpf_dbg_printk("is_kafka: failed to parse kafka response header");
+            bpf_dbg_printk("failed to parse kafka response header");
             return 0;
         }
 
         struct kafka_correlation_data *correlation_data =
             bpf_map_lookup_elem(&kafka_ongoing_requests, conn_info);
         if (!correlation_data) {
-            bpf_dbg_printk("is_kafka: no ongoing request found for this response");
+            bpf_dbg_printk("no ongoing request found for this response");
             return 0;
         }
 
         if (res_hdr.correlation_id != correlation_data->correlation_id) {
-            bpf_dbg_printk("is_kafka: request correlation_id != response "
+            bpf_dbg_printk("request correlation_id != response "
                            "correlation_id, %d != %d",
                            correlation_data->correlation_id,
                            res_hdr.correlation_id);
             return 0;
         }
 
-        bpf_dbg_printk("is_kafka: kafka! message_size %d, correlation_id=%d",
+        bpf_dbg_printk("kafka! message_size %d, correlation_id=%d",
                        res_hdr.message_size,
                        res_hdr.correlation_id);
     }
