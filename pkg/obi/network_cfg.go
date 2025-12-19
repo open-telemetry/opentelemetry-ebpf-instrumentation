@@ -149,6 +149,10 @@ var DefaultNetworkConfig = NetworkConfig{
 		CacheLen: 256,
 		CacheTTL: time.Hour,
 	},
+	GeoIP: flow.GeoIP{
+		CacheLen: 512,
+		CacheTTL: time.Hour,
+	},
 }
 
 // ValidateAgentIPIface checks if the string starts with "name:"

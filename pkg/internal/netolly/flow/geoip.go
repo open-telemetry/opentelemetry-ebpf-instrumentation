@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"time"
 
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/oschwald/maxminddb-golang"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -23,6 +25,8 @@ import (
 type GeoIP struct {
 	IPInfo      IPInfoConfig  `yaml:"ipinfo"`
 	MaxMindInfo MaxMindConfig `yaml:"maxmind"`
+	CacheLen    int           `yaml:"cache_len" env:"OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN" validate:"gte=0"`
+	CacheTTL    time.Duration `yaml:"cache_expiry" env:"OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL" validate:"gte=0"`
 }
 
 type IPInfoConfig struct {
@@ -57,19 +61,40 @@ func GeoIPProvider(cfg *GeoIP, input, output *msg.Queue[[]*ebpf.Record]) swarm.I
 		}
 
 		log := geoiplog()
-		in := input.Subscribe(msg.SubscriberName("flow.ReverseDNS"))
+		in := input.Subscribe(msg.SubscriberName("flow.GeoIP"))
+		cache := expirable.NewLRU[ebpf.IPAddr, ipInfo](cfg.CacheLen, nil, cfg.CacheTTL)
+		cachedLookup := func(addr *ebpf.IPAddr) (ipInfo, error) {
+			info, ok := cache.Get(*addr)
+			if ok {
+				return info, nil
+			}
+			info, err := lookupFn(addr.IP())
+			if err != nil {
+				return info, err
+			}
+			cache.Add(*addr, info)
+			return info, nil
+		}
+
+		// only warn the first time to prevent log flooding
+		var failureLogFn func(string, ...any)
+		failureLogFn = func(msg string, args ...any) {
+			log.Warn(msg, args...)
+			failureLogFn = log.Debug
+		}
+
 		return func(_ context.Context) {
 			defer output.Close()
-			log.Debug("starting reverse DNS node")
+			log.Debug("starting GeoIP node")
 			for flows := range in {
 				for _, flow := range flows {
-					srcInfo, err := lookupFn(flow.Id.SrcIP().IP())
+					srcInfo, err := cachedLookup(flow.Id.SrcIP())
 					if err != nil {
-						log.Warn("failed to perform geoip lookup for source", "err", err)
+						failureLogFn("failed to perform geoip lookup for source", "err", err)
 					}
-					dstInfo, err := lookupFn(flow.Id.DstIP().IP())
+					dstInfo, err := cachedLookup(flow.Id.DstIP())
 					if err != nil {
-						log.Warn("failed to perform geoip lookup for destination", "err", err)
+						failureLogFn("failed to perform geoip lookup for destination", "err", err)
 					}
 					if flow.Attrs.Metadata == nil {
 						flow.Attrs.Metadata = map[attr.Name]string{}

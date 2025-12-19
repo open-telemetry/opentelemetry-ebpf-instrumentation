@@ -4,12 +4,20 @@
 package flow
 
 import (
+	"encoding/binary"
+	"flag"
+	"fmt"
+	"math"
 	"math/rand/v2"
 	"net"
 	"testing"
+	"time"
 
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 )
 
 func TestMaxMindLookup(t *testing.T) {
@@ -39,20 +47,70 @@ func TestIPInfoLookup(t *testing.T) {
 	assert.Equal(t, "IN", info.Country)
 }
 
+var fileFlag = flag.String("db", "../../../../internal/test/geoip/ipinfo_lite_sample.mmdb", "db to use for geoip benchmarks")
+
 func BenchmarkDBLookup(b *testing.B) {
+	flag.Parse()
 	lookupFn, err := getLookupFn(&GeoIP{
 		IPInfo: IPInfoConfig{
-			Path: "../../../../internal/test/geoip/ipinfo_lite_sample.mmdb",
+			Path: *fileFlag,
 		},
 	})
 	if err != nil {
 		b.Fatalf("failed to load database: %s", err.Error())
 	}
-	for b.Loop() {
-		ip := net.IPv4(byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256)), byte(rand.IntN(256)))
-		_, err := lookupFn(ip)
+	for _, addrSpace := range []uint32{256, 512, 1024, 2048, math.MaxUint32} {
+		b.Run(fmt.Sprintf("addr=%d", addrSpace), func(b *testing.B) {
+			for b.Loop() {
+				ipnum := rand.Uint32N(addrSpace)
+				bytes := make([]byte, 16)
+				binary.LittleEndian.PutUint32(bytes[12:], ipnum)
+				ip := ebpf.IPAddr(bytes)
+				_, err := lookupFn(ip.IP())
+				if err != nil {
+					b.Fatal(err.Error())
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkDBLookupCached(b *testing.B) {
+	runBench := func(b *testing.B, cacheSize int, addrSpace uint32) {
+		cache := expirable.NewLRU[ebpf.IPAddr, ipInfo](cacheSize, nil, time.Hour)
+		lookupFn, err := getLookupFn(&GeoIP{
+			IPInfo: IPInfoConfig{
+				Path: *fileFlag,
+			},
+		})
 		if err != nil {
-			b.Fatal(err.Error())
+			b.Fatalf("failed to load database: %s", err.Error())
+		}
+		lookups := 0
+		hits := 0
+		for b.Loop() {
+			lookups++
+			ipnum := rand.Uint32N(addrSpace)
+			bytes := make([]byte, 16)
+			binary.LittleEndian.PutUint32(bytes[12:], ipnum)
+			ip := ebpf.IPAddr(bytes)
+			_, ok := cache.Get(ip)
+			if !ok {
+				i, err := lookupFn(ip.IP())
+				if err != nil {
+					b.Fatal(err.Error())
+				}
+				cache.Add(ip, i)
+			} else {
+				hits++
+			}
+		}
+	}
+	for _, cacheSize := range []int{256, 512, 1024} {
+		for _, addrSpace := range []uint32{256, 512, 1024, math.MaxUint32} {
+			b.Run(fmt.Sprintf("cache=%d;addr=%d", cacheSize, addrSpace), func(b *testing.B) {
+				runBench(b, cacheSize, addrSpace)
+			})
 		}
 	}
 }
