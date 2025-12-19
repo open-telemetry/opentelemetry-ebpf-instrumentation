@@ -19,8 +19,8 @@ subprojects {
 }
 
 val copyLoaderJar by tasks.registering(Copy::class) {
-    dependsOn(":loader:shadowJar")
-    from("$projectDir/loader/build/libs/loader-$version-shaded.jar")
+    dependsOn(":agent:shadowJar")
+    from("$projectDir/agent/build/libs/agent-$version-shaded.jar")
     into("$projectDir/build")
     rename { "obi-java-agent.jar" }
 }

@@ -68,7 +68,7 @@ public class SSLEngineInst {
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer dst) {
-      if (engine == null || dst == null) {
+      if (dst == null) {
         return;
       }
       if (engine.getSession().getId().length == 0) {
@@ -147,7 +147,7 @@ public class SSLEngineInst {
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer[] dsts) {
-      if (engine == null || dsts == null) {
+      if (dsts == null) {
         return;
       }
       if (dsts.length == 0 || engine.getSession().getId().length == 0) {
@@ -167,7 +167,7 @@ public class SSLEngineInst {
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer[] dsts,
         @Advice.Return SSLEngineResult result) {
-      if (engine == null || dsts == null) {
+      if (dsts == null) {
         return;
       }
       Connection c = SSLStorage.getConnectionForSession(engine);
@@ -239,7 +239,7 @@ public class SSLEngineInst {
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer src) {
-      if (engine == null || src == null) {
+      if (src == null) {
         return;
       }
       if (engine.getSession().getId().length == 0) {
