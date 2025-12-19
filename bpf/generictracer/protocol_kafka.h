@@ -48,15 +48,15 @@ struct kafka_state_data {
     s32 message_size;
 };
 
-struct kafka_state_key {
+typedef struct kafka_state_key {
     connection_info_t conn;
     u8 direction;
     u8 _pad[3];
-};
+} kafka_state_key_t;
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, connection_info_t);
+    __type(key, kafka_state_key_t);
     __type(value, struct kafka_state_data);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } kafka_state SEC(".maps");
@@ -88,13 +88,6 @@ enum {
     // Sanity checks
     k_kafka_message_size_max = 1 << 13, // 8K
 };
-
-// Structure to define the min/max supported versions for an API key
-typedef struct {
-    s16 api_key;
-    s16 min_version;
-    s16 max_version;
-} kafka_api_version_info_t;
 
 static __always_inline int kafka_read_message_size(const unsigned char *data, size_t data_len) {
     if (data_len < k_kafka_hdr_message_size) {
@@ -135,7 +128,7 @@ static __always_inline int kafka_store_state_data(const connection_info_t *conn_
     }
     struct kafka_state_data new_state_data = {};
     new_state_data.message_size = message_size;
-    struct kafka_state_key state_key = {.conn = *conn_info, .direction = direction};
+    kafka_state_key_t state_key = {.conn = *conn_info, .direction = direction};
     bpf_map_update_elem(&kafka_state, &state_key, &new_state_data, BPF_ANY);
 
     return -1;
@@ -208,7 +201,7 @@ static __always_inline int kafka_parse_fixup_request_header(const connection_inf
         return 0;
     }
 
-    struct kafka_state_key state_key = {.conn = *conn_info, .direction = direction};
+    kafka_state_key_t state_key = {.conn = *conn_info, .direction = direction};
     struct kafka_state_data *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
     if (state_data != NULL && state_data->message_size == data_len) {
         // Prepend the header from state data.
@@ -262,7 +255,7 @@ static __always_inline int kafka_parse_fixup_response_header(const connection_in
         return 0;
     }
     // Prepend the header from state data.
-    struct kafka_state_key state_key = {.conn = *conn_info, .direction = direction};
+    kafka_state_key_t state_key = {.conn = *conn_info, .direction = direction};
     struct kafka_state_data *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
     if (state_data != NULL && state_data->message_size == data_len) {
         // Prepend the header from state data.
@@ -289,13 +282,13 @@ static __always_inline int kafka_read_fixup_response_buffer(const connection_inf
                                                             u8 direction) {
     u8 offset = 0;
 
-    struct kafka_state_key state_key = {.conn = *conn_info, .direction = direction};
+    kafka_state_key_t state_key = {.conn = *conn_info, .direction = direction};
     struct kafka_state_data *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
     if (state_data != NULL && (state_data->message_size == data_len)) {
         state_data->message_size = bpf_htonl(state_data->message_size);
         bpf_probe_read(buf, k_kafka_hdr_message_size, (const void *)state_data);
         offset += k_kafka_hdr_message_size;
-        bpf_map_delete_elem(&kafka_state, conn_info);
+        bpf_map_delete_elem(&kafka_state, &state_key);
     } else {
         if (data_len < k_kafka_min_response_message_size_value) {
             bpf_dbg_printk("response data_len is too short: %d", data_len);

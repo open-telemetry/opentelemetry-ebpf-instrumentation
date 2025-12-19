@@ -193,6 +193,8 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                                                           u16 orig_dport,
                                                           enum protocol_type protocol_type) {
     tcp_req_t *existing = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
+    // NOTE: this shouldn't happen, but the is_server value may be incorrect,
+    // for example if an unrelated service is bound to the process port (like the metrics server)
     u32 netns = task_netns();
     bool is_server = is_listening(pid_conn->conn.d_port, netns);
     if (existing) {

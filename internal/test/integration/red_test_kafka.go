@@ -147,8 +147,9 @@ func testJavaKafka(t *testing.T) {
 					},
 				},
 				{
-					// TODO: in here we can't recognize the topic name since the metadata response is cut to the first 4 bytes
-					// in java, to get this to work we need to use eBPF large buffers for kafka -> testJavaKafkaLargeBuffer
+					// In here we can't recognize the topic name (so we use *) since the metadata response is cut to
+					// the first 4 bytes in java, to get this to work we need to use eBPF large buffer feature for
+					// kafka which is tested in testJavaKafkaLargeBuffer
 					Name: "process *",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "consumer"),
