@@ -120,7 +120,7 @@ services:
       context: ../../..
       dockerfile: ./internal/test/integration/components/ebpf-instrument/Dockerfile
     command:
-      - --config=/configs/obi-config-multiexec.yml
+      - --config=/configs/obi-config-multiexec${OTEL_EBPF_CONFIG_SUFFIX}.yml
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
