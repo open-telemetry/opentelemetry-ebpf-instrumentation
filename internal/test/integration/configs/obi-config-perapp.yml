@@ -6,18 +6,12 @@ metrics:
   features: ["application_span"]
 otel_metrics_export:
   endpoint: http://otelcol:4018
-otel_traces_export:
-  endpoint: http://jaeger:4318
 discovery:
-  # services section is left in this file for legacy configuration compatibility
-  # users should define the "instrument:" section instead
-
-  services:
-    - name: ntestserver
-      open_ports: 3030
+  instrument:
+    - open_ports: 3030,3040
       metrics: { features: ["application", "application_span"] }
-    - name: utestserver
-      open_ports: 3040
+    - name: pytestserver
+      open_ports: 7773
       metrics: { features: ["application", "application_span"] }
     - name: testserver
       open_ports: 8080
