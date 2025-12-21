@@ -1,6 +1,6 @@
 services:
   testserver:
-    image: ghcr.io/open-telemetry/obi-testimg:netty-tls-0.0.1
+    image: ghcr.io/open-telemetry/obi-testimg:netty-tls-0.0.1@sha256:04d122f1047e6c16aa5e117bebc5f986878b54d6dbab37e2b20913e221194cb1
     ports:
       - "8080:8080"
   # eBPF auto instrumenter
