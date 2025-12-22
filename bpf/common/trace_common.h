@@ -133,10 +133,10 @@ static __always_inline tp_info_pid_t *find_nginx_parent_trace(const pid_connecti
     populate_ephemeral_info(&client_part, &p_conn->conn, orig_dport, p_conn->pid, FD_CLIENT);
     fd_info_t *fd_info = fd_info_for_conn(&client_part);
 
-    bpf_dbg_printk("fd_info lookup %llx, type=%d", fd_info, client_part.type);
+    bpf_dbg_printk("fd_info lookup=%llx, type=%d", fd_info, client_part.type);
     if (fd_info) {
         connection_info_part_t *parent = bpf_map_lookup_elem(&nginx_upstream, fd_info);
-        bpf_dbg_printk("parent %llx, fd=%d, type=%d", parent, fd_info->fd, fd_info->type);
+        bpf_dbg_printk("parent=%llx, fd=%d, type=%d", parent, fd_info->fd, fd_info->type);
         if (parent) {
             return bpf_map_lookup_elem(&server_traces_aux, parent);
         }
@@ -147,15 +147,15 @@ static __always_inline tp_info_pid_t *find_nginx_parent_trace(const pid_connecti
 
 static __always_inline tp_info_pid_t *find_puma_parent_trace(u64 id) {
     puma_task_id_t *task_id = bpf_map_lookup_elem(&puma_worker_tasks, &id);
-    bpf_dbg_printk("puma lookup task_id %llx", task_id);
+    bpf_dbg_printk("puma lookup: task_id=%llx", task_id);
     if (!task_id) {
         return NULL;
     }
 
-    bpf_dbg_printk("found item %llx", task_id->item);
+    bpf_dbg_printk("found item:%llx", task_id->item);
 
     connection_info_part_t *conn_part = bpf_map_lookup_elem(&puma_task_connections, task_id);
-    bpf_dbg_printk("puma parent lookup conn %llx", conn_part);
+    bpf_dbg_printk("puma parent lookup: conn=%llx", conn_part);
     if (conn_part) {
         return bpf_map_lookup_elem(&server_traces_aux, conn_part);
     }
@@ -181,9 +181,7 @@ find_nodejs_parent_trace(const pid_connection_info_t *p_conn, u16 orig_dport, u6
         return NULL;
     }
 
-    bpf_dbg_printk("find_nodejs_parent_trace client_fd = %d, server_fd = %d",
-                   fd_info->fd,
-                   *node_parent_request_fd);
+    bpf_dbg_printk("client_fd=%d, server_fd=%d", fd_info->fd, *node_parent_request_fd);
 
     const fd_key key = {.pid_tgid = pid_tgid, .fd = *node_parent_request_fd};
 
@@ -291,11 +289,11 @@ static __always_inline void delete_server_trace(pid_connection_info_t *pid_conn,
                    bpf_get_current_pid_tgid(),
                    t_key->p_key.pid,
                    t_key->p_key.ns);
-    bpf_dbg_printk("Deleting server span for res = %d", res);
+    bpf_dbg_printk("Deleting server span for res=%d", res);
 }
 
 static __always_inline void delete_client_trace_info(pid_connection_info_t *pid_conn) {
-    bpf_dbg_printk("Deleting client trace map for connection, pid = %d", pid_conn->pid);
+    bpf_dbg_printk("Deleting client trace map for connection, pid=%d", pid_conn->pid);
     dbg_print_http_connection_info(&pid_conn->conn);
 
     delete_trace_info_for_connection(&pid_conn->conn, TRACE_TYPE_CLIENT);
@@ -330,7 +328,7 @@ static __always_inline void server_or_client_trace(
         connection_info_part_t conn_part = {};
         populate_ephemeral_info(&conn_part, conn, orig_dport, host_pid, FD_SERVER);
 
-        bpf_dbg_printk("Saving connection server span for pid=%d, tid=%d, ephemeral_port %d",
+        bpf_dbg_printk("Saving connection server span for pid=%d, tid=%d, ephemeral_port=%d",
                        t_key.p_key.pid,
                        t_key.p_key.tid,
                        conn_part.port);
@@ -388,7 +386,7 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
 
         existing_tp = trace_info_for_connection(conn, TRACE_TYPE_CLIENT);
 
-        bpf_dbg_printk("existing_tp %llx", existing_tp);
+        bpf_dbg_printk("existing_tp=%llx", existing_tp);
 
         if (!disable_black_box_cp && correlated_requests(tp, existing_tp)) {
             if (existing_tp->valid) {
@@ -406,8 +404,8 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
                     set_trace_info_for_connection(conn, TRACE_TYPE_CLIENT, existing_tp);
                     bpf_dbg_printk("setting the client info as used");
                 } else {
-                    bpf_dbg_printk("incompatible trace info, not using the correlated tp, type %d, "
-                                   "other type %d",
+                    bpf_dbg_printk("incompatible trace info, not using the correlated tp, type=%d, "
+                                   "other type=%d",
                                    type,
                                    existing_tp->req_type);
                 }

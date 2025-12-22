@@ -72,11 +72,11 @@ static __always_inline void dbg_print_http_connection_info(const connection_info
         return;
     }
 
-    bpf_dbg_printk("[conn] s_h = %llx, s_l = %llx, s_port=%d",
+    bpf_dbg_printk("[conn] s_h=%llx, s_l=%llx, s_port=%d",
                    *(u64 *)(&info->s_addr),
                    *(u64 *)(&info->s_addr[8]),
                    info->s_port);
-    bpf_dbg_printk("[conn] d_h = %llx, d_l = %llx, d_port=%d",
+    bpf_dbg_printk("[conn] d_h=%llx, d_l=%llx, d_port=%d",
                    *(u64 *)(&info->d_addr),
                    *(u64 *)(&info->d_addr[8]),
                    info->d_port);
@@ -86,7 +86,7 @@ static __always_inline void dbg_print_http_connection_info_part(connection_info_
         return;
     }
 
-    bpf_dbg_printk("[conn part] s_h = %llx, s_l = %llx, s_port=%d",
+    bpf_dbg_printk("[conn part] s_h=%llx, s_l=%llx, s_port=%d",
                    *(u64 *)(&info->addr),
                    *(u64 *)(&info->addr[8]),
                    info->port);
@@ -96,7 +96,7 @@ static __always_inline void d_print_http_connection_info_part(connection_info_pa
         return;
     }
 
-    bpf_d_printk("[conn part] s_h = %llx, s_l = %llx, s_port=%d",
+    bpf_d_printk("[conn part] s_h=%llx, s_l=%llx, s_port=%d",
                  *(u64 *)(&info->addr),
                  *(u64 *)(&info->addr[8]),
                  info->port);
@@ -106,11 +106,11 @@ static __always_inline void d_print_http_connection_info(connection_info_t *info
         return;
     }
 
-    bpf_d_printk("[conn] s_h = %llx, s_l = %llx, s_port=%d",
+    bpf_d_printk("[conn] s_h=%llx, s_l=%llx, s_port=%d",
                  *(u64 *)(&info->s_addr),
                  *(u64 *)(&info->s_addr[8]),
                  info->s_port);
-    bpf_d_printk("[conn] d_h = %llx, d_l = %llx, d_port=%d",
+    bpf_d_printk("[conn] d_h=%llx, d_l=%llx, d_port=%d",
                  *(u64 *)(&info->d_addr),
                  *(u64 *)(&info->d_addr[8]),
                  info->d_port);
@@ -183,9 +183,8 @@ fixup_connection_info(connection_info_t *conn_info, u8 client, u16 orig_dport) {
     // The destination port is the server port in userspace
     if ((client && conn_info->d_port != orig_dport) ||
         (!client && conn_info->d_port == orig_dport)) {
-        bpf_dbg_printk("Swapped connection info for userspace, client = %d, orig_dport = %d",
-                       client,
-                       orig_dport);
+        bpf_dbg_printk(
+            "Swapped connection info for userspace, client=%d, orig_dport=%d", client, orig_dport);
         swap_connection_info_order(conn_info);
         //dbg_print_http_connection_info(conn_info); // commented out since GitHub CI doesn't like this call
     }

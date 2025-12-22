@@ -45,7 +45,7 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
         return 0;
     }
 
-    bpf_dbg_printk("=== sys_ioctl id=%d ===", id);
+    bpf_dbg_printk("=== kprobe/sys_ioctl id=%d ===", id);
 
     // unwrap the syscall arguments in __ctx
     struct pt_regs *__ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
@@ -68,7 +68,7 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
         return 0;
     }
 
-    bpf_dbg_printk("data %llx", arg);
+    bpf_dbg_printk("data=%llx", arg);
 
     if (!arg) {
         return 0;
@@ -80,11 +80,11 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
     u8 op = cmd_to_op(op_cmd);
 
     if (op == k_ioctl_invalid_op) {
-        bpf_dbg_printk("unknown cmd = %d", op_cmd);
+        bpf_dbg_printk("unknown cmd=%d", op_cmd);
         return 0;
     }
 
-    bpf_dbg_printk("op = %d, cmd = %d", op, op_cmd);
+    bpf_dbg_printk("op=%d, cmd=%d", op, op_cmd);
 
     pid_connection_info_t p_conn = {0};
     bpf_probe_read(&p_conn.conn, sizeof(connection_info_t), arg + 1);
@@ -104,7 +104,7 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
 
     if (is_empty_connection_info(&p_conn.conn)) {
         ssl_pid_connection_info_t *l = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
-        bpf_dbg_printk("lookup for empty connection info %llx", l);
+        bpf_dbg_printk("lookup for empty connection info: %llx", l);
         if (l) {
             p_conn = l->p_conn;
         }
@@ -113,7 +113,7 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
     u32 len = 0;
     bpf_probe_read(&len, sizeof(u32), arg + 1 + sizeof(connection_info_t));
 
-    bpf_dbg_printk("payload len %d", len);
+    bpf_dbg_printk("payload len=%d", len);
 
     if (len > 0) {
         void *buf = arg + 1 + sizeof(connection_info_t) + sizeof(u32);

@@ -53,7 +53,7 @@ int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct so
         return 0;
     }
 
-    bpf_dbg_printk("=== security_socket_accept %llx ===", id);
+    bpf_dbg_printk("=== kprobe/security_socket_accept id=%llx ===", id);
 
     u64 addr = (u64)newsock;
 
@@ -84,7 +84,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
         return 0;
     }
 
-    bpf_dbg_printk("=== accept 4 ret id=%d, fd=%d ===", id, fd);
+    bpf_dbg_printk("=== kretprobe/sys_accept4 id=%d, fd=%d ===", id, fd);
 
     // The file descriptor is the value returned from the accept4 syscall.
     // If we got a negative file descriptor we don't have a connection
@@ -151,7 +151,7 @@ int BPF_KPROBE(obi_kprobe_sys_connect) {
     struct pt_regs *__ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
     bpf_probe_read(&fd, sizeof(int), (void *)&PT_REGS_PARM1(__ctx));
 
-    bpf_dbg_printk("=== connect id=%d, fd=%d ===", id, fd);
+    bpf_dbg_printk("=== kprobe/sys_connect id=%d, fd=%d ===", id, fd);
 
     sock_args_t args = {0};
     args.fd = fd;
@@ -193,7 +193,7 @@ int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
 
     sock_args_t *args = bpf_map_lookup_elem(&active_connect_args, &id);
 
-    bpf_dbg_printk("=== tcp connect %llx args %llx ===", id, args);
+    bpf_dbg_printk("=== kprobe/tcp_connect id=%llx, args=%llx ===", id, args);
 
     if (args) {
         pid_connection_info_t p_conn = {0};
@@ -220,7 +220,7 @@ int BPF_KPROBE(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *msg, size
         return 0;
     }
 
-    bpf_dbg_printk("=== udp_sendmsg %llx sock %llx len %d ===", id, sk, len);
+    bpf_dbg_printk("=== kprobe/udp_sendmsg id=%llx, sock=%llx, len=%d ===", id, sk, len);
 
     store_sock_pid(sk);
 
@@ -238,7 +238,7 @@ int BPF_KPROBE(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *msg, size
             if (buf) {
                 len = read_msghdr_buf(msg, buf, len);
                 if (len) {
-                    bpf_dbg_printk("Got buffer with len %d", len);
+                    bpf_dbg_printk("Got buffer with len: %d", len);
                     handle_dns_buf(buf, len, &s_args.p_conn, orig_dport);
                 }
             }
@@ -293,7 +293,8 @@ int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
         return 0;
     }
 
-    bpf_dbg_printk("=== connect ret id=%d, pid=%d, res %d ===", id, pid_from_pid_tgid(id), res);
+    bpf_dbg_printk(
+        "=== kretprobe/sys_connect id=%d, pid=%d, res=%d ===", id, pid_from_pid_tgid(id), res);
 
     // The file descriptor is the value returned from the connect syscall.
     // If we got a negative file descriptor we don't have a connection, unless we are in progress
@@ -303,7 +304,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
 
     sock_args_t *args = bpf_map_lookup_elem(&active_connect_args, &id);
     if (!args) {
-        bpf_dbg_printk("No sock info %d", id);
+        bpf_dbg_printk("No sock info: %d", id);
         goto cleanup;
     }
 
@@ -312,7 +313,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
     if (parse_connect_sock_info(args, &info.p_conn.conn)) {
         u32 host_pid = pid_from_pid_tgid(id);
         info.p_conn.pid = host_pid;
-        bpf_dbg_printk("=== connect ret id=%d, pid=%d fd=%d ===", id, host_pid, args->fd);
+        bpf_dbg_printk("id=%d, pid=%d, fd=%d", id, host_pid, args->fd);
         store_connect_fd_info(host_pid, args->fd, &info.p_conn.conn);
 
         u16 orig_dport = info.p_conn.conn.d_port;
@@ -326,10 +327,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
         if (args->failed) {
             cp_support_data_t *cp_data =
                 bpf_map_lookup_elem(&cp_support_connect_info, &info.p_conn);
-            bpf_dbg_printk("=== connect ret args=%llx, failed=%d, cp_data %llx ===",
-                           args,
-                           args->failed,
-                           cp_data);
+            bpf_dbg_printk("args=%llx, failed=%d, cp_data=%llx", args, args->failed, cp_data);
             if (cp_data) {
                 cp_data->failed = 1;
             }
@@ -387,7 +385,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
         return 0;
     }
 
-    bpf_dbg_printk("=== kprobe tcp_sendmsg=%d sock=%llx size %d===", id, sk, size);
+    bpf_dbg_printk("=== kprobe/tcp_sendmsg id=%d, sock=%llx, size=%d ===", id, sk, size);
 
     send_args_t s_args = {.size = size};
 
@@ -426,8 +424,8 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                         if (m_buf) {
                             u32 cpu_id = bpf_get_smp_processor_id();
                             if (m_buf->cpu_id != cpu_id) {
-                                bpf_dbg_printk("tcp_sendmsg: cpu id mismatch, using "
-                                               "stack-allocated fallback buffer");
+                                bpf_dbg_printk(
+                                    "cpu id mismatch, using stack-allocated fallback buffer");
                                 buf = m_buf->fallback_buf;
                             } else {
                                 buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
@@ -448,7 +446,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                             if (!m_buf->pos) {
                                 size = m_buf->real_size;
                                 m_buf->pos = size;
-                                bpf_dbg_printk("msg_buffer: size %d, buf[%s]", size, buf);
+                                bpf_dbg_printk("msg_buffer: size=%d, buf=[%s]", size, buf);
                             } else {
                                 size = 0;
                             }
@@ -474,7 +472,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                         ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
                 }
             } else {
-                bpf_dbg_printk("tcp_sendmsg for identified SSL connection, ignoring...");
+                bpf_dbg_printk("identified SSL connection, ignoring...");
             }
         }
 
@@ -499,7 +497,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
         return 0;
     }
 
-    bpf_dbg_printk("=== kprobe tcp_rate_check_app_limited=%d sock=%llx ===", id, sk);
+    bpf_dbg_printk("=== kprobe/tcp_rate_check_app_limited id=%d, sock=%llx ===", id, sk);
 
     send_args_t s_args = {};
 
@@ -526,8 +524,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                 unsigned char *buf = NULL;
                 u32 cpu_id = bpf_get_smp_processor_id();
                 if (m_buf->cpu_id != cpu_id) {
-                    bpf_dbg_printk("tcp_rate_check_app_limited: cpu id mismatch, using "
-                                   "stack-allocated fallback buffer");
+                    bpf_dbg_printk("cpu id mismatch, using stack-allocated fallback buffer");
                     buf = m_buf->fallback_buf;
                 } else {
                     buf = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
@@ -549,7 +546,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                     u16 size = m_buf->real_size;
                     m_buf->pos = size;
                     s_args.size = size;
-                    bpf_dbg_printk("msg_buffer: size %d, buf[%s]", size, buf);
+                    bpf_dbg_printk("msg_buffer: size %d, buf=[%s]", size, buf);
                     u64 sock_p = (u64)sk;
                     bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
                     bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
@@ -579,7 +576,7 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg, int sent_len) {
         return 0;
     }
 
-    bpf_dbg_printk("=== kretprobe tcp_sendmsg=%d sent %d===", id, sent_len);
+    bpf_dbg_printk("=== kretprobe/tcp_sendmsg id=%d, sent=%d ===", id, sent_len);
 
     send_args_t *s_args = bpf_map_lookup_elem(&active_send_args, &id);
     if (s_args) {
@@ -609,7 +606,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
 
     u64 sock_p = (u64)sk;
 
-    bpf_dbg_printk("=== kprobe tcp_close %d sock %llx ===", id, sk);
+    bpf_dbg_printk("=== kprobe/tcp_close id=%d, sock=%llx ===", id, sk);
 
     pid_connection_info_t info = {};
     bool success = parse_sock_info(sk, &info.conn);
@@ -621,11 +618,10 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
 
         if (is_tcp_socket_never_connected(sk)) {
             cp_support_data_t *ct = bpf_map_lookup_elem(&cp_support_connect_info, &info);
-            bpf_dbg_printk("=== possibly never connected sock %d %llx ct=%llx ===", id, sk, ct);
+            bpf_dbg_printk("possibly never connected sock: id=%d, sock=%llx, ct=%llx", id, sk, ct);
 
             if (k_bpf_debug && ct) {
-                bpf_dbg_printk(
-                    "=== established %d, already failed %d ===", ct->established, ct->failed);
+                bpf_dbg_printk("established=%d, already failed=%d", ct->established, ct->failed);
             }
 
             if (ct && !ct->established && !ct->failed) {
@@ -665,7 +661,8 @@ int BPF_KPROBE(obi_kprobe_sock_def_error_report, struct sock *sk) {
 
     sock_args_t *args = bpf_map_lookup_elem(&active_connect_args, &id);
 
-    bpf_dbg_printk("=== kprobe sock_def_error_report %d sock %llx args %llx ===", id, sk, args);
+    bpf_dbg_printk(
+        "=== kprobe/sock_def_error_report id=%d, sock=%llx, args=%llx ===", id, sk, args);
 
     pid_connection_info_t info = {};
     if (parse_sock_info(sk, &info.conn)) {
@@ -732,7 +729,7 @@ int BPF_KPROBE(obi_kprobe_tcp_recvmsg,
         return 0;
     }
 
-    bpf_dbg_printk("=== tcp_recvmsg id=%d sock=%llx ===", id, sk);
+    bpf_dbg_printk("=== kprobe/tcp_recvmsg id=%d, sock=%llx ===", id, sk);
 
     setup_recvmsg(id, sk, msg);
 
@@ -758,7 +755,7 @@ int BPF_KPROBE(obi_kprobe_sock_recvmsg, struct socket *sock, struct msghdr *msg,
     struct sock *sk = 0;
     BPF_CORE_READ_INTO(&sk, sock, sk);
 
-    bpf_dbg_printk("+++ sock_recvmsg sock=%llx, socket=%llx", sk, sock);
+    bpf_dbg_printk("=== kprobe/sock_recvmsg sock=%llx, socket=%llx ===", sk, sock);
     if (sk) {
         setup_recvmsg(id, sk, msg);
     }
@@ -784,7 +781,7 @@ int BPF_KRETPROBE(obi_kretprobe_sock_recvmsg, int copied_len) {
     recv_args_t *args = bpf_map_lookup_elem(&active_recv_args, &id);
 
     bpf_dbg_printk(
-        "=== return sock_recvmsg id=%d args=%llx copied_len %d ===", id, args, copied_len);
+        "=== kretprobe/sock_recvmsg id=%d, args=%llx, copied_len=%d ===", id, args, copied_len);
 
     if (!args) {
         return 0;
@@ -819,7 +816,8 @@ int BPF_KRETPROBE(obi_kretprobe_sock_recvmsg, int copied_len) {
                     if (!copied_len) {
                         bpf_dbg_printk("Not copied anything");
                     } else {
-                        bpf_d_printk("Got potential dns buffer with len %d", copied_len);
+                        bpf_d_printk(
+                            "Got potential dns buffer with len: %d [%s]", copied_len, __FUNCTION__);
                         handle_dns_buf(buf, copied_len, &info, orig_dport);
                     }
                 }
@@ -836,7 +834,7 @@ done:
 static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 id, int copied_len) {
     recv_args_t *args = bpf_map_lookup_elem(&active_recv_args, &id);
 
-    bpf_dbg_printk("=== return recvmsg id=%d args=%llx copied_len %d ===", id, args, copied_len);
+    bpf_dbg_printk("id=%d, args=%llx, copied_len=%d", id, args, copied_len);
 
     pid_connection_info_t info = {};
 
@@ -906,7 +904,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         u64 *ssl = is_ssl_connection(&info);
 
         if (!ssl) {
-            bpf_dbg_printk("buf = %llx, copied_len %d", buf, copied_len);
+            bpf_dbg_printk("buf=[%llx], copied_len=%d", buf, copied_len);
 
             if (buf && copied_len) {
                 bpf_map_delete_elem(&active_recv_args, &id);
@@ -915,8 +913,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
                     ctx, &info, buf, copied_len, NO_SSL, TCP_RECV, orig_dport);
             }
         } else {
-            bpf_dbg_printk("tcp_recvmsg for an identified SSL connection, ignoring [%llx]...",
-                           *ssl);
+            bpf_dbg_printk("identified SSL connection, ignoring: [%llx]...", *ssl);
         }
     }
 
@@ -934,7 +931,7 @@ int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
         return 0;
     }
 
-    bpf_dbg_printk("=== tcp_cleanup_rbuf id=%d copied_len %d ===", id, copied);
+    bpf_dbg_printk("=== kprobe/tcp_cleanup_rbuf id=%d, copied_len=%d ===", id, copied);
 
     if (k_bpf_debug) {
         connection_info_t conn = {};
@@ -956,7 +953,7 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_recvmsg, int copied_len) {
         return 0;
     }
 
-    bpf_dbg_printk("=== kretprobe_tcp_recvmsg id=%d copied_len %d ===", id, copied_len);
+    bpf_dbg_printk("=== kretprobe_tcp_recvmsg id=%d, copied_len %d ===", id, copied_len);
 
     return return_recvmsg(ctx, 0, id, copied_len);
 }
@@ -1003,7 +1000,7 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
         //d_print_http_connection_info(&conn);
         if (packet_type == PACKET_TYPE_REQUEST) {
             u64 cookie = bpf_get_socket_cookie(skb);
-            //bpf_printk("=== http_filter cookie = %llx, len=%d %s ===", cookie, len, buf);
+            //bpf_dbg_printk("cookie=%llx, len=%d, buf=[%s]", cookie, len, buf);
             //dbg_print_http_connection_info(&conn);
 
             sort_connection_info(&conn);
@@ -1072,7 +1069,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_clone, int tid) {
         .pid = parent.pid,
     };
 
-    bpf_dbg_printk("sys_clone_ret %d -> %d", id, tid);
+    bpf_dbg_printk("=== kretprobe/sys_clone id->tid: %d -> %d ===", id, tid);
     bpf_map_update_elem(&clone_map, &child, &parent, BPF_ANY);
 
     return 0;
@@ -1092,8 +1089,10 @@ int BPF_KPROBE(obi_kprobe_sys_exit, int status) {
     trace_key_t task = {0};
     task_tid(&task.p_key);
 
-    bpf_dbg_printk(
-        "sys_exit %d, pid=%d, valid_pid(id)=%d", id, pid_from_pid_tgid(id), valid_pid(id));
+    bpf_dbg_printk("=== kprobe/sys_exit id=%d, pid=%d, valid_pid(id)=%d ===",
+                   id,
+                   pid_from_pid_tgid(id),
+                   valid_pid(id));
 
     bpf_map_delete_elem(&clone_map, &task.p_key);
     // This won't delete trace ids for traces with extra_id, like NodeJS. But,
@@ -1111,8 +1110,10 @@ int obi_handle_buf_with_args(void *ctx) {
         return 0;
     }
 
-    bpf_dbg_printk(
-        "buf=[%s], pid=%d, len=%d", args->small_buf, args->pid_conn.pid, args->bytes_len);
+    bpf_dbg_printk("=== kprobe buf=[%s], pid=%d, len=%d ===",
+                   args->small_buf,
+                   args->pid_conn.pid,
+                   args->bytes_len);
 
     if (is_http(args->small_buf, MIN_HTTP_SIZE, &args->packet_type)) {
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_http);
@@ -1169,7 +1170,7 @@ int obi_handle_buf_with_args(void *ctx) {
                     unsigned char *buf = tp_char_buf();
                     if (buf) {
                         bpf_probe_read(buf, EXTEND_SIZE, (unsigned char *)args->u_buf);
-                        bpf_dbg_printk("Found traceparent %s", buf);
+                        bpf_dbg_printk("Found traceparent buf=[%s]", buf);
                         unsigned char *t_id = extract_trace_id(buf);
                         unsigned char *s_id = extract_span_id(buf);
                         unsigned char *f_id = extract_flags(buf);
@@ -1221,7 +1222,7 @@ int BPF_KPROBE(obi_kprobe_inet_csk_listen_stop, struct sock *sk) {
     u64 id = bpf_get_current_pid_tgid();
     (void)id;
 
-    bpf_dbg_printk("=== inet_csk_listen_stop id=%d ===", id);
+    bpf_dbg_printk("=== kprobe/inet_csk_listen_stop id=%d ===", id);
 
     struct sock_port_ns np = sock_port_ns_from_sk(sk);
     bpf_map_delete_elem(&listening_ports, &np);
