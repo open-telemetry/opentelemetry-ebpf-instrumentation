@@ -7,7 +7,20 @@ CACHE_CMD ?= k8s-cache
 CACHE_MAIN_GO_FILE ?= cmd/$(CACHE_CMD)/main.go
 
 GOOS ?= linux
-GOARCH ?= amd64
+
+UNAME_M := $(shell uname -m)
+
+ifeq ($(origin GOARCH),undefined)
+    ifeq ($(UNAME_M),x86_64)
+        GOARCH := amd64
+    else ifeq ($(UNAME_M),aarch64)
+        GOARCH := arm64
+    else ifeq ($(UNAME_M),arm64)
+        GOARCH := arm64
+    else
+        GOARCH := amd64
+    endif
+endif
 
 # RELEASE_VERSION will contain the tag name, or the branch name if current commit is not a tag
 RELEASE_VERSION := $(shell git describe --all | cut -d/ -f2)
