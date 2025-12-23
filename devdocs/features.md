@@ -19,7 +19,7 @@
 
 Specifically for Go applications, OBI chooses to instrument libraries directly using Uprobes, instead of instrumenting
 at the network level. This allows for more accurate tracing and context propagation.
-this set of instrumentations currently replaces all the network level instrumentation for go applications.
+This set of instrumentations currently replaces all the network level instrumentation for Go applications.
 To turn this off and fallback to the normal network based instrumentation for Go processes, you set
 `discovery.skip_go_specific_tracers` to `true` in the config, or set the environment variable
 `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS=true`.
