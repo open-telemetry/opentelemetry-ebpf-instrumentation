@@ -259,7 +259,11 @@
         },
         "disabled_route_harvesters": {
           "items": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "java",
+              "nodejs"
+            ]
           },
           "type": "array"
         },
@@ -459,17 +463,17 @@
       "items": {
         "type": "string",
         "enum": [
+          "all",
           "*",
-          "network_inter_zone",
-          "application",
+          "application_span",
           "application_span_sizes",
           "application_service_graph",
-          "network",
-          "application_span",
-          "application_span_otel",
           "application_host",
-          "ebpf",
-          "all"
+          "network",
+          "network_inter_zone",
+          "application",
+          "application_span_otel",
+          "ebpf"
         ]
       },
       "type": "array",
@@ -533,22 +537,13 @@
         "routes": {
           "$ref": "#/$defs/CustomRoutesConfig"
         },
-        "k8s_namespace": {
-          "$ref": "#/$defs/GlobAttr"
-        },
         "k8s_pod_name": {
           "$ref": "#/$defs/GlobAttr"
         },
-        "k8s_replicaset_name": {
+        "k8s_deployment_name": {
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_daemonset_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_container_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_deployment_name": {
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_statefulset_name": {
@@ -558,6 +553,15 @@
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_cronjob_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_container_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_namespace": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_replicaset_name": {
           "$ref": "#/$defs/GlobAttr"
         },
         "k8s_owner_name": {
@@ -1279,22 +1283,13 @@
         "routes": {
           "$ref": "#/$defs/CustomRoutesConfig"
         },
-        "k8s_namespace": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
         "k8s_pod_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
-        "k8s_replicaset_name": {
+        "k8s_deployment_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
         "k8s_daemonset_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_container_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_deployment_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
         "k8s_statefulset_name": {
@@ -1304,6 +1299,15 @@
           "$ref": "#/$defs/RegexpAttr"
         },
         "k8s_cronjob_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_container_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_namespace": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_replicaset_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
         "k8s_owner_name": {
