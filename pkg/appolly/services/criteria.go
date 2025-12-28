@@ -58,6 +58,7 @@ type RouteHarvesterLanguage string
 const (
 	RouteHarvesterLanguageJava   RouteHarvesterLanguage = "java"
 	RouteHarvesterLanguageNodejs RouteHarvesterLanguage = "nodejs"
+	RouteHarvesterLanguageGo     RouteHarvesterLanguage = "go"
 )
 
 // DiscoveryConfig for the discover.ProcessFinder pipeline

@@ -16,9 +16,9 @@ package gotracer
 
 import (
 	"context"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"io"
 	"log/slog"
-	"strings"
 	"unsafe"
 
 	"github.com/cilium/ebpf"
@@ -57,7 +57,7 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 	disabledRouteHarvesting := false
 
 	for _, lang := range cfg.Discovery.DisabledRouteHarvesters {
-		if strings.ToLower(lang) == "go" {
+		if lang == services.RouteHarvesterLanguageGo {
 			disabledRouteHarvesting = true
 			break
 		}
