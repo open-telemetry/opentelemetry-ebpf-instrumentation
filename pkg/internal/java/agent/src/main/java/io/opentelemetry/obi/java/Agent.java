@@ -42,6 +42,7 @@ public class Agent {
 
   public static boolean debugOn = false;
   private static final Logger logger = Logger.getLogger("Agent");
+  private static volatile boolean agentLoaded = false;
 
   public interface CLibrary extends Library {
     CLibrary INSTANCE = Native.load("c", CLibrary.class);
@@ -99,6 +100,14 @@ public class Agent {
   // Main agent load and instrumentation code, this gets invoked directly with -javaagent on the
   // command line
   public static void premain(String agentArgs, Instrumentation inst) {
+    synchronized (Agent.class) {
+      // Check if agent is already loaded
+      if (agentLoaded) {
+        logger.info("OpenTelemetry eBPF Java Agent already loaded, skipping initialization");
+      }
+      agentLoaded = true;
+    }
+
     Map<String, String> opts = parseArgs(agentArgs);
 
     if (optEnabled(opts, "debug")) {

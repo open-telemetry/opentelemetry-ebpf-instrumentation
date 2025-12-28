@@ -118,7 +118,7 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			Name: attr.VendorPrefix + "_kube_cache_forward_lag_seconds",
 			Help: "How long, in seconds, it takes since a Kubernetes event happens until it is forwarded to the subscribers",
 			// Since K8s stores the timestamps with second precision, we initially provide buckets larger than 0.5s
-			Buckets:                         []float64{0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256},
+			Buckets:                         InformerLagBuckets,
 			NativeHistogramBucketFactor:     2,
 			NativeHistogramMaxExemplars:     20,
 			NativeHistogramMinResetDuration: 10 * time.Minute,

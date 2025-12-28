@@ -176,7 +176,7 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
         conn_pid_t *conn_pid = bpf_map_lookup_elem(&sock_pids, conn);
 
         if (!conn_pid) {
-            bpf_d_printk("can't find connection info for dns call");
+            //bpf_d_printk("can't find connection info for dns call");
             return 0;
         }
 

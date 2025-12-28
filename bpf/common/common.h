@@ -35,6 +35,7 @@
 #define HOST_LEN 64 // can be a fully qualified DNS name
 #define TRACEPARENT_LEN 55
 #define SQL_MAX_LEN 500
+#define SQL_HOSTNAME_MAX_LEN 96
 #define KAFKA_MAX_LEN 256
 #define REDIS_MAX_LEN 256
 #define MONGO_MAX_LEN 256
@@ -89,6 +90,7 @@ typedef struct sql_request_trace {
     tp_info_t tp;
     connection_info_t conn;
     unsigned char sql[SQL_MAX_LEN];
+    unsigned char hostname[SQL_HOSTNAME_MAX_LEN];
 } sql_request_trace_t;
 
 typedef struct kafka_client_req {

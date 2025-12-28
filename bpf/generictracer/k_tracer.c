@@ -896,6 +896,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
 
     if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
         const u16 orig_dport = info.conn.d_port;
+        d_print_http_connection_info(&info.conn);
         sort_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
 

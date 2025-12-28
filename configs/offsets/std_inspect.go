@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"net/http"
@@ -69,7 +70,23 @@ func regularGetRequest(ctx context.Context, url string) error {
 	return nil
 }
 
+func useDatabaseSQL() error {
+	// Open a dummy database connection to trigger compilation of database/sql types
+	db, err := sql.Open("mysql", "user:password@tcp(localhost:3306)/dbname")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// Execute a query to trigger driverConn usage
+	_, err = db.Query("SELECT 1")
+	return err
+}
+
 func main() {
+	// Trigger database/sql types to be compiled
+	_ = useDatabaseSQL()
+
 	err := regularGetRequest(context.Background(), "http://localhost:8090/rolldice")
 	if err != nil {
 		os.Exit(1)

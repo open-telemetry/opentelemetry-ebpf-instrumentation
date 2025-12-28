@@ -103,6 +103,7 @@ typedef struct sql_func_invocation {
     u64 start_monotime_ns;
     u64 sql_param;
     u64 query_len;
+    u64 driver_conn_ptr;
     tp_info_t tp;
     connection_info_t conn;
     u8 _pad[4];

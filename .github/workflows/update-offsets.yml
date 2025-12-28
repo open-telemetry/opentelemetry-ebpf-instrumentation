@@ -12,6 +12,7 @@ jobs:
     permissions:
       contents: write  # Required for creating PRs
     runs-on: ubuntu-latest
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
     steps:
     - name: "Checkout repo"
       uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1

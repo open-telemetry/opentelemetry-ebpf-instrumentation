@@ -6,8 +6,6 @@
 package io.opentelemetry.obi.java.instrumentations;
 
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
@@ -16,7 +14,6 @@ import net.bytebuddy.matcher.ElementMatchers;
 
 public class NettySSLHandlerInst {
   private static final String instClassName = "io.netty.handler.ssl.SslHandler";
-  private static final Logger logger = Logger.getLogger("NettySSLHandlerInst");
 
   public static ElementMatcher<? super TypeDescription> type() {
     return ElementMatchers.named(instClassName);
@@ -42,7 +39,10 @@ public class NettySSLHandlerInst {
     public static void unwrap(@Advice.Argument(0) final Object ctx) {
       try {
         if (SSLStorage.getBootDebugOn().get(null).equals(true)) {
-          logger.info("Netty SSL handler unwrap");
+          System.err.println("[NettySSLHandlerInst] Netty SSL handler unwrap");
+        }
+        if (ctx == null) {
+          return;
         }
 
         Object c =
@@ -56,7 +56,7 @@ public class NettySSLHandlerInst {
                     .get(null); // static field, so null as instance
         threadLocal.set(c);
       } catch (Exception x) {
-        logger.log(Level.SEVERE, "Failed unwrap enter", x);
+        System.err.println("[NettySSLHandlerInst] Failed unwrap enter: " + x.getMessage());
       }
     }
 
@@ -70,7 +70,7 @@ public class NettySSLHandlerInst {
                     .get(null); // static field, so null as instance
         threadLocal.remove();
       } catch (Exception x) {
-        logger.log(Level.SEVERE, "Failed unwrap exit", x);
+        System.err.println("[NettySSLHandlerInst] Failed unwrap exit: " + x.getMessage());
       }
     }
   }
@@ -80,8 +80,13 @@ public class NettySSLHandlerInst {
     public static void wrap(@Advice.Argument(0) final Object ctx) {
       try {
         if (SSLStorage.getBootDebugOn().get(null).equals(true)) {
-          logger.info("Netty SSL handler wrap");
+          System.err.println("[NettySSLHandlerInst] Netty SSL handler wrap");
         }
+
+        if (ctx == null) {
+          return;
+        }
+
         Object c =
             SSLStorage.getBootExtractMethod()
                 .invoke(null, ctx); // static method, so null as instance
@@ -93,7 +98,7 @@ public class NettySSLHandlerInst {
                     .get(null); // static field, so null as instance
         threadLocal.set(c);
       } catch (Exception x) {
-        logger.log(Level.SEVERE, "Failed wrap enter", x);
+        System.err.println("[NettySSLHandlerInst] Failed wrap enter: " + x.getMessage());
       }
     }
 
@@ -107,7 +112,7 @@ public class NettySSLHandlerInst {
                     .get(null); // static field, so null as instance
         threadLocal.remove();
       } catch (Exception x) {
-        logger.log(Level.SEVERE, "Failed wrap exit", x);
+        System.err.println("[NettySSLHandlerInst] Failed wrap exit: " + x.getMessage());
       }
     }
   }
