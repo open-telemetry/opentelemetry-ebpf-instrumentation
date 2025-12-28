@@ -689,6 +689,25 @@
       "type": "object",
       "description": "InternalMetricsConfig options for the different metrics exporters"
     },
+    "JavaConfig": {
+      "properties": {
+        "attach_timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT"
+        },
+        "enabled": {
+          "type": "boolean",
+          "x-env-var": "OTEL_EBPF_JAVAAGENT_ENABLED"
+        }
+      },
+      "type": "object"
+    },
     "KubernetesDecorator": {
       "properties": {
         "cluster_name": {
@@ -1611,6 +1630,9 @@
     },
     "internal_metrics": {
       "$ref": "#/$defs/InternalMetricsConfig"
+    },
+    "javaagent": {
+      "$ref": "#/$defs/JavaConfig"
     },
     "log_config": {
       "type": "string",
