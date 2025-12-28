@@ -38,18 +38,6 @@
     },
     "Attributes": {
       "properties": {
-        "kubernetes": {
-          "$ref": "#/$defs/KubernetesDecorator"
-        },
-        "instance_id": {
-          "$ref": "#/$defs/InstanceIDConfig"
-        },
-        "select": {
-          "$ref": "#/$defs/Selection"
-        },
-        "host_id": {
-          "$ref": "#/$defs/HostIDConfig"
-        },
         "extra_group_attributes": {
           "additionalProperties": {
             "items": {
@@ -59,23 +47,35 @@
           },
           "type": "object"
         },
-        "rename_unresolved_hosts": {
-          "type": "string",
-          "description": "RenameUnresolvedHosts will replace HostName and PeerName attributes when they are empty or contain\nunresolved IP addresses to reduce cardinality.\nSet this value to the empty string to disable this feature.",
-          "x-env-var": "OTEL_EBPF_RENAME_UNRESOLVED_HOSTS"
+        "host_id": {
+          "$ref": "#/$defs/HostIDConfig"
         },
-        "rename_unresolved_hosts_outgoing": {
-          "type": "string",
-          "x-env-var": "OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_OUTGOING"
+        "instance_id": {
+          "$ref": "#/$defs/InstanceIDConfig"
         },
-        "rename_unresolved_hosts_incoming": {
-          "type": "string",
-          "x-env-var": "OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_INCOMING"
+        "kubernetes": {
+          "$ref": "#/$defs/KubernetesDecorator"
         },
         "metric_span_names_limit": {
           "type": "integer",
           "description": "MetricSpanNameAggregationLimit works PER SERVICE and only relates to span_metrics.\nWhen the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED.\nIf the value \u003c= 0, it is disabled.",
           "x-env-var": "OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT"
+        },
+        "rename_unresolved_hosts": {
+          "type": "string",
+          "description": "RenameUnresolvedHosts will replace HostName and PeerName attributes when they are empty or contain\nunresolved IP addresses to reduce cardinality.\nSet this value to the empty string to disable this feature.",
+          "x-env-var": "OTEL_EBPF_RENAME_UNRESOLVED_HOSTS"
+        },
+        "rename_unresolved_hosts_incoming": {
+          "type": "string",
+          "x-env-var": "OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_INCOMING"
+        },
+        "rename_unresolved_hosts_outgoing": {
+          "type": "string",
+          "x-env-var": "OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_OUTGOING"
+        },
+        "select": {
+          "$ref": "#/$defs/Selection"
         }
       },
       "type": "object",
@@ -122,9 +122,9 @@
         {
           "type": "string",
           "enum": [
+            "",
             "all",
-            "disabled",
-            ""
+            "disabled"
           ],
           "description": "Enable all propagation methods, disable propagation, or use empty string for disabled"
         },
@@ -134,8 +134,8 @@
             "enum": [
               "headers",
               "http",
-              "tcp",
-              "ip"
+              "ip",
+              "tcp"
             ]
           },
           "type": "array",
@@ -173,63 +173,58 @@
     },
     "DiscoveryConfig": {
       "properties": {
-        "services": {
-          "$ref": "#/$defs/RegexDefinitionCriteria",
-          "description": "Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically\nadded to the services definition criteria, with the lowest preference.\nUse Instrument instead",
-          "deprecated": true
+        "bpf_pid_filter_off": {
+          "type": "boolean",
+          "description": "Debugging only option. Make sure the kernel side doesn't filter any PIDs, force user space filtering.",
+          "x-env-var": "OTEL_EBPF_BPF_PID_FILTER_OFF"
         },
-        "exclude_services": {
-          "$ref": "#/$defs/RegexDefinitionCriteria",
-          "description": "ExcludeServices works analogously to Services, but the applications matching this section won't be instrumented\neven if they match the Services selection.\nUse ExcludeInstrument instead",
-          "deprecated": true
+        "default_exclude_instrument": {
+          "$ref": "#/$defs/GlobDefinitionCriteria",
+          "description": "DefaultExcludeInstrument by default prevents self-instrumentation of OBI as well as related services (OBI, Beyla, Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired."
         },
         "default_exclude_services": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
           "description": "DefaultExcludeServices by default prevents self-instrumentation of OBI as well as related services (Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired.\nUse DefaultExcludeInstrument instead",
           "deprecated": true
         },
-        "instrument": {
-          "$ref": "#/$defs/GlobDefinitionCriteria",
-          "description": "Instrument selects the services to instrument via Globs. If this section is set,\nboth the Services and ExcludeServices section is ignored.\nIf the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be\nautomatically added to the instrument criteria, with the lowest preference."
+        "default_otlp_grpc_port": {
+          "type": "integer",
+          "description": "DefaultOtlpGRPCPort specifies the default OTLP gRPC port (4317) to fallback on when missing environment variables on service, for\nchecking for grpc export requests, defaults to 4317",
+          "x-env-var": "OTEL_EBPF_DEFAULT_OTLP_GRPC_PORT"
+        },
+        "disabled_route_harvesters": {
+          "items": {
+            "type": "string",
+            "enum": [
+              "go",
+              "java",
+              "nodejs"
+            ]
+          },
+          "type": "array"
         },
         "exclude_instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
           "description": "ExcludeInstrument works analogously to Instrument, but the applications matching this section won't be instrumented\neven if they match the Instrument selection."
-        },
-        "default_exclude_instrument": {
-          "$ref": "#/$defs/GlobDefinitionCriteria",
-          "description": "DefaultExcludeInstrument by default prevents self-instrumentation of OBI as well as related services (OBI, Beyla, Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired."
-        },
-        "poll_interval": {
-          "type": "string",
-          "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "PollInterval specifies, for the poll service watcher, the interval time between\nprocess inspections",
-          "examples": [
-            "30s",
-            "5m",
-            "1ms"
-          ],
-          "x-env-var": "OTEL_EBPF_DISCOVERY_POLL_INTERVAL"
-        },
-        "skip_go_specific_tracers": {
-          "type": "boolean",
-          "description": "This can be enabled to use generic HTTP tracers only, no Go-specifics will be used:",
-          "x-env-var": "OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS"
-        },
-        "bpf_pid_filter_off": {
-          "type": "boolean",
-          "description": "Debugging only option. Make sure the kernel side doesn't filter any PIDs, force user space filtering.",
-          "x-env-var": "OTEL_EBPF_BPF_PID_FILTER_OFF"
         },
         "exclude_otel_instrumented_services": {
           "type": "boolean",
           "description": "Disables instrumentation of services which are already instrumented",
           "x-env-var": "OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES"
         },
-        "default_otlp_grpc_port": {
-          "type": "integer",
-          "description": "DefaultOtlpGRPCPort specifies the default OTLP gRPC port (4317) to fallback on when missing environment variables on service, for\nchecking for grpc export requests, defaults to 4317",
-          "x-env-var": "OTEL_EBPF_DEFAULT_OTLP_GRPC_PORT"
+        "exclude_otel_instrumented_services_span_metrics": {
+          "type": "boolean",
+          "description": "Disables generation of span metrics of services which are already instrumented",
+          "x-env-var": "OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES_SPAN_METRICS"
+        },
+        "exclude_services": {
+          "$ref": "#/$defs/RegexDefinitionCriteria",
+          "description": "ExcludeServices works analogously to Services, but the applications matching this section won't be instrumented\neven if they match the Services selection.\nUse ExcludeInstrument instead",
+          "deprecated": true
+        },
+        "instrument": {
+          "$ref": "#/$defs/GlobDefinitionCriteria",
+          "description": "Instrument selects the services to instrument via Globs. If this section is set,\nboth the Services and ExcludeServices section is ignored.\nIf the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be\nautomatically added to the instrument criteria, with the lowest preference."
         },
         "min_process_age": {
           "type": "string",
@@ -242,10 +237,19 @@
           ],
           "x-env-var": "OTEL_EBPF_MIN_PROCESS_AGE"
         },
-        "exclude_otel_instrumented_services_span_metrics": {
-          "type": "boolean",
-          "description": "Disables generation of span metrics of services which are already instrumented",
-          "x-env-var": "OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES_SPAN_METRICS"
+        "poll_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "PollInterval specifies, for the poll service watcher, the interval time between\nprocess inspections",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_DISCOVERY_POLL_INTERVAL"
+        },
+        "route_harvester_advanced": {
+          "$ref": "#/$defs/RouteHarvestingConfig"
         },
         "route_harvester_timeout": {
           "type": "string",
@@ -257,19 +261,15 @@
           ],
           "x-env-var": "OTEL_EBPF_ROUTE_HARVESTER_TIMEOUT"
         },
-        "disabled_route_harvesters": {
-          "items": {
-            "type": "string",
-            "enum": [
-              "java",
-              "nodejs",
-              "go"
-            ]
-          },
-          "type": "array"
+        "services": {
+          "$ref": "#/$defs/RegexDefinitionCriteria",
+          "description": "Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically\nadded to the services definition criteria, with the lowest preference.\nUse Instrument instead",
+          "deprecated": true
         },
-        "route_harvester_advanced": {
-          "$ref": "#/$defs/RouteHarvestingConfig"
+        "skip_go_specific_tracers": {
+          "type": "boolean",
+          "description": "This can be enabled to use generic HTTP tracers only, no Go-specifics will be used:",
+          "x-env-var": "OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS"
         }
       },
       "type": "object",
@@ -295,16 +295,6 @@
     },
     "EBPFTracer": {
       "properties": {
-        "bpf_debug": {
-          "type": "boolean",
-          "description": "Enables logging of eBPF program events",
-          "x-env-var": "OTEL_EBPF_BPF_DEBUG"
-        },
-        "wakeup_len": {
-          "type": "integer",
-          "description": "WakeupLen specifies how many messages need to be accumulated in the eBPF ringbuffer\nbefore sending a wakeup request.\nHigh values of WakeupLen could add a noticeable metric delay in services with low\nrequests/second.\nMust be at least 0\nTODO: see if there is a way to force eBPF to wakeup userspace on timeout",
-          "x-env-var": "OTEL_EBPF_BPF_WAKEUP_LEN"
-        },
         "batch_length": {
           "type": "integer",
           "description": "BatchLength allows specifying how many traces will be batched at the initial\nstage before being forwarded to the next stage\nMust be at least 1",
@@ -321,10 +311,45 @@
           ],
           "x-env-var": "OTEL_EBPF_BPF_BATCH_TIMEOUT"
         },
-        "track_request_headers": {
+        "bpf_debug": {
           "type": "boolean",
-          "description": "If enabled, the kprobes based HTTP request tracking will start tracking the request\nheaders to process any 'Traceparent' fields.",
-          "x-env-var": "OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS"
+          "description": "Enables logging of eBPF program events",
+          "x-env-var": "OTEL_EBPF_BPF_DEBUG"
+        },
+        "buffer_sizes": {
+          "$ref": "#/$defs/EBPFBufferSizes",
+          "description": "Limit max data buffer size per protocol."
+        },
+        "context_propagation": {
+          "$ref": "#/$defs/ContextPropagationMode",
+          "description": "Enables distributed context propagation.\nCan be a combination of: headers, tcp, ip (e.g., \"headers,tcp\" or \"all\")",
+          "x-env-var": "OTEL_EBPF_BPF_CONTEXT_PROPAGATION"
+        },
+        "disable_black_box_cp": {
+          "type": "boolean",
+          "description": "Disables OBI black-box context propagation. Used for testing purposes only.",
+          "x-env-var": "OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP"
+        },
+        "dns_request_timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "DNS timeout after which we report failed event",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT"
+        },
+        "heuristic_sql_detect": {
+          "type": "boolean",
+          "description": "Enables the heuristic based detection of SQL requests. This can be used to detect\ntalking to databases other than the ones we recognize in OBI, like Postgres and MySQL",
+          "x-env-var": "OTEL_EBPF_HEURISTIC_SQL_DETECT"
+        },
+        "high_request_volume": {
+          "type": "boolean",
+          "description": "Optimizes for getting requests information immediately when request response is seen",
+          "x-env-var": "OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME"
         },
         "http_request_timeout": {
           "type": "string",
@@ -337,81 +362,15 @@
           ],
           "x-env-var": "OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT"
         },
-        "context_propagation": {
-          "$ref": "#/$defs/ContextPropagationMode",
-          "description": "Enables distributed context propagation.\nCan be a combination of: headers, tcp, ip (e.g., \"headers,tcp\" or \"all\")",
-          "x-env-var": "OTEL_EBPF_BPF_CONTEXT_PROPAGATION"
-        },
-        "override_bpfloop_enabled": {
-          "type": "boolean",
-          "description": "Skips checking the kernel version for bpf_loop functionality. Some modified kernels have this\nbackported prior to version 5.17.",
-          "x-env-var": "OTEL_EBPF_OVERRIDE_BPF_LOOP_ENABLED"
-        },
-        "traffic_control_backend": {
-          "type": "string",
-          "enum": [
-            "tc",
-            "tcx",
-            "auto"
-          ],
-          "description": "Select the TC attachment backend: accepted values are 'tc' (netlink), and 'tcx'",
-          "x-env-var": "OTEL_EBPF_BPF_TC_BACKEND"
-        },
-        "disable_black_box_cp": {
-          "type": "boolean",
-          "description": "Disables OBI black-box context propagation. Used for testing purposes only.",
-          "x-env-var": "OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP"
-        },
-        "high_request_volume": {
-          "type": "boolean",
-          "description": "Optimizes for getting requests information immediately when request response is seen",
-          "x-env-var": "OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME"
-        },
-        "heuristic_sql_detect": {
-          "type": "boolean",
-          "description": "Enables the heuristic based detection of SQL requests. This can be used to detect\ntalking to databases other than the ones we recognize in OBI, like Postgres and MySQL",
-          "x-env-var": "OTEL_EBPF_HEURISTIC_SQL_DETECT"
-        },
         "instrument_gpu": {
           "type": "boolean",
           "description": "Enables GPU instrumentation for CUDA kernel launches and allocations",
           "x-env-var": "OTEL_EBPF_INSTRUMENT_GPU"
         },
-        "protocol_debug_print": {
-          "type": "boolean",
-          "description": "Enables debug printing of the protocol data",
-          "x-env-var": "OTEL_EBPF_PROTOCOL_DEBUG_PRINT"
-        },
-        "redis_db_cache": {
-          "$ref": "#/$defs/RedisDBCacheConfig"
-        },
-        "buffer_sizes": {
-          "$ref": "#/$defs/EBPFBufferSizes",
-          "description": "Limit max data buffer size per protocol."
-        },
-        "mysql_prepared_statements_cache_size": {
-          "type": "integer",
-          "description": "MySQL prepared statements cache size.",
-          "x-env-var": "OTEL_EBPF_BPF_MYSQL_PREPARED_STATEMENTS_CACHE_SIZE"
-        },
-        "postgres_prepared_statements_cache_size": {
-          "type": "integer",
-          "description": "Postgres prepared statements cache size.",
-          "x-env-var": "OTEL_EBPF_BPF_POSTGRES_PREPARED_STATEMENTS_CACHE_SIZE"
-        },
         "kafka_topic_uuid_cache_size": {
           "type": "integer",
           "description": "Kafka Topic UUID to Name cache size.",
           "x-env-var": "OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE"
-        },
-        "mongo_requests_cache_size": {
-          "type": "integer",
-          "description": "MongoDB requests cache size.",
-          "x-env-var": "OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE"
-        },
-        "payload_extraction": {
-          "$ref": "#/$defs/PayloadExtraction",
-          "description": "Configure data extraction/parsing based on protocol"
         },
         "max_transaction_time": {
           "type": "string",
@@ -424,16 +383,57 @@
           ],
           "x-env-var": "OTEL_EBPF_BPF_MAX_TRANSACTION_TIME"
         },
-        "dns_request_timeout": {
+        "mongo_requests_cache_size": {
+          "type": "integer",
+          "description": "MongoDB requests cache size.",
+          "x-env-var": "OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE"
+        },
+        "mysql_prepared_statements_cache_size": {
+          "type": "integer",
+          "description": "MySQL prepared statements cache size.",
+          "x-env-var": "OTEL_EBPF_BPF_MYSQL_PREPARED_STATEMENTS_CACHE_SIZE"
+        },
+        "override_bpfloop_enabled": {
+          "type": "boolean",
+          "description": "Skips checking the kernel version for bpf_loop functionality. Some modified kernels have this\nbackported prior to version 5.17.",
+          "x-env-var": "OTEL_EBPF_OVERRIDE_BPF_LOOP_ENABLED"
+        },
+        "payload_extraction": {
+          "$ref": "#/$defs/PayloadExtraction",
+          "description": "Configure data extraction/parsing based on protocol"
+        },
+        "postgres_prepared_statements_cache_size": {
+          "type": "integer",
+          "description": "Postgres prepared statements cache size.",
+          "x-env-var": "OTEL_EBPF_BPF_POSTGRES_PREPARED_STATEMENTS_CACHE_SIZE"
+        },
+        "protocol_debug_print": {
+          "type": "boolean",
+          "description": "Enables debug printing of the protocol data",
+          "x-env-var": "OTEL_EBPF_PROTOCOL_DEBUG_PRINT"
+        },
+        "redis_db_cache": {
+          "$ref": "#/$defs/RedisDBCacheConfig"
+        },
+        "track_request_headers": {
+          "type": "boolean",
+          "description": "If enabled, the kprobes based HTTP request tracking will start tracking the request\nheaders to process any 'Traceparent' fields.",
+          "x-env-var": "OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS"
+        },
+        "traffic_control_backend": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "DNS timeout after which we report failed event",
-          "examples": [
-            "30s",
-            "5m",
-            "1ms"
+          "enum": [
+            "auto",
+            "tc",
+            "tcx"
           ],
-          "x-env-var": "OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT"
+          "description": "Select the TC attachment backend: accepted values are 'tc' (netlink), and 'tcx'",
+          "x-env-var": "OTEL_EBPF_BPF_TC_BACKEND"
+        },
+        "wakeup_len": {
+          "type": "integer",
+          "description": "WakeupLen specifies how many messages need to be accumulated in the eBPF ringbuffer\nbefore sending a wakeup request.\nHigh values of WakeupLen could add a noticeable metric delay in services with low\nrequests/second.\nMust be at least 0\nTODO: see if there is a way to force eBPF to wakeup userspace on timeout",
+          "x-env-var": "OTEL_EBPF_BPF_WAKEUP_LEN"
         }
       },
       "type": "object",
@@ -464,17 +464,17 @@
       "items": {
         "type": "string",
         "enum": [
-          "network",
-          "network_inter_zone",
-          "application_span_sizes",
-          "application_service_graph",
-          "application_host",
           "*",
+          "all",
           "application",
+          "application_host",
+          "application_service_graph",
           "application_span",
           "application_span_otel",
+          "application_span_sizes",
           "ebpf",
-          "all"
+          "network",
+          "network_inter_zone"
         ]
       },
       "type": "array",
@@ -492,6 +492,62 @@
     },
     "GlobAttributes": {
       "properties": {
+        "containers_only": {
+          "type": "boolean",
+          "description": "ContainersOnly restricts the discovery to processes which are running inside a container"
+        },
+        "exe_path": {
+          "$ref": "#/$defs/GlobAttr",
+          "description": "Path allows defining the regular expression matching the full executable path."
+        },
+        "exports": {
+          "$ref": "#/$defs/ExportModes",
+          "description": "Configures what to export. Allowed values are 'metrics', 'traces',\nor an empty array (disabled). An unspecified value (nil) will use the\ndefault configuration value"
+        },
+        "k8s_container_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_cronjob_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_daemonset_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_deployment_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_job_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_namespace": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_owner_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_pod_annotations": {
+          "additionalProperties": {
+            "$ref": "#/$defs/GlobAttr"
+          },
+          "type": "object",
+          "description": "PodAnnotations allows matching against the annotations of a pod"
+        },
+        "k8s_pod_labels": {
+          "additionalProperties": {
+            "$ref": "#/$defs/GlobAttr"
+          },
+          "type": "object",
+          "description": "PodLabels allows matching against the labels of a pod"
+        },
+        "k8s_pod_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_replicaset_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
+        "k8s_statefulset_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
         "name": {
           "type": "string",
           "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\nName should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
@@ -506,67 +562,11 @@
           "$ref": "#/$defs/PortEnum",
           "description": "OpenPorts allows defining a group of ports that this service could open. It accepts a comma-separated\nlist of port numbers (e.g. 80) and port ranges (e.g. 8080-8089)"
         },
-        "exe_path": {
-          "$ref": "#/$defs/GlobAttr",
-          "description": "Path allows defining the regular expression matching the full executable path."
-        },
-        "k8s_pod_labels": {
-          "additionalProperties": {
-            "$ref": "#/$defs/GlobAttr"
-          },
-          "type": "object",
-          "description": "PodLabels allows matching against the labels of a pod"
-        },
-        "k8s_pod_annotations": {
-          "additionalProperties": {
-            "$ref": "#/$defs/GlobAttr"
-          },
-          "type": "object",
-          "description": "PodAnnotations allows matching against the annotations of a pod"
-        },
-        "containers_only": {
-          "type": "boolean",
-          "description": "ContainersOnly restricts the discovery to processes which are running inside a container"
-        },
-        "exports": {
-          "$ref": "#/$defs/ExportModes",
-          "description": "Configures what to export. Allowed values are 'metrics', 'traces',\nor an empty array (disabled). An unspecified value (nil) will use the\ndefault configuration value"
-        },
-        "sampler": {
-          "$ref": "#/$defs/SamplerConfig"
-        },
         "routes": {
           "$ref": "#/$defs/CustomRoutesConfig"
         },
-        "k8s_job_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_cronjob_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_namespace": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_deployment_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_daemonset_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_owner_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_container_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_pod_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_replicaset_name": {
-          "$ref": "#/$defs/GlobAttr"
-        },
-        "k8s_statefulset_name": {
-          "$ref": "#/$defs/GlobAttr"
+        "sampler": {
+          "$ref": "#/$defs/SamplerConfig"
         }
       },
       "type": "object"
@@ -590,28 +590,23 @@
     },
     "HTTPConfig": {
       "properties": {
-        "graphql": {
-          "$ref": "#/$defs/GraphQLConfig",
-          "description": "GraphQL payload extraction and parsing"
+        "aws": {
+          "$ref": "#/$defs/AWSConfig",
+          "description": "AWS payload extraction and parsing"
         },
         "elasticsearch": {
           "$ref": "#/$defs/ElasticsearchConfig",
           "description": "Elasticsearch payload extraction and parsing"
         },
-        "aws": {
-          "$ref": "#/$defs/AWSConfig",
-          "description": "AWS payload extraction and parsing"
+        "graphql": {
+          "$ref": "#/$defs/GraphQLConfig",
+          "description": "GraphQL payload extraction and parsing"
         }
       },
       "type": "object"
     },
     "HostIDConfig": {
       "properties": {
-        "override": {
-          "type": "string",
-          "description": "Override allows overriding the reported host.id in OBI",
-          "x-env-var": "OTEL_EBPF_HOST_ID"
-        },
         "fetch_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -622,25 +617,30 @@
             "1ms"
           ],
           "x-env-var": "OTEL_EBPF_HOST_ID_FETCH_TIMEOUT"
+        },
+        "override": {
+          "type": "string",
+          "description": "Override allows overriding the reported host.id in OBI",
+          "x-env-var": "OTEL_EBPF_HOST_ID"
         }
       },
       "type": "object"
     },
     "InclusionLists": {
       "properties": {
-        "include": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array",
-          "description": "Include is a list of metric attributes that have to be reported. It can be an attribute\nname or a wildcard (e.g. k8s.dst.* to include all the attributes starting with k8s.dst).\nIf no include list is provided, the default attribute set will be reported."
-        },
         "exclude": {
           "items": {
             "type": "string"
           },
           "type": "array",
           "description": "Exclude will remove attributes from the include list (or the default attribute set).\nIt can be an attribute name or a wildcard."
+        },
+        "include": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Include is a list of metric attributes that have to be reported. It can be an attribute\nname or a wildcard (e.g. k8s.dst.* to include all the attributes starting with k8s.dst).\nIf no include list is provided, the default attribute set will be reported."
         }
       },
       "type": "object"
@@ -663,18 +663,6 @@
     },
     "InternalMetricsConfig": {
       "properties": {
-        "prometheus": {
-          "$ref": "#/$defs/PrometheusConfig"
-        },
-        "exporter": {
-          "type": "string",
-          "enum": [
-            "disabled",
-            "prometheus",
-            "otel"
-          ],
-          "x-env-var": "OTEL_EBPF_INTERNAL_METRICS_EXPORTER"
-        },
         "bpf_metric_scrape_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -684,6 +672,18 @@
             "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL"
+        },
+        "exporter": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "otel",
+            "prometheus"
+          ],
+          "x-env-var": "OTEL_EBPF_INTERNAL_METRICS_EXPORTER"
+        },
+        "prometheus": {
+          "$ref": "#/$defs/PrometheusConfig"
         }
       },
       "type": "object",
@@ -691,34 +691,32 @@
     },
     "KubernetesDecorator": {
       "properties": {
-        "enable": {
-          "type": "string",
-          "enum": [
-            "true",
-            "false",
-            "autodetect"
-          ],
-          "x-env-var": "OTEL_EBPF_KUBE_METADATA_ENABLE"
-        },
         "cluster_name": {
           "type": "string",
           "description": "ClusterName overrides cluster name. If empty, the NetO11y module will try to retrieve\nit from the Cloud Provider Metadata (EC2, GCP and Azure), and leave it empty if it fails to.",
           "x-env-var": "OTEL_EBPF_KUBE_CLUSTER_NAME"
         },
-        "kubeconfig_path": {
-          "type": "string",
-          "description": "KubeconfigPath is optional. If unset, it will look in the usual location.",
-          "x-env-var": "KUBECONFIG"
+        "disable_informers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "DisableInformers allows selectively disabling some informers. Accepted value is a list\nthat might contain node or service. Disabling any of them\nwill cause metadata to be incomplete but will reduce the load of the Kube API.\nPods informer can't be disabled. For that purpose, you should disable the whole\nkubernetes metadata decoration.",
+          "x-env-var": "OTEL_EBPF_KUBE_DISABLE_INFORMERS"
         },
-        "informers_sync_timeout": {
+        "drop_external": {
+          "type": "boolean",
+          "description": "DropExternal will drop, in NetO11y component, any flow where the source or destination\nIPs are not matched to any kubernetes entity, assuming they are cluster-external",
+          "x-env-var": "OTEL_EBPF_NETWORK_DROP_EXTERNAL"
+        },
+        "enable": {
           "type": "string",
-          "pattern": "^[0-9]+(ms|s|m)$",
-          "examples": [
-            "30s",
-            "5m",
-            "1ms"
+          "enum": [
+            "autodetect",
+            "false",
+            "true"
           ],
-          "x-env-var": "OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT"
+          "x-env-var": "OTEL_EBPF_KUBE_METADATA_ENABLE"
         },
         "informers_resync_period": {
           "type": "string",
@@ -731,18 +729,20 @@
           ],
           "x-env-var": "OTEL_EBPF_KUBE_INFORMERS_RESYNC_PERIOD"
         },
-        "drop_external": {
-          "type": "boolean",
-          "description": "DropExternal will drop, in NetO11y component, any flow where the source or destination\nIPs are not matched to any kubernetes entity, assuming they are cluster-external",
-          "x-env-var": "OTEL_EBPF_NETWORK_DROP_EXTERNAL"
+        "informers_sync_timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT"
         },
-        "disable_informers": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array",
-          "description": "DisableInformers allows selectively disabling some informers. Accepted value is a list\nthat might contain node or service. Disabling any of them\nwill cause metadata to be incomplete but will reduce the load of the Kube API.\nPods informer can't be disabled. For that purpose, you should disable the whole\nkubernetes metadata decoration.",
-          "x-env-var": "OTEL_EBPF_KUBE_DISABLE_INFORMERS"
+        "kubeconfig_path": {
+          "type": "string",
+          "description": "KubeconfigPath is optional. If unset, it will look in the usual location.",
+          "x-env-var": "KUBECONFIG"
         },
         "meta_cache_address": {
           "type": "string",
@@ -802,6 +802,64 @@
     },
     "MetricsConfig": {
       "properties": {
+        "OTELIntervalMS": {
+          "type": "integer",
+          "description": "OTELIntervalMS supports metric intervals as specified by the standard OTEL definition.\nOTEL_EBPF_METRICS_INTERVAL takes precedence over it."
+        },
+        "allow_service_graph_self_references": {
+          "type": "boolean",
+          "x-env-var": "OTEL_EBPF_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"
+        },
+        "buckets": {
+          "$ref": "#/$defs/Buckets"
+        },
+        "endpoint": {
+          "type": "string",
+          "x-env-var": "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+        },
+        "extra_span_resource_attributes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "ExtraSpanResourceLabels adds extra metadata labels to OTEL span metrics from sources whose availability can't be known\nbeforehand. For example, to add the OTEL deployment.environment resource attribute as a OTEL resource attribute,\nyou should add `deployment.environment`.",
+          "x-env-var": "OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES"
+        },
+        "features": {
+          "$ref": "#/$defs/Features",
+          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nenvDefault is provided to avoid breaking changes\nuse top-level MetricsConfig.Features instead.",
+          "deprecated": true,
+          "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
+        },
+        "histogram_aggregation": {
+          "type": "string",
+          "x-env-var": "OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION"
+        },
+        "insecure_skip_verify": {
+          "type": "boolean",
+          "description": "InsecureSkipVerify is not standard, so we don't follow the same naming convention",
+          "x-env-var": "OTEL_EBPF_INSECURE_SKIP_VERIFY"
+        },
+        "instrumentations": {
+          "items": {
+            "type": "string",
+            "enum": [
+              "*",
+              "dns",
+              "gpu",
+              "grpc",
+              "http",
+              "kafka",
+              "mongo",
+              "redis",
+              "sql"
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true,
+          "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...",
+          "x-env-var": "OTEL_EBPF_METRICS_INSTRUMENTATIONS"
+        },
         "interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -811,41 +869,6 @@
             "1ms"
           ],
           "x-env-var": "OTEL_EBPF_METRICS_INTERVAL"
-        },
-        "OTELIntervalMS": {
-          "type": "integer",
-          "description": "OTELIntervalMS supports metric intervals as specified by the standard OTEL definition.\nOTEL_EBPF_METRICS_INTERVAL takes precedence over it."
-        },
-        "endpoint": {
-          "type": "string",
-          "x-env-var": "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
-        },
-        "protocol": {
-          "type": "string",
-          "enum": [
-            "",
-            "grpc",
-            "http/protobuf",
-            "http/json",
-            "debug"
-          ],
-          "x-env-var": "OTEL_EXPORTER_OTLP_PROTOCOL"
-        },
-        "insecure_skip_verify": {
-          "type": "boolean",
-          "description": "InsecureSkipVerify is not standard, so we don't follow the same naming convention",
-          "x-env-var": "OTEL_EBPF_INSECURE_SKIP_VERIFY"
-        },
-        "buckets": {
-          "$ref": "#/$defs/Buckets"
-        },
-        "histogram_aggregation": {
-          "type": "string",
-          "x-env-var": "OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION"
-        },
-        "reporters_cache_len": {
-          "type": "integer",
-          "x-env-var": "OTEL_EBPF_METRICS_REPORT_CACHE_LEN"
         },
         "otel_sdk_log_level": {
           "type": "string",
@@ -858,31 +881,20 @@
           "description": "SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode\nand the Info messages leak internal details that are not usually valuable for the final user.",
           "x-env-var": "OTEL_EBPF_SDK_LOG_LEVEL"
         },
-        "features": {
-          "$ref": "#/$defs/Features",
-          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nenvDefault is provided to avoid breaking changes\nuse top-level MetricsConfig.Features instead.",
-          "deprecated": true,
-          "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
+        "protocol": {
+          "type": "string",
+          "enum": [
+            "",
+            "debug",
+            "grpc",
+            "http/json",
+            "http/protobuf"
+          ],
+          "x-env-var": "OTEL_EXPORTER_OTLP_PROTOCOL"
         },
-        "instrumentations": {
-          "items": {
-            "type": "string",
-            "enum": [
-              "*",
-              "http",
-              "grpc",
-              "sql",
-              "redis",
-              "kafka",
-              "gpu",
-              "mongo",
-              "dns"
-            ]
-          },
-          "type": "array",
-          "uniqueItems": true,
-          "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...",
-          "x-env-var": "OTEL_EBPF_METRICS_INSTRUMENTATIONS"
+        "reporters_cache_len": {
+          "type": "integer",
+          "x-env-var": "OTEL_EBPF_METRICS_REPORT_CACHE_LEN"
         },
         "ttl": {
           "type": "string",
@@ -894,24 +906,28 @@
             "1ms"
           ],
           "x-env-var": "OTEL_EBPF_METRICS_TTL"
-        },
-        "allow_service_graph_self_references": {
-          "type": "boolean",
-          "x-env-var": "OTEL_EBPF_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"
-        },
-        "extra_span_resource_attributes": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array",
-          "description": "ExtraSpanResourceLabels adds extra metadata labels to OTEL span metrics from sources whose availability can't be known\nbeforehand. For example, to add the OTEL deployment.environment resource attribute as a OTEL resource attribute,\nyou should add `deployment.environment`.",
-          "x-env-var": "OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES"
         }
       },
       "type": "object"
     },
     "NameResolverConfig": {
       "properties": {
+        "cache_expiry": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "CacheTTL specifies the time-to-live of a cached IP-\u003ehostname entry. After the\ncached entry becomes older than this time, the IP-\u003ehostname entry will be looked\nup again.",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_CACHE_TTL"
+        },
+        "cache_len": {
+          "type": "integer",
+          "description": "CacheLen specifies the max size of the LRU cache that is checked before\nperforming the name lookup. Default: 256",
+          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_CACHE_LEN"
+        },
         "sources": {
           "items": {
             "type": "string",
@@ -926,43 +942,12 @@
           "type": "array",
           "description": "Sources for name resolving. Accepted values: dns, k8s, rdns",
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_SOURCES"
-        },
-        "cache_len": {
-          "type": "integer",
-          "description": "CacheLen specifies the max size of the LRU cache that is checked before\nperforming the name lookup. Default: 256",
-          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_CACHE_LEN"
-        },
-        "cache_expiry": {
-          "type": "string",
-          "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "CacheTTL specifies the time-to-live of a cached IP-\u003ehostname entry. After the\ncached entry becomes older than this time, the IP-\u003ehostname entry will be looked\nup again.",
-          "examples": [
-            "30s",
-            "5m",
-            "1ms"
-          ],
-          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_CACHE_TTL"
         }
       },
       "type": "object"
     },
     "NetworkConfig": {
       "properties": {
-        "enable": {
-          "type": "boolean",
-          "description": "Enable network metrics.\nDefault value is false (disabled)\nadd \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES\nTODO OBI 3.0: remove",
-          "deprecated": true,
-          "x-env-var": "OTEL_EBPF_NETWORK_METRICS"
-        },
-        "source": {
-          "type": "string",
-          "enum": [
-            "tc",
-            "socket_filter"
-          ],
-          "description": "Specify the source type for network events, e.g tc or socket_filter. The tc implementation\ncannot be used when there are other tc eBPF probes, e.g. Cilium CNI.",
-          "x-env-var": "OTEL_EBPF_NETWORK_SOURCE"
-        },
         "agent_ip": {
           "type": "string",
           "format": "ip",
@@ -984,43 +969,6 @@
           "description": "AgentIPType specifies which type of IP address (IPv4 or IPv6 or any) should the agent report\nin the AgentID field of each flow. Accepted values are: any (default), ipv4, ipv6.\nIf the AgentIP configuration property is set, this property has no effect.",
           "x-env-var": "OTEL_EBPF_NETWORK_AGENT_IP_TYPE"
         },
-        "interfaces": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array",
-          "description": "Interfaces contains the interface names from where flows will be collected. If empty, the agent\nwill fetch all the interfaces in the system, excepting the ones listed in ExcludeInterfaces.\nIf an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression,\notherwise it will be matched as a case-sensitive string.",
-          "x-env-var": "OTEL_EBPF_NETWORK_INTERFACES"
-        },
-        "exclude_interfaces": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array",
-          "description": "ExcludeInterfaces contains the interface names that will be excluded from flow tracing. Default:\n\"lo\" (loopback).\nIf an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression,\notherwise it will be matched as a case-sensitive string.",
-          "x-env-var": "OTEL_EBPF_NETWORK_EXCLUDE_INTERFACES"
-        },
-        "protocols": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array",
-          "description": "Protocols causes OBI to drop flows whose transport protocol is not in this list.",
-          "x-env-var": "OTEL_EBPF_NETWORK_PROTOCOLS"
-        },
-        "exclude_protocols": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array",
-          "description": "ExcludeProtocols causes OBI to drop flows whose transport protocol is in this list.\nIf the Protocols list is already defined, ExcludeProtocols has no effect.",
-          "x-env-var": "OTEL_EBPF_NETWORK_EXCLUDE_PROTOCOLS"
-        },
-        "cache_max_flows": {
-          "type": "integer",
-          "description": "CacheMaxFlows specifies how many flows can be accumulated in the accounting cache before\nbeing flushed for its later export. Default value is 5000.\nDecrease it if you see the \"received message larger than max\" error in OBI logs.",
-          "x-env-var": "OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS"
-        },
         "cache_active_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -1032,11 +980,21 @@
           ],
           "x-env-var": "OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT"
         },
+        "cache_max_flows": {
+          "type": "integer",
+          "description": "CacheMaxFlows specifies how many flows can be accumulated in the accounting cache before\nbeing flushed for its later export. Default value is 5000.\nDecrease it if you see the \"received message larger than max\" error in OBI logs.",
+          "x-env-var": "OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS"
+        },
+        "cidrs": {
+          "$ref": "#/$defs/Definitions",
+          "description": "CIDRs list, to be set as the \"src.cidr\" and \"dst.cidr\"\nattribute as a function of the source and destination IP addresses.\nIf an IP does not match any address here, the attributes won't be set.\nIf an IP matches multiple CIDR definitions, the flow will be decorated with the\nnarrowest CIDR. By this reason, you can safely add a 0.0.0.0/0 entry to group there\nall the traffic that does not match any of the other CIDRs.",
+          "x-env-var": "OTEL_EBPF_NETWORK_CIDRS"
+        },
         "deduper": {
           "type": "string",
           "enum": [
-            "none",
-            "first_come"
+            "first_come",
+            "none"
           ],
           "description": "Deduper specifies the deduper type. Accepted values are \"none\" (disabled) and \"first_come\".\nWhen enabled, it will detect duplicate flows (flows that have been detected e.g. through\nboth the physical and a virtual interface).\n\"first_come\" will forward only flows from the first interface the flows are received from.\nDefault value: first_come",
           "x-env-var": "OTEL_EBPF_NETWORK_DEDUPER"
@@ -1055,23 +1013,48 @@
         "direction": {
           "type": "string",
           "enum": [
-            "ingress",
+            "both",
             "egress",
-            "both"
+            "ingress"
           ],
           "description": "Direction allows selecting which flows to trace according to its direction. Accepted values\nare \"ingress\", \"egress\" or \"both\" (default).",
           "x-env-var": "OTEL_EBPF_NETWORK_DIRECTION"
         },
-        "sampling": {
-          "type": "integer",
-          "description": "Sampling holds the rate at which packets should be sampled and sent to the target collector.\nE.g. if set to 100, one out of 100 packets, on average, will be sent to the target collector.",
-          "x-env-var": "OTEL_EBPF_NETWORK_SAMPLING"
+        "enable": {
+          "type": "boolean",
+          "description": "Enable network metrics.\nDefault value is false (disabled)\nadd \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES\nTODO OBI 3.0: remove",
+          "deprecated": true,
+          "x-env-var": "OTEL_EBPF_NETWORK_METRICS"
+        },
+        "exclude_interfaces": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "ExcludeInterfaces contains the interface names that will be excluded from flow tracing. Default:\n\"lo\" (loopback).\nIf an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression,\notherwise it will be matched as a case-sensitive string.",
+          "x-env-var": "OTEL_EBPF_NETWORK_EXCLUDE_INTERFACES"
+        },
+        "exclude_protocols": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "ExcludeProtocols causes OBI to drop flows whose transport protocol is in this list.\nIf the Protocols list is already defined, ExcludeProtocols has no effect.",
+          "x-env-var": "OTEL_EBPF_NETWORK_EXCLUDE_PROTOCOLS"
+        },
+        "interfaces": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Interfaces contains the interface names from where flows will be collected. If empty, the agent\nwill fetch all the interfaces in the system, excepting the ones listed in ExcludeInterfaces.\nIf an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression,\notherwise it will be matched as a case-sensitive string.",
+          "x-env-var": "OTEL_EBPF_NETWORK_INTERFACES"
         },
         "listen_interfaces": {
           "type": "string",
           "enum": [
-            "watch",
-            "poll"
+            "poll",
+            "watch"
           ],
           "description": "ListenInterfaces specifies the mechanism used by the agent to listen for added or removed\nnetwork interfaces. Accepted values are \"watch\" (default) or \"poll\".\nIf the value is \"watch\", interfaces are traced immediately after they are created. This is\nthe recommended setting for most configurations. \"poll\" value is a fallback mechanism that\nperiodically queries the current network interfaces (frequency specified by ListenPollPeriod).",
           "x-env-var": "OTEL_EBPF_NETWORK_LISTEN_INTERFACES"
@@ -1087,19 +1070,36 @@
           ],
           "x-env-var": "OTEL_EBPF_NETWORK_LISTEN_POLL_PERIOD"
         },
-        "reverse_dns": {
-          "$ref": "#/$defs/ReverseDNS",
-          "description": "ReverseDNS allows flows that haven't been previously decorated with any source/destination name\nto override the name with the network hostname of the source and destination IPs.\nThis is an experimental feature and it is not guaranteed to work on most virtualized environments\nfor external traffic."
-        },
         "print_flows": {
           "type": "boolean",
           "description": "Print the network flows in the Standard Output, if true",
           "x-env-var": "OTEL_EBPF_NETWORK_PRINT_FLOWS"
         },
-        "cidrs": {
-          "$ref": "#/$defs/Definitions",
-          "description": "CIDRs list, to be set as the \"src.cidr\" and \"dst.cidr\"\nattribute as a function of the source and destination IP addresses.\nIf an IP does not match any address here, the attributes won't be set.\nIf an IP matches multiple CIDR definitions, the flow will be decorated with the\nnarrowest CIDR. By this reason, you can safely add a 0.0.0.0/0 entry to group there\nall the traffic that does not match any of the other CIDRs.",
-          "x-env-var": "OTEL_EBPF_NETWORK_CIDRS"
+        "protocols": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Protocols causes OBI to drop flows whose transport protocol is not in this list.",
+          "x-env-var": "OTEL_EBPF_NETWORK_PROTOCOLS"
+        },
+        "reverse_dns": {
+          "$ref": "#/$defs/ReverseDNS",
+          "description": "ReverseDNS allows flows that haven't been previously decorated with any source/destination name\nto override the name with the network hostname of the source and destination IPs.\nThis is an experimental feature and it is not guaranteed to work on most virtualized environments\nfor external traffic."
+        },
+        "sampling": {
+          "type": "integer",
+          "description": "Sampling holds the rate at which packets should be sampled and sent to the target collector.\nE.g. if set to 100, one out of 100 packets, on average, will be sent to the target collector.",
+          "x-env-var": "OTEL_EBPF_NETWORK_SAMPLING"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "socket_filter",
+            "tc"
+          ],
+          "description": "Specify the source type for network events, e.g tc or socket_filter. The tc implementation\ncannot be used when there are other tc eBPF probes, e.g. Cilium CNI.",
+          "x-env-var": "OTEL_EBPF_NETWORK_SOURCE"
         }
       },
       "type": "object"
@@ -1133,63 +1133,16 @@
     },
     "PrometheusConfig": {
       "properties": {
-        "port": {
-          "type": "integer",
-          "x-env-var": "OTEL_EBPF_PROMETHEUS_PORT"
-        },
-        "path": {
-          "type": "string",
-          "x-env-var": "OTEL_EBPF_PROMETHEUS_PATH"
-        },
-        "disable_build_info": {
+        "allow_service_graph_self_references": {
           "type": "boolean",
-          "x-env-var": "OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"
-        },
-        "features": {
-          "$ref": "#/$defs/Features",
-          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nuse top-level MetricsConfig.Features instead.",
-          "deprecated": true,
-          "x-env-var": "OTEL_EBPF_PROMETHEUS_FEATURES"
-        },
-        "instrumentations": {
-          "items": {
-            "type": "string",
-            "enum": [
-              "*",
-              "http",
-              "grpc",
-              "sql",
-              "redis",
-              "kafka",
-              "gpu",
-              "mongo",
-              "dns"
-            ]
-          },
-          "type": "array",
-          "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...",
-          "x-env-var": "OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS"
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"
         },
         "buckets": {
           "$ref": "#/$defs/Buckets"
         },
-        "ttl": {
-          "type": "string",
-          "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "TTL is the time since a metric was updated for the last time until it is\nremoved from the metrics set.",
-          "examples": [
-            "30s",
-            "5m",
-            "1ms"
-          ],
-          "x-env-var": "OTEL_EBPF_PROMETHEUS_TTL"
-        },
-        "service_cache_size": {
-          "type": "integer"
-        },
-        "allow_service_graph_self_references": {
+        "disable_build_info": {
           "type": "boolean",
-          "x-env-var": "OTEL_EBPF_PROMETHEUS_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"
         },
         "extra_resource_attributes": {
           "items": {
@@ -1206,6 +1159,53 @@
           "type": "array",
           "description": "ExtraSpanResourceLabels adds extra metadata labels to Prometheus span metrics from sources whose availability can't be known\nbeforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute,\nyou should add `deployment.environment`.",
           "x-env-var": "OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES"
+        },
+        "features": {
+          "$ref": "#/$defs/Features",
+          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nuse top-level MetricsConfig.Features instead.",
+          "deprecated": true,
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_FEATURES"
+        },
+        "instrumentations": {
+          "items": {
+            "type": "string",
+            "enum": [
+              "*",
+              "dns",
+              "gpu",
+              "grpc",
+              "http",
+              "kafka",
+              "mongo",
+              "redis",
+              "sql"
+            ]
+          },
+          "type": "array",
+          "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...",
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS"
+        },
+        "path": {
+          "type": "string",
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_PATH"
+        },
+        "port": {
+          "type": "integer",
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_PORT"
+        },
+        "service_cache_size": {
+          "type": "integer"
+        },
+        "ttl": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "TTL is the time since a metric was updated for the last time until it is\nremoved from the metrics set.",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_TTL"
         }
       },
       "type": "object",
@@ -1233,6 +1233,67 @@
     },
     "RegexSelector": {
       "properties": {
+        "containers_only": {
+          "type": "boolean",
+          "description": "Restrict the discovery to processes which are running inside a container"
+        },
+        "exe_path": {
+          "$ref": "#/$defs/RegexpAttr",
+          "description": "Path allows defining the regular expression matching the full executable path."
+        },
+        "exe_path_regexp": {
+          "$ref": "#/$defs/RegexpAttr",
+          "description": "Please use Path (exe_path YAML attribute)",
+          "deprecated": true
+        },
+        "exports": {
+          "$ref": "#/$defs/ExportModes",
+          "description": "Configures what to export. Allowed values are 'metrics', 'traces',\nor an empty array (disabled). An unspecified value (nil) will use the\ndefault configuration value"
+        },
+        "k8s_container_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_cronjob_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_daemonset_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_deployment_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_job_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_namespace": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_owner_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_pod_annotations": {
+          "additionalProperties": {
+            "$ref": "#/$defs/RegexpAttr"
+          },
+          "type": "object",
+          "description": "PodAnnotations allows matching against the annotations of a pod"
+        },
+        "k8s_pod_labels": {
+          "additionalProperties": {
+            "$ref": "#/$defs/RegexpAttr"
+          },
+          "type": "object",
+          "description": "PodLabels allows matching against the labels of a pod"
+        },
+        "k8s_pod_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_replicaset_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
+        "k8s_statefulset_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
         "name": {
           "type": "string",
           "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\nName should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
@@ -1247,72 +1308,11 @@
           "$ref": "#/$defs/PortEnum",
           "description": "OpenPorts allows defining a group of ports that this service could open. It accepts a comma-separated\nlist of port numbers (e.g. 80) and port ranges (e.g. 8080-8089)"
         },
-        "exe_path": {
-          "$ref": "#/$defs/RegexpAttr",
-          "description": "Path allows defining the regular expression matching the full executable path."
-        },
-        "exe_path_regexp": {
-          "$ref": "#/$defs/RegexpAttr",
-          "description": "Please use Path (exe_path YAML attribute)",
-          "deprecated": true
-        },
-        "k8s_pod_labels": {
-          "additionalProperties": {
-            "$ref": "#/$defs/RegexpAttr"
-          },
-          "type": "object",
-          "description": "PodLabels allows matching against the labels of a pod"
-        },
-        "k8s_pod_annotations": {
-          "additionalProperties": {
-            "$ref": "#/$defs/RegexpAttr"
-          },
-          "type": "object",
-          "description": "PodAnnotations allows matching against the annotations of a pod"
-        },
-        "containers_only": {
-          "type": "boolean",
-          "description": "Restrict the discovery to processes which are running inside a container"
-        },
-        "exports": {
-          "$ref": "#/$defs/ExportModes",
-          "description": "Configures what to export. Allowed values are 'metrics', 'traces',\nor an empty array (disabled). An unspecified value (nil) will use the\ndefault configuration value"
-        },
-        "sampler": {
-          "$ref": "#/$defs/SamplerConfig"
-        },
         "routes": {
           "$ref": "#/$defs/CustomRoutesConfig"
         },
-        "k8s_replicaset_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_statefulset_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_job_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_cronjob_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_namespace": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_deployment_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_daemonset_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_owner_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_container_name": {
-          "$ref": "#/$defs/RegexpAttr"
-        },
-        "k8s_pod_name": {
-          "$ref": "#/$defs/RegexpAttr"
+        "sampler": {
+          "$ref": "#/$defs/SamplerConfig"
         }
       },
       "type": "object",
@@ -1339,21 +1339,6 @@
     },
     "ReverseDNS": {
       "properties": {
-        "type": {
-          "type": "string",
-          "enum": [
-            "none",
-            "local",
-            "ebpf"
-          ],
-          "description": "Type of ReverseDNS. Values are \"none\" (default), \"local\" and \"ebpf\"",
-          "x-env-var": "OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE"
-        },
-        "cache_len": {
-          "type": "integer",
-          "description": "CacheLen only applies to the \"local\" and \"ebpf\" ReverseDNS type. It\nspecifies the max size of the LRU cache that is checked before\nperforming the name lookup. Default: 256",
-          "x-env-var": "OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_LEN"
-        },
         "cache_expiry": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -1364,6 +1349,21 @@
             "1ms"
           ],
           "x-env-var": "OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL"
+        },
+        "cache_len": {
+          "type": "integer",
+          "description": "CacheLen only applies to the \"local\" and \"ebpf\" ReverseDNS type. It\nspecifies the max size of the LRU cache that is checked before\nperforming the name lookup. Default: 256",
+          "x-env-var": "OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_LEN"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "ebpf",
+            "local",
+            "none"
+          ],
+          "description": "Type of ReverseDNS. Values are \"none\" (default), \"local\" and \"ebpf\"",
+          "x-env-var": "OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE"
         }
       },
       "type": "object",
@@ -1386,23 +1386,15 @@
     },
     "RoutesConfig": {
       "properties": {
-        "unmatched": {
+        "ignore_mode": {
           "type": "string",
           "enum": [
-            "unset",
-            "path",
-            "wildcard",
-            "heuristic",
-            "low-cardinality"
+            "all",
+            "metrics",
+            "traces"
           ],
-          "description": "Unmatch specifies what to do when a route pattern is not matched"
-        },
-        "patterns": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array",
-          "description": "Patterns of the paths that will match to a route"
+          "description": "To be removed and replaced by a collector-like filtering mechanism",
+          "deprecated": true
         },
         "ignored_patterns": {
           "items": {
@@ -1412,24 +1404,32 @@
           "description": "To be removed and replaced by a collector-like filtering mechanism",
           "deprecated": true
         },
-        "ignore_mode": {
+        "max_path_segment_cardinality": {
+          "type": "integer",
+          "description": "Max allowed path segment cardinality (per service) for the heuristic matcher"
+        },
+        "patterns": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Patterns of the paths that will match to a route"
+        },
+        "unmatched": {
           "type": "string",
           "enum": [
-            "metrics",
-            "traces",
-            "all"
+            "heuristic",
+            "low-cardinality",
+            "path",
+            "unset",
+            "wildcard"
           ],
-          "description": "To be removed and replaced by a collector-like filtering mechanism",
-          "deprecated": true
+          "description": "Unmatch specifies what to do when a route pattern is not matched"
         },
         "wildcard_char": {
           "type": "string",
           "maxLength": 1,
           "description": "Character that will be used to replace route segments"
-        },
-        "max_path_segment_cardinality": {
-          "type": "integer",
-          "description": "Max allowed path segment cardinality (per service) for the heuristic matcher"
         }
       },
       "type": "object",
@@ -1437,21 +1437,21 @@
     },
     "SamplerConfig": {
       "properties": {
-        "name": {
-          "type": "string",
-          "enum": [
-            "always_on",
-            "always_off",
-            "traceidratio",
-            "parentbased_always_on",
-            "parentbased_always_off",
-            "parentbased_traceidratio"
-          ],
-          "x-env-var": "OTEL_TRACES_SAMPLER"
-        },
         "arg": {
           "type": "string",
           "x-env-var": "OTEL_TRACES_SAMPLER_ARG"
+        },
+        "name": {
+          "type": "string",
+          "enum": [
+            "always_off",
+            "always_on",
+            "parentbased_always_off",
+            "parentbased_always_on",
+            "parentbased_traceidratio",
+            "traceidratio"
+          ],
+          "x-env-var": "OTEL_TRACES_SAMPLER"
         }
       },
       "type": "object",
@@ -1466,64 +1466,6 @@
     },
     "TracesConfig": {
       "properties": {
-        "endpoint": {
-          "type": "string",
-          "x-env-var": "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-        },
-        "protocol": {
-          "type": "string",
-          "enum": [
-            "",
-            "grpc",
-            "http/protobuf",
-            "http/json",
-            "debug"
-          ],
-          "x-env-var": "OTEL_EXPORTER_OTLP_PROTOCOL"
-        },
-        "instrumentations": {
-          "items": {
-            "type": "string",
-            "enum": [
-              "*",
-              "http",
-              "grpc",
-              "sql",
-              "redis",
-              "kafka",
-              "gpu",
-              "mongo",
-              "dns"
-            ]
-          },
-          "type": "array",
-          "uniqueItems": true,
-          "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...",
-          "x-env-var": "OTEL_EBPF_TRACES_INSTRUMENTATIONS"
-        },
-        "insecure_skip_verify": {
-          "type": "boolean",
-          "description": "InsecureSkipVerify is not standard, so we don't follow the same naming convention",
-          "x-env-var": "OTEL_EBPF_INSECURE_SKIP_VERIFY"
-        },
-        "sampler": {
-          "$ref": "#/$defs/SamplerConfig"
-        },
-        "max_queue_size": {
-          "type": "integer",
-          "description": "Configuration options below this line will remain undocumented at the moment,\nbut can be useful for performance-tuning of some customers.",
-          "x-env-var": "OTEL_EBPF_OTLP_TRACES_MAX_QUEUE_SIZE"
-        },
-        "batch_timeout": {
-          "type": "string",
-          "pattern": "^[0-9]+(ms|s|m)$",
-          "examples": [
-            "30s",
-            "5m",
-            "1ms"
-          ],
-          "x-env-var": "OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT"
-        },
         "backoff_initial_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -1534,17 +1476,6 @@
             "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BACKOFF_INITIAL_INTERVAL"
-        },
-        "backoff_max_interval": {
-          "type": "string",
-          "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "BackOffMaxInterval is the upper bound on backoff interval.",
-          "examples": [
-            "30s",
-            "5m",
-            "1ms"
-          ],
-          "x-env-var": "OTEL_EBPF_BACKOFF_MAX_INTERVAL"
         },
         "backoff_max_elapsed_time": {
           "type": "string",
@@ -1557,9 +1488,60 @@
           ],
           "x-env-var": "OTEL_EBPF_BACKOFF_MAX_ELAPSED_TIME"
         },
-        "reporters_cache_len": {
+        "backoff_max_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "BackOffMaxInterval is the upper bound on backoff interval.",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_BACKOFF_MAX_INTERVAL"
+        },
+        "batch_timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT"
+        },
+        "endpoint": {
+          "type": "string",
+          "x-env-var": "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+        },
+        "insecure_skip_verify": {
+          "type": "boolean",
+          "description": "InsecureSkipVerify is not standard, so we don't follow the same naming convention",
+          "x-env-var": "OTEL_EBPF_INSECURE_SKIP_VERIFY"
+        },
+        "instrumentations": {
+          "items": {
+            "type": "string",
+            "enum": [
+              "*",
+              "dns",
+              "gpu",
+              "grpc",
+              "http",
+              "kafka",
+              "mongo",
+              "redis",
+              "sql"
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true,
+          "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...",
+          "x-env-var": "OTEL_EBPF_TRACES_INSTRUMENTATIONS"
+        },
+        "max_queue_size": {
           "type": "integer",
-          "x-env-var": "OTEL_EBPF_TRACES_REPORT_CACHE_LEN"
+          "description": "Configuration options below this line will remain undocumented at the moment,\nbut can be useful for performance-tuning of some customers.",
+          "x-env-var": "OTEL_EBPF_OTLP_TRACES_MAX_QUEUE_SIZE"
         },
         "otel_sdk_log_level": {
           "type": "string",
@@ -1571,51 +1553,52 @@
           ],
           "description": "SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode\nand the Info messages leak internal details that are not usually valuable for the final user.",
           "x-env-var": "OTEL_EBPF_SDK_LOG_LEVEL"
+        },
+        "protocol": {
+          "type": "string",
+          "enum": [
+            "",
+            "debug",
+            "grpc",
+            "http/json",
+            "http/protobuf"
+          ],
+          "x-env-var": "OTEL_EXPORTER_OTLP_PROTOCOL"
+        },
+        "reporters_cache_len": {
+          "type": "integer",
+          "x-env-var": "OTEL_EBPF_TRACES_REPORT_CACHE_LEN"
+        },
+        "sampler": {
+          "$ref": "#/$defs/SamplerConfig"
         }
       },
       "type": "object"
     }
   },
   "properties": {
-    "ebpf": {
-      "$ref": "#/$defs/EBPFTracer"
-    },
-    "network": {
-      "$ref": "#/$defs/NetworkConfig",
-      "description": "NetworkFlows configuration for Network Observability feature"
-    },
-    "filter": {
-      "$ref": "#/$defs/AttributesConfig"
+    "AutoTargetExe": {
+      "$ref": "#/$defs/GlobAttr",
+      "description": "AutoTargetExe selects the executable to instrument matching a Glob against the executable path.\nTo set this value via YAML, use discovery \u003e instrument.\nIt also accepts OTEL_GO_AUTO_TARGET_EXE for compatibility with opentelemetry-go-instrumentation"
     },
     "attributes": {
       "$ref": "#/$defs/Attributes"
     },
-    "routes": {
-      "$ref": "#/$defs/RoutesConfig",
-      "description": "Routes is an optional node. If not set, data will be directly forwarded to exporters."
+    "channel_buffer_len": {
+      "type": "integer",
+      "x-env-var": "OTEL_EBPF_CHANNEL_BUFFER_LEN"
     },
-    "name_resolver": {
-      "$ref": "#/$defs/NameResolverConfig"
+    "discovery": {
+      "$ref": "#/$defs/DiscoveryConfig",
+      "description": "Discovery configuration"
     },
-    "otel_metrics_export": {
-      "$ref": "#/$defs/MetricsConfig"
+    "ebpf": {
+      "$ref": "#/$defs/EBPFTracer"
     },
-    "otel_traces_export": {
-      "$ref": "#/$defs/TracesConfig"
-    },
-    "prometheus_export": {
-      "$ref": "#/$defs/PrometheusConfig"
-    },
-    "trace_printer": {
-      "type": "string",
-      "enum": [
-        "disabled",
-        "counter",
-        "text",
-        "json",
-        "json_indent"
-      ],
-      "x-env-var": "OTEL_EBPF_TRACE_PRINTER"
+    "enforce_sys_caps": {
+      "type": "boolean",
+      "description": "Check for required system capabilities and bail if they are not\npresent. If set to 'false', OBI will still print a list of missing\ncapabilities, but the execution will continue",
+      "x-env-var": "OTEL_EBPF_ENFORCE_SYS_CAPS"
     },
     "executable_path": {
       "$ref": "#/$defs/RegexpAttr",
@@ -1623,14 +1606,66 @@
       "deprecated": true,
       "x-env-var": "OTEL_EBPF_EXECUTABLE_PATH"
     },
-    "AutoTargetExe": {
-      "$ref": "#/$defs/GlobAttr",
-      "description": "AutoTargetExe selects the executable to instrument matching a Glob against the executable path.\nTo set this value via YAML, use discovery \u003e instrument.\nIt also accepts OTEL_GO_AUTO_TARGET_EXE for compatibility with opentelemetry-go-instrumentation"
+    "filter": {
+      "$ref": "#/$defs/AttributesConfig"
+    },
+    "internal_metrics": {
+      "$ref": "#/$defs/InternalMetricsConfig"
+    },
+    "log_config": {
+      "type": "string",
+      "enum": [
+        "json",
+        "yaml"
+      ],
+      "description": "Format of the log configuration during startup",
+      "x-env-var": "OTEL_EBPF_LOG_CONFIG"
+    },
+    "log_level": {
+      "type": "string",
+      "enum": [
+        "DEBUG",
+        "ERROR",
+        "INFO",
+        "WARN"
+      ],
+      "x-env-var": "OTEL_EBPF_LOG_LEVEL"
+    },
+    "metrics": {
+      "$ref": "#/$defs/MetricsConfig",
+      "description": "Metrics is a placeholder for the progressive support of the OTEL declarative configuration."
+    },
+    "name_resolver": {
+      "$ref": "#/$defs/NameResolverConfig"
+    },
+    "network": {
+      "$ref": "#/$defs/NetworkConfig",
+      "description": "NetworkFlows configuration for Network Observability feature"
+    },
+    "nodejs": {
+      "$ref": "#/$defs/NodeJSConfig"
     },
     "open_port": {
       "$ref": "#/$defs/PortEnum",
       "description": "Port allows selecting the instrumented executable that owns the Port value. If this value is set (and\ndifferent to zero), the value of the Exec property won't take effect.\nIt's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter\nwill instrument all the service calls in all the ports, not only the port specified here.",
       "x-env-var": "OTEL_EBPF_OPEN_PORT"
+    },
+    "otel_metrics_export": {
+      "$ref": "#/$defs/MetricsConfig"
+    },
+    "otel_traces_export": {
+      "$ref": "#/$defs/TracesConfig"
+    },
+    "profile_port": {
+      "type": "integer",
+      "x-env-var": "OTEL_EBPF_PROFILE_PORT"
+    },
+    "prometheus_export": {
+      "$ref": "#/$defs/PrometheusConfig"
+    },
+    "routes": {
+      "$ref": "#/$defs/RoutesConfig",
+      "description": "Routes is an optional node. If not set, data will be directly forwarded to exporters."
     },
     "service_name": {
       "type": "string",
@@ -1644,24 +1679,6 @@
       "deprecated": true,
       "x-env-var": "OTEL_EBPF_SERVICE_NAMESPACE"
     },
-    "metrics": {
-      "$ref": "#/$defs/MetricsConfig",
-      "description": "Metrics is a placeholder for the progressive support of the OTEL declarative configuration."
-    },
-    "discovery": {
-      "$ref": "#/$defs/DiscoveryConfig",
-      "description": "Discovery configuration"
-    },
-    "log_level": {
-      "type": "string",
-      "enum": [
-        "DEBUG",
-        "INFO",
-        "WARN",
-        "ERROR"
-      ],
-      "x-env-var": "OTEL_EBPF_LOG_LEVEL"
-    },
     "shutdown_timeout": {
       "type": "string",
       "pattern": "^[0-9]+(ms|s|m)$",
@@ -1673,33 +1690,16 @@
       ],
       "x-env-var": "OTEL_EBPF_SHUTDOWN_TIMEOUT"
     },
-    "enforce_sys_caps": {
-      "type": "boolean",
-      "description": "Check for required system capabilities and bail if they are not\npresent. If set to 'false', OBI will still print a list of missing\ncapabilities, but the execution will continue",
-      "x-env-var": "OTEL_EBPF_ENFORCE_SYS_CAPS"
-    },
-    "channel_buffer_len": {
-      "type": "integer",
-      "x-env-var": "OTEL_EBPF_CHANNEL_BUFFER_LEN"
-    },
-    "profile_port": {
-      "type": "integer",
-      "x-env-var": "OTEL_EBPF_PROFILE_PORT"
-    },
-    "internal_metrics": {
-      "$ref": "#/$defs/InternalMetricsConfig"
-    },
-    "log_config": {
+    "trace_printer": {
       "type": "string",
       "enum": [
-        "yaml",
-        "json"
+        "counter",
+        "disabled",
+        "json",
+        "json_indent",
+        "text"
       ],
-      "description": "Format of the log configuration during startup",
-      "x-env-var": "OTEL_EBPF_LOG_CONFIG"
-    },
-    "nodejs": {
-      "$ref": "#/$defs/NodeJSConfig"
+      "x-env-var": "OTEL_EBPF_TRACE_PRINTER"
     }
   },
   "type": "object",

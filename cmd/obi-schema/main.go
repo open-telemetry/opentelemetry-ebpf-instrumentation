@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -340,6 +341,9 @@ func main() {
 	// Add environment variable annotations
 	processEnvVars(schema)
 
+	// Sort properties for deterministic output
+	sortSchemaProperties(schema)
+
 	data, err := json.MarshalIndent(schema, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error marshaling schema: %v\n", err)
@@ -442,6 +446,66 @@ func addEnvVarsToProperties(schema *jsonschema.Schema, envVars map[string]string
 			}
 			propSchema.Extras["x-env-var"] = envVar
 		}
+	}
+}
+
+// sortSchemaProperties sorts all properties and enums in the schema alphabetically for deterministic output.
+func sortSchemaProperties(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+
+	// Sort the root schema
+	sortSchema(schema)
+
+	// Sort all definitions
+	for _, defSchema := range schema.Definitions {
+		sortSchema(defSchema)
+	}
+}
+
+// sortSchema sorts properties and enum values of a schema alphabetically.
+func sortSchema(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+
+	// Sort enum values if present
+	if len(schema.Enum) > 0 {
+		sort.Slice(schema.Enum, func(i, j int) bool {
+			return fmt.Sprint(schema.Enum[i]) < fmt.Sprint(schema.Enum[j])
+		})
+	}
+
+	// Sort properties if present
+	if schema.Properties != nil {
+		var keys []string
+		for pair := schema.Properties.Oldest(); pair != nil; pair = pair.Next() {
+			keys = append(keys, pair.Key)
+		}
+		sort.Strings(keys)
+
+		newProps := jsonschema.NewProperties()
+		for _, key := range keys {
+			if val, ok := schema.Properties.Get(key); ok {
+				newProps.Set(key, val)
+				sortSchema(val)
+			}
+		}
+		schema.Properties = newProps
+	}
+
+	// Recursively sort nested schemas
+	sortSchema(schema.Items)
+	sortSchema(schema.AdditionalProperties)
+	for _, s := range schema.AllOf {
+		sortSchema(s)
+	}
+	for _, s := range schema.AnyOf {
+		sortSchema(s)
+	}
+	for _, s := range schema.OneOf {
+		sortSchema(s)
 	}
 }
 
