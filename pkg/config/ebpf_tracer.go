@@ -29,7 +29,7 @@ const (
 	StrContextPropagationDisabled = "disabled"
 	StrContextPropagationAll      = "all"
 	StrContextPropagationHeaders  = "headers"
-	StrContextPropagationHttp     = "http"
+	StrContextPropagationHTTP     = "http"
 	StrContextPropagationTCP      = "tcp"
 	StrContextPropagationIP       = "ip"
 )
@@ -168,7 +168,7 @@ func (m *ContextPropagationMode) UnmarshalText(text []byte) error {
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		switch part {
-		case StrContextPropagationHeaders, StrContextPropagationHttp:
+		case StrContextPropagationHeaders, StrContextPropagationHTTP:
 			result |= ContextPropagationHeaders
 		case StrContextPropagationTCP:
 			result |= ContextPropagationTCP
@@ -223,7 +223,7 @@ func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
 				Type: "array",
 				Items: &jsonschema.Schema{
 					Type: "string",
-					Enum: []any{StrContextPropagationHeaders, StrContextPropagationHttp, StrContextPropagationTCP, StrContextPropagationIP},
+					Enum: []any{StrContextPropagationHeaders, StrContextPropagationHTTP, StrContextPropagationTCP, StrContextPropagationIP},
 				},
 				MinItems:    &minItems,
 				UniqueItems: true,

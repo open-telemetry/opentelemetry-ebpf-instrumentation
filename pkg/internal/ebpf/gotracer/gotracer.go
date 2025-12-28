@@ -16,7 +16,6 @@ package gotracer
 
 import (
 	"context"
-	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"io"
 	"log/slog"
 	"unsafe"
@@ -28,6 +27,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
