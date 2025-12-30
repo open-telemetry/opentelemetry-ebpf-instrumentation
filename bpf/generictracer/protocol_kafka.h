@@ -135,7 +135,12 @@ static __always_inline int kafka_store_state_data(const connection_info_t *conn_
     return -1;
 }
 
-// it reads the request header fields and checks if they are valid values ​​and if we support it
+// This function reads all fields in a request header, ignoring the first field (message_size).
+// Specifically, it also checks whether the request_api_key is relevant to us (currently, we're
+// only interested in the Metadata type), whether the request_api_version is valid, and whether
+// the correlation_id is valid.
+// Note: we are interested in request_api_version values ​​between 10 and 13 because
+// these versions contain the topic_id while versions < 9 have directly the topic_name.
 static __always_inline int
 kafka_check_request_header_fields_without_message_size(struct kafka_request_hdr *hdr,
                                                        const unsigned char *data) {
@@ -182,6 +187,13 @@ kafka_check_request_header_fields_without_message_size(struct kafka_request_hdr 
 // +--------------+-----------------+---------------------+----------------|
 // |    4B        |     2B          |     2B              |      4B        |
 // +--------------+-----------------+---------------------+----------------|
+// This function parses the request header. First, it reads the value of the message_size field.
+// If the value is equal to the size of the received data minus the size of message_size itself,
+// then we've just received data that possibly indicates a healthy packet.
+// Otherwise, we need to check if we have a valid message_size saved in the kafka_state map,
+// and if the value of message_size is equal to the size of the received data,
+// which means we've received the entire packet minus the message_size we already had.
+// In both cases, we try to read all the remaining fields and see if it is a intersted and valid packet.
 static __always_inline int kafka_parse_fixup_request_header(const connection_info_t *conn_info,
                                                             struct kafka_request_hdr *hdr,
                                                             const unsigned char *data,
@@ -217,7 +229,8 @@ static __always_inline int kafka_parse_fixup_request_header(const connection_inf
     return -1;
 }
 
-// it reads the response header fields and checks if they are valid values ​​and if we support it
+// This function reads the response header correlation_id field and checks if it is
+// a valid value
 static __always_inline int
 kafka_check_response_header_correlation_id(struct kafka_response_hdr *hdr,
                                            const unsigned char *data) {
@@ -237,6 +250,13 @@ kafka_check_response_header_correlation_id(struct kafka_response_hdr *hdr,
 // +--------------+----------------|
 // |    4B        |       4B.      |
 // +--------------+----------------|
+// This function parses the response header. First, it reads the value of the message_size field.
+// If the value is equal to the size of the received data minus the size of message_size itself,
+// then we've just received data that possibly indicates a healthy packet.
+// Otherwise, we need to check if we have a valid message_size saved in the kafka_state map,
+// and if the value of message_size is equal to the size of the received data,
+// which means we've received the entire packet minus the message_size we already had.
+// In both cases, we need to check if the value of the correlation_id field is valid.
 static __always_inline int kafka_parse_fixup_response_header(const connection_info_t *conn_info,
                                                              struct kafka_response_hdr *hdr,
                                                              const unsigned char *data,
@@ -354,10 +374,12 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
         return 0;
     }
 
-    // if we are here it means that the packet is for sure a good response because
+    // If we are here it means that the packet is for sure a good response because
     // we populated the hdr with message_size and correlation_id
     // we checked also in the map of ongoing requests if there was a related
     // ongoing request so we can hardcode the packet_type as response
+    // **NOTE**: we only send the response as a large buffer event in userspace
+    // because the topic_id and name are in the response.
     large_buf->type = EVENT_TCP_LARGE_BUFFER;
     large_buf->packet_type = PACKET_TYPE_RESPONSE;
 
@@ -381,6 +403,16 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
     return 0;
 }
 
+// This function first checks whether the received event hasn't already been classified as Kafka;
+// it then attempts to save the data in a map if and only if it's a 4 byte packet (we're interested
+// in the message_size field). If the event is of interest to us, we try to parse it as if it were
+// a request, because the sequence of bytes that characterizes a request is better than a response;
+// if that fails, we try parsing it as a response.
+// If we find a request, we save it in an ongoing request map.
+// If we find a response (or at least something that looks like a response from the bytes),
+// we need to perform a further check: see if we have an ongoing request related to this response
+// using the correlation_id.
+// In both cases, if we found a Kafka packet, we update the protocol_cache map and return.
 static __always_inline u8 is_kafka(connection_info_t *conn_info,
                                    const unsigned char *data,
                                    u32 data_len,
