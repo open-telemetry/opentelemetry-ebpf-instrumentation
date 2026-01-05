@@ -28,7 +28,7 @@ func (dc RegexDefinitionCriteria) Validate() error {
 			return fmt.Errorf("index [%d] should define at least one selection criteria", i)
 		}
 		for k := range dc[i].Metadata {
-			if _, ok := allowedAttributeNames[k]; !ok {
+			if _, ok := AllowedAttributeNames[k]; !ok {
 				return fmt.Errorf("unknown attribute in index [%d]: %s", i, k)
 			}
 		}

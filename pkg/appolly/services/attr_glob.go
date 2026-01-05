@@ -27,7 +27,7 @@ func (dc GlobDefinitionCriteria) Validate() error {
 			return fmt.Errorf("entry [%d] should define at least one selection criteria", i)
 		}
 		for k := range dc[i].Metadata {
-			if _, ok := allowedAttributeNames[k]; !ok {
+			if _, ok := AllowedAttributeNames[k]; !ok {
 				return fmt.Errorf("unknown attribute in discovery.services[%d]: %s", i, k)
 			}
 		}
