@@ -69,7 +69,7 @@ type RegexSelector struct {
 	PathRegexp RegexpAttr `yaml:"exe_path_regexp"`
 
 	// Metadata stores other attributes, such as Kubernetes object metadata
-	Metadata map[string]*RegexpAttr `yaml:",inline"`
+	Metadata map[string]*RegexpAttr `yaml:",inline" mapstructure:",remain"`
 
 	// PodLabels allows matching against the labels of a pod
 	PodLabels map[string]*RegexpAttr `yaml:"k8s_pod_labels"`

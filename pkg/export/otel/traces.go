@@ -187,6 +187,27 @@ func instrumentTracesExporter(internalMetrics imetrics.Reporter, in exporter.Tra
 
 //nolint:cyclop
 func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetrics.Reporter) (exporter.Traces, error) {
+	if cfg.TracesConsumer != nil {
+		newType, err := component.NewType("traces")
+		if err != nil {
+			return nil, err
+		}
+		set := getTraceSettings(newType, cfg.SDKLogLevel)
+		// TODO nimrod: do we need this?
+		exp, err := exporterhelper.NewTraces(ctx, set, cfg,
+			cfg.TracesConsumer.ConsumeTraces,
+			//exporterhelper.WithStart(exp.Start),
+			//exporterhelper.WithShutdown(exp.Shutdown),
+			exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
+			//exporterhelper.WithQueue(config.QueueConfig),
+			//exporterhelper.WithRetry(config.RetryConfig))
+		)
+		if err != nil {
+			return nil, err
+		}
+		exp = instrumentTracesExporter(im, exp)
+		return exp, nil
+	}
 	switch proto := cfg.GetProtocol(); proto {
 	case otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf, "": // zero value defaults to HTTP for backwards-compatibility
 		slog.Debug("instantiating HTTP TracesReporter", "protocol", proto)
@@ -206,9 +227,6 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		batchCfg := exporterhelper.BatchConfig{
 			Sizer: queueConfig.Sizer,
 		}
-		if cfg.MaxQueueSize > 0 || cfg.BatchTimeout > 0 {
-			queueConfig.Enabled = true
-		}
 		if cfg.MaxQueueSize > 0 {
 			batchCfg.MaxSize = int64(cfg.MaxQueueSize)
 		}
@@ -217,7 +235,7 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 			batchCfg.MinSize = int64(cfg.MaxQueueSize)
 		}
 		queueConfig.Batch = configoptional.Some(batchCfg)
-		config.QueueConfig = queueConfig
+		config.QueueConfig = configoptional.Some(queueConfig)
 		config.RetryConfig = getRetrySettings(cfg)
 		config.ClientConfig = confighttp.ClientConfig{
 			Endpoint: opts.Scheme + "://" + opts.Endpoint + opts.BaseURLPath,
@@ -263,9 +281,6 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		batchCfg := exporterhelper.BatchConfig{
 			Sizer: queueConfig.Sizer,
 		}
-		if cfg.MaxQueueSize > 0 || cfg.BatchTimeout > 0 {
-			queueConfig.Enabled = true
-		}
 		if cfg.MaxQueueSize > 0 {
 			batchCfg.MaxSize = int64(cfg.MaxQueueSize)
 		}
@@ -274,7 +289,7 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 			batchCfg.MinSize = int64(cfg.MaxQueueSize)
 		}
 		queueConfig.Batch = configoptional.Some(batchCfg)
-		config.QueueConfig = queueConfig
+		config.QueueConfig = configoptional.Some(queueConfig)
 		config.RetryConfig = getRetrySettings(cfg)
 		config.ClientConfig = configgrpc.ClientConfig{
 			Endpoint: endpoint.String(),
@@ -333,7 +348,7 @@ func createZapLoggerDev(sdkLogLevel string) *zap.Logger {
 	return logger
 }
 
-func getTraceSettings(dataTypeMetrics component.Type, sdkLogLevel string) exporter.Settings {
+func getTraceSettings(dataType component.Type, sdkLogLevel string) exporter.Settings {
 	traceProvider := tracenoop.NewTracerProvider()
 	meterProvider := metric.NewMeterProvider()
 
@@ -345,7 +360,7 @@ func getTraceSettings(dataTypeMetrics component.Type, sdkLogLevel string) export
 	}
 
 	return exporter.Settings{
-		ID:                component.NewIDWithName(dataTypeMetrics, "beyla"),
+		ID:                component.NewIDWithName(dataType, "obi"),
 		TelemetrySettings: telemetrySettings,
 	}
 }
