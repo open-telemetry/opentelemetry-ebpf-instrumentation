@@ -5,9 +5,11 @@ package collector // import "go.opentelemetry.io/ebpf-profiler/collector"
 
 import (
 	"errors"
+
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver"
+
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 

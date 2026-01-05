@@ -15,8 +15,9 @@ import (
 	"github.com/caarlos0/env/v9"
 	"github.com/go-playground/validator/v10"
 	"github.com/go-viper/mapstructure/v2"
-	"go.opentelemetry.io/collector/confmap"
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/collector/confmap"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"

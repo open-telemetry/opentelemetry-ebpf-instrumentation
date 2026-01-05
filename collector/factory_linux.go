@@ -7,13 +7,16 @@ package collector // import "go.opentelemetry.io/ebpf-profiler/collector"
 
 import (
 	"context"
+	"log/slog"
+
+	"go.uber.org/zap/exp/zapslog"
+
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/receiver"
+
 	"go.opentelemetry.io/obi/collector/internal"
 	"go.opentelemetry.io/obi/pkg/obi"
-	"go.uber.org/zap/exp/zapslog"
-	"log/slog"
 )
 
 func BuildTracesReceiver() receiver.CreateTracesFunc {

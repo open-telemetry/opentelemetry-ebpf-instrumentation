@@ -5,10 +5,11 @@ package internal // import "go.opentelemetry.io/ebpf-profiler/collector/internal
 
 import (
 	"context"
-	"go.opentelemetry.io/obi/pkg/instrumenter"
-	"go.opentelemetry.io/obi/pkg/obi"
 
 	"go.opentelemetry.io/collector/component"
+
+	"go.opentelemetry.io/obi/pkg/instrumenter"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 type Controller struct {

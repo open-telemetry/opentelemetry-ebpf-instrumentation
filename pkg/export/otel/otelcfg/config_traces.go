@@ -5,13 +5,14 @@ package otelcfg
 
 import (
 	"fmt"
-	"go.opentelemetry.io/collector/consumer"
 	"log/slog"
 	"maps"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/collector/consumer"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"

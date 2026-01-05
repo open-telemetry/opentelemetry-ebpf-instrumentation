@@ -21,6 +21,5 @@ func BuildTracesReceiver(options ...Option) receiver.CreateTracesFunc {
 		_ consumer.Traces,
 	) (xreceiver.Profiles, error) {
 		return nil, errors.New("OBI receiver is only supported on Linux")
-
 	}
 }
