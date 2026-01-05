@@ -15,7 +15,7 @@
 | AWS S3        |    All    |         All | CreateBucket, DeleteBucket, PutObject, DeleteObject, ListBuckets, ListObjects, GetObject |  Yes   |                 No |                                                                                                                 N/A 
 | AWS SQS       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                 N/A 
 
-## Go Tracers
+## Go Instrumentation
 
 Specifically for Go applications, OBI chooses to instrument libraries directly using Uprobes, instead of instrumenting
 at the network level. This allows for more accurate tracing and context propagation.
