@@ -9,7 +9,7 @@ We can follow the guide from opentelemetry.io on [Running and debugging the rece
 ./ocb --config ./builder-config.yaml
 ```
 
-3. Run the collector with the generated distribution:
+1. Run the collector with the generated distribution:
 
 ```bash
 pushd otelcol-dev
@@ -17,17 +17,19 @@ sudo go run . --config ../config.yaml
 popd
 ```
 
-4. Setup a test server on port 8000
+1. Setup a test server on port 8000
+
 ```bash
 python3 -m http.server 8000
 ```
 
-5. Perform an HTTP request to generate some tracing data
+1. Perform an HTTP request to generate some tracing data
+
 ```bash
 curl http://localhost:8000
 ```
 
-6. Check the collector logs to see the received traces
+1. Check the collector logs to see the received traces
 
 ```
 2026-01-05T23:18:08.379+0200    info    ResourceSpans #0
