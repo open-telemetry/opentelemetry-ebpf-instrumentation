@@ -168,6 +168,55 @@ class ByteBufferExtractorTest {
   }
 
   @Test
+  void testFlattenUsedByteBufferArray_WithNullBufferInArray() {
+    ByteBuffer buf1 = ByteBuffer.allocate(3);
+    buf1.put(new byte[] {1, 2, 3});
+    ByteBuffer buf2 = null;
+    ByteBuffer buf3 = ByteBuffer.allocate(2);
+    buf3.put(new byte[] {4, 5});
+    ByteBuffer[] buffers = new ByteBuffer[] {buf1, buf2, buf3};
+
+    ByteBuffer result = ByteBufferExtractor.flattenUsedByteBufferArray(buffers, 5);
+    assertEquals(3, buf1.position());
+    assertEquals(2, buf3.position());
+
+    result.flip();
+    byte[] out = new byte[5];
+    result.get(out);
+    assertArrayEquals(new byte[] {1, 2, 3, 4, 5}, out);
+  }
+
+  @Test
+  void testFlattenUsedByteBufferArray_WithMultipleNullBuffers() {
+    ByteBuffer buf1 = null;
+    ByteBuffer buf2 = ByteBuffer.allocate(3);
+    buf2.put(new byte[] {10, 20, 30});
+    ByteBuffer buf3 = null;
+    ByteBuffer buf4 = ByteBuffer.allocate(2);
+    buf4.put(new byte[] {40, 50});
+    ByteBuffer buf5 = null;
+    ByteBuffer[] buffers = new ByteBuffer[] {buf1, buf2, buf3, buf4, buf5};
+
+    ByteBuffer result = ByteBufferExtractor.flattenUsedByteBufferArray(buffers, 5);
+    assertEquals(3, buf2.position());
+    assertEquals(2, buf4.position());
+
+    result.flip();
+    byte[] out = new byte[5];
+    result.get(out);
+    assertArrayEquals(new byte[] {10, 20, 30, 40, 50}, out);
+  }
+
+  @Test
+  void testFlattenUsedByteBufferArray_AllNullBuffers() {
+    ByteBuffer[] buffers = new ByteBuffer[] {null, null, null};
+
+    ByteBuffer result = ByteBufferExtractor.flattenUsedByteBufferArray(buffers, 10);
+    assertEquals(0, result.position());
+    assertEquals(10, result.capacity());
+  }
+
+  @Test
   void testFlattenFreshByteBufferArray_NullInput() {
     ByteBuffer result = ByteBufferExtractor.flattenFreshByteBufferArray(null);
     assertEquals(0, result.position());
@@ -353,6 +402,59 @@ class ByteBufferExtractorTest {
     assertEquals(800, buf1.limit());
     assertEquals(0, buf2.position());
     assertEquals(800, buf2.limit());
+  }
+
+  @Test
+  void testFlattenFreshByteBufferArray_WithNullBufferInArray() {
+    ByteBuffer buf1 = ByteBuffer.allocate(3);
+    buf1.put(new byte[] {1, 2, 3});
+    buf1.flip();
+    ByteBuffer buf3 = ByteBuffer.allocate(3);
+    buf3.put(new byte[] {4, 5, 6});
+    buf3.position(1);
+    ByteBuffer[] srcs = new ByteBuffer[] {buf1, null, buf3};
+
+    ByteBuffer result = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
+    assertEquals(0, buf1.position());
+    assertEquals(3, buf1.limit());
+    assertEquals(1, buf3.position());
+    assertEquals(3, buf3.limit());
+
+    result.flip();
+    byte[] out = new byte[5];
+    result.get(out);
+    assertArrayEquals(new byte[] {1, 2, 3, 5, 6}, out);
+  }
+
+  @Test
+  void testFlattenFreshByteBufferArray_WithMultipleNullBuffers() {
+    ByteBuffer buf2 = ByteBuffer.allocate(3);
+    buf2.put(new byte[] {10, 20, 30});
+    buf2.flip();
+    ByteBuffer buf4 = ByteBuffer.allocate(2);
+    buf4.put(new byte[] {40, 50});
+    buf4.position(1);
+    ByteBuffer[] srcs = new ByteBuffer[] {null, buf2, null, buf4, null};
+
+    ByteBuffer result = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
+    assertEquals(0, buf2.position());
+    assertEquals(3, buf2.limit());
+    assertEquals(1, buf4.position());
+    assertEquals(2, buf4.limit());
+
+    result.flip();
+    byte[] out = new byte[4];
+    result.get(out);
+    assertArrayEquals(new byte[] {10, 20, 30, 50}, out);
+  }
+
+  @Test
+  void testFlattenFreshByteBufferArray_AllNullBuffers() {
+    ByteBuffer[] srcs = new ByteBuffer[] {null, null, null};
+
+    ByteBuffer result = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
+    assertEquals(0, result.position());
+    assertEquals(ByteBufferExtractor.MAX_SIZE, result.capacity());
   }
 
   @Test
