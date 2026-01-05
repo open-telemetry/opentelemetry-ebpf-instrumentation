@@ -14,8 +14,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.uber.org/zap/exp/zapslog"
 	"log/slog"
-	//"log"
-	//"log/slog"
 )
 
 func BuildTracesReceiver() receiver.CreateTracesFunc {

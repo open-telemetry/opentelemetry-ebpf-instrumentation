@@ -6,8 +6,8 @@ package collector // import "go.opentelemetry.io/ebpf-profiler/collector"
 import (
 	"errors"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver"
-	"go.opentelemetry.io/collector/receiver/xreceiver"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -19,12 +19,15 @@ var (
 
 // NewFactory creates a factory for the receiver.
 func NewFactory() receiver.Factory {
-	return xreceiver.NewFactory(
+	return receiver.NewFactory(
 		typeStr,
 		defaultConfig,
-		xreceiver.WithTraces(BuildTracesReceiver(), component.StabilityLevelAlpha))
+		receiver.WithTraces(BuildTracesReceiver(), component.StabilityLevelAlpha))
 }
 
 func defaultConfig() component.Config {
-	return &obi.DefaultConfig
+	cfg := obi.DefaultConfig
+	// This is a placeholder for the TracesConsumer, without this obi config will be invalid.
+	cfg.Traces.TracesConsumer = consumertest.NewNop()
+	return &cfg
 }

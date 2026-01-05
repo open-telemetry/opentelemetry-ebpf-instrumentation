@@ -322,6 +322,7 @@ func (c *Config) Unmarshal(component *confmap.Conf) error {
 			mapstructure.StringToTimeDurationHookFunc(),
 			mapstructure.TextUnmarshallerHookFunc(),
 			stringSliceToTextUnmarshalerHookFunc(),
+			inlineMetadataHookFunc(),
 		),
 	})
 	if err != nil {
@@ -367,6 +368,66 @@ func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 		}
 
 		return data, nil
+	}
+}
+
+// knownGlobAttributesFields contains the yaml field names that are explicitly defined in GlobAttributes
+var knownGlobAttributesFields = map[string]struct{}{
+	"name": {}, "namespace": {}, "open_ports": {}, "exe_path": {},
+	"k8s_pod_labels": {}, "k8s_pod_annotations": {}, "containers_only": {},
+	"exports": {}, "sampler": {}, "routes": {},
+}
+
+// knownRegexSelectorFields contains the yaml field names that are explicitly defined in RegexSelector
+var knownRegexSelectorFields = map[string]struct{}{
+	"name": {}, "namespace": {}, "open_ports": {}, "exe_path": {}, "exe_path_regexp": {},
+	"k8s_pod_labels": {}, "k8s_pod_annotations": {}, "containers_only": {},
+	"exports": {}, "sampler": {}, "routes": {},
+}
+
+// inlineMetadataHookFunc returns a DecodeHookFunc that handles the ",inline" yaml tag
+// for Metadata fields in GlobAttributes and RegexSelector types.
+// Since mapstructure uses TagName: "yaml" but doesn't understand the yaml ",inline" directive,
+// this hook manually extracts unrecognized keys and places them in the "Metadata" field.
+func inlineMetadataHookFunc() mapstructure.DecodeHookFunc {
+	return func(from reflect.Type, to reflect.Type, data interface{}) (interface{}, error) {
+		// Only process map inputs
+		inputMap, ok := data.(map[string]interface{})
+		if !ok {
+			return data, nil
+		}
+
+		// Check if target type is GlobAttributes or RegexSelector
+		var knownFields map[string]struct{}
+		switch to {
+		case reflect.TypeOf(services.GlobAttributes{}):
+			knownFields = knownGlobAttributesFields
+		case reflect.TypeOf(services.RegexSelector{}):
+			knownFields = knownRegexSelectorFields
+		default:
+			return data, nil
+		}
+
+		// Separate known fields from metadata (inline) fields
+		metadata := make(map[string]interface{})
+		for k, v := range inputMap {
+			if _, isKnown := knownFields[k]; !isKnown {
+				metadata[k] = v
+			}
+		}
+
+		// If there are metadata fields, add them to the input map under "Metadata"
+		// mapstructure will use the struct field name when the yaml tag is ",inline"
+		if len(metadata) > 0 {
+			// Remove metadata keys from the original map
+			for k := range metadata {
+				delete(inputMap, k)
+			}
+			// Add them under the "Metadata" key (matching the struct field name)
+			inputMap["Metadata"] = metadata
+		}
+
+		return inputMap, nil
 	}
 }
 

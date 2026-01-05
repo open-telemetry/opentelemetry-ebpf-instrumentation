@@ -12,6 +12,7 @@ require (
 	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/stdr v1.2.2
 	github.com/go-playground/validator/v10 v10.20.0
+	github.com/go-viper/mapstructure/v2 v2.4.0
 	github.com/gobwas/glob v0.2.3
 	github.com/goccy/go-json v0.10.5
 	github.com/google/uuid v1.6.0
@@ -45,7 +46,7 @@ require (
 	go.opentelemetry.io/collector/config/configretry v1.46.0
 	go.opentelemetry.io/collector/config/configtelemetry v0.140.0
 	go.opentelemetry.io/collector/config/configtls v1.46.0
-	go.opentelemetry.io/collector/confmap/xconfmap v0.140.0
+	go.opentelemetry.io/collector/confmap v1.46.0
 	go.opentelemetry.io/collector/consumer v1.46.0
 	go.opentelemetry.io/collector/consumer/consumertest v0.140.0
 	go.opentelemetry.io/collector/exporter v1.46.0
@@ -126,7 +127,6 @@ require (
 	github.com/go-openapi/swag v0.23.1 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
@@ -173,7 +173,7 @@ require (
 	go.opentelemetry.io/collector/config/configcompression v1.46.0 // indirect
 	go.opentelemetry.io/collector/config/configmiddleware v1.46.0 // indirect
 	go.opentelemetry.io/collector/config/confignet v1.46.0 // indirect
-	go.opentelemetry.io/collector/confmap v1.46.0 // indirect
+	go.opentelemetry.io/collector/confmap/xconfmap v0.140.0 // indirect
 	go.opentelemetry.io/collector/consumer/consumererror v0.140.0 // indirect
 	go.opentelemetry.io/collector/consumer/consumererror/xconsumererror v0.140.0 // indirect
 	go.opentelemetry.io/collector/consumer/xconsumer v0.140.0 // indirect
