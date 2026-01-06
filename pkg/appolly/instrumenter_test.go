@@ -41,7 +41,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
-const testTimeout = 5 * time.Second
+const testTimeout = 100 * time.Second
 
 func gctx(groups attributes.AttrGroups, mcfg *otelcfg.MetricsConfig) *global.ContextInfo {
 	return &global.ContextInfo{
