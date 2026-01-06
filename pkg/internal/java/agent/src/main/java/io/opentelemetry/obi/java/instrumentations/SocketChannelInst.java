@@ -73,6 +73,9 @@ public class SocketChannelInst {
   public static final class WriteAdvice {
     @Advice.OnMethodEnter
     public static void write(@Advice.Argument(0) final ByteBuffer src) {
+      if (src == null) {
+        return;
+      }
       SSLStorage.bufPos.set(src.position());
     }
 
@@ -135,6 +138,10 @@ public class SocketChannelInst {
       }
       int[] positions = new int[srcs.length];
       for (int i = 0; i < srcs.length; i++) {
+        if (srcs[i] == null) {
+          positions[i] = -1;
+          continue;
+        }
         positions[i] = srcs[i].position();
       }
 
@@ -160,13 +167,21 @@ public class SocketChannelInst {
       }
 
       for (int i = 0; i < srcs.length; i++) {
+        if (srcs[i] == null) {
+          continue;
+        }
         oldSrcPositions[i] = srcs[i].position();
-        srcs[i].position(savedSrcPositions[i]);
+        if (oldSrcPositions[i] != -1) {
+          srcs[i].position(savedSrcPositions[i]);
+        }
       }
 
       ByteBuffer srcBuffer = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
 
       for (int i = 0; i < srcs.length; i++) {
+        if (srcs[i] == null) {
+          continue;
+        }
         srcs[i].position(oldSrcPositions[i]);
       }
 
