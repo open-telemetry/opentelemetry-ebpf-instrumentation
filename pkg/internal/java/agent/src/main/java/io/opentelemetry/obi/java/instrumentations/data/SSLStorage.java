@@ -137,14 +137,14 @@ public class SSLStorage {
     if (task == null) {
       return;
     }
-    tasks.put(task.hashCode(), threadId);
+    tasks.put(System.identityHashCode(task), threadId);
   }
 
   public static void untrackTask(Object task) {
     if (task == null) {
       return;
     }
-    tasks.invalidate(task.hashCode());
+    tasks.invalidate(System.identityHashCode(task));
   }
 
   public static Long parentThreadId(Object task) {
@@ -152,6 +152,6 @@ public class SSLStorage {
       return null;
     }
 
-    return tasks.getIfPresent(task.hashCode());
+    return tasks.getIfPresent(System.identityHashCode(task));
   }
 }
