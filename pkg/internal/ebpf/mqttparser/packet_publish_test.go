@@ -375,8 +375,7 @@ func TestQoSLevel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, uint8(tt.qos), uint8(tt.qos))
-			// QoS levels are just constants, testing they have expected values
+			// QoS levels are constants, testing they have expected values
 			switch tt.qos {
 			case QoSAtMostOnce:
 				assert.Equal(t, uint8(0), uint8(tt.qos))
