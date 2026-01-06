@@ -339,7 +339,7 @@ func (c *Config) Unmarshal(component *confmap.Conf) error {
 // This handles types like Features and ExportModes that have UnmarshalYAML for
 // YAML sequences but also support comma-separated text via UnmarshalText.
 func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
-	return func(from reflect.Type, to reflect.Type, data interface{}) (interface{}, error) {
+	return func(_ reflect.Type, to reflect.Type, data any) (any, error) {
 		// Check if target implements TextUnmarshaler
 		if to.Kind() == reflect.Ptr {
 			to = to.Elem()
@@ -349,8 +349,7 @@ func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 			return data, nil
 		}
 
-		// Handle []interface{} (common from YAML/JSON parsing)
-		if slice, ok := data.([]interface{}); ok {
+		if slice, ok := data.([]any); ok {
 			strs := make([]string, 0, len(slice))
 			for _, v := range slice {
 				if s, ok := v.(string); ok {
@@ -377,9 +376,9 @@ func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 // Since mapstructure uses TagName: "yaml" but doesn't understand the yaml ",inline" directive,
 // this hook manually extracts keys that are in AllowedAttributeNames and places them in the "Metadata" field.
 func inlineMetadataHookFunc() mapstructure.DecodeHookFunc {
-	return func(from reflect.Type, to reflect.Type, data interface{}) (interface{}, error) {
+	return func(_ reflect.Type, to reflect.Type, data any) (any, error) {
 		// Only process map inputs
-		inputMap, ok := data.(map[string]interface{})
+		inputMap, ok := data.(map[string]any)
 		if !ok {
 			return data, nil
 		}
@@ -393,7 +392,7 @@ func inlineMetadataHookFunc() mapstructure.DecodeHookFunc {
 		}
 
 		// Extract fields that are in AllowedAttributeNames into metadata
-		metadata := make(map[string]interface{})
+		metadata := make(map[string]any)
 		for k, v := range inputMap {
 			if _, isAllowed := services.AllowedAttributeNames[k]; isAllowed {
 				metadata[k] = v

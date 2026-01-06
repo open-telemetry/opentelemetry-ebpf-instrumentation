@@ -30,7 +30,7 @@ func setDefaultLogger(rs receiver.Settings) {
 }
 
 func BuildTracesReceiver() receiver.CreateTracesFunc {
-	return func(ctx context.Context,
+	return func(_ context.Context,
 		rs receiver.Settings,
 		baseCfg component.Config,
 		nextConsumer consumer.Traces,
@@ -48,7 +48,7 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 }
 
 func BuildMetricsReceiver() receiver.CreateMetricsFunc {
-	return func(ctx context.Context,
+	return func(_ context.Context,
 		rs receiver.Settings,
 		baseCfg component.Config,
 		nextConsumer consumer.Metrics,

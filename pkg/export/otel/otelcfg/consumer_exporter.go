@@ -27,7 +27,7 @@ func NewConsumerExporter(c consumer.Metrics) *ConsumerExporter {
 }
 
 // Temporality returns the temporality to use for the given instrument kind.
-func (e *ConsumerExporter) Temporality(kind sdkmetric.InstrumentKind) metricdata.Temporality {
+func (e *ConsumerExporter) Temporality(_ sdkmetric.InstrumentKind) metricdata.Temporality {
 	// Default to cumulative temporality for all instrument kinds
 	return metricdata.CumulativeTemporality
 }
@@ -47,12 +47,12 @@ func (e *ConsumerExporter) Export(ctx context.Context, rm *metricdata.ResourceMe
 }
 
 // ForceFlush is a no-op for this exporter.
-func (e *ConsumerExporter) ForceFlush(ctx context.Context) error {
+func (e *ConsumerExporter) ForceFlush(_ context.Context) error {
 	return nil
 }
 
 // Shutdown is a no-op for this exporter.
-func (e *ConsumerExporter) Shutdown(ctx context.Context) error {
+func (e *ConsumerExporter) Shutdown(_ context.Context) error {
 	return nil
 }
 
@@ -216,11 +216,11 @@ func convertHistogramInt64(data metricdata.Histogram[int64], pm pmetric.Metric) 
 		pdp := hist.DataPoints().AppendEmpty()
 		pdp.SetCount(dp.Count)
 		pdp.SetSum(float64(dp.Sum))
-		if min, defined := dp.Min.Value(); defined {
-			pdp.SetMin(float64(min))
+		if minValue, defined := dp.Min.Value(); defined {
+			pdp.SetMin(float64(minValue))
 		}
-		if max, defined := dp.Max.Value(); defined {
-			pdp.SetMax(float64(max))
+		if maxValue, defined := dp.Max.Value(); defined {
+			pdp.SetMax(float64(maxValue))
 		}
 		pdp.SetTimestamp(pcommon.NewTimestampFromTime(dp.Time))
 		pdp.SetStartTimestamp(pcommon.NewTimestampFromTime(dp.StartTime))
@@ -238,11 +238,11 @@ func convertHistogramFloat64(data metricdata.Histogram[float64], pm pmetric.Metr
 		pdp := hist.DataPoints().AppendEmpty()
 		pdp.SetCount(dp.Count)
 		pdp.SetSum(dp.Sum)
-		if min, defined := dp.Min.Value(); defined {
-			pdp.SetMin(min)
+		if minValue, defined := dp.Min.Value(); defined {
+			pdp.SetMin(minValue)
 		}
-		if max, defined := dp.Max.Value(); defined {
-			pdp.SetMax(max)
+		if maxValue, defined := dp.Max.Value(); defined {
+			pdp.SetMax(maxValue)
 		}
 		pdp.SetTimestamp(pcommon.NewTimestampFromTime(dp.Time))
 		pdp.SetStartTimestamp(pcommon.NewTimestampFromTime(dp.StartTime))
@@ -260,11 +260,11 @@ func convertExponentialHistogramInt64(data metricdata.ExponentialHistogram[int64
 		pdp := hist.DataPoints().AppendEmpty()
 		pdp.SetCount(dp.Count)
 		pdp.SetSum(float64(dp.Sum))
-		if min, defined := dp.Min.Value(); defined {
-			pdp.SetMin(float64(min))
+		if minValue, defined := dp.Min.Value(); defined {
+			pdp.SetMin(float64(minValue))
 		}
-		if max, defined := dp.Max.Value(); defined {
-			pdp.SetMax(float64(max))
+		if maxValue, defined := dp.Max.Value(); defined {
+			pdp.SetMax(float64(maxValue))
 		}
 		pdp.SetScale(dp.Scale)
 		pdp.SetZeroCount(dp.ZeroCount)
@@ -287,11 +287,11 @@ func convertExponentialHistogramFloat64(data metricdata.ExponentialHistogram[flo
 		pdp := hist.DataPoints().AppendEmpty()
 		pdp.SetCount(dp.Count)
 		pdp.SetSum(dp.Sum)
-		if min, defined := dp.Min.Value(); defined {
-			pdp.SetMin(min)
+		if minValue, defined := dp.Min.Value(); defined {
+			pdp.SetMin(minValue)
 		}
-		if max, defined := dp.Max.Value(); defined {
-			pdp.SetMax(max)
+		if maxValue, defined := dp.Max.Value(); defined {
+			pdp.SetMax(maxValue)
 		}
 		pdp.SetScale(dp.Scale)
 		pdp.SetZeroCount(dp.ZeroCount)
