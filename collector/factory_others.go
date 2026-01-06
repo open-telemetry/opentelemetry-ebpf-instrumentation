@@ -14,12 +14,24 @@ import (
 	"go.opentelemetry.io/collector/receiver"
 )
 
-func BuildTracesReceiver(options ...Option) receiver.CreateTracesFunc {
+var errNotLinux = errors.New("OBI receiver is only supported on Linux")
+
+func BuildTracesReceiver() receiver.CreateTracesFunc {
 	return func(_ context.Context,
 		_ receiver.Settings,
 		_ component.Config,
 		_ consumer.Traces,
-	) (xreceiver.Profiles, error) {
-		return nil, errors.New("OBI receiver is only supported on Linux")
+	) (receiver.Traces, error) {
+		return nil, errNotLinux
+	}
+}
+
+func BuildMetricsReceiver() receiver.CreateMetricsFunc {
+	return func(_ context.Context,
+		_ receiver.Settings,
+		_ component.Config,
+		_ consumer.Metrics,
+	) (receiver.Metrics, error) {
+		return nil, errNotLinux
 	}
 }
