@@ -27,7 +27,7 @@ public class SSLStorage {
 
   private static final Cache<String, Connection> bufConn =
       Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
-  
+
   private static final Cache<Connection, Connection> activeConnections =
       Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
 
@@ -153,5 +153,5 @@ public class SSLStorage {
     }
 
     return tasks.getIfPresent(task.hashCode());
-  } 
+  }
 }

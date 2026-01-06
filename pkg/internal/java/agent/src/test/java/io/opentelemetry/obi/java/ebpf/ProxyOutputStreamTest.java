@@ -27,7 +27,7 @@ class ProxyOutputStreamTest {
 
     public int gettid() {
       return 1;
-    }  
+    }
   }
 
   @BeforeEach
