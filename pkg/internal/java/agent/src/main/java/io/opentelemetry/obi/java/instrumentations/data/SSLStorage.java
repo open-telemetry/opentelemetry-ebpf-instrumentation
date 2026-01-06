@@ -27,8 +27,11 @@ public class SSLStorage {
 
   private static final Cache<String, Connection> bufConn =
       Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
-  ;
+  
   private static final Cache<Connection, Connection> activeConnections =
+      Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
+
+  private static final Cache<Integer, Long> tasks =
       Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
 
   public static final ThreadLocal<BytesWithLen> unencrypted = new ThreadLocal<>();
@@ -129,4 +132,26 @@ public class SSLStorage {
 
     return bootDebugOn;
   }
+
+  public static void trackTask(long threadId, Object task) {
+    if (task == null) {
+      return;
+    }
+    tasks.put(task.hashCode(), threadId);
+  }
+
+  public static void untrackTask(Object task) {
+    if (task == null) {
+      return;
+    }
+    tasks.invalidate(task.hashCode());
+  }
+
+  public static Long parentThreadId(Object task) {
+    if (task == null) {
+      return null;
+    }
+
+    return tasks.getIfPresent(task.hashCode());
+  } 
 }

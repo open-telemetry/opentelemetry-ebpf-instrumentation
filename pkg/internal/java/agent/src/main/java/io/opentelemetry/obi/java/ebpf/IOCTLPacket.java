@@ -60,4 +60,11 @@ public class IOCTLPacket {
   public static int writePacketBuffer(Pointer mem, int off, byte[] buf) {
     return writePacketBuffer(mem, off, buf, 0, buf.length);
   }
+
+  public static int writePacket(Pointer mem, int off, OperationType type, long parentId) {
+    mem.setByte(off, type.code);
+    off++;
+    off = ThreadInfo.writeThreadContext(mem, off, parentId);
+    return off;
+  }
 }
