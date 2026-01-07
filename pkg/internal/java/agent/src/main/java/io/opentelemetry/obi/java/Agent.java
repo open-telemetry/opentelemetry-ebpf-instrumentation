@@ -190,6 +190,7 @@ public class Agent {
     Class.forName(ProxyOutputStream.class.getName());
     Class.forName(ProxyInputStream.class.getName());
     Class.forName(ConnectionInfo.class.getName());
+    Class.forName(ThreadInfo.class.getName());
     Class.forName(IOCTLPacket.class.getName());
     Class.forName(OperationType.class.getName());
     Class.forName(Agent.class.getName());

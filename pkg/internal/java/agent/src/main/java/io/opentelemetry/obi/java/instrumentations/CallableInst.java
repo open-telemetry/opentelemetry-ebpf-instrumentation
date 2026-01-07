@@ -50,8 +50,15 @@ public class CallableInst {
     public static void enter(@Advice.This Callable<?> task) {
       Long parentId = SSLStorage.parentThreadId(task);
       if (parentId != null) {
-        if (SSLStorage.debugOn) {
-          System.err.println("[CallableAdvice] task = " + task.hashCode());
+        long threadId = Agent.CLibrary.INSTANCE.gettid();
+        if (SSLStorage.bootDebugOn().equals(true)) {
+          System.err.println(
+              "[CallableAdvice] task = "
+                  + task.hashCode()
+                  + ", parent = "
+                  + parentId
+                  + ", thread = "
+                  + threadId);
         }
         Pointer p = new Memory(IOCTLPacket.packetPrefixSize);
         int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);

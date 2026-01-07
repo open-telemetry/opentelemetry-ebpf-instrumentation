@@ -133,6 +133,20 @@ public class SSLStorage {
     return bootDebugOn;
   }
 
+  public static Object bootDebugOn() {
+    try {
+      Field debugOn = getBootDebugOn();
+      if (debugOn == null) {
+        return false;
+      }
+      return debugOn.get(null);
+    } catch (Exception x) {
+      System.err.println("[SSLStorage] Failed to get boot debug on " + x);
+    }
+
+    return false;
+  }
+
   public static void trackTask(long threadId, Object task) {
     if (task == null) {
       return;

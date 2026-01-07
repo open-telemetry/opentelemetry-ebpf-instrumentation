@@ -5,7 +5,11 @@
 
 package io.opentelemetry.obi.java.instrumentations;
 
+import com.sun.jna.Memory;
+import com.sun.jna.Pointer;
 import io.opentelemetry.obi.java.Agent;
+import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
+import io.opentelemetry.obi.java.ebpf.OperationType;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.util.Collection;
 import java.util.Collections;
@@ -102,13 +106,33 @@ public class JavaExecutorInst {
   @SuppressWarnings("unused")
   public static final class SetExecuteRunnableStateAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static void enterJobSubmit(@Advice.Argument(value = 0, readOnly = false) Runnable task) {
+    public static void enterJobSubmit(
+        @Advice.Argument(value = 0, readOnly = false) Runnable task, @Advice.Origin String method) {
       long threadId = Agent.CLibrary.INSTANCE.gettid();
+      Long parentId = SSLStorage.parentThreadId(task);
+      if (parentId != null) {
+        if (SSLStorage.bootDebugOn().equals(true)) {
+          System.err.println(
+              "[SetExecuteRunnableStateAdvice] task = "
+                  + task.hashCode()
+                  + ", parent = "
+                  + parentId
+                  + ", thread = "
+                  + threadId);
+        }
+        Pointer p = new Memory(IOCTLPacket.packetPrefixSize);
+        int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
+        Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+      }
+
       SSLStorage.trackTask(threadId, task);
-      if (SSLStorage.debugOn) {
+      if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
             "[SetExecuteRunnableStateAdvice] "
-                + threadId
+                + "("
+                + method
+                + ")"
+                + +threadId
                 + " enter jobSubmit task = "
                 + task.hashCode());
       }
@@ -126,10 +150,14 @@ public class JavaExecutorInst {
   @SuppressWarnings("unused")
   public static final class SetJavaForkJoinStateAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static void enterJobSubmit(@Advice.Argument(0) ForkJoinTask<?> task) {
-      if (SSLStorage.debugOn) {
+    public static void enterJobSubmit(
+        @Advice.Argument(0) ForkJoinTask<?> task, @Advice.Origin String method) {
+      if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
-            "[SetJavaForkJoinStateAdvice] enter jobSubmit task = " + task.hashCode());
+            "[SetJavaForkJoinStateAdvice] ("
+                + method
+                + ") enter jobSubmit task = "
+                + task.hashCode());
       }
       long threadId = Agent.CLibrary.INSTANCE.gettid();
       SSLStorage.trackTask(threadId, task);
@@ -148,7 +176,7 @@ public class JavaExecutorInst {
   public static class SetSubmitRunnableStateAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enterJobSubmit(@Advice.Argument(value = 0, readOnly = false) Runnable task) {
-      if (SSLStorage.debugOn) {
+      if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
             "[SetSubmitRunnableStateAdvice] enter jobSubmit task = " + task.hashCode());
       }
@@ -170,11 +198,28 @@ public class JavaExecutorInst {
   @SuppressWarnings("unused")
   public static class SetCallableStateAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static void enterJobSubmit(@Advice.Argument(0) Callable<?> task) {
-      if (SSLStorage.debugOn) {
-        System.err.println("[SetCallableStateAdvice] enter jobSubmit task = " + task.hashCode());
-      }
+    public static void enterJobSubmit(
+        @Advice.Argument(0) Callable<?> task, @Advice.Origin String method) {
       long threadId = Agent.CLibrary.INSTANCE.gettid();
+      Long parentId = SSLStorage.parentThreadId(task);
+      if (SSLStorage.bootDebugOn().equals(true)) {
+        System.err.println(
+            "[SetCallableStateAdvice] task = "
+                + task.hashCode()
+                + ", parent = "
+                + parentId
+                + ", thread = "
+                + threadId);
+      }
+      if (parentId != null) {
+        Pointer p = new Memory(IOCTLPacket.packetPrefixSize);
+        int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
+        Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+      }
+      if (SSLStorage.bootDebugOn().equals(true)) {
+        System.err.println(
+            "[SetCallableStateAdvice] (" + method + ") enter jobSubmit task = " + task.hashCode());
+      }
       SSLStorage.trackTask(threadId, task);
     }
 
@@ -185,6 +230,22 @@ public class JavaExecutorInst {
         @Advice.Return Future<?> future) {
       if (throwable != null) {
         SSLStorage.untrackTask(task);
+      }
+
+      try {
+        if (future != null) {
+          long threadId = Agent.CLibrary.INSTANCE.gettid();
+          SSLStorage.trackTask(threadId, future);
+          if (SSLStorage.bootDebugOn().equals(true)) {
+            System.err.println(
+                "[SetCallableStateAdvice] exit jobSubmit return task = "
+                    + future.hashCode()
+                    + ", thread = "
+                    + threadId);
+          }
+        }
+      } catch (Throwable t) {
+        t.printStackTrace();
       }
     }
   }
@@ -198,7 +259,7 @@ public class JavaExecutorInst {
         return Collections.emptyList();
       }
 
-      if (SSLStorage.debugOn) {
+      if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
             "[SetCallableStateForCallableCollectionAdvice] enter jobSubmit tasks = "
                 + tasks.hashCode());
@@ -215,12 +276,11 @@ public class JavaExecutorInst {
     @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
     public static void submitExit(
         @Advice.Enter Collection<? extends Callable<?>> tasks, @Advice.Thrown Throwable throwable) {
-      if (SSLStorage.debugOn) {
+      if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
             "[SetCallableStateForCallableCollectionAdvice] exit jobSubmit tasks = "
                 + tasks.hashCode());
       }
-
       if (throwable != null) {
         for (Callable<?> task : tasks) {
           SSLStorage.untrackTask(task);

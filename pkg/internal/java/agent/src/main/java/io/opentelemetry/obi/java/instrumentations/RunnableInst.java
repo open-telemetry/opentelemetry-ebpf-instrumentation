@@ -39,8 +39,15 @@ public class RunnableInst {
     public static void enter(@Advice.This Runnable task) {
       Long parentId = SSLStorage.parentThreadId(task);
       if (parentId != null) {
-        if (SSLStorage.debugOn) {
-          System.err.println("[RunnableAdvice] task = " + task.hashCode());
+        long threadId = Agent.CLibrary.INSTANCE.gettid();
+        if (SSLStorage.bootDebugOn().equals(true)) {
+          System.err.println(
+              "[RunnableAdvice] task = "
+                  + task.hashCode()
+                  + ", parent = "
+                  + parentId
+                  + ", thread = "
+                  + threadId);
         }
         Pointer p = new Memory(IOCTLPacket.packetPrefixSize);
         int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);

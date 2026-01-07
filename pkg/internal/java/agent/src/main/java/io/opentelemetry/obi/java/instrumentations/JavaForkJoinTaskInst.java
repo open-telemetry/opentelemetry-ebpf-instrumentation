@@ -38,6 +38,13 @@ public class JavaForkJoinTaskInst {
                                 ElementMatchers.takesArguments(0)
                                     .and(ElementMatchers.not(ElementMatchers.isAbstract())))))
             .visit(
+                Advice.to(ForkJoinTaskAdvice.class)
+                    .on(
+                        ElementMatchers.named("doExec")
+                            .and(
+                                ElementMatchers.takesArguments(0)
+                                    .and(ElementMatchers.not(ElementMatchers.isAbstract())))))
+            .visit(
                 Advice.to(ForkAdvice.class)
                     .on(ElementMatchers.named("fork").and(ElementMatchers.takesArguments(0))));
   }
@@ -45,17 +52,17 @@ public class JavaForkJoinTaskInst {
   @SuppressWarnings("unused")
   public static final class ForkAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static void enterJobSubmit(@Advice.Argument(0) ForkJoinTask<?> task) {
+    public static void enterJobSubmit(@Advice.This ForkJoinTask<?> task) {
       long threadId = Agent.CLibrary.INSTANCE.gettid();
       SSLStorage.trackTask(threadId, task);
-      if (SSLStorage.debugOn) {
+      if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println("[ForkAdvice] " + threadId + "fork task = " + task.hashCode());
       }
     }
 
     @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
     public static void exitJobSubmit(
-        @Advice.Argument(0) ForkJoinTask<?> task, @Advice.Thrown Throwable throwable) {
+        @Advice.This ForkJoinTask<?> task, @Advice.Thrown Throwable throwable) {
       if (throwable != null) {
         SSLStorage.untrackTask(task);
       }
@@ -66,12 +73,21 @@ public class JavaForkJoinTaskInst {
   public static final class ForkJoinTaskAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enterJobSubmit(
-        @Advice.Argument(value = 0, readOnly = false) ForkJoinTask<?> task) {
+        @Advice.This ForkJoinTask<?> task, @Advice.Origin String method) {
       Long parentId = SSLStorage.parentThreadId(task);
+      long threadId = Agent.CLibrary.INSTANCE.gettid();
+      if (SSLStorage.bootDebugOn().equals(true)) {
+        System.err.println(
+            "[ForkJoinTaskAdvice] ("
+                + method
+                + ") exec task = "
+                + task.hashCode()
+                + ", parent = "
+                + parentId
+                + ", thread = "
+                + threadId);
+      }
       if (parentId != null) {
-        if (SSLStorage.debugOn) {
-          System.err.println("[ForkJoinTaskAdvice] exec task = " + task.hashCode());
-        }
         Pointer p = new Memory(IOCTLPacket.packetPrefixSize);
         int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
         Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
