@@ -18,6 +18,9 @@
 
 // This implementation is a derivation of the code in
 // https://github.com/netobserv/netobserv-ebpf-agent/tree/release-1.4
+
+// Package cni provides utilities
+// for working with Container Network Interface (CNI) configurations.
 package cni
 
 import (
