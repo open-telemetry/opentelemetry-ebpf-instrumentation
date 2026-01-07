@@ -156,6 +156,10 @@ public class SSLEngineInst {
 
       int[] positions = new int[dsts.length];
       for (int i = 0; i < dsts.length; i++) {
+        if (dsts[i] == null) {
+          positions[i] = -1;
+          continue;
+        }
         positions[i] = dsts[i].position();
       }
 
@@ -205,13 +209,21 @@ public class SSLEngineInst {
         }
 
         for (int i = 0; i < dsts.length; i++) {
+          if (dsts[i] == null) {
+            continue;
+          }
           oldDstPositions[i] = dsts[i].position();
-          dsts[i].position(savedDstPositions[i]);
+          if (savedDstPositions[i] != -1) {
+            dsts[i].position(savedDstPositions[i]);
+          }
         }
 
         ByteBuffer dstBuffer = ByteBufferExtractor.flattenFreshByteBufferArray(dsts);
 
         for (int i = 0; i < dsts.length; i++) {
+          if (dsts[i] == null) {
+            continue;
+          }
           dsts[i].position(oldDstPositions[i]);
         }
 
@@ -263,7 +275,7 @@ public class SSLEngineInst {
         @Advice.Argument(0) final ByteBuffer src,
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
-      if (engine == null || src == null || dst == null) {
+      if (src == null || dst == null) {
         return;
       }
       if (engine.getSession().getId().length == 0) {
@@ -314,7 +326,7 @@ public class SSLEngineInst {
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer[] srcs) {
-      if (engine == null || srcs == null) {
+      if (srcs == null) {
         return;
       }
       if (srcs.length == 0 || engine.getSession().getId().length == 0) {
@@ -334,7 +346,7 @@ public class SSLEngineInst {
         @Advice.Argument(0) final ByteBuffer[] srcs,
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
-      if (engine == null || srcs == null || dst == null) {
+      if (srcs == null || dst == null) {
         return;
       }
       if (srcs.length == 0 || engine.getSession().getId().length == 0) {
