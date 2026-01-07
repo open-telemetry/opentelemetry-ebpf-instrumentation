@@ -18,6 +18,9 @@
 
 // This implementation is a derivation of the code in
 // https://github.com/netobserv/netobserv-ebpf-agent/tree/release-1.4
+
+// Package cni provides utilities
+// for working with Container Network Interface (CNI) configurations.
 package cni
 
 import (
@@ -29,10 +32,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-const (
-	ovnSubnetAnnotation = "k8s.ovn.org/node-subnets"
-)
+const ovnSubnetAnnotation = "k8s.ovn.org/node-subnets"
 
+// AddOvnIPs adds the OVN mp0 IP to the list of IPs for the given node, if applicable.
 func AddOvnIPs(ips []string, node *v1.Node) []string {
 	// Add IP that is used in OVN for some traffic on mp0 interface
 	// (no IP / error returned when not using ovn-k)
@@ -40,12 +42,17 @@ func AddOvnIPs(ips []string, node *v1.Node) []string {
 	if err != nil {
 		// Log the error as Info, do not block other ips indexing
 		slog.Info("failed to index OVN mp0 IP", "error", err)
-	} else if ip != "" {
+		return ips
+	}
+	if ip != "" {
 		return append(ips, ip)
 	}
 	return ips
 }
 
+// findOvnMp0IP extracts the OVN mp0 IP from the subnet defined in the node annotations.
+// Returns empty string if the annotation is not present (i.e., not using ovn-kubernetes).
+// Returns an error if the annotation is malformed.
 func findOvnMp0IP(annotations map[string]string) (string, error) {
 	if subnetsJSON, ok := annotations[ovnSubnetAnnotation]; ok {
 		var subnets map[string]string
