@@ -38,7 +38,7 @@ static __always_inline void init_new_trace(tp_info_t *tp) {
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
     __builtin_memset(tp->parent_id, 0, sizeof(tp->span_id));
 
-    if (k_bpf_debug) {
+    if (g_bpf_debug) {
         unsigned char tp_buf[TP_MAX_VAL_LENGTH];
         make_tp_string(tp_buf, tp);
         bpf_dbg_printk("tp: %s", tp_buf);

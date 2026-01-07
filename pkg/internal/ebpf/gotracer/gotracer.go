@@ -37,9 +37,7 @@ import (
 )
 
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 Bpf ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf -DNO_HEADER_PROPAGATION
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfDebug ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf -DBPF_DEBUG -DNO_HEADER_PROPAGATION
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfTP ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfTPDebug ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf -DBPF_DEBUG
 
 type Tracer struct {
 	log                     *slog.Logger
@@ -86,18 +84,13 @@ func (p *Tracer) supportsContextPropagation() bool {
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 	loader := LoadBpf
-	if p.cfg.BpfDebug {
-		loader = LoadBpfDebug
-	}
 
 	if p.supportsContextPropagation() {
 		loader = LoadBpfTP
-		if p.cfg.BpfDebug {
-			loader = LoadBpfTPDebug
-		}
 	} else {
 		p.log.Info("Kernel in lockdown mode or missing CAP_SYS_ADMIN.")
 	}
+
 	return loader()
 }
 
@@ -111,6 +104,7 @@ func (p *Tracer) Constants() map[string]any {
 	}
 
 	return map[string]any{
+		"g_bpf_debug":            p.cfg.BpfDebug,
 		"wakeup_data_bytes":      uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
 		"disable_black_box_cp":   blackBoxCP,
 		"attr_type_invalid":      uint64(attribute.INVALID),

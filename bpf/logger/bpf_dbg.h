@@ -19,11 +19,8 @@
 #include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_tracing.h>
 
+#include <common/globals.h>
 #include <common/pin_internal.h>
-
-#ifdef BPF_DEBUG
-
-enum { k_bpf_debug = 1 };
 
 typedef struct log_info {
     u64 pid;
@@ -42,40 +39,37 @@ enum bpf_func_id___x {
     BPF_FUNC_snprintf___x = 42, /* avoid zero */
 };
 
-#define bpf_dbg_helper(fmt, args...)                                                               \
-    {                                                                                              \
-        log_info_t *__trace__ = bpf_ringbuf_reserve(&debug_events, sizeof(log_info_t), 0);         \
-        if (__trace__) {                                                                           \
-            if (bpf_core_enum_value_exists(enum bpf_func_id___x, BPF_FUNC_snprintf___x)) {         \
-                /* snprintf is available: Include the function name and the formatted message */   \
-                /* we use __FUNCTION__  and " [%s]" to append the function name to the log   */    \
-                BPF_SNPRINTF((char *)__trace__->log,                                               \
-                             sizeof(__trace__->log),                                               \
-                             fmt " [%s]",                                                          \
-                             ##args,                                                               \
-                             __FUNCTION__);                                                        \
-            } else {                                                                               \
-                __builtin_memcpy(__trace__->log, fmt, sizeof(__trace__->log));                     \
-            }                                                                                      \
-            struct task_struct *task = (struct task_struct *)bpf_get_current_task();               \
-            __trace__->pid = (u32)BPF_CORE_READ(task, pid);                                        \
-            BPF_CORE_READ_STR_INTO(&__trace__->comm, task, comm);                                  \
-            bpf_ringbuf_submit(__trace__, 0);                                                      \
-        }                                                                                          \
-    }
 #define bpf_dbg_printk(fmt, args...)                                                               \
-    {                                                                                              \
+    do {                                                                                           \
+        if (!g_bpf_debug) {                                                                        \
+            break;                                                                                 \
+        }                                                                                          \
         bpf_printk(fmt, ##args);                                                                   \
-        bpf_dbg_helper(fmt, ##args);                                                               \
-    }
+        log_info_t *__trace__ = bpf_ringbuf_reserve(&debug_events, sizeof(log_info_t), 0);         \
+        if (!__trace__) {                                                                          \
+            break;                                                                                 \
+        }                                                                                          \
+        if (bpf_core_enum_value_exists(enum bpf_func_id___x, BPF_FUNC_snprintf___x)) {             \
+            /* snprintf is available: Include the function name and the formatted message */       \
+            /* we use __FUNCTION__  and " [%s]" to append the function name to the log   */        \
+            BPF_SNPRINTF((char *)__trace__->log,                                                   \
+                         sizeof(__trace__->log),                                                   \
+                         fmt " [%s]",                                                              \
+                         ##args,                                                                   \
+                         __FUNCTION__);                                                            \
+        } else {                                                                                   \
+            __builtin_memcpy(__trace__->log, fmt, sizeof(__trace__->log));                         \
+        }                                                                                          \
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task();                   \
+        __trace__->pid = (u32)BPF_CORE_READ(task, pid);                                            \
+        BPF_CORE_READ_STR_INTO(&__trace__->comm, task, comm);                                      \
+        bpf_ringbuf_submit(__trace__, 0);                                                          \
+    } while (0)
+
 #define bpf_d_printk(fmt, args...)                                                                 \
-    {                                                                                              \
+    do {                                                                                           \
+        if (!g_bpf_debug) {                                                                        \
+            break;                                                                                 \
+        }                                                                                          \
         bpf_printk(fmt, ##args);                                                                   \
-    }
-#else
-
-enum { k_bpf_debug = 0 };
-
-#define bpf_dbg_printk(fmt, args...)
-#define bpf_d_printk(fmt, args...)
-#endif
+    } while (0)
