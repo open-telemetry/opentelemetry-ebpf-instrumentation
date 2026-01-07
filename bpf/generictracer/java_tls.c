@@ -90,7 +90,12 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
         u32 parent_tid = tid_from_pid_tgid(parent_id);
         parent.tid = parent_tid;
 
-        bpf_d_printk("Java thread mapping [%d] -> [%d]", parent.tid, child.tid);
+        if (parent.tid == child.tid) {
+            bpf_dbg_printk("self referencing thread %d, not recording", child.tid);
+            return 0;
+        }
+
+        bpf_dbg_printk("Java thread mapping [%d] -> [%d]", parent.tid, child.tid);
         bpf_map_update_elem(&java_tasks, &child, &parent, BPF_ANY);
         return 0;
     }
