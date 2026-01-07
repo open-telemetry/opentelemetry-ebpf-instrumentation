@@ -24,7 +24,7 @@ package cni
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFindOvnMp0IP(t *testing.T) {
@@ -67,12 +67,12 @@ func TestFindOvnMp0IP(t *testing.T) {
 			ip, err := findOvnMp0IP(tt.annotations)
 
 			if tt.wantErr != "" {
-				assert.ErrorContains(t, err, tt.wantErr)
+				require.ErrorContains(t, err, tt.wantErr)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 
-			assert.Equal(t, tt.wantIP, ip)
+			require.Equal(t, tt.wantIP, ip)
 		})
 	}
 }
