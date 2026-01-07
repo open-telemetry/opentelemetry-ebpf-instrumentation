@@ -411,3 +411,56 @@ func TestDirOK(t *testing.T) {
 		})
 	}
 }
+
+func TestJavaInjector_AttachOpts(t *testing.T) {
+	tests := []struct {
+		name     string
+		debug    bool
+		debugBB  bool
+		expected string
+	}{
+		{
+			name:     "no options enabled",
+			debug:    false,
+			debugBB:  false,
+			expected: "",
+		},
+		{
+			name:     "debug only",
+			debug:    true,
+			debugBB:  false,
+			expected: "=debug=true",
+		},
+		{
+			name:     "debugBB only",
+			debug:    false,
+			debugBB:  true,
+			expected: "=debugBB=true",
+		},
+		{
+			name:     "both options enabled",
+			debug:    true,
+			debugBB:  true,
+			expected: "=debug=true,debugBB=true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &obi.Config{
+				Java: obi.JavaConfig{
+					Debug:                tt.debug,
+					DebugInstrumentation: tt.debugBB,
+				},
+			}
+
+			injector := &JavaInjector{
+				cfg: cfg,
+				log: slog.With("component", "javaagent.Injector"),
+			}
+
+			result := injector.attachOpts()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
