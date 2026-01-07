@@ -46,6 +46,9 @@ func AddOvnIPs(ips []string, node *v1.Node) []string {
 	return ips
 }
 
+// findOvnMp0IP extracts the OVN mp0 IP from the subnet defined in the node annotations.
+// Returns empty string if the annotation is not present (i.e., not using ovn-kubernetes).
+// Returns an error if the annotation is malformed.
 func findOvnMp0IP(annotations map[string]string) (string, error) {
 	if subnetsJSON, ok := annotations[ovnSubnetAnnotation]; ok {
 		var subnets map[string]string
