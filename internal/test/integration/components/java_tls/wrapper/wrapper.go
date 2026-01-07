@@ -55,7 +55,6 @@ func main() {
 
 	http.HandleFunc("/request", func(w http.ResponseWriter, r *http.Request) {
 		err := regularGetRequest(r.Context(), "https://testserver:8443/greeting")
-
 		if err != nil {
 			fmt.Printf("Error %v\n", err)
 		}

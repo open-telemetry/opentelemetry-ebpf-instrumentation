@@ -21,7 +21,6 @@ import (
 )
 
 func testJavaNestedTraces(t *testing.T, slug string) {
-
 	// give enough time for the Java injector to finish and to
 	// harvest the routes
 	t.Log("checking proper server to client nesting for [/api/" + slug + "]")
