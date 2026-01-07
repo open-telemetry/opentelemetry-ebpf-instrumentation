@@ -29,9 +29,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-const (
-	ovnSubnetAnnotation = "k8s.ovn.org/node-subnets"
-)
+const ovnSubnetAnnotation = "k8s.ovn.org/node-subnets"
 
 func AddOvnIPs(ips []string, node *v1.Node) []string {
 	// Add IP that is used in OVN for some traffic on mp0 interface
