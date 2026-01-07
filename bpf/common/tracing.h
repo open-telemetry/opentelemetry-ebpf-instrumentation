@@ -65,13 +65,13 @@ static __always_inline void
 set_trace_info_for_connection(connection_info_t *conn, u32 type, tp_info_pid_t *info) {
     trace_map_key_t key = {};
 
-    // bpf_dbg_printk("setting trace info, type %d", info->req_type);
+    // bpf_dbg_printk("setting trace info, type=%d", info->req_type);
 
     // dbg_print_http_connection_info(conn);
 
     // unsigned char tp_buf[TP_MAX_VAL_LENGTH];
     // make_tp_string(tp_buf, &info->tp);
-    // bpf_d_printk("tp: %s", tp_buf);
+    // bpf_d_printk("tp=%s [%s]", tp_buf, __FUNCTION__);
 
     trace_key_from_conn(&key, conn, type);
     bpf_map_update_elem(&trace_map, &key, info, BPF_ANY);
