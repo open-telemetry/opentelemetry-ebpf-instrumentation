@@ -40,7 +40,9 @@ func AddOvnIPs(ips []string, node *v1.Node) []string {
 	if err != nil {
 		// Log the error as Info, do not block other ips indexing
 		slog.Info("failed to index OVN mp0 IP", "error", err)
-	} else if ip != "" {
+		return ips
+	}
+	if ip != "" {
 		return append(ips, ip)
 	}
 	return ips
