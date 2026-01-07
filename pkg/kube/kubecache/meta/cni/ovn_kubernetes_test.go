@@ -44,7 +44,6 @@ func TestFindOvnMp0IP(t *testing.T) {
 			annotations: map[string]string{
 				ovnSubnetAnnotation: "whatever",
 			},
-			wantIP:  "",
 			wantErr: "cannot read annotation",
 		},
 		{
@@ -52,7 +51,6 @@ func TestFindOvnMp0IP(t *testing.T) {
 			annotations: map[string]string{
 				ovnSubnetAnnotation: `{"default":"10.129/23"}`,
 			},
-			wantIP:  "",
 			wantErr: "invalid CIDR address",
 		},
 		{
