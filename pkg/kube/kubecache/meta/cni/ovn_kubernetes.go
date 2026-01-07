@@ -31,6 +31,7 @@ import (
 
 const ovnSubnetAnnotation = "k8s.ovn.org/node-subnets"
 
+// AddOvnIPs adds the OVN mp0 IP to the list of IPs for the given node, if applicable.
 func AddOvnIPs(ips []string, node *v1.Node) []string {
 	// Add IP that is used in OVN for some traffic on mp0 interface
 	// (no IP / error returned when not using ovn-k)
