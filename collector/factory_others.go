@@ -3,7 +3,7 @@
 
 //go:build !linux
 
-package collector // import "go.opentelemetry.io/ebpf-profiler/collector"
+package collector
 
 import (
 	"context"
