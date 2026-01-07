@@ -60,9 +60,11 @@ public class CallableInst {
                   + ", thread = "
                   + threadId);
         }
-        Pointer p = new Memory(IOCTLPacket.packetPrefixSize);
-        int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
-        Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+        if (parentId != threadId) {
+          Pointer p = new Memory(IOCTLPacket.packetPrefixSize);
+          int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
+          Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+        }
       }
       SSLStorage.untrackTask(task);
     }
