@@ -14,9 +14,9 @@ import (
 
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
 )
 
 func TestPerAppFeatures_OTEL(t *testing.T) {

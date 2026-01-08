@@ -15,7 +15,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
-	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -36,7 +35,6 @@ func criteriaMatcherProvider(
 ) swarm.InstanceFunc {
 	beylaNamespace, _ := namespaceFetcherFunc(int32(osPidFunc()))
 	m := &Matcher{
-		BaseFeatures:     cfg.Metrics.Features,
 		Log:              slog.With("component", "discover.CriteriaMatcher"),
 		Criteria:         FindingCriteria(cfg),
 		ExcludeCriteria:  ExcludingCriteria(cfg),
@@ -63,7 +61,6 @@ type Matcher struct {
 	Output           *msg.Queue[[]Event[ProcessMatch]]
 	Namespace        string
 	HasHostPidAccess bool
-	BaseFeatures     export.Features
 }
 
 // ProcessMatch matches a found process with the first selection criteria it fulfilled.
