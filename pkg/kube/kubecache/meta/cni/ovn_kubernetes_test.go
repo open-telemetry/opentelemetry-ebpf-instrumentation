@@ -28,31 +28,51 @@ import (
 )
 
 func TestFindOvnMp0IP(t *testing.T) {
-	// Annotation not found => no error, no ip
-	ip, err := findOvnMp0IP(map[string]string{})
-	require.NoError(t, err)
-	require.Empty(t, ip)
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		wantIP      string
+		wantErr     string
+	}{
+		{
+			name:        "no annotation",
+			annotations: map[string]string{},
+			wantIP:      "",
+		},
+		{
+			name: "annotation malformed",
+			annotations: map[string]string{
+				ovnSubnetAnnotation: "whatever",
+			},
+			wantErr: "cannot read annotation",
+		},
+		{
+			name: "IP malformed",
+			annotations: map[string]string{
+				ovnSubnetAnnotation: `{"default":"10.129/23"}`,
+			},
+			wantErr: "invalid CIDR address",
+		},
+		{
+			name: "valid annotation",
+			annotations: map[string]string{
+				ovnSubnetAnnotation: `{"default":"10.129.0.0/23"}`,
+			},
+			wantIP: "10.129.0.2",
+		},
+	}
 
-	// Annotation malformed => error, no ip
-	ip, err = findOvnMp0IP(map[string]string{
-		ovnSubnetAnnotation: "whatever",
-	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "cannot read annotation")
-	require.Empty(t, ip)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip, err := findOvnMp0IP(tt.annotations)
 
-	// IP malformed => error, no ip
-	ip, err = findOvnMp0IP(map[string]string{
-		ovnSubnetAnnotation: `{"default":"10.129/23"}`,
-	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid CIDR address")
-	require.Empty(t, ip)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
 
-	// Valid annotation => no error, ip
-	ip, err = findOvnMp0IP(map[string]string{
-		ovnSubnetAnnotation: `{"default":"10.129.0.0/23"}`,
-	})
-	require.NoError(t, err)
-	require.Equal(t, "10.129.0.2", ip)
+			require.Equal(t, tt.wantIP, ip)
+		})
+	}
 }

@@ -202,6 +202,10 @@ func (f *fakeRingBufReader) ReadInto(record *ringbuf.Record) error {
 	}
 }
 
+func (f *fakeRingBufReader) AvailableBytes() int { return 0 }
+
+func (f *fakeRingBufReader) Flush() error { return nil }
+
 type closableObject struct {
 	closed atomic.Bool
 }

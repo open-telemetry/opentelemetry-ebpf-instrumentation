@@ -21,6 +21,10 @@ public class ByteBufferExtractor {
     }
     int consumed = 0;
     for (int i = 0; i < dsts.length && consumed <= dstBuffer.limit(); i++) {
+      // Skip null buffers
+      if (dsts[i] == null) {
+        continue;
+      }
       // we want to read 0 -> oldPos, save the existing state
       int oldPos = dsts[i].position();
       int oldLimit = dsts[i].limit();
@@ -54,6 +58,10 @@ public class ByteBufferExtractor {
     }
     int consumed = 0;
     for (int i = 0; i < srcs.length && consumed <= dstBuffer.limit(); i++) {
+      // Skip null buffers
+      if (srcs[i] == null) {
+        continue;
+      }
       // save the prior values
       int oldPos = srcs[i].position();
       int oldLimit = srcs[i].limit();
