@@ -143,7 +143,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         }
     }
 
-    if (k_bpf_traceparent_enabled && !skip_tp_parsing) {
+    if (g_bpf_traceparent_enabled && !skip_tp_parsing) {
         // The below buffer scan can be expensive on high volume of requests. We make it optional
         // for customers to enable it. Off by default.
         if (!capture_header_buffer) {

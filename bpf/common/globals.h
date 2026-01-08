@@ -6,3 +6,4 @@
 #include <bpfcore/vmlinux.h>
 
 volatile const bool g_bpf_debug = false;
+volatile const bool g_bpf_traceparent_enabled = false;

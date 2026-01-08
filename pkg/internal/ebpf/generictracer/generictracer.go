@@ -33,7 +33,6 @@ import (
 )
 
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 Bpf ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 BpfTP ../../../../bpf/generictracer/generictracer.c -- -I../../../../bpf -DBPF_TRACEPARENT
 
 type Tracer struct {
 	pidsFilter       ebpfcommon.ServiceFilter
@@ -131,14 +130,12 @@ func (p *Tracer) BlockPID(pid, ns uint32) {
 }
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
-	loader := LoadBpf
 	if p.cfg.EBPF.TrackRequestHeaders ||
 		p.cfg.EBPF.ContextPropagation.IsEnabled() {
-		loader = LoadBpfTP
 		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled))
 	}
 
-	spec, err := loader()
+	spec, err := LoadBpf()
 	if err != nil {
 		return nil, fmt.Errorf("can't load bpf collection from reader: %w", err)
 	}
@@ -205,7 +202,9 @@ func (p *Tracer) Constants() map[string]any {
 	m["mysql_buffer_size"] = p.cfg.EBPF.BufferSizes.MySQL
 	m["postgres_buffer_size"] = p.cfg.EBPF.BufferSizes.Postgres
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
+
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
+	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
 
 	return m
 }
