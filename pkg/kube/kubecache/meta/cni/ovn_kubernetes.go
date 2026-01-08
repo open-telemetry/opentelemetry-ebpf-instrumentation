@@ -54,44 +54,49 @@ func AddOvnIPs(ips []string, node *v1.Node) []string {
 // Returns empty string if the annotation is not present (i.e., not using ovn-kubernetes).
 // Returns an error if the annotation is malformed.
 func findOvnMp0IP(annotations map[string]string) (string, error) {
-	if subnetsJSON, ok := annotations[ovnSubnetAnnotation]; ok {
-		// Try to parse as dual-stack (array) first
-		var subnetsDual map[string][]string
-		if err := json.Unmarshal([]byte(subnetsJSON), &subnetsDual); err == nil {
-			if subnets, ok := subnetsDual["default"]; ok && len(subnets) > 0 {
-				// Use the first IPv4 subnet from the array
-				for _, subnet := range subnets {
-					ip, err := extractMp0IP(subnet)
-					if err != nil {
-						return "", fmt.Errorf("cannot parse IP from %s annotation (value: %s): %w", ovnSubnetAnnotation, subnetsJSON, err)
-					}
-					if ip == "" {
-						// Try next subnet if current one is not IPv4
-						continue
-					}
-					return ip, nil
-				}
-				// No IPv4 subnet found in the array
-				return "", nil
+	subnetsJSON, ok := annotations[ovnSubnetAnnotation]
+	if !ok {
+		// Annotation not present (expected if not using ovn-kubernetes) => just ignore, no error
+		return "", nil
+	}
+
+	// Try to parse as dual-stack (array) first
+	var subnetsDual map[string][]string
+	if err := json.Unmarshal([]byte(subnetsJSON), &subnetsDual); err == nil {
+		subnets, ok := subnetsDual["default"]
+		if !ok || len(subnets) == 0 {
+			return "", fmt.Errorf("unexpected content for annotation %s: %s", ovnSubnetAnnotation, subnetsJSON)
+		}
+
+		// Use the first IPv4 subnet from the array
+		for _, subnet := range subnets {
+			ip, err := extractMp0IP(subnet)
+			if err != nil {
+				return "", fmt.Errorf("cannot parse IP from %s annotation (value: %s): %w", ovnSubnetAnnotation, subnetsJSON, err)
 			}
-		} else {
-			// Fall back to single-stack (string) format
-			var subnetsSingle map[string]string
-			if err := json.Unmarshal([]byte(subnetsJSON), &subnetsSingle); err != nil {
-				return "", fmt.Errorf("cannot read annotation %s (value: %s): %w", ovnSubnetAnnotation, subnetsJSON, err)
-			}
-			if subnet, ok := subnetsSingle["default"]; ok {
-				ip, err := extractMp0IP(subnet)
-				if err != nil {
-					return "", fmt.Errorf("cannot parse IP from %s annotation (value: %s): %w", ovnSubnetAnnotation, subnetsJSON, err)
-				}
+			if ip != "" {
 				return ip, nil
 			}
+			// Try next subnet if current one is not IPv4
 		}
+		// No IPv4 subnet found in the array
+		return "", nil
+	}
+
+	// Fall back to single-stack (string) format
+	var subnetsSingle map[string]string
+	if err := json.Unmarshal([]byte(subnetsJSON), &subnetsSingle); err != nil {
+		return "", fmt.Errorf("cannot read annotation %s (value: %s): %w", ovnSubnetAnnotation, subnetsJSON, err)
+	}
+	subnet, ok := subnetsSingle["default"]
+	if !ok {
 		return "", fmt.Errorf("unexpected content for annotation %s: %s", ovnSubnetAnnotation, subnetsJSON)
 	}
-	// Annotation not present (expected if not using ovn-kubernetes) => just ignore, no error
-	return "", nil
+	ip, err := extractMp0IP(subnet)
+	if err != nil {
+		return "", fmt.Errorf("cannot parse IP from %s annotation (value: %s): %w", ovnSubnetAnnotation, subnetsJSON, err)
+	}
+	return ip, nil
 }
 
 // extractMp0IP extracts the mp0 IP from a subnet CIDR.
