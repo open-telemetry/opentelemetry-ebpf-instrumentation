@@ -648,7 +648,7 @@ func (s *Span) ServiceGraphKind() string {
 }
 
 // ServiceGraphConnectionType returns the connection_type for service graph metrics.
-// See: https://grafana.com/docs/tempo/latest/metrics-from-traces/service_graphs/
+// See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector
 func (s *Span) ServiceGraphConnectionType() string {
 	switch s.Type {
 	case EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient:
