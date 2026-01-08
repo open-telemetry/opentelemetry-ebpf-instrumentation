@@ -1,4 +1,4 @@
-FROM php:8.5-fpm@sha256:559e1cab264b847fd752f5e85e65f0ce9fcd49b4b6b535edb54ea738ab8d56ce
+FROM php:8.5-fpm@sha256:059b06e3d1e34d19a6acca6d1c9642ff5394bbcb4cc24bc7978509b7c862c771
 
 SHELL ["/bin/bash", "-c"]
 
