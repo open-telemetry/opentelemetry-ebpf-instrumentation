@@ -839,6 +839,57 @@ func TestClientSpanToUninstrumentedService(t *testing.T) {
 	}
 }
 
+func TestConnectionTypeForSpan(t *testing.T) {
+	tracker := NewPidServiceTracker()
+	tracker.AddPID(1, svc.UID{Name: "instrumented-svc", Namespace: "ns"})
+
+	tests := []struct {
+		name     string
+		span     *request.Span
+		expected string
+	}{
+		{
+			name:     "SQL client to database",
+			span:     &request.Span{Type: request.EventTypeSQLClient, HostName: "postgres-db"},
+			expected: "database",
+		},
+		{
+			name:     "Redis client to database",
+			span:     &request.Span{Type: request.EventTypeRedisClient, HostName: "redis-cache"},
+			expected: "database",
+		},
+		{
+			name:     "Kafka producer",
+			span:     &request.Span{Type: request.EventTypeKafkaClient, Method: request.MessagingPublish, HostName: "kafka-broker"},
+			expected: "messaging_system",
+		},
+		{
+			name:     "HTTP client to uninstrumented service (virtual_node)",
+			span:     &request.Span{Type: request.EventTypeHTTPClient, HostName: "external-api", OtherNamespace: "external"},
+			expected: "virtual_node",
+		},
+		{
+			name:     "HTTP client to instrumented service",
+			span:     &request.Span{Type: request.EventTypeHTTPClient, HostName: "instrumented-svc", OtherNamespace: "ns"},
+			expected: "",
+		},
+		{
+			name:     "HTTP server",
+			span:     &request.Span{Type: request.EventTypeHTTP, HostName: "my-service"},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ConnectionTypeForSpan(tt.span, &tracker)
+			if result != tt.expected {
+				t.Errorf("ConnectionTypeForSpan() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
 type mockEventMetrics struct {
 	createCalls []*TargetMetrics
 	deleteCalls []*TargetMetrics

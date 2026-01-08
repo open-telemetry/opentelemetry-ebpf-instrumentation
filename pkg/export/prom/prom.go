@@ -579,7 +579,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
-			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		serviceGraphServer: optionalHistogramProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -589,19 +589,19 @@ func newReporter(
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
-			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		serviceGraphFailed: optionalCounterProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphFailed,
 				Help: "number of failed service calls in trace service graph metrics format",
-			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		serviceGraphTotal: optionalCounterProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphTotal,
 				Help: "number of service calls in trace service graph metrics format",
-			}, labelNames(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		targetInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: TargetInfo,
@@ -949,7 +949,7 @@ func (r *metricsReporter) observe(span *request.Span) {
 
 		if span.Service.Features.ServiceGraph() {
 			if !span.IsSelfReferenceSpan() || r.cfg.AllowServiceGraphSelfReferences {
-				lvg := labelValues(span, r.attrSvcGraph)
+				lvg := labelValuesSvcGraph(span, r.attrSvcGraph, &r.pidsTracker)
 
 				if span.IsClientSpan() {
 					r.serviceGraphClient.WithLabelValues(lvg...).Metric.Observe(duration)
@@ -1097,6 +1097,14 @@ func labelNames[T any](getters []attributes.Field[T, string]) []string {
 		labels = append(labels, label.ExposedName)
 	}
 	return labels
+}
+
+func labelNamesSvcGraph(getters []attributes.Field[*request.Span, string]) []string {
+	return append(labelNames(getters), attr.ConnectionType.Prom())
+}
+
+func labelValuesSvcGraph(span *request.Span, getters []attributes.Field[*request.Span, string], tracker *otel.PidServiceTracker) []string {
+	return append(labelValues(span, getters), otel.ConnectionTypeForSpan(span, tracker))
 }
 
 func labelValues[T any](s T, getters []attributes.Field[T, string]) []string {

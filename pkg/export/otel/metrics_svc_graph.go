@@ -287,27 +287,43 @@ func (r *SvcGraphMetrics) record(span *request.Span, mr *SvcGraphMetricsReporter
 	ctx := trace.ContextWithSpanContext(r.ctx, trace.SpanContext{}.WithTraceID(span.TraceID).WithSpanID(span.SpanID).WithTraceFlags(trace.TraceFlags(span.TraceFlags)))
 
 	if !span.IsSelfReferenceSpan() || mr.cfg.AllowServiceGraphSelfReferences {
+		connType := request.ConnectionTypeMetric(ConnectionTypeForSpan(span, &mr.pidTracker))
+
 		if span.IsClientSpan() {
-			sgc, attrs := r.serviceGraphClient.ForRecord(span)
+			sgc, attrs := r.serviceGraphClient.ForRecord(span, connType)
 			sgc.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			// If we managed to resolve the remote name only, we check to see
 			// we are not instrumenting the server service, then and only then,
 			// we generate client span count for service graph total
 			if ClientSpanToUninstrumentedService(&mr.pidTracker, span) {
-				sgt, attrs := r.serviceGraphTotal.ForRecord(span)
+				sgt, attrs := r.serviceGraphTotal.ForRecord(span, connType)
 				sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 			}
 		} else {
-			sgs, attrs := r.serviceGraphServer.ForRecord(span)
+			sgs, attrs := r.serviceGraphServer.ForRecord(span, connType)
 			sgs.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			sgt, attrs := r.serviceGraphTotal.ForRecord(span)
+			sgt, attrs := r.serviceGraphTotal.ForRecord(span, connType)
 			sgt.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 		}
 		if request.SpanStatusCode(span) == request.StatusCodeError {
-			sgf, attrs := r.serviceGraphFailed.ForRecord(span)
+			sgf, attrs := r.serviceGraphFailed.ForRecord(span, connType)
 			sgf.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 		}
 	}
+}
+
+func ConnectionTypeForSpan(span *request.Span, tracker *PidServiceTracker) string {
+	connType := span.ServiceGraphConnectionType()
+	if connType != "" {
+		return connType
+	}
+
+	// For client spans to uninstrumented services, set virtual_node
+	if span.IsClientSpan() && ClientSpanToUninstrumentedService(tracker, span) {
+		return "virtual_node"
+	}
+
+	return ""
 }
 
 func ClientSpanToUninstrumentedService(tracker *PidServiceTracker, span *request.Span) bool {
