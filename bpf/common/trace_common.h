@@ -16,6 +16,7 @@
 #include <common/trace_util.h>
 #include <common/tracing.h>
 
+#include <generictracer/maps/java_tasks.h>
 #include <generictracer/maps/puma_tasks.h>
 
 #include <logger/bpf_dbg.h>
@@ -224,6 +225,36 @@ static __always_inline tp_info_pid_t *find_parent_process_trace(trace_key_t *t_k
     return NULL;
 }
 
+static __always_inline tp_info_pid_t *find_parent_java_trace(trace_key_t *t_key) {
+    // Up to 3 levels of thread nesting allowed
+    enum { k_max_depth = 3 };
+
+    for (u8 i = 0; i < k_max_depth; ++i) {
+        tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces, t_key);
+
+        if (server_tp) {
+            bpf_dbg_printk("Found java parent trace for pid=%d, ns=%lx, extra_id=%llx",
+                           t_key->p_key.pid,
+                           t_key->p_key.ns,
+                           t_key->extra_id);
+            return server_tp;
+        }
+
+        // not this java thread running the server request processing
+        // Let's find the parent scope
+        const pid_key_t *p_tid = (const pid_key_t *)bpf_map_lookup_elem(&java_tasks, &t_key->p_key);
+
+        if (!p_tid) {
+            break;
+        }
+
+        // Lookup now to see if the parent was a request
+        t_key->p_key = *p_tid;
+    }
+
+    return NULL;
+}
+
 static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_info_t *p_conn,
                                                         u64 pid_tgid,
                                                         trace_key_t *t_key,
@@ -248,6 +279,11 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
     tp_info_pid_t *puma_parent = find_puma_parent_trace(pid_tgid);
     if (puma_parent) {
         return puma_parent;
+    }
+
+    tp_info_pid_t *java_parent = find_parent_java_trace(t_key);
+    if (java_parent) {
+        return java_parent;
     }
 
     tp_info_pid_t *proc_parent = find_parent_process_trace(t_key);

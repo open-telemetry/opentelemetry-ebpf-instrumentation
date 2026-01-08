@@ -27,8 +27,11 @@ public class SSLStorage {
 
   private static final Cache<String, Connection> bufConn =
       Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
-  ;
+
   private static final Cache<Connection, Connection> activeConnections =
+      Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
+
+  private static final Cache<Integer, Long> tasks =
       Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
 
   public static final ThreadLocal<BytesWithLen> unencrypted = new ThreadLocal<>();
@@ -128,5 +131,41 @@ public class SSLStorage {
     }
 
     return bootDebugOn;
+  }
+
+  public static Object bootDebugOn() {
+    try {
+      Field debugOn = getBootDebugOn();
+      if (debugOn == null) {
+        return false;
+      }
+      return debugOn.get(null);
+    } catch (Exception x) {
+      System.err.println("[SSLStorage] Failed to get boot debug on " + x);
+    }
+
+    return false;
+  }
+
+  public static void trackTask(long threadId, Object task) {
+    if (task == null) {
+      return;
+    }
+    tasks.put(System.identityHashCode(task), threadId);
+  }
+
+  public static void untrackTask(Object task) {
+    if (task == null) {
+      return;
+    }
+    tasks.invalidate(System.identityHashCode(task));
+  }
+
+  public static Long parentThreadId(Object task) {
+    if (task == null) {
+      return null;
+    }
+
+    return tasks.getIfPresent(System.identityHashCode(task));
   }
 }
