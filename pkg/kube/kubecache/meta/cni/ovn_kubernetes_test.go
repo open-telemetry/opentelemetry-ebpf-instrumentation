@@ -40,6 +40,13 @@ func TestFindOvnMp0IP(t *testing.T) {
 			wantIP:      "",
 		},
 		{
+			name: "unexpected annotation",
+			annotations: map[string]string{
+				ovnSubnetAnnotation: `{"other-network":"10.132.0.0/23"}`,
+			},
+			wantErr: "unexpected content for annotation",
+		},
+		{
 			name: "annotation malformed",
 			annotations: map[string]string{
 				ovnSubnetAnnotation: "whatever",
@@ -47,18 +54,53 @@ func TestFindOvnMp0IP(t *testing.T) {
 			wantErr: "cannot read annotation",
 		},
 		{
-			name: "IP malformed",
+			name: "single-stack IP malformed",
 			annotations: map[string]string{
 				ovnSubnetAnnotation: `{"default":"10.129/23"}`,
 			},
-			wantErr: "invalid CIDR address",
+			wantErr: "cannot parse IP",
 		},
 		{
-			name: "valid annotation",
+			name: "dual-stack IP malformed",
+			annotations: map[string]string{
+				ovnSubnetAnnotation: `{"default":["10.129/23"]}`,
+			},
+			wantErr: "cannot parse IP",
+		},
+		{
+			name: "single-stack IPv4",
 			annotations: map[string]string{
 				ovnSubnetAnnotation: `{"default":"10.129.0.0/23"}`,
 			},
 			wantIP: "10.129.0.2",
+		},
+		{
+			name: "single-stack IPv6",
+			annotations: map[string]string{
+				ovnSubnetAnnotation: `{"default":"fd01:0:0:2::/64"}`,
+			},
+			wantIP: "", // IPv6 not supported
+		},
+		{
+			name: "dual-stack IPv4 first",
+			annotations: map[string]string{
+				ovnSubnetAnnotation: `{"default":["10.130.0.0/23","fd01:0:0:2::/64"]}`,
+			},
+			wantIP: "10.130.0.2", // IPv6 not supported
+		},
+		{
+			name: "dual-stack IPv6 first",
+			annotations: map[string]string{
+				ovnSubnetAnnotation: `{"default":["fd01:0:0:2::/64","10.131.0.0/23"]}`,
+			},
+			wantIP: "10.131.0.2", // IPv6 not supported
+		},
+		{
+			name: "dual-stack IPv6 only",
+			annotations: map[string]string{
+				ovnSubnetAnnotation: `{"default":["fd01:0:0:2::/64"]}`,
+			},
+			wantIP: "", // IPv6 not supported
 		},
 	}
 
