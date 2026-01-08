@@ -3,7 +3,7 @@
 
 module-sets:
   obi:
-    version: v0.3.0
+    version: v0.4.0
     modules:
       - go.opentelemetry.io/obi
 excluded-modules:
@@ -14,6 +14,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/configs/offsets/mongo
   - go.opentelemetry.io/obi/configs/offsets/mongov2
   - go.opentelemetry.io/obi/configs/offsets/mux
+  - go.opentelemetry.io/obi/configs/offsets/mysql
   - go.opentelemetry.io/obi/configs/offsets/otelsdk
   - go.opentelemetry.io/obi/configs/offsets/redis
   - go.opentelemetry.io/obi/configs/offsets/sarama
@@ -27,12 +28,15 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka-seg
   - go.opentelemetry.io/obi/internal/test/integration/components/gomongo
   - go.opentelemetry.io/obi/internal/test/integration/components/gomongov2
+  - go.opentelemetry.io/obi/internal/test/integration/components/gomqtt
+  - go.opentelemetry.io/obi/internal/test/integration/components/gomysql
   - go.opentelemetry.io/obi/internal/test/integration/components/goredis
   - go.opentelemetry.io/obi/internal/test/integration/components/gosql
   - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend
   - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/worker
   - go.opentelemetry.io/obi/internal/test/integration/components/sqlclient
   - go.opentelemetry.io/obi/internal/test/integration/components/testserver_1.17
+  - go.opentelemetry.io/obi/internal/test/integration/components/wrapper
   - go.opentelemetry.io/obi/internal/test/oats/http
   - go.opentelemetry.io/obi/internal/test/oats/kafka
   - go.opentelemetry.io/obi/internal/test/oats/mongo
