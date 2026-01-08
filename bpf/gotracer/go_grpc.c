@@ -17,6 +17,7 @@
 
 #include <bpfcore/utils.h>
 
+#include <common/globals.h>
 #include <common/ringbuf.h>
 
 #include <gotracer/go_byte_arr.h>
@@ -584,13 +585,11 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
         void *conn_ptr = t_ptr + go_offset_of(ot, (go_offset){.v = _grpc_t_conn_pos}) + 8;
         unsigned char buf[16];
         u64 is_secure = 0;
-#ifndef NO_HEADER_PROPAGATION
         void *conn_ptr_key = 0;
 
-        if (conn_ptr) {
+        if (g_bpf_header_propagation && conn_ptr) {
             bpf_probe_read(&conn_ptr_key, sizeof(conn_ptr_key), conn_ptr);
         }
-#endif
 
         void *s_ptr = 0;
         buf[0] = 0;
@@ -622,25 +621,26 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
             }
         }
 
-#ifndef NO_HEADER_PROPAGATION
-        bpf_dbg_printk("conn_ptr %llx", conn_ptr_key);
+        if (g_bpf_header_propagation) {
+            bpf_dbg_printk("conn_ptr %llx", conn_ptr_key);
 
-        grpc_client_func_invocation_t *invocation =
-            bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+            grpc_client_func_invocation_t *invocation =
+                bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
 
-        if (invocation && conn_ptr_key) {
-            transport_new_client_invocation_t wrapper = {};
-            wrapper.inv = *invocation;
-            wrapper.s_key.stream_id = 0;
-            wrapper.s_key.conn_ptr = (u64)conn_ptr_key;
+            if (invocation && conn_ptr_key) {
+                transport_new_client_invocation_t wrapper = {};
+                wrapper.inv = *invocation;
+                wrapper.s_key.stream_id = 0;
+                wrapper.s_key.conn_ptr = (u64)conn_ptr_key;
 
-            bpf_map_update_elem(&transport_new_client_invocations, &g_key, &wrapper, BPF_ANY);
-        } else {
-            bpf_dbg_printk("Couldn't find invocation metadata for goroutine %lx, conn_ptr_key %llx",
-                           goroutine_addr,
-                           conn_ptr_key);
+                bpf_map_update_elem(&transport_new_client_invocations, &g_key, &wrapper, BPF_ANY);
+            } else {
+                bpf_dbg_printk(
+                    "Couldn't find invocation metadata for goroutine %lx, conn_ptr_key %llx",
+                    goroutine_addr,
+                    conn_ptr_key);
+            }
         }
-#endif
     }
 
     return 0;
@@ -652,7 +652,10 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
 // the nextID. We read what's the right stream id on exit.
 SEC("uprobe/transport_http2Client_NewStream_ret")
 int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
-#ifndef NO_HEADER_PROPAGATION
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
     bpf_dbg_printk("=== uprobe/proc returns transport.(*http2Client).NewStream === ");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -704,12 +707,9 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
     // seen later by writeHeader to clean up this mapping.
     bpf_map_update_elem(&ongoing_streams, &wrapper->s_key, &wrapper->inv, BPF_ANY);
     bpf_map_delete_elem(&transport_new_client_invocations, &g_key);
-#endif
-
     return 0;
 }
 
-#ifndef NO_HEADER_PROPAGATION
 typedef struct grpc_framer_func_invocation {
     u64 framer_ptr;
     tp_info_t tp;
@@ -729,6 +729,10 @@ struct {
 
 SEC("uprobe/grpcFramerWriteHeaders")
 int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
     bpf_dbg_printk("=== uprobe/proc grpc Framer writeHeaders === ");
 
     void *framer = GO_PARAM1(ctx);
@@ -810,19 +814,16 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     bpf_map_delete_elem(&ongoing_streams, &key);
     return 0;
 }
-#else
-SEC("uprobe/grpcFramerWriteHeaders")
-int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
-    return 0;
-}
-#endif
 
-#ifndef NO_HEADER_PROPAGATION
 #define HTTP2_ENCODED_HEADER_LEN                                                                   \
     66 // 1 + 1 + 8 + 1 + 55 = type byte + hpack_len_as_byte("traceparent") + strlen(hpack("traceparent")) + len_as_byte(55) + generated traceparent id
 
 SEC("uprobe/grpcFramerWriteHeaders_returns")
 int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
     bpf_dbg_printk("=== uprobe/proc grpc Framer writeHeaders returns === ");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -939,9 +940,3 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
     bpf_map_delete_elem(&grpc_framer_invocation_map, &g_key);
     return 0;
 }
-#else
-SEC("uprobe/grpcFramerWriteHeaders_returns")
-int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
-    return 0;
-}
-#endif
