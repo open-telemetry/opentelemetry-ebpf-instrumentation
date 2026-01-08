@@ -15,8 +15,10 @@ type Record struct {
 	RawSample []byte
 }
 
-var ErrClosed = os.ErrClosed
-var ErrFlushed = errors.New("flushed")
+var (
+	ErrClosed  = os.ErrClosed
+	ErrFlushed = errors.New("flushed")
+)
 
 type Reader struct{}
 

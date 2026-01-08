@@ -88,3 +88,35 @@ func TestFeatureYAML_Error(t *testing.T) {
 	require.Error(t,
 		yaml.Unmarshal([]byte(`features: [{hello: world}]`), &doc))
 }
+
+func TestFeatureEmpty(t *testing.T) {
+	t.Run("empty YAML", func(t *testing.T) {
+		doc := struct {
+			Features Features
+		}{}
+		require.NoError(t,
+			yaml.Unmarshal([]byte(`features: []`), &doc))
+		require.True(t, doc.Features.Empty())
+		require.False(t, doc.Features.Undefined())
+	})
+}
+
+func TestFeatureUndefined(t *testing.T) {
+	t.Run("undefined YAML", func(t *testing.T) {
+		doc := struct {
+			Features Features
+		}{}
+		require.NoError(t,
+			yaml.Unmarshal([]byte(`{}`), &doc))
+		require.False(t, doc.Features.Empty())
+		require.True(t, doc.Features.Undefined())
+	})
+	t.Run("undefined env", func(t *testing.T) {
+		doc := struct {
+			Features Features `env:"FOO"`
+		}{}
+		require.NoError(t, env.Parse(&doc))
+		require.False(t, doc.Features.Empty())
+		require.True(t, doc.Features.Undefined())
+	})
+}

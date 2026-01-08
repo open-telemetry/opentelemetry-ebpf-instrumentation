@@ -362,16 +362,16 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			go exporter(ctx)
 
 			promInput.Send([]request.Span{
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/foo", RequestStart: 100, End: 200},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPCClient, Path: "/bar", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Path: "SELECT", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
-				{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/foo", RequestStart: 100, End: 200},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPCClient, Path: "/bar", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSQLClient, Path: "SELECT", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
 			})
 			awaitSpanProcessing()
 
@@ -391,19 +391,18 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 
 func TestMetricsDiscarded(t *testing.T) {
 	mr := metricsReporter{
-		cfg:       &PrometheusConfig{},
-		commonCfg: &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		cfg: &PrometheusConfig{},
 	}
 
-	svcNoExport := svc.Attrs{}
+	svcNoExport := svc.Attrs{Features: export.FeatureApplicationRED}
 
-	svcExportMetrics := svc.Attrs{}
+	svcExportMetrics := svc.Attrs{Features: export.FeatureApplicationRED}
 	svcExportMetrics.SetExportsOTelMetrics()
 
-	svcExportTraces := svc.Attrs{}
+	svcExportTraces := svc.Attrs{Features: export.FeatureApplicationRED}
 	svcExportTraces.SetExportsOTelTraces()
 
-	svcExportMetricsSpan := svc.Attrs{}
+	svcExportMetricsSpan := svc.Attrs{Features: export.FeatureApplicationRED}
 	svcExportMetricsSpan.SetExportsOTelMetricsSpan()
 
 	tests := []struct {
@@ -443,16 +442,15 @@ func TestMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscarded(t *testing.T) {
 	mr := metricsReporter{
-		cfg:       &PrometheusConfig{},
-		commonCfg: &perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+		cfg: &PrometheusConfig{},
 	}
 
-	svcNoExport := svc.Attrs{}
+	svcNoExport := svc.Attrs{Features: export.FeatureSpanOTel}
 
-	svcExportMetrics := svc.Attrs{}
+	svcExportMetrics := svc.Attrs{Features: export.FeatureSpanOTel}
 	svcExportMetrics.SetExportsOTelMetrics()
 
-	svcExportMetricsSpan := svc.Attrs{}
+	svcExportMetricsSpan := svc.Attrs{Features: export.FeatureSpanOTel}
 	svcExportMetricsSpan.SetExportsOTelMetricsSpan()
 
 	tests := []struct {
@@ -487,16 +485,15 @@ func TestSpanMetricsDiscarded(t *testing.T) {
 
 func TestSpanMetricsDiscardedGraph(t *testing.T) {
 	mr := metricsReporter{
-		cfg:       &PrometheusConfig{},
-		commonCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
+		cfg: &PrometheusConfig{},
 	}
 
-	svcNoExport := svc.Attrs{}
+	svcNoExport := svc.Attrs{Features: export.FeatureSpanLegacy}
 
-	svcExportMetrics := svc.Attrs{}
+	svcExportMetrics := svc.Attrs{Features: export.FeatureSpanLegacy}
 	svcExportMetrics.SetExportsOTelMetrics()
 
-	svcExportMetricsSpan := svc.Attrs{}
+	svcExportMetricsSpan := svc.Attrs{Features: export.FeatureSpanLegacy}
 	svcExportMetricsSpan.SetExportsOTelMetricsSpan()
 
 	tests := []struct {
@@ -576,7 +573,6 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 func TestProcessPIDEvents(t *testing.T) {
 	mr := metricsReporter{
 		cfg:         &PrometheusConfig{},
-		commonCfg:   &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 		serviceMap:  map[svc.UID]svc.Attrs{},
 		pidsTracker: otel.NewPidServiceTracker(),
 	}

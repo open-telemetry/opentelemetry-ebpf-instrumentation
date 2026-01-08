@@ -76,13 +76,13 @@ type SvcGraphMetrics struct {
 func ReportSvcGraphMetrics(
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
-	mpCfg *perapp.MetricsConfig,
+	jointMetricsConfig *perapp.MetricsConfig,
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEvents *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !cfg.EndpointEnabled() || !mpCfg.Features.ServiceGraph() {
+		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.ServiceGraph() {
 			return swarm.EmptyRunFunc()
 		}
 		otelcfg.SetupInternalOTELSDKLogger(cfg.SDKLogLevel)
@@ -377,8 +377,8 @@ func (mr *SvcGraphMetricsReporter) onSpan(spans []request.Span) {
 		if !s.Service.ExportModes.CanExportMetrics() {
 			continue
 		}
-		// If we are ignoring this span because of route patterns, don't do anything
-		if request.IgnoreMetrics(s) {
+		// If we are ignoring this span because of route patterns or features, don't do anything
+		if request.IgnoreMetrics(s) || !s.Service.Features.ServiceGraph() {
 			continue
 		}
 		reporter, err := mr.reporters.For(&s.Service)
