@@ -19,7 +19,7 @@ exporters:
     endpoint: http://prometheus:9090/api/v1/write
     add_metric_suffixes: true
   otlp:
-    endpoint: tempo:4317
+    endpoint: tempo:9096
     tls:
       insecure: true
   loki:
