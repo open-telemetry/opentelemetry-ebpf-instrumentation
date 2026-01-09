@@ -39,3 +39,19 @@ To turn this off and fallback to the normal network based instrumentation for Go
 | github.com/segmentio/kafka-go  |   Kafka    |            >= v0.4.11 | All     |  Yes   |                 No |         N/A
 | github.com/IBM/sarama          |   Kafka    |               >= 1.37 | All     |  Yes   |                 No |         N/A
 | go.mongodb.org/mongo-driver    |  MongoDB   | >= v1.10.1, >= v2.0.1 | All     |  Yes   |                 No |         N/A
+
+# Supported Context propagation frameworks
+
+For Inter-process context propagation, OBI by default assumes actions happening the same thread are part of the same
+trace.
+but in many cases, especially in asynchronous programming models, the context might be propagated across threads or even
+processes.
+OBI has support for several asynchronous frameworks that allow it to propagate context in these scenarios.
+
+| Framework           | Languages |       Versions | Limitations                                       | Status
+|:--------------------|:---------:|---------------:|:--------------------------------------------------|:-------------
+| Go Routines         |    Go     |     Go >= 1.18 | up to 3 nested levels of goroutines               | Stable
+| Node.js Async Hooks |  Node.js  | Node.js >= 8.0 | Custom handling of SIGUSR1 signal might interfere | Stable
+| Ruby Puma Server    |   Ruby    |            N/A | Only works with Puma server                       | Stable
+| Java Thread pool    |   Java    |            N/A | N/A                                               | Stable
+| Python asyncio      |  Python   |  Python >= 3.7 | N/A                                               | In Progress
