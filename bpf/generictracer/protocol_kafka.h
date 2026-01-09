@@ -44,9 +44,9 @@ struct kafka_response_hdr {
     s32 correlation_id; // The correlation ID of this response
 };
 
-struct kafka_state_data {
+typedef struct kafka_state_data {
     s32 message_size;
-};
+} kafka_state_data_t;
 
 typedef struct kafka_state_key {
     connection_info_t conn;
@@ -57,18 +57,18 @@ typedef struct kafka_state_key {
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, kafka_state_key_t);
-    __type(value, struct kafka_state_data);
+    __type(value, kafka_state_data_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } kafka_state SEC(".maps");
 
-struct kafka_correlation_data {
+typedef struct kafka_correlation_data {
     s32 correlation_id;
-};
+} kafka_correlation_data_t;
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, connection_info_t);
-    __type(value, struct kafka_correlation_data);
+    __type(value, kafka_correlation_data_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } kafka_ongoing_requests SEC(".maps");
 
@@ -78,7 +78,7 @@ enum {
     k_kafka_hdr_request_api_version = 2,
     k_kafka_hdr_correlation_id = 4,
 
-    k_kafka_min_response_message_size_value = 4, //  correlation_id (4)
+    k_kafka_min_response_message_size_value = 4, // correlation_id (4)
 
     // https://kafka.apache.org/protocol#protocol_api_keys
     k_kafka_api_key_metadata = 3,
@@ -99,10 +99,16 @@ static __always_inline int kafka_read_message_size(const unsigned char *data, si
     bpf_probe_read(&message_size, k_kafka_hdr_message_size, (const void *)data);
     message_size = bpf_ntohl(message_size);
 
+    // we can be in the case where we already have the first part
+    // of the header saved in the map and we are reading the second
+    // part so we think that is message_size but it is actually
+    // key+version in case of request or the correlation id in case of
+    // response
+
     if (message_size < k_kafka_min_response_message_size_value ||
         message_size > k_kafka_message_size_max) {
-        bpf_dbg_printk("invalid message_size: %d", message_size);
-        return -1;
+        bpf_dbg_printk("possible invalid message_size: %d", message_size);
+        return 0;
     }
     return message_size;
 }
@@ -127,7 +133,7 @@ static __always_inline int kafka_store_state_data(const connection_info_t *conn_
     if (message_size == -1) {
         return 0;
     }
-    struct kafka_state_data new_state_data = {};
+    kafka_state_data_t new_state_data = {};
     new_state_data.message_size = message_size;
     kafka_state_key_t state_key = {.conn = *conn_info, .direction = direction};
     bpf_map_update_elem(&kafka_state, &state_key, &new_state_data, BPF_ANY);
@@ -215,7 +221,7 @@ static __always_inline int kafka_parse_fixup_request_header(const connection_inf
     }
 
     kafka_state_key_t state_key = {.conn = *conn_info, .direction = direction};
-    struct kafka_state_data *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
+    kafka_state_data_t *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
     if (state_data != NULL && state_data->message_size == data_len) {
         // Prepend the header from state data.
         hdr->message_size = state_data->message_size;
@@ -277,7 +283,7 @@ static __always_inline int kafka_parse_fixup_response_header(const connection_in
     }
     // Prepend the header from state data.
     kafka_state_key_t state_key = {.conn = *conn_info, .direction = direction};
-    struct kafka_state_data *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
+    kafka_state_data_t *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
     if (state_data != NULL && state_data->message_size == data_len) {
         // Prepend the header from state data.
         hdr->message_size = state_data->message_size;
@@ -304,7 +310,7 @@ static __always_inline int kafka_read_fixup_response_buffer(const connection_inf
     u8 offset = 0;
 
     kafka_state_key_t state_key = {.conn = *conn_info, .direction = direction};
-    struct kafka_state_data *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
+    kafka_state_data_t *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
     if (state_data != NULL && (state_data->message_size == data_len)) {
         state_data->message_size = bpf_htonl(state_data->message_size);
         bpf_probe_read(buf, k_kafka_hdr_message_size, (const void *)state_data);
@@ -343,8 +349,8 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
         return -1;
     }
 
-    // check if this the event matches an ongoing request
-    struct kafka_correlation_data *correlation_data =
+    // check if this event matches an ongoing request
+    kafka_correlation_data_t *correlation_data =
         bpf_map_lookup_elem(&kafka_ongoing_requests, &pid_conn->conn);
     if (!correlation_data) {
         bpf_dbg_printk("no ongoing request found for this response");
@@ -360,7 +366,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
 
     if (hdr.correlation_id != correlation_data->correlation_id) {
         bpf_dbg_printk("request correlation_id != response "
-                       "correlation_id, %d != %d",
+                       "correlation_id, %d != %d. Ignoring...",
                        correlation_data->correlation_id,
                        hdr.correlation_id);
         return 0;
@@ -431,7 +437,7 @@ static __always_inline u8 is_kafka(connection_info_t *conn_info,
     struct kafka_request_hdr req_hdr = {};
     struct kafka_response_hdr res_hdr = {};
     if (kafka_parse_fixup_request_header(conn_info, &req_hdr, data, data_len, direction) == 0) {
-        struct kafka_correlation_data correlation_data = {};
+        kafka_correlation_data_t correlation_data = {};
         correlation_data.correlation_id = req_hdr.correlation_id;
         bpf_map_update_elem(&kafka_ongoing_requests, conn_info, &correlation_data, BPF_ANY);
         bpf_dbg_printk("kafka! request_api_key %d, correlation_id=%d",
@@ -444,7 +450,7 @@ static __always_inline u8 is_kafka(connection_info_t *conn_info,
             return 0;
         }
 
-        struct kafka_correlation_data *correlation_data =
+        kafka_correlation_data_t *correlation_data =
             bpf_map_lookup_elem(&kafka_ongoing_requests, conn_info);
         if (!correlation_data) {
             bpf_dbg_printk("no ongoing request found for this response");
@@ -453,7 +459,7 @@ static __always_inline u8 is_kafka(connection_info_t *conn_info,
 
         if (res_hdr.correlation_id != correlation_data->correlation_id) {
             bpf_dbg_printk("request correlation_id != response "
-                           "correlation_id, %d != %d",
+                           "correlation_id, %d != %d. Ignoring...",
                            correlation_data->correlation_id,
                            res_hdr.correlation_id);
             return 0;
