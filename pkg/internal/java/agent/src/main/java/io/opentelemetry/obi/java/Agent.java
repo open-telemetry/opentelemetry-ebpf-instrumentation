@@ -6,7 +6,7 @@
 package io.opentelemetry.obi.java;
 
 import static net.bytebuddy.dynamic.loading.ClassInjector.UsingInstrumentation.Target.BOOTSTRAP;
-import static net.bytebuddy.matcher.ElementMatchers.none;
+import static net.bytebuddy.matcher.ElementMatchers.nameStartsWith;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -64,7 +64,7 @@ public class Agent {
                   }
                 })
             .disableClassFormatChanges()
-            .ignore(none())
+            .ignore(nameStartsWith("io.opentelemetry.obi"))
             .with(
                 AgentBuilder.RedefinitionStrategy
                     .RETRANSFORMATION) // required for dynamic injection
@@ -135,7 +135,6 @@ public class Agent {
     }
 
     builder(opts, inst)
-        .ignore(none())
         .type(SSLSocketInst.type())
         .transform(SSLSocketInst.transformer())
         .type(SSLEngineInst.type())
