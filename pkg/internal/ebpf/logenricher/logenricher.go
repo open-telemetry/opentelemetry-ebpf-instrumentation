@@ -37,7 +37,6 @@ import (
 )
 
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type log_event_t -target amd64,arm64 Bpf ../../../../bpf/logenricher/logenricher.c -- -I../../../../bpf -I../../../../bpf
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type log_event_t -target amd64,arm64 BpfDebug ../../../../bpf/logenricher/logenricher.c -- -I../../../../bpf -I../../../../bpf -DBPF_DEBUG
 
 type LogEvent struct {
 	orig    BpfLogEventT
@@ -88,17 +87,15 @@ func New(pf ebpfcommon.ServiceFilter, cfg *obi.Config) *Tracer {
 }
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
-	if p.cfg.EBPF.BpfDebug {
-		return LoadBpfDebug()
-	}
-
 	return LoadBpf()
 }
 
 func (p *Tracer) SetupTailCalls() {}
 
 func (p *Tracer) Constants() map[string]any {
-	return nil
+	return map[string]any{
+		"g_bpf_debug": p.cfg.EBPF.BpfDebug,
+	}
 }
 
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
