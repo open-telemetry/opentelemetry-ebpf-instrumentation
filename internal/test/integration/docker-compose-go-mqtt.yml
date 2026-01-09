@@ -71,7 +71,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.118.0@sha256:3f6274fe609da4f9964fbc2ef36b83d08d47964fbb11629251393590d3924072
+    image: otel/opentelemetry-collector-contrib:0.143.1@sha256:f051aff195ad50ed5ad9d95bcdd51d7258200c937def3797cf830366ed62e034
     container_name: otel-col
     deploy:
       resources:
