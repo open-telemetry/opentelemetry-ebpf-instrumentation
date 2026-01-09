@@ -35,8 +35,6 @@ public class SSLStorage {
       Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
 
   public static final ThreadLocal<BytesWithLen> unencrypted = new ThreadLocal<>();
-  public static final ThreadLocal<Integer> bufPos = new ThreadLocal<>();
-  public static final ThreadLocal<int[]> bufPositions = new ThreadLocal<>();
 
   public static final ThreadLocal<Object> nettyConnection = new ThreadLocal<>();
 

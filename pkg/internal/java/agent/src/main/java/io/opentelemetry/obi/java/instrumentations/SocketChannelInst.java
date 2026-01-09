@@ -72,21 +72,21 @@ public class SocketChannelInst {
 
   public static final class WriteAdvice {
     @Advice.OnMethodEnter
-    public static void write(@Advice.Argument(0) final ByteBuffer src) {
+    public static int write(@Advice.Argument(0) final ByteBuffer src) {
       if (src == null) {
-        return;
+        return -1;
       }
-      SSLStorage.bufPos.set(src.position());
+      return src.position();
     }
 
     @Advice.OnMethodExit // (suppress = Throwable.class)
     public static void write(
         @Advice.Argument(0) final ByteBuffer src,
+        @Advice.Enter int savedPos,
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
         @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
       if (!(localSocket instanceof InetSocketAddress)
           || !(remoteSocket instanceof InetSocketAddress)) {
-        SSLStorage.bufPos.remove();
         return;
       }
 
@@ -96,8 +96,7 @@ public class SocketChannelInst {
 
       int oldPos = src.position();
 
-      Integer savedPos = SSLStorage.bufPos.get();
-      if (savedPos == null) {
+      if (savedPos < 0) {
         return;
       }
 
@@ -132,9 +131,9 @@ public class SocketChannelInst {
 
   public static final class WriteAdviceArray {
     @Advice.OnMethodEnter
-    public static void write(@Advice.Argument(0) final ByteBuffer[] srcs) {
+    public static int[] write(@Advice.Argument(0) final ByteBuffer[] srcs) {
       if (srcs == null) {
-        return;
+        return null;
       }
       int[] positions = new int[srcs.length];
       for (int i = 0; i < srcs.length; i++) {
@@ -145,23 +144,22 @@ public class SocketChannelInst {
         positions[i] = srcs[i].position();
       }
 
-      SSLStorage.bufPositions.set(positions);
+      return positions;
     }
 
     @Advice.OnMethodExit // (suppress = Throwable.class)
     public static void write(
         @Advice.Argument(0) final ByteBuffer[] srcs,
+        @Advice.Enter int[] savedSrcPositions,
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
         @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
       if (!(localSocket instanceof InetSocketAddress)
           || !(remoteSocket instanceof InetSocketAddress)
           || (srcs == null)) {
-        SSLStorage.bufPositions.remove();
         return;
       }
 
       int[] oldSrcPositions = new int[srcs.length];
-      int[] savedSrcPositions = SSLStorage.bufPositions.get();
       if (savedSrcPositions == null) {
         return;
       }
@@ -186,8 +184,6 @@ public class SocketChannelInst {
       }
 
       String bufKey = ByteBufferExtractor.keyFromUsedBuffer(srcBuffer);
-
-      SSLStorage.bufPositions.remove();
 
       if (SSLStorage.debugOn) {
         System.err.println("[SocketChannelInst] write array advice, lookup: " + bufKey);
