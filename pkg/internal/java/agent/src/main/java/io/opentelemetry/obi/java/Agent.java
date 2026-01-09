@@ -102,6 +102,12 @@ public class Agent {
   // Main agent load and instrumentation code, this gets invoked directly with -javaagent on the
   // command line
   public static void premain(String agentArgs, Instrumentation inst) {
+    String osName = System.getProperty("os.name").toLowerCase(Locale.getDefault());
+    if (!osName.contains("linux")) {
+      logger.info("OpenTelemetry eBPF Java Agent only supports Linux, ignoring load request");
+      return;
+    }
+
     synchronized (Agent.class) {
       // Check if agent is already loaded
       if (agentLoaded) {
