@@ -3,7 +3,7 @@
 
 module-sets:
   obi:
-    version: v0.4.0
+    version: v0.4.1
     modules:
       - go.opentelemetry.io/obi
 excluded-modules:
@@ -30,6 +30,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/gomongov2
   - go.opentelemetry.io/obi/internal/test/integration/components/gomqtt
   - go.opentelemetry.io/obi/internal/test/integration/components/gomysql
+  - go.opentelemetry.io/obi/internal/test/integration/components/gomysql-otelsql
   - go.opentelemetry.io/obi/internal/test/integration/components/goredis
   - go.opentelemetry.io/obi/internal/test/integration/components/gosql
   - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend
