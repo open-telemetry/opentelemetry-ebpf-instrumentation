@@ -1,4 +1,4 @@
-FROM ruby:3.4.7@sha256:cff944ca9f1398116ca31573b65a9f4e2e71336701f9229cb24a2e023e477a00 AS builder
+FROM ruby:3.4.8@sha256:95b22f0745feddf4f3e749840c2b41b568efa30234d6eca4537c1dd042850415 AS builder
 
 # Set the working directory to /build
 WORKDIR /build
@@ -15,7 +15,7 @@ RUN bin/rails db:migrate
 
 EXPOSE 3040
 
-FROM ruby:3.4.7-slim@sha256:c1bc8f6bc1075857b9138a600b59127f5570a494e84e80725ea276812465e24e
+FROM ruby:3.4.8-slim@sha256:d77fc2809d1e9b461bdd305694b6d69f036b477b9ab6f69cd677d88aede2f1eb
 
 WORKDIR /
 COPY --from=builder /build .
