@@ -65,22 +65,23 @@ public class SSLEngineInst {
 
   public static final class UnwrapAdvice {
     @Advice.OnMethodEnter
-    public static void unwrap(
+    public static int unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer dst) {
       if (dst == null) {
-        return;
+        return -1;
       }
       if (engine.getSession().getId().length == 0) {
-        return;
+        return -1;
       }
 
-      SSLStorage.bufPos.set(dst.position());
+      return dst.position();
     }
 
     @Advice.OnMethodExit
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
+        @Advice.Enter int savedPos,
         @Advice.Argument(0) final ByteBuffer src,
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
@@ -108,16 +109,13 @@ public class SSLEngineInst {
       }
 
       if (engine.getSession().getId().length == 0) {
-        SSLStorage.bufPos.remove();
         return;
       }
 
       if (result.bytesProduced() > 0 && dst.limit() >= result.bytesProduced()) {
         int oldPos = dst.position();
 
-        Integer savedPos = SSLStorage.bufPos.get();
-        if (savedPos == null) {
-          System.err.println("[SSLEngineInst] ");
+        if (savedPos == -1) {
           return;
         }
 
@@ -137,21 +135,19 @@ public class SSLEngineInst {
         IOCTLPacket.writePacketBuffer(p, wOff, b);
         Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
       }
-
-      SSLStorage.bufPos.remove();
     }
   }
 
   public static final class UnwrapAdviceArray {
     @Advice.OnMethodEnter
-    public static void unwrap(
+    public static int[] unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer[] dsts) {
       if (dsts == null) {
-        return;
+        return null;
       }
       if (dsts.length == 0 || engine.getSession().getId().length == 0) {
-        return;
+        return null;
       }
 
       int[] positions = new int[dsts.length];
@@ -163,12 +159,13 @@ public class SSLEngineInst {
         positions[i] = dsts[i].position();
       }
 
-      SSLStorage.bufPositions.set(positions);
+      return positions;
     }
 
     @Advice.OnMethodExit
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
+        @Advice.Enter int[] savedDstPositions,
         @Advice.Argument(1) final ByteBuffer[] dsts,
         @Advice.Return SSLEngineResult result) {
       if (dsts == null) {
@@ -196,15 +193,12 @@ public class SSLEngineInst {
       }
 
       if (dsts.length == 0 || engine.getSession().getId().length == 0) {
-        SSLStorage.bufPositions.remove();
         return;
       }
 
       if (result.bytesProduced() > 0) {
         int[] oldDstPositions = new int[dsts.length];
-        int[] savedDstPositions = SSLStorage.bufPositions.get();
         if (savedDstPositions == null) {
-          System.err.println("[SSLEngineInst]");
           return;
         }
 
@@ -241,8 +235,6 @@ public class SSLEngineInst {
         IOCTLPacket.writePacketBuffer(p, wOff, b, 0, len);
         Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
       }
-
-      SSLStorage.bufPositions.remove();
     }
   }
 
@@ -276,6 +268,7 @@ public class SSLEngineInst {
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
       if (src == null || dst == null) {
+        SSLStorage.unencrypted.remove();
         return;
       }
       if (engine.getSession().getId().length == 0) {
@@ -347,6 +340,7 @@ public class SSLEngineInst {
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
       if (srcs == null || dst == null) {
+        SSLStorage.unencrypted.remove();
         return;
       }
       if (srcs.length == 0 || engine.getSession().getId().length == 0) {
