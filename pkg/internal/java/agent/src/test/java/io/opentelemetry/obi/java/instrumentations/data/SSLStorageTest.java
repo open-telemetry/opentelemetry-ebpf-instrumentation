@@ -152,8 +152,6 @@ class SSLStorageTest {
   void cleanup() {
     // Clean up thread locals
     SSLStorage.unencrypted.remove();
-    SSLStorage.bufPos.remove();
-    SSLStorage.bufPositions.remove();
     SSLStorage.nettyConnection.remove();
   }
 
@@ -218,23 +216,5 @@ class SSLStorageTest {
     assertEquals(plain, SSLStorage.getUnencryptedBuffer(encrypted));
     SSLStorage.removeBufferMapping(encrypted);
     assertNull(SSLStorage.getUnencryptedBuffer(encrypted));
-  }
-
-  @Test
-  void testThreadLocals() {
-    BytesWithLen bwl = new BytesWithLen(new byte[] {5, 6}, 2);
-    SSLStorage.unencrypted.set(bwl);
-    assertEquals(bwl, SSLStorage.unencrypted.get());
-
-    SSLStorage.bufPos.set(42);
-    assertEquals(42, SSLStorage.bufPos.get());
-
-    int[] arr = {1, 2, 3};
-    SSLStorage.bufPositions.set(arr);
-    assertArrayEquals(arr, SSLStorage.bufPositions.get());
-
-    Object nettyConn = new Object();
-    SSLStorage.nettyConnection.set(nettyConn);
-    assertEquals(nettyConn, SSLStorage.nettyConnection.get());
   }
 }

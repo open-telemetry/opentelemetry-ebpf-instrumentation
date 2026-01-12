@@ -1,8 +1,6 @@
 receivers:
   otlp:
     protocols:
-      grpc:
-        endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
         cors:
@@ -22,8 +20,6 @@ exporters:
     endpoint: tempo:4317
     tls:
       insecure: true
-  loki:
-    endpoint: http://loki:3100/loki/api/v1/push
 
 service:
   pipelines:
@@ -35,7 +31,3 @@ service:
       receivers: [otlp]
       exporters: [prometheusremotewrite]
       #exporters: [prometheusremotewrite,debug]
-    logs:
-      receivers: [otlp]
-      exporters: [loki]
-      #exporters: [loki,logging/logs]

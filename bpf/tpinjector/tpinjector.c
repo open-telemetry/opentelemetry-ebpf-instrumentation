@@ -324,7 +324,7 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
         bpf_dbg_printk("failed to store option: %d", ret);
     }
 
-    if (k_bpf_debug) {
+    if (g_bpf_debug) {
         const char *tp_str = tp_string_from_opt(&opt);
 
         if (tp_str) {
@@ -348,7 +348,7 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
         return;
     }
 
-    if (k_bpf_debug) {
+    if (g_bpf_debug) {
         const char *tp_str = tp_string_from_opt(&opt);
 
         if (tp_str) {
