@@ -18,11 +18,11 @@ expected:
     # This test is expected to FAIL because otelsql wraps the connection
     # and Beyla cannot extract the hostname - it will show as IP or "outgoing"
     # instead of "mysqlserver"
-    - promql: 'db_client_operation_duration_sum{db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
+    - promql: 'db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
       value: "> 0"
-    - promql: 'db_client_operation_duration_bucket{le="0",db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
+    - promql: 'db_client_operation_duration_seconds_bucket{le="0",db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
       value: "== 0"
-    - promql: 'db_client_operation_duration_bucket{le="10",db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
+    - promql: 'db_client_operation_duration_seconds_bucket{le="10",db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
       value: "> 0"
-    - promql: 'db_client_operation_duration_count{db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
+    - promql: 'db_client_operation_duration_seconds_count{db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
       value: "> 0"
