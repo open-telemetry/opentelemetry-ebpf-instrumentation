@@ -18,7 +18,7 @@ The goal is to ensure that our logs are not just data dumps, but more structured
 
 There are two macros to print debug information:
 
-- `bpf_dbg_printk`: calls `bpf_printk` and then `bpf_dbg_helper`. The latter uses [bpf_snprintf](https://docs.ebpf.io/linux/helper-function/bpf_snprintf/) to automatically print the name of the calling function. Finally use a ringbuf to send everything to userspace. Note: `bpf_snprintf` is available since **kernel version 5.13**.
+- `bpf_dbg_printk`: calls `bpf_printk` and then uses [bpf_snprintf](https://docs.ebpf.io/linux/helper-function/bpf_snprintf/) to automatically print the name of the calling function. Finally use a ringbuf to send everything to userspace. Note: `bpf_snprintf` is available since **kernel version 5.13**.
 - `bpf_d_printk`: calls `bpf_printk`.
 
 The preferred version is `bpf_dbg_printk`, but there are also cases where `bpf_d_printk` is used. In the latter case, remember to use `__FUNCTION__` which is a compile-time string literal (not a runtime function call) to get the name of the current function.

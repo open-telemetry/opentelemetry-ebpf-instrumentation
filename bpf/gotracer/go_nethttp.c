@@ -17,6 +17,7 @@
 
 #include <bpfcore/utils.h>
 
+#include <common/globals.h>
 #include <common/http_types.h>
 #include <common/ringbuf.h>
 #include <common/strings.h>
@@ -547,15 +548,12 @@ int obi_uprobe_ServeHTTPReturns(struct pt_regs *ctx) {
     return serve_http_returns(ctx);
 }
 
-#ifndef NO_HEADER_PROPAGATION
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, void *); // key: pointer to the request header map
     __type(value, u64);  // the goroutine of the transport request
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } header_req_map SEC(".maps");
-
-#endif
 
 /* HTTP Client. We expect to see HTTP client in both HTTP server and gRPC server calls.*/
 static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
@@ -636,18 +634,18 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
 
     bpf_map_update_elem(&ongoing_http_client_requests_data, &g_key, &trace, BPF_ANY);
 
-#ifndef NO_HEADER_PROPAGATION
-    void *headers_ptr = 0;
-    bpf_probe_read(&headers_ptr,
-                   sizeof(headers_ptr),
-                   (void *)(req + go_offset_of(ot, (go_offset){.v = _req_header_ptr_pos})));
-    bpf_dbg_printk(
-        "goroutine_addr %lx, req ptr %llx, headers_ptr %llx", goroutine_addr, req, headers_ptr);
+    if (g_bpf_header_propagation) {
+        void *headers_ptr = 0;
+        bpf_probe_read(&headers_ptr,
+                       sizeof(headers_ptr),
+                       (void *)(req + go_offset_of(ot, (go_offset){.v = _req_header_ptr_pos})));
+        bpf_dbg_printk(
+            "goroutine_addr %lx, req ptr %llx, headers_ptr %llx", goroutine_addr, req, headers_ptr);
 
-    if (headers_ptr) {
-        bpf_map_update_elem(&header_req_map, &headers_ptr, &goroutine_addr, BPF_ANY);
+        if (headers_ptr) {
+            bpf_map_update_elem(&header_req_map, &headers_ptr, &goroutine_addr, BPF_ANY);
+        }
     }
-#endif
 }
 
 SEC("uprobe/roundTrip")
@@ -752,10 +750,13 @@ done:
     return 0;
 }
 
-#ifndef NO_HEADER_PROPAGATION
 // Context propagation through HTTP headers
 SEC("uprobe/header_writeSubset")
 int obi_uprobe_writeSubset(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
     bpf_dbg_printk("=== uprobe/proc header writeSubset === ");
 
     void *header_addr = GO_PARAM1(ctx);
@@ -851,12 +852,6 @@ done:
     bpf_map_delete_elem(&header_req_map, &header_addr);
     return 0;
 }
-#else
-SEC("uprobe/header_writeSubset")
-int obi_uprobe_writeSubset(struct pt_regs *ctx) {
-    return 0;
-}
-#endif
 
 // HTTP 2.0 server support
 SEC("uprobe/http2ResponseWriterStateWriteHeader")
@@ -947,7 +942,6 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
 }
 
 // HTTP 2.0 client support
-#ifndef NO_HEADER_PROPAGATION
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, stream_key_t); // key: stream id + connection info
@@ -955,7 +949,6 @@ struct {
     __type(value, u64);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } http2_req_map SEC(".maps");
-#endif
 
 static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                                                     void *cc_ptr,
@@ -999,23 +992,24 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
             }
         }
 
-#ifndef NO_HEADER_PROPAGATION
-        void *framer = 0;
-        bpf_probe_read(&framer,
-                       sizeof(framer),
-                       (void *)(cc_ptr + go_offset_of(ot, (go_offset){.v = off_cc_framer_pos})));
+        if (g_bpf_header_propagation) {
+            void *framer = 0;
+            bpf_probe_read(
+                &framer,
+                sizeof(framer),
+                (void *)(cc_ptr + go_offset_of(ot, (go_offset){.v = off_cc_framer_pos})));
 
-        bpf_dbg_printk(
-            "cc_ptr = %llx, nextStreamID = %d, framer = %llx", cc_ptr, stream_id, framer);
-        if (stream_id && framer) {
-            stream_key_t s_key = {
-                .stream_id = stream_id,
-            };
-            s_key.conn_ptr = (u64)framer;
+            bpf_dbg_printk(
+                "cc_ptr = %llx, nextStreamID = %d, framer = %llx", cc_ptr, stream_id, framer);
+            if (stream_id && framer) {
+                stream_key_t s_key = {
+                    .stream_id = stream_id,
+                };
+                s_key.conn_ptr = (u64)framer;
 
-            bpf_map_update_elem(&http2_req_map, &s_key, &goroutine_addr, BPF_ANY);
+                bpf_map_update_elem(&http2_req_map, &s_key, &goroutine_addr, BPF_ANY);
+            }
         }
-#endif
     }
 }
 
@@ -1061,7 +1055,6 @@ int obi_uprobe_http2WriteHeaders_vendored(struct pt_regs *ctx) {
     return 0;
 }
 
-#ifndef NO_HEADER_PROPAGATION
 #define MAX_W_PTR_N 1024
 
 typedef struct framer_func_invocation {
@@ -1081,6 +1074,10 @@ struct {
 
 static __always_inline void
 on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) {
+    if (!g_bpf_header_propagation) {
+        return;
+    }
+
     bpf_dbg_printk("=== uprobe/proc http2 Framer writeHeaders === ");
     void *framer = GO_PARAM1(ctx);
 
@@ -1154,6 +1151,10 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
 
 SEC("uprobe/golang_http2FramerWriteHeaders")
 int obi_uprobe_golang_http2FramerWriteHeaders(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
     off_table_t *ot = get_offsets_table();
 
     const u64 stream_id = golang_stream_id(ctx, ot);
@@ -1169,6 +1170,10 @@ int obi_uprobe_golang_http2FramerWriteHeaders(struct pt_regs *ctx) {
 
 SEC("uprobe/net_http2FramerWriteHeaders")
 int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
     off_table_t *ot = get_offsets_table();
 
     const u64 stream_id = (u64)GO_PARAM2(ctx);
@@ -1177,24 +1182,16 @@ int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
 
     return 0;
 }
-#else
-SEC("uprobe/golang_http2FramerWriteHeaders")
-int obi_uprobe_golang_http2FramerWriteHeaders(struct pt_regs *ctx) {
-    return 0;
-}
 
-SEC("uprobe/net_http2FramerWriteHeaders")
-int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
-    return 0;
-}
-#endif
-
-#ifndef NO_HEADER_PROPAGATION
 #define HTTP2_ENCODED_HEADER_LEN                                                                   \
     66 // 1 + 1 + 8 + 1 + 55 = type byte + hpack_len_as_byte("traceparent") + strlen(hpack("traceparent")) + len_as_byte(55) + generated traceparent id
 
 SEC("uprobe/http2FramerWriteHeaders_returns")
 int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
     bpf_dbg_printk("=== uprobe/proc http2 Framer writeHeaders returns === ");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -1304,12 +1301,6 @@ done:
     bpf_map_delete_elem(&framer_invocation_map, &g_key);
     return 0;
 }
-#else
-SEC("uprobe/http2FramerWriteHeaders_returns")
-int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
-    return 0;
-}
-#endif
 
 SEC("uprobe/connServe")
 int obi_uprobe_connServe(struct pt_regs *ctx) {

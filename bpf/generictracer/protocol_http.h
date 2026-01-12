@@ -123,7 +123,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         bpf_dbg_printk("Using old traceparent id");
     }
 
-    if (k_bpf_debug) {
+    if (g_bpf_debug) {
         unsigned char tp_buf[TP_MAX_VAL_LENGTH];
         make_tp_string(tp_buf, &tp_p->tp);
         bpf_dbg_printk("tp: %s", tp_buf);
@@ -143,7 +143,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         }
     }
 
-    if (k_bpf_traceparent_enabled && !skip_tp_parsing) {
+    if (g_bpf_traceparent_enabled && !skip_tp_parsing) {
         // The below buffer scan can be expensive on high volume of requests. We make it optional
         // for customers to enable it. Off by default.
         if (!capture_header_buffer) {
@@ -178,7 +178,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
                     decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
                 }
 
-                if (k_bpf_debug) {
+                if (g_bpf_debug) {
                     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
                     make_tp_string(tp_buf, &tp_p->tp);
                     bpf_dbg_printk("new tp: %s", tp_buf);

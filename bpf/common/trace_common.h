@@ -7,6 +7,7 @@
 
 #include <common/connection_info.h>
 #include <common/cp_support_data.h>
+#include <common/globals.h>
 #include <common/http_types.h>
 #include <common/pin_internal.h>
 #include <common/ringbuf.h>
@@ -34,12 +35,6 @@
 #include <generictracer/types/puma_task_id.h>
 
 #include <pid/pid_helpers.h>
-
-#ifdef BPF_TRACEPARENT
-enum { k_bpf_traceparent_enabled = 1 };
-#else
-enum { k_bpf_traceparent_enabled = 0 };
-#endif
 
 volatile const u64 max_transaction_time;
 
@@ -91,7 +86,7 @@ static int tp_match(u32 index, void *data) {
 }
 
 static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, const u16 buf_len) {
-    if (!k_bpf_traceparent_enabled) {
+    if (!g_bpf_traceparent_enabled) {
         return NULL;
     }
 
@@ -112,7 +107,7 @@ static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *
                                                                  const u16 buf_len) {
     (void)buf_len;
 
-    if (!k_bpf_traceparent_enabled) {
+    if (!g_bpf_traceparent_enabled) {
         return NULL;
     }
 

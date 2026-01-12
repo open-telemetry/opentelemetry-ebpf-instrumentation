@@ -180,7 +180,7 @@ static __always_inline void parse_dns_response(struct xdp_md *ctx,
         return;
     }
 
-    if (k_bpf_debug) {
+    if (g_bpf_debug) {
         [[maybe_unused]] const __u16 id = bpf_ntohs(*(const __be16 *)(data));
         [[maybe_unused]] const __u8 ra = get_bit(flags1, RA_OFFSET);
         [[maybe_unused]] const __u8 aa = get_bit(flags0, AA_OFFSET);
