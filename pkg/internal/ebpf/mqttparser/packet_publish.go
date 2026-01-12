@@ -7,15 +7,6 @@ import (
 	"errors"
 )
 
-// QoSLevel represents the Quality of Service level for MQTT PUBLISH packets.
-type QoSLevel uint8
-
-const (
-	QoSAtMostOnce  QoSLevel = 0
-	QoSAtLeastOnce QoSLevel = 1
-	QoSExactlyOnce QoSLevel = 2
-)
-
 // PublishPacket represents a parsed MQTT PUBLISH packet.
 //
 // PUBLISH packets carry application messages from publishers to subscribers.

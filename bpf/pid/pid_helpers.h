@@ -45,8 +45,7 @@ static __always_inline void task_pid(pid_info *pid) {
     pid->user_pid = (u32)upid.nr;
 
     // set PIDs namespace
-    struct ns_common ns = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns);
-    pid->ns = (u32)ns.inum;
+    pid->ns = (u32)BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns.inum);
 }
 
 static __always_inline u32 get_task_tid() {

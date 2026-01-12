@@ -6,7 +6,7 @@
 package io.opentelemetry.obi.java;
 
 import static net.bytebuddy.dynamic.loading.ClassInjector.UsingInstrumentation.Target.BOOTSTRAP;
-import static net.bytebuddy.matcher.ElementMatchers.none;
+import static net.bytebuddy.matcher.ElementMatchers.nameStartsWith;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -64,7 +64,7 @@ public class Agent {
                   }
                 })
             .disableClassFormatChanges()
-            .ignore(none())
+            .ignore(nameStartsWith("io.opentelemetry.obi"))
             .with(
                 AgentBuilder.RedefinitionStrategy
                     .RETRANSFORMATION) // required for dynamic injection
@@ -102,6 +102,12 @@ public class Agent {
   // Main agent load and instrumentation code, this gets invoked directly with -javaagent on the
   // command line
   public static void premain(String agentArgs, Instrumentation inst) {
+    String osName = System.getProperty("os.name").toLowerCase(Locale.getDefault());
+    if (!osName.contains("linux")) {
+      logger.info("OpenTelemetry eBPF Java Agent only supports Linux, ignoring load request");
+      return;
+    }
+
     synchronized (Agent.class) {
       // Check if agent is already loaded
       if (agentLoaded) {
@@ -129,7 +135,6 @@ public class Agent {
     }
 
     builder(opts, inst)
-        .ignore(none())
         .type(SSLSocketInst.type())
         .transform(SSLSocketInst.transformer())
         .type(SSLEngineInst.type())

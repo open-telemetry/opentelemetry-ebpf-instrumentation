@@ -8,6 +8,4 @@
 
 #include <logger/bpf_dbg.h>
 
-#ifdef BPF_DEBUG
 const log_info_t *unused_100 __attribute__((unused));
-#endif

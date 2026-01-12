@@ -62,14 +62,39 @@ static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
     }
 
     bpf_dbg_printk("validating mysql conn type %llx with %llx", mysql_type_addr, ci_type_ptr);
-    if ((u64)ci_type_ptr != mysql_type_addr) {
-        bpf_dbg_printk("connection type doesn't match from mysql.mysqlConn");
-        return NULL;
-    }
 
     void *mysql_conn_ptr = 0;
-    res = bpf_probe_read(
-        &mysql_conn_ptr, sizeof(mysql_conn_ptr), (void *)(driver_conn_ptr + ci_offset + 8));
+
+    if ((u64)ci_type_ptr == mysql_type_addr) {
+        res = bpf_probe_read(
+            &mysql_conn_ptr, sizeof(mysql_conn_ptr), (void *)(driver_conn_ptr + ci_offset + 8));
+    } else {
+        // Type doesn't match - might be a wrapper (like otelsql.otConn)
+        void *wrapper_ptr = NULL;
+        res = bpf_probe_read(
+            &wrapper_ptr, sizeof(wrapper_ptr), (void *)(driver_conn_ptr + ci_offset + 8));
+        if (res != 0 || !wrapper_ptr) {
+            bpf_dbg_printk("can't read wrapper data pointer");
+            return NULL;
+        }
+
+        // Read the embedded interface at offset 0: [inner_type_ptr, inner_data_ptr]
+        void *inner_type_ptr = NULL;
+        res = bpf_probe_read(&inner_type_ptr, sizeof(inner_type_ptr), wrapper_ptr);
+        if (res != 0) {
+            bpf_dbg_printk("can't read inner type pointer");
+            return NULL;
+        }
+
+        bpf_dbg_printk("unwrap: inner type %llx", inner_type_ptr);
+        if ((u64)inner_type_ptr != mysql_type_addr) {
+            bpf_dbg_printk("inner type still doesn't match mysql.mysqlConn");
+            return NULL;
+        }
+
+        res =
+            bpf_probe_read(&mysql_conn_ptr, sizeof(mysql_conn_ptr), (void *)((u64)wrapper_ptr + 8));
+    }
 
     if (res != 0 || !mysql_conn_ptr) {
         bpf_dbg_printk("can't read MySQL connection data pointer");
