@@ -1,10 +1,18 @@
 receivers:
   otlp:
     protocols:
-      grpc:
       http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://*"
+            - "https://*"
 
 exporters:
+  #debug:
+  #  verbosity: detailed
+  #  sampling_initial: 5
+  #  sampling_thereafter: 200
   prometheusremotewrite:
     endpoint: http://prometheus:9090/api/v1/write
     add_metric_suffixes: true
@@ -12,26 +20,14 @@ exporters:
     endpoint: tempo:4317
     tls:
       insecure: true
-  loki:
-    endpoint: http://loki:3100/loki/api/v1/push
-  logging/metrics:
-    verbosity: detailed
-  logging/traces:
-    verbosity: detailed
-  logging/logs:
-    verbosity: detailed
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
-      #exporters: [otlp]
-      exporters: [otlp,logging/traces]
+      exporters: [otlp]
+      #exporters: [otlp,debug]
     metrics:
       receivers: [otlp]
       exporters: [prometheusremotewrite]
-      #exporters: [prometheusremotewrite,logging/metrics]
-    logs:
-      receivers: [otlp]
-      exporters: [loki]
-      #exporters: [loki,logging/logs]
+      #exporters: [prometheusremotewrite,debug]

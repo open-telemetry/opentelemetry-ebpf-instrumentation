@@ -69,6 +69,7 @@ jobs:
       - name: Run oats tests
         env:
           MATRIX_BASENAME: ${{ matrix.basename }}
+          TESTCASE_TIMEOUT: 5m
         run: make oats-test-$MATRIX_BASENAME
 
       - name: Upload oats test logs
