@@ -48,6 +48,8 @@ public class Agent {
     CLibrary INSTANCE = Native.load("c", CLibrary.class);
 
     int ioctl(int fd, int cmd, long argp);
+
+    int gettid();
   }
 
   private static AgentBuilder builder(Map<String, String> opts, Instrumentation inst) {
@@ -136,6 +138,14 @@ public class Agent {
         .transform(SocketChannelInst.transformer())
         .type(NettySSLHandlerInst.type())
         .transform(NettySSLHandlerInst.transformer())
+        .type(JavaExecutorInst.type())
+        .transform(JavaExecutorInst.transformer())
+        .type(CallableInst.type())
+        .transform(CallableInst.transformer())
+        .type(RunnableInst.type())
+        .transform(RunnableInst.transformer())
+        .type(JavaForkJoinTaskInst.type())
+        .transform(JavaForkJoinTaskInst.transformer())
         .installOn(inst);
   }
 
@@ -151,6 +161,10 @@ public class Agent {
       if (SSLSocketInst.matches(clazz)
           || SSLEngineInst.matches(clazz)
           || SocketChannelInst.matches(clazz)
+          || JavaExecutorInst.matches(clazz)
+          || CallableInst.matches(clazz)
+          || RunnableInst.matches(clazz)
+          || JavaForkJoinTaskInst.matches(clazz)
           || NettySSLHandlerInst.matches(clazz)) {
         if (Agent.debugOn) {
           logger.info("Retransforming " + clazz);
@@ -176,6 +190,7 @@ public class Agent {
     Class.forName(ProxyOutputStream.class.getName());
     Class.forName(ProxyInputStream.class.getName());
     Class.forName(ConnectionInfo.class.getName());
+    Class.forName(ThreadInfo.class.getName());
     Class.forName(IOCTLPacket.class.getName());
     Class.forName(OperationType.class.getName());
     Class.forName(Agent.class.getName());

@@ -689,7 +689,7 @@ func newRequest(serviceName string, path string, status int) []request.Span {
 		Start:        2,
 		RequestStart: 1,
 		End:          3,
-		Service:      svc.Attrs{HostName: "the-host", UID: svc.UID{Namespace: "ns", Name: serviceName}, SDKLanguage: svc.InstrumentableGolang},
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, HostName: "the-host", UID: svc.UID{Namespace: "ns", Name: serviceName}, SDKLanguage: svc.InstrumentableGolang},
 	}}
 }
 
@@ -705,7 +705,7 @@ func newRequestWithTiming(svcName string, kind request.EventType, method, path s
 		RequestStart: int64(goStart),
 		Start:        int64(start),
 		End:          int64(end),
-		Service:      svc.Attrs{HostName: "the-host", UID: svc.UID{Name: svcName}, SDKLanguage: svc.InstrumentableGolang},
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, HostName: "the-host", UID: svc.UID{Name: svcName}, SDKLanguage: svc.InstrumentableGolang},
 	}}
 }
 
@@ -720,7 +720,7 @@ func newGRPCRequest(svcName string, path string, status int) []request.Span {
 		Start:        2,
 		RequestStart: 1,
 		End:          3,
-		Service:      svc.Attrs{HostName: "the-host", UID: svc.UID{Name: svcName}, SDKLanguage: svc.InstrumentableGolang},
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, HostName: "the-host", UID: svc.UID{Name: svcName}, SDKLanguage: svc.InstrumentableGolang},
 	}}
 }
 
@@ -868,7 +868,7 @@ func newHTTPInfo(method, path, peer string, status int) []request.Span {
 		Start:        2,
 		RequestStart: 2,
 		End:          3,
-		Service:      svc.Attrs{HostName: "the-host", UID: svc.UID{Name: "comm"}, SDKLanguage: svc.InstrumentableGolang},
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, HostName: "the-host", UID: svc.UID{Name: "comm"}, SDKLanguage: svc.InstrumentableGolang},
 	}}
 }
 

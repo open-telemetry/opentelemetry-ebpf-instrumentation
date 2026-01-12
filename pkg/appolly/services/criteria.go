@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 )
 
 const (
@@ -152,6 +154,7 @@ type Selector interface {
 	GetExportModes() ExportModes
 	GetSamplerConfig() *SamplerConfig
 	GetRoutesConfig() *CustomRoutesConfig
+	MetricsConfig() perapp.SvcMetricsConfig
 }
 
 // StringMatcher provides a generic interface to match string values against some matcher types: regex and glob

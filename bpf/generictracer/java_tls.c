@@ -3,6 +3,7 @@
 
 //go:build obi_bpf_ignore
 
+#include "pid/types/pid_key.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
@@ -11,6 +12,7 @@
 #include <common/protocol_defs.h>
 
 #include <generictracer/k_tracer_defs.h>
+#include <generictracer/maps/java_tasks.h>
 #include <generictracer/maps/pid_tid_to_conn.h>
 
 #include <logger/bpf_dbg.h>
@@ -21,6 +23,7 @@ enum { k_ioctl_magic_id = 0x0b10b1 };
 enum {
     k_ioctl_java_send = 1,
     k_ioctl_java_recv = 2,
+    k_ioctl_java_threads = 3,
 };
 
 enum { k_ioctl_invalid_op = 0xff };
@@ -76,6 +79,26 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
 
     u8 op_cmd = 0;
     bpf_probe_read(&op_cmd, sizeof(u8), arg);
+
+    if (op_cmd == k_ioctl_java_threads) {
+        u64 parent_id = 0;
+        bpf_probe_read(&parent_id, sizeof(u64), arg + 1);
+
+        pid_key_t child = {0};
+        task_tid(&child);
+        pid_key_t parent = child;
+        u32 parent_tid = tid_from_pid_tgid(parent_id);
+        parent.tid = parent_tid;
+
+        if (parent.tid == child.tid) {
+            bpf_dbg_printk("self referencing thread %d, not recording", child.tid);
+            return 0;
+        }
+
+        bpf_dbg_printk("Java thread mapping [%d] -> [%d]", parent.tid, child.tid);
+        bpf_map_update_elem(&java_tasks, &child, &parent, BPF_ANY);
+        return 0;
+    }
 
     u8 op = cmd_to_op(op_cmd);
 

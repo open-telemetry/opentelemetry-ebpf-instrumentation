@@ -68,7 +68,7 @@ typedef struct connection_info_part {
 } connection_info_part_t;
 
 static __always_inline void dbg_print_http_connection_info(const connection_info_t *info) {
-    if (!k_bpf_debug) {
+    if (!g_bpf_debug) {
         return;
     }
 
@@ -82,7 +82,7 @@ static __always_inline void dbg_print_http_connection_info(const connection_info
                    info->d_port);
 }
 static __always_inline void dbg_print_http_connection_info_part(connection_info_part_t *info) {
-    if (!k_bpf_debug) {
+    if (!g_bpf_debug) {
         return;
     }
 
@@ -92,7 +92,7 @@ static __always_inline void dbg_print_http_connection_info_part(connection_info_
                    info->port);
 }
 static __always_inline void d_print_http_connection_info_part(connection_info_part_t *info) {
-    if (!k_bpf_debug) {
+    if (!g_bpf_debug) {
         return;
     }
 
@@ -102,7 +102,7 @@ static __always_inline void d_print_http_connection_info_part(connection_info_pa
                  info->port);
 }
 static __always_inline void d_print_http_connection_info(connection_info_t *info) {
-    if (!k_bpf_debug) {
+    if (!g_bpf_debug) {
         return;
     }
 

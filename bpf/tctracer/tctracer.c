@@ -226,7 +226,7 @@ static __always_inline bool conn_info_from_skb(struct __sk_buff *skb, connection
 }
 
 static __always_inline void print_tp(const char *prefix, const tp_info_t *tp) {
-    if (!k_bpf_debug) {
+    if (!g_bpf_debug) {
         return;
     }
 

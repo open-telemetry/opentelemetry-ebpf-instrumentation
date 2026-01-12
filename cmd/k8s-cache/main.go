@@ -24,7 +24,7 @@ import (
 )
 
 // main code of te Kubernetes K8s informer's metadata cache service, when it runs as a separate service and not
-// as a library inside Beyla
+// as a library inside OBI
 
 func main() {
 	lvl := slog.LevelVar{}
@@ -33,7 +33,7 @@ func main() {
 		Level: &lvl,
 	})))
 
-	slog.Info("Beyla's Kubernetes Metadata cache service", "Version", buildinfo.Version, "Revision", buildinfo.Revision)
+	slog.Info("OBI's Kubernetes Metadata cache service", "Version", buildinfo.Version, "Revision", buildinfo.Revision)
 
 	configPath := flag.String("config", "", "path to the configuration file")
 	flag.Parse()

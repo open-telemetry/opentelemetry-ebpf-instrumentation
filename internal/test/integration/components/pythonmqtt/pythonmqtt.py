@@ -6,7 +6,8 @@ import time
 import logging
 from datetime import datetime
 from threading import Lock
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
+from typing import Optional
 import uvicorn
 import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
@@ -73,6 +74,8 @@ def setup_mqtt_client(broker_host, broker_port):
     return client
 
 
+# Example curl command:
+# curl http://localhost:8080/mqtt
 @app.get("/mqtt")
 async def mqtt_publish():
     """Handle HTTP request to publish MQTT message"""
@@ -120,6 +123,8 @@ async def mqtt_publish():
         raise HTTPException(status_code=500, detail=f"Publish error: {str(e)}")
 
 
+# Example curl command:
+# curl http://localhost:8080/mqtt/connect
 @app.get("/mqtt/connect")
 async def mqtt_connect():
     """Connect to MQTT broker (or reconnect if already connected)"""
@@ -165,6 +170,8 @@ async def mqtt_connect():
         raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
 
 
+# Example curl command:
+# curl http://localhost:8080/mqtt/disconnect
 @app.get("/mqtt/disconnect")
 async def mqtt_disconnect():
     """Disconnect from MQTT broker"""
@@ -196,6 +203,79 @@ async def mqtt_disconnect():
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Disconnect error: {str(e)}")
+
+
+# Example curl commands:
+# curl http://localhost:8080/mqtt/subscribe
+# curl "http://localhost:8080/mqtt/subscribe?topics=test/topic"
+# curl "http://localhost:8080/mqtt/subscribe?topics=test/topic1,test/topic2&qos_level=2"
+@app.get("/mqtt/subscribe")
+async def mqtt_subscribe(
+    topics: Optional[str] = Query(None, description="Comma-separated list of topics to subscribe to"),
+    qos_level: Optional[int] = Query(None, description="QoS level (0, 1, or 2)"),
+):
+    """Subscribe to MQTT topic(s)"""
+    global client
+
+    # Use default topic if not provided
+    if topics is None:
+        topics_to_subscribe = [topic]
+    else:
+        topics_to_subscribe = [t.strip() for t in topics.split(",") if t.strip()]
+
+    if not topics_to_subscribe:
+        raise HTTPException(status_code=400, detail="At least one topic must be provided")
+
+    # Use default QoS if not provided
+    subscribe_qos = qos_level if qos_level is not None else qos
+    if subscribe_qos < 0 or subscribe_qos > 2:
+        raise HTTPException(status_code=400, detail="QoS must be 0, 1, or 2")
+
+    # Ensure client is connected
+    if client is None or not client.is_connected():
+        logger.warning("Client not connected, attempting to reconnect...")
+        broker = os.getenv("MQTT_BROKER", "vernemq:1883")
+        broker_host, broker_port = broker.split(":") if ":" in broker else (broker, 1883)
+        broker_port = int(broker_port)
+        try:
+            client = setup_mqtt_client(broker_host, broker_port)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"MQTT connection error: {str(e)}")
+
+    # Subscribe to topics
+    subscriptions = []
+    for topic_filter in topics_to_subscribe:
+        logger.info(f"Subscribing to topic '{topic_filter}' with QoS {subscribe_qos}")
+        try:
+            result, mid = client.subscribe(topic_filter, subscribe_qos)
+            if result != mqtt.MQTT_ERR_SUCCESS:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Subscribe error for topic '{topic_filter}': {result}",
+                )
+            subscriptions.append(
+                {
+                    "topic": topic_filter,
+                    "qos": subscribe_qos,
+                    "message_id": mid,
+                }
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Subscribe error for topic '{topic_filter}': {str(e)}",
+            )
+
+    # Wait a bit for subscription to complete
+    time.sleep(0.5)
+
+    response = {
+        "subscribed": True,
+        "subscriptions": subscriptions,
+    }
+    return response
 
 
 if __name__ == "__main__":
