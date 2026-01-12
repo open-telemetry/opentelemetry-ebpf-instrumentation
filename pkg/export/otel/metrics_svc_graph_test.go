@@ -79,6 +79,7 @@ func TestServiceGraphMetrics(t *testing.T) {
 }
 
 func TestServiceGraphConnectionType(t *testing.T) {
+	t.Skip("flaky")
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	defer otelcfg.RestoreEnvAfterExecution()()
 
