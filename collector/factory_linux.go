@@ -43,7 +43,7 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 		}
 		cfg.Traces.TracesConsumer = nextConsumer
 
-		return internal.NewController(cfg)
+		return internal.NewController(rs.ID, cfg)
 	}
 }
 
@@ -61,6 +61,6 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 		}
 		cfg.OTELMetrics.MetricsConsumer = nextConsumer
 
-		return internal.NewController(cfg)
+		return internal.NewController(rs.ID, cfg)
 	}
 }

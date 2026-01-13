@@ -5,6 +5,7 @@ package internal
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"go.opentelemetry.io/collector/component"
@@ -13,55 +14,75 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-// sharedController manages a singleton OBI instance that can be shared between
-// traces and metrics receivers.
+// sharedController manages an OBI instance that can be shared between
+// traces and metrics receivers with the same component ID.
 type sharedController struct {
 	mu      sync.Mutex
 	config  *obi.Config
 	cancel  context.CancelFunc
-	started bool
 	refCnt  int // Number of active receivers using this controller
 	runErr  error
 	runDone chan struct{}
 }
 
 // Controller represents an individual receiver (traces or metrics) that
-// shares the underlying OBI instance with other receivers.
+// shares the underlying OBI instance with other receivers of the same component ID.
 type Controller struct {
+	id     component.ID
 	shared *sharedController
 }
 
 var (
-	// globalShared holds the shared controller instance
-	globalShared   *sharedController
-	globalSharedMu sync.Mutex
+	// sharedControllers holds shared controller instances keyed by component ID.
+	// This allows multiple OBI receivers (e.g., obi/instance1, obi/instance2) to run
+	// independently, while traces and metrics receivers with the same ID share one instance.
+	sharedControllers   = make(map[component.ID]*sharedController)
+	sharedControllersMu sync.Mutex
 )
 
-// NewController creates a new Controller for the given config.
-// Multiple receivers with the same config will share the same underlying OBI instance.
-func NewController(cfg *obi.Config) (*Controller, error) {
-	globalSharedMu.Lock()
-	defer globalSharedMu.Unlock()
+// NewController creates a new Controller for the given component ID and config.
+// Receivers with the same component ID share the same underlying OBI instance.
+// Receivers with different component IDs get separate OBI instances.
+func NewController(id component.ID, cfg *obi.Config) (*Controller, error) {
+	sharedControllersMu.Lock()
+	defer sharedControllersMu.Unlock()
 
-	// Create or reuse the shared controller
-	if globalShared == nil {
-		globalShared = &sharedController{
+	// Create or reuse the shared controller for this component ID
+	shared, exists := sharedControllers[id]
+	if !exists {
+		shared = &sharedController{
 			config:  cfg,
 			runDone: make(chan struct{}),
 		}
+		sharedControllers[id] = shared
 	} else {
 		// Update config with any new consumers
 		// The traces or metrics consumer might be set by different receivers
 		if cfg.Traces.TracesConsumer != nil {
-			globalShared.config.Traces.TracesConsumer = cfg.Traces.TracesConsumer
+			shared.config.Traces.TracesConsumer = cfg.Traces.TracesConsumer
 		}
 		if cfg.OTELMetrics.MetricsConsumer != nil {
-			globalShared.config.OTELMetrics.MetricsConsumer = cfg.OTELMetrics.MetricsConsumer
+			shared.config.OTELMetrics.MetricsConsumer = cfg.OTELMetrics.MetricsConsumer
 		}
 	}
 
+	if err := obi.CheckOSSupport(); err != nil {
+		slog.Error("can't start OBI Receiver", "error", err, "id", id)
+		return nil, err
+	}
+
+	if err := obi.CheckOSCapabilities(cfg); err != nil {
+		if cfg.EnforceSysCaps {
+			slog.Error("can't start OBI Receiver", "error", err, "id", id)
+			return nil, err
+		}
+
+		slog.Warn("Required system capabilities not present, OBI Receiver may malfunction", "error", err, "id", id)
+	}
+
 	return &Controller{
-		shared: globalShared,
+		id:     id,
+		shared: shared,
 	}, nil
 }
 
@@ -73,18 +94,24 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 
 	c.shared.refCnt++
 
-	if c.shared.started {
-		// Already running, just increase ref count
+	if c.shared.refCnt > 1 {
+		// Already running, just increased ref count
 		return nil
 	}
 
-	c.shared.started = true
+	// First caller - start OBI
 	ctx, c.shared.cancel = context.WithCancel(ctx)
+	ctxInfo, err := instrumenter.BuildCommonContextInfo(ctx, c.shared.config)
+	if err != nil {
+		c.shared.refCnt-- // rollback on failure
+		slog.Error("building common context info for OBI", "error", err, "id", c.id)
+		return err
+	}
 
 	// Run OBI in a goroutine
 	go func() {
 		defer close(c.shared.runDone)
-		c.shared.runErr = instrumenter.Run(ctx, c.shared.config)
+		c.shared.runErr = instrumenter.RunWithContextInfo(ctx, c.shared.config, ctxInfo)
 	}()
 
 	return nil
@@ -110,10 +137,10 @@ func (c *Controller) Shutdown(_ context.Context) error {
 	// Wait for OBI to finish
 	<-c.shared.runDone
 
-	// Clean up the global shared controller
-	globalSharedMu.Lock()
-	globalShared = nil
-	globalSharedMu.Unlock()
+	// Clean up the shared controller for this component ID
+	sharedControllersMu.Lock()
+	delete(sharedControllers, c.id)
+	sharedControllersMu.Unlock()
 
 	return c.shared.runErr
 }
