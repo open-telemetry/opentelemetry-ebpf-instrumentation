@@ -21,13 +21,16 @@ jobs:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           persist-credentials: false
+
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: "go.mod"
           cache: "false"
+
       - name: Run verification and unit tests
         run: make docker-generate verify cov-exclude-generated check-go-mod notices-update check-ebpf-ver-synced check-clean-work-tree
+
       - name: Report coverage
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
         env:
