@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"slices"
 
-	"k8s.io/client-go/tools/cache"
-
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 )
 
@@ -19,10 +17,8 @@ type Informers struct {
 	log    *slog.Logger
 	config *informersConfig
 
-	// pods and replicaSets cache the different K8s types to custom, smaller object types
-	pods     cache.SharedIndexInformer
-	nodes    cache.SharedIndexInformer
-	services cache.SharedIndexInformer
+	// watchManager manages the Watch API-based watchers for pods, nodes, and services
+	watchManager *watchManager
 
 	waitForSync chan struct{}
 
@@ -45,13 +41,15 @@ func (inf *Informers) Subscribe(observer Observer) {
 	}
 
 	// as a "welcome" message, we send the whole kube metadata to the new observer
-	pods := inf.pods.GetStore().List()
-	var nodes, services []any
-	if !inf.config.disableNodes {
-		nodes = inf.nodes.GetStore().List()
+	var pods, nodes, services []any
+	if inf.watchManager.podWatcher != nil {
+		pods = inf.watchManager.podWatcher.cache.List()
 	}
-	if !inf.config.disableServices {
-		services = inf.services.GetStore().List()
+	if !inf.config.disableNodes && inf.watchManager.nodeWatcher != nil {
+		nodes = inf.watchManager.nodeWatcher.cache.List()
+	}
+	if !inf.config.disableServices && inf.watchManager.serviceWatcher != nil {
+		services = inf.watchManager.serviceWatcher.cache.List()
 	}
 	storedEntities := make([]any, 0, len(pods)+len(nodes)+len(services))
 	storedEntities = append(storedEntities, pods...)

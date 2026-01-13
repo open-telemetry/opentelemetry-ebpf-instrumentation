@@ -8,18 +8,14 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"net"
 	"os"
 	"path"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -27,7 +23,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/instrument"
-	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta/cni"
 )
 
 const (
@@ -137,26 +132,16 @@ func InitInformers(ctx context.Context, opts ...InformerOption) (*Informers, err
 		}
 	}
 
-	createdFactories, err := svc.initInformers(ctx, config)
-	if err != nil {
+	if err := svc.initInformers(ctx, config); err != nil {
 		return nil, err
 	}
 
-	svc.log.Debug("starting kubernetes informers")
-	allSynced := sync.WaitGroup{}
-	allSynced.Add(len(createdFactories))
-	for _, factory := range createdFactories {
-		factory.Start(ctx.Done())
-		go func() {
-			factory.WaitForCacheSync(ctx.Done())
-			allSynced.Done()
-		}()
-	}
+	svc.log.Debug("starting kubernetes watch manager")
 
 	go func() {
-		svc.log.Debug("waiting for informers' synchronization")
-		allSynced.Wait()
-		svc.log.Debug("informers synchronized")
+		svc.log.Debug("waiting for watchers' synchronization")
+		<-svc.watchManager.waitForSync
+		svc.log.Debug("watchers synchronized")
 		close(svc.waitForSync)
 	}()
 	if config.waitCacheSync {
@@ -174,47 +159,22 @@ func InitInformers(ctx context.Context, opts ...InformerOption) (*Informers, err
 	return svc, nil
 }
 
-func (inf *Informers) initInformers(ctx context.Context, config *informersConfig) ([]informers.SharedInformerFactory, error) {
-	var informerFactory informers.SharedInformerFactory
-	if config.restrictNode == "" {
-		informerFactory = informers.NewSharedInformerFactory(inf.config.kubeClient, inf.config.resyncPeriod)
-	} else {
-		informerFactory = informers.NewSharedInformerFactoryWithOptions(inf.config.kubeClient, inf.config.resyncPeriod,
-			informers.WithTweakListOptions(func(options *metav1.ListOptions) {
-				options.FieldSelector = fields.Set{"spec.nodeName": config.restrictNode}.String()
-			}))
+func (inf *Informers) initInformers(ctx context.Context, config *informersConfig) error {
+	// Create watch manager
+	metrics := instrument.FromContext(ctx)
+	wm, err := newWatchManager(ctx, config, inf.config.kubeClient, metrics, inf.log)
+	if err != nil {
+		return fmt.Errorf("failed to create watch manager: %w", err)
 	}
-	createdFactories := []informers.SharedInformerFactory{informerFactory}
-	if err := inf.initPodInformer(ctx, informerFactory); err != nil {
-		return nil, err
+	inf.watchManager = wm
+	inf.localInstance = config.localInstance
+
+	// Start all watchers
+	if err := wm.Start(inf); err != nil {
+		return fmt.Errorf("failed to start watch manager: %w", err)
 	}
 
-	if !inf.config.disableNodes {
-		nodeIFactory := informerFactory
-		if config.restrictNode != "" {
-			nodeIFactory = informers.NewSharedInformerFactoryWithOptions(inf.config.kubeClient, inf.config.resyncPeriod,
-				informers.WithTweakListOptions(func(options *metav1.ListOptions) {
-					options.FieldSelector = fields.Set{"metadata.name": config.restrictNode}.String()
-				}))
-			createdFactories = append(createdFactories, nodeIFactory)
-		} // else: use default, unfiltered informerFactory instance
-		if err := inf.initNodeIPInformer(ctx, nodeIFactory); err != nil {
-			return nil, err
-		}
-	}
-	if !inf.config.disableServices {
-		svcIFactory := informerFactory
-		if config.restrictNode != "" {
-			// informerFactory will be initially set to a "spec.nodeName"-filtered instance, so we need
-			// to create an unfiltered one for global services
-			svcIFactory = informers.NewSharedInformerFactory(inf.config.kubeClient, inf.config.resyncPeriod)
-			createdFactories = append(createdFactories, svcIFactory)
-		}
-		if err := inf.initServiceIPInformer(ctx, svcIFactory); err != nil {
-			return nil, err
-		}
-	}
-	return createdFactories, nil
+	return nil
 }
 
 func initConfigOpts(opts []InformerOption) *informersConfig {
@@ -272,40 +232,6 @@ func minimalIndex(om *metav1.ObjectMeta) metav1.ObjectMeta {
 	}
 }
 
-func (inf *Informers) initPodInformer(ctx context.Context, informerFactory informers.SharedInformerFactory) error {
-	pods := informerFactory.Core().V1().Pods().Informer()
-
-	// Transform any *v1.Pod instance into a *PodInfo instance to save space
-	// in the informer's cache
-	if err := pods.SetTransform(func(i any) (any, error) {
-		pod, ok := i.(*v1.Pod)
-		if !ok {
-			// it's Ok. The K8s library just informed from an entity
-			// that has been previously transformed/stored/deleted
-			if pi, ok := i.(*indexableEntity); ok {
-				return pi, nil
-			}
-			// let's forward the stale object to the event handler
-			if obj, stale := i.(cache.DeletedFinalStateUnknown); stale {
-				return obj, nil
-			}
-			return nil, fmt.Errorf("was expecting a *v1.Pod. Got: %T", i)
-		}
-		return inf.podToIndexableEntity(pod)
-	}); err != nil {
-		return fmt.Errorf("can't set pods transform: %w", err)
-	}
-
-	_, err := pods.AddEventHandler(inf.ipInfoEventHandler(ctx))
-	if err != nil {
-		return fmt.Errorf("can't register Pod event handler in the K8s informer: %w", err)
-	}
-
-	inf.log.Debug("registered Pod event handler in the K8s informer")
-
-	inf.pods = pods
-	return nil
-}
 
 func (inf *Informers) podToIndexableEntity(pod *v1.Pod) (any, error) {
 	containers := make([]*informer.ContainerInfo, 0,
@@ -425,104 +351,7 @@ func rmContainerIDSchema(containerID string) string {
 	return containerID
 }
 
-func (inf *Informers) initNodeIPInformer(ctx context.Context, informerFactory informers.SharedInformerFactory) error {
-	nodes := informerFactory.Core().V1().Nodes().Informer()
-	// Transform any *v1.Node instance into an *indexableEntity instance to save space
-	// in the informer's cache
-	if err := nodes.SetTransform(func(i any) (any, error) {
-		node, ok := i.(*v1.Node)
-		// todo: move to generic function
-		if !ok {
-			// it's Ok. The K8s library just informed from an entity
-			// that has been previously transformed/stored
-			if pi, ok := i.(*indexableEntity); ok {
-				return pi, nil
-			}
-			// let's forward the stale object to the event handler
-			if obj, stale := i.(cache.DeletedFinalStateUnknown); stale {
-				return obj, nil
-			}
-			return nil, fmt.Errorf("was expecting a *v1.Node. Got: %T", i)
-		}
-		ips := make([]string, 0, len(node.Status.Addresses))
-		for _, address := range node.Status.Addresses {
-			ip := net.ParseIP(address.Address)
-			if ip != nil {
-				ips = append(ips, ip.String())
-			}
-		}
-		// CNI-dependent logic (must work regardless of whether the CNI is installed)
-		ips = cni.AddOvnIPs(ips, node)
 
-		return &indexableEntity{
-			ObjectMeta: minimalIndex(&node.ObjectMeta),
-			EncodedMeta: &informer.ObjectMeta{
-				Name:            node.Name,
-				Namespace:       node.Namespace,
-				Labels:          node.Labels,
-				Ips:             ips,
-				Kind:            typeNode,
-				StatusTimeEpoch: objLastUpdateTime(&node.ObjectMeta, nil, node.Status.Conditions),
-			},
-		}, nil
-	}); err != nil {
-		return fmt.Errorf("can't set nodes transform: %w", err)
-	}
-
-	if _, err := nodes.AddEventHandler(inf.ipInfoEventHandler(ctx)); err != nil {
-		return fmt.Errorf("can't register Node event handler in the K8s informer: %w", err)
-	}
-	inf.log.Debug("registered Node event handler in the K8s informer")
-
-	inf.nodes = nodes
-	return nil
-}
-
-func (inf *Informers) initServiceIPInformer(ctx context.Context, informerFactory informers.SharedInformerFactory) error {
-	services := informerFactory.Core().V1().Services().Informer()
-	// Transform any *v1.Service instance into a *indexableEntity instance to save space
-	// in the informer's cache
-	if err := services.SetTransform(func(i any) (any, error) {
-		svc, ok := i.(*v1.Service)
-		if !ok {
-			// it's Ok. The K8s library just informed from an entity
-			// that has been previously transformed/stored
-			if pi, ok := i.(*indexableEntity); ok {
-				return pi, nil
-			}
-			// let's forward the stale object to the event handler
-			if obj, stale := i.(cache.DeletedFinalStateUnknown); stale {
-				return obj, nil
-			}
-			return nil, fmt.Errorf("was expecting a *v1.Service. Got: %T", i)
-		}
-		var ips []string
-		if svc.Spec.ClusterIP != v1.ClusterIPNone {
-			ips = svc.Spec.ClusterIPs
-		}
-		return &indexableEntity{
-			ObjectMeta: minimalIndex(&svc.ObjectMeta),
-			EncodedMeta: &informer.ObjectMeta{
-				Name:            svc.Name,
-				Namespace:       svc.Namespace,
-				Labels:          svc.Labels,
-				Ips:             ips,
-				Kind:            typeService,
-				StatusTimeEpoch: objLastUpdateTime(&svc.ObjectMeta, nil, nil),
-			},
-		}, nil
-	}); err != nil {
-		return fmt.Errorf("can't set services transform: %w", err)
-	}
-
-	if _, err := services.AddEventHandler(inf.ipInfoEventHandler(ctx)); err != nil {
-		return fmt.Errorf("can't register Service event handler in the K8s informer: %w", err)
-	}
-	inf.log.Debug("registered Service event handler in the K8s informer")
-
-	inf.services = services
-	return nil
-}
 
 func objLastUpdateTime(
 	om *metav1.ObjectMeta, podConditions []v1.PodCondition, nodeConditions []v1.NodeCondition,
