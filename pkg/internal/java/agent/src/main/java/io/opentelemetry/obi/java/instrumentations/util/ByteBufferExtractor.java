@@ -20,7 +20,7 @@ public class ByteBufferExtractor {
       return dstBuffer;
     }
     int consumed = 0;
-    for (int i = 0; i < dsts.length && consumed <= dstBuffer.limit(); i++) {
+    for (int i = 0; i < dsts.length && consumed <= ((java.nio.Buffer) dstBuffer).limit(); i++) {
       // Skip null buffers
       if (dsts[i] == null) {
         continue;
@@ -31,11 +31,13 @@ public class ByteBufferExtractor {
       // move pos -> 0 and limit -> oldPos
       ((java.nio.Buffer) dsts[i]).flip();
 
-      if (dsts[i].remaining() <= dstBuffer.remaining()) {
+      if (((java.nio.Buffer) dsts[i]).remaining() <= ((java.nio.Buffer) dstBuffer).remaining()) {
         dstBuffer.put(dsts[i]);
       } else {
         ByteBuffer slice = dsts[i].slice();
-        slice.limit(Math.min(slice.remaining(), dstBuffer.remaining()));
+        slice.limit(
+            Math.min(
+                ((java.nio.Buffer) slice).remaining(), ((java.nio.Buffer) dstBuffer).remaining()));
         dstBuffer.put(slice);
       }
       ((java.nio.Buffer) dsts[i]).position(oldPos);
@@ -57,7 +59,7 @@ public class ByteBufferExtractor {
       return dstBuffer;
     }
     int consumed = 0;
-    for (int i = 0; i < srcs.length && consumed <= dstBuffer.limit(); i++) {
+    for (int i = 0; i < srcs.length && consumed <= ((java.nio.Buffer) dstBuffer).limit(); i++) {
       // Skip null buffers
       if (srcs[i] == null) {
         continue;
@@ -67,13 +69,17 @@ public class ByteBufferExtractor {
       int oldLimit = ((java.nio.Buffer) srcs[i]).limit();
       // the remaining = limit - pos is how much we'll consume, unless the
       // destination buffer will fill up to the max.
-      int remaining = srcs[i].remaining();
+      int remaining = ((java.nio.Buffer) srcs[i]).remaining();
 
-      if (srcs[i].remaining() <= dstBuffer.remaining()) {
+      if (((java.nio.Buffer) srcs[i]).remaining() <= ((java.nio.Buffer) dstBuffer).remaining()) {
         dstBuffer.put(srcs[i]);
       } else {
         ByteBuffer slice = srcs[i].slice();
-        ((java.nio.Buffer) slice).limit(Math.min(slice.remaining(), dstBuffer.remaining()));
+        ((java.nio.Buffer) slice)
+            .limit(
+                Math.min(
+                    ((java.nio.Buffer) slice).remaining(),
+                    ((java.nio.Buffer) dstBuffer).remaining()));
         dstBuffer.put(slice);
       }
       // restore the state
@@ -89,7 +95,8 @@ public class ByteBufferExtractor {
 
   // this is same as flattenFreshByteBufferArray, except we read only one buffer.
   public static ByteBuffer fromFreshBuffer(ByteBuffer src, int len) {
-    int bufSize = (src == null) ? 0 : Math.min(src.remaining(), Math.min(len, MAX_SIZE));
+    int bufSize =
+        (src == null) ? 0 : Math.min(((java.nio.Buffer) src).remaining(), Math.min(len, MAX_SIZE));
     ByteBuffer dstBuffer = ByteBuffer.allocate(bufSize);
     if (src != null) {
       // save state
@@ -134,7 +141,7 @@ public class ByteBufferExtractor {
     int oldLimit = ((java.nio.Buffer) buf).limit();
 
     // we are reading position -> limit
-    int keySize = Math.min(buf.remaining(), MAX_KEY_SIZE);
+    int keySize = Math.min(((java.nio.Buffer) buf).remaining(), MAX_KEY_SIZE);
     byte[] bytes = new byte[keySize];
     buf.get(bytes);
 
