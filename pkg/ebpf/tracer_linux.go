@@ -157,7 +157,7 @@ func (pt *ProcessTracer) Run(ctx context.Context, ebpfEventContext *common.EBPFE
 	hasWarned := false
 	for {
 		select {
-		// notifyng before OBI times out on finish
+		// notifying before OBI times out on finish
 		case <-time.After(3 * pt.shutdownTimeout / 4):
 			pt.log.Warn("some process tracers did not finish", "tracers", runningTracers)
 			hasWarned = true

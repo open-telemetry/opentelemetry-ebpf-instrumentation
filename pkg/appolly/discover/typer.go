@@ -133,11 +133,12 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 			Name:      name,
 			Namespace: namespace,
 		},
-		ProcPID:     processMatch.Process.Pid,
-		ExportModes: exportModes,
-		Sampler:     samplerFromConfig(samplerConfig),
-		PathTrie:    clusterurl.NewPathTrie(routesCfg.MaxPathSegmentCardinality, wildcard),
-		Features:    svcFeatures,
+		ProcPID:            processMatch.Process.Pid,
+		ExportModes:        exportModes,
+		Sampler:            samplerFromConfig(samplerConfig),
+		PathTrie:           clusterurl.NewPathTrie(routesCfg.MaxPathSegmentCardinality, wildcard),
+		Features:           svcFeatures,
+		LogEnricherEnabled: processMatch.LogEnricherEnabled(),
 	}
 
 	if routesConfig != nil {
@@ -248,7 +249,15 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	// Return the instrumentable without offsets, as it is identified as a generic
 	// (or non-instrumentable Go proxy) executable
 	t.instrumentableCache.Add(execElf.Ino, instrumentedExecutable{Type: detectedType, Offsets: nil, InstrumentationError: err})
-	return ebpf.Instrumentable{Type: detectedType, Offsets: nil, FileInfo: execElf, ChildPids: child, InstrumentationError: err}
+
+	return ebpf.Instrumentable{
+		Type:                 detectedType,
+		Offsets:              nil,
+		FileInfo:             execElf,
+		ChildPids:            child,
+		InstrumentationError: err,
+		LogEnricherEnabled:   execElf.Service.LogEnricherEnabled,
+	}
 }
 
 func (t *typer) inspectOffsets(execElf *exec.FileInfo) (*goexec.Offsets, bool, error) {

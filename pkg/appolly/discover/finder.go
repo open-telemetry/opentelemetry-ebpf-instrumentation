@@ -151,7 +151,7 @@ func newGoTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metr
 	return []ebpf.Tracer{gotracer.New(pidFilter, cfg, metrics)}
 }
 
-func newGenericTracersGroup(pidFilter, logEnricherFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) []ebpf.Tracer {
+func newGenericTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) []ebpf.Tracer {
 	var tracers []ebpf.Tracer
 
 	// Add tracers based on configuration
@@ -164,7 +164,7 @@ func newGenericTracersGroup(pidFilter, logEnricherFilter ebpfcommon.ServiceFilte
 
 	// Enables log enricher which handles trace-log correlation
 	if cfg.EBPF.LogEnricher.Enabled() {
-		logEnricher := logenricher.New(logEnricherFilter, cfg)
+		logEnricher := logenricher.New(pidFilter, cfg)
 		if logEnricher != nil {
 			tracers = append(tracers, logEnricher)
 		}

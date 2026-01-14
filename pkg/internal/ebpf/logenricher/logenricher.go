@@ -83,6 +83,7 @@ func New(pf ebpfcommon.ServiceFilter, cfg *obi.Config) *Tracer {
 	)
 
 	tr.asyncWriter = asyncWriter
+
 	return tr
 }
 
@@ -288,7 +289,7 @@ func (p *Tracer) handleLogEvent(_ *ebpfcommon.EBPFParseContext, _ *config.EBPFTr
 	if err != nil {
 		// This should never happen -- if it does, we can't really recover
 		// and the targeted process will miss his logs.
-		return request.Span{}, true, err
+		return request.Span{}, true, nil
 	}
 
 	err = p.asyncWriter.Enqueue(p.ctx, LogEvent{
