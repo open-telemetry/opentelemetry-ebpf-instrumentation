@@ -137,7 +137,7 @@ func buildServiceNameTemplate(config *obi.Config) (*template.Template, error) {
 	return templ, nil
 }
 
-// BuildContextInfo populates some globally shared components and properties
+// BuildCommonContextInfo populates some globally shared components and properties
 // from the user-provided configuration
 func BuildCommonContextInfo(
 	ctx context.Context, config *obi.Config,

@@ -20,11 +20,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-// loggerOnce ensures we only set the default logger once
-var loggerOnce sync.Once
-
-func setDefaultLogger(rs receiver.Settings) {
-	loggerOnce.Do(func() {
+var setDefaultLogger = func(rs receiver.Settings) func() {
+	return sync.OnceFunc(func() {
 		slog.SetDefault(slog.New(zapslog.NewHandler(rs.Logger.Core())))
 	})
 }
