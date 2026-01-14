@@ -10,7 +10,7 @@ interval: 500ms
 expected:
   traces:
     # Successful query
-    - traceql: '{ .db.operation.name = "SELECT" && .db.system.name = "other_sql"}'
+    - traceql: '{ name = "SELECT accounting.contacts" }'
       spans:
         - name: 'SELECT accounting.contacts'
           attributes:
@@ -23,6 +23,8 @@ expected:
         - name: 'SELECT nonexistent_table'
           attributes:
             db.operation.name: SELECT
+            db.collection.name: nonexistent_table
+            db.system.name: other_sql
   metrics:
     - promql: 'db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="other_sql"}'
       value: "> 0"
