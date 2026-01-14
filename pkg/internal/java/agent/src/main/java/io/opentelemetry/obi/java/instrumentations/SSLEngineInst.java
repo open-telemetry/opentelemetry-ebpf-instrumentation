@@ -75,7 +75,7 @@ public class SSLEngineInst {
         return -1;
       }
 
-      return dst.position();
+      return ((java.nio.Buffer) dst).position();
     }
 
     @Advice.OnMethodExit
@@ -112,16 +112,16 @@ public class SSLEngineInst {
         return;
       }
 
-      if (result.bytesProduced() > 0 && dst.limit() >= result.bytesProduced()) {
-        int oldPos = dst.position();
+      if (result.bytesProduced() > 0 && ((java.nio.Buffer) dst).limit() >= result.bytesProduced()) {
+        int oldPos = ((java.nio.Buffer) dst).position();
 
         if (savedPos == -1) {
           return;
         }
 
-        dst.position(savedPos);
+        ((java.nio.Buffer) dst).position(savedPos);
         ByteBuffer dstBuffer = ByteBufferExtractor.fromFreshBuffer(dst, result.bytesProduced());
-        dst.position(oldPos);
+        ((java.nio.Buffer) dst).position(oldPos);
 
         byte[] b = dstBuffer.array();
 
@@ -156,7 +156,7 @@ public class SSLEngineInst {
           positions[i] = -1;
           continue;
         }
-        positions[i] = dsts[i].position();
+        positions[i] = ((java.nio.Buffer) dsts[i]).position();
       }
 
       return positions;
@@ -206,9 +206,9 @@ public class SSLEngineInst {
           if (dsts[i] == null) {
             continue;
           }
-          oldDstPositions[i] = dsts[i].position();
+          oldDstPositions[i] = ((java.nio.Buffer) dsts[i]).position();
           if (savedDstPositions[i] != -1) {
-            dsts[i].position(savedDstPositions[i]);
+            ((java.nio.Buffer) dsts[i]).position(savedDstPositions[i]);
           }
         }
 
@@ -218,11 +218,11 @@ public class SSLEngineInst {
           if (dsts[i] == null) {
             continue;
           }
-          dsts[i].position(oldDstPositions[i]);
+          ((java.nio.Buffer) dsts[i]).position(oldDstPositions[i]);
         }
 
         byte[] b = dstBuffer.array();
-        int len = dstBuffer.position();
+        int len = ((java.nio.Buffer) dstBuffer).position();
 
         if (SSLStorage.debugOn) {
           System.err.println(
@@ -250,13 +250,14 @@ public class SSLEngineInst {
         return;
       }
 
-      if (!src.hasRemaining()) {
+      if (!((java.nio.Buffer) src).hasRemaining()) {
         return;
       }
 
-      ByteBuffer buf = ByteBufferExtractor.fromFreshBuffer(src, src.remaining());
+      ByteBuffer buf =
+          ByteBufferExtractor.fromFreshBuffer(src, ((java.nio.Buffer) src).remaining());
       byte[] b = buf.array();
-      int len = buf.position();
+      int len = ((java.nio.Buffer) buf).position();
 
       SSLStorage.unencrypted.set(new BytesWithLen(b, len));
     }
@@ -328,7 +329,7 @@ public class SSLEngineInst {
 
       ByteBuffer buf = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
       byte[] b = buf.array();
-      int len = buf.position();
+      int len = ((java.nio.Buffer) buf).position();
 
       SSLStorage.unencrypted.set(new BytesWithLen(b, len));
     }

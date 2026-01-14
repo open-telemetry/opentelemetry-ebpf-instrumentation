@@ -76,7 +76,7 @@ public class SocketChannelInst {
       if (src == null) {
         return -1;
       }
-      return src.position();
+      return ((java.nio.Buffer) src).position();
     }
 
     @Advice.OnMethodExit // (suppress = Throwable.class)
@@ -94,15 +94,15 @@ public class SocketChannelInst {
         return;
       }
 
-      int oldPos = src.position();
+      int oldPos = ((java.nio.Buffer) src).position();
 
       if (savedPos < 0) {
         return;
       }
 
-      src.position(savedPos);
+      ((java.nio.Buffer) src).position(savedPos);
       String bufKey = ByteBufferExtractor.keyFromFreshBuffer(src);
-      src.position(oldPos);
+      ((java.nio.Buffer) src).position(oldPos);
 
       if (SSLStorage.debugOn) {
         System.err.println("[SocketChannelInst] write advice, lookup: " + bufKey);
@@ -141,7 +141,7 @@ public class SocketChannelInst {
           positions[i] = -1;
           continue;
         }
-        positions[i] = srcs[i].position();
+        positions[i] = ((java.nio.Buffer) srcs[i]).position();
       }
 
       return positions;
@@ -168,9 +168,9 @@ public class SocketChannelInst {
         if (srcs[i] == null) {
           continue;
         }
-        oldSrcPositions[i] = srcs[i].position();
+        oldSrcPositions[i] = ((java.nio.Buffer) srcs[i]).position();
         if (oldSrcPositions[i] != -1) {
-          srcs[i].position(savedSrcPositions[i]);
+          ((java.nio.Buffer) srcs[i]).position(savedSrcPositions[i]);
         }
       }
 
@@ -180,7 +180,7 @@ public class SocketChannelInst {
         if (srcs[i] == null) {
           continue;
         }
-        srcs[i].position(oldSrcPositions[i]);
+        ((java.nio.Buffer) srcs[i]).position(oldSrcPositions[i]);
       }
 
       String bufKey = ByteBufferExtractor.keyFromUsedBuffer(srcBuffer);

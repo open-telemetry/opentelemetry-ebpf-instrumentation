@@ -1150,6 +1150,13 @@ int obi_handle_buf_with_args(void *ctx) {
                            &args->protocol_type)) {
         bpf_dbg_printk("Found postgres connection");
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
+    } else if (is_kafka(&args->pid_conn.conn,
+                        (const unsigned char *)args->u_buf,
+                        args->bytes_len,
+                        &args->protocol_type,
+                        args->direction)) {
+        bpf_dbg_printk("Found kafka connection");
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
 

@@ -1,0 +1,15 @@
+docker-compose:
+  generator: generic
+  files:
+    - ../docker-compose-java-tls-jdk8.yml
+input:
+  - path: "/request"
+interval: 500ms
+expected:
+  traces:
+    - traceql: '{ .http.route = "/greeting" }'
+      spans:
+        - name: "GET /greeting"
+          attributes:
+            server.port: "8443"
+            url.path: "/greeting"

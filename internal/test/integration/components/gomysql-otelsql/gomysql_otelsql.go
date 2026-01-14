@@ -11,6 +11,7 @@ import (
 
 	"github.com/XSAM/otelsql"
 	_ "github.com/go-sql-driver/mysql"
+
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
