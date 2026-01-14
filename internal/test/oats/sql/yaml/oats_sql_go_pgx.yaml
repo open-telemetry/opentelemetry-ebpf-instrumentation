@@ -20,7 +20,7 @@ expected:
     # Error query
     - traceql: '{ .db.operation.name = "SELECT" && status = error }'
       spans:
-        - name: 'SELECT nonexistent_table
+        - name: 'SELECT nonexistent_table'
           attributes:
             db.operation.name: SELECT
   metrics:
