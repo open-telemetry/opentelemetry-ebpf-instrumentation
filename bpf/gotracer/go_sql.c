@@ -308,8 +308,8 @@ int obi_uprobe_pgx_Query_return(struct pt_regs *ctx) {
         trace->start_monotime_ns = invocation->start_monotime_ns;
         trace->end_monotime_ns = bpf_ktime_get_ns();
 
-        void *resp_ptr = GO_PARAM1(ctx);
-        trace->status = (resp_ptr == NULL);
+        void *err_type_ptr = GO_PARAM3(ctx);
+        trace->status = (err_type_ptr != NULL);
         trace->tp = invocation->tp;
 
         u64 query_len = invocation->query_len;

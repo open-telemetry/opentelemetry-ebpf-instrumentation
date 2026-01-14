@@ -67,6 +67,34 @@ func main() {
 		w.Write([]byte(name + " " + lastNames))
 	})
 
+	// Endpoint with broken SQL
+	http.HandleFunc("/pgxerror", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if !pgxInit {
+			conn, err = pgx.Connect(ctx, "postgres://postgres:postgres@sqlserver:5432/sqltest?sslmode=disable")
+			if err != nil {
+				log.Printf("Failed to connect: %v\n", err)
+				w.WriteHeader(500)
+				w.Write([]byte("DB connection failed"))
+				return
+			}
+			pgxInit = true
+		}
+
+		// Execute broken SQL - this should return an error
+		rows, err := conn.Query(ctx, "SELECT * FROM nonexistent_table WHERE id=1")
+		if err != nil {
+			log.Printf("Expected error from broken SQL: %v\n", err)
+			// Return 200 so OATS framework continues
+			w.WriteHeader(200)
+			w.Write([]byte("SQL error (expected)"))
+			return
+		}
+		defer rows.Close()
+
+		w.Write([]byte("unexpected success"))
+	})
+
 	log.Println("Starting Go PGX test server on :8080")
 	err = http.ListenAndServe(":8080", nil)
 	if conn != nil {
