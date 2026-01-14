@@ -54,7 +54,7 @@ func AddOvnIPs(ips []string, node *v1.Node) []string {
 // Returns empty string if the annotation is not present (i.e., not using ovn-kubernetes).
 // Returns an error if the annotation is malformed.
 func findOvnMp0IP(annotations map[string]string) (string, error) {
-  // Parsing is based on upstream: https://github.com/ovn-kubernetes/ovn-kubernetes/blob/5d56a53df520a085e629cdc71be092afed9c3f0f/go-controller/pkg/util/subnet_annotations.go#L15-L34
+	// Parsing is based on upstream: https://github.com/ovn-kubernetes/ovn-kubernetes/blob/5d56a53df520a085e629cdc71be092afed9c3f0f/go-controller/pkg/util/subnet_annotations.go#L15-L34
 	subnetsJSON, ok := annotations[ovnSubnetAnnotation]
 	if !ok {
 		// Annotation not present (expected if not using ovn-kubernetes) => just ignore, no error
