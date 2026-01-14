@@ -206,6 +206,20 @@ int obi_uprobe_queryDC(struct pt_regs *ctx) {
     return 0;
 }
 
+SEC("uprobe/pgx_Query")
+int obi_uprobe_pgx_Query(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/pgx_Query === ");
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+
+    void *pgx_conn = GO_PARAM1(ctx);
+    void *sql_param = GO_PARAM4(ctx);
+    void *query_len = GO_PARAM5(ctx);
+
+    set_sql_info(goroutine_addr, pgx_conn, sql_param, query_len);
+    return 0;
+}
+
 SEC("uprobe/execDC")
 int obi_uprobe_execDC(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/execDC === ");
@@ -263,6 +277,57 @@ int obi_uprobe_queryReturn(struct pt_regs *ctx) {
         __builtin_memcpy(&trace->conn, &invocation->conn, sizeof(connection_info_t));
 
         extract_sql_hostname(trace, invocation->driver_conn_ptr, goroutine_addr);
+
+        // submit the completed trace via ringbuffer
+        bpf_ringbuf_submit(trace, get_flags());
+    } else {
+        bpf_dbg_printk("can't reserve space in the ringbuffer");
+    }
+    return 0;
+}
+
+SEC("uprobe/pgx_Query_return")
+int obi_uprobe_pgx_Query_return(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/pgx_Query_return === ");
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    sql_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_sql_queries, &g_key);
+    if (invocation == NULL) {
+        bpf_dbg_printk("Request not found for this goroutine");
+        return 0;
+    }
+    bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
+
+    sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
+    if (trace) {
+        task_pid(&trace->pid);
+        trace->type = EVENT_SQL_CLIENT;
+        trace->start_monotime_ns = invocation->start_monotime_ns;
+        trace->end_monotime_ns = bpf_ktime_get_ns();
+
+        void *err_type_ptr = GO_PARAM3(ctx);
+        trace->status = (err_type_ptr != NULL);
+        trace->tp = invocation->tp;
+
+        u64 query_len = invocation->query_len;
+        if (query_len > sizeof(trace->sql)) {
+            query_len = sizeof(trace->sql);
+        }
+
+        bpf_probe_read(trace->sql, query_len, (void *)invocation->sql_param);
+
+        if (query_len < sizeof(trace->sql)) {
+            trace->sql[query_len] = '\0';
+        }
+
+        bpf_dbg_printk("Found sql statement %s", trace->sql);
+
+        __builtin_memcpy(&trace->conn, &invocation->conn, sizeof(connection_info_t));
+
+        //extract_sql_hostname(trace, invocation->driver_conn_ptr, goroutine_addr);
 
         // submit the completed trace via ringbuffer
         bpf_ringbuf_submit(trace, get_flags());
