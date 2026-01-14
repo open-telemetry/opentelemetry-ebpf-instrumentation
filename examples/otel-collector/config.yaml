@@ -1,0 +1,31 @@
+receivers:
+  obi:
+    open_port: "8000"
+#    discovery:
+#      services:
+#        - k8s_namespace: .
+#      exclude_services:
+#        - exe_path: ".*ebpf-instrument.*|.*otelcol.*"
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  debug:
+    verbosity: detailed
+  otlp/jaeger:
+    endpoint: localhost:14317
+    tls:
+      insecure: true
+    sending_queue:
+      batch:
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp, obi]
+      exporters: [otlp/jaeger, debug]
+  telemetry:
+    logs:
+      level: debug
