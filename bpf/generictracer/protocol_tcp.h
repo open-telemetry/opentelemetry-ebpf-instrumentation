@@ -15,6 +15,7 @@
 #include <common/trace_common.h>
 
 #include <generictracer/protocol_common.h>
+#include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
 
@@ -142,6 +143,11 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
             ret = postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
         }
         break;
+    case k_protocol_type_kafka:
+        if (kafka_buffer_size > 0) {
+            ret = kafka_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
+        }
+        break;
     case k_protocol_type_http:
         break;
     case k_protocol_type_unknown:
@@ -187,7 +193,10 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                                                           u16 orig_dport,
                                                           enum protocol_type protocol_type) {
     tcp_req_t *existing = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
-
+    // NOTE: this shouldn't happen, but the is_server value may be incorrect,
+    // for example if an unrelated service is bound to the process port (like the metrics server)
+    u32 netns = task_netns();
+    bool is_server = is_listening(pid_conn->conn.d_port, netns);
     if (existing) {
         if (existing->direction == direction && existing->end_monotime_ns != 0) {
             bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
@@ -224,6 +233,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
         tcp_req_t *req = empty_tcp_req();
         if (req) {
+            req->is_server = is_server;
             bpf_clamp_umax(bytes_len, K_TCP_MAX_LEN);
             req->flags = EVENT_TCP_REQUEST;
             req->conn_info = pid_conn->conn;
@@ -255,6 +265,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             bpf_map_update_elem(&ongoing_tcp_req, pid_conn, req, BPF_ANY);
         }
     } else if (existing->direction != direction) {
+        existing->is_server = is_server;
         if (tcp_send_large_buffer(existing,
                                   pid_conn,
                                   u_buf,
@@ -270,6 +281,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             bpf_clamp_umax(bytes_len, K_TCP_RES_LEN);
             existing->end_monotime_ns = bpf_ktime_get_ns();
             existing->resp_len = bytes_len;
+            existing->is_server = is_server;
             tcp_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
             if (trace) {
                 bpf_dbg_printk(
@@ -296,6 +308,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         existing->len += bytes_len;
         existing->req_len = existing->len;
         existing->protocol_type = protocol_type;
+        existing->is_server = is_server;
 
         tcp_send_large_buffer(existing,
                               pid_conn,

@@ -135,7 +135,8 @@ typedef struct tcp_req {
     u8 direction;
     u8 has_large_buffers;
     enum protocol_type protocol_type;
-    u8 _pad1[3];
+    bool is_server;
+    u8 _pad1[2];
     connection_info_t conn_info;
     u32 len;
     u64 start_monotime_ns;
