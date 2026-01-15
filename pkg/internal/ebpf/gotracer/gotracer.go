@@ -198,6 +198,9 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		// mysql driver
 		goexec.MySQLConnCfgPos,
 		goexec.MySQLConfigAddrPos,
+		// pgx driver
+		goexec.PgxConnConfigPos,
+		goexec.PgxConfigHostPos,
 		goexec.MuxTemplatePos,
 		goexec.GinFullpathPos,
 	} {

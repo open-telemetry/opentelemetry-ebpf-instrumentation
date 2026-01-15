@@ -139,10 +139,48 @@ read_mysql_hostname_from_mysqlconn(void *mysql_conn_ptr, char *hostname, u64 max
     return 1;
 }
 
+// Extracts PostgreSQL server hostname from a pgx.Conn pointer.
+// Follows the pointer chain: Conn -> config (*ConnConfig) -> Host (string)
+static __always_inline bool
+read_pgx_hostname_from_conn(void *pgx_conn_ptr, char *hostname, u64 max_len) {
+    if (!pgx_conn_ptr) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+
+    // Dereference Conn.config to get pointer to ConnConfig struct
+    void *config_ptr = 0;
+    int res = bpf_probe_read(
+        &config_ptr,
+        sizeof(config_ptr),
+        (void *)((u64)pgx_conn_ptr + go_offset_of(ot, (go_offset){.v = _pgx_conn_config_pos})));
+
+    if (res != 0 || !config_ptr) {
+        bpf_dbg_printk("can't read pgx.Conn.config");
+        return 0;
+    }
+
+    // Read Host string field (at offset 0, embedded from pgconn.Config)
+    if (!read_go_str("pgx hostname",
+                     config_ptr,
+                     go_offset_of(ot, (go_offset){.v = _pgx_config_host_pos}),
+                     hostname,
+                     max_len)) {
+        bpf_dbg_printk("can't read pgconn.Config.Host");
+        return 0;
+    }
+
+    return 1;
+}
+
 // SQL hostname extraction with driver type routing.
-// Attempts to extract hostname by trying supported database drivers
-static __always_inline void
-extract_sql_hostname(sql_request_trace_t *trace, u64 driver_conn_ptr, void *goroutine_addr) {
+// Uses conn_type to determine which driver-specific extraction to use or
+// attempts to extract hostname by trying supported database drivers
+static __always_inline void extract_sql_hostname(sql_request_trace_t *trace,
+                                                 u64 driver_conn_ptr,
+                                                 void *goroutine_addr,
+                                                 u8 conn_type) {
     trace->hostname[0] = '\0';
 
     if (goroutine_addr) {
@@ -159,6 +197,14 @@ extract_sql_hostname(sql_request_trace_t *trace, u64 driver_conn_ptr, void *goro
 
     if (driver_conn_ptr == 0) {
         bpf_dbg_printk("sql hostname extraction skipped: driver_conn_ptr is null");
+        return;
+    }
+
+    if (conn_type == SQL_CONN_TYPE_PGX) {
+        if (read_pgx_hostname_from_conn(
+                (void *)driver_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
+            bpf_dbg_printk("extracted pgx hostname: %s", trace->hostname);
+        }
         return;
     }
 
@@ -194,7 +240,7 @@ set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *que
 
 // Common SQL query return handler.
 // Works for both database/sql and pgx.
-static __always_inline int process_sql_return(void *goroutine_addr, void *err_ptr) {
+static __always_inline int process_sql_return(void *goroutine_addr, void *err_ptr, u8 conn_type) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -230,7 +276,7 @@ static __always_inline int process_sql_return(void *goroutine_addr, void *err_pt
 
         __builtin_memcpy(&trace->conn, &invocation->conn, sizeof(connection_info_t));
 
-        extract_sql_hostname(trace, invocation->driver_conn_ptr, goroutine_addr);
+        extract_sql_hostname(trace, invocation->driver_conn_ptr, goroutine_addr, conn_type);
 
         // submit the completed trace via ringbuffer
         bpf_ringbuf_submit(trace, get_flags());
@@ -290,7 +336,7 @@ int obi_uprobe_queryReturn(struct pt_regs *ctx) {
 
     // queryDC returns (*Rows, error)
     void *err_ptr = GO_PARAM2(ctx);
-    return process_sql_return(goroutine_addr, err_ptr);
+    return process_sql_return(goroutine_addr, err_ptr, SQL_CONN_TYPE_DATABASE_SQL);
 }
 
 SEC("uprobe/pgx_Query_return")
@@ -301,7 +347,7 @@ int obi_uprobe_pgx_Query_return(struct pt_regs *ctx) {
 
     // pgx.Conn.Query returns (Rows, error)
     void *err_ptr = GO_PARAM3(ctx);
-    return process_sql_return(goroutine_addr, err_ptr);
+    return process_sql_return(goroutine_addr, err_ptr, SQL_CONN_TYPE_PGX);
 }
 
 SEC("uprobe/pq_network_return")
