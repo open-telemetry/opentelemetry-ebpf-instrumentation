@@ -239,8 +239,6 @@ static __always_inline tp_info_pid_t *find_parent_java_trace(trace_key_t *t_key)
         // Let's find the parent scope
         const pid_key_t *p_tid = (const pid_key_t *)bpf_map_lookup_elem(&java_tasks, &t_key->p_key);
 
-        bpf_d_printk("java task lookup result %llx", p_tid);
-
         if (!p_tid) {
             break;
         }
