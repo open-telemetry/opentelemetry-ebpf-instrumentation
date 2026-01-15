@@ -2,7 +2,7 @@
 
 module go.opentelemetry.io/collector/cmd/builder
 
-go 1.25.3
+go 1.25.5
 
 replace go.opentelemetry.io/obi => ../../../
 
