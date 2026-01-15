@@ -228,7 +228,7 @@ static __always_inline tp_info_pid_t *find_parent_java_trace(trace_key_t *t_key)
         tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces, t_key);
 
         if (server_tp) {
-            bpf_dbg_printk("Found java parent trace for pid=%d, ns=%lx, extra_id=%llx",
+            bpf_dbg_printk("Found parent trace for pid=%d, ns=%lx, extra_id=%llx",
                            t_key->p_key.pid,
                            t_key->p_key.ns,
                            t_key->extra_id);
