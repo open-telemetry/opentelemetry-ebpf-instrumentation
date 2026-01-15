@@ -349,10 +349,6 @@ integration-test-matrix-json:
 vm-integration-test-matrix-json:
 	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" internal/test/integration "$${PARTITIONS:-5}" "TestMultiProcess"
 
-.PHONY: k8s-integration-test-matrix-json
-k8s-integration-test-matrix-json:
-	@./scripts/generate-dir-matrix.sh internal/test/integration/k8s common
-
 .PHONY: oats-integration-test-matrix-json
 oats-integration-test-matrix-json:
 	@./scripts/generate-dir-matrix.sh internal/test/oats
