@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -26,8 +26,8 @@ func waitForElixirTestComponents(t *testing.T, url string) {
 func testREDMetricsForElixirHTTPLibrary(t *testing.T, url string, comm string) {
 	path := "/test"
 
-	pq := prom.Client{HostPort: prometheusHostPort}
-	var results []prom.Result
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	var results []promtest.Result
 
 	// Call 4 times the instrumented service, forcing it to:
 	// - process multiple calls in a row with, one more than we might need

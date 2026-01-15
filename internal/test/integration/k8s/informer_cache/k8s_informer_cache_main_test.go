@@ -16,7 +16,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/kube"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	k8s "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 	"go.opentelemetry.io/obi/internal/test/integration/k8s/common/testpath"
 	otel "go.opentelemetry.io/obi/internal/test/integration/k8s/netolly"
@@ -85,7 +85,7 @@ func TestInformersCache_InternalMetrics(t *testing.T) {
 }
 
 func metricVal(t *testing.T, promQLQuery string) int {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	results, err := pq.Query(promQLQuery)
 	require.NoError(t, err)

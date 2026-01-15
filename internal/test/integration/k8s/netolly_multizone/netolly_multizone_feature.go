@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 const (
@@ -30,7 +30,7 @@ func FeatureMultizoneNetworkFlows() features.Feature {
 }
 
 func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	// checking pod-to-pod node communication (request)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -120,7 +120,7 @@ func testFlowsDecoratedWithZone(ctx context.Context, t *testing.T, _ *envconf.Co
 }
 
 func testInterZoneMetric(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	// inter-zone bytes are reported
 	test.Eventually(t, testTimeout, func(t require.TestingT) {

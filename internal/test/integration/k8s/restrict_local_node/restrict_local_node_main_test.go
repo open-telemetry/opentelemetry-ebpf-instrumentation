@@ -16,7 +16,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/kube"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	k8s "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 	"go.opentelemetry.io/obi/internal/test/integration/k8s/common/testpath"
 	"go.opentelemetry.io/obi/internal/test/tools"
@@ -53,7 +53,7 @@ func TestMain(m *testing.M) {
 
 func TestNoSourceAndDestAvailable(t *testing.T) {
 	// Wait for some metrics available at Prometheus
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	for _, args := range []string{
 		`k8s_dst_name="httppinger"`,
 		`k8s_src_name="httppinger"`,
