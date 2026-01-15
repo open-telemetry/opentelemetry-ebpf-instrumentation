@@ -106,12 +106,6 @@ make test
 make integration-test
 ```
 
-#### Running k8s integration tests
-
-```
-make integration-tests-k8s
-```
-
 ### Issues
 
 Questions, bug reports, and feature requests can all be submitted as [issues](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/new) to this repository.

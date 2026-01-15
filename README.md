@@ -21,7 +21,6 @@ Requirements:
 
 ```
 make integration-test
-make integration-test-k8s
 make oats-test
 ```
 
