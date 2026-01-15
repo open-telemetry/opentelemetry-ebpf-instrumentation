@@ -13,7 +13,7 @@
 // Good resource on this: https://mozillazg.com/2022/05/ebpf-libbpfgo-get-process-info-en.html
 // Using bpf_get_ns_current_pid_tgid is too restrictive for us
 static __always_inline void
-ns_pid_ppid(struct task_struct *task, int *pid, int *ppid, u32 *pid_ns_id) {
+ns_pid_ppid(const struct task_struct *task, int *pid, int *ppid, u32 *pid_ns_id) {
     struct upid upid;
 
     unsigned int level = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, level);

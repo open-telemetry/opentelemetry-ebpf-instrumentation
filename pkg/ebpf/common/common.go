@@ -305,6 +305,29 @@ const (
 	KernelLockdownOther
 )
 
+func SupportsLogInjection(log *slog.Logger) bool {
+	kernelMajor, kernelMinor := KernelVersion()
+	log.Debug("Linux kernel version", "major", kernelMajor, "minor", kernelMinor)
+
+	if kernelMajor < 6 {
+		log.Info("log injection not supported: linux kernel version < 6", "kernelMajor", kernelMajor, "kernelMinor", kernelMinor)
+		return false
+	}
+
+	if !hasCapSysAdmin() {
+		log.Info("log injection not supported: missing CAP_SYS_ADMIN capability")
+		return false
+	}
+
+	lockdownMode := KernelLockdownMode()
+	if lockdownMode != KernelLockdownNone && lockdownMode != KernelLockdownIntegrity {
+		log.Info("log injection not supported: kernel in lockdown mode")
+		return false
+	}
+
+	return true
+}
+
 func SupportsContextPropagationWithProbe(log *slog.Logger) bool {
 	kernelMajor, kernelMinor := KernelVersion()
 	log.Debug("Linux kernel version", "major", kernelMajor, "minor", kernelMinor)
