@@ -307,8 +307,6 @@ run-integration-test:
 	go clean -testcache
 	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/... --tags=integration
 
-
-
 .PHONY: run-integration-test-vm
 run-integration-test-vm:
 	@echo "### Running integration tests (pattern: $(TEST_PATTERN))"
