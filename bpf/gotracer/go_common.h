@@ -99,6 +99,9 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_grpc_transports SEC(".maps");
 
+#define SQL_CONN_TYPE_DATABASE_SQL 0 // database/sql (mysql, pq)
+#define SQL_CONN_TYPE_PGX 1          // github.com/jackc/pgx/v5
+
 typedef struct sql_func_invocation {
     u64 start_monotime_ns;
     u64 sql_param;
