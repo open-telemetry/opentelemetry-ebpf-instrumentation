@@ -138,6 +138,7 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 	if tracer, ok := ta.existingTracers[ie.FileInfo.Ino]; ok {
 		ta.log.Debug("new process for already instrumented executable",
 			"pid", ie.FileInfo.Pid,
+			"ino", ie.FileInfo.Ino,
 			"child", ie.ChildPids,
 			"cmd", ie.FileInfo.CmdExePath)
 		ie.FileInfo.Service.SDKLanguage = ie.Type
@@ -316,8 +317,11 @@ func (ta *traceAttacher) reuseTracer(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 		return false
 	}
 
-	if err := tracer.NewExecutable(exe, ie); err != nil {
-		ta.log.Debug("Failed to attach uprobes for new executable", "pid", ie.FileInfo.Pid, "error", err)
+	// if this executable is already instrumented, avoid instrumenting it again!
+	if _, ok := ta.existingTracers[ie.FileInfo.Ino]; !ok {
+		if err := tracer.NewExecutable(exe, ie); err != nil {
+			ta.log.Debug("Failed to attach uprobes for new executable", "pid", ie.FileInfo.Pid, "error", err)
+		}
 	}
 
 	ta.log.Debug("reusing Generic tracer for",
@@ -327,6 +331,7 @@ func (ta *traceAttacher) reuseTracer(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 		"language", ie.Type)
 
 	ta.monitorPIDs(tracer, ie)
+	// don't move this line before "if _, ok := ta.existingTracers[ie.FileInfo.Ino]; ..."!
 	ta.existingTracers[ie.FileInfo.Ino] = tracer
 	ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName())
 

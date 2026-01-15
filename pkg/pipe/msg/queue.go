@@ -16,7 +16,7 @@ import (
 
 // if a Send operation takes more than this time, we panic informing about a deadlock
 // in the user-provide pipeline
-const defaultSendTimeout = 20 * time.Second
+const defaultSendTimeout = 60 * time.Second
 
 const unnamed = "(unnamed)"
 
@@ -171,7 +171,12 @@ func (q *Queue[T]) chainedSend(ctx context.Context, o T, bypassPath []string) {
 		case <-ctx.Done():
 			return
 		case d.ch <- o:
-			// good!
+			slog.With(
+				"timeout", q.cfg.sendTimeout,
+				"queueLen", len(d.ch), "queueCap", cap(d.ch),
+				"sendPath", strings.Join(bypassPath, "->"),
+				"dstName", d.name).
+				Info("subscriber channel unblocked")
 		case <-q.sendTimeout.C:
 			panic(fmt.Sprintf("sending through queue path %s. Subscriber channel %s is blocked",
 				strings.Join(bypassPath, "->"), d.name))
