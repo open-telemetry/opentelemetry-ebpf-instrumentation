@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 /*
@@ -186,7 +186,7 @@ func waitForTestComponentsNoMetrics(t *testing.T, url string) {
 // does a smoke test to verify that all the components that started
 // asynchronously are up and communicating properly
 func waitForTestComponentsSubWithTime(t *testing.T, url, subpath string, minutes int) {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	test.Eventually(t, time.Duration(minutes)*time.Minute, func(t require.TestingT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
@@ -205,7 +205,7 @@ func waitForTestComponentsSubWithTime(t *testing.T, url, subpath string, minutes
 }
 
 func waitForTestComponentsSubWithTimeAndCode(t *testing.T, url, subpath string, status, minutes int) {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	test.Eventually(t, time.Duration(minutes)*time.Minute, func(t require.TestingT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
@@ -224,7 +224,7 @@ func waitForTestComponentsSubWithTimeAndCode(t *testing.T, url, subpath string, 
 }
 
 func waitForTestComponentsRoute(t *testing.T, url, route string) {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	test.Eventually(t, time.Duration(1)*time.Minute, func(t require.TestingT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+route, nil)
@@ -247,7 +247,7 @@ func waitForSQLTestComponentsMySQL(t *testing.T, url, subpath string) {
 }
 
 func waitForSQLTestComponentsWithDB(t *testing.T, url, subpath, db string) {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	test.Eventually(t, 1*time.Minute, func(t require.TestingT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
@@ -265,11 +265,11 @@ func waitForSQLTestComponentsWithDB(t *testing.T, url, subpath, db string) {
 	}, test.Interval(time.Second))
 }
 
-func enoughPromResults(t require.TestingT, results []prom.Result) {
+func enoughPromResults(t require.TestingT, results []promtest.Result) {
 	require.GreaterOrEqual(t, len(results), 1)
 }
 
-func totalPromCount(t require.TestingT, results []prom.Result) int {
+func totalPromCount(t require.TestingT, results []promtest.Result) int {
 	total := 0
 	for _, res := range results {
 		require.Len(t, res.Value, 2)
@@ -281,7 +281,7 @@ func totalPromCount(t require.TestingT, results []prom.Result) int {
 	return total
 }
 
-func checkServerPromQueryResult(t require.TestingT, pq prom.Client, query string, promCount int) {
+func checkServerPromQueryResult(t require.TestingT, pq promtest.Client, query string, promCount int) {
 	results, err := pq.Query(query)
 	require.NoError(t, err)
 	// check duration_count has 3 calls and all the arguments
@@ -295,7 +295,7 @@ func checkServerPromQueryResult(t require.TestingT, pq prom.Client, query string
 	}
 }
 
-func checkClientPromQueryResult(t require.TestingT, pq prom.Client, query string, promCount int) {
+func checkClientPromQueryResult(t require.TestingT, pq promtest.Client, query string, promCount int) {
 	results, err := pq.Query(query)
 	require.NoError(t, err)
 	enoughPromResults(t, results)
@@ -318,7 +318,7 @@ func doHTTP2Post(t *testing.T, path string, status int, jsonBody []byte) {
 }
 
 func waitForTestComponentsHTTP2Sub(t *testing.T, url, subpath string, minutes int) {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	test.Eventually(t, time.Duration(minutes)*time.Minute, func(t require.TestingT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)

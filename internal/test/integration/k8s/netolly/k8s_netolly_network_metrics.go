@@ -18,7 +18,7 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/kube"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	k8s "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 )
 
@@ -50,7 +50,7 @@ func FeatureNetworkFlowBytes() features.Feature {
 }
 
 func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	// testing request flows (to testserver as Service)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-net",dst_name="testserver"}`)
@@ -198,7 +198,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 }
 
 func testNetFlowBytesForExternalTraffic(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	// test external traffic (this test --> prometheus)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {

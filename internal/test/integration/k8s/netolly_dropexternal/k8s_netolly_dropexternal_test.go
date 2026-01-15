@@ -19,7 +19,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/kube"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	k8s "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 	"go.opentelemetry.io/obi/internal/test/integration/k8s/common/testpath"
 	"go.opentelemetry.io/obi/internal/test/tools"
@@ -75,7 +75,7 @@ func TestNetworkFlowBytes_DropExternal(t *testing.T) {
 }
 
 func testNoFlowsForExternalTraffic(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	// testing first that internal traffic is reported (this leaves room to populate Prometheus with
 	// the inspected metrics)

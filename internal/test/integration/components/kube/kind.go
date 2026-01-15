@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/e2e-framework/support/kind"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	"go.opentelemetry.io/obi/internal/test/integration/k8s/common/testpath"
 )
 
@@ -422,7 +422,7 @@ func DumpMetrics(out io.Writer, promHostPort string) error {
 	if _, err := fmt.Fprintf(out, "===== Dumping metrics from %s ====\n", promHostPort); err != nil {
 		return err
 	}
-	pq := prom.Client{HostPort: promHostPort}
+	pq := promtest.Client{HostPort: promHostPort}
 	results, err := pq.Query(`{__name__!=""}`)
 	if err != nil {
 		return err
