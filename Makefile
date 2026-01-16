@@ -524,4 +524,4 @@ check-ebpf-ver-synced:
 
 .PHONY: regenerate-port-lookup
 regenerate-port-lookup:
-	go run cmd/generate-port-lookup/main.go
+	go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go

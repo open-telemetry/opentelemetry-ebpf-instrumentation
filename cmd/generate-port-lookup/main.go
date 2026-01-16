@@ -5,6 +5,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"log/slog"
 	"os"
 	"strconv"
@@ -35,7 +36,10 @@ func ApplicationPortToString(port uint16) string {
 }
 `
 
+var dst = flag.String("dst", "protocol.go", "destination file path for generated code")
+
 func main() {
+	flag.Parse()
 	f, err := os.Open("/etc/services")
 	if err != nil {
 		slog.Error("failed to open file", "err", err)
@@ -68,7 +72,7 @@ func main() {
 		return
 	}
 
-	out, err := os.Create("protocol.go")
+	out, err := os.Create(*dst)
 	if err != nil {
 		slog.Error("failed to open file for writing", "err", err)
 		return
