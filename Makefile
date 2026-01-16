@@ -305,13 +305,13 @@ cleanup-integration-test: $(KIND)
 run-integration-test:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/... --tags=integration
+	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration --tags=integration
 
 .PHONY: run-integration-test-k8s
 run-integration-test-k8s:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/... --tags=integration_k8s
+	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/k8s/... --tags=integration
 
 .PHONY: run-integration-test-vm
 run-integration-test-vm:
