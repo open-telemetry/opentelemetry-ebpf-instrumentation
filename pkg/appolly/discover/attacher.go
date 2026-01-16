@@ -301,11 +301,19 @@ func (ta *traceAttacher) harvestRoutes(ie *ebpf.Instrumentable, reused bool) {
 func (ta *traceAttacher) loadExecutable(ie *ebpf.Instrumentable) (*link.Executable, bool) {
 	// Instead of the executable file in the disk, we pass the /proc/<pid>/exec
 	// to allow loading it from different container/pods in containerized environments
-	exe, err := link.OpenExecutable(ie.FileInfo.ProExeLinkPath)
-	if err != nil {
-		ta.log.Debug("can't open executable. Ignoring",
-			"error", err, "pid", ie.FileInfo.Pid, "cmd", ie.FileInfo.CmdExePath)
-		return nil, false
+	exe, ok := ebpf.ExecsCache[ie.FileInfo.Ino]
+	if !ok {
+		fmt.Printf("traceAttacher: opening for the first time ino %v for path %v\n", ie.FileInfo.Ino, ie.FileInfo.ProExeLinkPath)
+		var err error
+		exe, err = link.OpenExecutable(ie.FileInfo.ProExeLinkPath)
+		if err != nil {
+			ta.log.Debug("can't open executable. Ignoring",
+				"error", err, "pid", ie.FileInfo.Pid, "cmd", ie.FileInfo.CmdExePath)
+			return nil, false
+		}
+		ebpf.ExecsCache[ie.FileInfo.Ino] = exe
+	} else {
+		fmt.Printf("traceAttacher: reusing ino %v for path %v\n", ie.FileInfo.Ino, ie.FileInfo.ProExeLinkPath)
 	}
 
 	return exe, true
@@ -322,10 +330,10 @@ func (ta *traceAttacher) reuseTracer(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 		if err := tracer.NewExecutable(exe, ie); err != nil {
 			ta.log.Debug("Failed to attach uprobes for new executable", "pid", ie.FileInfo.Pid, "error", err)
 		}
-	} else {
-		if err := tracer.NewExecutableInstance(ie); err != nil {
-			ta.log.Debug("Failed to attach uprobes for existing executable", "pid", ie.FileInfo.Pid, "error", err)
-		}
+	//} else {
+	//	if err := tracer.NewExecutableInstance(ie); err != nil {
+	//		ta.log.Debug("Failed to attach uprobes for existing executable", "pid", ie.FileInfo.Pid, "error", err)
+	//	}
 	}
 
 	ta.log.Debug("reusing Generic tracer for",

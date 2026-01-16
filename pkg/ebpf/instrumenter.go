@@ -207,6 +207,8 @@ func resolveExePath(pid int32) (string, uint64, error) {
 	return exePath, stat.Ino, nil
 }
 
+var ExecsCache = map[uint64]*link.Executable{}
+
 func (i *instrumenter) uprobes(pid int32, p Tracer) error {
 	maps, err := processMaps(pid)
 	if err != nil {
@@ -242,10 +244,16 @@ func (i *instrumenter) uprobes(pid int32, p Tracer) error {
 			continue
 		}
 
-		libExe, err := link.OpenExecutable(m.instrPath)
-		if err != nil {
-			log.Debug("can't open executable for inspection", "error", err)
-			continue
+		libExe, ok := ExecsCache[exeIno]
+		if !ok {
+			fmt.Printf("instrumenter: opening for the first time ino %v for path %v\n", exeIno, m.instrPath)
+			if libExe, err = link.OpenExecutable(m.instrPath); err != nil {
+				log.Debug("can't open executable for inspection", "error", err)
+				continue
+			}
+			ExecsCache[exeIno] = libExe
+		} else {
+			fmt.Printf("instrumenter: reusing ino %v for path %v\n", exeIno, m.instrPath)
 		}
 
 		for j := range m.probes {
