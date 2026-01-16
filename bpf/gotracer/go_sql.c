@@ -314,6 +314,20 @@ int obi_uprobe_pgx_Query(struct pt_regs *ctx) {
     return 0;
 }
 
+SEC("uprobe/pgx_Exec")
+int obi_uprobe_pgx_Exec(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/pgx_Exec === ");
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+
+    void *pgx_conn = GO_PARAM1(ctx);
+    void *sql_param = GO_PARAM4(ctx);
+    void *query_len = GO_PARAM5(ctx);
+
+    set_sql_info(goroutine_addr, pgx_conn, sql_param, query_len);
+    return 0;
+}
+
 SEC("uprobe/execDC")
 int obi_uprobe_execDC(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/execDC === ");

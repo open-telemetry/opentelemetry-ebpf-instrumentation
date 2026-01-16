@@ -17,7 +17,7 @@ func main() {
 	var conn *pgx.Conn
 	var err error
 
-	http.HandleFunc("/pgxtest", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/pgxquery", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		if !pgxInit {
 			conn, err = pgx.Connect(ctx, "postgres://postgres:postgres@sqlserver:5432/sqltest?sslmode=disable")
@@ -65,6 +65,31 @@ func main() {
 		}
 
 		w.Write([]byte(name + " " + lastNames))
+	})
+
+	http.HandleFunc("/pgxupdate", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if !pgxInit {
+			conn, err = pgx.Connect(ctx, "postgres://postgres:postgres@sqlserver:5432/sqltest?sslmode=disable")
+			if err != nil {
+				log.Printf("Failed to connect: %v\n", err)
+				w.WriteHeader(500)
+				w.Write([]byte("DB connection failed"))
+				return
+			}
+			pgxInit = true
+		}
+
+		// Execute an update
+		cmdTag, err := conn.Exec(ctx, "UPDATE accounting.contacts SET address='Updated Address' WHERE id=1")
+		if err != nil {
+			log.Printf("Exec error: %v\n", err)
+			w.WriteHeader(500)
+			w.Write([]byte("Exec failed"))
+			return
+		}
+
+		w.Write([]byte(fmt.Sprintf("Updated %d rows", cmdTag.RowsAffected())))
 	})
 
 	// Endpoint with broken SQL
