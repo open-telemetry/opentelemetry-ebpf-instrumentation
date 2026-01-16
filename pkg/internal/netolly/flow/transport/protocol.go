@@ -1,10 +1,10 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:generate go run ../../../../../cmd/generate-port-lookup
-//go:generate gofmt -w protocol.go
-
 package transport
+
+// This is an auto-generated file. To regenerate it, run
+// make regenerate-port-lookup
 
 var generatedPortLookupTable = map[uint16]string{
 	1:    "rtmp",

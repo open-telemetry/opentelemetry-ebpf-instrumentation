@@ -521,3 +521,7 @@ check-ebpf-ver-synced:
 		echo "ebpf lib version out of sync between go.mod and bpf/bpfcore/placeholder.go!"; \
 		exit 1; \
 	fi
+
+.PHONY: regenerate-port-lookup
+regenerate-port-lookup:
+	go run cmd/generate-port-lookup/main.go
