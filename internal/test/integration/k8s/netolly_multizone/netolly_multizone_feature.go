@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package otel
+package otel // import "go.opentelemetry.io/obi/internal/test/integration/k8s/netolly_multizone"
 
 import (
 	"context"

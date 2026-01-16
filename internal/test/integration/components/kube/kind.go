@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package kube contains some tools to setup and use a Kind cluster
-package kube
+package kube // import "go.opentelemetry.io/obi/internal/test/integration/components/kube"
 
 import (
 	"context"

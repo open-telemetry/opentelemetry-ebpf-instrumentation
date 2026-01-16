@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
 	"fmt"

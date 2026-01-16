@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package instrumenter
+package instrumenter // import "go.opentelemetry.io/obi/pkg/instrumenter"
 
 import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"

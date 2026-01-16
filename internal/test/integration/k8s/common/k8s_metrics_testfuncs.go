@@ -3,7 +3,7 @@
 
 //go:build integration_k8s
 
-package k8s
+package k8s // import "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 
 import (
 	"context"

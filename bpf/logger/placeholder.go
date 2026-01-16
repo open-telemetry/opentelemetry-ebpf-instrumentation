@@ -3,4 +3,4 @@
 
 //go:build obi_bpf
 
-package logger
+package logger // import "go.opentelemetry.io/obi/bpf/logger"
