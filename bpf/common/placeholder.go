@@ -3,4 +3,4 @@
 
 //go:build obi_bpf
 
-package common
+package common // import "go.opentelemetry.io/obi/bpf/common"

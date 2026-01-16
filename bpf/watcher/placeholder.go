@@ -3,4 +3,4 @@
 
 //go:build obi_bpf
 
-package watcher
+package watcher // import "go.opentelemetry.io/obi/bpf/watcher"

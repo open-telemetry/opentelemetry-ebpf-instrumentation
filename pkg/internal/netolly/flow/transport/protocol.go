@@ -7,7 +7,7 @@
 //go:generate go run ../../../../../cmd/generate-port-lookup
 //go:generate gofmt -w protocol.go
 
-package transport
+package transport // import "go.opentelemetry.io/obi/pkg/internal/netolly/flow/transport"
 
 var generatedPortLookupTable = map[uint16]string{
 	1: "tcpmux",

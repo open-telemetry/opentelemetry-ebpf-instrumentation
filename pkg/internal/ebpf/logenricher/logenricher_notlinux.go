@@ -3,7 +3,7 @@
 
 //go:build !linux
 
-package logenricher
+package logenricher // import "go.opentelemetry.io/obi/pkg/internal/ebpf/logenricher"
 
 import (
 	"context"

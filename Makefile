@@ -143,7 +143,7 @@ clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" | xargs clang-tidy
 
 .PHONY: lint
-lint: $(GOLANGCI_LINT)
+lint: $(GOLANGCI_LINT) vanity-import-check
 	@echo "### Linting code"
 	$(GOLANGCI_LINT) run ./... --timeout=6m
 
@@ -521,3 +521,13 @@ check-ebpf-ver-synced:
 		echo "ebpf lib version out of sync between go.mod and bpf/bpfcore/placeholder.go!"; \
 		exit 1; \
 	fi
+
+.PHONY: vanity-import-check
+vanity-import-check:
+	@go install github.com/jcchavezs/porto/cmd/porto@latest
+	@porto --include-internal --skip-dirs "^NOTICES/[^/]*\.[^/]*/.*" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
+
+.PHONY: vanity-import-fix
+vanity-import-fix: $(PORTO)
+	@go install github.com/jcchavezs/porto/cmd/porto@latest
+	@porto --include-internal --skip-dirs "^NOTICES/[^/]*\.[^/]*/.*" -w .

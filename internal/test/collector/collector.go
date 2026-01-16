@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package collector implements a test OTEL collector to use in unit tests
-package collector
+package collector // import "go.opentelemetry.io/obi/internal/test/collector"
 
 import (
 	"context"

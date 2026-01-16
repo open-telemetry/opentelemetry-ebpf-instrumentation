@@ -23,7 +23,7 @@ const fileTemplate = `// Copyright The OpenTelemetry Authors
 //go:generate go run ../../../../../cmd/generate-port-lookup
 //go:generate gofmt -w protocol.go
 
-package transport
+package transport // import "go.opentelemetry.io/obi/pkg/internal/netolly/flow/transport"
 
 var generatedPortLookupTable = map[uint16]string{
 {{- range $port, $svc := .Services }}

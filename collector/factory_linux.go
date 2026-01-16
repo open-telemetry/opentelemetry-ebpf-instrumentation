@@ -3,7 +3,7 @@
 
 //go:build linux
 
-package collector
+package collector // import "go.opentelemetry.io/obi/collector"
 
 import (
 	"context"

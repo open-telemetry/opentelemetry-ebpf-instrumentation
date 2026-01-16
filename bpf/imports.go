@@ -3,7 +3,7 @@
 
 //go:build obi_bpf
 
-package bpf
+package bpf // import "go.opentelemetry.io/obi/bpf"
 
 import (
 	_ "go.opentelemetry.io/obi/bpf/bpfcore"
