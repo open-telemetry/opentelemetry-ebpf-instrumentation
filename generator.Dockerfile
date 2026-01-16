@@ -52,6 +52,7 @@ COPY --from=builder /build/obi_genfiles /go/bin
 
 RUN cat <<EOF > /generate.sh
 #!/bin/sh
+export PATH="/usr/lib/llvm20/bin:\$PATH"
 export BPF2GO=bpf2go
 export BPF_CLANG=clang
 export BPF_CFLAGS="-O2 -g -Wall -Werror"
