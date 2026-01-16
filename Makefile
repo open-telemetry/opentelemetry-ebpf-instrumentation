@@ -336,14 +336,14 @@ run-integration-test-vm:
 			-failfast \
 			-v -a \
 			-tags=integration \
-			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration/...; \
+			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
 	fi
 
 .PHONY: run-integration-test-arm
 run-integration-test-arm:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration/... --tags=integration -run "^TestMultiProcess"
+	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration --tags=integration -run "^TestMultiProcess"
 
 .PHONY: integration-test-matrix-json
 integration-test-matrix-json:
