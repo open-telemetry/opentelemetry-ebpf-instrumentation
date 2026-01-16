@@ -120,7 +120,7 @@ func main() {
 		w.Write([]byte("unexpected success"))
 	})
 
-	log.Println("Starting Go PGX test server on :8080")
+	log.Println("Starting Go pgx test server on :8080")
 	err = http.ListenAndServe(":8080", nil)
 	if conn != nil {
 		conn.Close(context.Background())
