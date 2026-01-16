@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package consumer
+package consumer // import "go.opentelemetry.io/obi/internal/test/consumer"
 
 import (
 	"bytes"

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package otel
+package otel // import "go.opentelemetry.io/obi/internal/test/integration/k8s/netolly"
 
 import (
 	"context"

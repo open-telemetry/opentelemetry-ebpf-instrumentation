@@ -4,15 +4,23 @@ docker-compose:
     - ../docker-compose-beyla-gomysqlclient.yml
 input:
   - path: /mysqltest
+  - path: /mysqlerror
 interval: 500ms
 expected:
   traces:
-    - traceql: '{ .db.operation.name = "SELECT" && .db.system.name = "other_sql" }'
+    - traceql: '{ name = "SELECT students" }'
       spans:
         - name: 'SELECT students'
           attributes:
             db.operation.name: SELECT
             db.collection.name: students
+            db.system.name: other_sql
+    - traceql: '{ .db.operation.name = "SELECT" && status = error }'
+      spans:
+        - name: 'SELECT nonexistent_table'
+          attributes:
+            db.operation.name: SELECT
+            db.collection.name: nonexistent_table
             db.system.name: other_sql
   metrics:
     - promql: 'db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'

@@ -3,4 +3,4 @@
 
 //go:build obi_bpf
 
-package pid
+package pid // import "go.opentelemetry.io/obi/bpf/pid"

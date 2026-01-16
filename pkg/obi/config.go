@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package obi
+package obi // import "go.opentelemetry.io/obi/pkg/obi"
 
 import (
 	"encoding"
@@ -124,6 +124,12 @@ var DefaultConfig = Config{
 			},
 		},
 		MaxTransactionTime: 5 * time.Minute,
+		LogEnricher: config.LogEnricherConfig{
+			CacheTTL:              30 * time.Minute,
+			CacheSize:             128,
+			AsyncWriterWorkers:    8,
+			AsyncWriterChannelLen: 500,
+		},
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources:  []transform.Source{transform.SourceK8s},
