@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/integration/components/gomqtt
 
-go 1.25.3
+go 1.25.5
 
 require github.com/eclipse/paho.mqtt.golang v1.5.1
 
