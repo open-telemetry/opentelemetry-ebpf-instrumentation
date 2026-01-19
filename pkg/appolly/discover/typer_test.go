@@ -77,54 +77,59 @@ func TestMakeServiceAttrs(t *testing.T) {
 }
 
 func TestMakeServiceAttrs_FeaturesMatchingMultipleCriteria(t *testing.T) {
-	exportModeTraces := services.ExportModes{}
-	exportModeTraces.AllowTraces()
-	exportModeMetrics := services.ExportModes{}
-	exportModeMetrics.AllowMetrics()
+	exTra := services.ExportModes{}
+	exTra.AllowTraces()
+	exMet := services.ExportModes{}
+	exMet.AllowMetrics()
 
-	proc := &ProcessMatch{
-		Process: &services.ProcessInfo{Pid: 1234},
-		Criteria: []services.Selector{
+	type testCase struct {
+		name     string
+		criteria []services.Selector
+		expected export.Features
+	}
+
+	for _, tc := range []testCase{{
+		name: "last match wins",
+		criteria: []services.Selector{
+			dummyCriterion{export: exMet, features: export.FeatureGraph},
 			dummyCriterion{
-				name: "svc1", namespace: "ns1", export: exportModeMetrics,
+				export: exTra, name: "svc1", namespace: "ns1",
 				features: export.FeatureApplicationRED | export.FeatureGraph,
 			},
-			dummyCriterion{export: exportModeTraces, features: export.FeatureGraph},
 		},
-	}
-
-	ty := typer{cfg: &obi.Config{
-		Routes:  &transform.RoutesConfig{},
-		Metrics: perapp.MetricsConfig{Features: export.FeatureSpanOTel},
-	}}
-	attrs := ty.makeServiceAttrs(proc)
-	assert.Equal(t, "svc1", attrs.UID.Name)
-	assert.Equal(t, "ns1", attrs.UID.Namespace)
-	assert.Equal(t, int32(1234), attrs.ProcPID)
-
-	// the later matching criteria prevails
-	assert.Equal(t, exportModeTraces, attrs.ExportModes)
-	assert.Equal(t, export.FeatureGraph, attrs.Features)
-}
-
-func TestMakeServiceAttrs_NoPerAppFeatures(t *testing.T) {
-	proc := &ProcessMatch{
-		Process: &services.ProcessInfo{Pid: 1234},
-		Criteria: []services.Selector{
+		expected: export.FeatureApplicationRED | export.FeatureGraph,
+	}, {
+		name: "if no features are defined, global metrics features prevail",
+		criteria: []services.Selector{
+			dummyCriterion{export: exTra, name: "svc2", namespace: "ns2"},
 			dummyCriterion{name: "svc1", namespace: "ns1"},
-			dummyCriterion{name: "svc2", namespace: "ns2"},
 		},
+		expected: export.FeatureSpanOTel,
+	}, {
+		name: "if last match does not define features, global metrics config override any prior match",
+		criteria: []services.Selector{
+			dummyCriterion{name: "svc2", namespace: "ns2", features: export.FeatureGraph},
+			dummyCriterion{export: exTra, name: "svc1", namespace: "ns1"},
+		},
+		expected: export.FeatureSpanOTel,
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			proc := &ProcessMatch{
+				Process:  &services.ProcessInfo{Pid: 1234},
+				Criteria: tc.criteria,
+			}
+			ty := typer{cfg: &obi.Config{
+				Routes:  &transform.RoutesConfig{},
+				Metrics: perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+			}}
+			attrs := ty.makeServiceAttrs(proc)
+			assert.Equal(t, "svc1", attrs.UID.Name)
+			assert.Equal(t, "ns1", attrs.UID.Namespace)
+			assert.Equal(t, int32(1234), attrs.ProcPID)
+
+			// the later matching criteria prevails
+			assert.Equal(t, exTra, attrs.ExportModes)
+			assert.Equal(t, tc.expected, attrs.Features)
+		})
 	}
-
-	ty := typer{cfg: &obi.Config{
-		Routes:  &transform.RoutesConfig{},
-		Metrics: perapp.MetricsConfig{Features: export.FeatureSpanOTel},
-	}}
-
-	attrs := ty.makeServiceAttrs(proc)
-	assert.Equal(t, "svc2", attrs.UID.Name)
-	assert.Equal(t, "ns2", attrs.UID.Namespace)
-	assert.Equal(t, int32(1234), attrs.ProcPID)
-	assert.Equal(t, services.ExportModeUnset, attrs.ExportModes)
-	assert.Equal(t, export.FeatureSpanOTel, attrs.Features)
 }
