@@ -3,4 +3,4 @@
 
 //go:build obi_bpf
 
-package maps
+package maps // import "go.opentelemetry.io/obi/bpf/maps"

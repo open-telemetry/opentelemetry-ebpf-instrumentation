@@ -1,5 +1,5 @@
 # Build the autoinstrumenter binary
-ARG TAG=0.2.3@sha256:7d9ca3af8c0183e87d67c9507a6d8ca7ea1cea6794335e6d61514ba18ea18910
+ARG TAG=0.2.5@sha256:35f477693b64867e40a608c6fbc3f053fd89bf87b1356374b95ef32440eb2e0b
 FROM ghcr.io/open-telemetry/obi-generator:${TAG} AS builder
 
 # TODO: embed software version in executable
@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 	&& make compile
 
 # Build the Java OBI agent
-FROM gradle:9.2.1-jdk21-corretto@sha256:3392a25fbe142defde5a13ec7e7171cac8c08ec6bcec00b44705d9a24b544fa3 AS javaagent-builder
+FROM gradle:9.3.0-jdk21-corretto@sha256:2458e66c572212fd24f55ffecde7b88fafdba81e6017eb741179d80cb03d153a AS javaagent-builder
 
 WORKDIR /build
 

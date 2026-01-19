@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -80,7 +80,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 }
 
 func checkInstrumentationErrorMetrics(t *testing.T) {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		results, err := pq.Query(`obi_instrumentation_errors_total`)
 		require.NoError(t, err)

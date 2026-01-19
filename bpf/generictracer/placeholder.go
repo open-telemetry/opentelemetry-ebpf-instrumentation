@@ -3,4 +3,4 @@
 
 //go:build obi_bpf
 
-package generictracer
+package generictracer // import "go.opentelemetry.io/obi/bpf/generictracer"

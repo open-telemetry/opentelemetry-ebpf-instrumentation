@@ -26,7 +26,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.3
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.5
 
 OCI_BIN ?= docker
 
@@ -143,7 +143,7 @@ clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" | xargs clang-tidy
 
 .PHONY: lint
-lint: $(GOLANGCI_LINT)
+lint: $(GOLANGCI_LINT) vanity-import-check
 	@echo "### Linting code"
 	$(GOLANGCI_LINT) run ./... --timeout=6m
 
@@ -522,6 +522,17 @@ check-ebpf-ver-synced:
 		exit 1; \
 	fi
 
+.PHONY: vanity-import-check
+vanity-import-check:
+	@go install github.com/jcchavezs/porto/cmd/porto@latest
+	@porto --include-internal --skip-dirs "^NOTICES/[^/]*\.[^/]*/.*" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
+
+.PHONY: vanity-import-fix
+vanity-import-fix: $(PORTO)
+	@go install github.com/jcchavezs/porto/cmd/porto@latest
+	@porto --include-internal --skip-dirs "^NOTICES/[^/]*\.[^/]*/.*" -w .
+
 .PHONY: regenerate-port-lookup
 regenerate-port-lookup:
 	go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go
+	$(MAKE) fmt

@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package k8s
+package k8s // import "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 
 import (
 	"path"

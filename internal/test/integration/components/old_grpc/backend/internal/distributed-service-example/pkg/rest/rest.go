@@ -4,7 +4,7 @@
 // Copied from
 // https://github.com/mariomac/distributed-service-example/blob/af82ec3812c693167f8881490b9260d901c6a87d/backend/pkg/rest/rest.go
 
-package rest
+package rest // import "go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend/internal/distributed-service-example/pkg/rest"
 
 import (
 	"context"
