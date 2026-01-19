@@ -1,5 +1,5 @@
 # Build the autoinstrumenter binary
-ARG TAG=0.2.5@sha256:35f477693b64867e40a608c6fbc3f053fd89bf87b1356374b95ef32440eb2e0b
+ARG TAG=0.2.6@sha256:547007f27e8323ace60428fe02cb29a512e312fd23e706dd4e061e63c80e4167
 FROM ghcr.io/open-telemetry/obi-generator:${TAG} AS builder
 
 # TODO: embed software version in executable
