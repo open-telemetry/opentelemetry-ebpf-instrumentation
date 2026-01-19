@@ -277,5 +277,3 @@ run:
   # build tags to consider when analyzing code
   build-tags:
     - integration
-    - integration_k8s
-
