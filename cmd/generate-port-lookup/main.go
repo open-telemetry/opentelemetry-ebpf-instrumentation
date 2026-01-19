@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
-generate-port-lookup reads /etc/services
+generate-port-lookup reads the default /etc/services spec
+from the https://github.com/openbsd/src repository
 and generates a Go file (protocol.go by default)
 with a lookup table mapping well-known ports
 to service names for use by the transport package.
