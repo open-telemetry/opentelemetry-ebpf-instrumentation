@@ -20,8 +20,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-var setDefaultLogger = func(rs receiver.Settings) func() {
-	return sync.OnceFunc(func() {
+var loggerOnce sync.Once
+
+func initLogger(rs receiver.Settings) {
+	loggerOnce.Do(func() {
 		slog.SetDefault(slog.New(zapslog.NewHandler(rs.Logger.Core())))
 	})
 }
@@ -32,7 +34,7 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 		baseCfg component.Config,
 		nextConsumer consumer.Traces,
 	) (receiver.Traces, error) {
-		setDefaultLogger(rs)
+		initLogger(rs)
 
 		cfg, ok := baseCfg.(*obi.Config)
 		if !ok {
@@ -50,7 +52,7 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 		baseCfg component.Config,
 		nextConsumer consumer.Metrics,
 	) (receiver.Metrics, error) {
-		setDefaultLogger(rs)
+		initLogger(rs)
 
 		cfg, ok := baseCfg.(*obi.Config)
 		if !ok {
