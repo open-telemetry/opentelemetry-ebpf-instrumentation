@@ -20,9 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-var (
-	loggerOnce sync.Once
-)
+var loggerOnce sync.Once
 
 func initLogger(rs receiver.Settings) {
 	loggerOnce.Do(func() {
