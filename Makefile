@@ -531,3 +531,8 @@ vanity-import-check:
 vanity-import-fix: $(PORTO)
 	@go install github.com/jcchavezs/porto/cmd/porto@latest
 	@porto --include-internal --skip-dirs "^NOTICES/[^/]*\.[^/]*/.*" -w .
+
+.PHONY: regenerate-port-lookup
+regenerate-port-lookup:
+	go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go
+	$(MAKE) fmt
