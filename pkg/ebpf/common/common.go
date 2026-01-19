@@ -320,7 +320,7 @@ func SupportsLogInjection(log *slog.Logger) bool {
 	}
 
 	lockdownMode := KernelLockdownMode()
-	if lockdownMode != KernelLockdownNone && lockdownMode != KernelLockdownIntegrity {
+	if lockdownMode != KernelLockdownNone {
 		log.Info("log injection not supported: kernel in lockdown mode")
 		return false
 	}
