@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/integration/components/go_http2/server
 
-go 1.25.5
+go 1.25.6
 
 require golang.org/x/net v0.38.0
 
