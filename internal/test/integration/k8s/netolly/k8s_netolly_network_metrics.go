@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration_k8s
+//go:build integration
 
 package otel // import "go.opentelemetry.io/obi/internal/test/integration/k8s/netolly"
 

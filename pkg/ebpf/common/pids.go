@@ -20,7 +20,6 @@ type PIDType uint8
 const (
 	PIDTypeKProbes PIDType = iota + 1
 	PIDTypeGo
-	PIDTypeLogEnricher
 )
 
 // injectable functions (can be replaced in tests). It reads the
