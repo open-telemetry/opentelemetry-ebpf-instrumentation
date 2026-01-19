@@ -18,7 +18,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -73,9 +73,9 @@ func testSelectiveExports(t *testing.T) {
 		require.NotEmpty(t, dTraces)
 	}, test.Interval(500*time.Millisecond))
 
-	pq := prom.Client{HostPort: "localhost:9090"}
+	pq := promtest.Client{HostPort: "localhost:9090"}
 
-	getMetrics := func(path string) []prom.Result {
+	getMetrics := func(path string) []promtest.Result {
 		query := fmt.Sprintf(`http_server_request_duration_seconds_count{url_path="%s"}`, path)
 		results, err := pq.Query(query)
 

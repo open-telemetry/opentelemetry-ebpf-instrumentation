@@ -1,8 +1,8 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package prom provides some convenience functions for prometheus handling in integration tests
-package prom // import "go.opentelemetry.io/obi/internal/test/integration/components/prom"
+// Package promtest provides some convenience functions for prometheus handling in integration tests.
+package promtest // import "go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 
 import (
 	"bufio"

@@ -18,7 +18,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -35,8 +35,8 @@ func testREDMetricsForPythonRedisLibrary(t *testing.T, testCase TestCase) {
 	}
 
 	// Eventually, Prometheus would make redis operations visible
-	pq := prom.Client{HostPort: prometheusHostPort}
-	var results []prom.Result
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	var results []promtest.Result
 	var err error
 	for _, span := range testCase.Spans {
 		test.Eventually(t, testTimeout, func(t require.TestingT) {
@@ -222,7 +222,7 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 }
 
 func waitForRedisTestComponents(t *testing.T, url string, subpath string) {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	test.Eventually(t, 1*time.Minute, func(t require.TestingT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)

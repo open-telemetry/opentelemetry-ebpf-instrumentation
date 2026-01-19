@@ -19,14 +19,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
 func assertHTTPRequests(t *testing.T, comm, urlPath string) {
 	t.Helper()
 
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		results, err := pq.Query(`db_client_operation_duration_seconds_count{` +
@@ -233,8 +233,8 @@ func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
 	}
 
 	// Eventually, Prometheus would make this query visible
-	pq := prom.Client{HostPort: prometheusHostPort}
-	var results []prom.Result
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	var results []promtest.Result
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		var err error
 		results, err = pq.Query(`db_client_operation_duration_seconds_count{` +
