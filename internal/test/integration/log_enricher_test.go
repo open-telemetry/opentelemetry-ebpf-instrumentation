@@ -74,7 +74,7 @@ func testLogEnricher(t *testing.T) {
 	require.NoError(t, err)
 	defer cl.Close()
 
-	test.Eventually(t, 2*testTimeout, func(t require.TestingT) {
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		ti.DoHTTPGet(t, serverURL+jsonEndpoint, 200)
 
 		containerID := testContainerID(t, cl, containerImage)

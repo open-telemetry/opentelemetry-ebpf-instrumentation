@@ -22,7 +22,7 @@ import (
 
 type Tracer struct{}
 
-func New(_ ebpfcommon.ServiceFilter, _ *obi.Config) *Tracer              { return nil }
+func New(_ *obi.Config) *Tracer                                          { return nil }
 func (p *Tracer) AllowPID(_, _ uint32, _ *svc.Attrs)                     {}
 func (p *Tracer) BlockPID(_, _ uint32)                                   {}
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error)                    { return nil, nil }
