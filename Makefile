@@ -26,7 +26,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.3
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.6
 
 OCI_BIN ?= docker
 
@@ -143,7 +143,7 @@ clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" | xargs clang-tidy
 
 .PHONY: lint
-lint: $(GOLANGCI_LINT)
+lint: $(GOLANGCI_LINT) vanity-import-check
 	@echo "### Linting code"
 	$(GOLANGCI_LINT) run ./... --timeout=6m
 
@@ -305,13 +305,13 @@ cleanup-integration-test: $(KIND)
 run-integration-test:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/... --tags=integration
+	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration --tags=integration
 
 .PHONY: run-integration-test-k8s
 run-integration-test-k8s:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/... --tags=integration_k8s
+	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/k8s/... --tags=integration
 
 .PHONY: run-integration-test-vm
 run-integration-test-vm:
@@ -336,14 +336,14 @@ run-integration-test-vm:
 			-failfast \
 			-v -a \
 			-tags=integration \
-			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration/...; \
+			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
 	fi
 
 .PHONY: run-integration-test-arm
 run-integration-test-arm:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration/... --tags=integration -run "^TestMultiProcess"
+	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration --tags=integration -run "^TestMultiProcess"
 
 .PHONY: integration-test-matrix-json
 integration-test-matrix-json:
@@ -521,3 +521,18 @@ check-ebpf-ver-synced:
 		echo "ebpf lib version out of sync between go.mod and bpf/bpfcore/placeholder.go!"; \
 		exit 1; \
 	fi
+
+.PHONY: vanity-import-check
+vanity-import-check:
+	@go install github.com/jcchavezs/porto/cmd/porto@latest
+	@porto --include-internal --skip-dirs "^NOTICES/[^/]*\.[^/]*/.*" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
+
+.PHONY: vanity-import-fix
+vanity-import-fix: $(PORTO)
+	@go install github.com/jcchavezs/porto/cmd/porto@latest
+	@porto --include-internal --skip-dirs "^NOTICES/[^/]*\.[^/]*/.*" -w .
+
+.PHONY: regenerate-port-lookup
+regenerate-port-lookup:
+	go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go
+	$(MAKE) fmt

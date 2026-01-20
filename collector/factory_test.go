@@ -4,6 +4,7 @@
 package collector
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -19,6 +20,9 @@ func TestNewFactory(t *testing.T) {
 }
 
 func TestCreateProfilesReceiver(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping test on non-linux platform")
+	}
 	for _, tt := range []struct {
 		name   string
 		config component.Config

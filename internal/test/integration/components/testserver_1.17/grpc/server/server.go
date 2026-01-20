@@ -12,7 +12,7 @@
 // to perform unary, client streaming, server streaming and full duplex RPCs.
 //
 // It implements the route guide service whose definition can be found in routeguide/route_guide.proto.
-package grpctest
+package grpctest // import "go.opentelemetry.io/obi/internal/test/integration/components/testserver_1.17/grpc/server"
 
 import (
 	"context"

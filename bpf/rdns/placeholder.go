@@ -3,4 +3,4 @@
 
 //go:build obi_bpf
 
-package rdns
+package rdns // import "go.opentelemetry.io/obi/bpf/rdns"

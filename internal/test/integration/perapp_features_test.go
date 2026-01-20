@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 func TestPerAppFeatures(t *testing.T) {
@@ -57,7 +57,7 @@ func testPerAppFeatures(t *testing.T, exportedSource string) {
 	})
 }
 
-var pq = prom.Client{HostPort: prometheusHostPort}
+var pq = promtest.Client{HostPort: prometheusHostPort}
 
 func checkSpanMetric(t *testing.T, timeout time.Duration, exportedSource, serviceName string, port int, path string) {
 	test.Eventually(t, timeout, func(t require.TestingT) {

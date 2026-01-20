@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package internal
+package internal // import "go.opentelemetry.io/obi/collector/internal"
 
 import (
 	"context"
@@ -79,6 +79,8 @@ func NewController(id component.ID, cfg *obi.Config) (*Controller, error) {
 
 		slog.Warn("Required system capabilities not present, OBI Receiver may malfunction", "error", err, "id", id)
 	}
+
+	cfg.Log()
 
 	return &Controller{
 		id:     id,

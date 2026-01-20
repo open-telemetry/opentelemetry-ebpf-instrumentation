@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	prom2 "go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
@@ -91,11 +91,11 @@ func TestFilter(t *testing.T) {
 	}
 
 	test.Eventually(t, timeout, func(t require.TestingT) {
-		metrics, err := prom2.Scrape(fmt.Sprintf("http://localhost:%d/metrics", promPort))
+		metrics, err := promtest.Scrape(fmt.Sprintf("http://localhost:%d/metrics", promPort))
 		require.NoError(t, err)
 
 		// assuming metrics returned alphabetically ordered
-		assert.Equal(t, []prom2.ScrapedMetric{
+		assert.Equal(t, []promtest.ScrapedMetric{
 			{Name: "obi_network_flow_bytes_total", Labels: map[string]string{
 				"obi_ip": "1.2.3.4", "iface_direction": "ingress", "dst_port": "1011", "iface": "fakeiface", "src_port": "789", "transport": "TCP",
 			}},

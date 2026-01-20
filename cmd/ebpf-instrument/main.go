@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -16,8 +15,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"gopkg.in/yaml.v3"
 
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
@@ -75,7 +72,7 @@ func main() {
 		}()
 	}
 
-	logConfig(config)
+	config.Log()
 
 	// Adding shutdown hook for graceful stop.
 	// We must register the hook before we launch the pipe build, otherwise we won't clean up if the
@@ -90,40 +87,6 @@ func main() {
 	if gc := os.Getenv("GOCOVERDIR"); gc != "" {
 		slog.Info("Waiting 1s to collect coverage data...")
 		time.Sleep(time.Second)
-	}
-}
-
-func logConfig(config *obi.Config) {
-	if config.LogConfig == "" {
-		return
-	}
-	var configString string
-	configYaml, err := yaml.Marshal(config)
-	if err != nil {
-		slog.Warn("can't marshal configuration to YAML", "error", err)
-		return
-	}
-	switch config.LogConfig {
-	case obi.LogConfigOptionYAML:
-		configString = string(configYaml)
-	case obi.LogConfigOptionJSON:
-		// instead of annotating the config with json tags, we unmarshal the YAML to a map[string]any, and marshal that map to
-		var configMap map[string]any
-		err = yaml.Unmarshal(configYaml, &configMap)
-		if err != nil {
-			slog.Warn("can't unmarshal yaml configuration to map", "error", err)
-			break
-		}
-		configJSON, err := json.Marshal(configMap)
-		if err != nil {
-			slog.Warn("can't marshal configuration to JSON", "error", err)
-			break
-		}
-		configString = string(configJSON)
-	}
-	if configString != "" {
-		slog.Info("Running OpenTelemetry eBPF Instrumentation with configuration")
-		fmt.Println(configString)
 	}
 }
 

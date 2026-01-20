@@ -19,7 +19,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -30,7 +30,7 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 
 	// Eventually, Prometheus would make this query visible
 	var (
-		pq     = prom.Client{HostPort: prometheusHostPort}
+		pq     = promtest.Client{HostPort: prometheusHostPort}
 		labels = `http_request_method="GET",` +
 			`http_response_status_code="200",` +
 			`service_namespace="` + svcNs + `",` +
@@ -98,8 +98,8 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 	}, test.Interval(100*time.Millisecond))
 
 	// Eventually, Prometheus would make this query visible
-	pq := prom.Client{HostPort: prometheusHostPort}
-	var results []prom.Result
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	var results []promtest.Result
 
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		var err error
@@ -153,7 +153,7 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 }
 
 func otelWaitForTestComponents(t *testing.T, url, subpath string) {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	test.Eventually(t, 1*time.Minute, func(t require.TestingT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
