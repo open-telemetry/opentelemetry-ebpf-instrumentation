@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package mqttparser
+package mqttparser // import "go.opentelemetry.io/obi/pkg/internal/ebpf/mqttparser"
 
 import (
 	"errors"
@@ -24,6 +24,11 @@ func NewPacketReader(pkt []byte, offset int) PacketReader {
 // Offset returns the current position in the packet.
 func (r *PacketReader) Offset() int {
 	return r.offset
+}
+
+// SetOffset to a new position, useful for checkpoint/restore.
+func (r *PacketReader) SetOffset(offset int) {
+	r.offset = offset
 }
 
 // Remaining returns the number of bytes remaining in the packet.

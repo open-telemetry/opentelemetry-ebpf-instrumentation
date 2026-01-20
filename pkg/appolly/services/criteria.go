@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package services
+package services // import "go.opentelemetry.io/obi/pkg/appolly/services"
 
 import (
 	"bytes"
@@ -14,6 +14,8 @@ import (
 
 	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 )
 
 const (
@@ -31,8 +33,10 @@ const (
 	AttrContainerName = "k8s_container_name"
 )
 
-// any attribute name not in this set will cause an error during the YAML unmarshalling
-var allowedAttributeNames = map[string]struct{}{
+// AllowedAttributeNames contains the set of attribute names that can be used as metadata
+// in service discovery criteria. Any attribute name not in this set will cause an error
+// during the YAML unmarshalling.
+var AllowedAttributeNames = map[string]struct{}{
 	AttrNamespace:       {},
 	AttrPodName:         {},
 	AttrDeploymentName:  {},
@@ -159,6 +163,7 @@ type Selector interface {
 	GetExportModes() ExportModes
 	GetSamplerConfig() *SamplerConfig
 	GetRoutesConfig() *CustomRoutesConfig
+	MetricsConfig() perapp.SvcMetricsConfig
 }
 
 // StringMatcher provides a generic interface to match string values against some matcher types: regex and glob

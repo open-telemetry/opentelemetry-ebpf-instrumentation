@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package otel
+package otel // import "go.opentelemetry.io/obi/pkg/export/otel"
 
 import (
 	"context"
@@ -141,6 +141,13 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 	}
 }
 
+// emptyHost prevents nil pointer dereference after invoking exp.Start below
+type emptyHost struct{}
+
+func (emptyHost) GetExtensions() map[component.ID]component.Component {
+	return nil
+}
+
 func (tr *tracesOTELReceiver) provideLoop(ctx context.Context) {
 	exp, err := getTracesExporter(ctx, tr.cfg, tr.ctxInfo.Metrics)
 	if err != nil {
@@ -153,7 +160,7 @@ func (tr *tracesOTELReceiver) provideLoop(ctx context.Context) {
 			slog.Error("error shutting down traces exporter", "error", err)
 		}
 	}()
-	err = exp.Start(ctx, nil)
+	err = exp.Start(ctx, emptyHost{})
 	if err != nil {
 		slog.Error("error starting traces exporter", "error", err)
 		return
@@ -187,6 +194,27 @@ func instrumentTracesExporter(internalMetrics imetrics.Reporter, in exporter.Tra
 
 //nolint:cyclop
 func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetrics.Reporter) (exporter.Traces, error) {
+	if cfg.TracesConsumer != nil {
+		newType, err := component.NewType("traces")
+		if err != nil {
+			return nil, err
+		}
+		set := getTraceSettings(newType, cfg.SDKLogLevel)
+		// TODO nimrod: do we need this?
+		exp, err := exporterhelper.NewTraces(ctx, set, cfg,
+			cfg.TracesConsumer.ConsumeTraces,
+			// exporterhelper.WithStart(exp.Start),
+			// exporterhelper.WithShutdown(exp.Shutdown),
+			exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
+			// exporterhelper.WithQueue(config.QueueConfig),
+			// exporterhelper.WithRetry(config.RetryConfig))
+		)
+		if err != nil {
+			return nil, err
+		}
+		exp = instrumentTracesExporter(im, exp)
+		return exp, nil
+	}
 	switch proto := cfg.GetProtocol(); proto {
 	case otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf, "": // zero value defaults to HTTP for backwards-compatibility
 		slog.Debug("instantiating HTTP TracesReporter", "protocol", proto)
@@ -199,25 +227,7 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		}
 		factory := otlphttpexporter.NewFactory()
 		config := factory.CreateDefaultConfig().(*otlphttpexporter.Config)
-		queueConfig := exporterhelper.NewDefaultQueueConfig()
-		queueConfig.Sizer = exporterhelper.RequestSizerTypeItems
-		// Avoid continuously seeing "sending queue is full" errors in the standard output
-		queueConfig.BlockOnOverflow = true
-		batchCfg := exporterhelper.BatchConfig{
-			Sizer: queueConfig.Sizer,
-		}
-		if cfg.MaxQueueSize > 0 || cfg.BatchTimeout > 0 {
-			queueConfig.Enabled = true
-		}
-		if cfg.MaxQueueSize > 0 {
-			batchCfg.MaxSize = int64(cfg.MaxQueueSize)
-		}
-		if cfg.BatchTimeout > 0 {
-			batchCfg.FlushTimeout = cfg.BatchTimeout
-			batchCfg.MinSize = int64(cfg.MaxQueueSize)
-		}
-		queueConfig.Batch = configoptional.Some(batchCfg)
-		config.QueueConfig = queueConfig
+		config.QueueConfig = getQueueConfig(cfg)
 		config.RetryConfig = getRetrySettings(cfg)
 		config.ClientConfig = confighttp.ClientConfig{
 			Endpoint: opts.Scheme + "://" + opts.Endpoint + opts.BaseURLPath,
@@ -258,23 +268,7 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		}
 		factory := otlpexporter.NewFactory()
 		config := factory.CreateDefaultConfig().(*otlpexporter.Config)
-		queueConfig := exporterhelper.NewDefaultQueueConfig()
-		queueConfig.Sizer = exporterhelper.RequestSizerTypeItems
-		batchCfg := exporterhelper.BatchConfig{
-			Sizer: queueConfig.Sizer,
-		}
-		if cfg.MaxQueueSize > 0 || cfg.BatchTimeout > 0 {
-			queueConfig.Enabled = true
-		}
-		if cfg.MaxQueueSize > 0 {
-			batchCfg.MaxSize = int64(cfg.MaxQueueSize)
-		}
-		if cfg.BatchTimeout > 0 {
-			batchCfg.FlushTimeout = cfg.BatchTimeout
-			batchCfg.MinSize = int64(cfg.MaxQueueSize)
-		}
-		queueConfig.Batch = configoptional.Some(batchCfg)
-		config.QueueConfig = queueConfig
+		config.QueueConfig = getQueueConfig(cfg)
 		config.RetryConfig = getRetrySettings(cfg)
 		config.ClientConfig = configgrpc.ClientConfig{
 			Endpoint: endpoint.String(),
@@ -310,6 +304,34 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 	}
 }
 
+func getQueueConfig(cfg otelcfg.TracesConfig) configoptional.Optional[exporterhelper.QueueBatchConfig] {
+	// enable batching only if the queue config is enabled
+	if cfg.MaxQueueSize <= 0 && cfg.BatchTimeout <= 0 {
+		return configoptional.None[exporterhelper.QueueBatchConfig]()
+	}
+	queueConfig := exporterhelper.NewDefaultQueueConfig()
+	queueConfig.Sizer = exporterhelper.RequestSizerTypeItems
+	// Avoid continuously seeing "sending queue is full" errors in the standard output
+	queueConfig.BlockOnOverflow = true
+	batchCfg := exporterhelper.BatchConfig{
+		Sizer: queueConfig.Sizer,
+	}
+	batchSet := false
+	if cfg.MaxQueueSize > 0 {
+		batchSet = true
+		batchCfg.MaxSize = int64(cfg.MaxQueueSize)
+	}
+	if cfg.BatchTimeout > 0 {
+		batchSet = true
+		batchCfg.FlushTimeout = cfg.BatchTimeout
+		batchCfg.MinSize = int64(cfg.MaxQueueSize)
+	}
+	if batchSet {
+		queueConfig.Batch = configoptional.Some(batchCfg)
+	}
+	return configoptional.Some(queueConfig)
+}
+
 func createZapLoggerDev(sdkLogLevel string) *zap.Logger {
 	if sdkLogLevel == "" {
 		return zap.NewNop()
@@ -333,7 +355,7 @@ func createZapLoggerDev(sdkLogLevel string) *zap.Logger {
 	return logger
 }
 
-func getTraceSettings(dataTypeMetrics component.Type, sdkLogLevel string) exporter.Settings {
+func getTraceSettings(dataType component.Type, sdkLogLevel string) exporter.Settings {
 	traceProvider := tracenoop.NewTracerProvider()
 	meterProvider := metric.NewMeterProvider()
 
@@ -345,7 +367,7 @@ func getTraceSettings(dataTypeMetrics component.Type, sdkLogLevel string) export
 	}
 
 	return exporter.Settings{
-		ID:                component.NewIDWithName(dataTypeMetrics, "beyla"),
+		ID:                component.NewIDWithName(dataType, "obi"),
 		TelemetrySettings: telemetrySettings,
 	}
 }

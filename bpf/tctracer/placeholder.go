@@ -3,4 +3,4 @@
 
 //go:build obi_bpf
 
-package tctracer
+package tctracer // import "go.opentelemetry.io/obi/bpf/tctracer"

@@ -1,10 +1,11 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package services
+package services // import "go.opentelemetry.io/obi/pkg/appolly/services"
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
@@ -112,6 +113,28 @@ func (modes *ExportModes) UnmarshalYAML(value *yaml.Node) error {
 			return fmt.Errorf("ExportModes[%d]: unknown export mode %q", i, inner.Value)
 		} else {
 			// a given signal is defined. Remove it from the blocking list
+			modes.blockSignal ^= mode
+		}
+	}
+	return nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler for ExportModes.
+// It parses a comma-separated list of export modes (e.g., "metrics,traces").
+// An empty string blocks all signals.
+func (modes *ExportModes) UnmarshalText(text []byte) error {
+	modes.blockSignal = blockAll
+	if len(text) == 0 {
+		return nil
+	}
+	for _, part := range strings.Split(string(text), ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if mode, ok := modeForText[part]; !ok {
+			return fmt.Errorf("ExportModes: unknown export mode %q", part)
+		} else {
 			modes.blockSignal ^= mode
 		}
 	}

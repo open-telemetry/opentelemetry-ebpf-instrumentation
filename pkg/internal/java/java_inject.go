@@ -3,7 +3,7 @@
 
 //go:build linux
 
-package javaagent
+package javaagent // import "go.opentelemetry.io/obi/pkg/internal/java"
 
 import (
 	"bufio"
@@ -121,13 +121,20 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 				}
 			}()
 
-			ok := i.verifyJVMVersion(attacher, ie.FileInfo.Pid)
+			ok, jdk8 := i.verifyJVMVersion(attacher, ie.FileInfo.Pid)
 			if !ok {
 				resultChan <- result{err: &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}}
 				return
 			}
 
-			loaded, err := i.jdkAgentAlreadyLoaded(attacher, ie.FileInfo.Pid)
+			var loaded bool
+			var err error
+			if jdk8 {
+				loaded, err = i.jdkAgentAlreadyLoadedHotspot8(attacher, ie.FileInfo.Pid)
+			} else {
+				loaded, err = i.jdkAgentAlreadyLoaded(attacher, ie.FileInfo.Pid)
+			}
+
 			if err != nil {
 				resultChan <- result{err: err}
 				return
@@ -239,6 +246,22 @@ func returnCodeLine(line string) (bool, error) {
 	return false, nil
 }
 
+func (i *JavaInjector) attachOpts() string {
+	var opts []string
+	if i.cfg.Java.Debug {
+		opts = append(opts, "debug=true")
+	}
+	if i.cfg.Java.DebugInstrumentation {
+		opts = append(opts, "debugBB=true")
+	}
+
+	if len(opts) == 0 {
+		return ""
+	}
+
+	return "=" + strings.Join(opts, ",")
+}
+
 func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid int32, path string) error {
 	attacher.Init()
 
@@ -247,7 +270,7 @@ func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid int32, path s
 			slog.Warn("error on JVM attach cleanup", "error", err)
 		}
 	}()
-	out, err := attacher.Attach(int(pid), []string{"load", "instrument", "false", path}, false)
+	out, err := attacher.Attach(int(pid), []string{"load", "instrument", "false", path + i.attachOpts()}, false)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
 		return err
@@ -265,6 +288,7 @@ func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid int32, path s
 				if err != nil {
 					return err
 				}
+				break
 			}
 			return fmt.Errorf("error reading line %w", err)
 		}
@@ -308,8 +332,9 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid int32)
 
 	scanner := bufio.NewScanner(out)
 	for scanner.Scan() {
+		s := scanner.Text()
 		// We check for io.opentelemetry.obi.java.Agent/0x<address>
-		if strings.Contains(scanner.Text(), "io.opentelemetry.obi.java.Agent/0x") {
+		if strings.Contains(s, "io.opentelemetry.obi.java.Agent/0x") {
 			return true, nil
 		}
 	}
@@ -317,7 +342,40 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid int32)
 	return false, nil
 }
 
-func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid int32) bool {
+// Hotspot version 8 doesn't support VM.class_hierarchy, we use GC.class_histogram and look for the class itself
+// without the address
+func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pid int32) (bool, error) {
+	attacher.Init()
+
+	defer func() {
+		if err := attacher.Cleanup(); err != nil {
+			slog.Warn("error on JVM attach cleanup", "error", err)
+		}
+	}()
+	// OpenJ9 doesn't support listing loaded classes
+	out, err := attacher.Attach(int(pid), []string{"jcmd", "GC.class_histogram"}, true)
+	if err != nil {
+		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
+		return false, err
+	}
+
+	if out == nil {
+		return false, nil
+	}
+
+	scanner := bufio.NewScanner(out)
+	for scanner.Scan() {
+		s := scanner.Text()
+		// We check for io.opentelemetry.obi.java.Agent
+		if strings.Contains(s, "io.opentelemetry.obi.java.Agent") {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid int32) (bool, bool) {
 	attacher.Init()
 
 	defer func() {
@@ -329,23 +387,25 @@ func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid int32) bool
 	out, err := attacher.Attach(int(pid), []string{"jcmd", "VM.version"}, true)
 	if err != nil {
 		i.log.Error("error executing command for the JVM", "pid", pid, "error", err)
-		return false
+		return false, false
 	}
 
 	if out == nil {
-		return true
+		return true, false
 	}
 
 	scanner := bufio.NewScanner(out)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "JDK ") {
-			return !strings.HasPrefix(line, "JDK 26")
+			// JDK 8 is special, failing to properly detect it can cause errors in applications if they are
+			// loaded more than once
+			return !strings.HasPrefix(line, "JDK 26"), strings.HasPrefix(line, "JDK 8")
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		i.log.Error("error reading from scanner", "error", err)
 	}
 
-	return false
+	return false, false
 }

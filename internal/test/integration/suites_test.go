@@ -446,6 +446,15 @@ func TestSuite_JavaKafka(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_JavaKafkaLargeBuffer(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400-lb.yml", path.Join(pathOutput, "test-suite-java-kafka-lb.log"))
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Java Kafka 4.0.0 large buffer tests", testJavaKafkaLargeBuffer)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonRedis(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-redis.yml", path.Join(pathOutput, "test-suite-python-redis.log"))
 	require.NoError(t, err)
@@ -647,6 +656,17 @@ func TestSuite_Elixir(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Elixir RED metrics", testREDMetricsElixirHTTP)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_LogEnricher(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8380`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8380`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Log Enricher", testLogEnricher)
 	require.NoError(t, compose.Close())
 }
 

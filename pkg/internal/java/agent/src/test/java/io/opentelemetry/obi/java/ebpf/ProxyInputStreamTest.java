@@ -24,6 +24,10 @@ class ProxyInputStreamTest {
       p = new Pointer(c);
       return 0;
     }
+
+    public int gettid() {
+      return 1;
+    }
   }
 
   @BeforeEach

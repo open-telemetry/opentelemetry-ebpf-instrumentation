@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package attributes
+package attributes // import "go.opentelemetry.io/obi/pkg/export/attributes"
 
 import (
 	"maps"
@@ -32,6 +32,7 @@ const (
 	GroupHTTPCommon
 	GroupHost
 	GroupMessaging
+	GroupNetGeoIP
 )
 
 func (e *AttrGroups) Has(groups AttrGroups) bool {
@@ -52,6 +53,7 @@ func getDefinitions(
 	promEnabled := groups.Has(GroupPrometheus)
 	ifaceDirEnabled := groups.Has(GroupNetIfaceDirection)
 	cidrEnabled := groups.Has(GroupNetCIDR)
+	geoipEnabled := groups.Has(GroupNetGeoIP)
 
 	// attributes to be reported exclusively for prometheus exporters
 	prometheusAttributes := NewAttrReportGroup(
@@ -82,22 +84,23 @@ func getDefinitions(
 		false,
 		nil,
 		map[attr.Name]Default{
-			attr.Direction:      true,
-			attr.OBIIP:          false,
-			attr.Transport:      false,
-			attr.SrcAddress:     false,
-			attr.DstAddres:      false,
-			attr.SrcPort:        false,
-			attr.DstPort:        false,
-			attr.SrcName:        false,
-			attr.DstName:        false,
-			attr.ServerPort:     false,
-			attr.ClientPort:     false,
-			attr.SrcZone:        false,
-			attr.DstZone:        false,
-			attr.NetworkType:    false,
-			attr.IfaceDirection: Default(ifaceDirEnabled),
-			attr.Iface:          Default(ifaceDirEnabled),
+			attr.Direction:       true,
+			attr.OBIIP:           false,
+			attr.Transport:       false,
+			attr.SrcAddress:      false,
+			attr.DstAddres:       false,
+			attr.SrcPort:         false,
+			attr.DstPort:         false,
+			attr.SrcName:         false,
+			attr.DstName:         false,
+			attr.ServerPort:      false,
+			attr.ClientPort:      false,
+			attr.SrcZone:         false,
+			attr.DstZone:         false,
+			attr.NetworkType:     false,
+			attr.NetworkProtocol: false,
+			attr.IfaceDirection:  Default(ifaceDirEnabled),
+			attr.Iface:           Default(ifaceDirEnabled),
 		},
 		extraGroupAttributes[GroupNet],
 	)
@@ -137,6 +140,18 @@ func getDefinitions(
 			attr.SrcCIDR: true,
 		},
 		extraGroupAttributes[GroupNetCIDR],
+	)
+
+	networkGeoIP := NewAttrReportGroup(
+		!geoipEnabled,
+		nil,
+		map[attr.Name]Default{
+			attr.SrcCountry: true,
+			attr.DstCountry: true,
+			attr.SrcASN:     true,
+			attr.DstASN:     true,
+		},
+		extraGroupAttributes[GroupNetGeoIP],
 	)
 
 	// networkInterZone* supports the same attributes as
@@ -237,10 +252,10 @@ func getDefinitions(
 
 	return map[Section]AttrReportGroup{
 		NetworkFlow.Section: {
-			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkKubeAttributes},
+			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
 		},
 		NetworkInterZone.Section: {
-			SubGroups: []*AttrReportGroup{&networkInterZone, &networkInterZoneCIDR, &networkInterZoneKube},
+			SubGroups: []*AttrReportGroup{&networkInterZone, &networkInterZoneCIDR, &networkGeoIP, &networkInterZoneKube},
 		},
 		HTTPServerDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes, &httpCommon, &serverInfo},

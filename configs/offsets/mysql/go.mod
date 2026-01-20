@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/configs/offsets/mysql
 
-go 1.25.3
+go 1.25.5
 
 require github.com/go-sql-driver/mysql v1.8.1
 

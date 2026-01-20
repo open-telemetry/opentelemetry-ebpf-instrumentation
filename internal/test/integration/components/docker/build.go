@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package docker
+package docker // import "go.opentelemetry.io/obi/internal/test/integration/components/docker"
 
 import (
 	"io"
@@ -60,6 +60,16 @@ func buildDockerfile(logger io.WriteCloser, rootPath string, ilog *slog.Logger, 
 	if err := cmd.Run(); err != nil {
 		ilog.Error("building dockerfile. Check build logs for details", "error", err)
 		return err
+	}
+	// OpenTelemetry images are very limited in disk. Remove dangling images after building each image
+	ilog.Info("removing docker builder cache")
+	cmd = exec.Command("docker", "builder", "prune", "-af")
+	if logger != nil {
+		cmd.Stdout = logger
+		cmd.Stderr = logger
+	}
+	if err := cmd.Run(); err != nil {
+		ilog.Warn("Can't remove docker builder cache. Tests will continue anyway", "error", err)
 	}
 	return nil
 }

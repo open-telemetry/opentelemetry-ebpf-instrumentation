@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package services
+package services // import "go.opentelemetry.io/obi/pkg/appolly/services"
 
 import (
 	"fmt"
@@ -11,6 +11,8 @@ import (
 	"github.com/invopop/jsonschema"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 )
 
 // GlobDefinitionCriteria allows defining a group of services to be instrumented according to a set
@@ -29,7 +31,7 @@ func (dc GlobDefinitionCriteria) Validate() error {
 			return fmt.Errorf("entry [%d] should define at least one selection criteria", i)
 		}
 		for k := range dc[i].Metadata {
-			if _, ok := allowedAttributeNames[k]; !ok {
+			if _, ok := AllowedAttributeNames[k]; !ok {
 				return fmt.Errorf("unknown attribute in discovery.services[%d]: %s", i, k)
 			}
 		}
@@ -50,7 +52,7 @@ type MetadataGlobMap map[string]*GlobAttr
 
 func (MetadataGlobMap) JSONSchema() *jsonschema.Schema {
 	propMap := orderedmap.New[string, *jsonschema.Schema]()
-	for k := range allowedAttributeNames {
+	for k := range AllowedAttributeNames {
 		propMap.Set(k, &jsonschema.Schema{
 			Ref: "#/$defs/GlobAttr",
 		})
@@ -81,7 +83,7 @@ type GlobAttributes struct {
 	Path GlobAttr `yaml:"exe_path"`
 
 	// Metadata stores other attributes, such as Kubernetes object metadata
-	Metadata MetadataGlobMap `yaml:",inline"`
+	Metadata MetadataGlobMap `yaml:",inline" mapstructure:",remain"`
 
 	// PodLabels allows matching against the labels of a pod
 	PodLabels map[string]*GlobAttr `yaml:"k8s_pod_labels"`
@@ -100,6 +102,9 @@ type GlobAttributes struct {
 	SamplerConfig *SamplerConfig `yaml:"sampler"`
 
 	Routes *CustomRoutesConfig `yaml:"routes"`
+
+	// Metrics configuration that is custom for this service match
+	Metrics perapp.SvcMetricsConfig `yaml:"metrics" env:"-"`
 }
 
 // GlobAttr provides a YAML handler for glob.Glob so the type can be parsed from YAML or environment variables
@@ -169,12 +174,13 @@ func (p *GlobAttr) MatchString(input string) bool {
 	return p.glob.Match(input)
 }
 
-func (ga *GlobAttributes) GetName() string              { return ga.Name }
-func (ga *GlobAttributes) GetNamespace() string         { return ga.Namespace }
-func (ga *GlobAttributes) GetPath() StringMatcher       { return &ga.Path }
-func (ga *GlobAttributes) GetPathRegexp() StringMatcher { return nilMatcher{} }
-func (ga *GlobAttributes) GetOpenPorts() *PortEnum      { return &ga.OpenPorts }
-func (ga *GlobAttributes) IsContainersOnly() bool       { return ga.ContainersOnly }
+func (ga *GlobAttributes) GetName() string                        { return ga.Name }
+func (ga *GlobAttributes) GetNamespace() string                   { return ga.Namespace }
+func (ga *GlobAttributes) GetPath() StringMatcher                 { return &ga.Path }
+func (ga *GlobAttributes) GetPathRegexp() StringMatcher           { return nilMatcher{} }
+func (ga *GlobAttributes) GetOpenPorts() *PortEnum                { return &ga.OpenPorts }
+func (ga *GlobAttributes) IsContainersOnly() bool                 { return ga.ContainersOnly }
+func (ga *GlobAttributes) MetricsConfig() perapp.SvcMetricsConfig { return ga.Metrics }
 
 func (ga *GlobAttributes) RangeMetadata() iter.Seq2[string, StringMatcher] {
 	return func(yield func(string, StringMatcher) bool) {

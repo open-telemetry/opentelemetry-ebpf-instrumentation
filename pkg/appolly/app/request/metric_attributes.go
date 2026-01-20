@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package request
+package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
 	"strings"
@@ -78,6 +78,10 @@ func ServerMetric(val string) attribute.KeyValue {
 
 func ServerNamespaceMetric(val string) attribute.KeyValue {
 	return attribute.Key(attr.ServerNamespace).String(val)
+}
+
+func ConnectionTypeMetric(val string) attribute.KeyValue {
+	return attribute.Key(attr.ConnectionType).String(val)
 }
 
 func DBQueryText(val string) attribute.KeyValue {

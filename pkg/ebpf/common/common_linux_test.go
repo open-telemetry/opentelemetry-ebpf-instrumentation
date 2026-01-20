@@ -130,3 +130,13 @@ func TestCMDLineAndCWD_Together(t *testing.T) {
 		assert.True(t, filepath.IsAbs(cwd))
 	})
 }
+
+func TestKernelHasSymbol(t *testing.T) {
+	found, err := KernelHasSymbol(KSymTCPSendmsg)
+	require.NoError(t, err)
+	assert.True(t, found, "expected tcp_sendmsg to be present in kernel symbols")
+
+	found, err = KernelHasSymbol(KSymTestDummy)
+	require.NoError(t, err)
+	assert.False(t, found, "expected test_dummy to be absent in kernel symbols")
+}

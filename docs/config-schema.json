@@ -281,6 +281,10 @@
           "type": "integer",
           "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_HTTP"
         },
+        "kafka": {
+          "type": "integer",
+          "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA"
+        },
         "mysql": {
           "type": "integer",
           "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL"
@@ -371,6 +375,10 @@
           "type": "integer",
           "description": "Kafka Topic UUID to Name cache size.",
           "x-env-var": "OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE"
+        },
+        "log_enricher": {
+          "$ref": "#/$defs/LogEnricherConfig",
+          "description": "Log trace-context enricher config"
         },
         "max_transaction_time": {
           "type": "string",
@@ -480,6 +488,32 @@
       "type": "array",
       "description": "List of metric features to enable."
     },
+    "GeoIP": {
+      "properties": {
+        "cache_expiry": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL"
+        },
+        "cache_len": {
+          "type": "integer",
+          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN"
+        },
+        "ipinfo": {
+          "$ref": "#/$defs/IPInfoConfig"
+        },
+        "maxmind": {
+          "$ref": "#/$defs/MaxMindConfig"
+        }
+      },
+      "type": "object",
+      "description": "GeoIP is currently experimental."
+    },
     "GlobAttr": {
       "type": "string",
       "format": "glob",
@@ -547,6 +581,11 @@
         },
         "k8s_statefulset_name": {
           "$ref": "#/$defs/GlobAttr"
+        },
+        "metrics": {
+          "$ref": "#/$defs/SvcMetricsConfig",
+          "description": "Metrics configuration that is custom for this service match",
+          "x-env-var": "-"
         },
         "name": {
           "type": "string",
@@ -626,6 +665,15 @@
       },
       "type": "object"
     },
+    "IPInfoConfig": {
+      "properties": {
+        "path": {
+          "type": "string",
+          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_IPINFO_PATH"
+        }
+      },
+      "type": "object"
+    },
     "InclusionLists": {
       "properties": {
         "exclude": {
@@ -700,6 +748,14 @@
             "1ms"
           ],
           "x-env-var": "OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT"
+        },
+        "debug": {
+          "type": "boolean",
+          "x-env-var": "OTEL_EBPF_JAVAAGENT_DEBUG"
+        },
+        "debug_instrumentation": {
+          "type": "boolean",
+          "x-env-var": "OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION"
         },
         "enabled": {
           "type": "boolean",
@@ -790,6 +846,53 @@
       },
       "type": "object"
     },
+    "LogEnricherConfig": {
+      "properties": {
+        "async_writer_channel_len": {
+          "type": "integer",
+          "description": "AsyncWriterChannelLen defines the capacity of every shard's channel for the async log writer\nDefault: 500",
+          "x-env-var": "OTEL_EBPF_BPF_LOG_ENRICHER_ASYNC_WRITER_CHANNEL_LEN"
+        },
+        "async_writer_workers": {
+          "type": "integer",
+          "description": "AsyncWriterWorkers defines the number of shards for the async log writer\nDefault: 8",
+          "x-env-var": "OTEL_EBPF_BPF_LOG_ENRICHER_ASYNC_WRITER_WORKERS"
+        },
+        "cache_size": {
+          "type": "integer",
+          "description": "CacheSize defines the maximum number of cached file descriptors\nDefault: 128",
+          "x-env-var": "OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_SIZE"
+        },
+        "cache_ttl": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "CacheTTL defines the TTL for cached file descriptors\nDefault: 30m",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_TTL"
+        },
+        "services": {
+          "items": {
+            "$ref": "#/$defs/LogEnricherServiceConfig"
+          },
+          "type": "array",
+          "description": "Services to enable log enrichment for"
+        }
+      },
+      "type": "object"
+    },
+    "LogEnricherServiceConfig": {
+      "properties": {
+        "service": {
+          "$ref": "#/$defs/GlobDefinitionCriteria",
+          "description": "Service should also be contained in 'services' in the Discovery section"
+        }
+      },
+      "type": "object"
+    },
     "MatchDefinition": {
       "properties": {
         "match": {
@@ -803,6 +906,19 @@
       },
       "type": "object",
       "description": "MatchDefinition stores the user-provided definition for the record filtering."
+    },
+    "MaxMindConfig": {
+      "properties": {
+        "asn_path": {
+          "type": "string",
+          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_MAXMIND_ASN_PATH"
+        },
+        "country_path": {
+          "type": "string",
+          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_MAXMIND_COUNTRY_PATH"
+        }
+      },
+      "type": "object"
     },
     "MetaSourceLabels": {
       "properties": {
@@ -1061,6 +1177,9 @@
           "description": "ExcludeProtocols causes OBI to drop flows whose transport protocol is in this list.\nIf the Protocols list is already defined, ExcludeProtocols has no effect.",
           "x-env-var": "OTEL_EBPF_NETWORK_EXCLUDE_PROTOCOLS"
         },
+        "geo_ip": {
+          "$ref": "#/$defs/GeoIP"
+        },
         "interfaces": {
           "items": {
             "type": "string"
@@ -1313,6 +1432,10 @@
         "k8s_statefulset_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
+        "metrics": {
+          "$ref": "#/$defs/SvcMetricsConfig",
+          "description": "Metrics configuration that is custom for this service match"
+        },
         "name": {
           "type": "string",
           "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\nName should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
@@ -1482,6 +1605,16 @@
       },
       "type": "object",
       "description": "Selection specifies which attributes are allowed for each metric."
+    },
+    "SvcMetricsConfig": {
+      "properties": {
+        "features": {
+          "$ref": "#/$defs/Features",
+          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nenvDefault is provided to avoid breaking changes"
+        }
+      },
+      "type": "object",
+      "description": "SvcMetricsConfig is equivalent to MetricsConfig, but avoids defining environment variable, since this is a per-service configuration that needs to be defined exclusively in the service definition YAML."
     },
     "TracesConfig": {
       "properties": {

@@ -19,7 +19,7 @@
 // This implementation is a derivation of the code in
 // https://github.com/netobserv/netobserv-ebpf-agent/tree/release-1.4
 
-package obi
+package obi // import "go.opentelemetry.io/obi/pkg/obi"
 
 import (
 	"strings"
@@ -134,6 +134,8 @@ type NetworkConfig struct {
 	// ListenInterfaces value is set to "poll".
 	ListenPollPeriod time.Duration `yaml:"listen_poll_period" env:"OTEL_EBPF_NETWORK_LISTEN_POLL_PERIOD" validate:"gte=0"`
 
+	GeoIP flow.GeoIP `yaml:"geo_ip"`
+
 	// ReverseDNS allows flows that haven't been previously decorated with any source/destination name
 	// to override the name with the network hostname of the source and destination IPs.
 	// This is an experimental feature and it is not guaranteed to work on most virtualized environments
@@ -165,6 +167,10 @@ var DefaultNetworkConfig = NetworkConfig{
 	ReverseDNS: flow.ReverseDNS{
 		Type:     flow.ReverseDNSNone,
 		CacheLen: 256,
+		CacheTTL: time.Hour,
+	},
+	GeoIP: flow.GeoIP{
+		CacheLen: 512,
 		CacheTTL: time.Hour,
 	},
 }

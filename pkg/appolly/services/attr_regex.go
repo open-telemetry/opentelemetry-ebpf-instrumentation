@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package services
+package services // import "go.opentelemetry.io/obi/pkg/appolly/services"
 
 import (
 	"fmt"
@@ -11,6 +11,8 @@ import (
 	"github.com/invopop/jsonschema"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 )
 
 // RegexDefinitionCriteria allows defining a group of services to be instrumented according to a set
@@ -30,7 +32,7 @@ func (dc RegexDefinitionCriteria) Validate() error {
 			return fmt.Errorf("index [%d] should define at least one selection criteria", i)
 		}
 		for k := range dc[i].Metadata {
-			if _, ok := allowedAttributeNames[k]; !ok {
+			if _, ok := AllowedAttributeNames[k]; !ok {
 				return fmt.Errorf("unknown attribute in index [%d]: %s", i, k)
 			}
 		}
@@ -51,7 +53,7 @@ type MetadataRegexMap map[string]*RegexpAttr
 
 func (MetadataRegexMap) JSONSchema() *jsonschema.Schema {
 	propMap := orderedmap.New[string, *jsonschema.Schema]()
-	for k := range allowedAttributeNames {
+	for k := range AllowedAttributeNames {
 		propMap.Set(k, &jsonschema.Schema{
 			Ref: "#/$defs/RegexpAttr",
 		})
@@ -88,7 +90,7 @@ type RegexSelector struct {
 	PathRegexp RegexpAttr `yaml:"exe_path_regexp"`
 
 	// Metadata stores other attributes, such as Kubernetes object metadata
-	Metadata MetadataRegexMap `yaml:",inline"`
+	Metadata MetadataRegexMap `yaml:",inline" mapstructure:",remain"`
 
 	// PodLabels allows matching against the labels of a pod
 	PodLabels map[string]*RegexpAttr `yaml:"k8s_pod_labels"`
@@ -107,6 +109,9 @@ type RegexSelector struct {
 	SamplerConfig *SamplerConfig `yaml:"sampler"`
 
 	Routes *CustomRoutesConfig `yaml:"routes"`
+
+	// Metrics configuration that is custom for this service match
+	Metrics perapp.SvcMetricsConfig `yaml:"metrics"`
 }
 
 // RegexpAttr stores a regular expression representing an executable file path.
@@ -175,12 +180,13 @@ func (p *RegexpAttr) MatchString(input string) bool {
 	return p.re.MatchString(input)
 }
 
-func (a *RegexSelector) GetName() string              { return a.Name }
-func (a *RegexSelector) GetNamespace() string         { return a.Namespace }
-func (a *RegexSelector) GetPath() StringMatcher       { return &a.Path }
-func (a *RegexSelector) GetPathRegexp() StringMatcher { return &a.PathRegexp }
-func (a *RegexSelector) GetOpenPorts() *PortEnum      { return &a.OpenPorts }
-func (a *RegexSelector) IsContainersOnly() bool       { return a.ContainersOnly }
+func (a *RegexSelector) GetName() string                        { return a.Name }
+func (a *RegexSelector) GetNamespace() string                   { return a.Namespace }
+func (a *RegexSelector) GetPath() StringMatcher                 { return &a.Path }
+func (a *RegexSelector) GetPathRegexp() StringMatcher           { return &a.PathRegexp }
+func (a *RegexSelector) GetOpenPorts() *PortEnum                { return &a.OpenPorts }
+func (a *RegexSelector) IsContainersOnly() bool                 { return a.ContainersOnly }
+func (a *RegexSelector) MetricsConfig() perapp.SvcMetricsConfig { return a.Metrics }
 func (a *RegexSelector) RangeMetadata() iter.Seq2[string, StringMatcher] {
 	return func(yield func(string, StringMatcher) bool) {
 		for k, v := range a.Metadata {

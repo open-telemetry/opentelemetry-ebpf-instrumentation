@@ -122,6 +122,7 @@ func TestFor_GlobEntries_Order(t *testing.T) {
 	assert.Equal(t, []attr.Name{
 		"client.port",
 		"dst.name",
+		"network.protocol.name",
 		"network.type",
 		"obi.ip",
 		"server.port",

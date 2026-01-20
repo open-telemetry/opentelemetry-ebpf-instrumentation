@@ -62,14 +62,39 @@ static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
     }
 
     bpf_dbg_printk("validating mysql conn type %llx with %llx", mysql_type_addr, ci_type_ptr);
-    if ((u64)ci_type_ptr != mysql_type_addr) {
-        bpf_dbg_printk("connection type doesn't match from mysql.mysqlConn");
-        return NULL;
-    }
 
     void *mysql_conn_ptr = 0;
-    res = bpf_probe_read(
-        &mysql_conn_ptr, sizeof(mysql_conn_ptr), (void *)(driver_conn_ptr + ci_offset + 8));
+
+    if ((u64)ci_type_ptr == mysql_type_addr) {
+        res = bpf_probe_read(
+            &mysql_conn_ptr, sizeof(mysql_conn_ptr), (void *)(driver_conn_ptr + ci_offset + 8));
+    } else {
+        // Type doesn't match - might be a wrapper (like otelsql.otConn)
+        void *wrapper_ptr = NULL;
+        res = bpf_probe_read(
+            &wrapper_ptr, sizeof(wrapper_ptr), (void *)(driver_conn_ptr + ci_offset + 8));
+        if (res != 0 || !wrapper_ptr) {
+            bpf_dbg_printk("can't read wrapper data pointer");
+            return NULL;
+        }
+
+        // Read the embedded interface at offset 0: [inner_type_ptr, inner_data_ptr]
+        void *inner_type_ptr = NULL;
+        res = bpf_probe_read(&inner_type_ptr, sizeof(inner_type_ptr), wrapper_ptr);
+        if (res != 0) {
+            bpf_dbg_printk("can't read inner type pointer");
+            return NULL;
+        }
+
+        bpf_dbg_printk("unwrap: inner type %llx", inner_type_ptr);
+        if ((u64)inner_type_ptr != mysql_type_addr) {
+            bpf_dbg_printk("inner type still doesn't match mysql.mysqlConn");
+            return NULL;
+        }
+
+        res =
+            bpf_probe_read(&mysql_conn_ptr, sizeof(mysql_conn_ptr), (void *)((u64)wrapper_ptr + 8));
+    }
 
     if (res != 0 || !mysql_conn_ptr) {
         bpf_dbg_printk("can't read MySQL connection data pointer");
@@ -114,10 +139,48 @@ read_mysql_hostname_from_mysqlconn(void *mysql_conn_ptr, char *hostname, u64 max
     return 1;
 }
 
+// Extracts PostgreSQL server hostname from a pgx.Conn pointer.
+// Follows the pointer chain: Conn -> config (*ConnConfig) -> Host (string)
+static __always_inline bool
+read_pgx_hostname_from_conn(void *pgx_conn_ptr, char *hostname, u64 max_len) {
+    if (!pgx_conn_ptr) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+
+    // Dereference Conn.config to get pointer to ConnConfig struct
+    void *config_ptr = 0;
+    int res = bpf_probe_read(
+        &config_ptr,
+        sizeof(config_ptr),
+        (void *)((u64)pgx_conn_ptr + go_offset_of(ot, (go_offset){.v = _pgx_conn_config_pos})));
+
+    if (res != 0 || !config_ptr) {
+        bpf_dbg_printk("can't read pgx.Conn.config");
+        return 0;
+    }
+
+    // Read Host string field (at offset 0, embedded from pgconn.Config)
+    if (!read_go_str("pgx hostname",
+                     config_ptr,
+                     go_offset_of(ot, (go_offset){.v = _pgx_config_host_pos}),
+                     hostname,
+                     max_len)) {
+        bpf_dbg_printk("can't read pgconn.Config.Host");
+        return 0;
+    }
+
+    return 1;
+}
+
 // SQL hostname extraction with driver type routing.
-// Attempts to extract hostname by trying supported database drivers
-static __always_inline void
-extract_sql_hostname(sql_request_trace_t *trace, u64 driver_conn_ptr, void *goroutine_addr) {
+// Uses conn_type to determine which driver-specific extraction to use or
+// attempts to extract hostname by trying supported database drivers
+static __always_inline void extract_sql_hostname(sql_request_trace_t *trace,
+                                                 u64 driver_conn_ptr,
+                                                 void *goroutine_addr,
+                                                 u8 conn_type) {
     trace->hostname[0] = '\0';
 
     if (goroutine_addr) {
@@ -134,6 +197,14 @@ extract_sql_hostname(sql_request_trace_t *trace, u64 driver_conn_ptr, void *goro
 
     if (driver_conn_ptr == 0) {
         bpf_dbg_printk("sql hostname extraction skipped: driver_conn_ptr is null");
+        return;
+    }
+
+    if (conn_type == SQL_CONN_TYPE_PGX) {
+        if (read_pgx_hostname_from_conn(
+                (void *)driver_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
+            bpf_dbg_printk("extracted pgx hostname: %s", trace->hostname);
+        }
         return;
     }
 
@@ -167,6 +238,54 @@ set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *que
     }
 }
 
+// Common SQL query return handler.
+// Works for both database/sql and pgx.
+static __always_inline int process_sql_return(void *goroutine_addr, void *err_ptr, u8 conn_type) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    sql_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_sql_queries, &g_key);
+    if (invocation == NULL) {
+        bpf_dbg_printk("Request not found for this goroutine");
+        return 0;
+    }
+    bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
+
+    sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
+    if (trace) {
+        task_pid(&trace->pid);
+        trace->type = EVENT_SQL_CLIENT;
+        trace->start_monotime_ns = invocation->start_monotime_ns;
+        trace->end_monotime_ns = bpf_ktime_get_ns();
+
+        trace->status = (err_ptr != NULL);
+        trace->tp = invocation->tp;
+
+        u64 query_len = invocation->query_len;
+        if (query_len > sizeof(trace->sql)) {
+            query_len = sizeof(trace->sql);
+        }
+
+        bpf_probe_read(trace->sql, query_len, (void *)invocation->sql_param);
+
+        if (query_len < sizeof(trace->sql)) {
+            trace->sql[query_len] = '\0';
+        }
+
+        bpf_dbg_printk("Found sql statement %s", trace->sql);
+
+        __builtin_memcpy(&trace->conn, &invocation->conn, sizeof(connection_info_t));
+
+        extract_sql_hostname(trace, invocation->driver_conn_ptr, goroutine_addr, conn_type);
+
+        // submit the completed trace via ringbuffer
+        bpf_ringbuf_submit(trace, get_flags());
+    } else {
+        bpf_dbg_printk("can't reserve space in the ringbuffer");
+    }
+    return 0;
+}
+
 SEC("uprobe/queryDC")
 int obi_uprobe_queryDC(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/queryDC === ");
@@ -178,6 +297,34 @@ int obi_uprobe_queryDC(struct pt_regs *ctx) {
     void *query_len = GO_PARAM9(ctx);
 
     set_sql_info(goroutine_addr, driver_conn, sql_param, query_len);
+    return 0;
+}
+
+SEC("uprobe/pgx_Query")
+int obi_uprobe_pgx_Query(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/pgx_Query === ");
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+
+    void *pgx_conn = GO_PARAM1(ctx);
+    void *sql_param = GO_PARAM4(ctx);
+    void *query_len = GO_PARAM5(ctx);
+
+    set_sql_info(goroutine_addr, pgx_conn, sql_param, query_len);
+    return 0;
+}
+
+SEC("uprobe/pgx_Exec")
+int obi_uprobe_pgx_Exec(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/pgx_Exec === ");
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+
+    void *pgx_conn = GO_PARAM1(ctx);
+    void *sql_param = GO_PARAM4(ctx);
+    void *query_len = GO_PARAM5(ctx);
+
+    set_sql_info(goroutine_addr, pgx_conn, sql_param, query_len);
     return 0;
 }
 
@@ -197,54 +344,24 @@ int obi_uprobe_execDC(struct pt_regs *ctx) {
 
 SEC("uprobe/queryDC")
 int obi_uprobe_queryReturn(struct pt_regs *ctx) {
-
     bpf_dbg_printk("=== uprobe/query return === ");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
 
-    sql_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_sql_queries, &g_key);
-    if (invocation == NULL) {
-        bpf_dbg_printk("Request not found for this goroutine");
-        return 0;
-    }
-    bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
+    // queryDC returns (*Rows, error)
+    void *err_ptr = GO_PARAM2(ctx);
+    return process_sql_return(goroutine_addr, err_ptr, SQL_CONN_TYPE_DATABASE_SQL);
+}
 
-    sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
-    if (trace) {
-        task_pid(&trace->pid);
-        trace->type = EVENT_SQL_CLIENT;
-        trace->start_monotime_ns = invocation->start_monotime_ns;
-        trace->end_monotime_ns = bpf_ktime_get_ns();
+SEC("uprobe/pgx_Query_return")
+int obi_uprobe_pgx_Query_return(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/pgx_Query_return === ");
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
 
-        void *resp_ptr = GO_PARAM1(ctx);
-        trace->status = (resp_ptr == NULL);
-        trace->tp = invocation->tp;
-
-        u64 query_len = invocation->query_len;
-        if (query_len > sizeof(trace->sql)) {
-            query_len = sizeof(trace->sql);
-        }
-
-        bpf_probe_read(trace->sql, query_len, (void *)invocation->sql_param);
-
-        if (query_len < sizeof(trace->sql)) {
-            trace->sql[query_len] = '\0';
-        }
-
-        bpf_dbg_printk("Found sql statement %s", trace->sql);
-
-        __builtin_memcpy(&trace->conn, &invocation->conn, sizeof(connection_info_t));
-
-        extract_sql_hostname(trace, invocation->driver_conn_ptr, goroutine_addr);
-
-        // submit the completed trace via ringbuffer
-        bpf_ringbuf_submit(trace, get_flags());
-    } else {
-        bpf_dbg_printk("can't reserve space in the ringbuffer");
-    }
-    return 0;
+    // pgx.Conn.Query returns (Rows, error)
+    void *err_ptr = GO_PARAM3(ctx);
+    return process_sql_return(goroutine_addr, err_ptr, SQL_CONN_TYPE_PGX);
 }
 
 SEC("uprobe/pq_network_return")

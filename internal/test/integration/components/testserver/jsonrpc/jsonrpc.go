@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package jsonrpc
+package jsonrpc // import "go.opentelemetry.io/obi/internal/test/integration/components/testserver/jsonrpc"
 
 import (
 	"fmt"

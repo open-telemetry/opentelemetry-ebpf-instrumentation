@@ -138,11 +138,18 @@ discovery:
 			BufferSizes: config.EBPFBufferSizes{
 				MySQL:    0,
 				Postgres: 0,
+				Kafka:    0,
 			},
 			MySQLPreparedStatementsCacheSize:    1024,
 			PostgresPreparedStatementsCacheSize: 1024,
 			MongoRequestsCacheSize:              1024,
 			KafkaTopicUUIDCacheSize:             1024,
+			LogEnricher: config.LogEnricherConfig{
+				CacheTTL:              30 * time.Minute,
+				CacheSize:             128,
+				AsyncWriterWorkers:    8,
+				AsyncWriterChannelLen: 500,
+			},
 		},
 		NetworkFlows: nc,
 		Metrics: perapp.MetricsConfig{

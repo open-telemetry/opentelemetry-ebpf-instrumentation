@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package discover
+package discover // import "go.opentelemetry.io/obi/pkg/appolly/discover"
 
 import (
 	"context"
@@ -27,7 +27,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
-	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 type instrumentedExecutable struct {
@@ -89,12 +88,13 @@ func samplerFromConfig(s *services.SamplerConfig) trace.Sampler {
 	return nil
 }
 
-func makeServiceAttrs(processMatch *ProcessMatch, routesCfg *transform.RoutesConfig) svc.Attrs {
+func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	var name string
 	var namespace string
 	exportModes := services.ExportModeUnset
 	var samplerConfig *services.SamplerConfig
 	var routesConfig *services.CustomRoutesConfig
+	svcFeatures := t.cfg.Metrics.Features
 
 	for _, s := range processMatch.Criteria {
 		if n := s.GetName(); n != "" {
@@ -116,8 +116,13 @@ func makeServiceAttrs(processMatch *ProcessMatch, routesCfg *transform.RoutesCon
 		if m := s.GetRoutesConfig(); m != nil {
 			routesConfig = m
 		}
+
+		if critFeat := s.MetricsConfig().Features; !critFeat.Undefined() {
+			svcFeatures = critFeat
+		}
 	}
 
+	routesCfg := t.cfg.Routes
 	wildcard := byte('*')
 	if routesCfg.WildcardChar != "" {
 		wildcard = routesCfg.WildcardChar[0]
@@ -128,10 +133,12 @@ func makeServiceAttrs(processMatch *ProcessMatch, routesCfg *transform.RoutesCon
 			Name:      name,
 			Namespace: namespace,
 		},
-		ProcPID:     processMatch.Process.Pid,
-		ExportModes: exportModes,
-		Sampler:     samplerFromConfig(samplerConfig),
-		PathTrie:    clusterurl.NewPathTrie(routesCfg.MaxPathSegmentCardinality, wildcard),
+		ProcPID:            processMatch.Process.Pid,
+		ExportModes:        exportModes,
+		Sampler:            samplerFromConfig(samplerConfig),
+		PathTrie:           clusterurl.NewPathTrie(routesCfg.MaxPathSegmentCardinality, wildcard),
+		Features:           svcFeatures,
+		LogEnricherEnabled: processMatch.LogEnricherEnabled(),
 	}
 
 	if routesConfig != nil {
@@ -154,7 +161,7 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 		ev := &evs[i]
 		switch evs[i].Type {
 		case EventCreated:
-			svcID := makeServiceAttrs(&ev.Obj, t.cfg.Routes)
+			svcID := t.makeServiceAttrs(&ev.Obj)
 
 			if elfFile, err := findExecElf(ev.Obj.Process, svcID); err != nil {
 				t.log.Debug("error finding process ELF. Ignoring", "error", err)
@@ -242,7 +249,15 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	// Return the instrumentable without offsets, as it is identified as a generic
 	// (or non-instrumentable Go proxy) executable
 	t.instrumentableCache.Add(execElf.Ino, instrumentedExecutable{Type: detectedType, Offsets: nil, InstrumentationError: err})
-	return ebpf.Instrumentable{Type: detectedType, Offsets: nil, FileInfo: execElf, ChildPids: child, InstrumentationError: err}
+
+	return ebpf.Instrumentable{
+		Type:                 detectedType,
+		Offsets:              nil,
+		FileInfo:             execElf,
+		ChildPids:            child,
+		InstrumentationError: err,
+		LogEnricherEnabled:   execElf.Service.LogEnricherEnabled,
+	}
 }
 
 func (t *typer) inspectOffsets(execElf *exec.FileInfo) (*goexec.Offsets, bool, error) {

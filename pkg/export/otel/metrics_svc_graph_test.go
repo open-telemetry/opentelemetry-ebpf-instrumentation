@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -43,8 +44,8 @@ func TestServiceGraphMetrics(t *testing.T) {
 		otelExporter(ctx)
 	}()
 
-	clientID := svc.Attrs{ProcPID: 33, UID: svc.UID{Name: "client", Instance: "the-client"}}
-	serverID := svc.Attrs{ProcPID: 66, UID: svc.UID{Name: "server", Instance: "the-server"}}
+	clientID := svc.Attrs{Features: export.FeatureAll, ProcPID: 33, UID: svc.UID{Name: "client", Instance: "the-client"}}
+	serverID := svc.Attrs{Features: export.FeatureAll, ProcPID: 66, UID: svc.UID{Name: "server", Instance: "the-server"}}
 
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventCreated,
@@ -75,6 +76,58 @@ func TestServiceGraphMetrics(t *testing.T) {
 		"traces_service_graph_request_failed_total:client-host:server-host": {},
 		"traces_service_graph_request_total:client-host:server-host":        {},
 	}, reported)
+}
+
+func TestServiceGraphConnectionType(t *testing.T) {
+	t.Skip("flaky")
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+
+	otelExporter := makeSvcGraphExporter(ctx, t, otlp, metrics, processEvents)
+
+	require.NoError(t, err)
+	go func() {
+		otelExporter(ctx)
+	}()
+
+	clientID := svc.Attrs{ProcPID: 33, UID: svc.UID{Name: "client", Instance: "the-client"}, Features: export.FeatureAll}
+
+	processEvents.Send(exec.ProcessEvent{
+		Type: exec.ProcessEventCreated,
+		File: &exec.FileInfo{Service: clientID, Pid: clientID.ProcPID},
+	})
+
+	// Send database client spans
+	metrics.Send([]request.Span{
+		{Service: clientID, Type: request.EventTypeSQLClient, HostName: "postgres-db", Host: "client-host", Method: "SELECT", Path: "users", RequestStart: 100, End: 200},
+		{Service: clientID, Type: request.EventTypeRedisClient, HostName: "redis-cache", Host: "client-host", Method: "GET", RequestStart: 150, End: 175},
+		{Service: clientID, Type: request.EventTypeKafkaClient, HostName: "kafka-broker", Host: "client-host", Method: request.MessagingPublish, Path: "topic1", RequestStart: 200, End: 250},
+	})
+
+	// Read the exported metrics
+	res := readNChan(t, otlp.Records(), 9, timeout)
+	assert.NotEmpty(t, res)
+
+	// Check connection_type for each metric
+	for _, m := range res {
+		connType := m.Attributes["connection_type"]
+		server := m.Attributes["server"]
+
+		switch server {
+		case "postgres-db", "redis-cache":
+			assert.Equal(t, "database", connType, "Database spans should have connection_type=database for server=%s", server)
+		case "kafka-broker":
+			assert.Equal(t, "messaging_system", connType, "Kafka spans should have connection_type=messaging_system for server=%s", server)
+		}
+	}
 }
 
 func makeSvcGraphExporter(

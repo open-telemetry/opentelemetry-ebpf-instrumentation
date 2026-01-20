@@ -3,6 +3,7 @@
 
 //go:build obi_bpf_ignore
 
+#include "pid/types/pid_key.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
@@ -11,6 +12,7 @@
 #include <common/protocol_defs.h>
 
 #include <generictracer/k_tracer_defs.h>
+#include <generictracer/maps/java_tasks.h>
 #include <generictracer/maps/pid_tid_to_conn.h>
 
 #include <logger/bpf_dbg.h>
@@ -21,6 +23,7 @@ enum { k_ioctl_magic_id = 0x0b10b1 };
 enum {
     k_ioctl_java_send = 1,
     k_ioctl_java_recv = 2,
+    k_ioctl_java_threads = 3,
 };
 
 enum { k_ioctl_invalid_op = 0xff };
@@ -45,7 +48,7 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
         return 0;
     }
 
-    bpf_dbg_printk("=== sys_ioctl id=%d ===", id);
+    bpf_dbg_printk("=== kprobe/sys_ioctl id=%d ===", id);
 
     // unwrap the syscall arguments in __ctx
     struct pt_regs *__ctx = (struct pt_regs *)PT_REGS_PARM1(ctx);
@@ -68,7 +71,7 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
         return 0;
     }
 
-    bpf_dbg_printk("data %llx", arg);
+    bpf_dbg_printk("data=%llx", arg);
 
     if (!arg) {
         return 0;
@@ -77,14 +80,34 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
     u8 op_cmd = 0;
     bpf_probe_read(&op_cmd, sizeof(u8), arg);
 
-    u8 op = cmd_to_op(op_cmd);
+    if (op_cmd == k_ioctl_java_threads) {
+        u64 parent_id = 0;
+        bpf_probe_read(&parent_id, sizeof(u64), arg + 1);
 
-    if (op == k_ioctl_invalid_op) {
-        bpf_dbg_printk("unknown cmd = %d", op_cmd);
+        pid_key_t child = {0};
+        task_tid(&child);
+        pid_key_t parent = child;
+        u32 parent_tid = tid_from_pid_tgid(parent_id);
+        parent.tid = parent_tid;
+
+        if (parent.tid == child.tid) {
+            bpf_dbg_printk("self referencing thread %d, not recording", child.tid);
+            return 0;
+        }
+
+        bpf_dbg_printk("Java thread mapping [%d] -> [%d]", parent.tid, child.tid);
+        bpf_map_update_elem(&java_tasks, &child, &parent, BPF_ANY);
         return 0;
     }
 
-    bpf_dbg_printk("op = %d, cmd = %d", op, op_cmd);
+    u8 op = cmd_to_op(op_cmd);
+
+    if (op == k_ioctl_invalid_op) {
+        bpf_dbg_printk("unknown cmd=%d", op_cmd);
+        return 0;
+    }
+
+    bpf_dbg_printk("op=%d, cmd=%d", op, op_cmd);
 
     pid_connection_info_t p_conn = {0};
     bpf_probe_read(&p_conn.conn, sizeof(connection_info_t), arg + 1);
@@ -104,7 +127,7 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
 
     if (is_empty_connection_info(&p_conn.conn)) {
         ssl_pid_connection_info_t *l = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
-        bpf_dbg_printk("lookup for empty connection info %llx", l);
+        bpf_dbg_printk("lookup for empty connection info: %llx", l);
         if (l) {
             p_conn = l->p_conn;
         }
@@ -113,7 +136,7 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
     u32 len = 0;
     bpf_probe_read(&len, sizeof(u32), arg + 1 + sizeof(connection_info_t));
 
-    bpf_dbg_printk("payload len %d", len);
+    bpf_dbg_printk("payload len=%d", len);
 
     if (len > 0) {
         void *buf = arg + 1 + sizeof(connection_info_t) + sizeof(u32);

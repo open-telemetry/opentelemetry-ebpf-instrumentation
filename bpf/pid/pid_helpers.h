@@ -13,7 +13,7 @@
 // Good resource on this: https://mozillazg.com/2022/05/ebpf-libbpfgo-get-process-info-en.html
 // Using bpf_get_ns_current_pid_tgid is too restrictive for us
 static __always_inline void
-ns_pid_ppid(struct task_struct *task, int *pid, int *ppid, u32 *pid_ns_id) {
+ns_pid_ppid(const struct task_struct *task, int *pid, int *ppid, u32 *pid_ns_id) {
     struct upid upid;
 
     unsigned int level = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, level);
@@ -45,8 +45,7 @@ static __always_inline void task_pid(pid_info *pid) {
     pid->user_pid = (u32)upid.nr;
 
     // set PIDs namespace
-    struct ns_common ns = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns);
-    pid->ns = (u32)ns.inum;
+    pid->ns = (u32)BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns.inum);
 }
 
 static __always_inline u32 get_task_tid() {
@@ -82,6 +81,10 @@ static __always_inline void task_tid(pid_key_t *tid) {
 
 static __always_inline u32 pid_from_pid_tgid(u64 id) {
     return (u32)(id >> 32);
+}
+
+static __always_inline u32 tid_from_pid_tgid(u64 id) {
+    return (u32)(id & 0x0ffffffff);
 }
 
 static __always_inline u64 to_pid_tgid(u32 pid, u32 tid) {

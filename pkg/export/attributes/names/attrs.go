@@ -3,7 +3,7 @@
 
 // Package attr contains definition of the attribute names of for the metrics, especially
 // for the metrics whose reported attributes are selected in the attributes.select YAML option
-package attr
+package attr // import "go.opentelemetry.io/obi/pkg/export/attributes/names"
 
 import (
 	"strings"
@@ -96,19 +96,20 @@ var (
 var OBIIP = Name("obi.ip")
 
 const (
-	Transport   = Name("transport")
-	NetworkType = Name("network.type")
-	SrcAddress  = Name("src.address")
-	DstAddres   = Name("dst.address")
-	SrcPort     = Name("src.port")
-	DstPort     = Name("dst.port")
-	SrcName     = Name("src.name")
-	DstName     = Name("dst.name")
-	Iface       = Name("iface")
-	SrcCIDR     = Name("src.cidr")
-	DstCIDR     = Name("dst.cidr")
-	SrcZone     = Name("src.zone")
-	DstZone     = Name("dst.zone")
+	Transport       = Name("transport")
+	NetworkType     = Name("network.type")
+	NetworkProtocol = Name("network.protocol.name")
+	SrcAddress      = Name("src.address")
+	DstAddres       = Name("dst.address")
+	SrcPort         = Name("src.port")
+	DstPort         = Name("dst.port")
+	SrcName         = Name("src.name")
+	DstName         = Name("dst.name")
+	Iface           = Name("iface")
+	SrcCIDR         = Name("src.cidr")
+	DstCIDR         = Name("dst.cidr")
+	SrcZone         = Name("src.zone")
+	DstZone         = Name("dst.zone")
 
 	ClientPort = Name("client.port")
 
@@ -132,6 +133,11 @@ const (
 	K8sDstOwnerType = Name("k8s.dst.owner.type")
 	K8sDstNodeIP    = Name("k8s.dst.node.ip")
 	K8sDstNodeName  = Name("k8s.dst.node.name")
+
+	SrcCountry = Name("src.country")
+	DstCountry = Name("dst.country")
+	SrcASN     = Name("src.asn")
+	DstASN     = Name("dst.asn")
 )
 
 // other OBI-specific attributes

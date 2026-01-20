@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package instrumenter
+package instrumenter // import "go.opentelemetry.io/obi/pkg/instrumenter"
 
 import (
 	"context"
@@ -31,10 +31,17 @@ func Run(
 	ctx context.Context, cfg *obi.Config,
 	opts ...Option,
 ) error {
-	ctxInfo, err := buildCommonContextInfo(ctx, cfg)
+	ctxInfo, err := BuildCommonContextInfo(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("can't build common context info: %w", err)
 	}
+	return RunWithContextInfo(ctx, cfg, ctxInfo, opts...)
+}
+
+func RunWithContextInfo(
+	ctx context.Context, cfg *obi.Config, ctxInfo *global.ContextInfo,
+	opts ...Option,
+) error {
 	for _, opt := range opts {
 		opt(ctxInfo)
 	}
@@ -130,9 +137,9 @@ func buildServiceNameTemplate(config *obi.Config) (*template.Template, error) {
 	return templ, nil
 }
 
-// BuildContextInfo populates some globally shared components and properties
+// BuildCommonContextInfo populates some globally shared components and properties
 // from the user-provided configuration
-func buildCommonContextInfo(
+func BuildCommonContextInfo(
 	ctx context.Context, config *obi.Config,
 ) (*global.ContextInfo, error) {
 	// merging deprecated resource labels definition for backwards compatibility
@@ -231,5 +238,8 @@ func attributeGroups(config *obi.Config, ctxInfo *global.ContextInfo) {
 	}
 	if config.NetworkFlows.CIDRs.Enabled() {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupNetCIDR)
+	}
+	if config.NetworkFlows.GeoIP.Enabled() {
+		ctxInfo.MetricAttributeGroups.Add(attributes.GroupNetGeoIP)
 	}
 }

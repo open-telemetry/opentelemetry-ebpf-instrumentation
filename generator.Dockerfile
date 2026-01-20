@@ -1,4 +1,4 @@
-FROM golang:1.25.5-alpine@sha256:26111811bc967321e7b6f852e914d14bede324cd1accb7f81811929a6a57fea9 AS base
+FROM golang:1.25.5-alpine@sha256:ac09a5f469f307e5da71e766b0bd59c9c49ea460a528cc3e6686513d64a6f1fb AS base
 FROM base AS builder
 
 WORKDIR /build
@@ -52,6 +52,7 @@ COPY --from=builder /build/obi_genfiles /go/bin
 
 RUN cat <<EOF > /generate.sh
 #!/bin/sh
+export PATH="/usr/lib/llvm20/bin:\$PATH"
 export BPF2GO=bpf2go
 export BPF_CLANG=clang
 export BPF_CFLAGS="-O2 -g -Wall -Werror"

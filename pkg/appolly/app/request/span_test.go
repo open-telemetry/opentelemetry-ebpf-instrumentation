@@ -73,6 +73,41 @@ func TestKindString(t *testing.T) {
 	}
 }
 
+func TestServiceGraphConnectionType(t *testing.T) {
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		// Database client spans should return "database"
+		{name: "SQL client", span: &Span{Type: EventTypeSQLClient}, expected: "database"},
+		{name: "Redis client", span: &Span{Type: EventTypeRedisClient}, expected: "database"},
+		{name: "Mongo client", span: &Span{Type: EventTypeMongoClient}, expected: "database"},
+		{name: "Elasticsearch client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch}, expected: "database"},
+
+		// Messaging client spans should return "messaging_system"
+		{name: "Kafka client producer", span: &Span{Type: EventTypeKafkaClient, Method: MessagingPublish}, expected: "messaging_system"},
+		{name: "Kafka client consumer", span: &Span{Type: EventTypeKafkaClient, Method: MessagingProcess}, expected: "messaging_system"},
+		{name: "AWS SQS client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSSQS}, expected: "messaging_system"},
+
+		// Server spans should return empty
+		{name: "Redis server", span: &Span{Type: EventTypeRedisServer}, expected: ""},
+		{name: "Kafka server", span: &Span{Type: EventTypeKafkaServer}, expected: ""},
+
+		// Regular HTTP/gRPC spans should return empty (unset)
+		{name: "HTTP server", span: &Span{Type: EventTypeHTTP}, expected: ""},
+		{name: "HTTP client", span: &Span{Type: EventTypeHTTPClient}, expected: ""},
+		{name: "GRPC server", span: &Span{Type: EventTypeGRPC}, expected: ""},
+		{name: "GRPC client", span: &Span{Type: EventTypeGRPCClient}, expected: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.span.ServiceGraphConnectionType())
+		})
+	}
+}
+
 type jsonObject = map[string]any
 
 func deserializeJSONObject(data []byte) (jsonObject, error) {
