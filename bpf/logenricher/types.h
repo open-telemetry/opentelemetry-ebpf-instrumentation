@@ -28,7 +28,7 @@ enum {
 };
 
 typedef struct log_event {
-    tp_info_pid_t pid_tp;
+    tp_info_t tp;
     u32 tgid;
     u32 len;
     u32 fd;

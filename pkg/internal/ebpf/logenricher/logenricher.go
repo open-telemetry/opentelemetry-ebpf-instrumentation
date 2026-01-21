@@ -241,10 +241,6 @@ func (p *Tracer) BlockPID(pid, ns uint32) {
 	p.pidsMU.Lock()
 	defer p.pidsMU.Unlock()
 
-	if err := p.removePID(p.pidKey(ns, pid)); err != nil {
-		p.log.Error(err.Error())
-	}
-
 	if knownPids, ok := p.pids[pid]; ok {
 		for _, nsPid := range knownPids {
 			if err := p.removePID(p.pidKey(ns, nsPid)); err != nil {
@@ -254,7 +250,7 @@ func (p *Tracer) BlockPID(pid, ns uint32) {
 		return
 	}
 
-	p.log.Debug("block pid: namespaced pids not found in internal cache, removing only the given pid", "pid", pid, "ns", ns)
+	p.log.Debug("block pid: namespaced pids not found in internal cache", "pid", pid, "ns", ns)
 }
 
 func (p *Tracer) Run(ctx context.Context, eventCtx *ebpfcommon.EBPFEventContext, _ *msg.Queue[[]request.Span]) {
@@ -336,7 +332,7 @@ func (p *Tracer) handle(e LogEvent) {
 		zeroTraceID [16]uint8
 		zeroSpanID  [8]uint8
 	)
-	if e.orig.PidTp.Tp.TraceId == zeroTraceID || e.orig.PidTp.Tp.SpanId == zeroSpanID {
+	if e.orig.Tp.TraceId == zeroTraceID || e.orig.Tp.SpanId == zeroSpanID {
 		// No trace context to inject, write original log line
 		_, err := f.Write([]byte(e.logLine))
 		if err != nil {
@@ -347,8 +343,8 @@ func (p *Tracer) handle(e LogEvent) {
 
 	var (
 		b       bytes.Buffer
-		spanID  = trace.SpanID(e.orig.PidTp.Tp.SpanId)
-		traceID = trace.TraceID(e.orig.PidTp.Tp.TraceId)
+		spanID  = trace.SpanID(e.orig.Tp.SpanId)
+		traceID = trace.TraceID(e.orig.Tp.TraceId)
 	)
 
 	var m map[string]any
