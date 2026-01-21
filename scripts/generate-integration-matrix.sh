@@ -3,24 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Generate standard test matrix with configurable partitions
-# Usage: ./scripts/generate-integration-matrix.sh [test_tags] [search_dir] [partitions] [test_pattern]
+# Usage: ./scripts/generate-integration-matrix.sh [search_dir] [partitions] [test_pattern]
 
 set -e
 
-TEST_TAGS="${1:-integration}"
-SEARCH_DIR="${2:-internal/test/integration}"
-PARTITIONS="${3:-5}"
-TEST_PATTERN="${4:-Test}"
+SEARCH_DIR="${1:-internal/test/integration}"
+PARTITIONS="${2:-5}"
+TEST_PATTERN="${3:-Test}"
 
-# Get test names (embedded list-tests.sh logic)
-if [ -n "$TEST_TAGS" ]; then
-    # Find files with the specific build tag (exact match with word boundaries)
-    FILES=$(find "$SEARCH_DIR" -maxdepth 1 -type f -name "*_test.go" -exec grep -l "//go:build.*\b$TEST_TAGS\b" {} \;)
-else
-    # Find all test files
-    FILES=$(find "$SEARCH_DIR" -maxdepth 1 -type f -name "*_test.go")
-fi
-
+FILES=$(find "$SEARCH_DIR" -maxdepth 1 -type f -name "*_test.go")
 if [ -z "$FILES" ]; then
     echo "No test files found" >&2
     exit 1
@@ -30,7 +21,7 @@ fi
 TEST_NAMES=$(grep -h "^func $TEST_PATTERN" $FILES | sed 's/^func \([^(]*\).*/\1/' | sort -u | sort -R)
 
 if [ -z "$TEST_NAMES" ]; then
-    echo "ERROR: No tests found for tags '$TEST_TAGS' in '$SEARCH_DIR'" >&2
+    echo "ERROR: No tests found in '$SEARCH_DIR'" >&2
     exit 1
 fi
 

@@ -1,11 +1,11 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
 package otel
 
 import (
+	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -29,6 +29,12 @@ var cluster *kube.Kind
 // TestMain is run once before all the tests in the package. If you need to mount a different cluster for
 // a different test suite, you should add a new TestMain in a new package together with the new test suite
 func TestMain(m *testing.M) {
+	flag.Parse()
+	if testing.Short() {
+		fmt.Println("skipping integration tests in short mode")
+		return
+	}
+
 	if err := docker.Build(os.Stdout, tools.ProjectDir(),
 		docker.ImageBuild{Tag: "testserver:dev", Dockerfile: k8s.DockerfileTestServer},
 		docker.ImageBuild{Tag: "obi:dev", Dockerfile: k8s.DockerfileOBI},
