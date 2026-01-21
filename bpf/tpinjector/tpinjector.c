@@ -504,7 +504,7 @@ error:
 
 static __always_inline void
 make_tp_string_skb(unsigned char *buf, const tp_info_t *tp, const unsigned char *end) {
-    buf = check_pkt_access(buf, EXTEND_SIZE, end);
+    buf = check_pkt_access(buf, TP_SIZE, end);
 
     if (!buf) {
         return;
@@ -553,7 +553,7 @@ make_tp_string_skb(unsigned char *buf, const tp_info_t *tp, const unsigned char 
 
 static __always_inline bool
 extend_and_write_tp(struct sk_msg_md *msg, u32 offset, const tp_info_t *tp) {
-    const long err = bpf_msg_push_data(msg, offset, EXTEND_SIZE, 0);
+    const long err = bpf_msg_push_data(msg, offset, TP_SIZE, 0);
 
     if (err != 0) {
         bpf_d_printk("failed to push data: %d [%s]", err, __FUNCTION__);
@@ -571,7 +571,7 @@ extend_and_write_tp(struct sk_msg_md *msg, u32 offset, const tp_info_t *tp) {
 
     unsigned char *ptr = msg->data + offset;
 
-    if ((void *)ptr + EXTEND_SIZE >= msg->data_end) {
+    if ((void *)ptr + TP_SIZE >= msg->data_end) {
         bpf_d_printk("not enough space [%s]", __FUNCTION__);
         return false;
     }
@@ -665,6 +665,59 @@ static __always_inline void handle_existing_tp_pid(struct sk_msg_md *msg,
     }
 }
 
+static __always_inline bool find_existing_tp(struct sk_msg_md *msg, tp_info_t *tp) {
+    const unsigned char *b = msg->data;
+    const unsigned char *e = msg->data_end;
+    const unsigned char *ptr = b;
+
+    if (ptr >= e) {
+        return false;
+    }
+
+    const u32 data_size = (e - ptr) & 0xfff; // iterate up to 4KB
+    const u32 niter = data_size / TP_SIZE;
+
+    const unsigned char eoh[] = {'\r', '\n', '\r', '\n'};
+    const u32 eoh_niter = TP_SIZE / sizeof(eoh);
+
+    for (u32 i = 0; i < niter; ++i) {
+        if (ptr + TP_SIZE >= e) {
+            break;
+        }
+
+        if (is_traceparent(ptr)) {
+            ptr += TP_TID_PREFIX_SIZE;
+
+            decode_hex(tp->trace_id, ptr, TRACE_ID_CHAR_LEN);
+
+            ptr += TRACE_ID_CHAR_LEN + 1;
+
+            decode_hex(tp->parent_id, ptr, SPAN_ID_CHAR_LEN);
+
+            ptr += SPAN_ID_CHAR_LEN + 1;
+
+            decode_hex((unsigned char *)&tp->flags, ptr, FLAGS_CHAR_LEN);
+
+            return true;
+        }
+
+        // check if the HTTP header ends in this chunk
+        const unsigned char *o = ptr;
+
+        for (u32 j = 0; j < eoh_niter; ++j) {
+            if (o[0] == eoh[0] && o[1] == eoh[1] && o[2] == eoh[2] && o[3] == eoh[3]) {
+                return false;
+            }
+
+            o += sizeof(eoh);
+        }
+
+        ptr += TP_SIZE;
+    }
+
+    return false;
+}
+
 // Sock_msg program which detects packets where it should add space for
 // the 'Traceparent' string. It extends the HTTP header and writes the
 // Traceparent string.
@@ -718,20 +771,27 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
+    // at this point we've found the start of a new HTTP request
+
     bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
     bpf_dbg_printk("buf=[%s]", msg->data);
     bpf_dbg_printk("ptr=%llx, end=%llx", ctx_msg_data(msg), ctx_msg_data_end(msg));
     bpf_dbg_printk("BUF=[%s]", ctx_msg_data(msg));
 
-    // we've found the start of a new HTTP request, let's generate new TP info for it
     tp_info_pid_t *tp_p = tp_buf();
 
     if (!tp_p) {
         return SK_PASS;
     }
 
-    if (!create_trace_info(id, &conn, tp_p)) {
-        return SK_PASS;
+    // check if the current request already contains a traceparent header
+    const bool existing_tp = find_existing_tp(msg, &tp_p->tp);
+
+    if (!existing_tp) {
+        // no TP found, create it
+        if (!create_trace_info(id, &conn, tp_p)) {
+            return SK_PASS;
+        }
     }
 
     tp_p->written = 1;
@@ -743,7 +803,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         schedule_write_tcp_option(msg, tp_p);
     }
 
-    if (inject_flags & k_inject_http_headers) {
+    if (!existing_tp && (inject_flags & k_inject_http_headers)) {
         // write the HTTP headers
         bpf_tail_call(msg, &extender_jump_table, k_tail_write_msg_traceparent);
         bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
