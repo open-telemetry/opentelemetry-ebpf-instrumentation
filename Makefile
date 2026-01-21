@@ -488,7 +488,7 @@ check-clean-work-tree:
 	if [ -n "$$(git status --porcelain)" ]; then \
 		git status; \
 		git --no-pager diff; \
-		echo 'Working tree is not clean, did you forget to run "make"?' \
+		echo 'Working tree is not clean, did you forget to run "make"?'; \
 		exit 1; \
 	fi
 
