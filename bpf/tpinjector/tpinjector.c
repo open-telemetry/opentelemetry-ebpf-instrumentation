@@ -99,6 +99,16 @@ static __always_inline const char *tp_string_from_opt(const struct tp_option *op
     return (const char *)buf;
 }
 
+static __always_inline void print_tp(const char *msg, const tp_info_t *tp) {
+    if (!g_bpf_debug) {
+        return;
+    }
+
+    unsigned char tp_buf_str[TP_MAX_VAL_LENGTH];
+    make_tp_string(tp_buf_str, tp);
+    bpf_dbg_printk("%s: %s", msg, tp_buf_str);
+}
+
 static __always_inline pid_connection_info_t *pid_conn_info_buf() {
     const int zero = 0;
     return bpf_map_lookup_elem(&pid_connection_info_mem, &zero);
@@ -787,7 +797,9 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     // check if the current request already contains a traceparent header
     const bool existing_tp = find_existing_tp(msg, &tp_p->tp);
 
-    if (!existing_tp) {
+    if (existing_tp) {
+        print_tp("found TP in headers", &tp_p->tp);
+    } else {
         // no TP found, create it
         if (!create_trace_info(id, &conn, tp_p)) {
             return SK_PASS;
