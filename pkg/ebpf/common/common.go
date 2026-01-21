@@ -473,3 +473,25 @@ func directionByPacketType(pt uint8, isClient bool) uint8 {
 	}
 	return directionSend
 }
+
+type CloseFunc func() error
+
+func (cf CloseFunc) Close() error {
+	return cf()
+}
+
+type detachCloser interface {
+	io.Closer
+	Detach() error
+}
+
+func DetachClose(dc detachCloser) CloseFunc {
+	return func() error {
+		e1 := dc.Detach()
+		e2 := dc.Close()
+		if e1 != nil {
+			return e1
+		}
+		return e2
+	}
+}

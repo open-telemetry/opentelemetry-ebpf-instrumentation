@@ -120,7 +120,7 @@ func (i *instrumenter) kprobe(funcName string, programs ebpfcommon.ProbeDesc) er
 			}
 			return fmt.Errorf("setting kprobe: %w", err)
 		}
-		i.closables = append(i.closables, kp)
+		i.closables = append(i.closables, ebpfcommon.DetachClose(kp))
 	}
 
 	if programs.End != nil {
@@ -133,7 +133,7 @@ func (i *instrumenter) kprobe(funcName string, programs ebpfcommon.ProbeDesc) er
 			}
 			return fmt.Errorf("setting kretprobe: %w", err)
 		}
-		i.closables = append(i.closables, kp)
+		i.closables = append(i.closables, ebpfcommon.DetachClose(kp))
 	}
 
 	return nil
@@ -285,7 +285,7 @@ func (i *instrumenter) uprobe(exe *link.Executable, probe *ebpfcommon.ProbeDesc)
 			return closers, fmt.Errorf("setting uprobe (offset): %w", err)
 		}
 
-		closers = append(closers, up)
+		closers = append(closers, ebpfcommon.DetachClose(up))
 	}
 
 	if probe.End != nil {
@@ -307,7 +307,7 @@ func (i *instrumenter) uprobe(exe *link.Executable, probe *ebpfcommon.ProbeDesc)
 				return closers, fmt.Errorf("setting uretprobe (attaching to offset): %w", err)
 			}
 
-			closers = append(closers, up)
+			closers = append(closers, ebpfcommon.DetachClose(up))
 		}
 	}
 
@@ -443,7 +443,7 @@ func (i *instrumenter) tracepoint(funcName string, programs ebpfcommon.ProbeDesc
 			}
 			return fmt.Errorf("setting syscall: %w", err)
 		}
-		i.closables = append(i.closables, kp)
+		i.closables = append(i.closables, ebpfcommon.DetachClose(kp))
 	}
 
 	return nil
@@ -464,7 +464,7 @@ func (i *instrumenter) iters(p Tracer) error {
 		}
 		iter.Link = lnk
 
-		p.AddCloser(iter.Link)
+		p.AddCloser(ebpfcommon.DetachClose(iter.Link))
 	}
 
 	return nil
