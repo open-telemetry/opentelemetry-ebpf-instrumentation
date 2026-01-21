@@ -31,6 +31,7 @@ func (t *tracer) Close() error {
 	}
 
 	for _, link := range t.links {
+		(*link).Detach()
 		(*link).Close()
 	}
 

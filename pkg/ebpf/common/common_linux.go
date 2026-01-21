@@ -32,7 +32,12 @@ func (s *SockMsg) Close() error {
 }
 
 func (s *SockOps) Close() error {
-	return s.SockopsCgroup.Close()
+	err := s.SockopsCgroup.Detach()
+	err2 := s.SockopsCgroup.Close()
+	if err != nil {
+		return err
+	}
+	return err2
 }
 
 // KernelVersion from https://github.com/golang/go/blob/go1.21.3/src/internal/syscall/unix/kernel_version_linux.go

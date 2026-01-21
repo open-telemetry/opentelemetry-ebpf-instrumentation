@@ -345,7 +345,7 @@ func (pt *ProcessTracer) UnlinkExecutable(info *exec.FileInfo) {
 	if i, ok := pt.Instrumentables[info.Ino]; ok {
 		for _, c := range i.closables {
 			if err := c.Close(); err != nil {
-				pt.log.Debug("Unable to close on unlink", "closable", c)
+				pt.log.Debug("Unable to close on unlink", "exec", info.CmdExePath, "pid", info.Pid)
 			}
 		}
 		for ino := range i.modules {
