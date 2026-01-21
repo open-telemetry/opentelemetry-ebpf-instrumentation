@@ -28,6 +28,7 @@ import (
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/shared"
 )
 
 const PinInternal = ebpf.PinType(100)
@@ -72,26 +73,38 @@ func resolveMaps(eventContext *common.EBPFEventContext, spec *ebpf.CollectionSpe
 	for k, v := range spec.Maps {
 		alignMaxEntriesIfRingBuf(v)
 
-		if v.Pinning != PinInternal {
-			continue
-		}
+		switch v.Pinning {
+		case PinInternal:
+			v.Pinning = ebpf.PinNone
+			internalMap := eventContext.EBPFMaps[k]
 
-		v.Pinning = ebpf.PinNone
-		internalMap := eventContext.EBPFMaps[k]
+			var err error
 
-		var err error
+			if internalMap == nil {
+				internalMap, err = ebpf.NewMap(v)
+				if err != nil {
+					return nil, fmt.Errorf("failed to load shared map: %w", err)
+				}
 
-		if internalMap == nil {
-			internalMap, err = ebpf.NewMap(v)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load shared map: %w", err)
+				eventContext.EBPFMaps[k] = internalMap
+				runtime.SetFinalizer(internalMap, (*ebpf.Map).Close)
 			}
 
-			eventContext.EBPFMaps[k] = internalMap
-			runtime.SetFinalizer(internalMap, (*ebpf.Map).Close)
+			collOpts.MapReplacements[k] = internalMap
+		case ebpf.PinByName:
+			if k == shared.ObiCtxMapName {
+				m, err := shared.LoadOrCreateCtxMap()
+				if err != nil {
+					slog.Warn("loading or creating map errored (is bpffs mounted?)", "map", shared.ObiCtxMapName, "err", err)
+					v.MaxEntries = 16
+					v.Pinning = ebpf.PinNone
+					continue
+				}
+				collOpts.MapReplacements[k] = m
+			}
+		case ebpf.PinNone:
 		}
 
-		collOpts.MapReplacements[k] = internalMap
 	}
 
 	return &collOpts, nil
@@ -103,6 +116,10 @@ func unloadInternalMaps(eventContext *common.EBPFEventContext) {
 
 	for _, v := range eventContext.EBPFMaps {
 		v.Close()
+	}
+
+	if err := shared.TeardownCtxMap(); err != nil {
+		ptlog().Warn("tearing down obi ctx map", "error", err)
 	}
 
 	eventContext.EBPFMaps = make(map[string]*ebpf.Map)

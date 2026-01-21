@@ -22,6 +22,8 @@
 #include <logenricher/maps/pid_fd.h>
 #include <logenricher/maps/zeros.h>
 
+#include <shared/obi_ctx.h>
+
 char __license[] SEC("license") = "Dual MIT/GPL";
 
 SCRATCH_MEM_SIZED(log_event, k_log_event_max_size);
@@ -56,21 +58,14 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
         return 0;
     }
 
-    size_t count = BPF_CORE_READ(from, count);
+    const size_t count = BPF_CORE_READ(from, count);
     const long offset = bpf_core_field_offset(struct iov_iter, count) - 8;
 
     struct iovec iov = {};
     bpf_probe_read(&iov, sizeof(iov), (char *)from + offset);
 
     const u64 pid_tgid = bpf_get_current_pid_tgid();
-
-    pid_key_t pk = {};
-    task_tid(&pk);
-    trace_key_t t_key = {};
-    trace_key_from_pid_tid_with_p_key(&t_key, &pk, pid_tgid);
-    tp_info_pid_t *tp_info = find_parent_process_trace(&t_key);
-
-    const u32 len = count & k_log_event_max_log_mask;
+    obi_ctx_info_t *obi_ctx = obi_ctx__get(pid_tgid);
 
     log_event_t *e = (log_event_t *)log_event_mem();
     if (!e) {
@@ -78,8 +73,8 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
         return 0;
     }
     e->tgid = pid_tgid >> 32;
-    e->len = len;
-    e->pid_tp = tp_info ? *tp_info : (tp_info_pid_t){0};
+    e->len = count & k_log_event_max_log_mask;
+    e->ctx = obi_ctx ? *obi_ctx : (obi_ctx_info_t){0};
     e->fd = fd;
     bpf_probe_read_user(e->log, e->len, iov.iov_base);
 
@@ -96,24 +91,14 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
         e->file_path[0] = '\0';
     }
 
-    const long eagain = -11;
-    u8 retries = 3;
-    if (len > 0) {
+    if (e->len > 0) {
         // From this point on, the responsibility of writing to stdout is on us,
         // so if something fails, we must always fallback to writing the original data.
-    retry:
-        if (retries == 0) {
-            bpf_dbg_printk("logenricher: exceeded max retries writing log event to ringbuf!");
-            return 0;
-        }
-        const long err = bpf_ringbuf_output(&log_events,
-                                            e,
-                                            (sizeof(log_event_t) + len) & k_log_event_max_size_mask,
-                                            log_events_flags());
-        if (err == eagain) {
-            retries--;
-            goto retry;
-        }
+        const long err =
+            bpf_ringbuf_output(&log_events,
+                               e,
+                               (sizeof(log_event_t) + e->len) & k_log_event_max_size_mask,
+                               log_events_flags());
         if (err < 0) {
             bpf_dbg_printk("logenricher: failed to write log event to ringbuf: %d", err);
             return 0;
@@ -125,7 +110,12 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
             bpf_dbg_printk("logenricher: failed to get zero buffer");
             return 0;
         }
-        bpf_probe_write_user(iov.iov_base, zero, len);
+
+        const u32 to_write = e->len & k_log_event_max_log_mask;
+        if (to_write == 0) {
+            return 0;
+        }
+        bpf_probe_write_user(iov.iov_base, zero, to_write);
     }
 
     return 0;
