@@ -64,6 +64,7 @@ const (
 	EventTypeGoMongo        = 14 // EVENT_GO_MONGO - Go MongoDB spans
 	EventTypeFailedConnect  = 15 // EVENT_FAILED_CONNECT - Failed Connections
 	EventTypeDNS            = 16 // EVENT_DNS_REQUEST - DNS events
+	EventTypeAppNetTcpRtt   = 17 // EVENT_APP_NET_TCP_RTT Application Network metrics related event - RTT
 )
 
 // Kernel-side classification

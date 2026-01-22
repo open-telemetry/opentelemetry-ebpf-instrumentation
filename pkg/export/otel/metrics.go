@@ -932,6 +932,8 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				dnsDuration, attrs := r.dnsLookupDuration.ForRecord(span)
 				dnsDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
+		case request.EventTypeAppNetTcpRtt:
+			fmt.Println("Pino record metrics!")
 		}
 	}
 

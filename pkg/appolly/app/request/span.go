@@ -50,6 +50,7 @@ const (
 	EventTypeFailedConnect
 	EventTypeDNS
 	EventTypeCouchbaseClient
+	EventTypeAppNetTcpRtt
 )
 
 const (
@@ -136,6 +137,8 @@ func (t EventType) String() string {
 		return "DNS"
 	case EventTypeCouchbaseClient:
 		return "CouchbaseClient"
+	case EventTypeAppNetTcpRtt:
+		return "AppNetTcpRtt"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}

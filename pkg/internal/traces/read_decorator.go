@@ -5,12 +5,14 @@ package traces // import "go.opentelemetry.io/obi/pkg/internal/traces"
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strconv"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/config"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/traces/hostname"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -43,6 +45,9 @@ func ReadFromChannel(r *ReadDecorator) swarm.InstanceFunc {
 			case traces, ok := <-tracesInput:
 				if ok {
 					for i := range traces {
+						if traces[i].Type == ebpfcommon.EventTypeAppNetTcpRtt {
+							fmt.Println("PINOOOOOOOOOOOOOO ", traces[i])
+						}
 						decorate(&traces[i].Service, int(traces[i].Pid.HostPID))
 					}
 					out.SendCtx(ctx, traces)
