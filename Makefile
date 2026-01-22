@@ -487,7 +487,7 @@ check-clean-work-tree:
 	if [ -n "$$(git status --porcelain)" ]; then \
 		git status; \
 		git --no-pager diff; \
-		echo 'Working tree is not clean, did you forget to run "make"?' \
+		echo 'Working tree is not clean, did you forget to run "make"?'; \
 		exit 1; \
 	fi
 
@@ -524,12 +524,12 @@ check-ebpf-ver-synced:
 .PHONY: vanity-import-check
 vanity-import-check:
 	@go install github.com/jcchavezs/porto/cmd/porto@latest
-	@porto --include-internal --skip-dirs "^NOTICES/[^/]*\.[^/]*/.*" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
+	@porto --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
 
 .PHONY: vanity-import-fix
 vanity-import-fix: $(PORTO)
 	@go install github.com/jcchavezs/porto/cmd/porto@latest
-	@porto --include-internal --skip-dirs "^NOTICES/[^/]*\.[^/]*/.*" -w .
+	@porto --include-internal --skip-dirs "^NOTICES$$" -w .
 
 .PHONY: regenerate-port-lookup
 regenerate-port-lookup:
