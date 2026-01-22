@@ -408,7 +408,10 @@ static __always_inline void process_http_request(
     if (info->type == EVENT_HTTP_REQUEST) {
         u64 *accept_time = bpf_map_lookup_elem(&accepted_connections, &info->conn_info);
         if (accept_time) {
-            bpf_d_printk("prev_start_time %ld actual_start_time %ld", start_time, *accept_time);
+            bpf_d_printk("prev_start_time=%ld, actual_start_time=%ld [%s]",
+                         start_time,
+                         *accept_time,
+                         __FUNCTION__);
             req_time = *accept_time;
             // delete just in case the connection is reused, so we don't produce wrong info
             bpf_map_delete_elem(&accepted_connections, &info->conn_info);
@@ -452,7 +455,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
         if (ssl) {
             finish_http(info, pid_conn);
         } else {
-            bpf_dbg_printk("Delaying finish http for large request, orig_len %d", orig_len);
+            bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);
             info->delayed = 1;
         }
     }
@@ -470,7 +473,7 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
 
     tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)http_large_buffers_mem();
     if (!large_buf) {
-        bpf_dbg_printk("http_send_large_buffer: failed to reserve space for HTTP large buffer");
+        bpf_dbg_printk("failed to reserve space for HTTP large buffer");
         return -1;
     }
 
@@ -484,7 +487,7 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
     large_buf->len = bytes_len;
     if (large_buf->len >= http_buffer_size) {
         large_buf->len = http_buffer_size;
-        bpf_dbg_printk("WARN: http_send_large_buffer: buffer is full, truncating data");
+        bpf_dbg_printk("WARN: buffer is full, truncating data");
     }
 
     bpf_probe_read(large_buf->buf, large_buf->len & k_large_buf_payload_max_size_mask, u_buf);
@@ -631,12 +634,12 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
     http_info_t *info =
         get_or_set_http_info(in, &args->pid_conn, args->packet_type, args->direction);
     if (!info) {
-        bpf_dbg_printk("No info (or duplicate), pid =%d?", args->pid_conn.pid);
+        bpf_dbg_printk("No info (or duplicate), pid=%d?", args->pid_conn.pid);
         dbg_print_http_connection_info(&args->pid_conn.conn);
         return 0;
     }
 
-    bpf_dbg_printk("=== http_buffer_event len=%d pid=%d still_reading=%d ===",
+    bpf_dbg_printk("=== kprobe/http http_buffer_event: len=%d, pid=%d, still_reading=%d ===",
                    args->bytes_len,
                    pid_from_pid_tgid(bpf_get_current_pid_tgid()),
                    still_reading(info));
