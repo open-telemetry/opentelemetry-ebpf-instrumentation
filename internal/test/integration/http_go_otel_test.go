@@ -279,8 +279,8 @@ func setupHTTPGoOTelTest(t *testing.T) {
 	// Start OBI container with PID namespace sharing
 	coverageDir := filepath.Join(projectRoot, "testoutput")
 	runOtelDir := filepath.Join(projectRoot, "testoutput/run-otel")
-	os.MkdirAll(coverageDir, 0755)
-	os.MkdirAll(runOtelDir, 0755)
+	require.NoError(t, os.MkdirAll(coverageDir, 0o755))
+	require.NoError(t, os.MkdirAll(runOtelDir, 0o755))
 
 	obi, err := pool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "hatest-obi",
