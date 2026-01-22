@@ -25,6 +25,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/ianlancetaylor/demangle v0.0.0-20251118225945-96ee0021ea0f
 	github.com/mariomac/guara v0.0.0-20250408105519-1e4dbdfb7136
+	github.com/ory/dockertest/v3 v3.12.0
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
@@ -185,7 +186,6 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/opencontainers/runc v1.3.0 // indirect
-	github.com/ory/dockertest/v3 v3.12.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pierrec/lz4/v4 v4.1.23 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
