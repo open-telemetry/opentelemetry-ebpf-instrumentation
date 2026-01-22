@@ -213,12 +213,12 @@ compile-cache-for-coverage:
 .PHONY: test
 test: $(ENVTEST)
 	@echo "### Testing code"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: test-privileged
 test-privileged: $(ENVTEST)
 	@echo "### Testing code with privileged tests enabled"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: cov-exclude-generated
 cov-exclude-generated:
@@ -305,13 +305,13 @@ cleanup-integration-test: $(KIND)
 run-integration-test:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration --tags=integration
+	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration
 
 .PHONY: run-integration-test-k8s
 run-integration-test-k8s:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/k8s/... --tags=integration
+	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/k8s/...
 
 .PHONY: run-integration-test-vm
 run-integration-test-vm:
@@ -335,7 +335,6 @@ run-integration-test-vm:
 			-timeout $$TEST_TIMEOUT \
 			-failfast \
 			-v -a \
-			-tags=integration \
 			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
 	fi
 
@@ -343,15 +342,15 @@ run-integration-test-vm:
 run-integration-test-arm:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration --tags=integration -run "^TestMultiProcess"
+	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
 
 .PHONY: integration-test-matrix-json
 integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" internal/test/integration "$${PARTITIONS:-5}"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}"
 
 .PHONY: vm-integration-test-matrix-json
 vm-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" internal/test/integration "$${PARTITIONS:-5}" "TestMultiProcess"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "TestMultiProcess"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
