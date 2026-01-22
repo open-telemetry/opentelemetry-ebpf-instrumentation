@@ -5,10 +5,9 @@
 
 package io.opentelemetry.obi.java.instrumentations;
 
-import com.sun.jna.Memory;
-import com.sun.jna.Pointer;
 import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
+import io.opentelemetry.obi.java.ebpf.NativeMemory;
 import io.opentelemetry.obi.java.ebpf.OperationType;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.util.concurrent.Callable;
@@ -50,7 +49,7 @@ public class CallableInst {
     public static void enter(@Advice.This Callable<?> task) {
       Long parentId = SSLStorage.parentThreadId(task);
       if (parentId != null) {
-        long threadId = Agent.CLibrary.INSTANCE.gettid();
+        long threadId = Agent.NativeLib.gettid();
         if (SSLStorage.bootDebugOn().equals(true)) {
           System.err.println(
               "[CallableAdvice] task = "
@@ -61,9 +60,9 @@ public class CallableInst {
                   + threadId);
         }
         if (parentId != threadId) {
-          Pointer p = new Memory(IOCTLPacket.packetPrefixSize);
+          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize);
           int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
-          Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+          Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
         }
       }
       SSLStorage.untrackTask(task);

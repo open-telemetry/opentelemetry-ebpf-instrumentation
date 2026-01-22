@@ -5,10 +5,9 @@
 
 package io.opentelemetry.obi.java.instrumentations;
 
-import com.sun.jna.Memory;
-import com.sun.jna.Pointer;
 import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
+import io.opentelemetry.obi.java.ebpf.NativeMemory;
 import io.opentelemetry.obi.java.ebpf.OperationType;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.util.concurrent.ForkJoinTask;
@@ -53,7 +52,7 @@ public class JavaForkJoinTaskInst {
   public static final class ForkAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enterJobSubmit(@Advice.This ForkJoinTask<?> task) {
-      long threadId = Agent.CLibrary.INSTANCE.gettid();
+      long threadId = Agent.NativeLib.gettid();
       SSLStorage.trackTask(threadId, task);
       if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println("[ForkAdvice] " + threadId + "fork task = " + task.hashCode());
@@ -75,7 +74,7 @@ public class JavaForkJoinTaskInst {
     public static void enterJobSubmit(
         @Advice.This ForkJoinTask<?> task, @Advice.Origin String method) {
       Long parentId = SSLStorage.parentThreadId(task);
-      long threadId = Agent.CLibrary.INSTANCE.gettid();
+      long threadId = Agent.NativeLib.gettid();
       if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
             "[ForkJoinTaskAdvice] ("
@@ -88,9 +87,9 @@ public class JavaForkJoinTaskInst {
                 + threadId);
       }
       if (parentId != null && parentId != threadId) {
-        Pointer p = new Memory(IOCTLPacket.packetPrefixSize);
+        NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize);
         int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
-        Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+        Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
       }
       SSLStorage.untrackTask(task);
     }

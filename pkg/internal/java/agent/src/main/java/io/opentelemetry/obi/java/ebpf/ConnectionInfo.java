@@ -5,7 +5,6 @@
 
 package io.opentelemetry.obi.java.ebpf;
 
-import com.sun.jna.Pointer;
 import io.opentelemetry.obi.java.instrumentations.data.Connection;
 import java.net.InetAddress;
 import java.net.Socket;
@@ -13,7 +12,7 @@ import java.net.Socket;
 public class ConnectionInfo {
   private static byte[] empty = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-  private static void writeInetAddress(Pointer mem, int off, InetAddress addr) {
+  private static void writeInetAddress(NativeMemory mem, int off, InetAddress addr) {
     if (addr == null) {
       mem.write(off, empty, 0, empty.length);
       return;
@@ -30,14 +29,14 @@ public class ConnectionInfo {
     }
   }
 
-  public static int writeRecvConnectionInfo(Pointer mem, int off, Socket sock) {
+  public static int writeRecvConnectionInfo(NativeMemory mem, int off, Socket sock) {
     Connection c =
         new Connection(
             sock.getLocalAddress(), sock.getLocalPort(), sock.getInetAddress(), sock.getPort());
     return writeRecvConnectionInfo(mem, off, c);
   }
 
-  public static int writeRecvConnectionInfo(Pointer mem, int off, Connection conn) {
+  public static int writeRecvConnectionInfo(NativeMemory mem, int off, Connection conn) {
     InetAddress remoteAddress = conn.getRemoteAddress();
     writeInetAddress(mem, off, remoteAddress);
     off += 16;
@@ -54,14 +53,14 @@ public class ConnectionInfo {
     return off;
   }
 
-  public static int writeSendConnectionInfo(Pointer mem, int off, Socket sock) {
+  public static int writeSendConnectionInfo(NativeMemory mem, int off, Socket sock) {
     Connection c =
         new Connection(
             sock.getLocalAddress(), sock.getLocalPort(), sock.getInetAddress(), sock.getPort());
     return writeSendConnectionInfo(mem, off, c);
   }
 
-  public static int writeSendConnectionInfo(Pointer mem, int off, Connection conn) {
+  public static int writeSendConnectionInfo(NativeMemory mem, int off, Connection conn) {
     InetAddress localAddress = conn.getLocalAddress();
     writeInetAddress(mem, off, localAddress);
     off += 16;
@@ -78,7 +77,7 @@ public class ConnectionInfo {
     return off;
   }
 
-  public static int writeEmptyConnectionInfo(Pointer mem, int off) {
+  public static int writeEmptyConnectionInfo(NativeMemory mem, int off) {
     byte[] empty = new byte[36];
     mem.write(off, empty, 0, empty.length);
     return off + 36;

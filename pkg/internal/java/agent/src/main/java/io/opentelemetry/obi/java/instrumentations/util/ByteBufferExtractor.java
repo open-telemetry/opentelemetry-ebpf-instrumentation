@@ -25,23 +25,26 @@ public class ByteBufferExtractor {
       if (dsts[i] == null) {
         continue;
       }
-      // we want to read 0 -> oldPos, save the existing state
+      // we want to read 0 -> oldPos (the data that was just read)
       int oldPos = ((java.nio.Buffer) dsts[i]).position();
-      int oldLimit = ((java.nio.Buffer) dsts[i]).limit();
-      // move pos -> 0 and limit -> oldPos
-      ((java.nio.Buffer) dsts[i]).flip();
 
-      if (((java.nio.Buffer) dsts[i]).remaining() <= ((java.nio.Buffer) dstBuffer).remaining()) {
-        dstBuffer.put(dsts[i]);
+      // Create a duplicate to avoid modifying the original buffer
+      ByteBuffer dup = dsts[i].duplicate();
+      ((java.nio.Buffer) dup).position(0);
+      ((java.nio.Buffer) dup).limit(oldPos);
+
+      if (((java.nio.Buffer) dup).remaining() <= ((java.nio.Buffer) dstBuffer).remaining()) {
+        dstBuffer.put(dup);
       } else {
-        ByteBuffer slice = dsts[i].slice();
-        slice.limit(
-            Math.min(
-                ((java.nio.Buffer) slice).remaining(), ((java.nio.Buffer) dstBuffer).remaining()));
+        ByteBuffer slice = dup.slice();
+        ((java.nio.Buffer) slice)
+            .limit(
+                Math.min(
+                    ((java.nio.Buffer) slice).remaining(),
+                    ((java.nio.Buffer) dstBuffer).remaining()));
         dstBuffer.put(slice);
       }
-      ((java.nio.Buffer) dsts[i]).position(oldPos);
-      ((java.nio.Buffer) dsts[i]).limit(oldLimit);
+      // No need to restore - we never modified the original buffer!
       // we'd read the full size (up to oldPos) or partial. It's ok to boost the
       // consumed value by oldPos, since we'll be done with the loop anyway if we
       // read up to the max.
@@ -64,17 +67,17 @@ public class ByteBufferExtractor {
       if (srcs[i] == null) {
         continue;
       }
-      // save the prior values
-      int oldPos = ((java.nio.Buffer) srcs[i]).position();
-      int oldLimit = ((java.nio.Buffer) srcs[i]).limit();
       // the remaining = limit - pos is how much we'll consume, unless the
       // destination buffer will fill up to the max.
       int remaining = ((java.nio.Buffer) srcs[i]).remaining();
 
-      if (((java.nio.Buffer) srcs[i]).remaining() <= ((java.nio.Buffer) dstBuffer).remaining()) {
-        dstBuffer.put(srcs[i]);
+      // Create a duplicate to avoid modifying the original buffer
+      ByteBuffer dup = srcs[i].duplicate();
+
+      if (((java.nio.Buffer) dup).remaining() <= ((java.nio.Buffer) dstBuffer).remaining()) {
+        dstBuffer.put(dup);
       } else {
-        ByteBuffer slice = srcs[i].slice();
+        ByteBuffer slice = dup.slice();
         ((java.nio.Buffer) slice)
             .limit(
                 Math.min(
@@ -82,9 +85,7 @@ public class ByteBufferExtractor {
                     ((java.nio.Buffer) dstBuffer).remaining()));
         dstBuffer.put(slice);
       }
-      // restore the state
-      ((java.nio.Buffer) srcs[i]).position(oldPos);
-      ((java.nio.Buffer) srcs[i]).limit(oldLimit);
+      // No need to restore - we never modified the original buffer!
       // bump the consumed by the original remaining, if we partially read we are
       // fine with over calculating, since we'll be done with the loop.
       consumed += remaining;
@@ -117,38 +118,41 @@ public class ByteBufferExtractor {
   // same concept as reading used bytes, except we produce a string from
   // the values that we'll be using as unique keys
   public static String keyFromUsedBuffer(ByteBuffer buf) {
+    // Save original state
     int oldPosition = ((java.nio.Buffer) buf).position();
     int oldLimit = ((java.nio.Buffer) buf).limit();
 
     // we'll be reading 0 -> oldPosition
-    int keySize = Math.min(((java.nio.Buffer) buf).position(), MAX_KEY_SIZE);
-    // move pos -> 0 and limit -> oldPos
-    ((java.nio.Buffer) buf).flip();
+    int keySize = Math.min(oldPosition, MAX_KEY_SIZE);
+
+    // Create a duplicate to avoid modifying the original buffer
+    // duplicate() shares the same backing data but has independent position/limit
+    ByteBuffer dup = buf.duplicate();
+    ((java.nio.Buffer) dup).position(0);
+    ((java.nio.Buffer) dup).limit(oldPosition);
+
     byte[] bytes = new byte[keySize];
-    buf.get(bytes);
+    dup.get(bytes);
 
-    // restore the state
-    ((java.nio.Buffer) buf).position(oldPosition);
-    ((java.nio.Buffer) buf).limit(oldLimit);
-
+    // No need to restore - we never modified the original buffer!
     return Arrays.toString(bytes);
   }
 
   // same concept as reading fresh (unconsumed) bytes, except we produce a string from
   // the values that we'll be using as unique keys
   public static String keyFromFreshBuffer(ByteBuffer buf) {
+    // Save original state (not strictly needed since we use duplicate, but kept for consistency)
     int oldPosition = ((java.nio.Buffer) buf).position();
-    int oldLimit = ((java.nio.Buffer) buf).limit();
 
     // we are reading position -> limit
     int keySize = Math.min(((java.nio.Buffer) buf).remaining(), MAX_KEY_SIZE);
+
+    // Create a duplicate to avoid modifying the original buffer
+    ByteBuffer dup = buf.duplicate();
     byte[] bytes = new byte[keySize];
-    buf.get(bytes);
+    dup.get(bytes);
 
-    // restore state
-    ((java.nio.Buffer) buf).position(oldPosition);
-    ((java.nio.Buffer) buf).limit(oldLimit);
-
+    // No need to restore - we never modified the original buffer!
     return Arrays.toString(bytes);
   }
 }

@@ -5,10 +5,9 @@
 
 package io.opentelemetry.obi.java.instrumentations;
 
-import com.sun.jna.Memory;
-import com.sun.jna.Pointer;
 import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
+import io.opentelemetry.obi.java.ebpf.NativeMemory;
 import io.opentelemetry.obi.java.ebpf.OperationType;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.util.Collection;
@@ -108,7 +107,7 @@ public class JavaExecutorInst {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enterJobSubmit(
         @Advice.Argument(value = 0, readOnly = false) Runnable task, @Advice.Origin String method) {
-      long threadId = Agent.CLibrary.INSTANCE.gettid();
+      long threadId = Agent.NativeLib.gettid();
       Long parentId = SSLStorage.parentThreadId(task);
       if (parentId != null) {
         if (SSLStorage.bootDebugOn().equals(true)) {
@@ -121,9 +120,9 @@ public class JavaExecutorInst {
                   + threadId);
         }
         if (parentId != threadId) {
-          Pointer p = new Memory(IOCTLPacket.packetPrefixSize);
+          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize);
           int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
-          Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+          Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
         }
       }
 
@@ -161,7 +160,7 @@ public class JavaExecutorInst {
                 + ") enter jobSubmit task = "
                 + task.hashCode());
       }
-      long threadId = Agent.CLibrary.INSTANCE.gettid();
+      long threadId = Agent.NativeLib.gettid();
       SSLStorage.trackTask(threadId, task);
     }
 
@@ -182,7 +181,7 @@ public class JavaExecutorInst {
         System.err.println(
             "[SetSubmitRunnableStateAdvice] enter jobSubmit task = " + task.hashCode());
       }
-      long threadId = Agent.CLibrary.INSTANCE.gettid();
+      long threadId = Agent.NativeLib.gettid();
       SSLStorage.trackTask(threadId, task);
     }
 
@@ -202,7 +201,7 @@ public class JavaExecutorInst {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enterJobSubmit(
         @Advice.Argument(0) Callable<?> task, @Advice.Origin String method) {
-      long threadId = Agent.CLibrary.INSTANCE.gettid();
+      long threadId = Agent.NativeLib.gettid();
       Long parentId = SSLStorage.parentThreadId(task);
       if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
@@ -214,9 +213,9 @@ public class JavaExecutorInst {
                 + threadId);
       }
       if (parentId != null && parentId != threadId) {
-        Pointer p = new Memory(IOCTLPacket.packetPrefixSize);
+        NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize);
         int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
-        Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+        Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
       }
       if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
@@ -236,7 +235,7 @@ public class JavaExecutorInst {
 
       try {
         if (future != null) {
-          long threadId = Agent.CLibrary.INSTANCE.gettid();
+          long threadId = Agent.NativeLib.gettid();
           SSLStorage.trackTask(threadId, future);
           if (SSLStorage.bootDebugOn().equals(true)) {
             System.err.println(
@@ -267,7 +266,7 @@ public class JavaExecutorInst {
                 + tasks.hashCode());
       }
 
-      long threadId = Agent.CLibrary.INSTANCE.gettid();
+      long threadId = Agent.NativeLib.gettid();
       for (Callable<?> task : tasks) {
         SSLStorage.trackTask(threadId, task);
       }

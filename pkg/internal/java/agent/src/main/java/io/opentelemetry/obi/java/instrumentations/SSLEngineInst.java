@@ -5,10 +5,9 @@
 
 package io.opentelemetry.obi.java.instrumentations;
 
-import com.sun.jna.Memory;
-import com.sun.jna.Pointer;
 import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
+import io.opentelemetry.obi.java.ebpf.NativeMemory;
 import io.opentelemetry.obi.java.ebpf.OperationType;
 import io.opentelemetry.obi.java.instrumentations.data.BytesWithLen;
 import io.opentelemetry.obi.java.instrumentations.data.Connection;
@@ -130,10 +129,10 @@ public class SSLEngineInst {
               "[SSLEngineInst] unwrap:" + new String(b, java.nio.charset.StandardCharsets.UTF_8));
         }
 
-        Pointer p = new Memory(IOCTLPacket.packetPrefixSize + b.length);
+        NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + b.length);
         int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.RECEIVE, c, b.length);
         IOCTLPacket.writePacketBuffer(p, wOff, b);
-        Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+        Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
       }
     }
   }
@@ -230,10 +229,10 @@ public class SSLEngineInst {
                   + new String(b, java.nio.charset.StandardCharsets.UTF_8));
         }
 
-        Pointer p = new Memory(IOCTLPacket.packetPrefixSize + len);
+        NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + len);
         int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.RECEIVE, c, len);
         IOCTLPacket.writePacketBuffer(p, wOff, b, 0, len);
-        Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+        Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
       }
     }
   }
@@ -298,10 +297,10 @@ public class SSLEngineInst {
                   + Thread.currentThread().getName());
         }
         if (c != null) {
-          Pointer p = new Memory(IOCTLPacket.packetPrefixSize + bLen.len);
+          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + bLen.len);
           int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, c, bLen.len);
           IOCTLPacket.writePacketBuffer(p, wOff, bLen.buf, 0, bLen.len);
-          Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+          Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
         } else {
           String encrypted = ByteBufferExtractor.keyFromUsedBuffer(dst);
           if (SSLStorage.debugOn) {
@@ -372,10 +371,10 @@ public class SSLEngineInst {
                   + Thread.currentThread().getName());
         }
         if (c != null) {
-          Pointer p = new Memory(IOCTLPacket.packetPrefixSize + bLen.len);
+          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + bLen.len);
           int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, c, bLen.len);
           IOCTLPacket.writePacketBuffer(p, wOff, bLen.buf, 0, bLen.len);
-          Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+          Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
         } else {
           String encrypted = ByteBufferExtractor.keyFromUsedBuffer(dst);
           if (SSLStorage.debugOn) {

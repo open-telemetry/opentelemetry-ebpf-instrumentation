@@ -7,8 +7,6 @@ package io.opentelemetry.obi.java.ebpf;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.sun.jna.Memory;
-import com.sun.jna.Pointer;
 import io.opentelemetry.obi.java.instrumentations.data.Connection;
 import org.junit.jupiter.api.Test;
 
@@ -39,7 +37,7 @@ class IOCTLPacketTest {
 
   @Test
   void testWritePacketPrefixWithNullSocket() {
-    Pointer mem = new Memory(64);
+    NativeMemory mem = new NativeMemory(64, true);
     int off = 0;
     OperationType type = OperationType.SEND;
     int bufLen = 10;
@@ -53,7 +51,7 @@ class IOCTLPacketTest {
 
   @Test
   void testWritePacketPrefixWithNullConnection() {
-    Pointer mem = new Memory(64);
+    NativeMemory mem = new NativeMemory(64, true);
     int off = 0;
     OperationType type = OperationType.RECEIVE;
     int bufLen = 20;
@@ -67,7 +65,7 @@ class IOCTLPacketTest {
 
   @Test
   void testWritePacketPrefixWithConnection() {
-    Pointer mem = new Memory(64);
+    NativeMemory mem = new NativeMemory(64, true);
     int off = 0;
     OperationType type = OperationType.RECEIVE;
     int bufLen = 20;
@@ -81,7 +79,7 @@ class IOCTLPacketTest {
 
   @Test
   void testWritePacketBuffer() {
-    Pointer mem = new Memory(32);
+    NativeMemory mem = new NativeMemory(32, true);
     int off = 5;
     byte[] buf = {1, 2, 3, 4};
 
