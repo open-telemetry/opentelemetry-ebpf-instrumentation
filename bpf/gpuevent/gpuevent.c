@@ -64,7 +64,7 @@ int BPF_KPROBE(handle_cuda_launch,
         return 0;
     }
 
-    bpf_dbg_printk("=== cudaLaunchKernel %llx ===", id);
+    bpf_dbg_printk("=== uprobe/cudaLaunchKernel id=%llx ===", id);
 
     gpu_kernel_launch_t *e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
     if (!e) {
@@ -119,7 +119,7 @@ int BPF_KPROBE(handle_cuda_malloc, void **devPtr, size_t size) {
         return 0;
     }
 
-    bpf_dbg_printk("=== cudaMalloc %llx ===", id);
+    bpf_dbg_printk("=== uprobe/cudaMalloc id=%llx ===", id);
 
     gpu_malloc_t *e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
     if (!e) {
@@ -147,7 +147,7 @@ int BPF_KPROBE(handle_cuda_memcpy, void *dst, void *src, size_t size, u8 kind) {
         return 0;
     }
 
-    bpf_dbg_printk("=== cudaMemcpyAsync %llx kind %d ===", id, kind);
+    bpf_dbg_printk("=== uprobe/cudaMemcpyAsync id=%llx, kind=%d ===", id, kind);
 
     gpu_memcpy_t *e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
     if (!e) {

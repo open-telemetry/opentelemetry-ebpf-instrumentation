@@ -95,7 +95,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
 
     sock_args_t *args = bpf_map_lookup_elem(&active_accept_args, &id);
     if (!args) {
-        bpf_dbg_printk("No accept sock info %d", id);
+        bpf_dbg_printk("No accept sock info, id=%d", id);
         goto cleanup;
     }
 
@@ -305,7 +305,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
 
     sock_args_t *args = bpf_map_lookup_elem(&active_connect_args, &id);
     if (!args) {
-        bpf_dbg_printk("No sock info: %d", id);
+        bpf_dbg_printk("No sock info, id=%d", id);
         goto cleanup;
     }
 
@@ -342,7 +342,7 @@ cleanup:
 
 static __always_inline void
 tcp_send_ssl_check(u64 id, void *ssl, pid_connection_info_t *p_conn, u16 orig_dport) {
-    bpf_dbg_printk("=== kprobe SSL tcp_sendmsg=%d ssl=%llx ===", id, ssl);
+    bpf_dbg_printk("id=%d, ssl=%llx", id, ssl);
     ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
     if (s_conn) {
         finish_possible_delayed_tls_http_request(&s_conn->p_conn, ssl);
@@ -421,7 +421,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                     // calling read_msghdr_buf.
                     if (!size) {
                         msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
-                        bpf_dbg_printk("No size, m_buf[%llx]", m_buf);
+                        bpf_dbg_printk("No size, m_buf=%llx", m_buf);
                         if (m_buf) {
                             u32 cpu_id = bpf_get_smp_processor_id();
                             if (m_buf->cpu_id != cpu_id) {
@@ -577,7 +577,7 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg, int sent_len) {
         return 0;
     }
 
-    bpf_dbg_printk("=== kretprobe/tcp_sendmsg id=%d, sent=%d ===", id, sent_len);
+    bpf_dbg_printk("=== kretprobe/tcp_sendmsg id=%d, sent_len=%d ===", id, sent_len);
 
     send_args_t *s_args = bpf_map_lookup_elem(&active_send_args, &id);
     if (s_args) {
@@ -955,7 +955,7 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_recvmsg, int copied_len) {
         return 0;
     }
 
-    bpf_dbg_printk("=== kretprobe_tcp_recvmsg id=%d, copied_len %d ===", id, copied_len);
+    bpf_dbg_printk("=== kretprobe_tcp_recvmsg id=%d, copied_len=%d ===", id, copied_len);
 
     return return_recvmsg(ctx, 0, id, copied_len);
 }
@@ -998,7 +998,7 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
             len,
             &packet_type)) { // we must check tcp_close second, a packet can be a close and a response
         // this can be very verbose
-        //bpf_d_printk("http buf %s", buf);
+        //bpf_d_printk("http buf=[%s] [%s]", buf, __FUNCTION__);
         //d_print_http_connection_info(&conn);
         if (packet_type == PACKET_TYPE_REQUEST) {
             u64 cookie = bpf_get_socket_cookie(skb);

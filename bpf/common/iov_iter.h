@@ -99,7 +99,7 @@ static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *bu
         }
 
         // bpf_dbg_printk("iov[%d]=%llx", i, &ctx->iov[i]);
-        // bpf_dbg_printk("base %llx, len %d", vec.iov_base, vec.iov_len);
+        // bpf_dbg_printk("base=%llx, len=%d", vec.iov_base, vec.iov_len);
 
         if (!vec.iov_base || !vec.iov_len) {
             continue;
@@ -119,7 +119,7 @@ static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *bu
 
         bpf_probe_read(&buf[tot_len], iov_size, vec.iov_base);
 
-        // bpf_dbg_printk("iov_size=%d, buf=%s", iov_size, buf);
+        // bpf_dbg_printk("iov_size=%d, buf=[%s]", iov_size, buf);
 
         tot_len += iov_size;
     }
