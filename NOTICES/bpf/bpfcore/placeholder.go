@@ -1,6 +1,0 @@
-// Copyright The OpenTelemetry Authors
-// SPDX-License-Identifier: Apache-2.0
-
-//go:build obi_bpf
-
-package bpfcore // import "go.opentelemetry.io/obi/NOTICES/bpf/bpfcore"

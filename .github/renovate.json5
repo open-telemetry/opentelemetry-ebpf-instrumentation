@@ -13,7 +13,6 @@
     // but we keep supporting the go-offsets for the outdated library, which must not
     // be updated.
     "configs/offsets/shopify/**",
-    "NOTICES/**"
   ],
   "packageRules": [
     {

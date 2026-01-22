@@ -49,7 +49,6 @@ WORKDIR /
 COPY --from=builder /src/bin/ebpf-instrument .
 COPY --from=javaagent-builder /build/build/obi-java-agent.jar .
 COPY LICENSE NOTICE .
-COPY NOTICES ./NOTICES
 
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
