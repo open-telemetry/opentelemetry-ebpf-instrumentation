@@ -256,7 +256,8 @@ var DefaultConfig = Config{
 		WildcardChar:              "*",
 		MaxPathSegmentCardinality: 10,
 	},
-	NetworkFlows: DefaultNetworkConfig,
+	NetworkFlows:      DefaultNetworkConfig,
+	AppNetworkMetrics: DefaultAppNetworkConfig,
 	Discovery: services.DiscoveryConfig{
 		ExcludeOTelInstrumentedServices: true,
 		DefaultExcludeServices: services.RegexDefinitionCriteria{
@@ -296,7 +297,8 @@ type Config struct {
 	EBPF config.EBPFTracer `yaml:"ebpf"`
 
 	// NetworkFlows configuration for Network Observability feature
-	NetworkFlows NetworkConfig `yaml:"network"`
+	NetworkFlows      NetworkConfig    `yaml:"network"`
+	AppNetworkMetrics AppNetworkConfig `yaml:"app_network"`
 
 	Filters filter.AttributesConfig `yaml:"filter"`
 

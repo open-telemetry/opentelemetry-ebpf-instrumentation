@@ -3,6 +3,8 @@
 
 //go:build obi_bpf_ignore
 
+#include <appnetworktracer/k_tcp.h>
+
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
