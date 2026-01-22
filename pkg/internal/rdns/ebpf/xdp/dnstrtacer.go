@@ -12,6 +12,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 	convenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
@@ -31,8 +32,7 @@ func (t *tracer) Close() error {
 	}
 
 	for _, link := range t.links {
-		(*link).Detach()
-		(*link).Close()
+		_ = ebpfcommon.DetachClose(*link)
 	}
 
 	t.links = nil
