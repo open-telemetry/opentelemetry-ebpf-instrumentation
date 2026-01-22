@@ -1016,6 +1016,71 @@ func TestTraces_GRPCStatus(t *testing.T) {
 	})
 }
 
+func TestHTTPServerURLSchemeAttribute(t *testing.T) {
+	tests := []struct {
+		name     string
+		span     request.Span
+		expected string
+	}{
+		{
+			name: "HTTPS server span",
+			span: request.Span{
+				Type:           request.EventTypeHTTP,
+				Method:         "GET",
+				Path:           "/hello",
+				Status:         200,
+				Peer:           "1.1.1.1",
+				Host:           "srv",
+				HostPort:       443,
+				Statement:      "https;api.example.com",
+				Service:        svc.Attrs{UID: svc.UID{Namespace: "default"}},
+				PeerName:       "client",
+				HostName:       "srv",
+				OtherNamespace: "default",
+			},
+			expected: "https",
+		},
+		{
+			name: "HTTP server span",
+			span: request.Span{
+				Type:           request.EventTypeHTTP,
+				Method:         "POST",
+				Path:           "/submit",
+				Status:         201,
+				Peer:           "2.2.2.2",
+				Host:           "srv",
+				HostPort:       80,
+				Statement:      "http;api.example.com",
+				Service:        svc.Attrs{UID: svc.UID{Namespace: "default"}},
+				PeerName:       "client",
+				HostName:       "srv",
+				OtherNamespace: "default",
+			},
+			expected: "http",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			attrs := tracesgen.TraceAttributesSelector(&tt.span, nil)
+			var (
+				found bool
+				value string
+			)
+			for _, attr := range attrs {
+				if attr.Key == semconv.URLSchemeKey {
+					found = true
+					value = attr.Value.AsString()
+					break
+				}
+			}
+
+			assert.True(t, found, "url.scheme attribute missing")
+			assert.Equal(t, tt.expected, value)
+		})
+	}
+}
+
 func TestHostPeerAttributes(t *testing.T) {
 	// Metrics
 	tests := []struct {
