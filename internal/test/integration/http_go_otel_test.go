@@ -175,76 +175,53 @@ func setupHTTPGoOTelTest(t *testing.T) {
 		require.NoError(t, pool.Purge(prometheus))
 	})
 
-	// Start Jaeger with network alias
-	jaegerRes, err := pool.Client.CreateContainer(docker.CreateContainerOptions{
-		Name: fmt.Sprintf("jaeger-otel-test-%d", timestamp),
-		Config: &docker.Config{
-			Image: "jaegertracing/all-in-one:1.60",
-			Env: []string{
-				"COLLECTOR_OTLP_ENABLED=true",
-				"LOG_LEVEL=debug",
-			},
-			ExposedPorts: map[docker.Port]struct{}{
-				"16686/tcp": {},
-				"4317/tcp":  {},
-				"4318/tcp":  {},
-			},
+	// Start Jaeger
+	jaeger, err := pool.RunWithOptions(&dockertest.RunOptions{
+		Repository: "jaegertracing/all-in-one",
+		Tag:        "1.60",
+		Name:       fmt.Sprintf("jaeger-otel-test-%d", timestamp),
+		Env: []string{
+			"COLLECTOR_OTLP_ENABLED=true",
+			"LOG_LEVEL=debug",
 		},
-		HostConfig: &docker.HostConfig{
-			PortBindings: map[docker.Port][]docker.PortBinding{
-				"16686/tcp": {{HostIP: "localhost", HostPort: "16686"}},
-			},
-			PublishAllPorts: true,
-		},
-		NetworkingConfig: &docker.NetworkingConfig{
-			EndpointsConfig: map[string]*docker.EndpointConfig{
-				networkName: {
-					Aliases: []string{"jaeger"},
-				},
-			},
+		ExposedPorts: []string{"16686/tcp", "4317/tcp", "4318/tcp"},
+		PortBindings: map[docker.Port][]docker.PortBinding{
+			"16686/tcp": {{HostIP: "localhost", HostPort: "16686"}},
 		},
 	})
 	require.NoError(t, err)
-	require.NoError(t, pool.Client.StartContainer(jaegerRes.ID, nil))
-	jaeger := &dockertest.Resource{Container: jaegerRes}
+	// Connect to custom network with alias
+	err = pool.Client.ConnectNetwork(network.Network.ID, docker.NetworkConnectionOptions{
+		Container: jaeger.Container.ID,
+		EndpointConfig: &docker.EndpointConfig{
+			Aliases: []string{"jaeger"},
+		},
+	})
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, pool.Purge(jaeger))
 	})
 
-	// Start OpenTelemetry Collector with network alias
-	otelcolRes, err := pool.Client.CreateContainer(docker.CreateContainerOptions{
-		Name: fmt.Sprintf("otelcol-otel-test-%d", timestamp),
-		Config: &docker.Config{
-			Image: "otel/opentelemetry-collector-contrib:0.104.0",
-			Cmd:   []string{"--config=/etc/otelcol-config/otelcol-config.yml"},
-			ExposedPorts: map[docker.Port]struct{}{
-				"4317/tcp": {},
-				"4318/tcp": {},
-				"9464/tcp": {},
-				"8888/tcp": {},
-			},
+	// Start OpenTelemetry Collector
+	otelcol, err := pool.RunWithOptions(&dockertest.RunOptions{
+		Repository: "otel/opentelemetry-collector-contrib",
+		Tag:        "0.104.0",
+		Name:       fmt.Sprintf("otelcol-otel-test-%d", timestamp),
+		Cmd:        []string{"--config=/etc/otelcol-config/otelcol-config.yml"},
+		Mounts: []string{
+			filepath.Join(projectRoot, "internal/test/integration/configs") + ":/etc/otelcol-config",
 		},
-		HostConfig: &docker.HostConfig{
-			Mounts: []docker.HostMount{
-				{
-					Target: "/etc/otelcol-config",
-					Source: filepath.Join(projectRoot, "internal/test/integration/configs"),
-					Type:   "bind",
-				},
-			},
-			PublishAllPorts: true,
-		},
-		NetworkingConfig: &docker.NetworkingConfig{
-			EndpointsConfig: map[string]*docker.EndpointConfig{
-				networkName: {
-					Aliases: []string{"otelcol"},
-				},
-			},
+		ExposedPorts: []string{"4317/tcp", "4318/tcp", "9464/tcp", "8888/tcp"},
+	})
+	require.NoError(t, err)
+	// Connect to custom network with alias
+	err = pool.Client.ConnectNetwork(network.Network.ID, docker.NetworkConnectionOptions{
+		Container: otelcol.Container.ID,
+		EndpointConfig: &docker.EndpointConfig{
+			Aliases: []string{"otelcol"},
 		},
 	})
 	require.NoError(t, err)
-	require.NoError(t, pool.Client.StartContainer(otelcolRes.ID, nil))
-	otelcol := &dockertest.Resource{Container: otelcolRes}
 	t.Cleanup(func() {
 		require.NoError(t, pool.Purge(otelcol))
 	})
