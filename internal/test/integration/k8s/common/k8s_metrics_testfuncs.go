@@ -1,9 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration_k8s
-
-package k8s
+package k8s // import "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 
 import (
 	"context"
@@ -19,7 +17,7 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/kube"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 // This file contains some functions and features that are accessed/used
@@ -79,8 +77,8 @@ func DoWaitForComponentsAvailable(t *testing.T) {
 		subpath = "/smoke"
 		url     = "http://localhost:38080"
 	)
-	pq := prom.Client{HostPort: prometheusHostPort}
-	var results []prom.Result
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	var results []promtest.Result
 	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
 		// first, verify that the test service endpoint is healthy
 		r, err := http.Get(url + subpath)
@@ -292,10 +290,10 @@ func testMetricsDecoration(
 ) features.Func {
 	return func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 		// Testing the decoration of the server-side HTTP calls from the internal-pinger pod
-		pq := prom.Client{HostPort: prometheusHostPort}
+		pq := promtest.Client{HostPort: prometheusHostPort}
 		for _, metric := range metricsSet {
 			t.Run(metric, func(t *testing.T) {
-				var results []prom.Result
+				var results []promtest.Result
 				test.Eventually(t, testTimeout, func(t require.TestingT) {
 					var err error
 					results, err = pq.Query(metric + queryArgs)

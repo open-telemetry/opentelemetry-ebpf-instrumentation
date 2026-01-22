@@ -1,9 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
-package integration
+package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
 	"testing"
@@ -12,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -42,8 +40,8 @@ func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm string) 
 	}
 
 	// Eventually, Prometheus would make this query visible
-	pq := prom.Client{HostPort: prometheusHostPort}
-	var results []prom.Result
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	var results []promtest.Result
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +

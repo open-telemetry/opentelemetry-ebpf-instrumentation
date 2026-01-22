@@ -3,4 +3,4 @@
 
 //go:build obi_bpf
 
-package gpuevent
+package gpuevent // import "go.opentelemetry.io/obi/bpf/gpuevent"

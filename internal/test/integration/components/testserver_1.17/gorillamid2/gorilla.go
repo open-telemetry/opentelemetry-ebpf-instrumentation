@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package gorillamid2
+package gorillamid2 // import "go.opentelemetry.io/obi/internal/test/integration/components/testserver_1.17/gorillamid2"
 
 import (
 	"fmt"

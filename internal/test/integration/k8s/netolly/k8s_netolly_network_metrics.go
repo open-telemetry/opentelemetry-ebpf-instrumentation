@@ -1,9 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration_k8s
-
-package otel
+package otel // import "go.opentelemetry.io/obi/internal/test/integration/k8s/netolly"
 
 import (
 	"context"
@@ -18,7 +16,7 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/kube"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	k8s "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 )
 
@@ -50,7 +48,7 @@ func FeatureNetworkFlowBytes() features.Feature {
 }
 
 func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	// testing request flows (to testserver as Service)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-net",dst_name="testserver"}`)
@@ -63,6 +61,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assertIsIP(t, metric["src_address"])
 		assertIsIP(t, metric["dst_address"])
 		assert.Equal(t, "ipv4", metric["network_type"])
+		assert.Equal(t, "undefined", metric["network_protocol_name"])
 		assert.Equal(t, "my-kube", metric["k8s_cluster_name"])
 		assert.Equal(t, "default", metric["k8s_src_namespace"])
 		assert.Equal(t, "internal-pinger-net", metric["k8s_src_name"])
@@ -197,7 +196,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 }
 
 func testNetFlowBytesForExternalTraffic(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	// test external traffic (this test --> prometheus)
 	test.Eventually(t, testTimeout, func(t require.TestingT) {

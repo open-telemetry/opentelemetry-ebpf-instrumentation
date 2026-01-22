@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package mqttparser
+package mqttparser // import "go.opentelemetry.io/obi/pkg/internal/ebpf/mqttparser"
 
 import (
 	"errors"

@@ -3,4 +3,4 @@
 
 //go:build obi_bpf
 
-package netolly
+package netolly // import "go.opentelemetry.io/obi/bpf/netolly"

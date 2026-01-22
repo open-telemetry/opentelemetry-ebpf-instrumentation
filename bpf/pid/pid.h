@@ -51,7 +51,7 @@ static __always_inline u32 valid_pid(u64 id) {
         return *found;
     }
 
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    const struct task_struct *task = (struct task_struct *)bpf_get_current_task();
 
     int ns_ppid = 0;
     u32 pid_ns_id = 0;

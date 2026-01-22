@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package rest
+package rest // import "go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend/pkg/rest"
 
 import (
 	"context"

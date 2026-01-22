@@ -1,9 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
-package integration
+package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
 	"encoding/json"
@@ -18,13 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 func testNodeClientWithMethodAndStatusCode(t *testing.T, method string, statusCode, port int, traceIDLookup string) {
 	// Eventually, Prometheus would make this query visible
 	var (
-		pq     = prom.Client{HostPort: prometheusHostPort}
+		pq     = promtest.Client{HostPort: prometheusHostPort}
 		labels = fmt.Sprintf(`http_request_method="%s",`, method) +
 			fmt.Sprintf(`http_response_status_code="%d",`, statusCode) +
 			`service_namespace="integration-test",` +

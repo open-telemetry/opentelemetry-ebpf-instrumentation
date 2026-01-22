@@ -1,9 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
-package integration
+package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
 	"encoding/json"
@@ -18,7 +16,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -26,13 +24,13 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 	t.Helper()
 
 	var (
-		pq = prom.Client{HostPort: prometheusHostPort}
+		pq = promtest.Client{HostPort: prometheusHostPort}
 
 		url     = testCase.Route
 		urlPath = testCase.Subpath
 		comm    = testCase.Comm
 
-		results []prom.Result
+		results []promtest.Result
 		err     error
 	)
 

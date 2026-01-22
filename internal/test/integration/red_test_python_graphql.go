@@ -1,9 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
-package integration
+package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
 	"bytes"
