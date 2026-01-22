@@ -9,8 +9,9 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
- * A direct ByteBuffer wrapper that provides pointer-like operations for JNI interop. This replaces
- * JNA's Memory and Pointer classes with pure JNI.
+ * A direct ByteBuffer wrapper that provides pointer-like operations for JNI interop. We initially
+ * used JNA's Memory and Pointer classes, but moved to pure JNI after issues with complicated class
+ * loaders.
  */
 public class NativeMemory {
   private final ByteBuffer buffer;
@@ -35,52 +36,42 @@ public class NativeMemory {
     this.address = 0L;
   }
 
-  /** Get the native memory address of this buffer. */
   public long getAddress() {
     return address;
   }
 
-  /** Set a byte at the given offset. */
   public void setByte(int offset, byte value) {
     buffer.put(offset, value);
   }
 
-  /** Get a byte at the given offset. */
   public byte getByte(int offset) {
     return (byte) buffer.getChar(offset);
   }
 
-  /** Set a short at the given offset. */
   public void setShort(int offset, short value) {
     buffer.putShort(offset, value);
   }
 
-  /** Set a short at the given offset. */
   public short getShort(int offset) {
     return buffer.getShort(offset);
   }
 
-  /** Set an int at the given offset. */
   public void setInt(int offset, int value) {
     buffer.putInt(offset, value);
   }
 
-  /** Get an int at the given offset. */
   public int getInt(int offset) {
     return buffer.getInt(offset);
   }
 
-  /** Set a long at the given offset. */
   public void setLong(int offset, long value) {
     buffer.putLong(offset, value);
   }
 
-  /** Get a long at the given offset. */
   public long getLong(int offset) {
     return buffer.getLong(offset);
   }
 
-  /** Write a byte array to the buffer at the given offset. */
   public void write(int offset, byte[] data, int srcOffset, int length) {
     int oldPosition = ((java.nio.Buffer) buffer).position();
     ((java.nio.Buffer) buffer).position(offset);
@@ -88,11 +79,10 @@ public class NativeMemory {
     ((java.nio.Buffer) buffer).position(oldPosition);
   }
 
-  /** Get the underlying ByteBuffer for advanced operations. */
   public ByteBuffer getBuffer() {
     return buffer;
   }
 
-  /** Native method to get the address of a direct ByteBuffer. */
+  // Done through JNI
   private static native long getDirectBufferAddress(ByteBuffer buffer);
 }

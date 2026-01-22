@@ -41,8 +41,10 @@ public class Agent {
   private static volatile boolean agentLoaded = false;
 
   public static class NativeLib {
+    // Used to send data to the eBPF side, both TLS traffic and thread Parent Context
     public static native int ioctl(int fd, int cmd, long argp);
 
+    // Used to find the OS thread id for thread correlation.
     public static native int gettid();
   }
 
@@ -130,6 +132,10 @@ public class Agent {
     builder(opts, inst)
         .type(SSLSocketInst.type())
         .transform(SSLSocketInst.transformer())
+        .type(SSLSocketStreamInst.inputStreamType())
+        .transform(SSLSocketStreamInst.inputStreamTransformer())
+        .type(SSLSocketStreamInst.outputStreamType())
+        .transform(SSLSocketStreamInst.outputStreamTransformer())
         .type(SSLEngineInst.type())
         .transform(SSLEngineInst.transformer())
         .type(SocketChannelInst.type())
@@ -157,6 +163,8 @@ public class Agent {
     // we want to instrument.
     for (Class<?> clazz : inst.getAllLoadedClasses()) {
       if (SSLSocketInst.matches(clazz)
+          || SSLSocketStreamInst.matchesInputStream(clazz)
+          || SSLSocketStreamInst.matchesOutputStream(clazz)
           || SSLEngineInst.matches(clazz)
           || SocketChannelInst.matches(clazz)
           || JavaExecutorInst.matches(clazz)
@@ -242,7 +250,7 @@ public class Agent {
     // After injecting into bootstrap, we need to ensure the native library is loaded
     // in the bootstrap classloader context
     try {
-      // Load the Agent class from bootstrap classloader (null = bootstrap)
+      // Load the Agent class from bootstrap classloader (initialize = true), (null = bootstrap)
       Class<?> bootstrapAgentClass = Class.forName("io.opentelemetry.obi.java.Agent", true, null);
 
       // Call the static loadNativeLibraryFromJar method on the bootstrap version
@@ -256,7 +264,7 @@ public class Agent {
       }
     } catch (Exception e) {
       if (Agent.debugOn) {
-        e.printStackTrace();
+        logger.severe("Error initializing the JNI library" + e.getMessage());
       }
       throw e;
     }

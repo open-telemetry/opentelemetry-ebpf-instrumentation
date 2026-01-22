@@ -6,9 +6,7 @@
 package io.opentelemetry.obi.java.instrumentations;
 
 import io.opentelemetry.obi.java.Agent;
-import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
-import io.opentelemetry.obi.java.ebpf.NativeMemory;
-import io.opentelemetry.obi.java.ebpf.OperationType;
+import io.opentelemetry.obi.java.ebpf.ThreadInfo;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.util.concurrent.Callable;
 import net.bytebuddy.agent.builder.AgentBuilder;
@@ -60,9 +58,7 @@ public class CallableInst {
                   + threadId);
         }
         if (parentId != threadId) {
-          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize);
-          int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
-          Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
+          ThreadInfo.sendParentThreadContext(parentId);
         }
       }
       SSLStorage.untrackTask(task);

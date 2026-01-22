@@ -5,6 +5,8 @@
 
 package io.opentelemetry.obi.java.instrumentations;
 
+import static io.opentelemetry.obi.java.instrumentations.util.ByteBufferExtractor.b;
+
 import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
 import io.opentelemetry.obi.java.ebpf.NativeMemory;
@@ -25,12 +27,38 @@ import net.bytebuddy.matcher.ElementMatcher;
 import net.bytebuddy.matcher.ElementMatchers;
 
 public class SocketChannelInst {
+
+  // Helper to get local/remote address fields across different JDK versions
+  private static Object getFieldValue(Object obj, String... fieldNames) {
+    for (String fieldName : fieldNames) {
+      try {
+        java.lang.reflect.Field field = obj.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(obj);
+      } catch (Exception ignored) {
+        // Try next field name
+      }
+    }
+    return null;
+  }
+
   public static ElementMatcher<? super TypeDescription> type() {
+    // On JDK8, field names may differ - be more lenient
+    ElementMatcher<TypeDescription> hasLocalField =
+        ElementMatchers.declaresField(ElementMatchers.named("localAddress"))
+            .or(ElementMatchers.declaresField(ElementMatchers.named("localAddr")))
+            .or(ElementMatchers.declaresField(ElementMatchers.nameContains("local")));
+
+    ElementMatcher<TypeDescription> hasRemoteField =
+        ElementMatchers.declaresField(ElementMatchers.named("remoteAddress"))
+            .or(ElementMatchers.declaresField(ElementMatchers.named("remoteAddr")))
+            .or(ElementMatchers.declaresField(ElementMatchers.nameContains("remote")));
+
     return ElementMatchers.isSubTypeOf(SocketChannel.class)
         .and(ElementMatchers.not(ElementMatchers.isAbstract()))
         .and(ElementMatchers.not(ElementMatchers.isInterface()))
-        .and(ElementMatchers.declaresField(ElementMatchers.named("localAddress")))
-        .and(ElementMatchers.declaresField(ElementMatchers.named("remoteAddress")));
+        .and(hasLocalField)
+        .and(hasRemoteField);
   }
 
   public static boolean matches(Class<?> clazz) {
@@ -72,20 +100,24 @@ public class SocketChannelInst {
   }
 
   public static final class WriteAdvice {
-    @Advice.OnMethodEnter
+    @Advice.OnMethodEnter(suppress = Throwable.class)
     public static int write(@Advice.Argument(0) final ByteBuffer src) {
       if (src == null) {
         return -1;
       }
-      return ((java.nio.Buffer) src).position();
+      return b(src).position();
     }
 
-    @Advice.OnMethodExit // (suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void write(
         @Advice.Argument(0) final ByteBuffer src,
         @Advice.Enter int savedPos,
-        @Advice.FieldValue("localAddress") SocketAddress localSocket,
-        @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
+        @Advice.This Object thiz) {
+
+      // Get address fields - try multiple names for JDK8/11 compatibility
+      Object localSocket = getFieldValue(thiz, "localAddress", "localAddr", "local");
+      Object remoteSocket = getFieldValue(thiz, "remoteAddress", "remoteAddr", "remote");
+
       if (!(localSocket instanceof InetSocketAddress)
           || !(remoteSocket instanceof InetSocketAddress)) {
         return;
@@ -95,15 +127,13 @@ public class SocketChannelInst {
         return;
       }
 
-      int oldPos = ((java.nio.Buffer) src).position();
-
       if (savedPos < 0) {
         return;
       }
 
-      ((java.nio.Buffer) src).position(savedPos);
-      String bufKey = ByteBufferExtractor.keyFromFreshBuffer(src);
-      ((java.nio.Buffer) src).position(oldPos);
+      ByteBuffer dup = src.duplicate();
+      b(dup).position(savedPos);
+      String bufKey = ByteBufferExtractor.keyFromFreshBuffer(dup);
 
       if (SSLStorage.debugOn) {
         System.err.println("[SocketChannelInst] write advice, lookup: " + bufKey);
@@ -131,7 +161,7 @@ public class SocketChannelInst {
   }
 
   public static final class WriteAdviceArray {
-    @Advice.OnMethodEnter
+    @Advice.OnMethodEnter(suppress = Throwable.class)
     public static int[] write(@Advice.Argument(0) final ByteBuffer[] srcs) {
       if (srcs == null) {
         return null;
@@ -142,13 +172,13 @@ public class SocketChannelInst {
           positions[i] = -1;
           continue;
         }
-        positions[i] = ((java.nio.Buffer) srcs[i]).position();
+        positions[i] = b(srcs[i]).position();
       }
 
       return positions;
     }
 
-    @Advice.OnMethodExit // (suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void write(
         @Advice.Argument(0) final ByteBuffer[] srcs,
         @Advice.Enter int[] savedSrcPositions,
@@ -160,30 +190,23 @@ public class SocketChannelInst {
         return;
       }
 
-      int[] oldSrcPositions = new int[srcs.length];
       if (savedSrcPositions == null) {
         return;
       }
 
-      for (int i = 0; i < srcs.length; i++) {
-        if (srcs[i] == null) {
-          continue;
-        }
-        oldSrcPositions[i] = ((java.nio.Buffer) srcs[i]).position();
-        if (oldSrcPositions[i] != -1) {
-          ((java.nio.Buffer) srcs[i]).position(savedSrcPositions[i]);
-        }
-      }
-
-      ByteBuffer srcBuffer = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
+      ByteBuffer[] dups = new ByteBuffer[srcs.length];
 
       for (int i = 0; i < srcs.length; i++) {
         if (srcs[i] == null) {
           continue;
         }
-        ((java.nio.Buffer) srcs[i]).position(oldSrcPositions[i]);
+        if (savedSrcPositions[i] != -1) {
+          dups[i] = srcs[i].duplicate();
+          b(dups[i]).position(savedSrcPositions[i]);
+        }
       }
 
+      ByteBuffer srcBuffer = ByteBufferExtractor.flattenFreshByteBufferArray(dups);
       String bufKey = ByteBufferExtractor.keyFromUsedBuffer(srcBuffer);
 
       if (SSLStorage.debugOn) {
@@ -236,13 +259,7 @@ public class SocketChannelInst {
               remoteSocketAddress.getPort());
 
       if (SSLStorage.connectionUntracked(c)) {
-        System.err.println(
-            "Pos "
-                + ((java.nio.Buffer) dst).position()
-                + ", Limit "
-                + ((java.nio.Buffer) dst).limit());
         String bufKey = ByteBufferExtractor.keyFromUsedBuffer(dst);
-        // SSLStorage.setConnectionForBuf(bufKey, c);
         if (SSLStorage.debugOn) {
           System.err.println("[SocketChannelInst] Setting connection for: " + bufKey);
         }
@@ -251,7 +268,7 @@ public class SocketChannelInst {
   }
 
   public static final class ReadAdviceArray {
-    @Advice.OnMethodExit // (suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void read(
         @Advice.Argument(0) final ByteBuffer[] dsts,
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
@@ -285,7 +302,7 @@ public class SocketChannelInst {
   }
 
   public static final class CleanupAdvice {
-    @Advice.OnMethodEnter // (suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void cleanup(
         @Advice.FieldValue("localAddress") SocketAddress localSocket,
         @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {

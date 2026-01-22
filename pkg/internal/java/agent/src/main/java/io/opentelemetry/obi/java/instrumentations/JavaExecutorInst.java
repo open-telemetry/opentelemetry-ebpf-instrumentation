@@ -6,9 +6,7 @@
 package io.opentelemetry.obi.java.instrumentations;
 
 import io.opentelemetry.obi.java.Agent;
-import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
-import io.opentelemetry.obi.java.ebpf.NativeMemory;
-import io.opentelemetry.obi.java.ebpf.OperationType;
+import io.opentelemetry.obi.java.ebpf.ThreadInfo;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.util.Collection;
 import java.util.Collections;
@@ -120,9 +118,7 @@ public class JavaExecutorInst {
                   + threadId);
         }
         if (parentId != threadId) {
-          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize);
-          int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
-          Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
+          ThreadInfo.sendParentThreadContext(parentId);
         }
       }
 
@@ -213,9 +209,7 @@ public class JavaExecutorInst {
                 + threadId);
       }
       if (parentId != null && parentId != threadId) {
-        NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize);
-        int wOff = IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
-        Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
+        ThreadInfo.sendParentThreadContext(parentId);
       }
       if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(

@@ -5,6 +5,8 @@
 
 package io.opentelemetry.obi.java.instrumentations;
 
+import static io.opentelemetry.obi.java.instrumentations.util.ByteBufferExtractor.b;
+
 import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
 import io.opentelemetry.obi.java.ebpf.NativeMemory;
@@ -63,7 +65,7 @@ public class SSLEngineInst {
   }
 
   public static final class UnwrapAdvice {
-    @Advice.OnMethodEnter
+    @Advice.OnMethodEnter(suppress = Throwable.class)
     public static int unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer dst) {
@@ -74,10 +76,10 @@ public class SSLEngineInst {
         return -1;
       }
 
-      return ((java.nio.Buffer) dst).position();
+      return b(dst).position();
     }
 
-    @Advice.OnMethodExit
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Enter int savedPos,
@@ -111,16 +113,14 @@ public class SSLEngineInst {
         return;
       }
 
-      if (result.bytesProduced() > 0 && ((java.nio.Buffer) dst).limit() >= result.bytesProduced()) {
-        int oldPos = ((java.nio.Buffer) dst).position();
-
+      if (result.bytesProduced() > 0 && b(dst).limit() >= result.bytesProduced()) {
         if (savedPos == -1) {
           return;
         }
 
-        ((java.nio.Buffer) dst).position(savedPos);
-        ByteBuffer dstBuffer = ByteBufferExtractor.fromFreshBuffer(dst, result.bytesProduced());
-        ((java.nio.Buffer) dst).position(oldPos);
+        ByteBuffer dup = dst.duplicate();
+        b(dup).position(savedPos);
+        ByteBuffer dstBuffer = ByteBufferExtractor.fromFreshBuffer(dup, result.bytesProduced());
 
         byte[] b = dstBuffer.array();
 
@@ -138,7 +138,7 @@ public class SSLEngineInst {
   }
 
   public static final class UnwrapAdviceArray {
-    @Advice.OnMethodEnter
+    @Advice.OnMethodEnter(suppress = Throwable.class)
     public static int[] unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer[] dsts) {
@@ -155,13 +155,13 @@ public class SSLEngineInst {
           positions[i] = -1;
           continue;
         }
-        positions[i] = ((java.nio.Buffer) dsts[i]).position();
+        positions[i] = b(dsts[i]).position();
       }
 
       return positions;
     }
 
-    @Advice.OnMethodExit
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Enter int[] savedDstPositions,
@@ -196,32 +196,25 @@ public class SSLEngineInst {
       }
 
       if (result.bytesProduced() > 0) {
-        int[] oldDstPositions = new int[dsts.length];
         if (savedDstPositions == null) {
           return;
         }
 
+        ByteBuffer[] dups = new ByteBuffer[dsts.length];
         for (int i = 0; i < dsts.length; i++) {
           if (dsts[i] == null) {
             continue;
           }
-          oldDstPositions[i] = ((java.nio.Buffer) dsts[i]).position();
           if (savedDstPositions[i] != -1) {
-            ((java.nio.Buffer) dsts[i]).position(savedDstPositions[i]);
+            dups[i] = dsts[i].duplicate();
+            b(dups[i]).position(savedDstPositions[i]);
           }
         }
 
-        ByteBuffer dstBuffer = ByteBufferExtractor.flattenFreshByteBufferArray(dsts);
-
-        for (int i = 0; i < dsts.length; i++) {
-          if (dsts[i] == null) {
-            continue;
-          }
-          ((java.nio.Buffer) dsts[i]).position(oldDstPositions[i]);
-        }
+        ByteBuffer dstBuffer = ByteBufferExtractor.flattenFreshByteBufferArray(dups);
 
         byte[] b = dstBuffer.array();
-        int len = ((java.nio.Buffer) dstBuffer).position();
+        int len = b(dstBuffer).position();
 
         if (SSLStorage.debugOn) {
           System.err.println(
@@ -238,7 +231,7 @@ public class SSLEngineInst {
   }
 
   public static final class WrapAdvice {
-    @Advice.OnMethodEnter // (suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer src) {
@@ -249,19 +242,18 @@ public class SSLEngineInst {
         return;
       }
 
-      if (!((java.nio.Buffer) src).hasRemaining()) {
+      if (!b(src).hasRemaining()) {
         return;
       }
 
-      ByteBuffer buf =
-          ByteBufferExtractor.fromFreshBuffer(src, ((java.nio.Buffer) src).remaining());
+      ByteBuffer buf = ByteBufferExtractor.fromFreshBuffer(src, b(src).remaining());
       byte[] b = buf.array();
-      int len = ((java.nio.Buffer) buf).position();
+      int len = b(buf).position();
 
       SSLStorage.unencrypted.set(new BytesWithLen(b, len));
     }
 
-    @Advice.OnMethodExit // (suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer src,
@@ -315,7 +307,7 @@ public class SSLEngineInst {
   }
 
   public static final class WrapAdviceArray {
-    @Advice.OnMethodEnter // (suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer[] srcs) {
@@ -328,12 +320,12 @@ public class SSLEngineInst {
 
       ByteBuffer buf = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
       byte[] b = buf.array();
-      int len = ((java.nio.Buffer) buf).position();
+      int len = b(buf).position();
 
       SSLStorage.unencrypted.set(new BytesWithLen(b, len));
     }
 
-    @Advice.OnMethodExit // (suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer[] srcs,

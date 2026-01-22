@@ -35,7 +35,7 @@ public class NettySSLHandlerInst {
   }
 
   public static final class UnwrapAdvice {
-    @Advice.OnMethodEnter // (suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void unwrap(@Advice.Argument(0) final Object ctx) {
       try {
         if (SSLStorage.getBootDebugOn().get(null).equals(true)) {
@@ -60,7 +60,7 @@ public class NettySSLHandlerInst {
       }
     }
 
-    @Advice.OnMethodExit // (suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void unwrap() {
       try {
         @SuppressWarnings("unchecked")
@@ -76,7 +76,7 @@ public class NettySSLHandlerInst {
   }
 
   public static final class WrapAdvice {
-    @Advice.OnMethodEnter // (suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void wrap(@Advice.Argument(0) final Object ctx) {
       try {
         if (SSLStorage.getBootDebugOn().get(null).equals(true)) {
@@ -102,7 +102,7 @@ public class NettySSLHandlerInst {
       }
     }
 
-    @Advice.OnMethodExit // (suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void wrap() {
       try {
         @SuppressWarnings("unchecked")
