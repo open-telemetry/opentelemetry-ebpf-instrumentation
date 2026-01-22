@@ -57,7 +57,7 @@ tasks.test {
 // Automatic JNI header generation during compilation
 // Outputs to the build directory to avoid affecting the source tree
 tasks.compileJava {
-    options.headerOutputDirectory.set(file("$buildDir/generated/jni-headers"))
+    options.headerOutputDirectory.set(layout.buildDirectory.dir("generated/jni-headers"))
 }
 
 // Ensure spotless runs after compileJava to avoid task ordering issues
