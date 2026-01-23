@@ -9,7 +9,6 @@
 #include <common/cp_support_data.h>
 #include <common/globals.h>
 #include <common/http_types.h>
-#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
 #include <common/tp_info.h>

@@ -12,7 +12,6 @@
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
 #include <common/http_types.h>
-#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
 #include <common/tp_info.h>
