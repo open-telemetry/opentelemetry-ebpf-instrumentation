@@ -173,7 +173,6 @@ func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.
 		Env: append([]string{
 			"GOCOVERDIR=/coverage",
 			"OTEL_EBPF_TRACE_PRINTER=text",
-			"OTEL_EBPF_OPEN_PORT=8080",
 			"OTEL_EBPF_METRICS_FEATURES=application,application_span",
 			"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span",
 			"OTEL_EBPF_DISCOVERY_POLL_INTERVAL=500ms",

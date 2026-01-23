@@ -137,23 +137,6 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	setupContainerJaeger(t, pool, network)
 	setupContainerCollector(t, pool, network)
 
-	testserver := setupComponentGoOTel(t, pool, network)
-
-	obiConfig := obiConfig{}
-	if !KernelLockdownMode() {
-		obiConfig.SecurityConfigSuffix = "_none"
-	}
-	instrumentWithOBI(t, pool, network, testserver, obiConfig)
-
-	t.Run("Go RED metrics: http service instrumented with OTel", func(t *testing.T) {
-		waitForTestComponents(t, "http://localhost:8080")
-		testForHTTPGoOTelLibrary(t, "/rolldice", "integration-test")
-	})
-}
-
-func setupComponentGoOTel(t *testing.T, pool *dockertest.Pool, network *dockertest.Network) *dockertest.Resource {
-	t.Helper()
-
 	// Build the test server image
 	projectRoot := tools.ProjectDir()
 	err := pool.Client.BuildImage(docker.BuildImageOptions{
@@ -185,7 +168,22 @@ func setupComponentGoOTel(t *testing.T, pool *dockertest.Pool, network *dockerte
 	t.Cleanup(func() {
 		require.NoError(t, pool.Purge(testserver), "could not remove test server container")
 	})
-	return testserver
+
+	// Start OBI to instrument the test server
+	obiConfig := obiConfig{
+		Env: []string{
+			"OTEL_EBPF_OPEN_PORT=8080",
+		},
+	}
+	if !KernelLockdownMode() {
+		obiConfig.SecurityConfigSuffix = "_none"
+	}
+	instrumentWithOBI(t, pool, network, testserver, obiConfig)
+
+	t.Run("Go RED metrics: http service instrumented with OTel", func(t *testing.T) {
+		waitForTestComponents(t, "http://localhost:8080")
+		testForHTTPGoOTelLibrary(t, "/rolldice", "integration-test")
+	})
 }
 
 func otelWaitForTestComponents(t *testing.T, url, subpath string) {
@@ -266,7 +264,7 @@ func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_ENDPOINT=http://localhost:1111`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=8080`)
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {
