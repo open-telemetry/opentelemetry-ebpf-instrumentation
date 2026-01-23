@@ -262,7 +262,7 @@ static __always_inline void init_tp_ctx_parent_tp(tailcall_ctx *t_ctx) {
     t_ctx->parent_tp.pid = t_ctx->p_conn.pid;
     t_ctx->parent_tp.req_type = EVENT_HTTP_CLIENT;
 
-    t_ctx->has_parent_tp = find_trace_for_client_request(
+    t_ctx->has_parent_tp = find_parent_trace_for_client_request(
         &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, &t_ctx->parent_tp.tp);
 }
 
@@ -274,19 +274,22 @@ static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info
     // this logic is cumbersome, but it is done so to avoid calling
     // find_trace_for_client_request multiple times (i.e. once here, and once
     // earlier in  k_tail_find_existing_tp - sorry!
-    *tp_p = t_ctx->parent_tp;
-
-    urand_bytes(tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
+    urand_bytes(tp_p->tp.span_id, sizeof(tp_p->tp.span_id));
+    tp_p->tp.flags = 1;
 
     if (t_ctx->has_parent_tp) {
         bpf_dbg_printk("found existing tp info");
-        return true;
+
+        __builtin_memcpy(
+            tp_p->tp.trace_id, t_ctx->parent_tp.tp.trace_id, sizeof(tp_p->tp.trace_id));
+        __builtin_memcpy(
+            tp_p->tp.parent_id, t_ctx->parent_tp.tp.span_id, sizeof(tp_p->tp.parent_id));
+    } else {
+        bpf_dbg_printk("generating tp info");
+
+        new_trace_id(&tp_p->tp);
+        __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
     }
-
-    bpf_dbg_printk("generating tp info");
-
-    new_trace_id(&tp_p->tp);
-    __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
 
     return true;
 }
@@ -813,7 +816,7 @@ assign_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp, unsigned char *span_i
         return;
     }
 
-    __builtin_memcpy(tp->parent_id, t_ctx->parent_tp.tp.parent_id, SPAN_ID_SIZE_BYTES);
+    __builtin_memcpy(tp->parent_id, t_ctx->parent_tp.tp.span_id, SPAN_ID_SIZE_BYTES);
 
     // check if the TP we parsed is a legimate one, or a
     // proxy-forwarded header - in which case we need to
