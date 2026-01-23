@@ -388,10 +388,10 @@ func TestBlockingPanics(t *testing.T) {
 			// tests the deadlock verifier. It should panic if a message is sent
 			// and nobody reads it
 
-			q1 := NewQueue[int](ChannelBufferLen(1), Name("q1"))
-			q2 := NewQueue[int](ChannelBufferLen(1), Name("q2"))
-			q2a1 := NewQueue[int](ChannelBufferLen(1), Name("q2a1"))
-			q2a2 := NewQueue[int](ChannelBufferLen(1), Name("q2a2"))
+			q1 := NewQueue[int](ChannelBufferLen(1), Name("q1"), PanicOnSendTimeout())
+			q2 := NewQueue[int](ChannelBufferLen(1), Name("q2"), PanicOnSendTimeout())
+			q2a1 := NewQueue[int](ChannelBufferLen(1), Name("q2a1"), PanicOnSendTimeout())
+			q2a2 := NewQueue[int](ChannelBufferLen(1), Name("q2a2"), PanicOnSendTimeout())
 
 			// q1 -> q2 -> q2a1 -> q2a2 // a dead path must not block if nobody subscribes to it
 			//         \-> ch           // path with actual subscribers
