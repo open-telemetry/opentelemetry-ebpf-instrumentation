@@ -7,9 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -133,114 +131,40 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 	}, test.Interval(100*time.Millisecond))
 }
 
-func setupHTTPGoOTelTest(t *testing.T) {
-	pool, err := dockertest.NewPool("")
-	require.NoError(t, err)
-	require.NoError(t, pool.Client.Ping())
+func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
+	pool, network := setupDockertest(t)
+	setupContainerPrometheus(t, pool, network)
+	setupContainerJaeger(t, pool, network)
+	setupContainerCollector(t, pool, network)
 
-	// Create a unique network name
-	networkName := fmt.Sprintf("obi-test-network-%d", time.Now().UnixNano())
-	network, err := pool.CreateNetwork(networkName)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, pool.RemoveNetwork(network))
-	})
+	testserver := setupComponentGoOTel(t, pool, network)
+	instrumentWithOBI(t, pool, network, testserver)
 
-	projectRoot := tools.ProjectDir()
+	t.Run("Go RED metrics: http service instrumented with OTel", func(t *testing.T) {
+		waitForTestComponents(t, "http://localhost:8080")
+		testForHTTPGoOTelLibrary(t, "/rolldice", "integration-test")
+	})
+}
 
-	// Use unique container names based on timestamp
-	timestamp := time.Now().UnixNano()
-
-	// Start Prometheus
-	prometheus, err := pool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "quay.io/prometheus/prometheus",
-		Tag:        "v2.55.1",
-		Name:       fmt.Sprintf("prometheus-otel-test-%d", timestamp),
-		Networks:   []*dockertest.Network{network},
-		Mounts: []string{
-			filepath.Join(projectRoot, "internal/test/integration/configs") + ":/etc/prometheus",
-		},
-		Cmd: []string{
-			"--config.file=/etc/prometheus/prometheus-config.yml",
-			"--web.enable-lifecycle",
-			"--web.route-prefix=/",
-		},
-		ExposedPorts: []string{"9090/tcp"},
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"9090/tcp": {{HostIP: "localhost", HostPort: "9090"}},
-		},
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, pool.Purge(prometheus))
-	})
-
-	// Start Jaeger
-	jaeger, err := pool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "jaegertracing/all-in-one",
-		Tag:        "1.60",
-		Name:       fmt.Sprintf("jaeger-otel-test-%d", timestamp),
-		Env: []string{
-			"COLLECTOR_OTLP_ENABLED=true",
-			"LOG_LEVEL=debug",
-		},
-		ExposedPorts: []string{"16686/tcp", "4317/tcp", "4318/tcp"},
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"16686/tcp": {{HostIP: "localhost", HostPort: "16686"}},
-		},
-	})
-	require.NoError(t, err)
-	// Connect to custom network with alias
-	err = pool.Client.ConnectNetwork(network.Network.ID, docker.NetworkConnectionOptions{
-		Container: jaeger.Container.ID,
-		EndpointConfig: &docker.EndpointConfig{
-			Aliases: []string{"jaeger"},
-		},
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, pool.Purge(jaeger))
-	})
-
-	// Start OpenTelemetry Collector
-	otelcol, err := pool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "otel/opentelemetry-collector-contrib",
-		Tag:        "0.104.0",
-		Name:       fmt.Sprintf("otelcol-otel-test-%d", timestamp),
-		Cmd:        []string{"--config=/etc/otelcol-config/otelcol-config.yml"},
-		Mounts: []string{
-			filepath.Join(projectRoot, "internal/test/integration/configs") + ":/etc/otelcol-config",
-		},
-		ExposedPorts: []string{"4317/tcp", "4318/tcp", "9464/tcp", "8888/tcp"},
-	})
-	require.NoError(t, err)
-	// Connect to custom network with alias
-	err = pool.Client.ConnectNetwork(network.Network.ID, docker.NetworkConnectionOptions{
-		Container: otelcol.Container.ID,
-		EndpointConfig: &docker.EndpointConfig{
-			Aliases: []string{"otelcol"},
-		},
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, pool.Purge(otelcol))
-	})
+func setupComponentGoOTel(t *testing.T, pool *dockertest.Pool, network *dockertest.Network) *dockertest.Resource {
+	t.Helper()
 
 	// Build the test server image
-	err = pool.Client.BuildImage(docker.BuildImageOptions{
+	projectRoot := tools.ProjectDir()
+	err := pool.Client.BuildImage(docker.BuildImageOptions{
 		Name:         "hatest-testserver",
 		ContextDir:   projectRoot,
 		Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
 		OutputStream: t.Output(),
 		ErrorStream:  t.Output(),
 	})
-	require.NoError(t, err)
+	require.NoError(t, err, "could not build test server Docker image")
 
 	// Start test server
 	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "hatest-testserver",
 		Tag:        "latest",
-		Name:       fmt.Sprintf("testserver-otel-test-%d", timestamp),
+		Name:       fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
 		Networks:   []*dockertest.Network{network},
 		Env: []string{
 			"LOG_LEVEL=DEBUG",
@@ -252,89 +176,11 @@ func setupHTTPGoOTelTest(t *testing.T) {
 			"8080/tcp": {{HostIP: "localhost", HostPort: "8080"}},
 		},
 	})
-	require.NoError(t, err)
+	require.NoError(t, err, "could not start test server container")
 	t.Cleanup(func() {
-		require.NoError(t, pool.Purge(testserver))
+		require.NoError(t, pool.Purge(testserver), "could not remove test server container")
 	})
-
-	// Build the OBI (ebpf-instrument) image
-	err = pool.Client.BuildImage(docker.BuildImageOptions{
-		Name:         "hatest-obi",
-		ContextDir:   projectRoot,
-		Dockerfile:   "internal/test/integration/components/ebpf-instrument/Dockerfile",
-		OutputStream: t.Output(),
-		ErrorStream:  t.Output(),
-		BuildArgs: []docker.BuildArg{
-			{Name: "TARGETARCH", Value: "amd64"},
-		},
-	})
-	require.NoError(t, err)
-
-	lockdown := KernelLockdownMode()
-	securitySuffix := ""
-	if !lockdown {
-		securitySuffix = "_none"
-	}
-
-	// Start OBI container with PID namespace sharing
-	coverageDir := filepath.Join(projectRoot, "testoutput")
-	runOtelDir := filepath.Join(projectRoot, "testoutput/run-otel")
-	require.NoError(t, os.MkdirAll(coverageDir, 0o755))
-	require.NoError(t, os.MkdirAll(runOtelDir, 0o755))
-
-	obi, err := pool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "hatest-obi",
-		Tag:        "latest",
-		Name:       fmt.Sprintf("obi-otel-test-%d", timestamp),
-		Networks:   []*dockertest.Network{network},
-		Cmd: []string{
-			"--config=/configs/obi-config-go-otel.yml",
-		},
-		Mounts: []string{
-			filepath.Join(projectRoot, "internal/test/integration/configs") + ":/configs",
-			filepath.Join(projectRoot, "internal/test/integration/system/sys/kernel/security"+securitySuffix) + ":/sys/kernel/security",
-			coverageDir + ":/coverage",
-			runOtelDir + ":/var/run/beyla",
-		},
-		Env: []string{
-			"GOCOVERDIR=/coverage",
-			"OTEL_EBPF_TRACE_PRINTER=text",
-			"OTEL_EBPF_OPEN_PORT=8080",
-			"OTEL_EBPF_METRICS_FEATURES=application,application_span",
-			"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span",
-			"OTEL_EBPF_DISCOVERY_POLL_INTERVAL=500ms",
-			"OTEL_EBPF_EXECUTABLE_PATH=",
-			"OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT=1ms",
-			"OTEL_EBPF_SERVICE_NAMESPACE=integration-test",
-			"OTEL_EBPF_METRICS_INTERVAL=10ms",
-			"OTEL_EBPF_BPF_BATCH_TIMEOUT=10ms",
-			"OTEL_EBPF_LOG_LEVEL=DEBUG",
-			"OTEL_EBPF_BPF_DEBUG=TRUE",
-			"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",
-			"OTEL_EBPF_PROCESSES_INTERVAL=100ms",
-			"OTEL_EBPF_HOSTNAME=beyla",
-		},
-		Privileged:   true,
-		ExposedPorts: []string{"8999/tcp"},
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8999/tcp": {{HostIP: "localhost", HostPort: ""}}, // Let Docker assign port
-		},
-	}, func(hc *docker.HostConfig) {
-		hc.PidMode = "container:" + testserver.Container.ID
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, pool.Purge(obi))
-	})
-}
-
-func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
-	setupHTTPGoOTelTest(t)
-
-	t.Run("Go RED metrics: http service instrumented with OTel", func(t *testing.T) {
-		waitForTestComponents(t, "http://localhost:8080")
-		testForHTTPGoOTelLibrary(t, "/rolldice", "integration-test")
-	})
+	return testserver
 }
 
 func otelWaitForTestComponents(t *testing.T, url, subpath string) {
