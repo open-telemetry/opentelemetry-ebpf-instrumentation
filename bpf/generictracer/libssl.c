@@ -6,10 +6,6 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-#include <common/http_types.h>
-#include <common/sockaddr.h>
-#include <common/tcp_info.h>
-
 #include <generictracer/ssl_defs.h>
 
 #include <logger/bpf_dbg.h>

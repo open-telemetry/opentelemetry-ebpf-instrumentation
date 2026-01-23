@@ -11,7 +11,6 @@
 // LICENSE file in the root directory of this source tree.
 
 #include <bpfcore/vmlinux.h>
-#include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 

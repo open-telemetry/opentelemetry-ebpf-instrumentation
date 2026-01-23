@@ -23,7 +23,6 @@
 #include <common/strings.h>
 #include <common/tracing.h>
 
-#include <gotracer/go_byte_arr.h>
 #include <gotracer/go_common.h>
 #include <gotracer/go_str.h>
 #include <gotracer/go_stream_key.h>
