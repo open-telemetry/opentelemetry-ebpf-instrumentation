@@ -72,7 +72,7 @@ struct {
 
 typedef struct tailcall_ctx {
     pid_connection_info_t p_conn;
-    tp_info_t parent_tp;
+    tp_info_pid_t parent_tp;
     egress_key_t e_key;
     u8 niter;
     bool has_parent_tp;
@@ -254,18 +254,31 @@ static __always_inline connection_info_t sk_msg_extract_key_ip6(struct sk_msg_md
     return conn;
 }
 
-static __always_inline bool create_trace_info(const pid_connection_info_t *p_conn,
-                                              tp_info_pid_t *tp_p) {
-    tp_p->tp.ts = bpf_ktime_get_ns();
-    tp_p->tp.flags = 1;
-    tp_p->valid = 1;
-    tp_p->written = 0;
-    tp_p->pid = p_conn->pid;
-    tp_p->req_type = EVENT_HTTP_CLIENT; //XXX double check
+static __always_inline void init_tp_ctx_parent_tp(tailcall_ctx *t_ctx) {
+    t_ctx->parent_tp.tp.ts = bpf_ktime_get_ns();
+    t_ctx->parent_tp.tp.flags = 1;
+    t_ctx->parent_tp.valid = 1;
+    t_ctx->parent_tp.written = 0;
+    t_ctx->parent_tp.pid = t_ctx->p_conn.pid;
+    t_ctx->parent_tp.req_type = EVENT_HTTP_CLIENT;
+
+    t_ctx->has_parent_tp = find_trace_for_client_request(
+        &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, &t_ctx->parent_tp.tp);
+}
+
+static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info_pid_t *tp_p) {
+    // t_ctx->parent_tp was initialised earlier in init_tp_ctx_parent_tp - if
+    // t_ctx->has_parent_tp is true, then it actually contains a valid tp_info
+    // with the corrent trace_id and parent_id - all we need to do is generate
+    // a new span_id
+    // this logic is cumbersome, but it is done so to avoid calling
+    // find_trace_for_client_request multiple times (i.e. once here, and once
+    // earlier in  k_tail_find_existing_tp - sorry!
+    *tp_p = t_ctx->parent_tp;
 
     urand_bytes(tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
 
-    if (find_trace_for_client_request(p_conn, p_conn->conn.d_port, &tp_p->tp)) {
+    if (t_ctx->has_parent_tp) {
         bpf_dbg_printk("found existing tp info");
         return true;
     }
@@ -757,11 +770,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     bpf_dbg_printk("ptr=%llx, end=%llx", ctx_msg_data(msg), ctx_msg_data_end(msg));
     bpf_dbg_printk("BUF=[%s]", ctx_msg_data(msg));
 
-    tp_info_t parent_tp = {.ts = bpf_ktime_get_ns()};
-
-    t_ctx->has_parent_tp =
-        find_trace_for_client_request(&t_ctx->p_conn, t_ctx->p_conn.conn.d_port, &parent_tp);
-    t_ctx->parent_tp = parent_tp;
+    init_tp_ctx_parent_tp(t_ctx);
 
     bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
 
@@ -800,16 +809,16 @@ assign_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp, unsigned char *span_i
 
     // test if the trace ids are equal - if they aren't, we don't
     // assign a parent
-    if (__bpf_memcmp(tp->trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {
+    if (__bpf_memcmp(tp->trace_id, t_ctx->parent_tp.tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {
         return;
     }
 
-    __builtin_memcpy(tp->parent_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES);
+    __builtin_memcpy(tp->parent_id, t_ctx->parent_tp.tp.parent_id, SPAN_ID_SIZE_BYTES);
 
     // check if the TP we parsed is a legimate one, or a
     // proxy-forwarded header - in which case we need to
     // override it
-    if (__bpf_memcmp(tp->span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) != 0) {
+    if (__bpf_memcmp(tp->span_id, t_ctx->parent_tp.tp.parent_id, SPAN_ID_SIZE_BYTES) != 0) {
         return;
     }
 
@@ -828,7 +837,7 @@ assign_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp, unsigned char *span_i
 //k_tail_find_existing_tp
 SEC("sk_msg")
 int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
-    const u32 k_max_kb = 4; // iterate up to 4KB
+    const u32 k_max_iter = 4; // iterate up to 4KB
 
     tailcall_ctx *t_ctx = tailcall_ctx_mem();
 
@@ -844,7 +853,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
 
     const u32 niter = t_ctx->niter;
 
-    if (niter >= k_max_kb) {
+    if (niter >= k_max_iter) {
         return SK_PASS;
     }
 
@@ -896,7 +905,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
             }
 
             // if we got to this point, we managed to parse a valid
-            // 'Traceparet: ...' header that we can utilise
+            // 'Traceparent: ...' header that we can utilise
 
             assign_parent_tp(t_ctx, &tp_p->tp, span_id);
 
@@ -923,7 +932,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
 
     t_ctx->niter++;
 
-    if (t_ctx->niter < k_max_kb) {
+    if (t_ctx->niter < k_max_iter) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
     } else {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
@@ -947,7 +956,7 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    if (!create_trace_info(&t_ctx->p_conn, tp_p)) {
+    if (!create_trace_info(t_ctx, tp_p)) {
         return SK_PASS;
     }
 
