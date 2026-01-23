@@ -757,7 +757,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     bpf_dbg_printk("ptr=%llx, end=%llx", ctx_msg_data(msg), ctx_msg_data_end(msg));
     bpf_dbg_printk("BUF=[%s]", ctx_msg_data(msg));
 
-    tp_info_t parent_tp = {};
+    tp_info_t parent_tp = {.ts = bpf_ktime_get_ns()};
 
     t_ctx->has_parent_tp =
         find_trace_for_client_request(&t_ctx->p_conn, t_ctx->p_conn.conn.d_port, &parent_tp);
@@ -792,6 +792,39 @@ int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
     return SK_PASS;
 }
 
+static __always_inline void
+assign_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp, unsigned char *span_id) {
+    if (!t_ctx->has_parent_tp) {
+        return;
+    }
+
+    // test if the trace ids are equal - if they aren't, we don't
+    // assign a parent
+    if (__bpf_memcmp(tp->trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {
+        return;
+    }
+
+    __builtin_memcpy(tp->parent_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES);
+
+    // check if the TP we parsed is a legimate one, or a
+    // proxy-forwarded header - in which case we need to
+    // override it
+    if (__bpf_memcmp(tp->span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) != 0) {
+        return;
+    }
+
+    // at this point, the span id of this outgoing call is equal to the span
+    // id of the parent call (i.e. the Traceparent header is the same), which
+    // hints it's being forwarded by some kind of proxy - in this case, we
+    // generate a new span id and overwrite the header
+
+    bpf_dbg_printk("detected forwarded TP header, overriding span id");
+
+    urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
+
+    encode_hex(span_id, tp->span_id, SPAN_ID_SIZE_BYTES);
+}
+
 //k_tail_find_existing_tp
 SEC("sk_msg")
 int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
@@ -815,9 +848,9 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    const unsigned char *b = msg->data;
+    unsigned char *b = msg->data;
     const unsigned char *e = msg->data_end;
-    const unsigned char *ptr = b + (niter * 1024);
+    unsigned char *ptr = b + (niter * 1024);
 
     if (ptr >= e) {
         return SK_PASS;
@@ -828,13 +861,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
     const u32 data_size = (e - ptr) & 0x3ff; // 1KB chunks per iteration
 
     for (u32 i = 0; i < data_size; ++i) {
-        if (ptr + TP_SIZE >= e) {
-            bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
-            break;
-        }
-
-        // check if the HTTP header ends in this chunk
-        if (is_eoh(ptr)) {
+        if (ptr + TP_SIZE >= e || is_eoh(ptr)) {
             bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
             break;
         }
@@ -851,6 +878,8 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
             }
 
             decode_hex(tp_p->tp.span_id, ptr, SPAN_ID_CHAR_LEN);
+
+            unsigned char *span_id = ptr;
 
             ptr += SPAN_ID_CHAR_LEN;
 
@@ -869,24 +898,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
             // if we got to this point, we managed to parse a valid
             // 'Traceparet: ...' header that we can utilise
 
-            if (t_ctx->has_parent_tp) {
-                // test if the trace ids are equal - if they aren't, we don't
-                // assign a parent
-                if (__bpf_memcmp(
-                        tp_p->tp.trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) == 0) {
-
-                    __builtin_memcpy(
-                        tp_p->tp.parent_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES);
-                    // check if the TP we parsed is a legimate one, or a
-                    // proxy-forwarded header - in which case we need to
-                    // override it
-                    if (__bpf_memcmp(tp_p->tp.span_id,
-                                     t_ctx->parent_tp.parent_id,
-                                     SPAN_ID_SIZE_BYTES) == 0) {
-                        //FIXME
-                    }
-                }
-            }
+            assign_parent_tp(t_ctx, &tp_p->tp, span_id);
 
             tp_p->tp.ts = bpf_ktime_get_ns();
             tp_p->tp.flags = 1;
