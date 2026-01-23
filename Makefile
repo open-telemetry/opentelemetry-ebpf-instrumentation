@@ -109,8 +109,11 @@ $(TOOLS)/gotestsum: PACKAGE=gotest.tools/gotestsum
 MULTIMOD = $(TOOLS)/multimod
 $(TOOLS)/multimod: PACKAGE=go.opentelemetry.io/build-tools/multimod
 
+PORTO = $(TOOLS)/porto
+$(TOOLS)/porto: PACKAGE=github.com/jcchavezs/porto/cmd/porto
+
 .PHONY: tools
-tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM) $(MULTIMOD)
+tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM) $(PORTO)
 
 ### Development Tools (end) #################################################
 
@@ -522,14 +525,12 @@ check-ebpf-ver-synced:
 	fi
 
 .PHONY: vanity-import-check
-vanity-import-check:
-	@go install github.com/jcchavezs/porto/cmd/porto@latest
-	@porto --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
+vanity-import-check: $(PORTO)
+	$(PORTO) --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
 
 .PHONY: vanity-import-fix
 vanity-import-fix: $(PORTO)
-	@go install github.com/jcchavezs/porto/cmd/porto@latest
-	@porto --include-internal --skip-dirs "^NOTICES$$" -w .
+	$(PORTO) --include-internal --skip-dirs "^NOTICES$$" -w .
 
 .PHONY: regenerate-port-lookup
 regenerate-port-lookup:
