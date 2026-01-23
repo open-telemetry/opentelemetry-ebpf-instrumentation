@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"net/http"
 	"path"
 	"strconv"
@@ -11,18 +12,21 @@ import (
 	"time"
 
 	"github.com/mariomac/guara/pkg/test"
+	"github.com/ory/dockertest/v3"
+	"github.com/ory/dockertest/v3/docker"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	dockercompose "go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
+	"go.opentelemetry.io/obi/internal/test/tools"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
 func TestInstrumentationErrors(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-error-test.yml", path.Join(pathOutput, "test-suite-instrumentation-errors.log"))
+	compose, err := dockercompose.ComposeSuite("docker-compose-error-test.yml", path.Join(pathOutput, "test-suite-instrumentation-errors.log"))
 	require.NoError(t, err)
 
 	// Run OBI without privileged mode to force instrumentation errors
@@ -37,25 +41,53 @@ func TestInstrumentationErrors(t *testing.T) {
 }
 
 func TestAvoidedServicesMetrics(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-go-otel.yml", path.Join(pathOutput, "test-suite-avoided-services.log"))
-	require.NoError(t, err)
+	pool, network := setupDockertest(t)
+	setupContainerPrometheus(t, pool, network)
+	setupContainerJaeger(t, pool, network)
+	setupContainerCollector(t, pool, network)
 
-	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env,
-		`OTEL_EBPF_EXECUTABLE_PATH=`,
-		`OTEL_EBPF_OPEN_PORT=8080`,
-		`APP_OTEL_METRICS_ENDPOINT=http://otelcol:4318`,
-		`APP_OTEL_TRACES_ENDPOINT=http://jaeger:4318`,
-		// Enable avoidance and internal metrics
-		`OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES=true`,
-		`OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999`)
+	// Build the test server image
+	projectRoot := tools.ProjectDir()
+	err := pool.Client.BuildImage(docker.BuildImageOptions{
+		Name:         "hatest-testserver",
+		ContextDir:   projectRoot,
+		Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
+		OutputStream: t.Output(),
+		ErrorStream:  t.Output(),
+	})
+	require.NoError(t, err, "could not build test server Docker image")
 
-	lockdown := KernelLockdownMode()
-	if !lockdown {
-		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
+	// Start test server
+	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
+		Repository: "hatest-testserver",
+		Tag:        "latest",
+		Name:       fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
+		Networks:   []*dockertest.Network{network},
+		Env: []string{
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
+		},
+		ExposedPorts: []string{"8080/tcp"},
+		PortBindings: map[docker.Port][]docker.PortBinding{
+			"8080/tcp": {{HostIP: "localhost", HostPort: "8080"}},
+		},
+	})
+	require.NoError(t, err, "could not start test server container")
+	t.Cleanup(func() {
+		require.NoError(t, pool.Purge(testserver), "could not remove test server container")
+	})
+
+	// Start OBI to instrument the test server
+	obiConfig := obiConfig{
+		Env: []string{
+			"OTEL_EBPF_OPEN_PORT=8080",
+			"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",
+		},
 	}
-
-	require.NoError(t, compose.Up())
+	if !KernelLockdownMode() {
+		obiConfig.SecurityConfigSuffix = "_none"
+	}
+	instrumentWithOBI(t, pool, network, testserver, obiConfig)
 
 	t.Run("Avoided services metrics are recorded", func(t *testing.T) {
 		// Wait for the service to start and make some requests to trigger OTLP detection
@@ -73,8 +105,6 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 		// Check that avoided services metrics are present
 		checkAvoidedServicesMetrics(t)
 	})
-
-	require.NoError(t, compose.Close())
 }
 
 func checkInstrumentationErrorMetrics(t *testing.T) {

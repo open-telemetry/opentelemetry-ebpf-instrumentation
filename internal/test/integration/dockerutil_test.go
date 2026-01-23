@@ -126,8 +126,11 @@ func setupContainerCollector(t *testing.T, pool *dockertest.Pool, network *docke
 	require.NoError(t, err, "could not connect OpenTelemetry Collector container to network")
 }
 
+// obiConfig holds configuration for OBI instrumentation.
 type obiConfig struct {
-	Env                  []string
+	// Env holds additional environment variables to set in the OBI container.
+	Env []string
+	// SecurityConfigSuffix is the suffix for the security config file to use.
 	SecurityConfigSuffix string
 }
 
@@ -189,7 +192,7 @@ func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.
 		Privileged:   true,
 		ExposedPorts: []string{"8999/tcp"},
 		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8999/tcp": {{HostIP: "localhost", HostPort: ""}}, // Let Docker assign port
+			"8999/tcp": {{HostIP: "localhost", HostPort: "8999"}},
 		},
 	}, func(hc *docker.HostConfig) {
 		hc.PidMode = "container:" + resource.Container.ID

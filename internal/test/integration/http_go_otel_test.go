@@ -150,15 +150,10 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 
 	// Start test server
 	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "hatest-testserver",
-		Tag:        "latest",
-		Name:       fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
-		Networks:   []*dockertest.Network{network},
-		Env: []string{
-			"LOG_LEVEL=DEBUG",
-			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=",
-			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=",
-		},
+		Repository:   "hatest-testserver",
+		Tag:          "latest",
+		Name:         fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
+		Networks:     []*dockertest.Network{network},
 		ExposedPorts: []string{"8080/tcp"},
 		PortBindings: map[docker.Port][]docker.PortBinding{
 			"8080/tcp": {{HostIP: "localhost", HostPort: "8080"}},
@@ -206,57 +201,114 @@ func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 }
 
 func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
-	compose, err := dockercompose.ComposeSuite("docker-compose-go-otel.yml", path.Join(pathOutput, "test-suite-go-otel-avoids.log"))
-	require.NoError(t, err)
+	pool, network := setupDockertest(t)
+	setupContainerPrometheus(t, pool, network)
+	setupContainerJaeger(t, pool, network)
+	setupContainerCollector(t, pool, network)
 
-	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=8080`, `APP_OTEL_METRICS_ENDPOINT=http://otelcol:4318`, `APP_OTEL_TRACES_ENDPOINT=http://jaeger:4318`)
-	lockdown := KernelLockdownMode()
+	// Build the test server image
+	projectRoot := tools.ProjectDir()
+	err := pool.Client.BuildImage(docker.BuildImageOptions{
+		Name:         "hatest-testserver",
+		ContextDir:   projectRoot,
+		Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
+		OutputStream: t.Output(),
+		ErrorStream:  t.Output(),
+	})
+	require.NoError(t, err, "could not build test server Docker image")
 
-	if !lockdown {
-		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
+	// Start test server
+	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
+		Repository: "hatest-testserver",
+		Tag:        "latest",
+		Name:       fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
+		Networks:   []*dockertest.Network{network},
+		Env: []string{
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
+		},
+		ExposedPorts: []string{"8080/tcp"},
+		PortBindings: map[docker.Port][]docker.PortBinding{
+			"8080/tcp": {{HostIP: "localhost", HostPort: "8080"}},
+		},
+	})
+	require.NoError(t, err, "could not start test server container")
+	t.Cleanup(func() {
+		require.NoError(t, pool.Purge(testserver), "could not remove test server container")
+	})
+
+	// Start OBI to instrument the test server
+	obiConfig := obiConfig{
+		Env: []string{
+			"OTEL_EBPF_OPEN_PORT=8080",
+		},
 	}
-
-	require.NoError(t, compose.Up())
+	if !KernelLockdownMode() {
+		obiConfig.SecurityConfigSuffix = "_none"
+	}
+	instrumentWithOBI(t, pool, network, testserver, obiConfig)
 
 	t.Run("Go RED metrics: http service instrumented with OTel, no istrumentation", func(t *testing.T) {
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")
 		time.Sleep(15 * time.Second) // ensure we see some calls to /v1/metrics /v1/traces
 		testInstrumentationMissing(t, "/rolldice", "integration-test")
 	})
-
-	require.NoError(t, compose.Close())
 }
 
 func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
-	compose, err := dockercompose.ComposeSuite("docker-compose-go-otel.yml", path.Join(pathOutput, "test-suite-go-otel-disabled.log"))
-	require.NoError(t, err)
+	pool, network := setupDockertest(t)
+	setupContainerPrometheus(t, pool, network)
+	setupContainerJaeger(t, pool, network)
+	setupContainerCollector(t, pool, network)
 
-	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(
-		compose.Env,
-		`OTEL_EBPF_EXECUTABLE_PATH=`,
-		`OTEL_EBPF_OPEN_PORT=8080`,
-		`APP_OTEL_METRICS_ENDPOINT=http://otelcol:4318`,
-		`APP_OTEL_TRACES_ENDPOINT=http://jaeger:4318`,
-		`OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES=false`,
-	)
+	// Build the test server image
+	projectRoot := tools.ProjectDir()
+	err := pool.Client.BuildImage(docker.BuildImageOptions{
+		Name:         "hatest-testserver",
+		ContextDir:   projectRoot,
+		Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
+		OutputStream: t.Output(),
+		ErrorStream:  t.Output(),
+	})
+	require.NoError(t, err, "could not build test server Docker image")
 
-	lockdown := KernelLockdownMode()
+	// Start test server
+	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
+		Repository: "hatest-testserver",
+		Tag:        "latest",
+		Name:       fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
+		Networks:   []*dockertest.Network{network},
+		Env: []string{
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
+		},
+		ExposedPorts: []string{"8080/tcp"},
+		PortBindings: map[docker.Port][]docker.PortBinding{
+			"8080/tcp": {{HostIP: "localhost", HostPort: "8080"}},
+		},
+	})
+	require.NoError(t, err, "could not start test server container")
+	t.Cleanup(func() {
+		require.NoError(t, pool.Purge(testserver), "could not remove test server container")
+	})
 
-	if !lockdown {
-		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
+	// Start OBI to instrument the test server
+	obiConfig := obiConfig{
+		Env: []string{
+			"OTEL_EBPF_OPEN_PORT=8080",
+			"OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES=false",
+		},
 	}
-
-	require.NoError(t, compose.Up())
+	if !KernelLockdownMode() {
+		obiConfig.SecurityConfigSuffix = "_none"
+	}
+	instrumentWithOBI(t, pool, network, testserver, obiConfig)
 
 	t.Run("Go RED metrics: http service instrumented with OTel, option disabled", func(t *testing.T) {
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")
 		time.Sleep(15 * time.Second) // ensure we see some calls to /v1/metrics /v1/traces
 		testForHTTPGoOTelLibrary(t, "/rolldice", "integration-test")
 	})
-
-	require.NoError(t, compose.Close())
 }
 
 func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
