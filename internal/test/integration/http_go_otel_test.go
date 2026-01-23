@@ -138,7 +138,12 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	setupContainerCollector(t, pool, network)
 
 	testserver := setupComponentGoOTel(t, pool, network)
-	instrumentWithOBI(t, pool, network, testserver)
+
+	obiConfig := obiConfig{}
+	if !KernelLockdownMode() {
+		obiConfig.SecurityConfigSuffix = "_none"
+	}
+	instrumentWithOBI(t, pool, network, testserver, obiConfig)
 
 	t.Run("Go RED metrics: http service instrumented with OTel", func(t *testing.T) {
 		waitForTestComponents(t, "http://localhost:8080")

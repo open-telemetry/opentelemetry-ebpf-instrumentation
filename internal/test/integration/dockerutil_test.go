@@ -126,8 +126,13 @@ func setupContainerCollector(t *testing.T, pool *dockertest.Pool, network *docke
 	require.NoError(t, err, "could not connect OpenTelemetry Collector container to network")
 }
 
+type obiConfig struct {
+	Env                  []string
+	SecurityConfigSuffix string
+}
+
 // instrumentWithOBI builds and starts the OBI container to instrument the target application.
-func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.Network, resource *dockertest.Resource) {
+func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.Network, resource *dockertest.Resource, config obiConfig) {
 	t.Helper()
 
 	// Build the OBI (ebpf-instrument) image
@@ -145,10 +150,7 @@ func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.
 	require.NoError(t, err, "could not build OBI Docker image")
 
 	// Start OBI container with PID namespace sharing
-	securitySuffix := ""
-	if !KernelLockdownMode() {
-		securitySuffix = "_none"
-	}
+
 	coverageDir := filepath.Join(projectRoot, "testoutput")
 	runOtelDir := filepath.Join(projectRoot, "testoutput/run-otel")
 	require.NoError(t, os.MkdirAll(coverageDir, 0o755), "could not create coverage directory")
@@ -164,18 +166,17 @@ func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.
 		},
 		Mounts: []string{
 			filepath.Join(projectRoot, "internal/test/integration/configs") + ":/configs",
-			filepath.Join(projectRoot, "internal/test/integration/system/sys/kernel/security"+securitySuffix) + ":/sys/kernel/security",
+			filepath.Join(projectRoot, "internal/test/integration/system/sys/kernel/security"+config.SecurityConfigSuffix) + ":/sys/kernel/security",
 			coverageDir + ":/coverage",
 			runOtelDir + ":/var/run/beyla",
 		},
-		Env: []string{
+		Env: append([]string{
 			"GOCOVERDIR=/coverage",
 			"OTEL_EBPF_TRACE_PRINTER=text",
 			"OTEL_EBPF_OPEN_PORT=8080",
 			"OTEL_EBPF_METRICS_FEATURES=application,application_span",
 			"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span",
 			"OTEL_EBPF_DISCOVERY_POLL_INTERVAL=500ms",
-			"OTEL_EBPF_EXECUTABLE_PATH=",
 			"OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT=1ms",
 			"OTEL_EBPF_SERVICE_NAMESPACE=integration-test",
 			"OTEL_EBPF_METRICS_INTERVAL=10ms",
@@ -185,7 +186,7 @@ func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.
 			"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",
 			"OTEL_EBPF_PROCESSES_INTERVAL=100ms",
 			"OTEL_EBPF_HOSTNAME=beyla",
-		},
+		}, config.Env...),
 		Privileged:   true,
 		ExposedPorts: []string{"8999/tcp"},
 		PortBindings: map[docker.Port][]docker.PortBinding{
