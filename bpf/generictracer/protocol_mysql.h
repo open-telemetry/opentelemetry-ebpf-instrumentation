@@ -10,19 +10,10 @@
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
-#include <common/http_types.h>
 #include <common/ringbuf.h>
-#include <common/runtime.h>
 #include <common/sql.h>
-#include <common/tp_info.h>
-#include <common/trace_common.h>
-
-#include <generictracer/protocol_common.h>
-#include <generictracer/k_tracer_tailcall.h>
 
 #include <generictracer/maps/protocol_cache.h>
-
-#include <maps/active_ssl_connections.h>
 
 // Every mysql command packet is prefixed by an header
 // https://mariadb.com/kb/en/0-packet/
