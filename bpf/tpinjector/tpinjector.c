@@ -72,7 +72,7 @@ struct {
 
 typedef struct tailcall_ctx {
     pid_connection_info_t p_conn;
-    tp_info_pid_t parent_tp;
+    tp_info_t parent_tp;
     egress_key_t e_key;
     u8 niter;
     bool has_parent_tp;
@@ -255,15 +255,11 @@ static __always_inline connection_info_t sk_msg_extract_key_ip6(struct sk_msg_md
 }
 
 static __always_inline void init_tp_ctx_parent_tp(tailcall_ctx *t_ctx) {
-    t_ctx->parent_tp.tp.ts = bpf_ktime_get_ns();
-    t_ctx->parent_tp.tp.flags = 1;
-    t_ctx->parent_tp.valid = 1;
-    t_ctx->parent_tp.written = 0;
-    t_ctx->parent_tp.pid = t_ctx->p_conn.pid;
-    t_ctx->parent_tp.req_type = EVENT_HTTP_CLIENT;
+    t_ctx->parent_tp.ts = bpf_ktime_get_ns();
+    t_ctx->parent_tp.flags = 1;
 
     t_ctx->has_parent_tp = find_parent_trace_for_client_request(
-        &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, &t_ctx->parent_tp.tp);
+        &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, &t_ctx->parent_tp);
 }
 
 static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info_pid_t *tp_p) {
@@ -276,14 +272,15 @@ static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info
     // earlier in  k_tail_find_existing_tp - sorry!
     urand_bytes(tp_p->tp.span_id, sizeof(tp_p->tp.span_id));
     tp_p->tp.flags = 1;
+    tp_p->valid = 1;
+    tp_p->pid = t_ctx->p_conn.pid;
+    tp_p->req_type = EVENT_HTTP_CLIENT;
 
     if (t_ctx->has_parent_tp) {
         bpf_dbg_printk("found existing tp info");
 
-        __builtin_memcpy(
-            tp_p->tp.trace_id, t_ctx->parent_tp.tp.trace_id, sizeof(tp_p->tp.trace_id));
-        __builtin_memcpy(
-            tp_p->tp.parent_id, t_ctx->parent_tp.tp.span_id, sizeof(tp_p->tp.parent_id));
+        __builtin_memcpy(tp_p->tp.trace_id, t_ctx->parent_tp.trace_id, sizeof(tp_p->tp.trace_id));
+        __builtin_memcpy(tp_p->tp.parent_id, t_ctx->parent_tp.span_id, sizeof(tp_p->tp.parent_id));
     } else {
         bpf_dbg_printk("generating tp info");
 
@@ -812,16 +809,16 @@ assign_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp, unsigned char *span_i
 
     // test if the trace ids are equal - if they aren't, we don't
     // assign a parent
-    if (__bpf_memcmp(tp->trace_id, t_ctx->parent_tp.tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {
+    if (__bpf_memcmp(tp->trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {
         return;
     }
 
-    __builtin_memcpy(tp->parent_id, t_ctx->parent_tp.tp.span_id, SPAN_ID_SIZE_BYTES);
+    __builtin_memcpy(tp->parent_id, t_ctx->parent_tp.span_id, SPAN_ID_SIZE_BYTES);
 
     // check if the TP we parsed is a legimate one, or a
     // proxy-forwarded header - in which case we need to
     // override it
-    if (__bpf_memcmp(tp->span_id, t_ctx->parent_tp.tp.parent_id, SPAN_ID_SIZE_BYTES) != 0) {
+    if (__bpf_memcmp(tp->span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) != 0) {
         return;
     }
 
