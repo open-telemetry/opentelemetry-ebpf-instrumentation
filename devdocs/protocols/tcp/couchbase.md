@@ -50,7 +50,8 @@ Body length = `extras_length + key_length + value_length`
 
 ## Protocol Parsing
 
-### Multiple Commands per Packet 
+### Multiple Commands per Packet
+
 The parser supports multiple Couchbase commands in a single TCP packet.
 The parser iteratively processes each command until all bytes are consumed
 
