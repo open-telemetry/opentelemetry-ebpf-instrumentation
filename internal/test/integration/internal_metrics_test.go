@@ -4,7 +4,6 @@
 package integration
 
 import (
-	"fmt"
 	"net/http"
 	"path"
 	"strconv"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/mariomac/guara/pkg/test"
 	"github.com/ory/dockertest/v3"
-	"github.com/ory/dockertest/v3/docker"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
@@ -43,6 +41,7 @@ func TestInstrumentationErrors(t *testing.T) {
 func TestAvoidedServicesMetrics(t *testing.T) {
 	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
+	var testserver *dockertest.Resource
 	wg.Go(func() {
 		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
@@ -53,44 +52,27 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		setupGoOTelTestServerContainer(t)
+		testserver = setupGoOTelTestServerContainer(t, network, []string{
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
+		})
 	})
 	wg.Wait()
 	if t.Failed() {
 		return
 	}
 
-	// Start test server
-	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "hatest-testserver",
-		Tag:        "latest",
-		Name:       fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
-		Networks:   []*dockertest.Network{network},
-		Env: []string{
-			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
-			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
-		},
-		ExposedPorts: []string{"8080/tcp"},
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8080/tcp": {{HostIP: "localhost", HostPort: "8080"}},
-		},
-	})
-	require.NoError(t, err, "could not start test server container")
-	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
-	})
-
 	// Start OBI to instrument the test server
-	obiConfig := obiConfig{
+	o := obi{
 		Env: []string{
 			"OTEL_EBPF_OPEN_PORT=8080",
 			"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",
 		},
 	}
 	if !KernelLockdownMode() {
-		obiConfig.SecurityConfigSuffix = "_none"
+		o.SecurityConfigSuffix = "_none"
 	}
-	instrumentWithOBI(t, network, testserver, obiConfig)
+	o.instrument(t, network, testserver)
 
 	t.Run("Avoided services metrics are recorded", func(t *testing.T) {
 		// Wait for the service to start and make some requests to trigger OTLP detection

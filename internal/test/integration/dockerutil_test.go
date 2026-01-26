@@ -124,14 +124,6 @@ func setupContainerCollector(t *testing.T, network *dockertest.Network, configFi
 	t.Log("OpenTelemetry Collector container started")
 }
 
-// obiConfig holds configuration for OBI instrumentation.
-type obiConfig struct {
-	// Env holds additional environment variables to set in the OBI container.
-	Env []string
-	// SecurityConfigSuffix is the suffix for the security config file to use.
-	SecurityConfigSuffix string
-}
-
 // buildOBIImage builds the OBI (ebpf-instrument) image.
 func buildOBIImage() error {
 	return dockerPool.Client.BuildImage(docker.BuildImageOptions{
@@ -143,8 +135,16 @@ func buildOBIImage() error {
 	})
 }
 
-// instrumentWithOBI starts the OBI container to instrument the target application.
-func instrumentWithOBI(t *testing.T, network *dockertest.Network, resource *dockertest.Resource, config obiConfig) {
+// obi holds configuration for OBI instrumentation.
+type obi struct {
+	// Env holds additional environment variables to set in the OBI container.
+	Env []string
+	// SecurityConfigSuffix is the suffix for the security config file to use.
+	SecurityConfigSuffix string
+}
+
+// instrument starts the OBI container to instrument the target application.
+func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *dockertest.Resource) {
 	t.Helper()
 
 	t.Log("Starting OBI container with PID namespace sharing...")
@@ -162,7 +162,7 @@ func instrumentWithOBI(t *testing.T, network *dockertest.Network, resource *dock
 		},
 		Mounts: []string{
 			filepath.Join(pathRoot, "internal/test/integration/configs") + ":/configs",
-			filepath.Join(pathRoot, "internal/test/integration/system/sys/kernel/security"+config.SecurityConfigSuffix) + ":/sys/kernel/security",
+			filepath.Join(pathRoot, "internal/test/integration/system/sys/kernel/security"+o.SecurityConfigSuffix) + ":/sys/kernel/security",
 			pathOutput + ":/coverage",
 			runOtelDir + ":/var/run/beyla",
 		},
@@ -181,7 +181,7 @@ func instrumentWithOBI(t *testing.T, network *dockertest.Network, resource *dock
 			"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",
 			"OTEL_EBPF_PROCESSES_INTERVAL=100ms",
 			"OTEL_EBPF_HOSTNAME=beyla",
-		}, config.Env...),
+		}, o.Env...),
 		Privileged:   true,
 		ExposedPorts: []string{"8999/tcp"},
 		PortBindings: map[docker.Port][]docker.PortBinding{

@@ -29,11 +29,11 @@ var (
 	buildGoOTelTestServerErr  error
 )
 
-func setupGoOTelTestServerContainer(t *testing.T) {
+func setupGoOTelTestServerContainer(t *testing.T, network *dockertest.Network, env []string) *dockertest.Resource {
 	t.Helper()
 
-	t.Log("Building Go OpenTelemetry test server image")
 	buildGoOTelTestServerOnce.Do(func() {
+		t.Log("Building Go OpenTelemetry test server image")
 		buildGoOTelTestServerErr = dockerPool.Client.BuildImage(docker.BuildImageOptions{
 			Name:         "hatest-testserver",
 			ContextDir:   pathRoot,
@@ -41,9 +41,31 @@ func setupGoOTelTestServerContainer(t *testing.T) {
 			OutputStream: t.Output(),
 			ErrorStream:  t.Output(),
 		})
+		if buildGoOTelTestServerErr != nil {
+			return
+		}
+		t.Log("Go OpenTelemetry test server image built successfully")
 	})
 	require.NoError(t, buildGoOTelTestServerErr, "could not build test server Docker image")
-	t.Log("Go OpenTelemetry test server image built successfully")
+
+	t.Log("Starting Go OpenTelemetry test server container...")
+	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
+		Repository:   "hatest-testserver",
+		Tag:          "latest",
+		Name:         fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
+		Networks:     []*dockertest.Network{network},
+		Env:          env,
+		ExposedPorts: []string{"8080/tcp"},
+		PortBindings: map[docker.Port][]docker.PortBinding{
+			"8080/tcp": {{HostIP: "localhost", HostPort: "8080"}},
+		},
+	})
+	require.NoError(t, err, "could not start test server container")
+	t.Cleanup(func() {
+		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
+	})
+	t.Log("Go OpenTelemetry test server container started")
+	return testserver
 }
 
 func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
@@ -156,6 +178,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
+	var testserver *dockertest.Resource
 	wg.Go(func() {
 		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
@@ -166,39 +189,23 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		setupGoOTelTestServerContainer(t)
+		testserver = setupGoOTelTestServerContainer(t, network, nil)
 	})
 	wg.Wait()
 	if t.Failed() {
 		return
 	}
 
-	// Start test server
-	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository:   "hatest-testserver",
-		Tag:          "latest",
-		Name:         fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
-		Networks:     []*dockertest.Network{network},
-		ExposedPorts: []string{"8080/tcp"},
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8080/tcp": {{HostIP: "localhost", HostPort: "8080"}},
-		},
-	})
-	require.NoError(t, err, "could not start test server container")
-	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
-	})
-
 	// Start OBI to instrument the test server
-	obiConfig := obiConfig{
+	o := obi{
 		Env: []string{
 			"OTEL_EBPF_OPEN_PORT=8080",
 		},
 	}
 	if !KernelLockdownMode() {
-		obiConfig.SecurityConfigSuffix = "_none"
+		o.SecurityConfigSuffix = "_none"
 	}
-	instrumentWithOBI(t, network, testserver, obiConfig)
+	o.instrument(t, network, testserver)
 
 	t.Run("Go RED metrics: http service instrumented with OTel", func(t *testing.T) {
 		waitForTestComponents(t, "http://localhost:8080")
@@ -228,6 +235,7 @@ func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
+	var testserver *dockertest.Resource
 	wg.Go(func() {
 		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
@@ -238,43 +246,26 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		setupGoOTelTestServerContainer(t)
+		testserver = setupGoOTelTestServerContainer(t, network, []string{
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4317",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
+		})
 	})
 	wg.Wait()
 	if t.Failed() {
 		return
 	}
 
-	// Start test server
-	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "hatest-testserver",
-		Tag:        "latest",
-		Name:       fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
-		Networks:   []*dockertest.Network{network},
-		Env: []string{
-			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
-			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
-		},
-		ExposedPorts: []string{"8080/tcp"},
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8080/tcp": {{HostIP: "localhost", HostPort: "8080"}},
-		},
-	})
-	require.NoError(t, err, "could not start test server container")
-	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
-	})
-
 	// Start OBI to instrument the test server
-	obiConfig := obiConfig{
+	o := obi{
 		Env: []string{
 			"OTEL_EBPF_OPEN_PORT=8080",
 		},
 	}
 	if !KernelLockdownMode() {
-		obiConfig.SecurityConfigSuffix = "_none"
+		o.SecurityConfigSuffix = "_none"
 	}
-	instrumentWithOBI(t, network, testserver, obiConfig)
+	o.instrument(t, network, testserver)
 
 	t.Run("Go RED metrics: http service instrumented with OTel, no istrumentation", func(t *testing.T) {
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")
@@ -286,6 +277,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
+	var testserver *dockertest.Resource
 	wg.Go(func() {
 		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
@@ -296,44 +288,27 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		setupGoOTelTestServerContainer(t)
+		testserver = setupGoOTelTestServerContainer(t, network, []string{
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4317",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
+		})
 	})
 	wg.Wait()
 	if t.Failed() {
 		return
 	}
 
-	// Start test server
-	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "hatest-testserver",
-		Tag:        "latest",
-		Name:       fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
-		Networks:   []*dockertest.Network{network},
-		Env: []string{
-			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
-			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
-		},
-		ExposedPorts: []string{"8080/tcp"},
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8080/tcp": {{HostIP: "localhost", HostPort: "8080"}},
-		},
-	})
-	require.NoError(t, err, "could not start test server container")
-	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
-	})
-
 	// Start OBI to instrument the test server
-	obiConfig := obiConfig{
+	o := obi{
 		Env: []string{
 			"OTEL_EBPF_OPEN_PORT=8080",
 			"OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES=false",
 		},
 	}
 	if !KernelLockdownMode() {
-		obiConfig.SecurityConfigSuffix = "_none"
+		o.SecurityConfigSuffix = "_none"
 	}
-	instrumentWithOBI(t, network, testserver, obiConfig)
+	o.instrument(t, network, testserver)
 
 	t.Run("Go RED metrics: http service instrumented with OTel, option disabled", func(t *testing.T) {
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")
