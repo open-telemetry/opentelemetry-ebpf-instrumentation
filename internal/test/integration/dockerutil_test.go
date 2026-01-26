@@ -100,7 +100,7 @@ func setupContainerCollector(t *testing.T, network *dockertest.Network, configFi
 	t.Log("Starting OpenTelemetry Collector container...")
 	otelcol, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "otel/opentelemetry-collector-contrib",
-		Tag:        "0.144.0@sha256:213886eb6407af91b87fa47551c3632be1a6419ff3a5114ef1e6fc364628496f",
+		Tag:        "0.144.0",
 		Name:       fmt.Sprintf("otelcol-otel-test-%d", time.Now().UnixNano()),
 		Cmd:        []string{"--config=/etc/otelcol-config/" + configFile},
 		Mounts: []string{
