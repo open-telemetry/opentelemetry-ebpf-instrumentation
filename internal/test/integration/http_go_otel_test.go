@@ -33,7 +33,7 @@ func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []stri
 	t.Helper()
 
 	buildGoOTelTestServerOnce.Do(func() {
-		t.Log("Building Go OpenTelemetry test server image")
+		t.Log("Building Go OpenTelemetry test server image...")
 		buildGoOTelTestServerErr = dockerPool.Client.BuildImage(docker.BuildImageOptions{
 			Name:         "hatest-testserver",
 			ContextDir:   pathRoot,
