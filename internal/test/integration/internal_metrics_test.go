@@ -41,7 +41,7 @@ func TestInstrumentationErrors(t *testing.T) {
 func TestAvoidedServicesMetrics(t *testing.T) {
 	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
-	var testserver *dockertest.Resource
+
 	wg.Go(func() {
 		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
@@ -51,6 +51,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 	wg.Go(func() {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
+	var testserver *dockertest.Resource
 	wg.Go(func() {
 		testserver = setupGoOTelTestServer(t, network, []string{
 			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",

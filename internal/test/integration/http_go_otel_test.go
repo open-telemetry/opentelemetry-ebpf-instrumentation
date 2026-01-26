@@ -177,7 +177,6 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
-	var testserver *dockertest.Resource
 	wg.Go(func() {
 		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
@@ -187,6 +186,7 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	wg.Go(func() {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
+	var testserver *dockertest.Resource
 	wg.Go(func() {
 		testserver = setupGoOTelTestServer(t, network, nil)
 	})
@@ -234,7 +234,6 @@ func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
-	var testserver *dockertest.Resource
 	wg.Go(func() {
 		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
@@ -244,6 +243,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	wg.Go(func() {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
+	var testserver *dockertest.Resource
 	wg.Go(func() {
 		testserver = setupGoOTelTestServer(t, network, []string{
 			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4317",
@@ -276,7 +276,6 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
-	var testserver *dockertest.Resource
 	wg.Go(func() {
 		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
@@ -286,6 +285,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	wg.Go(func() {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
+	var testserver *dockertest.Resource
 	wg.Go(func() {
 		testserver = setupGoOTelTestServer(t, network, []string{
 			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4317",
