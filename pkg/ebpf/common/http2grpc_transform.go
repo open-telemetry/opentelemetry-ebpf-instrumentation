@@ -52,6 +52,7 @@ func byteFramer(data []uint8) *http2.Framer {
 		// we never write. We can save some resources
 		io.Discard,
 		bytes.NewReader(data))
+
 	return fr
 }
 
@@ -69,8 +70,8 @@ func getOrInitH2Conn(activeGRPCConnections *lru.Cache[uint64, h2Connection], con
 
 	if !ok {
 		h := h2Connection{
-			hdec:     bhpack.NewDecoder(uint32(dynamicTableSize)),
-			hdecRet:  bhpack.NewDecoder(uint32(dynamicTableSize)),
+			hdec:     bhpack.NewDecoder(uint32(dynamicTableSize), nil),
+			hdecRet:  bhpack.NewDecoder(uint32(dynamicTableSize), nil),
 			protocol: HTTP2,
 		}
 		activeGRPCConnections.Add(connID, h)
@@ -90,7 +91,7 @@ func protocolIsGRPC(activeGRPCConnections *lru.Cache[uint64, h2Connection], conn
 	}
 }
 
-var commonHDec = bhpack.NewDecoder(0)
+var commonHDec = bhpack.NewDecoder(0, nil)
 
 func isHTTPOp(op string) bool {
 	return op == "GET" || op == "POST" || op == "PATCH" || op == "DELETE" || op == "OPTIONS" || op == "HEAD"
@@ -130,17 +131,20 @@ func handleHeaderField(hf *bhpack.HeaderField) bool {
 
 func knownFrameKeys(fr *http2.Framer, hf *http2.HeadersFrame) bool {
 	knownCount := 0
-	defer commonHDec.Close()
-
-	emit := func(hf bhpack.HeaderField) {
+	commonHDec.SetEmitFunc(func(hf bhpack.HeaderField) {
 		if handleHeaderField(&hf) {
 			knownCount++
 		}
-	}
+	})
+	// Lose reference to MetaHeadersFrame:
+	defer func() {
+		commonHDec.SetEmitFunc(nil)
+		commonHDec.Close()
+	}()
 
 	frag := hf.HeaderBlockFragment()
 	for {
-		if _, err := commonHDec.Write(frag, emit); err != nil {
+		if _, err := commonHDec.Write(frag); err != nil {
 			break
 		}
 		if hf.HeadersEnded() {
@@ -172,7 +176,7 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 		return method, path, contentType, ok
 	}
 
-	emitFunc := func(hf bhpack.HeaderField) {
+	h2c.hdec.SetEmitFunc(func(hf bhpack.HeaderField) {
 		switch hf.Name {
 		case ":method":
 			method = hf.Value
@@ -187,13 +191,16 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 			}
 			ok = true
 		}
-	}
-
-	defer h2c.hdec.Close()
+	})
+	// Lose reference to MetaHeadersFrame:
+	defer func() {
+		commonHDec.SetEmitFunc(nil)
+		commonHDec.Close()
+	}()
 
 	frag := hf.HeaderBlockFragment()
 	for {
-		if _, err := h2c.hdec.Write(frag, emitFunc); err != nil {
+		if _, err := h2c.hdec.Write(frag); err != nil {
 			return method, path, contentType, ok
 		}
 		if hf.HeadersEnded() {
@@ -235,7 +242,7 @@ func readRetMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.F
 		return status, grpc, ok
 	}
 
-	emitFunc := func(hf bhpack.HeaderField) {
+	h2c.hdecRet.SetEmitFunc(func(hf bhpack.HeaderField) {
 		// grpc requests may have :status and grpc-status. :status will be HTTP code.
 		// we prefer the grpc one if it exists, it's always later since : tagged headers
 		// end up first in the headers list.
@@ -260,13 +267,16 @@ func readRetMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.F
 			grpc = true
 			ok = true
 		}
-	}
+	})
 	// Lose reference to MetaHeadersFrame:
-	defer h2c.hdecRet.Close()
+	defer func() {
+		commonHDec.SetEmitFunc(nil)
+		commonHDec.Close()
+	}()
 
 	for {
 		frag := hf.HeaderBlockFragment()
-		if _, err := h2c.hdecRet.Write(frag, emitFunc); err != nil {
+		if _, err := h2c.hdecRet.Write(frag); err != nil {
 			return status, grpc, ok
 		}
 

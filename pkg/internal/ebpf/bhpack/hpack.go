@@ -82,8 +82,10 @@ func (hf HeaderField) Size() uint32 {
 // header blocks.
 type Decoder struct {
 	dynTab dynamicTable
+	emit   func(f HeaderField)
 
-	maxStrLen int // 0 means unlimited
+	emitEnabled bool // whether calls to emit are enabled
+	maxStrLen   int  // 0 means unlimited
 
 	// buf is the unparsed buffer. It's only written to
 	// saveBuf if it was truncated in the middle of a header
@@ -102,8 +104,10 @@ type Decoder struct {
 // NewDecoder returns a new decoder with the provided maximum dynamic
 // table size. The emitFunc will be called for each valid field
 // parsed, in the same goroutine as calls to Write, before Write returns.
-func NewDecoder(maxDynamicTableSize uint32) *Decoder {
+func NewDecoder(maxDynamicTableSize uint32, emitFunc func(f HeaderField)) *Decoder {
 	d := &Decoder{
+		emit:          emitFunc,
+		emitEnabled:   true,
 		firstField:    true,
 		failedToIndex: false,
 	}
@@ -124,6 +128,26 @@ var ErrStringLength = errors.New("hpack: string too long")
 func (d *Decoder) SetMaxStringLength(n int) {
 	d.maxStrLen = n
 }
+
+// SetEmitFunc changes the callback used when new header fields
+// are decoded.
+// It must be non-nil. It does not affect EmitEnabled.
+func (d *Decoder) SetEmitFunc(emitFunc func(f HeaderField)) {
+	d.emit = emitFunc
+}
+
+// SetEmitEnabled controls whether the emitFunc provided to NewDecoder
+// should be called. The default is true.
+//
+// This facility exists to let servers enforce MAX_HEADER_LIST_SIZE
+// while still decoding and keeping in-sync with decoder state, but
+// without doing unnecessary decompression or generating unnecessary
+// garbage for header fields past the limit.
+func (d *Decoder) SetEmitEnabled(v bool) { d.emitEnabled = v }
+
+// EmitEnabled reports whether calls to the emitFunc provided to NewDecoder
+// are currently enabled. The default is true.
+func (d *Decoder) EmitEnabled() bool { return d.emitEnabled }
 
 // TODO: add method *Decoder.Reset(maxSize, emitFunc) to let callers re-use Decoders and their
 // underlying buffers for garbage reasons.
@@ -193,6 +217,24 @@ func (d *Decoder) at(i uint64) (hf HeaderField, ok bool) {
 	return dt.ents[dt.len()-(int(i)-staticTable.len())], true
 }
 
+// DecodeFull decodes an entire block.
+//
+// TODO: remove this method and make it incremental later? This is
+// easier for debugging now.
+func (d *Decoder) DecodeFull(p []byte) ([]HeaderField, error) {
+	var hf []HeaderField
+	saveFunc := d.emit
+	defer func() { d.emit = saveFunc }()
+	d.emit = func(f HeaderField) { hf = append(hf, f) }
+	if _, err := d.Write(p); err != nil {
+		return nil, err
+	}
+	if err := d.Close(); err != nil {
+		return nil, err
+	}
+	return hf, nil
+}
+
 // Close declares that the decoding is complete and resets the Decoder
 // to be reused again for a new header block. If there is any remaining
 // data in the decoder's buffer, Close returns an error.
@@ -205,7 +247,7 @@ func (d *Decoder) Close() error {
 	return nil
 }
 
-func (d *Decoder) Write(p []byte, emitFunc func(hf HeaderField)) (n int, err error) {
+func (d *Decoder) Write(p []byte) (n int, err error) {
 	if len(p) == 0 {
 		// Prevent state machine CPU attacks (making us redo
 		// work up to the point of finding out we don't have
@@ -223,7 +265,7 @@ func (d *Decoder) Write(p []byte, emitFunc func(hf HeaderField)) (n int, err err
 	}
 
 	for len(d.buf) > 0 {
-		err = d.parseHeaderFieldRepr(emitFunc)
+		err = d.parseHeaderFieldRepr()
 		if errors.Is(err, errNeedMore) {
 			// Extra paranoia, making sure saveBuf won't
 			// get too large. All the varint and string
@@ -265,29 +307,29 @@ func (v indexType) sensitive() bool { return v == indexedNever }
 // any other error is fatal.
 // consumes d.buf iff it returns nil.
 // precondition: must be called with len(d.buf) > 0
-func (d *Decoder) parseHeaderFieldRepr(emitFunc func(hf HeaderField)) error {
+func (d *Decoder) parseHeaderFieldRepr() error {
 	b := d.buf[0]
 	switch {
 	case b&128 != 0:
 		// Indexed representation.
 		// High bit set?
 		// https://httpwg.org/specs/rfc7541.html#rfc.section.6.1
-		return d.parseFieldIndexed(emitFunc)
+		return d.parseFieldIndexed()
 	case b&192 == 64:
 		// 6.2.1 Literal Header Field with Incremental Indexing
 		// 0b10xxxxxx: top two bits are 10
 		// https://httpwg.org/specs/rfc7541.html#rfc.section.6.2.1
-		return d.parseFieldLiteral(6, indexedTrue, emitFunc)
+		return d.parseFieldLiteral(6, indexedTrue)
 	case b&240 == 0:
 		// 6.2.2 Literal Header Field without Indexing
 		// 0b0000xxxx: top four bits are 0000
 		// https://httpwg.org/specs/rfc7541.html#rfc.section.6.2.2
-		return d.parseFieldLiteral(4, indexedFalse, emitFunc)
+		return d.parseFieldLiteral(4, indexedFalse)
 	case b&240 == 16:
 		// 6.2.3 Literal Header Field never Indexed
 		// 0b0001xxxx: top four bits are 0001
 		// https://httpwg.org/specs/rfc7541.html#rfc.section.6.2.3
-		return d.parseFieldLiteral(4, indexedNever, emitFunc)
+		return d.parseFieldLiteral(4, indexedNever)
 	case b&224 == 32:
 		// 6.3 Dynamic Table Size Update
 		// Top three bits are '001'.
@@ -299,7 +341,7 @@ func (d *Decoder) parseHeaderFieldRepr(emitFunc func(hf HeaderField)) error {
 }
 
 // (same invariants and behavior as parseHeaderFieldRepr)
-func (d *Decoder) parseFieldIndexed(emitFunc func(hf HeaderField)) error {
+func (d *Decoder) parseFieldIndexed() error {
 	buf := d.buf
 	idx, buf, err := readVarInt(7, buf)
 	if err != nil {
@@ -311,13 +353,13 @@ func (d *Decoder) parseFieldIndexed(emitFunc func(hf HeaderField)) error {
 	// a value for index that's greater than the last successful one
 	if !ok {
 		d.failedToIndex = true
-		return d.callEmit(HeaderField{Name: "<BAD INDEX>", Value: ""}, emitFunc)
+		return d.callEmit(HeaderField{Name: "<BAD INDEX>", Value: ""})
 	}
-	return d.callEmit(HeaderField{Name: hf.Name, Value: hf.Value}, emitFunc)
+	return d.callEmit(HeaderField{Name: hf.Name, Value: hf.Value})
 }
 
 // (same invariants and behavior as parseHeaderFieldRepr)
-func (d *Decoder) parseFieldLiteral(n uint8, it indexType, emitFunc func(hf HeaderField)) error {
+func (d *Decoder) parseFieldLiteral(n uint8, it indexType) error {
 	buf := d.buf
 	nameIdx, buf, err := readVarInt(n, buf)
 	if err != nil {
@@ -325,6 +367,7 @@ func (d *Decoder) parseFieldLiteral(n uint8, it indexType, emitFunc func(hf Head
 	}
 
 	var hf HeaderField
+	wantStr := d.emitEnabled || it.indexed()
 	var undecodedName undecodedString
 	if nameIdx > 0 {
 		ihf, ok := d.at(nameIdx)
@@ -343,31 +386,35 @@ func (d *Decoder) parseFieldLiteral(n uint8, it indexType, emitFunc func(hf Head
 	if err != nil {
 		return err
 	}
-	if nameIdx <= 0 {
-		hf.Name, err = d.decodeString(undecodedName)
+	if wantStr {
+		if nameIdx <= 0 {
+			hf.Name, err = d.decodeString(undecodedName)
+			if err != nil {
+				return err
+			}
+		}
+		hf.Value, err = d.decodeString(undecodedValue)
 		if err != nil {
 			return err
 		}
-	}
-	hf.Value, err = d.decodeString(undecodedValue)
-	if err != nil {
-		return err
 	}
 	d.buf = buf
 	if it.indexed() && !d.failedToIndex {
 		d.dynTab.add(hf)
 	}
 	hf.Sensitive = it.sensitive()
-	return d.callEmit(hf, emitFunc)
+	return d.callEmit(hf)
 }
 
-func (d *Decoder) callEmit(hf HeaderField, emitFunc func(hf HeaderField)) error {
+func (d *Decoder) callEmit(hf HeaderField) error {
 	if d.maxStrLen != 0 {
 		if len(hf.Name) > d.maxStrLen || len(hf.Value) > d.maxStrLen {
 			return ErrStringLength
 		}
 	}
-	emitFunc(hf)
+	if d.emitEnabled {
+		d.emit(hf)
+	}
 	return nil
 }
 
