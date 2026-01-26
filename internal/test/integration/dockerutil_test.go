@@ -144,7 +144,7 @@ type obi struct {
 }
 
 // instrument starts the OBI container to instrument the target application.
-func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *dockertest.Resource) {
+func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *dockertest.Resource, configFile string) { //nolint:unparam // configFile is always passed in current usages but may vary in future
 	t.Helper()
 
 	t.Log("Starting OBI container with PID namespace sharing...")
@@ -157,7 +157,7 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *doc
 		Name:       fmt.Sprintf("obi-otel-test-%d", time.Now().UnixNano()),
 		Networks:   []*dockertest.Network{network},
 		Cmd: []string{
-			"--config=/configs/obi-config-go-otel.yml",
+			"--config=/configs/" + configFile,
 		},
 		Mounts: []string{
 			filepath.Join(pathRoot, "internal/test/integration/configs") + ":/configs",

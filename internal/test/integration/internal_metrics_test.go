@@ -72,7 +72,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver)
+	o.instrument(t, network, testserver, "obi-config-go-otel.yml")
 
 	t.Run("Avoided services metrics are recorded", func(t *testing.T) {
 		// Wait for the service to start and make some requests to trigger OTLP detection

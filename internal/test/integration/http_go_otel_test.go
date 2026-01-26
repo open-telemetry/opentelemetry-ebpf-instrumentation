@@ -204,7 +204,7 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver)
+	o.instrument(t, network, testserver, "obi-config-go-otel.yml")
 
 	t.Run("Go RED metrics: http service instrumented with OTel", func(t *testing.T) {
 		waitForTestComponents(t, "http://localhost:8080")
@@ -264,7 +264,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver)
+	o.instrument(t, network, testserver, "obi-config-go-otel.yml")
 
 	t.Run("Go RED metrics: http service instrumented with OTel, no istrumentation", func(t *testing.T) {
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")
@@ -307,7 +307,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver)
+	o.instrument(t, network, testserver, "obi-config-go-otel.yml")
 
 	t.Run("Go RED metrics: http service instrumented with OTel, option disabled", func(t *testing.T) {
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")
