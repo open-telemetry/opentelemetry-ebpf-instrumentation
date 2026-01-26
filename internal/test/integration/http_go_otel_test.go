@@ -246,7 +246,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	var testserver *dockertest.Resource
 	wg.Go(func() {
 		testserver = setupGoOTelTestServer(t, network, []string{
-			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4317",
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
 			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 		})
 	})
@@ -288,7 +288,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	var testserver *dockertest.Resource
 	wg.Go(func() {
 		testserver = setupGoOTelTestServer(t, network, []string{
-			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4317",
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
 			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 		})
 	})
