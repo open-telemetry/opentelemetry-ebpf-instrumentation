@@ -140,27 +140,39 @@ type obiConfig struct {
 	SecurityConfigSuffix string
 }
 
-// instrumentWithOBI builds and starts the OBI container to instrument the target application.
-func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.Network, resource *dockertest.Resource, config obiConfig) {
-	t.Helper()
+// buildOBIImage builds the OBI (ebpf-instrument) image.
+func buildOBIImage() (func() error, error) {
+	pool, err := dockertest.NewPool("")
+	if err != nil {
+		return nil, fmt.Errorf("could not create Docker pool: %w", err)
+	}
 
-	// Build the OBI (ebpf-instrument) image
-	t.Log("Building OBI image...")
 	projectRoot := tools.ProjectDir()
-	err := pool.Client.BuildImage(docker.BuildImageOptions{
+	err = pool.Client.BuildImage(docker.BuildImageOptions{
 		Name:         "hatest-obi",
 		ContextDir:   projectRoot,
 		Dockerfile:   "internal/test/integration/components/ebpf-instrument/Dockerfile",
-		OutputStream: t.Output(),
-		ErrorStream:  t.Output(),
-		BuildArgs: []docker.BuildArg{
-			{Name: "TARGETARCH", Value: "amd64"},
-		},
+		OutputStream: os.Stdout,
+		ErrorStream:  os.Stderr,
 	})
-	require.NoError(t, err, "could not build OBI Docker image")
-	t.Log("OBI image built")
+
+	cleanup := func() error {
+		err := pool.Client.RemoveImage("hatest-obi")
+		if err != nil {
+			return fmt.Errorf("could not remove OBI image: %w", err)
+		}
+		return nil
+	}
+
+	return cleanup, err
+}
+
+// instrumentWithOBI starts the OBI container to instrument the target application.
+func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.Network, resource *dockertest.Resource, config obiConfig) {
+	t.Helper()
 
 	t.Log("Starting OBI container with PID namespace sharing...")
+	projectRoot := tools.ProjectDir()
 	coverageDir := filepath.Join(projectRoot, "testoutput")
 	runOtelDir := filepath.Join(projectRoot, "testoutput/run-otel")
 	require.NoError(t, os.MkdirAll(coverageDir, 0o755), "could not create coverage directory")
