@@ -21,7 +21,6 @@ import (
 	dockercompose "go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
-	"go.opentelemetry.io/obi/internal/test/tools"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -30,15 +29,14 @@ var (
 	buildGoOTelTestServerErr  error
 )
 
-func buildGoOTelTestServerImage(t *testing.T, pool *dockertest.Pool) {
+func setupGoOTelTestServerContainer(t *testing.T) {
 	t.Helper()
 
 	t.Log("Building Go OpenTelemetry test server image")
 	buildGoOTelTestServerOnce.Do(func() {
-		projectRoot := tools.ProjectDir()
-		buildGoOTelTestServerErr = pool.Client.BuildImage(docker.BuildImageOptions{
+		buildGoOTelTestServerErr = dockerPool.Client.BuildImage(docker.BuildImageOptions{
 			Name:         "hatest-testserver",
-			ContextDir:   projectRoot,
+			ContextDir:   pathRoot,
 			Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
 			OutputStream: t.Output(),
 			ErrorStream:  t.Output(),
@@ -156,19 +154,19 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 }
 
 func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
-	pool, network := setupDockertest(t)
+	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		setupContainerPrometheus(t, pool, network, "prometheus-config.yml")
+		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
 	wg.Go(func() {
-		setupContainerJaeger(t, pool, network)
+		setupContainerJaeger(t, network)
 	})
 	wg.Go(func() {
-		setupContainerCollector(t, pool, network, "otelcol-config.yml")
+		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		buildGoOTelTestServerImage(t, pool)
+		setupGoOTelTestServerContainer(t)
 	})
 	wg.Wait()
 	if t.Failed() {
@@ -176,7 +174,7 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	}
 
 	// Start test server
-	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
+	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository:   "hatest-testserver",
 		Tag:          "latest",
 		Name:         fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
@@ -188,7 +186,7 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	})
 	require.NoError(t, err, "could not start test server container")
 	t.Cleanup(func() {
-		require.NoError(t, pool.Purge(testserver), "could not remove test server container")
+		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
 	})
 
 	// Start OBI to instrument the test server
@@ -200,7 +198,7 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	if !KernelLockdownMode() {
 		obiConfig.SecurityConfigSuffix = "_none"
 	}
-	instrumentWithOBI(t, pool, network, testserver, obiConfig)
+	instrumentWithOBI(t, network, testserver, obiConfig)
 
 	t.Run("Go RED metrics: http service instrumented with OTel", func(t *testing.T) {
 		waitForTestComponents(t, "http://localhost:8080")
@@ -228,19 +226,19 @@ func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 }
 
 func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
-	pool, network := setupDockertest(t)
+	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		setupContainerPrometheus(t, pool, network, "prometheus-config.yml")
+		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
 	wg.Go(func() {
-		setupContainerJaeger(t, pool, network)
+		setupContainerJaeger(t, network)
 	})
 	wg.Go(func() {
-		setupContainerCollector(t, pool, network, "otelcol-config.yml")
+		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		buildGoOTelTestServerImage(t, pool)
+		setupGoOTelTestServerContainer(t)
 	})
 	wg.Wait()
 	if t.Failed() {
@@ -248,7 +246,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	}
 
 	// Start test server
-	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
+	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "hatest-testserver",
 		Tag:        "latest",
 		Name:       fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
@@ -264,7 +262,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	})
 	require.NoError(t, err, "could not start test server container")
 	t.Cleanup(func() {
-		require.NoError(t, pool.Purge(testserver), "could not remove test server container")
+		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
 	})
 
 	// Start OBI to instrument the test server
@@ -276,7 +274,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	if !KernelLockdownMode() {
 		obiConfig.SecurityConfigSuffix = "_none"
 	}
-	instrumentWithOBI(t, pool, network, testserver, obiConfig)
+	instrumentWithOBI(t, network, testserver, obiConfig)
 
 	t.Run("Go RED metrics: http service instrumented with OTel, no istrumentation", func(t *testing.T) {
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")
@@ -286,19 +284,19 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 }
 
 func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
-	pool, network := setupDockertest(t)
+	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		setupContainerPrometheus(t, pool, network, "prometheus-config.yml")
+		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
 	wg.Go(func() {
-		setupContainerJaeger(t, pool, network)
+		setupContainerJaeger(t, network)
 	})
 	wg.Go(func() {
-		setupContainerCollector(t, pool, network, "otelcol-config.yml")
+		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		buildGoOTelTestServerImage(t, pool)
+		setupGoOTelTestServerContainer(t)
 	})
 	wg.Wait()
 	if t.Failed() {
@@ -306,7 +304,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	}
 
 	// Start test server
-	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
+	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "hatest-testserver",
 		Tag:        "latest",
 		Name:       fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
@@ -322,7 +320,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	})
 	require.NoError(t, err, "could not start test server container")
 	t.Cleanup(func() {
-		require.NoError(t, pool.Purge(testserver), "could not remove test server container")
+		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
 	})
 
 	// Start OBI to instrument the test server
@@ -335,7 +333,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	if !KernelLockdownMode() {
 		obiConfig.SecurityConfigSuffix = "_none"
 	}
-	instrumentWithOBI(t, pool, network, testserver, obiConfig)
+	instrumentWithOBI(t, network, testserver, obiConfig)
 
 	t.Run("Go RED metrics: http service instrumented with OTel, option disabled", func(t *testing.T) {
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")

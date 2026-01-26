@@ -41,19 +41,19 @@ func TestInstrumentationErrors(t *testing.T) {
 }
 
 func TestAvoidedServicesMetrics(t *testing.T) {
-	pool, network := setupDockertest(t)
+	network := setupDockerNetwork(t)
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		setupContainerPrometheus(t, pool, network, "prometheus-config.yml")
+		setupContainerPrometheus(t, network, "prometheus-config.yml")
 	})
 	wg.Go(func() {
-		setupContainerJaeger(t, pool, network)
+		setupContainerJaeger(t, network)
 	})
 	wg.Go(func() {
-		setupContainerCollector(t, pool, network, "otelcol-config.yml")
+		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		buildGoOTelTestServerImage(t, pool)
+		setupGoOTelTestServerContainer(t)
 	})
 	wg.Wait()
 	if t.Failed() {
@@ -61,7 +61,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 	}
 
 	// Start test server
-	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
+	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "hatest-testserver",
 		Tag:        "latest",
 		Name:       fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
@@ -77,7 +77,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 	})
 	require.NoError(t, err, "could not start test server container")
 	t.Cleanup(func() {
-		require.NoError(t, pool.Purge(testserver), "could not remove test server container")
+		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
 	})
 
 	// Start OBI to instrument the test server
@@ -90,7 +90,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 	if !KernelLockdownMode() {
 		obiConfig.SecurityConfigSuffix = "_none"
 	}
-	instrumentWithOBI(t, pool, network, testserver, obiConfig)
+	instrumentWithOBI(t, network, testserver, obiConfig)
 
 	t.Run("Avoided services metrics are recorded", func(t *testing.T) {
 		// Wait for the service to start and make some requests to trigger OTLP detection
