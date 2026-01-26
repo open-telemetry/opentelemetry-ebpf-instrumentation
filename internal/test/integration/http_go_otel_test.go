@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"sync"
 	"testing"
 	"time"
 
@@ -133,9 +134,20 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 
 func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	pool, network := setupDockertest(t)
-	setupContainerPrometheus(t, pool, network)
-	setupContainerJaeger(t, pool, network)
-	setupContainerCollector(t, pool, network)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		setupContainerPrometheus(t, pool, network, "prometheus-config.yml")
+	})
+	wg.Go(func() {
+		setupContainerJaeger(t, pool, network)
+	})
+	wg.Go(func() {
+		setupContainerCollector(t, pool, network, "otelcol-config.yml")
+	})
+	wg.Wait()
+	if t.Failed() {
+		return
+	}
 
 	// Build the test server image
 	projectRoot := tools.ProjectDir()
@@ -202,9 +214,20 @@ func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 
 func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	pool, network := setupDockertest(t)
-	setupContainerPrometheus(t, pool, network)
-	setupContainerJaeger(t, pool, network)
-	setupContainerCollector(t, pool, network)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		setupContainerPrometheus(t, pool, network, "prometheus-config.yml")
+	})
+	wg.Go(func() {
+		setupContainerJaeger(t, pool, network)
+	})
+	wg.Go(func() {
+		setupContainerCollector(t, pool, network, "otelcol-config.yml")
+	})
+	wg.Wait()
+	if t.Failed() {
+		return
+	}
 
 	// Build the test server image
 	projectRoot := tools.ProjectDir()
@@ -257,9 +280,20 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 
 func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	pool, network := setupDockertest(t)
-	setupContainerPrometheus(t, pool, network)
-	setupContainerJaeger(t, pool, network)
-	setupContainerCollector(t, pool, network)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		setupContainerPrometheus(t, pool, network, "prometheus-config.yml")
+	})
+	wg.Go(func() {
+		setupContainerJaeger(t, pool, network)
+	})
+	wg.Go(func() {
+		setupContainerCollector(t, pool, network, "otelcol-config.yml")
+	})
+	wg.Wait()
+	if t.Failed() {
+		return
+	}
 
 	// Build the test server image
 	projectRoot := tools.ProjectDir()

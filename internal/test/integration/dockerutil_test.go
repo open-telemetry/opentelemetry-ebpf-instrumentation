@@ -36,9 +36,10 @@ func setupDockertest(t *testing.T) (*dockertest.Pool, *dockertest.Network) {
 }
 
 // setupContainerPrometheus starts a Prometheus container for metrics scraping.
-func setupContainerPrometheus(t *testing.T, pool *dockertest.Pool, network *dockertest.Network) {
+func setupContainerPrometheus(t *testing.T, pool *dockertest.Pool, network *dockertest.Network, configFile string) { //nolint:unparam // configFile is always passed in current usages but may vary in future
 	t.Helper()
 
+	t.Log("Starting Prometheus container...")
 	projectRoot := tools.ProjectDir()
 	prometheus, err := pool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "quay.io/prometheus/prometheus",
@@ -49,7 +50,7 @@ func setupContainerPrometheus(t *testing.T, pool *dockertest.Pool, network *dock
 			filepath.Join(projectRoot, "internal/test/integration/configs") + ":/etc/prometheus",
 		},
 		Cmd: []string{
-			"--config.file=/etc/prometheus/prometheus-config.yml",
+			"--config.file=/etc/prometheus/" + configFile,
 			"--web.enable-lifecycle",
 			"--web.route-prefix=/",
 		},
@@ -62,12 +63,14 @@ func setupContainerPrometheus(t *testing.T, pool *dockertest.Pool, network *dock
 	t.Cleanup(func() {
 		require.NoError(t, pool.Purge(prometheus), "could not remove Prometheus container")
 	})
+	t.Log("Prometheus container started")
 }
 
 // setupContainerJaeger starts a Jaeger container for trace collection.
 func setupContainerJaeger(t *testing.T, pool *dockertest.Pool, network *dockertest.Network) {
 	t.Helper()
 
+	t.Log("Starting Jaeger container...")
 	jaeger, err := pool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "jaegertracing/all-in-one",
 		Tag:        "1.60",
@@ -94,18 +97,20 @@ func setupContainerJaeger(t *testing.T, pool *dockertest.Pool, network *dockerte
 		},
 	})
 	require.NoError(t, err, "could not connect Jaeger container to network")
+	t.Log("Jaeger container started")
 }
 
 // setupContainerCollector starts an OpenTelemetry Collector container.
-func setupContainerCollector(t *testing.T, pool *dockertest.Pool, network *dockertest.Network) {
+func setupContainerCollector(t *testing.T, pool *dockertest.Pool, network *dockertest.Network, configFile string) { //nolint:unparam // configFile is always passed in current usages but may vary in future
 	t.Helper()
 
+	t.Log("Starting OpenTelemetry Collector container...")
 	projectRoot := tools.ProjectDir()
 	otelcol, err := pool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "otel/opentelemetry-collector-contrib",
 		Tag:        "0.104.0",
 		Name:       fmt.Sprintf("otelcol-otel-test-%d", time.Now().UnixNano()),
-		Cmd:        []string{"--config=/etc/otelcol-config/otelcol-config.yml"},
+		Cmd:        []string{"--config=/etc/otelcol-config/" + configFile},
 		Mounts: []string{
 			filepath.Join(projectRoot, "internal/test/integration/configs") + ":/etc/otelcol-config",
 		},
@@ -124,6 +129,7 @@ func setupContainerCollector(t *testing.T, pool *dockertest.Pool, network *docke
 		},
 	})
 	require.NoError(t, err, "could not connect OpenTelemetry Collector container to network")
+	t.Log("OpenTelemetry Collector container started")
 }
 
 // obiConfig holds configuration for OBI instrumentation.
@@ -139,6 +145,7 @@ func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.
 	t.Helper()
 
 	// Build the OBI (ebpf-instrument) image
+	t.Log("Building OBI image...")
 	projectRoot := tools.ProjectDir()
 	err := pool.Client.BuildImage(docker.BuildImageOptions{
 		Name:         "hatest-obi",
@@ -151,9 +158,9 @@ func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.
 		},
 	})
 	require.NoError(t, err, "could not build OBI Docker image")
+	t.Log("OBI image built")
 
-	// Start OBI container with PID namespace sharing
-
+	t.Log("Starting OBI container with PID namespace sharing...")
 	coverageDir := filepath.Join(projectRoot, "testoutput")
 	runOtelDir := filepath.Join(projectRoot, "testoutput/run-otel")
 	require.NoError(t, os.MkdirAll(coverageDir, 0o755), "could not create coverage directory")
@@ -201,4 +208,5 @@ func instrumentWithOBI(t *testing.T, pool *dockertest.Pool, network *dockertest.
 	t.Cleanup(func() {
 		require.NoError(t, pool.Purge(obi), "could not remove OBI container")
 	})
+	t.Log("OBI container started")
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,9 +43,20 @@ func TestInstrumentationErrors(t *testing.T) {
 
 func TestAvoidedServicesMetrics(t *testing.T) {
 	pool, network := setupDockertest(t)
-	setupContainerPrometheus(t, pool, network)
-	setupContainerJaeger(t, pool, network)
-	setupContainerCollector(t, pool, network)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		setupContainerPrometheus(t, pool, network, "prometheus-config.yml")
+	})
+	wg.Go(func() {
+		setupContainerJaeger(t, pool, network)
+	})
+	wg.Go(func() {
+		setupContainerCollector(t, pool, network, "otelcol-config.yml")
+	})
+	wg.Wait()
+	if t.Failed() {
+		return
+	}
 
 	// Build the test server image
 	projectRoot := tools.ProjectDir()
