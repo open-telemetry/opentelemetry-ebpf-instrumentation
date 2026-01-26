@@ -52,7 +52,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		testserver = setupGoOTelTestServerContainer(t, network, []string{
+		testserver = setupGoOTelTestServer(t, network, []string{
 			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
 			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 		})

@@ -29,7 +29,7 @@ var (
 	buildGoOTelTestServerErr  error
 )
 
-func setupGoOTelTestServerContainer(t *testing.T, network *dockertest.Network, env []string) *dockertest.Resource {
+func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []string) *dockertest.Resource {
 	t.Helper()
 
 	buildGoOTelTestServerOnce.Do(func() {
@@ -188,7 +188,7 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		testserver = setupGoOTelTestServerContainer(t, network, nil)
+		testserver = setupGoOTelTestServer(t, network, nil)
 	})
 	wg.Wait()
 	if t.Failed() {
@@ -245,7 +245,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		testserver = setupGoOTelTestServerContainer(t, network, []string{
+		testserver = setupGoOTelTestServer(t, network, []string{
 			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4317",
 			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 		})
@@ -287,7 +287,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 		setupContainerCollector(t, network, "otelcol-config.yml")
 	})
 	wg.Go(func() {
-		testserver = setupGoOTelTestServerContainer(t, network, []string{
+		testserver = setupGoOTelTestServer(t, network, []string{
 			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4317",
 			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 		})
