@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
@@ -35,54 +34,90 @@ func testREDMetricsForHTTP2Library(t *testing.T, route, svcNs string) {
 			`service_name="client"`
 	)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_server_request_duration_seconds_count{%s}", serverLabels)
-		checkServerPromQueryResult(t, pq, query, 1)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 1
+	}, testTimeout, 500*time.Millisecond, "http server request duration not found")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", serverLabels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 3
+	}, testTimeout, 500*time.Millisecond, "http server request body size not found")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", serverLabels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 3
+	}, testTimeout, 500*time.Millisecond, "http server response body size not found")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_client_request_duration_seconds_count{%s}", clientLabels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 1
+	}, testTimeout, 500*time.Millisecond, "http client request duration not found")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_client_request_body_size_bytes_count{%s}", clientLabels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 1
+	}, testTimeout, 500*time.Millisecond, "http client request body size not found")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_client_response_body_size_bytes_count{%s}", clientLabels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 1
+	}, testTimeout, 500*time.Millisecond, "http client response body size not found")
 }
 
 func testNestedHTTP2Traces(t *testing.T, url string) {
 	var traceID string
 
 	var trace jaeger.Trace
-	test.Eventually(t, time.Duration(1)*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(jaegerQueryURL + "?service=client&operation=GET%20%2F" + url)
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil || resp == nil {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"})
-		require.GreaterOrEqual(t, len(traces), 1)
+		if len(traces) < 1 {
+			return false
+		}
 		trace = traces[0]
-	}, test.Interval(100*time.Millisecond))
+		return true
+	}, time.Duration(1)*time.Minute, 100*time.Millisecond, "client trace not found")
 
 	// Check the information of the HTTP2 client span
 	res := trace.FindByOperationName("GET /"+url, "client")
@@ -93,19 +128,25 @@ func testNestedHTTP2Traces(t *testing.T, url string) {
 	require.NotEmpty(t, parent.SpanID)
 
 	// Find the same traceID on a server span
-	test.Eventually(t, time.Duration(1)*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(jaegerQueryURL + "?service=server&operation=GET%20%2F" + url + "&traceID=" + traceID)
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil || resp == nil {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"})
-		require.GreaterOrEqual(t, len(traces), 1)
+		if len(traces) < 1 {
+			return false
+		}
 		trace = traces[0]
-	}, test.Interval(100*time.Millisecond))
+		return true
+	}, time.Duration(1)*time.Minute, 100*time.Millisecond, "server trace not found")
 }
 
 func TestHTTP2Go(t *testing.T) {

@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
@@ -37,25 +36,31 @@ func TestTracesDecoration(t *testing.T) {
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				var trace jaeger.Trace
 				var parent jaeger.Span
-				test.Eventually(t, testTimeout, func(t require.TestingT) {
+				require.Eventually(t, func() bool {
 					resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Ftraced-ping")
-					require.NoError(t, err)
-					if resp == nil {
-						return
+					if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
+						return false
 					}
-					require.Equal(t, http.StatusOK, resp.StatusCode)
 					var tq jaeger.TracesQuery
-					require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+					if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+						return false
+					}
 					traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/traced-ping"})
-					require.NotEmpty(t, traces)
+					if len(traces) == 0 {
+						return false
+					}
 
 					// Check the K8s metadata information of the parent span's process
 					trace = traces[0]
 					res := trace.FindByOperationName("GET /traced-ping", "server")
-					require.Len(t, res, 1)
+					if len(res) != 1 {
+						return false
+					}
 					parent = res[0]
 
-					require.NotEmpty(t, trace.Spans)
+					if len(trace.Spans) == 0 {
+						return false
+					}
 					sd := jaeger.DiffAsRegexp([]jaeger.Tag{
 						{Key: "k8s.pod.name", Type: "string", Value: "^testserver-.*"},
 						{Key: "k8s.container.name", Type: "string", Value: "testserver"},
@@ -67,8 +72,8 @@ func TestTracesDecoration(t *testing.T) {
 						{Key: "k8s.cluster.name", Type: "string", Value: "^obi-k8s-test-cluster$"},
 						{Key: "service.instance.id", Type: "string", Value: "^default\\.testserver-.+\\.testserver"},
 					}, trace.Processes[parent.ProcessID].Tags)
-					require.Empty(t, sd, sd.String())
-				}, test.Interval(100*time.Millisecond))
+					return len(sd) == 0
+				}, testTimeout, 100*time.Millisecond, "waiting for traces to be decorated properly")
 
 				return ctx
 			},

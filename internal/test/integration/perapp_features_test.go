@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
@@ -58,27 +57,29 @@ func testPerAppFeatures(t *testing.T, exportedSource string) {
 var pq = promtest.Client{HostPort: prometheusHostPort}
 
 func checkSpanMetric(t *testing.T, timeout time.Duration, exportedSource, serviceName string, port int, path string) {
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://localhost:%d%s", port, path), nil)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		_, err = testHTTPClient.Do(req)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 
 		results, err := pq.Query(`traces_spanmetrics_latency_sum{exported="` + exportedSource +
 			`",service_name="` + serviceName + `",span_name="GET ` + path + `"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		return err == nil && len(results) > 0
+	}, timeout, time.Second, "failed to find span metrics")
 }
 
 func hasREDMetrics(t *testing.T, exportedSource, serviceName string, path string) {
-	test.Eventually(t, time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		results, err := pq.Query(`http_server_request_body_size_bytes_sum{exported="` + exportedSource +
 			`",service_name="` + serviceName + `",http_route="` + path + `"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		return err == nil && len(results) > 0
+	}, time.Minute, time.Second, "failed to find http server metrics")
 }
 
 func hasNotREDMetrics(t *testing.T, serviceName string) {

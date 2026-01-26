@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
@@ -34,17 +33,26 @@ func awsReq(t *testing.T, url string) {
 func waitAWSProxy(t *testing.T) {
 	waitForTestComponentsNoMetrics(t, awsProxyAddress+"/health")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		ti.DoHTTPGet(t, awsProxyAddress+"/health", 200)
 		resp, err := http.Get(jaegerQueryURL + "?service=python3.14&operation=GET%20%2Fhealth")
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if err != nil {
+			return false
+		}
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/health"})
-		require.GreaterOrEqual(t, len(traces), 1)
-	}, test.Interval(1*time.Second))
+		if len(traces) < 1 {
+			return false
+		}
+		return true
+	}, testTimeout, 1*time.Second, "AWS proxy traces not found")
 }
 
 func fetchAWSSpanByOP(t require.TestingT, op string) jaeger.Span {

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
@@ -85,11 +84,10 @@ func testNoFlowsForExternalTraffic(ctx context.Context, t *testing.T, _ *envconf
 
 	// testing first that internal traffic is reported (this leaves room to populate Prometheus with
 	// the inspected metrics)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger",dst_name="testserver"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	})
+		return err == nil && len(results) > 0
+	}, testTimeout, time.Second, "waiting for internal network flow metrics")
 
 	// test that there isn't external traffic neither as source nor as a destination
 	results, err := pq.Query(`obi_network_flow_bytes_total{k8s_src_owner_name=""}`)

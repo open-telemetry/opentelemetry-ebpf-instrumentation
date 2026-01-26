@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
@@ -26,15 +24,19 @@ func assertHTTPRequests(t *testing.T, comm, urlPath string) {
 
 	pq := promtest.Client{HostPort: prometheusHostPort}
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		results, err := pq.Query(`db_client_operation_duration_seconds_count{` +
 			`db_operation_name="SELECT",` +
 			`service_namespace="integration-test"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if !enoughPromResultsCheck(results) {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
-	})
+		return val >= 1
+	}, testTimeout, 500*time.Millisecond, "failed to find db_client_operation_duration_seconds_count metric")
 
 	results, err := pq.Query(`http_server_request_duration_seconds_count{}`)
 	require.NoError(t, err, "failed to query prometheus for http_server_request_duration_seconds_count")
@@ -68,36 +70,45 @@ func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 	params.Add("operation", dbOperation)
 	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(fullURL)
-		require.NoError(t, err)
-		assert.NotNil(t, resp)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
+			return false
+		}
 
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op})
-		assert.GreaterOrEqual(t, len(traces), 1)
+		if len(traces) < 1 {
+			return false
+		}
 		lastTrace := traces[len(traces)-1]
 		span := lastTrace.Spans[0]
 
-		assert.Equal(t, dbOperation, span.OperationName)
+		if dbOperation != span.OperationName {
+			return false
+		}
 
 		tag, found := jaeger.FindIn(span.Tags, "db.query.text")
-		assert.True(t, found)
-		assert.True(t, strings.HasPrefix(tag.Value.(string), "SELECT * FROM "+table))
+		if !found || !strings.HasPrefix(tag.Value.(string), "SELECT * FROM "+table) {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "db.system.name")
-		assert.True(t, found)
-		assert.Equal(t, db, tag.Value)
+		if !found || db != tag.Value {
+			return false
+		}
 
 		_, found = jaeger.FindIn(span.Tags, "db.response.status_code")
-		assert.False(t, found)
+		if found {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
-		assert.True(t, found)
-		assert.Equal(t, table, tag.Value)
-	}, test.Interval(100*time.Millisecond))
+		return found && table == tag.Value
+	}, testTimeout, 500*time.Millisecond, "failed to verify SQL operation")
 }
 
 func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
@@ -123,46 +134,56 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 	params.Add("operation", dbOperation)
 	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(fullURL)
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
+			return false
+		}
 
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "db.collection.name", Type: "string", Value: table})
-		require.GreaterOrEqual(t, len(traces), 1)
+		if len(traces) < 1 {
+			return false
+		}
 
 		lastTrace := traces[len(traces)-1]
 		span := lastTrace.Spans[0]
 
-		assert.Equal(t, dbOperation, span.OperationName)
+		if dbOperation != span.OperationName {
+			return false
+		}
 
 		tag, found := jaeger.FindIn(span.Tags, "db.query.text")
-		assert.True(t, found)
-		assert.Equal(t, "SELECT * FROM obi.nonexisting", tag.Value)
+		if !found || "SELECT * FROM obi.nonexisting" != tag.Value {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "db.system.name")
-		assert.True(t, found)
-		assert.Equal(t, db, tag.Value)
+		if !found || db != tag.Value {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
-		assert.True(t, found)
-		assert.Equal(t, table, tag.Value)
+		if !found || table != tag.Value {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "db.response.status_code")
-		assert.True(t, found)
-		assert.Equal(t, expectedData[db]["db.response.status_code"], tag.Value)
+		if !found || expectedData[db]["db.response.status_code"] != tag.Value {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "error.type")
-		assert.True(t, found)
-		assert.Equal(t, expectedData[db]["error.type"], tag.Value)
+		if !found || expectedData[db]["error.type"] != tag.Value {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "otel.status_description")
-		assert.True(t, found)
-		assert.Equal(t, expectedData[db]["otel.status_description"], tag.Value)
-	}, test.Interval(100*time.Millisecond))
+		return found && expectedData[db]["otel.status_description"] == tag.Value
+	}, testTimeout, 500*time.Millisecond, "failed to verify SQL operation error")
 }
 
 func testPythonSQLQuery(t *testing.T, comm, url, table, db string) {
@@ -233,47 +254,52 @@ func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`db_client_operation_duration_seconds_count{` +
 			`db_operation_name="SELECT",` +
 			`service_namespace="` + namespace + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if !enoughPromResultsCheck(results) {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		return val >= 3
+	}, testTimeout, 500*time.Millisecond, "failed to find db_client_operation_duration_seconds_count metric for namespace")
 
 	// Look for a trace with SELECT accounting.contacts
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=SELECT%20accounting.contacts")
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: "SELECT"})
-		assert.LessOrEqual(t, 1, len(traces))
-	}, test.Interval(100*time.Millisecond))
+		return len(traces) >= 1
+	}, testTimeout, 500*time.Millisecond, "failed to find SELECT accounting.contacts trace")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2Fquery")
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/query"})
-		require.LessOrEqual(t, 1, len(traces))
+		if len(traces) < 1 {
+			return false
+		}
 		trace := traces[0]
-		// Check the information of the parent span
-		res := trace.FindByOperationName("GET /query", "")
-		require.Len(t, res, 1)
-	}, test.Interval(100*time.Millisecond))
+		results := trace.FindByOperationName("GET /query", "")
+		return len(results) == 1
+	}, testTimeout, 500*time.Millisecond, "failed to find GET /query trace")
 }
 
 func testREDMetricsPythonSQLSSL(t *testing.T) {

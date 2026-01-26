@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,58 +32,85 @@ func testREDMetricsTracesForOldGRPCLibrary(t *testing.T, svcNs string) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, time.Duration(1)*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="backend",` +
 			`url_path="` + path + `"}`)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		// check duration_count has 3 calls and all the arguments
-		enoughPromResults(t, results)
+		if !enoughPromResults(t, results) {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
+		if val < 1 {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if addr == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, 1*time.Minute, 500*time.Millisecond, "Prometheus http_server_request_duration_seconds_count query failed")
 
 	// Eventually, Prometheus would make this query visible
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
 			`service_namespace="integration-test",` +
 			`service_name="worker",` +
 			`rpc_method="/fib.Multiplier/Loop"}`)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		// check duration_count has at least 3 calls and all the arguments
-		enoughPromResults(t, results)
+		if !enoughPromResults(t, results) {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		if val < 3 {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if addr == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "Prometheus rpc_server_duration_seconds_count query failed")
 
 	var trace jaeger.Trace
-	test.Eventually(t, time.Duration(1)*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(jaegerQueryURL + "?service=backend&operation=GET%20%2Ffactorial%2F")
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp == nil {
+			return false
+		}
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: path})
-		require.GreaterOrEqual(t, len(traces), 1)
+		if len(traces) < 1 {
+			return false
+		}
 		trace = traces[0]
-	}, test.Interval(100*time.Millisecond))
+		return true
+	}, 1*time.Minute, 100*time.Millisecond, "Jaeger trace not found")
 
 	// Check the information of the python parent span
 	res := trace.FindByOperationName("GET /factorial/", "server")
@@ -111,18 +137,25 @@ func testGRPCGoClientFailsToConnect(t *testing.T) {
 	var results []promtest.Result
 
 	// Eventually, Prometheus would make this query visible
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`rpc_client_duration_seconds_count{` +
 			`service_namespace="integration-test",` +
 			`service_name="grpcpinger",` +
 			`rpc_grpc_status_code="2",` +
 			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if !enoughPromResults(t, results) {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
-	})
+		if val < 1 {
+			return false
+		}
+		return true
+	}, testTimeout, 500*time.Millisecond, "Prometheus rpc_client_duration_seconds_count query failed")
 }
 
 func TestSuiteOtherGRPCGo(t *testing.T) {

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
@@ -46,11 +45,14 @@ func testSelectiveExports(t *testing.T) {
 	// TODO: once we implement the instrumentation status query API, replace
 	// this with  a proper check to see if the target process has finished
 	// being instrumented
-	test.Eventually(t, 3*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		ti.DoHTTPGet(t, "http://localhost:5001/b", 200)
 		bTraces := getTraces("service-b", "/b")
-		require.NotNil(t, bTraces)
-	})
+		if bTraces == nil {
+			return false
+		}
+		return true
+	}, 3*time.Minute, 500*time.Millisecond, "Service B traces not found")
 
 	// Run couple of requests to make sure we flush out any transactions that might be
 	// stuck because of our tracking of full request times
@@ -59,17 +61,17 @@ func testSelectiveExports(t *testing.T) {
 		ti.DoHTTPGet(t, "http://localhost:5001/b", 200)
 	}
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		aTraces := getTraces("service-a", "/a")
 		bTraces := getTraces("service-b", "/b")
 		cTraces := getTraces("service-c", "/c")
 		dTraces := getTraces("service-d", "/d")
 
-		require.Empty(t, aTraces)
-		require.NotEmpty(t, bTraces)
-		require.NotEmpty(t, cTraces)
-		require.NotEmpty(t, dTraces)
-	}, test.Interval(500*time.Millisecond))
+		if len(aTraces) != 0 || len(bTraces) == 0 || len(cTraces) == 0 || len(dTraces) == 0 {
+			return false
+		}
+		return true
+	}, testTimeout, 500*time.Millisecond, "Selective exports validation failed")
 
 	pq := promtest.Client{HostPort: "localhost:9090"}
 
@@ -82,9 +84,12 @@ func testSelectiveExports(t *testing.T) {
 		return results
 	}
 
-	test.Eventually(t, 10*time.Second, func(t require.TestingT) {
-		require.NotEmpty(t, getMetrics("/a"))
-	})
+	require.Eventually(t, func() bool {
+		if len(getMetrics("/a")) == 0 {
+			return false
+		}
+		return true
+	}, 10*time.Second, 500*time.Millisecond, "Metrics for /a not found")
 
 	bMetrics := getMetrics("/b")
 	cMetrics := getMetrics("/c")

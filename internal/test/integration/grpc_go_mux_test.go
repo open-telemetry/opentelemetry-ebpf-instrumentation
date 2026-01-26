@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
@@ -20,7 +18,7 @@ func testREDMetricsForGRPCMuxLibrary(t *testing.T, route, svcNs, serverPort stri
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, time.Duration(1)*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
 			`rpc_grpc_status_code="0",` +
@@ -28,16 +26,25 @@ func testREDMetricsForGRPCMuxLibrary(t *testing.T, route, svcNs, serverPort stri
 			`service_name="server",` +
 			`rpc_method="` + route + `",` +
 			`server_port="` + serverPort + `"}`)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		// check duration_count has 3 calls and all the arguments
-		enoughPromResults(t, results)
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
+		if val < 1 {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
-			assert.NotNil(t, res.Metric["server_port"])
+			if res.Metric["server_port"] == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, time.Duration(1)*time.Minute, time.Second, "GRPC mux metrics not found")
 }
 
 func TestGRPCMux(t *testing.T) {

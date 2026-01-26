@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
@@ -37,38 +35,58 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 			`url_path="` + route + `"`
 	)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_server_request_duration_seconds_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 1)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 1
+	}, testTimeout, 500*time.Millisecond, "http server request duration not found")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 3
+	}, testTimeout, 500*time.Millisecond, "http server request body size not found")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 3
+	}, testTimeout, 500*time.Millisecond, "http server response body size not found")
 
 	slug := route[1:]
 
 	var trace jaeger.Trace
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil || resp == nil {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/" + slug})
-		require.NotEmpty(t, traces)
+		if len(traces) == 0 {
+			return false
+		}
 		trace = traces[0]
-		require.Len(t, trace.Spans, 3) // parent - in queue - processing
-	}, test.Interval(100*time.Millisecond))
+		return len(trace.Spans) == 3 // parent - in queue - processing
+	}, testTimeout, 100*time.Millisecond, "trace not found in jaeger")
 
 	// Check the information of the parent span
 	res := trace.FindByOperationName("GET /"+slug, "server")
@@ -82,24 +100,27 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 		ti.DoHTTPGet(t, "http://localhost:8080"+route, 200)
 	}
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(jaegerQueryURL + "?service=dicer&operation=Roll")
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil || resp == nil {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "http.method", Type: "string", Value: "GET"})
-		assert.LessOrEqual(t, 1, len(traces))
-	}, test.Interval(100*time.Millisecond))
+		return len(traces) >= 1
+	}, testTimeout, 100*time.Millisecond, "traces not found in jaeger")
 
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -107,25 +128,27 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 			`service_namespace="` + svcNs + `",` +
 			`service_name="rolldice",` +
 			`http_route="` + route + `",` +
-			`url_path="` + route + `"}`)
-		require.NoError(t, err)
-		require.Empty(t, results)
-	})
+			`url_path="` + route + `"`)
+		return err == nil && len(results) == 0
+	}, testTimeout, 500*time.Millisecond, "unexpected metrics found")
 
 	slug := route[1:]
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil || resp == nil {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/" + slug})
-		require.Empty(t, traces)
-	}, test.Interval(100*time.Millisecond))
+		return len(traces) == 0
+	}, testTimeout, 100*time.Millisecond, "unexpected traces found in jaeger")
 }
 
 func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
@@ -152,21 +175,23 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 
 func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, 1*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
+		if err != nil || r.StatusCode != http.StatusOK {
+			return false
+		}
 
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`http_server_duration_count{http_method="GET"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		return err == nil && len(results) > 0
+	}, 1*time.Minute, time.Second, "test components not ready")
 }
 
 func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
@@ -246,25 +271,31 @@ func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
 }
 
 func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
-	test.Eventually(t, 1*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
+		if err != nil || r.StatusCode != http.StatusOK {
+			return false
+		}
 
 		resp, err := http.Get(jaegerQueryURL + "?service=dicer&operation=Smoke")
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil || resp == nil {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "http.method", Type: "string", Value: "GET"})
-		assert.LessOrEqual(t, 1, len(traces))
-	}, test.Interval(time.Second))
+		return len(traces) >= 1
+	}, 1*time.Minute, time.Second, "test components with traces not ready")
 }
 
 func TestHTTPGoOTelAvoidsInstrumentedAppGRPC(t *testing.T) {

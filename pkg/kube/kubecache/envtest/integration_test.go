@@ -115,16 +115,20 @@ func TestAPIs(t *testing.T) {
 		Address:  fmt.Sprintf("127.0.0.1:%d", freePort),
 		Messages: make(chan *informer.Event, 10),
 	}
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		svcClient.Start(ctx, t, 0)
-	})
+		return true
+	}, timeout, 500*time.Millisecond)
 
 	// wait for the service to have sent the initial snapshot of entities
 	// (at the end, will send the "SYNC_FINISHED" event)
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		event := ReadChannel(t, svcClient.Messages, timeout)
-		require.Equal(t, informer.EventType_SYNC_FINISHED, event.Type)
-	})
+		if event.Type != informer.EventType_SYNC_FINISHED {
+			return false
+		}
+		return true
+	}, timeout, 500*time.Millisecond)
 
 	// WHEN a pod is created
 	require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
@@ -140,17 +144,30 @@ func TestAPIs(t *testing.T) {
 	}))
 
 	// THEN the informer cache sends the notification to its subscriptors
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		event := ReadChannel(t, svcClient.Messages, timeout)
-		assert.Equal(t, informer.EventType_CREATED, event.Type)
-		require.Equal(t, "second-pod", event.Resource.Name)
-		assert.Equal(t, "Pod", event.Resource.Kind)
-		assert.Equal(t, "default", event.Resource.Namespace)
+		if event.Type != informer.EventType_CREATED {
+			return false
+		}
+		if event.Resource.Name != "second-pod" {
+			return false
+		}
+		if event.Resource.Kind != "Pod" {
+			return false
+		}
+		if event.Resource.Namespace != "default" {
+			return false
+		}
 		// not checking some pod fields as they are not set by the testenv library
 		// They must be checked in integration tests
-		assert.NotEmpty(t, event.Resource.Pod.Uid)
-		assert.NotEmpty(t, event.Resource.Pod.StartTimeStr)
-	})
+		if event.Resource.Pod.Uid == "" {
+			return false
+		}
+		if event.Resource.Pod.StartTimeStr == "" {
+			return false
+		}
+		return true
+	}, timeout, 500*time.Millisecond)
 }
 
 func TestBlockedClients(t *testing.T) {
@@ -196,18 +213,31 @@ func TestBlockedClients(t *testing.T) {
 		close(allSent)
 	}()
 
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// the clients that got stalled, just received the expected number of messages
 		// before they got blocked
-		require.EqualValues(t, 5, stall5.readMessages.Load())
-		require.EqualValues(t, 10, stall10.readMessages.Load())
-		require.EqualValues(t, 15, stall15.readMessages.Load())
+		if stall5.readMessages.Load() != 5 {
+			return false
+		}
+		if stall10.readMessages.Load() != 10 {
+			return false
+		}
+		if stall15.readMessages.Load() != 15 {
+			return false
+		}
 
 		// but that did not block the rest of clients, which got all the expected messages
-		require.GreaterOrEqual(t, never1.readMessages.Load(), int32(createdPods))
-		require.GreaterOrEqual(t, never2.readMessages.Load(), int32(createdPods))
-		require.GreaterOrEqual(t, never3.readMessages.Load(), int32(createdPods))
-	})
+		if never1.readMessages.Load() < int32(createdPods) {
+			return false
+		}
+		if never2.readMessages.Load() < int32(createdPods) {
+			return false
+		}
+		if never3.readMessages.Load() < int32(createdPods) {
+			return false
+		}
+		return true
+	}, timeout, 500*time.Millisecond)
 
 	// we don't exit until all the pods have been created, to avoid failing the
 	// tests because the client.Create operation fails due to premature context cancellation
@@ -250,11 +280,17 @@ func TestAsynchronousStartup(t *testing.T) {
 	cl3 := serviceClient{Address: addr}
 
 	//nolint:testifylint
-	go func() { test.Eventually(t, timeout, func(t require.TestingT) { cl1.Start(ctx, t, 0) }) }()
+	go func() {
+		require.Eventually(t, func() bool { cl1.Start(ctx, t, 0); return true }, timeout, 500*time.Millisecond)
+	}()
 	//nolint:testifylint
-	go func() { test.Eventually(t, timeout, func(t require.TestingT) { cl2.Start(ctx, t, 0) }) }()
+	go func() {
+		require.Eventually(t, func() bool { cl2.Start(ctx, t, 0); return true }, timeout, 500*time.Millisecond)
+	}()
 	//nolint:testifylint
-	go func() { test.Eventually(t, timeout, func(t require.TestingT) { cl3.Start(ctx, t, 0) }) }()
+	go func() {
+		require.Eventually(t, func() bool { cl3.Start(ctx, t, 0); return true }, timeout, 500*time.Millisecond)
+	}()
 
 	iConfig := kubecache.DefaultConfig
 	iConfig.Port = newFreePort
@@ -270,11 +306,18 @@ func TestAsynchronousStartup(t *testing.T) {
 
 	// The clients should have received the Sync complete signal even if they
 	// connected to the cache service before it was fully synchronized
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		require.NotZero(t, cl1.syncSignalOnMessage.Load())
-		require.NotZero(t, cl2.syncSignalOnMessage.Load())
-		require.NotZero(t, cl3.syncSignalOnMessage.Load())
-	})
+	require.Eventually(t, func() bool {
+		if cl1.syncSignalOnMessage.Load() == 0 {
+			return false
+		}
+		if cl2.syncSignalOnMessage.Load() == 0 {
+			return false
+		}
+		if cl3.syncSignalOnMessage.Load() == 0 {
+			return false
+		}
+		return true
+	}, timeout, 500*time.Millisecond)
 	assert.LessOrEqual(t, int32(createdPods), cl1.syncSignalOnMessage.Load())
 	assert.LessOrEqual(t, int32(createdPods), cl2.syncSignalOnMessage.Load())
 	assert.LessOrEqual(t, int32(createdPods), cl3.syncSignalOnMessage.Load())
@@ -293,9 +336,10 @@ func TestResultsSortedByTimestamp(t *testing.T) {
 		Messages: make(chan *informer.Event, 10),
 	}
 
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		svcClient.Start(ctx, t, 0)
-	})
+		return true
+	}, timeout, 500*time.Millisecond)
 
 	prevTS := int64(-1)
 	// should get all the messages before ordered by timestamp
@@ -364,9 +408,10 @@ func TestFilterByTimestamp(t *testing.T) {
 		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "test-container", Image: "nginx"}}},
 		Status:     corev1.PodStatus{PodIP: "10.0.0.126"},
 	}))
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		svcClient.Start(ctx, t, discardEventsBefore)
-	})
+		return true
+	}, timeout, 500*time.Millisecond)
 
 	newestObjects := map[string]struct{}{
 		"service1-filter-by-ts": {},

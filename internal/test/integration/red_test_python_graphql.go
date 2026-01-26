@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
@@ -33,32 +31,49 @@ func testPythonGraphQL(t *testing.T) {
 	params.Add("operation", operationName)
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Post(address, "application/json", bytes.NewBuffer([]byte(query)))
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if err != nil {
+			return false
+		}
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 
 		resp, err = http.Get(fullJaegerURL)
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp == nil {
+			return false
+		}
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "graphql.operation.type", Type: "string", Value: "query"})
-		require.GreaterOrEqual(t, len(traces), 1)
+		if len(traces) < 1 {
+			return false
+		}
 		lastTrace := traces[len(traces)-1]
 		span := lastTrace.Spans[0]
 
-		assert.Equal(t, operationName, span.OperationName)
+		if operationName != span.OperationName {
+			return false
+		}
 
 		tag, found := jaeger.FindIn(span.Tags, "graphql.operation.name")
-		assert.True(t, found)
-		assert.Equal(t, "TestMe", tag.Value)
+		if !found || tag.Value != "TestMe" {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "graphql.document")
-		assert.True(t, found)
-		assert.Equal(t, "query TestMe { testme }", tag.Value)
-	}, test.Interval(100*time.Millisecond))
+		if !found || tag.Value != "query TestMe { testme }" {
+			return false
+		}
+		return true
+	}, testTimeout, 100*time.Millisecond, "Python GraphQL traces not found")
 }

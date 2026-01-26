@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -81,16 +80,26 @@ func TestNetMetricsExpiration(t *testing.T) {
 	})
 
 	// THEN the metrics are exported
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		assert.Equal(t, map[string]string{"src.name": "foo", "dst.name": "bar"}, metric.Attributes)
-		assert.InEpsilon(t, 123, metric.IntVal, 0.001)
-	})
-	test.Eventually(t, timeout, func(t require.TestingT) {
+		if metric.Attributes["src.name"] != "foo" || metric.Attributes["dst.name"] != "bar" {
+			return false
+		}
+		if metric.IntVal < 122.877 || metric.IntVal > 123.123 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		assert.Equal(t, map[string]string{"src.name": "baz", "dst.name": "bae"}, metric.Attributes)
-		assert.InEpsilon(t, 456, metric.IntVal, 0.001)
-	})
+		if metric.Attributes["src.name"] != "baz" || metric.Attributes["dst.name"] != "bae" {
+			return false
+		}
+		if metric.IntVal < 455.544 || metric.IntVal > 456.456 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 	// AND WHEN it keeps receiving a subset of the initial metrics during the TTL
 	now.Advance(2 * time.Minute)
 	metrics.Send([]*ebpf.Record{
@@ -101,11 +110,16 @@ func TestNetMetricsExpiration(t *testing.T) {
 	})
 
 	// THEN THE metrics that have been received during the TTL period are still visible
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		assert.Equal(t, map[string]string{"src.name": "foo", "dst.name": "bar"}, metric.Attributes)
-		assert.InEpsilon(t, 246, metric.IntVal, 0.001)
-	})
+		if metric.Attributes["src.name"] != "foo" || metric.Attributes["dst.name"] != "bar" {
+			return false
+		}
+		if metric.IntVal < 245.754 || metric.IntVal > 246.246 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
 	now.Advance(2 * time.Minute)
 	metrics.Send([]*ebpf.Record{
@@ -141,11 +155,16 @@ func TestNetMetricsExpiration(t *testing.T) {
 	})
 
 	// THEN they are reported again, starting from zero in the case of counters
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		assert.Equal(t, map[string]string{"src.name": "baz", "dst.name": "bae"}, metric.Attributes)
-		assert.InEpsilon(t, 456, metric.IntVal, 0.001)
-	})
+		if metric.Attributes["src.name"] != "baz" || metric.Attributes["dst.name"] != "bae" {
+			return false
+		}
+		if metric.IntVal < 455.544 || metric.IntVal > 456.456 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 }
 
 // the expiration logic is held at two levels:
@@ -214,23 +233,43 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	})
 
 	// THEN the metrics are exported
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		assert.Equal(t, "http.server.request.duration", metric.Name)
+		if metric.Name != "http.server.request.duration" {
+			return false
+		}
 		// k8s.app.version attribute is missing because the otel exporter
 		// does not read values from span metadata
-		assert.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
-		assert.InEpsilon(t, 100/float64(time.Second), metric.FloatVal, 0.001)
-		assert.Equal(t, 1, metric.Count)
-	})
+		if len(metric.Attributes) != 1 || metric.Attributes["url.path"] != "/foo" {
+			return false
+		}
+		expected := 100 / float64(time.Second)
+		if metric.FloatVal < expected*0.999 || metric.FloatVal > expected*1.001 {
+			return false
+		}
+		if metric.Count != 1 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		require.Equal(t, "http.server.request.duration", metric.Name)
-		assert.Equal(t, map[string]string{"url.path": "/bar"}, metric.Attributes)
-		assert.InEpsilon(t, 25/float64(time.Second), metric.FloatVal, 0.001)
-		assert.Equal(t, 1, metric.Count)
-	})
+		if metric.Name != "http.server.request.duration" {
+			return false
+		}
+		if len(metric.Attributes) != 1 || metric.Attributes["url.path"] != "/bar" {
+			return false
+		}
+		expected := 25 / float64(time.Second)
+		if metric.FloatVal < expected*0.999 || metric.FloatVal > expected*1.001 {
+			return false
+		}
+		if metric.Count != 1 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the TTL
 	now.Advance(2 * time.Minute)
@@ -239,13 +278,23 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	})
 
 	// THEN THE metrics that have been received during the TTL period are still visible
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		require.Equal(t, "http.server.request.duration", metric.Name)
-		assert.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
-		assert.InEpsilon(t, 130/float64(time.Second), metric.FloatVal, 0.001)
-		assert.Equal(t, 2, metric.Count)
-	})
+		if metric.Name != "http.server.request.duration" {
+			return false
+		}
+		if len(metric.Attributes) != 1 || metric.Attributes["url.path"] != "/foo" {
+			return false
+		}
+		expected := 130 / float64(time.Second)
+		if metric.FloatVal < expected*0.999 || metric.FloatVal > expected*1.001 {
+			return false
+		}
+		if metric.Count != 2 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
 	now.Advance(2 * time.Minute)
 	metrics.Send([]request.Span{
@@ -281,13 +330,23 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	})
 
 	// THEN they are reported again, starting from zero in the case of counters
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		require.Equal(t, "http.server.request.duration", metric.Name)
-		assert.Equal(t, map[string]string{"url.path": "/bar"}, metric.Attributes)
-		assert.InEpsilon(t, 70/float64(time.Second), metric.FloatVal, 0.001)
-		assert.Equal(t, 1, metric.Count)
-	})
+		if metric.Name != "http.server.request.duration" {
+			return false
+		}
+		if len(metric.Attributes) != 1 || metric.Attributes["url.path"] != "/bar" {
+			return false
+		}
+		expected := 70 / float64(time.Second)
+		if metric.FloatVal < expected*0.999 || metric.FloatVal > expected*1.001 {
+			return false
+		}
+		if metric.Count != 1 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 }
 
 // the expiration logic is held at two levels:
@@ -337,21 +396,41 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	})
 
 	// THEN the metrics are exported
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		assert.Equal(t, "http.server.request.duration", metric.Name)
-		assert.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
-		assert.InEpsilon(t, 100/float64(time.Second), metric.FloatVal, 0.001)
-		assert.Equal(t, 1, metric.Count)
-	})
+		if metric.Name != "http.server.request.duration" {
+			return false
+		}
+		if len(metric.Attributes) != 1 || metric.Attributes["url.path"] != "/foo" {
+			return false
+		}
+		expected := 100 / float64(time.Second)
+		if metric.FloatVal < expected*0.999 || metric.FloatVal > expected*1.001 {
+			return false
+		}
+		if metric.Count != 1 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		require.Equal(t, "http.server.request.duration", metric.Name)
-		assert.Equal(t, map[string]string{"url.path": "/bar"}, metric.Attributes)
-		assert.InEpsilon(t, 25/float64(time.Second), metric.FloatVal, 0.001)
-		assert.Equal(t, 1, metric.Count)
-	})
+		if metric.Name != "http.server.request.duration" {
+			return false
+		}
+		if len(metric.Attributes) != 1 || metric.Attributes["url.path"] != "/bar" {
+			return false
+		}
+		expected := 25 / float64(time.Second)
+		if metric.FloatVal < expected*0.999 || metric.FloatVal > expected*1.001 {
+			return false
+		}
+		if metric.Count != 1 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the TTL
 	now.Advance(2 * time.Minute)
@@ -360,13 +439,23 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	})
 
 	// THEN THE metrics that have been received during the TTL period are still visible
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		require.Equal(t, "http.server.request.duration", metric.Name)
-		require.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
-		assert.InEpsilon(t, 130/float64(time.Second), metric.FloatVal, 0.001)
-		assert.Equal(t, 2, metric.Count)
-	})
+		if metric.Name != "http.server.request.duration" {
+			return false
+		}
+		if len(metric.Attributes) != 1 || metric.Attributes["url.path"] != "/foo" {
+			return false
+		}
+		expected := 130 / float64(time.Second)
+		if metric.FloatVal < expected*0.999 || metric.FloatVal > expected*1.001 {
+			return false
+		}
+		if metric.Count != 2 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
 	now.Advance(2 * time.Minute)
 	metrics.Send([]request.Span{
@@ -378,7 +467,7 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	// If this test is flaky: it means it is actually failing
 	// repeating 10 times to make sure that only this metric is forwarded
 	// need to wait until expireCache internal goroutine removes all the expired entries
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// makes sure that the records channel is emptied and any remaining
 		// old metric is sent and then the channel is re-emptied
 		otlp.ResetRecords()
@@ -391,11 +480,19 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 				i--
 				continue
 			}
-			require.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
-			require.InEpsilon(t, 140/float64(time.Second), metric.FloatVal, 0.001)
-			assert.Equal(t, 3, metric.Count)
+			if len(metric.Attributes) != 1 || metric.Attributes["url.path"] != "/foo" {
+				return false
+			}
+			expected := 140 / float64(time.Second)
+			if metric.FloatVal < expected*0.999 || metric.FloatVal > expected*1.001 {
+				return false
+			}
+			if metric.Count != 3 {
+				return false
+			}
 		}
-	})
+		return true
+	}, timeout, 100*time.Millisecond)
 	// AND WHEN the metrics labels that disappeared are received again
 	now.Advance(2 * time.Minute)
 	metrics.Send([]request.Span{
@@ -403,13 +500,23 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	})
 
 	// THEN they are reported again, starting from zero in the case of counters
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metric := readChan(t, otlp.Records())
-		require.Equal(t, "http.server.request.duration", metric.Name)
-		assert.Equal(t, map[string]string{"url.path": "/bar"}, metric.Attributes)
-		assert.InEpsilon(t, 70/float64(time.Second), metric.FloatVal, 0.0001)
-		assert.Equal(t, 1, metric.Count)
-	})
+		if metric.Name != "http.server.request.duration" {
+			return false
+		}
+		if len(metric.Attributes) != 1 || metric.Attributes["url.path"] != "/bar" {
+			return false
+		}
+		expected := 70 / float64(time.Second)
+		if metric.FloatVal < expected*0.9999 || metric.FloatVal > expected*1.0001 {
+			return false
+		}
+		if metric.Count != 1 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 }
 
 type syncedClock struct {

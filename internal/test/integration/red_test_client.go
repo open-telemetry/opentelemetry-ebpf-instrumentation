@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -30,39 +29,60 @@ func testClientWithMethodAndStatusCode(t *testing.T, method string, statusCode i
 			`service_name="pingclient"`
 	)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_client_request_duration_seconds_count{%s}", labels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 1
+	}, testTimeout, 500*time.Millisecond, "http client request duration not found")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_client_request_body_size_bytes_count{%s}", labels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 1
+	}, testTimeout, 500*time.Millisecond, "http client request body size not found")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		query := fmt.Sprintf("http_client_response_body_size_bytes_count{%s}", labels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		results, err := pq.Query(query)
+		if err != nil || len(results) == 0 {
+			return false
+		}
+		val := totalPromCount(t, results)
+		return val >= 1
+	}, testTimeout, 500*time.Millisecond, "http client response body size not found")
 
 	if !traces {
 		return
 	}
 
 	var trace jaeger.Trace
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(jaegerQueryURL + fmt.Sprintf("?service=pingclient&operation=%s%%20/oss/", method))
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil || resp == nil {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(statusCode)})
-		require.GreaterOrEqual(t, len(traces), 1)
+		if len(traces) < 1 {
+			return false
+		}
 		trace = traces[0]
-	}, test.Interval(100*time.Millisecond))
+		return true
+	}, testTimeout, 100*time.Millisecond, "trace not found in jaeger")
 
 	spans := trace.FindByOperationName(method+" /oss/", "")
 	require.Len(t, spans, 1)

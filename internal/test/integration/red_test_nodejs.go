@@ -8,8 +8,8 @@ import (
 	"path"
 	"strconv"
 	"testing"
+	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -32,7 +32,7 @@ func testREDMetricsForNodeHTTPLibrary(t *testing.T, url, urlPath, comm, namespac
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="POST",` +
@@ -40,16 +40,24 @@ func testREDMetricsForNodeHTTPLibrary(t *testing.T, url, urlPath, comm, namespac
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		if val < 3 {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
-			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if res.Metric["client_address"] == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "NodeJS HTTP metrics not found")
 }
 
 func testREDMetricsForNodeHTTPLibraryRoutes(t *testing.T, url, comm, namespace string) {
@@ -63,7 +71,7 @@ func testREDMetricsForNodeHTTPLibraryRoutes(t *testing.T, url, comm, namespace s
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -71,16 +79,24 @@ func testREDMetricsForNodeHTTPLibraryRoutes(t *testing.T, url, comm, namespace s
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`http_route="/users/:userId"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		if val < 3 {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
-			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if res.Metric["client_address"] == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "NodeJS HTTP route metrics not found")
 }
 
 func testREDMetricsNodeJSHTTP(t *testing.T) {
@@ -110,7 +126,7 @@ func checkReportedNodeJSEvents(t *testing.T, urlPath, comm, namespace string, nu
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="POST",` +
@@ -118,14 +134,22 @@ func checkReportedNodeJSEvents(t *testing.T, urlPath, comm, namespace string, nu
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, val, numEvents)
+		if val > numEvents {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
-			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if res.Metric["client_address"] == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "NodeJS events count validation failed")
 }

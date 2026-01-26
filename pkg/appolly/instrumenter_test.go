@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -643,10 +642,13 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 	events := map[string]map[string]string{}
 	for range 10 {
 		var event collector.MetricRecord
-		test.Eventually(t, testTimeout, func(tt require.TestingT) {
+		require.Eventually(t, func() bool {
 			event = testutil.ReadChannel(t, tc.Records(), testTimeout)
-			require.Equal(tt, "http.server.request.duration", event.Name)
-		})
+			if event.Name != "http.server.request.duration" {
+				return false
+			}
+			return true
+		}, testTimeout, 100*time.Millisecond)
 		events[event.Attributes["url.path"]] = event.Attributes
 	}
 

@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
@@ -28,7 +26,7 @@ func testREDMetricsForPythonHTTPLibrary(t *testing.T, url, comm, namespace strin
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -36,16 +34,24 @@ func testREDMetricsForPythonHTTPLibrary(t *testing.T, url, comm, namespace strin
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		if val < 3 {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
-			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if res.Metric["client_address"] == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "Python HTTP metrics not found")
 }
 
 func testREDMetricsTimeoutForPythonHTTPLibrary(t *testing.T, url, comm, namespace string) {
@@ -56,7 +62,7 @@ func testREDMetricsTimeoutForPythonHTTPLibrary(t *testing.T, url, comm, namespac
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -64,16 +70,24 @@ func testREDMetricsTimeoutForPythonHTTPLibrary(t *testing.T, url, comm, namespac
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
+		if val < 1 {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
-			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if res.Metric["client_address"] == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "Python timeout metrics not found")
 }
 
 func testREDMetricsDNSForPython(t *testing.T, url, comm, namespace string) {
@@ -85,27 +99,40 @@ func testREDMetricsDNSForPython(t *testing.T, url, comm, namespace string) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`dns_lookup_duration_seconds_count{` +
 			`dns_question_name="opentelemetry.io.",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
+		if val < 1 {
+			return false
+		}
 
 		results, err = pq.Query(`dns_lookup_duration_seconds_count{` +
 			`dns_question_name="www.opentelemetry.invalid.",` +
 			`error_type="NXDomain",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val = totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
-	})
+		if val < 1 {
+			return false
+		}
+		return true
+	}, testTimeout, 500*time.Millisecond, "Python DNS metrics not found")
 }
 
 func testREDMetricsPythonHTTP(t *testing.T) {
@@ -158,7 +185,7 @@ func checkReportedPythonEvents(t *testing.T, comm, namespace string, numEvents i
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -166,14 +193,22 @@ func checkReportedPythonEvents(t *testing.T, comm, namespace string, numEvents i
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, val, numEvents)
+		if val > numEvents {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
-			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if res.Metric["client_address"] == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "Python events count validation failed")
 }

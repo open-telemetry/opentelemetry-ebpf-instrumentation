@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -52,9 +51,12 @@ func TestSwarm_RunnerExecution(t *testing.T) {
 	s, err := inst.Instance(t.Context())
 	require.NoError(t, err)
 	s.Start(t.Context())
-	test.Eventually(t, 5*time.Second, func(t require.TestingT) {
-		assert.True(t, runnerExecuted.Load(), "runner was not executed")
-	})
+	require.Eventually(t, func() bool {
+		if !runnerExecuted.Load() {
+			return false
+		}
+		return true
+	}, 5*time.Second, 100*time.Millisecond)
 	assertDone(t, s)
 }
 
@@ -83,9 +85,12 @@ func TestSwarm_CreatorFailure(t *testing.T) {
 	// second creator fails, so the first one should be cancelled and the third one should not be instantiated
 	_, err := inst.Instance(t.Context())
 	require.Error(t, err)
-	test.Eventually(t, 5*time.Second, func(t require.TestingT) {
-		assert.True(t, c1cancel.Load(), "c1 was not cancelled")
-	})
+	require.Eventually(t, func() bool {
+		if !c1cancel.Load() {
+			return false
+		}
+		return true
+	}, 5*time.Second, 100*time.Millisecond)
 	assert.False(t, c3exec.Load(), "c3 was executed")
 	assert.False(t, runnerStarted.Load(), "runner was started")
 }
@@ -108,13 +113,15 @@ func TestSwarm_ContextPassed(t *testing.T) {
 	s, err := inst.Instance(t.Context())
 	require.NoError(t, err)
 	s.Start(ctx)
-	test.Eventually(t, 5*time.Second, func(_ require.TestingT) {
+	require.Eventually(t, func() bool {
 		startWg.Wait()
-	})
+		return true
+	}, 5*time.Second, 100*time.Millisecond)
 	cancel()
-	test.Eventually(t, 5*time.Second, func(_ require.TestingT) {
+	require.Eventually(t, func() bool {
 		doneWg.Wait()
-	})
+		return true
+	}, 5*time.Second, 100*time.Millisecond)
 	assertDone(t, s)
 }
 

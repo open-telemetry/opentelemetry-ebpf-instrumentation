@@ -5,13 +5,11 @@ package integration // import "go.opentelemetry.io/obi/internal/test/integration
 
 import (
 	"testing"
+	"time"
 
-	"github.com/mariomac/guara/pkg/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
-	"go.opentelemetry.io/obi/internal/test/tools"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -28,7 +26,7 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -36,30 +34,45 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 2, val, "received:", tools.ToJSON(val))
+		if val < 2 {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
-			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if res.Metric["client_address"] == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, ".NET HTTP server metrics not found")
 
 	// Eventually, Prometheus would make this query visible
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_client_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 2, val, "received:", tools.ToJSON(val))
-	})
+		if val < 2 {
+			return false
+		}
+		return true
+	}, testTimeout, 500*time.Millisecond, ".NET HTTP client metrics not found")
 }
 
 func testREDMetricsDotNetHTTP(t *testing.T) {
@@ -88,7 +101,7 @@ func testREDMetricsForNetHTTPSLibrary(t *testing.T, url string, comm string) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -96,11 +109,18 @@ func testREDMetricsForNetHTTPSLibrary(t *testing.T, url string, comm string) {
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + path + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		if val < 3 {
+			return false
+		}
+		return true
+	}, testTimeout, 500*time.Millisecond, ".NET HTTPS metrics not found")
 }
 
 func testREDMetricsDotNetHTTPS(t *testing.T) {

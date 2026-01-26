@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
@@ -50,10 +49,10 @@ func FeatureNetworkFlowBytes() features.Feature {
 func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	// testing request flows (to testserver as Service)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-net",dst_name="testserver"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
+		if err != nil { return false }
+		if len(results) == 0 { return false }
 
 		// check that the metrics are properly decorated
 		require.GreaterOrEqual(t, len(results), 1) // tests could establish more than one connection from different client_ports
@@ -80,12 +79,12 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assert.Equal(t, "8080", metric["server_port"])
 		assert.NotEqual(t, "8080", metric["client_port"])
 		// services don't have host IP or name
-	})
+	}, testTimeout, time.Second, "waiting for network metrics")
 	// testing request flows (to testserver as Pod)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-net",dst_name=~"testserver-.*"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
+		if err != nil { return false }
+		if len(results) == 0 { return false }
 
 		// check that the metrics are properly decorated
 		require.GreaterOrEqual(t, len(results), 1) // tests could establish more than one connection from different client_ports
@@ -113,13 +112,13 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assert.Contains(t, podSubnets, metric["dst_cidr"], metric)
 		assert.Equal(t, "8080", metric["server_port"])
 		assert.NotEqual(t, "8080", metric["client_port"])
-	})
+	}, testTimeout, time.Second, "waiting for network metrics")
 
 	// testing response flows (from testserver Pod)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name=~"testserver-.*",dst_name="internal-pinger-net"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
+		if err != nil { return false }
+		if len(results) == 0 { return false }
 
 		// check that the metrics are properly decorated
 		require.GreaterOrEqual(t, len(results), 1) // tests could establish more than one connection from different client_ports
@@ -147,13 +146,13 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assert.Equal(t, "TCP", metric["transport"])
 		assert.Equal(t, "8080", metric["server_port"])
 		assert.NotEqual(t, "8080", metric["client_port"])
-	})
+	}, testTimeout, time.Second, "waiting for network metrics")
 
 	// testing response flows (from testserver Service)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="testserver",dst_name="internal-pinger-net"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
+		if err != nil { return false }
+		if len(results) == 0 { return false }
 
 		// check that the metrics are properly decorated
 		require.GreaterOrEqual(t, len(results), 1) // tests could establish more than one connection from different client_ports
@@ -177,17 +176,17 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assert.Contains(t, podSubnets, metric["dst_cidr"], metric)
 		assert.Equal(t, "8080", metric["server_port"])
 		assert.NotEqual(t, "8080", metric["client_port"])
-	})
+	}, testTimeout, time.Second, "waiting for network metrics")
 
 	// check that there aren't captured flows if there is no communication
 	results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-net",dst_name="otherinstance"}`)
-	require.NoError(t, err)
+	if err != nil { return false }
 	require.Empty(t, results)
 
 	// check that only TCP traffic is captured, according to the Protocols configuration option
 	results, err = pq.Query(`obi_network_flow_bytes_total`)
-	require.NoError(t, err)
-	require.NotEmpty(t, results)
+	if err != nil { return false }
+	if len(results) == 0 { return false }
 	for _, result := range results {
 		assert.Equal(t, "TCP", result.Metric["transport"])
 	}
@@ -199,20 +198,20 @@ func testNetFlowBytesForExternalTraffic(ctx context.Context, t *testing.T, _ *en
 	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	// test external traffic (this test --> prometheus)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// checks that at least one source without src kubernetes label is there
 		results, err := pq.Query(`obi_network_flow_bytes_total{k8s_dst_owner_name="prometheus",k8s_src_owner_name=""}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	})
+		if err != nil { return false }
+		if len(results) == 0 { return false }
+	}, testTimeout, time.Second, "waiting for network metrics")
 
 	// test external traffic (prometheus --> this test)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// checks that at least one source without dst kubernetes label is there
 		results, err := pq.Query(`obi_network_flow_bytes_total{k8s_src_owner_name="prometheus",k8s_dst_owner_name=""}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	})
+		if err != nil { return false }
+		if len(results) == 0 { return false }
+	}, testTimeout, time.Second, "waiting for network metrics")
 	return ctx
 }
 

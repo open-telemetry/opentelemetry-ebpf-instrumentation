@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -42,25 +40,34 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 	require.Empty(t, results, "expected no HTTP requests, got %d", len(results))
 
 	// Ensure we see the expected spans in Jaeger
-	test.Eventually(t, 2*testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		for _, span := range testCase.Spans {
 			command := span.Name
 			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&limit=1000")
-			require.NoError(t, err, "failed to query jaeger for %s", comm)
-			if resp == nil {
-				return
+			if err != nil {
+				return false
 			}
-			require.Equal(t, http.StatusOK, resp.StatusCode, "unexpected status code for %s: %d", command, resp.StatusCode)
+			if resp == nil {
+				return false
+			}
+			if resp.StatusCode != http.StatusOK {
+				return false
+			}
 			var tq jaeger.TracesQuery
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq), "failed to decode jaeger response for %s", command)
+			if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+				return false
+			}
 			var tags []jaeger.Tag
 			for _, attr := range span.Attributes {
 				tags = append(tags, otelAttributeToJaegerTag(attr))
 			}
 			traces := tq.FindBySpan(tags...)
-			assert.LessOrEqual(t, 1, len(traces), "span %s with tags %v not found in traces %v", command, tags, tq.Data)
+			if len(traces) < 1 {
+				return false
+			}
 		}
-	}, test.Interval(100*time.Millisecond))
+		return true
+	}, 2*testTimeout, 100*time.Millisecond, "Kafka test case spans validation failed")
 
 	// Ensure we don't find any HTTP traces, since we filter them out
 	resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
@@ -224,11 +231,18 @@ func testJavaKafkaLargeBuffer(t *testing.T) {
 func waitForKafkaTestComponents(t *testing.T, url string, subpath string) {
 	t.Helper()
 
-	test.Eventually(t, time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
-	}, test.Interval(time.Second))
+		if err != nil {
+			return false
+		}
+		if r.StatusCode != http.StatusOK {
+			return false
+		}
+		return true
+	}, time.Minute, time.Second, "Kafka test components not ready")
 }

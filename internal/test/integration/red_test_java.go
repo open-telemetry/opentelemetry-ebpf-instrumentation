@@ -5,9 +5,8 @@ package integration // import "go.opentelemetry.io/obi/internal/test/integration
 
 import (
 	"testing"
+	"time"
 
-	"github.com/mariomac/guara/pkg/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
@@ -42,7 +41,7 @@ func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm string) 
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -50,18 +49,26 @@ func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm string) 
 			namespaceMatch +
 			commMatch +
 			`url_path="` + path + `"}`)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		// check duration_count has 3 calls and all the arguments
-		enoughPromResults(t, results)
+		if len(results) == 0 {
+			return false
+		}
 		if len(results) > 0 {
 			val := totalPromCount(t, results)
-			assert.LessOrEqual(t, 3, val)
+			if val < 3 {
+				return false
+			}
 
 			res := results[0]
-			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if res.Metric["client_address"] == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "Java HTTP metrics not found")
 }
 
 func testREDMetricsJavaHTTP(t *testing.T) {

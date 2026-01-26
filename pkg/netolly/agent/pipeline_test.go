@@ -11,9 +11,7 @@ import (
 	"time"
 
 	"github.com/mariomac/guara/pkg/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -90,12 +88,17 @@ func TestFilter(t *testing.T) {
 		fakeRecord(transport.UDP, 3333, 8080),
 	}
 
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		metrics, err := promtest.Scrape(fmt.Sprintf("http://localhost:%d/metrics", promPort))
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 
 		// assuming metrics returned alphabetically ordered
-		assert.Equal(t, []promtest.ScrapedMetric{
+		if len(metrics) != 4 {
+			return false
+		}
+		expected := []promtest.ScrapedMetric{
 			{Name: "obi_network_flow_bytes_total", Labels: map[string]string{
 				"obi_ip": "1.2.3.4", "iface_direction": "ingress", "dst_port": "1011", "iface": "fakeiface", "src_port": "789", "transport": "TCP",
 			}},
@@ -105,8 +108,19 @@ func TestFilter(t *testing.T) {
 			// standard prometheus metrics. Leaving them here to simplify test verification
 			{Name: "promhttp_metric_handler_errors_total", Labels: map[string]string{"cause": "encoding"}},
 			{Name: "promhttp_metric_handler_errors_total", Labels: map[string]string{"cause": "gathering"}},
-		}, metrics)
-	})
+		}
+		for i := range metrics {
+			if metrics[i].Name != expected[i].Name {
+				return false
+			}
+			for k, v := range expected[i].Labels {
+				if metrics[i].Labels[k] != v {
+					return false
+				}
+			}
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 }
 
 func fakeRecord(protocol transport.Protocol, srcPort, dstPort uint16) *ebpf.Record {

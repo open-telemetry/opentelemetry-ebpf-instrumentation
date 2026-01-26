@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
@@ -79,25 +78,40 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 
 func checkInstrumentationErrorMetrics(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		results, err := pq.Query(`obi_instrumentation_errors_total`)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 
-		require.GreaterOrEqual(t, len(results), 1, "obi_instrumentation_errors_total metric should be present")
+		if len(results) < 1 {
+			return false
+		}
 
 		// Verify we have some errors and proper labels
 		totalErrors := 0
 		for _, result := range results {
 			labels := result.Metric
-			require.Contains(t, labels, "process_name", "process_name label should be present")
-			require.Contains(t, labels, "error_type", "error_type label should be present")
+			if _, ok := labels["process_name"]; !ok {
+				return false
+			}
+			if _, ok := labels["error_type"]; !ok {
+				return false
+			}
 
 			value, err := strconv.Atoi(result.Value[1].(string))
-			require.NoError(t, err)
+			if err != nil {
+				return false
+			}
 			totalErrors += value
 		}
 
 		// We should have at least some errors when running without privileges
+		if totalErrors < 1 {
+			return false
+		}
+		return true
+	}, testTimeout, 500*time.Millisecond, "Instrumentation error metrics not found")
 		require.Positive(t, totalErrors, "Should have instrumentation errors when running without privileges")
 	}, test.Interval(1000*time.Millisecond))
 }

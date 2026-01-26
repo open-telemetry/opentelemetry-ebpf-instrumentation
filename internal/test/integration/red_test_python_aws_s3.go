@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
@@ -30,13 +29,37 @@ func testPythonAWSS3(t *testing.T) {
 	awsReq(t, awsProxyAddress+"/deleteobject")
 	awsReq(t, awsProxyAddress+"/deletebucket")
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		assertS3Operation(t, "CreateBucket", "")
-		assertS3Operation(t, "PutObject", s3ObjectKey)
-		assertS3Operation(t, "ListObjects", "")
-		assertS3Operation(t, "DeleteObject", s3ObjectKey)
-		assertS3Operation(t, "DeleteBucket", "")
-	}, test.Interval(time.Second))
+	require.Eventually(t, func() bool {
+		// Check all S3 operations are present
+		span := fetchAWSSpanByOP(require.New(t), "s3.CreateBucket")
+		if span.OperationName != "s3.CreateBucket" {
+			return false
+		}
+		span = fetchAWSSpanByOP(require.New(t), "s3.PutObject")
+		if span.OperationName != "s3.PutObject" {
+			return false
+		}
+		span = fetchAWSSpanByOP(require.New(t), "s3.ListObjects")
+		if span.OperationName != "s3.ListObjects" {
+			return false
+		}
+		span = fetchAWSSpanByOP(require.New(t), "s3.DeleteObject")
+		if span.OperationName != "s3.DeleteObject" {
+			return false
+		}
+		span = fetchAWSSpanByOP(require.New(t), "s3.DeleteBucket")
+		if span.OperationName != "s3.DeleteBucket" {
+			return false
+		}
+		return true
+	}, testTimeout, time.Second, "AWS S3 operations not found")
+
+	// Now assert detailed properties of each operation
+	assertS3Operation(t, "CreateBucket", "")
+	assertS3Operation(t, "PutObject", s3ObjectKey)
+	assertS3Operation(t, "ListObjects", "")
+	assertS3Operation(t, "DeleteObject", s3ObjectKey)
+	assertS3Operation(t, "DeleteBucket", "")
 }
 
 func assertS3Operation(t require.TestingT, op, expectedKey string) {

@@ -9,12 +9,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/mariomac/guara/pkg/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
@@ -72,13 +71,17 @@ func testLogEnricher(t *testing.T) {
 	require.NoError(t, err)
 	defer cl.Close()
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		ti.DoHTTPGet(t, serverURL+jsonEndpoint, 200)
 
-		containerID := testContainerID(t, cl, containerImage)
-		require.NotEmpty(t, containerID, "could not find test container ID")
-		logs := containerLogs(t, cl, containerID)
-		require.NotEmpty(t, logs)
+		containerID := testContainerID(require.New(t), cl, containerImage)
+		if containerID == "" {
+			return false
+		}
+		logs := containerLogs(require.New(t), cl, containerID)
+		if len(logs) == 0 {
+			return false
+		}
 
 		var logIdx int
 		// Loop from the end -- it might be possible that OBI wasn't ready to inject
@@ -91,11 +94,22 @@ func testLogEnricher(t *testing.T) {
 		}
 
 		var logFields map[string]string
-		require.NoError(t, json.Unmarshal([]byte(logs[logIdx]), &logFields))
+		if err := json.Unmarshal([]byte(logs[logIdx]), &logFields); err != nil {
+			return false
+		}
 
-		assert.Equal(t, "this is a json log", logFields["message"])
-		assert.Equal(t, "INFO", logFields["level"])
-		assert.Contains(t, logFields, "trace_id")
-		assert.Contains(t, logFields, "span_id")
-	})
+		if logFields["message"] != "this is a json log" {
+			return false
+		}
+		if logFields["level"] != "INFO" {
+			return false
+		}
+		if _, ok := logFields["trace_id"]; !ok {
+			return false
+		}
+		if _, ok := logFields["span_id"]; !ok {
+			return false
+		}
+		return true
+	}, testTimeout, 500*time.Millisecond, "Log enricher validation failed")
 }

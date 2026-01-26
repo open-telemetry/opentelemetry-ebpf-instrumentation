@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -162,82 +161,108 @@ func waitForTestComponents(t *testing.T, url string) {
 }
 
 func waitForTestComponentsHTTP2(t *testing.T, url string) {
-	waitForTestComponentsHTTP2Sub(t, url, "/smoke", 1)
+	waitForTestComponentsHTTP2Sub(t, url, "/smoke", 1*time.Minute)
 }
 
 func waitForTestComponentsSub(t *testing.T, url, subpath string) {
-	waitForTestComponentsSubWithTime(t, url, subpath, 2)
+	waitForTestComponentsSubWithTime(t, url, subpath, 2*time.Minute)
 }
 
 func waitForTestComponentsSubStatus(t *testing.T, url, subpath string, status int) {
-	waitForTestComponentsSubWithTimeAndCode(t, url, subpath, status, 2)
+	waitForTestComponentsSubWithTimeAndCode(t, url, subpath, status, 2*time.Minute)
 }
 
 func waitForTestComponentsNoMetrics(t *testing.T, url string) {
-	test.Eventually(t, 2*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(url)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
-	}, test.Interval(time.Second))
+		if err != nil {
+			return false
+		}
+		return resp.StatusCode == http.StatusOK
+	}, 2*time.Minute, time.Second, "HTTP service should be ready with 200 status")
 }
 
 // does a smoke test to verify that all the components that started
 // asynchronously are up and communicating properly
-func waitForTestComponentsSubWithTime(t *testing.T, url, subpath string, minutes int) {
+func waitForTestComponentsSubWithTime(t *testing.T, url, subpath string, timeout time.Duration) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, time.Duration(minutes)*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
+		if err != nil {
+			return false
+		}
+		if r.StatusCode != http.StatusOK {
+			return false
+		}
 
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		if err != nil {
+			return false
+		}
+		return len(results) > 0
+	}, timeout, time.Second, "service endpoint should be healthy and metric reported")
 }
 
-func waitForTestComponentsSubWithTimeAndCode(t *testing.T, url, subpath string, status, minutes int) {
+func waitForTestComponentsSubWithTimeAndCode(t *testing.T, url, subpath string, status int, timeout time.Duration) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, time.Duration(minutes)*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, status, r.StatusCode)
+		if err != nil {
+			return false
+		}
+		if r.StatusCode != status {
+			return false
+		}
 
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		if err != nil {
+			return false
+		}
+		return len(results) > 0
+	}, timeout, time.Second, "service endpoint should return expected status and metric reported")
 }
 
 func waitForTestComponentsRoute(t *testing.T, url, route string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, time.Duration(1)*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+route, nil)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
+		if err != nil {
+			return false
+		}
+		if r.StatusCode != http.StatusOK {
+			return false
+		}
 
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`http_server_request_duration_seconds_count{http_route="` + route + `"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		if err != nil {
+			return false
+		}
+		return len(results) > 0
+	}, 1*time.Minute, time.Second, "route should be accessible and metric reported")
 }
 
 func waitForSQLTestComponentsMySQL(t *testing.T, url, subpath string) {
@@ -246,21 +271,29 @@ func waitForSQLTestComponentsMySQL(t *testing.T, url, subpath string) {
 
 func waitForSQLTestComponentsWithDB(t *testing.T, url, subpath, db string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, 1*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
+		if err != nil {
+			return false
+		}
+		if r.StatusCode != http.StatusOK {
+			return false
+		}
 
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`db_client_operation_duration_seconds_count{db_system_name="` + db + `"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		if err != nil {
+			return false
+		}
+		return len(results) > 0
+	}, 1*time.Minute, time.Second, "database service should be ready and metric reported")
 }
 
 func enoughPromResults(t require.TestingT, results []promtest.Result) {
@@ -315,25 +348,33 @@ func doHTTP2Post(t *testing.T, path string, status int, jsonBody []byte) {
 	require.Equal(t, 2, r.ProtoMajor)
 }
 
-func waitForTestComponentsHTTP2Sub(t *testing.T, url, subpath string, minutes int) {
+func waitForTestComponentsHTTP2Sub(t *testing.T, url, subpath string, timeout time.Duration) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, time.Duration(minutes)*time.Minute, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		tr := newHTTP2Transport()
 
 		r, err := tr.RoundTrip(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
+		if err != nil {
+			return false
+		}
+		if r.StatusCode != http.StatusOK {
+			return false
+		}
 
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		if err != nil {
+			return false
+		}
+		return len(results) > 0
+	}, timeout, time.Second, "HTTP2 service endpoint should be healthy and metric reported")
 }
 
 func otelAttributeToJaegerTag(attr attribute.KeyValue) jaeger.Tag {

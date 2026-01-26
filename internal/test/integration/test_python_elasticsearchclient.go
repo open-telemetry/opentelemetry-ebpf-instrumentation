@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -62,42 +61,75 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 	params.Add("operationName", operationName)
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(fullJaegerURL)
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp == nil {
+			return false
+		}
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op})
-		require.GreaterOrEqual(t, len(traces), 1, resp.Body)
+		if len(traces) < 1 {
+			return false
+		}
 		lastTrace := traces[len(traces)-1]
 		span := lastTrace.Spans[0]
 
-		assert.Contains(t, span.OperationName, operationName)
+		if !strings.Contains(span.OperationName, operationName) {
+			return false
+		}
 
 		tag, found := jaeger.FindIn(span.Tags, "db.query.text")
-		assert.True(t, found)
-		assert.Equal(t, queryText, tag.Value.(string))
+		if !found {
+			return false
+		}
+		if tag.Value.(string) != queryText {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
-		assert.True(t, found)
-		assert.Equal(t, index, tag.Value)
+		if !found {
+			return false
+		}
+		if tag.Value != index {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "db.namespace")
-		assert.True(t, found)
-		assert.Empty(t, tag.Value)
+		if !found {
+			return false
+		}
+		if tag.Value != "" {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "db.system.name")
-		assert.True(t, found)
-		assert.Equal(t, dbSystemName, tag.Value)
+		if !found {
+			return false
+		}
+		if tag.Value != dbSystemName {
+			return false
+		}
 
 		tag, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
-		assert.True(t, found)
-		assert.Empty(t, tag.Value)
+		if !found {
+			return false
+		}
+		if tag.Value != "" {
+			return false
+		}
+
+		return true
+	}, testTimeout, 100*time.Millisecond, "Elasticsearch %s operation not found", op)
 	}, test.Interval(100*time.Millisecond))
 }
 

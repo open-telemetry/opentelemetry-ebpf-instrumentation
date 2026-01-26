@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
@@ -30,43 +29,55 @@ func TestBasicTracing(t *testing.T) {
 		Assess("it sends traces for that service",
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 				var podID string
-				test.Eventually(t, testTimeout, func(t require.TestingT) {
+				require.Eventually(t, func() bool {
 					// Invoking both service instances, but we will expect that only one
 					// is instrumented, according to the discovery mechanisms
 					resp, err := http.Get("http://localhost:38080/pingpong")
-					require.NoError(t, err)
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					if err != nil || resp.StatusCode != http.StatusOK {
+						return false
+					}
 
 					resp, err = http.Get("http://localhost:38081/pingpong")
-					require.NoError(t, err)
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					if err != nil || resp.StatusCode != http.StatusOK {
+						return false
+					}
 
 					resp, err = http.Get(jaegerQueryURL + "?service=otherinstance")
-					require.NoError(t, err)
-					if resp == nil {
-						return
+					if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
+						return false
 					}
-					require.Equal(t, http.StatusOK, resp.StatusCode)
 					var tq jaeger.TracesQuery
-					require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+					if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+						return false
+					}
 					traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/pingpong"})
-					require.NotEmpty(t, traces)
+					if len(traces) == 0 {
+						return false
+					}
 					trace := traces[0]
-					require.NotEmpty(t, trace.Spans)
+					if len(trace.Spans) == 0 {
+						return false
+					}
 
 					// Check that the service.namespace is set from the K8s namespace
-					assert.Len(t, trace.Processes, 1)
+					if len(trace.Processes) != 1 {
+						return false
+					}
 					for _, proc := range trace.Processes {
 						sd := jaeger.DiffAsRegexp([]jaeger.Tag{
 							{Key: "service.namespace", Type: "string", Value: "^default$"},
 							{Key: "service.instance.id", Type: "string", Value: "^default\\.otherinstance-.+\\.otherinstance"},
 						}, proc.Tags)
-						require.Empty(t, sd)
+						if len(sd) > 0 {
+							return false
+						}
 					}
 
 					// Check the information of the parent span
 					res := trace.FindByOperationName("GET /pingpong", "server")
-					require.Len(t, res, 1)
+					if len(res) != 1 {
+						return false
+					}
 					parent := res[0]
 					sd := jaeger.DiffAsRegexp([]jaeger.Tag{
 						{Key: "k8s.pod.name", Type: "string", Value: "^otherinstance-.*"},
@@ -79,15 +90,19 @@ func TestBasicTracing(t *testing.T) {
 						{Key: "k8s.namespace.name", Type: "string", Value: "^default$"},
 						{Key: "k8s.cluster.name", Type: "string", Value: "^obi-k8s-test-cluster$"},
 					}, trace.Processes[parent.ProcessID].Tags)
-					require.Empty(t, sd)
+					if len(sd) > 0 {
+						return false
+					}
 
 					// Extract the pod id, so we can later check on restart of the pod that we have a different id
 					tag, found := jaeger.FindIn(trace.Processes[parent.ProcessID].Tags, "k8s.pod.uid")
-					assert.True(t, found)
+					if !found {
+						return false
+					}
 
 					podID = tag.Value.(string)
-					assert.NotEmpty(t, podID)
-				}, test.Interval(100*time.Millisecond))
+					return podID != ""
+				}, testTimeout, 100*time.Millisecond, "waiting for daemonset traces with metadata")
 
 				// Check that the "testserver" service is never instrumented
 				resp, err := http.Get(jaegerQueryURL + "?service=testserver")
@@ -106,45 +121,60 @@ func TestBasicTracing(t *testing.T) {
 
 				// We now use a different API, this ensures that after undeploying and redeploying the application we
 				// can still monitor its data
-				test.Eventually(t, testTimeout, func(t require.TestingT) {
+				require.Eventually(t, func() bool {
 					// Invoking both service instances, but we will expect that only one
 					// is instrumented, according to the discovery mechanisms
 					resp, err := http.Get("http://localhost:38080/pingpongtoo")
-					require.NoError(t, err)
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					if err != nil || resp.StatusCode != http.StatusOK {
+						return false
+					}
 
 					resp, err = http.Get("http://localhost:38081/pingpongtoo")
-					require.NoError(t, err)
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					if err != nil || resp.StatusCode != http.StatusOK {
+						return false
+					}
 
 					resp, err = http.Get(jaegerQueryURL + "?service=otherinstance")
-					require.NoError(t, err)
-					if resp == nil {
-						return
+					if err != nil || resp.StatusCode != http.StatusOK {
+						return false
 					}
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
+						return false
+					}
 					var tq jaeger.TracesQuery
-					require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+					if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+						return false
+					}
 					traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/pingpongtoo"})
-					require.NotEmpty(t, traces)
+					if len(traces) == 0 {
+						return false
+					}
 					// get the last trace, to avoid that the old instance captured any request
 					// before being restarted
 					trace := traces[len(traces)-1]
-					require.NotEmpty(t, trace.Spans)
+					if len(trace.Spans) == 0 {
+						return false
+					}
 
 					// Check that the service.namespace is set from the K8s namespace
-					assert.Len(t, trace.Processes, 1)
+					if len(trace.Processes) != 1 {
+						return false
+					}
 					for _, proc := range trace.Processes {
 						sd := jaeger.DiffAsRegexp([]jaeger.Tag{
 							{Key: "service.namespace", Type: "string", Value: "^default$"},
 							{Key: "service.instance.id", Type: "string", Value: "^default\\.otherinstance-.+\\.otherinstance"},
 						}, proc.Tags)
-						require.Empty(t, sd)
+						if len(sd) > 0 {
+							return false
+						}
 					}
 
 					// Check the information of the parent span
 					res := trace.FindByOperationName("GET /pingpongtoo", "server")
-					require.Len(t, res, 1)
+					if len(res) != 1 {
+						return false
+					}
 					parent := res[0]
 					sd := jaeger.DiffAsRegexp([]jaeger.Tag{
 						{Key: "k8s.pod.name", Type: "string", Value: "^otherinstance-.*"},
@@ -156,14 +186,18 @@ func TestBasicTracing(t *testing.T) {
 						{Key: "k8s.namespace.name", Type: "string", Value: "^default$"},
 						{Key: "k8s.cluster.name", Type: "string", Value: "^obi-k8s-test-cluster$"},
 					}, trace.Processes[parent.ProcessID].Tags)
-					require.Empty(t, sd)
+					if len(sd) > 0 {
+							return false
+						}
 
 					// ensure the pod really restarted, comparing the current uid with the previous pod uid
 					tag, found := jaeger.FindIn(trace.Processes[parent.ProcessID].Tags, "k8s.pod.uid")
-					assert.True(t, found)
+					if !found {
+						return false
+					}
 
-					assert.NotEqual(t, podID, tag.Value.(string))
-				}, test.Interval(100*time.Millisecond))
+					return podID != tag.Value.(string)
+				}, testTimeout, 100*time.Millisecond, "waiting for restarted daemonset traces with metadata")
 
 				return ctx
 			},

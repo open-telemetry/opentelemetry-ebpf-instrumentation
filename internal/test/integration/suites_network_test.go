@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -112,12 +111,11 @@ func TestNetwork_ReverseDNS(t *testing.T) {
 
 	checkCurlFlows := func(query string) {
 		pq := promtest.Client{HostPort: prometheusHostPort}
-		test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
+		require.Eventually(t, func() bool {
 			// now, verify that the network metric has been reported.
 			results, err := pq.Query(`obi_network_flow_bytes_total` + query)
-			require.NoError(t, err)
-			require.NotEmpty(t, results)
-		})
+			return err == nil && len(results) > 0
+		}, 4*testTimeout, time.Second, "failed to verify curl flows with query")
 	}
 
 	checkCurlFlows(`{dst_name="github.com"}`)
@@ -185,19 +183,22 @@ func TestNetwork_IfaceDirection_Use_Socket_Filter(t *testing.T) {
 func getNetFlows(t *testing.T) []promtest.Result {
 	var results []promtest.Result
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, instrumentedServiceStdURL, nil)
-		require.NoError(t, err)
+		if err != nil {
+			return false
+		}
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
+		if err != nil || r.StatusCode != http.StatusOK {
+			return false
+		}
 
 		// now, verify that the network metric has been reported.
-		results, err = pq.Query(`obi_network_flow_bytes_total`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		var err2 error
+		results, err2 = pq.Query(`obi_network_flow_bytes_total`)
+		return err2 == nil && len(results) > 0
+	}, 4*testTimeout, time.Second, "failed to verify network metrics")
 	return results
 }
 
@@ -206,11 +207,10 @@ func getDirectionNetFlows(t *testing.T) []promtest.Result {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	// wait for first network flow metrics
-	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		results, err := pq.Query(`obi_network_flow_bytes_total`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		return err == nil && len(results) > 0
+	}, 4*testTimeout, time.Second, "failed to wait for first network flow metrics")
 
 	// make a few calls to the testserver, which will call testserver2 with a source port lower than a destination port (7000 -> 8080)
 	req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/echoLowPort", nil)
@@ -220,12 +220,11 @@ func getDirectionNetFlows(t *testing.T) []promtest.Result {
 	callAndCheckMetrics(t, req, pq, clientBytes, serverBytes)
 
 	// verify that the correct network metric has been reported.
-	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
+		var err error
 		results, err = pq.Query(`obi_network_flow_bytes_total{src_port="7000", dst_port="8080"} or obi_network_flow_bytes_total{src_port="8080", dst_port="7000"}`)
-		require.NoError(t, err)
-		require.Len(t, results, 2)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		return err == nil && len(results) == 2
+	}, 4*testTimeout, time.Second, "failed to verify bidirectional network flows")
 	return results
 }
 
@@ -238,18 +237,20 @@ func callAndCheckMetrics(t *testing.T, req *http.Request, pq promtest.Client, pr
 	require.Equal(t, http.StatusOK, r.StatusCode)
 
 	// wait for fetching aggregated flows in beyla about this call
-	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_port="7000", dst_port="8080"} or obi_network_flow_bytes_total{src_port="8080", dst_port="7000"}`)
-		require.NoError(t, err)
-		require.Len(t, results, 2)
-		require.NotEmpty(t, results)
+		if err != nil || len(results) != 2 {
+			return false
+		}
 		// wait till the amount of bytes is greater than the previous read
 		client := results[slices.IndexFunc(results, func(result promtest.Result) bool { return result.Metric["dst_port"] == "8080" })]
 		clientValue, _ = strconv.Atoi(client.Value[1].(string))
-		require.Greater(t, clientValue, previousClientValue)
+		if clientValue <= previousClientValue {
+			return false
+		}
 		server := results[slices.IndexFunc(results, func(result promtest.Result) bool { return result.Metric["src_port"] == "8080" })]
 		serverValue, _ = strconv.Atoi(server.Value[1].(string))
-		require.Greater(t, serverValue, previousServerValue)
-	}, test.Interval(time.Second))
+		return serverValue > previousServerValue
+	}, 4*testTimeout, time.Second, "failed to verify increasing network flow bytes")
 	return clientValue, serverValue
 }

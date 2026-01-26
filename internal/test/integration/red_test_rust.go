@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -36,7 +35,7 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="POST",` +
@@ -44,16 +43,25 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if !enoughPromResults(t, results) {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		if val < 3 {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if addr == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "Rust HTTP metrics query failed")
 
 	if notraces {
 		return
@@ -66,19 +74,28 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 	doHTTPGetWithTraceparent(t, url+"/trace", 200, traceparent)
 
 	var trace jaeger.Trace
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2Ftrace")
-		require.NoError(t, err)
-		if resp == nil {
-			return
+		if err != nil {
+			return false
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp == nil {
+			return false
+		}
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/trace"})
-		require.Len(t, traces, 1)
+		if len(traces) != 1 {
+			return false
+		}
 		trace = traces[0]
-	}, test.Interval(100*time.Millisecond))
+		return true
+	}, testTimeout, 100*time.Millisecond, "Rust trace not found")
 
 	// Check the information of the parent span
 	res := trace.FindByOperationName("GET /trace", "server")
@@ -123,7 +140,7 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 func validateLargeDownloadURLSeen(t *testing.T, comm, namespace, urlPath string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -131,25 +148,35 @@ func validateLargeDownloadURLSeen(t *testing.T, comm, namespace, urlPath string)
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		if val < 3 {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
-			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
-			assert.GreaterOrEqual(t, len(res.Value), 1)
+			if res.Metric["client_address"] == nil {
+				return false
+			}
+			if len(res.Value) < 1 {
+				return false
+			}
 			elapsed := res.Value[0]
 			f, ok := elapsed.(float64)
-
-			if ok {
-				assert.GreaterOrEqual(t, f, 50000000.0) // must be 50ms or greater
-			} else {
-				t.FailNow()
+			if !ok {
+				return false
+			}
+			if f < 50000000.0 { // must be 50ms or greater
+				return false
 			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "Rust large download metrics not found")
 }
 
 func testREDMetricsForLargeRustDownloads(t *testing.T, tURL, comm, namespace string) {
@@ -198,7 +225,7 @@ func checkReportedRustEvents(t *testing.T, comm, namespace string, numEvents int
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="POST",` +
@@ -206,16 +233,24 @@ func checkReportedRustEvents(t *testing.T, comm, namespace string, numEvents int
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if len(results) == 0 {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, val, numEvents)
+		if val > numEvents {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
-			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if res.Metric["client_address"] == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "Rust events count validation failed")
 }
 
 func testREDMetricsForRustHTTP2Library(t *testing.T, url, comm, namespace string) {
@@ -235,7 +270,7 @@ func testREDMetricsForRustHTTP2Library(t *testing.T, url, comm, namespace string
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="POST",` +
@@ -243,16 +278,25 @@ func testREDMetricsForRustHTTP2Library(t *testing.T, url, comm, namespace string
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
+		if err != nil {
+			return false
+		}
+		if !enoughPromResults(t, results) {
+			return false
+		}
 		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		if val < 3 {
+			return false
+		}
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			if addr == nil {
+				return false
+			}
 		}
-	})
+		return true
+	}, testTimeout, 500*time.Millisecond, "Rust HTTP2 metrics query failed")
 }
 
 func testREDMetricsRustHTTP2(t *testing.T) {

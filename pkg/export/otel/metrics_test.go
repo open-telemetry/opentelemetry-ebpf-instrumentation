@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -46,11 +45,16 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	}))
 	defer coll.Close()
 	// Wait for the HTTP server to be alive
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := coll.Client().Get(coll.URL + "/foo")
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-	})
+		if err != nil {
+			return false
+		}
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
 	// Run the metrics reporter node standalone
 	exportMetrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
@@ -72,57 +76,88 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
 
 	var previousSum, previousCount int
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		// we can't guarantee the number of calls at test time, but they must be at least 1
 		previousSum, previousCount = internalMetrics.SumCount()
-		assert.LessOrEqual(t, 1, previousSum)
-		assert.LessOrEqual(t, 1, previousCount)
+		if previousSum < 1 {
+			return false
+		}
+		if previousCount < 1 {
+			return false
+		}
 		// the count of metrics should be larger than the number of calls (1 call : n metrics)
-		assert.Less(t, previousCount, previousSum)
+		if previousCount >= previousSum {
+			return false
+		}
 		// no call should return error
-		assert.Zero(t, internalMetrics.Errors())
-	})
+		if internalMetrics.Errors() != 0 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
 	// send another trace
 	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
 
 	// after some time, the number of calls should be higher than before
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		sum, cnt := internalMetrics.SumCount()
-		assert.LessOrEqual(t, previousSum, sum)
-		assert.LessOrEqual(t, previousCount, cnt)
-		assert.Less(t, cnt, sum)
+		if sum < previousSum {
+			return false
+		}
+		if cnt < previousCount {
+			return false
+		}
+		if cnt >= sum {
+			return false
+		}
 		// no call should return error
-		assert.Zero(t, internalMetrics.Errors())
-	})
+		if internalMetrics.Errors() != 0 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
 	// collector starts failing, so errors should be received
 	coll.CloseClientConnections()
 	coll.Close()
 	// Wait for the HTTP server to be stopped
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		_, err := coll.Client().Get(coll.URL + "/foo")
-		require.Error(t, err)
-	})
+		if err == nil {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
 	var previousErrCount int
 	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		previousSum, previousCount = internalMetrics.SumCount()
 		// calls should start returning errors
 		previousErrCount = internalMetrics.Errors()
-		assert.NotZero(t, previousErrCount)
-	})
+		if previousErrCount == 0 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
 	// after a while, metrics count should not increase but errors do
 	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		sum, cnt := internalMetrics.SumCount()
-		assert.Equal(t, previousSum, sum)
-		assert.Equal(t, previousCount, cnt)
+		if sum != previousSum {
+			return false
+		}
+		if cnt != previousCount {
+			return false
+		}
 		// calls should start returning errors
-		assert.Less(t, previousErrCount, internalMetrics.Errors())
-	})
+		if internalMetrics.Errors() <= previousErrCount {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 }
 
 type fakeInternalMetrics struct {
@@ -580,10 +615,12 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 		{Service: svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
 	})
 
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		assert.NotEmpty(t, mr.hostInfo.entries.All(),
-			"traces_host_info metric has not been created yet")
-	})
+	require.Eventually(t, func() bool {
+		if len(mr.hostInfo.entries.All()) == 0 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 
 	// Check expiration logic
 	processEvents.Send(exec.ProcessEvent{
@@ -598,10 +635,12 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	now.Advance(50 * time.Minute)
 
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		assert.Empty(t, mr.hostInfo.entries.All(),
-			"traces_host_info metric has not expired yet") // The entry should be expired
-	})
+	require.Eventually(t, func() bool {
+		if len(mr.hostInfo.entries.All()) != 0 {
+			return false
+		}
+		return true
+	}, timeout, 100*time.Millisecond)
 }
 
 func TestMetricResourceAttributes(t *testing.T) {

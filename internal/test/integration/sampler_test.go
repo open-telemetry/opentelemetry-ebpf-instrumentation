@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
@@ -36,44 +35,61 @@ func testSampler(t *testing.T) {
 		ti.DoHTTPGet(t, "http://localhost:5000/a", 200)
 	}
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(jaegerQueryURL + "?service=service-a&operation=GET%20%2Fa")
 
-		require.NoError(t, err)
-
-		if resp == nil {
-			return
+		if err != nil {
+			return false
 		}
 
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp == nil {
+			return false
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 
 		var tq jaeger.TracesQuery
 
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		if err := json.NewDecoder(resp.Body).Decode(&tq); err != nil {
+			return false
+		}
 
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/a"})
 
 		lenA := len(traces)
 
-		require.LessOrEqual(t, 10, lenA)
+		if lenA < 10 {
+			return false
+		}
 
 		resp, err = http.Get(jaegerQueryURL + "?service=service-c&operation=GET%20%2Fc")
 
-		require.NoError(t, err)
-
-		if resp == nil {
-			return
+		if err != nil {
+			return false
 		}
 
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		if resp == nil {
+			return false
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 
 		traces = tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/c"})
 
 		lenC := len(traces)
 
-		require.NotZero(t, lenC)
-		require.Less(t, lenC, lenA)
-	}, test.Interval(1500*time.Millisecond))
+		if lenC == 0 {
+			return false
+		}
+		if lenC >= lenA {
+			return false
+		}
+		return true
+	}, testTimeout, 1500*time.Millisecond, "Sampler trace validation failed")
 }
 
 func TestSampler(t *testing.T) {

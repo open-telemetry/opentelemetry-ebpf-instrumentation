@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
@@ -40,14 +39,43 @@ func testPythonAWSSQS(t *testing.T) {
 	awsReq(t, awsProxyAddress+"/getqueueattributes?queue_url="+qr.QueueURL)
 	awsReq(t, awsProxyAddress+"/deletequeue?queue_url="+qr.QueueURL)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		assertSQSOperation(t, "CreateQueue", qr.QueueURL, "", "")
-		assertSQSOperation(t, "SendMessage", qr.QueueURL, mr.Messages[0].MessageID, "send")
-		assertSQSOperation(t, "ReceiveMessage", qr.QueueURL, "", "receive")
-		assertSQSOperation(t, "DeleteMessage", qr.QueueURL, "", "")
-		assertSQSOperation(t, "GetQueueAttributes", qr.QueueURL, "", "")
-		assertSQSOperation(t, "DeleteQueue", qr.QueueURL, "", "")
-	}, test.Interval(time.Second))
+	require.Eventually(t, func() bool {
+		// Check all SQS operations are present
+		rt := require.New(t)
+		span := fetchAWSSpanByOP(rt, "sqs.CreateQueue")
+		if span.OperationName != "sqs.CreateQueue" {
+			return false
+		}
+		span = fetchAWSSpanByOP(rt, "sqs.SendMessage")
+		if span.OperationName != "sqs.SendMessage" {
+			return false
+		}
+		span = fetchAWSSpanByOP(rt, "sqs.ReceiveMessage")
+		if span.OperationName != "sqs.ReceiveMessage" {
+			return false
+		}
+		span = fetchAWSSpanByOP(rt, "sqs.DeleteMessage")
+		if span.OperationName != "sqs.DeleteMessage" {
+			return false
+		}
+		span = fetchAWSSpanByOP(rt, "sqs.GetQueueAttributes")
+		if span.OperationName != "sqs.GetQueueAttributes" {
+			return false
+		}
+		span = fetchAWSSpanByOP(rt, "sqs.DeleteQueue")
+		if span.OperationName != "sqs.DeleteQueue" {
+			return false
+		}
+		return true
+	}, testTimeout, time.Second, "AWS SQS operations not found")
+
+	// Now assert detailed properties of each operation
+	assertSQSOperation(t, "CreateQueue", qr.QueueURL, "", "")
+	assertSQSOperation(t, "SendMessage", qr.QueueURL, mr.Messages[0].MessageID, "send")
+	assertSQSOperation(t, "ReceiveMessage", qr.QueueURL, "", "receive")
+	assertSQSOperation(t, "DeleteMessage", qr.QueueURL, "", "")
+	assertSQSOperation(t, "GetQueueAttributes", qr.QueueURL, "", "")
+	assertSQSOperation(t, "DeleteQueue", qr.QueueURL, "", "")
 }
 
 func sqsRequestWithData[T sqsQueueURL | sqsMessages](t *testing.T, url string) T {
