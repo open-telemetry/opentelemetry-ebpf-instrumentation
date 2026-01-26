@@ -25,6 +25,29 @@ import (
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
+var (
+	buildGoOTelTestServerOnce sync.Once
+	buildGoOTelTestServerErr  error
+)
+
+func buildGoOTelTestServerImage(t *testing.T, pool *dockertest.Pool) {
+	t.Helper()
+
+	t.Log("Building Go OpenTelemetry test server image")
+	buildGoOTelTestServerOnce.Do(func() {
+		projectRoot := tools.ProjectDir()
+		buildGoOTelTestServerErr = pool.Client.BuildImage(docker.BuildImageOptions{
+			Name:         "hatest-testserver",
+			ContextDir:   projectRoot,
+			Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
+			OutputStream: t.Output(),
+			ErrorStream:  t.Output(),
+		})
+	})
+	require.NoError(t, buildGoOTelTestServerErr, "could not build test server Docker image")
+	t.Log("Go OpenTelemetry test server image built successfully")
+}
+
 func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 	for i := 0; i < 4; i++ {
 		ti.DoHTTPGet(t, "http://localhost:8080"+route, 200)
@@ -144,21 +167,13 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	wg.Go(func() {
 		setupContainerCollector(t, pool, network, "otelcol-config.yml")
 	})
+	wg.Go(func() {
+		buildGoOTelTestServerImage(t, pool)
+	})
 	wg.Wait()
 	if t.Failed() {
 		return
 	}
-
-	// Build the test server image
-	projectRoot := tools.ProjectDir()
-	err := pool.Client.BuildImage(docker.BuildImageOptions{
-		Name:         "hatest-testserver",
-		ContextDir:   projectRoot,
-		Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
-		OutputStream: t.Output(),
-		ErrorStream:  t.Output(),
-	})
-	require.NoError(t, err, "could not build test server Docker image")
 
 	// Start test server
 	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
@@ -224,21 +239,13 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	wg.Go(func() {
 		setupContainerCollector(t, pool, network, "otelcol-config.yml")
 	})
+	wg.Go(func() {
+		buildGoOTelTestServerImage(t, pool)
+	})
 	wg.Wait()
 	if t.Failed() {
 		return
 	}
-
-	// Build the test server image
-	projectRoot := tools.ProjectDir()
-	err := pool.Client.BuildImage(docker.BuildImageOptions{
-		Name:         "hatest-testserver",
-		ContextDir:   projectRoot,
-		Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
-		OutputStream: t.Output(),
-		ErrorStream:  t.Output(),
-	})
-	require.NoError(t, err, "could not build test server Docker image")
 
 	// Start test server
 	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
@@ -290,21 +297,13 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	wg.Go(func() {
 		setupContainerCollector(t, pool, network, "otelcol-config.yml")
 	})
+	wg.Go(func() {
+		buildGoOTelTestServerImage(t, pool)
+	})
 	wg.Wait()
 	if t.Failed() {
 		return
 	}
-
-	// Build the test server image
-	projectRoot := tools.ProjectDir()
-	err := pool.Client.BuildImage(docker.BuildImageOptions{
-		Name:         "hatest-testserver",
-		ContextDir:   projectRoot,
-		Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
-		OutputStream: t.Output(),
-		ErrorStream:  t.Output(),
-	})
-	require.NoError(t, err, "could not build test server Docker image")
 
 	// Start test server
 	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{

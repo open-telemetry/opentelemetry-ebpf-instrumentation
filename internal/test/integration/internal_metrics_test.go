@@ -22,7 +22,6 @@ import (
 
 	dockercompose "go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
-	"go.opentelemetry.io/obi/internal/test/tools"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -53,21 +52,13 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 	wg.Go(func() {
 		setupContainerCollector(t, pool, network, "otelcol-config.yml")
 	})
+	wg.Go(func() {
+		buildGoOTelTestServerImage(t, pool)
+	})
 	wg.Wait()
 	if t.Failed() {
 		return
 	}
-
-	// Build the test server image
-	projectRoot := tools.ProjectDir()
-	err := pool.Client.BuildImage(docker.BuildImageOptions{
-		Name:         "hatest-testserver",
-		ContextDir:   projectRoot,
-		Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
-		OutputStream: t.Output(),
-		ErrorStream:  t.Output(),
-	})
-	require.NoError(t, err, "could not build test server Docker image")
 
 	// Start test server
 	testserver, err := pool.RunWithOptions(&dockertest.RunOptions{
