@@ -51,7 +51,6 @@ func setupGoOTelTestServerContainer(t *testing.T, network *dockertest.Network, e
 	t.Log("Starting Go OpenTelemetry test server container...")
 	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository:   "hatest-testserver",
-		Tag:          "latest",
 		Name:         fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
 		Networks:     []*dockertest.Network{network},
 		Env:          env,

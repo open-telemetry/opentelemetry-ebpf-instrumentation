@@ -154,7 +154,6 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *doc
 
 	obi, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "hatest-obi",
-		Tag:        "latest",
 		Name:       fmt.Sprintf("obi-otel-test-%d", time.Now().UnixNano()),
 		Networks:   []*dockertest.Network{network},
 		Cmd: []string{
