@@ -150,6 +150,7 @@ discovery:
 			PostgresPreparedStatementsCacheSize: 1024,
 			MongoRequestsCacheSize:              1024,
 			KafkaTopicUUIDCacheSize:             1024,
+			CouchbaseDBCacheSize:                1024,
 			LogEnricher: config.LogEnricherConfig{
 				CacheTTL:              30 * time.Minute,
 				CacheSize:             128,

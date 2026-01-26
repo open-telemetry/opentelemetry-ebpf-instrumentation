@@ -283,6 +283,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return true
 	case request.EventTypeDNS:
 		return is.DNSEnabled()
+	case request.EventTypeCouchbaseClient:
+		return is.CouchbaseEnabled()
 	}
 
 	return false
@@ -290,9 +292,10 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 
 // TODO use semconv.DBSystemRedis when we update to OTEL semantic conventions library 1.30
 var (
-	dbSystemRedis   = attribute.String(string(attr.DBSystemName), semconv.DBSystemRedis.Value.AsString())
-	dbSystemMongo   = attribute.String(string(attr.DBSystemName), semconv.DBSystemMongoDB.Value.AsString())
-	spanMetricsSkip = attribute.Bool(string(attr.SkipSpanMetrics), true)
+	dbSystemRedis     = attribute.String(string(attr.DBSystemName), semconv.DBSystemRedis.Value.AsString())
+	dbSystemMongo     = attribute.String(string(attr.DBSystemName), semconv.DBSystemMongoDB.Value.AsString())
+	dbSystemCouchbase = attribute.String(string(attr.DBSystemName), semconv.DBSystemCouchbase.Value.AsString())
+	spanMetricsSkip   = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
 
 //nolint:cyclop
@@ -484,6 +487,26 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.DBNamespace != "" {
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
 		}
+	case request.EventTypeCouchbaseClient:
+		attrs = []attribute.KeyValue{
+			request.ServerAddr(request.HostAsServer(span)),
+			request.ServerPort(span.HostPort),
+			request.PeerService(request.PeerServiceFromSpan(span)),
+			dbSystemCouchbase,
+		}
+		operation := span.Method
+		if operation != "" {
+			attrs = append(attrs, request.DBOperationName(operation))
+		}
+		if span.Path != "" {
+			attrs = append(attrs, request.DBCollectionName(span.Path))
+		}
+		if span.Status != 0 {
+			attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
+		}
+		if span.DBNamespace != "" {
+			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
+		}
 	case request.EventTypeManualSpan:
 		attrs = manualSpanAttributes(span)
 	case request.EventTypeFailedConnect:
@@ -517,7 +540,7 @@ func spanKind(span *request.Span) trace2.SpanKind {
 	switch span.Type {
 	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer:
 		return trace2.SpanKindServer
-	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeFailedConnect:
+	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
 	case request.EventTypeKafkaClient:
 		switch span.Method {

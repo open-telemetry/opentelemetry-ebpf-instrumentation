@@ -129,10 +129,18 @@ type MisclassifiedEvent struct {
 	TCPInfo   *TCPRequestInfo
 }
 
+// CouchbaseBucketInfo holds the bucket, scope, and collection for a Couchbase connection.
+type CouchbaseBucketInfo struct {
+	Bucket     string
+	Scope      string
+	Collection string
+}
+
 type EBPFParseContext struct {
 	protocolDebug              bool
 	h2c                        *lru.Cache[uint64, h2Connection]
 	redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
+	couchbaseBucketCache       *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
 	largeBuffers               *expirable.LRU[largeBufferKey, *largeBuffer]
 	mongoRequestCache          PendingMongoDBRequests
 	mysqlPreparedStatements    *simplelru.LRU[mysqlPreparedStatementsKey, string]
@@ -161,6 +169,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		err                        error
 		protocolDebug              bool
 		redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
+		couchbaseBucketCache       *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
 		mysqlPreparedStatements    *simplelru.LRU[mysqlPreparedStatementsKey, string]
 		postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, string]
 		postgresPortals            *simplelru.LRU[postgresPortalsKey, string]
@@ -182,6 +191,12 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 				ptlog().Error("failed to create Redis DB cache", "error", err)
 				redisDBCache = nil
 			}
+		}
+
+		couchbaseBucketCache, err = simplelru.NewLRU[BpfConnectionInfoT, CouchbaseBucketInfo](cfg.CouchbaseDBCacheSize, nil)
+		if err != nil {
+			ptlog().Error("failed to create Couchbase bucket cache", "error", err)
+			couchbaseBucketCache = nil
 		}
 
 		mysqlPreparedStatements, err = simplelru.NewLRU[mysqlPreparedStatementsKey, string](cfg.MySQLPreparedStatementsCacheSize, nil)
@@ -215,6 +230,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		protocolDebug:              protocolDebug,
 		h2c:                        h2c,
 		redisDBCache:               redisDBCache,
+		couchbaseBucketCache:       couchbaseBucketCache,
 		largeBuffers:               largeBuffers,
 		mongoRequestCache:          mongoRequestCache,
 		mysqlPreparedStatements:    mysqlPreparedStatements,

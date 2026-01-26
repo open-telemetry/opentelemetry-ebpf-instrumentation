@@ -113,6 +113,17 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		return mongoSpan, false, nil
 	}
 
+	// Check for Couchbase memcached binary protocol
+	cbInfo, ignore, err := ProcessPossibleCouchbaseEvent(event, requestBuffer, responseBuffer, parseCtx.couchbaseBucketCache)
+	if err == nil {
+		if ignore {
+			return request.Span{}, true, nil
+		}
+		if cbInfo != nil {
+			return TCPToCouchbaseToSpan(event, cbInfo), false, nil
+		}
+	}
+
 	switch {
 	case isRedis(requestBuffer) && isRedis(responseBuffer):
 		op, text, ok := parseRedisRequest(string(requestBuffer))
