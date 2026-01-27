@@ -131,6 +131,8 @@ func FeatureHTTPMetricsDecoration(manifest string, overrideAttrs map[string]stri
 	expectedNs := overriddenNameNS["server_service_namespace"]
 	expectedJob := expectedNs + "/" + expectedServer
 
+	expectedClusterName := attributeMap(allAttributes, overrideAttrs, "k8s_cluster_name")["k8s_cluster_name"]
+
 	return features.New("Decoration of Pod-to-Service communications").
 		Setup(pinger.Deploy()).
 		Teardown(pinger.Delete()).
@@ -161,8 +163,8 @@ func FeatureHTTPMetricsDecoration(manifest string, overrideAttrs map[string]stri
 					`",server_service_namespace="`+expectedNs+
 					`",client_k8s_namespace_name="default`+
 					`",server_k8s_namespace_name="default`+
-					`",client_k8s_cluster_name="obi-k8s-test-cluster`+
-					`",server_k8s_cluster_name="obi-k8s-test-cluster`+
+					`",client_k8s_cluster_name="`+expectedClusterName+
+					`",server_k8s_cluster_name="`+expectedClusterName+
 					`",client="internal-pinger"}`,
 				attributeMap(allAttributes, overrideAttrs,
 					"server_service_namespace",
