@@ -19,7 +19,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	trace2 "go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -122,7 +122,7 @@ func GenerateTracesWithAttributes(
 	resourceAttrs := TraceAppResourceAttrs(cache, hostID, svc)
 	resourceAttrs = append(resourceAttrs, envResourceAttrs...)
 	resourceAttrsMap := AttrsToMap(resourceAttrs)
-	resourceAttrsMap.PutStr(string(semconv.OTelLibraryNameKey), reporterName)
+	resourceAttrsMap.PutStr(string(semconv.OTelScopeNameKey), reporterName)
 	addAttrsToMap(extraResAttrs, resourceAttrsMap)
 	resourceAttrsMap.MoveTo(rs.Resource().Attributes())
 
@@ -285,15 +285,14 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return true
 	case request.EventTypeDNS:
 		return is.DNSEnabled()
+	case request.EventTypeCouchbaseClient:
+		return is.CouchbaseEnabled()
 	}
 
 	return false
 }
 
-// TODO use semconv.DBSystemRedis when we update to OTEL semantic conventions library 1.30
 var (
-	dbSystemRedis       = attribute.String(string(attr.DBSystemName), semconv.DBSystemRedis.Value.AsString())
-	dbSystemMongo       = attribute.String(string(attr.DBSystemName), semconv.DBSystemMongoDB.Value.AsString())
 	messagingSystemMQTT = attribute.String(string(attr.MessagingSystem), "mqtt")
 	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
@@ -322,8 +321,8 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, semconv.HTTPRoute(span.Route))
 		}
 		if span.SubType == request.HTTPSubtypeGraphQL && span.GraphQL != nil {
-			attrs = append(attrs, semconv.GraphqlDocument(span.GraphQL.Document))
-			attrs = append(attrs, semconv.GraphqlOperationName(span.GraphQL.OperationName))
+			attrs = append(attrs, semconv.GraphQLDocument(span.GraphQL.Document))
+			attrs = append(attrs, semconv.GraphQLOperationName(span.GraphQL.OperationName))
 			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
 		}
 	case request.EventTypeGRPC:
@@ -347,7 +346,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.HTTPRequestMethod(span.Method),
 			request.HTTPResponseStatusCode(span.Status),
 			request.HTTPUrlFull(url),
-			semconv.HTTPScheme(scheme),
+			semconv.URLScheme(scheme),
 			request.ServerAddr(host),
 			request.PeerService(request.PeerServiceFromSpan(span)),
 			request.ServerPort(span.HostPort),
@@ -425,7 +424,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
-			dbSystemRedis,
+			semconv.DBSystemNameRedis,
 		}
 		if span.Type == request.EventTypeRedisClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
@@ -486,7 +485,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
 			request.PeerService(request.PeerServiceFromSpan(span)),
-			dbSystemMongo,
+			semconv.DBSystemNameMongoDB,
 		}
 		operation := span.Method
 		if operation != "" {
@@ -496,6 +495,26 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, request.DBCollectionName(span.Path))
 		}
 		if span.Status == 1 {
+			attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
+		}
+		if span.DBNamespace != "" {
+			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
+		}
+	case request.EventTypeCouchbaseClient:
+		attrs = []attribute.KeyValue{
+			request.ServerAddr(request.HostAsServer(span)),
+			request.ServerPort(span.HostPort),
+			request.PeerService(request.PeerServiceFromSpan(span)),
+			semconv.DBSystemNameCouchbase,
+		}
+		operation := span.Method
+		if operation != "" {
+			attrs = append(attrs, request.DBOperationName(operation))
+		}
+		if span.Path != "" {
+			attrs = append(attrs, request.DBCollectionName(span.Path))
+		}
+		if span.Status != 0 {
 			attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
 		}
 		if span.DBNamespace != "" {
@@ -534,7 +553,7 @@ func spanKind(span *request.Span) trace2.SpanKind {
 	switch span.Type {
 	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer:
 		return trace2.SpanKindServer
-	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeFailedConnect:
+	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
 	case request.EventTypeKafkaClient, request.EventTypeMQTTClient:
 		switch span.Method {

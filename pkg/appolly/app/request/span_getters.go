@@ -5,7 +5,7 @@ package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -105,9 +105,11 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			case EventTypeSQLClient:
 				return DBSystemName(span.DBSystemName().Value.AsString())
 			case EventTypeRedisClient, EventTypeRedisServer:
-				return DBSystemName(semconv.DBSystemRedis.Value.AsString())
+				return semconv.DBSystemNameRedis
 			case EventTypeMongoClient:
-				return DBSystemName(semconv.DBSystemMongoDB.Value.AsString())
+				return semconv.DBSystemNameMongoDB
+			case EventTypeCouchbaseClient:
+				return semconv.DBSystemNameCouchbase
 			case EventTypeHTTPClient:
 				if span.SubType == HTTPSubtypeElasticsearch {
 					return DBSystemName(span.Elasticsearch.DBSystemName)
@@ -129,15 +131,15 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.MessagingSystem:
 		getter = func(span *Span) attribute.KeyValue {
 			if span.Type == EventTypeKafkaClient || span.Type == EventTypeKafkaServer {
-				return semconv.MessagingSystem("kafka")
+				return semconv.MessagingSystemKafka
 			}
 			if span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer {
-				return semconv.MessagingSystem("mqtt")
+				return semconv.MessagingSystemKey.String("mqtt")
 			}
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
-				return semconv.MessagingSystem("aws-sqs")
+				return semconv.MessagingSystemAWSSQS
 			}
-			return semconv.MessagingSystem("unknown")
+			return semconv.MessagingSystemKey.String("unknown")
 		}
 	case attr.MessagingDestination:
 		getter = func(span *Span) attribute.KeyValue {
@@ -184,16 +186,16 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.GraphQLDocument:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTP && s.SubType == HTTPSubtypeGraphQL && s.GraphQL != nil {
-				return semconv.GraphqlDocument(s.GraphQL.Document)
+				return semconv.GraphQLDocument(s.GraphQL.Document)
 			}
-			return semconv.GraphqlDocument("")
+			return semconv.GraphQLDocument("")
 		}
 	case attr.GraphQLOperationName:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTP && s.SubType == HTTPSubtypeGraphQL && s.GraphQL != nil {
-				return semconv.GraphqlOperationName(s.GraphQL.OperationName)
+				return semconv.GraphQLOperationName(s.GraphQL.OperationName)
 			}
-			return semconv.GraphqlOperationName("")
+			return semconv.GraphQLOperationName("")
 		}
 	case attr.GraphQLOperationType:
 		getter = func(s *Span) attribute.KeyValue {

@@ -57,7 +57,7 @@ while [ $SHARD -lt $PARTITIONS ]; do
         TEST_COUNT=$(echo "$SHARD_TESTS" | tr "|" "\n" | wc -l | tr -d " ")
         MATRIX_JSON+="{\"id\":$SHARD,\"description\":\"shard-$SHARD ($TEST_COUNT tests)\",\"test_pattern\":\"$SHARD_TESTS\"}"
         
-        echo "Shard $SHARD: $TEST_COUNT tests" >&2
+        echo "Shard $SHARD: $TEST_COUNT tests: $SHARD_TESTS" >&2
     fi
     
     CURRENT_START=$((END + 1))

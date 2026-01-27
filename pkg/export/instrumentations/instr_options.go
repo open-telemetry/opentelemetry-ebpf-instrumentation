@@ -6,16 +6,17 @@ package instrumentations // import "go.opentelemetry.io/obi/pkg/export/instrumen
 type Instrumentation string
 
 const (
-	InstrumentationALL   Instrumentation = "*"
-	InstrumentationHTTP  Instrumentation = "http"
-	InstrumentationGRPC  Instrumentation = "grpc"
-	InstrumentationSQL   Instrumentation = "sql"
-	InstrumentationRedis Instrumentation = "redis"
-	InstrumentationKafka Instrumentation = "kafka"
-	InstrumentationMQTT  Instrumentation = "mqtt"
-	InstrumentationGPU   Instrumentation = "gpu"
-	InstrumentationMongo Instrumentation = "mongo"
-	InstrumentationDNS   Instrumentation = "dns"
+	InstrumentationALL       Instrumentation = "*"
+	InstrumentationHTTP      Instrumentation = "http"
+	InstrumentationGRPC      Instrumentation = "grpc"
+	InstrumentationSQL       Instrumentation = "sql"
+	InstrumentationRedis     Instrumentation = "redis"
+	InstrumentationKafka     Instrumentation = "kafka"
+	InstrumentationMQTT      Instrumentation = "mqtt"
+	InstrumentationGPU       Instrumentation = "gpu"
+	InstrumentationMongo     Instrumentation = "mongo"
+	InstrumentationDNS       Instrumentation = "dns"
+	InstrumentationCouchbase Instrumentation = "couchbase"
 	// Traces export selectively enables only some instrumentations by
 	// default. If you add a new instrumentation type, make sure you
 	// update the TracesConfig accordingly. Metrics do ALL == "*".
@@ -34,6 +35,7 @@ const (
 	flagGPU
 	flagMongo
 	flagDNS
+	flagCouchbase
 )
 
 func instrumentationToFlag(str Instrumentation) InstrumentationSelection {
@@ -58,6 +60,8 @@ func instrumentationToFlag(str Instrumentation) InstrumentationSelection {
 		return flagMongo
 	case InstrumentationDNS:
 		return flagDNS
+	case InstrumentationCouchbase:
+		return flagCouchbase
 	}
 	return 0
 }
@@ -88,7 +92,7 @@ func (s InstrumentationSelection) RedisEnabled() bool {
 }
 
 func (s InstrumentationSelection) DBEnabled() bool {
-	return s.SQLEnabled() || s.RedisEnabled() || s.MongoEnabled()
+	return s.SQLEnabled() || s.RedisEnabled() || s.MongoEnabled() || s.CouchbaseEnabled()
 }
 
 func (s InstrumentationSelection) KafkaEnabled() bool {
@@ -109,6 +113,10 @@ func (s InstrumentationSelection) GPUEnabled() bool {
 
 func (s InstrumentationSelection) MongoEnabled() bool {
 	return s&flagMongo != 0
+}
+
+func (s InstrumentationSelection) CouchbaseEnabled() bool {
+	return s&flagCouchbase != 0
 }
 
 func (s InstrumentationSelection) DNSEnabled() bool {

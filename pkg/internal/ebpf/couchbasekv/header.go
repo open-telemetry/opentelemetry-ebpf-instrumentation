@@ -23,7 +23,7 @@ type Header struct {
 	VBucketID uint16 // For requests: VBucket ID; For responses: Status code
 	Status    Status // Alias for VBucketID when parsing responses
 	BodyLen   uint32 // Total body length = extras + key + value
-	Opaque    uint32 // Echoed back in response
+	Opaque    uint32 // Echoed back in response, like correlation ID
 	CAS       uint64 // Compare-and-swap value
 }
 

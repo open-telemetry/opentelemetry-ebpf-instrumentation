@@ -48,7 +48,60 @@ The body follows the header and contains (in order):
 
 Body length = `extras_length + key_length + value_length`
 
+### Connection Setup Commands (Not Traced)
+
+These commands are tracked for state but don't generate spans:
+They are used to enrich subsequent operations with bucket and collection context.
+
+| Opcode | Name              | Purpose                                    |
+|:-------|:------------------|:-------------------------------------------|
+| 0x89   | SELECT_BUCKET     | Selects the bucket for the connection      |
+| 0xbb   | GET_COLLECTION_ID | Resolves scope.collection to collection ID |
+
+## Bucket/Scope/Collection Tracking
+
+Couchbase uses a hierarchical namespace: **Bucket → Scope → Collection**
+
+### Connection-Scoped State
+
+Unlike protocols where namespace is per-request, Couchbase uses connection-level state:
+
+1. **SELECT_BUCKET (0x89)**: Client sends bucket name in key field. On success, all subsequent operations use this
+   bucket.
+
+2. **GET_COLLECTION_ID (0xbb)**: Client sends `scope.collection` in value field to resolve to a Collection ID (CID). On
+   success, we cache the scope and collection names.
+
+This is analogous to:
+
+- MySQL's `USE database`
+- Redis's `SELECT db_number`
+
+### Per-Connection Cache
+
+OBI maintains a per-connection cache (`couchbaseBucketCache`) that stores:
+
+- `Bucket` - Selected bucket name
+- `Scope` - Current scope name
+- `Collection` - Current collection name
+
+**Limitation**: If SELECT_BUCKET occurs before OBI starts tracing, the bucket name will be unknown for that connection.
+
 ## Protocol Parsing
+
+The Couchbase packet parsing flow:
+
+1. TCP packets arrive at `ReadTCPRequestIntoSpan`
+   in [tcp_detect_transform.go](../../../pkg/ebpf/common/tcp_detect_transform.go)
+
+2. `ProcessPossibleCouchbaseEvent`
+   in [couchbase_detect_transform.go](../../../pkg/ebpf/common/couchbase_detect_transform.go) attempts to parse the
+   packet
+
+3. Parsing logic lives in the [couchbasekv package](../../../pkg/internal/ebpf/couchbasekv/):
+    - `types.go` - Protocol constants (Magic, Opcode, Status, DataType)
+    - `header.go` - Header and Packet parsing with truncation tolerance
+    - `reader.go` - PacketReader utility for reading binary data
 
 ### Multiple Commands per Packet
 
@@ -62,3 +115,23 @@ The parser handles truncated packets gracefully:
 - Header fields are always available (24 bytes minimum)
 - Key and value are parsed up to available bytes
 - Partial keys/values are returned without error
+
+## Span Attributes
+
+OBI generates spans with the following OpenTelemetry semantic conventions:
+
+| Attribute                 | Source            | Example              |
+|---------------------------|-------------------|----------------------|
+| `db.system.name`          | Constant          | `"couchbase"`        |
+| `db.operation.name`       | Opcode            | `"GET"`, `"SET"`     |
+| `db.namespace`            | Bucket + Scope    | `"mybucket.myscope"` |
+| `db.collection.name`      | Collection        | `"mycollection"`     |
+| `db.response.status_code` | Status (on error) | `"1"`                |
+| `server.address`          | Connection info   | Server hostname      |
+| `server.port`             | Connection info   | `11210`              |
+
+## Configuration
+
+Couchbase tracing can be configured via:
+
+- `ebpf.CouchbaseDBCacheSize` - Size of per-connection bucket cache (default matches other protocols)
