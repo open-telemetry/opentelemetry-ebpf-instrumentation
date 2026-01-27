@@ -1,4 +1,7 @@
-package discover
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package discover // import "go.opentelemetry.io/obi/pkg/appolly/discover"
 
 import (
 	"context"
@@ -59,7 +62,7 @@ func (dd *dockerDecorator) decorate(ctx context.Context) {
 			ev := &instrumentables[i]
 			switch ev.Type {
 			case EventCreated:
-				meta, ok := dd.docker.ContainerInfo(ctx, docker.PID(ev.Obj.pid))
+				meta, ok := dd.containerInfo(ctx, docker.PID(ev.Obj.pid))
 				if ok {
 					ev.Obj.metadata[containerNameMeta] = meta.Name
 				}

@@ -76,24 +76,26 @@ func newGraphBuilder(
 		DecoratedTraces: tracesReaderToRouter,
 	}), swarm.WithID("ReadFromChannel"))
 
-	routerToContainerDecorator := msg2.QueueFromConfig[[]request.Span](config, "routerToContainerDecorator",
+	routerToKubeDecorator := msg2.QueueFromConfig[[]request.Span](config, "routerToKubeDecorator",
 		// make sure that we are able to wait for the informer sync timeout before failing the pipeline
 		// if a message gets bocked while the Kube decorator starts
 		msg.SendTimeout(max(config.Attributes.Kubernetes.InformersSyncTimeout, config.ChannelSendTimeout)))
 	swi.Add(transform.RoutesProvider(
 		config.Routes,
 		tracesReaderToRouter,
-		routerToContainerDecorator,
+		routerToKubeDecorator,
 	), swarm.WithID("Routes"))
 
-	containerDecoratorToNameResolver := msg2.QueueFromConfig[[]request.Span](config, "containerDecoratorToNameResolver")
+	kubeToContainerDecorator := msg2.QueueFromConfig[[]request.Span](config, "kubeToContainerDecorator")
 	swi.Add(transform.KubeDecoratorProvider(
 		ctxInfo, &config.Attributes.Kubernetes,
-		routerToContainerDecorator, containerDecoratorToNameResolver,
+		routerToKubeDecorator, kubeToContainerDecorator,
 	), swarm.WithID("KubeDecorator"))
+
+	containerDecoratorToNameResolver := msg2.QueueFromConfig[[]request.Span](config, "containerDecoratorToNameResolver")
 	swi.Add(transform.DockerDecoratorProvider(
 		ctxInfo,
-		routerToContainerDecorator, containerDecoratorToNameResolver,
+		kubeToContainerDecorator, containerDecoratorToNameResolver,
 	), swarm.WithID("DockerDecorator"))
 
 	nameResolverToAttrFilter := msg2.QueueFromConfig[[]request.Span](config, "nameResolverToAttrFilter")

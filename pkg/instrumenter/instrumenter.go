@@ -194,7 +194,7 @@ func BuildCommonContextInfo(
 		ServiceNameTemplate: templ,
 	}, ctxInfo.Metrics)
 
-	ctxInfo.DockerMetadata, err = docker.NewStore()
+	ctxInfo.DockerMetadata = docker.NewStore()
 
 	attributeGroups(config, ctxInfo)
 
@@ -232,6 +232,8 @@ func internalMetrics(
 func attributeGroups(config *obi.Config, ctxInfo *global.ContextInfo) {
 	if ctxInfo.K8sInformer.IsKubeEnabled() {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupKubernetes)
+	} else if ctxInfo.DockerMetadata.IsEnabled(context.Background()) {
+		ctxInfo.MetricAttributeGroups.Add(attributes.GroupContainer)
 	}
 	if config.Routes != nil {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupHTTPRoutes)

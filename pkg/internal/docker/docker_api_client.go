@@ -1,8 +1,10 @@
-package docker
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package docker // import "go.opentelemetry.io/obi/pkg/internal/docker"
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 
@@ -37,22 +39,27 @@ func NewStore() *APIClient {
 }
 
 func (s *APIClient) IsEnabled(ctx context.Context) bool {
+	if s == nil {
+		return false
+	}
 	s.initMutex.Lock()
 	defer s.initMutex.Unlock()
 	s.initialize(ctx)
 	return s.docker != nil
 }
 
-func (s *APIClient) initialize(ctx context.Context) error {
+func (s *APIClient) initialize(ctx context.Context) {
 	if s.docker != nil {
-		return nil
+		return
 	}
 	docker, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
-		return fmt.Errorf("instantiating docker client: %w", err)
+		s.log.Debug("trying to instantiate docker client", "error", err)
+		return
 	}
 	if info, err := docker.Info(ctx); err != nil {
-		return err
+		s.log.Debug("trying to get get docker info", "error", err)
+		return
 	} else {
 		s.log.Info("Docker info",
 			"driver", info.Driver,
@@ -61,7 +68,6 @@ func (s *APIClient) initialize(ctx context.Context) error {
 			"cgroupVersion", info.CgroupVersion)
 	}
 	s.docker = docker
-	return nil
 }
 
 func (s *APIClient) ContainerInfo(ctx context.Context, pid PID) (ContainerMeta, bool) {

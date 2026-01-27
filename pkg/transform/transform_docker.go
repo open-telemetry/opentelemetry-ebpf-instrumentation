@@ -1,4 +1,7 @@
-package transform
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package transform // import "go.opentelemetry.io/obi/pkg/transform"
 
 import (
 	"context"
@@ -24,8 +27,8 @@ func DockerDecoratorProvider(
 	return func(ctx context.Context) (swarm.RunFunc, error) {
 		// only enable this node if Docker is available, but also
 		// if we aren't running on Kubernetes
-		if !ctxInfo.K8sInformer.IsKubeEnabled() &&
-			ctxInfo.DockerMetadata.IsEnabled(ctx) {
+		if ctxInfo.K8sInformer.IsKubeEnabled() ||
+			!ctxInfo.DockerMetadata.IsEnabled(ctx) {
 			return swarm.Bypass(input, output)
 		}
 
