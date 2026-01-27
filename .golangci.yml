@@ -105,6 +105,21 @@ linters:
           deny:
             - pkg: go.opentelemetry.io/proto
               desc: Use go.opentelemetry.io/collector/pdata instead
+        # Enforce semconv version consistency
+        semconv-version:
+          # Do not allow semconv versions other than v1.38.0, except in Go 1.17 test directory
+          files:
+            - '!**/internal/test/integration/components/testserver_1.17/**'
+          deny:
+            - pkg: "go.opentelemetry.io/otel/semconv/v1\\.[0-3][0-7]\\.[0-9]"
+              desc: "Use 'go.opentelemetry.io/otel/semconv/v1.38.0' only (except in testserver_1.17)"
+            - pkg: "go.opentelemetry.io/otel/semconv/v1\\.3[0-7]\\.[0-9]"
+              desc: "Use 'go.opentelemetry.io/otel/semconv/v1.38.0' only (except in testserver_1.17)"
+            # Update to allow v1.39.x when we to upgrade to that version.
+            - pkg: "go.opentelemetry.io/otel/semconv/v1\\.39\\.[0-9]"
+              desc: "Use 'go.opentelemetry.io/otel/semconv/v1.38.0' only (except in testserver_1.17)"
+            - pkg: "go.opentelemetry.io/otel/semconv/v[2-9]\\.[0-9]\\.[0-9]"
+              desc: "Use 'go.opentelemetry.io/otel/semconv/v1.38.0' only (except in testserver_1.17)"
 
     gosec:
       excludes:
