@@ -132,6 +132,9 @@ func FeatureHTTPMetricsDecoration(manifest string, overrideAttrs map[string]stri
 	expectedJob := expectedNs + "/" + expectedServer
 
 	expectedClusterName := attributeMap(allAttributes, overrideAttrs, "k8s_cluster_name")["k8s_cluster_name"]
+	if expectedClusterName == "^obi-k8s-test-cluster$" {
+		expectedClusterName = "obi-k8s-test-cluster"
+	}
 
 	return features.New("Decoration of Pod-to-Service communications").
 		Setup(pinger.Deploy()).
