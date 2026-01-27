@@ -863,7 +863,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
 				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
-		case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
+		case request.EventTypeKafkaClient, request.EventTypeKafkaServer, request.EventTypeMQTTClient, request.EventTypeMQTTServer:
 			if mr.is.MQEnabled() {
 				switch span.Method {
 				case request.MessagingPublish:
