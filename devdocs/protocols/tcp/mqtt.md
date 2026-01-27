@@ -78,4 +78,3 @@ The parser tolerates truncated packets:
 - **No kernel-space detection**: MQTT is detected in userspace only. The `ProtocolTypeMQTT` constant exists for future kernel-space support.
 - **First subscription only**: For SUBSCRIBE packets with multiple topic filters, only the first filter is used in the span.
 - **Payload not captured**: Message payload size and content are not included in spans.
-
