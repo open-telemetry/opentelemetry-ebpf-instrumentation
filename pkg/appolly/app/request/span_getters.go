@@ -28,6 +28,27 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			return ClientNamespaceMetric(s.OtherNamespace)
 		}
+	case attr.K8SClientNamespace:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.IsClientSpan() {
+				return K8SClientNamespaceMetric(s.Service.Metadata[attr.K8sNamespaceName])
+			}
+			return K8SClientNamespaceMetric(s.OtherK8SNamespace)
+		}
+	case attr.K8SClientCluster:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.IsClientSpan() {
+				return K8SClientClusterMetric(s.Service.Metadata[attr.K8sClusterName])
+			}
+			// OBI has only cluster level information at the moment. If we were able to
+			// find the peer k8s.namespace.name, we use the same cluster, otherwise it's
+			// left blank
+			otherCluster := ""
+			if s.OtherK8SNamespace != "" {
+				otherCluster = s.Service.Metadata[attr.K8sClusterName]
+			}
+			return K8SClientClusterMetric(otherCluster)
+		}
 	case attr.HTTPRequestMethod:
 		getter = func(s *Span) attribute.KeyValue { return HTTPRequestMethod(s.Method) }
 	case attr.HTTPResponseStatusCode:
@@ -78,6 +99,27 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return ServerNamespaceMetric(s.OtherNamespace)
 			}
 			return ServerNamespaceMetric(s.Service.UID.Namespace)
+		}
+	case attr.K8SServerNamespace:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.IsClientSpan() {
+				return K8SServerNamespaceMetric(s.OtherK8SNamespace)
+			}
+			return K8SServerNamespaceMetric(s.Service.Metadata[attr.K8sNamespaceName])
+		}
+	case attr.K8SServerCluster:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.IsClientSpan() {
+				// OBI has only cluster level information at the moment. If we were able to
+				// find the peer k8s.namespace.name, we use the same cluster, otherwise it's
+				// left blank
+				otherCluster := ""
+				if s.OtherK8SNamespace != "" {
+					otherCluster = s.Service.Metadata[attr.K8sClusterName]
+				}
+				return K8SServerClusterMetric(otherCluster)
+			}
+			return K8SServerClusterMetric(s.Service.Metadata[attr.K8sClusterName])
 		}
 	case attr.ServiceInstanceID:
 		getter = func(s *Span) attribute.KeyValue { return semconv.ServiceInstanceID(s.Service.UID.Instance) }

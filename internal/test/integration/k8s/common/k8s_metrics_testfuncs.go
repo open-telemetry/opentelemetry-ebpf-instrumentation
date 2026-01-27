@@ -156,7 +156,14 @@ func FeatureHTTPMetricsDecoration(manifest string, overrideAttrs map[string]stri
 					"k8s_cluster_name",
 				))).
 		Assess("all the span graph metrics exist",
-			testMetricsDecoration(spanGraphMetrics, `{server="`+expectedServer+`",server_service_namespace="`+expectedNs+`",client="internal-pinger"}`,
+			testMetricsDecoration(spanGraphMetrics,
+				`{server="`+expectedServer+
+					`",server_service_namespace="`+expectedNs+
+					`",client_k8s_namespace_name="default`+
+					`",server_k8s_namespace_name="default`+
+					`",client_k8s_cluster_name="obi-k8s-test-cluster`+
+					`",server_k8s_cluster_name="obi-k8s-test-cluster`+
+					`",client="internal-pinger"}`,
 				attributeMap(allAttributes, overrideAttrs,
 					"server_service_namespace",
 					"source",
