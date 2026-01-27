@@ -204,6 +204,60 @@ func TestTCPReqKafkaParsing(t *testing.T) {
 	assert.Equal(t, request.EventTypeKafkaClient, s.Type)
 }
 
+func TestTCPReqMQTTParsing(t *testing.T) {
+	// MQTT PUBLISH packet with topic "test/topic" and no payload
+	b := []byte{
+		0x30,       // PUBLISH QoS 0
+		0x0c,       // Remaining length: 12
+		0x00, 0x0a, // Topic length: 10
+		't', 'e', 's', 't', '/', 't', 'o', 'p', 'i', 'c',
+	}
+	r := makeTCPReq(string(b), directionSend, 1883, 8080, 2000)
+	m, ignore, err := ProcessMQTTEvent(b)
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	s := TCPToMQTTToSpan(&r, m)
+	assert.NotNil(t, s)
+	assert.NotEmpty(t, s.Host)
+	assert.NotEmpty(t, s.Peer)
+	assert.Equal(t, 8080, s.HostPort)
+	assert.Greater(t, s.End, s.Start)
+	assert.Equal(t, request.MessagingPublish, s.Method)
+	assert.Equal(t, "test/topic", s.Path)
+	assert.Equal(t, request.EventTypeMQTTClient, s.Type)
+}
+
+func TestTCPReqMQTTHeuristicFailure(t *testing.T) {
+	// This packet passes isMQTT() heuristic (valid PUBLISH header) but fails full parsing
+	// because the topic length (0x00, 0xFF = 255) exceeds the available data.
+	// This tests that when MQTT heuristic matches but full parsing fails, the packet is ignored.
+	b := []byte{
+		0x30,       // PUBLISH QoS 0 - valid MQTT packet type
+		0x05,       // Remaining length: 5 bytes
+		0x00, 0xFF, // Topic length: 255 (but only 3 bytes remain - will fail parsing)
+		0x01, 0x02, 0x03,
+	}
+
+	// Verify the heuristic passes but full parsing fails
+	assert.True(t, isMQTT(b), "packet should pass isMQTT heuristic")
+	_, _, err := ProcessMQTTEvent(b)
+	require.Error(t, err, "full MQTT parsing should fail")
+
+	// Now test via ReadTCPRequestIntoSpan - should be ignored
+	r := makeTCPReq(string(b), directionSend, 1883, 8080, 2000)
+	cfg := config.EBPFTracer{HeuristicSQLDetect: false}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.True(t, ignore, "packet should be ignored when MQTT heuristic passes but parsing fails")
+	assert.Equal(t, request.Span{}, span, "span should be empty")
+}
+
 const charset = "\\0\\1\\2abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 func randomString(length int) string {

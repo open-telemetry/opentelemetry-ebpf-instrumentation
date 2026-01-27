@@ -174,6 +174,13 @@ func processConnectPacket(pkt []byte, offset int) (*MQTTInfo, bool, error) {
 	}, true, nil // ignore=true for CONNECT as it's a control operation
 }
 
+// isMQTT performs a quick heuristic check to determine if the packet looks like MQTT.
+// This is used for userspace protocol detection when the kernel hasn't classified the protocol.
+func isMQTT(pkt []byte) bool {
+	_, err := mqttparser.NewMQTTControlPacket(pkt)
+	return err == nil
+}
+
 // TCPToMQTTToSpan converts a TCPRequestInfo and MQTTInfo into a request.Span.
 func TCPToMQTTToSpan(trace *TCPRequestInfo, data *MQTTInfo) request.Span {
 	peer := ""

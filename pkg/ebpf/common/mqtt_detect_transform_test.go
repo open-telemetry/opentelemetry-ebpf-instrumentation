@@ -371,7 +371,7 @@ func TestProcessMQTTEvent_RealWorldPackets(t *testing.T) {
 		err      bool
 	}{
 		{
-			name: "Mosquitto PUBLISH to home/temperature",
+			name: "real-world PUBLISH to home/temperature",
 			request: []byte{
 				0x30,       // PUBLISH QoS 0
 				0x18,       // Remaining length: 24
@@ -421,4 +421,15 @@ func TestProcessMQTTEvent_RealWorldPackets(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsMQTT(t *testing.T) {
+	// isMQTT is a thin wrapper around NewMQTTControlPacket that returns true/false.
+	// We only need to verify the boolean conversion, not re-test the parsing logic.
+	validPacket := []byte{0xC0, 0x00}   // PINGREQ - minimal valid MQTT packet
+	invalidPacket := []byte{0x00, 0x00} // Reserved packet type (invalid)
+
+	assert.True(t, isMQTT(validPacket), "valid MQTT packet should return true")
+	assert.False(t, isMQTT(invalidPacket), "invalid packet should return false")
+	assert.False(t, isMQTT(nil), "nil packet should return false")
 }
