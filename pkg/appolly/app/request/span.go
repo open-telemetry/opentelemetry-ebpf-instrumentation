@@ -16,11 +16,10 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 type EventType uint8
@@ -754,7 +753,7 @@ func (s *Span) TraceName() string {
 		if s.Method != "" {
 			return s.Method
 		}
-		return semconv.DBSystemMongoDB.Value.AsString()
+		return semconv.DBSystemNameMongoDB.Value.AsString()
 	case EventTypeManualSpan:
 		return s.Method
 	case EventTypeFailedConnect:
@@ -901,25 +900,17 @@ func (s *Span) IsSelfReferenceSpan() bool {
 	return s.Peer == s.Host && (s.Service.UID.Namespace == s.OtherNamespace || s.OtherNamespace == "")
 }
 
-// TODO: replace by semconv.DBSystemPostgreSQL, semconv.DBSystemMySQL, semconv.DBSystemRedis when we
-// update semantic conventions library to 1.30.0
-var (
-	dbSystemPostgreSQL = attribute.String(string(attr.DBSystemName), semconv.DBSystemPostgreSQL.Value.AsString())
-	dbSystemMySQL      = attribute.String(string(attr.DBSystemName), semconv.DBSystemMySQL.Value.AsString())
-	dbSystemOtherSQL   = attribute.String(string(attr.DBSystemName), semconv.DBSystemOtherSQL.Value.AsString())
-)
-
 func (s *Span) DBSystemName() attribute.KeyValue {
 	if s.Type == EventTypeSQLClient {
 		switch s.SubType {
 		case int(DBPostgres):
-			return dbSystemPostgreSQL
+			return semconv.DBSystemNamePostgreSQL
 		case int(DBMySQL):
-			return dbSystemMySQL
+			return semconv.DBSystemNameMySQL
 		}
 	}
 
-	return dbSystemOtherSQL
+	return semconv.DBSystemNameOtherSQL
 }
 
 func (s *Span) HasOriginalHost() bool {
