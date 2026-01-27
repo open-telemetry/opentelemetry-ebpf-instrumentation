@@ -85,7 +85,9 @@ func testREDMetricsPythonMQTT(t *testing.T) {
 		}
 
 		t.Run(testCase.Route, func(t *testing.T) {
-			waitForMQTTTestComponents(t, testCase.Route, "/"+testCase.Subpath)
+			// Use /mqtt/connect for warmup to establish connection without triggering publish.
+			// This ensures OBI is fully ready before the actual test triggers the publish operation.
+			waitForMQTTTestComponents(t, testCase.Route, "/mqtt/connect")
 			runMQTTTestCase(t, testCase)
 		})
 	}
@@ -121,7 +123,9 @@ func testREDMetricsPythonMQTTSubscribe(t *testing.T) {
 		}
 
 		t.Run(testCase.Route, func(t *testing.T) {
-			waitForMQTTTestComponents(t, testCase.Route, "/"+testCase.Subpath)
+			// Use /mqtt/connect for warmup to establish connection without triggering subscribe.
+			// This ensures OBI is fully ready before the actual test triggers the subscribe operation.
+			waitForMQTTTestComponents(t, testCase.Route, "/mqtt/connect")
 			runMQTTTestCase(t, testCase)
 		})
 	}
