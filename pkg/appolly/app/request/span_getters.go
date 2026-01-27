@@ -108,6 +108,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return semconv.DBSystemNameRedis
 			case EventTypeMongoClient:
 				return semconv.DBSystemNameMongoDB
+			case EventTypeCouchbaseClient:
+				return semconv.DBSystemNameCouchbase
 			case EventTypeHTTPClient:
 				if span.SubType == HTTPSubtypeElasticsearch {
 					return DBSystemName(span.Elasticsearch.DBSystemName)

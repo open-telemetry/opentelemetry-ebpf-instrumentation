@@ -1178,7 +1178,7 @@ int obi_handle_buf_with_args(void *ctx) {
                 if (is_traceparent(args->small_buf)) {
                     unsigned char *buf = tp_char_buf();
                     if (buf) {
-                        bpf_probe_read(buf, EXTEND_SIZE, (unsigned char *)args->u_buf);
+                        bpf_probe_read(buf, TP_SIZE, (unsigned char *)args->u_buf);
                         bpf_dbg_printk("Found traceparent buf=[%s]", buf);
                         unsigned char *t_id = extract_trace_id(buf);
                         unsigned char *s_id = extract_span_id(buf);

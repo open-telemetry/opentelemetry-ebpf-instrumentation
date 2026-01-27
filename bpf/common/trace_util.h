@@ -66,3 +66,7 @@ static __always_inline bool is_traceparent(const unsigned char *p) {
 
     return false;
 }
+
+static __always_inline bool is_eoh(const unsigned char *p) {
+    return p[0] == '\r' && p[1] == '\n' && p[2] == '\r' && p[3] == '\n';
+}
