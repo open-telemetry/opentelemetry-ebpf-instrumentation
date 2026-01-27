@@ -124,6 +124,11 @@ var (
 		Prom:    "dns_lookup_duration_seconds",
 		OTEL:    "dns.lookup.duration",
 	}
+	AppNetworkTcpRtt = Name{
+		Section: "obi.net.tcp.rtt",
+		Prom:    "obi_net_tcp_rtt_seconds",
+		OTEL:    "obi.net.tcp.rtt",
+	}
 )
 
 // normalizeMetric will facilitate the user-input in the attributes.enable section.

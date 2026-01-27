@@ -103,9 +103,13 @@ type MetricsReporter struct {
 	attrGPUMemoryAllocations   []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGPUMemoryCopies        []attributes.Field[*request.Span, attribute.KeyValue]
 	attrDNSLookupDuration      []attributes.Field[*request.Span, attribute.KeyValue]
-	userAttribSelection        attributes.Selection
-	input                      <-chan []request.Span
-	processEvents              <-chan exec.ProcessEvent
+
+	// user-selected attributes for the application network level metrics
+	attrAppNetTcpRtt []attributes.Field[*request.Span, attribute.KeyValue]
+
+	userAttribSelection attributes.Selection
+	input               <-chan []request.Span
+	processEvents       <-chan exec.ProcessEvent
 
 	log *slog.Logger
 
@@ -147,6 +151,8 @@ type Metrics struct {
 	gpuMemoryCopySize    *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	// dns
 	dnsLookupDuration *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	// application network metrics
+	tcpRtt *Expirer[*request.Span, instrument.Float64Histogram, float64]
 }
 
 type TargetMetrics struct {
@@ -282,6 +288,11 @@ func newMetricsReporter(
 	if is.DNSEnabled() {
 		mr.attrDNSLookupDuration = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.DNSLookupDuration))
+	}
+
+	if is.AppNetEnabled() {
+		mr.attrAppNetTcpRtt = attributes.OpenTelemetryGetters(
+			mr.attrGetters, mr.attributes.For(attributes.AppNetworkTcpRtt))
 	}
 
 	mr.reporters = otelcfg.NewReporterPool[*svc.Attrs, *Metrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -545,6 +556,15 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 		}
 		m.dnsLookupDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
 			m.ctx, dnsLookupDuration, mr.attrDNSLookupDuration, timeNow, mr.cfg.TTL)
+	}
+
+	if mr.is.AppNetEnabled() {
+		tcpRtt, err := meter.Float64Histogram(attributes.AppNetworkTcpRtt.OTEL, instrument.WithUnit("s"))
+		if err != nil {
+			return fmt.Errorf("creating application network tcp rtt histogram: %w", err)
+		}
+		m.tcpRtt = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
+			m.ctx, tcpRtt, mr.attrAppNetTcpRtt, timeNow, mr.cfg.TTL)
 	}
 
 	return nil
@@ -933,7 +953,10 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				dnsDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
 		case request.EventTypeAppNetTcpRtt:
-			fmt.Println("Pino record metrics!")
+			if mr.is.AppNetEnabled() {
+				tcpRtt, attrs := r.tcpRtt.ForRecord(span)
+				tcpRtt.Record(ctx, float64(span.AppNet.TcpRtt.Srtt)/1000.0, instrument.WithAttributeSet(attrs))
+			}
 		}
 	}
 

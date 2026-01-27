@@ -365,6 +365,13 @@ func getDefinitions(
 				attr.ErrorType:       true,
 			},
 		},
+		AppNetworkTcpRtt.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.AppNetworkTcpRttPort:  true,
+				attr.AppNetworkTcpRttNetns: true,
+			},
+		},
 		// span and service graph metrics don't yet implement attribute selection,
 		// but their values can still be filtered, so we list them here just to
 		// make the filter recognize its attributes

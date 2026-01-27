@@ -51,6 +51,7 @@ const (
 	EventTypeDNS
 	EventTypeCouchbaseClient
 	EventTypeAppNetTcpRtt
+	EventTypeAppNetTcpFailedConnections
 )
 
 const (
@@ -199,6 +200,16 @@ type Elasticsearch struct {
 	DBOperationName  string `json:"dbOperationName"`
 	DBQueryText      string `json:"dbQueryText"`
 	DBSystemName     string `json:"dbSystemName"`
+}
+
+type AppNet struct {
+	TcpRtt TcpRtt
+}
+
+type TcpRtt struct {
+	Srtt  uint32 `json:"srtt"`
+	Netns uint32 `json:"netns"`
+	Port  uint16 `json:"port"`
 }
 
 type AWS struct {

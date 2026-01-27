@@ -25,30 +25,32 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
+// The following consts need to coincide with some C identifiers defined in bpf/appnetworktracer/common.h
+const (
+	EventTypeAppNetTcpRtt               = 1 // EVENT_APP_NET_TCP_RTT Application Network metrics related event - RTT
+	EventTypeAppNetTcpFailedConnections = 2 // EVENT_APP_NET_TCP_FAILED_CONNECTIONS
+)
+
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type app_net_tcp_rtt_t -target amd64,arm64 Bpf ../../../../bpf/appnetworktracer/appnetworktracer.c -- -I../../../../bpf
 
 type AppNetTcpRtt BpfAppNetTcpRttT
 
 type Tracer struct {
-	pidsFilter ebpfcommon.ServiceFilter
-	cfg        *obi.Config
-	metrics    imetrics.Reporter
-	bpfObjects BpfObjects
-	closers    []io.Closer
-	log        *slog.Logger
+	pidsFilter            ebpfcommon.ServiceFilter
+	cfg                   *obi.Config
+	metrics               imetrics.Reporter
+	bpfObjects            BpfObjects
+	closers               []io.Closer
+	log                   *slog.Logger
+	isGenericTracerActive bool
 }
 
 func tlog() *slog.Logger {
 	return slog.With("component", "generic.AppNetworkTracer")
 }
 
-func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
-	return &Tracer{
-		log:        tlog(),
-		cfg:        cfg,
-		metrics:    metrics,
-		pidsFilter: pidFilter,
-	}
+func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter, isGenericTracerActive bool) *Tracer {
+	return &Tracer{log: tlog(), cfg: cfg, metrics: metrics, pidsFilter: pidFilter, isGenericTracerActive: isGenericTracerActive}
 }
 
 // Updating these requires updating the constants below in pid.h
@@ -103,13 +105,17 @@ func (p *Tracer) rebuildValidPids() {
 }
 
 func (p *Tracer) AllowPID(pid, ns uint32, svc *svc.Attrs) {
-	p.pidsFilter.AllowPID(pid, ns, svc, ebpfcommon.PIDTypeKProbes)
-	p.rebuildValidPids()
+	if !p.isGenericTracerActive {
+		p.pidsFilter.AllowPID(pid, ns, svc, ebpfcommon.PIDTypeKProbes)
+		p.rebuildValidPids()
+	}
 }
 
 func (p *Tracer) BlockPID(pid, ns uint32) {
-	p.pidsFilter.BlockPID(pid, ns)
-	p.rebuildValidPids()
+	if !p.isGenericTracerActive {
+		p.pidsFilter.BlockPID(pid, ns)
+		p.rebuildValidPids()
+	}
 }
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
@@ -118,20 +124,21 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 		return nil, fmt.Errorf("can't load bpf collection from reader: %w", err)
 	}
 
-	// TODO pino check this
-	//ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
-
 	return spec, err
 }
 
 func (p *Tracer) SetupTailCalls() {
 }
 
-// TODO pino check this
 func (p *Tracer) Constants() map[string]any {
-	return map[string]any{
-		"g_bpf_debug": p.cfg.EBPF.BpfDebug,
+	m := make(map[string]any, 2)
+	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
+	if p.cfg.Discovery.BPFPidFilterOff {
+		m["filter_pids"] = int32(0)
+	} else {
+		m["filter_pids"] = int32(1)
 	}
+	return m
 }
 
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
@@ -152,30 +159,13 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 
 func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 	kp := map[string]ebpfcommon.ProbeDesc{}
-	if p.cfg.AppNetworkMetrics.Enabled {
-		// TODO pino add all kprobes
-	}
+
 	if p.cfg.AppNetworkMetrics.Rtt {
 		kp["tcp_close"] = ebpfcommon.ProbeDesc{
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeTcpCloseRtt,
 		}
 	}
-
-	// TODO pino
-	// if p.cfg.EBPF.ContextPropagation.IsEnabled() {
-	// 	// tcp_rate_check_app_limited and tcp_sendmsg_fastopen are backup
-	// 	// for tcp_sendmsg_locked which doesn't fire on certain kernels
-	// 	// if sk_msg is attached.
-	// 	kp["tcp_rate_check_app_limited"] = ebpfcommon.ProbeDesc{
-	// 		Required: false,
-	// 		Start:    p.bpfObjects.ObiKprobeTcpRateCheckAppLimited,
-	// 	}
-	// 	kp["tcp_sendmsg_fastopen"] = ebpfcommon.ProbeDesc{
-	// 		Required: false,
-	// 		Start:    p.bpfObjects.ObiKprobeTcpRateCheckAppLimited,
-	// 	}
-	// }
 
 	return kp
 }
@@ -213,7 +203,7 @@ func (p *Tracer) AlreadyInstrumentedLib(uint64) bool {
 func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
 	// At this point we now have loaded the bpf objects, which means we should insert any
 	// pids that are allowed into the bpf map
-	if p.bpfObjects.ValidPids != nil {
+	if p.bpfObjects.ValidPids != nil && !p.isGenericTracerActive {
 		p.rebuildValidPids()
 	} else {
 		p.log.Error("BPF Pids map is not created yet, this is a bug.")
@@ -235,23 +225,20 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 }
 
 func (p *Tracer) Required() bool {
-	return false // TODO pino check
+	return false
 }
 
 func (p *Tracer) handleAppNetworkEvent(_ *ebpfcommon.EBPFParseContext, _ *config.EBPFTracer, record *ringbuf.Record, _ ebpfcommon.ServiceFilter) (request.Span, bool, error) {
-	fmt.Println("pino handleAppNetworkEvent")
-
 	eventType := record.RawSample[0]
 
 	switch eventType {
-	case ebpfcommon.EventTypeAppNetTcpRtt:
-		fmt.Println("yeeeeee rtt")
+	case EventTypeAppNetTcpRtt:
 		return p.readTcpRttIntoSpan(record)
 	default:
-		p.log.Error("unknown net app event")
+		p.log.Error("unknown net app event", "eventType", eventType)
 	}
 
-	return request.Span{}, false, nil
+	return request.Span{}, true, nil
 }
 
 func (p *Tracer) readTcpRttIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
@@ -266,6 +253,13 @@ func (p *Tracer) readTcpRttIntoSpan(record *ringbuf.Record) (request.Span, bool,
 			HostPID:   event.PidInfo.HostPid,
 			UserPID:   event.PidInfo.UserPid,
 			Namespace: event.PidInfo.Ns,
+		},
+		AppNet: &request.AppNet{
+			TcpRtt: request.TcpRtt{
+				Srtt:  event.Srtt,
+				Port:  event.Sport, // TODO (pinoOgni): test, used as label
+				Netns: event.Netns, // TODO (pinoOgni): test, used as label
+			},
 		},
 	}, false, nil
 }
