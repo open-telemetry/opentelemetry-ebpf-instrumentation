@@ -185,9 +185,9 @@ func TCPToMQTTToSpan(trace *TCPRequestInfo, data *MQTTInfo) request.Span {
 		hostPort = int(trace.ConnInfo.D_port)
 	}
 
-	reqType := request.EventTypeKafkaClient // TODO: Add EventTypeMQTTClient
+	reqType := request.EventTypeMQTTClient
 	if trace.Direction == 0 {
-		reqType = request.EventTypeKafkaServer // TODO: Add EventTypeMQTTServer
+		reqType = request.EventTypeMQTTServer
 	}
 
 	return request.Span{

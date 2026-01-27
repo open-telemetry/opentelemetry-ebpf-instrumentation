@@ -72,6 +72,7 @@ const (
 	ProtocolTypePostgres
 	ProtocolTypeHTTP // not used, written for consistency
 	ProtocolTypeKafka
+	ProtocolTypeMQTT // placeholder for future kernel-space detection
 )
 
 var IntegrityModeOverride = false
