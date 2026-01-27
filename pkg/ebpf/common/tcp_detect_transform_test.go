@@ -26,7 +26,7 @@ import (
 
 func TestTCPReqSQLParsing(t *testing.T) {
 	sql := randomStringWithSub("SELECT * FROM accounts ")
-	r := makeTCPReq(sql, directionSend, 343534, 8080, 2000)
+	r := makeTCPReq(sql, 343534)
 	op, table, sql := detectSQL(sql)
 	assert.Equal(t, "SELECT", op)
 	assert.Equal(t, "accounts", table)
@@ -44,7 +44,7 @@ func TestTCPReqSQLParsing(t *testing.T) {
 
 func TestTCPReqParsing(t *testing.T) {
 	sql := "Not a sql or any known protocol"
-	r := makeTCPReq(sql, directionSend, 343534, 8080, 2000)
+	r := makeTCPReq(sql, 343534)
 	op, table, _ := detectSQL(sql)
 	assert.Empty(t, op)
 	assert.Empty(t, table)
@@ -189,7 +189,7 @@ func TestRedisDetection(t *testing.T) {
 func TestTCPReqKafkaParsing(t *testing.T) {
 	// kafka message
 	b := []byte{0, 0, 0, 94, 0, 1, 0, 11, 0, 0, 0, 224, 0, 6, 115, 97, 114, 97, 109, 97, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 6, 64, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0}
-	r := makeTCPReq(string(b), directionSend, 343534, 8080, 2000)
+	r := makeTCPReq(string(b), 343534)
 	k, _, err := ProcessKafkaRequest(b, nil)
 	require.NoError(t, err)
 	s := TCPToKafkaToSpan(&r, k)
@@ -212,7 +212,7 @@ func TestTCPReqMQTTParsing(t *testing.T) {
 		0x00, 0x0a, // Topic length: 10
 		't', 'e', 's', 't', '/', 't', 'o', 'p', 'i', 'c',
 	}
-	r := makeTCPReq(string(b), directionSend, 1883, 8080, 2000)
+	r := makeTCPReq(string(b), 1883)
 	m, ignore, err := ProcessMQTTEvent(b)
 	require.NoError(t, err)
 	assert.False(t, ignore)
@@ -244,7 +244,7 @@ func TestTCPReqMQTTHeuristicFailure(t *testing.T) {
 	require.Error(t, err, "full MQTT parsing should fail")
 
 	// Now test via ReadTCPRequestIntoSpan - should be ignored
-	r := makeTCPReq(string(b), directionSend, 1883, 8080, 2000)
+	r := makeTCPReq(string(b), 1883)
 	cfg := config.EBPFTracer{HeuristicSQLDetect: false}
 	ctx := NewEBPFParseContext(&cfg, nil, nil)
 
@@ -272,12 +272,12 @@ func randomStringWithSub(sub string) string {
 	return fmt.Sprintf("%s%s%s", randomString(rand.IntN(10)), sub, randomString(rand.IntN(20)))
 }
 
-func makeTCPReq(buf string, direction int, peerPort, hostPort uint32, durationMs uint64) TCPRequestInfo {
+func makeTCPReq(buf string, peerPort uint32) TCPRequestInfo {
 	i := TCPRequestInfo{
-		StartMonotimeNs: durationMs * 1000000,
-		EndMonotimeNs:   durationMs * 2 * 1000000,
+		StartMonotimeNs: 2000 * 1000000,
+		EndMonotimeNs:   2000 * 2 * 1000000,
 		Len:             uint32(len(buf)),
-		Direction:       uint8(direction),
+		Direction:       directionSend,
 	}
 
 	copy(i.Buf[:], buf)
@@ -290,7 +290,7 @@ func makeTCPReq(buf string, direction int, peerPort, hostPort uint32, durationMs
 	i.ConnInfo.D_addr[1] = 0
 	i.ConnInfo.D_addr[2] = 0
 	i.ConnInfo.D_addr[3] = 127
-	i.ConnInfo.D_port = uint16(hostPort)
+	i.ConnInfo.D_port = 8080
 
 	return i
 }
