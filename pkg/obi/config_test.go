@@ -192,6 +192,7 @@ discovery:
 				instrumentations.InstrumentationSQL,
 				instrumentations.InstrumentationRedis,
 				instrumentations.InstrumentationKafka,
+				instrumentations.InstrumentationMQTT,
 				instrumentations.InstrumentationMongo,
 				// no traces for DNS and GPU by default
 			},
