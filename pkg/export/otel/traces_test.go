@@ -21,7 +21,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -509,7 +509,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			reporterName,
 			attribute.String("deployment.environment", "productions"),
 			attribute.String("source.upstream", "OBI"),
-			semconv.OTelLibraryName("my-reporter"),
+			semconv.OTelScopeName("my-reporter"),
 		)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
@@ -517,7 +517,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := rs.Resource().Attributes()
 		ensureTraceStrAttr(t, attrs, "deployment.environment", "productions")
 		ensureTraceStrAttr(t, attrs, "source.upstream", "OBI")
-		ensureTraceStrAttr(t, attrs, "otel.library.name", "my-reporter")
+		ensureTraceStrAttr(t, attrs, "otel.scope.name", "my-reporter")
 	})
 }
 
