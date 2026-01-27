@@ -112,6 +112,7 @@ var DefaultConfig = Config{
 		PostgresPreparedStatementsCacheSize: 1024,
 		MongoRequestsCacheSize:              1024,
 		KafkaTopicUUIDCacheSize:             1024,
+		CouchbaseDBCacheSize:                1024,
 		OverrideBPFLoopEnabled:              false,
 		PayloadExtraction: config.PayloadExtraction{
 			HTTP: config.HTTPConfig{
