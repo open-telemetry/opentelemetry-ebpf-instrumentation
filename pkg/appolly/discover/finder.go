@@ -80,6 +80,12 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 	}
 	swi.Add(WatcherKubeEnricherProvider(pf.ctxInfo.K8sInformer, processEvents, enrichedProcessEvents),
 		swarm.WithID("WatcherKubeEnricher"))
+	swi.Add(DockerDiscoveryDecoratorProvider(
+		pf.ctxInfo.K8sInformer,
+		pf.ctxInfo.DockerMetadata,
+		processEvents,
+		enrichedProcessEvents,
+	))
 
 	criteriaFilteredEvents := msgh.QueueFromConfig[[]Event[ProcessMatch]](pf.cfg, "criteriaFilteredEvents")
 	swi.Add(criteriaMatcherProvider(pf.cfg, enrichedProcessEvents, criteriaFilteredEvents),

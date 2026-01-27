@@ -79,6 +79,8 @@ const (
 	K8sPodUID          = Name("k8s.pod.uid")
 	K8sPodStartTime    = Name("k8s.pod.start_time")
 	K8sKind            = Name("k8s.kind")
+
+	ContainerName = Name(semconv.ContainerNameKey)
 )
 
 // OBI-specific network attributes
@@ -191,7 +193,7 @@ const (
 	CloudRegion = Name(semconv.CloudRegionKey)
 )
 
-// Beyla specific GPU events
+// CUDA GPU events
 const (
 	// GPU/Cuda related attributes
 	CudaKernelName = Name("cuda.kernel.name")

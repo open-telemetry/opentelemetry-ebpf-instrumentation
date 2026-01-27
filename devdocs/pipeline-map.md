@@ -20,6 +20,8 @@ flowchart TD
     classDef optional stroke-dasharray: 3 3;
     subgraph discovery.Finder pipeline
         PW(ProcessWatcher) --> |new/removed processes| KWE
+        PW --> DE
+        DE(DockerEnricher):::optional --> |process enriched with docker metadata| CM
         KWE(WatcherKubeEnricher):::optional --> |process enriched with k8s metadata| CM
         CM(CriteriaMatcher) --> |processes matching the selection criteria| ET(ExecTyper)
         ET --> |ELFs and its metadata| CU
@@ -33,7 +35,9 @@ flowchart TD
         EBPF2 -.-> |"[]request.Span"| TR
         EBPF3 -.-> TR
         TR(traces.ReadDecorator) --> ROUT(Routes<br/>decorator)
+        ROUT:::optional --> DOCKDEC(Docker<br/>decorator)
         ROUT:::optional --> KD(Kubernetes<br/>decorator)
+        DOCKDEC:::optional --> NR
         KD:::optional --> NR
         NR(Name resolver):::optional --> AF
         
@@ -47,6 +51,8 @@ flowchart TD
         SNCL --> PROM(Prometheus<br/>HTTP<br/>endpoint):::optional
     end
     CU -.-> |New PIDs| KDB
+    DE -.-> |Pod info| DOCKAPI(Docker API):::optional
+    DOCKDEC -.-> |Pod info| DOCKAPI(Docker API):::optional
     KDB(KubeDatabase):::optional <-.- | Aggregated & indexed Pod info | KD
     IF("Informer<br/>(Kube API)"):::optional -.-> |Pods & ReplicaSets status| KDB
     IF -.-> |new Kube objects| KWE

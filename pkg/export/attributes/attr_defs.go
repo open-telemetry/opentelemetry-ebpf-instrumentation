@@ -17,6 +17,7 @@ type AttrGroups int
 const (
 	UndefinedGroup  = AttrGroups(0)
 	GroupKubernetes = AttrGroups(1 << iota)
+	GroupContainer
 	GroupPrometheus
 	GroupHTTPRoutes
 	GroupNetIfaceDirection
@@ -50,6 +51,7 @@ func getDefinitions(
 	extraGroupAttributes GroupAttributes,
 ) map[Section]AttrReportGroup {
 	kubeEnabled := groups.Has(GroupKubernetes)
+	containerEnabled := groups.Has(GroupContainer)
 	promEnabled := groups.Has(GroupPrometheus)
 	ifaceDirEnabled := groups.Has(GroupNetIfaceDirection)
 	cidrEnabled := groups.Has(GroupNetCIDR)
@@ -66,17 +68,14 @@ func getDefinitions(
 		},
 		extraGroupAttributes[GroupPrometheus],
 	)
-	// ServiceName and ServiceNamespace are reported both as resource and metric attributes, as
-	// the OTEL definition requires that it is reported as resource attribute,
-	// but Grafana Cloud takes it from the metric
-	appAttributes := NewAttrReportGroup(
-		false,
-		[]*AttrReportGroup{&prometheusAttributes},
+
+	appContainerAttributes := NewAttrReportGroup(
+		!containerEnabled,
+		nil,
 		map[attr.Name]Default{
-			attr.ServiceName:      true,
-			attr.ServiceNamespace: true,
+			attr.ContainerName: true,
 		},
-		extraGroupAttributes[GroupApp],
+		extraGroupAttributes[GroupContainer],
 	)
 
 	// network metrics attributes
@@ -189,6 +188,23 @@ func getDefinitions(
 		extraGroupAttributes[GroupAppKube],
 	)
 
+	// ServiceName and ServiceNamespace are reported both as resource and metric attributes, as
+	// the OTEL definition requires that it is reported as resource attribute,
+	// but Grafana Cloud takes it from the metric
+	appAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{
+			&prometheusAttributes,
+			&appKubeAttributes,
+			&appContainerAttributes,
+		},
+		map[attr.Name]Default{
+			attr.ServiceName:      true,
+			attr.ServiceNamespace: true,
+		},
+		extraGroupAttributes[GroupApp],
+	)
+
 	httpRoutes := NewAttrReportGroup(
 		!groups.Has(GroupHTTPRoutes),
 		nil,
@@ -241,7 +257,7 @@ func getDefinitions(
 
 	messagingAttributes := NewAttrReportGroup(
 		false,
-		[]*AttrReportGroup{&appAttributes, &appKubeAttributes},
+		[]*AttrReportGroup{&appAttributes},
 		map[attr.Name]Default{
 			attr.MessagingSystem:      true,
 			attr.MessagingDestination: true,
@@ -258,25 +274,25 @@ func getDefinitions(
 			SubGroups: []*AttrReportGroup{&networkInterZone, &networkInterZoneCIDR, &networkGeoIP, &networkInterZoneKube},
 		},
 		HTTPServerDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
 		},
 		HTTPServerRequestSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
 		},
 		HTTPServerResponseSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
 		},
 		HTTPClientDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
 		},
 		HTTPClientRequestSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
 		},
 		HTTPClientResponseSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
 		},
 		RPCClientDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes, &grpcClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &grpcClientInfo},
 			Attributes: map[attr.Name]Default{
 				attr.RPCMethod:         true,
 				attr.RPCSystem:         true,
@@ -284,7 +300,7 @@ func getDefinitions(
 			},
 		},
 		RPCServerDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &serverInfo},
 			Attributes: map[attr.Name]Default{
 				attr.RPCMethod:         true,
 				attr.RPCSystem:         true,
@@ -292,7 +308,7 @@ func getDefinitions(
 			},
 		},
 		DBClientDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.ServerAddr:   true,
 				attr.DBOperation:  true,
@@ -312,35 +328,35 @@ func getDefinitions(
 			},
 		},
 		GPUKernelLaunchCalls.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.CudaKernelName: true,
 			},
 		},
 		GPUKernelGridSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.CudaKernelName: true,
 			},
 		},
 		GPUKernelBlockSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.CudaKernelName: true,
 			},
 		},
 		GPUMemoryAllocations.Section: {
-			SubGroups:  []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			SubGroups:  []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
 		GPUMemoryCopies.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.CudaMemcpyKind: true,
 			},
 		},
 		DNSLookupDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.DNSQuestionName: true,
 				attr.ErrorType:       true,
