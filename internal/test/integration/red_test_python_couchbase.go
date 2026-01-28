@@ -198,7 +198,7 @@ func waitForCouchbaseTestComponents(t *testing.T, url string, subpath string) {
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		// now, verify that the metric has been reported.
-		// we don'ct really care that this metric could be from a previous
+		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`db_client_operation_duration_seconds_count{db_system_name="couchbase"}`)
 		require.NoError(ct, err)

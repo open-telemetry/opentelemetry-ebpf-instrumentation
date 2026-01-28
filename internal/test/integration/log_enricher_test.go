@@ -81,7 +81,7 @@ func testLogEnricher(t *testing.T) {
 		require.NotEmpty(ct, logs)
 
 		var logIdx int
-		// Loop from the end -- it might be possible that OBI wasn'ct ready to inject
+		// Loop from the end -- it might be possible that OBI wasn't ready to inject
 		// context when the test started, so get the latest request logs every time.
 		for i := len(logs) - 1; i >= 0; i-- {
 			if strings.Contains(logs[i], "span_id") {

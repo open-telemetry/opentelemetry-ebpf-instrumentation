@@ -193,7 +193,7 @@ func waitForTestComponentsSubWithTime(t *testing.T, url, subpath string, minutes
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		// now, verify that the metric has been reported.
-		// we don'ct really care that this metric could be from a previous
+		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `"}`)
 		require.NoError(ct, err)
@@ -212,7 +212,7 @@ func waitForTestComponentsSubWithTimeAndCode(t *testing.T, url, subpath string, 
 		require.Equal(ct, status, r.StatusCode)
 
 		// now, verify that the metric has been reported.
-		// we don'ct really care that this metric could be from a previous
+		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `"}`)
 		require.NoError(ct, err)
@@ -231,7 +231,7 @@ func waitForTestComponentsRoute(t *testing.T, url, route string) {
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		// now, verify that the metric has been reported.
-		// we don'ct really care that this metric could be from a previous
+		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`http_server_request_duration_seconds_count{http_route="` + route + `"}`)
 		require.NoError(ct, err)
@@ -254,7 +254,7 @@ func waitForSQLTestComponentsWithDB(t *testing.T, url, subpath, db string) {
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		// now, verify that the metric has been reported.
-		// we don'ct really care that this metric could be from a previous
+		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`db_client_operation_duration_seconds_count{db_system_name="` + db + `"}`)
 		require.NoError(ct, err)
@@ -327,7 +327,7 @@ func waitForTestComponentsHTTP2Sub(t *testing.T, url, subpath string, minutes in
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		// now, verify that the metric has been reported.
-		// we don'ct really care that this metric could be from a previous
+		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `"}`)
 		require.NoError(ct, err)
