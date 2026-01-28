@@ -57,6 +57,15 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			return TCPToKafkaToSpan(event, k), false, nil
 		}
 		return request.Span{}, true, fmt.Errorf("failed to handle Kafka event: %w", err)
+	case ProtocolTypeMQTT:
+		m, ignore, err := ProcessPossibleMQTTEvent(event, requestBuffer, responseBuffer)
+		if ignore && err == nil {
+			return request.Span{}, true, nil // parsed MQTT event, but we don't want to create a span for it
+		}
+		if err == nil {
+			return TCPToMQTTToSpan(event, m), false, nil
+		}
+		return request.Span{}, true, fmt.Errorf("failed to handle MQTT event: %w", err)
 	case ProtocolTypeMySQL:
 		span, err := handleMySQL(parseCtx, event, requestBuffer, responseBuffer)
 		if errors.Is(err, errFallback) {
@@ -150,6 +159,16 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			}
 			return TCPToRedisToSpan(event, op, text, status, db, redisErr), false, nil
 		}
+	case isMQTT(requestBuffer) || isMQTT(responseBuffer):
+		m, ignore, err := ProcessPossibleMQTTEvent(event, requestBuffer, responseBuffer)
+		if ignore && err == nil {
+			return request.Span{}, true, nil // parsed MQTT event, but we don't want to create a span for it
+		}
+		if err == nil {
+			return TCPToMQTTToSpan(event, m), false, nil
+		}
+		// MQTT heuristic matched but full parsing failed - ignore the packet
+		slog.Debug("MQTT heuristic detection failed, ignoring", "error", err)
 	default:
 		// Kafka and gRPC can look very similar in terms of bytes. We can mistake one for another.
 		// We try gRPC first because it's more reliable in detecting false gRPC sequences.

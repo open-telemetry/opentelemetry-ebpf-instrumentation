@@ -150,6 +150,8 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
         break;
     case k_protocol_type_http:
         break;
+    case k_protocol_type_mqtt:
+        break;
     case k_protocol_type_unknown:
         break;
     }

@@ -17,14 +17,18 @@ import (
 )
 
 func TestSpanClientServer(t *testing.T) {
-	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC} {
+	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer} {
 		span := &Span{
 			Type: st,
 		}
 		assert.False(t, span.IsClientSpan())
 	}
 
-	for _, st := range []EventType{EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient} {
+	for _, st := range []EventType{
+		EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient,
+		EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient,
+		EventTypeMongoClient, EventTypeFailedConnect,
+	} {
 		span := &Span{
 			Type: st,
 		}
@@ -41,8 +45,10 @@ func TestEventTypeString(t *testing.T) {
 		EventTypeSQLClient:   "SQLClient",
 		EventTypeRedisClient: "RedisClient",
 		EventTypeKafkaClient: "KafkaClient",
+		EventTypeMQTTClient:  "MQTTClient",
 		EventTypeRedisServer: "RedisServer",
 		EventTypeKafkaServer: "KafkaServer",
+		EventTypeMQTTServer:  "MQTTServer",
 		EventTypeMongoClient: "MongoClient",
 		EventType(99):        "UNKNOWN (99)",
 	}
@@ -57,6 +63,7 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeHTTP}:                                  "SPAN_KIND_SERVER",
 		{Type: EventTypeGRPC}:                                  "SPAN_KIND_SERVER",
 		{Type: EventTypeKafkaServer}:                           "SPAN_KIND_SERVER",
+		{Type: EventTypeMQTTServer}:                            "SPAN_KIND_SERVER",
 		{Type: EventTypeRedisServer}:                           "SPAN_KIND_SERVER",
 		{Type: EventTypeHTTPClient}:                            "SPAN_KIND_CLIENT",
 		{Type: EventTypeGRPCClient}:                            "SPAN_KIND_CLIENT",
@@ -65,6 +72,8 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeMongoClient}:                           "SPAN_KIND_CLIENT",
 		{Type: EventTypeKafkaClient, Method: MessagingPublish}: "SPAN_KIND_PRODUCER",
 		{Type: EventTypeKafkaClient, Method: MessagingProcess}: "SPAN_KIND_CONSUMER",
+		{Type: EventTypeMQTTClient, Method: MessagingPublish}:  "SPAN_KIND_PRODUCER",
+		{Type: EventTypeMQTTClient, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
 		{}: "SPAN_KIND_INTERNAL",
 	}
 
@@ -88,11 +97,14 @@ func TestServiceGraphConnectionType(t *testing.T) {
 		// Messaging client spans should return "messaging_system"
 		{name: "Kafka client producer", span: &Span{Type: EventTypeKafkaClient, Method: MessagingPublish}, expected: "messaging_system"},
 		{name: "Kafka client consumer", span: &Span{Type: EventTypeKafkaClient, Method: MessagingProcess}, expected: "messaging_system"},
+		{name: "MQTT client publisher", span: &Span{Type: EventTypeMQTTClient, Method: MessagingPublish}, expected: "messaging_system"},
+		{name: "MQTT client subscriber", span: &Span{Type: EventTypeMQTTClient, Method: MessagingProcess}, expected: "messaging_system"},
 		{name: "AWS SQS client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSSQS}, expected: "messaging_system"},
 
 		// Server spans should return empty
 		{name: "Redis server", span: &Span{Type: EventTypeRedisServer}, expected: ""},
 		{name: "Kafka server", span: &Span{Type: EventTypeKafkaServer}, expected: ""},
+		{name: "MQTT server", span: &Span{Type: EventTypeMQTTServer}, expected: ""},
 
 		// Regular HTTP/gRPC spans should return empty (unset)
 		{name: "HTTP server", span: &Span{Type: EventTypeHTTP}, expected: ""},
@@ -104,6 +116,55 @@ func TestServiceGraphConnectionType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.span.ServiceGraphConnectionType())
+		})
+	}
+}
+
+func TestTraceName(t *testing.T) {
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		// HTTP spans
+		{name: "HTTP server", span: &Span{Type: EventTypeHTTP, Method: "GET", Route: "/users"}, expected: "GET /users"},
+		{name: "HTTP client", span: &Span{Type: EventTypeHTTPClient, Method: "POST", Route: "/api"}, expected: "POST /api"},
+		{name: "HTTP no route", span: &Span{Type: EventTypeHTTP, Method: "GET"}, expected: "GET"},
+
+		// gRPC spans
+		{name: "gRPC server", span: &Span{Type: EventTypeGRPC, Path: "/service/Method"}, expected: "/service/Method"},
+		{name: "gRPC client", span: &Span{Type: EventTypeGRPCClient, Path: "/service/Call"}, expected: "/service/Call"},
+
+		// SQL spans
+		{name: "SQL client", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", Path: "users"}, expected: "SELECT users"},
+		{name: "SQL no table", span: &Span{Type: EventTypeSQLClient, Method: "BEGIN"}, expected: "BEGIN"},
+		{name: "SQL empty", span: &Span{Type: EventTypeSQLClient}, expected: "SQL"},
+
+		// Redis spans
+		{name: "Redis client", span: &Span{Type: EventTypeRedisClient, Method: "GET"}, expected: "GET"},
+		{name: "Redis empty", span: &Span{Type: EventTypeRedisClient}, expected: "REDIS"},
+
+		// Kafka spans
+		{name: "Kafka client publish", span: &Span{Type: EventTypeKafkaClient, Method: MessagingPublish, Path: "orders"}, expected: "publish orders"},
+		{name: "Kafka client process", span: &Span{Type: EventTypeKafkaClient, Method: MessagingProcess, Path: "events"}, expected: "process events"},
+		{name: "Kafka server", span: &Span{Type: EventTypeKafkaServer, Method: MessagingProcess, Path: "topic"}, expected: "process topic"},
+		{name: "Kafka no topic", span: &Span{Type: EventTypeKafkaClient, Method: MessagingPublish}, expected: "publish"},
+
+		// MQTT spans
+		{name: "MQTT client publish", span: &Span{Type: EventTypeMQTTClient, Method: MessagingPublish, Path: "sensors/temperature"}, expected: "publish sensors/temperature"},
+		{name: "MQTT client subscribe", span: &Span{Type: EventTypeMQTTClient, Method: MessagingProcess, Path: "sensors/#"}, expected: "process sensors/#"},
+		{name: "MQTT server", span: &Span{Type: EventTypeMQTTServer, Method: MessagingProcess, Path: "home/lights"}, expected: "process home/lights"},
+		{name: "MQTT no topic", span: &Span{Type: EventTypeMQTTClient, Method: MessagingPublish}, expected: "publish"},
+
+		// Other spans
+		{name: "Mongo client", span: &Span{Type: EventTypeMongoClient, Method: "find", Path: "users"}, expected: "find users"},
+		{name: "Failed connect", span: &Span{Type: EventTypeFailedConnect}, expected: "CONNECT"},
+		{name: "DNS", span: &Span{Type: EventTypeDNS, Method: "A", Path: "example.com"}, expected: "A example.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.span.TraceName())
 		})
 	}
 }

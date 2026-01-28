@@ -889,7 +889,20 @@ func (r *metricsReporter) observe(span *request.Span) {
 				).Metric.Observe(duration)
 			}
 		case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
-			if r.is.MQEnabled() {
+			if r.is.KafkaEnabled() {
+				switch span.Method {
+				case request.MessagingPublish:
+					r.msgPublishDuration.WithLabelValues(
+						labelValues(span, r.attrMsgPublishDuration)...,
+					).Metric.Observe(duration)
+				case request.MessagingProcess:
+					r.msgProcessDuration.WithLabelValues(
+						labelValues(span, r.attrMsgProcessDuration)...,
+					).Metric.Observe(duration)
+				}
+			}
+		case request.EventTypeMQTTClient, request.EventTypeMQTTServer:
+			if r.is.MQTTEnabled() {
 				switch span.Method {
 				case request.MessagingPublish:
 					r.msgPublishDuration.WithLabelValues(
