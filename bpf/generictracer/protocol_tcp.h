@@ -293,7 +293,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
                 bpf_ringbuf_submit(trace, get_flags());
             } else {
-                bpf_printk("failed to reserve space on the ringbuf");
+                bpf_dbg_printk("failed to reserve space on the ringbuf");
             }
             cleanup_trace_info(existing, pid_conn);
         }
