@@ -222,7 +222,7 @@ func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		// now, verify that the metric has been reported.
-		// we don'ct really care that this metric could be from a previous
+		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`http_server_duration_count{http_method="GET"}`)
 		require.NoError(ct, err)

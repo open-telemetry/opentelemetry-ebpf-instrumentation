@@ -58,7 +58,7 @@ func testNodeClientWithMethodAndStatusCode(t *testing.T, method string, statusCo
 		var traces []jaeger.Trace
 
 		// Sometimes we can instrument between the connect and the data being sent
-		// In that case we won'ct have enough info and we won'ct look in the parsed
+		// In that case we won't have enough info and we won't look in the parsed
 		// traceID. We filter for that.
 		for _, ct := range tracesAll {
 			if strings.HasPrefix(ct.TraceID, "0000") {

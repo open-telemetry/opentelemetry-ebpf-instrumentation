@@ -153,7 +153,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		exported := getMetrics(ct, promURL)
 		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
 
-		// BUT not the metrics that haven'ct been received during that time
+		// BUT not the metrics that haven't been received during that time
 		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 	}, timeout, 100*time.Millisecond)

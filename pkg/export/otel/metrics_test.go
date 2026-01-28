@@ -72,7 +72,7 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 
 	var previousSum, previousCount int
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		// we can'ct guarantee the number of calls at test time, but they must be at least 1
+		// we can't guarantee the number of calls at test time, but they must be at least 1
 		previousSum, previousCount = internalMetrics.SumCount()
 		assert.LessOrEqual(ct, 1, previousSum)
 		assert.LessOrEqual(ct, 1, previousCount)

@@ -54,7 +54,8 @@ func TestTraceparentExtraction(t *testing.T) {
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		if len(tq.Data) == 0 {
 			return
-		}	}, 2*time.Minute, 1*time.Second)
+		}
+	}, 2*time.Minute, 1*time.Second)
 	t.Log("instrumentation ready")
 
 	t.Run("without_traceparent", testWithoutTraceparent)
@@ -83,7 +84,8 @@ func testWithoutTraceparent(t *testing.T) {
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/no-tp"})
 		require.GreaterOrEqual(ct, len(traces), 1)
 		trace = traces[0]
-		require.NotEmpty(ct, trace.Spans)	}, testTimeout, 100*time.Millisecond)
+		require.NotEmpty(ct, trace.Spans)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Validate the trace has spans from all 3 services (a, b, c)
 	serviceASpans := trace.FindByOperationName("GET /no-tp", "server")
@@ -124,7 +126,8 @@ func testWithTraceparent(t *testing.T) {
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		require.GreaterOrEqual(ct, len(tq.Data), 1, "should find trace with static trace ID")
 		trace = tq.Data[0]
-		require.NotEmpty(ct, trace.Spans)	}, testTimeout, 100*time.Millisecond)
+		require.NotEmpty(ct, trace.Spans)
+	}, testTimeout, 100*time.Millisecond)
 
 	// CRITICAL: All spans must have the static trace ID, proving extraction worked
 	for _, span := range trace.Spans {
@@ -160,7 +163,8 @@ func testWithForwardedTraceparent(t *testing.T) {
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/with-forwarded-tp"})
 		require.GreaterOrEqual(ct, len(traces), 1, "should find trace with forwarded traceparent")
 		trace = traces[0]
-		require.NotEmpty(ct, trace.Spans)	}, testTimeout, 100*time.Millisecond)
+		require.NotEmpty(ct, trace.Spans)
+	}, testTimeout, 100*time.Millisecond)
 
 	// CRITICAL: All spans must have the static trace ID (extraction worked)
 	for _, span := range trace.Spans {

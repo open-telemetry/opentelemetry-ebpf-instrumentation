@@ -78,7 +78,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assert.Contains(ct, svcSubnets, metric["dst_cidr"], metric)
 		assert.Equal(ct, "8080", metric["server_port"])
 		assert.NotEqual(ct, "8080", metric["client_port"])
-		// services don'ct have host IP or name
+		// services don't have host IP or name
 	}, testTimeout, 100*time.Millisecond)
 	// testing request flows (to testserver as Pod)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -163,7 +163,7 @@ func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _
 		assert.Equal(ct, "testserver", metric["k8s_src_name"])
 		assert.Equal(ct, "Service", metric["k8s_src_owner_type"])
 		assert.Equal(ct, "Service", metric["k8s_src_type"])
-		// services don'ct have host IP or name
+		// services don't have host IP or name
 		assert.Equal(ct, "default", metric["k8s_dst_namespace"])
 		assert.Equal(ct, "internal-pinger-net", metric["k8s_dst_name"])
 		assert.Equal(ct, "Pod", metric["k8s_dst_owner_type"])

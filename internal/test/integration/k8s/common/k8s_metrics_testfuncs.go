@@ -85,7 +85,7 @@ func DoWaitForComponentsAvailable(t *testing.T) {
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		// now, verify that the metric has been reported.
-		// we don'ct really care that this metric could be from a previous
+		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err = pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `",k8s_pod_name=~"testserver-.*"}`)
 		require.NoError(ct, err)

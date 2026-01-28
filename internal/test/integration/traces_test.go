@@ -279,7 +279,7 @@ func testGRPCKProbeTraces(t *testing.T) {
 		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.method", Type: "string", Value: "/routeguide.RouteGuide/Debug"})
 		require.Len(ct, traces, 1)
 		trace = traces[0]
-		require.Len(ct, trace.Spans, 1) // single span for kprobes, we don'ct track goroutines
+		require.Len(ct, trace.Spans, 1) // single span for kprobes, we don't track goroutines
 	}, testTimeout, 100*time.Millisecond)
 
 	// Check the information of the parent span
