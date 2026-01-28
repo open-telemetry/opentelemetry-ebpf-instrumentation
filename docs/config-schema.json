@@ -329,6 +329,10 @@
           "description": "Enables distributed context propagation.\nCan be a combination of: headers, tcp, ip (e.g., \"headers,tcp\" or \"all\")",
           "x-env-var": "OTEL_EBPF_BPF_CONTEXT_PROPAGATION"
         },
+        "couchbase_db_cache_size": {
+          "type": "integer",
+          "x-env-var": "OTEL_EBPF_COUCHBASE_DB_CACHE_SIZE"
+        },
         "disable_black_box_cp": {
           "type": "boolean",
           "description": "Disables OBI black-box context propagation. Used for testing purposes only.",
@@ -980,12 +984,14 @@
             "type": "string",
             "enum": [
               "*",
+              "couchbase",
               "dns",
               "gpu",
               "grpc",
               "http",
               "kafka",
               "mongo",
+              "mqtt",
               "redis",
               "sql"
             ]
@@ -1309,12 +1315,14 @@
             "type": "string",
             "enum": [
               "*",
+              "couchbase",
               "dns",
               "gpu",
               "grpc",
               "http",
               "kafka",
               "mongo",
+              "mqtt",
               "redis",
               "sql"
             ]
@@ -1675,12 +1683,14 @@
             "type": "string",
             "enum": [
               "*",
+              "couchbase",
               "dns",
               "gpu",
               "grpc",
               "http",
               "kafka",
               "mongo",
+              "mqtt",
               "redis",
               "sql"
             ]
@@ -1740,6 +1750,20 @@
       "type": "integer",
       "x-env-var": "OTEL_EBPF_CHANNEL_BUFFER_LEN"
     },
+    "channel_send_timeout": {
+      "type": "string",
+      "pattern": "^[0-9]+(ms|s|m)$",
+      "examples": [
+        "30s",
+        "5m",
+        "1ms"
+      ],
+      "x-env-var": "OTEL_EBPF_CHANNEL_SEND_TIMEOUT"
+    },
+    "channel_send_timeout_panic": {
+      "type": "boolean",
+      "x-env-var": "OTEL_EBPF_CHANNEL_SEND_TIMEOUT_PANIC"
+    },
     "discovery": {
       "$ref": "#/$defs/DiscoveryConfig",
       "description": "Discovery configuration"
@@ -1773,7 +1797,7 @@
         "json",
         "yaml"
       ],
-      "description": "Format of the log configuration during startup",
+      "description": "LogConfig enables the logging of the configuration on startup.",
       "x-env-var": "OTEL_EBPF_LOG_CONFIG"
     },
     "log_level": {
