@@ -21,7 +21,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -389,6 +389,25 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "test")
 	})
 
+	t.Run("test MQTT trace generation", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeMQTTClient, Method: "publish", Path: "sensors/temperature", Statement: "mqtt-client-1"}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.NotEmpty(t, spans.At(0).SpanID().String())
+		assert.NotEmpty(t, spans.At(0).TraceID().String())
+
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "publish")
+		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "sensors/temperature")
+		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "mqtt-client-1")
+	})
+
 	t.Run("test Mongo trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase", Status: 0}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
@@ -437,6 +456,54 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
 		assert.Equal(t, "Internal MongoDB error", spans.At(0).Status().Message())
 	})
+	t.Run("test Couchbase trace generation", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeCouchbaseClient, Method: "GET", Path: "mycollection", DBNamespace: "mybucket.myscope", Status: 0}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.NotEmpty(t, spans.At(0).SpanID().String())
+		assert.NotEmpty(t, spans.At(0).TraceID().String())
+
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 7, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "mycollection")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mybucket.myscope")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+		assert.Equal(t, ptrace.StatusCodeUnset, spans.At(0).Status().Code())
+	})
+	t.Run("test Couchbase trace generation with error", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeCouchbaseClient, Method: "GET", Path: "mycollection", DBNamespace: "mybucket.myscope", Status: 1, DBError: request.DBError{ErrorCode: "1", Description: "KEY_NOT_FOUND"}}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.NotEmpty(t, spans.At(0).SpanID().String())
+		assert.NotEmpty(t, spans.At(0).TraceID().String())
+
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 8, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "mycollection")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mybucket.myscope")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "1")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
+		assert.Equal(t, "KEY_NOT_FOUND", spans.At(0).Status().Message())
+	})
 	t.Run("test env var resource attributes", func(t *testing.T) {
 		defer otelcfg.RestoreEnvAfterExecution()()
 		t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=productions,source.upstream=beyla")
@@ -461,7 +528,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			reporterName,
 			attribute.String("deployment.environment", "productions"),
 			attribute.String("source.upstream", "OBI"),
-			semconv.OTelLibraryName("my-reporter"),
+			semconv.OTelScopeName("my-reporter"),
 		)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
@@ -469,7 +536,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := rs.Resource().Attributes()
 		ensureTraceStrAttr(t, attrs, "deployment.environment", "productions")
 		ensureTraceStrAttr(t, attrs, "source.upstream", "OBI")
-		ensureTraceStrAttr(t, attrs, "otel.library.name", "my-reporter")
+		ensureTraceStrAttr(t, attrs, "otel.scope.name", "my-reporter")
 	})
 }
 
@@ -745,7 +812,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "all instrumentations",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
-			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "insert mycollection"},
+			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "insert mycollection", "GET couchbase-collection"},
 		},
 		{
 			name:     "http only",
@@ -773,6 +840,11 @@ func TestTracesInstrumentations(t *testing.T) {
 			expected: []string{"publish important-topic", "process important-topic"},
 		},
 		{
+			name:     "mqtt only",
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationMQTT},
+			expected: []string{"publish sensors/temperature", "process sensors/#"},
+		},
+		{
 			name:     "none",
 			instr:    nil,
 			expected: []string{},
@@ -792,6 +864,11 @@ func TestTracesInstrumentations(t *testing.T) {
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationMongo},
 			expected: []string{"insert mycollection"},
 		},
+		{
+			name:     "couchbase",
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationCouchbase},
+			expected: []string{"GET couchbase-collection"},
+		},
 	}
 
 	spans := []request.Span{
@@ -804,7 +881,10 @@ func TestTracesInstrumentations(t *testing.T) {
 		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", Path: "redis_db", RequestStart: 150, End: 175},
 		{Type: request.EventTypeKafkaClient, Method: "process", Path: "important-topic", Statement: "test"},
 		{Type: request.EventTypeKafkaServer, Method: "publish", Path: "important-topic", Statement: "test"},
+		{Type: request.EventTypeMQTTClient, Method: "publish", Path: "sensors/temperature", Statement: "mqtt-client"},
+		{Type: request.EventTypeMQTTServer, Method: "process", Path: "sensors/#", Statement: "mqtt-server"},
 		{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase"},
+		{Type: request.EventTypeCouchbaseClient, Method: "GET", Path: "couchbase-collection", DBNamespace: "mybucket.myscope"},
 	}
 
 	for _, tt := range tests {

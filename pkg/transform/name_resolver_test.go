@@ -59,17 +59,20 @@ func TestResolvePodsFromK8s(t *testing.T) {
 		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
-	name, namespace := nr.resolveFromK8s("10.0.0.1")
+	name, namespace, k8sNamespace := nr.resolveFromK8s("10.0.0.1")
 	assert.Equal(t, "pod1", name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.2")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.2")
 	assert.Equal(t, "pod2", name)
 	assert.Equal(t, "something", namespace)
+	assert.Equal(t, "something", k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.3")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.3")
 	assert.Empty(t, name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
 	clientSpan := request.Span{
 		Type: request.EventTypeHTTPClient,
@@ -130,17 +133,20 @@ func TestResolveServiceFromK8s(t *testing.T) {
 		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
-	name, namespace := nr.resolveFromK8s("10.0.0.1")
+	name, namespace, k8sNamespace := nr.resolveFromK8s("10.0.0.1")
 	assert.Equal(t, "pod1", name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.2")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.2")
 	assert.Equal(t, "pod2", name)
 	assert.Equal(t, "something", namespace)
+	assert.Equal(t, "something", k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.3")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.3")
 	assert.Empty(t, name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
 	clientSpan := request.Span{
 		Type: request.EventTypeHTTPClient,
@@ -282,15 +288,15 @@ func TestResolveNodesFromK8s(t *testing.T) {
 		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
-	name, namespace := nr.resolveFromK8s("10.0.0.1")
+	name, namespace, _ := nr.resolveFromK8s("10.0.0.1")
 	assert.Equal(t, "node1", name)
 	assert.Empty(t, namespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.2")
+	name, namespace, _ = nr.resolveFromK8s("10.0.0.2")
 	assert.Equal(t, "node2", name)
 	assert.Equal(t, "something", namespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.3")
+	name, namespace, _ = nr.resolveFromK8s("10.0.0.3")
 	assert.Empty(t, name)
 	assert.Empty(t, namespace)
 
@@ -353,17 +359,20 @@ func TestResolveClientFromHost(t *testing.T) {
 		sources: resolverSources([]Source{SourceK8s}),
 	}
 
-	name, namespace := nr.resolveFromK8s("10.0.0.1")
+	name, namespace, k8sNamespace := nr.resolveFromK8s("10.0.0.1")
 	assert.Equal(t, "pod1", name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.2")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.2")
 	assert.Equal(t, "pod2", name)
 	assert.Equal(t, "something", namespace)
+	assert.Equal(t, "something", k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.3")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.3")
 	assert.Empty(t, name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
 	clientSpan := request.Span{
 		Type:      request.EventTypeHTTPClient,
@@ -565,7 +574,7 @@ func TestResolver(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			name, ns := nr.resolve(&svcAttrs, tt.ip, tt.fallback)
+			name, ns, _ := nr.resolve(&svcAttrs, tt.ip, tt.fallback)
 			assert.Equal(t, tt.expectedName, name)
 			assert.Equal(t, tt.expectedNamespace, ns)
 		})

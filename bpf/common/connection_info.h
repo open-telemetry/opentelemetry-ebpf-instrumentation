@@ -20,6 +20,7 @@ enum protocol_type : u8 {
     k_protocol_type_postgres = 2,
     k_protocol_type_http = 3,
     k_protocol_type_kafka = 4,
+    k_protocol_type_mqtt = 5,
 };
 
 // Struct to keep information on the connections in flight

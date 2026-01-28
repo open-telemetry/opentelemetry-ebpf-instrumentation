@@ -102,6 +102,11 @@ func NewMQTTControlPacket(pkt []byte) (MQTTControlPacket, error) {
 	packetType := PacketType((firstByte >> 4) & 0x0F)
 	flags := firstByte & 0x0F
 
+	// Validate packet type (0 is reserved, valid range is 1-15)
+	if packetType < PacketTypeCONNECT || packetType > PacketTypeAUTH {
+		return MQTTControlPacket{}, errors.New("invalid MQTT packet type")
+	}
+
 	// Parse remaining length (variable-length encoding)
 	r := NewPacketReader(pkt, 1)
 	rl, err := r.ReadVariableByteInteger()

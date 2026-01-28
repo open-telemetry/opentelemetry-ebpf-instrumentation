@@ -85,10 +85,12 @@ var (
 )
 
 var DefaultConfig = Config{
-	ChannelBufferLen: 10,
-	LogLevel:         LogLevelInfo,
-	ShutdownTimeout:  10 * time.Second,
-	EnforceSysCaps:   false,
+	ChannelBufferLen:        50,
+	ChannelSendTimeout:      time.Minute,
+	ChannelSendTimeoutPanic: false,
+	LogLevel:                LogLevelInfo,
+	ShutdownTimeout:         10 * time.Second,
+	EnforceSysCaps:          false,
 	EBPF: config.EBPFTracer{
 		BatchLength:        100,
 		BatchTimeout:       time.Second,
@@ -110,6 +112,7 @@ var DefaultConfig = Config{
 		PostgresPreparedStatementsCacheSize: 1024,
 		MongoRequestsCacheSize:              1024,
 		KafkaTopicUUIDCacheSize:             1024,
+		CouchbaseDBCacheSize:                1024,
 		OverrideBPFLoopEnabled:              false,
 		PayloadExtraction: config.PayloadExtraction{
 			HTTP: config.HTTPConfig{
@@ -165,6 +168,7 @@ var DefaultConfig = Config{
 			instrumentations.InstrumentationSQL,
 			instrumentations.InstrumentationRedis,
 			instrumentations.InstrumentationKafka,
+			instrumentations.InstrumentationMQTT,
 			instrumentations.InstrumentationMongo,
 			// no traces for DNS and GPU by default
 		},
@@ -305,9 +309,12 @@ type Config struct {
 	// From this comment, the properties below will remain undocumented, as they
 	// are useful for development purposes. They might be helpful for customer support.
 
-	ChannelBufferLen int             `yaml:"channel_buffer_len" env:"OTEL_EBPF_CHANNEL_BUFFER_LEN"`
-	ProfilePort      int             `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
-	InternalMetrics  imetrics.Config `yaml:"internal_metrics"`
+	ChannelBufferLen        int           `yaml:"channel_buffer_len" env:"OTEL_EBPF_CHANNEL_BUFFER_LEN"`
+	ChannelSendTimeout      time.Duration `yaml:"channel_send_timeout" env:"OTEL_EBPF_CHANNEL_SEND_TIMEOUT"`
+	ChannelSendTimeoutPanic bool          `yaml:"channel_send_timeout_panic" env:"OTEL_EBPF_CHANNEL_SEND_TIMEOUT_PANIC"`
+
+	ProfilePort     int             `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
+	InternalMetrics imetrics.Config `yaml:"internal_metrics"`
 
 	// LogConfig enables the logging of the configuration on startup.
 	LogConfig LogConfigOption `yaml:"log_config" env:"OTEL_EBPF_LOG_CONFIG"`

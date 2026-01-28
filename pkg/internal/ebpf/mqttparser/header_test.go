@@ -278,6 +278,14 @@ func TestNewMQTTControlPacket(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			name: "invalid packet type (0 is reserved)",
+			packet: []byte{
+				0x00, // type=0 (reserved), flags=0
+				0x00, // remaining length = 0
+			},
+			expectErr: true,
+		},
+		{
 			name: "actual CONNECT packet",
 			packet: []byte{
 				0x10,       // CONNECT, flags=0

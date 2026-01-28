@@ -38,7 +38,7 @@ resolve_path(char *buf, struct path *path, const struct task_struct *task) {
     buf[0] = '\0';
 
     if (!(dentry_arr = bpf_map_lookup_elem(&path_resolver_scratch, &(u32){0}))) {
-        bpf_dbg_printk("resolve_path: could not get path resolver scratch area");
+        bpf_dbg_printk("could not get path resolver scratch area");
         goto out_err;
     }
 
@@ -101,7 +101,7 @@ resolve_path(char *buf, struct path *path, const struct task_struct *task) {
 
         struct qstr component = BPF_CORE_READ(dentry, d_name);
         if (size + component.len + 1 > k_pts_file_path_len_max) {
-            bpf_dbg_printk("resolve_path: path under construction too long: %s", buf);
+            bpf_dbg_printk("path under construction too long, buf=[%s]", buf);
             goto out_err;
         }
 
@@ -122,8 +122,7 @@ resolve_path(char *buf, struct path *path, const struct task_struct *task) {
         if (ret > 0) {
             size += ((ret - 1) & k_pts_file_path_len_max_mask);
         } else {
-            bpf_dbg_printk(
-                "resolve_path: could not read d_name at %p, current path %s", component.name, buf);
+            bpf_dbg_printk("could not read d_name at: %p, current path=[%s]", component.name, buf);
             goto out_err;
         }
     }

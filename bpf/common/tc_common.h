@@ -9,9 +9,11 @@
 enum { MAX_INLINE_LEN = 0x3ff, MAX_NEEDLE_LEN = 16 };
 
 const char TP[] = "Traceparent: 00-00000000000000000000000000000000-0000000000000000-01\r\n";
-const u32 EXTEND_SIZE = sizeof(TP) - 1;
+const u32 TP_SIZE = sizeof(TP) - 1;
 const char TP_PREFIX[] = "Traceparent: ";
 const u32 TP_PREFIX_SIZE = sizeof(TP_PREFIX) - 1;
+const char TP_TID_PREFIX[] = "Traceparent: 00-";
+const u32 TP_TID_PREFIX_SIZE = sizeof(TP_TID_PREFIX) - 1;
 const u32 INVALID_POS = 0xffffffff;
 
 static __always_inline unsigned char *

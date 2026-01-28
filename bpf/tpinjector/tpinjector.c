@@ -32,8 +32,6 @@
 #include <maps/sock_dir.h>
 #include <maps/sock_pids.h>
 
-#include <tpinjector/maps/extender_jump_table.h>
-#include <tpinjector/maps/pid_connection_info_mem.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
@@ -52,8 +50,36 @@ volatile const u32 inject_flags =
 // Better than experimental options (253-254) which must not be shipped as defaults
 enum { k_tcp_option_kind_otel = 25 };
 
-enum { k_tail_write_msg_traceparent = 0 };
+enum { k_tail_write_msg_traceparent, k_tail_find_existing_tp, k_tail_create_tp };
 
+int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg);
+int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg);
+int obi_packet_extender_create_tp(struct sk_msg_md *msg);
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __uint(max_entries, 3);
+    __uint(key_size, sizeof(u32));
+    __array(values, int(void *));
+} extender_jump_table SEC(".maps") = {
+    .values =
+        {
+            [k_tail_write_msg_traceparent] = (void *)&obi_packet_extender_write_msg_tp,
+            [k_tail_find_existing_tp] = (void *)&obi_packet_extender_find_existing_tp,
+            [k_tail_create_tp] = (void *)&obi_packet_extender_create_tp,
+        },
+};
+
+typedef struct tailcall_ctx {
+    pid_connection_info_t p_conn;
+    tp_info_t parent_tp;
+    egress_key_t e_key;
+    u8 niter;
+    bool has_parent_tp;
+    u8 pad[2];
+} tailcall_ctx;
+
+SCRATCH_MEM(tailcall_ctx);
 SCRATCH_MEM_SIZED(tp_str_buf, 64)
 
 #ifndef ENOMSG
@@ -99,9 +125,14 @@ static __always_inline const char *tp_string_from_opt(const struct tp_option *op
     return (const char *)buf;
 }
 
-static __always_inline pid_connection_info_t *pid_conn_info_buf() {
-    const int zero = 0;
-    return bpf_map_lookup_elem(&pid_connection_info_mem, &zero);
+static __always_inline void print_tp(const char *msg, const tp_info_t *tp) {
+    if (!g_bpf_debug) {
+        return;
+    }
+
+    unsigned char tp_buf_str[TP_MAX_VAL_LENGTH];
+    make_tp_string(tp_buf_str, tp);
+    bpf_dbg_printk("%s: %s", msg, tp_buf_str);
 }
 
 static __always_inline egress_key_t make_key(const connection_info_t *conn) {
@@ -223,37 +254,39 @@ static __always_inline connection_info_t sk_msg_extract_key_ip6(struct sk_msg_md
     return conn;
 }
 
-static __always_inline bool
-create_trace_info(u64 id, const connection_info_t *conn, tp_info_pid_t *tp_p) {
-    pid_connection_info_t *p_conn = pid_conn_info_buf();
+static __always_inline void init_tp_ctx_parent_tp(tailcall_ctx *t_ctx) {
+    t_ctx->parent_tp.ts = bpf_ktime_get_ns();
+    t_ctx->parent_tp.flags = 1;
 
-    if (!p_conn) {
-        return false;
-    }
+    t_ctx->has_parent_tp = find_parent_trace_for_client_request(
+        &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, &t_ctx->parent_tp);
+}
 
-    const u32 pid = pid_from_pid_tgid(id);
-
-    p_conn->conn = *conn;
-    p_conn->pid = pid;
-
-    tp_p->tp.ts = bpf_ktime_get_ns();
+static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info_pid_t *tp_p) {
+    // t_ctx->parent_tp was initialised earlier in init_tp_ctx_parent_tp - if
+    // t_ctx->has_parent_tp is true, then it actually contains a valid tp_info
+    // with the corrent trace_id and parent_id - all we need to do is generate
+    // a new span_id
+    // this logic is cumbersome, but it is done so to avoid calling
+    // find_trace_for_client_request multiple times (i.e. once here, and once
+    // earlier in  k_tail_find_existing_tp - sorry!
+    urand_bytes(tp_p->tp.span_id, sizeof(tp_p->tp.span_id));
     tp_p->tp.flags = 1;
     tp_p->valid = 1;
-    tp_p->written = 0;
-    tp_p->pid = pid;
-    tp_p->req_type = EVENT_HTTP_CLIENT; //XXX double check
+    tp_p->pid = t_ctx->p_conn.pid;
+    tp_p->req_type = EVENT_HTTP_CLIENT;
 
-    urand_bytes(tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
-
-    if (find_trace_for_client_request(p_conn, p_conn->conn.d_port, &tp_p->tp)) {
+    if (t_ctx->has_parent_tp) {
         bpf_dbg_printk("found existing tp info");
-        return true;
+
+        __builtin_memcpy(tp_p->tp.trace_id, t_ctx->parent_tp.trace_id, sizeof(tp_p->tp.trace_id));
+        __builtin_memcpy(tp_p->tp.parent_id, t_ctx->parent_tp.span_id, sizeof(tp_p->tp.parent_id));
+    } else {
+        bpf_dbg_printk("generating tp info");
+
+        new_trace_id(&tp_p->tp);
+        __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
     }
-
-    bpf_dbg_printk("generating tp info");
-
-    new_trace_id(&tp_p->tp);
-    __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
 
     return true;
 }
@@ -504,7 +537,7 @@ error:
 
 static __always_inline void
 make_tp_string_skb(unsigned char *buf, const tp_info_t *tp, const unsigned char *end) {
-    buf = check_pkt_access(buf, EXTEND_SIZE, end);
+    buf = check_pkt_access(buf, TP_SIZE, end);
 
     if (!buf) {
         return;
@@ -553,7 +586,7 @@ make_tp_string_skb(unsigned char *buf, const tp_info_t *tp, const unsigned char 
 
 static __always_inline bool
 extend_and_write_tp(struct sk_msg_md *msg, u32 offset, const tp_info_t *tp) {
-    const long err = bpf_msg_push_data(msg, offset, EXTEND_SIZE, 0);
+    const long err = bpf_msg_push_data(msg, offset, TP_SIZE, 0);
 
     if (err != 0) {
         bpf_d_printk("failed to push data: %d [%s]", err, __FUNCTION__);
@@ -571,7 +604,7 @@ extend_and_write_tp(struct sk_msg_md *msg, u32 offset, const tp_info_t *tp) {
 
     unsigned char *ptr = msg->data + offset;
 
-    if ((void *)ptr + EXTEND_SIZE >= msg->data_end) {
+    if ((void *)ptr + TP_SIZE >= msg->data_end) {
         bpf_d_printk("not enough space [%s]", __FUNCTION__);
         return false;
     }
@@ -630,7 +663,7 @@ static __always_inline void write_http_traceparent(struct sk_msg_md *msg, tp_inf
     tp_pid->written = 1;
     *tp_p = *tp_pid;
 
-    bpf_tail_call(msg, &extender_jump_table, k_tail_write_msg_traceparent);
+    bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_msg_traceparent);
 
     bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
 }
@@ -675,9 +708,20 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+
     const u64 id = bpf_get_current_pid_tgid();
     const connection_info_t conn = get_connection_info(msg);
     const egress_key_t e_key = make_key(&conn);
+
+    t_ctx->p_conn.conn = conn;
+    t_ctx->p_conn.pid = pid_from_pid_tgid(id);
+    t_ctx->e_key = e_key;
+    t_ctx->niter = 0;
 
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
 
@@ -696,6 +740,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     if (!valid_pid(id)) {
         return SK_PASS;
     }
+
     bpf_dbg_printk("MSG=%llx:%d ->", conn.s_ip[3], conn.s_port);
     bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
     bpf_dbg_printk("MSG SIZE=%u", msg->size);
@@ -718,36 +763,16 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
+    // at this point we've found the start of a new HTTP request
+
     bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
     bpf_dbg_printk("buf=[%s]", msg->data);
     bpf_dbg_printk("ptr=%llx, end=%llx", ctx_msg_data(msg), ctx_msg_data_end(msg));
     bpf_dbg_printk("BUF=[%s]", ctx_msg_data(msg));
 
-    // we've found the start of a new HTTP request, let's generate new TP info for it
-    tp_info_pid_t *tp_p = tp_buf();
+    init_tp_ctx_parent_tp(t_ctx);
 
-    if (!tp_p) {
-        return SK_PASS;
-    }
-
-    if (!create_trace_info(id, &conn, tp_p)) {
-        return SK_PASS;
-    }
-
-    tp_p->written = 1;
-
-    // associate this tp_info to this request
-    set_tp_info_pid(&e_key, tp_p);
-
-    if (inject_flags & k_inject_tcp_options) {
-        schedule_write_tcp_option(msg, tp_p);
-    }
-
-    if (inject_flags & k_inject_http_headers) {
-        // write the HTTP headers
-        bpf_tail_call(msg, &extender_jump_table, k_tail_write_msg_traceparent);
-        bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
-    }
+    bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
 
     return SK_PASS;
 }
@@ -770,7 +795,185 @@ int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
         bpf_d_printk("failed to write traceparent [%s]", __FUNCTION__);
     }
 
+    print_tp("written TP to headers", &tp_p->tp);
     bpf_dbg_printk("BUF=[%s]", msg->data);
+
+    return SK_PASS;
+}
+
+static __always_inline void
+assign_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp, unsigned char *span_id) {
+    if (!t_ctx->has_parent_tp) {
+        return;
+    }
+
+    // test if the trace ids are equal - if they aren't, we don't
+    // assign a parent
+    if (__bpf_memcmp(tp->trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {
+        return;
+    }
+
+    __builtin_memcpy(tp->parent_id, t_ctx->parent_tp.span_id, SPAN_ID_SIZE_BYTES);
+
+    // check if the TP we parsed is a legimate one, or a
+    // proxy-forwarded header - in which case we need to
+    // override it
+    if (__bpf_memcmp(tp->span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) != 0) {
+        return;
+    }
+
+    // at this point, the span id of this outgoing call is equal to the span
+    // id of the parent call (i.e. the Traceparent header is the same), which
+    // hints it's being forwarded by some kind of proxy - in this case, we
+    // generate a new span id and overwrite the header
+
+    bpf_dbg_printk("detected forwarded TP header, overriding span id");
+
+    urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
+
+    encode_hex(span_id, tp->span_id, SPAN_ID_SIZE_BYTES);
+}
+
+//k_tail_find_existing_tp
+SEC("sk_msg")
+int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
+    const u32 k_max_iter = 4; // iterate up to 4KB
+
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+
+    tp_info_pid_t *tp_p = tp_buf();
+
+    if (!tp_p) {
+        return SK_PASS;
+    }
+
+    const u32 niter = t_ctx->niter;
+
+    if (niter >= k_max_iter) {
+        return SK_PASS;
+    }
+
+    unsigned char *b = msg->data;
+    const unsigned char *e = msg->data_end;
+    unsigned char *ptr = b + (niter * 1024);
+
+    if (ptr >= e) {
+        return SK_PASS;
+    }
+
+    bpf_dbg_printk("looking for traceparent header (iter=%u)", niter);
+
+    const u32 data_size = (e - ptr) & 0x3ff; // 1KB chunks per iteration
+
+    for (u32 i = 0; i < data_size; ++i) {
+        if (ptr + TP_SIZE >= e || is_eoh(ptr)) {
+            bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
+            break;
+        }
+
+        if (is_traceparent(ptr)) {
+            ptr += TP_TID_PREFIX_SIZE;
+
+            decode_hex(tp_p->tp.trace_id, ptr, TRACE_ID_CHAR_LEN);
+
+            ptr += TRACE_ID_CHAR_LEN;
+
+            if (*ptr++ != '-') {
+                return SK_PASS;
+            }
+
+            decode_hex(tp_p->tp.span_id, ptr, SPAN_ID_CHAR_LEN);
+
+            unsigned char *span_id = ptr;
+
+            ptr += SPAN_ID_CHAR_LEN;
+
+            if (*ptr++ != '-') {
+                return SK_PASS;
+            }
+
+            decode_hex((unsigned char *)&tp_p->tp.flags, ptr, FLAGS_CHAR_LEN);
+
+            ptr += FLAGS_CHAR_LEN;
+
+            if (*ptr++ != '\r' || *ptr != '\n') {
+                return SK_PASS;
+            }
+
+            // if we got to this point, we managed to parse a valid
+            // 'Traceparent: ...' header that we can utilise
+
+            assign_parent_tp(t_ctx, &tp_p->tp, span_id);
+
+            tp_p->tp.ts = bpf_ktime_get_ns();
+            tp_p->tp.flags = 1;
+            tp_p->valid = 1;
+            tp_p->written = 1;
+            tp_p->pid = t_ctx->p_conn.pid;
+            tp_p->req_type = EVENT_HTTP_CLIENT;
+
+            print_tp("found TP in headers", &tp_p->tp);
+
+            set_tp_info_pid(&t_ctx->e_key, tp_p);
+
+            if (inject_flags & k_inject_tcp_options) {
+                schedule_write_tcp_option(msg, tp_p);
+            }
+
+            return SK_PASS;
+        }
+
+        ++ptr;
+    }
+
+    t_ctx->niter++;
+
+    if (t_ctx->niter < k_max_iter) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
+    } else {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
+    }
+
+    return SK_PASS;
+}
+
+//k_tail_create_tp
+SEC("sk_msg")
+int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+
+    tp_info_pid_t *tp_p = tp_buf();
+
+    if (!tp_p) {
+        return SK_PASS;
+    }
+
+    if (!create_trace_info(t_ctx, tp_p)) {
+        return SK_PASS;
+    }
+
+    tp_p->written = 1;
+
+    // associate this tp_info to this request
+    set_tp_info_pid(&t_ctx->e_key, tp_p);
+
+    if (inject_flags & k_inject_tcp_options) {
+        schedule_write_tcp_option(msg, tp_p);
+    }
+
+    if (inject_flags & k_inject_http_headers) {
+        // write the HTTP headers
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_msg_traceparent);
+        bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
+    }
 
     return SK_PASS;
 }
