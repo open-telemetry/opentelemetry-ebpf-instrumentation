@@ -156,8 +156,10 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"db.client.operation.duration", // REDIS client SET
 				"db.client.operation.duration", // Redis server GET (TODO is this a bug?)
 				"db.client.operation.duration", // MongoDB client find
-				"messaging.publish.duration",
-				"messaging.process.duration",
+				"messaging.publish.duration",   // Kafka client
+				"messaging.publish.duration",   // MQTT client
+				"messaging.process.duration",   // MQTT server (ordering within aggregated metrics)
+				"messaging.process.duration",   // Kafka server
 			},
 		},
 		{
@@ -198,6 +200,15 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		{
 			name:      "kafka only",
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationKafka},
+			extraColl: 0,
+			expected: []string{
+				"messaging.publish.duration",
+				"messaging.process.duration",
+			},
+		},
+		{
+			name:      "mqtt only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationMQTT},
 			extraColl: 0,
 			expected: []string{
 				"messaging.publish.duration",
@@ -256,8 +267,9 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			EventTypeRedisClient
 			EventTypeRedisServer
 			EventTypeKafkaClient
-			EventTypeRedisServer
 			EventTypeKafkaServer
+			EventTypeMQTTClient
+			EventTypeMQTTServer
 			*/
 			// WHEN it receives metrics
 			metrics.Send([]request.Span{
@@ -271,6 +283,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
 			})
 
 			// Read the exported metrics, add +extraColl for HTTP size metrics

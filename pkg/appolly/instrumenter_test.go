@@ -17,7 +17,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -759,7 +759,7 @@ func matchTraceEvent(t require.TestingT, name string, event collector.TraceRecor
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelLibraryNameKey):      "go.opentelemetry.io/obi",
+			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 			"overridden":                            "attr",
 		},
 		Kind: ptrace.SpanKindServer,
@@ -785,7 +785,7 @@ func matchInnerTraceEvent(t require.TestingT, name string, event collector.Trace
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelLibraryNameKey):      "go.opentelemetry.io/obi",
+			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 			"overridden":                            "attr",
 		},
 		Kind: ptrace.SpanKindInternal,
@@ -815,7 +815,7 @@ func matchGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord)
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelLibraryNameKey):      "go.opentelemetry.io/obi",
+			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)
@@ -838,7 +838,7 @@ func matchInnerGRPCTraceEvent(t *testing.T, name string, event collector.TraceRe
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelLibraryNameKey):      "go.opentelemetry.io/obi",
+			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindInternal,
 	}, event)
@@ -897,7 +897,7 @@ func matchInfoEvent(t *testing.T, name string, event collector.TraceRecord) {
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelLibraryNameKey):      "go.opentelemetry.io/obi",
+			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)

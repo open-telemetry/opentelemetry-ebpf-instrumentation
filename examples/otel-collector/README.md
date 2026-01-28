@@ -43,7 +43,7 @@ Resource attributes:
      -> host.id: Str(a998876e9a2642d8a1a9b8a0030c786e)
      -> os.type: Str(linux)
      -> service.instance.id: Str(lima-coralogix-vm-24:295419)
-     -> otel.library.name: Str(go.opentelemetry.io/obi)
+     -> otel.scope.name: Str(go.opentelemetry.io/obi)
 ScopeSpans #0
 ScopeSpans SchemaURL: 
 InstrumentationScope  

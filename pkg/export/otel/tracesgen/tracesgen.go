@@ -19,7 +19,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	trace2 "go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -122,7 +122,7 @@ func GenerateTracesWithAttributes(
 	resourceAttrs := TraceAppResourceAttrs(cache, hostID, svc)
 	resourceAttrs = append(resourceAttrs, envResourceAttrs...)
 	resourceAttrsMap := AttrsToMap(resourceAttrs)
-	resourceAttrsMap.PutStr(string(semconv.OTelLibraryNameKey), reporterName)
+	resourceAttrsMap.PutStr(string(semconv.OTelScopeNameKey), reporterName)
 	addAttrsToMap(extraResAttrs, resourceAttrsMap)
 	resourceAttrsMap.MoveTo(rs.Resource().Attributes())
 
@@ -275,6 +275,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return is.RedisEnabled()
 	case request.EventTypeKafkaClient, request.EventTypeKafkaServer:
 		return is.KafkaEnabled()
+	case request.EventTypeMQTTClient, request.EventTypeMQTTServer:
+		return is.MQTTEnabled()
 	case request.EventTypeMongoClient:
 		return is.MongoEnabled()
 	case request.EventTypeManualSpan:
@@ -290,12 +292,9 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 	return false
 }
 
-// TODO use semconv.DBSystemRedis when we update to OTEL semantic conventions library 1.30
 var (
-	dbSystemRedis     = attribute.String(string(attr.DBSystemName), semconv.DBSystemRedis.Value.AsString())
-	dbSystemMongo     = attribute.String(string(attr.DBSystemName), semconv.DBSystemMongoDB.Value.AsString())
-	dbSystemCouchbase = attribute.String(string(attr.DBSystemName), semconv.DBSystemCouchbase.Value.AsString())
-	spanMetricsSkip   = attribute.Bool(string(attr.SkipSpanMetrics), true)
+	messagingSystemMQTT = attribute.String(string(attr.MessagingSystem), "mqtt")
+	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
 
 //nolint:cyclop
@@ -322,8 +321,8 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, semconv.HTTPRoute(span.Route))
 		}
 		if span.SubType == request.HTTPSubtypeGraphQL && span.GraphQL != nil {
-			attrs = append(attrs, semconv.GraphqlDocument(span.GraphQL.Document))
-			attrs = append(attrs, semconv.GraphqlOperationName(span.GraphQL.OperationName))
+			attrs = append(attrs, semconv.GraphQLDocument(span.GraphQL.Document))
+			attrs = append(attrs, semconv.GraphQLOperationName(span.GraphQL.OperationName))
 			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
 		}
 	case request.EventTypeGRPC:
@@ -347,7 +346,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.HTTPRequestMethod(span.Method),
 			request.HTTPResponseStatusCode(span.Status),
 			request.HTTPUrlFull(url),
-			semconv.HTTPScheme(scheme),
+			semconv.URLScheme(scheme),
 			request.ServerAddr(host),
 			request.PeerService(request.PeerServiceFromSpan(span)),
 			request.ServerPort(span.HostPort),
@@ -439,7 +438,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
-			dbSystemRedis,
+			semconv.DBSystemNameRedis,
 		}
 		if span.Type == request.EventTypeRedisClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
@@ -481,12 +480,26 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 				attrs = append(attrs, request.MessagingKafkaOffset(span.MessagingInfo.Offset))
 			}
 		}
+	case request.EventTypeMQTTServer, request.EventTypeMQTTClient:
+		operation := request.MessagingOperationType(span.Method)
+		attrs = []attribute.KeyValue{
+			request.ServerAddr(request.HostAsServer(span)),
+			request.ServerPort(span.HostPort),
+			messagingSystemMQTT,
+			semconv.MessagingDestinationName(span.Path),
+			semconv.MessagingClientID(span.Statement),
+			operation,
+		}
+
+		if span.Type == request.EventTypeMQTTClient {
+			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
+		}
 	case request.EventTypeMongoClient:
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
 			request.PeerService(request.PeerServiceFromSpan(span)),
-			dbSystemMongo,
+			semconv.DBSystemNameMongoDB,
 		}
 		operation := span.Method
 		if operation != "" {
@@ -506,7 +519,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
 			request.PeerService(request.PeerServiceFromSpan(span)),
-			dbSystemCouchbase,
+			semconv.DBSystemNameCouchbase,
 		}
 		operation := span.Method
 		if operation != "" {
@@ -552,11 +565,11 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 
 func spanKind(span *request.Span) trace2.SpanKind {
 	switch span.Type {
-	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer:
+	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer:
 		return trace2.SpanKindServer
 	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
-	case request.EventTypeKafkaClient:
+	case request.EventTypeKafkaClient, request.EventTypeMQTTClient:
 		switch span.Method {
 		case request.MessagingPublish:
 			return trace2.SpanKindProducer
