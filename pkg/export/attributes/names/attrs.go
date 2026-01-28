@@ -79,6 +79,10 @@ const (
 	K8sPodUID          = Name("k8s.pod.uid")
 	K8sPodStartTime    = Name("k8s.pod.start_time")
 	K8sKind            = Name("k8s.kind")
+	K8SClientNamespace = Name("client_k8s_namespace_name")
+	K8SServerNamespace = Name("server_k8s_namespace_name")
+	K8SClientCluster   = Name("client_k8s_cluster_name")
+	K8SServerCluster   = Name("server_k8s_cluster_name")
 
 	ContainerName = Name(semconv.ContainerNameKey)
 )
@@ -193,7 +197,7 @@ const (
 	CloudRegion = Name(semconv.CloudRegionKey)
 )
 
-// CUDA GPU events
+// Beyla specific GPU events
 const (
 	// GPU/Cuda related attributes
 	CudaKernelName = Name("cuda.kernel.name")

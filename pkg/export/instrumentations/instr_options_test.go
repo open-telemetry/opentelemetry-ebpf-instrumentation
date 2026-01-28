@@ -17,6 +17,7 @@ func TestInstrumentationSelection(t *testing.T) {
 	assert.True(t, is.RedisEnabled())
 	assert.False(t, is.GRPCEnabled())
 	assert.False(t, is.KafkaEnabled())
+	assert.False(t, is.MQTTEnabled())
 	assert.False(t, is.MQEnabled())
 
 	is = NewInstrumentationSelection([]Instrumentation{InstrumentationGRPC, InstrumentationKafka})
@@ -26,6 +27,13 @@ func TestInstrumentationSelection(t *testing.T) {
 	assert.False(t, is.RedisEnabled())
 	assert.True(t, is.GRPCEnabled())
 	assert.True(t, is.KafkaEnabled())
+	assert.False(t, is.MQTTEnabled())
+	assert.True(t, is.MQEnabled())
+
+	// MQTT only - MQEnabled should be true
+	is = NewInstrumentationSelection([]Instrumentation{InstrumentationMQTT})
+	assert.False(t, is.KafkaEnabled())
+	assert.True(t, is.MQTTEnabled())
 	assert.True(t, is.MQEnabled())
 }
 
@@ -37,6 +45,7 @@ func TestInstrumentationSelection_All(t *testing.T) {
 	assert.True(t, is.RedisEnabled())
 	assert.True(t, is.GRPCEnabled())
 	assert.True(t, is.KafkaEnabled())
+	assert.True(t, is.MQTTEnabled())
 	assert.True(t, is.MQEnabled())
 }
 
@@ -48,5 +57,6 @@ func TestInstrumentationSelection_None(t *testing.T) {
 	assert.False(t, is.RedisEnabled())
 	assert.False(t, is.GRPCEnabled())
 	assert.False(t, is.KafkaEnabled())
+	assert.False(t, is.MQTTEnabled())
 	assert.False(t, is.MQEnabled())
 }

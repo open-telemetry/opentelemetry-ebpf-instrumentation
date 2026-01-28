@@ -20,8 +20,10 @@ import (
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
-const staticTraceID = "12345678901234567890123456789012"     // Easy to spot
-const forwardedSpanID = "1111111111111111"                    // Span ID used in forwarded traceparent
+const (
+	staticTraceID   = "12345678901234567890123456789012" // Easy to spot
+	forwardedSpanID = "1111111111111111"                 // Span ID used in forwarded traceparent
+)
 
 // TestTraceparentExtraction validates that the eBPF tpinjector correctly:
 // 1. Extracts existing Traceparent headers from HTTP requests

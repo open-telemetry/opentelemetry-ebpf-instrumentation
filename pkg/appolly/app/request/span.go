@@ -36,8 +36,10 @@ const (
 	EventTypeSQLClient
 	EventTypeRedisClient
 	EventTypeKafkaClient
+	EventTypeMQTTClient
 	EventTypeRedisServer
 	EventTypeKafkaServer
+	EventTypeMQTTServer
 	EventTypeMongoClient
 	EventTypeManualSpan
 	EventTypeGPUKernelLaunch
@@ -104,10 +106,14 @@ func (t EventType) String() string {
 		return "RedisClient"
 	case EventTypeKafkaClient:
 		return "KafkaClient"
+	case EventTypeMQTTClient:
+		return "MQTTClient"
 	case EventTypeRedisServer:
 		return "RedisServer"
 	case EventTypeKafkaServer:
 		return "KafkaServer"
+	case EventTypeMQTTServer:
+		return "MQTTServer"
 	case EventTypeGPUKernelLaunch:
 		return "CUDALaunch"
 	case EventTypeGPUMalloc:
@@ -220,40 +226,41 @@ type AWSSQS struct {
 // REMINDER: any attribute here must be also added to the functions SpanOTELGetters,
 // SpanPromGetters and getDefinitions in pkg/export/attributes/attr_defs.go
 type Span struct {
-	Type           EventType      `json:"type"`
-	Flags          uint8          `json:"-"`
-	Method         string         `json:"-"`
-	Path           string         `json:"-"`
-	Route          string         `json:"-"`
-	Peer           string         `json:"peer"`
-	PeerPort       int            `json:"peerPort,string"`
-	Host           string         `json:"host"`
-	HostPort       int            `json:"hostPort,string"`
-	Status         int            `json:"-"`
-	ResponseLength int64          `json:"-"`
-	ContentLength  int64          `json:"-"`
-	RequestStart   int64          `json:"-"`
-	Start          int64          `json:"-"`
-	End            int64          `json:"-"`
-	Service        svc.Attrs      `json:"-"`
-	TraceID        trace.TraceID  `json:"traceID"`
-	SpanID         trace.SpanID   `json:"spanID"`
-	ParentSpanID   trace.SpanID   `json:"parentSpanID"`
-	TraceFlags     uint8          `json:"traceFlags,string"`
-	Pid            PidInfo        `json:"-"`
-	PeerName       string         `json:"peerName"`
-	HostName       string         `json:"hostName"`
-	OtherNamespace string         `json:"-"`
-	Statement      string         `json:"-"`
-	SubType        int            `json:"-"`
-	DBError        DBError        `json:"-"`
-	DBNamespace    string         `json:"-"`
-	SQLCommand     string         `json:"-"`
-	SQLError       *SQLError      `json:"-"`
-	MessagingInfo  *MessagingInfo `json:"-"`
-	GraphQL        *GraphQL       `json:"-"`
-	Elasticsearch  *Elasticsearch `json:"-"`
-	AWS            *AWS           `json:"-"`
+	Type              EventType      `json:"type"`
+	Flags             uint8          `json:"-"`
+	Method            string         `json:"-"`
+	Path              string         `json:"-"`
+	Route             string         `json:"-"`
+	Peer              string         `json:"peer"`
+	PeerPort          int            `json:"peerPort,string"`
+	Host              string         `json:"host"`
+	HostPort          int            `json:"hostPort,string"`
+	Status            int            `json:"-"`
+	ResponseLength    int64          `json:"-"`
+	ContentLength     int64          `json:"-"`
+	RequestStart      int64          `json:"-"`
+	Start             int64          `json:"-"`
+	End               int64          `json:"-"`
+	Service           svc.Attrs      `json:"-"`
+	TraceID           trace.TraceID  `json:"traceID"`
+	SpanID            trace.SpanID   `json:"spanID"`
+	ParentSpanID      trace.SpanID   `json:"parentSpanID"`
+	TraceFlags        uint8          `json:"traceFlags,string"`
+	Pid               PidInfo        `json:"-"`
+	PeerName          string         `json:"peerName"`
+	HostName          string         `json:"hostName"`
+	OtherNamespace    string         `json:"-"`
+	OtherK8SNamespace string         `json:"-"`
+	Statement         string         `json:"-"`
+	SubType           int            `json:"-"`
+	DBError           DBError        `json:"-"`
+	DBNamespace       string         `json:"-"`
+	SQLCommand        string         `json:"-"`
+	SQLError          *SQLError      `json:"-"`
+	MessagingInfo     *MessagingInfo `json:"-"`
+	GraphQL           *GraphQL       `json:"-"`
+	Elasticsearch     *Elasticsearch `json:"-"`
+	AWS               *AWS           `json:"-"`
 
 	// OverrideTraceName is set under some conditions, like spanmetrics reaching the maximum
 	// cardinality for trace names.
@@ -377,7 +384,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			"statement":  s.Statement,
 			"query":      s.Path,
 		}
-	case EventTypeKafkaServer, EventTypeKafkaClient:
+	case EventTypeKafkaServer, EventTypeKafkaClient, EventTypeMQTTServer, EventTypeMQTTClient:
 		attrs := SpanAttributes{
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
@@ -512,7 +519,7 @@ func (s *Span) IsValid() bool {
 
 func (s *Span) IsClientSpan() bool {
 	switch s.Type {
-	case EventTypeGRPCClient, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient:
+	case EventTypeGRPCClient, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient:
 		return true
 	}
 
@@ -634,11 +641,11 @@ func (s *Span) ResponseBodyLength() int64 {
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeRedisServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer:
 		return "SPAN_KIND_SERVER"
 	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient:
 		return "SPAN_KIND_CLIENT"
-	case EventTypeKafkaClient:
+	case EventTypeKafkaClient, EventTypeMQTTClient:
 		switch s.Method {
 		case MessagingPublish:
 			return "SPAN_KIND_PRODUCER"
@@ -655,7 +662,7 @@ func (s *Span) ServiceGraphConnectionType() string {
 	switch s.Type {
 	case EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeCouchbaseClient:
 		return "database"
-	case EventTypeKafkaClient:
+	case EventTypeKafkaClient, EventTypeMQTTClient:
 		return "messaging_system"
 	case EventTypeHTTPClient:
 		if s.SubType == HTTPSubtypeAWSSQS {
@@ -737,7 +744,7 @@ func (s *Span) TraceName() string {
 			return "REDIS"
 		}
 		return s.Method
-	case EventTypeKafkaClient, EventTypeKafkaServer:
+	case EventTypeKafkaClient, EventTypeKafkaServer, EventTypeMQTTClient, EventTypeMQTTServer:
 		if s.Path == "" {
 			return s.Method
 		}
