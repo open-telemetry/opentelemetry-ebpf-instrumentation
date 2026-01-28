@@ -344,3 +344,92 @@ func TestSQLPPSpan(t *testing.T) {
 		})
 	}
 }
+
+func TestParseSQLPPResponse(t *testing.T) {
+	tests := []struct {
+		name              string
+		respBody          string
+		expectedErrorCode string
+		expectedErrorMsg  string
+		expectError       bool
+	}{
+		{
+			name:        "successful response",
+			respBody:    `{"requestID": "abc", "results": [], "status": "success"}`,
+			expectError: false,
+		},
+		{
+			name:              "response with error",
+			respBody:          `{"requestID": "abc", "errors": [{"code": 12003, "msg": "Keyspace not found"}], "status": "fatal"}`,
+			expectedErrorCode: "12003",
+			expectedErrorMsg:  "Keyspace not found",
+			expectError:       true,
+		},
+		{
+			name:              "response with multiple errors",
+			respBody:          `{"requestID": "abc", "errors": [{"code": 5000, "msg": "First error"}, {"code": 5001, "msg": "Second error"}], "status": "errors"}`,
+			expectedErrorCode: "5000",
+			expectedErrorMsg:  "First error",
+			expectError:       true,
+		},
+		{
+			name:              "response with fatal status but no errors array",
+			respBody:          `{"requestID": "abc", "status": "fatal"}`,
+			expectedErrorCode: "fatal",
+			expectedErrorMsg:  "Query status: fatal",
+			expectError:       true,
+		},
+		{
+			name:              "response with timeout status",
+			respBody:          `{"requestID": "abc", "status": "timeout"}`,
+			expectedErrorCode: "timeout",
+			expectedErrorMsg:  "Query status: timeout",
+			expectError:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &http.Response{
+				Body: io.NopCloser(bytes.NewBufferString(tt.respBody)),
+			}
+
+			result := parseSQLPPResponse(resp)
+
+			if tt.expectError {
+				require.NotNil(t, result)
+				assert.Equal(t, tt.expectedErrorCode, result.ErrorCode)
+				assert.Equal(t, tt.expectedErrorMsg, result.Description)
+			} else {
+				assert.Nil(t, result)
+			}
+		})
+	}
+}
+
+func TestSQLPPSpanWithError(t *testing.T) {
+	endpointPatterns := []string{"/query/service"}
+
+	req := &http.Request{
+		URL: &url.URL{Path: "/query/service"},
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+		Body: io.NopCloser(bytes.NewBufferString(`{"statement": "SELECT * FROM nonexistent"}`)),
+	}
+
+	resp := &http.Response{
+		Header: http.Header{
+			"Content-Type": []string{"application/json; version=2.0.0-N1QL"},
+		},
+		Body: io.NopCloser(bytes.NewBufferString(`{"requestID": "abc", "errors": [{"code": 12003, "msg": "Keyspace not found in CB datastore"}], "status": "fatal"}`)),
+	}
+
+	baseSpan := &request.Span{}
+	resultSpan, detected := SQLPPSpan(baseSpan, req, resp, endpointPatterns)
+
+	assert.True(t, detected)
+	assert.Equal(t, request.HTTPSubtypeSQLPP, resultSpan.SubType)
+	assert.Equal(t, "12003", resultSpan.DBError.ErrorCode)
+	assert.Equal(t, "Keyspace not found in CB datastore", resultSpan.DBError.Description)
+}

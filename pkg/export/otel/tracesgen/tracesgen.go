@@ -375,6 +375,10 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 			attrs = append(attrs, request.DBOperationName(span.Method))
 			attrs = append(attrs, request.DBSystemName(span.DBSystem))
+			if span.DBError.ErrorCode != "" {
+				attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
+				attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
+			}
 		}
 
 		if span.SubType == request.HTTPSubtypeAWSS3 && span.AWS != nil {

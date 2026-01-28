@@ -175,6 +175,7 @@ var DefaultConfig = Config{
 			instrumentations.InstrumentationRedis,
 			instrumentations.InstrumentationKafka,
 			instrumentations.InstrumentationMongo,
+			instrumentations.InstrumentationCouchbase,
 			// no traces for DNS and GPU by default
 		},
 	},

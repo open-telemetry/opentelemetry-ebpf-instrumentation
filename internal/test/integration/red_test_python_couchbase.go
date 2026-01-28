@@ -260,6 +260,81 @@ func testREDMetricsPythonCouchbaseSQLPP(t *testing.T) {
 	}
 }
 
+// testREDMetricsPythonCouchbaseSQLPPError tests SQL++ (N1QL) queries that return errors
+func testREDMetricsPythonCouchbaseSQLPPError(t *testing.T) {
+	sqlppCommonAttributes := []attribute.KeyValue{
+		attribute.String("db.system.name", "couchbase"),
+		attribute.String("span.kind", "client"),
+	}
+	testCases := []TestCase{
+		{
+			Route:     "http://localhost:8381",
+			Subpath:   "sqlpp-error",
+			Comm:      "python3.14",
+			Namespace: "integration-test",
+			Spans: []TestCaseSpan{
+				{
+					Name: "SELECT nonexistent-scope.nonexistent-collection",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "SELECT"),
+						attribute.String("db.namespace", "nonexistent-bucket"),
+						attribute.String("db.collection.name", "nonexistent-scope.nonexistent-collection"),
+						attribute.String("db.response.status_code", "12003"), // Keyspace not found
+					},
+				},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		// Add common attributes to each span
+		for i := range testCase.Spans {
+			testCase.Spans[i].Attributes = append(testCase.Spans[i].Attributes, sqlppCommonAttributes...)
+		}
+
+		t.Run(testCase.Route, func(t *testing.T) {
+			waitForCouchbaseSQLPPTestComponents(t, testCase.Route, "/"+testCase.Subpath)
+			testREDMetricsForCouchbaseSQLPP(t, testCase)
+		})
+	}
+}
+
+// testREDMetricsPythonCouchbaseSQLPPWithContext tests SQL++ queries using query_context
+func testREDMetricsPythonCouchbaseSQLPPWithContext(t *testing.T) {
+	sqlppCommonAttributes := []attribute.KeyValue{
+		attribute.String("db.system.name", "couchbase"),
+		attribute.String("span.kind", "client"),
+	}
+	testCases := []TestCase{
+		{
+			Route:     "http://localhost:8381",
+			Subpath:   "sqlpp-with-context",
+			Comm:      "python3.14",
+			Namespace: "integration-test",
+			Spans: []TestCaseSpan{
+				{
+					Name: "SELECT test-collection",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "SELECT"),
+						attribute.String("db.namespace", "test-bucket"),
+						attribute.String("db.collection.name", "test-collection"),
+					},
+				},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		// Add common attributes to each span
+		for i := range testCase.Spans {
+			testCase.Spans[i].Attributes = append(testCase.Spans[i].Attributes, sqlppCommonAttributes...)
+		}
+
+		t.Run(testCase.Route, func(t *testing.T) {
+			waitForCouchbaseSQLPPTestComponents(t, testCase.Route, "/"+testCase.Subpath)
+			testREDMetricsForCouchbaseSQLPP(t, testCase)
+		})
+	}
+}
+
 func testREDMetricsForCouchbaseSQLPP(t *testing.T, testCase TestCase) {
 	uri := testCase.Route
 	urlPath := testCase.Subpath

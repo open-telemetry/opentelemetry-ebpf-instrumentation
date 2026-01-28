@@ -338,6 +338,10 @@ func spanAttributes(s *Span) SpanAttributes {
 			attrs["dbQueryText"] = s.Statement
 			attrs["dbSystemName"] = s.DBSystem
 			attrs["dbNamespace"] = s.DBNamespace
+			if s.DBError.ErrorCode != "" {
+				attrs["errorType"] = s.DBError.ErrorCode
+				attrs["errorDescription"] = s.DBError.Description
+			}
 		}
 		return attrs
 	case EventTypeGRPC:

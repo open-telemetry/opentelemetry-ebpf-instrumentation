@@ -24,6 +24,18 @@ type sqlppRequest struct {
 	QueryCtx  string `json:"query_context"`
 }
 
+// sqlppResponse represents the JSON structure of a SQL++ query response
+type sqlppResponse struct {
+	Status string       `json:"status"`
+	Errors []sqlppError `json:"errors"`
+}
+
+// sqlppError represents an error in a SQL++ response
+type sqlppError struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+}
+
 // SQLPPSpan detects and enriches SQL++ spans (Couchbase and other SQL++ databases)
 func SQLPPSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, endpointPatterns []string) (request.Span, bool) {
 	// Must match endpoint pattern first
@@ -66,6 +78,11 @@ func SQLPPSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, e
 	baseSpan.DBNamespace = bucket            // db.namespace (bucket)
 	baseSpan.DBSystem = dbSystem             // db.system.name
 	baseSpan.Method = operation              // db.operation.name
+
+	// Parse response for errors
+	if errInfo := parseSQLPPResponse(resp); errInfo != nil {
+		baseSpan.DBError = *errInfo
+	}
 
 	return *baseSpan, true
 }
@@ -194,4 +211,48 @@ func extractSQLPPNamespace(sqlppReq *sqlppRequest) string {
 	}
 
 	return ""
+}
+
+// parseSQLPPResponse parses the SQL++ response body for errors
+func parseSQLPPResponse(resp *http.Response) *request.DBError {
+	if resp == nil || resp.Body == nil {
+		return nil
+	}
+
+	respB, err := io.ReadAll(resp.Body)
+	if err != nil {
+		slog.Debug("failed to read SQL++ response body", "error", err)
+		return nil
+	}
+	resp.Body = io.NopCloser(bytes.NewBuffer(respB))
+
+	var sqlppResp sqlppResponse
+	if err := json.Unmarshal(respB, &sqlppResp); err != nil {
+		slog.Debug("failed to parse SQL++ response", "error", err)
+		return nil
+	}
+
+	// Only check for errors if status is not success
+	if sqlppResp.Status == "success" {
+		return nil
+	}
+
+	// Check for errors in the response
+	if len(sqlppResp.Errors) > 0 {
+		firstErr := sqlppResp.Errors[0]
+		return &request.DBError{
+			ErrorCode:   fmt.Sprintf("%d", firstErr.Code),
+			Description: firstErr.Msg,
+		}
+	}
+
+	// Check for non-success status (fatal, errors, timeout, etc.)
+	if sqlppResp.Status != "" {
+		return &request.DBError{
+			ErrorCode:   sqlppResp.Status,
+			Description: "Query status: " + sqlppResp.Status,
+		}
+	}
+
+	return nil
 }
