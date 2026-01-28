@@ -16,11 +16,10 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 type EventType uint8
@@ -46,6 +45,7 @@ const (
 	EventTypeGPUMemcpy
 	EventTypeFailedConnect
 	EventTypeDNS
+	EventTypeCouchbaseClient
 )
 
 const (
@@ -122,6 +122,8 @@ func (t EventType) String() string {
 		return "CONNECTION ERR"
 	case EventTypeDNS:
 		return "DNS"
+	case EventTypeCouchbaseClient:
+		return "CouchbaseClient"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}
@@ -510,7 +512,7 @@ func (s *Span) IsValid() bool {
 
 func (s *Span) IsClientSpan() bool {
 	switch s.Type {
-	case EventTypeGRPCClient, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect:
+	case EventTypeGRPCClient, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient:
 		return true
 	}
 
@@ -533,7 +535,7 @@ func SpanStatusCode(span *Span) string {
 		return HTTPSpanStatusCode(span)
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return GrpcSpanStatusCode(span)
-	case EventTypeSQLClient, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS:
+	case EventTypeSQLClient, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient:
 		if span.Status != 0 {
 			return StatusCodeError
 		}
@@ -554,7 +556,7 @@ func SpanStatusCode(span *Span) string {
 
 func SpanStatusMessage(span *Span) string {
 	switch span.Type {
-	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient:
+	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient:
 		if span.Status != 0 && span.DBError.Description != "" {
 			return span.DBError.Description
 		}
@@ -634,7 +636,7 @@ func (s *Span) ServiceGraphKind() string {
 	switch s.Type {
 	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeRedisServer:
 		return "SPAN_KIND_SERVER"
-	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect:
+	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient:
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient:
 		switch s.Method {
@@ -651,7 +653,7 @@ func (s *Span) ServiceGraphKind() string {
 // See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector
 func (s *Span) ServiceGraphConnectionType() string {
 	switch s.Type {
-	case EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient:
+	case EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeCouchbaseClient:
 		return "database"
 	case EventTypeKafkaClient:
 		return "messaging_system"
@@ -751,7 +753,7 @@ func (s *Span) TraceName() string {
 		if s.Method != "" {
 			return s.Method
 		}
-		return semconv.DBSystemMongoDB.Value.AsString()
+		return semconv.DBSystemNameMongoDB.Value.AsString()
 	case EventTypeManualSpan:
 		return s.Method
 	case EventTypeFailedConnect:
@@ -764,6 +766,14 @@ func (s *Span) TraceName() string {
 			return s.Method
 		}
 		return s.Method + " " + s.Path
+	case EventTypeCouchbaseClient:
+		if s.Method == "" {
+			return "COUCHBASE"
+		}
+		if s.Path != "" {
+			return s.Method + " " + s.Path
+		}
+		return s.Method
 	}
 	return ""
 }
@@ -890,25 +900,17 @@ func (s *Span) IsSelfReferenceSpan() bool {
 	return s.Peer == s.Host && (s.Service.UID.Namespace == s.OtherNamespace || s.OtherNamespace == "")
 }
 
-// TODO: replace by semconv.DBSystemPostgreSQL, semconv.DBSystemMySQL, semconv.DBSystemRedis when we
-// update semantic conventions library to 1.30.0
-var (
-	dbSystemPostgreSQL = attribute.String(string(attr.DBSystemName), semconv.DBSystemPostgreSQL.Value.AsString())
-	dbSystemMySQL      = attribute.String(string(attr.DBSystemName), semconv.DBSystemMySQL.Value.AsString())
-	dbSystemOtherSQL   = attribute.String(string(attr.DBSystemName), semconv.DBSystemOtherSQL.Value.AsString())
-)
-
 func (s *Span) DBSystemName() attribute.KeyValue {
 	if s.Type == EventTypeSQLClient {
 		switch s.SubType {
 		case int(DBPostgres):
-			return dbSystemPostgreSQL
+			return semconv.DBSystemNamePostgreSQL
 		case int(DBMySQL):
-			return dbSystemMySQL
+			return semconv.DBSystemNameMySQL
 		}
 	}
 
-	return dbSystemOtherSQL
+	return semconv.DBSystemNameOtherSQL
 }
 
 func (s *Span) HasOriginalHost() bool {
