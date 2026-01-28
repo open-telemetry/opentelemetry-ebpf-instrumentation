@@ -18,8 +18,52 @@ on:
 permissions: {}
 
 jobs:
+  # Verify CI checks passed on the tagged commit and tag is valid.
+  verify:
+    name: Verify CI Status
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Validate tag format
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          WORKFLOW_TAG: ${{ inputs.tag }}
+        run: |
+          if ! [[ "$WORKFLOW_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: Tag must match format v*.*.* (e.g., v1.2.3), got: $WORKFLOW_TAG"
+            exit 1
+          fi
+          echo "Tag format validated: $WORKFLOW_TAG"
+
+      - name: Check required workflows passed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          WORKFLOW_TAG: ${{ inputs.tag }}
+          WORKFLOW_EVENT: ${{ github.event_name }}
+        run: |
+          # Get the commit SHA for the tag/ref
+          if [ "$WORKFLOW_EVENT" = "workflow_dispatch" ]; then
+            COMMIT_SHA=$(git rev-parse "$WORKFLOW_TAG")
+          else
+            COMMIT_SHA="$GITHUB_SHA"
+          fi
+
+          echo "Verifying CI status for commit: $COMMIT_SHA"
+          ./.github/scripts/verify-ci-status.sh "$GITHUB_REPOSITORY" "$COMMIT_SHA"
+
   release:
     name: Draft Release
+    needs: verify # Create draft release only after verification.
     runs-on: ubuntu-latest
     permissions:
       contents: write # https://github.com/softprops/action-gh-release#permissions
