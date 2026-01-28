@@ -7,6 +7,12 @@ on:
       # - publish_dockerhub_main.yml
       # - publish_dockerhub_k8s_cache_main.yml
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g., v1.2.3)"
+        required: true
+        type: string
 
 # https://docs.zizmor.sh/audits/#excessive-permissions
 permissions: {}
@@ -23,5 +29,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           repository: open-telemetry/opentelemetry-ebpf-instrumentation
           generate_release_notes: true
