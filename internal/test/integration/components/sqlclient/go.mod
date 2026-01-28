@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/integration/components/sqlclient
 
-go 1.25.5
+go 1.25.6
 
 require modernc.org/sqlite v1.25.0
 

@@ -43,7 +43,6 @@ jobs:
           #  5. TestMultiProcessAppCPIPOnly
 
           PARTITIONS: 5
-          TEST_TAGS: integration
         run: |
           echo -n "matrix=" >> $GITHUB_OUTPUT
           make vm-integration-test-matrix-json >> $GITHUB_OUTPUT
@@ -131,7 +130,7 @@ jobs:
       - name: Pre-compile Go integration tests
         run: |
           mkdir compiled-tests
-          CC=musl-gcc CGO_ENABLED=1 go test -c -tags=integration -ldflags="-s -w" -o compiled-tests/ ./internal/test/integration
+          CC=musl-gcc CGO_ENABLED=1 go test -c -ldflags="-s -w" -o compiled-tests/ ./internal/test/integration
 
       - name: Run VM integration tests (${{ matrix.test.description }})
         timeout-minutes: 60

@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/configs/offsets/gin
 
-go 1.25.5
+go 1.25.6
 
 require github.com/gin-gonic/gin v1.11.0
 

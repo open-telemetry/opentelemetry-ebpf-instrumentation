@@ -226,7 +226,7 @@ int obi_socket__filter(struct __sk_buff *skb) {
             // a duplicated UNION of flows (two different flows with partial aggregation of the same packets),
             // which can't be deduplicated.
             // other possible values https://chromium.googlesource.com/chromiumos/docs/+/master/constants/errnos.md
-            bpf_dbg_printk("error updating flow %d\n", ret);
+            bpf_dbg_printk("error updating flow, ret=%d\n", ret);
         }
     } else {
         // Key does not exist in the map, and will need to create a new entry.
@@ -279,7 +279,7 @@ int obi_socket__filter(struct __sk_buff *skb) {
             // which can be re-aggregated at userspace.
             // other possible values https://chromium.googlesource.com/chromiumos/docs/+/master/constants/errnos.md
             if (trace_messages) {
-                bpf_dbg_printk("error adding flow %d\n", ret);
+                bpf_dbg_printk("error adding flow, ret=%d\n", ret);
             }
 
             new_flow.errno = -ret;

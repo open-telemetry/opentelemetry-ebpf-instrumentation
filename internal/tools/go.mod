@@ -1,12 +1,13 @@
 module go.opentelemetry.io/obi/internal/tools
 
-go 1.25.5
+go 1.25.6
 
 require (
 	github.com/cilium/ebpf v0.20.0
 	github.com/golangci/golangci-lint/v2 v2.4.0
 	github.com/google/go-licenses/v2 v2.0.1
 	github.com/grafana/go-offsets-tracker v0.1.7
+	github.com/jcchavezs/porto v0.7.0
 	github.com/onsi/ginkgo/v2 v2.27.4
 	go.opentelemetry.io/build-tools/multimod v0.28.1
 	gotest.tools/gotestsum v1.12.3

@@ -41,6 +41,8 @@ func TestConfig_Overrides(t *testing.T) {
 trace_printer: json
 shutdown_timeout: 30s
 channel_buffer_len: 33
+channel_send_timeout: 10s
+channel_send_timeout_panic: true
 ebpf:
   functions:
     - FooBar
@@ -115,14 +117,18 @@ discovery:
 	metaSources["service.namespace"] = []string{"huha.com/yeah"}
 
 	assert.Equal(t, &Config{
-		Exec:             cfg.Exec,
-		Port:             cfg.Port,
-		ServiceName:      "svc-name",
-		ChannelBufferLen: 33,
-		LogLevel:         LogLevelInfo,
-		ShutdownTimeout:  30 * time.Second,
-		EnforceSysCaps:   false,
-		TracePrinter:     "json",
+		Exec:        cfg.Exec,
+		Port:        cfg.Port,
+		ServiceName: "svc-name",
+
+		ChannelBufferLen:        33,
+		ChannelSendTimeout:      10 * time.Second,
+		ChannelSendTimeoutPanic: true,
+
+		LogLevel:        LogLevelInfo,
+		ShutdownTimeout: 30 * time.Second,
+		EnforceSysCaps:  false,
+		TracePrinter:    "json",
 		EBPF: config.EBPFTracer{
 			BatchLength:        100,
 			BatchTimeout:       time.Second,
@@ -144,6 +150,7 @@ discovery:
 			PostgresPreparedStatementsCacheSize: 1024,
 			MongoRequestsCacheSize:              1024,
 			KafkaTopicUUIDCacheSize:             1024,
+			CouchbaseDBCacheSize:                1024,
 			LogEnricher: config.LogEnricherConfig{
 				CacheTTL:              30 * time.Minute,
 				CacheSize:             128,
@@ -186,6 +193,7 @@ discovery:
 				instrumentations.InstrumentationSQL,
 				instrumentations.InstrumentationRedis,
 				instrumentations.InstrumentationKafka,
+				instrumentations.InstrumentationMQTT,
 				instrumentations.InstrumentationMongo,
 				// no traces for DNS and GPU by default
 			},

@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/configs/offsets/kafkago
 
-go 1.25.5
+go 1.25.6
 
 require github.com/segmentio/kafka-go v0.4.49
 

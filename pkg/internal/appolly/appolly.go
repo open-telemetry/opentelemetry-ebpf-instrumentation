@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/traces"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -62,16 +63,12 @@ type finisher struct {
 func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (*Instrumenter, error) {
 	setupFeatureContextInfo(ctx, ctxInfo, config)
 
-	tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(config.ChannelBufferLen), msg.Name("tracesInput"))
-
-	newEventQueue := func(name string) *msg.Queue[exec.ProcessEvent] {
-		return msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(config.ChannelBufferLen), msg.Name(name))
-	}
+	tracesInput := msg2.QueueFromConfig[[]request.Span](config, "tracesInput")
 
 	swi := &swarm.Instancer{}
 
-	processEventsInput := newEventQueue("processEventsInput")
-	processEventsHostDecorated := newEventQueue("processEventsHostDecorated")
+	processEventsInput := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsInput")
+	processEventsHostDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsHostDecorated")
 
 	swi.Add(traces.HostProcessEventDecoratorProvider(
 		&config.Attributes.InstanceID,
@@ -79,7 +76,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		processEventsHostDecorated,
 	), swarm.WithID("HostProcessEventDecoratorProvider"))
 
-	processEventsKubeDecorated := newEventQueue("processEventsKubeDecorated")
+	processEventsKubeDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsKubeDecorated")
 	swi.Add(transform.KubeProcessEventDecoratorProvider(
 		ctxInfo,
 		&config.Attributes.Kubernetes,

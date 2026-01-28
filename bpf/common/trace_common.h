@@ -497,3 +497,41 @@ static __always_inline u8 find_trace_for_client_request(const pid_connection_inf
 
     return find_trace_for_client_request_with_t_key(p_conn, orig_dport, &t_key, pid_tgid, tp);
 }
+
+static __always_inline u8
+find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
+                                                u16 orig_dport,
+                                                trace_key_t *t_key,
+                                                u64 pid_tgid,
+                                                tp_info_t *tp) {
+    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, t_key, orig_dport);
+
+    if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
+        bpf_dbg_printk("Found existing server tp for client call");
+
+        if (!should_be_in_same_transaction(&server_tp->tp, tp)) {
+            bpf_dbg_printk("Parent and child are too far apart, marking server trace as invalid");
+            bpf_dbg_printk(
+                "%lld >>> %lld (max: %lld)", tp->ts, server_tp->tp.ts, max_transaction_time);
+            server_tp->valid = 0;
+            return 0;
+        }
+
+        *tp = server_tp->tp;
+        return 1;
+    }
+
+    return 0;
+}
+
+static __always_inline u8 find_parent_trace_for_client_request(const pid_connection_info_t *p_conn,
+                                                               u16 orig_dport,
+                                                               tp_info_t *tp) {
+
+    trace_key_t t_key = {0};
+    trace_key_from_pid_tid(&t_key);
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+
+    return find_parent_trace_for_client_request_with_t_key(
+        p_conn, orig_dport, &t_key, pid_tgid, tp);
+}

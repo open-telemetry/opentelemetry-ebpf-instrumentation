@@ -1,8 +1,6 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
 package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
@@ -113,7 +111,7 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 	require.Truef(t, ok, "service.instance.id not found in tags: %v", process.Tags)
 	assert.Regexp(t, `^beyla:\d+$$`, serviceInstance.Value)
 	sd = jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.library.name", Type: "string", Value: "go.opentelemetry.io/obi"},
+		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "rust"},
 		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},

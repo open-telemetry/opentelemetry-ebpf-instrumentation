@@ -188,8 +188,8 @@ static __always_inline void parse_dns_response(struct xdp_md *ctx,
         [[maybe_unused]] const __u8 rd = get_bit(flags0, RD_OFFSET);
 
         bpf_dbg_printk("Found possible DNS response: %x!\n", id);
-        bpf_dbg_printk("flags[0] = %x\n", flags0);
-        bpf_dbg_printk("id: %x, qr: %u, opcode: %u, aa: %u, tc: %u, rd: %u, ra: %u\n",
+        bpf_dbg_printk("flags[0]=%x\n", flags0);
+        bpf_dbg_printk("id=%x, qr=%u, opcode=%u, aa=%u, tc=%u, rd=%u, ra=%u\n",
                        id,
                        qr,
                        opcode,
@@ -197,9 +197,8 @@ static __always_inline void parse_dns_response(struct xdp_md *ctx,
                        tc,
                        rd,
                        ra);
-        bpf_dbg_printk("flags[1] = %x\n", flags1);
-        bpf_dbg_printk(
-            "z: %u, rcode: %u, qdcount = %u, ancount = %u\n", z, rcode, ancount, qdcount);
+        bpf_dbg_printk("flags[1]=%x\n", flags1);
+        bpf_dbg_printk("z=%u, rcode=%u, qdcount=%u, ancount=%u\n", z, rcode, ancount, qdcount);
     }
 
     // Parse question sections
@@ -219,7 +218,7 @@ static __always_inline void parse_dns_response(struct xdp_md *ctx,
         ptr += qsection_size;
     }
 
-    bpf_dbg_printk("found qsection size = %u\n", dns_packet_size);
+    bpf_dbg_printk("found qsection, dns_packet_size=%u\n", dns_packet_size);
 
     // Submit valid DNS packet to ring buffer
     submit_dns_packet(ctx, data);
@@ -245,7 +244,7 @@ int dns_response_tracker(struct xdp_md *ctx) {
     // Validate packet size
     const __u16 udp_len = bpf_ntohs(udp->len);
 
-    bpf_dbg_printk("udp_len: %u\n", udp_len);
+    bpf_dbg_printk("udp_len=%u\n", udp_len);
 
     if (udp_len < (UDP_HDR_SIZE + DNS_HDR_SIZE)) {
         return XDP_PASS;

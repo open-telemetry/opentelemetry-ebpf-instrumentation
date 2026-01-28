@@ -138,17 +138,19 @@ func TestContainerInfoWithTemplate(t *testing.T) {
 	t.Run("test with service attributes set", func(t *testing.T) {
 		for _, ip := range []string{"169.0.0.1", "1.1.1.1"} {
 			t.Run(ip, func(t *testing.T) {
-				name, namespace := store.ServiceNameNamespaceForIP(ip)
+				name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP(ip)
 				assert.Equal(t, "customName", name, ip)
 				assert.Equal(t, "boo", namespace, ip)
+				assert.Equal(t, "namespaceA", k8sNamespace, ip)
 			})
 		}
 		// Pod with IP 3.1.1.1 does not have any overriding of the service name,
 		// so it should follow te template
 		t.Run("3.1.1.1", func(t *testing.T) {
-			name, namespace := store.ServiceNameNamespaceForIP("3.1.1.1")
+			name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP("3.1.1.1")
 			assert.Equal(t, "namespaceA/applicationA/componentB", name)
 			assert.Equal(t, "namespaceA", namespace)
+			assert.Equal(t, "namespaceA", k8sNamespace)
 		})
 		t.Run("check for resource metadata", func(t *testing.T) {
 			qName := qualifiedName{name: "podA", namespace: "namespaceA", kind: "Pod"}
@@ -185,17 +187,20 @@ func TestContainerInfoWithTemplate(t *testing.T) {
 
 	t.Run("test without service attributes set", func(tt *testing.T) {
 		// We removed the pod that defined the env variables
-		name, namespace := store.ServiceNameNamespaceForIP("169.0.0.1")
+		name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP("169.0.0.1")
 		assert.Equal(tt, "service", name)
 		assert.Equal(tt, "namespaceA", namespace)
+		assert.Equal(tt, "namespaceA", k8sNamespace)
 
-		name, namespace = store.ServiceNameNamespaceForIP("3.1.1.1")
+		name, namespace, k8sNamespace = store.ServiceNameNamespaceForIP("3.1.1.1")
 		assert.Equal(tt, "namespaceA/applicationA/componentB", name)
 		assert.Equal(tt, "namespaceA", namespace)
+		assert.Equal(tt, "namespaceA", k8sNamespace)
 
-		name, namespace = store.ServiceNameNamespaceForIP("1.1.1.1")
+		name, namespace, k8sNamespace = store.ServiceNameNamespaceForIP("1.1.1.1")
 		assert.Empty(tt, name)
 		assert.Empty(tt, namespace)
+		assert.Empty(tt, k8sNamespace)
 	})
 
 	// 3 again, because we cache that we can't see the IP in our info
@@ -203,13 +208,15 @@ func TestContainerInfoWithTemplate(t *testing.T) {
 
 	t.Run("test with only namespace attributes set", func(tt *testing.T) {
 		// We removed the pod that defined the env variables
-		name, namespace := store.ServiceNameNamespaceForIP("1.2.1.2")
+		name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP("1.2.1.2")
 		assert.Equal(tt, "namespaceB/applicationB/componentA", name)
 		assert.Equal(tt, "boo", namespace)
+		assert.Equal(tt, "namespaceB", k8sNamespace)
 
-		name, namespace = store.ServiceNameNamespaceForIP("2.1.2.1")
+		name, namespace, k8sNamespace = store.ServiceNameNamespaceForIP("2.1.2.1")
 		assert.Equal(tt, "namespaceB/applicationB/componentA", name)
 		assert.Equal(tt, "boo", namespace)
+		assert.Equal(tt, "namespaceB", k8sNamespace)
 	})
 
 	assert.Len(t, store.otelServiceInfoByIP, 5)
@@ -228,9 +235,10 @@ func TestContainerInfoWithTemplate(t *testing.T) {
 	_, ok = store.containersByOwner[serviceKey]
 	assert.False(t, ok)
 
-	name, namespace := store.ServiceNameNamespaceForIP("169.0.0.2")
+	name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP("169.0.0.2")
 	assert.Equal(t, "service", name)
 	assert.Equal(t, "namespaceA", namespace)
+	assert.Equal(t, "namespaceA", k8sNamespace)
 
 	t.Run("test with container name", func(tt *testing.T) {
 		name, namespace := store.ServiceNameNamespaceForMetadata(&podMetaA, "container1")
@@ -362,17 +370,19 @@ func TestContainerInfo(t *testing.T) {
 	t.Run("test with service attributes set", func(t *testing.T) {
 		for _, ip := range []string{"169.0.0.1", "1.1.1.1"} {
 			t.Run(ip, func(t *testing.T) {
-				name, namespace := store.ServiceNameNamespaceForIP(ip)
+				name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP(ip)
 				assert.Equal(t, "customName", name, ip)
 				assert.Equal(t, "boo", namespace, ip)
+				assert.Equal(t, "namespaceA", k8sNamespace, ip)
 			})
 		}
 		// Pod with IP 3.1.1.1 does neither override name nor namespace, so
 		// we should expect here the Kubernetes metadata
 		t.Run("3.1.1.1", func(t *testing.T) {
-			name, namespace := store.ServiceNameNamespaceForIP("3.1.1.1")
+			name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP("3.1.1.1")
 			assert.Equal(t, "service", name)
 			assert.Equal(t, "namespaceA", namespace)
+			assert.Equal(t, "namespaceA", k8sNamespace)
 		})
 	})
 
@@ -393,15 +403,17 @@ func TestContainerInfo(t *testing.T) {
 		// We removed the pod that defined the env variables
 		for _, ip := range []string{"169.0.0.1", "3.1.1.1"} {
 			t.Run(ip, func(t *testing.T) {
-				name, namespace := store.ServiceNameNamespaceForIP(ip)
+				name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP(ip)
 				assert.Equal(t, "service", name)
 				assert.Equal(t, "namespaceA", namespace)
+				assert.Equal(t, "namespaceA", k8sNamespace)
 			})
 		}
 
-		name, namespace := store.ServiceNameNamespaceForIP("1.1.1.1")
+		name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP("1.1.1.1")
 		assert.Empty(t, name)
 		assert.Empty(t, namespace)
+		assert.Empty(t, k8sNamespace)
 	})
 
 	// 3 again, because we cache that we can't see the IP in our info
@@ -411,9 +423,10 @@ func TestContainerInfo(t *testing.T) {
 		// We removed the pod that defined the env variables
 		for _, ip := range []string{"1.2.1.2", "2.1.2.1"} {
 			t.Run(ip, func(t *testing.T) {
-				name, namespace := store.ServiceNameNamespaceForIP(ip)
+				name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP(ip)
 				assert.Equal(t, "serviceB", name)
 				assert.Equal(t, "boo", namespace)
+				assert.Equal(t, "namespaceB", k8sNamespace)
 			})
 		}
 	})
@@ -434,9 +447,10 @@ func TestContainerInfo(t *testing.T) {
 	_, ok = store.containersByOwner[serviceKey]
 	assert.False(t, ok)
 
-	name, namespace := store.ServiceNameNamespaceForIP("169.0.0.2")
+	name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP("169.0.0.2")
 	assert.Equal(t, "service", name)
 	assert.Equal(t, "namespaceA", namespace)
+	assert.Equal(t, "namespaceA", k8sNamespace)
 }
 
 func TestMemoryCleanedUp(t *testing.T) {
