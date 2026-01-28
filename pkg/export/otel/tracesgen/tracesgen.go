@@ -367,6 +367,16 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
 		}
 
+		if span.SubType == request.HTTPSubtypeSQLPP {
+			attrs = append(attrs, request.DBCollectionName(span.Route))
+			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
+			if _, ok := optionalAttrs[attr.DBQueryText]; ok {
+				attrs = append(attrs, request.DBQueryText(span.Statement))
+			}
+			attrs = append(attrs, request.DBOperationName(span.Method))
+			attrs = append(attrs, request.DBSystemName(span.DBSystem))
+		}
+
 		if span.SubType == request.HTTPSubtypeAWSS3 && span.AWS != nil {
 			s3 := span.AWS.S3
 			attrs = append(attrs, semconv.RPCService("S3"))

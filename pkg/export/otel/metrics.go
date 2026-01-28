@@ -850,7 +850,11 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
 		case request.EventTypeHTTPClient:
-			if mr.is.HTTPEnabled() {
+			// HTTP client subtypes that are database calls get recorded as db client metrics
+			if mr.is.DBEnabled() && (span.SubType == request.HTTPSubtypeSQLPP || span.SubType == request.HTTPSubtypeElasticsearch) {
+				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
+				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			} else if mr.is.HTTPEnabled() {
 				httpClientDuration, attrs := r.httpClientDuration.ForRecord(span)
 				httpClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				httpClientRequestSize, attrs := r.httpClientRequestSize.ForRecord(span)

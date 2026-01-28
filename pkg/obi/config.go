@@ -125,6 +125,12 @@ var DefaultConfig = Config{
 				AWS: config.AWSConfig{
 					Enabled: false,
 				},
+				SQLPP: config.SQLPPConfig{
+					Enabled: false,
+					EndpointPatterns: []string{
+						"/query/service",
+					},
+				},
 			},
 		},
 		MaxTransactionTime: 5 * time.Minute,

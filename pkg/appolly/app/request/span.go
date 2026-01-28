@@ -84,6 +84,7 @@ const (
 	HTTPSubtypeElasticsearch = 2 // http + elasticsearch
 	HTTPSubtypeAWSS3         = 3 // http + aws s3
 	HTTPSubtypeAWSSQS        = 4 // http + aws sqs
+	HTTPSubtypeSQLPP         = 5 // http + sql++ (couchbase, etc.)
 )
 
 //nolint:cyclop
@@ -249,6 +250,7 @@ type Span struct {
 	SubType        int            `json:"-"`
 	DBError        DBError        `json:"-"`
 	DBNamespace    string         `json:"-"`
+	DBSystem       string         `json:"-"`
 	SQLCommand     string         `json:"-"`
 	SQLError       *SQLError      `json:"-"`
 	MessagingInfo  *MessagingInfo `json:"-"`
@@ -329,6 +331,13 @@ func spanAttributes(s *Span) SpanAttributes {
 			attrs["awsSQSDestination"] = sqs.Destination
 			attrs["awsSQSQueueURL"] = sqs.QueueURL
 			attrs["awsSQSMessageID"] = sqs.MessageID
+		}
+		if s.SubType == HTTPSubtypeSQLPP {
+			attrs["dbCollectionName"] = s.Route
+			attrs["dbOperationName"] = s.Method
+			attrs["dbQueryText"] = s.Statement
+			attrs["dbSystemName"] = s.DBSystem
+			attrs["dbNamespace"] = s.DBNamespace
 		}
 		return attrs
 	case EventTypeGRPC:
@@ -662,7 +671,7 @@ func (s *Span) ServiceGraphConnectionType() string {
 		if s.SubType == HTTPSubtypeAWSSQS {
 			return "messaging_system"
 		}
-		if s.SubType == HTTPSubtypeElasticsearch {
+		if s.SubType == HTTPSubtypeElasticsearch || s.SubType == HTTPSubtypeSQLPP {
 			return "database"
 		}
 	}
@@ -713,6 +722,23 @@ func (s *Span) TraceName() string {
 				return "sqs." + s.AWS.SQS.OperationName
 			} else {
 				return "sqs.Operation"
+			}
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeSQLPP {
+			dbOperationName := s.Method
+			if dbOperationName == "" {
+				return s.DBSystem
+			}
+			switch {
+			case s.Route != "":
+				return dbOperationName + " " + s.Route
+			case s.DBNamespace != "":
+				return dbOperationName + " " + s.DBNamespace
+			case s.Host != "" && s.HostPort != 0:
+				return dbOperationName + " " + s.Host + ":" + strconv.Itoa(s.HostPort)
+			default:
+				return dbOperationName
 			}
 		}
 

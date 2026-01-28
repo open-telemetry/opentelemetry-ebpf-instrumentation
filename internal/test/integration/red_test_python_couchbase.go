@@ -206,3 +206,124 @@ func waitForCouchbaseTestComponents(t *testing.T, url string, subpath string) {
 		require.NotEmpty(t, results)
 	}, test.Interval(time.Second))
 }
+
+// testREDMetricsPythonCouchbaseSQLPP tests SQL++ (N1QL) queries via HTTP API
+func testREDMetricsPythonCouchbaseSQLPP(t *testing.T) {
+	sqlppCommonAttributes := []attribute.KeyValue{
+		attribute.String("db.system.name", "couchbase"),
+		attribute.String("span.kind", "client"),
+	}
+	testCases := []TestCase{
+		{
+			Route:     "http://localhost:8381",
+			Subpath:   "sqlpp",
+			Comm:      "python3.14",
+			Namespace: "integration-test",
+			Spans: []TestCaseSpan{
+				{
+					Name: "INSERT test-scope.test-collection",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "INSERT"),
+						attribute.String("db.namespace", "test-bucket"),
+						attribute.String("db.collection.name", "test-scope.test-collection"),
+					},
+				},
+				{
+					Name: "SELECT test-scope.test-collection",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "SELECT"),
+						attribute.String("db.namespace", "test-bucket"),
+						attribute.String("db.collection.name", "test-scope.test-collection"),
+					},
+				},
+				{
+					Name: "DELETE test-scope.test-collection",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "DELETE"),
+						attribute.String("db.namespace", "test-bucket"),
+						attribute.String("db.collection.name", "test-scope.test-collection"),
+					},
+				},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		// Add common attributes to each span
+		for i := range testCase.Spans {
+			testCase.Spans[i].Attributes = append(testCase.Spans[i].Attributes, sqlppCommonAttributes...)
+		}
+
+		t.Run(testCase.Route, func(t *testing.T) {
+			waitForCouchbaseSQLPPTestComponents(t, testCase.Route, "/"+testCase.Subpath)
+			testREDMetricsForCouchbaseSQLPP(t, testCase)
+		})
+	}
+}
+
+func testREDMetricsForCouchbaseSQLPP(t *testing.T, testCase TestCase) {
+	uri := testCase.Route
+	urlPath := testCase.Subpath
+	comm := testCase.Comm
+	namespace := testCase.Namespace
+
+	// Call 4 times the instrumented service
+	for i := 0; i < 4; i++ {
+		ti.DoHTTPGet(t, uri+"/"+urlPath, 200)
+	}
+
+	// Eventually, Prometheus would make SQL++ operations visible
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	var results []promtest.Result
+	for _, span := range testCase.Spans {
+		operation := span.FindAttribute("db.operation.name")
+		require.NotNil(t, operation, "db.operation.name attribute not found in span %s", span.Name)
+		test.Eventually(t, testTimeout, func(t require.TestingT) {
+			var err error
+			results, err = pq.Query(`db_client_operation_duration_seconds_count{` +
+				`db_operation_name="` + operation.Value.AsString() + `",` +
+				`db_system_name="couchbase",` +
+				`service_namespace="` + namespace + `"}`)
+			require.NoError(t, err, "failed to query prometheus for %s", span.Name)
+			enoughPromResults(t, results)
+			val := totalPromCount(t, results)
+			assert.LessOrEqual(t, 3, val, "expected at least 3 %s operations, got %d", span.Name, val)
+		})
+	}
+
+	test.Eventually(t, testTimeout, func(t require.TestingT) {
+		for _, span := range testCase.Spans {
+			command := span.Name
+			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
+			require.NoError(t, err, "failed to query jaeger for %s", command)
+			if resp == nil {
+				return
+			}
+			require.Equal(t, http.StatusOK, resp.StatusCode, "unexpected status code for %s: %d", command, resp.StatusCode)
+			var tq jaeger.TracesQuery
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq), "failed to decode jaeger response for %s", command)
+			var tags []jaeger.Tag
+			for _, attr := range span.Attributes {
+				tags = append(tags, otelAttributeToJaegerTag(attr))
+			}
+			traces := tq.FindBySpan(tags...)
+			assert.LessOrEqual(t, 1, len(traces), "span %s with tags %v not found in traces in traces %v", command, tags, tq.Data)
+		}
+	}, test.Interval(100*time.Millisecond))
+}
+
+func waitForCouchbaseSQLPPTestComponents(t *testing.T, url string, subpath string) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	test.Eventually(t, 2*time.Minute, func(t require.TestingT) {
+		// first, verify that the test service endpoint is healthy
+		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
+		require.NoError(t, err)
+		r, err := testHTTPClient.Do(req)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, r.StatusCode)
+
+		// now, verify that the metric has been reported.
+		results, err := pq.Query(`db_client_operation_duration_seconds_count{db_system_name="couchbase"}`)
+		require.NoError(t, err)
+		require.NotEmpty(t, results)
+	}, test.Interval(time.Second))
+}

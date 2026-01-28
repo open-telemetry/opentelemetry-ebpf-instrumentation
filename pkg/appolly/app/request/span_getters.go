@@ -111,8 +111,11 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			case EventTypeCouchbaseClient:
 				return DBSystemName(semconv.DBSystemCouchbase.Value.AsString())
 			case EventTypeHTTPClient:
-				if span.SubType == HTTPSubtypeElasticsearch {
+				if span.SubType == HTTPSubtypeElasticsearch && span.Elasticsearch != nil {
 					return DBSystemName(span.Elasticsearch.DBSystemName)
+				}
+				if span.SubType == HTTPSubtypeSQLPP && span.DBSystem != "" {
+					return DBSystemName(span.DBSystem)
 				}
 			}
 			return DBSystemName("unknown")

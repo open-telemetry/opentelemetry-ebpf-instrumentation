@@ -481,6 +481,7 @@ func TestSuite_PythonCouchbase(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Python Couchbase metrics", testREDMetricsPythonCouchbaseOnly)
 	t.Run("Python Couchbase error", testREDMetricsPythonCouchbaseError)
+	t.Run("Python Couchbase SQL++ metrics", testREDMetricsPythonCouchbaseSQLPP)
 	require.NoError(t, compose.Close())
 }
 
