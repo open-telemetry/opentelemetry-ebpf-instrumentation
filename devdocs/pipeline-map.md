@@ -28,11 +28,13 @@ flowchart TD
         TA(TraceAttacher) -.-> EBPF1(ebpf.Tracer)
         TA -.-> |creates one per executable| EBPF2(ebpf.Tracer)
         TA -.-> EBPF3(ebpf.Tracer)
+        TA -.-> EBPF4(ebpf.AppNetworkTracer)
     end
     subgraph Decoration and forwarding pipeline
         EBPF1 -.-> TR
         EBPF2 -.-> |"[]request.Span"| TR
         EBPF3 -.-> TR
+        EBPF4 -.-> TR
         TR(traces.ReadDecorator) --> ROUT(Routes<br/>decorator)
         ROUT:::optional --> DOCKDEC(Docker<br/>decorator)
         ROUT:::optional --> KD(Kubernetes<br/>decorator)
