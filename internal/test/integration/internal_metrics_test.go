@@ -7,22 +7,24 @@ import (
 	"net/http"
 	"path"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/mariomac/guara/pkg/test"
+	"github.com/ory/dockertest/v3"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	dockercompose "go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
 func TestInstrumentationErrors(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-error-test.yml", path.Join(pathOutput, "test-suite-instrumentation-errors.log"))
+	compose, err := dockercompose.ComposeSuite("docker-compose-error-test.yml", path.Join(pathOutput, "test-suite-instrumentation-errors.log"))
 	require.NoError(t, err)
 
 	// Run OBI without privileged mode to force instrumentation errors
@@ -37,25 +39,41 @@ func TestInstrumentationErrors(t *testing.T) {
 }
 
 func TestAvoidedServicesMetrics(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-go-otel.yml", path.Join(pathOutput, "test-suite-avoided-services.log"))
-	require.NoError(t, err)
+	network := setupDockerNetwork(t)
+	var wg sync.WaitGroup
 
-	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env,
-		`OTEL_EBPF_EXECUTABLE_PATH=`,
-		`OTEL_EBPF_OPEN_PORT=8080`,
-		`APP_OTEL_METRICS_ENDPOINT=http://otelcol:4318`,
-		`APP_OTEL_TRACES_ENDPOINT=http://jaeger:4318`,
-		// Enable avoidance and internal metrics
-		`OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES=true`,
-		`OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999`)
-
-	lockdown := KernelLockdownMode()
-	if !lockdown {
-		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
+	wg.Go(func() {
+		setupContainerPrometheus(t, network, "prometheus-config.yml")
+	})
+	wg.Go(func() {
+		setupContainerJaeger(t, network)
+	})
+	wg.Go(func() {
+		setupContainerCollector(t, network, "otelcol-config.yml")
+	})
+	var testserver *dockertest.Resource
+	wg.Go(func() {
+		testserver = setupGoOTelTestServer(t, network, []string{
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
+		})
+	})
+	wg.Wait()
+	if t.Failed() {
+		return
 	}
 
-	require.NoError(t, compose.Up())
+	// Start OBI to instrument the test server
+	o := obi{
+		Env: []string{
+			"OTEL_EBPF_OPEN_PORT=8080",
+			"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",
+		},
+	}
+	if !KernelLockdownMode() {
+		o.SecurityConfigSuffix = "_none"
+	}
+	o.instrument(t, network, testserver, "obi-config-go-otel.yml")
 
 	t.Run("Avoided services metrics are recorded", func(t *testing.T) {
 		// Wait for the service to start and make some requests to trigger OTLP detection
@@ -73,8 +91,6 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 		// Check that avoided services metrics are present
 		checkAvoidedServicesMetrics(t)
 	})
-
-	require.NoError(t, compose.Close())
 }
 
 func checkInstrumentationErrorMetrics(t *testing.T) {
