@@ -86,6 +86,8 @@ func newGraphBuilder(
 		routerToKubeDecorator,
 	), swarm.WithID("Routes"))
 
+	// We connect the Kube and Docker metadata decorators in series, but only
+	// one of them will be active at the same time and bypass the other's queues
 	kubeToContainerDecorator := msg2.QueueFromConfig[[]request.Span](config, "kubeToContainerDecorator")
 	swi.Add(transform.KubeDecoratorProvider(
 		ctxInfo, &config.Attributes.Kubernetes,

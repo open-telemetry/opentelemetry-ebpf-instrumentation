@@ -6,6 +6,7 @@ package docker // import "go.opentelemetry.io/obi/pkg/internal/docker"
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/docker/docker/client"
@@ -14,7 +15,7 @@ import (
 )
 
 func cmlog() *slog.Logger {
-	return slog.With("component", "docker.APIClient")
+	return slog.With("component", "docker.ContainerStore")
 }
 
 type PID int32
@@ -26,19 +27,20 @@ type ContainerMeta struct {
 	Name string
 }
 
-type APIClient struct {
+// ContainerStore caches access to the Docker container API.
+type ContainerStore struct {
 	initMutex sync.Mutex
 	docker    client.ContainerAPIClient
 	log       *slog.Logger
 }
 
-func NewStore() *APIClient {
-	return &APIClient{
+func NewStore() *ContainerStore {
+	return &ContainerStore{
 		log: cmlog(),
 	}
 }
 
-func (s *APIClient) IsEnabled(ctx context.Context) bool {
+func (s *ContainerStore) IsEnabled(ctx context.Context) bool {
 	if s == nil {
 		return false
 	}
@@ -48,7 +50,7 @@ func (s *APIClient) IsEnabled(ctx context.Context) bool {
 	return s.docker != nil
 }
 
-func (s *APIClient) initialize(ctx context.Context) {
+func (s *ContainerStore) initialize(ctx context.Context) {
 	if s.docker != nil {
 		return
 	}
@@ -70,7 +72,7 @@ func (s *APIClient) initialize(ctx context.Context) {
 	s.docker = docker
 }
 
-func (s *APIClient) ContainerInfo(ctx context.Context, pid PID) (ContainerMeta, bool) {
+func (s *ContainerStore) ContainerInfo(ctx context.Context, pid PID) (ContainerMeta, bool) {
 	osCntInfo, err := osInfoForPID(uint32(pid))
 	if err != nil {
 		s.log.Debug("failed to get OS container info for pid", "pid", pid, "error", err)
@@ -85,7 +87,8 @@ func (s *APIClient) ContainerInfo(ctx context.Context, pid PID) (ContainerMeta, 
 		return ContainerMeta{}, false
 	}
 	cntInfo := ContainerMeta{
-		Name: inspectInfo.Name,
+		// some containers start with '/'. Removing it
+		Name: strings.Trim(inspectInfo.Name, "/"),
 	}
 	return cntInfo, true
 }

@@ -34,10 +34,10 @@ type ContextInfo struct {
 	// MetricAttributeGroups will selectively enable or disable diverse groups of attributes
 	// in the metric exporters
 	MetricAttributeGroups attributes.AttrGroups
-	// K8sInformer enables direct access to the Kubernetes APIClient
+	// K8sInformer enables direct access to the Kubernetes ContainerStore
 	K8sInformer *kube.MetadataProvider
 	// DockerMetadata stores per-PID information of docker containers
-	DockerMetadata *docker.APIClient
+	DockerMetadata *docker.ContainerStore
 
 	// OverrideAppExportQueue allows overriding the output queue of the application exporter
 	// to connect your own application exporters outside the OBI code base. If left unset, OBI will

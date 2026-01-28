@@ -26,22 +26,23 @@ type dockerAPIClient interface {
 
 func DockerDiscoveryDecoratorProvider(
 	kube kubeMetadataProvider,
-	docker dockerAPIClient,
+	dockerClient dockerAPIClient,
 	input, output *msg.Queue[[]Event[ProcessAttrs]],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
 		// only enable this node if Docker is available, but also
 		// if we aren't running on Kubernetes
-		if !kube.IsKubeEnabled() &&
-			docker.IsEnabled(ctx) {
+		if kube.IsKubeEnabled() ||
+			!dockerClient.IsEnabled(ctx) {
 			return swarm.Bypass(input, output)
 		}
 
 		dd := dockerDecorator{
-			in:     input.Subscribe(msg.SubscriberName("DockerDecorator")),
-			out:    output,
-			log:    ddlog(),
-			docker: docker,
+			in:             input.Subscribe(msg.SubscriberName("DockerDecorator")),
+			out:            output,
+			containerByPID: map[docker.PID]docker.ContainerMeta{},
+			log:            ddlog(),
+			docker:         dockerClient,
 		}
 		return dd.decorate, nil
 	}
@@ -64,7 +65,9 @@ func (dd *dockerDecorator) decorate(ctx context.Context) {
 			case EventCreated:
 				meta, ok := dd.containerInfo(ctx, docker.PID(ev.Obj.pid))
 				if ok {
-					ev.Obj.metadata[containerNameMeta] = meta.Name
+					ev.Obj.metadata = map[string]string{
+						containerNameMeta: meta.Name,
+					}
 				}
 			case EventDeleted:
 				delete(dd.containerByPID, docker.PID(ev.Obj.pid))

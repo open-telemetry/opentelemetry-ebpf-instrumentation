@@ -33,10 +33,11 @@ func DockerDecoratorProvider(
 		}
 
 		dd := dockerEnricher{
-			in:     input.Subscribe(msg.SubscriberName("DockerEnricher")),
-			out:    output,
-			log:    delog(),
-			docker: ctxInfo.DockerMetadata,
+			in:             input.Subscribe(msg.SubscriberName("DockerEnricher")),
+			out:            output,
+			containerByPID: map[docker.PID]docker.ContainerMeta{},
+			log:            delog(),
+			docker:         ctxInfo.DockerMetadata,
 		}
 		return dd.decorate, nil
 	}
@@ -47,7 +48,7 @@ type dockerEnricher struct {
 	out            *msg.Queue[[]request.Span]
 	containerByPID map[docker.PID]docker.ContainerMeta
 	log            *slog.Logger
-	docker         *docker.APIClient
+	docker         *docker.ContainerStore
 }
 
 func (dd *dockerEnricher) decorate(ctx context.Context) {
@@ -55,7 +56,7 @@ func (dd *dockerEnricher) decorate(ctx context.Context) {
 	swarms.ForEachInput(ctx, dd.in, dd.log.Debug, func(spans []request.Span) {
 		for i := range spans {
 			s := &spans[i]
-			if ci, ok := dd.containerInfo(ctx, docker.PID(s.Pid.HostPID)); ok {
+			if ci, ok := dd.containerInfo(ctx, docker.PID(s.Service.ProcPID)); ok {
 				s.Service.Metadata = map[attr.Name]string{
 					attr.ContainerName: ci.Name,
 				}
