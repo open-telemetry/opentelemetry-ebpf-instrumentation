@@ -19,10 +19,12 @@ readonly CHECK_INTERVAL=30   # Seconds between status checks.
 # Each pattern is a substring that matches job names from critical workflows.
 readonly -a REQUIRED_CHECKS=(
   "shard-"                                # Unit and integration test shards.
+  "test"                                  # Core verification job from pull_request.yml.
   "kernel"                                # K8s integration test jobs.
   "daemonset"                             # OATS daemonset tests.
   "netolly"                               # OATS netolly tests.
-  "lint markdown"                         # Markdown linting check.
+  "clang-format"                          # Clang-format style check.
+  "Build and test"                        # Java agent build and test workflow.
 )
 
 # Print usage.
@@ -350,6 +352,20 @@ verify_ci_status() {
     if any_patterns_in_progress "$check_runs"; then
       local minutes=$((elapsed / 60))
       echo "⏳ Some checks still in progress (waited ${minutes}m)..."
+      echo ""
+      print_check_status "$check_runs"
+      echo ""
+      echo "Waiting ${CHECK_INTERVAL}s before next check..."
+      sleep "$CHECK_INTERVAL"
+      elapsed=$((elapsed + CHECK_INTERVAL))
+    else
+      # Unexpected state: required checks have neither all passed, failed, been
+      # detected as missing (on first iteration), nor are currently in progress.
+      # Log a warning and continue polling with the normal interval so that
+      # MAX_WAIT_TIME still applies and we avoid a tight infinite loop.
+      local minutes=$((elapsed / 60))
+      echo "⚠️  Unexpected CI state after waiting ${minutes}m."
+      echo "    Required checks are neither passing, failing, missing, nor in progress."
       echo ""
       print_check_status "$check_runs"
       echo ""
