@@ -366,12 +366,17 @@ func newReporter(
 			attrsProvider.For(attributes.DNSLookupDuration))
 	}
 
+	kubeEnabled := ctxInfo.K8sInformer.IsKubeEnabled()
+
 	if jointMetricsConfig.Features.ServiceGraph() {
-		attrSvcGraph = attributes.PrometheusGetters(attributeGetters, []attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source})
+		attrs := []attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source}
+		if kubeEnabled {
+			attrs = append(attrs, attr.K8SClientCluster, attr.K8SServerCluster, attr.K8SClientNamespace, attr.K8SServerNamespace)
+		}
+		attrSvcGraph = attributes.PrometheusGetters(attributeGetters, attrs)
 	}
 
 	clock := expire.NewCachedClock(timeNow)
-	kubeEnabled := ctxInfo.K8sInformer.IsKubeEnabled()
 	// If service name is not explicitly set, we take the service name as set by the
 	// executable inspector
 	extraMetadataLabels := parseExtraMetadata(cfg.ExtraResourceLabels)
