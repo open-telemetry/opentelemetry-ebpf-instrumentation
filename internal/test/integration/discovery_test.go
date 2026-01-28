@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
@@ -46,11 +46,11 @@ func testSelectiveExports(t *testing.T) {
 	// TODO: once we implement the instrumentation status query API, replace
 	// this with  a proper check to see if the target process has finished
 	// being instrumented
-	test.Eventually(t, 3*time.Minute, func(t require.TestingT) {
-		ti.DoHTTPGet(t, "http://localhost:5001/b", 200)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, "http://localhost:5001/b", 200)
 		bTraces := getTraces("service-b", "/b")
-		require.NotNil(t, bTraces)
-	})
+		require.NotNil(ct, bTraces)
+	}, 3*time.Minute, 100*time.Millisecond)
 
 	// Run couple of requests to make sure we flush out any transactions that might be
 	// stuck because of our tracking of full request times
@@ -59,17 +59,17 @@ func testSelectiveExports(t *testing.T) {
 		ti.DoHTTPGet(t, "http://localhost:5001/b", 200)
 	}
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		aTraces := getTraces("service-a", "/a")
 		bTraces := getTraces("service-b", "/b")
 		cTraces := getTraces("service-c", "/c")
 		dTraces := getTraces("service-d", "/d")
 
-		require.Empty(t, aTraces)
-		require.NotEmpty(t, bTraces)
-		require.NotEmpty(t, cTraces)
-		require.NotEmpty(t, dTraces)
-	}, test.Interval(500*time.Millisecond))
+		require.Empty(ct, aTraces)
+		require.NotEmpty(ct, bTraces)
+		require.NotEmpty(ct, cTraces)
+		require.NotEmpty(ct, dTraces)
+	}, testTimeout, 500*time.Millisecond)
 
 	pq := promtest.Client{HostPort: "localhost:9090"}
 
@@ -82,9 +82,9 @@ func testSelectiveExports(t *testing.T) {
 		return results
 	}
 
-	test.Eventually(t, 10*time.Second, func(t require.TestingT) {
-		require.NotEmpty(t, getMetrics("/a"))
-	})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.NotEmpty(ct, getMetrics("/a"))
+	}, 10*time.Second, 100*time.Millisecond)
 
 	bMetrics := getMetrics("/b")
 	cMetrics := getMetrics("/c")

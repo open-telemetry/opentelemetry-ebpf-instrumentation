@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -119,7 +118,7 @@ func testSpanMetricsForHTTPLibraryOTelFormat(t *testing.T, svcName, svcNs string
 	var results []promtest.Result
 
 	// Test span metrics
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`traces_span_metrics_duration_seconds_count{` +
 			`span_kind="SPAN_KIND_SERVER",` +
@@ -130,14 +129,14 @@ func testSpanMetricsForHTTPLibraryOTelFormat(t *testing.T, svcName, svcNs string
 			`service_version="1.0.0",` +
 			`telemetry_sdk_language="go"` +
 			`}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check span metric latency exists
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`traces_span_metrics_calls_total{` +
 			`span_kind="SPAN_KIND_SERVER",` +
@@ -146,25 +145,25 @@ func testSpanMetricsForHTTPLibraryOTelFormat(t *testing.T, svcName, svcNs string
 			`service_name="` + svcName + `",` +
 			`span_name="GET /basic/:rnd"` +
 			`}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check calls total exists
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`traces_target_info{` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
 			`telemetry_sdk_language="go"` +
 			`}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val) // we report this count for each service, doesn't matter how many calls
-	})
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 1, val) // we report this count for each service, doesn'ct matter how many calls
+	}, testTimeout, 100*time.Millisecond)
 }
 
 // **IMPORTANT** Tests must first call -> func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
@@ -173,7 +172,7 @@ func testSpanMetricsForHTTPLibrary(t *testing.T, svcName, svcNs string) {
 	var results []promtest.Result
 
 	// Test span metrics
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`traces_spanmetrics_latency_count{` +
 			`span_kind="SPAN_KIND_SERVER",` +
@@ -184,14 +183,14 @@ func testSpanMetricsForHTTPLibrary(t *testing.T, svcName, svcNs string) {
 			`service_version="1.0.0",` +
 			`telemetry_sdk_language="go"` +
 			`}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check span metric latency exists
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`traces_spanmetrics_calls_total{` +
 			`span_kind="SPAN_KIND_SERVER",` +
@@ -200,25 +199,25 @@ func testSpanMetricsForHTTPLibrary(t *testing.T, svcName, svcNs string) {
 			`service_name="` + svcName + `",` +
 			`span_name="GET /basic/:rnd"` +
 			`}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check calls total exists
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`traces_target_info{` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
 			`telemetry_sdk_language="go"` +
 			`}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val) // we report this count for each service, doesn't matter how many calls
-	})
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 1, val) // we report this count for each service, doesn'ct matter how many calls
+	}, testTimeout, 100*time.Millisecond)
 }
 
 // **IMPORTANT** Tests must first call -> func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
@@ -229,7 +228,7 @@ func testSpanMetricsForJSONRPCHTTP(t *testing.T, svcName, svcNs string) {
 	expectedSpanName := "Arith.M /jsonrpc"
 
 	// Test span metrics
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`traces_span_metrics_duration_seconds_count{` +
 			`span_kind="SPAN_KIND_SERVER",` +
@@ -238,14 +237,14 @@ func testSpanMetricsForJSONRPCHTTP(t *testing.T, svcName, svcNs string) {
 			`service_name="` + svcName + `",` +
 			`span_name="` + expectedSpanName + `"` +
 			`}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check span metric latency exists
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`traces_span_metrics_calls_total{` +
 			`span_kind="SPAN_KIND_SERVER",` +
@@ -254,25 +253,25 @@ func testSpanMetricsForJSONRPCHTTP(t *testing.T, svcName, svcNs string) {
 			`service_name="` + svcName + `",` +
 			`span_name="` + expectedSpanName + `"` +
 			`}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check calls total exists
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`traces_target_info{` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
 			`telemetry_sdk_language="go"` +
 			`}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val) // we report this count for each service, doesn't matter how many calls
-	})
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 1, val) // we report this count for each service, doesn'ct matter how many calls
+	}, testTimeout, 100*time.Millisecond)
 }
 
 // **IMPORTANT** Tests must first call -> func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
@@ -281,18 +280,18 @@ func testServiceGraphMetricsForHTTPLibrary(t *testing.T, svcNs string) {
 	var results []promtest.Result
 
 	// Test span metrics
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`traces_service_graph_request_server_seconds_count{` +
 			`service_namespace="` + svcNs + `"` +
 			`} or traces_service_graph_request_server_seconds_count{` +
 			`server_service_namespace="` + svcNs + `"}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check span metric latency exists
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
 
 	var err error
 	results, err = pq.Query(`traces_service_graph_request_server_seconds_count{` +
@@ -327,7 +326,7 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="` + expectedMethod + `",` +
@@ -335,16 +334,16 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
@@ -372,7 +371,7 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -382,20 +381,20 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 			`server_port="` + serverPort + `",` +
 			`http_route="/basic/:rnd",` +
 			`url_path="` + path + `"}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check duration_count has 3 calls and all the arguments
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
-			assert.NotNil(t, res.Metric["server_port"])
+			assert.NotNil(ct, addr)
+			assert.NotNil(ct, res.Metric["server_port"])
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
 			`http_response_status_code="404",` +
 			`service_namespace="` + svcNs + `",` +
@@ -403,10 +402,10 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 			`http_route="/basic/:rnd",` +
 			`url_path="` + path + `"`
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
 			`http_response_status_code="404",` +
 			`service_namespace="` + svcNs + `",` +
@@ -414,12 +413,12 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 			`http_route="/basic/:rnd",` +
 			`url_path="` + path + `"`
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
 	if url == instrumentedServiceGorillaURL {
 		// Make sure we see /echo
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
 			results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 				`http_request_method="GET",` +
@@ -427,35 +426,35 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 				`service_namespace="` + svcNs + `",` +
 				`http_route="/echo",` +
 				`service_name="` + svcName + `"}`)
-			require.NoError(t, err)
+			require.NoError(ct, err)
 			// check duration_count has 3 calls
-			enoughPromResults(t, results)
-			val := totalPromCount(t, results)
-			assert.LessOrEqual(t, 3, val)
-		})
+			enoughPromResults(ct, results)
+			val := totalPromCount(ct, results)
+			assert.LessOrEqual(ct, 3, val)
+		}, testTimeout, 100*time.Millisecond)
 
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`http_route="/echo",` +
 				`service_name="` + svcName + `"`
 			query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
-			checkServerPromQueryResult(t, pq, query, 3)
-		})
+			checkServerPromQueryResult(ct, pq, query, 3)
+		}, testTimeout, 100*time.Millisecond)
 
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`http_route="/echo",` +
 				`service_name="` + svcName + `"`
 			query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
-			checkServerPromQueryResult(t, pq, query, 3)
-		})
+			checkServerPromQueryResult(ct, pq, query, 3)
+		}, testTimeout, 100*time.Millisecond)
 
 		// Make sure we see /echoBack server
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
 			results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 				`http_request_method="GET",` +
@@ -463,79 +462,79 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 				`service_namespace="` + svcNs + `",` +
 				`http_route="/echoBack",` +
 				`service_name="` + svcName + `"}`)
-			require.NoError(t, err)
+			require.NoError(ct, err)
 			// check duration_count has 3 calls
-			enoughPromResults(t, results)
-			val := totalPromCount(t, results)
-			assert.LessOrEqual(t, 3, val)
-		})
+			enoughPromResults(ct, results)
+			val := totalPromCount(ct, results)
+			assert.LessOrEqual(ct, 3, val)
+		}, testTimeout, 100*time.Millisecond)
 
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`http_route="/echoBack",` +
 				`service_name="` + svcName + `"`
 			query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
-			checkServerPromQueryResult(t, pq, query, 3)
-		})
+			checkServerPromQueryResult(ct, pq, query, 3)
+		}, testTimeout, 100*time.Millisecond)
 
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`http_route="/echoBack",` +
 				`service_name="` + svcName + `"`
 			query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
-			checkServerPromQueryResult(t, pq, query, 3)
-		})
+			checkServerPromQueryResult(ct, pq, query, 3)
+		}, testTimeout, 100*time.Millisecond)
 
 		// make sure we see /echo client
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
 			results, err = pq.Query(`http_client_request_duration_seconds_count{` +
 				`http_request_method="GET",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`service_name="` + svcName + `"}`)
-			require.NoError(t, err)
+			require.NoError(ct, err)
 			// check duration_count has 3 calls
-			enoughPromResults(t, results)
-			val := totalPromCount(t, results)
-			assert.LessOrEqual(t, 3, val)
-		})
+			enoughPromResults(ct, results)
+			val := totalPromCount(ct, results)
+			assert.LessOrEqual(ct, 3, val)
+		}, testTimeout, 100*time.Millisecond)
 
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`service_name="` + svcName + `"`
 			query := fmt.Sprintf("http_client_request_body_size_bytes_count{%s}", labels)
-			checkServerPromQueryResult(t, pq, query, 3)
-		})
+			checkServerPromQueryResult(ct, pq, query, 3)
+		}, testTimeout, 100*time.Millisecond)
 
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`service_name="` + svcName + `"`
 			query := fmt.Sprintf("http_client_response_body_size_bytes_count{%s}", labels)
-			checkServerPromQueryResult(t, pq, query, 3)
-		})
+			checkServerPromQueryResult(ct, pq, query, 3)
+		}, testTimeout, 100*time.Millisecond)
 
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
 			results, err = pq.Query(`rpc_client_duration_seconds_count{` +
 				`rpc_grpc_status_code="0",` +
 				`service_name="` + svcName + `",` +
 				`service_namespace="` + svcNs + `",` +
 				`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
-			require.NoError(t, err)
+			require.NoError(ct, err)
 			// check duration_count has at least 3 calls
-			enoughPromResults(t, results)
-			val := totalPromCount(t, results)
-			assert.LessOrEqual(t, 3, val)
-		})
+			enoughPromResults(ct, results)
+			val := totalPromCount(ct, results)
+			assert.LessOrEqual(ct, 3, val)
+		}, testTimeout, 100*time.Millisecond)
 	}
 
 	// check duration_sum is at least 90ms (3 * 30ms)
@@ -620,7 +619,7 @@ func testREDMetricsGRPCInternal(t *testing.T, opts []grpcclient.PingOption, serv
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
 			`rpc_grpc_status_code="0",` +
@@ -629,18 +628,18 @@ func testREDMetricsGRPCInternal(t *testing.T, opts []grpcclient.PingOption, serv
 			`service_name="testserver",` +
 			`server_port="` + serverPort + `",` +
 			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check duration_count has at least 3 calls and all the arguments
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
-			assert.NotNil(t, res.Metric["server_port"])
+			assert.NotNil(ct, addr)
+			assert.NotNil(ct, res.Metric["server_port"])
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
@@ -659,7 +658,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -668,19 +667,19 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`service_name="` + svcName + `",` +
 			`http_route="/basic/*",` +
 			`url_path="` + path + `"}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check duration_count has 3 calls and all the arguments
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
 			`http_response_status_code="404",` +
 			`service_namespace="integration-test",` +
@@ -688,10 +687,10 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`http_route="/basic/*",` +
 			`url_path="` + path + `"`
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
 			`http_response_status_code="404",` +
 			`service_namespace="integration-test",` +
@@ -699,11 +698,11 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`http_route="/basic/*",` +
 			`url_path="` + path + `"`
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Make sure we see /echo
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -711,35 +710,35 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`service_namespace="integration-test",` +
 			`http_route="/echo",` +
 			`service_name="` + svcName + `"}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check duration_count has 3 calls
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`http_route="/echo",` +
 			`service_name="` + svcName + `"`
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`http_route="/echo",` +
 			`service_name="` + svcName + `"`
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Make sure we see /echoBack server
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -747,79 +746,79 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`service_namespace="integration-test",` +
 			`http_route="/echoBack",` +
 			`service_name="` + svcName + `"}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check duration_count has 3 calls
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`http_route="/echoBack",` +
 			`service_name="` + svcName + `"`
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`http_route="/echoBack",` +
 			`service_name="` + svcName + `"`
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
 	// make sure we see /echo client
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_client_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `"}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check duration_count has 3 calls
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `"`
 		query := fmt.Sprintf("http_client_request_body_size_bytes_count{%s}", labels)
-		checkClientPromQueryResult(t, pq, query, 3)
-	})
+		checkClientPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `"`
 		query := fmt.Sprintf("http_client_response_body_size_bytes_count{%s}", labels)
-		checkClientPromQueryResult(t, pq, query, 3)
-	})
+		checkClientPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`rpc_client_duration_seconds_count{` +
 			`rpc_grpc_status_code="0",` +
 			`service_name="` + svcName + `",` +
 			`service_namespace="integration-test",` +
 			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check duration_count has at least 3 calls
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
-	})
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
 
 	// check duration_sum is at least 90ms (3 * 30ms)
 	var err error
@@ -898,7 +897,7 @@ func testREDMetricsForHTTPLibraryNoRouteLowCardinality(t *testing.T, url, svcNam
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -906,17 +905,17 @@ func testREDMetricsForHTTPLibraryNoRouteLowCardinality(t *testing.T, url, svcNam
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `",` +
 			`http_route="/api/*"}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check duration_count has 3 calls and all the arguments
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsHTTPNoRoute(t *testing.T) {
@@ -972,7 +971,7 @@ func testREDMetricsForGoBasicOnly(t *testing.T, url string, comm string) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -980,70 +979,70 @@ func testREDMetricsForGoBasicOnly(t *testing.T, url string, comm string) {
 			namespaceMatch +
 			commMatch +
 			`url_path="` + path + `"}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check duration_count has 3 calls and all the arguments
-		enoughPromResults(t, results)
+		enoughPromResults(ct, results)
 		if len(results) > 0 {
-			val := totalPromCount(t, results)
-			assert.LessOrEqual(t, 3, val)
+			val := totalPromCount(ct, results)
+			assert.LessOrEqual(ct, 3, val)
 
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testPrometheusOBIBuildInfo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`obi_build_info{target_lang="go"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	})
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testHostInfo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`traces_host_info{}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	})
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testPrometheusBPFMetrics(t *testing.T) {
 	t.Skip("BPF metrics are not available in the test environment")
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`bpf_probe_latency_seconds_count{probe_name=~"uprobe_.*"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	})
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`bpf_map_entries_total{map_name="ongoing_server_"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	})
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testPrometheusNoOBIEvents(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{service_name="opentelemetry-ebpf-instrumentation"}`)
-		require.NoError(t, err)
-		require.Empty(t, results)
-	})
+		require.NoError(ct, err)
+		require.Empty(ct, results)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsRouteHarvesting(t *testing.T, url, svcName, svcNameSpace, route string) {
@@ -1055,7 +1054,7 @@ func testREDMetricsRouteHarvesting(t *testing.T, url, svcName, svcNameSpace, rou
 	}
 
 	// Test span metrics
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
 			`http_response_status_code="200",` +
@@ -1063,11 +1062,11 @@ func testREDMetricsRouteHarvesting(t *testing.T, url, svcName, svcNameSpace, rou
 			`service_namespace="` + svcNameSpace + `",` +
 			`http_route="` + route + `",` +
 			`url_path="` + path + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val, route)
-	})
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val, route)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsHTTPAutoRoutes(t *testing.T) {
