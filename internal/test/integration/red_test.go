@@ -663,7 +663,7 @@ func testREDMetricsGRPCInternal(t *testing.T, opts []grpcclient.PingOption, serv
 
 func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	path := "/basic/" + rndStr()
-	containerName := "integration-"+svcName+"-1"
+	containerName := "integration-" + svcName + "-1"
 
 	// Call 3 times the instrumented service, forcing it to:
 	// - take at least 30ms to respond
