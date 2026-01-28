@@ -94,8 +94,6 @@ When you push a tag matching the pattern `v*.*.*` (e.g., `v1.2.3`), the release 
    - Unit tests and verification checks (the `test` job from `pull_request.yml`)
    - Integration tests (Go integration test shards; jobs with `shard-` in the name from `pull_request_integration_tests.yml` and `workflow_integration_tests_vm.yml`)
    - VM integration tests (kernel variants; jobs with `kernel` in the name from `workflow_integration_tests_vm.yml`)
-   - Kubernetes integration tests (`daemonset` and `netolly` variants from `pull_request_k8s_integration_tests.yml`)
-   - OATS tests (`http`, `kafka`, `mongo`, `redis`, `sql` jobs from `pull_request_oats_test.yml`)
 
    If any required checks have not passed or are missing, the release workflow will fail and no draft release will be created.
 

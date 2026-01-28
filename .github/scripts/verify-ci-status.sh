@@ -17,6 +17,16 @@ readonly CHECK_INTERVAL=30   # Seconds between status checks.
 # Required check patterns that must pass before release.
 # GitHub's check-runs API returns individual job check names, not workflow names.
 # Each pattern is a substring that matches job names from critical workflows.
+#
+# WARNING: Patterns use substring matching (grep -F), not exact matching.
+# This means:
+# - "test" will match any job containing "test" (e.g., "test", "shard-0 (5 tests)")
+# - "shard-" will only match jobs starting with "shard-"
+# 
+# If new workflows are added with job names that coincidentally contain these
+# substrings, they will be unintentionally required for releases. Pattern selection
+# should be done carefully to avoid false matches, or consider using exact matching
+# for critical checks that need stricter validation.
 readonly -a REQUIRED_CHECKS=(
   "shard-"                                # Unit and integration test shards.
   "test"                                  # Core verification job from pull_request.yml.

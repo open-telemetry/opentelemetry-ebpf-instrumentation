@@ -45,9 +45,9 @@ jobs:
             TAG="$GITHUB_REF_NAME"
           fi
 
-          # Validate tag format (must be v*.*.* with numeric components)
-          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "ERROR: Tag must match format v*.*.* (e.g., v1.2.3), got: $TAG"
+          # Validate tag format (must be v*.*.* with numeric components, optional pre-release suffix)
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+            echo "ERROR: Tag must match format v*.*.* or v*.*.*-suffix (e.g., v1.2.3 or v1.2.3-rc1), got: $TAG"
             exit 1
           fi
           echo "Tag format validated: $TAG"
