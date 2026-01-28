@@ -30,7 +30,9 @@ public class SocketChannelInst {
   public static ElementMatcher<? super TypeDescription> type() {
     return ElementMatchers.isSubTypeOf(SocketChannel.class)
         .and(ElementMatchers.not(ElementMatchers.isAbstract()))
-        .and(ElementMatchers.not(ElementMatchers.isInterface()));
+        .and(ElementMatchers.not(ElementMatchers.isInterface()))
+        .and(ElementMatchers.declaresField(ElementMatchers.named("localAddress")))
+        .and(ElementMatchers.declaresField(ElementMatchers.named("remoteAddress")));
   }
 
   public static boolean matches(Class<?> clazz) {
