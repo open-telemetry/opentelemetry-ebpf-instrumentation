@@ -191,7 +191,7 @@ public class Agent {
     premain(null, ByteBuddyAgent.install());
   }
 
-  private static void initClassesThatNeedToBeBootstrapped() throws ClassNotFoundException {
+  private static void initClassesThatNeedToBeBootstrapped() throws Exception {
     // Load the helper classes
     Class.forName(ProxyOutputStream.class.getName());
     Class.forName(ProxyInputStream.class.getName());
@@ -207,6 +207,8 @@ public class Agent {
     Class.forName(ByteBufferExtractor.class.getName());
     Class.forName(NativeMemory.class.getName());
     Class.forName(NativeLib.class.getName());
+
+    loadNativeLibraryFromJar();
 
     // LRU cache map and some usage to match what we use in the hooks
     Cache<Object, Object> cache = Caffeine.newBuilder().maximumSize(1).build();

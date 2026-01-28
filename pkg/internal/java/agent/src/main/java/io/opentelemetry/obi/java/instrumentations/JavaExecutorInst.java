@@ -102,7 +102,7 @@ public class JavaExecutorInst {
 
   @SuppressWarnings("unused")
   public static final class SetExecuteRunnableStateAdvice {
-    @Advice.OnMethodEnter(suppress = Throwable.class)
+    @Advice.OnMethodEnter // (suppress = Throwable.class)
     public static void enterJobSubmit(
         @Advice.Argument(value = 0, readOnly = false) Runnable task, @Advice.Origin String method) {
       long threadId = Agent.NativeLib.gettid();

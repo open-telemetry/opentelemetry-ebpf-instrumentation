@@ -27,38 +27,10 @@ import net.bytebuddy.matcher.ElementMatcher;
 import net.bytebuddy.matcher.ElementMatchers;
 
 public class SocketChannelInst {
-
-  // Helper to get local/remote address fields across different JDK versions
-  private static Object getFieldValue(Object obj, String... fieldNames) {
-    for (String fieldName : fieldNames) {
-      try {
-        java.lang.reflect.Field field = obj.getClass().getDeclaredField(fieldName);
-        field.setAccessible(true);
-        return field.get(obj);
-      } catch (Exception ignored) {
-        // Try next field name
-      }
-    }
-    return null;
-  }
-
   public static ElementMatcher<? super TypeDescription> type() {
-    // On JDK8, field names may differ - be more lenient
-    ElementMatcher<TypeDescription> hasLocalField =
-        ElementMatchers.declaresField(ElementMatchers.named("localAddress"))
-            .or(ElementMatchers.declaresField(ElementMatchers.named("localAddr")))
-            .or(ElementMatchers.declaresField(ElementMatchers.nameContains("local")));
-
-    ElementMatcher<TypeDescription> hasRemoteField =
-        ElementMatchers.declaresField(ElementMatchers.named("remoteAddress"))
-            .or(ElementMatchers.declaresField(ElementMatchers.named("remoteAddr")))
-            .or(ElementMatchers.declaresField(ElementMatchers.nameContains("remote")));
-
     return ElementMatchers.isSubTypeOf(SocketChannel.class)
         .and(ElementMatchers.not(ElementMatchers.isAbstract()))
-        .and(ElementMatchers.not(ElementMatchers.isInterface()))
-        .and(hasLocalField)
-        .and(hasRemoteField);
+        .and(ElementMatchers.not(ElementMatchers.isInterface()));
   }
 
   public static boolean matches(Class<?> clazz) {
@@ -112,11 +84,8 @@ public class SocketChannelInst {
     public static void write(
         @Advice.Argument(0) final ByteBuffer src,
         @Advice.Enter int savedPos,
-        @Advice.This Object thiz) {
-
-      // Get address fields - try multiple names for JDK8/11 compatibility
-      Object localSocket = getFieldValue(thiz, "localAddress", "localAddr", "local");
-      Object remoteSocket = getFieldValue(thiz, "remoteAddress", "remoteAddr", "remote");
+        @Advice.FieldValue("localAddress") SocketAddress localSocket,
+        @Advice.FieldValue("remoteAddress") SocketAddress remoteSocket) {
 
       if (!(localSocket instanceof InetSocketAddress)
           || !(remoteSocket instanceof InetSocketAddress)) {
