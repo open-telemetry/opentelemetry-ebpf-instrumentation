@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -241,7 +242,7 @@ func parseSQLPPResponse(resp *http.Response) *request.DBError {
 	if len(sqlppResp.Errors) > 0 {
 		firstErr := sqlppResp.Errors[0]
 		return &request.DBError{
-			ErrorCode:   fmt.Sprintf("%d", firstErr.Code),
+			ErrorCode:   strconv.Itoa(firstErr.Code),
 			Description: firstErr.Msg,
 		}
 	}
