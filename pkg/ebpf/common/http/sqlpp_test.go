@@ -384,20 +384,6 @@ func TestParseSQLPPResponse(t *testing.T) {
 			expectedErrorMsg:  "First error",
 			expectError:       true,
 		},
-		{
-			name:              "response with fatal status but no errors array",
-			respBody:          `{"requestID": "abc", "status": "fatal"}`,
-			expectedErrorCode: "fatal",
-			expectedErrorMsg:  "Query status: fatal",
-			expectError:       true,
-		},
-		{
-			name:              "response with timeout status",
-			respBody:          `{"requestID": "abc", "status": "timeout"}`,
-			expectedErrorCode: "timeout",
-			expectedErrorMsg:  "Query status: timeout",
-			expectError:       true,
-		},
 	}
 
 	for _, tt := range tests {

@@ -258,13 +258,5 @@ func parseSQLPPResponse(resp *http.Response) *request.DBError {
 		}
 	}
 
-	// Check for non-success status (fatal, errors, timeout, etc.)
-	if sqlppResp.Status != "" {
-		return &request.DBError{
-			ErrorCode:   sqlppResp.Status,
-			Description: "Query status: " + sqlppResp.Status,
-		}
-	}
-
 	return nil
 }
