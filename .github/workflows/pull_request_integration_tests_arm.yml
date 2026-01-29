@@ -28,6 +28,11 @@ on:
       - "pkg/**"
       - "scripts/**"
   workflow_call:
+    inputs:
+      ref:
+        description: "Git ref (commit, branch, or tag) to check out"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -87,6 +92,7 @@ jobs:
 
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - name: Set up Go

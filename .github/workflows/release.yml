@@ -48,51 +48,71 @@ jobs:
     name: Unit Tests
     uses: ./.github/workflows/pull_request.yml
     needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
 
   integration-tests:
     name: Integration Tests
     uses: ./.github/workflows/pull_request_integration_tests.yml
     needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
 
   k8s-integration-tests:
     name: K8s Integration Tests
     uses: ./.github/workflows/pull_request_k8s_integration_tests.yml
     needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
 
   oats-tests:
     name: OATS Tests
     uses: ./.github/workflows/pull_request_oats_test.yml
     needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
 
   vm-integration-tests:
     name: VM Integration Tests
     uses: ./.github/workflows/workflow_integration_tests_vm.yml
     needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
 
   java-agent-tests:
     name: Java Agent Tests
     uses: ./.github/workflows/java-agent.yml
     needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
 
   format-check:
     name: Format Check
     uses: ./.github/workflows/clang-format-check.yml
     needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
 
   tidy-check:
     name: Tidy Check
     uses: ./.github/workflows/clang-tidy-check.yml
     needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
 
   arm-integration-tests:
     name: ARM Integration Tests
     uses: ./.github/workflows/pull_request_integration_tests_arm.yml
     needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
 
   docker-build-test:
     name: Docker Build Test
     uses: ./.github/workflows/pull_request_docker_build_test.yml
     needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
 
   release:
     name: Draft Release
