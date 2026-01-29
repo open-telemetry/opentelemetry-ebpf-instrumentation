@@ -209,6 +209,7 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 		ta.log.Warn("unexpected instrumentable type. This is basically a bug", "type", ie.Type)
 	}
 	if ta.Cfg.AppNetworkMetrics.Enabled {
+		fmt.Println("pino YES ta.Cfg.AppNetworkMetrics.Enable")
 		programs = append(programs, appnetworktracer.New(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics, isGenericTracerActive))
 	}
 	if len(programs) == 0 {

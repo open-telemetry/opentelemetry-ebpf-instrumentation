@@ -67,7 +67,16 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			return ServerAddr(HostAsServer(s))
 		}
 	case attr.ServerPort:
-		getter = func(s *Span) attribute.KeyValue { return ServerPort(s.HostPort) }
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeAppNetTcpRtt {
+				if s.AppNet.TcpRtt.Direction == 0 { // TODO (pinoOgni) remove hardcoded value
+					return ServerPort(s.PeerPort)
+				} else {
+					return ServerPort(s.HostPort)
+				}
+			}
+			return ServerPort(s.HostPort)
+		}
 	case attr.RPCMethod:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {

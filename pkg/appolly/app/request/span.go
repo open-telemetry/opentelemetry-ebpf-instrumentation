@@ -207,9 +207,9 @@ type AppNet struct {
 }
 
 type TcpRtt struct {
-	Srtt  uint32 `json:"srtt"`
-	Netns uint32 `json:"netns"`
-	Port  uint16 `json:"port"`
+	Srtt      uint32 `json:"srtt"`
+	Port      int    `json:"port"`
+	Direction int    `json:"direction"`
 }
 
 type AWS struct {

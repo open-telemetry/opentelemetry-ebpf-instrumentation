@@ -219,6 +219,10 @@ const (
 
 // App network events
 const (
-	AppNetworkTcpRttPort  = Name("port")  // TODO (pinoOgni): test, used as label
-	AppNetworkTcpRttNetns = Name("netns") // TODO (pinoOgni): test, used as label
+	// it is the source.port if the instrumented service is a server
+	// and it is the destination.port if the instrumented service is a client
+	// AppNetworkServerPort = Name("server.port")
+	// it is the inbound if the instrumented service is a server
+	// and it is the outbound if the instrumented service is a client
+	AppNetworkDirection = Name("direction")
 )

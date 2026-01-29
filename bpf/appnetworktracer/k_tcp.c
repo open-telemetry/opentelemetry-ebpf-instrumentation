@@ -10,10 +10,11 @@
 #include <common/protocol_defs.h>
 #include <logger/bpf_dbg.h>
 #include <pid/pid.h>
-#include <common/sock_port_ns.h>
 #include <maps/app_network_events.h>
-#include <common/common.h>
+#include <common/connection_info.h>
 #include <common/ringbuf.h>
+#include <common/sockaddr.h>
+#include <generictracer/protocol_common.h>
 
 #include <pid/pid.h>
 #include "types.h"
@@ -22,12 +23,12 @@
 #define MAX_SRTT_ALLOWED (60 * USEC_PER_SEC)
 
 typedef struct app_net_tcp_rtt {
-    u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
-    u8 _pad[1];
-    u16 sport;
+    u8 flags;     // Must be first, we use it to tell what kind of event we have on the ring buffer
+    u8 direction; // 1 = Outbound, 2 = Inbound
+    u8 _pad[2];
     pid_info pid_info;
-    u32 netns;
     u32 srtt;
+    connection_info_t conn;
 } app_net_tcp_rtt_t;
 
 SEC("kprobe/tcp_close")
@@ -40,9 +41,8 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
         return 0;
     }
 
-    u16 family = BPF_CORE_READ(sk, __sk_common.skc_family);
-
-    if (family != AF_INET && family != AF_INET6) {
+    connection_info_t conn;
+    if (!parse_sock_info(sk, &conn)) {
         return 0;
     }
 
@@ -60,8 +60,6 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
         return 0;
     }
 
-    struct sock_port_ns pn = sock_port_ns_from_sk(sk);
-
     app_net_tcp_rtt_t *se = bpf_ringbuf_reserve(&app_network_events, sizeof(*se), 0);
     if (!se) {
         return 0;
@@ -69,10 +67,20 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
     se->flags = EVENT_APP_NET_TCP_RTT;
     task_pid(&se->pid_info);
     se->srtt = srtt / 1000; // convert to millisecond
-    se->netns = pn.netns;
-    se->sport = pn.port;
-    bpf_d_printk(
-        "pid %u, netns %u, port %d, srtt %u", se->pid_info.host_pid, pn.netns, pn.port, se->srtt);
+    se->conn = conn;
+    // Is the netns of the sk struct the same retrieved using task_pid? What if we are not in the process context?
+    u32 netns = BPF_CORE_READ(sk, __sk_common.skc_net.net, ns.inum);
+    bool is_server = is_listening(se->conn.s_port, netns);
+    if (is_server) {
+        se->direction = INBOUND;
+    } else {
+        se->direction = OUTBOUND;
+    }
+    bpf_d_printk("pid %u, src port %d, dst port %d",
+                 se->pid_info.host_pid,
+                 se->conn.s_port,
+                 se->conn.d_port);
+
     bpf_ringbuf_submit(se, 0);
     return 0;
 }
