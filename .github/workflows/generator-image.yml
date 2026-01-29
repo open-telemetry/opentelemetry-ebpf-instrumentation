@@ -106,8 +106,11 @@ jobs:
             "${{ env.REGISTRY }}/${{ env.IMAGE }}:latest"
 
       - name: Sign container images with Cosign
+        env: # interpolation via env is safer: https://docs.github.com/en/actions/reference/security/secure-use#use-an-intermediate-environment-variable
+          IMGTAG: ${{ steps.image_tag.outputs.imgtag }}
+          DIGEST: ${{ steps.push.outputs.digest }}
         run: |
           cosign sign --yes \
-            "${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ steps.image_tag.outputs.imgtag }}@${{ steps.push.outputs.digest }}"
+            "${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ env.IMGTAG }}@${{ env.DIGEST }}"
           cosign sign --yes \
-            "${{ env.REGISTRY }}/${{ env.IMAGE }}:latest@${{ steps.push.outputs.digest }}"
+            "${{ env.REGISTRY }}/${{ env.IMAGE }}:latest@${{ env.DIGEST }}"
