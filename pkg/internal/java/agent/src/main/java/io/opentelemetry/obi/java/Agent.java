@@ -10,10 +10,6 @@ import static net.bytebuddy.matcher.ElementMatchers.nameStartsWith;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.sun.jna.Library;
-import com.sun.jna.Memory;
-import com.sun.jna.Native;
-import com.sun.jna.Pointer;
 import io.opentelemetry.obi.java.ebpf.*;
 import io.opentelemetry.obi.java.instrumentations.*;
 import io.opentelemetry.obi.java.instrumentations.data.BytesWithLen;
@@ -22,7 +18,7 @@ import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import io.opentelemetry.obi.java.instrumentations.util.ByteBufferExtractor;
 import io.opentelemetry.obi.java.instrumentations.util.NettyChannelExtractor;
 import java.io.File;
-import java.io.IOException;
+import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
 import java.lang.instrument.UnmodifiableClassException;
 import java.lang.reflect.Field;
@@ -40,16 +36,16 @@ import net.bytebuddy.utility.JavaModule;
 public class Agent {
   public static int IOCTL_CMD = 0x0b10b1;
 
-  public static boolean debugOn = false;
+  public static volatile boolean debugOn = false;
   private static final Logger logger = Logger.getLogger("Agent");
   private static volatile boolean agentLoaded = false;
 
-  public interface CLibrary extends Library {
-    CLibrary INSTANCE = Native.load("c", CLibrary.class);
+  public static class NativeLib {
+    // Used to send data to the eBPF side, both TLS traffic and thread Parent Context
+    public static native int ioctl(int fd, int cmd, long argp);
 
-    int ioctl(int fd, int cmd, long argp);
-
-    int gettid();
+    // Used to find the OS thread id for thread correlation.
+    public static native int gettid();
   }
 
   private static AgentBuilder builder(Map<String, String> opts, Instrumentation inst) {
@@ -129,14 +125,17 @@ public class Agent {
         setupInstrumentationsDebugging();
       }
     } catch (Exception x) {
-      if (Agent.debugOn) {
-        logger.log(Level.SEVERE, "Failed premain", x);
-      }
+      logger.log(Level.SEVERE, "Failed to load agent", x);
+      return;
     }
 
     builder(opts, inst)
         .type(SSLSocketInst.type())
         .transform(SSLSocketInst.transformer())
+        .type(SSLSocketStreamInst.inputStreamType())
+        .transform(SSLSocketStreamInst.inputStreamTransformer())
+        .type(SSLSocketStreamInst.outputStreamType())
+        .transform(SSLSocketStreamInst.outputStreamTransformer())
         .type(SSLEngineInst.type())
         .transform(SSLEngineInst.transformer())
         .type(SocketChannelInst.type())
@@ -164,6 +163,8 @@ public class Agent {
     // we want to instrument.
     for (Class<?> clazz : inst.getAllLoadedClasses()) {
       if (SSLSocketInst.matches(clazz)
+          || SSLSocketStreamInst.matchesInputStream(clazz)
+          || SSLSocketStreamInst.matchesOutputStream(clazz)
           || SSLEngineInst.matches(clazz)
           || SocketChannelInst.matches(clazz)
           || JavaExecutorInst.matches(clazz)
@@ -190,8 +191,8 @@ public class Agent {
     premain(null, ByteBuddyAgent.install());
   }
 
-  private static void initClassesThatNeedToBeBootstrapped() throws ClassNotFoundException {
-    // Load the serialisation helper classes
+  private static void initClassesThatNeedToBeBootstrapped() throws Exception {
+    // Load the helper classes
     Class.forName(ProxyOutputStream.class.getName());
     Class.forName(ProxyInputStream.class.getName());
     Class.forName(ConnectionInfo.class.getName());
@@ -204,13 +205,10 @@ public class Agent {
     Class.forName(NettyChannelExtractor.class.getName());
     Class.forName(SSLStorage.class.getName());
     Class.forName(ByteBufferExtractor.class.getName());
+    Class.forName(NativeMemory.class.getName());
+    Class.forName(NativeLib.class.getName());
 
-    // It's hard to predict what classes will this JNA operation use, so we
-    // perform one dummy write.
-    byte[] data = new byte[] {0};
-    Pointer p = new Memory(data.length);
-    p.write(0, data, 0, data.length);
-    CLibrary.INSTANCE.ioctl(0, IOCTL_CMD, Pointer.nativeValue(p));
+    loadNativeLibraryFromJar();
 
     // LRU cache map and some usage to match what we use in the hooks
     Cache<Object, Object> cache = Caffeine.newBuilder().maximumSize(1).build();
@@ -220,7 +218,7 @@ public class Agent {
     cache.invalidate(key);
   }
 
-  private static void injectBootstrapClasses(Instrumentation instrumentation) throws IOException {
+  private static void injectBootstrapClasses(Instrumentation instrumentation) throws Exception {
     File tempDir = Files.createTempDirectory("obi-agent").toFile();
     // Delete on exit in case we throw some sort of exception
     tempDir.deleteOnExit();
@@ -236,8 +234,7 @@ public class Agent {
 
     for (Class<?> clazz : instrumentation.getAllLoadedClasses()) {
       TypeDescription desc = new TypeDescription.ForLoadedType(clazz);
-      if (desc.getName().startsWith("com.sun.jna.")
-          || desc.getName().startsWith("io.opentelemetry.obi.")
+      if (desc.getName().startsWith("io.opentelemetry.obi.")
           || desc.getName().startsWith("com.github.benmanes.")) {
         try {
           byte[] bytes = locator.locate(desc.getName()).resolve();
@@ -251,6 +248,70 @@ public class Agent {
         ClassInjector.UsingInstrumentation.of(tempDir, BOOTSTRAP, instrumentation);
     injector.inject(typeMap);
     tempDir.delete();
+
+    // After injecting into bootstrap, we need to ensure the native library is loaded
+    // in the bootstrap classloader context
+    try {
+      // Load the Agent class from bootstrap classloader (initialize = true), (null = bootstrap)
+      Class<?> bootstrapAgentClass = Class.forName("io.opentelemetry.obi.java.Agent", true, null);
+
+      // Call the static loadNativeLibraryFromJar method on the bootstrap version
+      java.lang.reflect.Method loadMethod =
+          bootstrapAgentClass.getDeclaredMethod("loadNativeLibraryFromJar");
+      loadMethod.setAccessible(true);
+      loadMethod.invoke(null);
+
+      if (Agent.debugOn) {
+        logger.info("Successfully loaded native library in bootstrap classloader");
+      }
+    } catch (Exception e) {
+      if (Agent.debugOn) {
+        logger.severe("Error initializing the JNI library" + e.getMessage());
+      }
+      throw e;
+    }
+  }
+
+  // Package-private so it can be called from bootstrap classloader via reflection
+  static void loadNativeLibraryFromJar() throws Exception {
+    String libraryName = "libobijni.so";
+
+    // Try to load from JAR
+    InputStream libStream = Agent.class.getResourceAsStream("/" + libraryName);
+    if (libStream != null) {
+      if (Agent.debugOn) {
+        logger.info("[Agent] Found library in JAR, extracting to temp file...");
+      }
+
+      // Extract to temp file
+      File tempLib = File.createTempFile("libobijni", ".so");
+      tempLib.deleteOnExit();
+
+      try (java.io.FileOutputStream out = new java.io.FileOutputStream(tempLib)) {
+        byte[] buffer = new byte[8192];
+        int bytesRead;
+        while ((bytesRead = libStream.read(buffer)) != -1) {
+          out.write(buffer, 0, bytesRead);
+        }
+      } finally {
+        libStream.close();
+      }
+
+      if (Agent.debugOn) {
+        logger.info("Extracted to: " + tempLib.getAbsolutePath());
+        logger.info("File size: " + tempLib.length() + " bytes");
+        logger.info("File exists: " + tempLib.exists());
+        logger.info("File readable: " + tempLib.canRead());
+      }
+
+      // Load from temp file
+      System.load(tempLib.getAbsolutePath());
+      if (Agent.debugOn) {
+        logger.info("Loaded native library from JAR: " + tempLib.getAbsolutePath());
+      }
+    } else {
+      throw new Exception("agent not found in jar file");
+    }
   }
 
   // Must be called after we've called injectBootstrapClasses

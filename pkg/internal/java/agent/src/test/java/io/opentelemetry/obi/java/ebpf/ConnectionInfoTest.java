@@ -7,8 +7,6 @@ package io.opentelemetry.obi.java.ebpf;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.sun.jna.Memory;
-import com.sun.jna.Pointer;
 import io.opentelemetry.obi.java.instrumentations.data.Connection;
 import java.net.InetAddress;
 import org.junit.jupiter.api.Test;
@@ -16,7 +14,7 @@ import org.junit.jupiter.api.Test;
 class ConnectionInfoTest {
   @Test
   void testWriteSendConnectionInfoWithConnection() throws Exception {
-    Pointer mem = new Memory(64);
+    NativeMemory mem = new NativeMemory(64, true);
     int off = 0;
 
     InetAddress local = InetAddress.getByAddress(null, new byte[] {127, 0, 0, 1});
@@ -37,7 +35,7 @@ class ConnectionInfoTest {
 
   @Test
   void testWriteReceiveConnectionInfoWithConnection() throws Exception {
-    Pointer mem = new Memory(64);
+    NativeMemory mem = new NativeMemory(64, true);
     int off = 0;
 
     InetAddress local = InetAddress.getByAddress(null, new byte[] {127, 0, 0, 1});
