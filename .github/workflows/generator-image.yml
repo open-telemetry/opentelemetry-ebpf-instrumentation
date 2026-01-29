@@ -111,6 +111,6 @@ jobs:
           DIGEST: ${{ steps.push.outputs.digest }}
         run: |
           cosign sign --yes \
-            "${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ env.IMGTAG }}@${{ env.DIGEST }}"
+            "${{ env.REGISTRY }}/${{ env.IMAGE }}:${IMGTAG}@${DIGEST}"
           cosign sign --yes \
-            "${{ env.REGISTRY }}/${{ env.IMAGE }}:latest@${{ env.DIGEST }}"
+            "${{ env.REGISTRY }}/${{ env.IMAGE }}:latest@${DIGEST}"
