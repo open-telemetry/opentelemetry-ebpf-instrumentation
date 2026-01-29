@@ -54,8 +54,9 @@ Once the Pull Request with all the version changes has been approved and merged 
 > [Failure to do so will lead to minor emergencies and tough to work around](https://github.com/open-telemetry/opentelemetry-go/issues/331).
 
 > [!NOTE]
-> The tag must follow the format `v*.*.*` (e.g., `v1.2.3`). The release workflow will only trigger on tags matching this pattern.
-> Additionally, the commit being tagged must have passed all required CI checks. If CI has not completed or has failed, the release workflow will fail.
+> The tag must follow the format `v*.*.*` or `v*.*.*-suffix` (e.g., `v1.2.3` or `v1.2.3-rc1`). The release workflow will only trigger on tags matching this pattern.
+> When the tag is pushed, the release workflow will automatically run the full test suite as composed workflows before creating a draft release.
+> If any tests fail or don't complete, the release will not be created.
 <!-- markdownlint-enable MD028 -->
 
 1. For each module set that will be released, run the `add-tags` make target using the `<commit-hash>` of the commit on the main branch for the merged Pull Request.
@@ -84,38 +85,45 @@ Once the Pull Request with all the version changes has been approved and merged 
 
 ## Release
 
-Finally create a Release for the new `<new tag>` on GitHub.
-
 ### Automatic Release Workflow
 
-When you push a tag matching the pattern `v*.*.*` (e.g., `v1.2.3`), the release workflow will automatically:
+When you push a tag matching the pattern `v*.*.*` (e.g., `v1.2.3`) or `v*.*.*-suffix` (e.g., `v1.2.3-rc1`), the release workflow will automatically:
 
-1. **Verify CI Status**: The workflow checks that all required CI checks have passed on the tagged commit:
-   - Unit tests and verification checks (the `test` job from `pull_request.yml`)
-   - Integration tests (Go integration test shards; jobs with `shard-` in the name from `pull_request_integration_tests.yml` and `workflow_integration_tests_vm.yml`)
-   - VM integration tests (kernel variants; jobs with `kernel` in the name from `workflow_integration_tests_vm.yml`)
+1. **Validate Tag Format**: Ensures the tag follows the required format (`v*.*.*` with optional pre-release suffix).
 
-   If any required checks have not passed or are missing, the release workflow will fail and no draft release will be created.
+2. **Run Full Test Suite**: The workflow runs all required CI checks in parallel as composed workflows:
+   - Unit tests and verification checks
+   - Integration tests
+   - K8s integration tests
+   - OATS tests
+   - VM integration tests
+   - ARM integration tests
+   - Java agent tests
+   - Docker build tests
+   - Clang format checking
+   - Clang tidy linting
 
-2. **Create Draft Release**: Once CI verification passes, a draft release is automatically created with auto-generated release notes.
+   If any of these checks fail or don't complete, the release workflow will fail and no draft release will be created.
+
+3. **Create Draft Release**: Once all checks pass, a draft release is automatically created with auto-generated release notes.
 
    You can then review and publish the draft release from the [GitHub Releases page](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases).
 
 ### Manual Release Trigger
 
-If you need to re-trigger the release workflow for a commit that already has passing CI (for example, if the workflow previously failed), you can use the manual trigger:
+If you need to re-trigger the release workflow (for example, if the workflow previously failed due to a temporary issue), you can use the manual trigger:
 
 1. Go to the [Release workflow](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/actions/workflows/release.yml)
 2. Click "Run workflow"
 3. Enter the tag name (e.g., `v1.2.3`) in the required input field
 4. Click "Run workflow"
 
-The manual trigger will validate the tag format, verify CI status, and create a draft release with the same requirements as the automatic trigger.
+The manual trigger will validate the tag format, run the full test suite, and create a draft release with the same requirements as the automatic trigger.
 
 ### Release Notes
 
-Currently we do not have a curated changelog.
-Use the Github automated changelog generation to create the release notes.
+The draft release is automatically created with auto-generated release notes from GitHub, which includes a list of changes since the previous release.
+Review the draft release on the [GitHub Releases page](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases), and if the generated notes look good, publish the release.
 
 ## Post-Release
 
