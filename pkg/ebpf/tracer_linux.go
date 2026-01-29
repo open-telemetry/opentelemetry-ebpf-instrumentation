@@ -27,6 +27,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
+	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/shared"
 )
@@ -64,7 +65,7 @@ func alignMaxEntriesIfRingBuf(m *ebpf.MapSpec) {
 }
 
 // sets up internal maps and ensures sane max entries values
-func resolveMaps(eventContext *common.EBPFEventContext, spec *ebpf.CollectionSpec) (*ebpf.CollectionOptions, error) {
+func resolveMaps(eventContext *common.EBPFEventContext, spec *ebpf.CollectionSpec, bpfFsPath string) (*ebpf.CollectionOptions, error) {
 	collOpts := ebpf.CollectionOptions{MapReplacements: map[string]*ebpf.Map{}}
 
 	eventContext.MapsLock.Lock()
@@ -92,11 +93,11 @@ func resolveMaps(eventContext *common.EBPFEventContext, spec *ebpf.CollectionSpe
 
 			collOpts.MapReplacements[k] = internalMap
 		case ebpf.PinByName:
-			if k == shared.ObiCtxMapName {
-				m, err := shared.LoadOrCreateCtxMap()
+			if k == shared.TracesCtxV1MapName {
+				m, err := shared.LoadOrCreateCtxMap(bpfFsPath)
 				if err != nil {
-					slog.Warn("loading or creating map errored (is bpffs mounted?)", "map", shared.ObiCtxMapName, "err", err)
-					v.MaxEntries = 16
+					slog.Warn("loading or creating map errored (is bpffs mounted?)", "bpf_fs_path", bpfFsPath, "map", shared.TracesCtxV1MapName, "err", err)
+					v.MaxEntries = 1
 					v.Pinning = ebpf.PinNone
 					continue
 				}
@@ -110,7 +111,7 @@ func resolveMaps(eventContext *common.EBPFEventContext, spec *ebpf.CollectionSpe
 	return &collOpts, nil
 }
 
-func unloadInternalMaps(eventContext *common.EBPFEventContext) {
+func unloadInternalMaps(eventContext *common.EBPFEventContext, bpfFsPath string) {
 	eventContext.MapsLock.Lock()
 	defer eventContext.MapsLock.Unlock()
 
@@ -118,20 +119,21 @@ func unloadInternalMaps(eventContext *common.EBPFEventContext) {
 		v.Close()
 	}
 
-	if err := shared.TeardownCtxMap(); err != nil {
-		ptlog().Warn("tearing down obi ctx map", "error", err)
+	if err := shared.TeardownCtxMap(bpfFsPath); err != nil {
+		ptlog().Warn("tearing down otel traces ctx map", "error", err, "bpf_fs_path", bpfFsPath)
 	}
 
 	eventContext.EBPFMaps = make(map[string]*ebpf.Map)
 }
 
-func NewProcessTracer(tracerType ProcessTracerType, programs []Tracer, shutdownTimeout time.Duration, metrics imetrics.Reporter) *ProcessTracer {
+func NewProcessTracer(tracerType ProcessTracerType, programs []Tracer, cfg *obi.Config, metrics imetrics.Reporter) *ProcessTracer {
 	return &ProcessTracer{
 		Programs:        programs,
 		Type:            tracerType,
 		Instrumentables: map[uint64]*instrumenter{},
-		shutdownTimeout: shutdownTimeout,
+		shutdownTimeout: cfg.ShutdownTimeout,
 		metrics:         metrics,
+		bpfFsPath:       cfg.EBPF.BpfFsPath,
 	}
 }
 
@@ -169,7 +171,7 @@ func (pt *ProcessTracer) Run(ctx context.Context, ebpfEventContext *common.EBPFE
 		wg.Wait()
 		close(tracersEnded)
 	}()
-	unloadInternalMaps(ebpfEventContext)
+	unloadInternalMaps(ebpfEventContext, pt.bpfFsPath)
 
 	hasWarned := false
 	for {
@@ -205,7 +207,7 @@ func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p 
 		return err
 	}
 
-	collOpts, err := resolveMaps(eventContext, spec)
+	collOpts, err := resolveMaps(eventContext, spec, pt.bpfFsPath)
 	if err != nil {
 		return err
 	}
@@ -395,7 +397,7 @@ func RunUtilityTracer(ctx context.Context, eventContext *common.EBPFEventContext
 		return fmt.Errorf("loading eBPF program: %w", err)
 	}
 
-	collOpts, err := resolveMaps(eventContext, spec)
+	collOpts, err := resolveMaps(eventContext, spec, "/sys/fs/bpf")
 	if err != nil {
 		return err
 	}

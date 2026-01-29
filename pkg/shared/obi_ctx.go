@@ -5,80 +5,61 @@ package shared // import "go.opentelemetry.io/obi/pkg/shared"
 
 import (
 	"fmt"
-	"path/filepath"
-	"sync"
+	"os"
+	"path"
 
 	"github.com/cilium/ebpf"
 )
 
-const (
-	ObiCtxPinPath = "/sys/fs/bpf"
-	ObiCtxMapName = "obi_ctx"
-)
-
-var mu sync.Mutex
+const TracesCtxV1MapName = "traces_ctx_v1"
 
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 Bpf ../../bpf/shared/obi_ctx.c -- -I../../bpf
 
-func LoadOrCreateCtxMap() (*ebpf.Map, error) {
-	mu.Lock()
-	defer mu.Unlock()
-
-	m, err := loadPinnedCtxMap()
+func LoadOrCreateCtxMap(bpfFsPath string) (*ebpf.Map, error) {
+	spec, err := LoadBpf()
 	if err != nil {
-		return createPinnedCtxMap()
+		return nil, fmt.Errorf("loading %s spec: %w", TracesCtxV1MapName, err)
 	}
 
-	return m, nil
+	otelPath := namespacedBpfFsPath(bpfFsPath)
+	if err := os.MkdirAll(otelPath, 0o1700); err != nil {
+		return nil, fmt.Errorf("creating bpffs otel path: %w", err)
+	}
+
+	var maps BpfMaps
+	err = spec.LoadAndAssign(&maps, &ebpf.CollectionOptions{
+		Maps: ebpf.MapOptions{
+			PinPath: otelPath,
+			LoadPinOptions: ebpf.LoadPinOptions{
+				ReadOnly: true, // BPF_F_RDONLY
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating new %s map: %w", TracesCtxV1MapName, err)
+	}
+
+	return maps.TracesCtxV1, nil
 }
 
-func TeardownCtxMap() error {
-	mu.Lock()
-	defer mu.Unlock()
-
-	m, err := loadPinnedCtxMap()
+func TeardownCtxMap(bpfFsPath string) error {
+	m, err := LoadOrCreateCtxMap(namespacedBpfFsPath(bpfFsPath))
 	if err != nil {
 		// no pinned map, nothing to do
 		return nil
 	}
 
 	if err := m.Unpin(); err != nil {
-		return fmt.Errorf("unpinning %s map: %w", ObiCtxMapName, err)
+		return fmt.Errorf("unpinning %s map: %w", TracesCtxV1MapName, err)
 	}
 
 	if err := m.Close(); err != nil {
-		return fmt.Errorf("closing %s map: %w", ObiCtxMapName, err)
+		return fmt.Errorf("closing %s map: %w", TracesCtxV1MapName, err)
 	}
 
 	return nil
 }
 
-func loadPinnedCtxMap() (*ebpf.Map, error) {
-	return ebpf.LoadPinnedMap(filepath.Join(ObiCtxPinPath, ObiCtxMapName), &ebpf.LoadPinOptions{
-		ReadOnly: true, // BPF_F_RDONLY
-	})
-}
-
-func createPinnedCtxMap() (*ebpf.Map, error) {
-	spec, err := LoadBpf()
-	if err != nil {
-		return nil, fmt.Errorf("loading %s spec: %w", ObiCtxMapName, err)
-	}
-
-	mapSpec, ok := spec.Maps[ObiCtxMapName]
-	if !ok {
-		return nil, fmt.Errorf("spec does not contain %s map", ObiCtxMapName)
-	}
-
-	m, err := ebpf.NewMapWithOptions(mapSpec, ebpf.MapOptions{
-		PinPath: ObiCtxPinPath,
-		LoadPinOptions: ebpf.LoadPinOptions{
-			ReadOnly: true, // BPF_F_RDONLY
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("creating new %s map: %w", ObiCtxMapName, err)
-	}
-
-	return m, nil
+func namespacedBpfFsPath(bpfFsPath string) string {
+	return path.Join(bpfFsPath, "otel")
 }
