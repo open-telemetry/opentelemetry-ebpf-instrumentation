@@ -28,6 +28,14 @@ type ContainerMeta struct {
 }
 
 // ContainerStore caches access to the Docker container API.
+// The behavior can be overridden via environment variables:
+//   - DOCKER_HOST to set the URL to the docker server.
+//   - DOCKER_API_VERSION to set the version of the
+//     API to use, leave empty for negotiation.
+//   - DOCKER_CERT_PATH to specify the directory from
+//     which to load the TLS certificates ("ca.pem", "cert.pem", "key.pem').
+//   - DOCKER_TLS_VERIFY to enable or disable TLS verification
+//     (off by default).
 type ContainerStore struct {
 	initMutex sync.Mutex
 	docker    client.ContainerAPIClient
@@ -54,7 +62,11 @@ func (s *ContainerStore) initialize(ctx context.Context) {
 	if s.docker != nil {
 		return
 	}
-	docker, err := client.NewClientWithOpts(client.FromEnv)
+
+	docker, err := client.NewClientWithOpts(
+		client.WithAPIVersionNegotiation(),
+		client.FromEnv,
+	)
 	if err != nil {
 		s.log.Debug("trying to instantiate docker client", "error", err)
 		return
