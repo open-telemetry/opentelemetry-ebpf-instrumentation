@@ -38,7 +38,7 @@ func TestYAMLMarshal_Exports(t *testing.T) {
 	})
 	t.Run("all values", func(t *testing.T) {
 		yamlOut, err := yaml.Marshal(&tc{
-			Exports: ExportModes{blockSignal: ^(blockMetrics | blockTraces)},
+			Exports: ExportModes{blockSignal: ^(blockMetrics | blockTraces | blockLogs)},
 		})
 		require.NoError(t, err)
 
@@ -46,7 +46,7 @@ func TestYAMLMarshal_Exports(t *testing.T) {
 			Exports []string `yaml:"exports"`
 		}
 		require.NoError(t, yaml.Unmarshal(yamlOut, &exports))
-		assert.ElementsMatch(t, []string{"metrics", "traces"}, exports.Exports)
+		assert.ElementsMatch(t, []string{"metrics", "traces", "logs"}, exports.Exports)
 	})
 }
 
@@ -60,6 +60,7 @@ func TestYAMLUnmarshal_Exports(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, tc.Exports.CanExportMetrics())
 		assert.True(t, tc.Exports.CanExportTraces())
+		assert.True(t, tc.Exports.CanExportLogs())
 	})
 	t.Run("nil value", func(t *testing.T) {
 		var tc tc
@@ -67,6 +68,7 @@ func TestYAMLUnmarshal_Exports(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, tc.Exports.CanExportMetrics())
 		assert.True(t, tc.Exports.CanExportTraces())
+		assert.True(t, tc.Exports.CanExportLogs())
 	})
 	t.Run("empty value", func(t *testing.T) {
 		var tc tc
@@ -75,6 +77,7 @@ func TestYAMLUnmarshal_Exports(t *testing.T) {
 		assert.NotNil(t, tc.Exports)
 		assert.False(t, tc.Exports.CanExportMetrics())
 		assert.False(t, tc.Exports.CanExportTraces())
+		assert.False(t, tc.Exports.CanExportLogs())
 	})
 	t.Run("metrics value", func(t *testing.T) {
 		var tc tc
@@ -82,6 +85,7 @@ func TestYAMLUnmarshal_Exports(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, tc.Exports.CanExportMetrics())
 		assert.False(t, tc.Exports.CanExportTraces())
+		assert.False(t, tc.Exports.CanExportLogs())
 	})
 	t.Run("traces value", func(t *testing.T) {
 		var tc tc
@@ -89,6 +93,15 @@ func TestYAMLUnmarshal_Exports(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, tc.Exports.CanExportMetrics())
 		assert.True(t, tc.Exports.CanExportTraces())
+		assert.False(t, tc.Exports.CanExportLogs())
+	})
+	t.Run("logs value", func(t *testing.T) {
+		var tc tc
+		err := yaml.Unmarshal([]byte(`exports: ["logs"]`), &tc)
+		require.NoError(t, err)
+		assert.False(t, tc.Exports.CanExportMetrics())
+		assert.False(t, tc.Exports.CanExportTraces())
+		assert.True(t, tc.Exports.CanExportLogs())
 	})
 	t.Run("metrics and traces value", func(t *testing.T) {
 		var tc tc
@@ -96,6 +109,15 @@ func TestYAMLUnmarshal_Exports(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, tc.Exports.CanExportMetrics())
 		assert.True(t, tc.Exports.CanExportTraces())
+		assert.False(t, tc.Exports.CanExportLogs())
+	})
+	t.Run("all values", func(t *testing.T) {
+		var tc tc
+		err := yaml.Unmarshal([]byte(`exports: ["metrics", "traces", "logs"]`), &tc)
+		require.NoError(t, err)
+		assert.True(t, tc.Exports.CanExportMetrics())
+		assert.True(t, tc.Exports.CanExportTraces())
+		assert.True(t, tc.Exports.CanExportLogs())
 	})
 }
 
@@ -104,12 +126,23 @@ func TestPragmaticExports(t *testing.T) {
 
 	assert.False(t, modes.CanExportTraces())
 	assert.False(t, modes.CanExportMetrics())
+	assert.False(t, modes.CanExportLogs())
 
 	modes.AllowTraces()
 
 	assert.True(t, modes.CanExportTraces())
+	assert.False(t, modes.CanExportMetrics())
+	assert.False(t, modes.CanExportLogs())
 
 	modes.AllowMetrics()
 
+	assert.True(t, modes.CanExportTraces())
 	assert.True(t, modes.CanExportMetrics())
+	assert.False(t, modes.CanExportLogs())
+
+	modes.AllowLogs()
+
+	assert.True(t, modes.CanExportTraces())
+	assert.True(t, modes.CanExportMetrics())
+	assert.True(t, modes.CanExportLogs())
 }
