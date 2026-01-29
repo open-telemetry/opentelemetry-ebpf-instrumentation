@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/ory/dockertest/v3"
 	"github.com/ory/dockertest/v3/docker"
 	"github.com/stretchr/testify/assert"
@@ -83,38 +82,38 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 			`url_path="` + route + `"`
 	)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_server_request_duration_seconds_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 1)
-	})
+		checkServerPromQueryResult(ct, pq, query, 1)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
 	slug := route[1:]
 
 	var trace jaeger.Trace
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		if resp == nil {
 			return
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/" + slug})
-		require.NotEmpty(t, traces)
+		require.NotEmpty(ct, traces)
 		trace = traces[0]
-		require.Len(t, trace.Spans, 3) // parent - in queue - processing
-	}, test.Interval(100*time.Millisecond))
+		require.Len(ct, trace.Spans, 3) // parent - in queue - processing
+	}, testTimeout, 100*time.Millisecond)
 
 	// Check the information of the parent span
 	res := trace.FindByOperationName("GET /"+slug, "server")
@@ -128,24 +127,24 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 		ti.DoHTTPGet(t, "http://localhost:8080"+route, 200)
 	}
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=dicer&operation=Roll")
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		if resp == nil {
 			return
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "http.method", Type: "string", Value: "GET"})
-		assert.LessOrEqual(t, 1, len(traces))
-	}, test.Interval(100*time.Millisecond))
+		assert.LessOrEqual(ct, 1, len(traces))
+	}, testTimeout, 100*time.Millisecond)
 
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -154,24 +153,24 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 			`service_name="rolldice",` +
 			`http_route="` + route + `",` +
 			`url_path="` + route + `"}`)
-		require.NoError(t, err)
-		require.Empty(t, results)
-	})
+		require.NoError(ct, err)
+		require.Empty(ct, results)
+	}, testTimeout, 100*time.Millisecond)
 
 	slug := route[1:]
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=rolldice&operation=GET%20%2F" + slug)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		if resp == nil {
 			return
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/" + slug})
-		require.Empty(t, traces)
-	}, test.Interval(100*time.Millisecond))
+		require.Empty(ct, traces)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
@@ -214,21 +213,21 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 
 func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, 1*time.Minute, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err := pq.Query(`http_server_duration_count{http_method="GET"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, 1*time.Minute, time.Second)
 }
 
 func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
@@ -339,25 +338,25 @@ func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
 }
 
 func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
-	test.Eventually(t, 1*time.Minute, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		resp, err := http.Get(jaegerQueryURL + "?service=dicer&operation=Smoke")
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		if resp == nil {
 			return
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "http.method", Type: "string", Value: "GET"})
-		assert.LessOrEqual(t, 1, len(traces))
-	}, test.Interval(time.Second))
+		assert.LessOrEqual(ct, 1, len(traces))
+	}, 1*time.Minute, time.Second)
 }
 
 func TestHTTPGoOTelAvoidsInstrumentedAppGRPC(t *testing.T) {

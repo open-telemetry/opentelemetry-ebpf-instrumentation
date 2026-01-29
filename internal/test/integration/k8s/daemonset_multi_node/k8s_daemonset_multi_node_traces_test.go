@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
@@ -39,58 +39,58 @@ func TestMultiNodeTracing(t *testing.T) {
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				var trace jaeger.Trace
 				var traceID string
-				test.Eventually(t, testTimeout, func(t require.TestingT) {
+				require.EventuallyWithT(t, func(ct *assert.CollectT) {
 					resp, err := http.Get("http://localhost:38080/gotracemetoo")
-					require.NoError(t, err)
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					require.NoError(ct, err)
+					require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 					resp, err = http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fgotracemetoo")
-					require.NoError(t, err)
+					require.NoError(ct, err)
 					if resp == nil {
 						return
 					}
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					require.Equal(ct, http.StatusOK, resp.StatusCode)
 					var tq jaeger.TracesQuery
-					require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+					require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 					traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/gotracemetoo"})
-					require.NotEmpty(t, traces)
+					require.NotEmpty(ct, traces)
 					trace = traces[0]
-					require.NotEmpty(t, trace.Spans)
+					require.NotEmpty(ct, trace.Spans)
 
 					// Check the information of the parent span (Go app)
 					res := trace.FindByOperationName("GET /gotracemetoo", "server")
-					require.Len(t, res, 1)
+					require.Len(ct, res, 1)
 					parent := res[0]
-					require.NotEmpty(t, parent.TraceID)
+					require.NotEmpty(ct, parent.TraceID)
 					traceID = parent.TraceID
 					sd := jaeger.DiffAsRegexp([]jaeger.Tag{
 						{Key: "service.namespace", Type: "string", Value: "^integration-test$"},
 						{Key: "telemetry.sdk.language", Type: "string", Value: "^go$"},
 						{Key: "service.instance.id", Type: "string", Value: "^default\\.testserver-.+\\.testserver$"},
 					}, trace.Processes[parent.ProcessID].Tags)
-					require.Empty(t, sd, sd.String())
+					require.Empty(ct, sd, sd.String())
 
 					// Check the information of the Go jsonrpc span
 					res = trace.FindByOperationName("Arith.T /jsonrpc", "server")
-					require.Len(t, res, 1)
+					require.Len(ct, res, 1)
 					parent = res[0]
-					require.NotEmpty(t, parent.TraceID)
-					require.Equal(t, traceID, parent.TraceID)
+					require.NotEmpty(ct, parent.TraceID)
+					require.Equal(ct, traceID, parent.TraceID)
 
 					// Check the information of the Python span
 					res = trace.FindByOperationName("GET /tracemetoo", "server")
-					require.Len(t, res, 1)
+					require.Len(ct, res, 1)
 					parent = res[0]
-					require.NotEmpty(t, parent.TraceID)
-					require.Equal(t, traceID, parent.TraceID)
+					require.NotEmpty(ct, parent.TraceID)
+					require.Equal(ct, traceID, parent.TraceID)
 
 					// Check the information of the Ruby span
 					res = trace.FindByOperationName("GET /users", "server")
-					require.Len(t, res, 1)
+					require.Len(ct, res, 1)
 					parent = res[0]
-					require.NotEmpty(t, parent.TraceID)
-					require.Equal(t, traceID, parent.TraceID)
-				}, test.Interval(100*time.Millisecond))
+					require.NotEmpty(ct, parent.TraceID)
+					require.Equal(ct, traceID, parent.TraceID)
+				}, testTimeout, 100*time.Millisecond)
 
 				return ctx
 			},
