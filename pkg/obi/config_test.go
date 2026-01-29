@@ -204,6 +204,7 @@ discovery:
 				instrumentations.InstrumentationKafka,
 				instrumentations.InstrumentationMQTT,
 				instrumentations.InstrumentationMongo,
+				instrumentations.InstrumentationCouchbase,
 				// no traces for DNS and GPU by default
 			},
 		},

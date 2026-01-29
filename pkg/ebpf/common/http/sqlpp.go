@@ -11,7 +11,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -198,20 +197,32 @@ func extractFormValue(data, key string) string {
 	return ""
 }
 
-// queryContextPattern parses query_context format: default:bucket.scope
-var queryContextPattern = regexp.MustCompile(`^(?:default:)?([a-zA-Z0-9_-]+)(?:\.([a-zA-Z0-9_-]+))?$`)
-
 // extractSQLPPNamespace extracts namespace (bucket) from SQL++ request
 func extractSQLPPNamespace(sqlppReq *sqlppRequest) string {
-	// First, try to get from query_context (format: "default:bucket.scope" or "bucket.scope")
-	if sqlppReq.QueryCtx != "" {
-		matches := queryContextPattern.FindStringSubmatch(sqlppReq.QueryCtx)
-		if len(matches) > 1 {
-			return matches[1] // bucket
+	if sqlppReq.QueryCtx == "" {
+		return ""
+	}
+
+	ctx := sqlppReq.QueryCtx
+
+	// Strip "default:" prefix if present
+	ctx = strings.TrimPrefix(ctx, "default:")
+
+	// Extract the first identifier (bucket name)
+	// Handle backtick-quoted: `bucket`.`scope` or `bucket`
+	if strings.HasPrefix(ctx, "`") {
+		end := strings.Index(ctx[1:], "`")
+		if end > 0 {
+			return ctx[1 : end+1]
 		}
 	}
 
-	return ""
+	// Handle unquoted: bucket.scope or bucket
+	if idx := strings.Index(ctx, "."); idx > 0 {
+		return ctx[:idx]
+	}
+
+	return ctx
 }
 
 // parseSQLPPResponse parses the SQL++ response body for errors

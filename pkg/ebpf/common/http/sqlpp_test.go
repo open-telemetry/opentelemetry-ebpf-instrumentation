@@ -287,6 +287,18 @@ func TestSQLPPSpan(t *testing.T) {
 			expectedCollection: "mycollection",
 		},
 		{
+			name:               "SQL++ with backtick-quoted query_context",
+			reqPath:            "/query/service",
+			reqBody:            "{\"statement\": \"SELECT * FROM `test-collection`\", \"query_context\": \"default:`test-bucket`.`test-scope`\"}",
+			reqContentType:     "application/json",
+			respContentType:    "application/json; version=2.0.0-N1QL",
+			expectedDetected:   true,
+			expectedDBSystem:   "couchbase",
+			expectedOperation:  "SELECT",
+			expectedNamespace:  "test-bucket",
+			expectedCollection: "test-collection",
+		},
+		{
 			name:               "Endpoint does not match patterns",
 			reqPath:            "/api/search",
 			reqBody:            `{"statement": "SELECT * FROM mybucket"}`,
@@ -432,4 +444,59 @@ func TestSQLPPSpanWithError(t *testing.T) {
 	assert.Equal(t, request.HTTPSubtypeSQLPP, resultSpan.SubType)
 	assert.Equal(t, "12003", resultSpan.DBError.ErrorCode)
 	assert.Equal(t, "Keyspace not found in CB datastore", resultSpan.DBError.Description)
+}
+
+func TestExtractSQLPPNamespace(t *testing.T) {
+	tests := []struct {
+		name              string
+		queryContext      string
+		expectedNamespace string
+	}{
+		{
+			name:              "unquoted with default prefix",
+			queryContext:      "default:mybucket.myscope",
+			expectedNamespace: "mybucket",
+		},
+		{
+			name:              "unquoted without default prefix",
+			queryContext:      "mybucket.myscope",
+			expectedNamespace: "mybucket",
+		},
+		{
+			name:              "backtick-quoted with default prefix",
+			queryContext:      "default:`test-bucket`.`test-scope`",
+			expectedNamespace: "test-bucket",
+		},
+		{
+			name:              "backtick-quoted without default prefix",
+			queryContext:      "`test-bucket`.`test-scope`",
+			expectedNamespace: "test-bucket",
+		},
+		{
+			name:              "backtick-quoted bucket only",
+			queryContext:      "default:`my-bucket`",
+			expectedNamespace: "my-bucket",
+		},
+		{
+			name:              "empty query context",
+			queryContext:      "",
+			expectedNamespace: "",
+		},
+		{
+			name:              "unquoted bucket only",
+			queryContext:      "default:mybucket",
+			expectedNamespace: "mybucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &sqlppRequest{
+				Statement: "SELECT * FROM test",
+				QueryCtx:  tt.queryContext,
+			}
+			result := extractSQLPPNamespace(req)
+			assert.Equal(t, tt.expectedNamespace, result)
+		})
+	}
 }

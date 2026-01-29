@@ -350,7 +350,9 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 				attrs = append(attrs, request.DBNamespace(span.DBNamespace))
 			}
 			if _, ok := optionalAttrs[attr.DBQueryText]; ok {
-				attrs = append(attrs, request.DBQueryText(span.Statement))
+				if span.Statement != "" {
+					attrs = append(attrs, request.DBQueryText(span.Statement))
+				}
 			}
 			if span.Method != "" {
 				attrs = append(attrs, request.DBOperationName(span.Method))

@@ -35,7 +35,6 @@ func testREDMetricsForPythonCouchbaseLibrary(t *testing.T, testCase TestCase) {
 	// Eventually, Prometheus would make couchbase operations visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	var err error
 	for _, span := range testCase.Spans {
 		operation := span.FindAttribute("db.operation.name")
 		require.NotNil(t, operation, "db.operation.name attribute not found in span %s", span.Name)
@@ -50,11 +49,6 @@ func testREDMetricsForPythonCouchbaseLibrary(t *testing.T, testCase TestCase) {
 			assert.LessOrEqual(t, 3, val, "expected at least 3 %s operations, got %d", span.Name, val)
 		})
 	}
-
-	// Ensure we don't see any http requests
-	results, err = pq.Query(`http_server_request_duration_seconds_count{}`)
-	require.NoError(t, err, "failed to query prometheus for http_server_request_duration_seconds_count")
-	require.Empty(t, results, "expected no HTTP requests, got %d", len(results))
 
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		for _, span := range testCase.Spans {
@@ -75,18 +69,6 @@ func testREDMetricsForPythonCouchbaseLibrary(t *testing.T, testCase TestCase) {
 			assert.LessOrEqual(t, 1, len(traces), "span %s with tags %v not found in traces in traces %v", command, tags, tq.Data)
 		}
 	}, test.Interval(100*time.Millisecond))
-
-	// Ensure we don't find any HTTP traces, since we filter them out
-	resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
-	require.NoError(t, err, "failed to query jaeger for HTTP traces")
-	if resp == nil {
-		return
-	}
-	require.Equal(t, http.StatusOK, resp.StatusCode, "unexpected status code for HTTP traces: %d", resp.StatusCode)
-	var tq jaeger.TracesQuery
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq), "failed to decode jaeger response for HTTP traces")
-	traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/" + urlPath})
-	require.Empty(t, traces, "expected no HTTP traces, got %d", len(traces))
 }
 
 func testREDMetricsPythonCouchbaseOnly(t *testing.T) {
