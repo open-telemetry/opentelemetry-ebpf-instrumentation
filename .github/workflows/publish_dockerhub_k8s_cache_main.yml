@@ -24,6 +24,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+
+      - name: Check Cosign version
+        run: cosign version
+
       - name: Log in to Docker Hub
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
@@ -52,6 +58,7 @@ jobs:
             ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}
 
       - name: Build and push
+        id: push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
@@ -60,3 +67,14 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
+
+      - name: Sign the images using Cosign with GitHub OIDC Token
+        env: # interpolation via env is safer: https://docs.github.com/en/actions/reference/security/secure-use#use-an-intermediate-environment-variable
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          images=""
+          for tag in ${TAGS}; do
+            images+="${tag}@${DIGEST} "
+          done
+          cosign sign --yes ${images}
