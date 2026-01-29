@@ -398,11 +398,6 @@ static __always_inline void server_or_client_trace(
     if (type == EVENT_HTTP_REQUEST) {
         trace_key_t t_key = {0};
         task_tid(&t_key.p_key);
-        bpf_dbg_printk("server_or_client: host_id=%llx, after task_tid: pid=%d tid=%d ns=%x",
-                       id,
-                       t_key.p_key.pid,
-                       t_key.p_key.tid,
-                       t_key.p_key.ns);
         t_key.extra_id = extra_runtime_id();
 
         connection_info_part_t conn_part = {};
@@ -423,11 +418,8 @@ static __always_inline void server_or_client_trace(
             return;
         }
 
-        bpf_dbg_printk("STORE server_traces[pid=%d,tid=%d,ns=%x,extra_id=%llx]",
-                       t_key.p_key.pid,
-                       t_key.p_key.tid,
-                       t_key.p_key.ns,
-                       t_key.extra_id);
+        bpf_dbg_printk(
+            "Saving thread server span for ns=%x, extra_id=%llx", t_key.p_key.ns, t_key.extra_id);
         bpf_map_update_elem(&server_traces, &t_key, tp_p, BPF_ANY);
     } else {
         // Setup a pid, so that we can find it in TC.
