@@ -12,6 +12,7 @@ on:
       - "pkg/internal/java/**"
       - ".github/workflows/java-agent.yml"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

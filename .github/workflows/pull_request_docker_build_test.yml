@@ -2,6 +2,7 @@ name: Test Docker build
 on:
   pull_request:
     branches: ["main", "release-*"]
+  workflow_call:
 permissions:
   contents: read
 

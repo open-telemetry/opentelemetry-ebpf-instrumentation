@@ -17,6 +17,7 @@ on:
       - "internal/test/integration/**"
       - "internal/test/vm/**"
       - "scripts/generate-integration-matrix.sh"
+  workflow_call:
 
 permissions:
   contents: read

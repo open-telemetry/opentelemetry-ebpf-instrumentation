@@ -27,6 +27,7 @@ on:
       - "internal/**"
       - "pkg/**"
       - "scripts/**"
+  workflow_call:
 
 permissions:
   contents: read

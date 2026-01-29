@@ -18,20 +18,12 @@ on:
 permissions: {}
 
 jobs:
-  # Verify CI checks passed on the tagged commit and tag is valid.
-  verify:
-    name: Verify CI Status
+  # Validate tag format before proceeding with release.
+  validate-tag:
+    name: Validate Tag Format
     runs-on: ubuntu-latest
-    permissions:
-      checks: read
-      contents: read
+    permissions: {}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.tag || github.ref }}
-
       - name: Validate tag format
         env:
           WORKFLOW_TAG: ${{ inputs.tag }}
@@ -52,27 +44,70 @@ jobs:
           fi
           echo "Tag format validated: $TAG"
 
-      - name: Check required workflows passed
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_SHA: ${{ github.sha }}
-          WORKFLOW_TAG: ${{ inputs.tag }}
-          WORKFLOW_EVENT: ${{ github.event_name }}
-        run: |
-          # Get the commit SHA for the tag/ref
-          if [ "$WORKFLOW_EVENT" = "workflow_dispatch" ]; then
-            COMMIT_SHA=$(git rev-parse "$WORKFLOW_TAG")
-          else
-            COMMIT_SHA="$GITHUB_SHA"
-          fi
+  unit-tests:
+    name: Unit Tests
+    uses: ./.github/workflows/pull_request.yml
+    needs: validate-tag
 
-          echo "Verifying CI status for commit: $COMMIT_SHA"
-          ./.github/scripts/verify-ci-status.sh "$GITHUB_REPOSITORY" "$COMMIT_SHA"
+  integration-tests:
+    name: Integration Tests
+    uses: ./.github/workflows/pull_request_integration_tests.yml
+    needs: validate-tag
+
+  k8s-integration-tests:
+    name: K8s Integration Tests
+    uses: ./.github/workflows/pull_request_k8s_integration_tests.yml
+    needs: validate-tag
+
+  oats-tests:
+    name: OATS Tests
+    uses: ./.github/workflows/pull_request_oats_test.yml
+    needs: validate-tag
+
+  vm-integration-tests:
+    name: VM Integration Tests
+    uses: ./.github/workflows/workflow_integration_tests_vm.yml
+    needs: validate-tag
+
+  java-agent-tests:
+    name: Java Agent Tests
+    uses: ./.github/workflows/java-agent.yml
+    needs: validate-tag
+
+  format-check:
+    name: Format Check
+    uses: ./.github/workflows/clang-format-check.yml
+    needs: validate-tag
+
+  tidy-check:
+    name: Tidy Check
+    uses: ./.github/workflows/clang-tidy-check.yml
+    needs: validate-tag
+
+  arm-integration-tests:
+    name: ARM Integration Tests
+    uses: ./.github/workflows/pull_request_integration_tests_arm.yml
+    needs: validate-tag
+
+  docker-build-test:
+    name: Docker Build Test
+    uses: ./.github/workflows/pull_request_docker_build_test.yml
+    needs: validate-tag
 
   release:
     name: Draft Release
-    needs: verify # Create draft release only after verification.
+    needs:
+      - validate-tag
+      - unit-tests
+      - integration-tests
+      - k8s-integration-tests
+      - oats-tests
+      - vm-integration-tests
+      - java-agent-tests
+      - format-check
+      - tidy-check
+      - arm-integration-tests
+      - docker-build-test
     runs-on: ubuntu-latest
     permissions:
       contents: write # https://github.com/softprops/action-gh-release#permissions
