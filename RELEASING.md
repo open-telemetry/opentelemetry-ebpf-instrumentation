@@ -54,7 +54,7 @@ Once the Pull Request with all the version changes has been approved and merged 
 > [Failure to do so will lead to minor emergencies and tough to work around](https://github.com/open-telemetry/opentelemetry-go/issues/331).
 
 > [!NOTE]
-> The tag must follow the format `v*.*.*` or `v*.*.*-suffix` (e.g., `v1.2.3` or `v1.2.3-rc1`). The release workflow will only trigger on tags matching this pattern.
+> The tag must follow the format `vX.Y.Z` or `vX.Y.Z-suffix` (e.g., `v1.2.3` or `v1.2.3-rc1`), where X, Y, and Z are numbers. The release workflow will only trigger on tags matching this pattern.
 > When the tag is pushed, the release workflow will automatically run the full test suite as composed workflows before creating a draft release.
 > If any tests fail or don't complete, the release will not be created.
 <!-- markdownlint-enable MD028 -->
@@ -87,7 +87,7 @@ Once the Pull Request with all the version changes has been approved and merged 
 
 ### Automatic Release Workflow
 
-When you push a tag matching the pattern `v*.*.*` (e.g., `v1.2.3`) or `v*.*.*-suffix` (e.g., `v1.2.3-rc1`), the release workflow will automatically:
+When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-suffix` (e.g., `v1.2.3-rc1`), where X, Y, and Z are numbers, the release workflow will automatically:
 
 1. **Validate Tag Format**: Ensures the tag follows the required format (`v*.*.*` with optional pre-release suffix).
 
