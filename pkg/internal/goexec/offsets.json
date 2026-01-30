@@ -1,5 +1,31 @@
 {
   "data": {
+    "bufio.Reader": {
+      "buf": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.25.6"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "1.17.0"
+          }
+        ]
+      },
+      "w": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.25.6"
+        },
+        "offsets": [
+          {
+            "offset": 48,
+            "since": "1.17.0"
+          }
+        ]
+      }
+    },
     "bufio.Writer": {
       "buf": {
         "versions": {
@@ -1160,6 +1186,20 @@
     },
     "net/rpc.Request": {
       "ServiceMethod": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.25.6"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "1.17.0"
+          }
+        ]
+      }
+    },
+    "net/textproto.Reader": {
+      "R": {
         "versions": {
           "oldest": "1.17.0",
           "newest": "1.25.6"
