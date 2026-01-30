@@ -15,6 +15,7 @@
 
 //go:build obi_bpf_ignore
 
+#include "gotracer/go_offsets.h"
 #include <bpfcore/utils.h>
 #include <bpfcore/bpf_builtins.h>
 
@@ -436,17 +437,32 @@ int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
     if (!reader) {
         return 0;
     }
+    off_table_t *ot = get_offsets_table();
 
-    void *rBuf = 0;
-    // TODO: add offset of reader.R and then R.buf
-    bpf_probe_read_user(&rBuf, sizeof(void *), reader);
+    void *r = 0;
+    bpf_probe_read_user(
+        &r, sizeof(void *), reader + go_offset_of(ot, (go_offset){.v = _text_reader_r_pos}));
 
-    if (!rBuf) {
+    if (!r) {
+        return 0;
+    }
+    bpf_dbg_printk(
+        "R = %llx, off = %d", r, go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
+
+    u64 len = 0;
+    bpf_probe_read_user(
+        &len, sizeof(u64), r + go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
+
+    bpf_dbg_printk(
+        "buf len = %d, off = %d", len, go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
+
+    if (len == 0) {
         return 0;
     }
 
     void *arr = 0;
-    bpf_probe_read_user(&arr, sizeof(void *), rBuf);
+    bpf_probe_read_user(
+        &arr, sizeof(void *), r + go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
 
     if (!arr) {
         return 0;
@@ -459,11 +475,13 @@ int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
         return 0;
     }
 
-    bpf_probe_read_user(buf, 1024, arr);
+    bpf_clamp_umax(len, TRACE_BUF_SIZE);
+
+    bpf_probe_read_user(buf, len, arr);
 
     bpf_dbg_printk("buf %s", buf);
 
-    unsigned char *tp_ptr = bpf_strstr_tp_loop(buf, 1024);
+    unsigned char *tp_ptr = bpf_strstr_tp_loop(buf, len);
 
     bpf_dbg_printk("tp %llx", tp_ptr);
 
