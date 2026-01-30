@@ -1,7 +1,7 @@
 # Go url shortener benchmark
 
-This benchmark is designed to test the performance overhead of OBI Go auto instrumentation. 
-The application itself is designed to expose the overhead by doing very little work and 
+This benchmark is designed to test the performance overhead of OBI Go auto instrumentation.
+The application itself is designed to expose the overhead by doing very little work and
 by triggering as many probes as possible. The response times of the HTTP server are in the tens
 of micro seconds, where interrupts and eBPF uprobes overhead will show up.
 
@@ -10,6 +10,7 @@ of micro seconds, where interrupts and eBPF uprobes overhead will show up.
 This is an HTTP application with mock SQL backend, based on a [customer reported issue](https://github.com/jaihindhreddy/go-testebpf).
 
 ### Setup
+
 To run the test we need to:
 
 1. Build the Go application with `go build -o shorturl main.go`.
@@ -33,6 +34,7 @@ like by setting the `PORT` environment variable. For example `PORT=3000 taskset 
 will run the service on port 3000.
 
 You can verify if the service works by running a `curl` command, for example:
+
 ```bash
 curl --data-urlencode "url=https://example.com" http://localhost:8081/shorten
 ```
@@ -77,8 +79,10 @@ taskset -c 1 k6 run traffic.js
 ```
 
 When you terminate OBI, you should see it print something like:
+
 ```
 Processed 30002 requests
 ```
+
 Since the load generator generates 15001 requests total, we should see 30,0002 request and perhaps an optional connection
 error for the termination.
