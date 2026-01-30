@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,6 +31,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -45,8 +45,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	timeNow = now.Now
 
 	ctx := t.Context()
-	openPort, err := test.FreeTCPPort()
-	require.NoError(t, err)
+	openPort := testutil.FreeTCPPort(t)
 	promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
 
 	var g attributes.AttrGroups
@@ -368,8 +367,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			timeNow = now.Now
 
 			ctx := t.Context()
-			openPort, err := test.FreeTCPPort()
-			require.NoError(t, err)
+			openPort := testutil.FreeTCPPort(t)
 			promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
 
 			promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
@@ -548,8 +546,7 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 	timeNow = now.Now
 
 	ctx := t.Context()
-	openPort, err := test.FreeTCPPort()
-	require.NoError(t, err)
+	openPort := testutil.FreeTCPPort(t)
 
 	// Grab the port we just allocated for something else
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
