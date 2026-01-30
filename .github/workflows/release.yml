@@ -6,8 +6,11 @@ on:
       # N.B. These workflows also trigger on this tag pattern:
       # - publish_dockerhub_main.yml
       # - publish_dockerhub_k8s_cache_main.yml
-      - "v*.*.*"
-      - "v*.*.*-*"
+      # Glob patterns to match semver tags starting with 'v'
+      - "v[0-9]*.[0-9]*.[0-9]*"           # v1.2.3
+      - "v[0-9]*.[0-9]*.[0-9]*-*"         # v1.2.3-rc.1, v1.2.3-alpha
+      - "v[0-9]*.[0-9]*.[0-9]*+*"         # v1.2.3+build.123
+      - "v[0-9]*.[0-9]*.[0-9]*-*+*"       # v1.2.3-rc.1+build.123
   workflow_dispatch:
     inputs:
       tag:
@@ -44,12 +47,29 @@ jobs:
             TAG="$GITHUB_REF_NAME"
           fi
 
-          # Validate tag format (must be v*.*.* with numeric components, optional pre-release suffix)
-          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
-            echo "ERROR: Tag must match format v*.*.* or v*.*.*-suffix (e.g., v1.2.3 or v1.2.3-rc1), got: $TAG"
+          # Validate tag format (must be v followed by valid semver)
+          # Strip 'v' prefix for validation
+          if [[ "$TAG" =~ ^v(.*)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          else
+            echo "ERROR: Tag must start with 'v' (e.g., v1.2.3), got: $TAG"
             exit 1
           fi
-          echo "Tag format validated: $TAG"
+
+          # Validate semver format
+          # Regex for a semver digit
+          D='0|[1-9][0-9]*'
+          # Regex for a semver pre-release word
+          PW='[0-9]*[a-zA-Z-][0-9a-zA-Z-]*'
+          # Regex for a semver build-metadata word
+          MW='[0-9a-zA-Z-]+'
+
+          if [[ "$VERSION" =~ ^($D)\.($D)\.($D)(-(($D|$PW)(\.($D|$PW))*))?(\+($MW(\.$MW)*))?$ ]]; then
+            echo "Tag format validated: $TAG"
+          else
+            echo "ERROR: Tag must be valid semver with 'v' prefix (e.g., v1.2.3, v1.2.3-rc1, v1.2.3+build), got: $TAG"
+            exit 1
+          fi
 
       - name: Verify tag exists
         env:
