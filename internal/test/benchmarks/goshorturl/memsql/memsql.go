@@ -1,6 +1,6 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
-package memsql
+package memsql // import "goshorturl/memsql"
 
 import (
 	"database/sql"
