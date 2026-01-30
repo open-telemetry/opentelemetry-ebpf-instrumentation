@@ -12,8 +12,9 @@ import (
 	"time"
 
 	json "github.com/goccy/go-json"
-	"github.com/mariomac/guara/pkg/test"
+
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
@@ -40,8 +41,9 @@ func TestTraceparentExtraction(t *testing.T) {
 
 	// Wait for instrumentation to be ready
 	t.Log("waiting for instrumentation to be ready")
-	test.Eventually(t, 2*time.Minute, func(t require.TestingT) {
-		ti.DoHTTPGet(t, "http://localhost:6000/smoke", 200)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+
+		ti.DoHTTPGet(ct, "http://localhost:6000/smoke", 200)
 
 		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&limit=1")
 		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
@@ -49,11 +51,11 @@ func TestTraceparentExtraction(t *testing.T) {
 		}
 
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		if len(tq.Data) == 0 {
 			return
 		}
-	}, test.Interval(1*time.Second))
+	}, 2*time.Minute, 1*time.Second)
 	t.Log("instrumentation ready")
 
 	t.Run("without_traceparent", testWithoutTraceparent)
@@ -71,18 +73,19 @@ func testWithoutTraceparent(t *testing.T) {
 	ti.DoHTTPGet(t, "http://localhost:6000/no-tp", 200)
 
 	var trace jaeger.Trace
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+
 		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&operation=GET%20%2Fno-tp")
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/no-tp"})
-		require.GreaterOrEqual(t, len(traces), 1)
+		require.GreaterOrEqual(ct, len(traces), 1)
 		trace = traces[0]
-		require.NotEmpty(t, trace.Spans)
-	}, test.Interval(100*time.Millisecond))
+		require.NotEmpty(ct, trace.Spans)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Validate the trace has spans from all 3 services (a, b, c)
 	serviceASpans := trace.FindByOperationName("GET /no-tp", "server")
@@ -112,18 +115,19 @@ func testWithTraceparent(t *testing.T) {
 	ti.DoHTTPGet(t, "http://localhost:6000/with-tp", 200)
 
 	var trace jaeger.Trace
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+
 		// Query by static trace ID
 		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&traceID=" + staticTraceID)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
-		require.GreaterOrEqual(t, len(tq.Data), 1, "should find trace with static trace ID")
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		require.GreaterOrEqual(ct, len(tq.Data), 1, "should find trace with static trace ID")
 		trace = tq.Data[0]
-		require.NotEmpty(t, trace.Spans)
-	}, test.Interval(100*time.Millisecond))
+		require.NotEmpty(ct, trace.Spans)
+	}, testTimeout, 100*time.Millisecond)
 
 	// CRITICAL: All spans must have the static trace ID, proving extraction worked
 	for _, span := range trace.Spans {
@@ -145,21 +149,22 @@ func testWithForwardedTraceparent(t *testing.T) {
 	ti.DoHTTPGet(t, "http://localhost:6000/with-forwarded-tp", 200)
 
 	var trace jaeger.Trace
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+
 		// Query by static trace ID
 		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&traceID=" + staticTraceID)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 
 		// Find traces with /with-forwarded-tp operations
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/with-forwarded-tp"})
-		require.GreaterOrEqual(t, len(traces), 1, "should find trace with forwarded traceparent")
+		require.GreaterOrEqual(ct, len(traces), 1, "should find trace with forwarded traceparent")
 		trace = traces[0]
-		require.NotEmpty(t, trace.Spans)
-	}, test.Interval(100*time.Millisecond))
+		require.NotEmpty(ct, trace.Spans)
+	}, testTimeout, 100*time.Millisecond)
 
 	// CRITICAL: All spans must have the static trace ID (extraction worked)
 	for _, span := range trace.Spans {

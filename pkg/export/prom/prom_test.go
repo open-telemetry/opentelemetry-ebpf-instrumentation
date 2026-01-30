@@ -120,16 +120,16 @@ func TestAppMetricsExpiration(t *testing.T) {
 	containsInstance := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*instance="test-app-1".*"`)
 
 	// THEN the metrics are exported
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported := getMetrics(t, promURL)
-		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 123`)
-		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
-		assert.Regexp(t, containsTargetInfo, exported)
-		assert.Regexp(t, containsTargetInfoSDKVersion, exported)
-		assert.Regexp(t, containsTracesHostInfo, exported)
-		assert.Regexp(t, containsJob, exported)
-		assert.Regexp(t, containsInstance, exported)
-	})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 123`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
+		assert.Regexp(ct, containsTargetInfo, exported)
+		assert.Regexp(ct, containsTargetInfoSDKVersion, exported)
+		assert.Regexp(ct, containsTracesHostInfo, exported)
+		assert.Regexp(ct, containsJob, exported)
+		assert.Regexp(ct, containsInstance, exported)
+	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
 	now.Advance(2 * time.Minute)
@@ -149,14 +149,14 @@ func TestAppMetricsExpiration(t *testing.T) {
 	now.Advance(2 * time.Minute)
 
 	// THEN THE metrics that have been received during the timeout period are still visible
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported := getMetrics(t, promURL)
-		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
 
 		// BUT not the metrics that haven't been received during that time
-		assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
-		assert.Regexp(t, containsTargetInfo, exported)
-	})
+		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
+		assert.Regexp(ct, containsTargetInfo, exported)
+	}, timeout, 100*time.Millisecond)
 	now.Advance(2 * time.Minute)
 
 	// AND WHEN the metrics labels that disappeared are received again
@@ -166,12 +166,12 @@ func TestAppMetricsExpiration(t *testing.T) {
 	now.Advance(2 * time.Minute)
 
 	// THEN they are reported again, starting from zero in the case of counters
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported := getMetrics(t, promURL)
-		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
-		assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/foo"}`)
-		assert.Regexp(t, containsTargetInfo, exported)
-	})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
+		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/foo"}`)
+		assert.Regexp(ct, containsTargetInfo, exported)
+	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN the observed process is terminated
 	processEvents.Send(exec.ProcessEvent{
@@ -180,11 +180,11 @@ func TestAppMetricsExpiration(t *testing.T) {
 	})
 
 	// THEN traces_host_info and traces_target_info are removed
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported := getMetrics(t, promURL)
-		assert.NotRegexp(t, containsTargetInfo, exported)
-		assert.NotRegexp(t, containsTracesHostInfo, exported)
-	})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.NotRegexp(ct, containsTargetInfo, exported)
+		assert.NotRegexp(ct, containsTracesHostInfo, exported)
+	}, timeout, 100*time.Millisecond)
 }
 
 type InstrTest struct {
@@ -393,15 +393,15 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			awaitSpanProcessing()
 
 			var exported string
-			test.Eventually(t, timeout, func(t require.TestingT) {
-				exported = getMetrics(t, promURL)
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				exported = getMetrics(ct, promURL)
 				for i := 0; i < len(tt.expected); i++ {
-					assert.Contains(t, exported, tt.expected[i])
+					assert.Contains(ct, exported, tt.expected[i])
 				}
 				for i := 0; i < len(tt.unexpected); i++ {
-					assert.NotContains(t, exported, tt.unexpected[i])
+					assert.NotContains(ct, exported, tt.unexpected[i])
 				}
-			})
+			}, timeout, 100*time.Millisecond)
 		})
 	}
 }

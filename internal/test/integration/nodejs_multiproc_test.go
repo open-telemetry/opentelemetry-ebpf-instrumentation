@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,8 +30,8 @@ func testNestedTraces(t *testing.T) {
 	// this with  a proper check to see if the target process has finished
 	// being instrumented
 	t.Log("checking instrumentation status")
-	test.Eventually(t, 2*time.Minute, func(t require.TestingT) {
-		ti.DoHTTPGet(t, "http://localhost:5000/a", 200)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, "http://localhost:5000/a", 200)
 
 		resp, err := http.Get(jaegerQueryURL + "?service=service-a&limit=1")
 		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
@@ -40,11 +39,11 @@ func testNestedTraces(t *testing.T) {
 		}
 
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		if len(tq.Data) == 0 {
 			return
 		}
-	}, test.Interval(1*time.Second))
+	}, 2*time.Minute, 1*time.Second)
 	t.Log("instrumentation ready")
 
 	// Add and check for specific trace ID
@@ -56,19 +55,19 @@ func testNestedTraces(t *testing.T) {
 
 	// Get the first 5 traces
 	var multipleTraces []jaeger.Trace
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=service-a&operation=GET%20%2Fa")
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		if resp == nil {
 			return
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/a"})
-		require.LessOrEqual(t, 5, len(traces))
+		require.LessOrEqual(ct, 5, len(traces))
 		multipleTraces = traces
-	}, test.Interval(500*time.Millisecond))
+	}, testTimeout, 500*time.Millisecond)
 
 	checkTrace := func(trace *jaeger.Trace, route string, port int, status int) {
 		res := trace.FindByOperationName("GET "+route, "server")

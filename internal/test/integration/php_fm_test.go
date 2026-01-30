@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -46,7 +45,7 @@ func testREDMetricsForPHPHTTPLibrary(t *testing.T, url string, nginx, php string
 	}
 
 	// Eventually, Prometheus would make this query visible
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -54,17 +53,17 @@ func testREDMetricsForPHPHTTPLibrary(t *testing.T, url string, nginx, php string
 			`service_namespace="integration-test",` +
 			`service_name="` + nginx + `",` +
 			`http_route="/ping"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	}, testTimeout, 100*time.Millisecond)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -72,17 +71,17 @@ func testREDMetricsForPHPHTTPLibrary(t *testing.T, url string, nginx, php string
 			`service_namespace="integration-test",` +
 			`service_name="` + php + `",` +
 			`http_route="/ping"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	}, testTimeout, 100*time.Millisecond)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_client_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -90,16 +89,16 @@ func testREDMetricsForPHPHTTPLibrary(t *testing.T, url string, nginx, php string
 			`service_namespace="integration-test",` +
 			`service_name="` + nginx + `",` +
 			`http_route="/ping"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsPHPFPM(t *testing.T) {
@@ -132,45 +131,45 @@ func testHTTPTracesPHP(t *testing.T) {
 	}
 
 	var trace jaeger.Trace
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=nginx&operation=GET%20%2F")
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		if resp == nil {
 			return
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/"})
-		require.GreaterOrEqual(t, len(traces), 1)
+		require.GreaterOrEqual(ct, len(traces), 1)
 		trace = traces[len(traces)-1]
 
 		// Check the information of the parent span
 		res := trace.FindByOperationNameAndService("GET /", "nginx")
-		require.Len(t, res, 2)
+		require.Len(ct, res, 2)
 		parent := res[0]
-		require.NotEmpty(t, parent.TraceID)
+		require.NotEmpty(ct, parent.TraceID)
 		traceID := parent.TraceID
-		require.NotEmpty(t, parent.SpanID)
+		require.NotEmpty(ct, parent.SpanID)
 		// check duration is at least 2us
-		assert.Less(t, (2 * time.Microsecond).Microseconds(), parent.Duration)
+		assert.Less(ct, (2 * time.Microsecond).Microseconds(), parent.Duration)
 
 		res = trace.FindByOperationNameAndService("GET /", "php-fpm")
-		require.Len(t, res, 1)
+		require.Len(ct, res, 1)
 
 		parent = res[0]
-		require.NotEmpty(t, parent.TraceID)
-		require.Equal(t, traceID, parent.TraceID)
-		require.NotEmpty(t, parent.SpanID)
+		require.NotEmpty(ct, parent.TraceID)
+		require.Equal(ct, traceID, parent.TraceID)
+		require.NotEmpty(ct, parent.SpanID)
 
 		res = trace.FindByOperationNameAndService("SELECT accounts", "php-fpm")
-		require.Len(t, res, 1)
+		require.Len(ct, res, 1)
 
 		parent = res[0]
-		require.NotEmpty(t, parent.TraceID)
-		require.Equal(t, traceID, parent.TraceID)
-		require.NotEmpty(t, parent.SpanID)
-	}, test.Interval(100*time.Millisecond))
+		require.NotEmpty(ct, parent.TraceID)
+		require.Equal(ct, traceID, parent.TraceID)
+		require.NotEmpty(ct, parent.SpanID)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testTracesPHPFPM(t *testing.T) {
