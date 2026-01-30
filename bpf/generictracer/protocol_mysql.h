@@ -184,10 +184,6 @@ static __always_inline u32 data_offset(struct mysql_hdr *hdr) {
                             : k_mysql_hdr_size;
 }
 
-static __always_inline u32 mysql_command_offset(struct mysql_hdr *hdr) {
-    return data_offset(hdr) - k_mysql_hdr_command_id_size;
-}
-
 static __always_inline u8 is_mysql(connection_info_t *conn_info,
                                    const unsigned char *data,
                                    u32 data_len,
