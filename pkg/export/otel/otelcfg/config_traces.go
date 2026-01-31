@@ -24,8 +24,8 @@ func tlog() *slog.Logger {
 
 type TracesConfig struct {
 	TracesConsumer consumer.Traces `yaml:"-"`
-	CommonEndpoint string          `yaml:"-" env:"OTEL_EXPORTER_OTLP_ENDPOINT" ,jsonschema:"format=uri"`
-	TracesEndpoint string          `yaml:"endpoint" env:"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" ,jsonschema:"format=uri"`
+	CommonEndpoint string          `yaml:"-" env:"OTEL_EXPORTER_OTLP_ENDPOINT" jsonschema:"format=uri"`
+	TracesEndpoint string          `yaml:"endpoint" env:"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" jsonschema:"format=uri"`
 
 	Protocol       Protocol `yaml:"protocol" env:"OTEL_EXPORTER_OTLP_PROTOCOL"`
 	TracesProtocol Protocol `yaml:"-" env:"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"`

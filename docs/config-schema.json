@@ -39,13 +39,7 @@
     "Attributes": {
       "properties": {
         "extra_group_attributes": {
-          "additionalProperties": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "type": "object"
+          "$ref": "#/$defs/ExtraGroupAttributesMap"
         },
         "host_id": {
           "$ref": "#/$defs/HostIDConfig"
@@ -471,6 +465,21 @@
       },
       "type": "array",
       "description": "List of signals to export. If undefined or null, all signals are exported. If an empty list, no signals are exported."
+    },
+    "ExtraGroupAttributesMap": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "propertyNames": {
+        "enum": [
+          "k8s_app_meta"
+        ]
+      },
+      "type": "object",
+      "description": "Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key."
     },
     "Features": {
       "items": {
@@ -954,6 +963,7 @@
         },
         "endpoint": {
           "type": "string",
+          "format": "uri",
           "x-env-var": "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
         },
         "extra_span_resource_attributes": {
@@ -972,6 +982,10 @@
         },
         "histogram_aggregation": {
           "type": "string",
+          "enum": [
+            "base2_exponential_bucket_histogram",
+            "explicit_bucket_histogram"
+          ],
           "x-env-var": "OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION"
         },
         "insecure_skip_verify": {
@@ -1671,6 +1685,7 @@
         },
         "endpoint": {
           "type": "string",
+          "format": "uri",
           "x-env-var": "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
         },
         "insecure_skip_verify": {
