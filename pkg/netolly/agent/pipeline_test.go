@@ -90,12 +90,12 @@ func TestFilter(t *testing.T) {
 		fakeRecord(transport.UDP, 3333, 8080),
 	}
 
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		metrics, err := promtest.Scrape(fmt.Sprintf("http://localhost:%d/metrics", promPort))
-		require.NoError(t, err)
+		require.NoError(ct, err)
 
 		// assuming metrics returned alphabetically ordered
-		assert.Equal(t, []promtest.ScrapedMetric{
+		assert.Equal(ct, []promtest.ScrapedMetric{
 			{Name: "obi_network_flow_bytes_total", Labels: map[string]string{
 				"obi_ip": "1.2.3.4", "iface_direction": "ingress", "dst_port": "1011", "iface": "fakeiface", "src_port": "789", "transport": "TCP",
 			}},
@@ -106,7 +106,7 @@ func TestFilter(t *testing.T) {
 			{Name: "promhttp_metric_handler_errors_total", Labels: map[string]string{"cause": "encoding"}},
 			{Name: "promhttp_metric_handler_errors_total", Labels: map[string]string{"cause": "gathering"}},
 		}, metrics)
-	})
+	}, timeout, 100*time.Millisecond)
 }
 
 func fakeRecord(protocol transport.Protocol, srcPort, dstPort uint16) *ebpf.Record {

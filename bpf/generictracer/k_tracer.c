@@ -12,7 +12,6 @@
 #include <common/iov_iter.h>
 #include <common/msg_buffer.h>
 #include <common/dns.h>
-#include <common/pin_internal.h>
 #include <common/sock_port_ns.h>
 #include <common/sockaddr.h>
 #include <common/ssl_helpers.h>

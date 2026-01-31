@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
@@ -79,19 +78,19 @@ func DoWaitForComponentsAvailable(t *testing.T) {
 	)
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// first, verify that the test service endpoint is healthy
 		r, err := http.Get(url + subpath)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
 		results, err = pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `",k8s_pod_name=~"testserver-.*"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, 4*testTimeout, time.Second)
 }
 
 func FeatureHTTPMetricsDecoration(manifest string, overrideAttrs map[string]string) features.Feature {
@@ -306,12 +305,12 @@ func testMetricsDecoration(
 		for _, metric := range metricsSet {
 			t.Run(metric, func(t *testing.T) {
 				var results []promtest.Result
-				test.Eventually(t, testTimeout, func(t require.TestingT) {
+				require.EventuallyWithT(t, func(ct *assert.CollectT) {
 					var err error
 					results, err = pq.Query(metric + queryArgs)
-					require.NoErrorf(t, err, "failed to query Prometheus for metric %s", metric+queryArgs)
-					require.NotEmptyf(t, results, "no results for metric %s", metric+queryArgs)
-				})
+					require.NoErrorf(ct, err, "failed to query Prometheus for metric %s", metric+queryArgs)
+					require.NotEmptyf(ct, results, "no results for metric %s", metric+queryArgs)
+				}, testTimeout, 100*time.Millisecond)
 
 				for _, r := range results {
 					for ek, ev := range expectedLabels {

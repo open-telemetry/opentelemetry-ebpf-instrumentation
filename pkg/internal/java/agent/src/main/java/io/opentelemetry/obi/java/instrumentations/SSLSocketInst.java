@@ -18,7 +18,10 @@ import net.bytebuddy.matcher.ElementMatchers;
 
 public class SSLSocketInst {
   public static ElementMatcher<? super TypeDescription> type() {
+    // sun.security.ssl.SSLSocketImpl is handled by SSLSocketStreamInst, so that
+    // we can get the streams with dynamic attach after they are established.
     return ElementMatchers.isSubTypeOf(SSLSocket.class)
+        .and(ElementMatchers.not(ElementMatchers.named("sun.security.ssl.SSLSocketImpl")))
         .and(ElementMatchers.not(ElementMatchers.isAbstract()))
         .and(ElementMatchers.not(ElementMatchers.isInterface()));
   }
@@ -37,7 +40,7 @@ public class SSLSocketInst {
   }
 
   public static final class GetOutputStreamAdvice {
-    @Advice.OnMethodExit // (suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void getOutputStream(
         @Advice.This final SSLSocket socket,
         @Advice.Return(readOnly = false) OutputStream returnValue) {
@@ -46,7 +49,7 @@ public class SSLSocketInst {
   }
 
   public static final class GetInputStreamAdvice {
-    @Advice.OnMethodExit // (suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void getInputStream(
         @Advice.This final SSLSocket socket,
         @Advice.Return(readOnly = false) InputStream returnValue) {

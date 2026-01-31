@@ -7,7 +7,6 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <common/sockaddr.h>
-#include <common/tcp_info.h>
 
 #include <logger/bpf_dbg.h>
 

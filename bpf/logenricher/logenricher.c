@@ -8,14 +8,10 @@
 #include <common/common.h>
 #include <common/iov_iter.h>
 #include <common/trace_common.h>
-#include <common/trace_util.h>
-#include <common/tracing.h>
 #include <common/scratch_mem.h>
-#include <common/strings.h>
 
 #include <logger/bpf_dbg.h>
 
-#include <pid/pid.h>
 #include <pid/pid_helpers.h>
 
 #include <logenricher/path_resolver.h>

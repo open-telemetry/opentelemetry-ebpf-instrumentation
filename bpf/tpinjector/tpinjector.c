@@ -12,7 +12,6 @@
 #include <common/http_types.h>
 #include <common/msg_buffer.h>
 #include <common/scratch_mem.h>
-#include <common/send_args.h>
 #include <common/ssl_helpers.h>
 #include <common/tc_common.h>
 #include <common/tp_info.h>
@@ -28,9 +27,7 @@
 
 #include <maps/incoming_trace_map.h>
 #include <maps/msg_buffers.h>
-#include <maps/ongoing_http.h>
 #include <maps/sock_dir.h>
-#include <maps/sock_pids.h>
 
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
 

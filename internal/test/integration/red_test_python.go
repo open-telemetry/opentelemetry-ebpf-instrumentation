@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -28,7 +27,7 @@ func testREDMetricsForPythonHTTPLibrary(t *testing.T, url, comm, namespace strin
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -36,16 +35,16 @@ func testREDMetricsForPythonHTTPLibrary(t *testing.T, url, comm, namespace strin
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsTimeoutForPythonHTTPLibrary(t *testing.T, url, comm, namespace string) {
@@ -56,7 +55,7 @@ func testREDMetricsTimeoutForPythonHTTPLibrary(t *testing.T, url, comm, namespac
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -64,16 +63,16 @@ func testREDMetricsTimeoutForPythonHTTPLibrary(t *testing.T, url, comm, namespac
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 1, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsDNSForPython(t *testing.T, url, comm, namespace string) {
@@ -85,27 +84,27 @@ func testREDMetricsDNSForPython(t *testing.T, url, comm, namespace string) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`dns_lookup_duration_seconds_count{` +
 			`dns_question_name="opentelemetry.io.",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 1, val)
 
 		results, err = pq.Query(`dns_lookup_duration_seconds_count{` +
 			`dns_question_name="www.opentelemetry.invalid.",` +
 			`error_type="NXDomain",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val = totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
-	})
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val = totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 1, val)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsPythonHTTP(t *testing.T) {
@@ -158,7 +157,7 @@ func checkReportedPythonEvents(t *testing.T, comm, namespace string, numEvents i
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -166,14 +165,14 @@ func checkReportedPythonEvents(t *testing.T, comm, namespace string, numEvents i
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + urlPath + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, val, numEvents)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, val, numEvents)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 }

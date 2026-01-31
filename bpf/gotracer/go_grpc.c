@@ -20,7 +20,6 @@
 #include <common/globals.h>
 #include <common/ringbuf.h>
 
-#include <gotracer/go_byte_arr.h>
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>

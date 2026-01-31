@@ -8,7 +8,6 @@
 
 #include <common/iov_iter.h>
 #include <common/http_buf_size.h>
-#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 
 #include <generictracer/http2_grpc.h>
