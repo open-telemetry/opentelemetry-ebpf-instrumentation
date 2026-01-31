@@ -24,21 +24,27 @@ import (
 
 	"github.com/invopop/jsonschema"
 
-	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-// enumRegistry maps type names to their valid enum values.
-// This is populated by scanning source files at startup.
-var enumRegistry = make(map[string][]any)
+// SchemaGenerator holds the state for schema generation.
+type SchemaGenerator struct {
+	// enums maps type names to their valid enum values.
+	enums map[string][]any
+	// envVars maps (typeName, yamlFieldName) to environment variable names.
+	envVars map[string]map[string]string
+	// inlineFields maps typeName to a list of inline field type names.
+	inlineFields map[string][]string
+}
 
-// envVarRegistry maps (typeName, yamlFieldName) to environment variable names.
-// This is populated by scanning source files at startup.
-var envVarRegistry = make(map[string]map[string]string)
-
-// inlineFieldRegistry maps typeName to a list of inline field type names.
-// This is populated by scanning source files at startup.
-var inlineFieldRegistry = make(map[string][]string)
+// NewSchemaGenerator creates a new SchemaGenerator with initialized registries.
+func NewSchemaGenerator() *SchemaGenerator {
+	return &SchemaGenerator{
+		enums:        make(map[string][]any),
+		envVars:      make(map[string]map[string]string),
+		inlineFields: make(map[string][]string),
+	}
+}
 
 // packagesToScan lists packages that contain types used in the config
 var packagesToScan = []string{
@@ -59,122 +65,152 @@ var packagesToScan = []string{
 	"pkg/appolly/services",
 }
 
-func scanModuleEnums() {
+// scanSourceFiles scans all Go source files in packagesToScan and extracts metadata.
+func (g *SchemaGenerator) scanSourceFiles() {
 	moduleRoot := findModuleRoot(filepath.Dir("../.."))
 	if moduleRoot == "" {
-		fmt.Fprintln(os.Stderr, "Warning: could not find module root for enum extraction")
+		fmt.Fprintln(os.Stderr, "Warning: could not find module root")
 		return
-	}
-
-	for _, pkg := range packagesToScan {
-		pkgPath := filepath.Join(moduleRoot, pkg)
-		if err := scanPackageForEnums(pkgPath); err != nil {
-			// exit and error
-			fmt.Fprintf(os.Stderr, "Error scanning package %s for enums: %v\n", pkg, err)
-			os.Exit(1)
-		}
-	}
-}
-
-func scanModuleEnvVars() {
-	moduleRoot := findModuleRoot(filepath.Dir("../.."))
-	if moduleRoot == "" {
-		fmt.Fprintln(os.Stderr, "Warning: could not find module root for env var extraction")
-		return
-	}
-
-	for _, pkg := range packagesToScan {
-		pkgPath := filepath.Join(moduleRoot, pkg)
-		if err := scanPackageForEnvVars(pkgPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Error scanning package %s for env vars: %v\n", pkg, err)
-			os.Exit(1)
-		}
-	}
-}
-
-func scanPackageForEnvVars(pkgPath string) error {
-	entries, err := os.ReadDir(pkgPath)
-	if err != nil {
-		return err
 	}
 
 	fset := token.NewFileSet()
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
-			continue
-		}
-		if strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
+	for _, pkg := range packagesToScan {
+		pkgPath := filepath.Join(moduleRoot, pkg)
+		entries, err := os.ReadDir(pkgPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading package %s: %v\n", pkg, err)
+			os.Exit(1)
 		}
 
-		filePath := filepath.Join(pkgPath, entry.Name())
-		file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
-		if err != nil {
-			return fmt.Errorf("parsing %s: %w", filePath, err)
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+				continue
+			}
+			if strings.HasSuffix(entry.Name(), "_test.go") {
+				continue
+			}
+
+			filePath := filepath.Join(pkgPath, entry.Name())
+			file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error parsing %s: %v\n", filePath, err)
+				os.Exit(1)
+			}
+			g.extractFileMetadata(file)
 		}
-		extractEnvVarsFromFile(file)
 	}
-	return nil
 }
 
-func extractEnvVarsFromFile(file *ast.File) {
+// extractFileMetadata extracts all metadata from a Go source file in a single pass.
+func (g *SchemaGenerator) extractFileMetadata(file *ast.File) {
 	for _, decl := range file.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.TYPE {
+		if !ok {
 			continue
 		}
 
-		for _, spec := range genDecl.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if !ok {
+		switch genDecl.Tok {
+		case token.CONST:
+			g.extractEnumsFromDecl(genDecl)
+		case token.TYPE:
+			g.extractStructMetadataFromDecl(genDecl)
+		}
+	}
+}
+
+// extractEnumsFromDecl extracts enum values from a const declaration.
+func (g *SchemaGenerator) extractEnumsFromDecl(genDecl *ast.GenDecl) {
+	var currentType string
+
+	for _, spec := range genDecl.Specs {
+		valueSpec, ok := spec.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+
+		if valueSpec.Type != nil {
+			currentType = exprToTypeName(valueSpec.Type)
+		}
+
+		for i, name := range valueSpec.Names {
+			if name.Name == "_" || !name.IsExported() {
 				continue
 			}
 
-			structType, ok := typeSpec.Type.(*ast.StructType)
-			if !ok {
-				continue
-			}
-
-			typeName := typeSpec.Name.Name
-			if envVarRegistry[typeName] == nil {
-				envVarRegistry[typeName] = make(map[string]string)
-			}
-
-			for _, field := range structType.Fields.List {
-				if field.Tag == nil {
-					continue
-				}
-
-				tag := strings.Trim(field.Tag.Value, "`")
-				yamlName := extractTagValue(tag, "yaml")
-				envVar := extractTagValue(tag, "env")
-
-				// Check for inline fields (yaml:",inline")
-				if strings.Contains(yamlName, "inline") || yamlName == ",inline" {
-					// Get the type name of the inline field
-					inlineTypeName := exprToTypeName(field.Type)
-					if inlineTypeName != "" {
-						inlineFieldRegistry[typeName] = append(inlineFieldRegistry[typeName], inlineTypeName)
-					}
-					continue
-				}
-
-				if yamlName != "" && envVar != "" {
-					// Remove options from yaml tag (e.g., "field,omitempty" -> "field")
-					if idx := strings.Index(yamlName, ","); idx != -1 {
-						yamlName = yamlName[:idx]
-					}
-					// Remove options from env tag (e.g., "VAR,expand" -> "VAR")
-					if idx := strings.Index(envVar, ","); idx != -1 {
-						envVar = envVar[:idx]
-					}
-					// Skip env vars that are just variable expansions
-					if !strings.HasPrefix(envVar, "${") {
-						envVarRegistry[typeName][yamlName] = envVar
-					}
+			if i < len(valueSpec.Values) {
+				typeName, value := extractConstValueAndType(valueSpec.Values[i], currentType)
+				if typeName != "" && value != nil {
+					g.enums[typeName] = append(g.enums[typeName], value)
 				}
 			}
 		}
+	}
+}
+
+// extractStructMetadataFromDecl extracts env vars and inline fields from a type declaration.
+func (g *SchemaGenerator) extractStructMetadataFromDecl(genDecl *ast.GenDecl) {
+	for _, spec := range genDecl.Specs {
+		typeSpec, ok := spec.(*ast.TypeSpec)
+		if !ok {
+			continue
+		}
+
+		structType, ok := typeSpec.Type.(*ast.StructType)
+		if !ok {
+			continue
+		}
+
+		typeName := typeSpec.Name.Name
+		if g.envVars[typeName] == nil {
+			g.envVars[typeName] = make(map[string]string)
+		}
+
+		for _, field := range structType.Fields.List {
+			if field.Tag == nil {
+				continue
+			}
+
+			tag := strings.Trim(field.Tag.Value, "`")
+			yamlName := extractTagValue(tag, "yaml")
+
+			// Handle inline fields
+			if strings.Contains(yamlName, "inline") || yamlName == ",inline" {
+				g.extractInlineField(typeName, field)
+				continue
+			}
+
+			// Handle env vars
+			g.extractEnvVar(typeName, tag, yamlName)
+		}
+	}
+}
+
+// extractInlineField records an inline field relationship.
+func (g *SchemaGenerator) extractInlineField(parentType string, field *ast.Field) {
+	inlineTypeName := exprToTypeName(field.Type)
+	if inlineTypeName != "" {
+		g.inlineFields[parentType] = append(g.inlineFields[parentType], inlineTypeName)
+	}
+}
+
+// extractEnvVar extracts environment variable mapping from a struct field.
+func (g *SchemaGenerator) extractEnvVar(typeName, tag, yamlName string) {
+	envVar := extractTagValue(tag, "env")
+	if yamlName == "" || envVar == "" {
+		return
+	}
+
+	// Remove options from yaml tag (e.g., "field,omitempty" -> "field")
+	if idx := strings.Index(yamlName, ","); idx != -1 {
+		yamlName = yamlName[:idx]
+	}
+	// Remove options from env tag (e.g., "VAR,expand" -> "VAR")
+	if idx := strings.Index(envVar, ","); idx != -1 {
+		envVar = envVar[:idx]
+	}
+	// Skip env vars that are just variable expansions
+	if !strings.HasPrefix(envVar, "${") {
+		g.envVars[typeName][yamlName] = envVar
 	}
 }
 
@@ -205,70 +241,6 @@ func findModuleRoot(start string) string {
 			return ""
 		}
 		dir = parent
-	}
-}
-
-func scanPackageForEnums(pkgPath string) error {
-	entries, err := os.ReadDir(pkgPath)
-	if err != nil {
-		return err
-	}
-
-	fset := token.NewFileSet()
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
-			continue
-		}
-		// Skip test files
-		if strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-
-		filePath := filepath.Join(pkgPath, entry.Name())
-		file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
-		if err != nil {
-			return fmt.Errorf("parsing %s: %w", filePath, err)
-		}
-		extractEnumsFromFile(file)
-	}
-	return nil
-}
-
-func extractEnumsFromFile(file *ast.File) {
-	for _, decl := range file.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.CONST {
-			continue
-		}
-
-		// Track the current type for iota-style declarations
-		var currentType string
-
-		for _, spec := range genDecl.Specs {
-			valueSpec, ok := spec.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-
-			// Get the type name from this spec or inherit from previous
-			if valueSpec.Type != nil {
-				currentType = exprToTypeName(valueSpec.Type)
-			}
-
-			// Extract the string value from the const
-			for i, name := range valueSpec.Names {
-				if name.Name == "_" || !name.IsExported() {
-					continue
-				}
-
-				if i < len(valueSpec.Values) {
-					typeName, value := extractConstValueAndType(valueSpec.Values[i], currentType)
-					if typeName != "" && value != nil {
-						enumRegistry[typeName] = append(enumRegistry[typeName], value)
-					}
-				}
-			}
-		}
 	}
 }
 
@@ -315,31 +287,35 @@ func extractConstValueAndType(expr ast.Expr, inheritedType string) (typeName str
 func main() {
 	outputFile := flag.String("output", "", "Output file path (default: stdout)")
 	flag.Parse()
+
+	g := NewSchemaGenerator()
+
+	// Scan source files to populate registries
+	g.scanSourceFiles()
+
 	reflector := &jsonschema.Reflector{
 		RequiredFromJSONSchemaTags: true,
 		AllowAdditionalProperties:  true,
 		ExpandedStruct:             true,
 		FieldNameTag:               "yaml",
-		Mapper:                     customMapper,
+		Mapper:                     g.customMapper(),
 	}
 	if err := reflector.AddGoComments("go.opentelemetry.io/obi", "./"); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not add Go comments: %v\n", err)
 	}
 
-	scanModuleEnums()
-	scanModuleEnvVars()
 	schema := reflector.Reflect(&obi.Config{})
 	schema.Title = "OBI Configuration Schema"
 	schema.Description = "JSON Schema for OpenTelemetry eBPF Instrumentation (OBI) configuration"
 
 	// Process inline fields first (merge properties from inline types)
-	processInlineFields(schema)
+	g.processInlineFields(schema)
 
 	// Process deprecated annotations from comments
 	processDeprecated(schema)
 
 	// Add environment variable annotations
-	processEnvVars(schema)
+	g.processEnvVars(schema)
 
 	// Sort properties for deterministic output
 	sortSchemaProperties(schema)
@@ -361,21 +337,124 @@ func main() {
 	}
 }
 
-// inlineTypeSchemas maps inline type names to functions that return their schema.
-// This is needed because these types implement JSONSchema() and aren't in definitions.
-var inlineTypeSchemas = map[string]func() *jsonschema.Schema{
-	"MetadataGlobMap":  func() *jsonschema.Schema { return services.MetadataGlobMap(nil).JSONSchema() },
-	"MetadataRegexMap": func() *jsonschema.Schema { return services.MetadataRegexMap(nil).JSONSchema() },
+// jsonSchemaer is the interface for types that provide custom JSON schemas.
+type jsonSchemaer interface {
+	JSONSchema() *jsonschema.Schema
+}
+
+// buildInlineTypeSchemas uses reflection to find inline fields that implement JSONSchema().
+// It walks the type hierarchy starting from rootType and returns a map of type name to schema function.
+func buildInlineTypeSchemas(rootType reflect.Type) map[string]func() *jsonschema.Schema {
+	result := make(map[string]func() *jsonschema.Schema)
+	visited := make(map[reflect.Type]bool)
+
+	var walk func(t reflect.Type)
+	walk = func(t reflect.Type) {
+		// Unwrap pointers
+		for t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+
+		// Handle slices and arrays - walk the element type
+		if t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
+			walk(t.Elem())
+			return
+		}
+
+		// Handle maps - walk the value type
+		if t.Kind() == reflect.Map {
+			walk(t.Elem())
+			return
+		}
+
+		// Only process structs
+		if t.Kind() != reflect.Struct {
+			return
+		}
+
+		// Avoid infinite recursion
+		if visited[t] {
+			return
+		}
+		visited[t] = true
+
+		for i := 0; i < t.NumField(); i++ {
+			field := t.Field(i)
+			yamlTag := field.Tag.Get("yaml")
+
+			// Check if this is an inline field
+			if strings.Contains(yamlTag, "inline") {
+				fieldType := field.Type
+				// Handle pointer types
+				for fieldType.Kind() == reflect.Ptr {
+					fieldType = fieldType.Elem()
+				}
+
+				// Check if it implements JSONSchema()
+				if hasJSONSchemaMethod(fieldType) {
+					typeName := fieldType.Name()
+					// Capture fieldType in closure
+					ft := fieldType
+					result[typeName] = func() *jsonschema.Schema {
+						return callJSONSchemaMethod(ft)
+					}
+				}
+			}
+
+			// Recursively walk nested types
+			walk(field.Type)
+		}
+	}
+
+	walk(rootType)
+	return result
+}
+
+// hasJSONSchemaMethod checks if a type implements the JSONSchema() method.
+func hasJSONSchemaMethod(t reflect.Type) bool {
+	return t.Implements(jsonSchemaerType) || reflect.PointerTo(t).Implements(jsonSchemaerType)
+}
+
+// callJSONSchemaMethod calls the JSONSchema() method on a zero value of the given type.
+func callJSONSchemaMethod(t reflect.Type) *jsonschema.Schema {
+	// Try value receiver first
+	method, ok := t.MethodByName("JSONSchema")
+	if ok {
+		zero := reflect.Zero(t)
+		results := method.Func.Call([]reflect.Value{zero})
+		if len(results) == 1 {
+			if schema, ok := results[0].Interface().(*jsonschema.Schema); ok {
+				return schema
+			}
+		}
+	}
+
+	// Try pointer receiver
+	method, ok = reflect.PointerTo(t).MethodByName("JSONSchema")
+	if ok {
+		zero := reflect.New(t)
+		results := method.Func.Call([]reflect.Value{zero})
+		if len(results) == 1 {
+			if schema, ok := results[0].Interface().(*jsonschema.Schema); ok {
+				return schema
+			}
+		}
+	}
+
+	return nil
 }
 
 // processInlineFields merges properties from inline field types into their parent schemas.
-func processInlineFields(schema *jsonschema.Schema) {
+func (g *SchemaGenerator) processInlineFields(schema *jsonschema.Schema) {
 	if schema == nil {
 		return
 	}
 
+	// Build inline type schemas dynamically using reflection
+	inlineTypeSchemas := buildInlineTypeSchemas(reflect.TypeOf(obi.Config{}))
+
 	// Process each definition that has inline fields
-	for typeName, inlineTypes := range inlineFieldRegistry {
+	for typeName, inlineTypes := range g.inlineFields {
 		defSchema, ok := schema.Definitions[typeName]
 		if !ok {
 			continue
@@ -410,22 +489,22 @@ func processInlineFields(schema *jsonschema.Schema) {
 
 // processEnvVars walks through all schemas and adds x-env-var extension
 // for properties that have corresponding environment variables.
-func processEnvVars(schema *jsonschema.Schema) {
+func (g *SchemaGenerator) processEnvVars(schema *jsonschema.Schema) {
 	if schema == nil {
 		return
 	}
 
 	// Process definitions - these are named types
 	for typeName, defSchema := range schema.Definitions {
-		if envVars, ok := envVarRegistry[typeName]; ok {
+		if envVars, ok := g.envVars[typeName]; ok {
 			addEnvVarsToProperties(defSchema, envVars)
 		}
 		// Recursively process nested schemas
-		processEnvVars(defSchema)
+		g.processEnvVars(defSchema)
 	}
 
 	// Process root schema properties (for Config type)
-	if envVars, ok := envVarRegistry["Config"]; ok {
+	if envVars, ok := g.envVars["Config"]; ok {
 		addEnvVarsToProperties(schema, envVars)
 	}
 }
@@ -449,23 +528,59 @@ func addEnvVarsToProperties(schema *jsonschema.Schema, envVars map[string]string
 	}
 }
 
-// sortSchemaProperties sorts all properties and enums in the schema alphabetically for deterministic output.
-func sortSchemaProperties(schema *jsonschema.Schema) {
+// visitNestedSchemas recursively visits all nested schemas and calls the visitor function.
+func visitNestedSchemas(schema *jsonschema.Schema, visitor func(*jsonschema.Schema)) {
 	if schema == nil {
 		return
 	}
+	visitor(schema)
 
-	// Sort the root schema
-	sortSchema(schema)
+	// Visit properties
+	if schema.Properties != nil {
+		for pair := schema.Properties.Oldest(); pair != nil; pair = pair.Next() {
+			visitNestedSchemas(pair.Value, visitor)
+		}
+	}
 
-	// Sort all definitions
-	for _, defSchema := range schema.Definitions {
-		sortSchema(defSchema)
+	// Visit definitions
+	for _, s := range schema.Definitions {
+		visitNestedSchemas(s, visitor)
+	}
+
+	// Visit single nested schemas
+	for _, s := range []*jsonschema.Schema{
+		schema.Not, schema.If, schema.Then, schema.Else,
+		schema.Items, schema.Contains, schema.AdditionalProperties,
+	} {
+		visitNestedSchemas(s, visitor)
+	}
+
+	// Visit schema slices
+	for _, list := range [][]*jsonschema.Schema{
+		schema.AllOf, schema.AnyOf, schema.OneOf, schema.PrefixItems,
+	} {
+		for _, s := range list {
+			visitNestedSchemas(s, visitor)
+		}
+	}
+
+	// Visit schema maps
+	for _, m := range []map[string]*jsonschema.Schema{
+		schema.PatternProperties, schema.DependentSchemas,
+	} {
+		for _, s := range m {
+			visitNestedSchemas(s, visitor)
+		}
 	}
 }
 
-// sortSchema sorts properties and enum values of a schema alphabetically.
-func sortSchema(schema *jsonschema.Schema) {
+// sortSchemaProperties sorts all properties and enums in the schema alphabetically for deterministic output.
+func sortSchemaProperties(schema *jsonschema.Schema) {
+	visitNestedSchemas(schema, sortSchemaNode)
+}
+
+// sortSchemaNode sorts properties and enum values of a single schema node.
+func sortSchemaNode(schema *jsonschema.Schema) {
 	if schema == nil {
 		return
 	}
@@ -489,74 +604,16 @@ func sortSchema(schema *jsonschema.Schema) {
 		for _, key := range keys {
 			if val, ok := schema.Properties.Get(key); ok {
 				newProps.Set(key, val)
-				sortSchema(val)
 			}
 		}
 		schema.Properties = newProps
-	}
-
-	// Recursively sort nested schemas
-	sortSchema(schema.Items)
-	sortSchema(schema.AdditionalProperties)
-	for _, s := range schema.AllOf {
-		sortSchema(s)
-	}
-	for _, s := range schema.AnyOf {
-		sortSchema(s)
-	}
-	for _, s := range schema.OneOf {
-		sortSchema(s)
 	}
 }
 
 // processDeprecated walks through all schemas and extracts "Deprecated:" from
 // descriptions, setting the Deprecated field accordingly.
 func processDeprecated(schema *jsonschema.Schema) {
-	if schema == nil {
-		return
-	}
-
-	// Process the schema's own description
-	processSchemaDeprecation(schema)
-
-	// Process properties
-	if schema.Properties != nil {
-		for pair := schema.Properties.Oldest(); pair != nil; pair = pair.Next() {
-			processDeprecated(pair.Value)
-		}
-	}
-
-	// Process definitions
-	for _, defSchema := range schema.Definitions {
-		processDeprecated(defSchema)
-	}
-
-	// Process nested schemas
-	for _, s := range schema.AllOf {
-		processDeprecated(s)
-	}
-	for _, s := range schema.AnyOf {
-		processDeprecated(s)
-	}
-	for _, s := range schema.OneOf {
-		processDeprecated(s)
-	}
-	processDeprecated(schema.Not)
-	processDeprecated(schema.If)
-	processDeprecated(schema.Then)
-	processDeprecated(schema.Else)
-	processDeprecated(schema.Items)
-	processDeprecated(schema.Contains)
-	processDeprecated(schema.AdditionalProperties)
-	for _, s := range schema.PrefixItems {
-		processDeprecated(s)
-	}
-	for _, s := range schema.PatternProperties {
-		processDeprecated(s)
-	}
-	for _, s := range schema.DependentSchemas {
-		processDeprecated(s)
-	}
+	visitNestedSchemas(schema, processSchemaDeprecation)
 }
 
 // processSchemaDeprecation checks if a schema's description contains
@@ -566,90 +623,66 @@ func processSchemaDeprecation(schema *jsonschema.Schema) {
 		return
 	}
 
-	desc := schema.Description
-	lowerDesc := strings.ToLower(desc)
-
-	// Check for "Deprecated:" at the start of the description
-	if strings.HasPrefix(lowerDesc, "deprecated:") {
-		schema.Deprecated = true
-		schema.Description = strings.TrimSpace(desc[len("deprecated:"):])
-		return
-	}
-	if lowerDesc == "deprecated" {
-		schema.Deprecated = true
-		schema.Description = ""
-		return
-	}
-
-	// Check for "Deprecated:" at the start of any line (for multi-line comments)
-	lines := strings.Split(desc, "\n")
+	lines := strings.Split(schema.Description, "\n")
 	for i, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-		lowerLine := strings.ToLower(trimmedLine)
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
 
-		if strings.HasPrefix(lowerLine, "deprecated:") {
+		if strings.HasPrefix(lower, "deprecated:") {
 			schema.Deprecated = true
-			// Remove the deprecated line and merge remaining content
-			deprecationMsg := strings.TrimSpace(trimmedLine[len("deprecated:"):])
-			// Keep lines before, skip the "Deprecated:" line, keep lines after
-			var newLines []string
-			newLines = append(newLines, lines[:i]...)
-			if deprecationMsg != "" {
-				newLines = append(newLines, deprecationMsg)
-			}
-			newLines = append(newLines, lines[i+1:]...)
-			schema.Description = strings.TrimSpace(strings.Join(newLines, "\n"))
+			msg := strings.TrimSpace(trimmed[len("deprecated:"):])
+			lines[i] = msg
+			schema.Description = strings.TrimSpace(strings.Join(lines, "\n"))
 			return
 		}
-		if lowerLine == "deprecated" {
+		if lower == "deprecated" {
 			schema.Deprecated = true
-			var newLines []string
-			newLines = append(newLines, lines[:i]...)
-			newLines = append(newLines, lines[i+1:]...)
-			schema.Description = strings.TrimSpace(strings.Join(newLines, "\n"))
+			lines = append(lines[:i], lines[i+1:]...)
+			schema.Description = strings.TrimSpace(strings.Join(lines, "\n"))
 			return
 		}
 	}
 }
 
-// jsonSchemaPropertyType is the interface used by invopop/jsonschema to detect
-// types that provide their own JSONSchema implementation.
-var jsonSchemaPropertyType = reflect.TypeOf((*interface{ JSONSchema() *jsonschema.Schema })(nil)).Elem()
+// jsonSchemaerType is the reflect.Type for the jsonSchemaer interface.
+var jsonSchemaerType = reflect.TypeOf((*jsonSchemaer)(nil)).Elem()
 
-// customMapper handles types that the default reflector cannot process
+// customMapper returns a mapper function that handles types the default reflector cannot process
 // and provides enum values for string-typed constants.
-func customMapper(t reflect.Type) *jsonschema.Schema {
-	// Skip types that implement JSONSchema() - let the reflector handle them
-	if t.Implements(jsonSchemaPropertyType) || reflect.PointerTo(t).Implements(jsonSchemaPropertyType) {
+func (g *SchemaGenerator) customMapper() func(reflect.Type) *jsonschema.Schema {
+	return func(t reflect.Type) *jsonschema.Schema {
+		// Skip types that implement JSONSchema() - let the reflector handle them
+		if t.Implements(jsonSchemaerType) || reflect.PointerTo(t).Implements(jsonSchemaerType) {
+			return nil
+		}
+
+		// Skip function types - they are not serializable in JSON/YAML
+		if t.Kind() == reflect.Func {
+			return &jsonschema.Schema{
+				Type:        "null",
+				Description: "Function type (not serializable)",
+			}
+		}
+
+		// Handle time.Duration as a string (Go duration format)
+		if t == reflect.TypeOf(time.Duration(0)) {
+			return &jsonschema.Schema{
+				Type:        "string",
+				Description: "Duration in Go format (e.g., '30s', '5m', '1ms')",
+				Pattern:     "^[0-9]+(ms|s|m)$",
+				Examples:    []any{"30s", "5m", "1ms"},
+			}
+		}
+
+		// Check if this type has enum values in our registry
+		typeName := t.Name()
+		if values, ok := g.enums[typeName]; ok && len(values) > 0 {
+			return &jsonschema.Schema{
+				Type: "string",
+				Enum: values,
+			}
+		}
+
 		return nil
 	}
-
-	// Skip function types - they are not serializable in JSON/YAML
-	if t.Kind() == reflect.Func {
-		return &jsonschema.Schema{
-			Type:        "null",
-			Description: "Function type (not serializable)",
-		}
-	}
-
-	// Handle time.Duration as a string (Go duration format)
-	if t == reflect.TypeOf(time.Duration(0)) {
-		return &jsonschema.Schema{
-			Type:        "string",
-			Description: "Duration in Go format (e.g., '30s', '5m', '1ms')",
-			Pattern:     "^[0-9]+(ms|s|m)$",
-			Examples:    []any{"30s", "5m", "1ms"},
-		}
-	}
-
-	// Check if this type has enum values in our registry
-	typeName := t.Name()
-	if values, ok := enumRegistry[typeName]; ok && len(values) > 0 {
-		return &jsonschema.Schema{
-			Type: "string",
-			Enum: values,
-		}
-	}
-
-	return nil
 }
