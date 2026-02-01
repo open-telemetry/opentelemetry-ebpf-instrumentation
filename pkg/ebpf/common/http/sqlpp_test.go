@@ -432,6 +432,102 @@ func TestSQLPPSpanWithError(t *testing.T) {
 	assert.Equal(t, "Keyspace not found in CB datastore", resultSpan.DBError.Description)
 }
 
+func TestParseSQLPPTablePath(t *testing.T) {
+	tests := []struct {
+		name               string
+		table              string
+		hasQueryContext    bool
+		expectedBucket     string
+		expectedCollection string
+	}{
+		{
+			name:               "empty table",
+			table:              "",
+			hasQueryContext:    false,
+			expectedBucket:     "",
+			expectedCollection: "",
+		},
+		{
+			name:               "single identifier without query context",
+			table:              "mybucket",
+			hasQueryContext:    false,
+			expectedBucket:     "mybucket",
+			expectedCollection: "",
+		},
+		{
+			name:               "single identifier with query context",
+			table:              "mycollection",
+			hasQueryContext:    true,
+			expectedBucket:     "",
+			expectedCollection: "mycollection",
+		},
+		{
+			name:               "three-part path",
+			table:              "mybucket.myscope.mycollection",
+			hasQueryContext:    false,
+			expectedBucket:     "mybucket",
+			expectedCollection: "myscope.mycollection",
+		},
+		{
+			name:               "three-part path with query context",
+			table:              "mybucket.myscope.mycollection",
+			hasQueryContext:    true,
+			expectedBucket:     "mybucket",
+			expectedCollection: "myscope.mycollection",
+		},
+		{
+			name:               "two-part path returns as-is",
+			table:              "bucket.collection",
+			hasQueryContext:    false,
+			expectedBucket:     "",
+			expectedCollection: "bucket.collection",
+		},
+		{
+			name:               "four-part path returns as-is",
+			table:              "a.b.c.d",
+			hasQueryContext:    false,
+			expectedBucket:     "",
+			expectedCollection: "a.b.c.d",
+		},
+		{
+			name:               "backtick-quoted single identifier without query context",
+			table:              "`my-bucket`",
+			hasQueryContext:    false,
+			expectedBucket:     "`my-bucket`",
+			expectedCollection: "",
+		},
+		{
+			name:               "backtick-quoted single identifier with query context",
+			table:              "`my-collection`",
+			hasQueryContext:    true,
+			expectedBucket:     "",
+			expectedCollection: "`my-collection`",
+		},
+		{
+			name:               "backtick-quoted three-part path",
+			table:              "`my-bucket`.`my-scope`.`my-collection`",
+			hasQueryContext:    false,
+			expectedBucket:     "`my-bucket`",
+			expectedCollection: "`my-scope`.`my-collection`",
+		},
+		{
+			name:               "mixed quoted and unquoted three-part path",
+			table:              "mybucket.`my-scope`.mycollection",
+			hasQueryContext:    false,
+			expectedBucket:     "mybucket",
+			expectedCollection: "`my-scope`.mycollection",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bucket, collection := parseSQLPPTablePath(tt.table, tt.hasQueryContext)
+			assert.Equal(t, tt.expectedBucket, bucket)
+			assert.Equal(t, tt.expectedCollection, collection)
+		})
+	}
+}
+
 func TestExtractSQLPPNamespace(t *testing.T) {
 	tests := []struct {
 		name              string

@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/internal/split"
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
 )
 
@@ -109,8 +110,9 @@ func hasN1QLVersion(resp *http.Response) bool {
 	}
 	contentType := resp.Header.Get("Content-Type")
 	// Split by semicolons to get individual parameters
-	parts := strings.Split(contentType, ";")
-	for _, part := range parts {
+	iter := split.NewIterator(contentType, ";")
+	for part, eof := iter.Next(); !eof; part, eof = iter.Next() {
+		part = strings.TrimSuffix(part, ";")
 		part = strings.TrimSpace(part)
 		// Look for version= parameter
 		if strings.HasPrefix(strings.ToLower(part), "version=") {
@@ -131,19 +133,29 @@ func parseSQLPPTablePath(table string, hasQueryContext bool) (bucket, collection
 		return "", ""
 	}
 
-	parts := strings.Split(table, ".")
-	switch len(parts) {
+	// Count parts first
+	iter := split.NewIterator(table, ".")
+	count := 0
+	for _, eof := iter.Next(); !eof; _, eof = iter.Next() {
+		count++
+	}
+
+	switch count {
 	case 1:
 		// Just a single identifier - interpretation depends on context
 		if hasQueryContext {
 			// When query_context is set, this is the collection name
-			return "", parts[0]
+			return "", table
 		}
 		// When no query_context, this is the bucket name (legacy mode)
-		return parts[0], ""
+		return table, ""
 	case 3:
-		// bucket.scope.collection
-		return parts[0], parts[1] + "." + parts[2]
+		// bucket.scope.collection - extract parts inline
+		iter.Reset()
+		part0, _ := iter.Next()
+		part1, _ := iter.Next()
+		part2, _ := iter.Next()
+		return strings.TrimSuffix(part0, "."), strings.TrimSuffix(part1, ".") + "." + part2
 	default:
 		// Unexpected format, return as-is
 		return "", table
@@ -186,12 +198,14 @@ func parseSQLPPRequest(req *http.Request) (*sqlppRequest, error) {
 
 // extractFormValue extracts a value from form-encoded data
 func extractFormValue(data, key string) string {
-	pairs := strings.Split(data, "&")
-	for _, pair := range pairs {
-		kv := strings.SplitN(pair, "=", 2)
-		if len(kv) == 2 && kv[0] == key {
+	iter := split.NewIterator(data, "&")
+	for pair, eof := iter.Next(); !eof; pair, eof = iter.Next() {
+		pair = strings.TrimSuffix(pair, "&")
+		// Split by first "=" only (equivalent to SplitN with 2)
+		idx := strings.Index(pair, "=")
+		if idx > 0 && pair[:idx] == key {
 			// URL decode the value
-			return strings.ReplaceAll(kv[1], "+", " ")
+			return strings.ReplaceAll(pair[idx+1:], "+", " ")
 		}
 	}
 	return ""
