@@ -41,6 +41,8 @@
 
 #include <pid/pid.h>
 
+#include <shared/obi_ctx.h>
+
 // Used by accept to grab the sock details
 SEC("kprobe/security_socket_accept")
 int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct socket *newsock) {
@@ -1099,6 +1101,7 @@ int BPF_KPROBE(obi_kprobe_sys_exit, int status) {
     // This won't delete trace ids for traces with extra_id, like NodeJS. But,
     // we expect that it doesn't matter, since NodeJS main thread won't exit.
     bpf_map_delete_elem(&server_traces, &task);
+    obi_ctx__del(id);
 
     return 0;
 }

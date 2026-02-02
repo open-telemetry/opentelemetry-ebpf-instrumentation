@@ -35,6 +35,8 @@
 
 #include <pid/pid_helpers.h>
 
+#include <shared/obi_ctx.h>
+
 volatile const u64 max_transaction_time;
 
 static __always_inline unsigned char *tp_char_buf() {
@@ -320,6 +322,7 @@ static __always_inline void delete_server_trace(pid_connection_info_t *pid_conn,
                    t_key->p_key.pid,
                    t_key->p_key.ns);
     bpf_dbg_printk("Deleting server span for res=%d", res);
+    obi_ctx__del(bpf_get_current_pid_tgid());
 }
 
 static __always_inline void delete_client_trace_info(pid_connection_info_t *pid_conn) {
@@ -376,6 +379,7 @@ static __always_inline void server_or_client_trace(
         bpf_dbg_printk(
             "Saving thread server span for ns=%x, extra_id=%llx", t_key.p_key.ns, t_key.extra_id);
         bpf_map_update_elem(&server_traces, &t_key, tp_p, BPF_ANY);
+        obi_ctx__set(id, &tp_p->tp);
     } else {
         // Setup a pid, so that we can find it in TC.
         // We need the PID id to be able to query ongoing_http and update
