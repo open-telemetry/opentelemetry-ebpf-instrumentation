@@ -28,11 +28,10 @@ enum {
 };
 
 typedef struct log_event {
-    obi_ctx_info_t ctx;
-    u8 _pad[8];
     u32 tgid;
     u32 len;
     u32 fd;
+    obi_ctx_info_t ctx;
     u8 file_path[k_pts_file_path_len_max];
     u8 log[];
 } log_event_t;
