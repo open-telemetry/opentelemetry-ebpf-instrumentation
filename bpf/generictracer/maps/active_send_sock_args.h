@@ -6,8 +6,8 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-#include <generictracer/k_tracer_defs.h>
-
+#include <common/map_sizing.h>
+#include <common/send_args.h>
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);

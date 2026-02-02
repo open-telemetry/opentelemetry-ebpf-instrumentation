@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
@@ -67,12 +67,12 @@ func TestNoSourceAndDestAvailable(t *testing.T) {
 		`k8s_src_name=~"otherinstance.*"`,
 	} {
 		t.Run("check "+args, func(t *testing.T) {
-			test.Eventually(t, testTimeout, func(t require.TestingT) {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
 				var err error
 				results, err := pq.Query(`obi_network_flow_bytes_total{` + args + `}`)
-				require.NoError(t, err)
-				require.NotEmpty(t, results)
-			})
+				require.NoError(ct, err)
+				require.NotEmpty(ct, results)
+			}, testTimeout, 100*time.Millisecond)
 		})
 	}
 

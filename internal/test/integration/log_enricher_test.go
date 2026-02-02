@@ -9,11 +9,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -72,13 +72,13 @@ func testLogEnricher(t *testing.T) {
 	require.NoError(t, err)
 	defer cl.Close()
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		ti.DoHTTPGet(t, serverURL+jsonEndpoint, 200)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, serverURL+jsonEndpoint, 200)
 
-		containerID := testContainerID(t, cl, containerImage)
-		require.NotEmpty(t, containerID, "could not find test container ID")
-		logs := containerLogs(t, cl, containerID)
-		require.NotEmpty(t, logs)
+		containerID := testContainerID(ct, cl, containerImage)
+		require.NotEmpty(ct, containerID, "could not find test container ID")
+		logs := containerLogs(ct, cl, containerID)
+		require.NotEmpty(ct, logs)
 
 		var logIdx int
 		// Loop from the end -- it might be possible that OBI wasn't ready to inject
@@ -91,11 +91,11 @@ func testLogEnricher(t *testing.T) {
 		}
 
 		var logFields map[string]string
-		require.NoError(t, json.Unmarshal([]byte(logs[logIdx]), &logFields))
+		require.NoError(ct, json.Unmarshal([]byte(logs[logIdx]), &logFields))
 
-		assert.Equal(t, "this is a json log", logFields["message"])
-		assert.Equal(t, "INFO", logFields["level"])
-		assert.Contains(t, logFields, "trace_id")
-		assert.Contains(t, logFields, "span_id")
-	})
+		assert.Equal(ct, "this is a json log", logFields["message"])
+		assert.Equal(ct, "INFO", logFields["level"])
+		assert.Contains(ct, logFields, "trace_id")
+		assert.Contains(ct, logFields, "span_id")
+	}, testTimeout, 100*time.Millisecond)
 }

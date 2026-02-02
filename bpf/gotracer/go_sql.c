@@ -21,7 +21,6 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-#include <common/http_types.h>
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>

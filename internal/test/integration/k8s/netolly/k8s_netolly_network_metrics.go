@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
@@ -50,134 +49,134 @@ func FeatureNetworkFlowBytes() features.Feature {
 func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	// testing request flows (to testserver as Service)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-net",dst_name="testserver"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
 
 		// check that the metrics are properly decorated
-		require.GreaterOrEqual(t, len(results), 1) // tests could establish more than one connection from different client_ports
+		require.GreaterOrEqual(ct, len(results), 1) // tests could establish more than one connection from different client_ports
 		metric := results[0].Metric
-		assertIsIP(t, metric["src_address"])
-		assertIsIP(t, metric["dst_address"])
-		assert.Equal(t, "ipv4", metric["network_type"])
-		assert.Equal(t, "undefined", metric["network_protocol_name"])
-		assert.Equal(t, "my-kube", metric["k8s_cluster_name"])
-		assert.Equal(t, "default", metric["k8s_src_namespace"])
-		assert.Equal(t, "internal-pinger-net", metric["k8s_src_name"])
-		assert.Equal(t, "Pod", metric["k8s_src_owner_type"])
-		assert.Equal(t, "Pod", metric["k8s_src_type"])
-		assert.Regexp(t,
+		assertIsIP(ct, metric["src_address"])
+		assertIsIP(ct, metric["dst_address"])
+		assert.Equal(ct, "ipv4", metric["network_type"])
+		assert.Equal(ct, "undefined", metric["network_protocol_name"])
+		assert.Equal(ct, "my-kube", metric["k8s_cluster_name"])
+		assert.Equal(ct, "default", metric["k8s_src_namespace"])
+		assert.Equal(ct, "internal-pinger-net", metric["k8s_src_name"])
+		assert.Equal(ct, "Pod", metric["k8s_src_owner_type"])
+		assert.Equal(ct, "Pod", metric["k8s_src_type"])
+		assert.Regexp(ct,
 			"^test-kind-cluster-.*control-plane",
 			metric["k8s_src_node_name"])
-		assertIsIP(t, metric["k8s_src_node_ip"])
-		assert.Equal(t, "default", metric["k8s_dst_namespace"])
-		assert.Equal(t, "testserver", metric["k8s_dst_name"])
-		assert.Equal(t, "Service", metric["k8s_dst_owner_type"])
-		assert.Equal(t, "Service", metric["k8s_dst_type"])
-		assert.Contains(t, podSubnets, metric["src_cidr"], metric)
-		assert.Contains(t, svcSubnets, metric["dst_cidr"], metric)
-		assert.Equal(t, "8080", metric["server_port"])
-		assert.NotEqual(t, "8080", metric["client_port"])
+		assertIsIP(ct, metric["k8s_src_node_ip"])
+		assert.Equal(ct, "default", metric["k8s_dst_namespace"])
+		assert.Equal(ct, "testserver", metric["k8s_dst_name"])
+		assert.Equal(ct, "Service", metric["k8s_dst_owner_type"])
+		assert.Equal(ct, "Service", metric["k8s_dst_type"])
+		assert.Contains(ct, podSubnets, metric["src_cidr"], metric)
+		assert.Contains(ct, svcSubnets, metric["dst_cidr"], metric)
+		assert.Equal(ct, "8080", metric["server_port"])
+		assert.NotEqual(ct, "8080", metric["client_port"])
 		// services don't have host IP or name
-	})
+	}, testTimeout, 100*time.Millisecond)
 	// testing request flows (to testserver as Pod)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-net",dst_name=~"testserver-.*"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
 
 		// check that the metrics are properly decorated
-		require.GreaterOrEqual(t, len(results), 1) // tests could establish more than one connection from different client_ports
+		require.GreaterOrEqual(ct, len(results), 1) // tests could establish more than one connection from different client_ports
 		metric := results[0].Metric
-		assertIsIP(t, metric["src_address"])
-		assertIsIP(t, metric["dst_address"])
-		assert.Equal(t, "default", metric["k8s_src_namespace"])
-		assert.Equal(t, "internal-pinger-net", metric["k8s_src_name"])
-		assert.Equal(t, "Pod", metric["k8s_src_owner_type"])
-		assert.Equal(t, "Pod", metric["k8s_src_type"])
-		assert.Regexp(t,
+		assertIsIP(ct, metric["src_address"])
+		assertIsIP(ct, metric["dst_address"])
+		assert.Equal(ct, "default", metric["k8s_src_namespace"])
+		assert.Equal(ct, "internal-pinger-net", metric["k8s_src_name"])
+		assert.Equal(ct, "Pod", metric["k8s_src_owner_type"])
+		assert.Equal(ct, "Pod", metric["k8s_src_type"])
+		assert.Regexp(ct,
 			"^test-kind-cluster-.*control-plane",
 			metric["k8s_src_node_name"])
-		assertIsIP(t, metric["k8s_src_node_ip"])
-		assert.Equal(t, "default", metric["k8s_dst_namespace"])
-		assert.Regexp(t, "^testserver-", metric["k8s_dst_name"])
-		assert.Equal(t, "Deployment", metric["k8s_dst_owner_type"])
-		assert.Equal(t, "testserver", metric["k8s_dst_owner_name"])
-		assert.Equal(t, "Pod", metric["k8s_dst_type"])
-		assert.Regexp(t,
+		assertIsIP(ct, metric["k8s_src_node_ip"])
+		assert.Equal(ct, "default", metric["k8s_dst_namespace"])
+		assert.Regexp(ct, "^testserver-", metric["k8s_dst_name"])
+		assert.Equal(ct, "Deployment", metric["k8s_dst_owner_type"])
+		assert.Equal(ct, "testserver", metric["k8s_dst_owner_name"])
+		assert.Equal(ct, "Pod", metric["k8s_dst_type"])
+		assert.Regexp(ct,
 			"^test-kind-cluster-.*control-plane",
 			metric["k8s_dst_node_name"])
-		assertIsIP(t, metric["k8s_dst_node_ip"])
-		assert.Contains(t, podSubnets, metric["src_cidr"], metric)
-		assert.Contains(t, podSubnets, metric["dst_cidr"], metric)
-		assert.Equal(t, "8080", metric["server_port"])
-		assert.NotEqual(t, "8080", metric["client_port"])
-	})
+		assertIsIP(ct, metric["k8s_dst_node_ip"])
+		assert.Contains(ct, podSubnets, metric["src_cidr"], metric)
+		assert.Contains(ct, podSubnets, metric["dst_cidr"], metric)
+		assert.Equal(ct, "8080", metric["server_port"])
+		assert.NotEqual(ct, "8080", metric["client_port"])
+	}, testTimeout, 100*time.Millisecond)
 
 	// testing response flows (from testserver Pod)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name=~"testserver-.*",dst_name="internal-pinger-net"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
 
 		// check that the metrics are properly decorated
-		require.GreaterOrEqual(t, len(results), 1) // tests could establish more than one connection from different client_ports
+		require.GreaterOrEqual(ct, len(results), 1) // tests could establish more than one connection from different client_ports
 		metric := results[0].Metric
-		assertIsIP(t, metric["src_address"])
-		assertIsIP(t, metric["dst_address"])
-		assert.Equal(t, "default", metric["k8s_src_namespace"])
-		assert.Regexp(t, "^testserver-", metric["k8s_src_name"])
-		assert.Equal(t, "Deployment", metric["k8s_src_owner_type"])
-		assert.Equal(t, "Pod", metric["k8s_src_type"])
-		assert.Regexp(t,
+		assertIsIP(ct, metric["src_address"])
+		assertIsIP(ct, metric["dst_address"])
+		assert.Equal(ct, "default", metric["k8s_src_namespace"])
+		assert.Regexp(ct, "^testserver-", metric["k8s_src_name"])
+		assert.Equal(ct, "Deployment", metric["k8s_src_owner_type"])
+		assert.Equal(ct, "Pod", metric["k8s_src_type"])
+		assert.Regexp(ct,
 			"^test-kind-cluster-.*control-plane",
 			metric["k8s_src_node_name"])
-		assertIsIP(t, metric["k8s_src_node_ip"])
-		assert.Equal(t, "default", metric["k8s_dst_namespace"])
-		assert.Equal(t, "internal-pinger-net", metric["k8s_dst_name"])
-		assert.Equal(t, "Pod", metric["k8s_dst_owner_type"])
-		assert.Equal(t, "Pod", metric["k8s_dst_type"])
-		assert.Regexp(t,
+		assertIsIP(ct, metric["k8s_src_node_ip"])
+		assert.Equal(ct, "default", metric["k8s_dst_namespace"])
+		assert.Equal(ct, "internal-pinger-net", metric["k8s_dst_name"])
+		assert.Equal(ct, "Pod", metric["k8s_dst_owner_type"])
+		assert.Equal(ct, "Pod", metric["k8s_dst_type"])
+		assert.Regexp(ct,
 			"^test-kind-cluster-.*control-plane",
 			metric["k8s_dst_node_name"])
-		assertIsIP(t, metric["k8s_dst_node_ip"])
-		assert.Contains(t, podSubnets, metric["src_cidr"], metric)
-		assert.Contains(t, podSubnets, metric["dst_cidr"], metric)
-		assert.Equal(t, "TCP", metric["transport"])
-		assert.Equal(t, "8080", metric["server_port"])
-		assert.NotEqual(t, "8080", metric["client_port"])
-	})
+		assertIsIP(ct, metric["k8s_dst_node_ip"])
+		assert.Contains(ct, podSubnets, metric["src_cidr"], metric)
+		assert.Contains(ct, podSubnets, metric["dst_cidr"], metric)
+		assert.Equal(ct, "TCP", metric["transport"])
+		assert.Equal(ct, "8080", metric["server_port"])
+		assert.NotEqual(ct, "8080", metric["client_port"])
+	}, testTimeout, 100*time.Millisecond)
 
 	// testing response flows (from testserver Service)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="testserver",dst_name="internal-pinger-net"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
 
 		// check that the metrics are properly decorated
-		require.GreaterOrEqual(t, len(results), 1) // tests could establish more than one connection from different client_ports
+		require.GreaterOrEqual(ct, len(results), 1) // tests could establish more than one connection from different client_ports
 		metric := results[0].Metric
-		assertIsIP(t, metric["src_address"])
-		assertIsIP(t, metric["dst_address"])
-		assert.Equal(t, "default", metric["k8s_src_namespace"])
-		assert.Equal(t, "testserver", metric["k8s_src_name"])
-		assert.Equal(t, "Service", metric["k8s_src_owner_type"])
-		assert.Equal(t, "Service", metric["k8s_src_type"])
+		assertIsIP(ct, metric["src_address"])
+		assertIsIP(ct, metric["dst_address"])
+		assert.Equal(ct, "default", metric["k8s_src_namespace"])
+		assert.Equal(ct, "testserver", metric["k8s_src_name"])
+		assert.Equal(ct, "Service", metric["k8s_src_owner_type"])
+		assert.Equal(ct, "Service", metric["k8s_src_type"])
 		// services don't have host IP or name
-		assert.Equal(t, "default", metric["k8s_dst_namespace"])
-		assert.Equal(t, "internal-pinger-net", metric["k8s_dst_name"])
-		assert.Equal(t, "Pod", metric["k8s_dst_owner_type"])
-		assert.Equal(t, "Pod", metric["k8s_dst_type"])
-		assert.Regexp(t,
+		assert.Equal(ct, "default", metric["k8s_dst_namespace"])
+		assert.Equal(ct, "internal-pinger-net", metric["k8s_dst_name"])
+		assert.Equal(ct, "Pod", metric["k8s_dst_owner_type"])
+		assert.Equal(ct, "Pod", metric["k8s_dst_type"])
+		assert.Regexp(ct,
 			"^test-kind-cluster-.*control-plane",
 			metric["k8s_dst_node_name"])
-		assertIsIP(t, metric["k8s_dst_node_ip"])
-		assert.Contains(t, svcSubnets, metric["src_cidr"], metric)
-		assert.Contains(t, podSubnets, metric["dst_cidr"], metric)
-		assert.Equal(t, "8080", metric["server_port"])
-		assert.NotEqual(t, "8080", metric["client_port"])
-	})
+		assertIsIP(ct, metric["k8s_dst_node_ip"])
+		assert.Contains(ct, svcSubnets, metric["src_cidr"], metric)
+		assert.Contains(ct, podSubnets, metric["dst_cidr"], metric)
+		assert.Equal(ct, "8080", metric["server_port"])
+		assert.NotEqual(ct, "8080", metric["client_port"])
+	}, testTimeout, 100*time.Millisecond)
 
 	// check that there aren't captured flows if there is no communication
 	results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-net",dst_name="otherinstance"}`)
@@ -199,20 +198,20 @@ func testNetFlowBytesForExternalTraffic(ctx context.Context, t *testing.T, _ *en
 	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	// test external traffic (this test --> prometheus)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// checks that at least one source without src kubernetes label is there
 		results, err := pq.Query(`obi_network_flow_bytes_total{k8s_dst_owner_name="prometheus",k8s_src_owner_name=""}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	})
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, testTimeout, 100*time.Millisecond)
 
 	// test external traffic (prometheus --> this test)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// checks that at least one source without dst kubernetes label is there
 		results, err := pq.Query(`obi_network_flow_bytes_total{k8s_src_owner_name="prometheus",k8s_dst_owner_name=""}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	})
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, testTimeout, 100*time.Millisecond)
 	return ctx
 }
 
