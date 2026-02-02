@@ -125,6 +125,12 @@ var DefaultConfig = Config{
 				AWS: config.AWSConfig{
 					Enabled: false,
 				},
+				SQLPP: config.SQLPPConfig{
+					Enabled: false,
+					EndpointPatterns: []string{
+						"/query/service",
+					},
+				},
 			},
 		},
 		MaxTransactionTime: 5 * time.Minute,
@@ -170,6 +176,7 @@ var DefaultConfig = Config{
 			instrumentations.InstrumentationKafka,
 			instrumentations.InstrumentationMQTT,
 			instrumentations.InstrumentationMongo,
+			instrumentations.InstrumentationCouchbase,
 			// no traces for DNS and GPU by default
 		},
 	},

@@ -151,6 +151,15 @@ discovery:
 			MongoRequestsCacheSize:              1024,
 			KafkaTopicUUIDCacheSize:             1024,
 			CouchbaseDBCacheSize:                1024,
+			PayloadExtraction: config.PayloadExtraction{
+				HTTP: config.HTTPConfig{
+					SQLPP: config.SQLPPConfig{
+						EndpointPatterns: []string{
+							"/query/service",
+						},
+					},
+				},
+			},
 			LogEnricher: config.LogEnricherConfig{
 				CacheTTL:              30 * time.Minute,
 				CacheSize:             128,
@@ -195,6 +204,7 @@ discovery:
 				instrumentations.InstrumentationKafka,
 				instrumentations.InstrumentationMQTT,
 				instrumentations.InstrumentationMongo,
+				instrumentations.InstrumentationCouchbase,
 				// no traces for DNS and GPU by default
 			},
 		},
