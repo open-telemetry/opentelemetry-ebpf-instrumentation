@@ -115,6 +115,7 @@ func (p *Tracer) Constants() map[string]any {
 		"attr_type_float64slice":    uint64(attribute.FLOAT64SLICE),
 		"attr_type_stringslice":     uint64(attribute.STRINGSLICE),
 		"g_bpf_traceparent_enabled": true,
+		"g_bpf_loop_enabled":        p.supportsBPFLoop,
 	}
 }
 
@@ -570,6 +571,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	// otherwise we have a probe per header net/textproto.(*Reader).readContinuedLineSlice
 	if p.supportsBPFLoop {
 		m["net/textproto.readMIMEHeader"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeReadMimeHeader,
+		}}
+		// old go versions
+		m["net/textproto.(*Reader).ReadMIMEHeader"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeReadMimeHeader,
 		}}
 	} else {

@@ -15,7 +15,6 @@
 
 //go:build obi_bpf_ignore
 
-#include "gotracer/go_offsets.h"
 #include <bpfcore/utils.h>
 #include <bpfcore/bpf_builtins.h>
 
@@ -27,6 +26,7 @@
 
 #include <gotracer/go_byte_arr.h>
 #include <gotracer/go_common.h>
+#include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 #include <gotracer/go_stream_key.h>
 #include <gotracer/hpack.h>
@@ -422,13 +422,17 @@ static __always_inline unsigned char *match_header(
 
 SEC("uprobe/readMimeHeader")
 int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
+    if (!g_bpf_loop_enabled) {
+        return 0;
+    }
+
     bpf_dbg_printk("=== uprobe/proc ReadMimeHeader === ");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-    connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    const connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
     if (!existing) {
         return 0;
     }
@@ -479,11 +483,11 @@ int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
 
     bpf_probe_read_user(buf, len, arr);
 
-    bpf_dbg_printk("buf %s", buf);
+    bpf_dbg_printk("buf=%s", buf);
 
     unsigned char *tp_ptr = bpf_strstr_tp_loop(buf, len);
 
-    bpf_dbg_printk("tp %llx", tp_ptr);
+    bpf_dbg_printk("tp=%llx", tp_ptr);
 
     if (!tp_ptr) {
         return 0;

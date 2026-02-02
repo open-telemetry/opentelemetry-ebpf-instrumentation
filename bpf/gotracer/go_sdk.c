@@ -18,12 +18,12 @@
 
 //go:build obi_bpf_ignore
 
-#include "common/map_sizing.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/common.h>
 #include <common/http_types.h>
+#include <common/map_sizing.h>
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
