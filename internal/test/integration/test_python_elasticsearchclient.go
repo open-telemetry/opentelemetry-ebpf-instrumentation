@@ -63,9 +63,7 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 	}
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
-	tt := t
-
-	tt.Log(fullJaegerURL)
+	t.Log(fullJaegerURL)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(fullJaegerURL)
@@ -84,34 +82,35 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 		for i := range lastTrace.Spans {
 			span := &lastTrace.Spans[i]
 
-			tt.Log(span)
+			t.Log(span)
 			tag, found := jaeger.FindIn(span.Tags, "db.operation.name")
 
 			if !found || tag.Value == nil {
 				continue
 			}
 
-		assert.Contains(ct, span.OperationName, operationName)
+			assert.Contains(ct, span.OperationName, operationName)
 
-		tag, found := jaeger.FindIn(span.Tags, "db.query.text")
-		assert.True(ct, found)
-		assert.Equal(ct, queryText, tag.Value.(string))
+			tag, found = jaeger.FindIn(span.Tags, "db.query.text")
+			assert.True(ct, found)
+			assert.Equal(ct, queryText, tag.Value.(string))
 
-		tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
-		assert.True(ct, found)
-		assert.Equal(ct, index, tag.Value)
+			tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
+			assert.True(ct, found)
+			assert.Equal(ct, index, tag.Value)
 
-		tag, found = jaeger.FindIn(span.Tags, "db.namespace")
-		assert.True(ct, found)
-		assert.Empty(ct, tag.Value)
+			tag, found = jaeger.FindIn(span.Tags, "db.namespace")
+			assert.True(ct, found)
+			assert.Empty(ct, tag.Value)
 
-		tag, found = jaeger.FindIn(span.Tags, "db.system.name")
-		assert.True(ct, found)
-		assert.Equal(ct, dbSystemName, tag.Value)
+			tag, found = jaeger.FindIn(span.Tags, "db.system.name")
+			assert.True(ct, found)
+			assert.Equal(ct, dbSystemName, tag.Value)
 
-		tag, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
-		assert.True(ct, found)
-		assert.Empty(ct, tag.Value)
+			tag, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
+			assert.True(ct, found)
+			assert.Empty(ct, tag.Value)
+		}
 	}, testTimeout, 100*time.Millisecond)
 }
 
