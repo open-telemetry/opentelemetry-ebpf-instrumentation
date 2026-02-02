@@ -142,7 +142,7 @@ jobs:
 
           mkdir -p /home/runner/reports
 
-          ./.tools/gotestsum --rerun-fails -ftestname \
+          ./.tools/gotestsum --rerun-fails --packages="${MATRIX_TEST_PATTERN}" -ftestname \
               --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
               -- -race -timeout 30m \
               ${MATRIX_TEST_PATTERN}
