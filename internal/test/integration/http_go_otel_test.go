@@ -259,7 +259,6 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	o := obi{
 		Env: []string{
 			"OTEL_EBPF_OPEN_PORT=8080",
-			"OTEL_EBPF_BPF_WAKEUP_LEN=0",
 		},
 	}
 	if !KernelLockdownMode() {
