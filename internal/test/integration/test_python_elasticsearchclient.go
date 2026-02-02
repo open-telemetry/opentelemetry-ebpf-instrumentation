@@ -46,6 +46,7 @@ func testPythonElasticsearch(t *testing.T, dbSystemName string) {
 func testElasticsearchSearch(t *testing.T, dbSystemName, queryParam string) {
 	queryText := "{\"query\": {\"match\": {\"name\": \"OBI\"}}}"
 	urlPath := "/search"
+	t.Log("Running search test")
 	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
 	assertElasticsearchOperation(t, dbSystemName, "search", queryText, testIndex)
 }
@@ -62,6 +63,8 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 	params.Add("operationName", operationName)
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
+	tt := t
+
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		resp, err := http.Get(fullJaegerURL)
 		require.NoError(t, err)
@@ -76,6 +79,8 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 		require.GreaterOrEqual(t, len(traces), 1, resp.Body)
 		lastTrace := traces[len(traces)-1]
 		span := lastTrace.Spans[0]
+
+		tt.Log(span)
 
 		assert.Contains(t, span.OperationName, operationName)
 
@@ -104,6 +109,7 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 func testElasticsearchMsearch(t *testing.T, dbSystemName, queryParam string) {
 	queryText := "[{}, {\"query\": {\"match\": {\"message\": \"this is a test\"}}}, {\"index\": \"my-index-000002\"}, {\"query\": {\"match_all\": {}}}]"
 	urlPath := "/msearch"
+	t.Log("Running msearch test")
 	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
 	assertElasticsearchOperation(t, dbSystemName, "msearch", queryText, "")
 }
@@ -111,6 +117,7 @@ func testElasticsearchMsearch(t *testing.T, dbSystemName, queryParam string) {
 func testElasticsearchBulk(t *testing.T, dbSystemName, queryParam string) {
 	queryText := "[{\"index\": {\"_index\": \"test\", \"_id\": \"1\"}}, {\"field1\": \"value1\"}, {\"delete\": {\"_index\": \"test\", \"_id\": \"2\"}}, {\"create\": {\"_index\": \"test\", \"_id\": \"3\"}}, {\"field1\": \"value3\"}, {\"update\": {\"_id\": \"1\", \"_index\": \"test\"}}, {\"doc\": {\"field2\": \"value2\"}}]"
 	urlPath := "/bulk"
+	t.Log("Running bulk test")
 	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
 	assertElasticsearchOperation(t, dbSystemName, "bulk", queryText, "")
 }
@@ -118,6 +125,7 @@ func testElasticsearchBulk(t *testing.T, dbSystemName, queryParam string) {
 func testElasticsearchDoc(t *testing.T, dbSystemName, queryParam string) {
 	queryText := ""
 	urlPath := "/doc"
+	t.Log("Running doc test")
 	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
 	assertElasticsearchOperation(t, dbSystemName, "doc", queryText, testIndex)
 }

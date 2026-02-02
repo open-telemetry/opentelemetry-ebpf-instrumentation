@@ -21,7 +21,7 @@ import (
 )
 
 // Max interval before reading stale available bytes from the ring buffer
-const flushInterval = 3 * time.Second
+const flushInterval = 1 * time.Second
 
 // ringBufReader interface extracts the used methods from ringbuf.Reader for proper
 // dependency injection during tests
