@@ -57,13 +57,16 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 	var operationName string
 	if index != "" {
 		operationName = op + " " + index
+		params.Add("operation", operationName)
 	} else {
 		operationName = op
+		params.Add("tags", fmt.Sprintf("{\"db.operation.name\":\"%s\"}", op))
 	}
-	params.Add("operationName", operationName)
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
 	tt := t
+
+	tt.Log(fullJaegerURL)
 
 	test.Eventually(t, testTimeout, func(t require.TestingT) {
 		resp, err := http.Get(fullJaegerURL)
@@ -78,31 +81,40 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op})
 		require.GreaterOrEqual(t, len(traces), 1, resp.Body)
 		lastTrace := traces[len(traces)-1]
-		span := lastTrace.Spans[0]
+		require.GreaterOrEqual(t, len(lastTrace.Spans), 1)
+		for i := range lastTrace.Spans {
+			span := &lastTrace.Spans[i]
 
-		tt.Log(span)
+			tt.Log(span)
+			tag, found := jaeger.FindIn(span.Tags, "db.operation.name")
 
-		assert.Contains(t, span.OperationName, operationName)
+			if !found || tag.Value == nil {
+				continue
+			}
 
-		tag, found := jaeger.FindIn(span.Tags, "db.query.text")
-		assert.True(t, found)
-		assert.Equal(t, queryText, tag.Value.(string))
+			assert.Contains(t, span.OperationName, operationName)
 
-		tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
-		assert.True(t, found)
-		assert.Equal(t, index, tag.Value)
+			tag, found = jaeger.FindIn(span.Tags, "db.query.text")
+			assert.True(t, found)
+			assert.NotNil(t, tag.Value)
+			assert.Equal(t, queryText, tag.Value.(string))
 
-		tag, found = jaeger.FindIn(span.Tags, "db.namespace")
-		assert.True(t, found)
-		assert.Empty(t, tag.Value)
+			tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
+			assert.True(t, found)
+			assert.Equal(t, index, tag.Value)
 
-		tag, found = jaeger.FindIn(span.Tags, "db.system.name")
-		assert.True(t, found)
-		assert.Equal(t, dbSystemName, tag.Value)
+			tag, found = jaeger.FindIn(span.Tags, "db.namespace")
+			assert.True(t, found)
+			assert.Empty(t, tag.Value)
 
-		tag, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
-		assert.True(t, found)
-		assert.Empty(t, tag.Value)
+			tag, found = jaeger.FindIn(span.Tags, "db.system.name")
+			assert.True(t, found)
+			assert.Equal(t, dbSystemName, tag.Value)
+
+			tag, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
+			assert.True(t, found)
+			assert.Empty(t, tag.Value)
+		}
 	}, test.Interval(100*time.Millisecond))
 }
 
