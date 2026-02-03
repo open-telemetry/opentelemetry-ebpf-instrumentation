@@ -132,6 +132,7 @@ discovery:
 		EBPF: config.EBPFTracer{
 			BatchLength:        100,
 			BatchTimeout:       time.Second,
+			WakeupLen:          500,
 			HTTPRequestTimeout: 0,
 			MaxTransactionTime: 5 * time.Minute,
 			TCBackend:          config.TCBackendAuto,

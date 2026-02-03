@@ -95,6 +95,7 @@ var DefaultConfig = Config{
 		BatchLength:        100,
 		BatchTimeout:       time.Second,
 		HTTPRequestTimeout: 0,
+		WakeupLen:          500,
 		TCBackend:          config.TCBackendAuto,
 		DNSRequestTimeout:  5 * time.Second,
 		ContextPropagation: config.ContextPropagationDisabled,

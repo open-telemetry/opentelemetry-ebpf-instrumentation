@@ -6,8 +6,17 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/globals.h>
+#include <common/http_buf_size.h>
+
 // 55+13
 #define TRACE_PARENT_HEADER_LEN 68
+
+struct callback_ctx {
+    unsigned char *buf;
+    u32 pos;
+    u8 _pad[4];
+};
 
 static unsigned char *hex = (unsigned char *)"0123456789abcdef";
 static unsigned char *reverse_hex =
@@ -69,4 +78,58 @@ static __always_inline bool is_traceparent(const unsigned char *p) {
 
 static __always_inline bool is_eoh(const unsigned char *p) {
     return p[0] == '\r' && p[1] == '\n' && p[2] == '\r' && p[3] == '\n';
+}
+
+static int tp_match(u32 index, void *data) {
+    if (index >= (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) {
+        return 1;
+    }
+
+    struct callback_ctx *ctx = data;
+    unsigned char *s = &(ctx->buf[index]);
+
+    if (is_traceparent(s)) {
+        ctx->pos = index;
+        return 1;
+    }
+
+    return 0;
+}
+
+static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, const u16 buf_len) {
+    if (!g_bpf_traceparent_enabled) {
+        return NULL;
+    }
+
+    struct callback_ctx data = {.buf = buf, .pos = 0};
+
+    u32 nr_loops = (u32)buf_len;
+
+    bpf_loop(nr_loops, tp_match, &data, 0);
+
+    if (data.pos) {
+        return (data.pos > (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) ? NULL : &buf[data.pos];
+    }
+
+    return NULL;
+}
+
+static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *buf,
+                                                                 const u16 buf_len) {
+    (void)buf_len;
+
+    if (!g_bpf_traceparent_enabled) {
+        return NULL;
+    }
+
+    // Limited best-effort search to stay within insns limit
+    const u16 k_besteffort_max_loops = 350;
+
+    for (u16 i = 0; i < k_besteffort_max_loops; i++) {
+        if (is_traceparent(&buf[i])) {
+            return &buf[i];
+        }
+    }
+
+    return NULL;
 }

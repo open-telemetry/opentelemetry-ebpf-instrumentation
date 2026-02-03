@@ -49,12 +49,6 @@ static __always_inline tp_info_pid_t *tp_buf() {
     return bpf_map_lookup_elem(&tp_info_mem, &zero);
 }
 
-struct callback_ctx {
-    unsigned char *buf;
-    u32 pos;
-    u8 _pad[4];
-};
-
 static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
     task_tid(&t_key->p_key);
 
@@ -68,60 +62,6 @@ trace_key_from_pid_tid_with_p_key(trace_key_t *t_key, const pid_key_t *p_key, u6
 
     u64 extra_id = extra_runtime_id_with_task_id(id);
     t_key->extra_id = extra_id;
-}
-
-static int tp_match(u32 index, void *data) {
-    if (index >= (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) {
-        return 1;
-    }
-
-    struct callback_ctx *ctx = data;
-    unsigned char *s = &(ctx->buf[index]);
-
-    if (is_traceparent(s)) {
-        ctx->pos = index;
-        return 1;
-    }
-
-    return 0;
-}
-
-static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, const u16 buf_len) {
-    if (!g_bpf_traceparent_enabled) {
-        return NULL;
-    }
-
-    struct callback_ctx data = {.buf = buf, .pos = 0};
-
-    u32 nr_loops = (u32)buf_len;
-
-    bpf_loop(nr_loops, tp_match, &data, 0);
-
-    if (data.pos) {
-        return (data.pos > (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) ? NULL : &buf[data.pos];
-    }
-
-    return NULL;
-}
-
-static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *buf,
-                                                                 const u16 buf_len) {
-    (void)buf_len;
-
-    if (!g_bpf_traceparent_enabled) {
-        return NULL;
-    }
-
-    // Limited best-effort search to stay within insns limit
-    const u16 k_besteffort_max_loops = 350;
-
-    for (u16 i = 0; i < k_besteffort_max_loops; i++) {
-        if (is_traceparent(&buf[i])) {
-            return &buf[i];
-        }
-    }
-
-    return NULL;
 }
 
 static __always_inline tp_info_pid_t *find_nginx_parent_trace(const pid_connection_info_t *p_conn,
