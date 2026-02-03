@@ -31,8 +31,8 @@ func NewProcessTracer(_ ProcessTracerType, _ []Tracer, _ *obi.Config, _ imetrics
 }
 
 func (pt *ProcessTracer) Init(_ *ebpfcommon.EBPFEventContext) error {
-	pt.log.Debug("avoiding linter complaints for not using log and shutdownTimeout fields",
-		"v", pt.shutdownTimeout)
+	pt.log.Debug("avoiding linter complaints for not using log, shutdownTimeout, and bpfFsPath fields",
+		"v", pt.shutdownTimeout, "bpfFsPath", pt.bpfFsPath)
 	return nil
 }
 
