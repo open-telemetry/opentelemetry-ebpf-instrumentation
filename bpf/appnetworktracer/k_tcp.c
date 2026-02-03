@@ -45,6 +45,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
     if (!parse_sock_info(sk, &conn)) {
         return 0;
     }
+    sort_connection_info(&conn);
 
     u32 srtt = BPF_CORE_READ((struct tcp_sock *)sk, srtt_us);
 
@@ -76,10 +77,12 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
     } else {
         se->direction = OUTBOUND;
     }
-    bpf_d_printk("pid %u, src port %d, dst port %d",
+    bpf_d_printk("pid %u, src port %d, dst port %d, direction %d, is_server %d",
                  se->pid_info.host_pid,
                  se->conn.s_port,
-                 se->conn.d_port);
+                 se->conn.d_port,
+                se->direction,
+                 is_server);
 
     bpf_ringbuf_submit(se, 0);
     return 0;
