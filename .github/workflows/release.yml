@@ -7,10 +7,8 @@ on:
       # - publish_dockerhub_main.yml
       # - publish_dockerhub_k8s_cache_main.yml
       # Glob patterns to match semver tags starting with 'v'
-      - "v[0-9]*.[0-9]*.[0-9]*"           # v1.2.3
-      - "v[0-9]*.[0-9]*.[0-9]*-*"         # v1.2.3-rc.1, v1.2.3-alpha
-      - "v[0-9]*.[0-9]*.[0-9]*+*"         # v1.2.3+build.123
-      - "v[0-9]*.[0-9]*.[0-9]*-*+*"       # v1.2.3-rc.1+build.123
+      # Used as a filter. Full validation is done in a job below.
+      - "v[0-9]+.[0-9]+.[0-9]*"           # v1.2.3, v1.2.3-rc.1, v1.2.3-alpha, v1.2.3-rc.1+build.123, v1.2.3+build.123
   workflow_dispatch:
     inputs:
       tag:
