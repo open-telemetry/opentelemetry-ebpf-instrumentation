@@ -83,8 +83,8 @@ internal/test/integration/components/pythonserver/lib/
 internal/test/integration/components/pythonserver/lib64
 internal/test/integration/components/pythonserver/pyvenv.cfg
 internal/test/integration/components/gosql/qosql
-*_bpfel.go
-*_bpfel.o
+#*_bpfel.go
+#*_bpfel.o
 opentelemetry-ebpf-instrumentation.sln
 obi.sln
 internal/test/integration/components/javakafka/target/*
