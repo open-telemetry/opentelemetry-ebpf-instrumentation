@@ -121,16 +121,22 @@ type EBPFTracer struct {
 	BpfFsPath string `yaml:"bpf_fs_path" env:"OTEL_EBPF_BPF_FS_PATH"`
 }
 
+var nvidiaSMIExistsFunc = nvidiaSMIExists
+
+func nvidiaSMIExists() bool {
+	if _, err := exec.LookPath("nvidia-smi"); err == nil {
+		return true
+	}
+
+	return false
+}
+
 func (e *EBPFTracer) CudaInstrumentationEnabled() bool {
 	switch e.InstrumentCuda {
 	case CudaModeOn:
 		return true
 	case CudaModeAuto:
-		if _, err := exec.LookPath("nvidia-smi"); err == nil {
-			return true
-		}
-
-		return false
+		return nvidiaSMIExistsFunc()
 	}
 	return false
 }
