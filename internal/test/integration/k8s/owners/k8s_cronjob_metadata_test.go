@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
@@ -27,39 +26,39 @@ func TestCronJobMetadata(t *testing.T) {
 	feat := features.New("OBI is able to decorate the metadata of a cronjob").
 		Assess("it sends decorated traces for the cronjob",
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-				test.Eventually(t, testTimeout, func(t require.TestingT) {
+				require.EventuallyWithT(t, func(ct *assert.CollectT) {
 					// Invoking both service instances, but we will expect that only one
 					// is instrumented, according to the discovery mechanisms
 					resp, err := http.Get("http://localhost:38083/pingpong")
-					require.NoError(t, err)
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					require.NoError(ct, err)
+					require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 					resp, err = http.Get(jaegerQueryURL + "?service=cronjobservice")
-					require.NoError(t, err)
+					require.NoError(ct, err)
 					if resp == nil {
 						return
 					}
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					require.Equal(ct, http.StatusOK, resp.StatusCode)
 					var tq jaeger.TracesQuery
-					require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+					require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 					traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/pingpong"})
-					require.NotEmpty(t, traces)
+					require.NotEmpty(ct, traces)
 					trace := traces[0]
-					require.NotEmpty(t, trace.Spans)
+					require.NotEmpty(ct, trace.Spans)
 
 					// Check that the service.namespace is set from the K8s namespace
-					assert.Len(t, trace.Processes, 1)
+					assert.Len(ct, trace.Processes, 1)
 					for _, proc := range trace.Processes {
 						sd := jaeger.DiffAsRegexp([]jaeger.Tag{
 							{Key: "service.namespace", Type: "string", Value: "^default$"},
 							{Key: "service.instance.id", Type: "string", Value: "^default\\.cronjobservice-.+\\.cronjobservice"},
 						}, proc.Tags)
-						require.Empty(t, sd)
+						require.Empty(ct, sd)
 					}
 
 					// Check the information of the parent span
 					res := trace.FindByOperationName("GET /pingpong", "server")
-					require.Len(t, res, 1)
+					require.Len(ct, res, 1)
 					parent := res[0]
 					sd := jaeger.DiffAsRegexp([]jaeger.Tag{
 						{Key: "k8s.pod.name", Type: "string", Value: "^cronjobservice-.*"},
@@ -73,7 +72,7 @@ func TestCronJobMetadata(t *testing.T) {
 						{Key: "service.namespace", Type: "string", Value: "^default$"},
 						{Key: "service.instance.id", Type: "string", Value: "^default\\.cronjobservice-.+\\.cronjobservice"},
 					}, trace.Processes[parent.ProcessID].Tags)
-					require.Empty(t, sd)
+					require.Empty(ct, sd)
 
 					// check that no other labels are added
 					sd = jaeger.DiffAsRegexp([]jaeger.Tag{
@@ -81,12 +80,12 @@ func TestCronJobMetadata(t *testing.T) {
 						{Key: "k8s.daemonset.name", Type: "string"},
 						{Key: "k8s.statefulset.name", Type: "string"},
 					}, trace.Processes[parent.ProcessID].Tags)
-					require.Equal(t, jaeger.DiffResult{
+					require.Equal(ct, jaeger.DiffResult{
 						{ErrType: jaeger.ErrTypeMissing, Expected: jaeger.Tag{Key: "k8s.deployment.name", Type: "string"}},
 						{ErrType: jaeger.ErrTypeMissing, Expected: jaeger.Tag{Key: "k8s.daemonset.name", Type: "string"}},
 						{ErrType: jaeger.ErrTypeMissing, Expected: jaeger.Tag{Key: "k8s.statefulset.name", Type: "string"}},
 					}, sd)
-				}, test.Interval(100*time.Millisecond))
+				}, testTimeout, 100*time.Millisecond)
 				return ctx
 			},
 		).Feature()

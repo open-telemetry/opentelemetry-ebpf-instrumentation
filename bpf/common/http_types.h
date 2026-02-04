@@ -24,9 +24,6 @@
 #define RESPONSE_STATUS_POS 9 // HTTP/1.1 <--
 #define MAX_HTTP_STATUS 599
 
-// should be enough for most URLs, we may need to extend it if not.
-#define TRACE_BUF_SIZE 1024 // must be power of 2, we do an & to limit the buffer size
-
 // 100K and above we try to track the response actual time with kretprobes
 #define KPROBES_LARGE_RESPONSE_LEN 100000
 

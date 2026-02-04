@@ -71,11 +71,11 @@ func TestMetricsExpiration(t *testing.T) {
 	})
 
 	// THEN the metrics are exported
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported := getMetrics(t, promURL)
-		assert.Contains(t, exported, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"} 123`)
-		assert.Contains(t, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
-	})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"} 123`)
+		assert.Contains(ct, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
+	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
 	now.Advance(2 * time.Minute)
@@ -89,11 +89,11 @@ func TestMetricsExpiration(t *testing.T) {
 
 	// THEN THE metrics that have been received during the timeout period are still visible
 	var exported string
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		m := getMetrics(t, promURL)
-		assert.Contains(t, exported, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"} 246`)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		m := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"} 246`)
 		exported = m
-	})
+	}, timeout, 100*time.Millisecond)
 	// BUT not the metrics that haven't been received during that time
 	assert.NotContains(t, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"}`)
 	now.Advance(2 * time.Minute)
@@ -108,10 +108,10 @@ func TestMetricsExpiration(t *testing.T) {
 	now.Advance(2 * time.Minute)
 
 	// THEN they are reported again, starting from zero in the case of counters
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		m := getMetrics(t, promURL)
-		assert.Contains(t, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		m := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
 		exported = m
-	})
+	}, timeout, 100*time.Millisecond)
 	assert.NotContains(t, exported, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"}`)
 }

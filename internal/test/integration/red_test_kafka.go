@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -42,25 +41,25 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 	require.Empty(t, results, "expected no HTTP requests, got %d", len(results))
 
 	// Ensure we see the expected spans in Jaeger
-	test.Eventually(t, 2*testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
 			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&limit=1000")
-			require.NoError(t, err, "failed to query jaeger for %s", comm)
+			require.NoError(ct, err, "failed to query jaeger for %s", comm)
 			if resp == nil {
 				return
 			}
-			require.Equal(t, http.StatusOK, resp.StatusCode, "unexpected status code for %s: %d", command, resp.StatusCode)
+			require.Equal(ct, http.StatusOK, resp.StatusCode, "unexpected status code for %s: %d", command, resp.StatusCode)
 			var tq jaeger.TracesQuery
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq), "failed to decode jaeger response for %s", command)
+			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq), "failed to decode jaeger response for %s", command)
 			var tags []jaeger.Tag
 			for _, attr := range span.Attributes {
 				tags = append(tags, otelAttributeToJaegerTag(attr))
 			}
 			traces := tq.FindBySpan(tags...)
-			assert.LessOrEqual(t, 1, len(traces), "span %s with tags %v not found in traces %v", command, tags, tq.Data)
+			assert.LessOrEqual(ct, 1, len(traces), "span %s with tags %v not found in traces %v", command, tags, tq.Data)
 		}
-	}, test.Interval(100*time.Millisecond))
+	}, 2*testTimeout, 100*time.Millisecond)
 
 	// Ensure we don't find any HTTP traces, since we filter them out
 	resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
@@ -224,11 +223,11 @@ func testJavaKafkaLargeBuffer(t *testing.T) {
 func waitForKafkaTestComponents(t *testing.T, url string, subpath string) {
 	t.Helper()
 
-	test.Eventually(t, time.Minute, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
-	}, test.Interval(time.Second))
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, r.StatusCode)
+	}, time.Minute, time.Second)
 }

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
@@ -36,44 +36,44 @@ func testSampler(t *testing.T) {
 		ti.DoHTTPGet(t, "http://localhost:5000/a", 200)
 	}
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=service-a&operation=GET%20%2Fa")
 
-		require.NoError(t, err)
+		require.NoError(ct, err)
 
 		if resp == nil {
 			return
 		}
 
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		var tq jaeger.TracesQuery
 
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/a"})
 
 		lenA := len(traces)
 
-		require.LessOrEqual(t, 10, lenA)
+		require.LessOrEqual(ct, 10, lenA)
 
 		resp, err = http.Get(jaegerQueryURL + "?service=service-c&operation=GET%20%2Fc")
 
-		require.NoError(t, err)
+		require.NoError(ct, err)
 
 		if resp == nil {
 			return
 		}
 
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		traces = tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/c"})
 
 		lenC := len(traces)
 
-		require.NotZero(t, lenC)
-		require.Less(t, lenC, lenA)
-	}, test.Interval(1500*time.Millisecond))
+		require.NotZero(ct, lenC)
+		require.Less(ct, lenC, lenA)
+	}, testTimeout, 1500*time.Millisecond)
 }
 
 func TestSampler(t *testing.T) {

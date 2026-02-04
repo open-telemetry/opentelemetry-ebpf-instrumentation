@@ -10,20 +10,10 @@
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
-#include <common/http_types.h>
-#include <common/pin_internal.h>
 #include <common/ringbuf.h>
-#include <common/runtime.h>
 #include <common/sql.h>
-#include <common/tp_info.h>
-#include <common/trace_common.h>
-
-#include <generictracer/protocol_common.h>
-#include <generictracer/k_tracer_tailcall.h>
 
 #include <generictracer/maps/protocol_cache.h>
-
-#include <maps/active_ssl_connections.h>
 
 // Every mysql command packet is prefixed by an header
 // https://mariadb.com/kb/en/0-packet/
@@ -192,10 +182,6 @@ static __always_inline int mysql_send_large_buffer(tcp_req_t *req,
 static __always_inline u32 data_offset(struct mysql_hdr *hdr) {
     return hdr->hdr_arrived ? k_mysql_hdr_size - k_mysql_hdr_without_command_size
                             : k_mysql_hdr_size;
-}
-
-static __always_inline u32 mysql_command_offset(struct mysql_hdr *hdr) {
-    return data_offset(hdr) - k_mysql_hdr_command_id_size;
 }
 
 static __always_inline u8 is_mysql(connection_info_t *conn_info,

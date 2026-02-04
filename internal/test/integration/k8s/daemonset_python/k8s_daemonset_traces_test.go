@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
@@ -31,34 +30,34 @@ func TestPythonBasicTracing(t *testing.T) {
 			func(ctx context.Context, t *testing.T, cfg *envconf.Config) context.Context {
 				var trace jaeger.Trace
 				var podID string
-				test.Eventually(t, testTimeout, func(t require.TestingT) {
+				require.EventuallyWithT(t, func(ct *assert.CollectT) {
 					resp, err := http.Get("http://localhost:7773/greeting")
-					require.NoError(t, err)
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					require.NoError(ct, err)
+					require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 					resp, err = http.Get(jaegerQueryURL + "?service=mypythonapp&operation=GET%20%2Fgreeting")
-					require.NoError(t, err)
+					require.NoError(ct, err)
 					if resp == nil {
 						return
 					}
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					require.Equal(ct, http.StatusOK, resp.StatusCode)
 					var tq jaeger.TracesQuery
-					require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+					require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 					traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/greeting"})
-					require.NotEmpty(t, traces)
+					require.NotEmpty(ct, traces)
 					trace = traces[0]
-					require.NotEmpty(t, trace.Spans)
+					require.NotEmpty(ct, trace.Spans)
 
 					// Check the information of the parent span
 					res := trace.FindByOperationName("GET /greeting", "server")
-					require.Len(t, res, 1)
+					require.Len(ct, res, 1)
 					parent := res[0]
 					sd := jaeger.DiffAsRegexp([]jaeger.Tag{
 						{Key: "service.namespace", Type: "string", Value: "^integration-test$"},
 						{Key: "telemetry.sdk.language", Type: "string", Value: "^python$"},
 						{Key: "service.instance.id", Type: "string", Value: "^default\\.pytestserver-.+\\.pytestserver$"},
 					}, trace.Processes[parent.ProcessID].Tags)
-					require.Empty(t, sd, sd.String())
+					require.Empty(ct, sd, sd.String())
 
 					// check the process information
 					sd = jaeger.DiffAsRegexp([]jaeger.Tag{
@@ -71,15 +70,15 @@ func TestPythonBasicTracing(t *testing.T) {
 						{Key: "k8s.cluster.name", Type: "string", Value: "^obi-k8s-test-cluster$"},
 						{Key: "service.instance.id", Type: "string", Value: "^default\\.pytestserver-.+\\.pytestserver"},
 					}, trace.Processes[parent.ProcessID].Tags)
-					require.Empty(t, sd, sd.String())
+					require.Empty(ct, sd, sd.String())
 
 					// Extract the pod id, so we can later check on restart of the pod that we have a different id
 					tag, found := jaeger.FindIn(trace.Processes[parent.ProcessID].Tags, "k8s.pod.uid")
-					assert.True(t, found)
+					assert.True(ct, found)
 
 					podID = tag.Value.(string)
-					assert.NotEmpty(t, podID)
-				}, test.Interval(100*time.Millisecond))
+					assert.NotEmpty(ct, podID)
+				}, testTimeout, 100*time.Millisecond)
 
 				// Let's take down our services, keeping OBI alive and then redeploy them
 				err := kube.DeleteExistingManifestFile(cfg, testpath.Manifests+"/05-uninstrumented-service-python.yml")
@@ -89,34 +88,34 @@ func TestPythonBasicTracing(t *testing.T) {
 				require.NoError(t, err, "we should see no error when re-deploying the uninstrumented service manifest file")
 
 				// We now use /smoke instead of /greeting to ensure we see those APIs after a restart
-				test.Eventually(t, testTimeout, func(t require.TestingT) {
+				require.EventuallyWithT(t, func(ct *assert.CollectT) {
 					resp, err := http.Get("http://localhost:7773/smoke")
-					require.NoError(t, err)
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					require.NoError(ct, err)
+					require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 					resp, err = http.Get(jaegerQueryURL + "?service=mypythonapp&operation=GET%20%2Fsmoke")
-					require.NoError(t, err)
+					require.NoError(ct, err)
 					if resp == nil {
 						return
 					}
-					require.Equal(t, http.StatusOK, resp.StatusCode)
+					require.Equal(ct, http.StatusOK, resp.StatusCode)
 					var tq jaeger.TracesQuery
-					require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+					require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 					traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/smoke"})
-					require.NotEmpty(t, traces)
+					require.NotEmpty(ct, traces)
 					trace = traces[0]
-					require.NotEmpty(t, trace.Spans)
+					require.NotEmpty(ct, trace.Spans)
 
 					// Check the information of the parent span
 					res := trace.FindByOperationName("GET /smoke", "server")
-					require.Len(t, res, 1)
+					require.Len(ct, res, 1)
 					parent := res[0]
 					sd := jaeger.DiffAsRegexp([]jaeger.Tag{
 						{Key: "service.namespace", Type: "string", Value: "^integration-test$"},
 						{Key: "telemetry.sdk.language", Type: "string", Value: "^python$"},
 						{Key: "service.instance.id", Type: "string", Value: "^default\\.pytestserver-.+\\.pytestserver$"},
 					}, trace.Processes[parent.ProcessID].Tags)
-					require.Empty(t, sd, sd.String())
+					require.Empty(ct, sd, sd.String())
 
 					// check the process information
 					sd = jaeger.DiffAsRegexp([]jaeger.Tag{
@@ -129,14 +128,14 @@ func TestPythonBasicTracing(t *testing.T) {
 						{Key: "k8s.cluster.name", Type: "string", Value: "^obi-k8s-test-cluster$"},
 						{Key: "service.instance.id", Type: "string", Value: "^default\\.pytestserver-.+\\.pytestserver"},
 					}, trace.Processes[parent.ProcessID].Tags)
-					require.Empty(t, sd, sd.String())
+					require.Empty(ct, sd, sd.String())
 
 					// ensure the pod really restarted
 					tag, found := jaeger.FindIn(trace.Processes[parent.ProcessID].Tags, "k8s.pod.uid")
-					assert.True(t, found)
+					assert.True(ct, found)
 
-					assert.NotEqual(t, podID, tag.Value.(string))
-				}, test.Interval(100*time.Millisecond))
+					assert.NotEqual(ct, podID, tag.Value.(string))
+				}, testTimeout, 100*time.Millisecond)
 
 				return ctx
 			},

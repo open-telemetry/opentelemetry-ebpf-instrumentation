@@ -18,6 +18,7 @@ services:
       - /sys/kernel/security:/sys/kernel/security:ro
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-python:/var/run/beyla
+      - /sys/fs/bpf:/sys/fs/bpf
       # required for docker metadata decoration
       - /var/run/docker.sock:/var/run/docker.sock
     image: hatest-obi

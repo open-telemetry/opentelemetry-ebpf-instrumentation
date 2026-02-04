@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ory/dockertest/v3"
+	dockerclient "github.com/ory/dockertest/v3/docker"
 )
 
 var dockerPool *dockertest.Pool
@@ -27,6 +28,22 @@ func TestMain(m *testing.M) {
 		fmt.Printf("could not create Docker pool: %v\n", err)
 		os.Exit(1)
 	}
+
+	// The default dockertest client uses API 1.25 which is rejected by Docker 25+.
+	// Query the daemon for its API version and create a client that matches.
+	env, err := dockerPool.Client.Version()
+	if err != nil {
+		fmt.Printf("could not get Docker version: %v\n", err)
+		os.Exit(1)
+	}
+	apiVersion := env.Get("ApiVersion")
+	versionedClient, err := dockerclient.NewVersionedClient(dockerPool.Client.Endpoint(), apiVersion)
+	if err != nil {
+		fmt.Printf("could not create versioned Docker client: %v\n", err)
+		os.Exit(1)
+	}
+	dockerPool.Client = versionedClient
+
 	if err = dockerPool.Client.Ping(); err != nil {
 		fmt.Printf("could not connect to Docker daemon: %v\n", err)
 		os.Exit(1)

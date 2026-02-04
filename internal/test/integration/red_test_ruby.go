@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -45,7 +44,7 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 	doHTTPPost(t, url+path, 201, jsonBody)
 
 	// Eventually, Prometheus would make this query visible
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="POST",` +
@@ -53,28 +52,28 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + path + `"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 1, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 
 	// check that the resource attributes we passed made it for the service
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`target_info{` +
 			`data_center="ca",` +
 			`deployment_zone="to"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
-	})
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 1, val)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Call 4 times the instrumented service, forcing it to:
 	// - process multiple calls in a row with, one more than we might need
@@ -84,7 +83,7 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 	}
 
 	// Eventually, Prometheus would make this query visible
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -92,16 +91,16 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
 			`url_path="` + path + `/1"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsRailsHTTP(t *testing.T) {
@@ -135,34 +134,34 @@ func testHTTPTracesNestedNginx(t *testing.T) {
 	for i := 1; i <= 4; i++ {
 		slug := strconv.Itoa(i)
 		var trace jaeger.Trace
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp, err := http.Get(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
-			require.NoError(t, err)
+			require.NoError(ct, err)
 			if resp == nil {
 				return
 			}
-			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Equal(ct, http.StatusOK, resp.StatusCode)
 			var tq jaeger.TracesQuery
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 			traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/users/" + slug})
-			require.GreaterOrEqual(t, len(traces), 1)
+			require.GreaterOrEqual(ct, len(traces), 1)
 			trace = traces[0]
 
 			// Check the information of the server span
 			res := trace.FindByOperationName("GET /users/"+slug, "server")
-			require.GreaterOrEqual(t, len(res), 1)
+			require.GreaterOrEqual(ct, len(res), 1)
 			server := res[0]
-			require.NotEmpty(t, server.TraceID)
-			require.NotEmpty(t, server.SpanID)
+			require.NotEmpty(ct, server.TraceID)
+			require.NotEmpty(ct, server.SpanID)
 
 			// check client call
 			res = trace.FindByOperationName("GET /users/"+slug, "client")
-			require.GreaterOrEqual(t, len(res), 1)
+			require.GreaterOrEqual(ct, len(res), 1)
 			client := res[0]
-			require.NotEmpty(t, client.TraceID)
-			require.Equal(t, server.TraceID, client.TraceID)
-			require.NotEmpty(t, client.SpanID)
-		}, test.Interval(100*time.Millisecond))
+			require.NotEmpty(ct, client.TraceID)
+			require.Equal(ct, server.TraceID, client.TraceID)
+			require.NotEmpty(ct, client.SpanID)
+		}, testTimeout, 100*time.Millisecond)
 	}
 }
 
@@ -175,41 +174,41 @@ func testHTTPTracesNestedNginxSQL(t *testing.T) {
 	for i := 1; i <= 4; i++ {
 		slug := strconv.Itoa(i)
 		var trace jaeger.Trace
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp, err := http.Get(jaegerQueryURL + "?service=nginx&tags=%7B%22url.path%22%3A%22%2Fusers%2F" + slug + "%22%7D")
-			require.NoError(t, err)
+			require.NoError(ct, err)
 			if resp == nil {
 				return
 			}
-			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Equal(ct, http.StatusOK, resp.StatusCode)
 			var tq jaeger.TracesQuery
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 			traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/users/" + slug})
-			require.GreaterOrEqual(t, len(traces), 1)
+			require.GreaterOrEqual(ct, len(traces), 1)
 			trace = traces[0]
 
 			// Check the information of the server span
 			res := trace.FindByOperationName("GET /users/"+slug, "server")
-			require.GreaterOrEqual(t, len(res), 1)
+			require.GreaterOrEqual(ct, len(res), 1)
 			server := res[0]
-			require.NotEmpty(t, server.TraceID)
-			require.NotEmpty(t, server.SpanID)
+			require.NotEmpty(ct, server.TraceID)
+			require.NotEmpty(ct, server.SpanID)
 
 			// check client call
 			res = trace.FindByOperationName("GET /users/"+slug, "client")
-			require.GreaterOrEqual(t, len(res), 1)
+			require.GreaterOrEqual(ct, len(res), 1)
 			client := res[0]
-			require.NotEmpty(t, client.TraceID)
-			require.Equal(t, server.TraceID, client.TraceID)
-			require.NotEmpty(t, client.SpanID)
+			require.NotEmpty(ct, client.TraceID)
+			require.Equal(ct, server.TraceID, client.TraceID)
+			require.NotEmpty(ct, client.SpanID)
 
 			// check SQL client call
 			res = trace.FindByOperationName("SELECT users", "client")
-			require.GreaterOrEqual(t, len(res), 1)
+			require.GreaterOrEqual(ct, len(res), 1)
 			client = res[0]
-			require.NotEmpty(t, client.TraceID)
-			require.Equal(t, server.TraceID, client.TraceID)
-			require.NotEmpty(t, client.SpanID)
-		}, test.Interval(100*time.Millisecond))
+			require.NotEmpty(ct, client.TraceID)
+			require.Equal(ct, server.TraceID, client.TraceID)
+			require.NotEmpty(ct, client.SpanID)
+		}, testTimeout, 100*time.Millisecond)
 	}
 }

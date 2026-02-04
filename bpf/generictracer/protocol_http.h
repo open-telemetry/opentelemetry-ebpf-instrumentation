@@ -10,7 +10,6 @@
 #include <common/common.h>
 #include <common/http_types.h>
 #include <common/large_buffers.h>
-#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
 #include <common/trace_common.h>

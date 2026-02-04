@@ -132,6 +132,7 @@ discovery:
 		EBPF: config.EBPFTracer{
 			BatchLength:        100,
 			BatchTimeout:       time.Second,
+			WakeupLen:          500,
 			HTTPRequestTimeout: 0,
 			MaxTransactionTime: 5 * time.Minute,
 			TCBackend:          config.TCBackendAuto,
@@ -151,12 +152,22 @@ discovery:
 			MongoRequestsCacheSize:              1024,
 			KafkaTopicUUIDCacheSize:             1024,
 			CouchbaseDBCacheSize:                1024,
+			PayloadExtraction: config.PayloadExtraction{
+				HTTP: config.HTTPConfig{
+					SQLPP: config.SQLPPConfig{
+						EndpointPatterns: []string{
+							"/query/service",
+						},
+					},
+				},
+			},
 			LogEnricher: config.LogEnricherConfig{
 				CacheTTL:              30 * time.Minute,
 				CacheSize:             128,
 				AsyncWriterWorkers:    8,
 				AsyncWriterChannelLen: 500,
 			},
+			BpfFsPath: "/sys/fs/bpf/",
 		},
 		NetworkFlows: nc,
 		Metrics: perapp.MetricsConfig{
@@ -195,6 +206,7 @@ discovery:
 				instrumentations.InstrumentationKafka,
 				instrumentations.InstrumentationMQTT,
 				instrumentations.InstrumentationMongo,
+				instrumentations.InstrumentationCouchbase,
 				// no traces for DNS and GPU by default
 			},
 		},

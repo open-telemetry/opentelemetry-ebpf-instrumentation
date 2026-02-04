@@ -7,7 +7,7 @@
 #include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_helpers.h>
 
-#include <common/tp_info.h>
+#include <shared/obi_ctx.h>
 
 enum {
     // include/linux/tty_driver.h
@@ -28,11 +28,10 @@ enum {
 };
 
 typedef struct log_event {
-    tp_info_pid_t pid_tp;
     u32 tgid;
     u32 len;
     u32 fd;
-    u32 _pad;
+    obi_ctx_info_t ctx;
     u8 file_path[k_pts_file_path_len_max];
     u8 log[];
 } log_event_t;
