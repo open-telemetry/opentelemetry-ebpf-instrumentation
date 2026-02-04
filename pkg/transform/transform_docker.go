@@ -57,9 +57,10 @@ func (dd *dockerEnricher) decorate(ctx context.Context) {
 		for i := range spans {
 			s := &spans[i]
 			if ci, ok := dd.containerInfo(ctx, docker.PID(s.Service.ProcPID)); ok {
-				s.Service.Metadata = map[attr.Name]string{
-					attr.ContainerName: ci.Name,
+				if s.Service.Metadata == nil {
+					s.Service.Metadata = map[attr.Name]string{}
 				}
+				s.Service.Metadata[attr.ContainerName] = ci.Name
 			}
 		}
 		dd.out.SendCtx(ctx, spans)
