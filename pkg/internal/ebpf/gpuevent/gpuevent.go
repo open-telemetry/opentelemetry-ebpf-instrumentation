@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type cuda_kernel_launch_t -type cuda_malloc_t -type cuda_memcpy_t -type cuda_graph_launch_t -target amd64,arm64 Bpf ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type cuda_kernel_launch_t -type cuda_graph_launch_t -type cuda_malloc_t -type cuda_memcpy_t -target amd64,arm64 Bpf ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf
 
 const (
 	EventTypeKernelLaunch = 1 // EVENT_CUDA_KERNEL_LAUNCH
@@ -63,6 +63,8 @@ type Tracer struct {
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
 	log := slog.With("component", "gpuevent.Tracer")
+
+	log.Info("enabling CUDA kernel instrumentation")
 
 	return &Tracer{
 		log:              log,
@@ -131,19 +133,19 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 	return map[string]map[string][]*ebpfcommon.ProbeDesc{
 		"libcudart.so": {
 			"cudaLaunchKernel": {{
-				Start: p.bpfObjects.ObiUprobeCudaLaunch,
+				Start: p.bpfObjects.ObiCudaLaunch,
 			}},
 			"cudaGraphLaunch": {{
-				Start: p.bpfObjects.ObiUprobeCudaLaunchGraph,
+				Start: p.bpfObjects.ObiGraphLaunch,
 			}},
 			"cudaMalloc": {{
-				Start: p.bpfObjects.ObiUprobeCudaMalloc,
+				Start: p.bpfObjects.ObiCudaMalloc,
 			}},
 			"cudaMemcpy": {{
-				Start: p.bpfObjects.ObiUprobeCudaMemcpy,
+				Start: p.bpfObjects.ObiCudaMemcpy,
 			}},
 			"cudaMemcpyAsync": {{
-				Start: p.bpfObjects.ObiUprobeCudaMemcpy,
+				Start: p.bpfObjects.ObiCudaMemcpy,
 			}},
 		},
 	}

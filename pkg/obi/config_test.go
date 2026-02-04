@@ -168,6 +168,7 @@ discovery:
 				AsyncWriterChannelLen: 500,
 			},
 			BpfFsPath: "/sys/fs/bpf/",
+			InstrumentCuda: config.CudaModeAuto,
 		},
 		NetworkFlows: nc,
 		Metrics: perapp.MetricsConfig{

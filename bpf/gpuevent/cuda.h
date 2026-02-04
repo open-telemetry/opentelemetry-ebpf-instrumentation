@@ -11,16 +11,8 @@
 #pragma once
 
 #include <pid/pid.h>
+#include <common/tp_info.h>
 
-#pragma once
-#define TASK_COMM_LEN 16
-#define MAX_GPUKERN_ARGS 16
-
-#ifndef MAX_STACK_DEPTH
-#define MAX_STACK_DEPTH 128
-#endif
-
-// This is the struct that will be serialized on the ring buffer and sent to user space
 typedef struct cuda_kernel_launch {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 _pad[3];
