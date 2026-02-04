@@ -31,6 +31,7 @@ typedef struct app_net_tcp_rtt {
     connection_info_t conn;
 } app_net_tcp_rtt_t;
 
+
 SEC("kprobe/tcp_close")
 int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
     (void)ctx;
@@ -46,6 +47,10 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
         return 0;
     }
     sort_connection_info(&conn);
+
+    if (is_tcp_socket_never_connected(sk)) {
+        return 0;
+    }
 
     u32 srtt = BPF_CORE_READ((struct tcp_sock *)sk, srtt_us);
 
@@ -69,8 +74,8 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
     task_pid(&se->pid_info);
     se->srtt = srtt / 1000; // convert to millisecond
     se->conn = conn;
-    // Is the netns of the sk struct the same retrieved using task_pid? What if we are not in the process context?
-    u32 netns = BPF_CORE_READ(sk, __sk_common.skc_net.net, ns.inum);
+    u32 netns = task_netns();
+
     bool is_server = is_listening(se->conn.s_port, netns);
     if (is_server) {
         se->direction = INBOUND;
