@@ -347,8 +347,15 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 }
 
 func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
+	testREDMetricsForHTTPLibraryCntName(t, url, svcName, svcNs, "")
+}
+
+func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, overrideContainerName string) {
 	path := "/basic/" + rndStr()
 	containerName := "integration-" + svcName + "-1"
+	if overrideContainerName != "" {
+		containerName = overrideContainerName
+	}
 
 	parts := strings.Split(url, ":")
 	assert.LessOrEqual(t, 3, len(parts))

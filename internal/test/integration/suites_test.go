@@ -621,7 +621,7 @@ func TestSuite_OverrideServiceName(t *testing.T) {
 	// according to the configuration
 	t.Run("RED metrics", func(t *testing.T) {
 		waitForTestComponents(t, instrumentedServiceStdURL)
-		testREDMetricsForHTTPLibrary(t, instrumentedServiceStdURL, "overridden-svc-name", "integration-test")
+		testREDMetricsForHTTPLibraryCntName(t, instrumentedServiceStdURL, "overridden-svc-name", "integration-test", "integration-testserver-1")
 	})
 	t.Run("GRPC traces", func(t *testing.T) {
 		testGRPCTracesForServiceName(t, "overridden-svc-name")
