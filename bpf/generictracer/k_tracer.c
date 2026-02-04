@@ -12,7 +12,6 @@
 #include <common/iov_iter.h>
 #include <common/msg_buffer.h>
 #include <common/dns.h>
-#include <common/pin_internal.h>
 #include <common/sock_port_ns.h>
 #include <common/sockaddr.h>
 #include <common/ssl_helpers.h>
@@ -41,6 +40,8 @@
 #include <maps/sock_pids.h>
 
 #include <pid/pid.h>
+
+#include <shared/obi_ctx.h>
 
 // Used by accept to grab the sock details
 SEC("kprobe/security_socket_accept")
@@ -1100,6 +1101,7 @@ int BPF_KPROBE(obi_kprobe_sys_exit, int status) {
     // This won't delete trace ids for traces with extra_id, like NodeJS. But,
     // we expect that it doesn't matter, since NodeJS main thread won't exit.
     bpf_map_delete_elem(&server_traces, &task);
+    obi_ctx__del(id);
 
     return 0;
 }

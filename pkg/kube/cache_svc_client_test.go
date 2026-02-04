@@ -10,9 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
@@ -91,8 +89,7 @@ type fakeCacheService struct {
 }
 
 func startFakeCacheService(t *testing.T) *fakeCacheService {
-	port, err := test.FreeTCPPort()
-	require.NoError(t, err)
+	port := testutil.FreeTCPPort(t)
 	fcs := &fakeCacheService{
 		port:            port,
 		clientMessages:  make(chan *informer.SubscribeMessage, 10),

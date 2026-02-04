@@ -23,6 +23,7 @@
 
 #include <common/common.h>
 #include <common/http_types.h>
+#include <common/map_sizing.h>
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
@@ -49,11 +50,13 @@ struct {
     __uint(pinning, OBI_PIN_INTERNAL);
 } span_names SEC(".maps");
 
+// this is a large value data structure, increase
+// concurrent_custom_spans carefully.
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, go_addr_key_t); // span pointer
     __type(value, otel_span_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_CUSTOM_SPANS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } active_spans SEC(".maps");
 

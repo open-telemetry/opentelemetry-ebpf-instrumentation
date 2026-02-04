@@ -7,12 +7,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -71,11 +71,14 @@ func TestMain(m *testing.M) {
 		slog.Error("creating K8s manager client", "error", err)
 		os.Exit(1)
 	}
-	freePort, err = test.FreeTCPPort()
+	// Create a temporary listener just to get a free port
+	tempListener, err := net.Listen("tcp", ":")
 	if err != nil {
 		slog.Error("getting a free TCP port", "error", err)
 		os.Exit(1)
 	}
+	freePort = tempListener.(*net.TCPListener).Addr().(*net.TCPAddr).Port
+	tempListener.Close()
 
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(context.TODO())
@@ -239,8 +242,7 @@ func TestAsynchronousStartup(t *testing.T) {
 
 	// creating a new Kube cache service instance that will start synchronizing with
 	// the previously generated amount of data (also from previous tests)
-	newFreePort, err := test.FreeTCPPort()
-	require.NoError(t, err)
+	newFreePort := testutil.FreeTCPPort(t)
 
 	// create few clients that start trying to connect and sync
 	// even before the new cache service starts

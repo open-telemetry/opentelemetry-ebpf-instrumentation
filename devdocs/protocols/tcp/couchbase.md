@@ -135,3 +135,101 @@ OBI generates spans with the following OpenTelemetry semantic conventions:
 Couchbase tracing can be configured via:
 
 - `ebpf.CouchbaseDBCacheSize` - Size of per-connection bucket cache (default matches other protocols)
+
+## SQL++ (N1QL) Query Parsing
+
+In addition to the binary KV protocol on port 11210, Couchbase supports SQL++ (also known as N1QL) queries via HTTP on port 8093. OBI can parse these HTTP-based queries to generate database spans.
+
+**Note:** SQL++ parsing is a generic feature that works with any database using the SQL++ protocol, not just Couchbase. When the response contains the N1QL version header, `db.system.name` is set to `"couchbase"`. Otherwise, it is set to `"other_sql"` for non-Couchbase SQL++ endpoints.
+
+### How It Works
+
+SQL++ queries are sent as HTTP POST requests to the `/query/service` endpoint. OBI intercepts these HTTP requests and:
+
+1. **Detects SQL++ requests** by matching the endpoint pattern (`/query/service`)
+2. **Parses the request body** to extract the SQL statement and query context
+3. **Identifies Couchbase** by checking for the `version=X.X.X-N1QL` parameter in the response's `Content-Type` header
+4. **Extracts operation and table** using the standard SQL parser
+5. **Parses namespace information** from the table path or `query_context` field
+
+### Request Formats
+
+SQL++ requests can be sent in two formats:
+
+**JSON:**
+
+```json
+{
+  "statement": "SELECT * FROM `bucket`.`scope`.`collection` WHERE id = $1",
+  "query_context": "default:`bucket`.`scope`"
+}
+```
+
+**Form-encoded:**
+
+```
+statement=SELECT+*+FROM+users&query_context=default:`mybucket`.`myscope`
+```
+
+### Namespace Resolution
+
+The parser extracts bucket and collection information from multiple sources:
+
+1. **Table path in statement**: `SELECT * FROM`bucket`.`scope`.`collection``
+   - Bucket: `bucket`
+   - Collection: `scope.collection`
+
+2. **query_context field**: When present, provides the default namespace
+   - Format: `default:`bucket`.`scope``
+   - The bucket is extracted from this context if not in the table path
+
+3. **Single identifier**: Interpretation depends on whether `query_context` is set
+   - With `query_context`: treated as collection name
+   - Without `query_context`: treated as bucket name (legacy mode)
+
+### Response Error Handling
+
+SQL++ responses include a status field and optional errors array:
+
+```json
+{
+  "status": "fatal",
+  "errors": [
+    {
+      "code": 12003,
+      "msg": "Keyspace not found in CB datastore: default:bucket.scope.collection"
+    }
+  ]
+}
+```
+
+When `status` is not `"success"`, OBI captures the first error's code and message.
+
+### Span Attributes
+
+SQL++ spans are generated with the following attributes:
+
+| Attribute                 | Source                     | Example                              |
+|---------------------------|----------------------------|--------------------------------------|
+| `db.system.name`          | N1QL header detection      | `"couchbase"` or `"other_sql"`       |
+| `db.operation.name`       | SQL parser                 | `"SELECT"`, `"INSERT"`, `"UPDATE"`   |
+| `db.namespace`            | Table path / query_context | `"mybucket"`                         |
+| `db.collection.name`      | Table path                 | `"myscope.mycollection"`             |
+| `db.query.text`           | Request body               | `"SELECT * FROM users WHERE id = ?"` |
+| `db.response.status_code` | Error code (on error)      | `"12003"`                            |
+| `error.type`              | Error message (on error)   | `"Keyspace not found..."`            |
+
+### Configuration
+
+SQL++ parsing requires the following configuration:
+
+- `OTEL_EBPF_HTTP_SQLPP_ENABLED` - Enable/disable SQL++ parsing (default: `false`)
+- `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP` - Must be set to a larger value (e.g., `2048`) to capture SQL++ request/response bodies. The default HTTP buffer size is insufficient for parsing SQL++ queries.
+- Endpoint patterns are configured internally to match `/query/service`
+
+### Implementation
+
+The SQL++ parsing logic is implemented in:
+
+- [sqlpp.go](../../../pkg/ebpf/common/http/sqlpp.go) - Main parsing logic
+- [sqlpp_test.go](../../../pkg/ebpf/common/http/sqlpp_test.go) - Unit tests

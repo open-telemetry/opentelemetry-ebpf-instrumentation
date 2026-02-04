@@ -150,7 +150,9 @@ jobs:
 
           mkdir -p /home/runner/reports
 
-          ./.tools/gotestsum -ftestname \
+          ./.tools/gotestsum \
+              --rerun-fails=2 --rerun-fails-max-failures=2 --rerun-fails-abort-on-data-race \
+              --packages="${MATRIX_TEST_PATTERN}" -ftestname \
               --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
               -- -race -timeout 30m \
               ${MATRIX_TEST_PATTERN}
@@ -165,12 +167,13 @@ jobs:
         with:
           files: ./testoutput/itest-covdata.txt
           flags: k8s-integration-test
+          name: go-k8s-integration-test-coverage-${{ matrix.basename }}-${{ github.run_number }}
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: go-test-reports-${{ matrix.basename }}-${{ github.run_number }}
+          name: go-k8s-integration-test-reports-${{ matrix.basename }}-${{ github.run_number }}
           path: /home/runner/reports/*.log
           retention-days: 5
 
@@ -178,7 +181,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: go-test-logs-${{ matrix.basename }}-${{ github.run_number }}
+          name: go-k8s-integration-test-logs-${{ matrix.basename }}-${{ github.run_number }}
           path: |
             testoutput/*.log
             testoutput/kind
