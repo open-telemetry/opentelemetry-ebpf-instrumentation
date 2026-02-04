@@ -57,12 +57,8 @@ type (
 	}
 )
 
-func tlog() *slog.Logger {
-	return slog.With("component", "generic.AppNetworkTracer")
-}
-
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter, isGenericTracerActive bool) *Tracer {
-	return &Tracer{log: tlog(), cfg: cfg, metrics: metrics, pidsFilter: pidFilter, isGenericTracerActive: isGenericTracerActive, iters: []*ebpfcommon.Iter{}}
+	return &Tracer{log: slog.With("component", "generic.AppNetworkTracer"), cfg: cfg, metrics: metrics, pidsFilter: pidFilter, isGenericTracerActive: isGenericTracerActive, iters: []*ebpfcommon.Iter{}}
 }
 
 // Updating these requires updating the constants below in pid.h
@@ -225,7 +221,7 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	// pids that are allowed into the bpf map
 
 	// if the generictracer is not attached we need to populate the pid maps
-	// and run the itererators on our own
+	// and run the iterators on our own
 	if !p.isGenericTracerActive {
 
 		if p.bpfObjects.ValidPids != nil {

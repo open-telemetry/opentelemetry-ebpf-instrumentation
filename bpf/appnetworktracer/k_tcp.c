@@ -15,12 +15,12 @@
 #include <common/ringbuf.h>
 #include <common/sockaddr.h>
 #include <generictracer/protocol_common.h>
-
-#include <pid/pid.h>
 #include "types.h"
 
-#define USEC_PER_SEC 1000000ULL
-#define MAX_SRTT_ALLOWED (60 * USEC_PER_SEC)
+enum {
+    USEC_PER_SEC = 1000000ULL,
+    MAX_SRTT_ALLOWED = 60 * USEC_PER_SEC,
+};
 
 typedef struct app_net_tcp_rtt {
     u8 flags;     // Must be first, we use it to tell what kind of event we have on the ring buffer
@@ -30,7 +30,6 @@ typedef struct app_net_tcp_rtt {
     u32 srtt;
     connection_info_t conn;
 } app_net_tcp_rtt_t;
-
 
 SEC("kprobe/tcp_close")
 int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
@@ -54,9 +53,6 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
 
     u32 srtt = BPF_CORE_READ((struct tcp_sock *)sk, srtt_us);
 
-    if (srtt == 0) {
-        return 0;
-    }
     srtt = srtt >> 3; // undo the scaling to have the real us
     if (srtt == 0) {
         return 0;
@@ -77,18 +73,15 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
     u32 netns = task_netns();
 
     bool is_server = is_listening(se->conn.s_port, netns);
-    if (is_server) {
-        se->direction = INBOUND;
-    } else {
-        se->direction = OUTBOUND;
-    }
+    se->direction = is_server ? INBOUND : OUTBOUND;
+
     bpf_d_printk("pid %u, src port %d, dst port %d, direction %d, is_server %d",
                  se->pid_info.host_pid,
                  se->conn.s_port,
                  se->conn.d_port,
-                se->direction,
+                 se->direction,
                  is_server);
 
-    bpf_ringbuf_submit(se, 0);
+    bpf_ringbuf_submit(se, get_flags());
     return 0;
 }

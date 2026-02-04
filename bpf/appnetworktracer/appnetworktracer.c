@@ -9,4 +9,4 @@
 char __license[] SEC("license") = "Dual MIT/GPL";
 
 // Event for application network metrics
-const app_net_tcp_rtt_t *unused_1 __attribute((unused));
+const app_net_tcp_rtt_t *unused_1 __attribute__((unused));

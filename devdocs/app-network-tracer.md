@@ -5,20 +5,20 @@ OBI offers the ability to obtain application network metrics, such as TCP RTT an
 ```
 # HELP obi_net_tcp_rtt_seconds mearures the smoothed TCP RTT as calculated by the kernel in seconds
 # TYPE obi_net_tcp_rtt_seconds histogram
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="0.0005"} 0
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="0.001"} 0
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="0.002"} 0
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="0.005"} 0
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="0.01"} 0
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="0.025"} 0
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="0.05"} 0
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="0.1"} 0
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="0.25"} 6
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="0.5"} 6
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="1"} 6
-obi_net_tcp_rtt_seconds_bucket{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace="",le="+Inf"} 6
-obi_net_tcp_rtt_seconds_sum{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace=""} 1.221
-obi_net_tcp_rtt_seconds_count{instance="lima-ubuntu-ebpf:1661999",job="main",netns="4026531840",port="9092",service_name="main",service_namespace=""} 6
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.0005"} 1
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.001"} 1
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.002"} 1
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.005"} 1
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.01"} 1
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.025"} 1
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.05"} 1
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.1"} 1
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.25"} 1
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.5"} 1
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="1"} 1
+obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="+Inf"} 1
+obi_net_tcp_rtt_seconds_sum{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace=""} 0
+obi_net_tcp_rtt_seconds_count{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace=""} 1
 ```
 
 To add a new metric, follow these guidelines:
