@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -38,7 +37,7 @@ func testREDMetricsForPythonCouchbaseLibrary(t *testing.T, testCase TestCase) {
 	for _, span := range testCase.Spans {
 		operation := span.FindAttribute("db.operation.name")
 		require.NotNil(t, operation, "db.operation.name attribute not found in span %s", span.Name)
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var err error
 			results, err = pq.Query(`db_client_operation_duration_seconds_count{` +
 				`db_operation_name="` + operation.Value.AsString() + `",` +
@@ -47,10 +46,10 @@ func testREDMetricsForPythonCouchbaseLibrary(t *testing.T, testCase TestCase) {
 			enoughPromResults(t, results)
 			val := totalPromCount(t, results)
 			assert.LessOrEqual(t, 3, val, "expected at least 3 %s operations, got %d", span.Name, val)
-		})
+		}, testTimeout, time.Second)
 	}
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
 			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
@@ -68,7 +67,7 @@ func testREDMetricsForPythonCouchbaseLibrary(t *testing.T, testCase TestCase) {
 			traces := tq.FindBySpan(tags...)
 			assert.LessOrEqual(t, 1, len(traces), "span %s with tags %v not found in traces in traces %v", command, tags, tq.Data)
 		}
-	}, test.Interval(100*time.Millisecond))
+	}, testTimeout, time.Second)
 }
 
 func testREDMetricsPythonCouchbaseOnly(t *testing.T) {
@@ -172,7 +171,7 @@ func testREDMetricsPythonCouchbaseError(t *testing.T) {
 
 func waitForCouchbaseTestComponents(t *testing.T, url string, subpath string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, 2*time.Minute, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
 		require.NoError(t, err)
@@ -186,7 +185,7 @@ func waitForCouchbaseTestComponents(t *testing.T, url string, subpath string) {
 		results, err := pq.Query(`db_client_operation_duration_seconds_count{db_system_name="couchbase"}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+	}, testTimeout, time.Second)
 }
 
 // testREDMetricsPythonCouchbaseSQLPP tests SQL++ (N1QL) queries via HTTP API
@@ -334,7 +333,7 @@ func testREDMetricsForCouchbaseSQLPP(t *testing.T, testCase TestCase) {
 	for _, span := range testCase.Spans {
 		operation := span.FindAttribute("db.operation.name")
 		require.NotNil(t, operation, "db.operation.name attribute not found in span %s", span.Name)
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			var err error
 			results, err = pq.Query(`db_client_operation_duration_seconds_count{` +
 				`db_operation_name="` + operation.Value.AsString() + `",` +
@@ -344,10 +343,10 @@ func testREDMetricsForCouchbaseSQLPP(t *testing.T, testCase TestCase) {
 			enoughPromResults(t, results)
 			val := totalPromCount(t, results)
 			assert.LessOrEqual(t, 3, val, "expected at least 3 %s operations, got %d", span.Name, val)
-		})
+		}, testTimeout, time.Second)
 	}
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
 			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
@@ -365,12 +364,12 @@ func testREDMetricsForCouchbaseSQLPP(t *testing.T, testCase TestCase) {
 			traces := tq.FindBySpan(tags...)
 			assert.LessOrEqual(t, 1, len(traces), "span %s with tags %v not found in traces in traces %v", command, tags, tq.Data)
 		}
-	}, test.Interval(100*time.Millisecond))
+	}, testTimeout, time.Second)
 }
 
 func waitForCouchbaseSQLPPTestComponents(t *testing.T, url string, subpath string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, 2*time.Minute, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
 		require.NoError(t, err)
@@ -382,5 +381,5 @@ func waitForCouchbaseSQLPPTestComponents(t *testing.T, url string, subpath strin
 		results, err := pq.Query(`db_client_operation_duration_seconds_count{db_system_name="couchbase"}`)
 		require.NoError(t, err)
 		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+	}, testTimeout, time.Second)
 }
