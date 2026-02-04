@@ -196,9 +196,9 @@ func (pt *ProcessTracer) makeOtelBPFFSPath() (string, error) {
 }
 
 func (pt *ProcessTracer) setupBPFFS(spec *ebpf.CollectionSpec) string {
-	var err error
+	otelBPFFSPath, err := pt.makeOtelBPFFSPath()
 
-	if otelBPFFSPath, err := pt.makeOtelBPFFSPath(); err == nil {
+	if err == nil {
 		return otelBPFFSPath
 	}
 
