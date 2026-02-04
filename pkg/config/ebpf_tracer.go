@@ -121,7 +121,7 @@ type EBPFTracer struct {
 	BpfFsPath string `yaml:"bpf_fs_path" env:"OTEL_EBPF_BPF_FS_PATH"`
 }
 
-func (e *EBPFTracer) CudaInstrumentationEnabled() bool {	
+func (e *EBPFTracer) CudaInstrumentationEnabled() bool {
 	switch e.InstrumentCuda {
 	case CudaModeOn:
 		return true
@@ -130,11 +130,10 @@ func (e *EBPFTracer) CudaInstrumentationEnabled() bool {
 			return true
 		}
 
-		return false		
+		return false
 	}
 	return false
 }
-
 
 // Per-protocol data buffer size in bytes.
 // Max: 8192 bytes.

@@ -141,7 +141,7 @@ var DefaultConfig = Config{
 			AsyncWriterWorkers:    8,
 			AsyncWriterChannelLen: 500,
 		},
-		BpfFsPath: "/sys/fs/bpf/",
+		BpfFsPath:      "/sys/fs/bpf/",
 		InstrumentCuda: config.CudaModeAuto,
 	},
 	NameResolver: &transform.NameResolverConfig{
