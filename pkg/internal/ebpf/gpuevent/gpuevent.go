@@ -133,6 +133,9 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			"cudaLaunchKernel": {{
 				Start: p.bpfObjects.ObiUprobeCudaLaunch,
 			}},
+			"cudaGraphLaunch": {{
+				Start: p.bpfObjects.ObiUprobeCudaLaunchGraph,
+			}},
 			"cudaMalloc": {{
 				Start: p.bpfObjects.ObiUprobeCudaMalloc,
 			}},
@@ -219,6 +222,8 @@ func (p *Tracer) processCudaEvent(_ *ebpfcommon.EBPFParseContext, _ *config.EBPF
 	switch eventType {
 	case EventTypeKernelLaunch:
 		return p.readGPUKernelLaunchIntoSpan(record)
+	case EventTypeGraphLaunch:
+		return p.readGPUGraphLaunchIntoSpan(record)
 	case EventTypeMalloc:
 		return p.readGPUMallocIntoSpan(record)
 	case EventTypeMemcpy:

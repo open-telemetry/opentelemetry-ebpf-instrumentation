@@ -33,7 +33,6 @@ typedef struct cuda_kernel_launch {
     int block_y;
     int block_z;
     u64 stream;
-    u64 args[MAX_GPUKERN_ARGS];
 } cuda_kernel_launch_t;
 
 typedef struct cuda_malloc {
