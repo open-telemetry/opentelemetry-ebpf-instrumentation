@@ -205,7 +205,7 @@ type metricsReporter struct {
 	attrDNSLookupDuration      []attributes.Field[*request.Span, string]
 
 	// user-selected attributes for the application network level metrics
-	attrAppNetTcpRtt []attributes.Field[*request.Span, string]
+	attrAppNetTCPRtt []attributes.Field[*request.Span, string]
 
 	// trace span metrics
 	spanMetricsLatency           *Expirer[prometheus.Histogram]
@@ -381,7 +381,7 @@ func newReporter(
 
 	var attrDNSLookupDuration []attributes.Field[*request.Span, string]
 
-	var attrAppNetTcpRtt []attributes.Field[*request.Span, string]
+	var attrAppNetTCPRtt []attributes.Field[*request.Span, string]
 
 	if is.DNSEnabled() {
 		attrDNSLookupDuration = attributes.PrometheusGetters(attributeGetters,
@@ -391,7 +391,7 @@ func newReporter(
 	kubeEnabled := ctxInfo.K8sInformer.IsKubeEnabled()
 	dockerEnabled := ctxInfo.DockerMetadata.IsEnabled(ctx)
 	if is.AppNetEnabled() {
-		attrAppNetTcpRtt = attributes.PrometheusGetters(attributeGetters, attrsProvider.For(attributes.AppNetworkTcpRtt))
+		attrAppNetTCPRtt = attributes.PrometheusGetters(attributeGetters, attrsProvider.For(attributes.AppNetworkTCPRtt))
 	}
 
 	if jointMetricsConfig.Features.ServiceGraph() {
@@ -440,7 +440,7 @@ func newReporter(
 		attrCudaKernelBlockSize:    attrCudaKernelBlockSize,
 		attrCudaMemoryCopies:       attrCudaMemoryCopies,
 		attrDNSLookupDuration:      attrDNSLookupDuration,
-		attrAppNetTcpRtt:           attrAppNetTcpRtt,
+		attrAppNetTCPRtt:           attrAppNetTCPRtt,
 		attrSvcGraph:               attrSvcGraph,
 		obiInfo: NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: attr.VendorPrefix + buildInfoSuffix,
@@ -701,13 +701,13 @@ func newReporter(
 		}),
 		tcpRtt: optionalHistogramProvider(is.AppNetEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
-				Name:                            attributes.AppNetworkTcpRtt.Prom,
-				Help:                            "mearures the smoothed TCP RTT as calculated by the kernel in seconds",
+				Name:                            attributes.AppNetworkTCPRtt.Prom,
+				Help:                            "measures the smoothed TCP RTT as calculated by the kernel in seconds",
 				Buckets:                         []float64{0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0},
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
-			}, labelNames(attrAppNetTcpRtt)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrAppNetTCPRtt)).MetricVec, clock.Time, cfg.TTL)
 		}),
 	}
 
@@ -1010,11 +1010,11 @@ func (r *metricsReporter) observe(span *request.Span) {
 					labelValues(span, r.attrDNSLookupDuration)...,
 				).Metric.Observe(duration)
 			}
-		case request.EventTypeAppNetTcpRtt:
+		case request.EventTypeAppNetTCPRtt:
 			if r.is.AppNetEnabled() {
 				r.tcpRtt.WithLabelValues(
-					labelValues(span, r.attrAppNetTcpRtt)...,
-				).Metric.Observe(float64(span.AppNet.TcpRtt.Srtt) / 1000.0)
+					labelValues(span, r.attrAppNetTCPRtt)...,
+				).Metric.Observe(float64(span.AppNet.TCPRtt.Srtt) / 1000.0)
 			}
 		}
 	}

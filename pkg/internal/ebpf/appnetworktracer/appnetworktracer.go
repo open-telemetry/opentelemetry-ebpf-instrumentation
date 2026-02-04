@@ -6,16 +6,13 @@
 package appnetworktracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/appnetworktracer"
 
 import (
-	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 
 	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -29,22 +26,15 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-// The following consts need to coincide with some C identifiers defined in bpf/appnetworktracer/common.h
+// The following consts need to coincide with some C identifiers defined in bpf/appnetworktracer/types.h
 const (
-	EventTypeAppNetTcpRtt               = 1 // EVENT_APP_NET_TCP_RTT Application Network metrics related event - RTT
-	EventTypeAppNetTcpFailedConnections = 2 // EVENT_APP_NET_TCP_FAILED_CONNECTIONS
-)
-
-// Directions
-const (
-	Inbound  = 0
-	Outbound = 1
+	EventTypeAppNetTcpRtt = 1 // EVENT_APP_NET_TCP_RTT Application Network metrics related event - RTT
 )
 
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type app_net_tcp_rtt_t -target amd64,arm64 Bpf ../../../../bpf/appnetworktracer/appnetworktracer.c -- -I../../../../bpf
 
 type (
-	AppNetTcpRtt BpfAppNetTcpRttT
+	AppNetTCPRtt BpfAppNetTcpRttT
 	Tracer       struct {
 		pidsFilter            ebpfcommon.ServiceFilter
 		cfg                   *obi.Config
@@ -186,25 +176,15 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 	return nil
 }
 
-func (p *Tracer) SocketFilters() []*ebpf.Program {
-	return nil
-}
+func (p *Tracer) SocketFilters() []*ebpf.Program { return nil }
 
 func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg { return nil }
 
 func (p *Tracer) SockOps() []ebpfcommon.SockOps { return nil }
 
-func (p *Tracer) Iters() []*ebpfcommon.Iter {
-	if len(p.iters) == 0 {
-		p.iters = []*ebpfcommon.Iter{
-			{
-				Program: p.bpfObjects.ObiIterTcp,
-			},
-		}
-	}
+func (p *Tracer) Iters() []*ebpfcommon.Iter { return nil }
 
-	return p.iters
-}
+func (p *Tracer) Tracing() []*ebpfcommon.Tracing { return nil }
 
 func (p *Tracer) RecordInstrumentedLib(uint64, []io.Closer) {}
 
@@ -212,32 +192,11 @@ func (p *Tracer) AddInstrumentedLibRef(uint64) {}
 
 func (p *Tracer) UnlinkInstrumentedLib(uint64) {}
 
-func (p *Tracer) AlreadyInstrumentedLib(uint64) bool {
-	return false
-}
+func (p *Tracer) AlreadyInstrumentedLib(uint64) bool { return false }
 
-func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
+func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
 	// At this point we now have loaded the bpf objects, which means we should insert any
 	// pids that are allowed into the bpf map
-
-	// if the generictracer is not attached we need to populate the pid maps
-	// and run the iterators on our own
-	if !p.isGenericTracerActive {
-
-		if p.bpfObjects.ValidPids != nil {
-			p.rebuildValidPids()
-		} else {
-			p.log.Error("BPF Pids map is not created yet, this is a bug.")
-		}
-
-		for _, it := range p.Iters() {
-			if it.Program == p.bpfObjects.ObiIterTcp {
-				if err := p.runIterator(it); err != nil {
-					p.log.Error("error running TCP iterator", "error", err)
-				}
-			}
-		}
-	}
 
 	p.log.Info("Launching p.AppNetworkTracer")
 
@@ -262,7 +221,7 @@ func (p *Tracer) handleAppNetworkEvent(_ *ebpfcommon.EBPFParseContext, _ *config
 
 	switch eventType {
 	case EventTypeAppNetTcpRtt:
-		return p.readTcpRttIntoSpan(record)
+		return p.readTCPRttIntoSpan(record)
 	default:
 		p.log.Error("unknown net app event", "eventType", eventType)
 	}
@@ -270,8 +229,8 @@ func (p *Tracer) handleAppNetworkEvent(_ *ebpfcommon.EBPFParseContext, _ *config
 	return request.Span{}, true, nil
 }
 
-func (p *Tracer) readTcpRttIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
-	event, err := ebpfcommon.ReinterpretCast[AppNetTcpRtt](record.RawSample)
+func (p *Tracer) readTCPRttIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
+	event, err := ebpfcommon.ReinterpretCast[AppNetTCPRtt](record.RawSample)
 	if err != nil {
 		return request.Span{}, true, err
 	}
@@ -285,7 +244,7 @@ func (p *Tracer) readTcpRttIntoSpan(record *ringbuf.Record) (request.Span, bool,
 	}
 
 	return request.Span{
-		Type:     request.EventTypeAppNetTcpRtt,
+		Type:     request.EventTypeAppNetTCPRtt,
 		Peer:     peer,
 		PeerPort: int(event.Conn.S_port),
 		Host:     hostname,
@@ -296,9 +255,8 @@ func (p *Tracer) readTcpRttIntoSpan(record *ringbuf.Record) (request.Span, bool,
 			Namespace: event.PidInfo.Ns,
 		},
 		AppNet: &request.AppNet{
-			TcpRtt: request.TcpRtt{
-				Srtt:      event.Srtt,
-				Direction: int(event.Direction),
+			TCPRtt: request.TCPRtt{
+				Srtt: event.Srtt,
 			},
 		},
 	}, false, nil
@@ -322,29 +280,4 @@ func reqHostInfo(srcAddr, dstAddr [16]uint8) (source, target string) {
 	}
 
 	return srcStr, dstStr
-}
-
-func (p *Tracer) runIterator(it *ebpfcommon.Iter) error {
-	p.log.Debug("Running iterator", "iterator", it.Program.String())
-
-	if it.Link == nil {
-		return errors.New("iterator link is nil")
-	}
-
-	rd, err := it.Link.(*link.Iter).Open()
-	if err != nil {
-		return fmt.Errorf("open iterator: %w", err)
-	}
-	defer rd.Close()
-
-	scanner := bufio.NewScanner(rd)
-	for scanner.Scan() {
-		p.log.Debug("Iterator output", "line", scanner.Text(), "iterator", it.Program.String())
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read iterator: %w", err)
-	}
-	p.log.Debug("Iterator finished", "iterator", it.Program.String())
-
-	return nil
 }

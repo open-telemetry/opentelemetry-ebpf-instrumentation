@@ -50,8 +50,7 @@ const (
 	EventTypeFailedConnect
 	EventTypeDNS
 	EventTypeCouchbaseClient
-	EventTypeAppNetTcpRtt
-	EventTypeAppNetTcpFailedConnections
+	EventTypeAppNetTCPRtt
 )
 
 const (
@@ -138,7 +137,7 @@ func (t EventType) String() string {
 		return "DNS"
 	case EventTypeCouchbaseClient:
 		return "CouchbaseClient"
-	case EventTypeAppNetTcpRtt:
+	case EventTypeAppNetTCPRtt:
 		return "AppNetTcpRtt"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
@@ -203,13 +202,11 @@ type Elasticsearch struct {
 }
 
 type AppNet struct {
-	TcpRtt TcpRtt
+	TCPRtt TCPRtt
 }
 
-type TcpRtt struct {
-	Srtt      uint32 `json:"srtt"`
-	Port      int    `json:"port"`
-	Direction int    `json:"direction"`
+type TCPRtt struct {
+	Srtt uint32 `json:"srtt"`
 }
 
 type AWS struct {

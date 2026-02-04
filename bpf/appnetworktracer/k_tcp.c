@@ -45,7 +45,6 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
     if (!parse_sock_info(sk, &conn)) {
         return 0;
     }
-    sort_connection_info(&conn);
 
     if (is_tcp_socket_never_connected(sk)) {
         return 0;
@@ -70,17 +69,12 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
     task_pid(&se->pid_info);
     se->srtt = srtt / 1000; // convert to millisecond
     se->conn = conn;
-    u32 netns = task_netns();
 
-    bool is_server = is_listening(se->conn.s_port, netns);
-    se->direction = is_server ? INBOUND : OUTBOUND;
-
-    bpf_d_printk("pid %u, src port %d, dst port %d, direction %d, is_server %d",
+    bpf_d_printk("pid %u, src port %d, dst port %d, srtt %d",
                  se->pid_info.host_pid,
                  se->conn.s_port,
                  se->conn.d_port,
-                 se->direction,
-                 is_server);
+                 se->srtt);
 
     bpf_ringbuf_submit(se, get_flags());
     return 0;

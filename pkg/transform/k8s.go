@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -26,6 +27,21 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
+)
+
+// TODO (pinoOgni) find a common place between netolly and appolly
+const (
+	attrPrefixSrc       = "k8s.src"
+	attrPrefixDst       = "k8s.dst"
+	attrSuffixNs        = ".namespace"
+	attrSuffixName      = ".name"
+	attrSuffixType      = ".type"
+	attrSuffixOwnerName = ".owner.name"
+	attrSuffixOwnerType = ".owner.type"
+	attrSuffixHostIP    = ".node.ip"
+	attrSuffixHostName  = ".node.name"
+
+	cloudZoneLabel = "topology.kubernetes.io/zone"
 )
 
 var containerInfoForPID = container.InfoForPID
@@ -139,10 +155,12 @@ func KubeProcessEventDecoratorProvider(
 }
 
 type metadataDecorator struct {
-	store       *kube.Store
-	clusterName string
-	input       <-chan []request.Span
-	output      *msg.Queue[[]request.Span]
+	store            *kube.Store
+	clusterName      string
+	input            <-chan []request.Span
+	output           *msg.Queue[[]request.Span]
+	alreadyLoggedIPs *simplelru.LRU[string, struct{}]
+	log              *slog.Logger
 }
 
 func (md *metadataDecorator) nodeLoop(ctx context.Context) {
@@ -173,6 +191,77 @@ func (md *metadataDecorator) do(span *request.Span) {
 	if span.Peer != "" {
 		if name, _, _ := md.store.ServiceNameNamespaceForIP(span.Peer); name != "" {
 			span.PeerName = name
+		}
+	}
+
+	// is this the best way or is it better to add a new node to the pipeline
+	// with AppNetworkDecoratorProvider?
+	if span.Type == request.EventTypeAppNetTCPRtt {
+		md.decorateAppNetwork(span, attrPrefixSrc, span.Peer)
+		md.decorateAppNetwork(span, attrPrefixDst, span.Host)
+	}
+}
+
+// taken from netolly decorate method
+func (md *metadataDecorator) decorateAppNetwork(span *request.Span, prefix, ip string) {
+	cachedObj := md.store.ObjectMetaByIP(ip)
+	if cachedObj == nil {
+		if md.log.Enabled(context.TODO(), slog.LevelDebug) {
+			// avoid spoofing the debug logs with the same message for each span whose IP can't be decorated
+			if !md.alreadyLoggedIPs.Contains(ip) {
+				md.alreadyLoggedIPs.Add(ip, struct{}{})
+				md.log.Debug("Can't find kubernetes info for IP", "ip", ip)
+			}
+		}
+		return
+	}
+	meta := cachedObj.Meta
+	ownerName, ownerKind := meta.Name, meta.Kind
+	if owner := ikube.TopOwner(meta.Pod); owner != nil {
+		ownerName, ownerKind = owner.Name, owner.Kind
+	}
+
+	span.Service.Metadata[attr.Name(prefix+attrSuffixNs)] = meta.Namespace
+	span.Service.Metadata[attr.Name(prefix+attrSuffixName)] = meta.Name
+	span.Service.Metadata[attr.Name(prefix+attrSuffixType)] = meta.Kind
+	span.Service.Metadata[attr.Name(prefix+attrSuffixOwnerName)] = ownerName
+	span.Service.Metadata[attr.Name(prefix+attrSuffixOwnerType)] = ownerKind
+
+	md.nodeLabels(span, prefix, meta)
+
+	// decorate other names from metadata, if required
+	if prefix == attrPrefixDst {
+		if span.Service.Metadata[attr.DstName] == "" {
+			span.Service.Metadata[attr.DstName] = meta.Name
+		}
+	} else {
+		if span.Service.Metadata[attr.SrcName] == "" {
+			span.Service.Metadata[attr.SrcName] = meta.Name
+		}
+	}
+}
+
+func (md *metadataDecorator) nodeLabels(span *request.Span, prefix string, meta *informer.ObjectMeta) {
+	var nodeLabels map[string]string
+	// add any other ownership label (they might be several, e.g. replicaset and deployment)
+	if meta.Pod != nil && meta.Pod.HostIp != "" {
+		span.Service.Metadata[attr.Name(prefix+attrSuffixHostIP)] = meta.Pod.HostIp
+		if host := md.store.ObjectMetaByIP(meta.Pod.HostIp); host != nil {
+			span.Service.Metadata[attr.Name(prefix+attrSuffixHostName)] = host.Meta.Name
+			nodeLabels = host.Meta.Labels
+		}
+	} else if meta.Kind == "Node" {
+		nodeLabels = meta.Labels
+	}
+	if nodeLabels != nil {
+		// this isn't strictly a Kubernetes attribute, but in Kubernetes
+		// clusters this information is inferred from Node annotations
+		if zone, ok := nodeLabels[cloudZoneLabel]; ok {
+			if prefix == attrPrefixDst {
+				span.Service.Metadata[attr.DstZone] = zone
+			} else {
+				span.Service.Metadata[attr.SrcZone] = zone
+			}
 		}
 	}
 }

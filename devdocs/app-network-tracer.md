@@ -3,7 +3,7 @@
 OBI offers the ability to obtain application network metrics, such as TCP RTT and TCP connection failures related to an instrumented application. For example, by instrumenting port 9092 on a server, we can obtain the following metric:
 
 ```
-# HELP obi_net_tcp_rtt_seconds mearures the smoothed TCP RTT as calculated by the kernel in seconds
+# HELP obi_net_tcp_rtt_seconds measures the smoothed TCP RTT as calculated by the kernel in seconds
 # TYPE obi_net_tcp_rtt_seconds histogram
 obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.0005"} 1
 obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.001"} 1

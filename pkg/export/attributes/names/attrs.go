@@ -216,13 +216,3 @@ const (
 const (
 	DNSQuestionName = Name(semconv.DNSQuestionNameKey)
 )
-
-// App network events
-const (
-	// it is the source.port if the instrumented service is a server
-	// and it is the destination.port if the instrumented service is a client
-	// AppNetworkServerPort = Name("server.port")
-	// it is the inbound if the instrumented service is a server
-	// and it is the outbound if the instrumented service is a client
-	AppNetworkDirection = Name("direction")
-)
