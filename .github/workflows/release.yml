@@ -159,10 +159,9 @@ jobs:
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
-  release:
-    name: Draft Release
+  tests-passed:
+    name: All Tests Passed
     needs:
-      - validate-tag
       - unit-tests
       - integration-tests
       - k8s-integration-tests
@@ -173,6 +172,30 @@ jobs:
       - tidy-check
       - arm-integration-tests
       - docker-build-test
+    runs-on: ubuntu-latest
+    permissions: {}
+    if: success()
+    steps:
+      - name: All required tests passed
+        run: echo "All required tests have passed successfully"
+
+  docker-publish-main:
+    name: Publish Docker Image (main)
+    uses: ./.github/workflows/publish_dockerhub_main.yml
+    needs: tests-passed
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  docker-publish-k8s-cache:
+    name: Publish Docker Image (k8s cache)
+    uses: ./.github/workflows/publish_dockerhub_k8s_cache_main.yml
+    needs: tests-passed
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  release:
+    name: Draft Release
+    needs: tests-passed
     runs-on: ubuntu-latest
     permissions:
       contents: write # https://github.com/softprops/action-gh-release#permissions
