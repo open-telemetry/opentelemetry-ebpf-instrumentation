@@ -203,7 +203,7 @@ func (pt *ProcessTracer) setupBPFFS(spec *ebpf.CollectionSpec) string {
 	}
 
 	slog.Warn("creating OTEL namespace in bpffs failed (is bpffs mounted?)", "bpffs_path", pt.bpffsPath, "err", err)
-	slog.Warn("OBI will still work, but features depnding on pinned maps (e.g., log enricher, profile correlation) will be disabled")
+	slog.Warn("OBI will still work, but features depending on pinned maps (e.g., log enricher, profile correlation) will be disabled")
 
 	for _, v := range spec.Maps {
 		if v.Pinning == ebpf.PinByName {
