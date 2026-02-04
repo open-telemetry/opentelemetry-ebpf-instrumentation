@@ -159,12 +159,13 @@ jobs:
         with:
           files: ./testoutput/itest-covdata.txt
           flags: k8s-integration-test
+          name: go-k8s-integration-test-coverage-${{ matrix.basename }}-${{ github.run_number }}
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: go-test-reports-${{ matrix.basename }}-${{ github.run_number }}
+          name: go-k8s-integration-test-reports-${{ matrix.basename }}-${{ github.run_number }}
           path: /home/runner/reports/*.log
           retention-days: 5
 
@@ -172,7 +173,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: go-test-logs-${{ matrix.basename }}-${{ github.run_number }}
+          name: go-k8s-integration-test-logs-${{ matrix.basename }}-${{ github.run_number }}
           path: |
             testoutput/*.log
             testoutput/kind

@@ -102,7 +102,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: Test Logs
+          name: go-integration-test-arm-logs-${{ github.run_number }}
           path: |
             testoutput/*.log
             testoutput/kind
@@ -114,3 +114,4 @@ jobs:
         with:
           files: ./testoutput/itest-covdata.txt
           flags: integration-test-arm
+          name: go-integration-test-arm-coverage-${{ github.run_number }}

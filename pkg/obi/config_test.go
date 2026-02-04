@@ -167,7 +167,7 @@ discovery:
 				AsyncWriterWorkers:    8,
 				AsyncWriterChannelLen: 500,
 			},
-			BpfFsPath:      "/sys/fs/bpf/",
+			BPFFSPath:      "/sys/fs/bpf/",
 			InstrumentCuda: config.CudaModeAuto,
 		},
 		NetworkFlows: nc,

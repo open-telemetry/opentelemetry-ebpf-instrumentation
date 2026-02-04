@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -23,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/flow/transport"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -34,8 +34,7 @@ const timeout = 5 * time.Second
 func TestFilter(t *testing.T) {
 	ctx := t.Context()
 
-	promPort, err := test.FreeTCPPort()
-	require.NoError(t, err)
+	promPort := testutil.FreeTCPPort(t)
 
 	// Flows pipeline that will discard any network flow not matching the "TCP" transport attribute
 	flows := Flows{
