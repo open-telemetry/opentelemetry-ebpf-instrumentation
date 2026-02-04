@@ -105,9 +105,9 @@ func (p *Tracer) Constants() map[string]any {
 	return m
 }
 
-func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, _ *goexec.Offsets) {}
+func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 
-func (p *Tracer) ProcessBinary(fileInfo *exec.FileInfo) {}
+func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
 
 func (p *Tracer) BpfObjects() any {
 	return &p.bpfObjects

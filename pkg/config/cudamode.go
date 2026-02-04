@@ -42,7 +42,7 @@ func (b CudaMode) MarshalText() ([]byte, error) {
 		return []byte("auto"), nil
 	}
 
-	return nil, fmt.Errorf("invalid TCBakend value: %d", b)
+	return nil, fmt.Errorf("invalid Cuda instrumentation mode value: %d", b)
 }
 
 func (b CudaMode) Valid() bool {
