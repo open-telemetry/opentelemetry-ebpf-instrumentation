@@ -19,7 +19,7 @@ import (
 func TestSuite(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite.log"))
 	require.NoError(t, err)
-	compose.Env = append(compose.Env, `INSTRUMENTER_CONFIG_SUFFIX=-container-meta`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `INSTRUMENTER_CONFIG_SUFFIX=-container-meta`)
 	require.NoError(t, compose.Up())
 
 	config := ti.DefaultOBIConfig()

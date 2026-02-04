@@ -18,10 +18,12 @@ attributes:
   select:
     "*":
       include: ["*"]
-services:
+discovery:
   instrument:
     - name: testserver
+      namespace: integration-test
       container_name: "integration-testserver-*"
     - name: pingclient
+      namespace: integration-test
       container_name: "*-pingclient-*"
 
