@@ -30095,7 +30095,7 @@ struct filter_pred {
     short unsigned int *ops;
     struct ftrace_event_field *field;
     int offset;
-    int not;
+    int not ;
     int op;
 };
 
@@ -60401,7 +60401,7 @@ struct parsed_partitions {
         int flags;
         bool has_info;
         struct partition_meta_info info;
-    } *parts;
+    } * parts;
     int next;
     int limit;
     bool access_beyond_eod;
@@ -65265,7 +65265,7 @@ struct io_kiocb {
         struct io_mkdir mkdir;
         struct io_symlink symlink;
         struct io_hardlink hardlink;
-        struct io_completion compl;
+        struct io_completion compl ;
     };
     void *async_data;
     u8 opcode;
@@ -67447,7 +67447,7 @@ struct rdists {
         bool lpi_enabled;
         cpumask_t *vpe_table_mask;
         void *vpe_l1_base;
-    } *rdist;
+    } * rdist;
     phys_addr_t prop_table_pa;
     void *prop_table_va;
     u64 flags;
@@ -132526,7 +132526,7 @@ struct usb_hub {
     union {
         struct usb_hub_status hub;
         struct usb_port_status port;
-    } *status;
+    } * status;
     struct mutex status_mutex;
     int error;
     int nerrors;

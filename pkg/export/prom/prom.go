@@ -188,11 +188,12 @@ type metricsReporter struct {
 	attrHTTPResponseSize       []attributes.Field[*request.Span, string]
 	attrHTTPClientRequestSize  []attributes.Field[*request.Span, string]
 	attrHTTPClientResponseSize []attributes.Field[*request.Span, string]
-	attrGPUKernelCalls         []attributes.Field[*request.Span, string]
-	attrGPUMemoryAllocs        []attributes.Field[*request.Span, string]
-	attrGPUKernelGridSize      []attributes.Field[*request.Span, string]
-	attrGPUKernelBlockSize     []attributes.Field[*request.Span, string]
-	attrGPUMemoryCopies        []attributes.Field[*request.Span, string]
+	attrCudaKernelCalls        []attributes.Field[*request.Span, string]
+	attrCudaGraphCalls         []attributes.Field[*request.Span, string]
+	attrCudaMemoryAllocs       []attributes.Field[*request.Span, string]
+	attrCudaKernelGridSize     []attributes.Field[*request.Span, string]
+	attrCudaKernelBlockSize    []attributes.Field[*request.Span, string]
+	attrCudaMemoryCopies       []attributes.Field[*request.Span, string]
 	attrSvcGraph               []attributes.Field[*request.Span, string]
 	attrDNSLookupDuration      []attributes.Field[*request.Span, string]
 
@@ -211,11 +212,12 @@ type metricsReporter struct {
 	serviceGraphTotal  *Expirer[prometheus.Counter]
 
 	// gpu related metrics
-	gpuKernelCallsTotal  *Expirer[prometheus.Counter]
-	gpuMemoryAllocsTotal *Expirer[prometheus.Counter]
-	gpuKernelGridSize    *Expirer[prometheus.Histogram]
-	gpuKernelBlockSize   *Expirer[prometheus.Histogram]
-	gpuMemoryCopySize    *Expirer[prometheus.Histogram]
+	cudaKernelCallsTotal  *Expirer[prometheus.Counter]
+	cudaGraphCallsTotal   *Expirer[prometheus.Counter]
+	cudaMemoryAllocsTotal *Expirer[prometheus.Counter]
+	cudaKernelGridSize    *Expirer[prometheus.Histogram]
+	cudaKernelBlockSize   *Expirer[prometheus.Histogram]
+	cudaMemoryCopySize    *Expirer[prometheus.Histogram]
 
 	// dns related metrics
 	dnsLookupDuration *Expirer[prometheus.Histogram]
@@ -340,23 +342,26 @@ func newReporter(
 			attrsProvider.For(attributes.MessagingProcessDuration))
 	}
 
-	var attrGPUKernelLaunchCalls []attributes.Field[*request.Span, string]
-	var attrGPUMemoryAllocations []attributes.Field[*request.Span, string]
-	var attrGPUKernelGridSize []attributes.Field[*request.Span, string]
-	var attrGPUKernelBlockSize []attributes.Field[*request.Span, string]
-	var attrGPUMemoryCopies []attributes.Field[*request.Span, string]
+	var attrCudaKernelLaunchCalls []attributes.Field[*request.Span, string]
+	var attrCudaGraphLaunchCalls []attributes.Field[*request.Span, string]
+	var attrCudaMemoryAllocations []attributes.Field[*request.Span, string]
+	var attrCudaKernelGridSize []attributes.Field[*request.Span, string]
+	var attrCudaKernelBlockSize []attributes.Field[*request.Span, string]
+	var attrCudaMemoryCopies []attributes.Field[*request.Span, string]
 
 	if is.GPUEnabled() {
-		attrGPUKernelLaunchCalls = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.GPUKernelLaunchCalls))
-		attrGPUMemoryAllocations = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.GPUMemoryAllocations))
-		attrGPUKernelGridSize = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.GPUKernelGridSize))
-		attrGPUKernelBlockSize = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.GPUKernelBlockSize))
-		attrGPUMemoryCopies = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.GPUMemoryCopies))
+		attrCudaKernelLaunchCalls = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.GPUCudaKernelLaunchCalls))
+		attrCudaGraphLaunchCalls = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.GPUCudaGraphLaunchCalls))
+		attrCudaMemoryAllocations = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.GPUCudaMemoryAllocations))
+		attrCudaKernelGridSize = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.GPUCudaKernelGridSize))
+		attrCudaKernelBlockSize = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.GPUCudaKernelBlockSize))
+		attrCudaMemoryCopies = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.GPUCudaMemoryCopies))
 	}
 
 	var attrDNSLookupDuration []attributes.Field[*request.Span, string]
@@ -406,11 +411,12 @@ func newReporter(
 		attrHTTPResponseSize:       attrHTTPResponseSize,
 		attrHTTPClientRequestSize:  attrHTTPClientRequestSize,
 		attrHTTPClientResponseSize: attrHTTPClientResponseSize,
-		attrGPUKernelCalls:         attrGPUKernelLaunchCalls,
-		attrGPUMemoryAllocs:        attrGPUMemoryAllocations,
-		attrGPUKernelGridSize:      attrGPUKernelGridSize,
-		attrGPUKernelBlockSize:     attrGPUKernelBlockSize,
-		attrGPUMemoryCopies:        attrGPUMemoryCopies,
+		attrCudaKernelCalls:        attrCudaKernelLaunchCalls,
+		attrCudaGraphCalls:         attrCudaGraphLaunchCalls,
+		attrCudaMemoryAllocs:       attrCudaMemoryAllocations,
+		attrCudaKernelGridSize:     attrCudaKernelGridSize,
+		attrCudaKernelBlockSize:    attrCudaKernelBlockSize,
+		attrCudaMemoryCopies:       attrCudaMemoryCopies,
 		attrDNSLookupDuration:      attrDNSLookupDuration,
 		attrSvcGraph:               attrSvcGraph,
 		beylaInfo: NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -612,47 +618,53 @@ func newReporter(
 			Name: TargetInfo,
 			Help: "attributes associated to a given monitored entity",
 		}, labelNamesTargetInfo(kubeEnabled, extraMetadataLabels)),
-		gpuKernelCallsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
+		cudaKernelCallsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
-				Name: attributes.GPUKernelLaunchCalls.Prom,
-				Help: "number of GPU kernel launches",
-			}, labelNames(attrGPUKernelLaunchCalls)).MetricVec, clock.Time, cfg.TTL)
+				Name: attributes.GPUCudaKernelLaunchCalls.Prom,
+				Help: "number of NVIDIA GPU cuda kernel launches",
+			}, labelNames(attrCudaKernelLaunchCalls)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		gpuMemoryAllocsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
+		cudaGraphCallsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
-				Name: attributes.GPUMemoryAllocations.Prom,
-				Help: "amount of GPU allocated memory in bytes",
-			}, labelNames(attrGPUMemoryAllocations)).MetricVec, clock.Time, cfg.TTL)
+				Name: attributes.GPUCudaGraphLaunchCalls.Prom,
+				Help: "number of NVIDIA GPU cuda graph launches",
+			}, labelNames(attrCudaGraphLaunchCalls)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		gpuKernelGridSize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
+		cudaMemoryAllocsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
+			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
+				Name: attributes.GPUCudaMemoryAllocations.Prom,
+				Help: "amount of NVIDIA GPU cuda allocated memory in bytes",
+			}, labelNames(attrCudaMemoryAllocations)).MetricVec, clock.Time, cfg.TTL)
+		}),
+		cudaKernelGridSize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
-				Name:                            attributes.GPUKernelGridSize.Prom,
-				Help:                            "number of blocks in the GPU kernel grid",
+				Name:                            attributes.GPUCudaKernelGridSize.Prom,
+				Help:                            "number of blocks in the NVIDIA GPU cuda kernel grid",
 				Buckets:                         cfg.Buckets.RequestSizeHistogram,
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
-			}, labelNames(attrGPUKernelGridSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaKernelGridSize)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		gpuKernelBlockSize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
+		cudaKernelBlockSize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
-				Name:                            attributes.GPUKernelBlockSize.Prom,
-				Help:                            "number of threads in the GPU kernel block",
+				Name:                            attributes.GPUCudaKernelBlockSize.Prom,
+				Help:                            "number of threads in the NVIDIA GPU cuda kernel block",
 				Buckets:                         cfg.Buckets.RequestSizeHistogram,
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
-			}, labelNames(attrGPUKernelBlockSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaKernelBlockSize)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		gpuMemoryCopySize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
+		cudaMemoryCopySize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
-				Name:                            attributes.GPUMemoryCopies.Prom,
-				Help:                            "amount of GPU to and from memory copies",
+				Name:                            attributes.GPUCudaMemoryCopies.Prom,
+				Help:                            "amount of NVIDIA GPU cuda to and from memory copies",
 				Buckets:                         cfg.Buckets.RequestSizeHistogram,
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
-			}, labelNames(attrGPUMemoryCopies)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaMemoryCopies)).MetricVec, clock.Time, cfg.TTL)
 		}),
 		dnsLookupDuration: optionalHistogramProvider(is.DNSEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -746,11 +758,12 @@ func newReporter(
 
 	if is.GPUEnabled() {
 		registeredMetrics = append(registeredMetrics,
-			mr.gpuKernelCallsTotal,
-			mr.gpuMemoryAllocsTotal,
-			mr.gpuKernelGridSize,
-			mr.gpuKernelBlockSize,
-			mr.gpuMemoryCopySize,
+			mr.cudaKernelCallsTotal,
+			mr.cudaGraphCallsTotal,
+			mr.cudaMemoryAllocsTotal,
+			mr.cudaKernelGridSize,
+			mr.cudaKernelBlockSize,
+			mr.cudaMemoryCopySize,
 		)
 	}
 
@@ -924,28 +937,34 @@ func (r *metricsReporter) observe(span *request.Span) {
 					).Metric.Observe(duration)
 				}
 			}
-		case request.EventTypeGPUKernelLaunch:
+		case request.EventTypeGPUCudaKernelLaunch:
 			if r.is.GPUEnabled() {
-				r.gpuKernelCallsTotal.WithLabelValues(
-					labelValues(span, r.attrGPUKernelCalls)...,
+				r.cudaKernelCallsTotal.WithLabelValues(
+					labelValues(span, r.attrCudaKernelCalls)...,
 				).Metric.Add(1)
-				r.gpuKernelGridSize.WithLabelValues(
-					labelValues(span, r.attrGPUKernelGridSize)...,
+				r.cudaKernelGridSize.WithLabelValues(
+					labelValues(span, r.attrCudaKernelGridSize)...,
 				).Metric.Observe(float64(span.ContentLength))
-				r.gpuKernelBlockSize.WithLabelValues(
-					labelValues(span, r.attrGPUKernelBlockSize)...,
+				r.cudaKernelBlockSize.WithLabelValues(
+					labelValues(span, r.attrCudaKernelBlockSize)...,
 				).Metric.Observe(float64(span.SubType))
 			}
-		case request.EventTypeGPUMalloc:
+		case request.EventTypeGPUCudaGraphLaunch:
 			if r.is.GPUEnabled() {
-				r.gpuMemoryAllocsTotal.WithLabelValues(
-					labelValues(span, r.attrGPUMemoryAllocs)...,
+				r.cudaGraphCallsTotal.WithLabelValues(
+					labelValues(span, r.attrCudaKernelCalls)...,
+				).Metric.Add(1)
+			}
+		case request.EventTypeGPUCudaMalloc:
+			if r.is.GPUEnabled() {
+				r.cudaMemoryAllocsTotal.WithLabelValues(
+					labelValues(span, r.attrCudaMemoryAllocs)...,
 				).Metric.Add(float64(span.ContentLength))
 			}
-		case request.EventTypeGPUMemcpy:
+		case request.EventTypeGPUCudaMemcpy:
 			if r.is.GPUEnabled() {
-				r.gpuMemoryCopySize.WithLabelValues(
-					labelValues(span, r.attrGPUMemoryCopies)...,
+				r.cudaMemoryCopySize.WithLabelValues(
+					labelValues(span, r.attrCudaMemoryCopies)...,
 				).Metric.Observe(float64(span.ContentLength))
 			}
 		case request.EventTypeDNS:

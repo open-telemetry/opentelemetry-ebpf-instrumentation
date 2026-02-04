@@ -12,9 +12,8 @@ import (
 	"time"
 
 	json "github.com/goccy/go-json"
-
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
@@ -42,7 +41,6 @@ func TestTraceparentExtraction(t *testing.T) {
 	// Wait for instrumentation to be ready
 	t.Log("waiting for instrumentation to be ready")
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-
 		ti.DoHTTPGet(ct, "http://localhost:6000/smoke", 200)
 
 		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&limit=1")
@@ -74,7 +72,6 @@ func testWithoutTraceparent(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-
 		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&operation=GET%20%2Fno-tp")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
@@ -116,7 +113,6 @@ func testWithTraceparent(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-
 		// Query by static trace ID
 		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&traceID=" + staticTraceID)
 		require.NoError(ct, err)
@@ -150,7 +146,6 @@ func testWithForwardedTraceparent(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-
 		// Query by static trace ID
 		resp, err := http.Get(jaegerQueryURL + "?service=tpclient-a&traceID=" + staticTraceID)
 		require.NoError(ct, err)

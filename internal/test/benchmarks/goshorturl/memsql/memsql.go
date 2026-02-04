@@ -91,7 +91,6 @@ func (c *Connection) Ping(ctx interface{}) error {
 
 // Query executes a query that returns rows
 func (c *Connection) Query(sql string, params []driver.Value) (driver.Rows, error) {
-
 	hashKey := params[0].(string)
 	originalURL := c.backend.storage.get(hashKey)
 
