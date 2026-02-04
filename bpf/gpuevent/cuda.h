@@ -24,7 +24,6 @@ typedef struct cuda_kernel_launch {
     int block_x;
     int block_y;
     int block_z;
-    u64 stream;
 } cuda_kernel_launch_t;
 
 typedef struct cuda_malloc {
@@ -47,5 +46,4 @@ typedef struct cuda_graph_launch {
     u8 kind;
     u8 _pad[2];
     pid_info pid_info;
-    u64 stream;
 } cuda_graph_launch_t;
