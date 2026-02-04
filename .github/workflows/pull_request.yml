@@ -38,3 +38,4 @@ jobs:
         with:
           files: ./testoutput/cover.txt
           flags: unittests
+          name: go-unittests-coverage-${{ github.run_number }}
