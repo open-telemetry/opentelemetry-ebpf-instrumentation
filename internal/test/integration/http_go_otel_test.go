@@ -175,21 +175,11 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 
 func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		setupContainerPrometheus(t, network, "prometheus-config.yml")
-	})
-	wg.Go(func() {
-		setupContainerJaeger(t, network)
-	})
-	wg.Go(func() {
-		setupContainerCollector(t, network, "otelcol-config.yml")
-	})
-	var testserver *dockertest.Resource
-	wg.Go(func() {
-		testserver = setupGoOTelTestServer(t, network, nil)
-	})
-	wg.Wait()
+	setupContainerPrometheus(t, network, "prometheus-config.yml")
+	setupContainerJaeger(t, network)
+	setupContainerCollector(t, network, "otelcol-config.yml")
+	testserver := setupGoOTelTestServer(t, network, nil)
+
 	if t.Failed() {
 		return
 	}
@@ -232,24 +222,14 @@ func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 
 func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		setupContainerPrometheus(t, network, "prometheus-config.yml")
+	setupContainerPrometheus(t, network, "prometheus-config.yml")
+	setupContainerJaeger(t, network)
+	setupContainerCollector(t, network, "otelcol-config.yml")
+	testserver := setupGoOTelTestServer(t, network, []string{
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 	})
-	wg.Go(func() {
-		setupContainerJaeger(t, network)
-	})
-	wg.Go(func() {
-		setupContainerCollector(t, network, "otelcol-config.yml")
-	})
-	var testserver *dockertest.Resource
-	wg.Go(func() {
-		testserver = setupGoOTelTestServer(t, network, []string{
-			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
-			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
-		})
-	})
-	wg.Wait()
+
 	if t.Failed() {
 		return
 	}
@@ -274,24 +254,14 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 
 func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		setupContainerPrometheus(t, network, "prometheus-config.yml")
+	setupContainerPrometheus(t, network, "prometheus-config.yml")
+	setupContainerJaeger(t, network)
+	setupContainerCollector(t, network, "otelcol-config.yml")
+	testserver := setupGoOTelTestServer(t, network, []string{
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 	})
-	wg.Go(func() {
-		setupContainerJaeger(t, network)
-	})
-	wg.Go(func() {
-		setupContainerCollector(t, network, "otelcol-config.yml")
-	})
-	var testserver *dockertest.Resource
-	wg.Go(func() {
-		testserver = setupGoOTelTestServer(t, network, []string{
-			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
-			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
-		})
-	})
-	wg.Wait()
+
 	if t.Failed() {
 		return
 	}

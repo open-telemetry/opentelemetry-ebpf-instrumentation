@@ -124,7 +124,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: Oats test logs - ${{ matrix.basename }}
+          name: oats-test-logs-${{ matrix.basename }}-${{ github.run_number }}
           path: internal/test/oats/${{ matrix.basename }}/build/*
 
       - name: Process coverage data
@@ -137,3 +137,4 @@ jobs:
         with:
           files: ./testoutput/itest-covdata.txt
           flags: oats-test
+          name: oats-test-coverage-${{ matrix.basename }}-${{ github.run_number }}

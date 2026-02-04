@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -30,8 +30,7 @@ func TestMetricsExpiration(t *testing.T) {
 
 	ctx := t.Context()
 
-	openPort, err := test.FreeTCPPort()
-	require.NoError(t, err)
+	openPort := testutil.FreeTCPPort(t)
 	promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
 
 	// GIVEN a Prometheus Metrics Exporter with a metrics expire time of 3 minutes

@@ -7,11 +7,9 @@ import (
 	"net/http"
 	"path"
 	"strconv"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/ory/dockertest/v3"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
@@ -39,25 +37,14 @@ func TestInstrumentationErrors(t *testing.T) {
 
 func TestAvoidedServicesMetrics(t *testing.T) {
 	network := setupDockerNetwork(t)
-	var wg sync.WaitGroup
+	setupContainerPrometheus(t, network, "prometheus-config.yml")
+	setupContainerJaeger(t, network)
+	setupContainerCollector(t, network, "otelcol-config.yml")
+	testserver := setupGoOTelTestServer(t, network, []string{
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
+	})
 
-	wg.Go(func() {
-		setupContainerPrometheus(t, network, "prometheus-config.yml")
-	})
-	wg.Go(func() {
-		setupContainerJaeger(t, network)
-	})
-	wg.Go(func() {
-		setupContainerCollector(t, network, "otelcol-config.yml")
-	})
-	var testserver *dockertest.Resource
-	wg.Go(func() {
-		testserver = setupGoOTelTestServer(t, network, []string{
-			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
-			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
-		})
-	})
-	wg.Wait()
 	if t.Failed() {
 		return
 	}
