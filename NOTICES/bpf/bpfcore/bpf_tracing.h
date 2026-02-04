@@ -62,8 +62,7 @@
 #endif
 
 #ifndef __BPF_TARGET_MISSING
-#define __BPF_TARGET_MISSING                                                   \
-  "GCC error \"Must specify a BPF target arch via __TARGET_ARCH_xxx\""
+#define __BPF_TARGET_MISSING "GCC error \"Must specify a BPF target arch via __TARGET_ARCH_xxx\""
 #endif
 
 #if defined(bpf_target_x86)
@@ -188,8 +187,7 @@ struct pt_regs;
 #define PT_REGS_PARM5(x) ((x)->uregs[4])
 #define PT_REGS_PARM6(x) ((x)->uregs[5])
 #define PT_REGS_RET(x) ((x)->uregs[14])
-#define PT_REGS_FP(x)                                                          \
-  ((x)->uregs[11]) /* Works only with CONFIG_FRAME_POINTER */
+#define PT_REGS_FP(x) ((x)->uregs[11]) /* Works only with CONFIG_FRAME_POINTER */
 #define PT_REGS_RC(x) ((x)->uregs[0])
 #define PT_REGS_SP(x) ((x)->uregs[13])
 #define PT_REGS_IP(x) ((x)->uregs[12])
@@ -244,8 +242,7 @@ struct pt_regs;
 #define PT_REGS_PARM4(x) ((x)->regs[7])
 #define PT_REGS_PARM5(x) ((x)->regs[8])
 #define PT_REGS_RET(x) ((x)->regs[31])
-#define PT_REGS_FP(x) ((x)->regs[30]) /* Works only with CONFIG_FRAME_POINTER  \
-                                       */
+#define PT_REGS_FP(x) ((x)->regs[30]) /* Works only with CONFIG_FRAME_POINTER */
 #define PT_REGS_RC(x) ((x)->regs[2])
 #define PT_REGS_SP(x) ((x)->regs[29])
 #define PT_REGS_IP(x) ((x)->cp0_epc)
@@ -345,129 +342,126 @@ struct pt_regs;
 #define BPF_KPROBE_READ_RET_IP(ip, ctx) ({ (ip) = PT_REGS_RET(ctx); })
 #define BPF_KRETPROBE_READ_RET_IP BPF_KPROBE_READ_RET_IP
 #elif defined(bpf_target_defined)
-#define BPF_KPROBE_READ_RET_IP(ip, ctx)                                        \
-  ({ bpf_probe_read_kernel(&(ip), sizeof(ip), (void *)PT_REGS_RET(ctx)); })
-#define BPF_KRETPROBE_READ_RET_IP(ip, ctx)                                     \
-  ({                                                                           \
-    bpf_probe_read_kernel(&(ip), sizeof(ip),                                   \
-                          (void *)(PT_REGS_FP(ctx) + sizeof(ip)));             \
-  })
+#define BPF_KPROBE_READ_RET_IP(ip, ctx)                                                            \
+    ({ bpf_probe_read_kernel(&(ip), sizeof(ip), (void *)PT_REGS_RET(ctx)); })
+#define BPF_KRETPROBE_READ_RET_IP(ip, ctx)                                                         \
+    ({ bpf_probe_read_kernel(&(ip), sizeof(ip), (void *)(PT_REGS_FP(ctx) + sizeof(ip))); })
 #endif
 
 #if !defined(bpf_target_defined)
 
-#define PT_REGS_PARM1(x)                                                       \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_PARM2(x)                                                       \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_PARM3(x)                                                       \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_PARM4(x)                                                       \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_PARM5(x)                                                       \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_RET(x)                                                         \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_FP(x)                                                          \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_RC(x)                                                          \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_SP(x)                                                          \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_IP(x)                                                          \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
+#define PT_REGS_PARM1(x)                                                                           \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_PARM2(x)                                                                           \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_PARM3(x)                                                                           \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_PARM4(x)                                                                           \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_PARM5(x)                                                                           \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_RET(x)                                                                             \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_FP(x)                                                                              \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_RC(x)                                                                              \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_SP(x)                                                                              \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_IP(x)                                                                              \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
 
-#define PT_REGS_PARM1_CORE(x)                                                  \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_PARM2_CORE(x)                                                  \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_PARM3_CORE(x)                                                  \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_PARM4_CORE(x)                                                  \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_PARM5_CORE(x)                                                  \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_RET_CORE(x)                                                    \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_FP_CORE(x)                                                     \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_RC_CORE(x)                                                     \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_SP_CORE(x)                                                     \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define PT_REGS_IP_CORE(x)                                                     \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
+#define PT_REGS_PARM1_CORE(x)                                                                      \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_PARM2_CORE(x)                                                                      \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_PARM3_CORE(x)                                                                      \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_PARM4_CORE(x)                                                                      \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_PARM5_CORE(x)                                                                      \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_RET_CORE(x)                                                                        \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_FP_CORE(x)                                                                         \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_RC_CORE(x)                                                                         \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_SP_CORE(x)                                                                         \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define PT_REGS_IP_CORE(x)                                                                         \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
 
-#define BPF_KPROBE_READ_RET_IP(ip, ctx)                                        \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
-#define BPF_KRETPROBE_READ_RET_IP(ip, ctx)                                     \
-  ({                                                                           \
-    _Pragma(__BPF_TARGET_MISSING);                                             \
-    0l;                                                                        \
-  })
+#define BPF_KPROBE_READ_RET_IP(ip, ctx)                                                            \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
+#define BPF_KRETPROBE_READ_RET_IP(ip, ctx)                                                         \
+    ({                                                                                             \
+        _Pragma(__BPF_TARGET_MISSING);                                                             \
+        0l;                                                                                        \
+    })
 
 #endif /* !defined(bpf_target_defined) */
 
@@ -481,8 +475,7 @@ struct pt_regs;
 #define ___bpf_nth(_, _1, _2, _3, _4, _5, _6, _7, _8, _9, _a, _b, _c, N, ...) N
 #endif
 #ifndef ___bpf_narg
-#define ___bpf_narg(...)                                                       \
-  ___bpf_nth(_, ##__VA_ARGS__, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+#define ___bpf_narg(...) ___bpf_nth(_, ##__VA_ARGS__, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
 #endif
 
 #define ___bpf_ctx_cast0() ctx
@@ -498,8 +491,7 @@ struct pt_regs;
 #define ___bpf_ctx_cast10(x, args...) ___bpf_ctx_cast9(args), (void *)ctx[9]
 #define ___bpf_ctx_cast11(x, args...) ___bpf_ctx_cast10(args), (void *)ctx[10]
 #define ___bpf_ctx_cast12(x, args...) ___bpf_ctx_cast11(args), (void *)ctx[11]
-#define ___bpf_ctx_cast(args...)                                               \
-  ___bpf_apply(___bpf_ctx_cast, ___bpf_narg(args))(args)
+#define ___bpf_ctx_cast(args...) ___bpf_apply(___bpf_ctx_cast, ___bpf_narg(args))(args)
 
 /*
  * BPF_PROG is a convenience wrapper for generic tp_btf/fentry/fexit and
@@ -516,36 +508,29 @@ struct pt_regs;
  * This is useful when using BPF helpers that expect original context
  * as one of the parameters (e.g., for bpf_perf_event_output()).
  */
-#define BPF_PROG(name, args...)                                                \
-  name(unsigned long long *ctx);                                               \
-  static __attribute__((always_inline)) typeof(name(0)) ____##name(            \
-      unsigned long long *ctx, ##args);                                        \
-  typeof(name(0)) name(unsigned long long *ctx) {                              \
-    _Pragma("GCC diagnostic push")                                             \
-        _Pragma("GCC diagnostic ignored "                                      \
-                "\"-Wint-conversion\"") return ____##name(                     \
-            ___bpf_ctx_cast(args));                                            \
-    _Pragma("GCC diagnostic pop")                                              \
-  }                                                                            \
-  static __attribute__((always_inline)) typeof(name(0)) ____##name(            \
-      unsigned long long *ctx, ##args)
+#define BPF_PROG(name, args...)                                                                    \
+    name(unsigned long long *ctx);                                                                 \
+    static __attribute__((always_inline)) typeof(name(0)) ____##name(unsigned long long *ctx,      \
+                                                                     ##args);                      \
+    typeof(name(0)) name(unsigned long long *ctx) {                                                \
+        _Pragma("GCC diagnostic push")                                                             \
+            _Pragma("GCC diagnostic ignored \"-Wint-conversion\"") return ____##name(              \
+                ___bpf_ctx_cast(args));                                                            \
+        _Pragma("GCC diagnostic pop")                                                              \
+    }                                                                                              \
+    static                                                                                         \
+        __attribute__((always_inline)) typeof(name(0)) ____##name(unsigned long long *ctx, ##args)
 
 struct pt_regs;
 
 #define ___bpf_kprobe_args0() ctx
 #define ___bpf_kprobe_args1(x) ___bpf_kprobe_args0(), (void *)PT_REGS_PARM1(ctx)
-#define ___bpf_kprobe_args2(x, args...)                                        \
-  ___bpf_kprobe_args1(args), (void *)PT_REGS_PARM2(ctx)
-#define ___bpf_kprobe_args3(x, args...)                                        \
-  ___bpf_kprobe_args2(args), (void *)PT_REGS_PARM3(ctx)
-#define ___bpf_kprobe_args4(x, args...)                                        \
-  ___bpf_kprobe_args3(args), (void *)PT_REGS_PARM4(ctx)
-#define ___bpf_kprobe_args5(x, args...)                                        \
-  ___bpf_kprobe_args4(args), (void *)PT_REGS_PARM5(ctx)
-#define ___bpf_kprobe_args6(x, args...)                                        \
-  ___bpf_kprobe_args5(args), (void *)PT_REGS_PARM6(ctx)
-#define ___bpf_kprobe_args(args...)                                            \
-  ___bpf_apply(___bpf_kprobe_args, ___bpf_narg(args))(args)
+#define ___bpf_kprobe_args2(x, args...) ___bpf_kprobe_args1(args), (void *)PT_REGS_PARM2(ctx)
+#define ___bpf_kprobe_args3(x, args...) ___bpf_kprobe_args2(args), (void *)PT_REGS_PARM3(ctx)
+#define ___bpf_kprobe_args4(x, args...) ___bpf_kprobe_args3(args), (void *)PT_REGS_PARM4(ctx)
+#define ___bpf_kprobe_args5(x, args...) ___bpf_kprobe_args4(args), (void *)PT_REGS_PARM5(ctx)
+#define ___bpf_kprobe_args6(x, args...) ___bpf_kprobe_args5(args), (void *)PT_REGS_PARM6(ctx)
+#define ___bpf_kprobe_args(args...) ___bpf_apply(___bpf_kprobe_args, ___bpf_narg(args))(args)
 
 /*
  * BPF_KPROBE serves the same purpose for kprobes as BPF_PROG for
@@ -557,25 +542,20 @@ struct pt_regs;
  * Original struct pt_regs* context is preserved as 'ctx' argument. This might
  * be necessary when using BPF helpers like bpf_perf_event_output().
  */
-#define BPF_KPROBE(name, args...)                                              \
-  name(struct pt_regs *ctx);                                                   \
-  static __attribute__((always_inline)) typeof(name(0)) ____##name(            \
-      struct pt_regs *ctx, ##args);                                            \
-  typeof(name(0)) name(struct pt_regs *ctx) {                                  \
-    _Pragma("GCC diagnostic push")                                             \
-        _Pragma("GCC diagnostic ignored "                                      \
-                "\"-Wint-conversion\"") return ____##name(                     \
-            ___bpf_kprobe_args(args));                                         \
-    _Pragma("GCC diagnostic pop")                                              \
-  }                                                                            \
-  static __attribute__((always_inline)) typeof(name(0)) ____##name(            \
-      struct pt_regs *ctx, ##args)
+#define BPF_KPROBE(name, args...)                                                                  \
+    name(struct pt_regs *ctx);                                                                     \
+    static __attribute__((always_inline)) typeof(name(0)) ____##name(struct pt_regs *ctx, ##args); \
+    typeof(name(0)) name(struct pt_regs *ctx) {                                                    \
+        _Pragma("GCC diagnostic push")                                                             \
+            _Pragma("GCC diagnostic ignored \"-Wint-conversion\"") return ____##name(              \
+                ___bpf_kprobe_args(args));                                                         \
+        _Pragma("GCC diagnostic pop")                                                              \
+    }                                                                                              \
+    static __attribute__((always_inline)) typeof(name(0)) ____##name(struct pt_regs *ctx, ##args)
 
 #define ___bpf_kretprobe_args0() ctx
-#define ___bpf_kretprobe_args1(x)                                              \
-  ___bpf_kretprobe_args0(), (void *)PT_REGS_RC(ctx)
-#define ___bpf_kretprobe_args(args...)                                         \
-  ___bpf_apply(___bpf_kretprobe_args, ___bpf_narg(args))(args)
+#define ___bpf_kretprobe_args1(x) ___bpf_kretprobe_args0(), (void *)PT_REGS_RC(ctx)
+#define ___bpf_kretprobe_args(args...) ___bpf_apply(___bpf_kretprobe_args, ___bpf_narg(args))(args)
 
 /*
  * BPF_KRETPROBE is similar to BPF_KPROBE, except, it only provides optional
@@ -583,18 +563,16 @@ struct pt_regs;
  * arguments, because they will be clobbered by the time probed function
  * returns.
  */
-#define BPF_KRETPROBE(name, args...)                                           \
-  name(struct pt_regs *ctx);                                                   \
-  static __attribute__((always_inline)) typeof(name(0)) ____##name(            \
-      struct pt_regs *ctx, ##args);                                            \
-  typeof(name(0)) name(struct pt_regs *ctx) {                                  \
-    _Pragma("GCC diagnostic push")                                             \
-        _Pragma("GCC diagnostic ignored "                                      \
-                "\"-Wint-conversion\"") return ____##name(                     \
-            ___bpf_kretprobe_args(args));                                      \
-    _Pragma("GCC diagnostic pop")                                              \
-  }                                                                            \
-  static __always_inline typeof(name(0)) ____##name(struct pt_regs *ctx, ##args)
+#define BPF_KRETPROBE(name, args...)                                                               \
+    name(struct pt_regs *ctx);                                                                     \
+    static __attribute__((always_inline)) typeof(name(0)) ____##name(struct pt_regs *ctx, ##args); \
+    typeof(name(0)) name(struct pt_regs *ctx) {                                                    \
+        _Pragma("GCC diagnostic push")                                                             \
+            _Pragma("GCC diagnostic ignored \"-Wint-conversion\"") return ____##name(              \
+                ___bpf_kretprobe_args(args));                                                      \
+        _Pragma("GCC diagnostic pop")                                                              \
+    }                                                                                              \
+    static __always_inline typeof(name(0)) ____##name(struct pt_regs *ctx, ##args)
 
 /* BPF_UPROBE and BPF_URETPROBE are identical to BPF_KPROBE and BPF_KRETPROBE,
  * but are named way less confusingly for SEC("uprobe") and SEC("uretprobe")

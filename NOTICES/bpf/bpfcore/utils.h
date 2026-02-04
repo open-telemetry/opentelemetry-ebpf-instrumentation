@@ -15,9 +15,9 @@
 #ifndef __UTILS_H__
 #define __UTILS_H__
 
-#include "bpf_helpers.h"
-#include "bpf_tracing.h"
 #include "vmlinux.h"
+#include "bpf_tracing.h"
+#include "bpf_helpers.h"
 
 #if defined(__TARGET_ARCH_x86)
 
@@ -53,14 +53,14 @@
 
 #endif /*defined(__TARGET_ARCH_arm64)*/
 
-#define bpf_clamp_umax(VAR, UMAX)                                              \
-  asm volatile("if %0 <= %[max] goto +1\n"                                     \
-               "%0 = %[max]\n"                                                 \
-               : "+r"(VAR)                                                     \
-               : [max] "i"(UMAX))
+#define bpf_clamp_umax(VAR, UMAX)                                                                  \
+    asm volatile("if %0 <= %[max] goto +1\n"                                                       \
+                 "%0 = %[max]\n"                                                                   \
+                 : "+r"(VAR)                                                                       \
+                 : [max] "i"(UMAX))
 
 static __always_inline bool is_pow2(u32 n) {
-  return n != 0UL && (n & (n - 1)) == 0UL;
+    return n != 0UL && (n & (n - 1)) == 0UL;
 }
 
 #endif /* __UTILS_H__ */
