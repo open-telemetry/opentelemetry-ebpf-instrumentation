@@ -436,6 +436,12 @@ func (s *Store) ServiceNameNamespaceForIP(ip string) (string, string, string) {
 	s.access.RLock()
 	if serviceInfo, ok := s.otelServiceInfoByIP[ip]; ok {
 		s.access.RUnlock()
+		s.log.Debug("service by IP cache hit",
+			"ip", ip,
+			"service_name", serviceInfo.Name,
+			"service_namespace", serviceInfo.Namespace,
+			"k8s_namespace", serviceInfo.K8SNamespace,
+		)
 		return serviceInfo.Name, serviceInfo.Namespace, serviceInfo.K8SNamespace
 	}
 	s.access.RUnlock()
@@ -445,6 +451,12 @@ func (s *Store) ServiceNameNamespaceForIP(ip string) (string, string, string) {
 
 	name, namespace, k8sNamespace := "", "", ""
 	if om, ok := s.objectMetaByIP[ip]; ok {
+		s.log.Debug("resolving service by IP",
+			"ip", ip,
+			"kind", om.Meta.Kind,
+			"name", om.Meta.Name,
+			"namespace", om.Meta.Namespace,
+		)
 		name, namespace = s.serviceNameNamespaceOwnerID(om.Meta, "")
 		k8sNamespace = om.Meta.Namespace
 	}
@@ -464,6 +476,12 @@ func (s *Store) serviceNameNamespaceOwnerID(om *informer.ObjectMeta, containerNa
 	// ownerName can be the top Owner name, or om.Name in case it's a pod without owner
 	serviceName := om.Name
 	serviceNamespace := om.Namespace
+	if om.Pod == nil {
+		// For non-pod objects (Services), prefer the owner's pod metadata when available.
+		if ownerPod := s.ownerPodMeta(om); ownerPod != nil {
+			om = ownerPod
+		}
+	}
 
 	// OTEL_SERVICE_NAME and OTEL_SERVICE_NAMESPACE variables take precedence over user-configured annotations
 	// and labels
@@ -508,6 +526,15 @@ func (s *Store) serviceNameNamespaceOwnerID(om *informer.ObjectMeta, containerNa
 	); nsFromMeta != "" {
 		serviceNamespace = nsFromMeta
 	}
+
+	s.log.Debug("resolved service name/namespace",
+		"kind", om.Kind,
+		"name", om.Name,
+		"namespace", om.Namespace,
+		"container", containerName,
+		"service_name", serviceName,
+		"service_namespace", serviceNamespace,
+	)
 
 	return serviceName, serviceNamespace
 }
@@ -576,6 +603,18 @@ func (s *Store) serviceNamespaceFromEnv(om *informer.ObjectMeta, containerName s
 
 func ownerID(namespace, name string) string {
 	return namespace + "." + name
+}
+
+// ownerPodMeta returns any pod metadata associated with the given non-pod object.
+func (s *Store) ownerPodMeta(om *informer.ObjectMeta) *informer.ObjectMeta {
+	if containers, ok := s.containersByOwner[ownerID(om.Namespace, om.Name)]; ok {
+		for cid := range containers {
+			if pod, ok := s.podsByContainer[cid]; ok && pod != nil {
+				return pod.Meta
+			}
+		}
+	}
+	return nil
 }
 
 // Subscribe overrides BaseNotifier to send a "welcome message" to each new observer
