@@ -10,6 +10,7 @@
 #include <common/http_types.h>
 #include <common/tc_common.h>
 #include <common/tracing.h>
+#include <common/protocol_defs.h>
 
 #include <generictracer/k_send_receive.h>
 #include <generictracer/k_tracer_defs.h>
@@ -200,7 +201,7 @@ static __always_inline int return_unix_recvmsg(void *ctx, u64 id, int copied_len
         int read_len = read_iovec_ctx(iov_ctx, buf, copied_len);
         if (read_len) {
             // doesn't return must be logically last statement
-            handle_buf_with_connection(ctx, &p_conn, buf, read_len, NO_SSL, TCP_RECV, 0);
+            handle_buf_with_connection(ctx, &p_conn, 0, buf, read_len, NO_SSL, TCP_RECV, 0);
         } else {
             bpf_dbg_printk("Not copied anything");
         }
@@ -264,7 +265,7 @@ int BPF_KPROBE(obi_kprobe_unix_stream_sendmsg,
                 bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
             }
 
-            handle_buf_with_connection(ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, 0);
+            handle_buf_with_connection(ctx, &s_args.p_conn, 0, buf, size, NO_SSL, TCP_SEND, 0);
         } else {
             bpf_dbg_printk("can't find iovec ptr in msghdr, not tracking sendmsg");
         }

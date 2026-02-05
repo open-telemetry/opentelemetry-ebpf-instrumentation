@@ -4,6 +4,7 @@
 #pragma once
 
 #include <bpfcore/utils.h>
+#include <bpfcore/bpf_helpers.h>
 
 #include <common/connection_info.h>
 #include <common/cp_support_data.h>
@@ -19,12 +20,15 @@
 #include <generictracer/maps/java_tasks.h>
 #include <generictracer/maps/puma_tasks.h>
 
+#include <gotracer/go_common.h>
+
 #include <logger/bpf_dbg.h>
 
 #include <maps/clone_map.h>
 #include <maps/cp_support_connect_info.h>
 #include <maps/fd_map.h>
 #include <maps/fd_to_connection.h>
+#include <maps/fiber_traceparent.h>
 #include <maps/nginx_upstream.h>
 #include <maps/nodejs_fd_map.h>
 #include <maps/server_traces.h>
@@ -77,6 +81,18 @@ static __always_inline tp_info_pid_t *find_nginx_parent_trace(const pid_connecti
         if (parent) {
             return bpf_map_lookup_elem(&server_traces_aux, parent);
         }
+    }
+
+    return NULL;
+}
+
+static __always_inline tp_info_pid_t *find_fiber_parent_trace(const u64 fiber) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, (void *)fiber);
+
+    u64 parent_id = find_parent_goroutine(&g_key);
+    if (parent_id) {
+        return bpf_map_lookup_elem(&fiber_traceparent, &parent_id);
     }
 
     return NULL;
@@ -192,6 +208,7 @@ static __always_inline tp_info_pid_t *find_parent_java_trace(trace_key_t *t_key)
 }
 
 static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_info_t *p_conn,
+                                                        u64 fiber,
                                                         u64 pid_tgid,
                                                         trace_key_t *t_key,
                                                         u16 orig_dport) {
@@ -210,6 +227,13 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
 
     if (nginx_parent) {
         return nginx_parent;
+    }
+
+    if (fiber) {
+        tp_info_pid_t *go_parent = find_fiber_parent_trace(fiber);
+        if (go_parent) {
+            return go_parent;
+        }
     }
 
     tp_info_pid_t *puma_parent = find_puma_parent_trace(pid_tgid);
@@ -288,7 +312,7 @@ static __always_inline u8 valid_trace(const unsigned char *trace_id) {
 }
 
 static __always_inline void server_or_client_trace(
-    u8 type, connection_info_t *conn, tp_info_pid_t *tp_p, u8 ssl, u16 orig_dport) {
+    u8 type, connection_info_t *conn, u64 fiber, tp_info_pid_t *tp_p, u8 ssl, u16 orig_dport) {
 
     u64 id = bpf_get_current_pid_tgid();
     u32 host_pid = pid_from_pid_tgid(id);
@@ -340,6 +364,12 @@ static __always_inline void server_or_client_trace(
         } else {
             bpf_map_update_elem(&outgoing_trace_map, &e_key, tp_p, BPF_ANY);
         }
+    }
+
+    // If we have fiber passed on, store the traceparent information on it
+    if (fiber) {
+        bpf_d_printk("saving tp for fiber=%llx", fiber);
+        bpf_map_update_elem(&fiber_traceparent, &fiber, tp_p, BPF_ANY);
     }
 }
 
@@ -405,11 +435,12 @@ static __always_inline u8 should_be_in_same_transaction(const tp_info_t *parent_
 
 static __always_inline u8
 find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
+                                         u64 fiber,
                                          u16 orig_dport,
                                          trace_key_t *t_key,
                                          u64 pid_tgid,
                                          tp_info_t *tp) {
-    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, t_key, orig_dport);
+    tp_info_pid_t *server_tp = find_parent_trace(p_conn, fiber, pid_tgid, t_key, orig_dport);
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");
@@ -431,6 +462,7 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 }
 
 static __always_inline u8 find_trace_for_client_request(const pid_connection_info_t *p_conn,
+                                                        u64 fiber,
                                                         u16 orig_dport,
                                                         tp_info_t *tp) {
 
@@ -438,7 +470,8 @@ static __always_inline u8 find_trace_for_client_request(const pid_connection_inf
     trace_key_from_pid_tid(&t_key);
     const u64 pid_tgid = bpf_get_current_pid_tgid();
 
-    return find_trace_for_client_request_with_t_key(p_conn, orig_dport, &t_key, pid_tgid, tp);
+    return find_trace_for_client_request_with_t_key(
+        p_conn, fiber, orig_dport, &t_key, pid_tgid, tp);
 }
 
 static __always_inline u8
@@ -447,7 +480,7 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
                                                 trace_key_t *t_key,
                                                 u64 pid_tgid,
                                                 tp_info_t *tp) {
-    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, t_key, orig_dport);
+    tp_info_pid_t *server_tp = find_parent_trace(p_conn, 0, pid_tgid, t_key, orig_dport);
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");

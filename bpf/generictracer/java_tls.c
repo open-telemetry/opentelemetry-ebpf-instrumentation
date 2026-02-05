@@ -140,7 +140,7 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
 
     if (len > 0) {
         void *buf = arg + 1 + sizeof(connection_info_t) + sizeof(u32);
-        handle_buf_with_connection(ctx, &p_conn, buf, len, WITH_SSL, op, orig_dport);
+        handle_buf_with_connection(ctx, &p_conn, 0, buf, len, WITH_SSL, op, orig_dport);
     }
 
     return 0;

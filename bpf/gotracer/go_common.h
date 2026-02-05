@@ -29,8 +29,6 @@
 
 #include <logger/bpf_dbg.h>
 
-char __license[] SEC("license") = "Dual MIT/GPL";
-
 enum { W3C_KEY_LENGTH = 11, W3C_VAL_LENGTH = 55 };
 
 // Temporary information about a function invocation. It stores the invocation time of a function
@@ -68,6 +66,23 @@ struct {
     __type(value, connection_info_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_client_connections SEC(".maps");
+
+typedef struct http_client_data {
+    s64 content_length;
+    pid_info pid;
+    unsigned char path[PATH_MAX_LEN];
+    unsigned char host[HOST_MAX_LEN];
+    unsigned char scheme[SCHEME_MAX_LEN];
+    unsigned char method[METHOD_MAX_LEN];
+    u8 _pad[3];
+} http_client_data_t;
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: pointer to the request goroutine
+    __type(value, http_client_data_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} ongoing_http_client_requests_data SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -134,10 +149,6 @@ typedef struct grpc_header_field {
     u64 sensitive;
 } grpc_header_field_t;
 
-static __always_inline u8 valid_trace(const unsigned char *trace_id) {
-    return *((u64 *)trace_id) != 0 || *((u64 *)(trace_id + 8)) != 0;
-}
-
 static __always_inline void go_addr_key_from_id(go_addr_key_t *current, void *addr) {
     u64 pid_tid = bpf_get_current_pid_tgid();
     u32 pid = pid_from_pid_tgid(pid_tid);
@@ -163,6 +174,7 @@ static __always_inline u64 find_parent_goroutine(go_addr_key_t *current) {
                 (goroutine_metadata *)bpf_map_lookup_elem(&ongoing_goroutines, parent);
             if (g_metadata) {
                 // Lookup now to see if the parent was a request
+                bpf_d_printk("%llx <- %llx", parent->addr, g_metadata->parent.addr);
                 r_addr = g_metadata->parent.addr;
                 parent = &g_metadata->parent;
             } else {
@@ -174,7 +186,7 @@ static __always_inline u64 find_parent_goroutine(go_addr_key_t *current) {
         }
 
         attempts++;
-    } while (attempts < 3); // Up to 3 levels of goroutine nesting allowed
+    } while (attempts < 5); // Up to 3 levels of goroutine nesting allowed
 
     return 0;
 }
@@ -216,6 +228,7 @@ static __always_inline void tp_from_parent(tp_info_t *tp, tp_info_t *parent) {
     *((u64 *)(tp->trace_id + 8)) = *((u64 *)(parent->trace_id + 8));
     *((u64 *)tp->parent_id) = *((u64 *)parent->span_id);
     tp->flags = parent->flags;
+    tp->ts = bpf_ktime_get_ns();
 }
 
 static __always_inline void tp_clone(tp_info_t *dest, tp_info_t *src) {
@@ -224,6 +237,7 @@ static __always_inline void tp_clone(tp_info_t *dest, tp_info_t *src) {
     *((u64 *)dest->span_id) = *((u64 *)src->span_id);
     *((u64 *)dest->parent_id) = *((u64 *)src->parent_id);
     dest->flags = src->flags;
+    dest->ts = bpf_ktime_get_ns();
 }
 
 static __always_inline void
@@ -279,6 +293,7 @@ server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
     make_tp_string(tp_buf, tp);
     bpf_dbg_printk("tp: %s", tp_buf);
+    tp->ts = bpf_ktime_get_ns();
 }
 
 static __always_inline tp_info_t *tp_info_from_parent_go(go_addr_key_t *g_key, u64 *parent_found) {
@@ -287,6 +302,8 @@ static __always_inline tp_info_t *tp_info_from_parent_go(go_addr_key_t *g_key, u
     u64 parent_id = find_parent_goroutine(g_key);
     go_addr_key_t p_key = {};
     go_addr_key_from_id(&p_key, (void *)parent_id);
+
+    bpf_dbg_printk("found parent=%llx", parent_id);
 
     if (parent_id) { // we found a parent request
         tp = (tp_info_t *)bpf_map_lookup_elem(&go_trace_map, &p_key);
@@ -308,6 +325,8 @@ static __always_inline void update_tp_parent_go(go_addr_key_t *gp_key, tp_info_t
 
 static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *tp_i) {
     u8 found_trace_id = 0;
+
+    bpf_dbg_printk("looking up parent with goroutine=%llx", goroutine_addr);
 
     // May get overridden when decoding existing traceparent or finding a server span, but otherwise we set sample ON
     tp_i->flags = 1;
@@ -335,6 +354,8 @@ static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *t
         }
 
         urand_bytes(tp_i->span_id, SPAN_ID_SIZE_BYTES);
+        tp_i->ts = bpf_ktime_get_ns();
+        found_trace_id = 1;
     }
 
     return found_trace_id;

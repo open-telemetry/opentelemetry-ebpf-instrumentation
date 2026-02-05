@@ -60,8 +60,13 @@ static __always_inline u64 uniqueHTTP2ConnId(pid_connection_info_t *p_conn) {
     return random_id;
 }
 
-static __always_inline void http2_grpc_start(
-    http2_conn_stream_t *s_key, void *u_buf, int len, u8 direction, u8 ssl, u16 orig_dport) {
+static __always_inline void http2_grpc_start(http2_conn_stream_t *s_key,
+                                             void *u_buf,
+                                             int len,
+                                             u8 direction,
+                                             u8 ssl,
+                                             u8 from_go,
+                                             u16 orig_dport) {
     http2_grpc_request_t *existing = bpf_map_lookup_elem(&ongoing_http2_grpc, s_key);
     if (existing) {
         bpf_dbg_printk("already found existing grpcstart, ignoring this exchange");
@@ -82,6 +87,7 @@ static __always_inline void http2_grpc_start(
         h2g_info->start_monotime_ns = bpf_ktime_get_ns();
         h2g_info->len = len;
         h2g_info->ssl = ssl;
+        h2g_info->from_go = from_go;
         h2g_info->conn_info = s_key->pid_conn.conn;
         if (meta) { // keep verifier happy
             h2g_info->pid = meta->pid;
@@ -221,8 +227,13 @@ int obi_protocol_http2_grpc_handle_start_frame(void *ctx) {
 
     void *offset = (unsigned char *)args->u_buf + g_ctx->pos;
 
-    http2_grpc_start(
-        &g_ctx->stream, offset, args->bytes_len, args->direction, args->ssl, args->orig_dport);
+    http2_grpc_start(&g_ctx->stream,
+                     offset,
+                     args->bytes_len,
+                     args->direction,
+                     args->ssl,
+                     (args->fiber != 0),
+                     args->orig_dport);
 
     return 0;
 }

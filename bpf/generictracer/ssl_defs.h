@@ -11,6 +11,7 @@
 #include <common/sockaddr.h>
 #include <common/ssl_args.h>
 #include <common/tcp_info.h>
+#include <common/protocol_defs.h>
 
 #include <generictracer/k_tracer_defs.h>
 
@@ -143,6 +144,7 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
             // must be last, doesn't return
             handle_buf_with_connection(ctx,
                                        &conn->p_conn,
+                                       0,
                                        (void *)args->buf,
                                        bytes_len,
                                        WITH_SSL,

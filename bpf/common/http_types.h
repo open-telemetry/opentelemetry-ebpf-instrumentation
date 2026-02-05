@@ -52,6 +52,7 @@ typedef struct call_protocol_args {
     u16 _pad2;
     u64 u_buf;
     u64 self_ref_parent_id;
+    u64 fiber;
 } call_protocol_args_t;
 
 // Here we keep information on the packets passing through the socket filter
@@ -83,7 +84,7 @@ typedef struct http2_grpc_request {
     u8 flags; // Must be first
     u8 ssl;
     u8 type;
-    u8 _pad0[1];
+    u8 from_go;
     connection_info_t conn_info;
     u64 start_monotime_ns;
     u64 end_monotime_ns;

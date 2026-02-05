@@ -20,20 +20,9 @@
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
-#include <gotracer/go_kafka_def.h>
+#include <gotracer/go_kafka_common.h>
 
 #include <logger/bpf_dbg.h>
-
-typedef struct produce_req {
-    u64 msg_ptr;
-    u64 conn_ptr;
-    u64 start_monotime_ns;
-} produce_req_t;
-
-typedef struct topic {
-    char name[MAX_TOPIC_NAME_LEN];
-    tp_info_t tp;
-} topic_t;
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -51,24 +40,10 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // msg ptr
-    __type(value, topic_t);     // topic info
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_produce_messages SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t);   // goroutine
     __type(value, produce_req_t); // rw ptr + start time
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } produce_requests SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t);    // goroutine
-    __type(value, kafka_go_req_t); // rw ptr + start time
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} fetch_requests SEC(".maps");
 
 // Code for the produce messages path
 SEC("uprobe/writer_write_messages")
@@ -81,6 +56,7 @@ int obi_uprobe_writer_write_messages(struct pt_regs *ctx) {
     tp_info_t tp = {};
 
     client_trace_parent(goroutine_addr, &tp);
+    tp.ts = bpf_ktime_get_ns();
     go_addr_key_t p_key = {};
     go_addr_key_from_id(&p_key, w_ptr);
 
@@ -226,15 +202,23 @@ int obi_uprobe_protocol_roundtrip_ret(struct pt_regs *ctx) {
                 bpf_probe_read(
                     &conn_ptr, sizeof(conn_ptr), (void *)(p_ptr->conn_ptr + 8)); // find conn
                 bpf_dbg_printk("conn ptr %llx", conn_ptr);
+                __builtin_memcpy(&trace->tp, &(topic_ptr->tp), sizeof(tp_info_t));
                 if (conn_ptr) {
                     u8 ok = get_conn_info(conn_ptr, &trace->conn);
                     if (!ok) {
                         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
                     }
+
+                    egress_key_t e_key = {
+                        .d_port = trace->conn.d_port,
+                        .s_port = trace->conn.s_port,
+                    };
+
+                    sort_egress_key(&e_key);
+                    bpf_map_update_elem(&outgoing_trace_map, &e_key, &trace->tp, BPF_ANY);
                 }
 
                 __builtin_memcpy(trace->topic, topic_ptr->name, MAX_TOPIC_NAME_LEN);
-                __builtin_memcpy(&trace->tp, &(topic_ptr->tp), sizeof(tp_info_t));
                 task_pid(&trace->pid);
                 bpf_ringbuf_submit(trace, get_flags());
             }
@@ -276,6 +260,8 @@ int obi_uprobe_reader_read(struct pt_regs *ctx) {
             bpf_probe_read_user(&r.topic, sizeof(r.topic), topic_ptr);
         }
 
+        client_trace_parent(goroutine_addr, &r.tp);
+
         if (conn) {
             void *conn_ptr = 0;
             bpf_probe_read(&conn_ptr, sizeof(conn_ptr), (void *)(conn + 8)); // find conn
@@ -286,9 +272,17 @@ int obi_uprobe_reader_read(struct pt_regs *ctx) {
                     __builtin_memset(&r.conn, 0, sizeof(connection_info_t));
                 }
             }
-        }
 
-        bpf_map_update_elem(&fetch_requests, &g_key, &r, BPF_ANY);
+            egress_key_t e_key = {
+                .d_port = r.conn.d_port,
+                .s_port = r.conn.s_port,
+            };
+
+            sort_egress_key(&e_key);
+            bpf_map_update_elem(&outgoing_trace_map, &e_key, &r.tp, BPF_ANY);
+
+            bpf_map_update_elem(&fetch_requests, &g_key, &r, BPF_ANY);
+        }
     }
 
     return 0;

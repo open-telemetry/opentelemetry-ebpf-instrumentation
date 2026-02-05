@@ -214,7 +214,5 @@ int obi_uprobe_mongo_op_execute_ret(struct pt_regs *ctx) {
         }
     }
 
-    bpf_map_delete_elem(&ongoing_mongo_requests, &g_key);
-
     return 0;
 }

@@ -1,9 +1,6 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build obi_bpf_ignore
-// Copyright Grafana Labs
-//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -16,16 +13,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "go_runtime.c"
-#include "go_nethttp.c"
-#include "go_sql.c"
-#include "go_grpc.c"
-#include "go_redis.c"
-#include "go_kafka_go.c"
-#include "go_sarama.c"
-#include "go_sdk.c"
-#include "go_mongo.c"
-#include "go_net.c"
-#include "generictracer/protocol_handler.c"
+//go:build obi_bpf_ignore
 
-char __license[] SEC("license") = "Dual MIT/GPL";
+#pragma once
+
+#include <bpfcore/utils.h>
+#include <gotracer/go_common.h>
+
+typedef struct new_func_invocation {
+    u64 parent;
+} new_func_invocation_t;
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: pointer to the request goroutine
+    __type(value, new_func_invocation_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} newproc1 SEC(".maps");

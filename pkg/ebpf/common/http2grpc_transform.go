@@ -452,7 +452,7 @@ func ReadHTTP2InfoIntoSpan(parseContext *EBPFParseContext, record *ringbuf.Recor
 		return request.Span{}, true, err
 	}
 
-	if !filter.ValidPID(event.Pid.UserPid, event.Pid.Ns, PIDTypeKProbes) {
+	if event.FromGo == 0 && !filter.ValidPID(event.Pid.UserPid, event.Pid.Ns, PIDTypeKProbes) {
 		return request.Span{}, true, nil
 	}
 

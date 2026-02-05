@@ -23,6 +23,7 @@
 
 #include <maps/accepted_connections.h>
 #include <maps/active_ssl_connections.h>
+#include <maps/fiber_traceparent.h>
 #include <maps/ongoing_http.h>
 
 volatile const u32 high_request_volume;
@@ -56,6 +57,7 @@ static __always_inline void
 http_get_or_create_trace_info(http_connection_metadata_t *meta,
                               u32 pid,
                               connection_info_t *conn,
+                              u64 fiber,
                               void *u_buf,
                               int bytes_len,
                               u8 ssl,
@@ -104,7 +106,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         if (meta->type == EVENT_HTTP_CLIENT) {
             pid_connection_info_t p_conn = {.pid = pid};
             __builtin_memcpy(&p_conn.conn, conn, sizeof(connection_info_t));
-            found_tp = find_trace_for_client_request(&p_conn, orig_dport, &tp_p->tp);
+            found_tp = find_trace_for_client_request(&p_conn, fiber, orig_dport, &tp_p->tp);
         } else {
             //bpf_dbg_printk("Looking up existing trace for connection");
             //dbg_print_http_connection_info(conn);
@@ -149,7 +151,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
             if (meta) {
                 u32 type = trace_type_from_meta(meta);
                 set_trace_info_for_connection(conn, type, tp_p);
-                server_or_client_trace(meta->type, conn, tp_p, ssl, orig_dport);
+                server_or_client_trace(meta->type, conn, fiber, tp_p, ssl, orig_dport);
             }
             return;
         }
@@ -198,7 +200,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         // sock_msg program has already punched a hole in the HTTP headers and has made
         // the HTTP header invalid. We need to add more smarts there or pull the
         // sock msg information here and mark it so that we don't override the span_id.
-        server_or_client_trace(meta->type, conn, tp_p, ssl, orig_dport);
+        server_or_client_trace(meta->type, conn, fiber, tp_p, ssl, orig_dport);
     }
 }
 
@@ -451,7 +453,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
         high_request_volume /*|| (ssl != NO_SSL) || (orig_len < KPROBES_LARGE_RESPONSE_LEN)*/) {
         finish_http(info, pid_conn);
     } else {
-        if (ssl) {
+        if (ssl || info->from_go) {
             finish_http(info, pid_conn);
         } else {
             bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);
@@ -569,6 +571,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     http_get_or_create_trace_info(meta,
                                   args->pid_conn.pid,
                                   &args->pid_conn.conn,
+                                  args->fiber,
                                   (void *)args->u_buf,
                                   args->bytes_len,
                                   args->ssl,
@@ -615,6 +618,7 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
 
     __builtin_memcpy(&in->conn_info, &args->pid_conn.conn, sizeof(connection_info_t));
     in->ssl = args->ssl;
+    in->from_go = (args->fiber != 0);
 
     // If we have the same process (or even thread) call itself through HTTP, the
     // connection information is identical. This means that the client call information

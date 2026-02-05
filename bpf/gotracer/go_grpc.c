@@ -19,6 +19,7 @@
 
 #include <common/globals.h>
 #include <common/ringbuf.h>
+#include <common/trace_common.h>
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>

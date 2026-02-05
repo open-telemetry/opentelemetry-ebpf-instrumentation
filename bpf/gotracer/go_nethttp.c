@@ -23,6 +23,7 @@
 #include <common/ringbuf.h>
 #include <common/strings.h>
 #include <common/tracing.h>
+#include <common/trace_common.h>
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
@@ -39,28 +40,6 @@
 #include <pid/pid_helpers.h>
 
 static const char traceparent[] = "traceparent: ";
-
-static __always_inline unsigned char *tp_char_buf() {
-    int zero = 0;
-    return bpf_map_lookup_elem(&tp_char_buf_mem, &zero);
-}
-
-typedef struct http_client_data {
-    s64 content_length;
-    pid_info pid;
-    unsigned char path[PATH_MAX_LEN];
-    unsigned char host[HOST_MAX_LEN];
-    unsigned char scheme[SCHEME_MAX_LEN];
-    unsigned char method[METHOD_MAX_LEN];
-    u8 _pad[3];
-} http_client_data_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, http_client_data_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_http_client_requests_data SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -124,6 +103,7 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
     tp_info_t *decoded_tp = 0;
     if (header_inv && valid_trace(header_inv->tp.trace_id)) {
         decoded_tp = &header_inv->tp;
+        decoded_tp->ts = bpf_ktime_get_ns();
     }
 
     server_http_func_invocation_t invocation = {
@@ -381,6 +361,7 @@ int obi_uprobe_http2Server_processHeaders(struct pt_regs *ctx) {
     tp_info_t tp = {0};
 
     process_meta_frame_headers(frame, &tp);
+    tp.ts = bpf_ktime_get_ns();
 
     if (valid_trace(tp.trace_id)) {
         bpf_dbg_printk("found valid traceparent in http2 headers");

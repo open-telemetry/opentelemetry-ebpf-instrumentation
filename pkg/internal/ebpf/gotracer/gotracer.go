@@ -92,6 +92,22 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 }
 
 func (p *Tracer) SetupTailCalls() {
+	for i, prog := range []*ebpf.Program{
+		p.bpfObjects.ObiProtocolHttp,                      // 0
+		p.bpfObjects.ObiContinueProtocolHttp,              // 1
+		p.bpfObjects.ObiContinue2ProtocolHttp,             // 2
+		p.bpfObjects.ObiProtocolHttp2,                     // 3
+		p.bpfObjects.ObiProtocolTcp,                       // 4
+		p.bpfObjects.ObiProtocolHttp2GrpcFrames,           // 5
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame, // 6
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,   // 7
+		p.bpfObjects.ObiHandleBufWithArgs,                 // 8
+	} {
+		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
+		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {
+			p.log.Error("error loading info tail call jump table", "error", err)
+		}
+	}
 }
 
 func (p *Tracer) Constants() map[string]any {
@@ -100,7 +116,7 @@ func (p *Tracer) Constants() map[string]any {
 		blackBoxCP = uint32(1)
 	}
 
-	return map[string]any{
+	m := map[string]any{
 		"g_bpf_debug":               p.cfg.BpfDebug,
 		"g_bpf_header_propagation":  p.supportsContextPropagation(),
 		"wakeup_data_bytes":         uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
@@ -117,6 +133,21 @@ func (p *Tracer) Constants() map[string]any {
 		"g_bpf_traceparent_enabled": true,
 		"g_bpf_loop_enabled":        p.supportsBPFLoop,
 	}
+
+	m["http_buffer_size"] = p.cfg.BufferSizes.HTTP
+	m["mysql_buffer_size"] = p.cfg.BufferSizes.MySQL
+	m["kafka_buffer_size"] = p.cfg.BufferSizes.Kafka
+	m["postgres_buffer_size"] = p.cfg.BufferSizes.Postgres
+	m["max_transaction_time"] = uint64(p.cfg.MaxTransactionTime.Nanoseconds())
+
+	if p.cfg.TrackRequestHeaders ||
+		p.cfg.ContextPropagation.IsEnabled() {
+		m["capture_header_buffer"] = int32(1)
+	} else {
+		m["capture_header_buffer"] = int32(0)
+	}
+
+	return m
 }
 
 func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
@@ -260,9 +291,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeProcNewproc1,
 			End:   p.bpfObjects.ObiUprobeProcNewproc1Ret,
 		}},
-		"runtime.goexit1": {{
-			Start: p.bpfObjects.ObiUprobeProcGoexit1,
-		}},
 		// Go net/http
 		"net/http.serverHandler.ServeHTTP": {{
 			Start: p.bpfObjects.ObiUprobeServeHTTP,
@@ -326,7 +354,11 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			End:   p.bpfObjects.ObiUprobeConnServeRet,
 		}},
 		"net.(*netFD).Read": {{
-			Start: p.bpfObjects.ObiUprobeNetFdRead,
+			Start: p.bpfObjects.ObiNetFdRead,
+			End:   p.bpfObjects.ObiNetFdReadRet,
+		}},
+		"net.(*netFD).Write": {{
+			Start: p.bpfObjects.ObiNetFdWrite,
 		}},
 		"net/http.(*persistConn).roundTrip": {{ // http client
 			Start: p.bpfObjects.ObiUprobePersistConnRoundTrip,

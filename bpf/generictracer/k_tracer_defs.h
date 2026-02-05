@@ -42,6 +42,7 @@ protocol_type_for_conn_info(const pid_connection_info_t *info) {
 }
 
 static __always_inline call_protocol_args_t *make_protocol_args(const pid_connection_info_t *info,
+                                                                u64 fiber,
                                                                 void *u_buf,
                                                                 int bytes_len,
                                                                 u8 ssl,
@@ -53,6 +54,7 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
     }
 
     args->ssl = ssl;
+    args->fiber = fiber;
     args->bytes_len = bytes_len;
     args->direction = direction;
     args->orig_dport = orig_dport;
@@ -64,13 +66,14 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
 
 static __always_inline void handle_buf_with_connection(void *ctx,
                                                        pid_connection_info_t *pid_conn,
+                                                       u64 fiber,
                                                        void *u_buf,
                                                        int bytes_len,
                                                        u8 ssl,
                                                        u8 direction,
                                                        u16 orig_dport) {
     call_protocol_args_t *args =
-        make_protocol_args(pid_conn, u_buf, bytes_len, ssl, direction, orig_dport);
+        make_protocol_args(pid_conn, fiber, u_buf, bytes_len, ssl, direction, orig_dport);
     if (!args) {
         return;
     }
