@@ -1,3 +1,8 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+// Package exec provides the utilities to analyze the executable code
+
 package integration
 
 import (
@@ -10,9 +15,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
@@ -51,6 +56,17 @@ func testContainerMetaMetrics(t *testing.T, exporter string) {
 		require.NoError(ct, err)
 		assert.NotEmpty(ct, results)
 	}, testTimeout, 100*time.Millisecond)
+
+	// check correctness of target_info attributes
+	results, err := pq.Query(`target_info{` +
+		`exported="` + exporter + `",` +
+		`container_id=~"[0-9a-fA-F]{12}",` +
+		`container_name="integration-testserver-as-in-compose-1",` +
+		`service_name="testserver-as-in-compose",` +
+		`instance="testserver-as-in-compose.integration-testserver-as-in-compose-1"` +
+		`}`)
+	require.NoError(t, err)
+	assert.NotEmpty(t, results)
 }
 
 func testContainerMetaTraces(t *testing.T) {

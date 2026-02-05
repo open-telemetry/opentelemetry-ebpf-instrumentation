@@ -11,6 +11,8 @@ import (
 
 	"github.com/docker/docker/client"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 )
 
@@ -118,4 +120,41 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid PID) (ContainerM
 		ID:             containerID,
 		ComposeService: composeSvcName,
 	}, true
+}
+
+func identity(n attr.Name) attr.Name { return n }
+
+func (ci *ContainerMeta) DecorateService(s *svc.Attrs) {
+	s.Metadata = ContainerMetadata(s.Metadata, ci, identity)
+
+	if s.AutoName() {
+		// populate service name from container metadata
+		if ci.ComposeService != "" {
+			s.UID.Name = ci.ComposeService
+		} else {
+			s.UID.Name = ci.Name
+		}
+	}
+	// overriding the Instance here will avoid reusing the OTEL resource reporter
+	// if the application/process was discovered and reported information
+	// before the docker metadata was available
+	// Service Instance ID is set according to OTEL collector conventions.
+	if s.UID.Namespace == "" {
+		if ci.ComposeService == "" {
+			s.UID.Instance = ci.Name
+		} else {
+			s.UID.Instance = ci.ComposeService + "." + ci.Name
+		}
+	} else {
+		s.UID.Instance = s.UID.Namespace + "." + s.UID.Name + "." + ci.Name
+	}
+}
+
+func ContainerMetadata[T ~string](dst map[T]string, ci *ContainerMeta, stringer func(attr.Name) T) map[T]string {
+	if dst == nil {
+		dst = map[T]string{}
+	}
+	dst[stringer(attr.ContainerName)] = ci.Name
+	dst[stringer(attr.ContainerID)] = ci.ID
+	return dst
 }

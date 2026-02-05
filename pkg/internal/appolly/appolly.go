@@ -84,7 +84,14 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		processEventsKubeDecorated,
 	), swarm.WithID("KubeProcessEventDecoratorProvider"))
 
-	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsKubeDecorated)
+	processEventsDockerDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsDockerDecorated")
+	swi.Add(transform.DockerProcessEventDecoratorProvider(
+		ctxInfo,
+		processEventsKubeDecorated,
+		processEventsDockerDecorated,
+	), swarm.WithID("DockerProcessEventDecorator"))
+
+	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsDockerDecorated)
 	if err != nil {
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}

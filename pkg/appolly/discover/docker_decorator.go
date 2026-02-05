@@ -7,13 +7,12 @@ import (
 	"context"
 	"log/slog"
 
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/docker"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
-
-const containerNameMeta = "container_name"
 
 func ddlog() *slog.Logger {
 	return slog.With("component", "DockerDecorator")
@@ -65,9 +64,7 @@ func (dd *dockerDecorator) decorate(ctx context.Context) {
 			case EventCreated:
 				meta, ok := dd.containerInfo(ctx, docker.PID(ev.Obj.pid))
 				if ok {
-					ev.Obj.metadata = map[string]string{
-						containerNameMeta: meta.Name,
-					}
+					ev.Obj.metadata = docker.ContainerMetadata(ev.Obj.metadata, &meta, attr.Name.Prom)
 				}
 			case EventDeleted:
 				delete(dd.containerByPID, docker.PID(ev.Obj.pid))
