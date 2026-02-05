@@ -39,7 +39,7 @@ func testREDMetricsHTTP(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForHTTPLibrary(t, testCaseURL, "testserver", "integration-test")
+			testREDMetricsForHTTPLibrary(t, testCaseURL, "integration-test")
 			testSpanMetricsForHTTPLibraryOTelFormat(t, "testserver", "integration-test")
 			testServiceGraphMetricsForHTTPLibrary(t, "integration-test")
 		})
@@ -56,7 +56,7 @@ func testREDMetricsOldHTTP(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForHTTPLibrary(t, testCaseURL, "testserver", "integration-test")
+			testREDMetricsForHTTPLibrary(t, testCaseURL, "integration-test")
 			testSpanMetricsForHTTPLibrary(t, "testserver", "integration-test")
 		})
 	}
@@ -69,7 +69,7 @@ func testREDMetricsShortHTTP(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForHTTPLibrary(t, testCaseURL, "testserver", "integration-test")
+			testREDMetricsForHTTPLibrary(t, testCaseURL, "integration-test")
 			testSpanMetricsForHTTPLibraryOTelFormat(t, "testserver", "integration-test")
 		})
 	}
@@ -346,8 +346,8 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
-	testREDMetricsForHTTPLibraryCntName(t, url, svcName, svcNs, "")
+func testREDMetricsForHTTPLibrary(t *testing.T, url, svcNs string) {
+	testREDMetricsForHTTPLibraryCntName(t, url, "testServer", svcNs, "")
 }
 
 func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, overrideContainerName string) {

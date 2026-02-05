@@ -28,7 +28,7 @@ func TestMultiProcess(t *testing.T) {
 
 	t.Run("Go RED metrics: usual service", func(t *testing.T) {
 		waitForTestComponents(t, instrumentedServiceStdURL)
-		testREDMetricsForHTTPLibrary(t, instrumentedServiceStdURL, "testserver", "initial-set")
+		testREDMetricsForHTTPLibrary(t, instrumentedServiceStdURL, "initial-set")
 		// checks that, instrumenting the process from this container,
 		// it doesn't instrument too the process from the other container
 		checkReportedOnlyOnce(t, instrumentedServiceStdURL, "testserver")
