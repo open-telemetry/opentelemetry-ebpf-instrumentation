@@ -37,8 +37,6 @@ services:
       - /sys/fs/cgroup:/sys/fs/cgroup
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-nodejsdist:/var/run/beyla
-      # required for docker metadata decoration
-      - /var/run/docker.sock:/var/run/docker.sock
     image: hatest-obi-b
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     network_mode: "host"

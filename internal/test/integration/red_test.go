@@ -39,7 +39,7 @@ func testREDMetricsHTTP(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForHTTPLibrary(t, testCaseURL, "integration-test")
+			testREDMetricsForHTTPLibrary(t, testCaseURL, "testserver", "integration-test")
 			testSpanMetricsForHTTPLibraryOTelFormat(t, "testserver", "integration-test")
 			testServiceGraphMetricsForHTTPLibrary(t, "integration-test")
 		})
@@ -56,7 +56,7 @@ func testREDMetricsOldHTTP(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForHTTPLibrary(t, testCaseURL, "integration-test")
+			testREDMetricsForHTTPLibrary(t, testCaseURL, "testserver", "integration-test")
 			testSpanMetricsForHTTPLibrary(t, "testserver", "integration-test")
 		})
 	}
@@ -69,7 +69,7 @@ func testREDMetricsShortHTTP(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
-			testREDMetricsForHTTPLibrary(t, testCaseURL, "integration-test")
+			testREDMetricsForHTTPLibrary(t, testCaseURL, "testserver", "integration-test")
 			testSpanMetricsForHTTPLibraryOTelFormat(t, "testserver", "integration-test")
 		})
 	}
@@ -346,16 +346,8 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testREDMetricsForHTTPLibrary(t *testing.T, url, svcNs string) {
-	testREDMetricsForHTTPLibraryCntName(t, url, "testserver", svcNs, "")
-}
-
-func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, overrideContainerName string) {
+func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 	path := "/basic/" + rndStr()
-	containerName := "integration-" + svcName + "-1"
-	if overrideContainerName != "" {
-		containerName = overrideContainerName
-	}
 
 	parts := strings.Split(url, ":")
 	assert.LessOrEqual(t, 3, len(parts))
@@ -382,7 +374,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
-			`container_name="` + containerName + `",` +
 			`http_request_method="GET",` +
 			`http_response_status_code="404",` +
 			`service_namespace="` + svcNs + `",` +
@@ -406,7 +397,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
 			`http_response_status_code="404",` +
-			`container_name="` + containerName + `",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
 			`http_route="/basic/:rnd",` +
@@ -417,7 +407,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
-			`container_name="` + containerName + `",` +
 			`http_response_status_code="404",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
@@ -432,7 +421,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
 			results, err = pq.Query(`http_server_request_duration_seconds_count{` +
-				`container_name="` + containerName + `",` +
 				`http_request_method="GET",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
@@ -447,7 +435,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
-				`container_name="` + containerName + `",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`http_route="/echo",` +
@@ -458,7 +445,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
-				`container_name="` + containerName + `",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`http_route="/echo",` +
@@ -471,7 +457,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
 			results, err = pq.Query(`http_server_request_duration_seconds_count{` +
-				`container_name="` + containerName + `",` +
 				`http_request_method="GET",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
@@ -486,7 +471,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
-				`container_name="` + containerName + `",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`http_route="/echoBack",` +
@@ -497,7 +481,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
-				`container_name="` + containerName + `",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`http_route="/echoBack",` +
@@ -510,7 +493,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
 			results, err = pq.Query(`http_client_request_duration_seconds_count{` +
-				`container_name="` + containerName + `",` +
 				`http_request_method="GET",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
@@ -524,7 +506,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
-				`container_name="` + containerName + `",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`service_name="` + svcName + `"`
@@ -534,7 +515,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			labels := `http_request_method="GET",` +
-				`container_name="` + containerName + `",` +
 				`http_response_status_code="203",` +
 				`service_namespace="` + svcNs + `",` +
 				`service_name="` + svcName + `"`
@@ -545,7 +525,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
 			results, err = pq.Query(`rpc_client_duration_seconds_count{` +
-				`container_name="` + containerName + `",` +
 				`rpc_grpc_status_code="0",` +
 				`service_name="` + svcName + `",` +
 				`service_namespace="` + svcNs + `",` +
@@ -561,7 +540,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 	// check duration_sum is at least 90ms (3 * 30ms)
 	var err error
 	results, err = pq.Query(`http_server_request_duration_seconds_sum{` +
-		`container_name="` + containerName + `",` +
 		`http_request_method="GET",` +
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +
@@ -581,7 +559,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 
 	// check request_size_sum is at least 114B (3 * 38B)
 	results, err = pq.Query(`http_server_request_body_size_bytes_sum{` +
-		`container_name="` + containerName + `",` +
 		`http_request_method="GET",` +
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +
@@ -600,7 +577,6 @@ func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, over
 
 	// check response_size_sum is 0
 	results, err = pq.Query(`http_server_response_body_size_bytes_sum{` +
-		`container_name="` + containerName + `",` +
 		`http_request_method="GET",` +
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +
@@ -650,7 +626,6 @@ func testREDMetricsGRPCInternal(t *testing.T, opts []grpcclient.PingOption, serv
 			`service_namespace="integration-test",` +
 			`client_address!="127.0.0.1",` + // discard the metrics from testREDMetricsForHTTPLibrary/GorillaURL
 			`service_name="testserver",` +
-			`container_name="integration-testserver-1",` +
 			`server_port="` + serverPort + `",` +
 			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
 		require.NoError(ct, err)
@@ -669,7 +644,6 @@ func testREDMetricsGRPCInternal(t *testing.T, opts []grpcclient.PingOption, serv
 
 func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	path := "/basic/" + rndStr()
-	containerName := "integration-" + svcName + "-1"
 
 	// Call 3 times the instrumented service, forcing it to:
 	// - take at least 30ms to respond
@@ -687,7 +661,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
-			`container_name="` + containerName + `",` +
 			`http_request_method="GET",` +
 			`http_response_status_code="404",` +
 			`service_namespace="integration-test",` +
@@ -708,7 +681,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
-			`container_name="` + containerName + `",` +
 			`http_response_status_code="404",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `",` +
@@ -720,7 +692,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
-			`container_name="` + containerName + `",` +
 			`http_response_status_code="404",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `",` +
@@ -734,7 +705,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
-			`container_name="` + containerName + `",` +
 			`http_request_method="GET",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
@@ -749,7 +719,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
-			`container_name="` + containerName + `",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`http_route="/echo",` +
@@ -760,7 +729,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
-			`container_name="` + containerName + `",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`http_route="/echo",` +
@@ -773,7 +741,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
-			`container_name="` + containerName + `",` +
 			`http_request_method="GET",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
@@ -788,7 +755,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
-			`container_name="` + containerName + `",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`http_route="/echoBack",` +
@@ -799,7 +765,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
-			`container_name="` + containerName + `",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`http_route="/echoBack",` +
@@ -812,7 +777,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_client_request_duration_seconds_count{` +
-			`container_name="` + containerName + `",` +
 			`http_request_method="GET",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
@@ -826,7 +790,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
-			`container_name="` + containerName + `",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `"`
@@ -836,7 +799,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		labels := `http_request_method="GET",` +
-			`container_name="` + containerName + `",` +
 			`http_response_status_code="203",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `"`
@@ -847,7 +809,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`rpc_client_duration_seconds_count{` +
-			`container_name="` + containerName + `",` +
 			`rpc_grpc_status_code="0",` +
 			`service_name="` + svcName + `",` +
 			`service_namespace="integration-test",` +
@@ -862,7 +823,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	// check duration_sum is at least 90ms (3 * 30ms)
 	var err error
 	results, err = pq.Query(`http_server_request_duration_seconds_sum{` +
-		`container_name="` + containerName + `",` +
 		`http_request_method="GET",` +
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +
@@ -882,7 +842,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 
 	// check request_size_sum is at least 114B (3 * 38B)
 	results, err = pq.Query(`http_server_request_body_size_bytes_sum{` +
-		`container_name="` + containerName + `",` +
 		`http_request_method="GET",` +
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +
@@ -901,7 +860,6 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 
 	// check response_size_sum is 0
 	results, err = pq.Query(`http_server_response_body_size_bytes_sum{` +
-		`container_name="` + containerName + `",` +
 		`http_request_method="GET",` +
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +

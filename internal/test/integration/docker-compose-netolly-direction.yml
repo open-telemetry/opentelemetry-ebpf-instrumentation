@@ -34,8 +34,6 @@ services:
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-netolly-direction:/var/run/beyla
-      # required for docker metadata decoration
-      - /var/run/docker.sock:/var/run/docker.sock
     image: hatest-obi
     privileged: true
     network_mode: service:testserver

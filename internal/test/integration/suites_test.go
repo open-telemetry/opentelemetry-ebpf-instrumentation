@@ -19,7 +19,7 @@ import (
 func TestSuite(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite.log"))
 	require.NoError(t, err)
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `INSTRUMENTER_CONFIG_SUFFIX=-container-meta`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=(pingclient|testserver)`)
 	require.NoError(t, compose.Up())
 
 	config := ti.DefaultOBIConfig()
@@ -621,7 +621,7 @@ func TestSuite_OverrideServiceName(t *testing.T) {
 	// according to the configuration
 	t.Run("RED metrics", func(t *testing.T) {
 		waitForTestComponents(t, instrumentedServiceStdURL)
-		testREDMetricsForHTTPLibraryCntName(t, instrumentedServiceStdURL, "overridden-svc-name", "integration-test", "integration-testserver-1")
+		testREDMetricsForHTTPLibrary(t, instrumentedServiceStdURL, "overridden-svc-name", "integration-test")
 	})
 	t.Run("GRPC traces", func(t *testing.T) {
 		testGRPCTracesForServiceName(t, "overridden-svc-name")
