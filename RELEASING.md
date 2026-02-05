@@ -105,9 +105,67 @@ When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-su
 
    If any of these checks fail or don't complete, the release workflow will fail and no draft release will be created.
 
-3. **Create Draft Release**: Once all checks pass, a draft release is automatically created with auto-generated release notes.
+3. **Build Release Artifacts**: Once all checks pass, the workflow builds multi-architecture release artifacts:
+   - Runs `make release` to generate versioned tarballs for amd64 and arm64
+   - Archives contain: `ebpf-instrument`, `k8s-cache`, `obi-java-agent.jar`, LICENSE, NOTICE, and NOTICES/ directory
+   - Generates SHA256 checksums for all archives
+   - Verifies archive contents and binary executability
 
-   You can then review and publish the draft release from the [GitHub Releases page](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases).
+4. **Create Draft Release**: A draft release is automatically created with:
+   - Auto-generated release notes from GitHub
+   - Multi-architecture tarballs: `obi-<version>-linux-amd64.tar.gz` and `obi-<version>-linux-arm64.tar.gz`
+   - Checksum files: `SHA256SUMS` and `SHA256SUMS-<version>`
+
+   The draft release allows maintainers to review artifacts before publication.
+
+### Reviewing, Editing, and Publishing the Draft Release
+
+Once the workflow completes successfully, a draft release is automatically created with auto-generated release notes from GitHub, which includes a list of changes since the previous release.
+
+1. Navigate to the [GitHub Releases page](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
+2. Locate the draft release for your version
+3. Review the artifacts:
+   - Download and verify checksums: `sha256sum -c SHA256SUMS`
+   - Extract archives and test binaries if needed
+   - Review auto-generated release notes for accuracy
+4. Edit release notes if necessary to add context, highlight important changes, or improve clarity
+5. Once satisfied with artifacts and release notes, click "Publish release" to make it immutable and publicly available
+
+> [!IMPORTANT]
+> Once published, GitHub releases are immutable. Artifacts and checksums cannot be modified or replaced. Review carefully before publishing.
+
+### Archive Contents
+
+Each release archive (`obi-<version>-linux-<arch>.tar.gz`) contains:
+
+- `ebpf-instrument`: Main OBI binary
+- `k8s-cache`: Kubernetes cache service binary
+- `obi-java-agent.jar`: Java instrumentation agent
+- `LICENSE`: Apache 2.0 license file
+- `NOTICE`: Legal notices
+- `NOTICES/`: Directory with third-party licenses and attributions
+
+### Building Release Artifacts Locally
+
+To test the release artifact generation locally before tagging:
+
+```console
+make release
+```
+
+This will:
+
+1. Build artifacts for both amd64 and arm64 architectures
+2. Generate versioned tarballs in the `dist/` directory
+3. Verify archive contents
+4. Generate SHA256 checksums
+
+The `dist/` directory will contain:
+
+- `obi-<version>-linux-amd64.tar.gz`
+- `obi-<version>-linux-arm64.tar.gz`
+- `SHA256SUMS`
+- `SHA256SUMS-<version>`
 
 ### Manual Release Trigger
 
@@ -119,11 +177,6 @@ If you need to re-trigger the release workflow (for example, if the workflow pre
 4. Click "Run workflow"
 
 The manual trigger will validate the tag format, run the full test suite, and create a draft release with the same requirements as the automatic trigger.
-
-### Release Notes
-
-The draft release is automatically created with auto-generated release notes from GitHub, which includes a list of changes since the previous release.
-Review the draft release on the [GitHub Releases page](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases), and if the generated notes look good, publish the release.
 
 ## Post-Release
 
