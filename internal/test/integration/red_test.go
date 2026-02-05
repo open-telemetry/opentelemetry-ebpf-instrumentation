@@ -347,7 +347,7 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 }
 
 func testREDMetricsForHTTPLibrary(t *testing.T, url, svcNs string) {
-	testREDMetricsForHTTPLibraryCntName(t, url, "testServer", svcNs, "")
+	testREDMetricsForHTTPLibraryCntName(t, url, "testserver", svcNs, "")
 }
 
 func testREDMetricsForHTTPLibraryCntName(t *testing.T, url, svcName, svcNs, overrideContainerName string) {
