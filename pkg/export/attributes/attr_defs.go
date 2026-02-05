@@ -74,6 +74,7 @@ func getDefinitions(
 		nil,
 		map[attr.Name]Default{
 			attr.ContainerName: true,
+			attr.ContainerID:   false,
 		},
 		extraGroupAttributes[GroupContainer],
 	)

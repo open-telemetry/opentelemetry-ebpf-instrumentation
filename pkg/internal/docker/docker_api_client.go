@@ -24,7 +24,9 @@ var osInfoForPID = container.InfoForPID
 
 type ContainerMeta struct {
 	// TODO: add other fields https://opentelemetry.io/docs/specs/semconv/resource/container/
-	Name string
+	ID             string
+	Name           string
+	ComposeService string
 }
 
 // ContainerStore caches access to the Docker container API.
@@ -98,9 +100,22 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid PID) (ContainerM
 			"error", err)
 		return ContainerMeta{}, false
 	}
-	cntInfo := ContainerMeta{
-		// some containers start with '/'. Removing it
-		Name: strings.Trim(inspectInfo.Name, "/"),
+
+	const abbreviationLength = 12
+	containerID := inspectInfo.ID
+	if len(containerID) > abbreviationLength {
+		containerID = containerID[:abbreviationLength]
 	}
-	return cntInfo, true
+
+	composeSvcName := ""
+	if inspectInfo.Config != nil && len(inspectInfo.Config.Labels) > 0 {
+		composeSvcName = inspectInfo.Config.Labels["com.docker.compose.service"]
+	}
+
+	return ContainerMeta{
+		// some containers start with '/'. Removing it
+		Name:           strings.Trim(inspectInfo.Name, "/"),
+		ID:             containerID,
+		ComposeService: composeSvcName,
+	}, true
 }

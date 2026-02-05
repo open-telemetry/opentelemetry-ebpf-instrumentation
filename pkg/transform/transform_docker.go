@@ -55,12 +55,22 @@ func (dd *dockerEnricher) decorate(ctx context.Context) {
 	defer dd.out.Close()
 	swarms.ForEachInput(ctx, dd.in, dd.log.Debug, func(spans []request.Span) {
 		for i := range spans {
-			s := &spans[i]
-			if ci, ok := dd.containerInfo(ctx, docker.PID(s.Service.ProcPID)); ok {
-				if s.Service.Metadata == nil {
-					s.Service.Metadata = map[attr.Name]string{}
+			svc := &spans[i].Service
+			if ci, ok := dd.containerInfo(ctx, docker.PID(svc.ProcPID)); ok {
+				if svc.Metadata == nil {
+					svc.Metadata = map[attr.Name]string{}
 				}
-				s.Service.Metadata[attr.ContainerName] = ci.Name
+				svc.Metadata[attr.ContainerName] = ci.Name
+				svc.Metadata[attr.ContainerID] = ci.ID
+
+				if svc.AutoName() {
+					// populate service name from container metadata
+					if ci.ComposeService != "" {
+						svc.UID.Name = ci.ComposeService
+					} else {
+						svc.UID.Name = ci.Name
+					}
+				}
 			}
 		}
 		dd.out.SendCtx(ctx, spans)

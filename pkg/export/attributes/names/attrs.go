@@ -85,6 +85,7 @@ const (
 	K8SServerCluster   = Name("server_k8s_cluster_name")
 
 	ContainerName = Name(semconv.ContainerNameKey)
+	ContainerID   = Name(semconv.ContainerIDKey)
 )
 
 // OBI-specific network attributes
