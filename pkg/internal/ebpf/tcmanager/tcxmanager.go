@@ -196,11 +196,12 @@ func (tcx *tcxManager) attachProgramToIfaceLocked(prog *attachedProg, iface int)
 		Anchor:    link.Head(),
 	})
 
-	if err == nil {
+	switch {
+	case err == nil:
 		tcx.links = append(tcx.links, &ifaceLink{Link: link, progName: prog.name, iface: iface})
-	} else if errors.Is(err, unix.EEXIST) {
+	case errors.Is(err, unix.EEXIST):
 		tcx.log.Warn("Program already attached", "program", prog.name, "iface", iface)
-	} else {
+	default:
 		tcx.emitError("Error attaching tcx", "error", err)
 	}
 }
