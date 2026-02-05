@@ -42,9 +42,10 @@ const (
 	EventTypeMQTTServer
 	EventTypeMongoClient
 	EventTypeManualSpan
-	EventTypeGPUKernelLaunch
-	EventTypeGPUMalloc
-	EventTypeGPUMemcpy
+	EventTypeGPUCudaKernelLaunch
+	EventTypeGPUCudaGraphLaunch
+	EventTypeGPUCudaMalloc
+	EventTypeGPUCudaMemcpy
 	EventTypeFailedConnect
 	EventTypeDNS
 	EventTypeCouchbaseClient
@@ -115,11 +116,13 @@ func (t EventType) String() string {
 		return "KafkaServer"
 	case EventTypeMQTTServer:
 		return "MQTTServer"
-	case EventTypeGPUKernelLaunch:
-		return "CUDALaunch"
-	case EventTypeGPUMalloc:
+	case EventTypeGPUCudaKernelLaunch:
+		return "CUDALaunchKernel"
+	case EventTypeGPUCudaGraphLaunch:
+		return "CUDALaunchGraph"
+	case EventTypeGPUCudaMalloc:
 		return "CUDAMalloc"
-	case EventTypeGPUMemcpy:
+	case EventTypeGPUCudaMemcpy:
 		return "CUDAMemcpy"
 	case EventTypeMongoClient:
 		return "MongoClient"
@@ -412,16 +415,19 @@ func spanAttributes(s *Span) SpanAttributes {
 			}
 		}
 		return attrs
-	case EventTypeGPUKernelLaunch:
+	case EventTypeGPUCudaKernelLaunch:
 		return SpanAttributes{
-			"function":  s.Method,
-			"callStack": s.Path,
 			"gridSize":  strconv.FormatInt(s.ContentLength, 10),
 			"blockSize": strconv.Itoa(s.SubType),
 		}
-	case EventTypeGPUMalloc:
+	case EventTypeGPUCudaMalloc:
 		return SpanAttributes{
 			"size": strconv.FormatInt(s.ContentLength, 10),
+		}
+	case EventTypeGPUCudaMemcpy:
+		return SpanAttributes{
+			"size": strconv.FormatInt(s.ContentLength, 10),
+			"kind": CudaMemcpyName(s.SubType),
 		}
 	case EventTypeMongoClient:
 		return SpanAttributes{

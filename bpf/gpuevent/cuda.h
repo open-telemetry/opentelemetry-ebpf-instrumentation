@@ -11,46 +11,39 @@
 #pragma once
 
 #include <pid/pid.h>
+#include <common/tp_info.h>
 
-#pragma once
-#define TASK_COMM_LEN 16
-#define MAX_GPUKERN_ARGS 16
-
-#ifndef MAX_STACK_DEPTH
-#define MAX_STACK_DEPTH 128
-#endif
-
-typedef uint64_t stack_trace_t[MAX_STACK_DEPTH];
-
-// This is the struct that will be serialized on the ring buffer and sent to user space
-typedef struct gpu_kernel_launch {
+typedef struct cuda_kernel_launch {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 _pad[3];
     pid_info pid_info;
-    uint64_t kern_func_off;
+    u64 kern_func_off;
     int grid_x;
     int grid_y;
     int grid_z;
     int block_x;
     int block_y;
     int block_z;
-    uint64_t stream;
-    uint64_t args[MAX_GPUKERN_ARGS];
-    size_t ustack_sz;
-    stack_trace_t ustack;
-} gpu_kernel_launch_t;
+} cuda_kernel_launch_t;
 
-typedef struct gpu_malloc {
+typedef struct cuda_malloc {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 _pad[3];
     pid_info pid_info;
     s64 size;
-} gpu_malloc_t;
+} cuda_malloc_t;
 
-typedef struct gpu_memcpy {
+typedef struct cuda_memcpy {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 kind;
     u8 _pad[2];
     pid_info pid_info;
     s64 size;
-} gpu_memcpy_t;
+} cuda_memcpy_t;
+
+typedef struct cuda_graph_launch {
+    u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
+    u8 kind;
+    u8 _pad[2];
+    pid_info pid_info;
+} cuda_graph_launch_t;

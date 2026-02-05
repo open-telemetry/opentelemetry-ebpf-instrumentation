@@ -6,22 +6,206 @@ on:
       # N.B. These workflows also trigger on this tag pattern:
       # - publish_dockerhub_main.yml
       # - publish_dockerhub_k8s_cache_main.yml
-      - "v*.*.*"
+      # Glob patterns to match semver tags starting with 'v'
+      # Used as a filter. Full validation is done in a job below.
+      - "v[0-9]+.[0-9]+.[0-9]*"           # v1.2.3, v1.2.3-rc.1, v1.2.3-alpha, v1.2.3-rc.1+build.123, v1.2.3+build.123
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g., v1.2.3)"
+        required: true
+        type: string
 
 # https://docs.zizmor.sh/audits/#excessive-permissions
 permissions: {}
 
 jobs:
+  # Validate tag format before proceeding with release.
+  validate-tag:
+    name: Validate Tag Format
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Validate tag format
+        env:
+          WORKFLOW_TAG: ${{ inputs.tag }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          WORKFLOW_EVENT: ${{ github.event_name }}
+        run: |
+          # Get the tag based on trigger type
+          if [ "$WORKFLOW_EVENT" = "workflow_dispatch" ]; then
+            TAG="$WORKFLOW_TAG"
+          else
+            TAG="$GITHUB_REF_NAME"
+          fi
+
+          # Validate tag format (must be v followed by valid semver)
+          # Strip 'v' prefix for validation
+          if [[ "$TAG" =~ ^v(.*)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          else
+            echo "ERROR: Tag must start with 'v' (e.g., v1.2.3), got: $TAG"
+            exit 1
+          fi
+
+          # Validate semver format
+          # Regex for a semver digit
+          D='0|[1-9][0-9]*'
+          # Regex for a semver pre-release word
+          PW='[0-9]*[a-zA-Z-][0-9a-zA-Z-]*'
+          # Regex for a semver build-metadata word
+          MW='[0-9a-zA-Z-]+'
+
+          if [[ "$VERSION" =~ ^($D)\.($D)\.($D)(-(($D|$PW)(\.($D|$PW))*))?(\+($MW(\.$MW)*))?$ ]]; then
+            echo "Tag format validated: $TAG"
+          else
+            echo "ERROR: Tag must be valid semver with 'v' prefix (e.g., v1.2.3, v1.2.3-rc1, v1.2.3+build), got: $TAG"
+            exit 1
+          fi
+
+      - name: Verify tag exists
+        env:
+          WORKFLOW_TAG: ${{ inputs.tag }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          WORKFLOW_EVENT: ${{ github.event_name }}
+        run: |
+          # Get the tag based on trigger type
+          if [ "$WORKFLOW_EVENT" = "workflow_dispatch" ]; then
+            TAG="$WORKFLOW_TAG"
+          else
+            TAG="$GITHUB_REF_NAME"
+          fi
+
+          # Check if tag exists in repository
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "ERROR: Tag '$TAG' does not exist in the repository"
+            exit 1
+          fi
+          echo "Tag '$TAG' verified to exist in repository"
+
+  unit-tests:
+    name: Unit Tests
+    uses: ./.github/workflows/pull_request.yml
+    needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  integration-tests:
+    name: Integration Tests
+    uses: ./.github/workflows/pull_request_integration_tests.yml
+    needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  k8s-integration-tests:
+    name: K8s Integration Tests
+    uses: ./.github/workflows/pull_request_k8s_integration_tests.yml
+    needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  oats-tests:
+    name: OATS Tests
+    uses: ./.github/workflows/pull_request_oats_test.yml
+    needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  vm-integration-tests:
+    name: VM Integration Tests
+    uses: ./.github/workflows/workflow_integration_tests_vm.yml
+    needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  java-agent-tests:
+    name: Java Agent Tests
+    uses: ./.github/workflows/java-agent.yml
+    needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  format-check:
+    name: Format Check
+    uses: ./.github/workflows/clang-format-check.yml
+    needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  tidy-check:
+    name: Tidy Check
+    uses: ./.github/workflows/clang-tidy-check.yml
+    needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  arm-integration-tests:
+    name: ARM Integration Tests
+    uses: ./.github/workflows/pull_request_integration_tests_arm.yml
+    needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  docker-build-test:
+    name: Docker Build Test
+    uses: ./.github/workflows/pull_request_docker_build_test.yml
+    needs: validate-tag
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  tests-passed:
+    name: All Tests Passed
+    needs:
+      - unit-tests
+      - integration-tests
+      - k8s-integration-tests
+      - oats-tests
+      - vm-integration-tests
+      - java-agent-tests
+      - format-check
+      - tidy-check
+      - arm-integration-tests
+      - docker-build-test
+    runs-on: ubuntu-latest
+    permissions: {}
+    if: success()
+    steps:
+      - name: All required tests passed
+        run: echo "All required tests have passed successfully"
+
+  docker-publish-main:
+    name: Publish Docker Image (main)
+    uses: ./.github/workflows/publish_dockerhub_main.yml
+    needs: tests-passed
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  docker-publish-k8s-cache:
+    name: Publish Docker Image (k8s cache)
+    uses: ./.github/workflows/publish_dockerhub_k8s_cache_main.yml
+    needs: tests-passed
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
   release:
-    name: Release
+    name: Draft Release
+    needs: tests-passed
     runs-on: ubuntu-latest
     permissions:
       contents: write # https://github.com/softprops/action-gh-release#permissions
     steps:
-      - name: Create GitHub release
+      - name: Create GitHub draft release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           repository: open-telemetry/opentelemetry-ebpf-instrumentation
           generate_release_notes: true
+          draft: true
