@@ -132,10 +132,11 @@ type fakeInternalMetrics struct {
 }
 
 type InstrTest struct {
-	name      string
-	instr     []instrumentations.Instrumentation
-	expected  []string
-	extraColl int
+	name       string
+	instr      []instrumentations.Instrumentation
+	expected   []string
+	unexpected []string
+	extraColl  int
 }
 
 func TestAppMetrics_ByInstrumentation(t *testing.T) {
@@ -159,6 +160,12 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"messaging.publish.duration",   // MQTT client
 				"messaging.process.duration",   // MQTT server (ordering within aggregated metrics)
 				"messaging.process.duration",   // Kafka server
+				"gpu.cuda.kernel.launch.calls", // Cuda events
+				"gpu.cuda.graph.launch.calls",  // Cuda events
+				"gpu.cuda.kernel.grid.size",    // Cuda events
+				"gpu.cuda.kernel.block.size",   // Cuda events
+				"gpu.cuda.memory.allocations",  // Cuda events
+				"gpu.cuda.memory.copies",       // Cuda events
 			},
 		},
 		{
@@ -168,6 +175,14 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			expected: []string{
 				"http.server.request.duration",
 				"http.client.request.duration",
+			},
+			unexpected: []string{
+				"gpu.cuda.kernel.launch.calls",
+				"gpu.cuda.graph.launch.calls",
+				"gpu.cuda.kernel.grid.size",
+				"gpu.cuda.kernel.block.size",
+				"gpu.cuda.memory.allocations",
+				"gpu.cuda.memory.copies",
 			},
 		},
 		{
@@ -284,6 +299,10 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaGraphLaunch},
 			})
 
 			// Read the exported metrics, add +extraColl for HTTP size metrics
@@ -291,16 +310,19 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			m := []collector.MetricRecord{}
 			// skip over the byte size metrics
 			for _, r := range res {
-				if strings.HasSuffix(r.Name, ".duration") {
+				if strings.HasSuffix(r.Name, ".duration") || strings.HasPrefix(r.Name, "gpu.") {
 					m = append(m, r)
 				}
 			}
 			assert.Len(t, m, len(tt.expected))
 
-			for i := 0; i < len(tt.expected); i++ {
-				assert.Equal(t, tt.expected[i], m[i].Name)
+			for i := 0; i < len(m); i++ {
+				assert.Contains(t, tt.expected, m[i].Name)
 			}
 
+			for i := 0; i < len(m); i++ {
+				assert.NotContains(t, tt.unexpected, m[i].Name)
+			}
 			otelcfg.RestoreEnvAfterExecution()
 		})
 	}

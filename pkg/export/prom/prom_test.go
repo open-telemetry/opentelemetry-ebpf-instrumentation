@@ -206,6 +206,12 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"db_client_operation_duration_seconds",
 				"messaging_publish_duration_seconds",
 				"messaging_process_duration_seconds",
+				"gpu_cuda_kernel_launch_calls_total",
+				"gpu_cuda_graph_launch_calls_total",
+				"gpu_cuda_kernel_grid_size_total",
+				"gpu_cuda_kernel_block_size_total",
+				"gpu_cuda_memory_allocations_bytes_total",
+				"gpu_cuda_memory_copies_bytes_total",
 			},
 			unexpected: []string{},
 		},
@@ -222,6 +228,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"db_client_operation_duration_seconds",
 				"messaging_publish_duration_seconds",
 				"messaging_process_duration_seconds",
+				"gpu_cuda_kernel_launch_calls_total",
+				"gpu_cuda_graph_launch_calls_total",
 			},
 		},
 		{
@@ -387,6 +395,10 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaGraphLaunch},
 			})
 			awaitSpanProcessing()
 

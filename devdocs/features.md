@@ -42,3 +42,12 @@ To turn this off and fallback to the normal network based instrumentation for Go
 | github.com/segmentio/kafka-go  |   Kafka    |            >= v0.4.11 | All     |  Yes   |                 No |         N/A
 | github.com/IBM/sarama          |   Kafka    |               >= 1.37 | All     |  Yes   |                 No |         N/A
 | go.mongodb.org/mongo-driver    |  MongoDB   | >= v1.10.1, >= v2.0.1 | All     |  Yes   |                 No |         N/A
+
+## GPU Instrumentation
+
+Specifically for instrumenting GPU execution primitives, like NVIDIA CUDA kernel launches and memory copies. This
+instrumentation support differs from traditional GPU metrics, such as GPU utilization and GPU temperature.
+
+| Library                        |  Primitives                                                                      |             Versions | Limitations
+|:-------------------------------|:--------------------------------------------------------------------------------:|---------------------:|------------:
+| libcuda                        |    cudaLaunchKernel, cudaGraphLaunch, cudaMalloc, cudaMemcpy, cudaMemcpyAsync    |               >= 7.0 |         N/A

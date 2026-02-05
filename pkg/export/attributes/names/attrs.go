@@ -198,7 +198,6 @@ const (
 // Beyla specific GPU events
 const (
 	// GPU/Cuda related attributes
-	CudaKernelName = Name("cuda.kernel.name")
 	CudaMemcpyKind = Name("cuda.memcpy.kind")
 )
 

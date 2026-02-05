@@ -478,3 +478,16 @@ static __always_inline u8 find_parent_trace_for_client_request(const pid_connect
     return find_parent_trace_for_client_request_with_t_key(
         p_conn, orig_dport, &t_key, pid_tgid, tp);
 }
+
+static __always_inline void init_new_trace(tp_info_t *tp) {
+    bpf_d_printk("Generating new traceparent id [%s]", __FUNCTION__);
+    new_trace_id(tp);
+    urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
+    __builtin_memset(tp->parent_id, 0, sizeof(tp->span_id));
+
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, tp);
+        bpf_dbg_printk("tp_buf=[%s]", tp_buf);
+    }
+}
