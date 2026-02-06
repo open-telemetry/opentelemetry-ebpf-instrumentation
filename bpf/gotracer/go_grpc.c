@@ -69,6 +69,13 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, u64); // key: pointer to the client
+    __type(value, connection_info_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} cached_grpc_client_connections SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, stream_key_t);                    // key: conn_ptr + stream id
     __type(value, grpc_client_func_invocation_t); // stored info for the client request
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
@@ -590,34 +597,45 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
             bpf_probe_read(&conn_ptr_key, sizeof(conn_ptr_key), conn_ptr);
         }
 
-        void *s_ptr = 0;
-        buf[0] = 0;
-        bpf_probe_read(&s_ptr, sizeof(s_ptr), (void *)(t_ptr + grpc_t_conn_pos));
-        bpf_probe_read(buf, sizeof(buf), s_ptr);
+        connection_info_t *cached_conn =
+            bpf_map_lookup_elem(&cached_grpc_client_connections, &t_ptr);
+        // reading the connection can be expensive for high volume of
+        // new grpc client connections. We cache it, since most grpc client
+        // connections are long lived.
+        if (!cached_conn) {
+            void *s_ptr = 0;
+            buf[0] = 0;
+            bpf_probe_read(&s_ptr, sizeof(s_ptr), (void *)(t_ptr + grpc_t_conn_pos));
+            bpf_probe_read(buf, sizeof(buf), s_ptr);
 
-        //bpf_dbg_printk("scheme %s", buf);
+            //bpf_dbg_printk("scheme %s", buf);
 
-        if (buf[0] == 'h' && buf[1] == 't' && buf[2] == 't' && buf[3] == 'p' && buf[4] == 's') {
-            is_secure = 1;
-        }
+            if (buf[0] == 'h' && buf[1] == 't' && buf[2] == 't' && buf[3] == 'p' && buf[4] == 's') {
+                is_secure = 1;
+            }
 
-        if (is_secure) {
-            // double wrapped in grpc
-            conn_ptr = unwrap_tls_conn_info(conn_ptr, (void *)is_secure);
-            conn_ptr = unwrap_tls_conn_info(conn_ptr, (void *)is_secure);
-        }
-        bpf_dbg_printk("conn_ptr %llx is_secure %lld", conn_ptr, is_secure);
-        if (conn_ptr) {
-            void *conn_conn_ptr = 0;
-            bpf_probe_read(&conn_conn_ptr, sizeof(conn_conn_ptr), conn_ptr);
-            bpf_dbg_printk("conn_conn_ptr %llx", conn_conn_ptr);
-            if (conn_conn_ptr) {
-                connection_info_t conn = {0};
-                u8 ok = get_conn_info(conn_conn_ptr, &conn);
-                if (ok) {
-                    bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
+            if (is_secure) {
+                // double wrapped in grpc
+                conn_ptr = unwrap_tls_conn_info(conn_ptr, (void *)is_secure);
+                conn_ptr = unwrap_tls_conn_info(conn_ptr, (void *)is_secure);
+            }
+            bpf_dbg_printk("conn_ptr %llx is_secure %lld", conn_ptr, is_secure);
+            if (conn_ptr) {
+                void *conn_conn_ptr = 0;
+                bpf_probe_read(&conn_conn_ptr, sizeof(conn_conn_ptr), conn_ptr);
+                bpf_dbg_printk("conn_conn_ptr %llx", conn_conn_ptr);
+                if (conn_conn_ptr) {
+                    connection_info_t conn = {0};
+                    u8 ok = get_conn_info(conn_conn_ptr, &conn);
+                    if (ok) {
+                        bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
+                        bpf_map_update_elem(
+                            &cached_grpc_client_connections, &t_ptr, &conn, BPF_ANY);
+                    }
                 }
             }
+        } else {
+            bpf_map_update_elem(&ongoing_client_connections, &g_key, cached_conn, BPF_ANY);
         }
 
         if (g_bpf_header_propagation) {

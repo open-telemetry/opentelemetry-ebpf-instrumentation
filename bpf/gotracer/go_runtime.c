@@ -92,23 +92,3 @@ done:
 
     return 0;
 }
-
-SEC("uprobe/runtime_goexit1")
-int obi_uprobe_proc_goexit1(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/proc goexit1 === ");
-
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
-
-    u64 pid_tid = bpf_get_current_pid_tgid();
-    u32 pid = pid_from_pid_tgid(pid_tid);
-
-    go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
-
-    bpf_map_delete_elem(&ongoing_goroutines, &g_key);
-    // We also clean-up the go routine based trace map, it's an LRU
-    // but at this point we are sure we don't need the data.
-    bpf_map_delete_elem(&go_trace_map, &g_key);
-
-    return 0;
-}
