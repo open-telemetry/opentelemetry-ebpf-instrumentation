@@ -16,9 +16,9 @@ services:
   obi:
     build:
       context: ../../..
-      dockerfile: ./internal/test/integration/components/ebpf-instrument/Dockerfile${INSTRUMENT_DOCKERFILE_SUFFIX}
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile${INSTRUMENT_DOCKERFILE_SUFFIX}
     entrypoint:
-      - /ebpf-instrument${INSTRUMENT_COMMAND_SUFFIX}
+      - /obi${INSTRUMENT_COMMAND_SUFFIX}
     command:
       - --config=/configs/obi-config-java.yml
     volumes:

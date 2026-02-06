@@ -129,7 +129,7 @@ func buildOBIImage() error {
 	return dockerPool.Client.BuildImage(docker.BuildImageOptions{
 		Name:         "hatest-obi",
 		ContextDir:   pathRoot,
-		Dockerfile:   "internal/test/integration/components/ebpf-instrument/Dockerfile",
+		Dockerfile:   "internal/test/integration/components/obi/Dockerfile",
 		OutputStream: os.Stdout,
 		ErrorStream:  os.Stderr,
 	})

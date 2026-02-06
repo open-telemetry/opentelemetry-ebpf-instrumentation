@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Start OBI
-./ebpf-instrument "$@" &
+./obi "$@" &
 
 # Wait for any process to exit
 wait -n
