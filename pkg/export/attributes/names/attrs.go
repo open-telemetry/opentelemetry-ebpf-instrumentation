@@ -104,7 +104,7 @@ const (
 	NetworkType     = Name("network.type")
 	NetworkProtocol = Name("network.protocol.name")
 	SrcAddress      = Name("src.address")
-	DstAddres       = Name("dst.address")
+	DstAddress      = Name("dst.address")
 	SrcPort         = Name("src.port")
 	DstPort         = Name("dst.port")
 	SrcName         = Name("src.name")
