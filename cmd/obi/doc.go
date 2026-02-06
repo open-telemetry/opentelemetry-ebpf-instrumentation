@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
-Obi automatically instruments applications using eBPF to collect distributed
+OBI automatically instruments applications using eBPF to collect distributed
 traces, metrics, and logs without requiring code changes.
 
 OBI (OpenTelemetry eBPF Instrumentation) attaches eBPF probes to running
