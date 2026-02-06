@@ -440,11 +440,57 @@ license-header-check:
 	   fi
 
 .PHONY: artifact
-artifact: docker-generate compile java-docker-build
-	@echo "### Packing generated artifact"
+artifact: docker-generate compile compile-cache java-docker-build
+	@echo "### Packing generated artifact for $(GOOS)/$(GOARCH)"
 	cp LICENSE ./bin
 	cp NOTICE ./bin
-	tar -C ./bin -cvzf bin/opentelemetry-ebpf-instrumentation.tar.gz $(CMD) LICENSE NOTICE $(JAVA_AGENT)
+	cp -r NOTICES ./bin
+	tar -C ./bin -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(CACHE_CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
+
+.PHONY: release
+release: clean-release-dir
+	@echo "### Building multi-architecture release artifacts"
+	$(MAKE) artifact GOARCH=amd64
+	$(MAKE) artifact GOARCH=arm64
+	@echo "### Moving artifacts to dist/ directory"
+	mkdir -p dist
+	mv bin/obi-$(RELEASE_VERSION)-$(GOOS)-amd64.tar.gz dist/
+	mv bin/obi-$(RELEASE_VERSION)-$(GOOS)-arm64.tar.gz dist/
+	@echo "### Verifying archive contents"
+	@for arch in amd64 arm64; do \
+		echo "Verifying obi-$(RELEASE_VERSION)-$(GOOS)-$$arch.tar.gz..."; \
+		mkdir -p dist/verify-$$arch; \
+		tar -xzf dist/obi-$(RELEASE_VERSION)-$(GOOS)-$$arch.tar.gz -C dist/verify-$$arch; \
+		if [ ! -f dist/verify-$$arch/$(CMD) ]; then echo "ERROR: $(CMD) binary missing in $$arch archive"; exit 1; fi; \
+		if [ ! -f dist/verify-$$arch/$(CACHE_CMD) ]; then echo "ERROR: $(CACHE_CMD) binary missing in $$arch archive"; exit 1; fi; \
+		if [ ! -f dist/verify-$$arch/$(JAVA_AGENT) ]; then echo "ERROR: $(JAVA_AGENT) missing in $$arch archive"; exit 1; fi; \
+		if [ ! -f dist/verify-$$arch/LICENSE ]; then echo "ERROR: LICENSE missing in $$arch archive"; exit 1; fi; \
+		if [ ! -f dist/verify-$$arch/NOTICE ]; then echo "ERROR: NOTICE missing in $$arch archive"; exit 1; fi; \
+		if [ ! -d dist/verify-$$arch/NOTICES ]; then echo "ERROR: NOTICES directory missing in $$arch archive"; exit 1; fi; \
+		if [ ! -x dist/verify-$$arch/$(CMD) ]; then echo "ERROR: $(CMD) binary not executable in $$arch archive"; exit 1; fi; \
+		if [ ! -x dist/verify-$$arch/$(CACHE_CMD) ]; then echo "ERROR: $(CACHE_CMD) binary not executable in $$arch archive"; exit 1; fi; \
+		echo "✓ Archive $$arch verified successfully"; \
+		rm -rf dist/verify-$$arch; \
+	done
+	@echo "### Generating checksums"
+	@if command -v sha256sum >/dev/null 2>&1; then \
+		cd dist && sha256sum obi-$(RELEASE_VERSION)-$(GOOS)-*.tar.gz > SHA256SUMS; \
+	elif command -v shasum >/dev/null 2>&1; then \
+		cd dist && shasum -a 256 obi-$(RELEASE_VERSION)-$(GOOS)-*.tar.gz > SHA256SUMS; \
+	else \
+		echo "ERROR: Neither sha256sum nor shasum found. Please install coreutils or use macOS builtin shasum."; \
+		exit 1; \
+	fi
+	cd dist && cp SHA256SUMS SHA256SUMS-$(RELEASE_VERSION)
+	@echo "### Release artifacts ready in dist/"
+	@ls -lh dist/
+
+.PHONY: clean-release-dir
+clean-release-dir:
+	@echo "### Cleaning release directory"
+	rm -rf dist/
+	rm -f bin/obi-*.tar.gz
+	rm -rf bin/LICENSE bin/NOTICE bin/NOTICES
 
 .PHONY: clean-testoutput
 clean-testoutput:
