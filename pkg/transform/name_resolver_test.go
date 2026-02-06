@@ -196,7 +196,7 @@ func TestCleanName(t *testing.T) {
 		},
 	}
 
-nr := NameResolver{logger: nrlog()}
+	nr := NameResolver{logger: nrlog()}
 
 	assert.Equal(t, "service", nr.cleanName(&s, "127.0.0.1", "127-0-0-1.service"))
 	assert.Equal(t, "1.service", nr.cleanName(&s, "127.0.0.1", "1.service"))
