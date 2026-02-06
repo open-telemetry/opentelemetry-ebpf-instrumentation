@@ -470,6 +470,28 @@ func (i *instrumenter) iters(p Tracer) error {
 	return nil
 }
 
+func (i *instrumenter) tracing(p Tracer) error {
+	for _, tracing := range p.Tracing() {
+		slog.Debug("Attaching tracing program", "program", tracing.Program.String(), "attachAs", tracing.AttachAs)
+
+		lnk, err := link.AttachTracing(link.TracingOptions{
+			Program:    tracing.Program,
+			AttachType: tracing.AttachAs,
+		})
+		if err != nil {
+			if i.metrics != nil {
+				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingTracing)
+			}
+			return fmt.Errorf("attaching tracing program: %w", err)
+		}
+		tracing.Link = lnk
+
+		p.AddCloser(tracing.Link)
+	}
+
+	return nil
+}
+
 func (i *instrumenter) hasModule(ino uint64) bool {
 	slog.Debug("looking up module", "instrumenter", i, "ino", ino)
 	_, ok := i.modules[ino]
