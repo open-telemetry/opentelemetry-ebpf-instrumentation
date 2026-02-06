@@ -41,9 +41,8 @@ MONGO_OP_DEF(distinct, "distinct")
 
 static __always_inline int
 obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) {
-    bpf_dbg_printk("=== uprobe/mongo op_execute === ");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     void *coll_ptr = (void *)GO_PARAM1(ctx);
     off_table_t *ot = get_offsets_table();
@@ -68,7 +67,7 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
 
     client_trace_parent(goroutine_addr, &req.tp);
 
-    bpf_d_printk("op %s", req.op);
+    bpf_d_printk("op=%s, [%s]", req.op, __FUNCTION__);
 
     bpf_map_update_elem(&ongoing_mongo_requests, &g_key, &req, BPF_ANY);
 
@@ -129,9 +128,9 @@ int obi_uprobe_mongo_op_distinct(struct pt_regs *ctx) {
 // func (op Operation) Execute(ctx context.Context) error
 SEC("uprobe/op_execute")
 int obi_uprobe_mongo_op_execute(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/mongo op_execute === ");
+    bpf_dbg_printk("=== uprobe/op_execute ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     void *op_ptr = (void *)PT_REGS_SP(ctx) + 8;
     off_table_t *ot = get_offsets_table();
@@ -154,7 +153,7 @@ int obi_uprobe_mongo_op_execute(struct pt_regs *ctx) {
         return 0;
     }
 
-    bpf_dbg_printk("op_ptr %llx", op_ptr);
+    bpf_dbg_printk("op_ptr=%llx", op_ptr);
 
     u64 new_mongo_version = go_offset_of(ot, (go_offset){.v = _mongo_op_name_new});
 
@@ -186,9 +185,9 @@ int obi_uprobe_mongo_op_execute(struct pt_regs *ctx) {
 
 SEC("uprobe/op_execute")
 int obi_uprobe_mongo_op_execute_ret(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/mongo op_execute return === ");
+    bpf_dbg_printk("=== uprobe/op_execute ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     void *err_ptr = (void *)GO_PARAM1(ctx);
 

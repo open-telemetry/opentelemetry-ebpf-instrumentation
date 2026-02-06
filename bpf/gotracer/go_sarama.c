@@ -40,12 +40,12 @@ struct {
 
 SEC("uprobe/sarama_sendInternal")
 int obi_uprobe_sarama_sendInternal(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/sarama_sendInternal === ");
+    bpf_dbg_printk("=== uprobe/sarama_sendInternal ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *b_ptr = GO_PARAM1(ctx);
     off_table_t *ot = get_offsets_table();
 
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -58,7 +58,7 @@ int obi_uprobe_sarama_sendInternal(struct pt_regs *ctx) {
     }
 
     if (correlation_id) {
-        bpf_dbg_printk("correlation_id = %d", correlation_id);
+        bpf_dbg_printk("correlation_id=%d", correlation_id);
 
         if (bpf_map_update_elem(&ongoing_kafka_requests, &g_key, &correlation_id, BPF_ANY)) {
             bpf_dbg_printk("can't update kafka requests element");
@@ -70,10 +70,10 @@ int obi_uprobe_sarama_sendInternal(struct pt_regs *ctx) {
 
 SEC("uprobe/sarama_broker_write")
 int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/sarama_broker write === ");
+    bpf_dbg_printk("=== uprobe/sarama_broker_write ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -90,7 +90,7 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
         // the second byte of the api key, assuming the first is 0.
         u8 api_key = small_buf[KAFKA_API_KEY_POS];
 
-        bpf_dbg_printk("api_key = %d", api_key);
+        bpf_dbg_printk("api_key=%d", api_key);
 
         // We only care about fetch and produce
         if (api_key == KAFKA_API_FETCH || api_key == KAFKA_API_PRODUCE) {
@@ -102,7 +102,7 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
 
             void *conn_conn_ptr =
                 (void *)(b_ptr + go_offset_of(ot, (go_offset){.v = _sarama_broker_conn_pos}));
-            bpf_dbg_printk("conn conn ptr %llx", conn_conn_ptr);
+            bpf_dbg_printk("conn_conn_ptr=%llx", conn_conn_ptr);
             if (conn_conn_ptr) {
                 void *tcp_conn_ptr = 0;
                 bpf_probe_read(
@@ -111,12 +111,12 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
                     (void *)(conn_conn_ptr +
                              go_offset_of(ot, (go_offset){.v = _sarama_bufconn_conn_pos}) +
                              8)); // find conn
-                bpf_dbg_printk("tcp conn ptr %llx", tcp_conn_ptr);
+                bpf_dbg_printk("tcp_conn_ptr=%llx", tcp_conn_ptr);
                 if (tcp_conn_ptr) {
                     void *conn_ptr = 0;
                     bpf_probe_read(
                         &conn_ptr, sizeof(conn_ptr), (void *)(tcp_conn_ptr + 8)); // find conn
-                    bpf_dbg_printk("conn ptr %llx", conn_ptr);
+                    bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
                     if (conn_ptr) {
                         u8 ok = get_conn_info(conn_ptr, &req.conn);
                         if (!ok) {
@@ -126,7 +126,7 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
                 }
             }
 
-            bpf_dbg_printk("correlation_id = %d", correlation_id);
+            bpf_dbg_printk("correlation_id=%d", correlation_id);
 
             bpf_probe_read(req.buf, KAFKA_MAX_LEN, buf_ptr);
             go_addr_key_t k_key = {};
@@ -142,7 +142,7 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
 
 SEC("uprobe/sarama_response_promise_handle")
 int obi_uprobe_sarama_response_promise_handle(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/sarama_response_promise_handle === ");
+    bpf_dbg_printk("=== uprobe/sarama_response_promise_handle ===");
 
     void *p = GO_PARAM1(ctx);
     off_table_t *ot = get_offsets_table();
@@ -154,7 +154,7 @@ int obi_uprobe_sarama_response_promise_handle(struct pt_regs *ctx) {
                        sizeof(u32),
                        p + go_offset_of(ot, (go_offset){.v = _sarama_response_corr_id_pos}));
 
-        bpf_dbg_printk("correlation_id = %d", correlation_id);
+        bpf_dbg_printk("correlation_id=%d", correlation_id);
 
         if (correlation_id) {
             go_addr_key_t k_key = {};

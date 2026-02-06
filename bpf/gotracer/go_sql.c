@@ -85,7 +85,7 @@ static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
             return NULL;
         }
 
-        bpf_dbg_printk("unwrap: inner type %llx", inner_type_ptr);
+        bpf_dbg_printk("unwrap: inner_type_ptr=%llx", inner_type_ptr);
         if ((u64)inner_type_ptr != mysql_type_addr) {
             bpf_dbg_printk("inner type still doesn't match mysql.mysqlConn");
             return NULL;
@@ -271,7 +271,7 @@ static __always_inline int process_sql_return(void *goroutine_addr, void *err_pt
             trace->sql[query_len] = '\0';
         }
 
-        bpf_dbg_printk("Found sql statement %s", trace->sql);
+        bpf_dbg_printk("Found sql statement: %s", trace->sql);
 
         __builtin_memcpy(&trace->conn, &invocation->conn, sizeof(connection_info_t));
 
@@ -287,9 +287,9 @@ static __always_inline int process_sql_return(void *goroutine_addr, void *err_pt
 
 SEC("uprobe/queryDC")
 int obi_uprobe_queryDC(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/queryDC === ");
+    bpf_dbg_printk("=== uprobe/queryDC ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     void *driver_conn = GO_PARAM6(ctx);
     void *sql_param = GO_PARAM8(ctx);
@@ -301,9 +301,9 @@ int obi_uprobe_queryDC(struct pt_regs *ctx) {
 
 SEC("uprobe/pgx_Query")
 int obi_uprobe_pgx_Query(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/pgx_Query === ");
+    bpf_dbg_printk("=== uprobe/pgx_Query ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_add=%lx", goroutine_addr);
 
     void *pgx_conn = GO_PARAM1(ctx);
     void *sql_param = GO_PARAM4(ctx);
@@ -315,9 +315,9 @@ int obi_uprobe_pgx_Query(struct pt_regs *ctx) {
 
 SEC("uprobe/pgx_Exec")
 int obi_uprobe_pgx_Exec(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/pgx_Exec === ");
+    bpf_dbg_printk("=== uprobe/pgx_Exec ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     void *pgx_conn = GO_PARAM1(ctx);
     void *sql_param = GO_PARAM4(ctx);
@@ -329,9 +329,9 @@ int obi_uprobe_pgx_Exec(struct pt_regs *ctx) {
 
 SEC("uprobe/execDC")
 int obi_uprobe_execDC(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/execDC === ");
+    bpf_dbg_printk("=== uprobe/execDC ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     void *driver_conn = GO_PARAM4(ctx);
     void *sql_param = GO_PARAM6(ctx);
@@ -343,9 +343,9 @@ int obi_uprobe_execDC(struct pt_regs *ctx) {
 
 SEC("uprobe/queryDC")
 int obi_uprobe_queryReturn(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/query return === ");
+    bpf_dbg_printk("=== uprobe/queryDC ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     // queryDC returns (*Rows, error)
     void *err_ptr = GO_PARAM2(ctx);
@@ -354,9 +354,9 @@ int obi_uprobe_queryReturn(struct pt_regs *ctx) {
 
 SEC("uprobe/pgx_Query_return")
 int obi_uprobe_pgx_Query_return(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/pgx_Query_return === ");
+    bpf_dbg_printk("=== uprobe/pgx_Query_return ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     // pgx.Conn.Query returns (Rows, error)
     void *err_ptr = GO_PARAM3(ctx);
@@ -365,7 +365,7 @@ int obi_uprobe_pgx_Query_return(struct pt_regs *ctx) {
 
 SEC("uprobe/pq_network_return")
 int obi_uprobe_pq_network_return(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/pq.network return ===");
+    bpf_dbg_printk("=== uprobe/pq_network_return ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
@@ -375,11 +375,11 @@ int obi_uprobe_pq_network_return(struct pt_regs *ctx) {
     void *address_ptr = (void *)GO_PARAM3(ctx);
     u64 address_len = (u64)GO_PARAM4(ctx);
 
-    bpf_dbg_printk("address_ptr=%llx address_len=%d", address_ptr, address_len);
+    bpf_dbg_printk("address_ptr=%llx, address_len=%d", address_ptr, address_len);
 
     char address[SQL_HOSTNAME_MAX_LEN] = {0};
     if (read_go_str_n("pq address", address_ptr, address_len, address, sizeof(address))) {
-        bpf_dbg_printk("pq.network address: %s", address);
+        bpf_dbg_printk("address=%s", address);
         bpf_map_update_elem(&pq_hostnames, &g_key, address, BPF_ANY);
     }
 

@@ -54,9 +54,9 @@ static __always_inline void setup_request(void *goroutine_addr) {
 // func (c *baseClient) _process(ctx context.Context, cmd Cmder, attempt int) (bool, error) {
 SEC("uprobe/redis_process")
 int obi_uprobe_redis_process(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/redis _process === ");
+    bpf_dbg_printk("=== uprobe/redis_process ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     setup_request(goroutine_addr);
 
@@ -65,9 +65,9 @@ int obi_uprobe_redis_process(struct pt_regs *ctx) {
 
 SEC("uprobe/redis_process")
 int obi_uprobe_redis_process_ret(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/redis _process returns === ");
+    bpf_dbg_printk("=== uprobe/redis_process ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -94,13 +94,13 @@ int obi_uprobe_redis_process_ret(struct pt_regs *ctx) {
 // ) error
 SEC("uprobe/redis_with_writer")
 int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/redis WithWriter === ");
+    bpf_dbg_printk("=== uprobe/redis_with_writer ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *cn_ptr = GO_PARAM1(ctx);
 
     off_table_t *ot = get_offsets_table();
 
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -117,18 +117,18 @@ int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
         bpf_probe_read(&bw_ptr,
                        sizeof(void *),
                        cn_ptr + go_offset_of(ot, (go_offset){.v = _redis_conn_bw_pos}));
-        bpf_dbg_printk("bw_ptr %llx", bw_ptr);
+        bpf_dbg_printk("bw_ptr=%llx", bw_ptr);
 
         bpf_map_update_elem(&redis_writes, &g_key, &bw_ptr, BPF_ANY);
 
         if (cn_ptr) {
             void *tcp_conn_ptr = cn_ptr + 8;
-            bpf_dbg_printk("tcp conn ptr %llx", tcp_conn_ptr);
+            bpf_dbg_printk("tcp_conn_ptr=%llx", tcp_conn_ptr);
             if (tcp_conn_ptr) {
                 void *conn_ptr = 0;
                 bpf_probe_read(
                     &conn_ptr, sizeof(conn_ptr), (void *)(tcp_conn_ptr + 8)); // find conn
-                bpf_dbg_printk("conn ptr %llx", conn_ptr);
+                bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
                 if (conn_ptr) {
                     u8 ok = get_conn_info(conn_ptr, &req->conn);
                     if (!ok) {
@@ -144,10 +144,10 @@ int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
 
 SEC("uprobe/redis_with_writer")
 int obi_uprobe_redis_with_writer_ret(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/redis WithWriter returns === ");
+    bpf_dbg_printk("=== uprobe/redis_with_writer ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     off_table_t *ot = get_offsets_table();
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -159,7 +159,7 @@ int obi_uprobe_redis_with_writer_ret(struct pt_regs *ctx) {
         if (bw_ptr) {
             void *bw = *bw_ptr;
             if (bw) {
-                bpf_dbg_printk("Found bw %llx", bw);
+                bpf_dbg_printk("Found bw: %llx", bw);
 
                 u64 io_writer_buf_ptr_pos =
                     go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos});
@@ -169,7 +169,7 @@ int obi_uprobe_redis_with_writer_ret(struct pt_regs *ctx) {
                 u64 len = 0;
                 bpf_probe_read(&len, sizeof(u64), bw + io_writer_buf_ptr_pos + 8);
 
-                bpf_dbg_printk("buf %llx[%s], len=%ld", buf, buf, len);
+                bpf_dbg_printk("buf=%llx, buf=[%s], len=%ld", buf, buf, len);
 
                 if (len > 0) {
                     bpf_probe_read(&req->buf, REDIS_MAX_LEN, buf);
