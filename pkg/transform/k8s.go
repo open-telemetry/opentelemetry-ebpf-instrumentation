@@ -331,6 +331,7 @@ func (md *procEventMetadataDecorator) getContainerInfo(pid int32) (container.Inf
 }
 
 func (md *procEventMetadataDecorator) handlePodUpdateEvent(pod *informer.ObjectMeta) {
+	md.log.Debug("pod update event", "pod", pod)
 	for _, cnt := range pod.Pod.Containers {
 		md.log.Debug("looking up running process for pod container", "container", cnt.Id)
 		if peMap, ok := md.tracker.info(cnt.Id); ok {
