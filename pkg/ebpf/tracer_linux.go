@@ -297,6 +297,11 @@ func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tra
 		return err
 	}
 
+	if err := i.tracing(p); err != nil {
+		printVerifierErrorInfo(err)
+		return err
+	}
+
 	return nil
 }
 

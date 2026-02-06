@@ -161,6 +161,8 @@ func (p *Tracer) SockOps() []ebpfcommon.SockOps { return nil }
 
 func (p *Tracer) Iters() []*ebpfcommon.Iter { return nil }
 
+func (p *Tracer) Tracing() []*ebpfcommon.Tracing { return nil }
+
 func (p *Tracer) RecordInstrumentedLib(id uint64, closers []io.Closer) {
 	p.libsMux.Lock()
 	defer p.libsMux.Unlock()
