@@ -5,18 +5,44 @@ JNI_HEADERS_DIR = build/generated/jni-headers
 INCLUDES = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/linux -I$(JNI_HEADERS_DIR) -Isrc/main/c
 LDFLAGS = -shared
 
+# ARCH=amd64 or arm64; output goes to target/classes/linux-$(ARCH). Default only for direct 'make' use; Gradle always passes ARCH.
+ARCH ?= amd64
+
 SRC_DIR = src/main/c
-BUILD_DIR = build
-TARGET_DIR = target/classes
+BUILD_DIR = build/linux-$(ARCH)
+TARGET_DIR = target/classes/linux-$(ARCH)
 LIB_NAME = libobijni.so
 
 SOURCES = $(SRC_DIR)/io_opentelemetry_obi_java_jni.c
 OBJECTS = $(BUILD_DIR)/io_opentelemetry_obi_java_jni.o
 TARGET = $(TARGET_DIR)/$(LIB_NAME)
 
-.PHONY: all clean
+# On macOS, build via Docker. .so matches Docker host arch (arm64 on Apple Silicon, amd64 on Intel).
+# Override: DOCKER_IMAGE=..., or DOCKER_PLATFORM=linux/amd64 to force x86_64.
+DOCKER_IMAGE ?= eclipse-temurin:21-jdk
+DOCKER_PLATFORM ?=
 
+UNAME_S := $(shell uname -s)
+.PHONY: all clean linux-in-docker
+
+# On Darwin, use Docker to build Linux .so; on Linux, build natively.
+ifeq ($(UNAME_S),Darwin)
+all: linux-in-docker
+else
 all: $(TARGET)
+endif
+
+# Optional: set DOCKER_PLATFORM=linux/amd64 to force x86_64 when building on Apple Silicon
+PLATFORM_OPT := $(if $(DOCKER_PLATFORM),--platform $(DOCKER_PLATFORM),)
+
+# Build Linux libobijni.so in a container. Used on macOS. Pass ARCH=amd64 or ARCH=arm64.
+linux-in-docker:
+	@command -v docker >/dev/null 2>&1 || (echo "Docker is required to build on macOS." && exit 1)
+	docker run --rm $(PLATFORM_OPT) -v "$(CURDIR):/work" -w /work $(DOCKER_IMAGE) bash -c 'apt-get update -qq && apt-get install -y -qq make clang && make -f Makefile.jni native ARCH=$(ARCH)'
+	@echo "Built Linux JNI library: $(TARGET)"
+
+# Native build (used on Linux directly, or from inside Docker)
+native: $(TARGET)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -32,8 +58,8 @@ $(TARGET): $(OBJECTS) | $(TARGET_DIR)
 	@echo "Built JNI library: $(TARGET)"
 
 clean:
-	rm -rf $(BUILD_DIR)
-	rm -f $(TARGET)
+	rm -rf build/linux-amd64 build/linux-arm64
+	rm -rf target/classes/linux-amd64 target/classes/linux-arm64
 
 # Show configuration
 info:

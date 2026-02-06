@@ -65,28 +65,53 @@ tasks.named("spotlessJava") {
     mustRunAfter(tasks.compileJava)
 }
 
-// Build the native JNI library
-tasks.register<Exec>("buildNativeLib") {
+val isMac = System.getProperty("os.name").lowercase().contains("mac")
+val agentDir = projectDir.absolutePath
+val dockerImage = "eclipse-temurin:21-jdk"
+
+fun execDocker(arch: String, platform: String) =
+    listOf(
+        "docker", "run", "--rm",
+        "--platform", platform,
+        "-v", "$agentDir:/work", "-w", "/work",
+        dockerImage,
+        "bash", "-c",
+        "apt-get update -qq && apt-get install -y -qq make clang && make -f Makefile.jni native ARCH=$arch"
+    )
+
+// Build Linux libobijni.so for x86_64 (always via Docker so it works on macOS and Linux)
+tasks.register<Exec>("buildNativeLibAmd64") {
     group = "build"
-    description = "Build the JNI native library (libobijni.so)"
-    
+    description = "Build Linux libobijni.so for x86_64 (amd64)"
     dependsOn("compileJava")
-    
     workingDir = projectDir
-    commandLine("make", "-f", "Makefile.jni")
-    
-    doLast {
-        println("OBI JNI library built successfully")
-    }
+    commandLine(execDocker("amd64", "linux/amd64"))
+    doLast { println("OBI JNI library (amd64) built: target/classes/linux-amd64/libobijni.so") }
 }
 
-// Clean native library
+// Build Linux libobijni.so for arm64 (always via Docker)
+tasks.register<Exec>("buildNativeLibArm64") {
+    group = "build"
+    description = "Build Linux libobijni.so for arm64"
+    dependsOn("compileJava")
+    workingDir = projectDir
+    commandLine(execDocker("arm64", "linux/arm64"))
+    doLast { println("OBI JNI library (arm64) built: target/classes/linux-arm64/libobijni.so") }
+}
+
+// Build both architectures (for convenience)
+tasks.register("buildNativeLibAll") {
+    group = "build"
+    description = "Build Linux libobijni.so for both x86_64 and arm64"
+    dependsOn("buildNativeLibAmd64", "buildNativeLibArm64")
+}
+
+// Clean native libraries
 tasks.register<Delete>("cleanNativeLib") {
     group = "build"
     description = "Clean the JNI native library build artifacts"
-    
-    delete(file("build"))
-    delete(file("target/classes/libobijni.so"))
+    delete(file("build/linux-amd64"), file("build/linux-arm64"))
+    delete(file("target/classes/linux-amd64"), file("target/classes/linux-arm64"))
 }
 
 val jmhIncludes: String? by project
@@ -108,30 +133,46 @@ jmh {
     jvmArgs.set(listOf("-Xmx2G"))
 }
 
+val shadowJarManifest = mapOf(
+    "Premain-Class" to "io.opentelemetry.obi.java.Agent",
+    "Agent-Class" to "io.opentelemetry.obi.java.Agent",
+    "Can-Redefine-Classes" to "true",
+    "Can-Retransform-Classes" to "true",
+    "Main-Class" to "io.opentelemetry.obi.java.Agent"
+)
+
+// Agent JAR for x86_64 (default shadowJar)
 tasks.shadowJar {
-    dependsOn("buildNativeLib")
-    
+    dependsOn("buildNativeLibAmd64")
     archiveBaseName.set("agent")
     archiveVersion.set("0.1.0")
-    archiveClassifier.set("shaded")
-    
-    // Include the native library in the JAR
-    from(file("target/classes")) {
+    archiveClassifier.set("linux-x86_64")
+    from(file("target/classes/linux-amd64")) {
         include("libobijni.so")
     }
-    
-    manifest {
-        attributes(
-            "Premain-Class" to "io.opentelemetry.obi.java.Agent",
-            "Agent-Class" to "io.opentelemetry.obi.java.Agent",
-            "Can-Redefine-Classes" to "true",
-            "Can-Retransform-Classes" to "true",
-            "Main-Class" to "io.opentelemetry.obi.java.Agent"
-        )
-    }
+    manifest { attributes(shadowJarManifest) }
     relocate("com.github", "io.opentelemetry.obi.com.github")
     relocate("net.bytebuddy", "io.opentelemetry.obi.net.bytebuddy")
-    // Exclude META-INF files as in Maven Shade plugin
+    exclude("META-INF/**")
+    exclude("META-INF/versions/9/module-info.class")
+}
+
+// Agent JAR for arm64
+tasks.register<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJarArm64") {
+    group = "build"
+    description = "Build agent JAR for Linux arm64"
+    dependsOn("buildNativeLibArm64")
+    archiveBaseName.set("agent")
+    archiveVersion.set("0.1.0")
+    archiveClassifier.set("linux-arm64")
+    from(sourceSets.main.get().output)
+    from(file("target/classes/linux-arm64")) {
+        include("libobijni.so")
+    }
+    configurations = listOf(project.configurations.runtimeClasspath.get())
+    manifest { attributes(shadowJarManifest) }
+    relocate("com.github", "io.opentelemetry.obi.com.github")
+    relocate("net.bytebuddy", "io.opentelemetry.obi.net.bytebuddy")
     exclude("META-INF/**")
     exclude("META-INF/versions/9/module-info.class")
 }

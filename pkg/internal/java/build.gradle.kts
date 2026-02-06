@@ -18,18 +18,29 @@ subprojects {
     }
 }
 
-val copyLoaderJar by tasks.registering(Copy::class) {
-    dependsOn(":agent:shadowJar")
-    from("$projectDir/agent/build/libs/agent-$version-shaded.jar")
-    into("$projectDir/build")
-    rename { "obi-java-agent.jar" }
+// Copy obi-java-agent JARs for each arch into root build/ (obi-java-agent-x86_64.jar, obi-java-agent-arm64.jar)
+val copyObiJavaAgentJars by tasks.registering(Copy::class) {
+    dependsOn(":loader:obiJavaAgentX86_64", ":loader:obiJavaAgentArm64")
+    from(project(":loader").tasks.named("obiJavaAgentX86_64").get().outputs.files)
+    from(project(":loader").tasks.named("obiJavaAgentArm64").get().outputs.files)
+    into(layout.buildDirectory)
+    rename { name ->
+        when {
+            name.contains("x86_64") -> "obi-java-agent-x86_64.jar"
+            name.contains("arm64") -> "obi-java-agent-arm64.jar"
+            else -> name
+        }
+    }
 }
 
 tasks.named("jar") {
-    dependsOn(copyLoaderJar)
+    dependsOn(copyObiJavaAgentJars)
 }
 
-// Ensure root test task depends on copyLoaderJar
+tasks.named("build") {
+    dependsOn(copyObiJavaAgentJars)
+}
+
 tasks.named("test") {
-    dependsOn(copyLoaderJar)
+    dependsOn(copyObiJavaAgentJars)
 }

@@ -160,11 +160,12 @@ p.getByte(1 + 36 + 4)  → 42   (Data byte at offset 41)
 
 ```
 
-The final agent JAR will be located at:
+**Architecture-specific JARs:** The native library is built for Linux only (x86_64 and arm64). `./gradlew build` produces both in `build/`:
 
-```
-build/obi-java-agent.jar
-```
+- `build/obi-java-agent-x86_64.jar` — for x86_64 Linux
+- `build/obi-java-agent-arm64.jar` — for arm64 Linux
+
+Use the JAR that matches your Linux host. Building requires Docker to cross-compile both architectures.
 
 ## 📦 Usage
 
