@@ -39,7 +39,7 @@ func mlog() *slog.Logger {
 
 const (
 	// SpanMetricsLatency and rest of metrics below haven't been yet moved to the
-	// pkg/internal/export/metric package as we are disabling user-provided attribute
+	// pkg/export/attributes/metric.go package as we are disabling user-provided attribute
 	// selection for them. They are very specific metrics with an opinionated format
 	// for Span Metrics and Service Graph Metrics functionalities
 	SpanMetricsLatency       = "traces_spanmetrics_latency"
