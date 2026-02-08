@@ -52,6 +52,11 @@ Once the Pull Request with all the version changes has been approved and merged 
 > [There is currently no way to remove an incorrectly tagged version of a Go module](https://github.com/golang/go/issues/34189).
 > It is critical you make sure the version you push upstream is correct.
 > [Failure to do so will lead to minor emergencies and tough to work around](https://github.com/open-telemetry/opentelemetry-go/issues/331).
+
+> [!NOTE]
+> The tag must follow the format `vX.Y.Z` or `vX.Y.Z-suffix` (e.g., `v1.2.3` or `v1.2.3-rc1`), where X, Y, and Z are numbers. The release workflow will only trigger on tags matching this pattern.
+> When the tag is pushed, the release workflow will automatically run the full test suite as composed workflows before creating a draft release.
+> If any tests fail or don't complete, the release will not be created.
 <!-- markdownlint-enable MD028 -->
 
 1. For each module set that will be released, run the `add-tags` make target using the `<commit-hash>` of the commit on the main branch for the merged Pull Request.
@@ -80,10 +85,98 @@ Once the Pull Request with all the version changes has been approved and merged 
 
 ## Release
 
-Finally create a Release for the new `<new tag>` on GitHub.
+### Automatic Release Workflow
 
-Currently we do not have a curated changelog.
-Use the Github automated changelog generation to create the release notes.
+When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-suffix` (e.g., `v1.2.3-rc1`), where X, Y, and Z are numbers, the release workflow will automatically:
+
+1. **Validate Tag Format**: Ensures the tag follows the required format (`v*.*.*` with optional pre-release suffix).
+
+2. **Run Full Test Suite**: The workflow runs all required CI checks in parallel as composed workflows:
+   - Unit tests and verification checks
+   - Integration tests
+   - K8s integration tests
+   - OATS tests
+   - VM integration tests
+   - ARM integration tests
+   - Java agent tests
+   - Docker build tests
+   - Clang format checking
+   - Clang tidy linting
+
+   If any of these checks fail or don't complete, the release workflow will fail and no draft release will be created.
+
+3. **Build Release Artifacts**: Once all checks pass, the workflow builds multi-architecture release artifacts:
+   - Runs `make release` to generate versioned tarballs for amd64 and arm64
+   - Archives contain: `ebpf-instrument`, `k8s-cache`, `obi-java-agent.jar`, LICENSE, NOTICE, and NOTICES/ directory
+   - Generates SHA256 checksums for all archives
+   - Verifies archive contents and binary executability
+
+4. **Create Draft Release**: A draft release is automatically created with:
+   - Auto-generated release notes from GitHub
+   - Multi-architecture tarballs: `obi-<version>-linux-amd64.tar.gz` and `obi-<version>-linux-arm64.tar.gz`
+   - Checksum files: `SHA256SUMS` and `SHA256SUMS-<version>`
+
+   The draft release allows maintainers to review artifacts before publication.
+
+### Reviewing, Editing, and Publishing the Draft Release
+
+Once the workflow completes successfully, a draft release is automatically created with auto-generated release notes from GitHub, which includes a list of changes since the previous release.
+
+1. Navigate to the [GitHub Releases page](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
+2. Locate the draft release for your version
+3. Review the artifacts:
+   - Download and verify checksums: `sha256sum -c SHA256SUMS`
+   - Extract archives and test binaries if needed
+   - Review auto-generated release notes for accuracy
+4. Edit release notes if necessary to add context, highlight important changes, or improve clarity
+5. Once satisfied with artifacts and release notes, click "Publish release" to make it immutable and publicly available
+
+> [!IMPORTANT]
+> Once published, GitHub releases are immutable. Artifacts and checksums cannot be modified or replaced. Review carefully before publishing.
+
+### Archive Contents
+
+Each release archive (`obi-<version>-linux-<arch>.tar.gz`) contains:
+
+- `ebpf-instrument`: Main OBI binary
+- `k8s-cache`: Kubernetes cache service binary
+- `obi-java-agent.jar`: Java instrumentation agent
+- `LICENSE`: Apache 2.0 license file
+- `NOTICE`: Legal notices
+- `NOTICES/`: Directory with third-party licenses and attributions
+
+### Building Release Artifacts Locally
+
+To test the release artifact generation locally before tagging:
+
+```console
+make release
+```
+
+This will:
+
+1. Build artifacts for both amd64 and arm64 architectures
+2. Generate versioned tarballs in the `dist/` directory
+3. Verify archive contents
+4. Generate SHA256 checksums
+
+The `dist/` directory will contain:
+
+- `obi-<version>-linux-amd64.tar.gz`
+- `obi-<version>-linux-arm64.tar.gz`
+- `SHA256SUMS`
+- `SHA256SUMS-<version>`
+
+### Manual Release Trigger
+
+If you need to re-trigger the release workflow (for example, if the workflow previously failed due to a temporary issue), you can use the manual trigger:
+
+1. Go to the [Release workflow](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/actions/workflows/release.yml)
+2. Click "Run workflow"
+3. Enter the tag name (e.g., `v1.2.3`) in the required input field
+4. Click "Run workflow"
+
+The manual trigger will validate the tag format, run the full test suite, and create a draft release with the same requirements as the automatic trigger.
 
 ## Post-Release
 

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -45,11 +44,11 @@ func TestBasicOptions(t *testing.T) {
 
 	// wait for the blocked log to be written
 	var amsg atomic.Value
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		str, err := logOutput.ReadString('\n')
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		amsg.Store(str)
-	})
+	}, timeout, 100*time.Millisecond)
 	require.NotNil(t, amsg.Load())
 	msg := amsg.Load().(string)
 	assert.Contains(t, msg, "blocked")

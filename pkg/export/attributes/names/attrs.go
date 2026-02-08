@@ -104,7 +104,7 @@ const (
 	NetworkType     = Name("network.type")
 	NetworkProtocol = Name("network.protocol.name")
 	SrcAddress      = Name("src.address")
-	DstAddres       = Name("dst.address")
+	DstAddress      = Name("dst.address")
 	SrcPort         = Name("src.port")
 	DstPort         = Name("dst.port")
 	SrcName         = Name("src.name")
@@ -198,7 +198,6 @@ const (
 // Beyla specific GPU events
 const (
 	// GPU/Cuda related attributes
-	CudaKernelName = Name("cuda.kernel.name")
 	CudaMemcpyKind = Name("cuda.memcpy.kind")
 )
 

@@ -10,19 +10,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	dockercompose "go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
 func TestInstrumentationErrors(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-error-test.yml", path.Join(pathOutput, "test-suite-instrumentation-errors.log"))
+	compose, err := dockercompose.ComposeSuite("docker-compose-error-test.yml", path.Join(pathOutput, "test-suite-instrumentation-errors.log"))
 	require.NoError(t, err)
 
 	// Run OBI without privileged mode to force instrumentation errors
@@ -37,25 +36,30 @@ func TestInstrumentationErrors(t *testing.T) {
 }
 
 func TestAvoidedServicesMetrics(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-go-otel.yml", path.Join(pathOutput, "test-suite-avoided-services.log"))
-	require.NoError(t, err)
+	network := setupDockerNetwork(t)
+	setupContainerPrometheus(t, network, "prometheus-config.yml")
+	setupContainerJaeger(t, network)
+	setupContainerCollector(t, network, "otelcol-config.yml")
+	testserver := setupGoOTelTestServer(t, network, []string{
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
+	})
 
-	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env,
-		`OTEL_EBPF_EXECUTABLE_PATH=`,
-		`OTEL_EBPF_OPEN_PORT=8080`,
-		`APP_OTEL_METRICS_ENDPOINT=http://otelcol:4318`,
-		`APP_OTEL_TRACES_ENDPOINT=http://jaeger:4318`,
-		// Enable avoidance and internal metrics
-		`OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES=true`,
-		`OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999`)
-
-	lockdown := KernelLockdownMode()
-	if !lockdown {
-		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
+	if t.Failed() {
+		return
 	}
 
-	require.NoError(t, compose.Up())
+	// Start OBI to instrument the test server
+	o := obi{
+		Env: []string{
+			"OTEL_EBPF_OPEN_PORT=8080",
+			"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",
+		},
+	}
+	if !KernelLockdownMode() {
+		o.SecurityConfigSuffix = "_none"
+	}
+	o.instrument(t, network, testserver, "obi-config-go-otel.yml")
 
 	t.Run("Avoided services metrics are recorded", func(t *testing.T) {
 		// Wait for the service to start and make some requests to trigger OTLP detection
@@ -73,50 +77,48 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 		// Check that avoided services metrics are present
 		checkAvoidedServicesMetrics(t)
 	})
-
-	require.NoError(t, compose.Close())
 }
 
 func checkInstrumentationErrorMetrics(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_instrumentation_errors_total`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 
-		require.GreaterOrEqual(t, len(results), 1, "obi_instrumentation_errors_total metric should be present")
+		require.GreaterOrEqual(ct, len(results), 1, "obi_instrumentation_errors_total metric should be present")
 
 		// Verify we have some errors and proper labels
 		totalErrors := 0
 		for _, result := range results {
 			labels := result.Metric
-			require.Contains(t, labels, "process_name", "process_name label should be present")
-			require.Contains(t, labels, "error_type", "error_type label should be present")
+			require.Contains(ct, labels, "process_name", "process_name label should be present")
+			require.Contains(ct, labels, "error_type", "error_type label should be present")
 
 			value, err := strconv.Atoi(result.Value[1].(string))
-			require.NoError(t, err)
+			require.NoError(ct, err)
 			totalErrors += value
 		}
 
 		// We should have at least some errors when running without privileges
-		require.Positive(t, totalErrors, "Should have instrumentation errors when running without privileges")
-	}, test.Interval(1000*time.Millisecond))
+		require.Positive(ct, totalErrors, "Should have instrumentation errors when running without privileges")
+	}, testTimeout, 1000*time.Millisecond)
 }
 
 func checkAvoidedServicesMetrics(t *testing.T) {
 	const internalMetricsURL = "http://localhost:8999/internal/metrics"
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		parser := expfmt.NewTextParser(model.UTF8Validation)
 		resp, err := http.Get(internalMetricsURL)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		metrics, err := parser.TextToMetricFamilies(resp.Body)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 
 		metricFamily, ok := metrics["obi_avoided_services"]
-		require.True(t, ok, "Expected obi_avoided_services metric to be present")
-		require.NotEmpty(t, metricFamily.Metric, "Expected avoided services metrics to have values")
+		require.True(ct, ok, "Expected obi_avoided_services metric to be present")
+		require.NotEmpty(ct, metricFamily.Metric, "Expected avoided services metrics to have values")
 
 		// Just check the first occurrence
 		metric := metricFamily.Metric[0]
@@ -126,18 +128,18 @@ func checkAvoidedServicesMetrics(t *testing.T) {
 		}
 
 		// Assert specific values for service_name and service_namespace
-		assert.Equal(t, "rolldice", labelMap["service_name"], "service_name label should be 'rolldice'")
-		assert.Equal(t, "integration-test", labelMap["service_namespace"], "service_namespace label should be 'integration-test'")
-		assert.NotEmpty(t, labelMap["telemetry_type"], "telemetry_type label should not be empty")
-		assert.Condition(t, func() bool {
+		assert.Equal(ct, "rolldice", labelMap["service_name"], "service_name label should be 'rolldice'")
+		assert.Equal(ct, "integration-test", labelMap["service_namespace"], "service_namespace label should be 'integration-test'")
+		assert.NotEmpty(ct, labelMap["telemetry_type"], "telemetry_type label should not be empty")
+		assert.Condition(ct, func() bool {
 			return labelMap["telemetry_type"] == "metrics" || labelMap["telemetry_type"] == "traces"
 		}, "telemetry_type label should be either 'metrics' or 'traces'")
 		// service_instance_id can be empty, but should be present
 		_, ok = labelMap["service_instance_id"]
-		assert.True(t, ok, "service_instance_id label should be present")
+		assert.True(ct, ok, "service_instance_id label should be present")
 
 		if metric.Gauge != nil {
-			assert.Greater(t, metric.Gauge.GetValue(), float64(0), "Expected avoided service metric value to be > 0")
+			assert.Greater(ct, metric.Gauge.GetValue(), float64(0), "Expected avoided service metric value to be > 0")
 		}
-	}, test.Interval(1000*time.Millisecond))
+	}, testTimeout, 1000*time.Millisecond)
 }

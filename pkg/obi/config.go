@@ -115,6 +115,7 @@ var DefaultConfig = Config{
 		BatchLength:        100,
 		BatchTimeout:       time.Second,
 		HTTPRequestTimeout: 0,
+		WakeupLen:          500,
 		TCBackend:          config.TCBackendAuto,
 		DNSRequestTimeout:  5 * time.Second,
 		ContextPropagation: config.ContextPropagationDisabled,
@@ -145,6 +146,12 @@ var DefaultConfig = Config{
 				AWS: config.AWSConfig{
 					Enabled: false,
 				},
+				SQLPP: config.SQLPPConfig{
+					Enabled: false,
+					EndpointPatterns: []string{
+						"/query/service",
+					},
+				},
 			},
 		},
 		MaxTransactionTime: 5 * time.Minute,
@@ -154,6 +161,8 @@ var DefaultConfig = Config{
 			AsyncWriterWorkers:    8,
 			AsyncWriterChannelLen: 500,
 		},
+		BPFFSPath:      "/sys/fs/bpf/",
+		InstrumentCuda: config.CudaModeAuto,
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources:  []transform.Source{transform.SourceK8s},
@@ -190,6 +199,7 @@ var DefaultConfig = Config{
 			instrumentations.InstrumentationKafka,
 			instrumentations.InstrumentationMQTT,
 			instrumentations.InstrumentationMongo,
+			instrumentations.InstrumentationCouchbase,
 			// no traces for DNS and GPU by default
 		},
 	},

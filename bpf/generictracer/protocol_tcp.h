@@ -10,7 +10,6 @@
 #include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/large_buffers.h>
-#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/trace_common.h>
 
@@ -31,19 +30,6 @@ static __always_inline tcp_req_t *empty_tcp_req() {
         __builtin_memset(value, 0, sizeof(tcp_req_t));
     }
     return value;
-}
-
-static __always_inline void init_new_trace(tp_info_t *tp) {
-    bpf_d_printk("Generating new traceparent id [%s]", __FUNCTION__);
-    new_trace_id(tp);
-    urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
-    __builtin_memset(tp->parent_id, 0, sizeof(tp->span_id));
-
-    if (g_bpf_debug) {
-        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-        make_tp_string(tp_buf, tp);
-        bpf_dbg_printk("tp_buf=[%s]", tp_buf);
-    }
 }
 
 static __always_inline u8 already_tracked_tcp(const pid_connection_info_t *p_conn) {

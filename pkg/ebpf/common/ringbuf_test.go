@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf"
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -145,9 +144,9 @@ func TestForwardRingbuf_Close(t *testing.T) {
 	close(ringBuf.closeCh)
 
 	// THEN the ring buffer and the passed io.Closer elements have been explicitly closed
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		assert.True(t, ringBuf.explicitClose.Load())
-	})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.True(ct, ringBuf.explicitClose.Load())
+	}, testTimeout, 100*time.Millisecond)
 	// Wait a bit for the defer to close resources
 	time.Sleep(time.Second)
 

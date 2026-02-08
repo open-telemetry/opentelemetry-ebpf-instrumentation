@@ -42,9 +42,10 @@ const (
 	EventTypeMQTTServer
 	EventTypeMongoClient
 	EventTypeManualSpan
-	EventTypeGPUKernelLaunch
-	EventTypeGPUMalloc
-	EventTypeGPUMemcpy
+	EventTypeGPUCudaKernelLaunch
+	EventTypeGPUCudaGraphLaunch
+	EventTypeGPUCudaMalloc
+	EventTypeGPUCudaMemcpy
 	EventTypeFailedConnect
 	EventTypeDNS
 	EventTypeCouchbaseClient
@@ -85,6 +86,7 @@ const (
 	HTTPSubtypeElasticsearch = 2 // http + elasticsearch
 	HTTPSubtypeAWSS3         = 3 // http + aws s3
 	HTTPSubtypeAWSSQS        = 4 // http + aws sqs
+	HTTPSubtypeSQLPP         = 5 // http + sql++ (couchbase, etc.)
 )
 
 //nolint:cyclop
@@ -114,11 +116,13 @@ func (t EventType) String() string {
 		return "KafkaServer"
 	case EventTypeMQTTServer:
 		return "MQTTServer"
-	case EventTypeGPUKernelLaunch:
-		return "CUDALaunch"
-	case EventTypeGPUMalloc:
+	case EventTypeGPUCudaKernelLaunch:
+		return "CUDALaunchKernel"
+	case EventTypeGPUCudaGraphLaunch:
+		return "CUDALaunchGraph"
+	case EventTypeGPUCudaMalloc:
 		return "CUDAMalloc"
-	case EventTypeGPUMemcpy:
+	case EventTypeGPUCudaMemcpy:
 		return "CUDAMemcpy"
 	case EventTypeMongoClient:
 		return "MongoClient"
@@ -223,8 +227,9 @@ type AWSSQS struct {
 
 // Span contains the information being submitted by the following nodes in the graph.
 // It enables comfortable handling of data from Go.
-// REMINDER: any attribute here must be also added to the functions SpanOTELGetters,
-// SpanPromGetters and getDefinitions in pkg/export/attributes/attr_defs.go
+// REMINDER: any attribute here must be also added to the functions SpanOTELGetters
+// and SpanPromGetters in pkg/appolly/app/request/span_getters_providers.go and
+// getDefinitions in pkg/export/attributes/attr_defs.go
 type Span struct {
 	Type              EventType      `json:"type"`
 	Flags             uint8          `json:"-"`
@@ -255,6 +260,7 @@ type Span struct {
 	SubType           int            `json:"-"`
 	DBError           DBError        `json:"-"`
 	DBNamespace       string         `json:"-"`
+	DBSystem          string         `json:"-"`
 	SQLCommand        string         `json:"-"`
 	SQLError          *SQLError      `json:"-"`
 	MessagingInfo     *MessagingInfo `json:"-"`
@@ -336,6 +342,17 @@ func spanAttributes(s *Span) SpanAttributes {
 			attrs["awsSQSQueueURL"] = sqs.QueueURL
 			attrs["awsSQSMessageID"] = sqs.MessageID
 		}
+		if s.SubType == HTTPSubtypeSQLPP {
+			attrs["dbCollectionName"] = s.Route
+			attrs["dbOperationName"] = s.Method
+			attrs["dbQueryText"] = s.Statement
+			attrs["dbSystemName"] = s.DBSystem
+			attrs["dbNamespace"] = s.DBNamespace
+			if s.DBError.ErrorCode != "" {
+				attrs["errorType"] = s.DBError.ErrorCode
+				attrs["errorDescription"] = s.DBError.Description
+			}
+		}
 		return attrs
 	case EventTypeGRPC:
 		return SpanAttributes{
@@ -399,16 +416,19 @@ func spanAttributes(s *Span) SpanAttributes {
 			}
 		}
 		return attrs
-	case EventTypeGPUKernelLaunch:
+	case EventTypeGPUCudaKernelLaunch:
 		return SpanAttributes{
-			"function":  s.Method,
-			"callStack": s.Path,
 			"gridSize":  strconv.FormatInt(s.ContentLength, 10),
 			"blockSize": strconv.Itoa(s.SubType),
 		}
-	case EventTypeGPUMalloc:
+	case EventTypeGPUCudaMalloc:
 		return SpanAttributes{
 			"size": strconv.FormatInt(s.ContentLength, 10),
+		}
+	case EventTypeGPUCudaMemcpy:
+		return SpanAttributes{
+			"size": strconv.FormatInt(s.ContentLength, 10),
+			"kind": CudaMemcpyName(s.SubType),
 		}
 	case EventTypeMongoClient:
 		return SpanAttributes{
@@ -668,7 +688,7 @@ func (s *Span) ServiceGraphConnectionType() string {
 		if s.SubType == HTTPSubtypeAWSSQS {
 			return "messaging_system"
 		}
-		if s.SubType == HTTPSubtypeElasticsearch {
+		if s.SubType == HTTPSubtypeElasticsearch || s.SubType == HTTPSubtypeSQLPP {
 			return "database"
 		}
 	}
@@ -719,6 +739,23 @@ func (s *Span) TraceName() string {
 				return "sqs." + s.AWS.SQS.OperationName
 			} else {
 				return "sqs.Operation"
+			}
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeSQLPP {
+			dbOperationName := s.Method
+			if dbOperationName == "" {
+				return s.DBSystem
+			}
+			switch {
+			case s.Route != "":
+				return dbOperationName + " " + s.Route
+			case s.DBNamespace != "":
+				return dbOperationName + " " + s.DBNamespace
+			case s.Host != "" && s.HostPort != 0:
+				return dbOperationName + " " + s.Host + ":" + strconv.Itoa(s.HostPort)
+			default:
+				return dbOperationName
 			}
 		}
 

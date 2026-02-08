@@ -24,7 +24,9 @@
       "net/http.http2Framer": ["w"],
       "net/http.http2MetaHeadersFrame": ["Fields"],
       "net/rpc.Request": ["ServiceMethod"],
-      "database/sql.driverConn": ["ci"]
+      "database/sql.driverConn": ["ci"],
+      "net/textproto.Reader": ["R"],
+      "bufio.Reader": ["buf", "w"]
     }
   },
   "golang.org/x/net": {

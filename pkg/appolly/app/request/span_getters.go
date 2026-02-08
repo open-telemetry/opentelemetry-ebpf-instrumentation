@@ -153,8 +153,11 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			case EventTypeCouchbaseClient:
 				return semconv.DBSystemNameCouchbase
 			case EventTypeHTTPClient:
-				if span.SubType == HTTPSubtypeElasticsearch {
+				if span.SubType == HTTPSubtypeElasticsearch && span.Elasticsearch != nil {
 					return DBSystemName(span.Elasticsearch.DBSystemName)
+				}
+				if span.SubType == HTTPSubtypeSQLPP && span.DBSystem != "" {
+					return DBSystemName(span.DBSystem)
 				}
 			}
 			return DBSystemName("unknown")
@@ -217,8 +220,6 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			return MessagingMessageID("")
 		}
-	case attr.CudaKernelName:
-		getter = func(span *Span) attribute.KeyValue { return CudaKernel(span.Method) }
 	case attr.CudaMemcpyKind:
 		getter = func(span *Span) attribute.KeyValue { return CudaMemcpy(span.SubType) }
 	case attr.Job:
@@ -262,7 +263,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.DBQueryText:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
+			if s.Type == EventTypeHTTPClient && (s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil) || s.SubType == HTTPSubtypeSQLPP {
 				return DBQueryText(s.Elasticsearch.DBQueryText)
 			}
 			return DBQueryText("")

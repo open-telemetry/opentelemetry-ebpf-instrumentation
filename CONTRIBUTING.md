@@ -211,8 +211,10 @@ Any [Maintainer] can merge the PR once the above criteria have been met.
 ### Maintainers
 
 * [Mario Macias](https://github.com/mariomac), Grafana
+* [Mattia Meleleo](https://github.com/mmat11), Coralogix
 * [Mike Dame](https://github.com/damemi), Odigos
 * [Nikola Grcevski](https://github.com/grcevski), Grafana
+* [Nimrod Avni](https://github.com/NimrodAvni78), Coralogix
 * [Tyler Yahn](https://github.com/MrAlias), Splunk
 
 For more information about the maintainer role, see the [community repository](https://github.com/open-telemetry/community/blob/main/guides/contributor/membership.md#maintainer).
@@ -220,8 +222,6 @@ For more information about the maintainer role, see the [community repository](h
 ### Approvers
 
 * [Marc Tudurí](https://github.com/marctc), Grafana
-* [Mattia Meleleo](https://github.com/mmat11), Coralogix
-* [Nimrod Avni](https://github.com/NimrodAvni78), Coralogix
 * [Rafael Roquetto](https://github.com/rafaelroquetto), Grafana
 * [Stephen Lang](https://github.com/skl), Grafana
 

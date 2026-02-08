@@ -10,7 +10,7 @@ require (
 	github.com/jcchavezs/porto v0.7.0
 	github.com/onsi/ginkgo/v2 v2.27.4
 	go.opentelemetry.io/build-tools/multimod v0.28.1
-	gotest.tools/gotestsum v1.12.3
+	gotest.tools/gotestsum v1.13.0
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260109145143-0c3a9102bc0a
 	sigs.k8s.io/kind v0.29.0
 )

@@ -108,6 +108,9 @@ type Tracer interface {
 	// Iters returns a list of programs that need to be loaded as a
 	// BPF_PROG_TYPE_TRACING with BPF_TRACE_ITER attach type
 	Iters() []*ebpfcommon.Iter
+	// Tracing() returns a list of programs that need to be loaded as a
+	// BPF_PROG_TYPE_TRACING
+	Tracing() []*ebpfcommon.Tracing
 	// Probes can potentially instrument a shared library among multiple executables
 	// These two functions alow programs to remember this and avoid duplicated instrumentations
 	// The argument is the OS file id
@@ -145,14 +148,14 @@ const (
 // so that the GPU kernel event listener can find symbols names from addresses
 // in the ELF file.
 type ProcessTracer struct {
-	log      *slog.Logger
-	metrics  imetrics.Reporter
-	Programs []Tracer
-
+	log             *slog.Logger
+	metrics         imetrics.Reporter
 	shutdownTimeout time.Duration
+	bpffsPath       string
 
 	Type            ProcessTracerType
 	Instrumentables map[uint64]*instrumenter
+	Programs        []Tracer
 }
 
 func (pt *ProcessTracer) AllowPID(pid, ns uint32, svc *svc.Attrs) {

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
@@ -23,25 +23,25 @@ func testJavaNestedTraces(t *testing.T, slug string) {
 	// harvest the routes
 	t.Log("checking proper server to client nesting for [/api/" + slug + "]")
 	var trace jaeger.Trace
-	test.Eventually(t, 2*time.Minute, func(t require.TestingT) {
-		ti.DoHTTPGet(t, "http://localhost:8081/api/"+slug+"?url=https://httpbin.org/get", 200)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, "http://localhost:8081/api/"+slug+"?url=https://httpbin.org/get", 200)
 
 		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2F" + slug)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		if resp == nil {
 			return
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/api/" + slug})
-		require.GreaterOrEqual(t, len(traces), 1)
+		require.GreaterOrEqual(ct, len(traces), 1)
 		trace = traces[0]
 		res := trace.FindByOperationName("GET /get", "client")
-		require.Len(t, res, 1)
+		require.Len(ct, res, 1)
 		child := res[0]
-		require.NotEmpty(t, child.TraceID)
-	}, test.Interval(5*time.Second))
+		require.NotEmpty(ct, child.TraceID)
+	}, 2*time.Minute, 5*time.Second)
 }
 
 func TestJavaNestedTraces(t *testing.T) {

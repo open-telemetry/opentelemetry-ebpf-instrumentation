@@ -88,7 +88,7 @@ func getDefinitions(
 			attr.OBIIP:           false,
 			attr.Transport:       false,
 			attr.SrcAddress:      false,
-			attr.DstAddres:       false,
+			attr.DstAddress:      false,
 			attr.SrcPort:         false,
 			attr.DstPort:         false,
 			attr.SrcName:         false,
@@ -311,29 +311,27 @@ func getDefinitions(
 				attr.DBQueryText: false,
 			},
 		},
-		GPUKernelLaunchCalls.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
-			Attributes: map[attr.Name]Default{
-				attr.CudaKernelName: true,
-			},
-		},
-		GPUKernelGridSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
-			Attributes: map[attr.Name]Default{
-				attr.CudaKernelName: true,
-			},
-		},
-		GPUKernelBlockSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
-			Attributes: map[attr.Name]Default{
-				attr.CudaKernelName: true,
-			},
-		},
-		GPUMemoryAllocations.Section: {
+		GPUCudaKernelLaunchCalls.Section: {
 			SubGroups:  []*AttrReportGroup{&appAttributes, &appKubeAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
-		GPUMemoryCopies.Section: {
+		GPUCudaGraphLaunchCalls.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		GPUCudaKernelGridSize.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		GPUCudaKernelBlockSize.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		GPUCudaMemoryAllocations.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		GPUCudaMemoryCopies.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.CudaMemcpyKind: true,

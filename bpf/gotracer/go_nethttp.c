@@ -16,6 +16,7 @@
 //go:build obi_bpf_ignore
 
 #include <bpfcore/utils.h>
+#include <bpfcore/bpf_builtins.h>
 
 #include <common/globals.h>
 #include <common/http_types.h>
@@ -23,8 +24,8 @@
 #include <common/strings.h>
 #include <common/tracing.h>
 
-#include <gotracer/go_byte_arr.h>
 #include <gotracer/go_common.h>
+#include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 #include <gotracer/go_stream_key.h>
 #include <gotracer/hpack.h>
@@ -33,10 +34,16 @@
 
 #include <maps/go_ongoing_http.h>
 #include <maps/go_ongoing_http_client_requests.h>
+#include <maps/tp_char_buf_mem.h>
 
 #include <pid/pid_helpers.h>
 
 static const char traceparent[] = "traceparent: ";
+
+static __always_inline unsigned char *tp_char_buf() {
+    int zero = 0;
+    return bpf_map_lookup_elem(&tp_char_buf_mem, &zero);
+}
 
 typedef struct http_client_data {
     s64 content_length;
@@ -410,6 +417,84 @@ static __always_inline unsigned char *match_header(
         return (unsigned char *)(buf + header_len);
     }
     return NULL;
+}
+
+SEC("uprobe/readMimeHeader")
+int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
+    if (!g_bpf_loop_enabled) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uprobe/proc ReadMimeHeader === ");
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+    const connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    if (!existing) {
+        return 0;
+    }
+
+    const void *reader = (const unsigned char *)GO_PARAM1(ctx);
+    if (!reader) {
+        return 0;
+    }
+    off_table_t *ot = get_offsets_table();
+
+    void *r = 0;
+    bpf_probe_read_user(
+        &r, sizeof(void *), reader + go_offset_of(ot, (go_offset){.v = _text_reader_r_pos}));
+
+    if (!r) {
+        return 0;
+    }
+    bpf_dbg_printk(
+        "R = %llx, off = %d", r, go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
+
+    u64 len = 0;
+    bpf_probe_read_user(
+        &len, sizeof(u64), r + go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
+
+    bpf_dbg_printk(
+        "buf len = %d, off = %d", len, go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
+
+    if (len == 0) {
+        return 0;
+    }
+
+    void *arr = 0;
+    bpf_probe_read_user(
+        &arr, sizeof(void *), r + go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
+
+    if (!arr) {
+        return 0;
+    }
+
+    server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+
+    unsigned char *buf = tp_char_buf();
+    if (!buf) {
+        return 0;
+    }
+
+    bpf_clamp_umax(len, TRACE_BUF_SIZE);
+
+    bpf_probe_read_user(buf, len, arr);
+
+    bpf_dbg_printk("buf=%s", buf);
+
+    unsigned char *tp_ptr = bpf_strstr_tp_loop(buf, len);
+
+    bpf_dbg_printk("tp=%llx", tp_ptr);
+
+    if (!tp_ptr) {
+        return 0;
+    }
+
+    tp_ptr += TP_MAX_KEY_LENGTH + 2;
+    handle_traceparent_header(inv, &g_key, tp_ptr);
+    return 0;
 }
 
 SEC("uprobe/readContinuedLineSlice")
@@ -1312,62 +1397,6 @@ int obi_uprobe_connServe(struct pt_regs *ctx) {
 
     connection_info_t conn = {0};
     bpf_map_update_elem(&ongoing_server_connections, &g_key, &conn, BPF_ANY);
-
-    return 0;
-}
-
-SEC("uprobe/netFdRead")
-int obi_uprobe_netFdRead(struct pt_regs *ctx) {
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("=== uprobe/proc netFD read goroutine %lx === ", goroutine_addr);
-
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
-
-    // lookup active HTTP connection
-    connection_info_t *conn = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
-    if (conn) {
-        if (conn->d_port == 0 && conn->s_port == 0) {
-            bpf_dbg_printk(
-                "Found existing server connection, parsing FD information for socket tuples, %llx",
-                goroutine_addr);
-
-            void *fd_ptr = GO_PARAM1(ctx);
-            get_conn_info_from_fd(fd_ptr, conn); // ok to not check the result, we leave it as 0
-        }
-        //dbg_print_http_connection_info(conn);
-    }
-    // lookup a grpc connection
-    // Sets up the connection info to be grabbed and mapped over the transport to operateHeaders
-    void *tr = bpf_map_lookup_elem(&ongoing_grpc_operate_headers, &g_key);
-    bpf_dbg_printk("tr %llx", tr);
-    if (tr) {
-        grpc_transports_t *t = bpf_map_lookup_elem(&ongoing_grpc_transports, tr);
-        bpf_dbg_printk("t %llx", t);
-        if (t) {
-            if (t->conn.d_port == 0 && t->conn.s_port == 0) {
-                void *fd_ptr = GO_PARAM1(ctx);
-                get_conn_info_from_fd(fd_ptr,
-                                      &t->conn); // ok to not check the result, we leave it as 0
-            }
-        }
-    }
-    // lookup active sql connection
-    sql_func_invocation_t *sql_conn = bpf_map_lookup_elem(&ongoing_sql_queries, &g_key);
-    bpf_dbg_printk("sql_conn %llx", sql_conn);
-    if (sql_conn) {
-        void *fd_ptr = GO_PARAM1(ctx);
-        get_conn_info_from_fd(fd_ptr,
-                              &sql_conn->conn); // ok to not check the result, we leave it as 0
-    }
-
-    mongo_go_client_req_t *mongo_conn = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
-    bpf_dbg_printk("mongo_conn %llx", mongo_conn);
-    if (mongo_conn) {
-        void *fd_ptr = GO_PARAM1(ctx);
-        get_conn_info_from_fd(fd_ptr,
-                              &mongo_conn->conn); // ok to not check the result, we leave it as 0
-    }
 
     return 0;
 }

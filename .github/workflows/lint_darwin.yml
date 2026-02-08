@@ -1,0 +1,84 @@
+name: Lint (Darwin)
+
+on:
+  push:
+    branches: ["main", "release-*"]
+    paths:
+      - ".github/workflows/lint_darwin.yml"
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "bpf/**"
+      - "cmd/**"
+      - "configs/**"
+      - "internal/**"
+      - "pkg/**"
+      - "scripts/**"
+  pull_request:
+    branches: ["main", "release-*"]
+    paths:
+      - ".github/workflows/lint_darwin.yml"
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "bpf/**"
+      - "cmd/**"
+      - "configs/**"
+      - "internal/**"
+      - "pkg/**"
+      - "scripts/**"
+
+permissions:
+  contents: read
+
+jobs:
+  generate-bpf:
+    name: docker-generate on linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: "go.mod"
+          cache: "false"
+
+      - name: Generate BPF files
+        run: make docker-generate
+
+      - name: Upload generated BPF files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          # prevent cache poisoning by using the SHA of the commit
+          name: bpf-generated-${{ github.sha }}
+          path: |
+            **/*_bpfel.go
+            **/*_bpfel.o
+          retention-days: 1
+
+  # macOS runners do not have docker installed, so we need to download the generated BPF files from the Linux runner.
+  lint-darwin:
+    name: lint on macOS
+    needs: generate-bpf
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: "go.mod"
+          cache: "false"
+
+      - name: Download generated BPF files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bpf-generated-${{ github.sha }}
+
+      - name: Run lint
+        run: make lint

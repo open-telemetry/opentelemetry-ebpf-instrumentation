@@ -453,6 +453,51 @@ func TestContainerInfo(t *testing.T) {
 	assert.Equal(t, "namespaceA", k8sNamespace)
 }
 
+func TestServiceInfo(t *testing.T) {
+	store := createTestStore()
+
+	service := informer.ObjectMeta{
+		Name:      "service",
+		Namespace: "namespaceA",
+		Ips:       []string{"169.0.0.2"},
+		Kind:      "Service",
+		Labels: map[string]string{
+			"app.kubernetes.io/part-of": "namespaceA",
+		},
+	}
+
+	pod := informer.ObjectMeta{
+		Name:      "podA",
+		Namespace: "namespaceA",
+		Ips:       []string{"1.1.1.1"},
+		Kind:      "Pod",
+		Labels: map[string]string{
+			"app.kubernetes.io/part-of": "namespaceA",
+		},
+		Annotations: map[string]string{
+			ServiceNamespaceAnnotation: "boo",
+		},
+		Pod: &informer.PodInfo{
+			Owners: []*informer.Owner{{
+				Name: "service",
+				Kind: "Deployment",
+			}},
+			Containers: []*informer.ContainerInfo{{
+				Id:  "container-1",
+				Env: map[string]string{},
+			}},
+		},
+	}
+
+	_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &service})
+	_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &pod})
+
+	name, namespace, k8sNamespace := store.ServiceNameNamespaceForIP("169.0.0.2")
+	assert.Equal(t, "service", name)
+	assert.Equal(t, "boo", namespace)
+	assert.Equal(t, "namespaceA", k8sNamespace)
+}
+
 func TestMemoryCleanedUp(t *testing.T) {
 	deployment := informer.Owner{
 		Name: "service",

@@ -27,6 +27,12 @@ on:
       - "internal/**"
       - "pkg/**"
       - "scripts/**"
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref (commit, branch, or tag) to check out"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -86,6 +92,7 @@ jobs:
 
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - name: Set up Go
@@ -102,7 +109,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: Test Logs
+          name: go-integration-test-arm-logs-${{ github.run_number }}
           path: |
             testoutput/*.log
             testoutput/kind
@@ -114,3 +121,4 @@ jobs:
         with:
           files: ./testoutput/itest-covdata.txt
           flags: integration-test-arm
+          name: go-integration-test-arm-coverage-${{ github.run_number }}

@@ -153,7 +153,7 @@ func newGenericTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config,
 	tracers = append(tracers, generictracer.New(pidFilter, cfg, metrics))
 
 	// Enables GPU tracer
-	if cfg.EBPF.InstrumentGPU {
+	if cfg.EBPF.CudaInstrumentationEnabled() {
 		tracers = append(tracers, gpuevent.New(pidFilter, cfg, metrics))
 	}
 

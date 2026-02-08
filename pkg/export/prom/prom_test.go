@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,6 +31,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -45,8 +45,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	timeNow = now.Now
 
 	ctx := t.Context()
-	openPort, err := test.FreeTCPPort()
-	require.NoError(t, err)
+	openPort := testutil.FreeTCPPort(t)
 	promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
 
 	var g attributes.AttrGroups
@@ -120,16 +119,16 @@ func TestAppMetricsExpiration(t *testing.T) {
 	containsInstance := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*instance="test-app-1".*"`)
 
 	// THEN the metrics are exported
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported := getMetrics(t, promURL)
-		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 123`)
-		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
-		assert.Regexp(t, containsTargetInfo, exported)
-		assert.Regexp(t, containsTargetInfoSDKVersion, exported)
-		assert.Regexp(t, containsTracesHostInfo, exported)
-		assert.Regexp(t, containsJob, exported)
-		assert.Regexp(t, containsInstance, exported)
-	})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 123`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
+		assert.Regexp(ct, containsTargetInfo, exported)
+		assert.Regexp(ct, containsTargetInfoSDKVersion, exported)
+		assert.Regexp(ct, containsTracesHostInfo, exported)
+		assert.Regexp(ct, containsJob, exported)
+		assert.Regexp(ct, containsInstance, exported)
+	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
 	now.Advance(2 * time.Minute)
@@ -149,14 +148,14 @@ func TestAppMetricsExpiration(t *testing.T) {
 	now.Advance(2 * time.Minute)
 
 	// THEN THE metrics that have been received during the timeout period are still visible
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported := getMetrics(t, promURL)
-		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
 
 		// BUT not the metrics that haven't been received during that time
-		assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
-		assert.Regexp(t, containsTargetInfo, exported)
-	})
+		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
+		assert.Regexp(ct, containsTargetInfo, exported)
+	}, timeout, 100*time.Millisecond)
 	now.Advance(2 * time.Minute)
 
 	// AND WHEN the metrics labels that disappeared are received again
@@ -166,12 +165,12 @@ func TestAppMetricsExpiration(t *testing.T) {
 	now.Advance(2 * time.Minute)
 
 	// THEN they are reported again, starting from zero in the case of counters
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported := getMetrics(t, promURL)
-		assert.Contains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
-		assert.NotContains(t, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/foo"}`)
-		assert.Regexp(t, containsTargetInfo, exported)
-	})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
+		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/foo"}`)
+		assert.Regexp(ct, containsTargetInfo, exported)
+	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN the observed process is terminated
 	processEvents.Send(exec.ProcessEvent{
@@ -180,11 +179,11 @@ func TestAppMetricsExpiration(t *testing.T) {
 	})
 
 	// THEN traces_host_info and traces_target_info are removed
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		exported := getMetrics(t, promURL)
-		assert.NotRegexp(t, containsTargetInfo, exported)
-		assert.NotRegexp(t, containsTracesHostInfo, exported)
-	})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.NotRegexp(ct, containsTargetInfo, exported)
+		assert.NotRegexp(ct, containsTracesHostInfo, exported)
+	}, timeout, 100*time.Millisecond)
 }
 
 type InstrTest struct {
@@ -207,6 +206,12 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"db_client_operation_duration_seconds",
 				"messaging_publish_duration_seconds",
 				"messaging_process_duration_seconds",
+				"gpu_cuda_kernel_launch_calls_total",
+				"gpu_cuda_graph_launch_calls_total",
+				"gpu_cuda_kernel_grid_size_total",
+				"gpu_cuda_kernel_block_size_total",
+				"gpu_cuda_memory_allocations_bytes_total",
+				"gpu_cuda_memory_copies_bytes_total",
 			},
 			unexpected: []string{},
 		},
@@ -223,6 +228,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"db_client_operation_duration_seconds",
 				"messaging_publish_duration_seconds",
 				"messaging_process_duration_seconds",
+				"gpu_cuda_kernel_launch_calls_total",
+				"gpu_cuda_graph_launch_calls_total",
 			},
 		},
 		{
@@ -368,8 +375,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			timeNow = now.Now
 
 			ctx := t.Context()
-			openPort, err := test.FreeTCPPort()
-			require.NoError(t, err)
+			openPort := testutil.FreeTCPPort(t)
 			promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
 
 			promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
@@ -389,19 +395,23 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaGraphLaunch},
 			})
 			awaitSpanProcessing()
 
 			var exported string
-			test.Eventually(t, timeout, func(t require.TestingT) {
-				exported = getMetrics(t, promURL)
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				exported = getMetrics(ct, promURL)
 				for i := 0; i < len(tt.expected); i++ {
-					assert.Contains(t, exported, tt.expected[i])
+					assert.Contains(ct, exported, tt.expected[i])
 				}
 				for i := 0; i < len(tt.unexpected); i++ {
-					assert.NotContains(t, exported, tt.unexpected[i])
+					assert.NotContains(ct, exported, tt.unexpected[i])
 				}
-			})
+			}, timeout, 100*time.Millisecond)
 		})
 	}
 }
@@ -548,8 +558,7 @@ func TestTerminatesOnBadPromPort(t *testing.T) {
 	timeNow = now.Now
 
 	ctx := t.Context()
-	openPort, err := test.FreeTCPPort()
-	require.NoError(t, err)
+	openPort := testutil.FreeTCPPort(t)
 
 	// Grab the port we just allocated for something else
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

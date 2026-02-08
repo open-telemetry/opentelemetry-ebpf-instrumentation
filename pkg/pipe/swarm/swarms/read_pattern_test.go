@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -55,11 +54,11 @@ func TestReadUntilContextClosed(t *testing.T) {
 		})
 		close(done)
 	}()
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		mt.RLock()
 		defer mt.RUnlock()
-		assert.Equal(t, []int{1, 2, 3, 4}, output)
-	})
+		assert.Equal(ct, []int{1, 2, 3, 4}, output)
+	}, timeout, 100*time.Millisecond)
 	cancel()
 	testutil.ReadChannel(t, done, timeout)
 }

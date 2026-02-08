@@ -56,6 +56,7 @@ func TestResolvePodsFromK8s(t *testing.T) {
 	nr := NameResolver{
 		db:      db,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		logger:  nrlog(),
 		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
@@ -130,6 +131,7 @@ func TestResolveServiceFromK8s(t *testing.T) {
 	nr := NameResolver{
 		db:      db,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		logger:  nrlog(),
 		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
@@ -194,7 +196,7 @@ func TestCleanName(t *testing.T) {
 		},
 	}
 
-	nr := NameResolver{}
+	nr := NameResolver{logger: nrlog()}
 
 	assert.Equal(t, "service", nr.cleanName(&s, "127.0.0.1", "127-0-0-1.service"))
 	assert.Equal(t, "1.service", nr.cleanName(&s, "127.0.0.1", "1.service"))
@@ -285,6 +287,7 @@ func TestResolveNodesFromK8s(t *testing.T) {
 	nr := NameResolver{
 		db:      db,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		logger:  nrlog(),
 		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
@@ -356,6 +359,7 @@ func TestResolveClientFromHost(t *testing.T) {
 	nr := NameResolver{
 		db:      db,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		logger:  nrlog(),
 		sources: resolverSources([]Source{SourceK8s}),
 	}
 
@@ -439,6 +443,7 @@ func TestResolveClientFromHost_K8sFQDN(t *testing.T) {
 	nr := NameResolver{
 		db:      db,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		logger:  nrlog(),
 		sources: resolverSources([]Source{SourceK8s}),
 	}
 
