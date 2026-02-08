@@ -314,6 +314,11 @@
           "description": "Enables logging of eBPF program events",
           "x-env-var": "OTEL_EBPF_BPF_DEBUG"
         },
+        "bpf_fs_path": {
+          "type": "string",
+          "description": "BPF path used to pin eBPF maps",
+          "x-env-var": "OTEL_EBPF_BPF_FS_PATH"
+        },
         "buffer_sizes": {
           "$ref": "#/$defs/EBPFBufferSizes",
           "description": "Limit max data buffer size per protocol."
@@ -364,10 +369,10 @@
           ],
           "x-env-var": "OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT"
         },
-        "instrument_gpu": {
-          "type": "boolean",
+        "instrument_cuda": {
+          "type": "integer",
           "description": "Enables GPU instrumentation for CUDA kernel launches and allocations",
-          "x-env-var": "OTEL_EBPF_INSTRUMENT_GPU"
+          "x-env-var": "OTEL_EBPF_INSTRUMENT_CUDA"
         },
         "kafka_topic_uuid_cache_size": {
           "type": "integer",
@@ -653,6 +658,10 @@
         "graphql": {
           "$ref": "#/$defs/GraphQLConfig",
           "description": "GraphQL payload extraction and parsing"
+        },
+        "sqlpp": {
+          "$ref": "#/$defs/SQLPPConfig",
+          "description": "SQL++ payload extraction and parsing (Couchbase and other SQL++ databases)"
         }
       },
       "type": "object"
@@ -1598,6 +1607,24 @@
       },
       "type": "object",
       "description": "RoutesConfig allows grouping URLs sharing a given pattern."
+    },
+    "SQLPPConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable SQL++ payload extraction and parsing",
+          "x-env-var": "OTEL_EBPF_HTTP_SQLPP_ENABLED"
+        },
+        "endpoint_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "EndpointPatterns specifies URL path patterns to detect SQL++ endpoints\nExample: [\"/query/service\", \"/query\"]",
+          "x-env-var": "OTEL_EBPF_HTTP_SQLPP_ENDPOINT_PATTERNS"
+        }
+      },
+      "type": "object"
     },
     "SamplerConfig": {
       "properties": {
