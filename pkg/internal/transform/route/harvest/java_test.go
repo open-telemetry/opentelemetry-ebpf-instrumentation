@@ -398,10 +398,9 @@ func TestJavaRoutes_ExtractRoutes(t *testing.T) {
 17 65535: /system/internal
 25: /WEB-INF/classes
 `,
-			mockError:      nil,
-			expectedRoutes: []string{},
-			expectedKind:   PartialRoutes,
-			expectedError:  false,
+			mockError:     nil,
+			expectedKind:  PartialRoutes,
+			expectedError: false,
 		},
 	}
 
@@ -409,7 +408,7 @@ func TestJavaRoutes_ExtractRoutes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			harvester.Attacher = FakeJavaAttacher{attachFunc: func(pid app.PID, argv []string, _ bool) (io.ReadCloser, error) {
-				assert.Equal(t, int(tt.pid), pid)
+				assert.Equal(t, tt.pid, pid)
 				assert.Equal(t, []string{"jcmd", "VM.symboltable -verbose"}, argv)
 
 				if tt.mockError != nil {

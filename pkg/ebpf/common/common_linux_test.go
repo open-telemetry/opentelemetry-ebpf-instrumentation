@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
@@ -37,7 +38,7 @@ func TestCMDLineForPID(t *testing.T) {
 	})
 
 	t.Run("non-existent process", func(t *testing.T) {
-		_, _, err := CMDLineForPID(-1)
+		_, _, err := CMDLineForPID(0xFFFFFFFF)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read")
@@ -105,7 +106,7 @@ func TestCWDForPID(t *testing.T) {
 	})
 
 	t.Run("non-existent process", func(t *testing.T) {
-		_, err := CWDForPID(-1)
+		_, err := CWDForPID(0xFFFFFFFF)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read symlink")

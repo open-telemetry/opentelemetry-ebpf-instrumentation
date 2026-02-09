@@ -29,7 +29,7 @@ type JavaRoutes struct {
 type JavaAttacher interface {
 	Init()
 	Cleanup()
-	Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error)
+	Attach(pid app.PID, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error)
 }
 
 type RealJavaAttacher struct {
@@ -155,7 +155,7 @@ func (h *JavaRoutes) processSymbolLine(lineBytes []byte, routes []string) []stri
 
 func (h *JavaRoutes) ExtractRoutes(pid app.PID) (*RouteHarvesterResult, error) {
 	var routes []string
-	out, err := h.Attacher.Attach(int(pid), []string{"jcmd", "VM.symboltable -verbose"}, true)
+	out, err := h.Attacher.Attach(pid, []string{"jcmd", "VM.symboltable -verbose"}, true)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +201,6 @@ func (j RealJavaAttacher) Cleanup() {
 	}
 }
 
-func (j RealJavaAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
-	return j.Attacher.Attach(pid, argv, ignoreOnJ9)
+func (j RealJavaAttacher) Attach(pid app.PID, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
+	return j.Attacher.Attach(int(pid), argv, ignoreOnJ9)
 }

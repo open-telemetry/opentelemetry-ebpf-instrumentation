@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/ebpf"
@@ -24,9 +25,9 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupAgent    func(t *testing.T) string
-		setupTempDir  func(t *testing.T, pid int32) string
+		setupTempDir  func(t *testing.T, pid app.PID) string
 		envVars       map[string]string
-		pid           int32
+		pid           app.PID
 		expectError   bool
 		errorContains string
 		verifyFile    bool
@@ -38,7 +39,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, _ int32) string {
+			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "tmp"), 0o755))
@@ -56,7 +57,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, _ int32) string {
+			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				customTmpDir := filepath.Join(procRoot, "custom", "tmp")
@@ -77,7 +78,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, _ int32) string {
+			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "var", "tmp"), 0o755))
@@ -95,7 +96,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, _ int32) string {
+			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				require.NoError(t, os.MkdirAll(procRoot, 0o755))
@@ -112,7 +113,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 			setupAgent: func(t *testing.T) string {
 				return filepath.Join(t.TempDir(), "nonexistent", ObiJavaAgentFileName)
 			},
-			setupTempDir: func(t *testing.T, _ int32) string {
+			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "tmp"), 0o755))
@@ -131,7 +132,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, _ int32) string {
+			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				tmpPath := filepath.Join(procRoot, "tmp")
@@ -153,7 +154,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.WriteFile(tmpFile, content, 0o644))
 				return tmpFile
 			},
-			setupTempDir: func(t *testing.T, _ int32) string {
+			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "tmp"), 0o755))
@@ -174,7 +175,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 			// Override the root directory function
 			originalRootFunc := rootDirForPID
 			defer func() { rootDirForPID = originalRootFunc }()
-			rootDirForPID = func(_ int32) string {
+			rootDirForPID = func(_ app.PID) string {
 				return filepath.Join(tmpDir, "proc", "root")
 			}
 
