@@ -149,10 +149,12 @@ func (ci *ContainerMeta) DecorateService(s *svc.Attrs) {
 }
 
 func ContainerMetadata[T ~string](dst map[T]string, ci *ContainerMeta, stringer func(attr.Name) T) map[T]string {
-	if dst == nil {
-		dst = map[T]string{}
-	}
-	dst[stringer(attr.ContainerName)] = ci.Name
-	dst[stringer(attr.ContainerID)] = ci.ID
-	return dst
+    // Copy map to avoid concurrent read/write on shared Metadata
+    out := make(map[T]string, len(dst)+2)
+    if dst != nil {
+        maps.Copy(out, dst)
+    }
+    out[stringer(attr.ContainerName)] = ci.Name
+    out[stringer(attr.ContainerID)] = ci.ID
+    return out
 }
