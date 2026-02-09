@@ -227,8 +227,7 @@ public class Agent {
 
     for (Class<?> clazz : instrumentation.getAllLoadedClasses()) {
       TypeDescription desc = new TypeDescription.ForLoadedType(clazz);
-      if (desc.getName().startsWith("io.opentelemetry.obi.")
-          || desc.getName().startsWith("com.github.benmanes.")) {
+      if (desc.getName().startsWith("io.opentelemetry.obi.")) {
         try {
           byte[] bytes = locator.locate(desc.getName()).resolve();
           typeMap.put(desc, bytes);
