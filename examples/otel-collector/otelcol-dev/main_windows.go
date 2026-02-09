@@ -7,7 +7,6 @@ package main
 import (
 	"errors"
 	"fmt"
-
 	"go.opentelemetry.io/collector/otelcol"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
