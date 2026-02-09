@@ -1,24 +1,17 @@
 # Application Network Tracer
 
-OBI offers the ability to obtain application network metrics, such as TCP RTT and TCP connection failures related to an instrumented application. For example, by instrumenting port 9092 on a server, we can obtain the following metric:
+OBI offers the ability to obtain application network metrics, such as TCP RTT related to an instrumented application.
+
+For example we can have this metric in a non Kubernetes environment:
 
 ```
-# HELP obi_net_tcp_rtt_seconds measures the smoothed TCP RTT as calculated by the kernel in seconds
-# TYPE obi_net_tcp_rtt_seconds histogram
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.0005"} 1
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.001"} 1
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.002"} 1
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.005"} 1
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.01"} 1
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.025"} 1
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.05"} 1
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.1"} 1
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.25"} 1
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="0.5"} 1
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="1"} 1
-obi_net_tcp_rtt_seconds_bucket{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace="",le="+Inf"} 1
-obi_net_tcp_rtt_seconds_sum{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace=""} 0
-obi_net_tcp_rtt_seconds_count{direction="outbound",instance="lima-ubuntu-ebpf:258528",job="main",server_port="8080",service_name="main",service_namespace=""} 1
+obi_net_tcp_rtt_seconds_bucket{dst_address="127.0.0.1",dst_name="",dst_port="",dst_zone="",instance="lima-ubuntu-ebpf:651294",job="main",obi_ip="",service_namespace="",src_address="127.0.0.1",src_name="",src_port="",src_zone="",transport="",le="0.5"} 8
+```
+
+And the same metric in a Kubernetes environment:
+
+```
+obi_net_tcp_rtt_seconds_bucket{client_port="",direction="",dst_address="192.168.187.167",dst_name="go-client-3-deployment-795484488d-zv9dr",dst_port="",dst_zone="us-east-2c",instance="default.go-server-3-deployment-674fb9748f-dlcql.go-server",job="default/go-server-3-deployment",k8s_cluster_name="",k8s_dst_name="go-client-3-deployment-795484488d-zv9dr",k8s_dst_namespace="default",k8s_dst_node_ip="192.168.177.102",k8s_dst_node_name="i-08e6fe8a9b5968e8a",k8s_dst_owner_name="go-client-3-deployment",k8s_dst_owner_type="Deployment",k8s_dst_type="Pod",k8s_src_name="go-server-3-deployment-674fb9748f-dlcql",k8s_src_namespace="default",k8s_src_node_ip="192.168.177.102",k8s_src_node_name="i-08e6fe8a9b5968e8a",k8s_src_owner_name="go-server-3-deployment",k8s_src_owner_type="Deployment",k8s_src_type="Pod",server_port="45010",service_namespace="default",src_address="192.168.187.168",src_name="go-server-3-deployment-674fb9748f-dlcql",src_port="",src_zone="us-east-2c",le="0.0005"} 1
 ```
 
 To add a new metric, follow these guidelines:
@@ -30,3 +23,5 @@ To add a new metric, follow these guidelines:
 5. In the [appnetworktracer.go](../pkg/internal/ebpf/appnetworktracer/appnetworktracer.go), simply add a function that handles that metric This function will convert the event to a Span.
 6. To use the **Application instrumentation pipeline**, you need to modify the [package request](../pkg/appolly/app/request/span.go) accordingly, in particular by adding the constant relating to the created metric, and adding a data structure containing all the necessary fields within the `AppNet` structure.
 7. The only thing left is to create the appropriate data structures in the Prometheus and OTEL exporters by adding the appropriate labels.
+
+TODO: WIP
