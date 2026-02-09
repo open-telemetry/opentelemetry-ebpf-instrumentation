@@ -1,13 +1,25 @@
 version: "3.8"
 
 services:
-  testserver:
+  testservergrpcgo:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/go_simple_grpc/Dockerfile
+    image: hatest-testserver-logenricher-grpc-go
+    networks:
+      - shared
+    ports:
+      - "8382:8080"
+
+  testserverhttp:
     build:
       context: ../../..
       dockerfile: internal/test/integration/components/pythonserver/Dockerfile
-    image: hatest-testserver-logenricher
+    image: hatest-testserver-logenricher-http
+    networks:
+      - shared
     ports:
-      - "${TEST_SERVICE_PORTS}"
+      - "8381:8380"
 
   obi:
     build:
@@ -21,7 +33,8 @@ services:
       - /sys/fs/bpf:/sys/fs/bpf
     image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
-    network_mode: "service:testserver"
+    networks:
+      - shared
     pid: "host"
     environment:
       OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-log-enricher.yml"
@@ -42,5 +55,10 @@ services:
       OTEL_EBPF_METRICS_FEATURES: "application,application_process,application_span,application_service_graph"
       OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span,application_process,application_service_graph"
     depends_on:
-      testserver:
+      testserverhttp:
         condition: service_started
+      testservergrpcgo:
+        condition: service_started
+
+networks:
+  shared:

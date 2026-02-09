@@ -339,6 +339,7 @@ static __always_inline void server_or_client_trace(
             bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p_invalid, BPF_ANY);
         } else {
             bpf_map_update_elem(&outgoing_trace_map, &e_key, tp_p, BPF_ANY);
+            obi_ctx__set(id, &tp_p->tp);
         }
     }
 }

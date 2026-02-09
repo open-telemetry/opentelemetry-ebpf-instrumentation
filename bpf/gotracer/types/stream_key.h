@@ -15,7 +15,7 @@
 
 #pragma once
 
-#include <bpfcore/utils.h>
+#include <bpfcore/vmlinux.h>
 
 typedef struct stream_key {
     u64 conn_ptr;
