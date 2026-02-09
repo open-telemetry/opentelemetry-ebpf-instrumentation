@@ -19,13 +19,14 @@ public class SSLStorage {
   public static Field bootDebugOn = null;
 
   private static final int MAX_CONCURRENT = 10_000;
+  private static final int MAX_CONCURRENT_BUFFERS = 5_000;
   private static final CappedConcurrentHashMap<SSLEngine, Connection> sslConnections =
       new CappedConcurrentHashMap<>(MAX_CONCURRENT);
   private static final CappedConcurrentHashMap<String, BytesWithLen> bufToBuf =
-      new CappedConcurrentHashMap<>(MAX_CONCURRENT);
+      new CappedConcurrentHashMap<>(MAX_CONCURRENT_BUFFERS);
 
   private static final CappedConcurrentHashMap<String, Connection> bufConn =
-      new CappedConcurrentHashMap<>(MAX_CONCURRENT);
+      new CappedConcurrentHashMap<>(MAX_CONCURRENT_BUFFERS);
 
   private static final CappedConcurrentHashMap<Connection, Connection> activeConnections =
       new CappedConcurrentHashMap<>(MAX_CONCURRENT);
