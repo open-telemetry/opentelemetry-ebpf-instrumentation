@@ -6,6 +6,7 @@ package docker // import "go.opentelemetry.io/obi/pkg/internal/docker"
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"strings"
 	"sync"
 
@@ -15,6 +16,8 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 )
+
+const composeServiceLabelKey = "com.docker.compose.service"
 
 func cmlog() *slog.Logger {
 	return slog.With("component", "docker.ContainerStore")
@@ -78,12 +81,14 @@ func (s *ContainerStore) initialize(ctx context.Context) {
 	if info, err := docker.Info(ctx); err != nil {
 		s.log.Debug("failed to get docker info", "error", err)
 		return
-	s.log.Info("Docker info",
-		"driver", info.Driver,
-		"version", info.ServerVersion,
-		"cgroupDriver", info.CgroupDriver,
-		"cgroupVersion", info.CgroupVersion)
-	s.docker = docker
+	} else {
+		s.log.Info("Docker info",
+			"driver", info.Driver,
+			"version", info.ServerVersion,
+			"cgroupDriver", info.CgroupDriver,
+			"cgroupVersion", info.CgroupVersion)
+		s.docker = docker
+	}
 }
 
 func (s *ContainerStore) ContainerInfo(ctx context.Context, pid PID) (ContainerMeta, bool) {
@@ -109,7 +114,7 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid PID) (ContainerM
 
 	composeSvcName := ""
 	if inspectInfo.Config != nil && len(inspectInfo.Config.Labels) > 0 {
-		composeSvcName = inspectInfo.Config.Labels["com.docker.compose.service"]
+		composeSvcName = inspectInfo.Config.Labels[composeServiceLabelKey]
 	}
 
 	return ContainerMeta{
@@ -149,12 +154,14 @@ func (ci *ContainerMeta) DecorateService(s *svc.Attrs) {
 }
 
 func ContainerMetadata[T ~string](dst map[T]string, ci *ContainerMeta, stringer func(attr.Name) T) map[T]string {
-    // Copy map to avoid concurrent read/write on shared Metadata
-    out := make(map[T]string, len(dst)+2)
-    if dst != nil {
-        maps.Copy(out, dst)
-    }
-    out[stringer(attr.ContainerName)] = ci.Name
-    out[stringer(attr.ContainerID)] = ci.ID
-    return out
+	// Copy map to avoid concurrent read/write on shared Metadata
+	var out map[T]string
+	if dst == nil {
+		out = map[T]string{}
+	} else {
+		out = maps.Clone(dst)
+	}
+	out[stringer(attr.ContainerName)] = ci.Name
+	out[stringer(attr.ContainerID)] = ci.ID
+	return out
 }
