@@ -124,7 +124,7 @@ func setupContainerCollector(t *testing.T, network *dockertest.Network, configFi
 	t.Log("OpenTelemetry Collector container started")
 }
 
-// buildOBIImage builds the OBI (ebpf-instrument) image.
+// buildOBIImage builds the OBI image.
 func buildOBIImage() error {
 	return dockerPool.Client.BuildImage(docker.BuildImageOptions{
 		Name:         "hatest-obi",
