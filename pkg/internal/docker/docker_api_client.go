@@ -76,7 +76,7 @@ func (s *ContainerStore) initialize(ctx context.Context) {
 		return
 	}
 	if info, err := docker.Info(ctx); err != nil {
-		s.log.Debug("trying to get get docker info", "error", err)
+		s.log.Debug("failed to get docker info", "error", err)
 		return
 	} else {
 		s.log.Info("Docker info",
