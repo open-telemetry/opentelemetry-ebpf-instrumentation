@@ -69,7 +69,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 tar -xzf obi-v${VERSION}-linux-${ARCH}.tar.gz
 
 # The archive contains:
-# - ebpf-instrument: Main OBI binary
+# - obi: Main OBI binary
 # - k8s-cache: Kubernetes cache binary
 # - obi-java-agent.jar: Java agent
 # - LICENSE: Project license
@@ -87,14 +87,14 @@ The following example installs to `/usr/local/bin`, which is a standard location
 
 ```bash
 # Move binaries to a directory in your PATH
-sudo cp ebpf-instrument /usr/local/bin/
+sudo cp obi /usr/local/bin/
 sudo cp k8s-cache /usr/local/bin/
 
 # The Java agent MUST be in the same directory as the OBI binary
 sudo cp obi-java-agent.jar /usr/local/bin/
 
 # Verify installation
-ebpf-instrument --version
+obi --version
 ```
 
 ### Container Images

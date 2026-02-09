@@ -1,5 +1,8 @@
 # Main binary configuration
-CMD ?= ebpf-instrument
+# CMD: Default binary name is now "obi" (OpenTelemetry eBPF Instrumentation)
+# Note: The deprecated "ebpf-instrument" binary is still available for migration.
+#       To build it: make compile CMD=ebpf-instrument
+CMD ?= obi
 JAVA_AGENT ?= obi-java-agent.jar
 MAIN_GO_FILE ?= cmd/$(CMD)/main.go
 
@@ -387,7 +390,7 @@ itest-coverage-data:
 	mkdir -p $(TEST_OUTPUT)/merge
 	go tool covdata merge -i=$(TEST_OUTPUT) -o $(TEST_OUTPUT)/merge
 	go tool covdata textfmt -i=$(TEST_OUTPUT)/merge -o $(TEST_OUTPUT)/itest-covdata.raw.txt
-	# replace the unexpected /src/cmd/ebpf-instrument/main.go file by the module path
+	# replace the unexpected /src/cmd/obi/main.go file by the module path
 	sed 's/^\/src\/cmd\//github.com\/open-telemetry\/opentelemetry-ebpf-instrumentation\/cmd\//' $(TEST_OUTPUT)/itest-covdata.raw.txt > $(TEST_OUTPUT)/itest-covdata.all.txt
 	# exclude generated files from coverage data
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt

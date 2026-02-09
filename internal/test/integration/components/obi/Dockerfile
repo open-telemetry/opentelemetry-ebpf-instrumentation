@@ -17,30 +17,15 @@ COPY pkg/ pkg/
 COPY go.mod go.mod
 COPY go.sum go.sum
 COPY Makefile Makefile
-COPY internal/test/integration/components/ebpf-instrument/ebpf_instrument_wrapper_minimal.sh /ebpf_instrument_wrapper_minimal.sh
+COPY internal/test/integration/components/obi/ebpf_instrument_wrapper_minimal.sh /ebpf_instrument_wrapper_minimal.sh
 
 # Build
 RUN make compile-for-coverage
 
-# Build the Java OBI agent
-FROM gradle:9.3.0-jdk21-noble@sha256:c81b8eca24ce89252df6f8e81cb61266d62dbc84ab5f969ea22fc00804f995e2 AS javaagent-builder
-
-RUN apt update
-RUN apt install -y clang llvm
-
-WORKDIR /build
-
-# Copy build files
-COPY pkg/internal/java .
-
-# Build the project
-RUN ./gradlew build --no-daemon
-
 # Create final image from minimal + built binary
 FROM ubuntu@sha256:c35e29c9450151419d9448b0fd75374fec4fff364a27f176fb458d472dfc9e54
 
-COPY --from=builder /src/bin/ebpf-instrument /ebpf-instrument
-COPY --from=javaagent-builder /build/build/obi-java-agent.jar /obi-java-agent.jar
+COPY --from=builder /src/bin/obi /obi
 # Wrap the executable in a script that waits for the processes to end
 # in order to avoid issues when tearing down the container on kernels 6.14+.
 # https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/781

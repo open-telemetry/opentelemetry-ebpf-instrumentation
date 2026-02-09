@@ -49,11 +49,11 @@ LABEL maintainer="The OpenTelemetry Authors"
 
 WORKDIR /
 
-COPY --from=builder /src/bin/ebpf-instrument .
+COPY --from=builder /src/bin/obi .
 COPY --from=javaagent-builder /build/build/obi-java-agent.jar .
 COPY LICENSE NOTICE .
 COPY NOTICES ./NOTICES
 
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
-ENTRYPOINT [ "/ebpf-instrument" ]
+ENTRYPOINT [ "/obi" ]

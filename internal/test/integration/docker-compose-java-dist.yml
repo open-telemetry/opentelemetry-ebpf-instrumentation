@@ -12,7 +12,7 @@ services:
   obi:
     build:
       context: ../../..
-      dockerfile: ./internal/test/integration/components/ebpf-instrument/Dockerfile-with-javaagent
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile-with-javaagent
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security

@@ -37,7 +37,7 @@ FROM alpine:latest@sha256:865b95f46d98cf867a156fe4a135ad3fe50d2056aa3f25ed31662d
 WORKDIR /
 
 COPY --from=builder /go/bin/dlv /
-COPY --from=builder /src/bin/ebpf-instrument /
+COPY --from=builder /src/bin/obi /
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
-ENTRYPOINT [ "/dlv", "--listen=:2345", "--headless=true", "--api-version=2", "--accept-multiclient", "exec", "/ebpf-instrument" ]
+ENTRYPOINT [ "/dlv", "--listen=:2345", "--headless=true", "--api-version=2", "--accept-multiclient", "exec", "/obi" ]
