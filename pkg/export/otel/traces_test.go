@@ -14,6 +14,7 @@ import (
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
@@ -1474,6 +1475,58 @@ func TestTraceGrouping(t *testing.T) {
 		// We should make only one trace, all spans under the same resource attributes
 		assert.Len(t, tr, 1)
 	})
+}
+
+func TestCreateZapLoggerDevLevels(t *testing.T) {
+	tests := []struct {
+		name    string
+		level   string
+		enabled map[zapcore.Level]bool
+	}{
+		{
+			name:  "panic downgraded to error",
+			level: "panic",
+			enabled: map[zapcore.Level]bool{
+				zapcore.DebugLevel: false,
+				zapcore.InfoLevel:  false,
+				zapcore.WarnLevel:  false,
+				zapcore.ErrorLevel: true,
+				zapcore.PanicLevel: true,
+			},
+		},
+		{
+			name:  "unsupported level - using default",
+			level: "wrongLevel",
+			enabled: map[zapcore.Level]bool{
+				zapcore.DebugLevel: false,
+				zapcore.InfoLevel:  false,
+				zapcore.WarnLevel:  false,
+				zapcore.ErrorLevel: false,
+				zapcore.PanicLevel: false,
+			},
+		},
+		{
+			name:  "warn level",
+			level: "warn",
+			enabled: map[zapcore.Level]bool{
+				zapcore.DebugLevel: false,
+				zapcore.InfoLevel:  false,
+				zapcore.WarnLevel:  true,
+				zapcore.ErrorLevel: true,
+				zapcore.PanicLevel: true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := createZapLoggerDev(tt.level)
+			require.NotNil(t, logger)
+			for level, expected := range tt.enabled {
+				assert.Equal(t, expected, logger.Core().Enabled(level))
+			}
+		})
+	}
 }
 
 func makeSQLRequestSpan(sql string) request.Span {
