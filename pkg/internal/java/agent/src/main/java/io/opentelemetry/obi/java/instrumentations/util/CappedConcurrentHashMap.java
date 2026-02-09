@@ -30,7 +30,7 @@ public class CappedConcurrentHashMap<K, V> {
     if (key == null || value == null) {
       return null;
     }
-    
+
     V previous = map.put(key, value);
 
     // If it was absent before (previous == null) record insertion order.

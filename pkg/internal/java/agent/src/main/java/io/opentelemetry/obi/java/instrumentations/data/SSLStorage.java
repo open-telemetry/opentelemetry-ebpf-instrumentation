@@ -6,7 +6,6 @@
 package io.opentelemetry.obi.java.instrumentations.data;
 
 import io.opentelemetry.obi.java.instrumentations.util.CappedConcurrentHashMap;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import javax.net.ssl.SSLEngine;
