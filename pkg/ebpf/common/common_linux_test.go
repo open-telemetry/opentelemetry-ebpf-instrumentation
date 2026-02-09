@@ -11,11 +11,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
 func TestCMDLineForPID(t *testing.T) {
 	t.Run("current process", func(t *testing.T) {
-		pid := int32(os.Getpid())
+		pid := app.PID(os.Getpid())
 		executable, args, err := CMDLineForPID(pid)
 
 		require.NoError(t, err)
@@ -83,7 +84,7 @@ func TestCMDLineForPID_ParseNullSeparated(t *testing.T) {
 
 func TestCWDForPID(t *testing.T) {
 	t.Run("current process", func(t *testing.T) {
-		pid := int32(os.Getpid())
+		pid := app.PID(os.Getpid())
 		cwd, err := CWDForPID(pid)
 
 		require.NoError(t, err)
@@ -113,7 +114,7 @@ func TestCWDForPID(t *testing.T) {
 
 func TestCMDLineAndCWD_Together(t *testing.T) {
 	t.Run("current process info", func(t *testing.T) {
-		pid := int32(os.Getpid())
+		pid := app.PID(os.Getpid())
 
 		executable, args, err := CMDLineForPID(pid)
 		require.NoError(t, err)
