@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -51,11 +52,11 @@ func TestCriteriaMatcher(t *testing.T) {
 
 	// it will filter unmatching processes and return a ProcessMatch for these that match
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
-		exePath := map[PID]string{
+		exePath := map[app.PID]string{
 			1: "/bin/weird33", 2: "/bin/weird33", 3: "server",
 			4: "/bin/something", 5: "server", 6: "/bin/clientweird99",
 		}[pp.pid]
-		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: exePath, OpenPorts: pp.openPorts}, nil
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: exePath, OpenPorts: pp.openPorts}, nil
 	}
 	discoveredProcesses.Send([]Event[ProcessAttrs]{
 		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{1, 2, 3}}}, // pass
@@ -101,11 +102,11 @@ func TestCriteriaMatcher_Exclude(t *testing.T) {
 
 	// it will filter unmatching processes and return a ProcessMatch for these that match
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
-		exePath := map[PID]string{
+		exePath := map[app.PID]string{
 			1: "/bin/weird33", 2: "/bin/weird33", 3: "server",
 			4: "/bin/something", 5: "server", 6: "/bin/clientweird99",
 		}[pp.pid]
-		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: exePath, OpenPorts: pp.openPorts}, nil
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: exePath, OpenPorts: pp.openPorts}, nil
 	}
 	discoveredProcesses.Send([]Event[ProcessAttrs]{
 		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{1, 2, 3}}}, // pass
@@ -142,11 +143,11 @@ func TestCriteriaMatcher_Exclude_Metadata(t *testing.T) {
 
 	// it will filter unmatching processes and return a ProcessMatch for these that match
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
-		exePath := map[PID]string{
+		exePath := map[app.PID]string{
 			1: "/bin/weird33", 2: "/bin/weird33", 3: "server",
 			4: "/bin/something", 5: "server", 6: "/bin/clientweird99",
 		}[pp.pid]
-		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: exePath, OpenPorts: pp.openPorts}, nil
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: exePath, OpenPorts: pp.openPorts}, nil
 	}
 	nodeFoo := map[string]string{"k8s_node_name": "foo"}
 	nodeBar := map[string]string{"k8s_node_name": "bar"}
@@ -189,11 +190,11 @@ func TestCriteriaMatcher_MustMatchAllAttributes(t *testing.T) {
 	defer filteredProcessesQu.Close()
 
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
-		exePath := map[PID]string{
+		exePath := map[app.PID]string{
 			1: "/bin/foo", 2: "/bin/faa", 3: "foo",
 			4: "foool", 5: "thefoool", 6: "foo",
 		}[pp.pid]
-		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: exePath, OpenPorts: pp.openPorts}, nil
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: exePath, OpenPorts: pp.openPorts}, nil
 	}
 	allMeta := map[string]string{
 		"k8s_namespace":       "thens",
@@ -245,13 +246,13 @@ func TestCriteriaMatcherMissingPort(t *testing.T) {
 
 	// it will filter unmatching processes and return a ProcessMatch for these that match
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
-		proc := map[PID]struct {
+		proc := map[app.PID]struct {
 			Exe  string
-			PPid int32
+			PPid app.PID
 		}{
 			1: {Exe: "/bin/weird33", PPid: 0}, 2: {Exe: "/bin/weird33", PPid: 16}, 3: {Exe: "/bin/weird33", PPid: 1},
 		}[pp.pid]
-		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
 	}
 	discoveredProcesses.Send([]Event[ProcessAttrs]{
 		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{80}}}, // this one is the parent, matches on port
@@ -276,7 +277,7 @@ func TestCriteriaMatcherContainersOnly(t *testing.T) {
 `), &pipeConfig))
 
 	// override the namespace fetcher
-	namespaceFetcherFunc = func(pid int32) (string, error) {
+	namespaceFetcherFunc = func(pid app.PID) (string, error) {
 		switch pid {
 		case 1:
 			return "1", nil
@@ -304,13 +305,13 @@ func TestCriteriaMatcherContainersOnly(t *testing.T) {
 
 	// it will filter unmatching processes and return a ProcessMatch for these that match
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
-		proc := map[PID]struct {
+		proc := map[app.PID]struct {
 			Exe  string
-			PPid int32
+			PPid app.PID
 		}{
 			1: {Exe: "/bin/weird33", PPid: 0}, 2: {Exe: "/bin/weird33", PPid: 0}, 3: {Exe: "/bin/weird33", PPid: 1},
 		}[pp.pid]
-		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
 	}
 	discoveredProcesses.Send([]Event[ProcessAttrs]{
 		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{80}}}, // this one is the parent, matches on port, not in container
@@ -422,16 +423,16 @@ func TestInstrumentation_CoexistingWithDeprecatedServices(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// it will filter unmatching processes and return a ProcessMatch for these that match
 			processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
-				proc := map[PID]struct {
+				proc := map[app.PID]struct {
 					Exe  string
-					PPid int32
+					PPid app.PID
 				}{
 					1:  {Exe: "/bin/must-pass", PPid: 0},
 					2:  {Exe: "/bin/also-pass", PPid: 0},
 					11: {Exe: "/bin/dont-pass", PPid: 0},
 					12: {Exe: "/bin/neither-pass", PPid: 0},
 				}[pp.pid]
-				return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
+				return &services.ProcessInfo{Pid: pp.pid, ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
 			}
 			discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 			filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
@@ -492,14 +493,14 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 	defer filteredProcessesQu.Close()
 
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
-		exePath := map[PID]string{
+		exePath := map[app.PID]string{
 			1: "/bin/planet-service",
 			2: "/bin/satellite-service",
 			3: "/bin/star-service",
 			4: "/bin/asteroid-service",
 		}[pp.pid]
 
-		return &services.ProcessInfo{Pid: int32(pp.pid), ExePath: exePath, OpenPorts: pp.openPorts}, nil
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: exePath, OpenPorts: pp.openPorts}, nil
 	}
 
 	discoveredProcesses.Send([]Event[ProcessAttrs]{

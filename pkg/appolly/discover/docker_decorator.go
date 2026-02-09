@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/docker"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -20,7 +21,7 @@ func ddlog() *slog.Logger {
 
 type dockerAPIClient interface {
 	IsEnabled(context.Context) bool
-	ContainerInfo(context.Context, docker.PID) (docker.ContainerMeta, bool)
+	ContainerInfo(context.Context, app.PID) (docker.ContainerMeta, bool)
 }
 
 func DockerDiscoveryDecoratorProvider(
@@ -39,7 +40,7 @@ func DockerDiscoveryDecoratorProvider(
 		dd := dockerDecorator{
 			in:             input.Subscribe(msg.SubscriberName("DockerDecorator")),
 			out:            output,
-			containerByPID: map[docker.PID]docker.ContainerMeta{},
+			containerByPID: map[app.PID]docker.ContainerMeta{},
 			log:            ddlog(),
 			docker:         dockerClient,
 		}
@@ -50,7 +51,7 @@ func DockerDiscoveryDecoratorProvider(
 type dockerDecorator struct {
 	in             <-chan []Event[ProcessAttrs]
 	out            *msg.Queue[[]Event[ProcessAttrs]]
-	containerByPID map[docker.PID]docker.ContainerMeta
+	containerByPID map[app.PID]docker.ContainerMeta
 	log            *slog.Logger
 	docker         dockerAPIClient
 }
@@ -62,19 +63,19 @@ func (dd *dockerDecorator) decorate(ctx context.Context) {
 			ev := &instrumentables[i]
 			switch ev.Type {
 			case EventCreated:
-				meta, ok := dd.containerInfo(ctx, docker.PID(ev.Obj.pid))
+				meta, ok := dd.containerInfo(ctx, ev.Obj.pid)
 				if ok {
 					ev.Obj.metadata = docker.ContainerMetadata(ev.Obj.metadata, &meta, attr.Name.Prom)
 				}
 			case EventDeleted:
-				delete(dd.containerByPID, docker.PID(ev.Obj.pid))
+				delete(dd.containerByPID, ev.Obj.pid)
 			}
 		}
 		dd.out.SendCtx(ctx, instrumentables)
 	})
 }
 
-func (dd *dockerDecorator) containerInfo(ctx context.Context, pid docker.PID) (docker.ContainerMeta, bool) {
+func (dd *dockerDecorator) containerInfo(ctx context.Context, pid app.PID) (docker.ContainerMeta, bool) {
 	if ci, ok := dd.containerByPID[pid]; ok {
 		return ci, true
 	}

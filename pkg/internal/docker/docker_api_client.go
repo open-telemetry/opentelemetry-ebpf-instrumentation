@@ -12,6 +12,7 @@ import (
 
 	"github.com/docker/docker/client"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
@@ -22,8 +23,6 @@ const composeServiceLabelKey = "com.docker.compose.service"
 func cmlog() *slog.Logger {
 	return slog.With("component", "docker.ContainerStore")
 }
-
-type PID int32
 
 var osInfoForPID = container.InfoForPID
 
@@ -91,8 +90,10 @@ func (s *ContainerStore) initialize(ctx context.Context) {
 	}
 }
 
-func (s *ContainerStore) ContainerInfo(ctx context.Context, pid PID) (ContainerMeta, bool) {
-	osCntInfo, err := osInfoForPID(uint32(pid))
+// ContainerInfo returns the ContainerMeta that is associated to the provided PID.
+// It also returns true if the ContainerMeta was found for the provided PID. False otherwise
+func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (ContainerMeta, bool) {
+	osCntInfo, err := osInfoForPID(pid)
 	if err != nil {
 		s.log.Debug("failed to get OS container info for pid", "pid", pid, "error", err)
 		return ContainerMeta{}, false

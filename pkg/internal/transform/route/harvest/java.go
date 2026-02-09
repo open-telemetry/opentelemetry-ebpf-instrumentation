@@ -17,6 +17,8 @@ import (
 	"unicode"
 
 	"github.com/grafana/jvmtools/jvm"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
 type JavaRoutes struct {
@@ -151,8 +153,8 @@ func (h *JavaRoutes) processSymbolLine(lineBytes []byte, routes []string) []stri
 	return routes
 }
 
-func (h *JavaRoutes) ExtractRoutes(pid int32) (*RouteHarvesterResult, error) {
-	routes := []string{}
+func (h *JavaRoutes) ExtractRoutes(pid app.PID) (*RouteHarvesterResult, error) {
+	var routes []string
 	out, err := h.Attacher.Attach(int(pid), []string{"jcmd", "VM.symboltable -verbose"}, true)
 	if err != nil {
 		return nil, err

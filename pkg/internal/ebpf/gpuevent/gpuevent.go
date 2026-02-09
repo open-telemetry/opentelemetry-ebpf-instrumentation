@@ -12,6 +12,7 @@ import (
 
 	"github.com/cilium/ebpf"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -77,11 +78,11 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 	}
 }
 
-func (p *Tracer) AllowPID(pid, ns uint32, svc *svc.Attrs) {
+func (p *Tracer) AllowPID(pid app.PID, ns uint32, svc *svc.Attrs) {
 	p.pidsFilter.AllowPID(pid, ns, svc, ebpfcommon.PIDTypeKProbes)
 }
 
-func (p *Tracer) BlockPID(pid, ns uint32) {
+func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
 }
 
@@ -252,8 +253,8 @@ func (p *Tracer) readGPUMallocIntoSpan(record *ringbuf.Record) (request.Span, bo
 		Type:          request.EventTypeGPUCudaMalloc,
 		ContentLength: event.Size,
 		Pid: request.PidInfo{
-			HostPID:   event.PidInfo.HostPid,
-			UserPID:   event.PidInfo.UserPid,
+			HostPID:   app.PID(event.PidInfo.HostPid),
+			UserPID:   app.PID(event.PidInfo.UserPid),
 			Namespace: event.PidInfo.Ns,
 		},
 	}, false, nil
@@ -273,8 +274,8 @@ func (p *Tracer) readGPUMemcpyIntoSpan(record *ringbuf.Record) (request.Span, bo
 		ContentLength: event.Size,
 		SubType:       int(event.Kind),
 		Pid: request.PidInfo{
-			HostPID:   event.PidInfo.HostPid,
-			UserPID:   event.PidInfo.UserPid,
+			HostPID:   app.PID(event.PidInfo.HostPid),
+			UserPID:   app.PID(event.PidInfo.UserPid),
 			Namespace: event.PidInfo.Ns,
 		},
 	}, false, nil
@@ -294,8 +295,8 @@ func (p *Tracer) readGPUKernelLaunchIntoSpan(record *ringbuf.Record) (request.Sp
 		ContentLength: int64(event.GridX * event.GridY * event.GridZ),
 		SubType:       int(event.BlockX * event.BlockY * event.BlockZ),
 		Pid: request.PidInfo{
-			HostPID:   event.PidInfo.HostPid,
-			UserPID:   event.PidInfo.UserPid,
+			HostPID:   app.PID(event.PidInfo.HostPid),
+			UserPID:   app.PID(event.PidInfo.UserPid),
 			Namespace: event.PidInfo.Ns,
 		},
 	}, false, nil
@@ -313,8 +314,8 @@ func (p *Tracer) readGPUGraphLaunchIntoSpan(record *ringbuf.Record) (request.Spa
 	return request.Span{
 		Type: request.EventTypeGPUCudaGraphLaunch,
 		Pid: request.PidInfo{
-			HostPID:   event.PidInfo.HostPid,
-			UserPID:   event.PidInfo.UserPid,
+			HostPID:   app.PID(event.PidInfo.HostPid),
+			UserPID:   app.PID(event.PidInfo.UserPid),
 			Namespace: event.PidInfo.Ns,
 		},
 	}, false, nil

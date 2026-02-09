@@ -19,6 +19,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 )
 
@@ -158,10 +159,10 @@ var clocks = converter{monoClock: monotime.Now, clock: time.Now}
 // PidInfo stores different views of the PID of the process that generated the span
 type PidInfo struct {
 	// HostPID is the PID as seen by the host (root cgroup)
-	HostPID uint32
+	HostPID app.PID
 	// UserID is the PID as seen by the user space.
 	// Might differ from HostPID if the process is in a different namespace/cgroup/container/etc.
-	UserPID uint32
+	UserPID app.PID
 	// Namespace for the PIDs
 	Namespace uint32
 }

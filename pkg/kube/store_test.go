@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
@@ -751,17 +752,17 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		setupPIDs   []uint32
+		setupPIDs   []app.PID
 		containerID string
 		pidNS       uint32
-		operations  func(t *testing.T, store *Store, pids []uint32)
+		operations  func(t *testing.T, store *Store, pids []app.PID)
 	}{
 		{
 			name:        "add multiple PIDs same container and namespace",
-			setupPIDs:   []uint32{1001, 1002, 1003},
+			setupPIDs:   []app.PID{1001, 1002, 1003},
 			containerID: "container123",
 			pidNS:       5000,
-			operations: func(t *testing.T, store *Store, pids []uint32) {
+			operations: func(t *testing.T, store *Store, pids []app.PID) {
 				// Verify all PIDs are stored in namespaces map
 				store.access.RLock()
 				nsMap, exists := store.namespaces[5000]
@@ -799,10 +800,10 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 		},
 		{
 			name:        "delete one PID among multiple",
-			setupPIDs:   []uint32{2001, 2002, 2003, 2004},
+			setupPIDs:   []app.PID{2001, 2002, 2003, 2004},
 			containerID: "container456",
 			pidNS:       6000,
-			operations: func(t *testing.T, store *Store, _ []uint32) {
+			operations: func(t *testing.T, store *Store, _ []app.PID) {
 				// Delete middle PID
 				store.DeleteProcess(2002)
 
@@ -817,7 +818,7 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 				assert.False(t, exists, "Deleted PID should not exist in namespace map")
 
 				// Verify other PIDs still exist
-				for _, pid := range []uint32{2001, 2003, 2004} {
+				for _, pid := range []app.PID{2001, 2003, 2004} {
 					_, exists := nsMap[pid]
 					assert.True(t, exists, "PID %d should still exist", pid)
 				}
@@ -834,7 +835,7 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 				_, exists = store.containerByPID[2002]
 				assert.False(t, exists, "Deleted PID should not exist in containerByPID")
 
-				for _, pid := range []uint32{2001, 2003, 2004} {
+				for _, pid := range []app.PID{2001, 2003, 2004} {
 					_, exists := store.containerByPID[pid]
 					assert.True(t, exists, "PID %d should still exist in containerByPID", pid)
 				}
@@ -843,10 +844,10 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 		},
 		{
 			name:        "delete all PIDs one by one",
-			setupPIDs:   []uint32{3001, 3002, 3003},
+			setupPIDs:   []app.PID{3001, 3002, 3003},
 			containerID: "container789",
 			pidNS:       7000,
-			operations: func(t *testing.T, store *Store, pids []uint32) {
+			operations: func(t *testing.T, store *Store, pids []app.PID) {
 				// Delete all PIDs one by one
 				for _, pid := range pids {
 					store.DeleteProcess(pid)
@@ -875,16 +876,16 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 		},
 		{
 			name:        "add PIDs incrementally",
-			setupPIDs:   []uint32{}, // Start empty
+			setupPIDs:   []app.PID{}, // Start empty
 			containerID: "container999",
 			pidNS:       8000,
-			operations: func(t *testing.T, store *Store, _ []uint32) {
+			operations: func(t *testing.T, store *Store, _ []app.PID) {
 				// Add PIDs one by one
-				testPIDs := []uint32{4001, 4002, 4003, 4004, 4005}
+				testPIDs := []app.PID{4001, 4002, 4003, 4004, 4005}
 
 				for i, pid := range testPIDs {
 					// Mock InfoForPID for this specific test
-					InfoForPID = func(p uint32) (container.Info, error) {
+					InfoForPID = func(p app.PID) (container.Info, error) {
 						if p == pid {
 							return container.Info{
 								ContainerID:  "container999",
@@ -911,10 +912,10 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 		},
 		{
 			name:        "mixed operations - add, delete, add again",
-			setupPIDs:   []uint32{5001, 5002},
+			setupPIDs:   []app.PID{5001, 5002},
 			containerID: "container111",
 			pidNS:       9000,
-			operations: func(t *testing.T, store *Store, _ []uint32) {
+			operations: func(t *testing.T, store *Store, _ []app.PID) {
 				// Initial state: 2 PIDs
 				store.access.RLock()
 				nsMap, exists := store.namespaces[9000]
@@ -932,7 +933,7 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 				store.access.RUnlock()
 
 				// Add new PID
-				InfoForPID = func(p uint32) (container.Info, error) {
+				InfoForPID = func(p app.PID) (container.Info, error) {
 					if p == 5003 {
 						return container.Info{
 							ContainerID:  "container111",
@@ -967,7 +968,7 @@ func TestStore_MultiPID_SameContainerAndNamespace(t *testing.T) {
 
 			// Setup: mock InfoForPID for initial PIDs
 			if len(tt.setupPIDs) > 0 {
-				InfoForPID = func(pid uint32) (container.Info, error) {
+				InfoForPID = func(pid app.PID) (container.Info, error) {
 					if slices.Contains(tt.setupPIDs, pid) {
 						return container.Info{
 							ContainerID:  tt.containerID,
@@ -999,15 +1000,15 @@ func TestStore_MultiPID_CrossContainerScenarios(t *testing.T) {
 	scenarios := map[string]struct {
 		containerID string
 		pidNS       uint32
-		pids        []uint32
+		pids        []app.PID
 	}{
-		"container1": {"cont1", 1000, []uint32{101, 102, 103}},
-		"container2": {"cont2", 2000, []uint32{201, 202}},
-		"container3": {"cont3", 1000, []uint32{301, 302, 303, 304}}, // Same namespace as container1
+		"container1": {"cont1", 1000, []app.PID{101, 102, 103}},
+		"container2": {"cont2", 2000, []app.PID{201, 202}},
+		"container3": {"cont3", 1000, []app.PID{301, 302, 303, 304}}, // Same namespace as container1
 	}
 
 	// Mock InfoForPID to handle all scenarios
-	InfoForPID = func(pid uint32) (container.Info, error) {
+	InfoForPID = func(pid app.PID) (container.Info, error) {
 		for _, scenario := range scenarios {
 			if slices.Contains(scenario.pids, pid) {
 				return container.Info{
@@ -1036,14 +1037,14 @@ func TestStore_MultiPID_CrossContainerScenarios(t *testing.T) {
 		assert.Len(t, nsMap1000, 7, "Namespace 1000 should have 7 PIDs total")
 
 		// Verify container1 PIDs
-		for _, pid := range []uint32{101, 102, 103} {
+		for _, pid := range []app.PID{101, 102, 103} {
 			info, exists := nsMap1000[pid]
 			assert.True(t, exists, "PID %d should exist", pid)
 			assert.Equal(t, "cont1", info.ContainerID)
 		}
 
 		// Verify container3 PIDs
-		for _, pid := range []uint32{301, 302, 303, 304} {
+		for _, pid := range []app.PID{301, 302, 303, 304} {
 			info, exists := nsMap1000[pid]
 			assert.True(t, exists, "PID %d should exist", pid)
 			assert.Equal(t, "cont3", info.ContainerID)
@@ -1054,7 +1055,7 @@ func TestStore_MultiPID_CrossContainerScenarios(t *testing.T) {
 		require.True(t, exists)
 		assert.Len(t, nsMap2000, 2, "Namespace 2000 should have 2 PIDs")
 
-		for _, pid := range []uint32{201, 202} {
+		for _, pid := range []app.PID{201, 202} {
 			info, exists := nsMap2000[pid]
 			assert.True(t, exists, "PID %d should exist", pid)
 			assert.Equal(t, "cont2", info.ContainerID)
@@ -1124,9 +1125,9 @@ func TestStore_PodContainerByPIDNs_MultiPID(t *testing.T) {
 	// Setup multiple PIDs with same namespace
 	pidNS := uint32(5000)
 	containerID := "test-container"
-	pids := []uint32{1001, 1002, 1003}
+	pids := []app.PID{1001, 1002, 1003}
 
-	InfoForPID = func(pid uint32) (container.Info, error) {
+	InfoForPID = func(pid app.PID) (container.Info, error) {
 		if slices.Contains(pids, pid) {
 			return container.Info{
 				ContainerID:  containerID,
@@ -1199,7 +1200,7 @@ func TestStore_MultiPID_ConcurrentAccess(t *testing.T) {
 	containerID := "concurrent-container"
 	pidNS := uint32(9999)
 
-	InfoForPID = func(uint32) (container.Info, error) {
+	InfoForPID = func(app.PID) (container.Info, error) {
 		return container.Info{
 			ContainerID:  containerID,
 			PIDNamespace: pidNS,
@@ -1220,7 +1221,7 @@ func TestStore_MultiPID_ConcurrentAccess(t *testing.T) {
 		for i := range numWorkers {
 			go func(workerID int) {
 				for j := range numOpsPerWorker {
-					pid := uint32(workerID*1000 + j)
+					pid := app.PID(workerID*1000 + j)
 					store.AddProcess(pid)
 				}
 				done <- true
@@ -1231,7 +1232,7 @@ func TestStore_MultiPID_ConcurrentAccess(t *testing.T) {
 		for i := range numWorkers {
 			go func(workerID int) {
 				for j := range numOpsPerWorker / 2 {
-					pid := uint32(workerID*1000 + j)
+					pid := app.PID(workerID*1000 + j)
 					store.DeleteProcess(pid)
 				}
 				done <- true

@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
@@ -129,7 +130,7 @@ func TestCstr(t *testing.T) {
 }
 
 func TestToRequestTrace(t *testing.T) {
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 
 	var record BPFHTTPInfo
 	record.Type = 1
@@ -167,7 +168,7 @@ func TestToRequestTrace(t *testing.T) {
 }
 
 func TestToRequestTraceNoConnection(t *testing.T) {
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 
 	var record BPFHTTPInfo
 	record.Type = 1
@@ -205,7 +206,7 @@ func TestToRequestTraceNoConnection(t *testing.T) {
 }
 
 func TestToRequestTrace_BadHost(t *testing.T) {
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 
 	var record BPFHTTPInfo
 	record.Type = 1

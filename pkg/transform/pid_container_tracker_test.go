@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
@@ -74,8 +75,8 @@ func TestPidContainerTracker_Track(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tracker := &pidContainerTracker{
-				missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
-				missedPodPids: make(map[int32]string),
+				missedPods:    maps.Map2[string, app.PID, *exec.ProcessEvent]{},
+				missedPodPids: make(map[app.PID]string),
 			}
 
 			for _, event := range tt.events {
@@ -109,9 +110,9 @@ func TestPidContainerTracker_Remove(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupEvents   map[string][]*exec.ProcessEvent
-		removePid     int32
+		removePid     app.PID
 		expectRemoved bool
-		expectRemain  map[string][]int32 // containerID -> remaining PIDs
+		expectRemain  map[string][]app.PID // containerID -> remaining PIDs
 	}{
 		{
 			name: "remove existing PID",
@@ -123,7 +124,7 @@ func TestPidContainerTracker_Remove(t *testing.T) {
 			},
 			removePid:     1000,
 			expectRemoved: true,
-			expectRemain: map[string][]int32{
+			expectRemain: map[string][]app.PID{
 				"container-1": {1001},
 			},
 		},
@@ -136,7 +137,7 @@ func TestPidContainerTracker_Remove(t *testing.T) {
 			},
 			removePid:     2000,
 			expectRemoved: false,
-			expectRemain: map[string][]int32{
+			expectRemain: map[string][]app.PID{
 				"container-1": {1000},
 			},
 		},
@@ -149,7 +150,7 @@ func TestPidContainerTracker_Remove(t *testing.T) {
 			},
 			removePid:     1000,
 			expectRemoved: true,
-			expectRemain:  map[string][]int32{},
+			expectRemain:  map[string][]app.PID{},
 		},
 		{
 			name: "remove PID from multiple containers",
@@ -164,7 +165,7 @@ func TestPidContainerTracker_Remove(t *testing.T) {
 			},
 			removePid:     1000,
 			expectRemoved: true,
-			expectRemain: map[string][]int32{
+			expectRemain: map[string][]app.PID{
 				"container-1": {1001},
 				"container-2": {2000},
 			},
@@ -174,8 +175,8 @@ func TestPidContainerTracker_Remove(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tracker := &pidContainerTracker{
-				missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
-				missedPodPids: make(map[int32]string),
+				missedPods:    maps.Map2[string, app.PID, *exec.ProcessEvent]{},
+				missedPodPids: make(map[app.PID]string),
 			}
 
 			// Setup initial state
@@ -219,7 +220,7 @@ func TestPidContainerTracker_RemoveAll(t *testing.T) {
 		name            string
 		setupEvents     map[string][]*exec.ProcessEvent
 		removeContainer string
-		expectRemain    map[string][]int32
+		expectRemain    map[string][]app.PID
 	}{
 		{
 			name: "remove all processes from single container",
@@ -231,7 +232,7 @@ func TestPidContainerTracker_RemoveAll(t *testing.T) {
 				},
 			},
 			removeContainer: "container-1",
-			expectRemain:    map[string][]int32{},
+			expectRemain:    map[string][]app.PID{},
 		},
 		{
 			name: "remove all from one of multiple containers",
@@ -249,7 +250,7 @@ func TestPidContainerTracker_RemoveAll(t *testing.T) {
 				},
 			},
 			removeContainer: "container-1",
-			expectRemain: map[string][]int32{
+			expectRemain: map[string][]app.PID{
 				"container-2": {2000},
 				"container-3": {3000, 3001},
 			},
@@ -262,7 +263,7 @@ func TestPidContainerTracker_RemoveAll(t *testing.T) {
 				},
 			},
 			removeContainer: "non-existing",
-			expectRemain: map[string][]int32{
+			expectRemain: map[string][]app.PID{
 				"container-1": {1000},
 			},
 		},
@@ -270,19 +271,19 @@ func TestPidContainerTracker_RemoveAll(t *testing.T) {
 			name:            "remove from empty tracker",
 			setupEvents:     map[string][]*exec.ProcessEvent{},
 			removeContainer: "container-1",
-			expectRemain:    map[string][]int32{},
+			expectRemain:    map[string][]app.PID{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tracker := &pidContainerTracker{
-				missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
-				missedPodPids: make(map[int32]string),
+				missedPods:    maps.Map2[string, app.PID, *exec.ProcessEvent]{},
+				missedPodPids: make(map[app.PID]string),
 			}
 
 			// Setup initial state
-			removedPids := []int32{}
+			removedPids := []app.PID{}
 			for containerID, events := range tt.setupEvents {
 				for _, event := range events {
 					tracker.track(containerID, event)
@@ -381,8 +382,8 @@ func TestPidContainerTracker_Info(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tracker := &pidContainerTracker{
-				missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
-				missedPodPids: make(map[int32]string),
+				missedPods:    maps.Map2[string, app.PID, *exec.ProcessEvent]{},
+				missedPodPids: make(map[app.PID]string),
 			}
 
 			// Setup initial state
@@ -415,8 +416,8 @@ func TestPidContainerTracker_Info(t *testing.T) {
 
 func TestPidContainerTracker_ConcurrentAccess(*testing.T) {
 	tracker := &pidContainerTracker{
-		missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
-		missedPodPids: make(map[int32]string),
+		missedPods:    maps.Map2[string, app.PID, *exec.ProcessEvent]{},
+		missedPodPids: make(map[app.PID]string),
 	}
 
 	const numGoroutines = 10
@@ -431,7 +432,7 @@ func TestPidContainerTracker_ConcurrentAccess(*testing.T) {
 			defer wg.Done()
 			for j := range numOperationsPerGoroutine {
 				event := &exec.ProcessEvent{
-					File: &exec.FileInfo{Pid: int32(id*1000 + j)},
+					File: &exec.FileInfo{Pid: app.PID(id*1000 + j)},
 					Type: exec.ProcessEventCreated,
 				}
 				tracker.track("container-"+string(rune(id)), event)
@@ -444,7 +445,7 @@ func TestPidContainerTracker_ConcurrentAccess(*testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := range numOperationsPerGoroutine {
-				tracker.remove(int32(id*1000 + j))
+				tracker.remove(app.PID(id*1000 + j))
 			}
 		}(i)
 	}
@@ -479,8 +480,8 @@ func TestPidContainerTracker_ConcurrentAccess(*testing.T) {
 func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 	t.Run("multiple containers with overlapping PIDs", func(t *testing.T) {
 		tracker := &pidContainerTracker{
-			missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
-			missedPodPids: make(map[int32]string),
+			missedPods:    maps.Map2[string, app.PID, *exec.ProcessEvent]{},
+			missedPodPids: make(map[app.PID]string),
 		}
 
 		// This scenario should not happen in practice (PIDs should be unique),
@@ -514,8 +515,8 @@ func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 
 	t.Run("large number of processes", func(t *testing.T) {
 		tracker := &pidContainerTracker{
-			missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
-			missedPodPids: make(map[int32]string),
+			missedPods:    maps.Map2[string, app.PID, *exec.ProcessEvent]{},
+			missedPodPids: make(map[app.PID]string),
 		}
 
 		const numContainers = 10
@@ -526,7 +527,7 @@ func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 			for pid := range numProcessesPerContainer {
 				event := &exec.ProcessEvent{
 					File: &exec.FileInfo{
-						Pid:     int32(containerID*numProcessesPerContainer + pid),
+						Pid:     app.PID(containerID*numProcessesPerContainer + pid),
 						Service: svc.Attrs{},
 					},
 					Type: exec.ProcessEventCreated,
@@ -565,8 +566,8 @@ func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 
 	t.Run("track remove track cycle", func(t *testing.T) {
 		tracker := &pidContainerTracker{
-			missedPods:    maps.Map2[string, int32, *exec.ProcessEvent]{},
-			missedPodPids: make(map[int32]string),
+			missedPods:    maps.Map2[string, app.PID, *exec.ProcessEvent]{},
+			missedPodPids: make(map[app.PID]string),
 		}
 
 		event := &exec.ProcessEvent{
