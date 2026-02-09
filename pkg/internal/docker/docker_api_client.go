@@ -78,13 +78,11 @@ func (s *ContainerStore) initialize(ctx context.Context) {
 	if info, err := docker.Info(ctx); err != nil {
 		s.log.Debug("failed to get docker info", "error", err)
 		return
-	} else {
-		s.log.Info("Docker info",
-			"driver", info.Driver,
-			"version", info.ServerVersion,
-			"cgroupDriver", info.CgroupDriver,
-			"cgroupVersion", info.CgroupVersion)
-	}
+	s.log.Info("Docker info",
+		"driver", info.Driver,
+		"version", info.ServerVersion,
+		"cgroupDriver", info.CgroupDriver,
+		"cgroupVersion", info.CgroupVersion)
 	s.docker = docker
 }
 
