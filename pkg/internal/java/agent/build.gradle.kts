@@ -41,7 +41,6 @@ repositories {
 dependencies {
     implementation("net.bytebuddy:byte-buddy:1.18.4")
     implementation("net.bytebuddy:byte-buddy-agent:1.17.8")
-    implementation("com.github.ben-manes.caffeine:caffeine:2.9.3")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.13.3")
     testImplementation("org.junit.platform:junit-platform-launcher:1.10.2")
@@ -49,6 +48,8 @@ dependencies {
 
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.13.3")
 }
+
+tasks.register("prepareKotlinBuildScriptModel"){}
 
 tasks.test {
     useJUnitPlatform()
@@ -129,7 +130,6 @@ tasks.shadowJar {
             "Main-Class" to "io.opentelemetry.obi.java.Agent"
         )
     }
-    relocate("com.github", "io.opentelemetry.obi.com.github")
     relocate("net.bytebuddy", "io.opentelemetry.obi.net.bytebuddy")
     // Exclude META-INF files as in Maven Shade plugin
     exclude("META-INF/**")

@@ -5,8 +5,7 @@
 
 package io.opentelemetry.obi.java.instrumentations.data;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
+import io.opentelemetry.obi.java.instrumentations.util.CappedConcurrentHashMap;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import javax.net.ssl.SSLEngine;
@@ -19,27 +18,27 @@ public class SSLStorage {
 
   public static Field bootDebugOn = null;
 
-  private static final int MAX_CONCURRENT = 5_000;
-  private static final Cache<SSLEngine, Connection> sslConnections =
-      Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
-  private static final Cache<String, BytesWithLen> bufToBuf =
-      Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
+  private static final int MAX_CONCURRENT = 10_000;
+  private static final CappedConcurrentHashMap<SSLEngine, Connection> sslConnections =
+      new CappedConcurrentHashMap<>(MAX_CONCURRENT);
+  private static final CappedConcurrentHashMap<String, BytesWithLen> bufToBuf =
+      new CappedConcurrentHashMap<>(MAX_CONCURRENT);
 
-  private static final Cache<String, Connection> bufConn =
-      Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
+  private static final CappedConcurrentHashMap<String, Connection> bufConn =
+      new CappedConcurrentHashMap<>(MAX_CONCURRENT);
 
-  private static final Cache<Connection, Connection> activeConnections =
-      Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
+  private static final CappedConcurrentHashMap<Connection, Connection> activeConnections =
+      new CappedConcurrentHashMap<>(MAX_CONCURRENT);
 
-  private static final Cache<Integer, Long> tasks =
-      Caffeine.newBuilder().maximumSize(MAX_CONCURRENT).build();
+  private static final CappedConcurrentHashMap<Integer, Long> tasks =
+      new CappedConcurrentHashMap<>(MAX_CONCURRENT);
 
   public static final ThreadLocal<BytesWithLen> unencrypted = new ThreadLocal<>();
 
   public static final ThreadLocal<Object> nettyConnection = new ThreadLocal<>();
 
   public static Connection getConnectionForSession(SSLEngine session) {
-    return sslConnections.getIfPresent(session);
+    return sslConnections.get(session);
   }
 
   public static void setConnectionForSession(SSLEngine session, Connection c) {
@@ -47,15 +46,15 @@ public class SSLStorage {
   }
 
   public static Connection getConnectionForBuf(String buf) {
-    return bufConn.getIfPresent(buf);
+    return bufConn.get(buf);
   }
 
   public static boolean connectionUntracked(Connection c) {
-    return activeConnections.getIfPresent(c) == null;
+    return activeConnections.get(c) == null;
   }
 
   public static Connection getActiveConnection(Connection c) {
-    return activeConnections.getIfPresent(c);
+    return activeConnections.get(c);
   }
 
   public static void setConnectionForBuf(String buf, Connection c) {
@@ -65,8 +64,8 @@ public class SSLStorage {
   }
 
   public static void cleanupConnectionBufMapping(Connection c) {
-    bufConn.invalidate(c.getBufferKey());
-    activeConnections.invalidate(c);
+    bufConn.remove(c.getBufferKey());
+    activeConnections.remove(c);
   }
 
   public static void setBufferMapping(String encrypted, BytesWithLen plain) {
@@ -74,11 +73,11 @@ public class SSLStorage {
   }
 
   public static BytesWithLen getUnencryptedBuffer(String encrypted) {
-    return bufToBuf.getIfPresent(encrypted);
+    return bufToBuf.get(encrypted);
   }
 
   public static void removeBufferMapping(String encrypted) {
-    bufToBuf.invalidate(encrypted);
+    bufToBuf.remove(encrypted);
   }
 
   // These boot finder methods are here to help us find the version of the methods/classes that are
@@ -156,7 +155,7 @@ public class SSLStorage {
     if (task == null) {
       return;
     }
-    tasks.invalidate(System.identityHashCode(task));
+    tasks.remove(System.identityHashCode(task));
   }
 
   public static Long parentThreadId(Object task) {
@@ -164,6 +163,6 @@ public class SSLStorage {
       return null;
     }
 
-    return tasks.getIfPresent(System.identityHashCode(task));
+    return tasks.get(System.identityHashCode(task));
   }
 }
