@@ -20,7 +20,7 @@ and instrumentation settings.
 # Requirements
 
   - Linux kernel 5.8 or later (recommended: 5.10+)
-  - Elevated privileges (CAP_BPF, CAP_PERFMON capabilities or root)
+  - Elevated privileges (CAP_BPF, CAP_PERFMON, ...)
   - Architecture: amd64 or arm64
 
 # Example Configuration
