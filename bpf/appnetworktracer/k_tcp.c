@@ -7,25 +7,26 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 #include <bpfcore/bpf_core_read.h>
-#include <common/protocol_defs.h>
-#include <logger/bpf_dbg.h>
-#include <pid/pid.h>
-#include <maps/app_network_events.h>
+
 #include <common/connection_info.h>
-#include <common/ringbuf.h>
 #include <common/sockaddr.h>
-#include <generictracer/protocol_common.h>
+
+#include <logger/bpf_dbg.h>
+
+#include <maps/app_network_events.h>
+
+#include <pid/pid.h>
+
 #include "types.h"
 
 enum {
-    USEC_PER_SEC = 1000000ULL,
-    MAX_SRTT_ALLOWED = 60 * USEC_PER_SEC,
+    usec_per_sec = 1000000ULL,
+    max_srtt_allowed = 60 * usec_per_sec,
 };
 
 typedef struct app_net_tcp_rtt {
-    u8 flags;     // Must be first, we use it to tell what kind of event we have on the ring buffer
-    u8 direction; // 1 = Outbound, 2 = Inbound
-    u8 _pad[2];
+    u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
+    u8 _pad[3];
     pid_info pid_info;
     u32 srtt;
     connection_info_t conn;
@@ -57,7 +58,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
         return 0;
     }
 
-    if (srtt > MAX_SRTT_ALLOWED) {
+    if (srtt > max_srtt_allowed) {
         return 0;
     }
 
@@ -65,7 +66,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
     if (!se) {
         return 0;
     }
-    se->flags = EVENT_APP_NET_TCP_RTT;
+    se->flags = event_app_net_tcp_rtt;
     task_pid(&se->pid_info);
     se->srtt = srtt / 1000; // convert to millisecond
     se->conn = conn;
@@ -76,6 +77,6 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
                  se->conn.d_port,
                  se->srtt);
 
-    bpf_ringbuf_submit(se, get_flags());
+    bpf_ringbuf_submit(se, app_network_events_flags());
     return 0;
 }

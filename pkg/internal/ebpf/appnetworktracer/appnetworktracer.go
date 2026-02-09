@@ -14,6 +14,7 @@ import (
 
 	"github.com/cilium/ebpf"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -28,7 +29,7 @@ import (
 
 // The following consts need to coincide with some C identifiers defined in bpf/appnetworktracer/types.h
 const (
-	EventTypeAppNetTcpRtt = 1 // EVENT_APP_NET_TCP_RTT Application Network metrics related event - RTT
+	EventTypeAppNetTCPRtt = 1 // event_app_net_tcp_rtt Application Network metrics related event - RTT
 )
 
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type app_net_tcp_rtt_t -target amd64,arm64 Bpf ../../../../bpf/appnetworktracer/appnetworktracer.c -- -I../../../../bpf
@@ -48,8 +49,18 @@ type (
 )
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter, isGenericTracerActive bool) *Tracer {
-	return &Tracer{log: slog.With("component", "generic.AppNetworkTracer"), cfg: cfg, metrics: metrics, pidsFilter: pidFilter, isGenericTracerActive: isGenericTracerActive, iters: []*ebpfcommon.Iter{}}
+	return &Tracer{
+		log:                   slog.With("component", "generic.AppNetworkTracer"),
+		cfg:                   cfg,
+		metrics:               metrics,
+		pidsFilter:            pidFilter,
+		isGenericTracerActive: isGenericTracerActive,
+		iters:                 []*ebpfcommon.Iter{},
+	}
 }
+
+// TODO: all the code related to pid management has been copied from the generictracer
+// and will be removed and put into a pkg common to the generictracer and the appnetworktracer
 
 // Updating these requires updating the constants below in pid.h
 // #define MAX_CONCURRENT_PIDS 3001 // estimate: 1000 concurrent processes (including children) * 3 namespaces per pid
@@ -102,14 +113,14 @@ func (p *Tracer) rebuildValidPids() {
 	}
 }
 
-func (p *Tracer) AllowPID(pid, ns uint32, svc *svc.Attrs) {
+func (p *Tracer) AllowPID(pid app.PID, ns uint32, svc *svc.Attrs) {
 	if !p.isGenericTracerActive {
 		p.pidsFilter.AllowPID(pid, ns, svc, ebpfcommon.PIDTypeKProbes)
 		p.rebuildValidPids()
 	}
 }
 
-func (p *Tracer) BlockPID(pid, ns uint32) {
+func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	if !p.isGenericTracerActive {
 		p.pidsFilter.BlockPID(pid, ns)
 		p.rebuildValidPids()
@@ -195,9 +206,6 @@ func (p *Tracer) UnlinkInstrumentedLib(uint64) {}
 func (p *Tracer) AlreadyInstrumentedLib(uint64) bool { return false }
 
 func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
-	// At this point we now have loaded the bpf objects, which means we should insert any
-	// pids that are allowed into the bpf map
-
 	p.log.Info("Launching p.AppNetworkTracer")
 
 	ebpfcommon.ForwardRingbuf(
@@ -220,7 +228,7 @@ func (p *Tracer) handleAppNetworkEvent(_ *ebpfcommon.EBPFParseContext, _ *config
 	eventType := record.RawSample[0]
 
 	switch eventType {
-	case EventTypeAppNetTcpRtt:
+	case EventTypeAppNetTCPRtt:
 		return p.readTCPRttIntoSpan(record)
 	default:
 		p.log.Error("unknown net app event", "eventType", eventType)
@@ -243,15 +251,16 @@ func (p *Tracer) readTCPRttIntoSpan(record *ringbuf.Record) (request.Span, bool,
 		hostPort = int(event.Conn.D_port)
 	}
 
+	peerPort := int(event.Conn.S_port)
 	return request.Span{
 		Type:     request.EventTypeAppNetTCPRtt,
 		Peer:     peer,
-		PeerPort: int(event.Conn.S_port),
+		PeerPort: peerPort,
 		Host:     hostname,
 		HostPort: hostPort,
 		Pid: request.PidInfo{
-			HostPID:   event.PidInfo.HostPid,
-			UserPID:   event.PidInfo.UserPid,
+			HostPID:   app.PID(event.PidInfo.HostPid),
+			UserPID:   app.PID(event.PidInfo.UserPid),
 			Namespace: event.PidInfo.Ns,
 		},
 		AppNet: &request.AppNet{

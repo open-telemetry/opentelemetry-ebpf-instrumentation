@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"

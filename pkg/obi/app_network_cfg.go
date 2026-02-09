@@ -5,7 +5,7 @@ package obi // import "go.opentelemetry.io/obi/pkg/obi"
 
 type AppNetworkConfig struct {
 	// It enables app network metrics.
-	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_APP_NETWORK_METRICS" validate:"boolean"`
+	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_APP_NETWORK_METRICS_ENABLED" validate:"boolean"`
 
 	// Enables the calculation of srtt of a given instrumented service
 	Rtt bool `yaml:"rtt" env:"OTEL_EBPF_APP_NETWORK_METRICS_RTT" validate:"boolean"`

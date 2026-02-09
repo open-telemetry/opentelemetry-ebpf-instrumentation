@@ -5,20 +5,20 @@ OBI offers the ability to obtain application network metrics, such as TCP RTT re
 For example we can have this metric in a non Kubernetes environment:
 
 ```
-obi_net_tcp_rtt_seconds_bucket{dst_address="127.0.0.1",dst_name="",dst_port="",dst_zone="",instance="lima-ubuntu-ebpf:651294",job="main",obi_ip="",service_namespace="",src_address="127.0.0.1",src_name="",src_port="",src_zone="",transport="",le="0.5"} 8
+obi_net_tcp_rtt_seconds_bucket{dst_address="127.0.0.1",dst_name="",dst_port="",dst_zone="",instance="lima-ubuntu-ebpf:651294",job="main",service_namespace="",src_address="127.0.0.1",src_name="",src_port="",src_zone="",le="0.5"} 8
 ```
 
 And the same metric in a Kubernetes environment:
 
 ```
-obi_net_tcp_rtt_seconds_bucket{client_port="",direction="",dst_address="192.168.187.167",dst_name="go-client-3-deployment-795484488d-zv9dr",dst_port="",dst_zone="us-east-2c",instance="default.go-server-3-deployment-674fb9748f-dlcql.go-server",job="default/go-server-3-deployment",k8s_cluster_name="",k8s_dst_name="go-client-3-deployment-795484488d-zv9dr",k8s_dst_namespace="default",k8s_dst_node_ip="192.168.177.102",k8s_dst_node_name="i-08e6fe8a9b5968e8a",k8s_dst_owner_name="go-client-3-deployment",k8s_dst_owner_type="Deployment",k8s_dst_type="Pod",k8s_src_name="go-server-3-deployment-674fb9748f-dlcql",k8s_src_namespace="default",k8s_src_node_ip="192.168.177.102",k8s_src_node_name="i-08e6fe8a9b5968e8a",k8s_src_owner_name="go-server-3-deployment",k8s_src_owner_type="Deployment",k8s_src_type="Pod",server_port="45010",service_namespace="default",src_address="192.168.187.168",src_name="go-server-3-deployment-674fb9748f-dlcql",src_port="",src_zone="us-east-2c",le="0.0005"} 1
+obi_net_tcp_rtt_seconds_bucket{dst_address="192.168.187.167",dst_name="go-client-3-deployment-795484488d-nhfm9",dst_port="",dst_zone="us-east-2c",instance="default.go-server-3-deployment-674fb9748f-hpzrf.go-server",job="default/go-server-3-deployment",k8s_cluster_name="",k8s_dst_name="go-client-3-deployment-795484488d-nhfm9",k8s_dst_namespace="default",k8s_dst_node_ip="192.168.177.102",k8s_dst_node_name="i-08e6fe8a9b5968e8a",k8s_dst_owner_name="go-client-3-deployment",k8s_dst_owner_type="Deployment",k8s_dst_type="Pod",k8s_src_name="go-server-3-deployment-674fb9748f-hpzrf",k8s_src_namespace="default",k8s_src_node_ip="192.168.177.102",k8s_src_node_name="i-08e6fe8a9b5968e8a",k8s_src_owner_name="go-server-3-deployment",k8s_src_owner_type="Deployment",k8s_src_type="Pod",service_namespace="default",src_address="192.168.187.168",src_name="go-server-3-deployment-674fb9748f-hpzrf",src_port="",src_zone="us-east-2c",le="0.001"} 7
 ```
 
 To add a new metric, follow these guidelines:
 
 1. Decide on the hook point where you want to attach the eBPF probe. For example, you can use a kprobe on the `tcp_close` function to retrieve `srtt_us`.
 2. Understand how reliable the PID calculation is at that particular hook point. It may happen that the selected hook point is triggered not directly by the instrumented process but by something else (a timer, an external event), and therefore the ebpf probe is executed in a context other than the instrumented process.
-3. Add a unique flag that indicates an event related to the metric you want to calculate in [bpf/appnetworktracer/types.h](../bpf/appnetworktracer/types.h) and the corresponding go constant in [appnetworktracer.go](../pkg/internal/ebpf/appnetworktracer/appnetworktracer.go), for example, `EVENT_APP_NET_TCP_RTT` and `EventTypeAppNetTcpRtt`.
+3. Add a unique flag that indicates an event related to the metric you want to calculate in [bpf/appnetworktracer/types.h](../bpf/appnetworktracer/types.h) and the corresponding go constant in [appnetworktracer.go](../pkg/internal/ebpf/appnetworktracer/appnetworktracer.go), for example, `event_app_net_tcp_rtt` and `EventTypeAppNetTcpRtt`.
 4. Add the ebpf probe to the [bpf/appnetworktracer](../bpf/appnetworktracer/) folder. Here, the metric will be calculated and sent to userspace using the `app_network_events` ringbuffer.
 5. In the [appnetworktracer.go](../pkg/internal/ebpf/appnetworktracer/appnetworktracer.go), simply add a function that handles that metric This function will convert the event to a Span.
 6. To use the **Application instrumentation pipeline**, you need to modify the [package request](../pkg/appolly/app/request/span.go) accordingly, in particular by adding the constant relating to the created metric, and adding a data structure containing all the necessary fields within the `AppNet` structure.
