@@ -11,11 +11,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
 func TestCMDLineForPID(t *testing.T) {
 	t.Run("current process", func(t *testing.T) {
-		pid := int32(os.Getpid())
+		pid := app.PID(os.Getpid())
 		executable, args, err := CMDLineForPID(pid)
 
 		require.NoError(t, err)
@@ -36,7 +38,7 @@ func TestCMDLineForPID(t *testing.T) {
 	})
 
 	t.Run("non-existent process", func(t *testing.T) {
-		_, _, err := CMDLineForPID(-1)
+		_, _, err := CMDLineForPID(0xFFFFFFFF)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read")
@@ -83,7 +85,7 @@ func TestCMDLineForPID_ParseNullSeparated(t *testing.T) {
 
 func TestCWDForPID(t *testing.T) {
 	t.Run("current process", func(t *testing.T) {
-		pid := int32(os.Getpid())
+		pid := app.PID(os.Getpid())
 		cwd, err := CWDForPID(pid)
 
 		require.NoError(t, err)
@@ -104,7 +106,7 @@ func TestCWDForPID(t *testing.T) {
 	})
 
 	t.Run("non-existent process", func(t *testing.T) {
-		_, err := CWDForPID(-1)
+		_, err := CWDForPID(0xFFFFFFFF)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read symlink")
@@ -113,7 +115,7 @@ func TestCWDForPID(t *testing.T) {
 
 func TestCMDLineAndCWD_Together(t *testing.T) {
 	t.Run("current process info", func(t *testing.T) {
-		pid := int32(os.Getpid())
+		pid := app.PID(os.Getpid())
 
 		executable, args, err := CMDLineForPID(pid)
 		require.NoError(t, err)

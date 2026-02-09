@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/internal/docker"
@@ -35,7 +36,7 @@ func DockerDecoratorProvider(
 		dd := dockerEnricher{
 			in:             input.Subscribe(msg.SubscriberName("DockerEnricher")),
 			out:            output,
-			containerByPID: map[docker.PID]docker.ContainerMeta{},
+			containerByPID: map[app.PID]docker.ContainerMeta{},
 			log:            delog(),
 			docker:         ctxInfo.DockerMetadata,
 		}
@@ -46,7 +47,7 @@ func DockerDecoratorProvider(
 type dockerEnricher struct {
 	in             <-chan []request.Span
 	out            *msg.Queue[[]request.Span]
-	containerByPID map[docker.PID]docker.ContainerMeta
+	containerByPID map[app.PID]docker.ContainerMeta
 	log            *slog.Logger
 	docker         *docker.ContainerStore
 }
@@ -56,7 +57,7 @@ func (dd *dockerEnricher) decorate(ctx context.Context) {
 	swarms.ForEachInput(ctx, dd.in, dd.log.Debug, func(spans []request.Span) {
 		for i := range spans {
 			svc := &spans[i].Service
-			if ci, ok := dd.containerInfo(ctx, docker.PID(svc.ProcPID)); ok {
+			if ci, ok := dd.containerInfo(ctx, svc.ProcPID); ok {
 				ci.DecorateService(svc)
 			}
 		}
@@ -64,7 +65,7 @@ func (dd *dockerEnricher) decorate(ctx context.Context) {
 	})
 }
 
-func (dd *dockerEnricher) containerInfo(ctx context.Context, pid docker.PID) (docker.ContainerMeta, bool) {
+func (dd *dockerEnricher) containerInfo(ctx context.Context, pid app.PID) (docker.ContainerMeta, bool) {
 	if ci, ok := dd.containerByPID[pid]; ok {
 		return ci, true
 	}
@@ -95,7 +96,7 @@ func DockerProcessEventDecoratorProvider(
 
 		in := input.Subscribe()
 		containers := ctxInfo.DockerMetadata
-		containerByPID := map[int32]docker.ContainerMeta{}
+		containerByPID := map[app.PID]docker.ContainerMeta{}
 
 		return func(ctx context.Context) {
 			defer output.Close()
@@ -107,7 +108,7 @@ func DockerProcessEventDecoratorProvider(
 				case exec.ProcessEventCreated:
 					ci, ok := containerByPID[ev.File.Pid]
 					if !ok {
-						if ci, ok = containers.ContainerInfo(ctx, docker.PID(ev.File.Pid)); ok {
+						if ci, ok = containers.ContainerInfo(ctx, ev.File.Pid); ok {
 							containerByPID[ev.File.Pid] = ci
 						}
 					}

@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 )
 
@@ -52,8 +53,8 @@ var AllowedAttributeNames = map[string]struct{}{
 
 // ProcessInfo stores some relevant information about a running process
 type ProcessInfo struct {
-	Pid       int32
-	PPid      int32
+	Pid       app.PID
+	PPid      app.PID
 	ExePath   string
 	OpenPorts []uint32
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/cilium/ebpf"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -27,7 +28,7 @@ type Instrumentable struct {
 
 	// in some runtimes, like python gunicorn, we need to allow
 	// tracing both the parent pid and all of its children pid
-	ChildPids []uint32
+	ChildPids []app.PID
 
 	FileInfo *exec.FileInfo
 	Offsets  *goexec.Offsets
@@ -55,11 +56,11 @@ type PIDsAccounter interface {
 	// traces from processes whose PID has not been allowed before
 	// We must use a pointer for svc.Attrs so that all child processes share the same
 	// object. This is important when we tag a service as exporting traces or metrics.
-	AllowPID(uint32, uint32, *svc.Attrs)
+	AllowPID(app.PID, uint32, *svc.Attrs)
 	// BlockPID notifies the tracer to stop accepting traces from the process
 	// with the provided PID. After receiving them via ringbuffer, it should
 	// discard them.
-	BlockPID(uint32, uint32)
+	BlockPID(app.PID, uint32)
 }
 
 type CommonTracer interface {
@@ -158,7 +159,7 @@ type ProcessTracer struct {
 	Programs        []Tracer
 }
 
-func (pt *ProcessTracer) AllowPID(pid, ns uint32, svc *svc.Attrs) {
+func (pt *ProcessTracer) AllowPID(pid app.PID, ns uint32, svc *svc.Attrs) {
 	for i := range pt.Programs {
 		_, ok := pt.Programs[i].(*logenricher.Tracer)
 		if ok {
@@ -170,7 +171,7 @@ func (pt *ProcessTracer) AllowPID(pid, ns uint32, svc *svc.Attrs) {
 	}
 }
 
-func (pt *ProcessTracer) BlockPID(pid, ns uint32) {
+func (pt *ProcessTracer) BlockPID(pid app.PID, ns uint32) {
 	for i := range pt.Programs {
 		pt.Programs[i].BlockPID(pid, ns)
 	}

@@ -355,10 +355,10 @@ func TestTCPToMQTTToSpan(t *testing.T) {
 	assert.Equal(t, int64(1000000), span.RequestStart)
 	assert.Equal(t, int64(1000000), span.Start)
 	assert.Equal(t, int64(2000000), span.End)
-	assert.Equal(t, int(54321), span.PeerPort)
-	assert.Equal(t, int(1883), span.HostPort)
-	assert.Equal(t, uint32(1234), span.Pid.HostPID)
-	assert.Equal(t, uint32(1234), span.Pid.UserPID)
+	assert.Equal(t, 54321, span.PeerPort)
+	assert.Equal(t, 1883, span.HostPort)
+	assert.EqualValues(t, 1234, span.Pid.HostPID)
+	assert.EqualValues(t, 1234, span.Pid.UserPID)
 }
 
 // Test with real-world MQTT packet captures
