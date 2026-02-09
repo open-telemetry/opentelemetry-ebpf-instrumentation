@@ -120,10 +120,10 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid PID) (ContainerM
 	}, true
 }
 
-func identity(n attr.Name) attr.Name { return n }
-
 func (ci *ContainerMeta) DecorateService(s *svc.Attrs) {
-	s.Metadata = ContainerMetadata(s.Metadata, ci, identity)
+	s.Metadata = ContainerMetadata(s.Metadata, ci, func(n attr.Name) attr.Name {
+		return n
+	})
 
 	if s.AutoName() {
 		// populate service name from container metadata
