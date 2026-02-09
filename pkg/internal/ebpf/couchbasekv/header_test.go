@@ -39,6 +39,38 @@ func makeResponseHeader(opcode Opcode, keyLen uint16, extrasLen uint8, bodyLen u
 	return pkt
 }
 
+// makeAltRequestHeader creates a flexible framing request header (magic 0x08)
+func makeAltRequestHeader(opcode Opcode, framingExtrasLen uint8, keyLen uint8, extrasLen uint8, bodyLen uint32, vbucket uint16, opaque uint32, cas uint64) []byte {
+	pkt := make([]byte, HeaderLen)
+	pkt[0] = byte(MagicAltClientRequest)
+	pkt[1] = byte(opcode)
+	pkt[2] = framingExtrasLen
+	pkt[3] = keyLen
+	pkt[4] = extrasLen
+	pkt[5] = byte(DataTypeRaw)
+	binary.BigEndian.PutUint16(pkt[6:8], vbucket)
+	binary.BigEndian.PutUint32(pkt[8:12], bodyLen)
+	binary.BigEndian.PutUint32(pkt[12:16], opaque)
+	binary.BigEndian.PutUint64(pkt[16:24], cas)
+	return pkt
+}
+
+// makeAltResponseHeader creates a flexible framing response header (magic 0x18)
+func makeAltResponseHeader(opcode Opcode, framingExtrasLen uint8, keyLen uint8, extrasLen uint8, bodyLen uint32, status Status, opaque uint32, cas uint64) []byte {
+	pkt := make([]byte, HeaderLen)
+	pkt[0] = byte(MagicAltClientResponse)
+	pkt[1] = byte(opcode)
+	pkt[2] = framingExtrasLen
+	pkt[3] = keyLen
+	pkt[4] = extrasLen
+	pkt[5] = byte(DataTypeRaw)
+	binary.BigEndian.PutUint16(pkt[6:8], uint16(status))
+	binary.BigEndian.PutUint32(pkt[8:12], bodyLen)
+	binary.BigEndian.PutUint32(pkt[12:16], opaque)
+	binary.BigEndian.PutUint64(pkt[16:24], cas)
+	return pkt
+}
+
 func TestParseHeader(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -135,6 +167,49 @@ func TestParseHeader(t *testing.T) {
 			expectErr: true,
 			expected:  nil,
 		},
+		{
+			name:      "flexible framing request",
+			packet:    makeAltRequestHeader(OpcodeGet, 3, 5, 0, 8, 100, 12345, 0), // 3 framing extras + 5 key = 8
+			expectErr: false,
+			expected: &Header{
+				Magic:            MagicAltClientRequest,
+				Opcode:           OpcodeGet,
+				FramingExtrasLen: 3,
+				KeyLen:           5,
+				ExtrasLen:        0,
+				DataType:         DataTypeRaw,
+				VBucketID:        100,
+				BodyLen:          8,
+				Opaque:           12345,
+				CAS:              0,
+			},
+		},
+		{
+			name:      "flexible framing response with status",
+			packet:    makeAltResponseHeader(OpcodeGet, 3, 0, 0, 3, StatusKeyNotFound, 12345, 0),
+			expectErr: false,
+			expected: &Header{
+				Magic:            MagicAltClientResponse,
+				Opcode:           OpcodeGet,
+				FramingExtrasLen: 3,
+				KeyLen:           0,
+				ExtrasLen:        0,
+				DataType:         DataTypeRaw,
+				Status:           StatusKeyNotFound,
+				BodyLen:          3,
+				Opaque:           12345,
+				CAS:              0,
+			},
+		},
+		{
+			name: "flexible framing invalid body length",
+			packet: func() []byte {
+				// framingExtras=3, key=5, extras=2, but bodyLen=5 (should be at least 10)
+				return makeAltRequestHeader(OpcodeSet, 3, 5, 2, 5, 0, 0, 0)
+			}(),
+			expectErr: true,
+			expected:  nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -151,6 +226,7 @@ func TestParseHeader(t *testing.T) {
 
 			assert.Equal(t, tt.expected.Magic, header.Magic)
 			assert.Equal(t, tt.expected.Opcode, header.Opcode)
+			assert.Equal(t, tt.expected.FramingExtrasLen, header.FramingExtrasLen)
 			assert.Equal(t, tt.expected.KeyLen, header.KeyLen)
 			assert.Equal(t, tt.expected.ExtrasLen, header.ExtrasLen)
 			assert.Equal(t, tt.expected.DataType, header.DataType)
@@ -278,6 +354,53 @@ func TestParsePacket(t *testing.T) {
 			hasFullExtras: true,
 			hasFullValue:  true,
 		},
+		{
+			name: "flexible framing with framing extras, key, and value",
+			packet: func() []byte {
+				// Framing extras: 3 bytes, key: 5 bytes, value: 5 bytes = 13 total
+				pkt := makeAltRequestHeader(OpcodeGet, 3, 5, 0, 13, 100, 12345, 0)
+				pkt = append(pkt, []byte{0x02, 0x00, 0x0f}...) // framing extras
+				pkt = append(pkt, []byte("mykey")...)          // key
+				pkt = append(pkt, []byte("value")...)          // value
+				return pkt
+			}(),
+			expectErr:     false,
+			expectedKey:   "mykey",
+			truncated:     false,
+			hasFullKey:    true,
+			hasFullExtras: true,
+			hasFullValue:  true,
+		},
+		{
+			name: "flexible framing response with status",
+			packet: func() []byte {
+				// Framing extras: 3 bytes, no key, no value
+				pkt := makeAltResponseHeader(OpcodeGet, 3, 0, 0, 3, StatusKeyNotFound, 12345, 0)
+				pkt = append(pkt, []byte{0x02, 0x00, 0x0f}...) // framing extras
+				return pkt
+			}(),
+			expectErr:     false,
+			expectedKey:   "",
+			truncated:     false,
+			hasFullKey:    true,
+			hasFullExtras: true,
+			hasFullValue:  true,
+		},
+		{
+			name: "flexible framing truncated framing extras",
+			packet: func() []byte {
+				// Needs 3 bytes of framing extras, but only provides 1
+				pkt := makeAltRequestHeader(OpcodeGet, 3, 5, 0, 8, 100, 12345, 0)
+				pkt = append(pkt, []byte{0x02}...) // only 1 byte of framing extras
+				return pkt
+			}(),
+			expectErr:     false,
+			expectedKey:   "",
+			truncated:     true,
+			hasFullKey:    false,
+			hasFullExtras: true, // No regular extras expected (ExtrasLen=0)
+			hasFullValue:  true, // No value expected (bodyLen=8, framingExtras=3, key=5, so valueLen=0)
+		},
 	}
 
 	for _, tt := range tests {
@@ -391,6 +514,16 @@ func TestHeaderValueLen(t *testing.T) {
 		{
 			name:     "only extras",
 			header:   Header{BodyLen: 8, ExtrasLen: 8, KeyLen: 0},
+			expected: 0,
+		},
+		{
+			name:     "with framing extras (flexible framing)",
+			header:   Header{BodyLen: 20, FramingExtrasLen: 3, ExtrasLen: 4, KeyLen: 5},
+			expected: 8, // 20 - 3 - 4 - 5
+		},
+		{
+			name:     "flexible framing with only framing extras",
+			header:   Header{BodyLen: 3, FramingExtrasLen: 3, ExtrasLen: 0, KeyLen: 0},
 			expected: 0,
 		},
 	}

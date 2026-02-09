@@ -12,19 +12,25 @@ import (
 type Offset = int
 
 // Header represents the common 24-byte memcached binary protocol header.
+// The interpretation of bytes 2-3 differs between classic and flexible framing:
+//   - Classic (magic 0x80/0x81): bytes 2-3 = key length (uint16, big endian)
+//   - Flexible framing (magic 0x08/0x18): byte 2 = framing extras length (uint8),
+//     byte 3 = key length (uint8)
+//
 // The interpretation of bytes 6-7 differs between request (VBucket ID) and
 // response (Status code) packets.
 type Header struct {
-	Magic     Magic
-	Opcode    Opcode
-	KeyLen    uint16
-	ExtrasLen uint8
-	DataType  DataType
-	VBucketID uint16 // For requests: VBucket ID; For responses: Status code
-	Status    Status // Alias for VBucketID when parsing responses
-	BodyLen   uint32 // Total body length = extras + key + value
-	Opaque    uint32 // Echoed back in response, like correlation ID
-	CAS       uint64 // Compare-and-swap value
+	Magic            Magic
+	Opcode           Opcode
+	FramingExtrasLen uint8  // Only used for flexible framing (magic 0x08/0x18)
+	KeyLen           uint16 // For flexible framing, this is only 8 bits but stored as uint16
+	ExtrasLen        uint8
+	DataType         DataType
+	VBucketID        uint16 // For requests: VBucket ID; For responses: Status code
+	Status           Status // Alias for VBucketID when parsing responses
+	BodyLen          uint32 // Total body length = framing extras + extras + key + value
+	Opaque           uint32 // Echoed back in response, like correlation ID
+	CAS              uint64 // Compare-and-swap value
 }
 
 // TotalLen returns the total packet length (header + body).
@@ -34,22 +40,34 @@ func (h *Header) TotalLen() int {
 
 // ValueLen returns the length of the value portion of the body.
 func (h *Header) ValueLen() int {
-	return int(h.BodyLen) - int(h.ExtrasLen) - int(h.KeyLen)
+	return int(h.BodyLen) - int(h.FramingExtrasLen) - int(h.ExtrasLen) - int(h.KeyLen)
 }
 
 // Packet represents a parsed memcached binary protocol packet.
 // If the packet data is truncated, as much as possible is parsed
 // and the Truncated field is set to true.
 type Packet struct {
-	Header    Header
-	Extras    []byte
-	Key       []byte
-	Value     []byte
-	Truncated bool // True if the packet was truncated (incomplete body)
+	Header        Header
+	FramingExtras []byte // Only present for flexible framing packets (magic 0x08/0x18)
+	Extras        []byte
+	Key           []byte
+	Value         []byte
+	Truncated     bool // True if the packet was truncated (incomplete body)
 }
 
 // ParseHeader parses a 24-byte memcached binary protocol header.
 // It returns the parsed header and any error encountered.
+//
+// The header format differs between classic and flexible framing:
+//
+// Classic format (magic 0x80/0x81/0x82/0x83):
+//
+//	Bytes 2-3: Key length (uint16, big endian)
+//
+// Flexible framing (magic 0x08/0x18):
+//
+//	Byte 2: Framing extras length (uint8)
+//	Byte 3: Key length (uint8)
 func ParseHeader(pkt []byte) (*Header, error) {
 	if len(pkt) < HeaderLen {
 		return nil, fmt.Errorf("packet too short for header: got %d bytes, need %d", len(pkt), HeaderLen)
@@ -63,12 +81,22 @@ func ParseHeader(pkt []byte) (*Header, error) {
 	header := &Header{
 		Magic:     magic,
 		Opcode:    Opcode(pkt[1]),
-		KeyLen:    binary.BigEndian.Uint16(pkt[2:4]),
 		ExtrasLen: pkt[4],
 		DataType:  DataType(pkt[5]),
 		BodyLen:   binary.BigEndian.Uint32(pkt[8:12]),
 		Opaque:    binary.BigEndian.Uint32(pkt[12:16]),
 		CAS:       binary.BigEndian.Uint64(pkt[16:24]),
+	}
+
+	// Bytes 2-3 interpretation depends on framing format
+	if magic.IsAltFormat() {
+		// Flexible framing: byte 2 = framing extras length, byte 3 = key length (8-bit each)
+		header.FramingExtrasLen = pkt[2]
+		header.KeyLen = uint16(pkt[3])
+	} else {
+		// Classic format: bytes 2-3 = key length (uint16, big endian)
+		header.FramingExtrasLen = 0
+		header.KeyLen = binary.BigEndian.Uint16(pkt[2:4])
 	}
 
 	// Bytes 6-7 interpretation depends on packet type
@@ -88,6 +116,9 @@ func ParseHeader(pkt []byte) (*Header, error) {
 // ParsePacket parses a memcached binary protocol packet including the header
 // and body (extras, key, value). If the packet is truncated, it parses as much
 // as possible and sets the Truncated field to true.
+//
+// For flexible framing packets (magic 0x08/0x18), the body order is:
+// framing extras, extras, key, value.
 func ParsePacket(pkt []byte) (*Packet, error) {
 	header, err := ParseHeader(pkt)
 	if err != nil {
@@ -107,6 +138,19 @@ func ParsePacket(pkt []byte) (*Packet, error) {
 
 	offset := HeaderLen
 	remaining := len(pkt) - offset
+
+	// Parse framing extras first (only for flexible framing packets)
+	if header.FramingExtrasLen > 0 {
+		framingExtrasLen := int(header.FramingExtrasLen)
+		if remaining < framingExtrasLen {
+			framingExtrasLen = remaining
+		}
+		if framingExtrasLen > 0 {
+			packet.FramingExtras = pkt[offset : offset+framingExtrasLen]
+			offset += framingExtrasLen
+			remaining = len(pkt) - offset
+		}
+	}
 
 	// Parse extras (or as much as available)
 	if header.ExtrasLen > 0 {
@@ -175,10 +219,11 @@ func ParsePackets(segment []byte) ([]*Packet, error) {
 
 // validateHeader checks for basic validity of the parsed header.
 func validateHeader(h *Header) error {
-	// Check that body length is consistent with extras and key length
-	if int(h.BodyLen) < int(h.ExtrasLen)+int(h.KeyLen) {
-		return fmt.Errorf("invalid body length: %d < extras(%d) + key(%d)",
-			h.BodyLen, h.ExtrasLen, h.KeyLen)
+	// Check that body length is consistent with framing extras, extras, and key length
+	minBodyLen := int(h.FramingExtrasLen) + int(h.ExtrasLen) + int(h.KeyLen)
+	if int(h.BodyLen) < minBodyLen {
+		return fmt.Errorf("invalid body length: %d < framingExtras(%d) + extras(%d) + key(%d)",
+			h.BodyLen, h.FramingExtrasLen, h.ExtrasLen, h.KeyLen)
 	}
 
 	return nil
@@ -222,6 +267,11 @@ func (p *Packet) HasFullKey() bool {
 // HasFullExtras returns true if the complete extras were parsed.
 func (p *Packet) HasFullExtras() bool {
 	return len(p.Extras) == int(p.Header.ExtrasLen)
+}
+
+// HasFullFramingExtras returns true if the complete framing extras were parsed.
+func (p *Packet) HasFullFramingExtras() bool {
+	return len(p.FramingExtras) == int(p.Header.FramingExtrasLen)
 }
 
 // HasFullValue returns true if the complete value was parsed.
