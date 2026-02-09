@@ -169,19 +169,19 @@ func TestParseHeader(t *testing.T) {
 		},
 		{
 			name:      "flexible framing request",
-			packet:    makeAltRequestHeader(OpcodeGet, 3, 5, 0, 8, 100, 12345, 0), // 3 framing extras + 5 key = 8
+			packet:    makeAltRequestHeader(OpcodeGet, 2, 4, 0, 6, 100, 12345, 42), // 2 framing extras + 4 key = 6
 			expectErr: false,
 			expected: &Header{
 				Magic:            MagicAltClientRequest,
 				Opcode:           OpcodeGet,
-				FramingExtrasLen: 3,
-				KeyLen:           5,
+				FramingExtrasLen: 2,
+				KeyLen:           4,
 				ExtrasLen:        0,
 				DataType:         DataTypeRaw,
 				VBucketID:        100,
-				BodyLen:          8,
+				BodyLen:          6,
 				Opaque:           12345,
-				CAS:              0,
+				CAS:              42,
 			},
 		},
 		{
