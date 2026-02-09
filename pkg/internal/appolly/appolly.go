@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -76,22 +77,23 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		processEventsHostDecorated,
 	), swarm.WithID("HostProcessEventDecoratorProvider"))
 
-	processEventsKubeDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsKubeDecorated")
-	swi.Add(transform.KubeProcessEventDecoratorProvider(
-		ctxInfo,
-		&config.Attributes.Kubernetes,
+	// Get kube.Store for metadata notifier (only needed for Kubernetes)
+	var metaNotifier meta.Notifier
+	if ctxInfo.K8sInformer != nil && ctxInfo.K8sInformer.IsKubeEnabled() {
+		if store, err := ctxInfo.K8sInformer.Get(ctx); err == nil {
+			metaNotifier = store
+		}
+	}
+
+	processEventsDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsDecorated")
+	swi.Add(transform.ProcessEventMetadataDecoratorProvider(
+		ctxInfo.MetadataProvider,
+		metaNotifier,
 		processEventsHostDecorated,
-		processEventsKubeDecorated,
-	), swarm.WithID("KubeProcessEventDecoratorProvider"))
+		processEventsDecorated,
+	), swarm.WithID("ProcessEventMetadataDecorator"))
 
-	processEventsDockerDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsDockerDecorated")
-	swi.Add(transform.DockerProcessEventDecoratorProvider(
-		ctxInfo,
-		processEventsKubeDecorated,
-		processEventsDockerDecorated,
-	), swarm.WithID("DockerProcessEventDecorator"))
-
-	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsDockerDecorated)
+	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsDecorated)
 	if err != nil {
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}

@@ -20,10 +20,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
 	"go.opentelemetry.io/obi/pkg/internal/docker"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/netolly/agent"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 // Run in the foreground process. This is a blocking function and won't exit
@@ -195,6 +197,16 @@ func BuildCommonContextInfo(
 	}, ctxInfo.Metrics)
 
 	ctxInfo.DockerMetadata = docker.NewStore()
+
+	// Initialize unified metadata provider
+	clusterName := ""
+	if config.Attributes.Kubernetes.ClusterName != "" {
+		clusterName = config.Attributes.Kubernetes.ClusterName
+	} else {
+		// We'll fetch the cluster name when needed via KubeClusterName
+		clusterName = transform.KubeClusterName(ctx, &config.Attributes.Kubernetes, ctxInfo.K8sInformer)
+	}
+	ctxInfo.MetadataProvider = metadata.NewProvider(ctx, ctxInfo.K8sInformer, ctxInfo.DockerMetadata, clusterName)
 
 	attributeGroups(config, ctxInfo)
 

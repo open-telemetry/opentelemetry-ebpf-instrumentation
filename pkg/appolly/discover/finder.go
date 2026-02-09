@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tctracer"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tpinjector"
 	msgh "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -74,20 +75,24 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 	swi.Add(swarm.DirectInstance(ProcessWatcherFunc(pf.cfg, pf.ebpfEventContext, processEvents)),
 		swarm.WithID("ProcessWatcher"))
 
-	kubeEnrichedEvents := msgh.QueueFromConfig[[]Event[ProcessAttrs]](pf.cfg, "kubeEnrichedEvents")
-	swi.Add(WatcherKubeEnricherProvider(pf.ctxInfo.K8sInformer, processEvents, kubeEnrichedEvents),
-		swarm.WithID("WatcherKubeEnricher"))
+	// Get kube.Store for metadata notifier (only needed for Kubernetes)
+	var metaNotifier meta.Notifier
+	if pf.ctxInfo.K8sInformer != nil && pf.ctxInfo.K8sInformer.IsKubeEnabled() {
+		if store, err := pf.ctxInfo.K8sInformer.Get(context.Background()); err == nil {
+			metaNotifier = store
+		}
+	}
 
 	enrichedProcessEvents := startConfig.enrichedProcessEvents
 	if enrichedProcessEvents == nil {
 		enrichedProcessEvents = msgh.QueueFromConfig[[]Event[ProcessAttrs]](pf.cfg, "enrichedProcessEvents")
 	}
-	swi.Add(DockerDiscoveryDecoratorProvider(
-		pf.ctxInfo.K8sInformer,
-		pf.ctxInfo.DockerMetadata,
-		kubeEnrichedEvents,
+	swi.Add(MetadataDiscoveryDecoratorProvider(
+		pf.ctxInfo.MetadataProvider,
+		metaNotifier,
+		processEvents,
 		enrichedProcessEvents,
-	), swarm.WithID("DockerDiscoveryDecoratorProvider"))
+	), swarm.WithID("MetadataDiscoveryDecorator"))
 
 	criteriaFilteredEvents := msgh.QueueFromConfig[[]Event[ProcessMatch]](pf.cfg, "criteriaFilteredEvents")
 	swi.Add(criteriaMatcherProvider(pf.cfg, enrichedProcessEvents, criteriaFilteredEvents),

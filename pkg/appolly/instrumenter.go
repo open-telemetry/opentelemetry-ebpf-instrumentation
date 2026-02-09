@@ -86,23 +86,17 @@ func newGraphBuilder(
 		routerToKubeDecorator,
 	), swarm.WithID("Routes"))
 
-	// We connect the Kube and Docker metadata decorators in series, but only
-	// one of them will be active at the same time and bypass the other's queues
-	kubeToContainerDecorator := msg2.QueueFromConfig[[]request.Span](config, "kubeToContainerDecorator")
-	swi.Add(transform.KubeDecoratorProvider(
-		ctxInfo, &config.Attributes.Kubernetes,
-		routerToKubeDecorator, kubeToContainerDecorator,
-	), swarm.WithID("KubeDecorator"))
-
-	containerDecoratorToNameResolver := msg2.QueueFromConfig[[]request.Span](config, "containerDecoratorToNameResolver")
-	swi.Add(transform.DockerDecoratorProvider(
-		ctxInfo,
-		kubeToContainerDecorator, containerDecoratorToNameResolver,
-	), swarm.WithID("DockerDecorator"))
+	// Use unified metadata decorator
+	metadataDecoratorToNameResolver := msg2.QueueFromConfig[[]request.Span](config, "metadataDecoratorToNameResolver")
+	swi.Add(transform.MetadataDecoratorProvider(
+		ctxInfo.MetadataProvider,
+		routerToKubeDecorator,
+		metadataDecoratorToNameResolver,
+	), swarm.WithID("MetadataDecorator"))
 
 	nameResolverToAttrFilter := msg2.QueueFromConfig[[]request.Span](config, "nameResolverToAttrFilter")
 	swi.Add(transform.NameResolutionProvider(ctxInfo, config.NameResolver,
-		containerDecoratorToNameResolver, nameResolverToAttrFilter),
+		metadataDecoratorToNameResolver, nameResolverToAttrFilter),
 		swarm.WithID("NameResolution"))
 
 	// In vendored mode, the invoker might want to override the export queue for connecting their

@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/docker"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -38,6 +39,8 @@ type ContextInfo struct {
 	K8sInformer *kube.MetadataProvider
 	// DockerMetadata stores per-PID information of docker containers
 	DockerMetadata *docker.ContainerStore
+	// MetadataProvider is the unified metadata provider used across pipelines
+	MetadataProvider metadata.Provider
 
 	// OverrideAppExportQueue allows overriding the output queue of the application exporter
 	// to connect your own application exporters outside the OBI code base. If left unset, OBI will
