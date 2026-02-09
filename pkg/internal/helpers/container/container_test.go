@@ -46,6 +46,8 @@ var fixturesWithContainer = map[uint32]string{
 	899: `0::/../../pode039200acb850c82bb901653cc38ff6e/40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9`,
 	// Cgroup v2
 	910: `0::/k8s.io/40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9`,
+	// Orbstack driver=overlay2 version=28.5.2 cgroupDriver=cgroupfs cgroupVersion=2
+	911: `0::/../40c03570b6f4c30bc8d69923d37ee698f5cfcced92c7b7df1c47f6f7887378a9`,
 }
 
 var fixturesWithoutContainer = map[uint32]string{

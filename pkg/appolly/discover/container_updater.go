@@ -18,6 +18,7 @@ import (
 // ContainerDBUpdaterProvider is a stage in the Process Finder pipeline that will be
 // enabled only if Kubernetes decoration is enabled.
 // It just updates part of the kubernetes database when a new process is discovered.
+// TODO: rename to avoid confusions with Docker-only containers
 func ContainerDBUpdaterProvider(
 	meta kubeMetadataProvider, input, output *msg.Queue[[]Event[ebpf.Instrumentable]],
 ) swarm.InstanceFunc {

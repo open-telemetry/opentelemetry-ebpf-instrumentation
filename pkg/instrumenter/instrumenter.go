@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
+	"go.opentelemetry.io/obi/pkg/internal/docker"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/netolly/agent"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
@@ -193,6 +194,8 @@ func BuildCommonContextInfo(
 		ServiceNameTemplate: templ,
 	}, ctxInfo.Metrics)
 
+	ctxInfo.DockerMetadata = docker.NewStore()
+
 	attributeGroups(config, ctxInfo)
 
 	return ctxInfo, nil
@@ -229,6 +232,8 @@ func internalMetrics(
 func attributeGroups(config *obi.Config, ctxInfo *global.ContextInfo) {
 	if ctxInfo.K8sInformer.IsKubeEnabled() {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupKubernetes)
+	} else if ctxInfo.DockerMetadata.IsEnabled(context.Background()) {
+		ctxInfo.MetricAttributeGroups.Add(attributes.GroupContainer)
 	}
 	if config.Routes != nil {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupHTTPRoutes)

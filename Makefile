@@ -525,7 +525,7 @@ notices-update: docker-generate go-notices-update $(TARGET_BPF)
 
 .PHONY: go-notices-update
 go-notices-update: $(GOLICENSES)
-	@$(GOLICENSES) save ./... --save_path=$(NOTICES_DIR) --force
+	@GOOS=$(GOOS) GOARCH=amd64 $(GOLICENSES) save ./... --save_path=$(NOTICES_DIR) --force
 
 $(NOTICES_DIR)/%: %
 	@mkdir -p $(dir $@)
