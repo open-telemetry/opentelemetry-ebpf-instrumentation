@@ -108,6 +108,9 @@ type Tracer interface {
 	// Iters returns a list of programs that need to be loaded as a
 	// BPF_PROG_TYPE_TRACING with BPF_TRACE_ITER attach type
 	Iters() []*ebpfcommon.Iter
+	// Tracing() returns a list of programs that need to be loaded as a
+	// BPF_PROG_TYPE_TRACING
+	Tracing() []*ebpfcommon.Tracing
 	// Probes can potentially instrument a shared library among multiple executables
 	// These two functions alow programs to remember this and avoid duplicated instrumentations
 	// The argument is the OS file id

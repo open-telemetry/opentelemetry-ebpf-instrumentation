@@ -88,7 +88,7 @@ func getDefinitions(
 			attr.OBIIP:           false,
 			attr.Transport:       false,
 			attr.SrcAddress:      false,
-			attr.DstAddres:       false,
+			attr.DstAddress:      false,
 			attr.SrcPort:         false,
 			attr.DstPort:         false,
 			attr.SrcName:         false,

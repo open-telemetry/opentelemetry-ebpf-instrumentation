@@ -260,9 +260,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeProcNewproc1,
 			End:   p.bpfObjects.ObiUprobeProcNewproc1Ret,
 		}},
-		"runtime.goexit1": {{
-			Start: p.bpfObjects.ObiUprobeProcGoexit1,
-		}},
 		// Go net/http
 		"net/http.serverHandler.ServeHTTP": {{
 			Start: p.bpfObjects.ObiUprobeServeHTTP,
@@ -646,6 +643,8 @@ func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg { return nil }
 func (p *Tracer) SockOps() []ebpfcommon.SockOps { return nil }
 
 func (p *Tracer) Iters() []*ebpfcommon.Iter { return nil }
+
+func (p *Tracer) Tracing() []*ebpfcommon.Tracing { return nil }
 
 func (p *Tracer) RecordInstrumentedLib(_ uint64, _ []io.Closer) {}
 

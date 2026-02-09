@@ -441,6 +441,8 @@ func (p *Tracer) Iters() []*ebpfcommon.Iter {
 	return p.iters
 }
 
+func (p *Tracer) Tracing() []*ebpfcommon.Tracing { return nil }
+
 func (p *Tracer) RecordInstrumentedLib(id uint64, closers []io.Closer) {
 	p.libsMux.Lock()
 	defer p.libsMux.Unlock()
