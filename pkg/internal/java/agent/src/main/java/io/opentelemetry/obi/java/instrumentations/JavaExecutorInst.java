@@ -240,7 +240,9 @@ public class JavaExecutorInst {
           }
         }
       } catch (Throwable t) {
-        t.printStackTrace();
+        if (SSLStorage.bootDebugOn().equals(true)) {
+          t.printStackTrace();
+        }
       }
     }
   }

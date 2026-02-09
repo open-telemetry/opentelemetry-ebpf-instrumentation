@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -139,13 +140,13 @@ func TestDecoration(t *testing.T) {
 	}})
 	// we need to add PID metadata for all the pod/containers above
 	// by convention, the mocked pid namespace will be PID+1000
-	kube.InfoForPID = func(pid uint32) (container.Info, error) {
+	kube.InfoForPID = func(pid app.PID) (container.Info, error) {
 		return container.Info{
 			ContainerID:  fmt.Sprintf("container-%d", pid),
-			PIDNamespace: 1000 + pid,
+			PIDNamespace: 1000 + uint32(pid),
 		}, nil
 	}
-	for _, pid := range []uint32{12, 34, 56, 78, 33, 66, 67} {
+	for _, pid := range []app.PID{12, 34, 56, 78, 33, 66, 67} {
 		store.AddProcess(pid)
 	}
 	inputQueue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
@@ -364,11 +365,11 @@ func TestDecorationProcessEvents(t *testing.T) {
 
 	// we need to add PID metadata for all the pod/containers above
 	// by convention, the mocked pid namespace will be PID+1000
-	kube.InfoForPID = func(pid uint32) (container.Info, error) {
+	kube.InfoForPID = func(pid app.PID) (container.Info, error) {
 		if pid < 56 {
 			return container.Info{
 				ContainerID:  fmt.Sprintf("container-%d", pid),
-				PIDNamespace: 1000 + pid,
+				PIDNamespace: 1000 + uint32(pid),
 			}, nil
 		}
 
@@ -381,7 +382,7 @@ func TestDecorationProcessEvents(t *testing.T) {
 
 	containerInfoForPID = kube.InfoForPID
 
-	for _, pid := range []uint32{12, 34, 56, 78, 83, 66} {
+	for _, pid := range []app.PID{12, 34, 56, 78, 83, 66} {
 		store.AddProcess(pid)
 	}
 	inputQueue := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
@@ -526,7 +527,7 @@ func TestDecorationProcessEvents(t *testing.T) {
 	// we'll receive only two process events, two of the 4 naked pids were deleted
 	// so no event will be generated for those
 
-	seenPids := map[int32]struct{}{}
+	seenPids := map[app.PID]struct{}{}
 	for _, deco := range []exec.ProcessEvent{testutil.ReadChannel(t, outputCh, timeout), testutil.ReadChannel(t, outputCh, timeout)} {
 		seenPids[deco.File.Pid] = struct{}{}
 		assert.Equal(t, "the-ns", deco.File.Service.UID.Namespace)

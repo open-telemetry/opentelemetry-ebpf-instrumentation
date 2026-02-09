@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
@@ -41,7 +42,7 @@ const (
 	podName        = "the-deployment-123456789-abcde"
 )
 
-func testKubeMatch(t *testing.T, m Event[ProcessMatch], name string, pid int32) {
+func testKubeMatch(t *testing.T, m Event[ProcessMatch], name string, pid app.PID) {
 	assert.Equal(t, EventCreated, m.Type)
 	require.Len(t, m.Obj.Criteria, 1)
 	assert.Equal(t, name, m.Obj.Criteria[0].GetName())
@@ -280,7 +281,7 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 	wk := watcherKubeEnricher{
 		log:                slog.With("component", "discover.watcherKubeEnricher"),
 		store:              store,
-		containerByPID:     map[PID]container.Info{},
+		containerByPID:     map[app.PID]container.Info{},
 		processByContainer: map[string][]ProcessAttrs{},
 		podsInfoCh:         make(chan Event[*informer.ObjectMeta], 10),
 		input:              input.Subscribe(),
@@ -292,7 +293,7 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 
 	// Fake container info function that returns the same container string
 	// for any PID we ask for
-	containerInfoForPID = func(_ uint32) (container.Info, error) {
+	containerInfoForPID = func(_ app.PID) (container.Info, error) {
 		return container.Info{ContainerID: containerAll}, nil
 	}
 
@@ -361,10 +362,10 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 	assert.True(t, ok)
 	assert.Len(t, pidProc, 1)
 
-	_, ok = wk.containerByPID[PID(1)]
+	_, ok = wk.containerByPID[app.PID(1)]
 	assert.False(t, ok)
 
-	_, ok = wk.containerByPID[PID(2)]
+	_, ok = wk.containerByPID[app.PID(2)]
 	assert.True(t, ok)
 
 	// Let's delete the other process inside the container, the map should be cleaned up fully
@@ -378,11 +379,11 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 	_, ok = wk.processByContainer[containerAll]
 	assert.False(t, ok)
 
-	_, ok = wk.containerByPID[PID(2)]
+	_, ok = wk.containerByPID[app.PID(2)]
 	assert.False(t, ok)
 }
 
-func newProcess(input *msg.Queue[[]Event[ProcessAttrs]], pid PID, ports []uint32) {
+func newProcess(input *msg.Queue[[]Event[ProcessAttrs]], pid app.PID, ports []uint32) {
 	input.Send([]Event[ProcessAttrs]{{
 		Type: EventCreated,
 		Obj:  ProcessAttrs{pid: pid, openPorts: ports},
@@ -423,13 +424,13 @@ func deployOwnedPod(fInformer meta.Notifier, ns, name, replicaSetName, deploymen
 	})
 }
 
-func fakeContainerInfo(pid uint32) (container.Info, error) {
+func fakeContainerInfo(pid app.PID) (container.Info, error) {
 	return container.Info{ContainerID: fmt.Sprintf("container-%d", pid)}, nil
 }
 
 func fakeProcessInfo(pp ProcessAttrs) (*services.ProcessInfo, error) {
 	return &services.ProcessInfo{
-		Pid:       int32(pp.pid),
+		Pid:       pp.pid,
 		OpenPorts: pp.openPorts,
 		ExePath:   fmt.Sprintf("/bin/process%d", pp.pid),
 	}, nil

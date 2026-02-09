@@ -54,7 +54,7 @@ func TestMakeServiceAttrs(t *testing.T) {
 	attrs := ty.makeServiceAttrs(proc)
 	assert.Equal(t, "svc1", attrs.UID.Name)
 	assert.Equal(t, "ns1", attrs.UID.Namespace)
-	assert.Equal(t, int32(1234), attrs.ProcPID)
+	assert.EqualValues(t, 1234, attrs.ProcPID)
 	assert.Equal(t, services.ExportModeUnset, attrs.ExportModes)
 
 	// Test with sampler and routes
@@ -125,7 +125,7 @@ func TestMakeServiceAttrs_FeaturesMatchingMultipleCriteria(t *testing.T) {
 			attrs := ty.makeServiceAttrs(proc)
 			assert.Equal(t, "svc1", attrs.UID.Name)
 			assert.Equal(t, "ns1", attrs.UID.Namespace)
-			assert.Equal(t, int32(1234), attrs.ProcPID)
+			assert.EqualValues(t, 1234, attrs.ProcPID)
 
 			// the later matching criteria prevails
 			assert.Equal(t, exTra, attrs.ExportModes)

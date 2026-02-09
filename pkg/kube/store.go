@@ -14,6 +14,7 @@ import (
 	"text/template"
 	"time"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -86,15 +87,15 @@ type Store struct {
 
 	metadataNotifier meta.Notifier
 
-	containerIDs maps.Map2[string, uint32, *container.Info]
+	containerIDs maps.Map2[string, app.PID, *container.Info]
 
 	// stores container info by PID. It is only required for
 	// deleting entries in namespaces and podsByContainer when DeleteProcess is called
-	containerByPID map[uint32]*container.Info
+	containerByPID map[app.PID]*container.Info
 
 	// a single namespace will point to any container inside the pod
 	// but we don't care which one
-	namespaces maps.Map2[uint32, uint32, *container.Info]
+	namespaces maps.Map2[uint32, app.PID, *container.Info]
 
 	// container ID to pod matcher
 	podsByContainer map[string]*kube.CachedObjMeta
@@ -133,10 +134,10 @@ func NewStore(
 
 	db := &Store{
 		log:                 log,
-		containerIDs:        maps.Map2[string, uint32, *container.Info]{},
-		namespaces:          maps.Map2[uint32, uint32, *container.Info]{},
+		containerIDs:        maps.Map2[string, app.PID, *container.Info]{},
+		namespaces:          maps.Map2[uint32, app.PID, *container.Info]{},
 		podsByContainer:     map[string]*kube.CachedObjMeta{},
-		containerByPID:      map[uint32]*container.Info{},
+		containerByPID:      map[app.PID]*container.Info{},
 		objectMetaByIP:      map[string]*kube.CachedObjMeta{},
 		objectMetaByQName:   map[qualifiedName]*kube.CachedObjMeta{},
 		containersByOwner:   maps.Map2[string, string, *informer.ContainerInfo]{},
@@ -240,7 +241,7 @@ func (s *Store) On(event *informer.Event) error {
 // InfoForPID is an injectable dependency for system-independent testing
 var InfoForPID = container.InfoForPID
 
-func (s *Store) AddProcess(pid uint32) {
+func (s *Store) AddProcess(pid app.PID) {
 	ifp, err := InfoForPID(pid)
 	if err != nil {
 		s.log.Debug("failing to get container information", "pid", pid, "error", err)
@@ -256,7 +257,7 @@ func (s *Store) AddProcess(pid uint32) {
 	s.containerByPID[pid] = &ifp
 }
 
-func (s *Store) DeleteProcess(pid uint32) {
+func (s *Store) DeleteProcess(pid app.PID) {
 	s.access.Lock()
 	defer s.access.Unlock()
 	info, ok := s.containerByPID[pid]

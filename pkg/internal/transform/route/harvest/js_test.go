@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
 func TestRouteExtractor_ExpressApp(t *testing.T) {
@@ -1157,7 +1159,7 @@ app.get('/api/health', (req, res) => {
 
 	tests := []struct {
 		name              string
-		pid               int32
+		pid               app.PID
 		mockRootDir       string
 		mockCmdline       []string
 		mockCwd           string
@@ -1252,12 +1254,12 @@ app.get('/api/health', (req, res) => {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Mock the helper functions
-			rootDirForPID = func(pid int32) string {
+			rootDirForPID = func(pid app.PID) string {
 				assert.Equal(t, tt.pid, pid)
 				return tt.mockRootDir
 			}
 
-			cmdlineForPID = func(pid int32) (string, []string, error) {
+			cmdlineForPID = func(pid app.PID) (string, []string, error) {
 				assert.Equal(t, tt.pid, pid)
 				if tt.cmdlineErr != nil {
 					return "", nil, tt.cmdlineErr
@@ -1269,7 +1271,7 @@ app.get('/api/health', (req, res) => {
 				return exe, tt.mockCmdline, nil
 			}
 
-			cwdForPID = func(pid int32) (string, error) {
+			cwdForPID = func(pid app.PID) (string, error) {
 				assert.Equal(t, tt.pid, pid)
 				if tt.cwdErr != nil {
 					return "", tt.cwdErr
@@ -1322,15 +1324,15 @@ func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {
 	emptyDir := filepath.Join(tempDir, "empty")
 	require.NoError(t, os.MkdirAll(emptyDir, 0o755))
 
-	rootDirForPID = func(_ int32) string {
+	rootDirForPID = func(_ app.PID) string {
 		return tempDir
 	}
 
-	cmdlineForPID = func(_ int32) (string, []string, error) {
+	cmdlineForPID = func(_ app.PID) (string, []string, error) {
 		return "node", []string{"node", "server.js"}, nil
 	}
 
-	cwdForPID = func(_ int32) (string, error) {
+	cwdForPID = func(_ app.PID) (string, error) {
 		return "/empty", nil
 	}
 

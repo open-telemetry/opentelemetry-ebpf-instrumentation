@@ -15,6 +15,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -1002,11 +1003,11 @@ func (mr *MetricsReporter) deleteTracesTargetInfo(attrs *attribute.Set) {
 	mr.tracesTargetInfo.Remove(mr.ctx, attrOpt)
 }
 
-func (mr *MetricsReporter) setupPIDToServiceRelationship(pid int32, uid svc.UID) {
+func (mr *MetricsReporter) setupPIDToServiceRelationship(pid app.PID, uid svc.UID) {
 	mr.pidTracker.AddPID(pid, uid)
 }
 
-func (mr *MetricsReporter) disassociatePIDFromService(pid int32) (bool, svc.UID) {
+func (mr *MetricsReporter) disassociatePIDFromService(pid app.PID) (bool, svc.UID) {
 	return mr.pidTracker.RemovePID(pid)
 }
 

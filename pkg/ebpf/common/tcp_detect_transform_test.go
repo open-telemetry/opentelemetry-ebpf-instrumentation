@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/config"
@@ -69,7 +70,7 @@ func TestTCPReqParsing(t *testing.T) {
 
 	binaryRecord := bytes.Buffer{}
 	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
 	require.NoError(t, err)
 	assert.Equal(t, request.Span{}, span)
@@ -115,7 +116,7 @@ func TestSQLDetectionDoesntFailForDetectedKind(t *testing.T) {
 
 // Test making sure that issue https://github.com/grafana/beyla/issues/854 is fixed
 func TestReadTCPRequestIntoSpan_Overflow(t *testing.T) {
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 
 	tri := TCPRequestInfo{
 		Len: 340,
@@ -250,7 +251,7 @@ func TestTCPReqMQTTHeuristicFailure(t *testing.T) {
 
 	binaryRecord := bytes.Buffer{}
 	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 
 	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
 	require.NoError(t, err)

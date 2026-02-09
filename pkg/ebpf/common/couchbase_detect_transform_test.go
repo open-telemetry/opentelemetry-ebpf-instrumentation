@@ -515,7 +515,7 @@ func TestTCPToCouchbaseToSpan(t *testing.T) {
 			assert.Equal(t, tt.expectStatus, span.Status)
 			assert.Equal(t, int64(1000000000), span.Start)
 			assert.Equal(t, int64(1000500000), span.End)
-			assert.Equal(t, uint32(1234), span.Pid.HostPID)
+			assert.EqualValues(t, 1234, span.Pid.HostPID)
 
 			if tt.info.IsError {
 				assert.NotEmpty(t, span.DBError.ErrorCode)
