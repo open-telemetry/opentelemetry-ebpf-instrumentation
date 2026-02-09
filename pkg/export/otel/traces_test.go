@@ -504,6 +504,144 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
 		assert.Equal(t, "KEY_NOT_FOUND", spans.At(0).Status().Message())
 	})
+	t.Run("test SQL++ trace generation", func(t *testing.T) {
+		span := request.Span{
+			Type:        request.EventTypeHTTPClient,
+			SubType:     request.HTTPSubtypeSQLPP,
+			Method:      "SELECT",
+			Route:       "travel-sample._default.airline",
+			DBNamespace: "travel-sample",
+			DBSystem:    "couchbase",
+			Statement:   "SELECT * FROM `travel-sample`._default.airline WHERE id = 10",
+			Host:        "localhost",
+			HostPort:    8093,
+			Status:      200,
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.NotEmpty(t, spans.At(0).SpanID().String())
+		assert.NotEmpty(t, spans.At(0).TraceID().String())
+		assert.Equal(t, "SELECT travel-sample._default.airline", spans.At(0).Name())
+
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 8, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "travel-sample._default.airline")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "travel-sample")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), "SELECT * FROM `travel-sample`._default.airline WHERE id = 10")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.ServerAddr), "localhost")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.HTTPResponseStatusCode))
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.ErrorType))
+		assert.Equal(t, ptrace.StatusCodeUnset, spans.At(0).Status().Code())
+	})
+	t.Run("test SQL++ trace generation without db.query.text", func(t *testing.T) {
+		span := request.Span{
+			Type:        request.EventTypeHTTPClient,
+			SubType:     request.HTTPSubtypeSQLPP,
+			Method:      "SELECT",
+			Route:       "travel-sample._default.airline",
+			DBNamespace: "travel-sample",
+			DBSystem:    "couchbase",
+			Statement:   "SELECT * FROM `travel-sample`._default.airline WHERE id = 10",
+			Host:        "localhost",
+			HostPort:    8093,
+			Status:      200,
+		}
+		// Without db.query.text in optional attributes
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 7, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "travel-sample._default.airline")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "travel-sample")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+		assert.Equal(t, ptrace.StatusCodeUnset, spans.At(0).Status().Code())
+	})
+	t.Run("test SQL++ trace generation with error", func(t *testing.T) {
+		span := request.Span{
+			Type:        request.EventTypeHTTPClient,
+			SubType:     request.HTTPSubtypeSQLPP,
+			Method:      "SELECT",
+			Route:       "travel-sample._default.nonexistent",
+			DBNamespace: "travel-sample",
+			DBSystem:    "couchbase",
+			Statement:   "SELECT * FROM `travel-sample`._default.nonexistent",
+			Host:        "localhost",
+			HostPort:    8093,
+			Status:      404,
+			DBError: request.DBError{
+				ErrorCode:   "12003",
+				Description: "Keyspace not found in CB datastore: default:travel-sample._default.nonexistent",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.NotEmpty(t, spans.At(0).SpanID().String())
+		assert.NotEmpty(t, spans.At(0).TraceID().String())
+		assert.Equal(t, "SELECT travel-sample._default.nonexistent", spans.At(0).Name())
+
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 10, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "travel-sample._default.nonexistent")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "travel-sample")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), "SELECT * FROM `travel-sample`._default.nonexistent")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.ErrorType), "12003")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "12003")
+		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
+		assert.Equal(t, "Keyspace not found in CB datastore: default:travel-sample._default.nonexistent", spans.At(0).Status().Message())
+	})
+	t.Run("test SQL++ trace generation with minimal attributes", func(t *testing.T) {
+		span := request.Span{
+			Type:     request.EventTypeHTTPClient,
+			SubType:  request.HTTPSubtypeSQLPP,
+			Method:   "INSERT",
+			DBSystem: "couchbase",
+			Host:     "localhost",
+			HostPort: 8093,
+			Status:   200,
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		// When no Route or DBNamespace, trace name falls back to operation + host:port
+		assert.Equal(t, "INSERT localhost:8093", spans.At(0).Name())
+
+		attrs := spans.At(0).Attributes()
+
+		// Only required attributes: server.addr, server.port, peer.service, db.system.name, db.operation.name
+		assert.Equal(t, 5, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "INSERT")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.ServerAddr), "localhost")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBCollectionName))
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBNamespace))
+		assert.Equal(t, ptrace.StatusCodeUnset, spans.At(0).Status().Code())
+	})
 	t.Run("test env var resource attributes", func(t *testing.T) {
 		defer otelcfg.RestoreEnvAfterExecution()()
 		t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=productions,source.upstream=beyla")
@@ -1365,7 +1503,6 @@ func ensureTraceStrAttr(t *testing.T, attrs pcommon.Map, key attribute.Key, val 
 	assert.Equal(t, val, v.AsString())
 }
 
-//nolint:unparam
 func ensureTraceAttrNotExists(t *testing.T, attrs pcommon.Map, key attribute.Key) {
 	_, ok := attrs.Get(string(key))
 	assert.False(t, ok)

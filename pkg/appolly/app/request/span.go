@@ -593,6 +593,10 @@ func SpanStatusMessage(span *Span) string {
 		}
 	case EventTypeManualSpan:
 		return span.Path
+	case EventTypeHTTPClient:
+		if span.SubType == HTTPSubtypeSQLPP && span.Status != 0 && span.DBError.Description != "" {
+			return span.DBError.Description
+		}
 	}
 	return ""
 }
