@@ -35,6 +35,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/gomysql
   - go.opentelemetry.io/obi/internal/test/integration/components/gomysql-otelsql
   - go.opentelemetry.io/obi/internal/test/integration/components/gopgx
+  - go.opentelemetry.io/obi/internal/test/integration/components/gopgx-pool
   - go.opentelemetry.io/obi/internal/test/integration/components/gopgx-stdlib
   - go.opentelemetry.io/obi/internal/test/integration/components/goredis
   - go.opentelemetry.io/obi/internal/test/integration/components/gosql
