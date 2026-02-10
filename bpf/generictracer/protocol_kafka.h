@@ -49,7 +49,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, kafka_state_key_t);
     __type(value, kafka_state_data_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
 } kafka_state SEC(".maps");
 
 typedef struct kafka_correlation_data {
@@ -60,7 +60,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, connection_info_t);
     __type(value, kafka_correlation_data_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
 } kafka_ongoing_requests SEC(".maps");
 
 enum {

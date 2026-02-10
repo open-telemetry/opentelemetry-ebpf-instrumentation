@@ -13,5 +13,5 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, pid_key_t);   // the client thread
     __type(value, pid_key_t); // the server thread
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
 } java_tasks SEC(".maps");

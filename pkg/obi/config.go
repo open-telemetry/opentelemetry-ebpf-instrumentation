@@ -139,6 +139,11 @@ var DefaultConfig = Config{
 			Postgres: 0,
 			Kafka:    0,
 		},
+		MapSizes: config.EBPFMapSizes{
+			MaxConcurrentRequests:       1000,
+			MaxConcurrentSharedRequests: 30000,
+			MaxConcurrentCustomSpans:    1000,
+		},
 		MySQLPreparedStatementsCacheSize:    1024,
 		PostgresPreparedStatementsCacheSize: 1024,
 		MongoRequestsCacheSize:              1024,

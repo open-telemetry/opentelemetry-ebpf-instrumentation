@@ -11,7 +11,7 @@
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
     __type(key, u64);           // pid_tid
     __type(value, send_args_t); // size to be sent
 } active_send_args SEC(".maps");

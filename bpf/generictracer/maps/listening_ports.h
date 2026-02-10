@@ -13,5 +13,5 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, struct sock_port_ns);
     __type(value, bool);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
 } listening_ports SEC(".maps");

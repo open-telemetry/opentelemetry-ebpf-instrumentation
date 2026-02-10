@@ -16,5 +16,5 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);                         // the pid-tid pair
     __type(value, ssl_pid_connection_info_t); // the pointer to the file descriptor matching ssl
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, DEFAULT_MAX_CONCURRENT_SHARED_REQUESTS);
 } pid_tid_to_conn SEC(".maps");

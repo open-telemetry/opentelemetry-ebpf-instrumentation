@@ -23,7 +23,7 @@ typedef struct conn_pid {
 // to anything handled by the sock_filter
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
     __uint(key_size, sizeof(connection_info_t));
     __uint(value_size, sizeof(conn_pid_t));
     __uint(pinning, OBI_PIN_INTERNAL);

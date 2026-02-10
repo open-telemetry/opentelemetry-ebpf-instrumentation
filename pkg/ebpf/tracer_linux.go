@@ -177,8 +177,22 @@ func (pt *ProcessTracer) setupOtelBPFFSPath(bundles []*common.SpecBundle) string
 	return ""
 }
 
-func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p Tracer) error {
-	bundles, err := p.LoadSpecs()
+
+func (pt *ProcessTracer) setupBPFMapSizes(spec *ebpf.CollectionSpec, cfg *obi.Config) {
+	fmt.Println("pino setupBPFMapSizes")
+
+	mapSizes := pt.getRuntimeMapSizes(cfg)
+
+	for name, m := range spec.Maps {
+		if newSize, shouldOverride := mapSizes[name]; shouldOverride {
+			m.MaxEntries = newSize
+			fmt.Println("pino setupBPFMapSizes FOUND IT name: ", name)
+		}
+	}
+}
+
+func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p Tracer, cfg *obi.Config) error {
+	spec, err := pt.loadSpec(p)
 	if err != nil {
 		return fmt.Errorf("loading eBPF program specs: %w", err)
 	}
@@ -190,16 +204,22 @@ func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p 
 			closeLoadedSpecs(bundles[:i])
 			return err
 		}
+	// set max entries map using user defined values
+	pt.setupBPFMapSizes(spec, cfg)
+
+	collOpts, err := resolveMaps(eventContext, spec)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tracer, log *slog.Logger) error {
+func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tracer, log *slog.Logger, cfg *obi.Config) error {
 	plog := log.With("program", reflect.TypeOf(p))
 	plog.Debug("loading eBPF program", "type", pt.Type)
 
-	err := pt.loadAndAssign(eventContext, p)
+	err := pt.loadAndAssign(eventContext, p, cfg)
 
 	if err != nil && (strings.Contains(err.Error(), "unknown func bpf_probe_write_user") ||
 		strings.Contains(err.Error(), "cannot use helper bpf_probe_write_user")) {
@@ -210,7 +230,7 @@ func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tra
 			"For more details set OTEL_EBPF_LOG_LEVEL=DEBUG.")
 
 		common.IntegrityModeOverride = true
-		err = pt.loadAndAssign(eventContext, p)
+		err = pt.loadAndAssign(eventContext, p, cfg)
 	}
 
 	if err != nil {
@@ -266,7 +286,7 @@ func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tra
 	return nil
 }
 
-func (pt *ProcessTracer) loadTracers(eventContext *common.EBPFEventContext) error {
+func (pt *ProcessTracer) loadTracers(eventContext *common.EBPFEventContext, cfg *obi.Config) error {
 	eventContext.LoadLock.Lock()
 	defer eventContext.LoadLock.Unlock()
 
@@ -275,7 +295,7 @@ func (pt *ProcessTracer) loadTracers(eventContext *common.EBPFEventContext) erro
 	loadedPrograms := make([]Tracer, 0, len(pt.Programs))
 
 	for _, p := range pt.Programs {
-		if err := pt.loadTracer(eventContext, p, log); err != nil {
+		if err := pt.loadTracer(eventContext, p, log, cfg); err != nil {
 			log.Warn("couldn't load tracer", "error", err, "required", p.Required())
 			if p.Required() {
 				return err
@@ -292,8 +312,8 @@ func (pt *ProcessTracer) loadTracers(eventContext *common.EBPFEventContext) erro
 	return nil
 }
 
-func (pt *ProcessTracer) Init(eventContext *common.EBPFEventContext) error {
-	return pt.loadTracers(eventContext)
+func (pt *ProcessTracer) Init(eventContext *common.EBPFEventContext, cfg *obi.Config) error {
+	return pt.loadTracers(eventContext, cfg)
 }
 
 func (pt *ProcessTracer) NewExecutableInstance(ie *Instrumentable) error {
@@ -404,4 +424,83 @@ func RunUtilityTracer(ctx context.Context, eventContext *common.EBPFEventContext
 	btf.FlushKernelSpec()
 
 	return nil
+}
+
+func (pt *ProcessTracer) getRuntimeMapSizes(cfg *obi.Config) map[string]uint32 {
+	return map[string]uint32{
+		// override DEFAULT_MAX_CONCURRENT_REQUESTS
+		"listening_ports":                   cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"active_unix_socks":                 cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"incoming_trace_map":                cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"nginx_upstream":                    cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"outgoing_trace_map":                cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"go_ongoing_http":                   cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"pq_hostnames":                      cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"go_ongoing_http_client_requests":   cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"java_tasks":                        cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"protocol_cache":                    cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"puma_task_connections":             cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"puma_worker_tasks":                 cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"active_send_args":                  cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"active_send_sock_args":             cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ssl_to_pid_tid":                    cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"active_accept_args":                cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"active_recv_args":                  cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"active_connect_args":               cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_http2_connections":         cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"upstream_init_args":                cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"kafka_state":                       cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"kafka_ongoing_requests":            cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"mysql_state":                       cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"produce_traceparents":              cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_produce_topics":            cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_produce_messages":          cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"produce_requests":                  cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"fetch_requests":                    cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_client_connections":        cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_grpc_operate_headers":      cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_grpc_transports":           cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_sql_queries":               cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_mongo_requests":            cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"newproc1":                          cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_http_client_requests_data": cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"http2_server_requests_tp":          cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_http_server_requests":      cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"header_req_map":                    cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"http2_req_map":                     cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"framer_invocation_map":             cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"span_names":                        cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_redis_requests":            cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"redis_writes":                      cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"kafka_requests":                    cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_kafka_requests":            cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_grpc_request_status":       cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_grpc_client_requests":      cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_grpc_server_requests":      cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"cached_grpc_client_connections":    cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_streams":                   cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"ongoing_grpc_header_writes":        cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"transport_new_client_invocations":  cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"grpc_framer_invocation_map":        cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		// override DEFAULT_MAX_CONCURRENT_SHARED_REQUESTS
+		"ssl_to_conn":                cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"server_traces":              cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"server_traces_aux":          cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"clone_map":                  cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"fd_to_connection":           cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"active_ssl_connections":     cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"accepted_connections":       cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"fd_map":                     cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"cp_support_connect_info":    cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"ongoing_http":               cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"trace_map":                  cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"ongoing_tcp_req":            cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"ongoing_http2_grpc":         cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"pid_tid_to_conn":            cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"ongoing_goroutines":         cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"ongoing_server_connections": cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		"go_trace_map":               cfg.EBPF.MapSizes.MaxConcurrentSharedRequests,
+		// override DEFAULT_MAX_CONCURRENT_CUSTOM_SPANS
+		"active_spans": cfg.EBPF.MapSizes.MaxConcurrentCustomSpans,
+	}
 }
