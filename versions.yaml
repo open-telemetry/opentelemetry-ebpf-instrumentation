@@ -9,6 +9,7 @@ module-sets:
 excluded-modules:
   - github.com/hashicorp/go-version
   - github.com/hashicorp/golang-lru/v2
+  - go.opentelemetry.io/collector/cmd/builder
   - go.opentelemetry.io/obi/configs/offsets/gin
   - go.opentelemetry.io/obi/configs/offsets/kafkago
   - go.opentelemetry.io/obi/configs/offsets/mongo
