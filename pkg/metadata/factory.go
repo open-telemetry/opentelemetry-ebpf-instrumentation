@@ -7,7 +7,7 @@ import (
 	"context"
 	"log/slog"
 
-	"go.opentelemetry.io/obi/pkg/internal/docker"
+	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/kube"
 )
 
