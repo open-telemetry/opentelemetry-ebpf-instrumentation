@@ -36,7 +36,6 @@ Update all crosslink dependencies and any version references in code.
     ```
 
 3. Push the changes to upstream and create a Pull Request on GitHub.
-   Be sure to include the curated changes from the [Changelog](./CHANGELOG.md) in the description.
 
 ## Tag
 
