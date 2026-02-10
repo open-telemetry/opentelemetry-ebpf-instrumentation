@@ -16,7 +16,7 @@ import (
 )
 
 func ddlog() *slog.Logger {
-	return slog.With("component", "DockerDecorator")
+	return slog.With("component", "DockerMetadataDecorator")
 }
 
 type dockerAPIClient interface {
@@ -24,21 +24,22 @@ type dockerAPIClient interface {
 	ContainerInfo(context.Context, app.PID) (docker.ContainerMeta, bool)
 }
 
-func DockerDiscoveryDecoratorProvider(
+// DockerMetadataDecoratorProvider creates a Docker-specific metadata decorator.
+// This decorator fetches Docker container metadata synchronously when processes are discovered.
+// It is only enabled when Kubernetes is not available and Docker is present.
+func DockerMetadataDecoratorProvider(
 	kube kubeMetadataProvider,
 	dockerClient dockerAPIClient,
 	input, output *msg.Queue[[]Event[ProcessAttrs]],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		// only enable this node if Docker is available, but also
-		// if we aren't running on Kubernetes
-		if kube.IsKubeEnabled() ||
-			!dockerClient.IsEnabled(ctx) {
+		// Only enable if Docker is available and Kubernetes is not running
+		if kube.IsKubeEnabled() || !dockerClient.IsEnabled(ctx) {
 			return swarm.Bypass(input, output)
 		}
 
-		dd := dockerDecorator{
-			in:             input.Subscribe(msg.SubscriberName("DockerDecorator")),
+		dd := dockerMetadataDecorator{
+			in:             input.Subscribe(msg.SubscriberName("DockerMetadataDecorator")),
 			out:            output,
 			containerByPID: map[app.PID]docker.ContainerMeta{},
 			log:            ddlog(),
@@ -48,7 +49,10 @@ func DockerDiscoveryDecoratorProvider(
 	}
 }
 
-type dockerDecorator struct {
+// dockerMetadataDecorator decorates process attributes with Docker container metadata.
+// Unlike Kubernetes, Docker decoration is synchronous - metadata is fetched immediately
+// when a process is discovered, without requiring asynchronous event matching.
+type dockerMetadataDecorator struct {
 	in             <-chan []Event[ProcessAttrs]
 	out            *msg.Queue[[]Event[ProcessAttrs]]
 	containerByPID map[app.PID]docker.ContainerMeta
@@ -56,7 +60,7 @@ type dockerDecorator struct {
 	docker         dockerAPIClient
 }
 
-func (dd *dockerDecorator) decorate(ctx context.Context) {
+func (dd *dockerMetadataDecorator) decorate(ctx context.Context) {
 	defer dd.out.Close()
 	swarms.ForEachInput(ctx, dd.in, dd.log.Debug, func(instrumentables []Event[ProcessAttrs]) {
 		for i := range instrumentables {
@@ -75,7 +79,7 @@ func (dd *dockerDecorator) decorate(ctx context.Context) {
 	})
 }
 
-func (dd *dockerDecorator) containerInfo(ctx context.Context, pid app.PID) (docker.ContainerMeta, bool) {
+func (dd *dockerMetadataDecorator) containerInfo(ctx context.Context, pid app.PID) (docker.ContainerMeta, bool) {
 	if ci, ok := dd.containerByPID[pid]; ok {
 		return ci, true
 	}
