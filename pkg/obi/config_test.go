@@ -281,7 +281,7 @@ discovery:
 			},
 			DefaultExcludeInstrument: services.GlobDefinitionCriteria{
 				services.GlobAttributes{
-					Path: services.NewGlob("{*beyla,*alloy,*ebpf-instrument,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}"),
+					Path: services.NewGlob("{*beyla,*alloy,*obi,*ebpf-instrument,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}"),
 				},
 				services.GlobAttributes{
 					Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
@@ -569,20 +569,28 @@ func TestDefaultExclusionFilter(t *testing.T) {
 
 	assert.True(t, c[0].Path.MatchString("beyla"))
 	assert.True(t, c[0].Path.MatchString("alloy"))
+	assert.True(t, c[0].Path.MatchString("obi"))
 	assert.True(t, c[0].Path.MatchString("otelcol-contrib"))
+	assert.True(t, c[0].Path.MatchString("ebpf-instrument"))
 
 	assert.False(t, c[0].Path.MatchString("/usr/bin/beyla/test"))
 	assert.False(t, c[0].Path.MatchString("/usr/bin/alloy/test"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/obi/test"))
 	assert.False(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib/test"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/ebpf-instrument/test"))
 
 	assert.True(t, c[0].Path.MatchString("/beyla"))
 	assert.True(t, c[0].Path.MatchString("/alloy"))
+	assert.True(t, c[0].Path.MatchString("/obi"))
 	assert.True(t, c[0].Path.MatchString("/otelcol-contrib"))
+	assert.True(t, c[0].Path.MatchString("/ebpf-instrument"))
 
 	assert.True(t, c[0].Path.MatchString("/usr/bin/beyla"))
 	assert.True(t, c[0].Path.MatchString("/usr/bin/alloy"))
+	assert.True(t, c[0].Path.MatchString("/usr/bin/obi"))
 	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib"))
 	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib123"))
+	assert.True(t, c[0].Path.MatchString("/usr/bin/ebpf-instrument"))
 }
 
 func TestDefaultLegacyExclusionFilter(t *testing.T) {

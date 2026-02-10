@@ -5,7 +5,7 @@ receivers:
 #      services:
 #        - k8s_namespace: .
 #      exclude_services:
-#        - exe_path: ".*ebpf-instrument.*|.*otelcol.*"
+#        - exe_path: ".*obi.*|.*otelcol.*"
   otlp:
     protocols:
       grpc:
