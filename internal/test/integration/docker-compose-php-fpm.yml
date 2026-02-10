@@ -2,26 +2,24 @@ version: "3.8"
 
 services:
   nginx:
-    image: nginx:latest@sha256:7272239bd21472f311aa3e86a85fdca0f1ad648995f983ab6e5e7dea665cd233
+    image: nginx:latest@sha256:341bf0f3ce6c5277d6002cf6e1fb0319fa4252add24ab6a0e262e0056d313208
     mem_limit: 128m
     container_name: hatest-nginx
     ports:
       - "8080:80"
     volumes:
       - ./components/php/nginx.conf:/etc/nginx/nginx.conf
-      - nginx_socket:/var/run/
     depends_on:
       - php-fpm
 
   php-fpm:
-    image: php:fpm@sha256:d4871a19b9e56a00263921ebb1aea25ba57010e98c8861f33fef42e9ceb62614
+    image: php:fpm@sha256:cf0ad713a40b4728a5de6055633285a92e3fe84dddfddd5218098b203f8395b5
     mem_limit: 512m
     container_name: hatest-php-fpm
     volumes:
       - ./components/php/php-fpm.conf:/usr/local/etc/php-fpm.d/www.conf
       - ./components/php/php.ini:/usr/local/etc/php/php.ini
       - ./components/php/:/var/www/html
-      - php_socket:/var/run/
     environment:
       PM_STRATEGY: static
       PM_MAX_CHILDREN: 100
@@ -110,6 +108,3 @@ services:
       - COLLECTOR_OTLP_ENABLED=true
       - LOG_LEVEL=debug
 
-volumes:
-  nginx_socket:
-  php_socket:

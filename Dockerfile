@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 	&& make compile
 
 # Build the Java OBI agent
-FROM gradle:9.3.0-jdk21-noble@sha256:c81b8eca24ce89252df6f8e81cb61266d62dbc84ab5f969ea22fc00804f995e2 AS javaagent-builder
+FROM gradle:9.3.1-jdk21-noble@sha256:5f836f4642496f816f15d495b007e1912f36bf58fbea0247c0b761af438d7cf2 AS javaagent-builder
 
 WORKDIR /build
 
