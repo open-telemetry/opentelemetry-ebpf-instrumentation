@@ -12,13 +12,13 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
-	"go.opentelemetry.io/obi/pkg/internal/docker"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/netolly/agent"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
