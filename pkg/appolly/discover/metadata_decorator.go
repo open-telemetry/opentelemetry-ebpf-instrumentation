@@ -164,12 +164,8 @@ func (md *metadataDecorator) onNewProcess(procInfo ProcessAttrs) (ProcessAttrs, 
 	md.containerByPID[procInfo.pid] = containerInfo.ContainerID
 	md.processByContainer[containerInfo.ContainerID] = append(md.processByContainer[containerInfo.ContainerID], procInfo)
 
-	// Try to get metadata from provider
-	meta := md.provider.MetadataByPIDNs(containerInfo.PIDNamespace)
-	if meta != nil {
-		procInfo = md.withMetadata(procInfo, meta, containerInfo.ContainerID)
-	}
-
+	// Metadata will be added when pod events arrive
+	// For now, return the process info as-is
 	return procInfo, true
 }
 
@@ -208,15 +204,12 @@ func (md *metadataDecorator) onNewPod(pod *informer.ObjectMeta) []Event[ProcessA
 		if procInfos, ok := md.processByContainer[cnt.Id]; ok {
 			for _, procInfo := range procInfos {
 				md.log.Debug("matched pod with running process", "container", cnt.Id, "pid", procInfo.pid)
-				// Get fresh metadata from provider
-				if containerInfo, err := containerInfoForPID(procInfo.pid); err == nil {
-					if meta := md.provider.MetadataByPIDNs(containerInfo.PIDNamespace); meta != nil {
-						events = append(events, Event[ProcessAttrs]{
-							Type: EventCreated,
-							Obj:  md.withMetadata(procInfo, meta, cnt.Id),
-						})
-					}
-				}
+				// Build metadata directly from pod info
+				procInfo = md.withPodMetadata(procInfo, pod, cnt.Name)
+				events = append(events, Event[ProcessAttrs]{
+					Type: EventCreated,
+					Obj:  procInfo,
+				})
 			}
 		}
 	}
@@ -236,57 +229,57 @@ func (md *metadataDecorator) onDeletedPod(pod *informer.ObjectMeta) {
 	}
 }
 
-// withMetadata returns a copy of ProcessAttrs with metadata populated.
-func (md *metadataDecorator) withMetadata(pp ProcessAttrs, meta *metadata.Metadata, containerID string) ProcessAttrs {
+// withPodMetadata returns a copy of ProcessAttrs with Kubernetes metadata populated from pod info.
+// This builds metadata directly from the informer.ObjectMeta similar to the old watcher_kube.go approach.
+func (md *metadataDecorator) withPodMetadata(pp ProcessAttrs, pod *informer.ObjectMeta, containerName string) ProcessAttrs {
 	ret := pp
-	ret.metadata = map[string]string{}
-
-	if meta.K8sMetadata != nil {
-		// Kubernetes metadata
-		k8s := meta.K8sMetadata
-		ret.metadata[services.AttrNamespace] = meta.Namespace
-		ret.metadata[services.AttrPodName] = k8s.PodName
-		ret.metadata[services.AttrOwnerName] = k8s.OwnerName
-		ret.podLabels = k8s.Labels
-		ret.podAnnotations = k8s.Annotations
-
-		// Add container name if we can find it
-		if containerID != "" && k8s.PodName != "" {
-			// Container name should be in the metadata
-			if meta.ContainerName != "" {
-				ret.metadata[services.AttrContainerName] = meta.ContainerName
-			}
-		}
-
-		// Add owner labels for all owners (from OTEL attributes)
-		for attrName, attrValue := range meta.OTELAttributes {
-			if kindLabel := md.getOwnerLabelFromAttr(string(attrName)); kindLabel != "" {
-				ret.metadata[kindLabel] = attrValue
-			}
-		}
-	} else if meta.Name != "" {
-		// Docker metadata
-		ret.metadata[services.AttrContainerName] = meta.ContainerName
+	ret.metadata = map[string]string{
+		services.AttrNamespace: pod.Namespace,
+		services.AttrPodName:   pod.Name,
 	}
+
+	// Set owner name (top-level owner)
+	ownerName := pod.Name
+	if pod.Pod != nil {
+		for _, owner := range pod.Pod.Owners {
+			// Use first owner as the main owner (usually the top-level one)
+			if ownerName == pod.Name {
+				ownerName = owner.Name
+			}
+			// Add specific owner type labels
+			if kindLabel := ownerLabelForKind(owner.Kind); kindLabel != "" {
+				ret.metadata[kindLabel] = owner.Name
+			}
+		}
+	}
+	ret.metadata[services.AttrOwnerName] = ownerName
+
+	// Set container name
+	if containerName != "" {
+		ret.metadata[services.AttrContainerName] = containerName
+	}
+
+	// Copy labels and annotations
+	ret.podLabels = pod.Labels
+	ret.podAnnotations = pod.Annotations
 
 	return ret
 }
 
-// getOwnerLabelFromAttr converts OTEL attribute names to Prometheus-style owner labels.
-func (md *metadataDecorator) getOwnerLabelFromAttr(attrName string) string {
-	// Map OTEL attribute names to owner label names
-	switch attrName {
-	case string(attr.K8sDeploymentName):
+// ownerLabelForKind returns the Prometheus-style label name for a Kubernetes owner kind.
+func ownerLabelForKind(kind string) string {
+	switch kind {
+	case "Deployment":
 		return attr.K8sDeploymentName.Prom()
-	case string(attr.K8sStatefulSetName):
+	case "StatefulSet":
 		return attr.K8sStatefulSetName.Prom()
-	case string(attr.K8sDaemonSetName):
+	case "DaemonSet":
 		return attr.K8sDaemonSetName.Prom()
-	case string(attr.K8sReplicaSetName):
+	case "ReplicaSet":
 		return attr.K8sReplicaSetName.Prom()
-	case string(attr.K8sJobName):
+	case "Job":
 		return attr.K8sJobName.Prom()
-	case string(attr.K8sCronJobName):
+	case "CronJob":
 		return attr.K8sCronJobName.Prom()
 	default:
 		return ""

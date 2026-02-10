@@ -40,46 +40,110 @@ func (k *KubernetesProvider) DeleteProcess(pid app.PID) {
 	k.store.DeleteProcess(pid)
 }
 
-func (k *KubernetesProvider) MetadataByPIDNs(pidns uint32) *Metadata {
+func (k *KubernetesProvider) GetMetadataEntries(pidns uint32) []MetadataEntry {
 	podMeta, containerName := k.store.PodContainerByPIDNs(pidns)
 	if podMeta == nil {
 		return nil
 	}
 
-	return k.convertToMetadata(podMeta, containerName)
+	return k.buildMetadataEntries(podMeta, containerName)
 }
 
-func (k *KubernetesProvider) MetadataByIP(ip string) *Metadata {
+func (k *KubernetesProvider) GetMetadataEntriesByIP(ip string) []MetadataEntry {
 	objMeta := k.store.ObjectMetaByIP(ip)
 	if objMeta == nil {
 		return nil
 	}
 
-	return k.convertToMetadata(objMeta, "")
+	return k.buildMetadataEntries(objMeta, "")
 }
 
-func (k *KubernetesProvider) ServiceNameForIP(ip string) (string, string, string) {
-	return k.store.ServiceNameNamespaceForIP(ip)
-}
-
-func (k *KubernetesProvider) DecorateService(svc *svc.Attrs, pidns uint32) {
-	podMeta, containerName := k.store.PodContainerByPIDNs(pidns)
-	if podMeta != nil {
-		k.appendKubeMetadata(svc, podMeta, containerName)
-	} else if svc.Metadata == nil {
-		// Ensure metadata map is not nil
-		svc.Metadata = map[attr.Name]string{}
+func (k *KubernetesProvider) GetServiceName(ip string) ServiceInfo {
+	name, namespace, k8sNamespace := k.store.ServiceNameNamespaceForIP(ip)
+	return ServiceInfo{
+		Name:         name,
+		Namespace:    namespace,
+		K8sNamespace: k8sNamespace,
 	}
 }
 
-// appendKubeMetadata decorates a service with Kubernetes metadata.
-// This is a copy of transform.AppendKubeMetadata to avoid import cycles.
+// buildMetadataEntries constructs Kubernetes metadata entries from pod metadata.
+func (k *KubernetesProvider) buildMetadataEntries(cachedMeta *ikube.CachedObjMeta, containerName string) []MetadataEntry {
+	meta := cachedMeta.Meta
+	if meta.Pod == nil {
+		k.log.Debug("pod metadata is nil, cannot build entries", "meta", meta)
+		return nil
+	}
+
+	topOwner := ikube.TopOwner(meta.Pod)
+
+	// Start with base K8s metadata
+	entries := []MetadataEntry{
+		{Key: attr.K8sNamespaceName, Value: meta.Namespace},
+		{Key: attr.K8sPodName, Value: meta.Name},
+		{Key: attr.K8sContainerName, Value: containerName},
+		{Key: attr.K8sNodeName, Value: meta.Pod.NodeName},
+		{Key: attr.K8sPodUID, Value: meta.Pod.Uid},
+		{Key: attr.K8sPodStartTime, Value: meta.Pod.StartTimeStr},
+		{Key: attr.K8sClusterName, Value: k.clusterName},
+	}
+
+	// Add owner metadata
+	if topOwner != nil {
+		entries = append(entries,
+			MetadataEntry{Key: attr.K8sOwnerName, Value: topOwner.Name},
+			MetadataEntry{Key: attr.K8sKind, Value: topOwner.Kind},
+		)
+	}
+
+	// Add all owner kinds
+	for _, owner := range meta.Pod.Owners {
+		// Set K8sKind only if not already set
+		hasKind := false
+		for _, e := range entries {
+			if e.Key == attr.K8sKind {
+				hasKind = true
+				break
+			}
+		}
+		if !hasKind {
+			entries = append(entries, MetadataEntry{Key: attr.K8sKind, Value: owner.Kind})
+		}
+
+		// Add specific owner kind label
+		if kindLabel := ownerLabelName(owner.Kind); kindLabel != "" {
+			entries = append(entries, MetadataEntry{Key: kindLabel, Value: owner.Name})
+		}
+	}
+
+	// Add OTEL resource metadata from cached object
+	for k, v := range cachedMeta.OTELResourceMeta {
+		entries = append(entries, MetadataEntry{Key: k, Value: v})
+	}
+
+	return entries
+}
+
+// DecorateService provides backward compatibility by applying metadata and service identity.
+// This method combines metadata entries with service identity configuration.
+func (k *KubernetesProvider) DecorateService(svc *svc.Attrs, pidns uint32) {
+	podMeta, containerName := k.store.PodContainerByPIDNs(pidns)
+	if podMeta == nil {
+		return
+	}
+
+	k.appendKubeMetadata(svc, podMeta, containerName)
+}
+
+// appendKubeMetadata decorates a service with Kubernetes metadata and service identity.
+// This is kept for backward compatibility and full service decoration.
 func (k *KubernetesProvider) appendKubeMetadata(svc *svc.Attrs, meta *ikube.CachedObjMeta, containerName string) {
 	if meta.Meta.Pod == nil {
 		k.log.Debug("pod metadata for is nil. Ignoring decoration", "meta", meta)
 		return
 	}
-	topOwner := ikube.TopOwner(meta.Meta.Pod)
+
+	// Determine service name and namespace using Kubernetes business logic
 	name, namespace := k.store.ServiceNameNamespaceForMetadata(meta.Meta, containerName)
 
 	// If the user has not defined criteria values for the reported
@@ -95,46 +159,19 @@ func (k *KubernetesProvider) appendKubeMetadata(svc *svc.Attrs, meta *ikube.Cach
 	// Service Instance ID is set according to OTEL collector conventions
 	svc.UID.Instance = meta.Meta.Namespace + "." + meta.Meta.Name + "." + containerName
 
-	k8sMeta := map[attr.Name]string{
-		attr.K8sNamespaceName: meta.Meta.Namespace,
-		attr.K8sPodName:       meta.Meta.Name,
-		attr.K8sContainerName: containerName,
-		attr.K8sNodeName:      meta.Meta.Pod.NodeName,
-		attr.K8sPodUID:        meta.Meta.Pod.Uid,
-		attr.K8sPodStartTime:  meta.Meta.Pod.StartTimeStr,
-		attr.K8sClusterName:   k.clusterName,
-	}
+	// Get metadata entries and convert to map
+	entries := k.buildMetadataEntries(meta, containerName)
 
-	// Create a new map to avoid concurrent map writes on svc.Metadata
-	m := make(map[attr.Name]string)
-
-	// Thread-safe copy for the existing metadata
+	// Create metadata map
+	m := make(map[attr.Name]string, len(entries))
 	if svcMetadata := svc.Metadata; svcMetadata != nil {
 		maps.Copy(m, svcMetadata)
 	}
 
-	// Thread-safe copy for the new k8s metadata
-	maps.Copy(m, k8sMeta)
-
-	// Add owner metadata
-	if topOwner != nil {
-		m[attr.K8sOwnerName] = topOwner.Name
-		m[attr.K8sKind] = topOwner.Kind
+	for _, entry := range entries {
+		m[entry.Key] = entry.Value
 	}
 
-	for _, owner := range meta.Meta.Pod.Owners {
-		if _, ok := m[attr.K8sKind]; !ok {
-			m[attr.K8sKind] = owner.Kind
-		}
-		if kindLabel := ownerLabelName(owner.Kind); kindLabel != "" {
-			m[kindLabel] = owner.Name
-		}
-	}
-
-	// Append resource metadata from cached object
-	maps.Copy(m, meta.OTELResourceMeta)
-
-	// Thread-safe assignment of the new metadata map
 	svc.Metadata = m
 
 	// Override hostname by the Pod name
@@ -158,69 +195,5 @@ func ownerLabelName(kind string) attr.Name {
 		return attr.K8sCronJobName
 	default:
 		return ""
-	}
-}
-
-// convertToMetadata converts kube.CachedObjMeta to unified Metadata structure.
-func (k *KubernetesProvider) convertToMetadata(cachedMeta *ikube.CachedObjMeta, containerName string) *Metadata {
-	meta := cachedMeta.Meta
-	if meta.Pod == nil {
-		k.log.Debug("pod metadata is nil, cannot convert", "meta", meta)
-		return nil
-	}
-
-	topOwner := ikube.TopOwner(meta.Pod)
-	ownerName := meta.Name
-	ownerKind := ""
-	if topOwner != nil {
-		ownerName = topOwner.Name
-		ownerKind = topOwner.Kind
-	}
-
-	// Build OTEL attributes
-	otelAttrs := map[attr.Name]string{
-		attr.K8sNamespaceName: meta.Namespace,
-		attr.K8sPodName:       meta.Name,
-		attr.K8sContainerName: containerName,
-		attr.K8sNodeName:      meta.Pod.NodeName,
-		attr.K8sPodUID:        meta.Pod.Uid,
-		attr.K8sPodStartTime:  meta.Pod.StartTimeStr,
-		attr.K8sClusterName:   k.clusterName,
-	}
-
-	if topOwner != nil {
-		otelAttrs[attr.K8sOwnerName] = topOwner.Name
-		otelAttrs[attr.K8sKind] = topOwner.Kind
-	}
-
-	for _, owner := range meta.Pod.Owners {
-		if _, ok := otelAttrs[attr.K8sKind]; !ok {
-			otelAttrs[attr.K8sKind] = owner.Kind
-		}
-		if kindLabel := ownerLabelName(owner.Kind); kindLabel != "" {
-			otelAttrs[kindLabel] = owner.Name
-		}
-	}
-
-	// Append resource metadata from cached object
-	maps.Copy(otelAttrs, cachedMeta.OTELResourceMeta)
-
-	return &Metadata{
-		Name:          meta.Name,
-		Namespace:     meta.Namespace,
-		ContainerID:   "", // Not directly available in this context
-		ContainerName: containerName,
-		K8sMetadata: &K8sMetadata{
-			PodName:      meta.Name,
-			PodUID:       meta.Pod.Uid,
-			PodStartTime: meta.Pod.StartTimeStr,
-			NodeName:     meta.Pod.NodeName,
-			OwnerName:    ownerName,
-			OwnerKind:    ownerKind,
-			ClusterName:  k.clusterName,
-			Labels:       meta.Labels,
-			Annotations:  meta.Annotations,
-		},
-		OTELAttributes: otelAttrs,
 	}
 }

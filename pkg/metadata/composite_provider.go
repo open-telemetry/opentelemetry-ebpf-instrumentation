@@ -5,8 +5,6 @@ package metadata // import "go.opentelemetry.io/obi/pkg/metadata"
 
 import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
-	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 // CompositeProvider combines multiple metadata providers into a single provider.
@@ -37,49 +35,35 @@ func (c *CompositeProvider) DeleteProcess(pid app.PID) {
 	}
 }
 
-// MetadataByPIDNs returns metadata from the first provider that has it.
-// Returns nil if no provider has metadata for this PID namespace.
-func (c *CompositeProvider) MetadataByPIDNs(pidns uint32) *Metadata {
+// GetMetadataEntries collects metadata entries from all providers.
+// Entries from all providers are combined (later providers can override earlier ones).
+func (c *CompositeProvider) GetMetadataEntries(pidns uint32) []MetadataEntry {
+	var allEntries []MetadataEntry
 	for _, p := range c.providers {
-		if meta := p.MetadataByPIDNs(pidns); meta != nil {
-			return meta
-		}
+		entries := p.GetMetadataEntries(pidns)
+		allEntries = append(allEntries, entries...)
 	}
-	return nil
+	return allEntries
 }
 
-// MetadataByIP returns metadata from the first provider that has it.
-// Returns nil if no provider has metadata for this IP.
-func (c *CompositeProvider) MetadataByIP(ip string) *Metadata {
+// GetMetadataEntriesByIP collects metadata entries from all providers by IP.
+// Entries from all providers are combined (later providers can override earlier ones).
+func (c *CompositeProvider) GetMetadataEntriesByIP(ip string) []MetadataEntry {
+	var allEntries []MetadataEntry
 	for _, p := range c.providers {
-		if meta := p.MetadataByIP(ip); meta != nil {
-			return meta
-		}
+		entries := p.GetMetadataEntriesByIP(ip)
+		allEntries = append(allEntries, entries...)
 	}
-	return nil
+	return allEntries
 }
 
-// ServiceNameForIP returns service name from the first provider that has it.
-// Returns empty strings if no provider has service name for this IP.
-func (c *CompositeProvider) ServiceNameForIP(ip string) (string, string, string) {
+// GetServiceName returns service name from the first provider that has it.
+// Returns empty ServiceInfo if no provider has service name for this IP.
+func (c *CompositeProvider) GetServiceName(ip string) ServiceInfo {
 	for _, p := range c.providers {
-		if name, namespace, k8sNamespace := p.ServiceNameForIP(ip); name != "" {
-			return name, namespace, k8sNamespace
+		if info := p.GetServiceName(ip); info.Name != "" {
+			return info
 		}
 	}
-	return "", "", ""
-}
-
-// DecorateService calls all providers in sequence to decorate the service.
-// Each provider can add its own metadata attributes.
-func (c *CompositeProvider) DecorateService(svc *svc.Attrs, pidns uint32) {
-	// Ensure metadata map is initialized
-	if svc.Metadata == nil {
-		svc.Metadata = map[attr.Name]string{}
-	}
-
-	// Let each provider add its metadata
-	for _, p := range c.providers {
-		p.DecorateService(svc, pidns)
-	}
+	return ServiceInfo{}
 }

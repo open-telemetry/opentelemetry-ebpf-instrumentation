@@ -9,7 +9,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
@@ -95,12 +94,12 @@ mainLoop:
 			}
 			md.log.Debug("annotating process event", "event", pe)
 
-			// Decorate service with metadata
-			md.provider.DecorateService(&pe.File.Service, pe.File.Ns)
+			// Get metadata entries and apply them
+			entries := md.provider.GetMetadataEntries(pe.File.Ns)
+			metadata.ApplyMetadata(&pe.File.Service, entries)
 
 			// Check if we got metadata
-			if len(pe.File.Service.Metadata) == 0 {
-				pe.File.Service.Metadata = map[attr.Name]string{}
+			if len(entries) == 0 {
 				md.log.Debug("no metadata for event", "event", pe)
 
 				// Track processes that don't have metadata yet (for Kubernetes late arrivals)
@@ -145,8 +144,9 @@ func (md *processEventMetadataDecorator) handlePodUpdateEvent(pod *informer.Obje
 			md.log.Debug("found missed pid info", "containerId", cnt.Id)
 			for _, pe := range peMap {
 				// Re-decorate with fresh metadata
-				md.provider.DecorateService(&pe.File.Service, pe.File.Ns)
-				if len(pe.File.Service.Metadata) > 0 {
+				entries := md.provider.GetMetadataEntries(pe.File.Ns)
+				if len(entries) > 0 {
+					metadata.ApplyMetadata(&pe.File.Service, entries)
 					md.log.Debug("resubmitting process event", "event", pe)
 					md.output.Send(*pe)
 				}

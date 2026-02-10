@@ -86,28 +86,29 @@ func (d *DockerProvider) DeleteProcess(pid app.PID) {
 	d.log.Debug("deleted process from Docker provider", "pid", pid)
 }
 
-func (d *DockerProvider) MetadataByPIDNs(pidns uint32) *Metadata {
+func (d *DockerProvider) GetMetadataEntries(pidns uint32) []MetadataEntry {
 	d.mu.RLock()
-	defer d.mu.RUnlock()
-
 	containerMeta, ok := d.pidNsToMeta[pidns]
+	d.mu.RUnlock()
+
 	if !ok {
 		return nil
 	}
 
-	return d.convertToMetadata(&containerMeta)
+	return buildDockerMetadataEntries(&containerMeta)
 }
 
-func (d *DockerProvider) MetadataByIP(_ string) *Metadata {
-	// Docker provider does not YET support IP-based lookups
+func (d *DockerProvider) GetMetadataEntriesByIP(_ string) []MetadataEntry {
+	// Docker provider does not support IP-based lookups
 	return nil
 }
 
-func (d *DockerProvider) ServiceNameForIP(_ string) (string, string, string) {
-	// Docker provider does not YET support service name resolution by IP
-	return "", "", ""
+func (d *DockerProvider) GetServiceName(_ string) ServiceInfo {
+	// Docker provider does not support service name resolution by IP
+	return ServiceInfo{}
 }
 
+// DecorateService provides backward compatibility by applying metadata and service identity.
 func (d *DockerProvider) DecorateService(svc *svc.Attrs, pidns uint32) {
 	d.mu.RLock()
 	containerMeta, ok := d.pidNsToMeta[pidns]
@@ -115,25 +116,13 @@ func (d *DockerProvider) DecorateService(svc *svc.Attrs, pidns uint32) {
 
 	if ok {
 		containerMeta.DecorateService(svc)
-	} else if svc.Metadata == nil {
-		// Ensure metadata map is not nil
-		svc.Metadata = map[attr.Name]string{}
 	}
 }
 
-// convertToMetadata converts docker.ContainerMeta to unified Metadata structure.
-func (d *DockerProvider) convertToMetadata(containerMeta *docker.ContainerMeta) *Metadata {
-	otelAttrs := map[attr.Name]string{
-		attr.ContainerName: containerMeta.Name,
-		attr.ContainerID:   containerMeta.ID,
-	}
-
-	return &Metadata{
-		Name:           containerMeta.Name,
-		Namespace:      "",
-		ContainerID:    containerMeta.ID,
-		ContainerName:  containerMeta.Name,
-		K8sMetadata:    nil, // Docker provider does not have Kubernetes metadata
-		OTELAttributes: otelAttrs,
+// buildDockerMetadataEntries constructs Docker metadata entries from container metadata.
+func buildDockerMetadataEntries(containerMeta *docker.ContainerMeta) []MetadataEntry {
+	return []MetadataEntry{
+		{Key: attr.ContainerName, Value: containerMeta.Name},
+		{Key: attr.ContainerID, Value: containerMeta.ID},
 	}
 }

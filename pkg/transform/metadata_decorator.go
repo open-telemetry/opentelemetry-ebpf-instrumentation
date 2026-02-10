@@ -8,7 +8,6 @@ import (
 	"log/slog"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -56,23 +55,19 @@ func (md *spanMetadataDecorator) nodeLoop(ctx context.Context) {
 }
 
 func (md *spanMetadataDecorator) do(span *request.Span) {
-	// Decorate service with metadata from PID namespace
-	md.provider.DecorateService(&span.Service, span.Pid.Namespace)
-
-	// Ensure service metadata is not nil
-	if span.Service.Metadata == nil {
-		span.Service.Metadata = map[attr.Name]string{}
-	}
+	// Get metadata entries from provider and apply them
+	entries := md.provider.GetMetadataEntries(span.Pid.Namespace)
+	metadata.ApplyMetadata(&span.Service, entries)
 
 	// Override peer and host names from metadata provider (IP-based lookups)
 	if span.Host != "" {
-		if name, _, _ := md.provider.ServiceNameForIP(span.Host); name != "" {
-			span.HostName = name
+		if info := md.provider.GetServiceName(span.Host); info.Name != "" {
+			span.HostName = info.Name
 		}
 	}
 	if span.Peer != "" {
-		if name, _, _ := md.provider.ServiceNameForIP(span.Peer); name != "" {
-			span.PeerName = name
+		if info := md.provider.GetServiceName(span.Peer); info.Name != "" {
+			span.PeerName = info.Name
 		}
 	}
 }
