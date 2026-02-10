@@ -868,10 +868,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
     const u32 data_size = (e - ptr) & 0x3ff; // 1KB chunks per iteration
 
     for (u32 i = 0; i < data_size; ++i) {
-        if (ptr + TP_SIZE >= e) {
-            return SK_PASS;
-        }
-        if (is_eoh(ptr)) {
+        if ((ptr + TP_SIZE >= e) || is_eoh(ptr)) {
             bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
             break;
         }
