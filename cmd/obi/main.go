@@ -38,13 +38,25 @@ func main() {
 	}
 
 	configPath := flag.String("config", "", "path to the configuration file")
+	javaAgentPath := flag.String("java-agent", "", "path to the Java agent JAR file")
 	flag.Parse()
 
 	if cfg := os.Getenv("OTEL_EBPF_CONFIG_PATH"); cfg != "" {
 		configPath = &cfg
 	}
 
+	// Handle Java agent path: flag takes precedence over env var
+	if *javaAgentPath == "" {
+		if envPath := os.Getenv("OTEL_EBPF_JAVAAGENT_PATH"); envPath != "" {
+			javaAgentPath = &envPath
+		}
+	}
+
 	config := loadConfig(configPath)
+	// Set the Java agent path in config if provided via flag or env var
+	if *javaAgentPath != "" {
+		config.Java.SetAgentPath(*javaAgentPath)
+	}
 	if err := config.Validate(); err != nil {
 		slog.Error("wrong configuration", "error", err)
 		os.Exit(-1)
