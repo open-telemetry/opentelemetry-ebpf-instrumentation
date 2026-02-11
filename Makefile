@@ -443,7 +443,7 @@ license-header-check:
 .PHONY: artifact
 artifact: docker-generate compile compile-cache java-docker-build
 	@echo "### Packing generated artifact for $(GOOS)/$(GOARCH)"
-	@STAGING_DIR=$$(mktemp -d); \
+	@STAGING_DIR=$$(mktemp -d 2>/dev/null || mktemp -d -t obi.XXXXXX); \
 	trap "rm -rf $$STAGING_DIR" EXIT; \
 	cp ./bin/$(CMD) $$STAGING_DIR/; \
 	cp ./bin/$(CACHE_CMD) $$STAGING_DIR/; \
