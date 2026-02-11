@@ -179,7 +179,7 @@ generate: $(BPF2GO)
 .PHONY: docker-generate
 docker-generate:
 	@echo "### Generating files (docker)..."
-	@OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/obi-genfiles/obi_genfiles.go
+	@GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/obi-genfiles/obi_genfiles.go
 
 .PHONY: verify
 verify: prereqs lint test license-header-check
@@ -443,10 +443,15 @@ license-header-check:
 .PHONY: artifact
 artifact: docker-generate compile compile-cache java-docker-build
 	@echo "### Packing generated artifact for $(GOOS)/$(GOARCH)"
-	cp LICENSE ./bin
-	cp NOTICE ./bin
-	cp -r NOTICES ./bin
-	tar -C ./bin -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(CACHE_CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
+	@STAGING_DIR=$$(mktemp -d 2>/dev/null || mktemp -d -t obi.XXXXXX); \
+	trap "rm -rf $$STAGING_DIR" EXIT; \
+	cp ./bin/$(CMD) $$STAGING_DIR/; \
+	cp ./bin/$(CACHE_CMD) $$STAGING_DIR/; \
+	cp ./bin/$(JAVA_AGENT) $$STAGING_DIR/; \
+	cp LICENSE $$STAGING_DIR/; \
+	cp NOTICE $$STAGING_DIR/; \
+	cp -r NOTICES $$STAGING_DIR/; \
+	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(CACHE_CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
 
 .PHONY: release
 release: clean-release-dir

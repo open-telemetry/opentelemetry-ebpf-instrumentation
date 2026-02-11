@@ -228,6 +228,8 @@ jobs:
       packages: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
+    secrets:
+      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
 
   docker-publish-k8s-cache:
     name: Publish Docker Image (k8s cache)
@@ -239,6 +241,8 @@ jobs:
       packages: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
+    secrets:
+      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
 
   build-artifacts:
     name: Build Release Artifacts
