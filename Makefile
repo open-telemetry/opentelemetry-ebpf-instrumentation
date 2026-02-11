@@ -45,7 +45,7 @@ CILIUM_EBPF_VER ?= v0.20.0
 CILIUM_EBPF_PKG := github.com/cilium/ebpf
 
 # regular expressions for excluded file patterns
-EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/internal/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)|(/cmd/obi-genfiles)"
+EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/internal/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)"
 
 .DEFAULT_GOAL := all
 
@@ -53,6 +53,9 @@ EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/interna
 # This will prevent that they are installed in the $USER/go/bin folder and different
 # projects ca have different versions of the tools
 PROJECT_DIR := $(shell dirname $(abspath $(firstword $(MAKEFILE_LIST))))
+
+# Used by bpf2go to generate make compatible depinfo files.
+export BPF2GO_MAKEBASE := $(PROJECT_DIR)
 
 # Check that given variables are set and all have non-empty values,
 # die with an error otherwise.
@@ -168,18 +171,41 @@ update-offsets: $(GO_OFFSETS_TRACKER)
 	@echo "### Updating pkg/internal/goexec/offsets.json"
 	$(GO_OFFSETS_TRACKER) -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
 
-.PHONY: generate
+# eBPF code generation
+BPF_ROOT = pkg/
+BPF_GEN_GO := $(shell find $(BPF_ROOT) -type f -name 'bpf_*_bpfe[lb].go' -o -name 'net_*_bpfe[lb].go' -o -name 'netsk_*_bpfe[lb].go')
+BPF_GEN_OBJ := $(BPF_GEN_GO:.go=.o)
+BPF_GEN_ALL := $(BPF_GEN_GO) $(BPF_GEN_OBJ)
+
+# Include all depinfo files to ensure we only re-generate when needed
+-include $(shell find $(BPF_ROOT) -type f -name '*_bpfel.go.d' 2>/dev/null)
+
+.PHONY: generate generate/all
 generate: export BPF_CLANG := $(CLANG)
 generate: export BPF_CFLAGS := $(CFLAGS)
 generate: export BPF2GO := $(BPF2GO)
-generate: $(BPF2GO)
-	@echo "### Generating files..."
-	@OTEL_EBPF_GENFILES_RUN_LOCALLY=1 go generate cmd/obi-genfiles/obi_genfiles.go
+generate: $(BPF2GO) $(BPF_GEN_ALL)
+
+$(BPF_GEN_ALL): $(BPF2GO)
+	@echo "Generating $(dir $@)..."
+	@go generate ./$(dir $@)
+
+generate/all: export BPF_CLANG := $(CLANG)
+generate/all: export BPF_CFLAGS := $(CFLAGS)
+generate/all: export BPF2GO := $(BPF2GO)
+generate/all: $(BPF2GO)
+	@echo "### Generating all eBPF files..."
+	@go generate ./...
 
 .PHONY: docker-generate
 docker-generate:
-	@echo "### Generating files (docker)..."
-	@GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/obi-genfiles/obi_genfiles.go
+	@echo "### Generating files in Docker..."
+	@$(OCI_BIN) run --rm \
+		-u $(DOCKER_USER) \
+		-v "$(CURDIR):/src:z" \
+		-w /src \
+		$(GEN_IMG) \
+		make generate
 
 .PHONY: verify
 verify: prereqs lint test license-header-check
