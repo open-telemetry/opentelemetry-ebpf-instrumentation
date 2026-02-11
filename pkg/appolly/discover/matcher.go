@@ -359,13 +359,14 @@ func FindingCriteria(cfg *obi.Config) []services.Selector {
 
 	if len(cfg.Discovery.Instrument) > 0 {
 		finderCriteria := cfg.Discovery.Instrument
-		if cfg.AutoTargetExe.IsSet() || cfg.Port.Len() > 0 {
+		if cfg.AutoTargetExe.IsSet() || cfg.Port.Len() > 0 || cfg.PodName.IsSet() {
 			finderCriteria = slices.Clone(cfg.Discovery.Instrument)
 			finderCriteria = append(finderCriteria, services.GlobAttributes{
 				Name:      cfg.ServiceName,
 				Namespace: cfg.ServiceNamespace,
 				Path:      cfg.AutoTargetExe,
 				OpenPorts: cfg.Port,
+				Metadata:  map[string]*services.GlobAttr{services.AttrPodName: &cfg.PodName},
 			})
 		}
 		return NormalizeGlobCriteria(finderCriteria)
@@ -381,8 +382,24 @@ func FindingCriteria(cfg *obi.Config) []services.Selector {
 				Namespace: cfg.ServiceNamespace,
 				Path:      cfg.AutoTargetExe,
 				OpenPorts: cfg.Port,
+				Metadata:  map[string]*services.GlobAttr{services.AttrPodName: &cfg.PodName},
 			},
 		}
+	}
+
+	// edge case: when neither discovery > services nor discovery > instrument sections are set,
+	// and the user is not using the new OTEL_EBPF_AUTO_TARGET_EXE/OTEL_GO_AUTO_TARGET_EXE property
+	// but is using the OTEL_EBPF_K8S_POD_NAME property, we will prioritize it and match any executable in the matched pod, to avoid missing instrumentation opportunities
+	if cfg.PodName.IsSet() {
+		criteria := services.GlobDefinitionCriteria{
+			{
+				Name:      cfg.ServiceName,
+				Namespace: cfg.ServiceNamespace,
+				OpenPorts: cfg.Port,
+				Metadata:  map[string]*services.GlobAttr{services.AttrPodName: &cfg.PodName},
+			},
+		}
+		return NormalizeGlobCriteria(criteria)
 	}
 
 	return []services.Selector{

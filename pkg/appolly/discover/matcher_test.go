@@ -590,3 +590,99 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 	assert.True(t, asteroidAttrs.ExportModes.CanExportMetrics())
 	require.Nil(t, asteroidAttrs.Sampler)
 }
+
+func TestFindingCriteria_PodName(t *testing.T) {
+	testCases := []struct {
+		name               string
+		cfg                *obi.Config
+		expectedPodName    string
+		expectedSelCount   int
+		checkSelectorIdx   int
+		shouldMatchAnyPath bool
+	}{
+		{
+			name: "with AutoTargetExe",
+			cfg: &obi.Config{
+				PodName:       services.NewGlob("test-pod"),
+				AutoTargetExe: services.NewGlob("/bin/myapp"),
+				TracePrinter:  "text",
+			},
+			expectedPodName:    "test-pod",
+			expectedSelCount:   1,
+			checkSelectorIdx:   0,
+			shouldMatchAnyPath: false,
+		},
+		{
+			name: "with discovery.instrument section",
+			cfg: &obi.Config{
+				PodName:      services.NewGlob("test-pod"),
+				TracePrinter: "text",
+				Discovery: services.DiscoveryConfig{
+					Instrument: services.GlobDefinitionCriteria{
+						{
+							Path:      services.NewGlob("/bin/myapp"),
+							OpenPorts: services.PortEnum{Ranges: []services.PortRange{{Start: 8080}}},
+						},
+					},
+				},
+			},
+			expectedPodName:    "test-pod",
+			expectedSelCount:   2, // Discovery instrument + appended pod-name criteria
+			checkSelectorIdx:   1, // checking the appended pod-name criteria
+			shouldMatchAnyPath: true,
+		},
+		{
+			name: "with discovery.instrument section and AutoTargetExe",
+			cfg: &obi.Config{
+				PodName:       services.NewGlob("test-pod"),
+				AutoTargetExe: services.NewGlob("/bin/newapp"),
+				TracePrinter:  "text",
+				Discovery: services.DiscoveryConfig{
+					Instrument: services.GlobDefinitionCriteria{
+						{
+							Path:      services.NewGlob("/bin/myapp"),
+							OpenPorts: services.PortEnum{Ranges: []services.PortRange{{Start: 8080}}},
+						},
+					},
+				},
+			},
+			expectedPodName:    "test-pod",
+			expectedSelCount:   2,     // Discovery instrument + appended pod-name criteria
+			checkSelectorIdx:   1,     // checking the appended pod-name criteria
+			shouldMatchAnyPath: false, // AutoTargetExe should take precedence and set the path to /bin/newapp, not match any path
+		},
+		{
+			name: "only PodName set",
+			cfg: &obi.Config{
+				PodName:      services.NewGlob("test-pod"),
+				TracePrinter: "text",
+			},
+			expectedPodName:    "test-pod",
+			expectedSelCount:   1,
+			checkSelectorIdx:   0,
+			shouldMatchAnyPath: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			selectors := FindingCriteria(tc.cfg)
+			require.NotEmpty(t, selectors)
+			require.Len(t, selectors, tc.expectedSelCount)
+
+			targetSelector := selectors[tc.checkSelectorIdx]
+			metadata := make(map[string]services.StringMatcher)
+			for key, value := range targetSelector.RangeMetadata() {
+				metadata[key] = value
+			}
+			require.Contains(t, metadata, services.AttrPodName)
+			assert.True(t, metadata[services.AttrPodName].MatchString(tc.expectedPodName))
+			assert.False(t, metadata[services.AttrPodName].MatchString("other-pod"))
+
+			if tc.shouldMatchAnyPath {
+				assert.True(t, targetSelector.GetPath().IsSet(), "path should be set to match any executable")
+				assert.True(t, targetSelector.GetPath().MatchString("/any/path"), "should match any path when set")
+			}
+		})
+	}
+}

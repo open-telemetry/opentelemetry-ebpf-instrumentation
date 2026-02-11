@@ -761,3 +761,11 @@ func TestNormalizeConfig_Network(t *testing.T) {
 	assert.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork,
 		obi.Metrics.Features)
 }
+
+func TestConfig_PodName(t *testing.T) {
+	t.Setenv("OTEL_EBPF_K8S_POD_NAME", "test-pod")
+	t.Setenv("OTEL_EBPF_TRACE_PRINTER", "text")
+	cfg, err := LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+	assert.True(t, cfg.PodName.MatchString("test-pod"))
+}

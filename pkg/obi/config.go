@@ -270,6 +270,10 @@ type Config struct {
 	// It also accepts OTEL_GO_AUTO_TARGET_EXE for compatibility with opentelemetry-go-instrumentation
 	AutoTargetExe services.GlobAttr `env:"OTEL_EBPF_AUTO_TARGET_EXE,expand" envDefault:"${OTEL_GO_AUTO_TARGET_EXE}"`
 
+	// PodName allows selecting the instrumented executable by the Kubernetes pod name.
+	// Can be set via OTEL_EBPF_K8S_POD_NAME to simplify sidecar deployments.
+	PodName services.GlobAttr `env:"OTEL_EBPF_K8S_POD_NAME,expand"`
+
 	// Port allows selecting the instrumented executable that owns the Port value. If this value is set (and
 	// different to zero), the value of the Exec property won't take effect.
 	// It's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter
