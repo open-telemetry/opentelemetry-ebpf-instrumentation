@@ -443,10 +443,15 @@ license-header-check:
 .PHONY: artifact
 artifact: docker-generate compile compile-cache java-docker-build
 	@echo "### Packing generated artifact for $(GOOS)/$(GOARCH)"
-	cp LICENSE ./bin
-	cp NOTICE ./bin
-	cp -r NOTICES ./bin
-	tar -C ./bin -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(CACHE_CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
+	@STAGING_DIR=$$(mktemp -d); \
+	trap "rm -rf $$STAGING_DIR" EXIT; \
+	cp ./bin/$(CMD) $$STAGING_DIR/; \
+	cp ./bin/$(CACHE_CMD) $$STAGING_DIR/; \
+	cp ./bin/$(JAVA_AGENT) $$STAGING_DIR/; \
+	cp LICENSE $$STAGING_DIR/; \
+	cp NOTICE $$STAGING_DIR/; \
+	cp -r NOTICES $$STAGING_DIR/; \
+	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(CACHE_CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
 
 .PHONY: release
 release: clean-release-dir
