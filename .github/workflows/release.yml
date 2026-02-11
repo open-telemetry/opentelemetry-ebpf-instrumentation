@@ -93,6 +93,10 @@ jobs:
     name: Unit Tests
     uses: ./.github/workflows/pull_request.yml
     needs: validate-tag
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -100,6 +104,11 @@ jobs:
     name: Integration Tests
     uses: ./.github/workflows/pull_request_integration_tests.yml
     needs: validate-tag
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+      actions: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -107,6 +116,11 @@ jobs:
     name: K8s Integration Tests
     uses: ./.github/workflows/pull_request_k8s_integration_tests.yml
     needs: validate-tag
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+      actions: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -114,6 +128,11 @@ jobs:
     name: OATS Tests
     uses: ./.github/workflows/pull_request_oats_test.yml
     needs: validate-tag
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+      actions: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -121,6 +140,11 @@ jobs:
     name: VM Integration Tests
     uses: ./.github/workflows/workflow_integration_tests_vm.yml
     needs: validate-tag
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+      actions: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -128,6 +152,8 @@ jobs:
     name: Java Agent Tests
     uses: ./.github/workflows/java-agent.yml
     needs: validate-tag
+    permissions:
+      contents: read
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -135,6 +161,8 @@ jobs:
     name: Format Check
     uses: ./.github/workflows/clang-format-check.yml
     needs: validate-tag
+    permissions:
+      contents: read
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -142,6 +170,8 @@ jobs:
     name: Tidy Check
     uses: ./.github/workflows/clang-tidy-check.yml
     needs: validate-tag
+    permissions:
+      contents: read
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -149,6 +179,11 @@ jobs:
     name: ARM Integration Tests
     uses: ./.github/workflows/pull_request_integration_tests_arm.yml
     needs: validate-tag
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+      actions: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -156,6 +191,10 @@ jobs:
     name: Docker Build Test
     uses: ./.github/workflows/pull_request_docker_build_test.yml
     needs: validate-tag
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -183,6 +222,10 @@ jobs:
     name: Publish Docker Image (main)
     uses: ./.github/workflows/publish_dockerhub_main.yml
     needs: tests-passed
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -190,6 +233,10 @@ jobs:
     name: Publish Docker Image (k8s cache)
     uses: ./.github/workflows/publish_dockerhub_k8s_cache_main.yml
     needs: tests-passed
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
