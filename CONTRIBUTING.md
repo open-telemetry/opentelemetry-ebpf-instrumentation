@@ -139,8 +139,7 @@ Enter the newly created directory and add your fork as a new remote:
 git remote add <YOUR_FORK> git@github.com:<YOUR_GITHUB_USERNAME>/opentelemetry-ebpf-instrumentation
 ```
 
-Check out a new branch, make modifications, run linters and tests, update
-`CHANGELOG.md`, and push the branch to your fork:
+Check out a new branch, make modifications, run linters and tests, and push the branch to your fork:
 
 ```sh
 git checkout -b <YOUR_BRANCH_NAME>
