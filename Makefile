@@ -179,7 +179,7 @@ generate: $(BPF2GO)
 .PHONY: docker-generate
 docker-generate:
 	@echo "### Generating files (docker)..."
-	@GOOS=$(shell go env GOOS) GOARCH=$(shell go env GOARCH) OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/obi-genfiles/obi_genfiles.go
+	@GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/obi-genfiles/obi_genfiles.go
 
 .PHONY: verify
 verify: prereqs lint test license-header-check
