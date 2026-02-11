@@ -10,7 +10,9 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -154,6 +156,10 @@ func createParentID() string {
 
 func createTraceparent(traceID string, parentID string) string {
 	return "00-" + traceID + "-" + parentID + "-01"
+}
+
+func waitForTestComponentsTCP(t *testing.T, url string) {
+	waitForTestComponentsTCPSub(t, url, 2)
 }
 
 func waitForTestComponents(t *testing.T, url string) {
@@ -358,4 +364,21 @@ func newHTTP2Transport() *http.Transport {
 	tr.Protocols = protocols
 	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	return tr
+}
+
+func waitForTestComponentsTCPSub(t *testing.T, rawURL string, minutes int) {
+	// clean the url to get just host:port
+	u, err := url.Parse(rawURL)
+	address := rawURL
+	if err == nil && u.Host != "" {
+		address = u.Host
+	}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+
+		if assert.NoError(ct, err, "TCP server at %s is not reachable", address) {
+			conn.Close()
+		}
+	}, time.Duration(minutes)*time.Minute, 1*time.Second)
 }
