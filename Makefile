@@ -1,7 +1,5 @@
 # Main binary configuration
 # CMD: Default binary name is now "obi" (OpenTelemetry eBPF Instrumentation)
-# Note: The deprecated "ebpf-instrument" binary is still available for migration.
-#       To build it: make compile CMD=ebpf-instrument
 CMD ?= obi
 JAVA_AGENT ?= obi-java-agent.jar
 MAIN_GO_FILE ?= cmd/$(CMD)/main.go
