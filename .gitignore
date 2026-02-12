@@ -29,6 +29,7 @@ internal/test/cmd/grpc/client/client
 
 .tools/
 bin/
+dist/
 internal/test/integration/components/server
 internal/test/integration/components/testserver/testserver
 
