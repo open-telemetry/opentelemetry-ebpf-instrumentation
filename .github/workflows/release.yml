@@ -263,7 +263,14 @@ jobs:
           go-version-file: "go.mod"
           cache: false
 
-      - name: Build multi-arch release artifacts
+      - name: Build amd64 release artifacts
+        env:
+          GOARCH: amd64
+        run: make release
+
+      - name: Build arm64 release artifacts
+        env:
+          GOARCH: arm64
         run: make release
 
       - name: Upload artifacts
