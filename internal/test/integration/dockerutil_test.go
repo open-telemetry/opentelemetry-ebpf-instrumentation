@@ -15,6 +15,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	versionPrometheus  = "v2.55.1"
+	versionJaeger      = "1.60"
+	versionCollector   = "0.144.0"
+	versionAWSMetaMock = "v1.9.2"
+)
+
 // setupDockerNetwork initializes a custom network for the test.
 func setupDockerNetwork(t *testing.T) *dockertest.Network {
 	t.Helper()
@@ -36,7 +43,7 @@ func setupContainerPrometheus(t *testing.T, network *dockertest.Network, configF
 	t.Log("Starting Prometheus container...")
 	prometheus, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "quay.io/prometheus/prometheus",
-		Tag:        "v2.55.1",
+		Tag:        versionPrometheus,
 		Name:       fmt.Sprintf("prometheus-otel-test-%d", time.Now().UnixNano()),
 		Networks:   []*dockertest.Network{network},
 		Mounts: []string{
@@ -66,7 +73,7 @@ func setupContainerJaeger(t *testing.T, network *dockertest.Network) {
 	t.Log("Starting Jaeger container...")
 	jaeger, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "jaegertracing/all-in-one",
-		Tag:        "1.60",
+		Tag:        versionJaeger,
 		Name:       fmt.Sprintf("jaeger-otel-test-%d", time.Now().UnixNano()),
 		Env: []string{
 			"COLLECTOR_OTLP_ENABLED=true",
@@ -100,7 +107,7 @@ func setupContainerCollector(t *testing.T, network *dockertest.Network, configFi
 	t.Log("Starting OpenTelemetry Collector container...")
 	otelcol, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "otel/opentelemetry-collector-contrib",
-		Tag:        "0.144.0",
+		Tag:        versionCollector,
 		Name:       fmt.Sprintf("otelcol-otel-test-%d", time.Now().UnixNano()),
 		Cmd:        []string{"--config=/etc/otelcol-config/" + configFile},
 		Mounts: []string{

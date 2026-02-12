@@ -163,8 +163,12 @@ const (
 	ServiceName      = Name(semconv.ServiceNameKey)
 	ServiceNamespace = Name(semconv.ServiceNamespaceKey)
 
-	HostName = Name(semconv.HostNameKey)
-	HostID   = Name(semconv.HostIDKey)
+	HostID           = Name(semconv.HostIDKey)
+	HostImageID      = Name(semconv.HostImageIDKey)
+	HostImageName    = Name(semconv.HostImageNameKey)
+	HostImageVersion = Name(semconv.HostImageVersionKey)
+	HostName         = Name(semconv.HostNameKey)
+	HostType         = Name(semconv.HostTypeKey)
 
 	ServiceInstanceID = Name(semconv.ServiceInstanceIDKey)
 	SkipSpanMetrics   = Name("span.metrics.skip")

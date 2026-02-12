@@ -6,28 +6,27 @@ package meta
 import (
 	"context"
 	"errors"
-	"iter"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 func TestFetchEntries_RetryAndKeepOrder(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		ctx := context.Background()
 
 		// Create fetchers that fail different numbers of times before succeeding
 		failOnce := makeFetcherThatFailsNTimes(1, "fetcher1", "value1")
-		alwaysFails := func(ctx context.Context) (iter.Seq2[attr.Name, string], error) {
+		alwaysFails := func(ctx context.Context) ([]Entry, error) {
 			return nil, errors.New("permanent failure")
 		}
 		failTwice := makeFetcherThatFailsNTimes(2, "fetcher2", "value2")
 		succeedImmediately := makeFetcherThatFailsNTimes(0, "fetcher3", "value3")
 
-		entries := fetchEntries(ctx, failOnce, alwaysFails, failTwice, succeedImmediately)
+		entries := fetchEntries(t.Context(), failOnce, alwaysFails, failTwice, succeedImmediately)
 
 		// All fetchers should eventually succeed and return their data
 		require.Equal(t, []Entry{
@@ -39,20 +38,44 @@ func TestFetchEntries_RetryAndKeepOrder(t *testing.T) {
 	})
 }
 
+func TestFetchEntries_DeduplicateByPriority(t *testing.T) {
+	entries := fetchEntries(t.Context(),
+		// lowest-priority fetcher
+		func(ctx context.Context) ([]Entry, error) {
+			return []Entry{
+				{Key: "some.local.stuff", Value: "something"},
+				{Key: "host.id", Value: "should-be-overridden"},
+				{Key: "host.name", Value: "foo-hostname"},
+			}, nil
+		},
+		// highest-priority fetcher
+		func(ctx context.Context) ([]Entry, error) {
+			return []Entry{
+				{Key: "foo", Value: "bar"},
+				{Key: "host.id", Value: "vm-01234567"},
+				{Key: "baz", Value: "bae"},
+			}, nil
+		},
+	)
+	assert.Equal(t, []Entry{
+		{Key: "some.local.stuff", Value: "something"},
+		{Key: "host.id", Value: "vm-01234567"},
+		{Key: "host.name", Value: "foo-hostname"},
+		{Key: "foo", Value: "bar"},
+		{Key: "baz", Value: "bae"},
+	}, entries)
+}
+
 func makeFetcherThatFailsNTimes(failCount int, key, value string) fetcher {
 	attempts := atomic.Int32{}
-	return func(ctx context.Context) (iter.Seq2[attr.Name, string], error) {
+	return func(ctx context.Context) ([]Entry, error) {
 		attempt := attempts.Add(1)
 		if attempt <= int32(failCount) {
 			return nil, errors.New("simulated failure")
 		}
-		return seq(key, value), nil
-	}
-}
-
-func seq(key, value string) iter.Seq2[attr.Name, string] {
-	return func(yield func(attr.Name, string) bool) {
-		yield(attr.Name(key+"_1"), value+"_1")
-		yield(attr.Name(key+"_2"), value+"_2")
+		return []Entry{
+			{Key: attr.Name(key + "_1"), Value: value + "_1"},
+			{Key: attr.Name(key + "_2"), Value: value + "_2"},
+		}, nil
 	}
 }

@@ -5,14 +5,11 @@ package meta
 
 import (
 	"context"
-	"iter"
 	"log/slog"
-	"slices"
 	"sync"
 	"time"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
-	"go.opentelemetry.io/obi/pkg/internal/helpers/iters"
 )
 
 func nslog() *slog.Logger {
@@ -37,10 +34,10 @@ const (
 // because this would mean that OBI is not being executed in that cloud provider.
 // But we can retry if the cloud API endpoint returns 5xx errors, as this would indicate
 // a temporary unavailability in the Cloud Metadata sevice.
-type fetcher func(ctx context.Context) (iter.Seq2[attr.Name, string], error)
+type fetcher func(ctx context.Context) ([]Entry, error)
 
 type NodeStore struct {
-	entries []Entry
+	Metadata []Entry
 }
 
 type Entry struct {
@@ -50,10 +47,11 @@ type Entry struct {
 
 func NewNodeStore(
 	ctx context.Context,
-	fetchers ...fetcher,
 ) *NodeStore {
 	return &NodeStore{
-		entries: fetchEntries(ctx, fetchers...),
+		Metadata: fetchEntries(ctx,
+			awsNodeFetcher,
+		),
 	}
 }
 
@@ -66,7 +64,7 @@ func fetchEntries(
 	// we run in parallel to avoid that timeouts/retries delay the startup too much
 	// but we want to keep the priority of the fetchers, so later fetchers can override
 	// some data from previous fetchers
-	results := make([]iter.Seq2[attr.Name, string], len(fetchers))
+	results := make([][]Entry, len(fetchers))
 	for i, fetch := range fetchers {
 		wg.Go(func() {
 			results[i] = backoffFetch(ctx, fetch, log.With("fetcher", i))
@@ -74,38 +72,49 @@ func fetchEntries(
 	}
 	wg.Wait()
 
-	jointResults := iters.Concat2(results...)
-	resultsAsEntry := iters.Map2Seq(jointResults,
-		func(k attr.Name, v string) Entry { return Entry{Key: k, Value: v} })
-	return slices.Collect(resultsAsEntry)
+	// Concatenate all results maintaining order
+	var allEntries []Entry
+	for _, entries := range results {
+		allEntries = append(allEntries, entries...)
+	}
+	return dedupeKeys(allEntries)
 }
 
-func backoffFetch(ctx context.Context, fetch fetcher, log *slog.Logger) iter.Seq2[attr.Name, string] {
+func backoffFetch(ctx context.Context, fetch fetcher, log *slog.Logger) []Entry {
 	backoff := retryStartInterval
 	start := time.Now()
 	for {
-		seq, err := fetch(ctx)
+		entries, err := fetch(ctx)
 		if err == nil {
-			return seq
+			return entries
 		}
 		// exponential backoff retry strategy
 		if time.Since(start) > retryTimeout {
 			log.Warn("timeout reached while looking for metadata. Giving up", "error", err)
-			return iters.Empty2[attr.Name, string]()
+			return nil
 		}
-		log.Debug("can't fetch metadata. Will retry",
-			"retryAfter", backoff, "error", err)
+		log.Debug("can't fetch metadata. Will retry", "retryAfter", backoff, "error", err)
 		select {
 		case <-time.After(backoff):
 		// continue loop!
 		case <-ctx.Done():
 			log.Debug("context canceled. Exiting")
-			return iters.Empty2[attr.Name, string]()
+			return nil
 		}
 		backoff = min(backoff*2, retryMaxInterval)
 	}
 }
 
-func (sg *NodeStore) Get() iter.Seq[Entry] {
-	return slices.Values(sg.entries)
+func dedupeKeys(entries []Entry) []Entry {
+	keyPos := map[attr.Name]int{}
+	out := make([]Entry, 0, len(entries))
+	for _, entry := range entries {
+		if pos, ok := keyPos[entry.Key]; ok {
+			out[pos] = entry
+		} else {
+			out = append(out, entry)
+			keyPos[entry.Key] = len(out) - 1
+		}
+	}
+	return out
 }

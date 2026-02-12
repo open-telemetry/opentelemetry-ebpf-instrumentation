@@ -12,7 +12,6 @@ import (
 	"github.com/ory/dockertest/v3/docker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
@@ -23,7 +22,7 @@ func setupMockIMDS(t *testing.T, network *dockertest.Network) {
 	t.Log("Starting AWS EC2 Metadata Mock container...")
 	mockIMDS, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "amazon/amazon-ec2-metadata-mock",
-		Tag:        "v1.9.2",
+		Tag:        versionAWSMetaMock,
 		Name:       fmt.Sprintf("mock-imds-test-%d", time.Now().UnixNano()),
 		Mounts: []string{
 			pathRoot + "/internal/test/integration/configs/aws-metadata-mock.json:/config/aws-metadata-mock.json",
