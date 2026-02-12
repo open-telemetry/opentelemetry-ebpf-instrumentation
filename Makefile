@@ -184,7 +184,6 @@ update-offsets: $(GO_OFFSETS_TRACKER)
 #   make generate      - Smart incremental build (recommended for development)
 #                        Only regenerates files that are missing or out-of-date.
 #                        Takes ~0.05s when nothing needs rebuilding.
-#                        Supports parallel execution: make -j4 generate
 #
 #   make generate/all  - Force regeneration of everything (use after git clean)
 #                        Always regenerates all eBPF code (~60s).
@@ -198,12 +197,19 @@ update-offsets: $(GO_OFFSETS_TRACKER)
 #   - bpf2go generates .d files (thanks to BPF2GO_MAKEBASE) that track dependencies
 #   - Make reads these .d files to know when source .c/.h files have changed
 #   - Only affected packages are rebuilt when sources change
-#   - Pattern rule $(BPF_GEN_ALL) handles per-directory generation
+#   - Pattern rule runs go generate for each out-of-date file's directory
 #
 # Generated files (gitignored):
 #   - *_bpfel.go, *_bpfeb.go  - Go bindings for eBPF programs
 #   - *_bpfel.o, *_bpfeb.o    - Compiled eBPF bytecode
 #   - *_bpfel.go.d, *_bpfeb.go.d - Dependency files for Make
+#
+# NOTE on parallel builds:
+#   Using 'make -j' with the 'generate' target may result in a race condition.
+#   Each go generate invocation produces multiple files, and parallel execution
+#   can cause bpf2go to simultaneously be run on the same directory. This
+#   command should be idempotent, but it may cause redundant generation and
+#   potential conflicts.
 #
 ################################################################################
 
