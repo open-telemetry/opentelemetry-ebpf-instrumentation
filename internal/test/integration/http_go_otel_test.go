@@ -55,7 +55,7 @@ func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []stri
 		Env:          env,
 		ExposedPorts: []string{"8080/tcp"},
 		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8080/tcp": {{HostIP: "localhost", HostPort: "8080"}},
+			"8080/tcp": {{HostIP: "127.0.0.1", HostPort: "8080"}},
 		},
 	})
 	require.NoError(t, err, "could not start test server container")
