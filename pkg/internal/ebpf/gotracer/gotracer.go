@@ -701,3 +701,5 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 func (p *Tracer) Required() bool {
 	return true
 }
+
+func (p *Tracer) GetRuntimeMapSizes(cfg *obi.Config) map[string]uint32 { return nil }

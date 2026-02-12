@@ -322,3 +322,5 @@ func (p *Tracer) readGPUGraphLaunchIntoSpan(record *ringbuf.Record) (request.Spa
 func (p *Tracer) Required() bool {
 	return false
 }
+
+func (p *Tracer) GetRuntimeMapSizes(cfg *obi.Config) map[string]uint32 { return nil }

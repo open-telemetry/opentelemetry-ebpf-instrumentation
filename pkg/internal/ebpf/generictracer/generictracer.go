@@ -653,3 +653,11 @@ func bpfConnInfoT(src ebpfcommon.BpfConnectionInfoT) (dst BpfConnectionInfoT) {
 func (p *Tracer) Required() bool {
 	return true
 }
+
+func (p *Tracer) GetRuntimeMapSizes(cfg *obi.Config) map[string]uint32 {
+	return map[string]uint32{
+		// override DEFAULT_MAX_CONCURRENT_REQUESTS
+		"listening_ports":   cfg.EBPF.MapSizes.MaxConcurrentRequests,
+		"puma_worker_tasks": cfg.EBPF.MapSizes.MaxConcurrentRequests,
+	}
+}

@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/logenricher"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
+	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -72,6 +73,8 @@ type CommonTracer interface {
 	AddCloser(c ...io.Closer)
 	// SetupTailCalls sets up any tail call jump tables after all specs are loaded.
 	SetupTailCalls()
+
+	GetRuntimeMapSizes(*obi.Config) map[string]uint32
 }
 
 type KprobesTracer interface {

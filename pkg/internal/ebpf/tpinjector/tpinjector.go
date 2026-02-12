@@ -203,3 +203,10 @@ func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg
 func (p *Tracer) Required() bool {
 	return false
 }
+
+func (p *Tracer) GetRuntimeMapSizes(cfg *obi.Config) map[string]uint32 {
+	return map[string]uint32{
+		// override DEFAULT_MAX_CONCURRENT_REQUESTS
+		"listening_ports": cfg.EBPF.MapSizes.MaxConcurrentRequests,
+	}
+}

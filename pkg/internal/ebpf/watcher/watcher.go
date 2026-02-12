@@ -119,3 +119,5 @@ func (p *Watcher) processWatchEvent(record *ringbuf.Record) (request.Span, bool,
 
 	return request.Span{}, true, nil
 }
+
+func (p *Watcher) GetRuntimeMapSizes(cfg *obi.Config) map[string]uint32 { return nil }

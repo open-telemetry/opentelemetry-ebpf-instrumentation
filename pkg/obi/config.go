@@ -140,7 +140,7 @@ var DefaultConfig = Config{
 			Kafka:    0,
 		},
 		MapSizes: config.EBPFMapSizes{
-			MaxConcurrentRequests:       1000,
+			MaxConcurrentRequests:       10000,
 			MaxConcurrentSharedRequests: 30000,
 			MaxConcurrentCustomSpans:    1000,
 		},
