@@ -701,8 +701,9 @@ func newReporter(
 		}),
 		tcpRtt: optionalHistogramProvider(is.AppNetEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
-				Name:                            attributes.AppNetworkTCPRtt.Prom,
-				Help:                            "measures the smoothed TCP RTT as calculated by the kernel in seconds",
+				Name: attributes.AppNetworkTCPRtt.Prom,
+				Help: "measures the smoothed TCP RTT as calculated by the kernel in seconds",
+				// TODO define a default bucket for network metrics when we have enough metrics to have something standard
 				Buckets:                         []float64{0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0},
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,

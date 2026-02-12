@@ -19,6 +19,3 @@ var DefaultBuckets = Buckets{
 	RequestSizeHistogram:  []float64{0, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192},
 	ResponseSizeHistogram: []float64{0, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192},
 }
-
-// TODO (pinoOgni): do we need to define a default bucket for network related metrics or
-// just define it during the metric creation?
