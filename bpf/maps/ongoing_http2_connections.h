@@ -15,5 +15,5 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, pid_connection_info_t);
     __type(value, http2_conn_info_data_t); // flags and id
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_http2_connections SEC(".maps");

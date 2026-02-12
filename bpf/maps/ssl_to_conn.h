@@ -17,6 +17,6 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);                         // the SSL struct pointer
     __type(value, ssl_pid_connection_info_t); // the pointer to the file descriptor matching ssl
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } ssl_to_conn SEC(".maps");

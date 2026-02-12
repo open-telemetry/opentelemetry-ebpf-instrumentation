@@ -15,5 +15,5 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);   // the ssl pointer
     __type(value, u64); // the pid tid of the thread in ssl read
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ssl_to_pid_tid SEC(".maps");

@@ -11,7 +11,7 @@
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __type(key, u64);
     __type(value, sock_args_t);
 } active_connect_args SEC(".maps");

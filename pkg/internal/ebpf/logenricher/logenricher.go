@@ -398,4 +398,4 @@ func (p *Tracer) handle(e LogEvent) {
 	}
 }
 
-func (p *Tracer) GetRuntimeMapSizes(cfg *obi.Config) map[string]uint32 { return nil }
+func (p *Tracer) GetRuntimeMapSizes(_ *obi.Config) map[string]config.MapSettings { return nil }

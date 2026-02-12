@@ -14,6 +14,6 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, egress_key_t);
     __type(value, go_addr_key_t);
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } go_ongoing_http SEC(".maps");

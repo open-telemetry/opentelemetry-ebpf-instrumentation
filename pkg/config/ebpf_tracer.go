@@ -34,13 +34,28 @@ const (
 	StrContextPropagationTCP      = "tcp"
 )
 
-// These values will override the DEFAULT_* values defined in bpf/common/map_sizing.h
-// TODO: not all ebpf maps have a max_entries value defined by a constant
-type EBPFMapSizes struct {
-	// TODO pinoOgni, not sure about the validation values
-	MaxConcurrentRequests       uint32 `yaml:"max_concurrent_requests" env:"OTEL_EBPF_BPF_MAP_SIZE_MAX_CONCURRENT_REQUESTS" validate:"gte=1024"`
-	MaxConcurrentSharedRequests uint32 `yaml:"max_concurrent_shared_requests" env:"OTEL_EBPF_BPF_MAP_SIZE_MAX_CONCURRENT_SHARED_REQUESTS" validate:"gte=8192"`
-	MaxConcurrentCustomSpans    uint32 `yaml:"max_concurrent_custom_spans" env:"OTEL_EBPF_BPF_MAP_SIZE_MAX_CONCURRENT_CUSTOM_SPANS" validate:"gte=512"`
+type MapSettings struct {
+	// MaxEntries is the absolute size (e.g., 2048)
+	MaxEntries uint32 `yaml:"max_entries" validate:"lte=240000,excluded_with=ScaleFactor"`
+	// ScaleFactor is a multiplier for this specific map used as
+	// If ScaleFactor > 0 --> NewSize = DefaultSize << ScaleFactor // double it
+	// If ScaleFactor < 0 --> NewSize = DefaultSize >> ScaleFactor // halve it
+	ScaleFactor int `yaml:"scale_factor" validate:"gte=-3,lte=3,excluded_with=MaxEntries"`
+}
+
+// TODO pino try map[string]MapSettings
+type MapOverrides struct {
+	OutgoingTraceMap MapSettings `yaml:"outgoing_trace_map"`
+	SpanNames        MapSettings `yaml:"span_names"`
+}
+type MapsConfig struct {
+	// GlobalScaleFactor scales ALL maps by this factor
+	// If GlobalScaleFactor > 0 --> NewSize = DefaultSize << GlobalScaleFactor // double it
+	// If GlobalScaleFactor < 0 --> NewSize = DefaultSize >> GlobalScaleFactor // halve it
+	GlobalScaleFactor int `yaml:"global_scale_factor" validate:"gte=-3,lte=3,excluded_with=MapOverrides"`
+
+	// MapSizes contains specific overrides for individual maps
+	MapOverrides MapOverrides `yaml:"map_overrides" validate:"excluded_with=GlobalScaleFactor"`
 }
 
 // EBPFTracer configuration for eBPF programs
@@ -139,8 +154,9 @@ type EBPFTracer struct {
 	// The system will always try "batch", which is more efficient, but legacy systems like RHEL8-based will fallback to
 	// "legacy" (the slowest, more resource-consuming iterate&delete approach).
 	ForceBPFMapReader EBPFMapReader `yaml:"force_bpf_map_reader" env:"OTEL_EBPF_FORCE_BPF_MAP_READER" validate:"oneof=0 1 2" jsonschema:"type=string,enum=auto,enum=batch,enum=legacy"`
-	// eBPF map sizes
-	MapSizes EBPFMapSizes `yaml:"map_sizes"`
+
+	// eBPF map configurations
+	MapsConfig MapsConfig `yaml:"maps_config"`
 }
 
 var nvidiaSMIExistsFunc = nvidiaSMIExists

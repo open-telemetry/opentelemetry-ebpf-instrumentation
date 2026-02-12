@@ -95,4 +95,4 @@ func (p *BPFLogger) processLogEvent(record *ringbuf.Record) (request.Span, bool,
 	return request.Span{}, true, nil
 }
 
-func (p *BPFLogger) GetRuntimeMapSizes(cfg *obi.Config) map[string]uint32 { return nil }
+func (p *BPFLogger) GetRuntimeMapSizes(_ *obi.Config) map[string]config.MapSettings { return nil }

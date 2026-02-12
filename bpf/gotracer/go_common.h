@@ -56,7 +56,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t);        // key: pointer to the goroutine
     __type(value, goroutine_metadata); // value: timestamp of the goroutine creation
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_goroutines SEC(".maps");
 
@@ -64,7 +64,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
     __type(value, connection_info_t);
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_server_connections SEC(".maps");
 
@@ -72,14 +72,14 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
     __type(value, connection_info_t);
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_client_connections SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the goroutine
     __type(value, tp_info_t);   // value: traceparent info
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } go_trace_map SEC(".maps");
 
@@ -87,7 +87,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: goroutine
     __type(value, void *);      // the transport *
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_grpc_operate_headers SEC(".maps");
 
 typedef struct grpc_transports {
@@ -102,7 +102,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, void *); // key: pointer to the transport pointer
     __type(value, grpc_transports_t);
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_grpc_transports SEC(".maps");
 
 #define SQL_CONN_TYPE_DATABASE_SQL 0 // database/sql (mysql, pq)
@@ -122,7 +122,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
     __type(value, sql_func_invocation_t);
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_sql_queries SEC(".maps");
 
 typedef struct grpc_header_field {

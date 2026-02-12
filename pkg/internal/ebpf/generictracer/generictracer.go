@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
@@ -654,10 +655,4 @@ func (p *Tracer) Required() bool {
 	return true
 }
 
-func (p *Tracer) GetRuntimeMapSizes(cfg *obi.Config) map[string]uint32 {
-	return map[string]uint32{
-		// override DEFAULT_MAX_CONCURRENT_REQUESTS
-		"listening_ports":   cfg.EBPF.MapSizes.MaxConcurrentRequests,
-		"puma_worker_tasks": cfg.EBPF.MapSizes.MaxConcurrentRequests,
-	}
-}
+func (p *Tracer) GetRuntimeMapSizes(_ *obi.Config) map[string]config.MapSettings { return nil }

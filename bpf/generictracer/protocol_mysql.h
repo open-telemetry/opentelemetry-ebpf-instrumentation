@@ -62,7 +62,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, connection_info_t);
     __type(value, struct mysql_state_data);
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } mysql_state SEC(".maps");
 
 // This function is used to store the MySQL header if it comes in split packets

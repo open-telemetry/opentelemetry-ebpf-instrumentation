@@ -5,9 +5,7 @@
 
 // Default values that can be overrided at runtime and are needed to compile OBI
 // because max_entries field in a map must be compile-time constant
-#define DEFAULT_MAX_CONCURRENT_REQUESTS                                                            \
-    10000 // 10000 requests per second max for a single traced process
-// 10 * DEFAULT_MAX_CONCURRENT_REQUESTS total ongoing requests, for maps shared among multiple tracers, e.g. pinned maps
-#define DEFAULT_MAX_CONCURRENT_SHARED_REQUESTS 30000
-#define DEFAULT_MAX_CONCURRENT_CUSTOM_SPANS                                                        \
-    1000 // 1000 custom spans should be rare across monitored apps
+#define MAX_CONCURRENT_REQUESTS 10000 // 10000 requests per second max for a single traced process
+// 10 * MAX_CONCURRENT_REQUESTS total ongoing requests, for maps shared among multiple tracers, e.g. pinned maps
+#define MAX_CONCURRENT_SHARED_REQUESTS 30000
+#define MAX_CONCURRENT_CUSTOM_SPANS 1000 // 1000 custom spans should be rare across monitored apps

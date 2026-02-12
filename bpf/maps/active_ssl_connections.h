@@ -14,6 +14,6 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, pid_connection_info_t); // connection that's SSL
     __type(value, u64);                 // ssl
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } active_ssl_connections SEC(".maps");

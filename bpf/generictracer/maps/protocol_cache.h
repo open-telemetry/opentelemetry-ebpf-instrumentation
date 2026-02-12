@@ -13,5 +13,5 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, connection_info_t);
     __type(value, enum protocol_type);
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } protocol_cache SEC(".maps");

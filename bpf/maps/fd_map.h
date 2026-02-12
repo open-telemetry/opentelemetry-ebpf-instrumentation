@@ -17,7 +17,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, connection_info_part_t); // key: the connection info
     __type(value, fd_info_t);            // value: file descriptor with pid/tid information
-    __uint(max_entries, DEFAULT_MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } fd_map SEC(".maps");
 
