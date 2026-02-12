@@ -1244,4 +1244,5 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.gpuKernelBlockSize)
 	cleanupMetrics(r.ctx, r.gpuMemoryCopySize)
 	cleanupMetrics(r.ctx, r.dnsLookupDuration)
+	cleanupMetrics(r.ctx, r.tcpRtt)
 }
