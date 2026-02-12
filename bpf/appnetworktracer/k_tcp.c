@@ -3,6 +3,9 @@
 
 //go:build obi_bpf_ignore
 #pragma once
+#include <appnetworktracer/types.h>
+#include <appnetworktracer/maps/app_network_events.h>
+
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
@@ -13,15 +16,11 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <maps/app_network_events.h>
-
 #include <pid/pid.h>
 
-#include "types.h"
-
 enum {
-    usec_per_sec = 1000000ULL,
-    max_srtt_allowed = 60 * usec_per_sec,
+    k_usec_per_sec = 1000000ULL,
+    k_max_srtt_allowed = 60 * k_usec_per_sec,
 };
 
 typedef struct app_net_tcp_rtt {
@@ -36,7 +35,7 @@ SEC("kprobe/tcp_close")
 int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -58,7 +57,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
         return 0;
     }
 
-    if (srtt > max_srtt_allowed) {
+    if (srtt > k_max_srtt_allowed) {
         return 0;
     }
 
@@ -66,7 +65,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close_rtt, struct sock *sk) {
     if (!se) {
         return 0;
     }
-    se->flags = event_app_net_tcp_rtt;
+    se->flags = k_event_app_net_tcp_rtt;
     task_pid(&se->pid_info);
     se->srtt = srtt / 1000; // convert to millisecond
     se->conn = conn;

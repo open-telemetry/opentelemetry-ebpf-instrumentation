@@ -6,5 +6,5 @@
 // These need to line up with some Go identifiers defined in the appnetworktracer.go file
 #pragma once
 enum {
-    event_app_net_tcp_rtt = 1, // EventTypeAppNetTcpRtt
+    k_event_app_net_tcp_rtt = 1, // EventTypeAppNetTcpRtt
 };
