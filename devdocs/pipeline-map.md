@@ -24,7 +24,7 @@ flowchart TD
         DE(DockerEnricher):::optional --> |process enriched with docker metadata| CM
         CM(CriteriaMatcher) --> |processes matching the selection criteria| ET(ExecTyper)
         ET --> |ELFs and its metadata| CU
-        CU(ContainerDBUpdater):::optional --> |ELFs and its metadata| TA
+        CU(ContainerStoreUpdater):::optional --> |ELFs and its metadata| TA
         TA(TraceAttacher) -.-> EBPF1(ebpf.Tracer)
         TA -.-> |creates one per executable| EBPF2(ebpf.Tracer)
         TA -.-> EBPF3(ebpf.Tracer)
