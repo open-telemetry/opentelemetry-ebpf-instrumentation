@@ -13,13 +13,13 @@ OBI offers the ability to obtain application network metrics, such as TCP RTT re
 In a non Kubernetes environment:
 
 ```
-obi_net_tcp_rtt_seconds_bucket{dst_address="127.0.0.1",dst_name="",dst_port="",dst_zone="",instance="lima-ubuntu-ebpf:651294",job="main",service_namespace="",src_address="127.0.0.1",src_name="",src_port="",src_zone="",le="0.5"} 8
+obi_net_tcp_rtt_seconds_bucket{dst_address="127.0.0.1",dst_name="",dst_port="56724",dst_zone="",instance="lima-ubuntu-ebpf:651294",job="main",service_namespace="",src_address="127.0.0.1",src_name="",src_port="9092",src_zone="",le="0.5"} 8
 ```
 
 And the same metric in a Kubernetes environment:
 
 ```
-obi_net_tcp_rtt_seconds_bucket{dst_address="192.168.187.167",dst_name="go-client-3-deployment-795484488d-nhfm9",dst_port="",dst_zone="us-east-2c",instance="default.go-server-3-deployment-674fb9748f-hpzrf.go-server",job="default/go-server-3-deployment",k8s_cluster_name="",k8s_dst_name="go-client-3-deployment-795484488d-nhfm9",k8s_dst_namespace="default",k8s_dst_node_ip="192.168.177.102",k8s_dst_node_name="i-08e6fe8a9b5968e8a",k8s_dst_owner_name="go-client-3-deployment",k8s_dst_owner_type="Deployment",k8s_dst_type="Pod",k8s_src_name="go-server-3-deployment-674fb9748f-hpzrf",k8s_src_namespace="default",k8s_src_node_ip="192.168.177.102",k8s_src_node_name="i-08e6fe8a9b5968e8a",k8s_src_owner_name="go-server-3-deployment",k8s_src_owner_type="Deployment",k8s_src_type="Pod",service_namespace="default",src_address="192.168.187.168",src_name="go-server-3-deployment-674fb9748f-hpzrf",src_port="",src_zone="us-east-2c",le="0.001"} 7
+obi_net_tcp_rtt_seconds_bucket{dst_address="192.168.187.167",dst_name="go-client-3-deployment-795484488d-nhfm9",dst_port="52804",dst_zone="us-east-2c",instance="default.go-server-3-deployment-674fb9748f-hpzrf.go-server",job="default/go-server-3-deployment",k8s_cluster_name="",k8s_dst_name="go-client-3-deployment-795484488d-nhfm9",k8s_dst_namespace="default",k8s_dst_node_ip="192.168.177.102",k8s_dst_node_name="i-08e6fe8a9b5968e8a",k8s_dst_owner_name="go-client-3-deployment",k8s_dst_owner_type="Deployment",k8s_dst_type="Pod",k8s_src_name="go-server-3-deployment-674fb9748f-hpzrf",k8s_src_namespace="default",k8s_src_node_ip="192.168.177.102",k8s_src_node_name="i-08e6fe8a9b5968e8a",k8s_src_owner_name="go-server-3-deployment",k8s_src_owner_type="Deployment",k8s_src_type="Pod",service_namespace="default",src_address="192.168.187.168",src_name="go-server-3-deployment-674fb9748f-hpzrf",src_port="9092",src_zone="us-east-2c",le="0.001"} 7
 ```
 
 ## Add a new application network metric
