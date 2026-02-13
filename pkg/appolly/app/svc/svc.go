@@ -18,7 +18,7 @@ import (
 type InstrumentableType int
 
 const (
-	InstrumentableUnknown InstrumentableType = iota + 1
+	InstrumentableUnknown InstrumentableType = iota
 	InstrumentableGolang
 	InstrumentableJava
 	InstrumentableJavaNative
