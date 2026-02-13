@@ -70,11 +70,11 @@ type NameResolverConfig struct {
 }
 
 type NameResolver struct {
-	cache  *expirable.LRU[string, string]
-	cfg    *NameResolverConfig
-	store  *kube.Store
-	dnsDB  *memorystore.InMemory
-	logger *slog.Logger
+	cache    *expirable.LRU[string, string]
+	cfg      *NameResolverConfig
+	store    *kube.Store
+	dnsCache *memorystore.InMemory
+	logger   *slog.Logger
 
 	sources maps.Bits
 }
@@ -109,18 +109,18 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 	}
 
 	logger := slog.With("component", "transform.NameResolver")
-	dnsDB, err := memorystore.NewInMemory(cfg.CacheLen)
+	dnsCache, err := memorystore.NewInMemory(cfg.CacheLen)
 	if err != nil {
 		logger.Warn("failed to create reverse DNS cache", "error", err)
 	}
 
 	nr := NameResolver{
-		cfg:     cfg,
-		store:   store,
-		dnsDB:   dnsDB,
-		cache:   expirable.NewLRU[string, string](cfg.CacheLen, nil, cfg.CacheTTL),
-		sources: sources,
-		logger:  logger,
+		cfg:      cfg,
+		store:    store,
+		dnsCache: dnsCache,
+		cache:    expirable.NewLRU[string, string](cfg.CacheLen, nil, cfg.CacheTTL),
+		sources:  sources,
+		logger:   logger,
 	}
 
 	in := input.Subscribe(msg.SubscriberName("transform.NameResolver"))
@@ -172,7 +172,7 @@ func parseK8sFQDN(fqdn string) (string, string) {
 func (nr *NameResolver) resolveNames(span *request.Span) {
 	var hn, pn, ns string
 
-	if span.Type == request.EventTypeDNS && nr.sources.Has(ResolverRDNS) && nr.dnsDB != nil {
+	if span.Type == request.EventTypeDNS && nr.sources.Has(ResolverRDNS) && nr.dnsCache != nil {
 		nr.handleRDNS(span)
 	}
 
@@ -280,7 +280,7 @@ func (nr *NameResolver) dnsResolve(svc *svc.Attrs, ip string) (string, string, s
 		}
 	}
 
-	if nr.sources.Has(ResolverRDNS) && nr.dnsDB != nil {
+	if nr.sources.Has(ResolverRDNS) && nr.dnsCache != nil {
 		n := nr.resolveRDNS(ip)
 		n = nr.cleanName(svc, ip, n)
 		return n, svc.UID.Namespace, ""
@@ -330,14 +330,14 @@ func (nr *NameResolver) handleRDNS(span *request.Span) {
 		ips := strings.Split(span.Statement, ",")
 		for _, ip := range ips {
 			if isValidRDNS(ip) {
-				nr.dnsDB.StorePair(ip, span.Path)
+				nr.dnsCache.StorePair(ip, span.Path)
 			}
 		}
 	}
 }
 
 func (nr *NameResolver) resolveRDNS(ip string) string {
-	names, err := nr.dnsDB.GetHostnames(ip)
+	names, err := nr.dnsCache.GetHostnames(ip)
 
 	nr.logger.Debug("reverse DNS lookup", "ip", ip, "names", names)
 
