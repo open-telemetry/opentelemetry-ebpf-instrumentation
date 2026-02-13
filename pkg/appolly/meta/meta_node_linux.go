@@ -11,7 +11,7 @@ import (
 	"os"
 )
 
-func linuxLocalFetcher(ctx context.Context) (NodeMeta, error) {
+func linuxLocalFetcher(_ context.Context) (NodeMeta, error) {
 	mid, err := fetchMachineID()
 	if err != nil {
 		// If we can't read host ID, we don't retry as it is mostly

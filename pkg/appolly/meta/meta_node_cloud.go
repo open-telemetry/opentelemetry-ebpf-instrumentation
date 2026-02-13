@@ -19,6 +19,9 @@ func otelNodeFetcher(detector resource.Detector) fetcher {
 		"detector", fmt.Sprintf("%T", detector)[1:])
 
 	return func(ctx context.Context) (NodeMeta, error) {
+		// we expect very short response time in a cloud environment
+		ctx, cancel := context.WithTimeout(ctx, connectionTimeout)
+		defer cancel()
 		resource, err := detector.Detect(ctx)
 		// none of the errors from the ec2 detect are retriable, so we just log them.
 		if err != nil {

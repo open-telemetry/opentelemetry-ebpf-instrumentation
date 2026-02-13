@@ -190,7 +190,7 @@ func BuildCommonContextInfo(
 		ServiceNameTemplate: templ,
 	}, ctxInfo.Metrics)
 
-	ctxInfo.NodeMeta = meta.NewNodeStore(
+	ctxInfo.NodeMeta = meta.NewNodeMeta(
 		ctx,
 		config.Attributes.HostID.Override,
 		ctxInfo.K8sInformer,

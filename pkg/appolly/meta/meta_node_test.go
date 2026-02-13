@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,6 +82,12 @@ func TestFetchEntries_DeduplicateByPriority(t *testing.T) {
 			{Key: "some.local.stuff", Value: "something"},
 		},
 	}, entries)
+}
+
+func TestHostIDOverride(t *testing.T) {
+	connectionTimeout = 50 * time.Millisecond
+	nm := NewNodeMeta(t.Context(), "host_override", nil)
+	assert.Equal(t, "host_override", nm.HostID)
 }
 
 func makeFetcherThatFailsNTimes(failCount int, key, value string) fetcher {

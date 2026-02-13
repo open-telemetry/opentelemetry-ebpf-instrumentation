@@ -30,6 +30,8 @@ const (
 	retryMaxInterval   = 5 * time.Second
 )
 
+var connectionTimeout = 2 * time.Second
+
 // some attributes from the node need to be filtered out, because they are
 // going to be specified for each service instance
 var filterAttrs []attr.Name = []attr.Name{
@@ -61,7 +63,7 @@ type Entry struct {
 	Value string
 }
 
-func NewNodeStore(
+func NewNodeMeta(
 	ctx context.Context,
 	overrideHost string,
 	kubeInformer *kube.MetadataProvider,
@@ -122,7 +124,7 @@ func backoffFetch(ctx context.Context, fetch fetcher, log *slog.Logger) NodeMeta
 		}
 		// exponential backoff retry strategy
 		if time.Since(start) > retryTimeout {
-			log.Warn("timeout reached while looking for metadata. Giving up", "error", err)
+			log.Debug("timeout reached while looking for metadata. Giving up", "error", err)
 			return NodeMeta{}
 		}
 		log.Debug("can't fetch metadata. Will retry", "retryAfter", backoff, "error", err)
