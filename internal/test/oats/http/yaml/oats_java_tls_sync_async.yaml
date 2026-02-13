@@ -13,7 +13,7 @@ expected:
           attributes:
             server.port: "8443"
             url.path: "/greeting"
-    - traceql: '{ .url.full = "https://example.com/" }'
+    - traceql: '{ .url.full = "https://google.com/" }'
       spans:
         - name: "GET /"
           attributes:
