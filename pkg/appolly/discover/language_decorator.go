@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	lru "github.com/hashicorp/golang-lru/v2"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -25,7 +26,7 @@ func LanguageDecoratorProvider(
 	cfg *obi.Config,
 	input, output *msg.Queue[[]Event[ProcessAttrs]],
 ) swarm.InstanceFunc {
-	return func(ctx context.Context) (swarm.RunFunc, error) {
+	return func(_ context.Context) (swarm.RunFunc, error) {
 		instrumentableCache, _ := lru.New[uint64, svc.InstrumentableType](1000)
 		ld := languageDecorator{
 			in:           input.Subscribe(msg.SubscriberName("LanguageDecorator")),
@@ -55,9 +56,11 @@ func (ld *languageDecorator) isIgnoredPath(exePath string) bool {
 	return false
 }
 
-var _findInodeForPID = FindINodeForPID
-var _executableReady = ExecutableReady
-var _findProcLanguage = procs.FindProcLanguage
+var (
+	_findInodeForPID  = FindINodeForPID
+	_executableReady  = ExecutableReady
+	_findProcLanguage = procs.FindProcLanguage
+)
 
 func (ld *languageDecorator) decorateEvent(ev *Event[ProcessAttrs]) {
 	if exePath, ready := _executableReady(ev.Obj.pid); ready {
@@ -81,8 +84,7 @@ func (ld *languageDecorator) decorate(ctx context.Context) {
 	swarms.ForEachInput(ctx, ld.in, ld.log.Debug, func(instrumentables []Event[ProcessAttrs]) {
 		for i := range instrumentables {
 			ev := &instrumentables[i]
-			switch ev.Type {
-			case EventCreated:
+			if ev.Type == EventCreated {
 				ld.decorateEvent(ev)
 			}
 		}
