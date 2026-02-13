@@ -11,6 +11,7 @@ Each component has its own pipeline, described in the [pipeline-map doc](pipelin
 
 - [Netolly](#netolly)
 - [Appolly](#appolly)
+- [Statsolly](#statsolly)
 - [Metric creation](#metric-creation)
 - [Notes](#notes)
 
@@ -19,8 +20,7 @@ Each component has its own pipeline, described in the [pipeline-map doc](pipelin
 **Netolly** uses eBPF probes attached at the [TC level in ingress and egress](../bpf/netolly/flows.c) as well as a [socket/filter](../bpf/netolly/flows_sock.c).
 The event we're interested in on the kernel side is called `flow_record_t` and on the userspace side is called `NetFlowRecordT`, which is read by a dedicated ringbuffer (exclusive to **Netolly**) and will be treated as an `ebpf.Record` (defined in [pkg/internal/netolly/ebpf/record.go](../pkg/internal/netolly/ebpf/record.go)) field from there on.
 
-The `ebpf.Record` contains accumulated metrics from a flow, with additional metadata added from the user space.
-It is the structure that passes all the pipeline nodes to the metric exporters.
+The `ebpf.Record` contains accumulated metrics from a flow, with additional metadata added from the user space. It is the structure that passes all the pipeline nodes to the metric exporters.
 
 The `Attrs` field contains various attributes that can be added to the flow record. In particular, any attributes here must also be added to the `RecordGetters` functions in [pkg/internal/netolly/ebpf/record_getters.go](../pkg/internal/netolly/ebpf/record_getters.go) and `getDefinitions` in [pkg/export/attributes/attr_defs.go](../pkg/export/attributes/attr_defs.go). For each metric, other ad hoc attributes are defined (such as `networkCIDR` or `networkInterZoneCIDR`).
 
@@ -53,14 +53,22 @@ obi_network_inter_zone_bytes_total{job="obi-network-flows-scrape",k8s_cluster_na
 
 **Note**: a metric is defined using the `Name` type, which represents the name of a metric in three formats. Subsequently, that metric can be a counter, gauge, or other type.
 
+### Metric creation
+
+In the following methods:
+- `newMetricsExporter` in [pkg/export/otel/metrics_net.go](../pkg/export/otel/metrics_net.go) for OTEL
+- `newNetReporter` in [pkg/export/prom/prom_net.go](../pkg/export/prom/prom_net.go) for Prometheus
+the actual metrics are created using the names defined in [pkg/export/attributes/metric.go](../pkg/export/attributes/metric.go) with the attributes defined and added in [pkg/export/attributes/attr_defs.go](../pkg/export/attributes/attr_defs.go).
+
+
 ## Appolly
 
-**Appolly** is the component that handles all application-level tasks and generates traces and metrics. Unlike Netolly, it uses different types of eBPF probes (such as `uprobe`, `kprobe/kretprobe`) and introduces the concept of a `tracer`, which is the component responsible for tracing a given type of application. Specifically, we can divide tracers into two categories: `gotracer` and `generictracer`. The latter includes the GPU tracer and the log enricher (which handles trace-log correlation).
+**Appolly** is the component that handles all application-level tasks and generates traces and metrics. Unlike Netolly, it uses different types of eBPF probes (such as `uprobe`, `kprobe/kretprobe`) and introduces the concept of a `tracer`, which is the component responsible for tracing a given type of application. Specifically, we can divide tracers into two categories: `gotracer` and `generictracer`. The latter includes for example the GPU tracer.
 
-It also has two common tracers:
+It also has three common tracers:
 
-- `tctracer`: handles context propagations via IP options only (TC egress/ingress)
 - `tpinjector`: handles context propagation via both HTTP headers (sk_msg) and TCP options (BPF_SOCK_OPS)
+- `logenricher`: handles trace-log correlation
 
 These tracers are loaded for any tracer group.
 
@@ -71,6 +79,14 @@ In **Appolly**, the `request.Span` (defined in [pkg/appolly/app/request/span.go]
 In particular, any attribute here must also be added to the functions `SpanOTELGetters`, `SpanPromGetters` in[pkg/appolly/app/request/span_getters_providers.go](../pkg/appolly/app/request/span_getters_providers.go)  and `getDefinitions` in [pkg/export/attributes/attr_defs.go](../pkg/export/attributes/attr_defs.go).
 
 As for **Netolly**, also for **Appolly**, in [pkg/export/attributes/attr_defs.go](../pkg/export/attributes/attr_defs.go) some `AttrReportGroup` type structures are defined for application metrics in both the k8s and non-k8s environment: `appAttributes` and `appKubeAttributes`. Here too, ad hoc attributes such as `httpCommon`, `httpClientInfo`, and so on are added for each metric. There are attributes that default to true and others to false, but which can be enabled by the user during configuration.
+
+
+In the following methods:
+- `setupOtelMeters` in [pkg/export/otel/metrics.go](../pkg/export/otel/metrics.go) for OTEL
+- `newReporter` in [pkg/export/prom/prom.go](../pkg/export/prom/prom.go) for Prometheus
+
+the actual metrics are created using the names defined in [pkg/export/attributes/metric.go](../pkg/export/attributes/metric.go) with the attributes defined and added in [pkg/export/attributes/attr_defs.go](../pkg/export/attributes/attr_defs.go).
+
 
 Below is a list of network metrics supported by OBI with an example metric in Prometheus format:
 
@@ -182,20 +198,20 @@ messaging_process_duration_seconds_count{messaging_system="kafka", messaging_des
 dns_lookup_duration_seconds_count{dns_question_name="www.opentelemetry.invalid."error_type="NXDomain",service_namespace="integration-test"",service_name="python3.14"} 2
 ```
 
-## Metric creation
+## Statsolly
 
-For **Appolly**, in the methods:
-- `setupOtelMeters` in [pkg/export/otel/metrics.go](../pkg/export/otel/metrics.go) for OTEL
-- `newReporter` in [pkg/export/prom/prom.go](../pkg/export/prom/prom.go) for Prometheus
-and for **Netolly**, in the methods:
-- `newMetricsExporter` in [pkg/export/otel/metrics_net.go](../pkg/export/otel/metrics_net.go) for OTEL
-- `newNetReporter` in [pkg/export/prom/prom_net.go](../pkg/export/prom/prom_net.go) for Prometheus
-the actual metrics are created using the names defined in [pkg/export/attributes/metric.go](../pkg/export/attributes/metric.go) with the attributes defined and added in [pkg/export/attributes/attr_defs.go](../pkg/export/attributes/attr_defs.go).
+**Statsolly** is the component responsible to calculate statistical metrics, such as TCP RTT of all application running on a node.
+
+
+
+
+
+## Notes
 
 For both `OTEL` and `Prometheus`, there are metrics created in their respective methods that are **not** defined in [pkg/export/attributes/metric.go](../pkg/export/attributes/metric.go) because we are disabling user-provided attribute selection for them. They are very specific metrics with an opinionated format for Span Metrics and Service Graph Metrics functionalities. Examples: `ServiceGraphClient = "traces_service_graph_request_client_seconds"` or `SpanMetricsResponseSizes = "traces_spanmetrics_response_size_total"`.
 
 **Important note**: don't forget to clean each `Expirer` in [`cleanupAllMetricsInstances()`](../pkg/export/otel/metrics.go) method.
 
-## Notes
+
 
 You can find more metric examples directly in the OBI [CI](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/actions) logs or in the [integration](../internal/test/integration/) tests.
