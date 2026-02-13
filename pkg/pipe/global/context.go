@@ -4,10 +4,10 @@
 package global // import "go.opentelemetry.io/obi/pkg/pipe/global"
 
 import (
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"

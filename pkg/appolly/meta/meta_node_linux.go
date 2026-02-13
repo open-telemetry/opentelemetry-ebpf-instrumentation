@@ -1,4 +1,7 @@
-package meta
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package meta // import "go.opentelemetry.io/obi/pkg/appolly/meta"
 
 import (
 	"bytes"
