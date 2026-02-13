@@ -151,7 +151,7 @@ func TestDecoration(t *testing.T) {
 	}
 	inputQueue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	dec := metadataDecorator{
-		db: store, clusterName: "the-cluster",
+		store: store, clusterName: "the-cluster",
 		input:  inputQueue.Subscribe(),
 		output: msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10)),
 	}
@@ -391,7 +391,7 @@ func TestDecorationProcessEvents(t *testing.T) {
 
 	dec := &procEventMetadataDecorator{
 		log:         slog.With("component", "transform.KubeProcessEventDecoratorProvider"),
-		db:          store,
+		store:       store,
 		clusterName: "the-cluster",
 		input:       inputQueue.Subscribe(msg.SubscriberName("transform.KubeProcessEventDecorator")),
 		output:      msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10)),

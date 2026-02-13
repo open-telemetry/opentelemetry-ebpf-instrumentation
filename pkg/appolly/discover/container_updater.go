@@ -35,7 +35,7 @@ func ContainerDBUpdaterProvider(
 }
 
 func updateLoop(
-	db *kube.Store, in <-chan []Event[ebpf.Instrumentable], out *msg.Queue[[]Event[ebpf.Instrumentable]],
+	store *kube.Store, in <-chan []Event[ebpf.Instrumentable], out *msg.Queue[[]Event[ebpf.Instrumentable]],
 ) swarm.RunFunc {
 	log := slog.With("component", "ContainerDBUpdater")
 	return func(ctx context.Context) {
@@ -46,7 +46,7 @@ func updateLoop(
 				switch ev.Type {
 				case EventCreated:
 					log.Debug("adding process", "pid", ev.Obj.FileInfo.Pid)
-					db.AddProcess(ev.Obj.FileInfo.Pid)
+					store.AddProcess(ev.Obj.FileInfo.Pid)
 				case EventDeleted:
 					// we don't need to handle process deletion from here, as the Kubernetes informer will
 					// remove the process from the database when the Pod that contains it is deleted.
