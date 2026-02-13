@@ -55,6 +55,27 @@ func (ld *languageDecorator) isIgnoredPath(exePath string) bool {
 	return false
 }
 
+var _findInodeForPID = FindINodeForPID
+var _executableReady = ExecutableReady
+var _findProcLanguage = procs.FindProcLanguage
+
+func (ld *languageDecorator) decorateEvent(ev *Event[ProcessAttrs]) {
+	if exePath, ready := _executableReady(ev.Obj.pid); ready {
+		if ld.isIgnoredPath(exePath) {
+			return
+		}
+		if ino, err := _findInodeForPID(ev.Obj.pid); err == nil {
+			if t, ok := ld.typeCache.Get(ino); ok {
+				ev.Obj.detectedType = t
+				return
+			}
+			t := _findProcLanguage(ev.Obj.pid)
+			ev.Obj.detectedType = t
+			ld.typeCache.Add(ino, t)
+		}
+	}
+}
+
 func (ld *languageDecorator) decorate(ctx context.Context) {
 	defer ld.out.Close()
 	swarms.ForEachInput(ctx, ld.in, ld.log.Debug, func(instrumentables []Event[ProcessAttrs]) {
@@ -62,20 +83,7 @@ func (ld *languageDecorator) decorate(ctx context.Context) {
 			ev := &instrumentables[i]
 			switch ev.Type {
 			case EventCreated:
-				if exePath, ready := ExecutableReady(ev.Obj.pid); ready {
-					if ld.isIgnoredPath(exePath) {
-						continue
-					}
-					if ino, err := FindINodeForPID(ev.Obj.pid); err == nil {
-						if t, ok := ld.typeCache.Get(ino); ok {
-							ev.Obj.detectedType = t
-							continue
-						}
-						t := procs.FindProcLanguage(ev.Obj.pid)
-						ev.Obj.detectedType = t
-						ld.typeCache.Add(ino, t)
-					}
-				}
+				ld.decorateEvent(ev)
 			}
 		}
 		ld.out.SendCtx(ctx, instrumentables)
