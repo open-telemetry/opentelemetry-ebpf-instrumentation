@@ -12,6 +12,6 @@ struct {
 } app_network_events SEC(".maps");
 
 static __always_inline long app_network_events_flags() {
-    long avail_data = bpf_ringbuf_query(&app_network_events, BPF_RB_AVAIL_DATA);
+    const u64 avail_data = bpf_ringbuf_query(&app_network_events, BPF_RB_AVAIL_DATA);
     return avail_data >= 4096 ? BPF_RB_FORCE_WAKEUP : BPF_RB_NO_WAKEUP;
 }
