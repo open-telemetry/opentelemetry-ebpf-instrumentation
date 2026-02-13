@@ -89,8 +89,15 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 		enrichedProcessEvents,
 	), swarm.WithID("DockerDiscoveryDecoratorProvider"))
 
+	langEnrichedEvents := msgh.QueueFromConfig[[]Event[ProcessAttrs]](pf.cfg, "languageEnrichedEvents")
+	swi.Add(LanguageDecoratorProvider(
+		pf.cfg,
+		enrichedProcessEvents,
+		langEnrichedEvents,
+	), swarm.WithID("LanguageDecoratorProvider"))
+
 	criteriaFilteredEvents := msgh.QueueFromConfig[[]Event[ProcessMatch]](pf.cfg, "criteriaFilteredEvents")
-	swi.Add(criteriaMatcherProvider(pf.cfg, enrichedProcessEvents, criteriaFilteredEvents),
+	swi.Add(criteriaMatcherProvider(pf.cfg, langEnrichedEvents, criteriaFilteredEvents),
 		swarm.WithID("CriteriaMatcher"))
 
 	executableTypes := msgh.QueueFromConfig[[]Event[ebpf.Instrumentable]](pf.cfg, "executableTypes")
