@@ -23,7 +23,7 @@ import (
 type ContextInfo struct {
 	// NodeMeta of the node (physical, VM, cloud instance...) running OBI.
 	// Including the HostID and other host metadata Attributes
-	NodeMeta meta.NodeStore
+	NodeMeta meta.NodeMeta
 
 	// AppO11y stores context information that is only required for application observability.
 	// Its values must be initialized by the App O11y code and shouldn't be accessed from the

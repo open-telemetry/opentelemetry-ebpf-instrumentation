@@ -11,7 +11,7 @@ import (
 	"os"
 )
 
-func linuxLocalFetcher(ctx context.Context) (NodeStore, error) {
+func linuxLocalFetcher(ctx context.Context) (NodeMeta, error) {
 	mid, err := fetchMachineID()
 	if err != nil {
 		// If we can't read host ID, we don't retry as it is mostly
@@ -23,7 +23,7 @@ func linuxLocalFetcher(ctx context.Context) (NodeStore, error) {
 			"component", "meta.linuxLocalFetcher",
 			"error", err)
 	}
-	return NodeStore{
+	return NodeMeta{
 		HostID: mid,
 	}, nil
 }

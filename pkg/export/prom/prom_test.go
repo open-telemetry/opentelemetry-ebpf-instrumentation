@@ -59,7 +59,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	exporter, err := PrometheusEndpoint(
 		&global.ContextInfo{
 			Prometheus:            &connector.PrometheusManager{},
-			NodeMeta:              meta.NodeStore{HostID: "my-host"},
+			NodeMeta:              meta.NodeMeta{HostID: "my-host"},
 			MetricAttributeGroups: g,
 		},
 		&PrometheusConfig{

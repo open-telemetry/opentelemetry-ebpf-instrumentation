@@ -10,6 +10,6 @@ import (
 )
 
 // permits compilation in non-linux environments
-func linuxLocalFetcher(_ context.Context) (NodeStore, error) {
-	return NodeStore{}, nil
+func linuxLocalFetcher(_ context.Context) (NodeMeta, error) {
+	return NodeMeta{}, nil
 }

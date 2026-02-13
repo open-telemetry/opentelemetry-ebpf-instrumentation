@@ -809,7 +809,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mr := &MetricsReporter{
-				nodeMeta:            meta.NodeStore{HostID: "test-host-id"},
+				nodeMeta:            meta.NodeMeta{HostID: "test-host-id"},
 				userAttribSelection: tc.attributeSelect,
 			}
 

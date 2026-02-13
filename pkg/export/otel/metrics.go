@@ -74,7 +74,7 @@ type MetricsReporter struct {
 	ctx              context.Context
 	cfg              *otelcfg.MetricsConfig
 	jointMetricsCfg  *perapp.MetricsConfig
-	nodeMeta         meta.NodeStore
+	nodeMeta         meta.NodeMeta
 	attributes       *attributes.AttrSelector
 	exporter         sdkmetric.Exporter
 	reporters        otelcfg.ReporterPool[*svc.Attrs, *Metrics]
@@ -653,7 +653,7 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 	var resourceAttributes []attribute.KeyValue
 	if service != nil {
 		mlog = mlog.With("service", service)
-		resourceAttributes = append(otelcfg.GetAppResourceAttrs(mr.nodeMeta.HostID, service), otelcfg.ResourceAttrsFromEnv(service)...)
+		resourceAttributes = append(otelcfg.GetAppResourceAttrs(&mr.nodeMeta, service), otelcfg.ResourceAttrsFromEnv(service)...)
 	}
 	mlog.Debug("creating new Metrics reporter")
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
@@ -786,12 +786,14 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 		semconv.OSTypeKey.String("linux"),
 	}
 
-	extraAttrs := []attribute.KeyValue{
-		semconv.HostID(mr.nodeMeta.HostID),
-	}
-
+	extraAttrs := make([]attribute.KeyValue, 0, len(service.Metadata)+len(mr.nodeMeta.Metadata)+1)
+	extraAttrs = append(extraAttrs, semconv.HostID(mr.nodeMeta.HostID))
 	for k, v := range service.Metadata {
 		extraAttrs = append(extraAttrs, k.OTEL().String(v))
+	}
+
+	for _, entry := range mr.nodeMeta.Metadata {
+		extraAttrs = append(extraAttrs, entry.Key.OTEL().String(entry.Value))
 	}
 
 	filteredAttrs := otelcfg.GetFilteredAttributesByPrefix(baseAttrs, mr.userAttribSelection, extraAttrs, MetricTypes)
@@ -1041,7 +1043,7 @@ func (mr *MetricsReporter) resourceAttrsForService(service *svc.Attrs) []attribu
 		attribute.String(string(attr.Job), service.Job()),
 	}
 
-	attrs = append(attrs, otelcfg.GetAppResourceAttrs(mr.nodeMeta.HostID, service)...)
+	attrs = append(attrs, otelcfg.GetAppResourceAttrs(&mr.nodeMeta, service)...)
 	return append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
 }
 

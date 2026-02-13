@@ -15,21 +15,21 @@ import (
 )
 
 func otelNodeFetcher(detector resource.Detector) fetcher {
-	log := slog.With("component", "meta.NodeStore.otelNodeFetcher",
+	log := slog.With("component", "meta.NodeMeta.otelNodeFetcher",
 		"detector", fmt.Sprintf("%T", detector)[1:])
 
-	return func(ctx context.Context) (NodeStore, error) {
+	return func(ctx context.Context) (NodeMeta, error) {
 		resource, err := detector.Detect(ctx)
 		// none of the errors from the ec2 detect are retriable, so we just log them.
 		if err != nil {
 			log.Debug("failed to detect AWS EC2 metadata", "error", err)
 		}
 		if resource == nil {
-			return NodeStore{}, nil
+			return NodeMeta{}, nil
 		}
 		// In any case, the API can return an error with a valid (partial resource)
 		attrs := resource.Iter()
-		store := NodeStore{Metadata: make([]Entry, 0, attrs.Len())}
+		store := NodeMeta{Metadata: make([]Entry, 0, attrs.Len())}
 		for attrs.Next() {
 			at := attrs.Attribute()
 			if at.Key == semconv.HostIDKey {

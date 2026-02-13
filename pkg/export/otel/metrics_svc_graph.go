@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -46,7 +47,7 @@ const (
 type SvcGraphMetricsReporter struct {
 	ctx              context.Context
 	cfg              *otelcfg.MetricsConfig
-	hostID           string
+	nodeMeta         meta.NodeMeta
 	exporter         sdkmetric.Exporter
 	reporters        otelcfg.ReporterPool[*svc.Attrs, *SvcGraphMetrics]
 	pidTracker       PidServiceTracker
@@ -120,7 +121,7 @@ func newSvcGraphMetricsReporter(
 		ctx:              ctx,
 		cfg:              cfg,
 		is:               is,
-		hostID:           ctxInfo.NodeMeta.HostID,
+		nodeMeta:         ctxInfo.NodeMeta,
 		input:            input.Subscribe(msg.SubscriberName("otel.SvcGraphMetricsReporter.input")),
 		processEvents:    processEventCh.Subscribe(msg.SubscriberName("otel.SvcGraphMetricsReporter.processEvents")),
 		metricAttributes: serviceGraphGetters(unresolved, ctxInfo.K8sInformer.IsKubeEnabled()),
@@ -200,7 +201,7 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 	var resourceAttributes []attribute.KeyValue
 	if service != nil {
 		log = log.With("service", service)
-		resourceAttributes = append(otelcfg.GetAppResourceAttrs(mr.hostID, service), otelcfg.ResourceAttrsFromEnv(service)...)
+		resourceAttributes = append(otelcfg.GetAppResourceAttrs(&mr.nodeMeta, service), otelcfg.ResourceAttrsFromEnv(service)...)
 	}
 	log.Debug("creating new Metrics reporter")
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
@@ -259,7 +260,7 @@ func (mr *SvcGraphMetricsReporter) tracesResourceAttributes(service *svc.Attrs) 
 	}
 
 	extraAttrs := []attribute.KeyValue{
-		semconv.HostID(mr.hostID),
+		semconv.HostID(mr.nodeMeta.HostID),
 	}
 
 	for k, v := range service.Metadata {
