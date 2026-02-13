@@ -1,0 +1,41 @@
+package meta
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+)
+
+func otelNodeFetcher(detector resource.Detector) fetcher {
+	log := slog.With("component", "meta.NodeStore.otelNodeFetcher",
+		"detector", fmt.Sprintf("%T", detector)[1:])
+
+	return func(ctx context.Context) (NodeStore, error) {
+		resource, err := detector.Detect(ctx)
+		// none of the errors from the ec2 detect are retriable, so we just log them.
+		if err != nil {
+			log.Debug("failed to detect AWS EC2 metadata", "error", err)
+		}
+		if resource == nil {
+			return NodeStore{}, nil
+		}
+		// In any case, the API can return an error with a valid (partial resource)
+		attrs := resource.Iter()
+		store := NodeStore{Metadata: make([]Entry, 0, attrs.Len())}
+		for attrs.Next() {
+			at := attrs.Attribute()
+			if at.Key == semconv.HostIDKey {
+				store.HostID = at.Value.Emit()
+			} else {
+				store.Metadata = append(store.Metadata,
+					Entry{Key: attr.Name(at.Key), Value: at.Value.Emit()})
+			}
+		}
+		return store, nil
+	}
+}

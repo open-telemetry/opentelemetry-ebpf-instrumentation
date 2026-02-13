@@ -4,6 +4,7 @@
 package global // import "go.opentelemetry.io/obi/pkg/pipe/global"
 
 import (
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -20,9 +21,10 @@ import (
 // ContextInfo stores some context information that must be shared across some nodes of the
 // processing graph.
 type ContextInfo struct {
-	// HostID of the host running OBI. Unless testing environments, this value must be
-	// automatically set after invoking FetchHostID
-	HostID string
+	// NodeInfo of the node (physical, VM, cloud instance...) running OBI.
+	// Including the HostID and other host metadata Attributes
+	NodeInfo meta.NodeStore
+
 	// AppO11y stores context information that is only required for application observability.
 	// Its values must be initialized by the App O11y code and shouldn't be accessed from the
 	// NetO11y part.

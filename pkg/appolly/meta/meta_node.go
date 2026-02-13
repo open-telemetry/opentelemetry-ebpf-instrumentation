@@ -6,10 +6,17 @@ package meta
 import (
 	"context"
 	"log/slog"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/contrib/detectors/aws/ec2/v2"
+	"go.opentelemetry.io/contrib/detectors/azure/azurevm"
+	"go.opentelemetry.io/contrib/detectors/gcp"
+
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/kube"
 )
 
 func nslog() *slog.Logger {
@@ -34,9 +41,12 @@ const (
 // because this would mean that OBI is not being executed in that cloud provider.
 // But we can retry if the cloud API endpoint returns 5xx errors, as this would indicate
 // a temporary unavailability in the Cloud Metadata sevice.
-type fetcher func(ctx context.Context) ([]Entry, error)
+type fetcher func(ctx context.Context) (NodeStore, error)
 
 type NodeStore struct {
+	// HostID is a special attribute that needs to be frequently accessed
+	// so it's stored separately from the rest of metadata entries
+	HostID   string
 	Metadata []Entry
 }
 
@@ -47,24 +57,30 @@ type Entry struct {
 
 func NewNodeStore(
 	ctx context.Context,
-) *NodeStore {
-	return &NodeStore{
-		Metadata: fetchEntries(ctx,
-			awsNodeFetcher,
-		),
-	}
+	kubeInformer *kube.MetadataProvider,
+) NodeStore {
+	return fetchEntries(ctx,
+		// some fetchers will only retrieve the host name while others
+		// will retrieve also host attributes that will be merged
+		// in order of the priority below (the later the highest)
+		linuxLocalFetcher,
+		kubeNodeFetcher(kubeInformer),
+		otelNodeFetcher(azurevm.New()),
+		otelNodeFetcher(gcp.NewDetector()),
+		otelNodeFetcher(ec2.NewResourceDetector()),
+	)
 }
 
 func fetchEntries(
 	ctx context.Context,
 	fetchers ...fetcher,
-) []Entry {
+) NodeStore {
 	log := nslog()
 	wg := sync.WaitGroup{}
 	// we run in parallel to avoid that timeouts/retries delay the startup too much
 	// but we want to keep the priority of the fetchers, so later fetchers can override
 	// some data from previous fetchers
-	results := make([][]Entry, len(fetchers))
+	results := make([]NodeStore, len(fetchers))
 	for i, fetch := range fetchers {
 		wg.Go(func() {
 			results[i] = backoffFetch(ctx, fetch, log.With("fetcher", i))
@@ -72,15 +88,21 @@ func fetchEntries(
 	}
 	wg.Wait()
 
-	// Concatenate all results maintaining order
-	var allEntries []Entry
-	for _, entries := range results {
-		allEntries = append(allEntries, entries...)
+	// Merge all results maintaining priority
+	merged := NodeStore{}
+	for _, store := range results {
+		merged.merge(store)
 	}
-	return dedupeKeys(allEntries)
+
+	// for consistency, sort alphabetically by attribute
+	slices.SortFunc(merged.Metadata, func(l, r Entry) int {
+		return strings.Compare(string(l.Key), string(r.Key))
+	})
+
+	return merged
 }
 
-func backoffFetch(ctx context.Context, fetch fetcher, log *slog.Logger) []Entry {
+func backoffFetch(ctx context.Context, fetch fetcher, log *slog.Logger) NodeStore {
 	backoff := retryStartInterval
 	start := time.Now()
 	for {
@@ -91,7 +113,7 @@ func backoffFetch(ctx context.Context, fetch fetcher, log *slog.Logger) []Entry 
 		// exponential backoff retry strategy
 		if time.Since(start) > retryTimeout {
 			log.Warn("timeout reached while looking for metadata. Giving up", "error", err)
-			return nil
+			return NodeStore{}
 		}
 		log.Debug("can't fetch metadata. Will retry", "retryAfter", backoff, "error", err)
 		select {
@@ -99,22 +121,30 @@ func backoffFetch(ctx context.Context, fetch fetcher, log *slog.Logger) []Entry 
 		// continue loop!
 		case <-ctx.Done():
 			log.Debug("context canceled. Exiting")
-			return nil
+			return NodeStore{}
 		}
 		backoff = min(backoff*2, retryMaxInterval)
 	}
 }
 
-func dedupeKeys(entries []Entry) []Entry {
+// merges the attributes. On collision, the src NodeStore will overwrite
+// the target NodeStore
+func (ns *NodeStore) merge(src NodeStore) {
+	if src.HostID != "" {
+		ns.HostID = src.HostID
+	}
 	keyPos := map[attr.Name]int{}
-	out := make([]Entry, 0, len(entries))
-	for _, entry := range entries {
+	for i, att := range ns.Metadata {
+		keyPos[att.Key] = i
+	}
+	for _, entry := range src.Metadata {
 		if pos, ok := keyPos[entry.Key]; ok {
-			out[pos] = entry
+			// Key is already in destination: overwrite
+			ns.Metadata[pos] = entry
 		} else {
-			out = append(out, entry)
-			keyPos[entry.Key] = len(out) - 1
+			ns.Metadata = append(ns.Metadata, entry)
+			// theoretically should not be necessary unless src has duplicate Keys
+			keyPos[entry.Key] = len(ns.Metadata) - 1
 		}
 	}
-	return out
 }
