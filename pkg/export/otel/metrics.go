@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -73,7 +74,7 @@ type MetricsReporter struct {
 	ctx              context.Context
 	cfg              *otelcfg.MetricsConfig
 	jointMetricsCfg  *perapp.MetricsConfig
-	hostID           string
+	nodeMeta         meta.NodeStore
 	attributes       *attributes.AttrSelector
 	exporter         sdkmetric.Exporter
 	reporters        otelcfg.ReporterPool[*svc.Attrs, *Metrics]
@@ -215,7 +216,7 @@ func newMetricsReporter(
 		is:                  is,
 		targetMetrics:       map[svc.UID]*TargetMetrics{},
 		attributes:          attribProvider,
-		hostID:              ctxInfo.HostID,
+		nodeMeta:            ctxInfo.NodeMeta,
 		input:               input.Subscribe(msg.SubscriberName("otelMetrics.InputSpans")),
 		processEvents:       processEventCh.Subscribe(msg.SubscriberName("otelMetrics.ProcessEvents")),
 		userAttribSelection: selectorCfg.SelectionCfg,
@@ -637,7 +638,7 @@ func (mr *MetricsReporter) setupHostInfoMeter(meter instrument.Meter) error {
 	attr := attributes.Field[*request.Span, attribute.KeyValue]{
 		ExposedName: string(GrafanaHostIDKey),
 		Get: func(_ *request.Span) attribute.KeyValue {
-			return semconv.HostID(mr.hostID)
+			return semconv.HostID(mr.nodeMeta.HostID)
 		},
 	}
 
@@ -652,7 +653,7 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 	var resourceAttributes []attribute.KeyValue
 	if service != nil {
 		mlog = mlog.With("service", service)
-		resourceAttributes = append(otelcfg.GetAppResourceAttrs(mr.hostID, service), otelcfg.ResourceAttrsFromEnv(service)...)
+		resourceAttributes = append(otelcfg.GetAppResourceAttrs(mr.nodeMeta.HostID, service), otelcfg.ResourceAttrsFromEnv(service)...)
 	}
 	mlog.Debug("creating new Metrics reporter")
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
@@ -786,7 +787,7 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 	}
 
 	extraAttrs := []attribute.KeyValue{
-		semconv.HostID(mr.hostID),
+		semconv.HostID(mr.nodeMeta.HostID),
 	}
 
 	for k, v := range service.Metadata {
@@ -816,7 +817,7 @@ func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Sp
 		attributes.Field[*request.Span, attribute.KeyValue]{
 			ExposedName: string(attr.HostID.OTEL()),
 			Get: func(_ *request.Span) attribute.KeyValue {
-				return semconv.HostID(mr.hostID)
+				return semconv.HostID(mr.nodeMeta.HostID)
 			},
 		})
 }
@@ -1040,7 +1041,7 @@ func (mr *MetricsReporter) resourceAttrsForService(service *svc.Attrs) []attribu
 		attribute.String(string(attr.Job), service.Job()),
 	}
 
-	attrs = append(attrs, otelcfg.GetAppResourceAttrs(mr.hostID, service)...)
+	attrs = append(attrs, otelcfg.GetAppResourceAttrs(mr.nodeMeta.HostID, service)...)
 	return append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
 }
 

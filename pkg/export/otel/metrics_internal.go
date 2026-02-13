@@ -56,7 +56,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		return nil, err
 	}
 
-	res := newResourceInternal(ctxInfo.HostID)
+	res := newResourceInternal(ctxInfo.NodeMeta.HostID)
 	provider := newInternalMeterProvider(res, &exporter, metrics.Interval)
 	meter := provider.Meter("obi_internal")
 	tracerFlushes, err := meter.Float64Histogram(

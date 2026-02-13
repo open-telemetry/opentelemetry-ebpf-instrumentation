@@ -211,9 +211,7 @@ var DefaultConfig = Config{
 			InformersResyncPeriod: 30 * time.Minute,
 			ResourceLabels:        kube.DefaultResourceLabels,
 		},
-		HostID: HostIDConfig{
-			FetchTimeout: 500 * time.Millisecond,
-		},
+		HostID:                         HostIDConfig{},
 		RenameUnresolvedHosts:          "unresolved",
 		RenameUnresolvedHostsOutgoing:  "outgoing",
 		RenameUnresolvedHostsIncoming:  "incoming",
@@ -505,8 +503,6 @@ type Attributes struct {
 type HostIDConfig struct {
 	// Override allows overriding the reported host.id in OBI
 	Override string `yaml:"override" env:"OTEL_EBPF_HOST_ID"`
-	// FetchTimeout specifies the timeout for trying to fetch the HostID from diverse Cloud Providers
-	FetchTimeout time.Duration `yaml:"fetch_timeout" env:"OTEL_EBPF_HOST_ID_FETCH_TIMEOUT"`
 }
 
 type NodeJSConfig struct {

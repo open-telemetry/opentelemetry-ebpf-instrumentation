@@ -151,7 +151,7 @@ type obi struct {
 }
 
 // instrument starts the OBI container to instrument the target application.
-func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *dockertest.Resource, configFile string) { //nolint:unparam // configFile is always passed in current usages but may vary in future
+func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *dockertest.Resource, configFile string) {
 	t.Helper()
 
 	t.Log("Starting OBI container with PID namespace sharing...")

@@ -40,7 +40,7 @@ const (
 // For example, we must not retry if a cloud API endpoint does not exist or it returns 4xx errors,
 // because this would mean that OBI is not being executed in that cloud provider.
 // But we can retry if the cloud API endpoint returns 5xx errors, as this would indicate
-// a temporary unavailability in the Cloud Metadata sevice.
+// a temporary unavailability in the Cloud Metadata service.
 type fetcher func(ctx context.Context) (NodeStore, error)
 
 type NodeStore struct {
@@ -57,6 +57,7 @@ type Entry struct {
 
 func NewNodeStore(
 	ctx context.Context,
+	overrideHost string,
 	kubeInformer *kube.MetadataProvider,
 ) NodeStore {
 	return fetchEntries(ctx,
@@ -68,6 +69,9 @@ func NewNodeStore(
 		otelNodeFetcher(azurevm.New()),
 		otelNodeFetcher(gcp.NewDetector()),
 		otelNodeFetcher(ec2.NewResourceDetector()),
+		func(_ context.Context) (NodeStore, error) {
+			return NodeStore{HostID: overrideHost}, nil
+		},
 	)
 }
 

@@ -120,7 +120,7 @@ func newSvcGraphMetricsReporter(
 		ctx:              ctx,
 		cfg:              cfg,
 		is:               is,
-		hostID:           ctxInfo.HostID,
+		hostID:           ctxInfo.NodeMeta.HostID,
 		input:            input.Subscribe(msg.SubscriberName("otel.SvcGraphMetricsReporter.input")),
 		processEvents:    processEventCh.Subscribe(msg.SubscriberName("otel.SvcGraphMetricsReporter.processEvents")),
 		metricAttributes: serviceGraphGetters(unresolved, ctxInfo.K8sInformer.IsKubeEnabled()),

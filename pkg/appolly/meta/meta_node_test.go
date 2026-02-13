@@ -20,7 +20,7 @@ func TestFetchEntries_RetryAndKeepOrder(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		// Create fetchers that fail different numbers of times before succeeding
 		failOnce := makeFetcherThatFailsNTimes(1, "fetcher1", "value1")
-		alwaysFails := func(ctx context.Context) (NodeStore, error) {
+		alwaysFails := func(_ context.Context) (NodeStore, error) {
 			return NodeStore{}, errors.New("permanent failure")
 		}
 		failTwice := makeFetcherThatFailsNTimes(2, "fetcher2", "value2")
@@ -47,7 +47,7 @@ func TestFetchEntries_RetryAndKeepOrder(t *testing.T) {
 func TestFetchEntries_DeduplicateByPriority(t *testing.T) {
 	entries := fetchEntries(t.Context(),
 		// lowest-priority fetcher
-		func(ctx context.Context) (NodeStore, error) {
+		func(_ context.Context) (NodeStore, error) {
 			return NodeStore{
 				HostID: "should-be-overridden",
 				Metadata: []Entry{
@@ -58,7 +58,7 @@ func TestFetchEntries_DeduplicateByPriority(t *testing.T) {
 			}, nil
 		},
 		// highest-priority fetcher
-		func(ctx context.Context) (NodeStore, error) {
+		func(_ context.Context) (NodeStore, error) {
 			return NodeStore{
 				HostID: "vm-01234567",
 				Metadata: []Entry{
@@ -83,7 +83,7 @@ func TestFetchEntries_DeduplicateByPriority(t *testing.T) {
 
 func makeFetcherThatFailsNTimes(failCount int, key, value string) fetcher {
 	attempts := atomic.Int32{}
-	return func(ctx context.Context) (NodeStore, error) {
+	return func(_ context.Context) (NodeStore, error) {
 		attempt := attempts.Add(1)
 		if attempt <= int32(failCount) {
 			return NodeStore{}, errors.New("simulated failure")

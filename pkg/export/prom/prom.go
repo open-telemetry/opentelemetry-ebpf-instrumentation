@@ -401,7 +401,7 @@ func newReporter(
 		dockerEnabled:              dockerEnabled,
 		extraMetadataLabels:        extraMetadataLabels,
 		extraSpanMetadataLabels:    extraSpanMetadataLabels,
-		hostID:                     ctxInfo.HostID,
+		hostID:                     ctxInfo.NodeMeta.HostID,
 		clock:                      clock,
 		is:                         is,
 		promConnect:                ctxInfo.Prometheus,
