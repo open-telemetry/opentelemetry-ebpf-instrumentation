@@ -11,6 +11,19 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 )
 
+func TestHighCertaintyModuleDetection(t *testing.T) {
+	assert.Equal(t, svc.InstrumentableDotnet, instrumentableFromModuleMapSharedLib("libcoreclr.so"))
+	assert.Equal(t, svc.InstrumentableJava, instrumentableFromModuleMapSharedLib("libjvm.so"))
+	assert.Equal(t, svc.InstrumentablePython, instrumentableFromModuleMapSharedLib("/home/user/.pyenv/versions/3.12.3/lib/libpython3.12.so.1.0"))
+	assert.Equal(t, svc.InstrumentablePython, instrumentableFromModuleMapSharedLib("/usr/lib/libpython3.so"))
+	assert.Equal(t, svc.InstrumentablePython, instrumentableFromModuleMapSharedLib("libpython3.11.so"))
+	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromModuleMapSharedLib("libpython3"))
+	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromModuleMapSharedLib("/home/user/.pyenv/versions/3.12.3/lib/something"))
+	assert.Equal(t, svc.InstrumentableRuby, instrumentableFromModuleMapSharedLib("/usr/lib/x86_64-linux-gnu/libruby-3.2.so.3.2.3"))
+	assert.Equal(t, svc.InstrumentableRuby, instrumentableFromModuleMapSharedLib("libruby-3.0.so"))
+	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromModuleMapSharedLib("libruby-3.2"))
+}
+
 func TestModuleDetection(t *testing.T) {
 	assert.Equal(t, svc.InstrumentableDotnet, instrumentableFromModuleMap("/usr/lib\\//libcoreclr.so/dklksjdf"))
 	assert.Equal(t, svc.InstrumentableDotnet, instrumentableFromModuleMap("libcoreclr.so"))
@@ -54,4 +67,14 @@ func TestEnvironDetection(t *testing.T) {
 func TestPathDetection(t *testing.T) {
 	assert.Equal(t, svc.InstrumentablePHP, instrumentableFromPath("php"))
 	assert.Equal(t, svc.InstrumentableGeneric, instrumentableFromPath("python"))
+}
+
+func TestLastResortDetection(t *testing.T) {
+	assert.Equal(t, svc.InstrumentableCPP, instrumentableLastResort("/usr/lib/x86_64-linux-gnu/libstdc++.so.6"))
+	assert.Equal(t, svc.InstrumentableCPP, instrumentableLastResort("libstdc++.so"))
+	assert.Equal(t, svc.InstrumentableCPP, instrumentableLastResort("/usr/lib/libc++.so.1"))
+	assert.Equal(t, svc.InstrumentableCPP, instrumentableLastResort("libc++.so"))
+	assert.Equal(t, svc.InstrumentableGeneric, instrumentableLastResort("libstdc++"))
+	assert.Equal(t, svc.InstrumentableGeneric, instrumentableLastResort("libc++"))
+	assert.Equal(t, svc.InstrumentableGeneric, instrumentableLastResort("/usr/lib/libsomething.so"))
 }

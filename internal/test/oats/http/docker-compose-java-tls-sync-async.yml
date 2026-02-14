@@ -7,7 +7,7 @@ services:
     ports:
       - "8080:8080"
   testserver:
-    image: ghcr.io/open-telemetry/obi-testimg:java-tls-0.0.1@sha256:1518dfe9d03ffb99bfc725165abf0478fd548ce0eefb70d7d89a2a405042029f
+    image: ghcr.io/open-telemetry/obi-testimg:java-tls-0.0.2@sha256:fc68b9f8ff775717bd6f936d92fce925033d3f64591ae0df0f267a40745eaef6
     ports:
       - "8443:8443"
   # eBPF auto instrumenter
