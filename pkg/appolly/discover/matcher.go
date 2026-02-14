@@ -34,7 +34,7 @@ func criteriaMatcherProvider(
 	input *msg.Queue[[]Event[ProcessAttrs]],
 	output *msg.Queue[[]Event[ProcessMatch]],
 ) swarm.InstanceFunc {
-	beylaNamespace, _ := namespaceFetcherFunc(app.PID(osPidFunc()))
+	instrumenterNamespace, _ := namespaceFetcherFunc(app.PID(osPidFunc()))
 	m := &Matcher{
 		Log:                 slog.With("component", "discover.CriteriaMatcher"),
 		Criteria:            FindingCriteria(cfg),
@@ -43,7 +43,7 @@ func criteriaMatcherProvider(
 		ProcessHistory:      map[app.PID]ProcessMatch{},
 		Input:               input.Subscribe(msg.SubscriberName("discover.CriteriaMatcher")),
 		Output:              output,
-		Namespace:           beylaNamespace,
+		Namespace:           instrumenterNamespace,
 		HasHostPidAccess:    hasHostPidAccess(),
 	}
 	return swarm.DirectInstance(m.Run)
@@ -229,7 +229,7 @@ func (m *Matcher) matchProcess(obj *ProcessAttrs, p *services.ProcessInfo, a ser
 			log.Debug("not in a container", "namespace", ns)
 			return false
 		}
-		log.Debug("app is in a container", "namespace", ns, "beyla namespace", m.Namespace)
+		log.Debug("app is in a container", "namespace", ns, "instrumenter namespace", m.Namespace)
 	}
 	// after matching by process basic information, we check if it matches
 	// by metadata.

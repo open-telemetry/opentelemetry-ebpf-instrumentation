@@ -17,7 +17,7 @@ services:
       - ./configs/:/configs
       - /sys/kernel/security:/sys/kernel/security:ro
       - ../../../testoutput:/coverage
-      - ../../../testoutput/run-python:/var/run/beyla
+      - ../../../testoutput/run-python:/var/run/obi
       - /sys/fs/bpf:/sys/fs/bpf
     image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]

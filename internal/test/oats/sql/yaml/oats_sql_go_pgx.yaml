@@ -1,7 +1,7 @@
 docker-compose:
   generator: generic
   files:
-    - ../docker-compose-beyla-gopgxclient.yml
+    - ../docker-compose-obi-gopgxclient.yml
 input:
   - path: /pgxquery
   - path: /pgxupdate

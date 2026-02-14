@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package msg provides tools for message passing and queues between the different nodes of the Beyla pipelines.
+// Package msg provides tools for message passing and queues between the different nodes of the OBI pipelines.
 package msg // import "go.opentelemetry.io/obi/pkg/pipe/msg"
 
 import (

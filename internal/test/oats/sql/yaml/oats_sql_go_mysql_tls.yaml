@@ -1,7 +1,7 @@
 docker-compose:
   generator: generic
   files:
-    - ../docker-compose-beyla-gomysqlclient-tls.yml
+    - ../docker-compose-obi-gomysqlclient-tls.yml
 input:
   - path: /mysqltest
 interval: 500ms

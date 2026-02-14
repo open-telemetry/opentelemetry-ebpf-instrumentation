@@ -1,0 +1,17 @@
+[Unit]
+Description=Run the OBI application for a given application
+After=network.target
+
+[Service]
+Type = simple
+Restart = always
+User = root
+Group = root
+WorkingDirectory = /etc/obi
+EnvironmentFile = /etc/obi/%i.env
+ExecStart=
+ExecStart=/usr/local/bin/obi \
+	--config=/etc/obi/%i.yaml
+
+[Install]
+WantedBy = multi-user.target

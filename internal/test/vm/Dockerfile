@@ -39,11 +39,11 @@ RUN ssh-keygen -A && \
     rc-update add docker default && \
     rc-update add sshd default && \
     echo ttyS0::respawn:/sbin/agetty --autologin root ttyS0 vt100 >> /etc/inittab && \
-    mkdir -p /overlay/upper/testoutput /overlay/work /build /beyla
+    mkdir -p /overlay/upper/testoutput /overlay/work /build /obi
 
 RUN cat <<EOF >> /etc/fstab
-beyla        /beyla             9p      trans=virtio,version=9p2000.L                                  0  0
-overlay      /build             overlay lowerdir=/beyla,upperdir=/overlay/upper,workdir=/overlay/work  0  0
+obi          /obi               9p      trans=virtio,version=9p2000.L                                  0  0
+overlay      /build             overlay lowerdir=/obi,upperdir=/overlay/upper,workdir=/overlay/work  0  0
 tmpfs        /tmp               tmpfs   rw,nodev,nosuid                                                0  0
 devpts       /dev/pts           devpts  defaults                                                       0  0
 tmpfs        /run               tmpfs   defaults,size=4G                                               0  0
@@ -51,7 +51,7 @@ testout      /build/testoutput  9p      trans=virtio,version=9p2000.L           
 precompiled  /precompiled-tests 9p      trans=virtio,version=9p2000.L                                  0  0
 EOF
 
-RUN echo beyla > /etc/hostname
+RUN echo obi > /etc/hostname
 
 RUN cat <<EOF > /etc/network/interfaces
 auto eth0

@@ -28,7 +28,7 @@ services:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../../testoutput:/coverage
-      - ../../../testoutput/run-tpclient:/var/run/beyla
+      - ../../../testoutput/run-tpclient:/var/run/obi
     image: hatest-obi
     privileged: true
     pid: "host"

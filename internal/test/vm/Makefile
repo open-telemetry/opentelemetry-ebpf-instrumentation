@@ -58,7 +58,7 @@ launchvm: check_qemu $(ROOT_IMG) $(TEST_OUTPUT)
 	fi; \
 	qemu-system-$(ARCH) -enable-kvm -cpu host -m 8192 -smp 3 -kernel $(KERNEL) -drive file=$(ROOT_IMG),format=qcow2 \
 		-append "earlyprintk=ttyS0 console=ttyS0 root=/dev/sda rw quiet" \
-		-virtfs local,path=$(REPO_ROOT),mount_tag=beyla,security_model=mapped,id=beyla \
+		-virtfs local,path=$(REPO_ROOT),mount_tag=obi,security_model=mapped,id=obi \
 		-virtfs local,path=$(TEST_OUTPUT),mount_tag=testout,security_model=mapped,id=testout \
 		$$PRECOMPILED_VIRTFS \
 		-net user,hostfwd=tcp::2222-:22 -net nic \

@@ -163,7 +163,7 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *doc
 			filepath.Join(pathRoot, "internal/test/integration/configs") + ":/configs",
 			filepath.Join(pathRoot, "internal/test/integration/system/sys/kernel/security"+o.SecurityConfigSuffix) + ":/sys/kernel/security",
 			pathOutput + ":/coverage",
-			runOtelDir + ":/var/run/beyla",
+			runOtelDir + ":/var/run/obi",
 		},
 		Env: append([]string{
 			"GOCOVERDIR=/coverage",
