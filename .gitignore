@@ -102,3 +102,6 @@ pkg/internal/java/.gradle
 internal/test/integration/components/java_tls/netty_tls/target
 internal/test/integration/components/java_tls/sync_async_tls/target
 internal/test/integration/components/java_tls/jdk8/target
+
+# Ignore the generated OpenTelemetry Collector configuration files for development.
+examples/otel-collector/otelcol-dev/*
