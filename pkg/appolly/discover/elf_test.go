@@ -4,12 +4,33 @@
 package discover
 
 import (
+	"os"
 	"reflect"
 	"testing"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
+
+func TestFindINodeForPID(t *testing.T) {
+	// Use our own PID — guaranteed to exist and have a valid /proc/<pid>/exe
+	self := app.PID(os.Getpid())
+
+	ino, err := FindINodeForPID(self)
+	if err != nil {
+		t.Fatalf("FindINodeForPID(%d) returned error: %v", self, err)
+	}
+	if ino == 0 {
+		t.Errorf("FindINodeForPID(%d) returned inode 0, expected a non-zero inode", self)
+	}
+
+	// A non-existent PID should return an error
+	_, err = FindINodeForPID(app.PID(999999999))
+	if err == nil {
+		t.Error("FindINodeForPID with invalid PID should return an error")
+	}
+}
 
 func TestSetServiceEnvVariables(t *testing.T) {
 	tests := []struct {
