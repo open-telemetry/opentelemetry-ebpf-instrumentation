@@ -2,7 +2,8 @@ name: Markdown
 
 on:
   push:
-    branches: ["main", "release-*"]
+    paths:
+      - "**.md"
   pull_request:
     paths:
       - "**.md"
