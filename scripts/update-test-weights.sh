@@ -43,7 +43,7 @@ ENTRIES=$(
     | sed -n 's/.*integration\.\(Test[A-Za-z0-9_]*\) (\([0-9.]*\)s).*/\1 \2/p' \
     | awk '{ val[$1] = int($2 + 0.5) } END { for (k in val) printf "%s %d\n", k, val[k] }' \
     | sort
-)
+) || true # ignore errors so that we can report the error below
 
 if [ -z "$ENTRIES" ]; then
     echo "Error: no test results found in files matching '$LOGS_DIR/*shard*.txt'" >&2
