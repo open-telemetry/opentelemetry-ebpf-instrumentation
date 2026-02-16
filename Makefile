@@ -251,7 +251,7 @@ generate/all: $(BPF2GO)
 docker-generate:
 	@echo "### Generating files in Docker..."
 	@$(OCI_BIN) run --rm \
-		-u $(DOCKER_USER) \
+		$(if $(findstring podman,$(OCI_BIN)),  ,-u "$(DOCKER_USER)") \
 		-v "$(CURDIR):/src:z" \
 		-w /src \
 		$(GEN_IMG) \
