@@ -37,8 +37,7 @@ fi
 # (they have / after the test name). Re-runs are also excluded.
 # Takes the last (aggregate) duration per test name.
 ENTRIES=$(
-    grep -rh 'integration\.Test' "$LOGS_DIR"/*shard*.txt 2>/dev/null \
-    | grep -E '(PASS|FAIL)' \
+    grep -rhE '(PASS|FAIL).*integration\.Test' "$LOGS_DIR"/*shard*.txt 2>/dev/null \
     | grep -v '^ ' \
     | grep -v 're-run' \
     | sed -n 's/.*integration\.\(Test[A-Za-z0-9_]*\) (\([0-9.]*\)s).*/\1 \2/p' \
