@@ -8,6 +8,11 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
