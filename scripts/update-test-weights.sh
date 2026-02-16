@@ -32,15 +32,17 @@ if [ ! -d "$LOGS_DIR" ]; then
 fi
 
 # Extract top-level test durations from shard log files.
-# Looks for lines like: PASS integration.TestFoo (123.45s)
-# Deduplicates by taking the first occurrence per test name, then rounds to
-# the nearest integer and sorts alphabetically by test name.
+# Matches lines like: PASS internal/test/integration.TestFoo (123.45s)
+# The sed pattern requires a space after the test name, which excludes subtests
+# (they have / after the test name). Re-runs are also excluded.
+# Takes the last (aggregate) duration per test name.
 ENTRIES=$(
     grep -rh 'integration\.Test' "$LOGS_DIR"/*shard*.txt 2>/dev/null \
     | grep -E '(PASS|FAIL)' \
     | grep -v '^ ' \
-    | sed -n 's/.*integration\.\(Test[A-Za-z0-9_]*\).*(\([0-9.]*\)s).*/\1 \2/p' \
-    | awk '!seen[$1]++ { printf "%s %d\n", $1, int($2 + 0.5) }' \
+    | grep -v 're-run' \
+    | sed -n 's/.*integration\.\(Test[A-Za-z0-9_]*\) (\([0-9.]*\)s).*/\1 \2/p' \
+    | awk '{ val[$1] = int($2 + 0.5) } END { for (k in val) printf "%s %d\n", k, val[k] }' \
     | sort
 )
 
