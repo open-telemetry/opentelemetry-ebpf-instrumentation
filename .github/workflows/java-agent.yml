@@ -3,9 +3,6 @@ name: Java Agent CI
 on:
   push:
     branches: ["main", "release-*"]
-    paths:
-      - "pkg/internal/java/**"
-      - ".github/workflows/java-agent.yml"
   pull_request:
     branches: ["main", "release-*"]
     paths:

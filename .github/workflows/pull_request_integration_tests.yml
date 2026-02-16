@@ -3,17 +3,6 @@ name: Pull request integration tests
 on:
   push:
     branches: ["main", "release-*"]
-    paths:
-      - ".github/workflows/pull_request_integration_tests.yml"
-      - "**.go"
-      - "go.mod"
-      - "go.sum"
-      - "bpf/**"
-      - "cmd/**"
-      - "configs/**"
-      - "internal/**"
-      - "pkg/**"
-      - "scripts/**"
   pull_request:
     branches: ["main", "release-*"]
     paths:
