@@ -46,7 +46,7 @@ ENTRIES=$(
 )
 
 if [ -z "$ENTRIES" ]; then
-    echo "Error: no test results found in '$LOGS_DIR'" >&2
+    echo "Error: no test results found in files matching '$LOGS_DIR/*shard*.txt'" >&2
     exit 1
 fi
 
