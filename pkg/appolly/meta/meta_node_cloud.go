@@ -8,10 +8,9 @@ import (
 	"fmt"
 	"log/slog"
 
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
-
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 func otelNodeFetcher(detector resource.Detector) fetcher {
@@ -35,9 +34,13 @@ func otelNodeFetcher(detector resource.Detector) fetcher {
 		store := NodeMeta{Metadata: make([]Entry, 0, attrs.Len())}
 		for attrs.Next() {
 			at := attrs.Attribute()
-			if at.Key == semconv.HostIDKey {
+			switch at.Key {
+			case semconv.HostIDKey:
 				store.HostID = at.Value.Emit()
-			} else {
+			case semconv.OSTypeKey:
+				// we ignore some values that are explicitly added in the
+				// exporters and would cause attributes duplication (panic)
+			default:
 				store.Metadata = append(store.Metadata,
 					Entry{Key: attr.Name(at.Key), Value: at.Value.Emit()})
 			}
