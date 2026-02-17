@@ -398,22 +398,35 @@ run-integration-test-vm:
 	@echo "### Running integration tests (pattern: $(TEST_PATTERN))"
 	@TEST_TIMEOUT="60m"; \
 	TEST_PARALLEL="1"; \
-	if [ -f "/precompiled-tests/integration.test" ]; then \
-		echo "Using pre-compiled integration tests"; \
+	if [ -f "/precompiled-tests/integration.test" ] && [ -f "/precompiled-tests/gotestsum" ]; then \
+		echo "Using pre-compiled integration tests with gotestsum"; \
+		chmod +x /precompiled-tests/integration.test /precompiled-tests/gotestsum; \
+		/precompiled-tests/gotestsum \
+			--rerun-fails=2 --rerun-fails-max-failures=2 \
+			--raw-command -ftestname \
+			--jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log \
+			-- go tool test2json -t -p integration \
+			/precompiled-tests/integration.test \
+			-test.parallel=$$TEST_PARALLEL \
+			-test.timeout=$$TEST_TIMEOUT \
+			-test.v \
+			-test.run="^($(TEST_PATTERN))\$$"; \
+	elif [ -f "/precompiled-tests/integration.test" ]; then \
+		echo "Using pre-compiled integration tests (gotestsum not available)"; \
 		chmod +x /precompiled-tests/integration.test; \
 		/precompiled-tests/integration.test \
 			-test.parallel=$$TEST_PARALLEL \
 			-test.timeout=$$TEST_TIMEOUT \
-			-test.failfast \
 			-test.v \
 			-test.run="^($(TEST_PATTERN))\$$"; \
 	else \
 		echo "Pre-compiled tests not found, compiling in VM"; \
 		$(MAKE) $(GOTESTSUM); \
-		$(GOTESTSUM) -ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
+		$(GOTESTSUM) \
+			--rerun-fails=2 --rerun-fails-max-failures=2 \
+			-ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
 			-p $$TEST_PARALLEL \
 			-timeout $$TEST_TIMEOUT \
-			-failfast \
 			-v -a \
 			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
 	fi

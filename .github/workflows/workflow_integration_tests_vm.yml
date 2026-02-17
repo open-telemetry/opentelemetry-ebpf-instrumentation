@@ -135,10 +135,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86
 
-      - name: Pre-compile Go integration tests
+      - name: Pre-compile Go integration tests and gotestsum
         run: |
           mkdir compiled-tests
           CGO_ENABLED=0 go test -c -ldflags="-s -w" -o compiled-tests/ ./internal/test/integration
+          CGO_ENABLED=0 go build -o compiled-tests/gotestsum -ldflags="-s -w" -C internal/tools gotest.tools/gotestsum
 
       - name: Run VM integration tests (${{ matrix.test.description }})
         timeout-minutes: 60
