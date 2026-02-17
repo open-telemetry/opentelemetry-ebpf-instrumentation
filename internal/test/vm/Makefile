@@ -59,7 +59,7 @@ launchvm: check_qemu $(ROOT_IMG) $(TEST_OUTPUT)
 	QEMU_ACCEL="-enable-kvm -cpu host"; \
 	if [ ! -e /dev/kvm ]; then \
 		echo "KVM not available, falling back to TCG"; \
-		QEMU_ACCEL="-cpu max"; \
+		QEMU_ACCEL="-accel tcg,thread=multi -cpu qemu64"; \
 	fi; \
 	qemu-system-$(ARCH) $$QEMU_ACCEL -m 8192 -smp 2 -kernel $(KERNEL) -drive file=$(ROOT_IMG),format=qcow2 \
 		-append "earlyprintk=ttyS0 console=ttyS0 root=/dev/sda rw quiet rcupdate.rcu_cpu_stall_timeout=60" \
