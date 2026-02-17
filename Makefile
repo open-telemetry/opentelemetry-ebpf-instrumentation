@@ -428,8 +428,10 @@ run-integration-test-arm:
 integration-test-matrix-json:
 	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}"
 
-.PHONY: vm-integration-test-matrix-json
-vm-integration-test-matrix-json:
+# Shared matrix for workflows that run the TestMultiProcess* suite
+# (VM integration tests and ARM integration tests use the same set of tests).
+.PHONY: multiprocess-integration-test-matrix-json
+multiprocess-integration-test-matrix-json:
 	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "TestMultiProcess"
 
 .PHONY: k8s-integration-test-matrix-json

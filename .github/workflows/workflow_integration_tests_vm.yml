@@ -52,7 +52,7 @@ jobs:
           PARTITIONS: 5
         run: |
           echo -n "matrix=" >> $GITHUB_OUTPUT
-          make vm-integration-test-matrix-json >> $GITHUB_OUTPUT
+          make multiprocess-integration-test-matrix-json >> $GITHUB_OUTPUT
 
   test:
     name: kernel ${{ matrix.kernel.kernel-version }} ${{ matrix.kernel.arch }} ${{ matrix.test.description }}
