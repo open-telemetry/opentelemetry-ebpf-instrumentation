@@ -124,8 +124,17 @@ func setupContainerCollector(t *testing.T, network *dockertest.Network, configFi
 	t.Log("OpenTelemetry Collector container started")
 }
 
-// buildOBIImage builds the OBI image.
+// buildOBIImage builds the OBI image. When SKIP_DOCKER_BUILD is set, the image
+// has been pre-built for the VM workflow prior to QEMU startup.
 func buildOBIImage() error {
+	if os.Getenv("SKIP_DOCKER_BUILD") != "" {
+		_, err := dockerPool.Client.InspectImage("hatest-obi")
+		if err == nil {
+			fmt.Println("Skipping OBI image build (pre-built image found)")
+			return nil
+		}
+		fmt.Println("SKIP_DOCKER_BUILD set but hatest-obi image not found, building...")
+	}
 	return dockerPool.Client.BuildImage(docker.BuildImageOptions{
 		Name:         "hatest-obi",
 		ContextDir:   pathRoot,
