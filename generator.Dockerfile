@@ -10,7 +10,7 @@ ENV PROTOC_AARCH_64_SHA256="56af3fc2e43a0230802e6fadb621d890ba506c5c17a1ae1070f6
 
 ARG TARGETARCH
 
-RUN apk add clang llvm20 wget unzip curl make bash
+RUN apk add clang llvm20 wget unzip curl make bash git
 RUN apk cache purge
 
 # Install protoc
