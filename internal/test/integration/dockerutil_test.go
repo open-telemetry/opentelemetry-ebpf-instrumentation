@@ -37,7 +37,7 @@ func setupDockerNetwork(t *testing.T) *dockertest.Network {
 }
 
 // setupContainerPrometheus starts a Prometheus container for metrics scraping.
-func setupContainerPrometheus(t *testing.T, network *dockertest.Network, configFile string) { //nolint:unparam // configFile is always passed in current usages but may vary in future
+func setupContainerPrometheus(t *testing.T, network *dockertest.Network, configFile string) {
 	t.Helper()
 
 	t.Log("Starting Prometheus container...")
