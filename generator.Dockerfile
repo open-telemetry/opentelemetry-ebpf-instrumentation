@@ -1,17 +1,4 @@
 FROM golang:1.25.7-alpine@sha256:f6751d823c26342f9506c03797d2527668d095b0a15f1862cddb4d927a7a4ced AS base
-FROM base AS builder
-
-WORKDIR /build
-
-COPY go.mod go.sum ./
-# Cache module cache.
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
-
-COPY cmd/obi-genfiles/obi_genfiles.go .
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg \
-	go build -o obi_genfiles obi_genfiles.go
-
 FROM base AS dist
 
 WORKDIR /src
@@ -23,7 +10,7 @@ ENV PROTOC_AARCH_64_SHA256="56af3fc2e43a0230802e6fadb621d890ba506c5c17a1ae1070f6
 
 ARG TARGETARCH
 
-RUN apk add clang llvm20 wget unzip curl wget
+RUN apk add clang llvm20 wget unzip curl make bash
 RUN apk cache purge
 
 # Install protoc
@@ -48,18 +35,14 @@ RUN --mount=type=cache,target=/go/pkg \
 	&& protoc-gen-go --version \
 	&& protoc-gen-go-grpc --version
 
-COPY --from=builder /build/obi_genfiles /go/bin
-
 RUN cat <<EOF > /generate.sh
 #!/bin/sh
 export PATH="/usr/lib/llvm20/bin:\$PATH"
 export BPF2GO=bpf2go
 export BPF_CLANG=clang
 export BPF_CFLAGS="-O2 -g -Wall -Werror"
-export OTEL_EBPF_GENFILES_RUN_LOCALLY=1
-export OTEL_EBPF_GENFILES_MODULE_ROOT="/src"
 export GOCACHE=/tmp/go-build
-obi_genfiles
+make generate
 EOF
 
 RUN chmod +x /generate.sh

@@ -227,7 +227,7 @@ var DefaultConfig = Config{
 		ExcludeOTelInstrumentedServices: true,
 		DefaultExcludeServices: services.RegexDefinitionCriteria{
 			services.RegexSelector{
-				Path: services.NewRegexp("(?:^|/)(beyla$|alloy$|otelcol[^/]*$)"),
+				Path: services.NewRegexp("(?:^|/)(beyla$|obi$|alloy$|otelcol[^/]*$)"),
 			},
 			services.RegexSelector{
 				Metadata: map[string]*services.RegexpAttr{"k8s_namespace": &k8sDefaultNamespacesRegex},
@@ -235,7 +235,7 @@ var DefaultConfig = Config{
 		},
 		DefaultExcludeInstrument: services.GlobDefinitionCriteria{
 			services.GlobAttributes{
-				Path: services.NewGlob("{*beyla,*alloy,*obi,*ebpf-instrument,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}"),
+				Path: services.NewGlob("{*beyla,*alloy,*/obi,obi,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}"),
 			},
 			services.GlobAttributes{
 				Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
@@ -247,6 +247,7 @@ var DefaultConfig = Config{
 		RouteHarvestConfig: services.RouteHarvestingConfig{
 			JavaHarvestDelay: 60 * time.Second,
 		},
+		ExcludedLinuxSystemPaths: []string{"/lib/systemd/", "/usr/lib/systemd/", "/usr/libexec/", "/sbin/", "/usr/sbin/"},
 	},
 	NodeJS: NodeJSConfig{
 		Enabled: true,
@@ -514,6 +515,20 @@ type JavaConfig struct {
 	Debug                bool          `yaml:"debug" env:"OTEL_EBPF_JAVAAGENT_DEBUG"`
 	DebugInstrumentation bool          `yaml:"debug_instrumentation" env:"OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION"`
 	Timeout              time.Duration `yaml:"attach_timeout" env:"OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT" validate:"gte=0"`
+	// agentPath specifies the path to the Java agent JAR file.
+	// Not settable via config file - only via --java-agent flag or OTEL_EBPF_JAVAAGENT_PATH env var.
+	// If empty, defaults to obi-java-agent.jar in the same directory as the OBI binary.
+	agentPath string
+}
+
+// SetAgentPath sets the Java agent JAR path at runtime (from flag or env var)
+func (j *JavaConfig) SetAgentPath(path string) {
+	j.agentPath = path
+}
+
+// GetAgentPath returns the Java agent JAR path
+func (j *JavaConfig) GetAgentPath() string {
+	return j.agentPath
 }
 
 type ConfigError string

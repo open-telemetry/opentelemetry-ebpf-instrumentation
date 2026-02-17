@@ -6,12 +6,12 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-struct bpf_map_def SEC("maps") jump_table = {
-    .type = BPF_MAP_TYPE_PROG_ARRAY,
-    .key_size = sizeof(__u32),
-    .value_size = sizeof(__u32),
-    .max_entries = 16,
-};
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __type(key, u32);
+    __type(value, u32);
+    __uint(max_entries, 16);
+} jump_table SEC(".maps");
 
 enum {
     k_tail_protocol_http = 0,

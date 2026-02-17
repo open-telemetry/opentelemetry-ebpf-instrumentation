@@ -10,6 +10,10 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+    secrets:
+      DOCKER_TOKEN_EBPF_INSTRUMENTATION:
+        description: "Docker Hub access token for otel"
+        required: true
 
 permissions:
   contents: read
