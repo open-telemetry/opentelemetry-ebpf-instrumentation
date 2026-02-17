@@ -253,7 +253,7 @@ func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
 			},
 			{
 				Type:        "string",
-				Description: "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options, ip for IP options), seperated by commas",
+				Description: "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options, ip for IP options), separated by commas",
 				Examples:    []any{"headers", "tcp", "ip", "headers,tcp", "headers,ip", "tcp,ip", "headers,tcp,ip"},
 				Pattern:     OptionsRegexp,
 			},
