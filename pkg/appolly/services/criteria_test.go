@@ -13,7 +13,8 @@ import (
 )
 
 type yamlFile struct {
-	Services RegexDefinitionCriteria `yaml:"services"`
+	Services   RegexDefinitionCriteria `yaml:"services"`
+	Instrument GlobDefinitionCriteria  `yaml:"instrument"`
 }
 
 func TestYAMLParse_PathRegexp(t *testing.T) {
@@ -174,4 +175,23 @@ portenumptr: 80,8080-8099,443
 regexptr: ^foo.*$
 globptr: bar*
 `, string(yamlOut))
+}
+
+func TestYAMLParse_Language(t *testing.T) {
+	inputFile := `
+instrument:
+  - name: foo
+    languages: "{go,rust}"
+`
+	yf := yamlFile{}
+	require.NoError(t, yaml.Unmarshal([]byte(inputFile), &yf))
+
+	require.Len(t, yf.Instrument, 1)
+
+	assert.True(t, yf.Instrument[0].Languages.IsSet())
+	assert.True(t, yf.Instrument[0].Languages.MatchString("go"))
+	assert.True(t, yf.Instrument[0].Languages.MatchString("rust"))
+	assert.False(t, yf.Instrument[0].Languages.MatchString("java"))
+
+	assert.Zero(t, yf.Instrument[0].OpenPorts.Len())
 }

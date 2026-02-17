@@ -19,6 +19,7 @@ import (
 type dummyCriterion struct {
 	name      string
 	namespace string
+	language  string
 	export    services.ExportModes
 	sampler   *services.SamplerConfig
 	routes    *services.CustomRoutesConfig
@@ -28,6 +29,7 @@ type dummyCriterion struct {
 func (d dummyCriterion) GetName() string                                                { return d.name }
 func (d dummyCriterion) GetOpenPorts() *services.PortEnum                               { return nil }
 func (d dummyCriterion) GetPath() services.StringMatcher                                { return nil }
+func (d dummyCriterion) GetLanguages() services.StringMatcher                           { return nil }
 func (d dummyCriterion) RangeMetadata() iter.Seq2[string, services.StringMatcher]       { return nil }
 func (d dummyCriterion) RangePodAnnotations() iter.Seq2[string, services.StringMatcher] { return nil }
 func (d dummyCriterion) RangePodLabels() iter.Seq2[string, services.StringMatcher]      { return nil }

@@ -211,7 +211,7 @@ func (m *Matcher) isExcluded(obj *ProcessAttrs, proc *services.ProcessInfo) bool
 
 func (m *Matcher) matchProcess(obj *ProcessAttrs, p *services.ProcessInfo, a services.Selector) bool {
 	log := m.Log.With("pid", p.Pid, "exe", p.ExePath)
-	if !a.GetPath().IsSet() && a.GetOpenPorts().Len() == 0 && len(obj.metadata) == 0 {
+	if !a.GetPath().IsSet() && !a.GetLanguages().IsSet() && a.GetOpenPorts().Len() == 0 && len(obj.metadata) == 0 {
 		log.Debug("no Kube metadata, no local selection criteria. Ignoring")
 		return false
 	}
@@ -221,6 +221,10 @@ func (m *Matcher) matchProcess(obj *ProcessAttrs, p *services.ProcessInfo, a ser
 	}
 	if a.GetOpenPorts().Len() > 0 && !m.matchByPort(p, a) {
 		log.Debug("open ports do not match", "openPorts", a.GetOpenPorts(), "process ports", p.OpenPorts)
+		return false
+	}
+	if a.GetLanguages().IsSet() && !m.matchByLanguage(obj, a) {
+		log.Debug("executable language does not match", "languages", a.GetLanguages(), "type", obj.detectedType.String())
 		return false
 	}
 	if a.IsContainersOnly() {
@@ -251,6 +255,10 @@ func (m *Matcher) matchByExecutable(p *services.ProcessInfo, a services.Selector
 		return a.GetPath().MatchString(p.ExePath)
 	}
 	return a.GetPathRegexp().MatchString(p.ExePath)
+}
+
+func (m *Matcher) matchByLanguage(actual *ProcessAttrs, a services.Selector) bool {
+	return a.GetLanguages().MatchString(actual.detectedType.String())
 }
 
 func (m *Matcher) matchByAttributes(actual *ProcessAttrs, required services.Selector) bool {
