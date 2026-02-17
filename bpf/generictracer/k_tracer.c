@@ -28,6 +28,7 @@
 #include <generictracer/protocol_http2.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
+#include <generictracer/protocol_mssql.h>
 #include <generictracer/protocol_tcp.h>
 #include <generictracer/ssl_defs.h>
 
@@ -1153,6 +1154,12 @@ int obi_handle_buf_with_args(void *ctx) {
                            args->bytes_len,
                            &args->protocol_type)) {
         bpf_dbg_printk("Found postgres connection");
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
+    } else if (is_mssql(&args->pid_conn.conn,
+                        (const unsigned char *)args->u_buf,
+                        args->bytes_len,
+                        &args->protocol_type)) {
+        bpf_dbg_printk("Found mssql connection");
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
     } else if (is_kafka(&args->pid_conn.conn,
                         (const unsigned char *)args->u_buf,

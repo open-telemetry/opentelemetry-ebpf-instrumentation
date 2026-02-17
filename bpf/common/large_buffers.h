@@ -9,6 +9,7 @@ volatile const u32 http_buffer_size = 0;
 volatile const u32 mysql_buffer_size = 0;
 volatile const u32 postgres_buffer_size = 0;
 volatile const u32 kafka_buffer_size = 0;
+volatile const u32 mssql_buffer_size = 0;
 
 enum {
     // This value represents a pessimistic guard for the maximum size
@@ -28,3 +29,4 @@ SCRATCH_MEM_SIZED(http_large_buffers, k_large_buf_max_size);
 SCRATCH_MEM_SIZED(mysql_large_buffers, k_large_buf_max_size);
 SCRATCH_MEM_SIZED(postgres_large_buffers, k_large_buf_max_size);
 SCRATCH_MEM_SIZED(kafka_large_buffers, k_large_buf_max_size);
+SCRATCH_MEM_SIZED(mssql_large_buffers, k_large_buf_max_size);

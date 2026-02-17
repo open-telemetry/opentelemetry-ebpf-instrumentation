@@ -17,6 +17,7 @@
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
+#include <generictracer/protocol_mssql.h>
 
 #include <generictracer/maps/ongoing_tcp_req.h>
 #include <generictracer/maps/tcp_req_mem.h>
@@ -137,6 +138,12 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     case k_protocol_type_http:
         break;
     case k_protocol_type_mqtt:
+        break;
+    case k_protocol_type_mssql:
+        if (mssql_buffer_size > 0) {
+            u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
+            ret = mssql_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
+        }
         break;
     case k_protocol_type_unknown:
         break;
