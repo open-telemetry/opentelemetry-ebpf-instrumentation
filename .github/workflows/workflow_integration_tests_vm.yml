@@ -160,7 +160,7 @@ jobs:
               }
               /image: *hatest-/ { sub(/.*image: */, ""); img=$0 }
               END { if (df && img && !(img in seen)) print img "=" df }
-            ' internal/test/integration/docker-compose*.yml | sort
+            ' internal/test/integration/docker-compose-multiexec*.yml | sort
           )
 
           echo "Discovered ${#ENTRIES[@]} Docker images to pre-build"
