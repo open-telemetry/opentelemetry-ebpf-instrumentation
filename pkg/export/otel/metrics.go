@@ -57,7 +57,7 @@ const (
 
 // CloudHostIDKey is the host ID attribute for cloud provider integrations,
 // used for traces_target_info
-const CloudHostIDKey = attribute.Key("cloud.host.id")
+var CloudHostIDKey = attribute.Key("cloud.host.id")
 
 // MetricTypes contains all the supported metric type prefixes used for filtering attributes
 var MetricTypes = []string{
