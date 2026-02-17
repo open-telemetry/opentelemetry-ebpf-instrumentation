@@ -9,6 +9,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -320,20 +321,31 @@ func main() {
 	// Sort properties for deterministic output
 	sortSchemaProperties(schema)
 
-	data, err := json.MarshalIndent(schema, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error marshaling schema: %v\n", err)
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(schema); err != nil {
+		fmt.Fprintf(os.Stderr, "Error encoding schema: %v\n", err)
 		os.Exit(1)
 	}
 
+	// The jsonschema library's custom MarshalJSON methods use json.Marshal
+	// internally, which HTML-escapes <, >, and & even though they're valid
+	// in JSON strings. Undo that escaping for readability.
+	data := buf.String()
+	data = strings.ReplaceAll(data, `\u003c`, `<`)
+	data = strings.ReplaceAll(data, `\u003e`, `>`)
+	data = strings.ReplaceAll(data, `\u0026`, `&`)
+
 	if *outputFile != "" {
-		if err := os.WriteFile(*outputFile, data, 0o644); err != nil {
+		if err := os.WriteFile(*outputFile, []byte(data), 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing to file: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Fprintf(os.Stderr, "Schema written to %s\n", *outputFile)
 	} else {
-		fmt.Println(string(data))
+		fmt.Print(data)
 	}
 }
 

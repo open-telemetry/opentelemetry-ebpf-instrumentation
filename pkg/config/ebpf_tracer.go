@@ -241,7 +241,9 @@ func (m ContextPropagationMode) MarshalText() ([]byte, error) {
 }
 
 func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
-	minItems := uint64(1)
+	options := []string{StrContextPropagationHeaders, StrContextPropagationHTTP, StrContextPropagationTCP, StrContextPropagationIP}
+	optionsStr := strings.Join(options, "|")
+	OptionsRegexp := fmt.Sprintf("^(%s)(,(%s))*$", optionsStr, optionsStr)
 	return &jsonschema.Schema{
 		OneOf: []*jsonschema.Schema{
 			{
@@ -250,14 +252,10 @@ func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
 				Description: "Enable all propagation methods, disable propagation, or use empty string for disabled",
 			},
 			{
-				Type: "array",
-				Items: &jsonschema.Schema{
-					Type: "string",
-					Enum: []any{StrContextPropagationHeaders, StrContextPropagationHTTP, StrContextPropagationTCP, StrContextPropagationIP},
-				},
-				MinItems:    &minItems,
-				UniqueItems: true,
-				Description: "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options, ip for IP options)",
+				Type:        "string",
+				Description: "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options, ip for IP options), seperated by commas",
+				Examples:    []any{"headers", "tcp", "ip", "headers,tcp", "headers,ip", "tcp,ip", "headers,tcp,ip"},
+				Pattern:     OptionsRegexp,
 			},
 		},
 		Title:       "Context Propagation Mode",

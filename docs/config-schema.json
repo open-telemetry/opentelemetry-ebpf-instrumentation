@@ -27,7 +27,7 @@
         }
       ],
       "title": "Agent Type Interface",
-      "description": "Specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each flow. Accepted values are: external, local, or name:\u003cinterface name\u003e (e.g. name:eth0)."
+      "description": "Specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each flow. Accepted values are: external, local, or name:<interface name> (e.g. name:eth0)."
     },
     "AttributeFamilyConfig": {
       "additionalProperties": {
@@ -52,7 +52,7 @@
         },
         "metric_span_names_limit": {
           "type": "integer",
-          "description": "MetricSpanNameAggregationLimit works PER SERVICE and only relates to span_metrics.\nWhen the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED.\nIf the value \u003c= 0, it is disabled.",
+          "description": "MetricSpanNameAggregationLimit works PER SERVICE and only relates to span_metrics.\nWhen the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED.\nIf the value <= 0, it is disabled.",
           "x-env-var": "OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT"
         },
         "rename_unresolved_hosts": {
@@ -123,19 +123,18 @@
           "description": "Enable all propagation methods, disable propagation, or use empty string for disabled"
         },
         {
-          "items": {
-            "type": "string",
-            "enum": [
-              "headers",
-              "http",
-              "ip",
-              "tcp"
-            ]
-          },
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "description": "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options, ip for IP options)"
+          "type": "string",
+          "pattern": "^(headers|http|tcp|ip)(,(headers|http|tcp|ip))*$",
+          "description": "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options, ip for IP options), seperated by commas",
+          "examples": [
+            "headers",
+            "tcp",
+            "ip",
+            "headers,tcp",
+            "headers,ip",
+            "tcp,ip",
+            "headers,tcp,ip"
+          ]
         }
       ],
       "title": "Context Propagation Mode",
@@ -386,7 +385,7 @@
         "max_transaction_time": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Maximum time allowed for two requests to be correlated as parent -\u003e child\nSome programs (e.g. load generators) keep on generating requests from the same thread in perpetuity,\nwhich can generate very large traces. We want to mark the parent trace as invalid if this happens.",
+          "description": "Maximum time allowed for two requests to be correlated as parent -> child\nSome programs (e.g. load generators) keep on generating requests from the same thread in perpetuity,\nwhich can generate very large traces. We want to mark the parent trace as invalid if this happens.",
           "examples": [
             "30s",
             "5m",
@@ -1079,7 +1078,7 @@
         "cache_expiry": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "CacheTTL specifies the time-to-live of a cached IP-\u003ehostname entry. After the\ncached entry becomes older than this time, the IP-\u003ehostname entry will be looked\nup again.",
+          "description": "CacheTTL specifies the time-to-live of a cached IP->hostname entry. After the\ncached entry becomes older than this time, the IP->hostname entry will be looked\nup again.",
           "examples": [
             "30s",
             "5m",
@@ -1120,7 +1119,7 @@
         },
         "agent_ip_iface": {
           "$ref": "#/$defs/AgentTypeIface",
-          "description": "AgentIPIface specifies which interface should the agent pick the IP address from in order to\nreport it in the AgentIP field on each flow. Accepted values are: external (default), local,\nor name:\u003cinterface name\u003e (e.g. name:eth0).\nIf the AgentIP configuration property is set, this property has no effect.",
+          "description": "AgentIPIface specifies which interface should the agent pick the IP address from in order to\nreport it in the AgentIP field on each flow. Accepted values are: external (default), local,\nor name:<interface name> (e.g. name:eth0).\nIf the AgentIP configuration property is set, this property has no effect.",
           "x-env-var": "OTEL_EBPF_NETWORK_AGENT_IP_IFACE"
         },
         "agent_ip_type": {
@@ -1515,7 +1514,7 @@
         "cache_expiry": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "CacheTTL only applies to the \"local\" and \"ebpf\" ReverseDNS type. It\nspecifies the time-to-live of a cached IP-\u003ehostname entry. After the\ncached entry becomes older than this time, the IP-\u003ehostname entry will be looked\nup again.",
+          "description": "CacheTTL only applies to the \"local\" and \"ebpf\" ReverseDNS type. It\nspecifies the time-to-live of a cached IP->hostname entry. After the\ncached entry becomes older than this time, the IP->hostname entry will be looked\nup again.",
           "examples": [
             "30s",
             "5m",
@@ -1783,7 +1782,7 @@
   "properties": {
     "AutoTargetExe": {
       "$ref": "#/$defs/GlobAttr",
-      "description": "AutoTargetExe selects the executable to instrument matching a Glob against the executable path.\nTo set this value via YAML, use discovery \u003e instrument.\nIt also accepts OTEL_GO_AUTO_TARGET_EXE for compatibility with opentelemetry-go-instrumentation"
+      "description": "AutoTargetExe selects the executable to instrument matching a Glob against the executable path.\nTo set this value via YAML, use discovery > instrument.\nIt also accepts OTEL_GO_AUTO_TARGET_EXE for compatibility with opentelemetry-go-instrumentation"
     },
     "attributes": {
       "$ref": "#/$defs/Attributes"
