@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 func otelNodeFetcher(detector resource.Detector) fetcher {
