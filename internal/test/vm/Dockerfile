@@ -90,6 +90,11 @@ while ! docker info >/dev/null 2>&1; do
 done
 echo "Docker daemon is ready"
 
+# Panic immediately on RCU CPU stalls instead of hanging for the full
+# job timeout. Combined with 'panic' boot param and QEMU -no-reboot,
+# this causes QEMU to exit after the first stall.
+sysctl -w kernel.panic_on_rcu_stall=1 2>/dev/null || true
+
 # Verify runc version
 echo "=== Docker/runc versions in VM ==="
 docker version

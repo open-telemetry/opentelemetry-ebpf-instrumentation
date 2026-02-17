@@ -62,7 +62,8 @@ launchvm: check_qemu $(ROOT_IMG) $(TEST_OUTPUT)
 		QEMU_ACCEL="-accel tcg,thread=multi -cpu qemu64"; \
 	fi; \
 	qemu-system-$(ARCH) $$QEMU_ACCEL -m 8192 -smp 2 -kernel $(KERNEL) -drive file=$(ROOT_IMG),format=qcow2 \
-		-append "earlyprintk=ttyS0 console=ttyS0 root=/dev/sda rw quiet rcupdate.rcu_cpu_stall_timeout=60" \
+		-append "earlyprintk=ttyS0 console=ttyS0 root=/dev/sda rw quiet rcupdate.rcu_cpu_stall_timeout=60 panic=5" \
+		-no-reboot \
 		-virtfs local,path=$(REPO_ROOT),mount_tag=beyla,security_model=mapped,id=beyla \
 		-virtfs local,path=$(TEST_OUTPUT),mount_tag=testout,security_model=mapped,id=testout \
 		$$PRECOMPILED_VIRTFS \
