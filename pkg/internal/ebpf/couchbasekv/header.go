@@ -22,8 +22,8 @@ type Offset = int
 type Header struct {
 	Magic            Magic
 	Opcode           Opcode
-	FramingExtrasLen uint8  // Only used for flexible framing (magic 0x08/0x18)
 	KeyLen           uint16 // For flexible framing, this is only 8 bits but stored as uint16
+	FramingExtrasLen uint8  // Only used for flexible framing (magic 0x08/0x18)
 	ExtrasLen        uint8
 	DataType         DataType
 	VBucketID        uint16 // For requests: VBucket ID; For responses: Status code
@@ -267,11 +267,6 @@ func (p *Packet) HasFullKey() bool {
 // HasFullExtras returns true if the complete extras were parsed.
 func (p *Packet) HasFullExtras() bool {
 	return len(p.Extras) == int(p.Header.ExtrasLen)
-}
-
-// HasFullFramingExtras returns true if the complete framing extras were parsed.
-func (p *Packet) HasFullFramingExtras() bool {
-	return len(p.FramingExtras) == int(p.Header.FramingExtrasLen)
 }
 
 // HasFullValue returns true if the complete value was parsed.
