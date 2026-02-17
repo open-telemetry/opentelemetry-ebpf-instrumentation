@@ -36,6 +36,11 @@ import (
 // injectable function reference for testing
 var timeNow = time.Now
 
+// CloudHostIDKey is the attribute key used to label metrics with the host id
+// of the monitored entity, as reported by the executable inspector. It is used
+// for both application-level and trace-level metrics.
+var CloudHostIDKey = "cloud_host_id"
+
 // using labels and names that are equivalent names to the OTEL attributes
 // but following the different naming conventions
 const (
@@ -57,10 +62,9 @@ const (
 	serviceNameKey      = "service_name"
 	serviceNamespaceKey = "service_namespace"
 
-	hostIDKey      = "host_id"
-	hostNameKey    = "host_name"
-	cloudHostIDKey = "cloud_host_id"
-	osTypeKey      = "os_type"
+	hostIDKey   = "host_id"
+	hostNameKey = "host_name"
+	osTypeKey   = "os_type"
 
 	k8sNamespaceName   = "k8s_namespace_name"
 	k8sPodName         = "k8s_pod_name"
@@ -105,7 +109,7 @@ const (
 // not adding version, as it is a fixed value
 var (
 	obiInfoLabelNames  = []string{LanguageLabel}
-	hostInfoLabelNames = []string{cloudHostIDKey}
+	hostInfoLabelNames = []string{CloudHostIDKey}
 )
 
 // TODO: TLS
