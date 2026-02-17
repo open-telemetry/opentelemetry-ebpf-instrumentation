@@ -3,17 +3,6 @@ name: Pull request integration tests ARM
 on:
   push:
     branches: ["main", "release-*"]
-    paths:
-      - ".github/workflows/pull_request_integration_tests_arm.yml"
-      - "**.go"
-      - "go.mod"
-      - "go.sum"
-      - "bpf/**"
-      - "cmd/**"
-      - "configs/**"
-      - "internal/**"
-      - "pkg/**"
-      - "scripts/**"
   pull_request:
     branches: ["main", "release-*"]
     paths:
@@ -33,6 +22,10 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

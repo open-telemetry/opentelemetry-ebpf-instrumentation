@@ -3,12 +3,6 @@ name: Pull request integration tests on VM
 on:
   push:
     branches: ["main", "release-*"]
-    paths:
-      - ".github/workflows/workflow_integration_tests_vm.yml"
-      - "bpf/**"
-      - "internal/test/integration/**"
-      - "internal/test/vm/**"
-      - "scripts/generate-integration-matrix.sh"
   pull_request:
     branches: ["main", "release-*"]
     paths:
@@ -23,6 +17,10 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
