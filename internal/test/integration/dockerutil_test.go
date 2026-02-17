@@ -162,7 +162,6 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *doc
 	obi, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "hatest-obi",
 		Name:       fmt.Sprintf("obi-otel-test-%d", time.Now().UnixNano()),
-		Networks:   []*dockertest.Network{network},
 		Cmd: []string{
 			"--config=/configs/" + configFile,
 		},
@@ -197,8 +196,19 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *doc
 		hc.PidMode = "container:" + resource.Container.ID
 	})
 	require.NoError(t, err, "could not start OBI container")
+
+	err = dockerPool.Client.ConnectNetwork(network.Network.ID, docker.NetworkConnectionOptions{
+		Container: obi.Container.ID,
+		EndpointConfig: &docker.EndpointConfig{
+			Aliases: []string{"obi"},
+		},
+	})
+	require.NoError(t, err, "could not attach OBI to network")
+
 	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(obi), "could not remove OBI container")
+		if err := dockerPool.Purge(obi); err != nil {
+			t.Logf("could not remove OBI container: %v", err)
+		}
 	})
 	t.Log("OBI container started")
 }

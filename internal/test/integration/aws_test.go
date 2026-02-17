@@ -51,11 +51,9 @@ func setupMockIMDS(t *testing.T, network *dockertest.Network) {
 }
 
 // This file contains tests related with the integration with Amazon Web Services
-func TestClusterName(t *testing.T) {
-	clusterName := "test-eks-cluster"
-
+func TestCloudResourceMetadata(t *testing.T) {
 	network := setupDockerNetwork(t)
-	setupContainerPrometheus(t, network, "prometheus-config.yml")
+	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
 	setupMockIMDS(t, network)
@@ -70,6 +68,7 @@ func TestClusterName(t *testing.T) {
 	// Configure OBI to use the mock IMDS by setting the EC2 metadata endpoint
 	o := obi{
 		Env: []string{
+			`OTEL_EBPF_PROMETHEUS_PORT=8999`,
 			"OTEL_EBPF_OPEN_PORT=8080",
 			// Configure AWS SDK to use custom endpoint for EC2 metadata
 			// The official amazon-ec2-metadata-mock runs on port 1338
@@ -79,26 +78,44 @@ func TestClusterName(t *testing.T) {
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver, "obi-config-aws.yml")
+	o.instrument(t, network, testserver, "obi-config.yml")
 
-	t.Run("Cluster name from EC2 metadata", func(t *testing.T) {
-		// Wait for test components to be ready
-		waitForTestComponents(t, "http://localhost:8080")
+	// Wait for test components to be ready
+	waitForTestComponents(t, "http://localhost:8080")
 
-		// Make some requests to generate metrics
-		for range 4 {
-			ti.DoHTTPGet(t, "http://localhost:8080/rolldice", 200)
-		}
+	// Make some requests to generate metrics
+	for range 4 {
+		ti.DoHTTPGet(t, "http://localhost:8080/rolldice", 200)
+	}
 
-		// Query Prometheus for target_info with cluster_name attribute
-		pq := promtest.Client{HostPort: prometheusHostPort}
+	// Query Prometheus for target_info with cluster_name attribute
+	pq := promtest.Client{HostPort: prometheusHostPort}
 
-		// Check that the cluster_name appears in the target_info metric
-		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			query := fmt.Sprintf(`target_info{k8s_cluster_name="%s"}`, clusterName)
-			results, err := pq.Query(query)
-			require.NoError(ct, err, "failed to query Prometheus")
-			assert.NotEmpty(ct, results, "target_info with k8s_cluster_name should exist")
-		}, testTimeout, 500*time.Millisecond)
+	t.Run("OTEL metrics exported", func(t *testing.T) {
+		testMetrics(t, pq, "rolldice", "otel")
 	})
+	t.Run("Prometheus metrics exported", func(t *testing.T) {
+		testMetrics(t, pq, "rolldice", "prometheus")
+	})
+}
+
+func testMetrics(t *testing.T, pq promtest.Client, serviceName, exporter string) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		// attribute values taken from aws-metadata-mock.json
+		query := `target_info{` +
+			`service_name="` + serviceName + `",` +
+			`exported="` + exporter + `",` +
+			`cloud_account_id="0123456789",` +
+			`cloud_availability_zone="us-east-1f",` +
+			`cloud_platform="aws_ec2",` +
+			`cloud_provider="aws",` +
+			`cloud_region="us-east-1",` +
+			`host_id="i-1234567890abcdef0",` +
+			`host_image_id="ami-0b69ea66ff7391e80",` +
+			`host_type="m4.xlarge"` +
+			`}`
+		results, err := pq.Query(query)
+		require.NoError(ct, err, "failed to query metrics")
+		assert.NotEmpty(ct, results, "target_info with cloud metadata should exist")
+	}, testTimeout, 500*time.Millisecond)
 }
