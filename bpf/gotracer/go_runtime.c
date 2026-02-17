@@ -34,13 +34,13 @@ struct {
 
 SEC("uprobe/runtime_newproc1")
 int obi_uprobe_proc_newproc1(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/proc newproc1 === ");
-    void *creator_goroutine = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("creator_goroutine_addr %lx", creator_goroutine);
+    bpf_dbg_printk("=== uprobe/runtime_newproc1 ===");
+    void *creator_goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("creator_goroutine_addr=%lx", creator_goroutine_addr);
 
     new_func_invocation_t invocation = {.parent = (u64)GO_PARAM2(ctx)};
     go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, creator_goroutine);
+    go_addr_key_from_id(&g_key, creator_goroutine_addr);
 
     // Save the registers on invocation to be able to fetch the arguments at return of newproc1
     if (bpf_map_update_elem(&newproc1, &g_key, &invocation, BPF_ANY)) {
@@ -52,13 +52,13 @@ int obi_uprobe_proc_newproc1(struct pt_regs *ctx) {
 
 SEC("uprobe/runtime_newproc1_return")
 int obi_uprobe_proc_newproc1_ret(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/proc newproc1 returns === ");
-    void *creator_goroutine = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("=== uprobe/runtime_newproc1_return ===");
+    void *creator_goroutine_addr = GOROUTINE_PTR(ctx);
     u64 pid_tid = bpf_get_current_pid_tgid();
     u32 pid = pid_from_pid_tgid(pid_tid);
-    go_addr_key_t c_key = {.addr = (u64)creator_goroutine, .pid = pid};
+    go_addr_key_t c_key = {.addr = (u64)creator_goroutine_addr, .pid = pid};
 
-    bpf_dbg_printk("creator_goroutine_addr %lx", creator_goroutine);
+    bpf_dbg_printk("creator_goroutine_addr=%lx", creator_goroutine_addr);
 
     // Lookup the newproc1 invocation metadata
     new_func_invocation_t *invocation = bpf_map_lookup_elem(&newproc1, &c_key);
@@ -69,11 +69,11 @@ int obi_uprobe_proc_newproc1_ret(struct pt_regs *ctx) {
 
     // The parent goroutine is the second argument of newproc1
     void *parent_goroutine = (void *)invocation->parent;
-    bpf_dbg_printk("parent goroutine_addr %lx", parent_goroutine);
+    bpf_dbg_printk("parent_goroutine=%lx", parent_goroutine);
 
     // The result of newproc1 is the new goroutine
     void *goroutine_addr = (void *)GO_PARAM1(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
     go_addr_key_t p_key = {.addr = (u64)parent_goroutine, .pid = pid};

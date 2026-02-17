@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/ebpf"
@@ -35,9 +36,9 @@ func TestProcessEventsLoopDoesntBlock(t *testing.T) {
 
 	go instr.instrumentedEventLoop(t.Context(), events)
 
-	for i := range 100 {
+	for i := range app.PID(100) {
 		events <- discover.Event[*ebpf.Instrumentable]{
-			Obj:  &ebpf.Instrumentable{FileInfo: &exec.FileInfo{Pid: int32(i)}},
+			Obj:  &ebpf.Instrumentable{FileInfo: &exec.FileInfo{Pid: i}},
 			Type: discover.EventCreated,
 		}
 	}

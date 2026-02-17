@@ -14,6 +14,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -230,8 +231,9 @@ type metricsReporter struct {
 
 	is instrumentations.InstrumentationSelection
 
-	kubeEnabled bool
-	hostID      string
+	kubeEnabled   bool
+	dockerEnabled bool
+	hostID        string
 
 	serviceMap  map[svc.UID]svc.Attrs
 	pidsTracker otel.PidServiceTracker
@@ -250,11 +252,11 @@ func PrometheusEndpoint(
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
-	return func(_ context.Context) (swarm.RunFunc, error) {
+	return func(ctx context.Context) (swarm.RunFunc, error) {
 		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.AppOrSpan() {
 			return swarm.EmptyRunFunc()
 		}
-		reporter, err := newReporter(ctxInfo, cfg, jointMetricsConfig, selectorCfg, unresolved, input, processEventCh)
+		reporter, err := newReporter(ctx, ctxInfo, cfg, jointMetricsConfig, selectorCfg, unresolved, input, processEventCh)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating Prometheus endpoint: %w", err)
 		}
@@ -281,6 +283,7 @@ func spanMetricsCallsName(mp *perapp.MetricsConfig) string {
 
 //nolint:cyclop
 func newReporter(
+	ctx context.Context,
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
 	jointMetricsConfig *perapp.MetricsConfig,
@@ -373,6 +376,7 @@ func newReporter(
 	}
 
 	kubeEnabled := ctxInfo.K8sInformer.IsKubeEnabled()
+	dockerEnabled := ctxInfo.DockerMetadata.IsEnabled(ctx)
 
 	if jointMetricsConfig.Features.ServiceGraph() {
 		attrs := []attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source}
@@ -395,6 +399,7 @@ func newReporter(
 		ctxInfo:                    ctxInfo,
 		cfg:                        cfg,
 		kubeEnabled:                kubeEnabled,
+		dockerEnabled:              dockerEnabled,
 		extraMetadataLabels:        extraMetadataLabels,
 		extraSpanMetadataLabels:    extraSpanMetadataLabels,
 		hostID:                     ctxInfo.HostID,
@@ -575,7 +580,7 @@ func newReporter(
 			return prometheus.NewGaugeVec(prometheus.GaugeOpts{
 				Name: TracesTargetInfo,
 				Help: "target service information in trace span metric format",
-			}, labelNamesTargetInfo(kubeEnabled, extraMetadataLabels))
+			}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, extraMetadataLabels))
 		}),
 		tracesHostInfo: optionalGaugeProvider(jointMetricsConfig.Features.AppHost(), func() *Expirer[prometheus.Gauge] {
 			return NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -618,7 +623,7 @@ func newReporter(
 		targetInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: TargetInfo,
 			Help: "attributes associated to a given monitored entity",
-		}, labelNamesTargetInfo(kubeEnabled, extraMetadataLabels)),
+		}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, extraMetadataLabels)),
 		cudaKernelCallsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: attributes.GPUCudaKernelLaunchCalls.Prom,
@@ -1042,6 +1047,17 @@ func appendK8sLabelValuesService(values []string, service *svc.Attrs) []string {
 	return values
 }
 
+func appendDockerLabelNames(names []string) []string {
+	return append(names, attr.ContainerID.Prom(), attr.ContainerName.Prom())
+}
+
+func appendDockerLabelValuesService(values []string, service *svc.Attrs) []string {
+	return append(values,
+		service.Metadata[attr.ContainerID],
+		service.Metadata[attr.ContainerName],
+	)
+}
+
 func labelNamesSpans(extraMetadataLabelNames []attr.Name) []string {
 	names := []string{
 		serviceNameKey,
@@ -1082,7 +1098,7 @@ func (r *metricsReporter) labelValuesSpans(span *request.Span) []string {
 	return values
 }
 
-func labelNamesTargetInfo(kubeEnabled bool, extraMetadataLabelNames []attr.Name) []string {
+func labelNamesTargetInfo(kubeEnabled, dockerEnabled bool, extraMetadataLabelNames []attr.Name) []string {
 	names := []string{
 		hostIDKey,
 		hostNameKey,
@@ -1099,6 +1115,9 @@ func labelNamesTargetInfo(kubeEnabled bool, extraMetadataLabelNames []attr.Name)
 
 	if kubeEnabled {
 		names = appendK8sLabelNames(names)
+	}
+	if dockerEnabled {
+		names = appendDockerLabelNames(names)
 	}
 
 	for _, mdn := range extraMetadataLabelNames {
@@ -1125,6 +1144,10 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 
 	if r.kubeEnabled {
 		values = appendK8sLabelValuesService(values, service)
+	}
+
+	if r.dockerEnabled {
+		values = appendDockerLabelValuesService(values, service)
 	}
 
 	for _, k := range r.extraMetadataLabels {
@@ -1203,11 +1226,11 @@ func (r *metricsReporter) deleteTracesTargetInfoMetric(service *svc.Attrs) {
 	r.tracesTargetInfo.DeleteLabelValues(targetInfoLabelValues...)
 }
 
-func (r *metricsReporter) setupPIDToServiceRelationship(pid int32, uid svc.UID) {
+func (r *metricsReporter) setupPIDToServiceRelationship(pid app.PID, uid svc.UID) {
 	r.pidsTracker.AddPID(pid, uid)
 }
 
-func (r *metricsReporter) disassociatePIDFromService(pid int32) (bool, svc.UID) {
+func (r *metricsReporter) disassociatePIDFromService(pid app.PID) (bool, svc.UID) {
 	return r.pidsTracker.RemovePID(pid)
 }
 

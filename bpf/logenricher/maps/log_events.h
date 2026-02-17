@@ -15,6 +15,6 @@ struct {
 } log_events SEC(".maps");
 
 static __always_inline long log_events_flags() {
-    long sz = bpf_ringbuf_query(&log_events, BPF_RB_AVAIL_DATA);
+    const u64 sz = bpf_ringbuf_query(&log_events, BPF_RB_AVAIL_DATA);
     return sz >= 4096 ? BPF_RB_FORCE_WAKEUP : BPF_RB_NO_WAKEUP;
 }

@@ -49,7 +49,7 @@ func setupContainerPrometheus(t *testing.T, network *dockertest.Network, configF
 		},
 		ExposedPorts: []string{"9090/tcp"},
 		PortBindings: map[docker.Port][]docker.PortBinding{
-			"9090/tcp": {{HostIP: "localhost", HostPort: "9090"}},
+			"9090/tcp": {{HostIP: "127.0.0.1", HostPort: "9090"}},
 		},
 	})
 	require.NoError(t, err, "could not start Prometheus container")
@@ -74,7 +74,7 @@ func setupContainerJaeger(t *testing.T, network *dockertest.Network) {
 		},
 		ExposedPorts: []string{"16686/tcp", "4317/tcp", "4318/tcp"},
 		PortBindings: map[docker.Port][]docker.PortBinding{
-			"16686/tcp": {{HostIP: "localhost", HostPort: "16686"}},
+			"16686/tcp": {{HostIP: "127.0.0.1", HostPort: "16686"}},
 		},
 	})
 	require.NoError(t, err, "could not start Jaeger container")
@@ -124,12 +124,12 @@ func setupContainerCollector(t *testing.T, network *dockertest.Network, configFi
 	t.Log("OpenTelemetry Collector container started")
 }
 
-// buildOBIImage builds the OBI (ebpf-instrument) image.
+// buildOBIImage builds the OBI image.
 func buildOBIImage() error {
 	return dockerPool.Client.BuildImage(docker.BuildImageOptions{
 		Name:         "hatest-obi",
 		ContextDir:   pathRoot,
-		Dockerfile:   "internal/test/integration/components/ebpf-instrument/Dockerfile",
+		Dockerfile:   "internal/test/integration/components/obi/Dockerfile",
 		OutputStream: os.Stdout,
 		ErrorStream:  os.Stderr,
 	})
@@ -184,7 +184,7 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *doc
 		Privileged:   true,
 		ExposedPorts: []string{"8999/tcp"},
 		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8999/tcp": {{HostIP: "localhost", HostPort: "8999"}},
+			"8999/tcp": {{HostIP: "127.0.0.1", HostPort: "8999"}},
 		},
 	}, func(hc *docker.HostConfig) {
 		hc.PidMode = "container:" + resource.Container.ID

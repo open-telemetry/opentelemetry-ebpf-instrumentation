@@ -169,7 +169,7 @@ static __always_inline u64 find_parent_goroutine(go_addr_key_t *current) {
                 break;
             }
         } else {
-            bpf_dbg_printk("Found parent %lx", r_addr);
+            bpf_dbg_printk("Found parent, r_addr=%lx", r_addr);
             return r_addr;
         }
 
@@ -278,7 +278,7 @@ server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
     make_tp_string(tp_buf, tp);
-    bpf_dbg_printk("tp: %s", tp_buf);
+    bpf_dbg_printk("tp_buf=[%s]", tp_buf);
 }
 
 static __always_inline tp_info_t *tp_info_from_parent_go(go_addr_key_t *g_key, u64 *parent_found) {
@@ -293,7 +293,7 @@ static __always_inline tp_info_t *tp_info_from_parent_go(go_addr_key_t *g_key, u
     }
 
     if (tp) {
-        bpf_dbg_printk("Found parent request trace_parent %llx", tp);
+        bpf_dbg_printk("Found parent request, tp=%llx", tp);
         if (parent_found) {
             *parent_found = parent_id;
         }
@@ -379,8 +379,8 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr, connection_info_t 
             sizeof(raddr_ptr),
             (void *)(fd_ptr + go_offset_of(ot, (go_offset){.v = _fd_raddr_pos}) + 8)); // find raddr
 
-        bpf_dbg_printk("laddr_ptr %llx, laddr %llx, raddr %llx",
-                       fd_ptr + fd_laddr_pos + 8,
+        bpf_dbg_printk("laddr_field_ptr=%llx, laddr_ptr=%llx, raddr_ptr=%llx",
+                       fd_ptr + fd_laddr_pos + 8, //laddr_field_ptr
                        laddr_ptr,
                        raddr_ptr);
         if (laddr_ptr && raddr_ptr) {
@@ -416,7 +416,7 @@ static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info)
             sizeof(fd_ptr),
             (void *)(conn_ptr + go_offset_of(ot, (go_offset){.v = _conn_fd_pos}))); // find fd
 
-        bpf_dbg_printk("Found fd ptr %llx", fd_ptr);
+        bpf_dbg_printk("Found fd, fd_ptr=%llx", fd_ptr);
 
         return get_conn_info_from_fd(fd_ptr, info);
     }
@@ -429,7 +429,7 @@ static __always_inline void *unwrap_tls_conn_info(void *conn_ptr, void *tls_stat
         void *c_ptr = 0;
         bpf_probe_read(&c_ptr, sizeof(c_ptr), conn_ptr); // unwrap conn
 
-        bpf_dbg_printk("unwrapped conn ptr %llx", c_ptr);
+        bpf_dbg_printk("unwrapped conn, c_ptr=%llx", c_ptr);
 
         if (c_ptr) {
             return c_ptr + 8;
@@ -451,18 +451,18 @@ static __always_inline void process_meta_frame_headers(void *frame, tp_info_t *t
     bpf_probe_read(&fields, sizeof(fields), (void *)(frame + fields_off));
     u64 fields_len = 0;
     bpf_probe_read(&fields_len, sizeof(fields_len), (void *)(frame + fields_off + 8));
-    bpf_dbg_printk("fields ptr %llx, len %d", fields, fields_len);
+    bpf_dbg_printk("fields=%llx, fields_len=%d", fields, fields_len);
     if (fields && fields_len > 0) {
         for (u8 i = 0; i < 16; i++) {
             if (i >= fields_len) {
                 break;
             }
             void *field_ptr = fields + (i * sizeof(grpc_header_field_t));
-            //bpf_dbg_printk("field_ptr %llx", field_ptr);
+            //bpf_dbg_printk("field_ptr=%llx", field_ptr);
             grpc_header_field_t field = {};
             bpf_probe_read(&field, sizeof(grpc_header_field_t), field_ptr);
-            //bpf_dbg_printk("grpc header %s:%s", field.key_ptr, field.val_ptr);
-            //bpf_dbg_printk("grpc sizes %d:%d", field.key_len, field.val_len);
+            //bpf_dbg_printk("grpc header=%s:%s", field.key_ptr, field.val_ptr);
+            //bpf_dbg_printk("grpc sizes=%d:%d", field.key_len, field.val_len);
             if (field.key_len == W3C_KEY_LENGTH && field.val_len == W3C_VAL_LENGTH) {
                 unsigned char temp[W3C_VAL_LENGTH];
 
@@ -487,7 +487,7 @@ static __always_inline u64 golang_stream_id(struct pt_regs *ctx, off_table_t *ot
 
     const void *sp = (const void *)PT_REGS_SP(ctx);
 
-    bpf_dbg_printk("golang_stream_id: sp = %llx", sp);
+    bpf_dbg_printk("sp=%llx", sp);
 
     u64 stream_id = 0;
 

@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
 func TestParseProcStatField(t *testing.T) {
@@ -68,7 +70,7 @@ func TestParseProcStatField(t *testing.T) {
 func TestGetProcStatField(t *testing.T) {
 	r := procStatReader{}
 	assert.Empty(t, r.getProcStatField(0, 0))
-	assert.Empty(t, r.getProcStatField(-1, 0))
+	assert.Empty(t, r.getProcStatField(0xFFFFFFFF, 0))
 
 	pid := os.Getpid()
 
@@ -78,7 +80,7 @@ func TestGetProcStatField(t *testing.T) {
 
 	exe := filepath.Base(exePath)
 
-	assert.Equal(t, exe, r.getProcStatField(int32(pid), 2))
+	assert.Equal(t, exe, r.getProcStatField(app.PID(pid), 2))
 }
 
 func TestNSToDuration(t *testing.T) {
@@ -91,7 +93,7 @@ func TestProcessAge(t *testing.T) {
 
 	assert.Zero(t, r.processAge(0))
 
-	age := r.processAge(int32(os.Getpid()))
+	age := r.processAge(app.PID(os.Getpid()))
 
 	require.NotZero(t, age)
 

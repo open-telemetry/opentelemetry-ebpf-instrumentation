@@ -8,14 +8,13 @@ package io.opentelemetry.obi.java;
 import static net.bytebuddy.dynamic.loading.ClassInjector.UsingInstrumentation.Target.BOOTSTRAP;
 import static net.bytebuddy.matcher.ElementMatchers.nameStartsWith;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import io.opentelemetry.obi.java.ebpf.*;
 import io.opentelemetry.obi.java.instrumentations.*;
 import io.opentelemetry.obi.java.instrumentations.data.BytesWithLen;
 import io.opentelemetry.obi.java.instrumentations.data.Connection;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import io.opentelemetry.obi.java.instrumentations.util.ByteBufferExtractor;
+import io.opentelemetry.obi.java.instrumentations.util.CappedConcurrentHashMap;
 import io.opentelemetry.obi.java.instrumentations.util.NettyChannelExtractor;
 import java.io.File;
 import java.io.InputStream;
@@ -207,15 +206,9 @@ public class Agent {
     Class.forName(ByteBufferExtractor.class.getName());
     Class.forName(NativeMemory.class.getName());
     Class.forName(NativeLib.class.getName());
+    Class.forName(CappedConcurrentHashMap.class.getName());
 
     loadNativeLibraryFromJar();
-
-    // LRU cache map and some usage to match what we use in the hooks
-    Cache<Object, Object> cache = Caffeine.newBuilder().maximumSize(1).build();
-    Integer key = 1;
-    cache.put(key, new Object());
-    cache.getIfPresent(key);
-    cache.invalidate(key);
   }
 
   private static void injectBootstrapClasses(Instrumentation instrumentation) throws Exception {
@@ -234,8 +227,7 @@ public class Agent {
 
     for (Class<?> clazz : instrumentation.getAllLoadedClasses()) {
       TypeDescription desc = new TypeDescription.ForLoadedType(clazz);
-      if (desc.getName().startsWith("io.opentelemetry.obi.")
-          || desc.getName().startsWith("com.github.benmanes.")) {
+      if (desc.getName().startsWith("io.opentelemetry.obi.")) {
         try {
           byte[] bytes = locator.locate(desc.getName()).resolve();
           typeMap.put(desc, bytes);

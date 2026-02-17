@@ -10,7 +10,7 @@ mount -t debugfs nodev /sys/kernel/debug
 cat /sys/kernel/debug/tracing/trace_pipe &
 
 # Start OBI
-./ebpf-instrument "$@" &
+./obi "$@" &
 
 # Wait for any process to exit
 wait -n

@@ -69,7 +69,7 @@ running at 4GHz.
 In another shell run OBI in a non-exporting mode to ensure the measured performance is just the BPF overhead.
 
 ```bash
-sudo OTEL_EBPF_OPEN_PORT=8081 OTEL_EBPF_TRACE_PRINTER=counter bin/ebpf-instrument
+sudo OTEL_EBPF_OPEN_PORT=8081 OTEL_EBPF_TRACE_PRINTER=counter bin/obi
 ```
 
 Wait a few moments for OBI to instrument the application and launch again the load generation script.

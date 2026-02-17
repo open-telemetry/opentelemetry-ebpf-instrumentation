@@ -20,6 +20,7 @@ import (
 
 	"github.com/grafana/jvmtools/jvm"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
@@ -47,7 +48,7 @@ func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
 		return nil, nil
 	}
 
-	agentPath, err := getLocalAgentPath()
+	agentPath, err := getLocalAgentPath(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("unable to find the local OBI java agent jar, error %w", err)
 	}
@@ -177,7 +178,13 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	return nil
 }
 
-func getLocalAgentPath() (string, error) {
+func getLocalAgentPath(cfg *obi.Config) (string, error) {
+	// If a custom agent path is configured, use it
+	if path := cfg.Java.GetAgentPath(); path != "" {
+		return cfg.Java.GetAgentPath(), nil
+	}
+
+	// Otherwise, use the default behavior: look in the same directory as the OBI binary
 	// Get the path to OBI
 	exePath, err := os.Executable()
 	if err != nil {
@@ -200,7 +207,7 @@ func getLocalAgentPath() (string, error) {
 }
 
 // to be changed in tests
-var rootDirForPID func(int32) string = ebpfcommon.RootDirectoryForPID
+var rootDirForPID func(app.PID) string = ebpfcommon.RootDirectoryForPID
 
 func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
 	root := rootDirForPID(ie.FileInfo.Pid)
@@ -262,7 +269,7 @@ func (i *JavaInjector) attachOpts() string {
 	return "=" + strings.Join(opts, ",")
 }
 
-func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid int32, path string) error {
+func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid app.PID, path string) error {
 	attacher.Init()
 
 	defer func() {
@@ -311,7 +318,7 @@ func (i *JavaInjector) attachJDKAgent(attacher *jvm.JAttacher, pid int32, path s
 	return nil
 }
 
-func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid int32) (bool, error) {
+func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid app.PID) (bool, error) {
 	attacher.Init()
 
 	defer func() {
@@ -344,7 +351,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoaded(attacher *jvm.JAttacher, pid int32)
 
 // Hotspot version 8 doesn't support VM.class_hierarchy, we use GC.class_histogram and look for the class itself
 // without the address
-func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pid int32) (bool, error) {
+func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pid app.PID) (bool, error) {
 	attacher.Init()
 
 	defer func() {
@@ -375,7 +382,7 @@ func (i *JavaInjector) jdkAgentAlreadyLoadedHotspot8(attacher *jvm.JAttacher, pi
 	return false, nil
 }
 
-func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid int32) (bool, bool) {
+func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid app.PID) (bool, bool) {
 	attacher.Init()
 
 	defer func() {

@@ -39,7 +39,7 @@ static __always_inline bool set_attr_value(otel_attribute_t *attr,
     // String values
     if (vtype == attr_type_string) {
         if (go_attr_value->string.len >= OTEL_ATTRIBUTE_VALUE_MAX_LEN) {
-            bpf_dbg_printk("Aattribute string value is too long");
+            bpf_dbg_printk("Attribute string value is too long");
             return false;
         }
         long res =

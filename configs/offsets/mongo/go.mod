@@ -2,7 +2,7 @@ module go.opentelemetry.io/obi/configs/offsets/mongo
 
 go 1.25.6
 
-require go.mongodb.org/mongo-driver v1.17.6
+require go.mongodb.org/mongo-driver v1.17.9
 
 require (
 	github.com/golang/snappy v0.0.4 // indirect

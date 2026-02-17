@@ -215,6 +215,13 @@
           "description": "ExcludeServices works analogously to Services, but the applications matching this section won't be instrumented\neven if they match the Services selection.\nUse ExcludeInstrument instead",
           "deprecated": true
         },
+        "excluded_linux_system_paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Executable paths for which we don't run language detection and cannot be\nselected using the path or language selection criteria"
+        },
         "instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
           "description": "Instrument selects the services to instrument via Globs. If this section is set,\nboth the Services and ExcludeServices section is ignored.\nIf the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be\nautomatically added to the instrument criteria, with the lowest preference."
@@ -463,6 +470,7 @@
       "items": {
         "type": "string",
         "enum": [
+          "logs",
           "metrics",
           "traces"
         ]
@@ -543,6 +551,9 @@
     },
     "GlobAttributes": {
       "properties": {
+        "container_name": {
+          "$ref": "#/$defs/GlobAttr"
+        },
         "containers_only": {
           "type": "boolean",
           "description": "ContainersOnly restricts the discovery to processes which are running inside a container"
@@ -1035,13 +1046,7 @@
         },
         "otel_sdk_log_level": {
           "type": "string",
-          "enum": [
-            "debug",
-            "error",
-            "info",
-            "warn"
-          ],
-          "description": "SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode\nand the Info messages leak internal details that are not usually valuable for the final user.",
+          "description": "SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode\nand the Info messages leak internal details that are not usually valuable for the final user.\nAccepted values: debug, info, warn, error (case-insensitive).",
           "x-env-var": "OTEL_EBPF_SDK_LOG_LEVEL"
         },
         "protocol": {
@@ -1401,6 +1406,9 @@
     },
     "RegexSelector": {
       "properties": {
+        "container_name": {
+          "$ref": "#/$defs/RegexpAttr"
+        },
         "containers_only": {
           "type": "boolean",
           "description": "Restrict the discovery to processes which are running inside a container"
@@ -1748,13 +1756,7 @@
         },
         "otel_sdk_log_level": {
           "type": "string",
-          "enum": [
-            "debug",
-            "error",
-            "info",
-            "warn"
-          ],
-          "description": "SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode\nand the Info messages leak internal details that are not usually valuable for the final user.",
+          "description": "SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode\nand the Info messages leak internal details that are not usually valuable for the final user.\nAccepted values: debug, info, warn, error (case-insensitive). dpanic/panic/fatal are mapped to error.",
           "x-env-var": "OTEL_EBPF_SDK_LOG_LEVEL"
         },
         "protocol": {

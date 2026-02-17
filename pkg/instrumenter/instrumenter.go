@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -193,6 +194,8 @@ func BuildCommonContextInfo(
 		ServiceNameTemplate: templ,
 	}, ctxInfo.Metrics)
 
+	ctxInfo.DockerMetadata = docker.NewStore()
+
 	attributeGroups(config, ctxInfo)
 
 	return ctxInfo, nil
@@ -229,6 +232,8 @@ func internalMetrics(
 func attributeGroups(config *obi.Config, ctxInfo *global.ContextInfo) {
 	if ctxInfo.K8sInformer.IsKubeEnabled() {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupKubernetes)
+	} else if ctxInfo.DockerMetadata.IsEnabled(context.Background()) {
+		ctxInfo.MetricAttributeGroups.Add(attributes.GroupContainer)
 	}
 	if config.Routes != nil {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupHTTPRoutes)

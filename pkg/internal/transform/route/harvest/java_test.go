@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
 func TestNewJavaRoutesHarvester(t *testing.T) {
@@ -334,7 +336,7 @@ func TestJavaRoutes_ExtractRoutes(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		pid            int32
+		pid            app.PID
 		mockOutput     string
 		mockError      error
 		expectedRoutes []string
@@ -396,18 +398,17 @@ func TestJavaRoutes_ExtractRoutes(t *testing.T) {
 17 65535: /system/internal
 25: /WEB-INF/classes
 `,
-			mockError:      nil,
-			expectedRoutes: []string{},
-			expectedKind:   PartialRoutes,
-			expectedError:  false,
+			mockError:     nil,
+			expectedKind:  PartialRoutes,
+			expectedError: false,
 		},
 	}
 
 	// This test simulates the entire flow without mocking
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			harvester.Attacher = FakeJavaAttacher{attachFunc: func(pid int, argv []string, _ bool) (io.ReadCloser, error) {
-				assert.Equal(t, int(tt.pid), pid)
+			harvester.Attacher = FakeJavaAttacher{attachFunc: func(pid app.PID, argv []string, _ bool) (io.ReadCloser, error) {
+				assert.Equal(t, tt.pid, pid)
 				assert.Equal(t, []string{"jcmd", "VM.symboltable -verbose"}, argv)
 
 				if tt.mockError != nil {
@@ -436,7 +437,7 @@ func TestJavaRoutes_ExtractRoutes_Integration(t *testing.T) {
 	harvester := NewJavaRoutesHarvester()
 
 	// This test simulates the entire flow without mocking
-	harvester.Attacher = FakeJavaAttacher{attachFunc: func(_ int, _ []string, _ bool) (io.ReadCloser, error) {
+	harvester.Attacher = FakeJavaAttacher{attachFunc: func(_ app.PID, _ []string, _ bool) (io.ReadCloser, error) {
 		symbolTableOutput := `Symbol table:
 Header: ...
 17: /api/users
@@ -607,7 +608,7 @@ func NewReaderCloser(r io.Reader) *ReaderCloser {
 
 type FakeJavaAttacher struct {
 	JavaAttacher
-	attachFunc func(int, []string, bool) (io.ReadCloser, error)
+	attachFunc func(app.PID, []string, bool) (io.ReadCloser, error)
 }
 
 func (j FakeJavaAttacher) Init() {
@@ -616,6 +617,6 @@ func (j FakeJavaAttacher) Init() {
 func (j FakeJavaAttacher) Cleanup() {
 }
 
-func (j FakeJavaAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
+func (j FakeJavaAttacher) Attach(pid app.PID, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
 	return j.attachFunc(pid, argv, ignoreOnJ9)
 }

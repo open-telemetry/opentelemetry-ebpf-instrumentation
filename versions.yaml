@@ -3,12 +3,13 @@
 
 module-sets:
   obi:
-    version: v0.4.1
+    version: v0.5.0
     modules:
       - go.opentelemetry.io/obi
 excluded-modules:
   - github.com/hashicorp/go-version
   - github.com/hashicorp/golang-lru/v2
+  - go.opentelemetry.io/collector/cmd/builder
   - go.opentelemetry.io/obi/configs/offsets/gin
   - go.opentelemetry.io/obi/configs/offsets/kafkago
   - go.opentelemetry.io/obi/configs/offsets/mongo
@@ -16,9 +17,11 @@ excluded-modules:
   - go.opentelemetry.io/obi/configs/offsets/mux
   - go.opentelemetry.io/obi/configs/offsets/mysql
   - go.opentelemetry.io/obi/configs/offsets/otelsdk
+  - go.opentelemetry.io/obi/configs/offsets/pgx
   - go.opentelemetry.io/obi/configs/offsets/redis
   - go.opentelemetry.io/obi/configs/offsets/sarama
   - go.opentelemetry.io/obi/configs/offsets/shopify
+  - go.opentelemetry.io/obi/internal/test/benchmarks/goshorturl
   - go.opentelemetry.io/obi/internal/test/integration/components/go_grpc_server_mux
   - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/client
   - go.opentelemetry.io/obi/internal/test/integration/components/go_http2/server
@@ -31,6 +34,9 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/gomqtt
   - go.opentelemetry.io/obi/internal/test/integration/components/gomysql
   - go.opentelemetry.io/obi/internal/test/integration/components/gomysql-otelsql
+  - go.opentelemetry.io/obi/internal/test/integration/components/gopgx
+  - go.opentelemetry.io/obi/internal/test/integration/components/gopgx-pool
+  - go.opentelemetry.io/obi/internal/test/integration/components/gopgx-stdlib
   - go.opentelemetry.io/obi/internal/test/integration/components/goredis
   - go.opentelemetry.io/obi/internal/test/integration/components/gosql
   - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend
