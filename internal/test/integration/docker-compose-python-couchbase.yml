@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   couchbase:
-    image: couchbase:community-7.6.1@sha256:878cc4e64321aaa599f7079ef7528babe376d06bb998bbee3b327d72cb3ac44f
+    image: couchbase:community-7.6.1@sha256:8a56bae76a05afd1486b972b3793afb38207f39c20f218b3959a06f065ff365f
     ports:
       - "8091:8091"
       - "8093:8093"
@@ -21,7 +21,7 @@ services:
       retries: 10
 
   couchbase-init:
-    image: couchbase:community-7.6.1@sha256:878cc4e64321aaa599f7079ef7528babe376d06bb998bbee3b327d72cb3ac44f
+    image: couchbase:community-7.6.1@sha256:8a56bae76a05afd1486b972b3793afb38207f39c20f218b3959a06f065ff365f
     depends_on:
       couchbase:
         condition: service_healthy

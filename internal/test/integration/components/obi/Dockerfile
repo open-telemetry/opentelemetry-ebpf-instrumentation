@@ -1,7 +1,7 @@
 # Development version of the beyla Dockerfile that compiles for coverage
 # and allows retrieving coverage files.
 # The production-ready minimal image is in the project root's dockerfile.
-FROM golang:1.25.7@sha256:cc737435e2742bd6da3b7d575623968683609a3d2e0695f9d85bee84071c08e6 AS builder
+FROM golang:1.25.7@sha256:85c0ab0b73087fda36bf8692efe2cf67c54a06d7ca3b49c489bbff98c9954d64 AS builder
 
 ARG TARGETARCH
 
@@ -23,7 +23,7 @@ COPY internal/test/integration/components/obi/ebpf_instrument_wrapper_minimal.sh
 RUN make compile-for-coverage
 
 # Create final image from minimal + built binary
-FROM ubuntu@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b
+FROM ubuntu@sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9
 
 COPY --from=builder /src/bin/obi /obi
 # Wrap the executable in a script that waits for the processes to end

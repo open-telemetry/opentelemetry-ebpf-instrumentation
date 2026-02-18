@@ -1,4 +1,4 @@
-FROM postgres:latest@sha256:1090bc3a8ccfb0b55f78a494d76f8d603434f7e4553543d6e807bc7bd6bbd17f
+FROM postgres:latest@sha256:b6b4d0b75c699a2c94dfc5a94fe09f38630f3b67ab0e1653ede1b7ac8e13c197
 ENV POSTGRES_DB sqltest
 COPY accounting.sql /docker-entrypoint-initdb.d/
 EXPOSE 5432

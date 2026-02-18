@@ -11,7 +11,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.27.4
 	go.opentelemetry.io/build-tools/multimod v0.28.1
 	gotest.tools/gotestsum v1.13.0
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260209172322-2053ba3d414e
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260216173200-e4c1c38bcbdb
 	sigs.k8s.io/kind v0.29.0
 )
 
