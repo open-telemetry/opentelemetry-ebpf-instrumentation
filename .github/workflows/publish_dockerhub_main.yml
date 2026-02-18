@@ -142,10 +142,15 @@ jobs:
       - name: Sign the images using Cosign with GitHub OIDC Token
         env: # interpolation via env is safer: https://docs.github.com/en/actions/reference/security/secure-use#use-an-intermediate-environment-variable
           TAGS: ${{ steps.meta.outputs.tags }}
-          DOCKERHUB_IMAGE: otel/${{ env.IMAGE_NAME }}
-          VERSION: ${{ steps.meta.outputs.version }}
+          IMAGE_TO_INSPECT: ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
         run: |
-          DIGEST="sha256:$(docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${VERSION}" --raw | sha256sum | cut -d ' ' -f 1)"
+          for i in 1 2 3 4 5; do
+            RAW=$(docker buildx imagetools inspect "${IMAGE_TO_INSPECT}" --raw 2>/dev/null) && break
+            echo "Inspect attempt $i failed, retrying in 5s..."
+            sleep 5
+          done
+          if [ -z "${RAW}" ]; then echo "Failed to inspect image after 5 attempts"; exit 1; fi
+          DIGEST="sha256:$(echo -n "${RAW}" | sha256sum | cut -d ' ' -f 1)"
           images=""
           for tag in ${TAGS}; do
             images+="${tag}@${DIGEST} "
