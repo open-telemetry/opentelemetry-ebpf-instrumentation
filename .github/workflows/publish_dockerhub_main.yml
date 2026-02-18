@@ -142,6 +142,7 @@ jobs:
           META_JSON: ${{ steps.meta.outputs.json }}
           DIGESTS_DIR: ${{ runner.temp }}/digests
         run: |
+          shopt -s nullglob
           for arch in amd64 arm64; do
             files=("${DIGESTS_DIR}"/ebpf-instrument-digests-${arch}/*)
             if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
