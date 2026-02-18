@@ -19,8 +19,7 @@ permissions:
 jobs:
   build:
     permissions:
-      id-token: write
-      packages: write
+      contents: read
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
