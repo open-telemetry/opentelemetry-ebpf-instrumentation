@@ -532,17 +532,16 @@ license-header-check:
 	   fi
 
 .PHONY: artifact
-artifact: docker-generate compile compile-cache java-docker-build
+artifact: docker-generate compile java-docker-build
 	@echo "### Packing generated artifact for $(GOOS)/$(GOARCH)"
 	@STAGING_DIR=$$(mktemp -d 2>/dev/null || mktemp -d -t obi.XXXXXX); \
 	trap "rm -rf $$STAGING_DIR" EXIT; \
 	cp ./bin/$(CMD) $$STAGING_DIR/; \
-	cp ./bin/$(CACHE_CMD) $$STAGING_DIR/; \
 	cp ./bin/$(JAVA_AGENT) $$STAGING_DIR/; \
 	cp LICENSE $$STAGING_DIR/; \
 	cp NOTICE $$STAGING_DIR/; \
 	cp -r NOTICES $$STAGING_DIR/; \
-	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(CACHE_CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
+	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
 
 .PHONY: release
 release: artifact
@@ -553,13 +552,11 @@ release: artifact
 	@mkdir -p $(RELEASE_DIR)/verify-$(GOARCH)
 	@tar -xzf $(RELEASE_DIR)/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz -C $(RELEASE_DIR)/verify-$(GOARCH)
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary missing in $(GOARCH) archive"; exit 1; fi
-	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(CACHE_CMD) ]; then echo "ERROR: $(CACHE_CMD) binary missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(JAVA_AGENT) ]; then echo "ERROR: $(JAVA_AGENT) missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/LICENSE ]; then echo "ERROR: LICENSE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/NOTICE ]; then echo "ERROR: NOTICE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES ]; then echo "ERROR: NOTICES directory missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
-	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CACHE_CMD) ]; then echo "ERROR: $(CACHE_CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
 	@echo "✓ Archive $(GOARCH) verified successfully"
 	@rm -rf $(RELEASE_DIR)/verify-$(GOARCH)
 	@echo "### Generating checksums"
