@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
-func testAppNetMetricsTCPRttForGo(t *testing.T, comm, namespace string) {
+func testAppNetMetricsTCPRtt(t *testing.T, comm, namespace string) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
@@ -45,7 +45,18 @@ func testAppNetMetricsTCPRttGo(t *testing.T) {
 	} {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponentsTCP(t, testCaseURL)
-			testAppNetMetricsTCPRttForGo(t, "testserver", "integration-test")
+			testAppNetMetricsTCPRtt(t, "testserver", "integration-test")
+		})
+	}
+}
+
+func testAppNetMetricsTCPRttPython(t *testing.T) {
+	for _, testCaseURL := range []string{
+		"http://localhost:8381",
+	} {
+		t.Run(testCaseURL, func(t *testing.T) {
+			waitForTestComponentsTCP(t, testCaseURL)
+			testAppNetMetricsTCPRtt(t, "python3.14", "integration-test")
 		})
 	}
 }
