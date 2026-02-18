@@ -310,9 +310,7 @@ int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
     connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
 
     // Populate connection info if: no entry exists yet, OR the entry was created by connServe
-    // with zeroed ports (netFdRead may not have fired yet or may have failed to read laddr/raddr).
-    // readRequest fires after the first netFdRead in the serve loop, so this acts as a reliable
-    // fallback to populate ports from the conn struct when netFdRead could not.
+    // with zeroed ports
     if (!existing || (existing->d_port == 0 && existing->s_port == 0)) {
         void *c_ptr = GO_PARAM1(ctx);
         if (c_ptr) {

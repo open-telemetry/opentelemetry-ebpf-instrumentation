@@ -65,15 +65,6 @@ var tr = &http.Transport{
 }
 var testHTTPClient = &http.Client{Transport: tr}
 
-// healthCheckClient is a separate client used only for service readiness polling.
-// It must never be modified by setHTTPClientDisableKeepAlives so that waitForTestComponents*
-// functions always use persistent connections regardless of what the test configures.
-var healthCheckClient = &http.Client{
-	Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	},
-}
-
 func setHTTPClientDisableKeepAlives(disableKeepAlives bool) {
 	testHTTPClient.Transport.(*http.Transport).DisableKeepAlives = disableKeepAlives
 }
@@ -197,7 +188,7 @@ func waitForTestComponentsSubWithTime(t *testing.T, url, subpath string, minutes
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
 		require.NoError(ct, err)
-		r, err := healthCheckClient.Do(req)
+		r, err := testHTTPClient.Do(req)
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
@@ -216,7 +207,7 @@ func waitForTestComponentsSubWithTimeAndCode(t *testing.T, url, subpath string, 
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
 		require.NoError(ct, err)
-		r, err := healthCheckClient.Do(req)
+		r, err := testHTTPClient.Do(req)
 		require.NoError(ct, err)
 		require.Equal(ct, status, r.StatusCode)
 
@@ -235,7 +226,7 @@ func waitForTestComponentsRoute(t *testing.T, url, route string) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+route, nil)
 		require.NoError(ct, err)
-		r, err := healthCheckClient.Do(req)
+		r, err := testHTTPClient.Do(req)
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
@@ -258,7 +249,7 @@ func waitForSQLTestComponentsWithDB(t *testing.T, url, subpath, db string) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
 		require.NoError(ct, err)
-		r, err := healthCheckClient.Do(req)
+		r, err := testHTTPClient.Do(req)
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
