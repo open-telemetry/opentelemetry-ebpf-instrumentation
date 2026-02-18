@@ -60,10 +60,10 @@ but in many cases, especially in asynchronous programming models, the context mi
 processes.
 OBI has support for several asynchronous frameworks that allow it to propagate context in these scenarios.
 
-| Framework           | Languages |       Versions | Limitations                                       | Status
-|:--------------------|:---------:|---------------:|:--------------------------------------------------|:-------------
-| Go Routines         |    Go     |     Go >= 1.18 | up to 3 nested levels of goroutines               | Stable
-| Node.js Async Hooks |  Node.js  | Node.js >= 8.0 | Custom handling of SIGUSR1 signal might interfere | Stable
-| Ruby Puma Server    |   Ruby    |            N/A | Only works with Puma server                       | Stable
-| Java Thread pool    |   Java    |            N/A | N/A                                               | Stable
-| Python asyncio      |  Python   |  Python >= 3.7 | N/A                                               | In Progress
+| Framework           | Languages |         Versions | Limitations                                       | Status
+|:--------------------|:---------:|-----------------:|:--------------------------------------------------|:-------------
+| Go Routines         |    Go     |       Go >= 1.18 | up to 3 nested levels of goroutines               | Stable
+| Node.js Async Hooks |  Node.js  |   Node.js >= 8.0 | Custom handling of SIGUSR1 signal might interfere | Stable
+| Ruby Puma Server    |   Ruby    |              N/A | Only works with Puma server                       | Stable
+| Java Thread pool    |   Java    |           JDK 8+ | N/A                                               | Stable
+| Python asyncio      |  Python   |    Python >= 3.7 | N/A                                               | In Progress
