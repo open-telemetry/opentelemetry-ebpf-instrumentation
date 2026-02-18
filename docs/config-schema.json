@@ -125,7 +125,7 @@
         {
           "type": "string",
           "pattern": "^(headers|http|tcp|ip)(,(headers|http|tcp|ip))*$",
-          "description": "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options, ip for IP options), seperated by commas",
+          "description": "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options, ip for IP options), separated by commas",
           "examples": [
             "headers",
             "tcp",
