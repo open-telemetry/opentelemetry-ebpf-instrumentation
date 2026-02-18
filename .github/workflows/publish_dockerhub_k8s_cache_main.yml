@@ -140,8 +140,15 @@ jobs:
           META_JSON: ${{ steps.meta.outputs.json }}
           DIGESTS_DIR: ${{ runner.temp }}/digests
         run: |
-          AMD64_DIGEST=$(basename "$(ls "${DIGESTS_DIR}"/k8s-cache-digests-amd64/*)")
-          ARM64_DIGEST=$(basename "$(ls "${DIGESTS_DIR}"/k8s-cache-digests-arm64/*)")
+          for arch in amd64 arm64; do
+            files=("${DIGESTS_DIR}"/k8s-cache-digests-${arch}/*)
+            if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
+              echo "Error: Expected exactly one digest file in k8s-cache-digests-${arch}, found ${#files[@]}"
+              exit 1
+            fi
+          done
+          AMD64_DIGEST=$(basename "${DIGESTS_DIR}"/k8s-cache-digests-amd64/*)
+          ARM64_DIGEST=$(basename "${DIGESTS_DIR}"/k8s-cache-digests-arm64/*)
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "${META_JSON}") \
             "${GHCR_IMAGE}@sha256:${AMD64_DIGEST}" \
