@@ -155,6 +155,7 @@ type Selector interface {
 	GetPath() StringMatcher
 	GetPathRegexp() StringMatcher
 	GetOpenPorts() *PortEnum
+	GetLanguages() StringMatcher
 	IsContainersOnly() bool
 	RangeMetadata() iter.Seq2[string, StringMatcher]
 	RangePodLabels() iter.Seq2[string, StringMatcher]

@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path"
@@ -15,7 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
 func TestMultiProcess(t *testing.T) {
@@ -225,4 +228,115 @@ func checkInstrumentedProcessesMetric(t *testing.T) {
 			assert.Equal(ct, expectedCount, value)
 		}
 	}, testTimeout, 1000*time.Millisecond)
+}
+
+// We are instrumenting only the Rust and Ruby services, all other server span queries should come empty
+func testPartialLanguageHTTPProbes(t *testing.T) {
+	waitForTestComponentsSub(t, "http://localhost:8091", "/dist") // rust
+
+	for i := 0; i < 100; i++ {
+		ti.DoHTTPGet(t, "http://localhost:8091/dist", 200)
+	}
+
+	// check the rust service, it will not have any nested spans
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=greetings&operation=GET%20%2Fdist")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/dist"})
+		require.LessOrEqual(ct, 5, len(traces))
+		for _, trace := range traces {
+			// Check the information of the rust parent span
+			res := trace.FindByOperationName("GET /dist", "server")
+			require.Len(ct, res, 1)
+			parent := res[0]
+			require.NotEmpty(ct, parent.TraceID)
+			require.NotEmpty(ct, parent.SpanID)
+			// check duration is at least 2us
+			assert.Less(ct, (2 * time.Microsecond).Microseconds(), parent.Duration)
+			// check span attributes
+			sd := parent.Diff(
+				jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+				jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+				jaeger.Tag{Key: "url.path", Type: "string", Value: "/dist"},
+				jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8090)},
+				jaeger.Tag{Key: "http.route", Type: "string", Value: "/dist"},
+				jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+			)
+			assert.Empty(ct, sd, sd.String())
+
+			// Check the information of the java parent span
+			res = trace.FindByOperationName("GET /jtrace", "server")
+			require.Empty(ct, res)
+
+			// Check the information of the nodejs parent span
+			res = trace.FindByOperationName("GET /traceme", "server")
+			require.Empty(ct, res)
+
+			// Check the information of the go parent span
+			res = trace.FindByOperationName("GET /gotracemetoo", "server")
+			require.Empty(ct, res)
+
+			// Check the information of the python parent span
+			res = trace.FindByOperationName("GET /tracemetoo", "server")
+			require.Empty(t, res)
+
+			// Check the information of the rails parent span
+			res = trace.FindByOperationName("GET /users", "server")
+			require.Empty(t, res)
+		}
+	}, testTimeout, 100*time.Millisecond)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=ruby&operation=GET%20%2Fusers")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/users"})
+		require.LessOrEqual(ct, 5, len(traces))
+		for _, trace := range traces {
+			// Check the information of the rust parent span
+			res := trace.FindByOperationName("GET /users", "server")
+			require.Len(ct, res, 1)
+		}
+	}, testTimeout, 100*time.Millisecond)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fgotracemetoo")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/gotracemetoo"})
+		require.Empty(ct, traces)
+	}, testTimeout, 100*time.Millisecond)
+}
+
+func TestLanguageSelectors(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-multiexec.yml", path.Join(pathOutput, "test-suite-multiexec-lang.log"))
+	require.NoError(t, err)
+
+	// we are going to setup discovery directly in the configuration file, choose the lang config file
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`, `MULTI_TEST_MODE=-lang`)
+	require.NoError(t, compose.Up())
+
+	// We are testing with instrumenting only Ruby and Rust services, so from our call chain we should only see
+	// traces for the two services written in the correct language
+	t.Run("Partial traces: rust (OK) -> java (NO) -> node (NO) -> go (NO) -> python (NO) -> rails (OK)", func(t *testing.T) {
+		testPartialLanguageHTTPProbes(t)
+	})
+
+	require.NoError(t, compose.Close())
 }
