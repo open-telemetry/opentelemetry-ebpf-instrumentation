@@ -50,7 +50,7 @@ jobs:
           PARTITIONS: 5
         run: |
           echo -n "matrix=" >> $GITHUB_OUTPUT
-          make vm-integration-test-matrix-json >> $GITHUB_OUTPUT
+          make multiprocess-integration-test-matrix-json >> $GITHUB_OUTPUT
 
   test:
     name: kernel ${{ matrix.kernel.kernel-version }} ${{ matrix.kernel.arch }} ${{ matrix.test.description }}
@@ -128,15 +128,55 @@ jobs:
       - name: Generate files
         run: make prereqs docker-generate
 
-      - name: Install QEMU and musl-tools
+      - name: Install QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86 musl-tools
+          sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86
 
-      - name: Pre-compile Go integration tests
+      - name: Pre-compile Go integration tests and gotestsum
         run: |
           mkdir compiled-tests
-          CC=musl-gcc CGO_ENABLED=1 go test -c -ldflags="-s -w" -o compiled-tests/ ./internal/test/integration
+          CGO_ENABLED=0 go test -c -ldflags="-s -w" -o compiled-tests/ ./internal/test/integration
+          CGO_ENABLED=0 go build -C internal/tools -o ../../compiled-tests/gotestsum -ldflags="-s -w" gotest.tools/gotestsum
+
+      - name: Pre-build Docker images for VM tests
+        run: |
+          # Auto-discover Docker images from compose files and build them on
+          # the host at native speed, avoiding slow in-VM builds under QEMU
+          # TCG (software CPU emulation). Scans for services that have both a
+          # 'build: dockerfile:' and 'image: hatest-*', skipping entries with
+          # env var substitutions in the dockerfile path.
+          mapfile -t ENTRIES < <(
+            awk '
+              /^  [a-zA-Z]/ {
+                if (df && img && !(img in seen)) { seen[img]=1; print img "=" df }
+                df=""; img=""
+              }
+              /dockerfile:/ {
+                sub(/.*dockerfile: */, ""); gsub(/["'"'"']/, ""); sub(/^\.\/*/, "")
+                if ($0 !~ /\$\{/) df=$0
+              }
+              /image: *hatest-/ { sub(/.*image: */, ""); img=$0 }
+              END { if (df && img && !(img in seen)) print img "=" df }
+            ' internal/test/integration/docker-compose-multiexec*.yml | sort
+          )
+
+          echo "Discovered ${#ENTRIES[@]} Docker images to pre-build"
+          IMAGE_TAGS=()
+          for entry in "${ENTRIES[@]}"; do
+            tag="${entry%%=*}"
+            dockerfile="${entry#*=}"
+            echo "Building ${tag} from ${dockerfile}..."
+            docker build --quiet -t "${tag}" -f "${dockerfile}" .
+            IMAGE_TAGS+=("${tag}")
+          done
+
+          if [ ${#IMAGE_TAGS[@]} -gt 0 ]; then
+            echo "Saving ${#IMAGE_TAGS[@]} Docker images to tar..."
+            docker save "${IMAGE_TAGS[@]}" -o compiled-tests/docker-images.tar
+            echo "Docker images saved ($(du -h compiled-tests/docker-images.tar | cut -f1))"
+            docker builder prune -af
+          fi
 
       - name: Run VM integration tests (${{ matrix.test.description }})
         timeout-minutes: 60

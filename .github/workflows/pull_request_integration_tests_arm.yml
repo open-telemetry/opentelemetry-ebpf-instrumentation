@@ -31,15 +31,44 @@ permissions:
   contents: read
 
 jobs:
+  test-matrix:
+    name: "Build ARM integration matrix"
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: build matrix
+        id: build-matrix
+        env:
+          # 5 partitions, one for each of:
+          #  1. TestMultiProcess
+          #  2. TestMultiProcessAppCP
+          #  3. TestMultiProcessAppCPHeadersOnly
+          #  4. TestMultiProcessAppCPTCPOnly
+          #  5. TestMultiProcessAppCPIPOnly
+          PARTITIONS: 5
+        run: |
+          echo -n "matrix=" >> $GITHUB_OUTPUT
+          make multiprocess-integration-test-matrix-json >> $GITHUB_OUTPUT
+
   test:
+    name: ${{ matrix.description }}
+    needs: test-matrix
     permissions:
       # Required for codecov
       checks: write
       pull-requests: write
       # Required for uploading artifacts
       actions: write
-    name: test
     runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.test-matrix.outputs.matrix) }}
     steps:
       - name: Check initial disk usage
         run: df -h
@@ -91,21 +120,45 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          cache: "false"
           go-version-file: "go.mod"
+          cache: false
+
+      - name: Generate files
+        run: make prereqs docker-generate
+
+      - name: Install gotestsum
+        run: make tools
+
+      - name: Check disk usage before tests
+        run: df -h
 
       - name: Run integration tests
-        run: make docker-generate integration-test-arm
-        timeout-minutes: 60
+        timeout-minutes: 35
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+          MATRIX_JSON: ${{ toJson(matrix) }}
+          MATRIX_TEST_PATTERN: ${{ matrix.test_pattern }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          echo Partition
+          echo "${MATRIX_JSON}"
 
-      - name: Upload integration test logs
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: always()
-        with:
-          name: go-integration-test-arm-logs-${{ github.run_number }}
-          path: |
-            testoutput/*.log
-            testoutput/kind
+          if [ -z "${MATRIX_TEST_PATTERN}" ]; then
+            echo "Error: Test pattern is empty for shard $MATRIX_ID"
+            exit 1
+          fi
+
+          mkdir -p /home/runner/reports
+
+          ./.tools/gotestsum \
+              --rerun-fails=2 --rerun-fails-max-failures=2 --rerun-fails-abort-on-data-race \
+              --packages="./internal/test/integration" -ftestname \
+              --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
+              -- -timeout 30m \
+              -run="^(${MATRIX_TEST_PATTERN})$" ./internal/test/integration
+
+      - name: Process coverage data
+        run: make itest-coverage-data
 
       - name: Report coverage
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
@@ -114,4 +167,25 @@ jobs:
         with:
           files: ./testoutput/itest-covdata.txt
           flags: integration-test-arm
-          name: go-integration-test-arm-coverage-${{ github.run_number }}
+          name: go-integration-test-arm-coverage-${{ matrix.id }}-${{ github.run_number }}
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: go-integration-test-arm-reports-${{ matrix.id }}-${{ github.run_number }}
+          path: /home/runner/reports/*.log
+          retention-days: 5
+
+      - name: Upload integration test logs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: go-integration-test-arm-logs-${{ matrix.id }}-${{ github.run_number }}
+          path: |
+            testoutput/*.log
+            testoutput/kind
+
+      - name: Check final disk usage
+        if: always()
+        run: df -h
