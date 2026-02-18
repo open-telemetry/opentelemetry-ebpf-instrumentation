@@ -1,5 +1,5 @@
 # Build the autoinstrumenter binary
-ARG TAG=0.2.3@sha256:7d9ca3af8c0183e87d67c9507a6d8ca7ea1cea6794335e6d61514ba18ea18910
+ARG TAG=0.2.6@sha256:547007f27e8323ace60428fe02cb29a512e312fd23e706dd4e061e63c80e4167
 FROM ghcr.io/open-telemetry/obi-generator:${TAG} AS builder
 
 # TODO: embed software version in executable
@@ -29,9 +29,12 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 	&& make compile
 
 # Build the Java OBI agent
-FROM gradle:9.2.1-jdk21-corretto@sha256:3392a25fbe142defde5a13ec7e7171cac8c08ec6bcec00b44705d9a24b544fa3 AS javaagent-builder
+FROM gradle:9.3.1-jdk21-noble@sha256:5f836f4642496f816f15d495b007e1912f36bf58fbea0247c0b761af438d7cf2 AS javaagent-builder
 
 WORKDIR /build
+
+RUN apt update
+RUN apt install -y clang llvm
 
 # Copy build files
 COPY pkg/internal/java .
@@ -46,11 +49,11 @@ LABEL maintainer="The OpenTelemetry Authors"
 
 WORKDIR /
 
-COPY --from=builder /src/bin/ebpf-instrument .
+COPY --from=builder /src/bin/obi .
 COPY --from=javaagent-builder /build/build/obi-java-agent.jar .
 COPY LICENSE NOTICE .
 COPY NOTICES ./NOTICES
 
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 
-ENTRYPOINT [ "/ebpf-instrument" ]
+ENTRYPOINT [ "/obi" ]

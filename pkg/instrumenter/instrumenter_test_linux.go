@@ -3,7 +3,7 @@
 
 //go:build linux
 
-package instrumenter
+package instrumenter // import "go.opentelemetry.io/obi/pkg/instrumenter"
 
 import (
 	"bytes"

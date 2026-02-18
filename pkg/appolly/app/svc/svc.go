@@ -1,12 +1,13 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package svc
+package svc // import "go.opentelemetry.io/obi/pkg/appolly/app/svc"
 
 import (
 	"go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -17,7 +18,8 @@ import (
 type InstrumentableType int
 
 const (
-	InstrumentableGolang InstrumentableType = iota + 1
+	InstrumentableUnknown InstrumentableType = iota
+	InstrumentableGolang
 	InstrumentableJava
 	InstrumentableJavaNative
 	InstrumentableDotnet
@@ -27,6 +29,7 @@ const (
 	InstrumentableRust
 	InstrumentableGeneric
 	InstrumentablePHP
+	InstrumentableCPP
 )
 
 func (it InstrumentableType) String() string {
@@ -47,6 +50,8 @@ func (it InstrumentableType) String() string {
 		return semconv.TelemetrySDKLanguageRust.Value.AsString()
 	case InstrumentablePHP:
 		return semconv.TelemetrySDKLanguagePHP.Value.AsString()
+	case InstrumentableCPP:
+		return semconv.TelemetrySDKLanguageCPP.Value.AsString()
 	case InstrumentableGeneric:
 		return "generic"
 	default:
@@ -102,7 +107,7 @@ type Attrs struct {
 	// ProcPID is the PID of the instrumented process as seen by Beyla's /proc filesystem.
 	// It is stored here at process discovery time, because it might differ form the
 	// UserPID and HostPID fields of the request.PidInfo struct.
-	ProcPID int32
+	ProcPID app.PID
 
 	// HostName running the process. It will default to the Beyla host and will be overridden
 	// by other metadata if available (e.g., Pod Name, Node Name, etc...)
@@ -119,6 +124,8 @@ type Attrs struct {
 	// Features that are defined in a per-service basis. For example, we might want to enable
 	// Service Graph Metrics for all the services but RED metrics only for a few
 	Features export.Features
+
+	LogEnricherEnabled bool
 
 	CustomInRouteMatcher  route.Matcher
 	CustomOutRouteMatcher route.Matcher

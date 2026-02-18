@@ -2,7 +2,7 @@ plugins {
     java
     id("com.gradleup.shadow") version "8.3.9"
     id("me.champeau.jmh") version "0.7.3"
-    id("com.diffplug.spotless") version "6.25.0"
+    id("com.diffplug.spotless") version "8.2.1"
 }
 
 group = "io.opentelemetry.obi"
@@ -39,10 +39,8 @@ repositories {
 }
 
 dependencies {
-    implementation("net.bytebuddy:byte-buddy:1.17.8")
+    implementation("net.bytebuddy:byte-buddy:1.18.4")
     implementation("net.bytebuddy:byte-buddy-agent:1.17.8")
-    implementation("net.java.dev.jna:jna:5.18.1")
-    implementation("com.github.ben-manes.caffeine:caffeine:2.9.3")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.13.3")
     testImplementation("org.junit.platform:junit-platform-launcher:1.10.2")
@@ -51,8 +49,45 @@ dependencies {
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.13.3")
 }
 
+tasks.register("prepareKotlinBuildScriptModel"){}
+
 tasks.test {
     useJUnitPlatform()
+}
+
+// Automatic JNI header generation during compilation
+// Outputs to the build directory to avoid affecting the source tree
+tasks.compileJava {
+    options.headerOutputDirectory.set(layout.buildDirectory.dir("generated/jni-headers"))
+}
+
+// Ensure spotless runs after compileJava to avoid task ordering issues
+tasks.named("spotlessJava") {
+    mustRunAfter(tasks.compileJava)
+}
+
+// Build the native JNI library
+tasks.register<Exec>("buildNativeLib") {
+    group = "build"
+    description = "Build the JNI native library (libobijni.so)"
+    
+    dependsOn("compileJava")
+    
+    workingDir = projectDir
+    commandLine("make", "-f", "Makefile.jni")
+    
+    doLast {
+        println("OBI JNI library built successfully")
+    }
+}
+
+// Clean native library
+tasks.register<Delete>("cleanNativeLib") {
+    group = "build"
+    description = "Clean the JNI native library build artifacts"
+    
+    delete(file("build"))
+    delete(file("target/classes/libobijni.so"))
 }
 
 val jmhIncludes: String? by project
@@ -75,9 +110,17 @@ jmh {
 }
 
 tasks.shadowJar {
+    dependsOn("buildNativeLib")
+    
     archiveBaseName.set("agent")
     archiveVersion.set("0.1.0")
     archiveClassifier.set("shaded")
+    
+    // Include the native library in the JAR
+    from(file("target/classes")) {
+        include("libobijni.so")
+    }
+    
     manifest {
         attributes(
             "Premain-Class" to "io.opentelemetry.obi.java.Agent",
@@ -87,7 +130,6 @@ tasks.shadowJar {
             "Main-Class" to "io.opentelemetry.obi.java.Agent"
         )
     }
-    relocate("com.github", "io.opentelemetry.obi.com.github")
     relocate("net.bytebuddy", "io.opentelemetry.obi.net.bytebuddy")
     // Exclude META-INF files as in Maven Shade plugin
     exclude("META-INF/**")

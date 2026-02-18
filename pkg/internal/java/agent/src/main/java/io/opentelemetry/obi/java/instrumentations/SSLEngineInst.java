@@ -5,10 +5,11 @@
 
 package io.opentelemetry.obi.java.instrumentations;
 
-import com.sun.jna.Memory;
-import com.sun.jna.Pointer;
+import static io.opentelemetry.obi.java.instrumentations.util.ByteBufferExtractor.b;
+
 import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
+import io.opentelemetry.obi.java.ebpf.NativeMemory;
 import io.opentelemetry.obi.java.ebpf.OperationType;
 import io.opentelemetry.obi.java.instrumentations.data.BytesWithLen;
 import io.opentelemetry.obi.java.instrumentations.data.Connection;
@@ -64,23 +65,24 @@ public class SSLEngineInst {
   }
 
   public static final class UnwrapAdvice {
-    @Advice.OnMethodEnter
-    public static void unwrap(
+    @Advice.OnMethodEnter(suppress = Throwable.class)
+    public static int unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer dst) {
       if (dst == null) {
-        return;
+        return -1;
       }
       if (engine.getSession().getId().length == 0) {
-        return;
+        return -1;
       }
 
-      SSLStorage.bufPos.set(dst.position());
+      return b(dst).position();
     }
 
-    @Advice.OnMethodExit
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
+        @Advice.Enter int savedPos,
         @Advice.Argument(0) final ByteBuffer src,
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
@@ -108,22 +110,17 @@ public class SSLEngineInst {
       }
 
       if (engine.getSession().getId().length == 0) {
-        SSLStorage.bufPos.remove();
         return;
       }
 
-      if (result.bytesProduced() > 0 && dst.limit() >= result.bytesProduced()) {
-        int oldPos = dst.position();
-
-        Integer savedPos = SSLStorage.bufPos.get();
-        if (savedPos == null) {
-          System.err.println("[SSLEngineInst] ");
+      if (result.bytesProduced() > 0 && b(dst).limit() >= result.bytesProduced()) {
+        if (savedPos == -1) {
           return;
         }
 
-        dst.position(savedPos);
-        ByteBuffer dstBuffer = ByteBufferExtractor.fromFreshBuffer(dst, result.bytesProduced());
-        dst.position(oldPos);
+        ByteBuffer dup = dst.duplicate();
+        b(dup).position(savedPos);
+        ByteBuffer dstBuffer = ByteBufferExtractor.fromFreshBuffer(dup, result.bytesProduced());
 
         byte[] b = dstBuffer.array();
 
@@ -132,26 +129,24 @@ public class SSLEngineInst {
               "[SSLEngineInst] unwrap:" + new String(b, java.nio.charset.StandardCharsets.UTF_8));
         }
 
-        Pointer p = new Memory(IOCTLPacket.packetPrefixSize + b.length);
+        NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + b.length);
         int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.RECEIVE, c, b.length);
         IOCTLPacket.writePacketBuffer(p, wOff, b);
-        Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+        Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
       }
-
-      SSLStorage.bufPos.remove();
     }
   }
 
   public static final class UnwrapAdviceArray {
-    @Advice.OnMethodEnter
-    public static void unwrap(
+    @Advice.OnMethodEnter(suppress = Throwable.class)
+    public static int[] unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(1) final ByteBuffer[] dsts) {
       if (dsts == null) {
-        return;
+        return null;
       }
       if (dsts.length == 0 || engine.getSession().getId().length == 0) {
-        return;
+        return null;
       }
 
       int[] positions = new int[dsts.length];
@@ -160,15 +155,16 @@ public class SSLEngineInst {
           positions[i] = -1;
           continue;
         }
-        positions[i] = dsts[i].position();
+        positions[i] = b(dsts[i]).position();
       }
 
-      SSLStorage.bufPositions.set(positions);
+      return positions;
     }
 
-    @Advice.OnMethodExit
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
+        @Advice.Enter int[] savedDstPositions,
         @Advice.Argument(1) final ByteBuffer[] dsts,
         @Advice.Return SSLEngineResult result) {
       if (dsts == null) {
@@ -196,39 +192,29 @@ public class SSLEngineInst {
       }
 
       if (dsts.length == 0 || engine.getSession().getId().length == 0) {
-        SSLStorage.bufPositions.remove();
         return;
       }
 
       if (result.bytesProduced() > 0) {
-        int[] oldDstPositions = new int[dsts.length];
-        int[] savedDstPositions = SSLStorage.bufPositions.get();
         if (savedDstPositions == null) {
-          System.err.println("[SSLEngineInst]");
           return;
         }
 
+        ByteBuffer[] dups = new ByteBuffer[dsts.length];
         for (int i = 0; i < dsts.length; i++) {
           if (dsts[i] == null) {
             continue;
           }
-          oldDstPositions[i] = dsts[i].position();
           if (savedDstPositions[i] != -1) {
-            dsts[i].position(savedDstPositions[i]);
+            dups[i] = dsts[i].duplicate();
+            b(dups[i]).position(savedDstPositions[i]);
           }
         }
 
-        ByteBuffer dstBuffer = ByteBufferExtractor.flattenFreshByteBufferArray(dsts);
-
-        for (int i = 0; i < dsts.length; i++) {
-          if (dsts[i] == null) {
-            continue;
-          }
-          dsts[i].position(oldDstPositions[i]);
-        }
+        ByteBuffer dstBuffer = ByteBufferExtractor.flattenFreshByteBufferArray(dups);
 
         byte[] b = dstBuffer.array();
-        int len = dstBuffer.position();
+        int len = b(dstBuffer).position();
 
         if (SSLStorage.debugOn) {
           System.err.println(
@@ -236,18 +222,16 @@ public class SSLEngineInst {
                   + new String(b, java.nio.charset.StandardCharsets.UTF_8));
         }
 
-        Pointer p = new Memory(IOCTLPacket.packetPrefixSize + len);
+        NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + len);
         int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.RECEIVE, c, len);
         IOCTLPacket.writePacketBuffer(p, wOff, b, 0, len);
-        Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+        Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
       }
-
-      SSLStorage.bufPositions.remove();
     }
   }
 
   public static final class WrapAdvice {
-    @Advice.OnMethodEnter // (suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer src) {
@@ -258,24 +242,25 @@ public class SSLEngineInst {
         return;
       }
 
-      if (!src.hasRemaining()) {
+      if (!b(src).hasRemaining()) {
         return;
       }
 
-      ByteBuffer buf = ByteBufferExtractor.fromFreshBuffer(src, src.remaining());
+      ByteBuffer buf = ByteBufferExtractor.fromFreshBuffer(src, b(src).remaining());
       byte[] b = buf.array();
-      int len = buf.position();
+      int len = b(buf).position();
 
       SSLStorage.unencrypted.set(new BytesWithLen(b, len));
     }
 
-    @Advice.OnMethodExit // (suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer src,
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
       if (src == null || dst == null) {
+        SSLStorage.unencrypted.remove();
         return;
       }
       if (engine.getSession().getId().length == 0) {
@@ -304,10 +289,10 @@ public class SSLEngineInst {
                   + Thread.currentThread().getName());
         }
         if (c != null) {
-          Pointer p = new Memory(IOCTLPacket.packetPrefixSize + bLen.len);
+          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + bLen.len);
           int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, c, bLen.len);
           IOCTLPacket.writePacketBuffer(p, wOff, bLen.buf, 0, bLen.len);
-          Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+          Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
         } else {
           String encrypted = ByteBufferExtractor.keyFromUsedBuffer(dst);
           if (SSLStorage.debugOn) {
@@ -322,7 +307,7 @@ public class SSLEngineInst {
   }
 
   public static final class WrapAdviceArray {
-    @Advice.OnMethodEnter // (suppress = Throwable.class)
+    @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer[] srcs) {
@@ -335,18 +320,19 @@ public class SSLEngineInst {
 
       ByteBuffer buf = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
       byte[] b = buf.array();
-      int len = buf.position();
+      int len = b(buf).position();
 
       SSLStorage.unencrypted.set(new BytesWithLen(b, len));
     }
 
-    @Advice.OnMethodExit // (suppress = Throwable.class)
+    @Advice.OnMethodExit(suppress = Throwable.class)
     public static void wrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
         @Advice.Argument(0) final ByteBuffer[] srcs,
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
       if (srcs == null || dst == null) {
+        SSLStorage.unencrypted.remove();
         return;
       }
       if (srcs.length == 0 || engine.getSession().getId().length == 0) {
@@ -377,10 +363,10 @@ public class SSLEngineInst {
                   + Thread.currentThread().getName());
         }
         if (c != null) {
-          Pointer p = new Memory(IOCTLPacket.packetPrefixSize + bLen.len);
+          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + bLen.len);
           int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, c, bLen.len);
           IOCTLPacket.writePacketBuffer(p, wOff, bLen.buf, 0, bLen.len);
-          Agent.CLibrary.INSTANCE.ioctl(0, Agent.IOCTL_CMD, Pointer.nativeValue(p));
+          Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
         } else {
           String encrypted = ByteBufferExtractor.keyFromUsedBuffer(dst);
           if (SSLStorage.debugOn) {

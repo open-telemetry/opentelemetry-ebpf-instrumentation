@@ -1,11 +1,10 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration_k8s
-
 package informercache
 
 import (
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,7 +15,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/kube"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	k8s "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 	"go.opentelemetry.io/obi/internal/test/integration/k8s/common/testpath"
 	otel "go.opentelemetry.io/obi/internal/test/integration/k8s/netolly"
@@ -30,6 +29,12 @@ const (
 var cluster *kube.Kind
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	if testing.Short() {
+		fmt.Println("skipping integration tests in short mode")
+		return
+	}
+
 	if err := docker.Build(os.Stdout, tools.ProjectDir(),
 		docker.ImageBuild{Tag: "obi:dev", Dockerfile: k8s.DockerfileOBI},
 		docker.ImageBuild{Tag: "testserver:dev", Dockerfile: k8s.DockerfileTestServer},
@@ -85,7 +90,7 @@ func TestInformersCache_InternalMetrics(t *testing.T) {
 }
 
 func metricVal(t *testing.T, promQLQuery string) int {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	results, err := pq.Query(promQLQuery)
 	require.NoError(t, err)

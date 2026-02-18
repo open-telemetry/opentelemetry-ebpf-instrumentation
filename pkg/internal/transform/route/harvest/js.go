@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package harvest
+package harvest // import "go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 
 import (
 	"bufio"
@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 )
 
@@ -573,7 +574,7 @@ var (
 	cwdForPID     = ebpfcommon.CWDForPID
 )
 
-func ExtractNodejsRoutes(pid int32) (*RouteHarvesterResult, error) {
+func ExtractNodejsRoutes(pid app.PID) (*RouteHarvesterResult, error) {
 	rootDir := rootDirForPID(pid)
 	_, args, err := cmdlineForPID(pid)
 	if err != nil {

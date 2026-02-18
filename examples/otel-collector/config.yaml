@@ -1,0 +1,33 @@
+receivers:
+  obi:
+    open_port: "8000"
+    # Uncomment to enable service discovery
+    # discovery:
+    #   poll_interval: 30s
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  debug:
+    verbosity: detailed
+  otlp/jaeger:
+    endpoint: localhost:14317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp, obi]
+      processors: [batch]
+      exporters: [otlp/jaeger, debug]
+  telemetry:
+    logs:
+      level: debug

@@ -1,0 +1,44 @@
+CC = clang
+CFLAGS = -fPIC -O2 -Wall -Wextra -Wno-unused-parameter
+JAVA_HOME ?= $(shell java -XshowSettings:properties -version 2>&1 | grep 'java.home' | awk '{print $$3}')
+JNI_HEADERS_DIR = build/generated/jni-headers
+INCLUDES = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/linux -I$(JNI_HEADERS_DIR) -Isrc/main/c
+LDFLAGS = -shared
+
+SRC_DIR = src/main/c
+BUILD_DIR = build
+TARGET_DIR = target/classes
+LIB_NAME = libobijni.so
+
+SOURCES = $(SRC_DIR)/io_opentelemetry_obi_java_jni.c
+OBJECTS = $(BUILD_DIR)/io_opentelemetry_obi_java_jni.o
+TARGET = $(TARGET_DIR)/$(LIB_NAME)
+
+.PHONY: all clean
+
+all: $(TARGET)
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(TARGET_DIR):
+	mkdir -p $(TARGET_DIR)
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(TARGET): $(OBJECTS) | $(TARGET_DIR)
+	$(CC) $(LDFLAGS) -o $@ $^
+	@echo "Built JNI library: $(TARGET)"
+
+clean:
+	rm -rf $(BUILD_DIR)
+	rm -f $(TARGET)
+
+# Show configuration
+info:
+	@echo "JAVA_HOME: $(JAVA_HOME)"
+	@echo "CC: $(CC)"
+	@echo "CFLAGS: $(CFLAGS)"
+	@echo "INCLUDES: $(INCLUDES)"
+	@echo "Target: $(TARGET)"

@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package services
+package services // import "go.opentelemetry.io/obi/pkg/appolly/services"
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 )
 
@@ -28,28 +29,32 @@ const (
 	AttrCronJobName     = "k8s_cronjob_name"
 	// AttrOwnerName would be a generic search criteria that would
 	// match against deployment, replicaset, daemonset and statefulset names
-	AttrOwnerName     = "k8s_owner_name"
-	AttrContainerName = "k8s_container_name"
+	AttrOwnerName        = "k8s_owner_name"
+	AttrContainerName    = "k8s_container_name"
+	AttrOCIContainerName = "container_name"
 )
 
-// any attribute name not in this set will cause an error during the YAML unmarshalling
-var allowedAttributeNames = map[string]struct{}{
-	AttrNamespace:       {},
-	AttrPodName:         {},
-	AttrDeploymentName:  {},
-	AttrReplicaSetName:  {},
-	AttrDaemonSetName:   {},
-	AttrStatefulSetName: {},
-	AttrJobName:         {},
-	AttrCronJobName:     {},
-	AttrOwnerName:       {},
-	AttrContainerName:   {},
+// AllowedAttributeNames contains the set of attribute names that can be used as metadata
+// in service discovery criteria. Any attribute name not in this set will cause an error
+// during the YAML unmarshalling.
+var AllowedAttributeNames = map[string]struct{}{
+	AttrNamespace:        {},
+	AttrPodName:          {},
+	AttrDeploymentName:   {},
+	AttrReplicaSetName:   {},
+	AttrDaemonSetName:    {},
+	AttrStatefulSetName:  {},
+	AttrJobName:          {},
+	AttrCronJobName:      {},
+	AttrOwnerName:        {},
+	AttrContainerName:    {},
+	AttrOCIContainerName: {},
 }
 
 // ProcessInfo stores some relevant information about a running process
 type ProcessInfo struct {
-	Pid       int32
-	PPid      int32
+	Pid       app.PID
+	PPid      app.PID
 	ExePath   string
 	OpenPorts []uint32
 }
@@ -114,6 +119,11 @@ type DiscoveryConfig struct {
 	DisabledRouteHarvesters []string `yaml:"disabled_route_harvesters"`
 
 	RouteHarvestConfig RouteHarvestingConfig `yaml:"route_harvester_advanced"`
+
+	// Executable paths for which we don't run language detection and cannot be
+	// selected using the path or language selection criteria
+	//nolint:undoc
+	ExcludedLinuxSystemPaths []string `yaml:"excluded_linux_system_paths"`
 }
 
 type RouteHarvestingConfig struct {

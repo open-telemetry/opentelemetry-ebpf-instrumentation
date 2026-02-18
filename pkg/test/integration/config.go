@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package integration
+package integration // import "go.opentelemetry.io/obi/pkg/test/integration"
 
 // TestConfig holds project-specific configuration for integration tests
 type TestConfig struct {
@@ -29,7 +29,7 @@ func DefaultOBIConfig() *TestConfig {
 		EnvPrefix:          "OTEL_EBPF_",
 		ComposeServiceName: "obi",
 		ComposeImageName:   "hatest-obi",
-		DockerfilePath:     "ebpf-instrument/Dockerfile",
+		DockerfilePath:     "obi/Dockerfile",
 		ConfigPath:         "obi-config.yml",
 		MetricPrefix:       "obi",
 		IPAttribute:        "obi.ip",

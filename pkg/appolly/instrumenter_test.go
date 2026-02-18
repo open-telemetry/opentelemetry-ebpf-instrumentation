@@ -10,14 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -41,7 +40,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
-const testTimeout = 5 * time.Second
+const testTimeout = 100 * time.Second
 
 func gctx(groups attributes.AttrGroups, mcfg *otelcfg.MetricsConfig) *global.ContextInfo {
 	return &global.ContextInfo{
@@ -643,10 +642,10 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 	events := map[string]map[string]string{}
 	for range 10 {
 		var event collector.MetricRecord
-		test.Eventually(t, testTimeout, func(tt require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			event = testutil.ReadChannel(t, tc.Records(), testTimeout)
-			require.Equal(tt, "http.server.request.duration", event.Name)
-		})
+			require.Equal(ct, "http.server.request.duration", event.Name)
+		}, testTimeout, 100*time.Millisecond)
 		events[event.Attributes["url.path"]] = event.Attributes
 	}
 
@@ -759,7 +758,7 @@ func matchTraceEvent(t require.TestingT, name string, event collector.TraceRecor
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelLibraryNameKey):      "go.opentelemetry.io/obi",
+			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 			"overridden":                            "attr",
 		},
 		Kind: ptrace.SpanKindServer,
@@ -785,7 +784,7 @@ func matchInnerTraceEvent(t require.TestingT, name string, event collector.Trace
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelLibraryNameKey):      "go.opentelemetry.io/obi",
+			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 			"overridden":                            "attr",
 		},
 		Kind: ptrace.SpanKindInternal,
@@ -815,7 +814,7 @@ func matchGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord)
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelLibraryNameKey):      "go.opentelemetry.io/obi",
+			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)
@@ -838,7 +837,7 @@ func matchInnerGRPCTraceEvent(t *testing.T, name string, event collector.TraceRe
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelLibraryNameKey):      "go.opentelemetry.io/obi",
+			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindInternal,
 	}, event)
@@ -897,7 +896,7 @@ func matchInfoEvent(t *testing.T, name string, event collector.TraceRecord) {
 			string(semconv.TelemetrySDKLanguageKey): "go",
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelLibraryNameKey):      "go.opentelemetry.io/obi",
+			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)

@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package discover
+package discover // import "go.opentelemetry.io/obi/pkg/appolly/discover"
 
 import (
 	"context"
@@ -14,11 +14,11 @@ import (
 
 	"go.opentelemetry.io/otel/sdk/trace"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/ebpf"
-	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
@@ -53,7 +53,7 @@ func ExecTyperProvider(
 		metrics:             metrics,
 		k8sInformer:         k8sInformer,
 		log:                 slog.With("component", "discover.ExecTyper"),
-		currentPids:         map[int32]*exec.FileInfo{},
+		currentPids:         map[app.PID]*exec.FileInfo{},
 		instrumentableCache: instrumentableCache,
 	}
 	return func(_ context.Context) (swarm.RunFunc, error) {
@@ -76,7 +76,7 @@ type typer struct {
 	metrics             imetrics.Reporter
 	k8sInformer         *kube.MetadataProvider
 	log                 *slog.Logger
-	currentPids         map[int32]*exec.FileInfo
+	currentPids         map[app.PID]*exec.FileInfo
 	allGoFunctions      []string
 	instrumentableCache *lru.Cache[uint64, instrumentedExecutable]
 }
@@ -95,7 +95,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	exportModes := services.ExportModeUnset
 	var samplerConfig *services.SamplerConfig
 	var routesConfig *services.CustomRoutesConfig
-	svcFeatures := export.Features(0)
+	svcFeatures := t.cfg.Metrics.Features
 
 	for _, s := range processMatch.Criteria {
 		if n := s.GetName(); n != "" {
@@ -118,14 +118,13 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 			routesConfig = m
 		}
 
-		if critFeat := s.MetricsConfig().Features; svcFeatures.Undefined() && !critFeat.Undefined() {
-			svcFeatures = critFeat
+		// if the matching service > instrument entry does not define features,
+		// the globally defined features apply (and override any previous,
+		// wider-scope match features)
+		svcFeatures = s.MetricsConfig().Features
+		if svcFeatures.Undefined() {
+			svcFeatures = t.cfg.Metrics.Features
 		}
-	}
-
-	// If no matching criteria defines their own features, we set it to the base configuration.
-	if svcFeatures.Undefined() {
-		svcFeatures = t.cfg.Metrics.Features
 	}
 
 	routesCfg := t.cfg.Routes
@@ -139,11 +138,12 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 			Name:      name,
 			Namespace: namespace,
 		},
-		ProcPID:     processMatch.Process.Pid,
-		ExportModes: exportModes,
-		Sampler:     samplerFromConfig(samplerConfig),
-		PathTrie:    clusterurl.NewPathTrie(routesCfg.MaxPathSegmentCardinality, wildcard),
-		Features:    svcFeatures,
+		ProcPID:            processMatch.Process.Pid,
+		ExportModes:        exportModes,
+		Sampler:            samplerFromConfig(samplerConfig),
+		PathTrie:           clusterurl.NewPathTrie(routesCfg.MaxPathSegmentCardinality, wildcard),
+		Features:           svcFeatures,
+		LogEnricherEnabled: processMatch.LogEnricherEnabled(),
 	}
 
 	if routesConfig != nil {
@@ -227,7 +227,7 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	}
 
 	// select the parent (or grandparent) of the executable, if any
-	var child []uint32
+	var child []app.PID
 	parent, ok := t.currentPids[execElf.Ppid]
 	for ok && execElf.Ppid != execElf.Pid &&
 		// we will ignore parent processes that are not the same executable. For example,
@@ -235,14 +235,17 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 		// when they launch an instrumentable service
 		execElf.CmdExePath == parent.CmdExePath {
 		log.Debug("replacing executable by its parent", "ppid", execElf.Ppid)
-		child = append(child, uint32(execElf.Pid))
+		child = append(child, execElf.Pid)
 		execElf = parent
 		parent, ok = t.currentPids[parent.Ppid]
 	}
 
+	// Typer finds the executable type again. The language decorator can skip certain type detection,
+	// for example, it will skip Linux system services. If the selection criteria brought us here on
+	// executable path, open port, we respect that choice and find the language for the pipeline.
 	detectedType := procs.FindProcLanguage(execElf.Pid)
 
-	if detectedType == svc.InstrumentableGolang && err == nil {
+	if !t.cfg.Discovery.SkipGoSpecificTracers && detectedType == svc.InstrumentableGolang && err == nil {
 		log.Warn("ELF binary appears to be a Go program, but no offsets were found",
 			"comm", execElf.CmdExePath, "pid", execElf.Pid)
 
@@ -254,7 +257,15 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	// Return the instrumentable without offsets, as it is identified as a generic
 	// (or non-instrumentable Go proxy) executable
 	t.instrumentableCache.Add(execElf.Ino, instrumentedExecutable{Type: detectedType, Offsets: nil, InstrumentationError: err})
-	return ebpf.Instrumentable{Type: detectedType, Offsets: nil, FileInfo: execElf, ChildPids: child, InstrumentationError: err}
+
+	return ebpf.Instrumentable{
+		Type:                 detectedType,
+		Offsets:              nil,
+		FileInfo:             execElf,
+		ChildPids:            child,
+		InstrumentationError: err,
+		LogEnricherEnabled:   execElf.Service.LogEnricherEnabled,
+	}
 }
 
 func (t *typer) inspectOffsets(execElf *exec.FileInfo) (*goexec.Offsets, bool, error) {

@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package goexec
+package goexec // import "go.opentelemetry.io/obi/pkg/internal/goexec"
 
 import (
 	"bytes"
@@ -63,6 +63,9 @@ const (
 	ScConnPos
 	CRwcPos
 	CTlsPos
+	TextReaderRPos
+	BufReaderBufPos
+	BufReaderWPos
 	// grpc
 	GrpcStreamStPtrPos
 	GrpcStreamMethodPtrPos
@@ -115,6 +118,9 @@ const (
 	MySQLConnCfgPos
 	MySQLConfigAddrPos
 	MySQLConnTypeOffset
+	// pgx driver
+	PgxConnConfigPos
+	PgxConfigHostPos
 	// route harvesting offsets
 	MuxTemplatePos
 	GinFullpathPos
@@ -316,6 +322,19 @@ var structMembers = map[string]structInfo{
 			"ServiceMethod": GoJsonrpcRequestHeaderServiceMethodPos,
 		},
 	},
+	"net/textproto.Reader": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"R": TextReaderRPos,
+		},
+	},
+	"bufio.Reader": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"buf": BufReaderBufPos,
+			"w":   BufReaderWPos,
+		},
+	},
 	"google.golang.org/grpc/internal/transport.bufWriter": {
 		lib: "google.golang.org/grpc",
 		fields: map[string]GoOffset{
@@ -436,6 +455,18 @@ var structMembers = map[string]structInfo{
 		lib: "github.com/go-sql-driver/mysql",
 		fields: map[string]GoOffset{
 			"Addr": MySQLConfigAddrPos,
+		},
+	},
+	"github.com/jackc/pgx/v5.Conn": {
+		lib: "github.com/jackc/pgx/v5",
+		fields: map[string]GoOffset{
+			"config": PgxConnConfigPos,
+		},
+	},
+	"github.com/jackc/pgx/v5/pgconn.Config": {
+		lib: "github.com/jackc/pgx/v5",
+		fields: map[string]GoOffset{
+			"Host": PgxConfigHostPos,
 		},
 	},
 	"github.com/gorilla/mux.routeRegexp": {

@@ -1,10 +1,11 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package config
+package config // import "go.opentelemetry.io/obi/pkg/config"
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -78,7 +79,7 @@ type EBPFTracer struct {
 	HeuristicSQLDetect bool `yaml:"heuristic_sql_detect" env:"OTEL_EBPF_HEURISTIC_SQL_DETECT" validate:"boolean"`
 
 	// Enables GPU instrumentation for CUDA kernel launches and allocations
-	InstrumentGPU bool `yaml:"instrument_gpu" env:"OTEL_EBPF_INSTRUMENT_GPU" validate:"boolean"`
+	InstrumentCuda CudaMode `yaml:"instrument_cuda" env:"OTEL_EBPF_INSTRUMENT_CUDA" validate:"oneof=1 2 3"`
 
 	// Enables debug printing of the protocol data
 	ProtocolDebug bool `yaml:"protocol_debug_print" env:"OTEL_EBPF_PROTOCOL_DEBUG_PRINT" validate:"boolean"`
@@ -110,6 +111,34 @@ type EBPFTracer struct {
 
 	// DNS timeout after which we report failed event
 	DNSRequestTimeout time.Duration `yaml:"dns_request_timeout" env:"OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT"`
+
+	// Log trace-context enricher config
+	LogEnricher LogEnricherConfig `yaml:"log_enricher"`
+
+	CouchbaseDBCacheSize int `yaml:"couchbase_db_cache_size" env:"OTEL_EBPF_COUCHBASE_DB_CACHE_SIZE" validate:"gt=0"`
+
+	// BPF path used to pin eBPF maps
+	BPFFSPath string `yaml:"bpf_fs_path" env:"OTEL_EBPF_BPF_FS_PATH"`
+}
+
+var nvidiaSMIExistsFunc = nvidiaSMIExists
+
+func nvidiaSMIExists() bool {
+	if _, err := exec.LookPath("nvidia-smi"); err == nil {
+		return true
+	}
+
+	return false
+}
+
+func (e *EBPFTracer) CudaInstrumentationEnabled() bool {
+	switch e.InstrumentCuda {
+	case CudaModeOn:
+		return true
+	case CudaModeAuto:
+		return nvidiaSMIExistsFunc()
+	}
+	return false
 }
 
 // Per-protocol data buffer size in bytes.
@@ -118,6 +147,7 @@ type EBPFTracer struct {
 type EBPFBufferSizes struct {
 	HTTP     uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP" validate:"lte=8192"`
 	MySQL    uint32 `yaml:"mysql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL" validate:"lte=8192"`
+	Kafka    uint32 `yaml:"kafka" env:"OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA" validate:"lte=8192"`
 	Postgres uint32 `yaml:"postgres" env:"OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES" validate:"lte=8192"`
 }
 

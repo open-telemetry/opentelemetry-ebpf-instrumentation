@@ -3,7 +3,7 @@
 
 //go:build linux
 
-package tpinjector
+package tpinjector // import "go.opentelemetry.io/obi/pkg/internal/ebpf/tpinjector"
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/cilium/ebpf"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -39,29 +40,15 @@ func New(cfg *obi.Config) *Tracer {
 	}
 }
 
-func (p *Tracer) AllowPID(uint32, uint32, *svc.Attrs) {}
+func (p *Tracer) AllowPID(app.PID, uint32, *svc.Attrs) {}
 
-func (p *Tracer) BlockPID(uint32, uint32) {}
+func (p *Tracer) BlockPID(app.PID, uint32) {}
 
 func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 	return LoadBpf()
 }
 
 func (p *Tracer) SetupTailCalls() {
-	for _, tc := range []struct {
-		index int
-		prog  *ebpf.Program
-	}{
-		{
-			index: 0,
-			prog:  p.bpfObjects.ObiPacketExtenderWriteMsgTp,
-		},
-	} {
-		err := p.bpfObjects.ExtenderJumpTable.Update(uint32(tc.index), uint32(tc.prog.FD()), ebpf.UpdateAny)
-		if err != nil {
-			p.log.Error("error loading info tail call jump table", "error", err)
-		}
-	}
 }
 
 func (p *Tracer) Constants() map[string]any {
@@ -145,6 +132,10 @@ func (p *Tracer) SockOps() []ebpfcommon.SockOps {
 }
 
 func (p *Tracer) Iters() []*ebpfcommon.Iter {
+	return nil
+}
+
+func (p *Tracer) Tracing() []*ebpfcommon.Tracing {
 	return nil
 }
 

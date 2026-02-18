@@ -3,13 +3,13 @@
 
 // Package attr contains definition of the attribute names of for the metrics, especially
 // for the metrics whose reported attributes are selected in the attributes.select YAML option
-package attr
+package attr // import "go.opentelemetry.io/obi/pkg/export/attributes/names"
 
 import (
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.19.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 )
 
 // Name of an attribute. This is the common internal representation of a metric attribute name,
@@ -24,17 +24,17 @@ func (an Name) Prom() string {
 	return strings.ReplaceAll(string(an), ".", "_")
 }
 
-// OpenTelemetry 1.23 semantic convention
+// OpenTelemetry 1.38.0 semantic convention
 const (
-	HTTPRequestMethod      = Name("http.request.method")
-	HTTPResponseStatusCode = Name("http.response.status_code")
-	HTTPUrlPath            = Name("url.path")
-	HTTPUrlFull            = Name("url.full")
-	ClientAddr             = Name("client.address")
-	ServerAddr             = Name("server.address")
-	ServerPort             = Name("server.port")
-	HTTPRequestBodySize    = Name("http.request.body.size")
-	HTTPResponseBodySize   = Name("http.response.body.size")
+	HTTPRequestMethod      = Name(semconv.HTTPRequestMethodKey)
+	HTTPResponseStatusCode = Name(semconv.HTTPResponseStatusCodeKey)
+	HTTPUrlPath            = Name(semconv.URLPathKey)
+	HTTPUrlFull            = Name(semconv.URLFullKey)
+	ClientAddr             = Name(semconv.ClientAddressKey)
+	ServerAddr             = Name(semconv.ServerAddressKey)
+	ServerPort             = Name(semconv.ServerPortKey)
+	HTTPRequestBodySize    = Name(semconv.HTTPRequestBodySizeKey)
+	HTTPResponseBodySize   = Name(semconv.HTTPResponseBodySizeKey)
 	SpanKind               = Name("span.kind")
 	SpanName               = Name("span.name")
 	StatusCode             = Name("status.code")
@@ -44,25 +44,25 @@ const (
 	Server                 = Name("server")
 	ServerNamespace        = Name("server_service_namespace")
 	ConnectionType         = Name("connection_type")
-	DBOperation            = Name("db.operation.name")
-	DBCollectionName       = Name("db.collection.name")
-	DBSystemName           = Name("db.system.name")
-	ErrorType              = Name("error.type")
+	DBOperation            = Name(semconv.DBOperationNameKey)
+	DBCollectionName       = Name(semconv.DBCollectionNameKey)
+	DBSystemName           = Name(semconv.DBSystemNameKey)
+	ErrorType              = Name(semconv.ErrorTypeKey)
 	RPCMethod              = Name(semconv.RPCMethodKey)
 	RPCSystem              = Name(semconv.RPCSystemKey)
 	RPCService             = Name(semconv.RPCServiceKey)
 	RPCGRPCStatusCode      = Name(semconv.RPCGRPCStatusCodeKey)
 	HTTPRoute              = Name(semconv.HTTPRouteKey)
-	MessagingOpName        = Name("messaging.operation.name")
-	MessagingOpType        = Name("messaging.operation.type")
+	MessagingOpName        = Name(semconv.MessagingOperationNameKey)
+	MessagingOpType        = Name(semconv.MessagingOperationTypeKey)
 	MessagingMessageID     = Name(semconv.MessagingMessageIDKey)
 	MessagingSystem        = Name(semconv.MessagingSystemKey)
 	MessagingDestination   = Name(semconv.MessagingDestinationNameKey)
-	GraphQLDocument        = Name(semconv.GraphqlDocumentKey)
-	GraphQLOperationName   = Name(semconv.GraphqlOperationNameKey)
-	GraphQLOperationType   = Name(semconv.GraphqlOperationTypeKey)
-	DNSAnswers             = Name("dns.answers")
-	ErrorMessage           = Name("error.message")
+	GraphQLDocument        = Name(semconv.GraphQLDocumentKey)
+	GraphQLOperationName   = Name(semconv.GraphQLOperationNameKey)
+	GraphQLOperationType   = Name(semconv.GraphQLOperationTypeKey)
+	DNSAnswers             = Name(semconv.DNSAnswersKey)
+	ErrorMessage           = Name(semconv.ErrorMessageKey)
 	TelemetrySDKLanguage   = Name(semconv.TelemetrySDKLanguageKey)
 
 	K8sNamespaceName   = Name("k8s.namespace.name")
@@ -79,6 +79,13 @@ const (
 	K8sPodUID          = Name("k8s.pod.uid")
 	K8sPodStartTime    = Name("k8s.pod.start_time")
 	K8sKind            = Name("k8s.kind")
+	K8SClientNamespace = Name("client_k8s_namespace_name")
+	K8SServerNamespace = Name("server_k8s_namespace_name")
+	K8SClientCluster   = Name("client_k8s_cluster_name")
+	K8SServerCluster   = Name("server_k8s_cluster_name")
+
+	ContainerName = Name(semconv.ContainerNameKey)
+	ContainerID   = Name(semconv.ContainerIDKey)
 )
 
 // OBI-specific network attributes
@@ -96,19 +103,20 @@ var (
 var OBIIP = Name("obi.ip")
 
 const (
-	Transport   = Name("transport")
-	NetworkType = Name("network.type")
-	SrcAddress  = Name("src.address")
-	DstAddres   = Name("dst.address")
-	SrcPort     = Name("src.port")
-	DstPort     = Name("dst.port")
-	SrcName     = Name("src.name")
-	DstName     = Name("dst.name")
-	Iface       = Name("iface")
-	SrcCIDR     = Name("src.cidr")
-	DstCIDR     = Name("dst.cidr")
-	SrcZone     = Name("src.zone")
-	DstZone     = Name("dst.zone")
+	Transport       = Name("transport")
+	NetworkType     = Name("network.type")
+	NetworkProtocol = Name("network.protocol.name")
+	SrcAddress      = Name("src.address")
+	DstAddress      = Name("dst.address")
+	SrcPort         = Name("src.port")
+	DstPort         = Name("dst.port")
+	SrcName         = Name("src.name")
+	DstName         = Name("dst.name")
+	Iface           = Name("iface")
+	SrcCIDR         = Name("src.cidr")
+	DstCIDR         = Name("dst.cidr")
+	SrcZone         = Name("src.zone")
+	DstZone         = Name("dst.zone")
 
 	ClientPort = Name("client.port")
 
@@ -168,23 +176,23 @@ const (
 // traces related attributes
 const (
 	// SQL
-	DBQueryText          = Name("db.query.text")
-	DBResponseStatusCode = Name("db.response.status_code")
-	DBNamespace          = Name("db.namespace")
+	DBQueryText          = Name(semconv.DBQueryTextKey)
+	DBResponseStatusCode = Name(semconv.DBResponseStatusCodeKey)
+	DBNamespace          = Name(semconv.DBNamespaceKey)
 
 	// Messaging
-	MessagingPartition   = Name("messaging.destination.partition.id")
-	MessagingKafkaOffset = Name("messaging.kafka.offset")
+	MessagingPartition   = Name(semconv.MessagingDestinationPartitionIDKey)
+	MessagingKafkaOffset = Name(semconv.MessagingKafkaOffsetKey)
 
 	// Elasticsearch
-	ElasticsearchNodeName = Name("elasticsearch.node.name")
+	ElasticsearchNodeName = Name(semconv.ElasticsearchNodeNameKey)
 
 	// AWS
-	AWSRequestID         = Name("aws.request_id")
-	AWSExtendedRequestID = Name("aws.extended_request_id")
-	AWSS3Bucket          = Name("aws.s3.bucket")
-	AWSS3Key             = Name("aws.s3.key")
-	AWSSQSQueueURL       = Name("aws.sqs.queue_url")
+	AWSRequestID         = Name(semconv.AWSRequestIDKey)
+	AWSExtendedRequestID = Name(semconv.AWSExtendedRequestIDKey)
+	AWSS3Bucket          = Name(semconv.AWSS3BucketKey)
+	AWSS3Key             = Name(semconv.AWSS3KeyKey)
+	AWSSQSQueueURL       = Name(semconv.AWSSQSQueueURLKey)
 
 	// Cloud
 	CloudRegion = Name(semconv.CloudRegionKey)
@@ -193,11 +201,10 @@ const (
 // Beyla specific GPU events
 const (
 	// GPU/Cuda related attributes
-	CudaKernelName = Name("cuda.kernel.name")
 	CudaMemcpyKind = Name("cuda.memcpy.kind")
 )
 
 // DNS events
 const (
-	DNSQuestionName = Name("dns.question.name")
+	DNSQuestionName = Name(semconv.DNSQuestionNameKey)
 )

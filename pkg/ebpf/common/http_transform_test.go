@@ -6,6 +6,9 @@ package ebpfcommon
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"unsafe"
@@ -13,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
@@ -37,6 +41,40 @@ func TestMethod(t *testing.T) {
 	assert.Equal(t, "GET", httpMethodFromBuf(event.Buf[:]))
 	event = BPFHTTPInfo{}
 	assert.Empty(t, httpMethodFromBuf(event.Buf[:]))
+}
+
+func TestHTTPRequestResponseToSpanSetsSchemeFromSSLFlag(t *testing.T) {
+	testCases := []struct {
+		name           string
+		sslFlag        uint8
+		expectedScheme string
+	}{
+		{name: "http", sslFlag: 0, expectedScheme: "http"},
+		{name: "https", sslFlag: 1, expectedScheme: "https"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &http.Request{
+				Method: http.MethodGet,
+				URL:    &url.URL{Path: "/test"},
+				Host:   "example.com",
+				Body:   io.NopCloser(strings.NewReader("")),
+			}
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader([]byte{})),
+			}
+			event := &BPFHTTPInfo{
+				Type: uint8(request.EventTypeHTTP),
+				Ssl:  tc.sslFlag,
+			}
+			span := httpRequestResponseToSpan(nil, event, req, resp)
+
+			expectedStatement := tc.expectedScheme + request.SchemeHostSeparator + req.Host
+			assert.Equal(t, expectedStatement, span.Statement)
+		})
+	}
 }
 
 func TestHostInfo(t *testing.T) {
@@ -92,7 +130,7 @@ func TestCstr(t *testing.T) {
 }
 
 func TestToRequestTrace(t *testing.T) {
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 
 	var record BPFHTTPInfo
 	record.Type = 1
@@ -130,7 +168,7 @@ func TestToRequestTrace(t *testing.T) {
 }
 
 func TestToRequestTraceNoConnection(t *testing.T) {
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 
 	var record BPFHTTPInfo
 	record.Type = 1
@@ -168,7 +206,7 @@ func TestToRequestTraceNoConnection(t *testing.T) {
 }
 
 func TestToRequestTrace_BadHost(t *testing.T) {
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 
 	var record BPFHTTPInfo
 	record.Type = 1

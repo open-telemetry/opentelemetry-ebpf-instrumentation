@@ -1,15 +1,16 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package procs
+package procs // import "go.opentelemetry.io/obi/pkg/internal/procs"
 
 import (
 	"debug/elf"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 )
 
-func FindProcLanguage(_ int32) svc.InstrumentableType {
+func FindProcLanguage(_ app.PID) svc.InstrumentableType {
 	return svc.InstrumentableGeneric
 }
 

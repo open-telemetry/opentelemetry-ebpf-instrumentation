@@ -1,19 +1,17 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
-package integration
+package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
 	"fmt"
 	"testing"
+	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -26,8 +24,8 @@ func waitForElixirTestComponents(t *testing.T, url string) {
 func testREDMetricsForElixirHTTPLibrary(t *testing.T, url string, comm string) {
 	path := "/test"
 
-	pq := prom.Client{HostPort: prometheusHostPort}
-	var results []prom.Result
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	var results []promtest.Result
 
 	// Call 4 times the instrumented service, forcing it to:
 	// - process multiple calls in a row with, one more than we might need
@@ -37,7 +35,7 @@ func testREDMetricsForElixirHTTPLibrary(t *testing.T, url string, comm string) {
 	}
 
 	// Eventually, Prometheus would make this query visible
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
 			`http_request_method="GET",` +
@@ -45,16 +43,16 @@ func testREDMetricsForElixirHTTPLibrary(t *testing.T, url string, comm string) {
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
 			`http_route="/test/:test_id"}`)
-		require.NoError(t, err)
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 3, val)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 		if len(results) > 0 {
 			res := results[0]
 			addr := res.Metric["client_address"]
-			assert.NotNil(t, addr)
+			assert.NotNil(ct, addr)
 		}
-	})
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsElixirHTTP(t *testing.T) {

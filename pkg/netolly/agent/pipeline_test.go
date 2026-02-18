@@ -10,11 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	prom2 "go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
@@ -23,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/flow/transport"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -34,8 +34,7 @@ const timeout = 5 * time.Second
 func TestFilter(t *testing.T) {
 	ctx := t.Context()
 
-	promPort, err := test.FreeTCPPort()
-	require.NoError(t, err)
+	promPort := testutil.FreeTCPPort(t)
 
 	// Flows pipeline that will discard any network flow not matching the "TCP" transport attribute
 	flows := Flows{
@@ -90,12 +89,12 @@ func TestFilter(t *testing.T) {
 		fakeRecord(transport.UDP, 3333, 8080),
 	}
 
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		metrics, err := prom2.Scrape(fmt.Sprintf("http://localhost:%d/metrics", promPort))
-		require.NoError(t, err)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		metrics, err := promtest.Scrape(fmt.Sprintf("http://localhost:%d/metrics", promPort))
+		require.NoError(ct, err)
 
 		// assuming metrics returned alphabetically ordered
-		assert.Equal(t, []prom2.ScrapedMetric{
+		assert.Equal(ct, []promtest.ScrapedMetric{
 			{Name: "obi_network_flow_bytes_total", Labels: map[string]string{
 				"obi_ip": "1.2.3.4", "iface_direction": "ingress", "dst_port": "1011", "iface": "fakeiface", "src_port": "789", "transport": "TCP",
 			}},
@@ -106,7 +105,7 @@ func TestFilter(t *testing.T) {
 			{Name: "promhttp_metric_handler_errors_total", Labels: map[string]string{"cause": "encoding"}},
 			{Name: "promhttp_metric_handler_errors_total", Labels: map[string]string{"cause": "gathering"}},
 		}, metrics)
-	})
+	}, timeout, 100*time.Millisecond)
 }
 
 func fakeRecord(protocol transport.Protocol, srcPort, dstPort uint16) *ebpf.Record {

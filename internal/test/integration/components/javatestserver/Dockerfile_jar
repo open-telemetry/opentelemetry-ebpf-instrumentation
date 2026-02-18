@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17@sha256:7995efb7f9276fc16433aa8e2856a06082cd09f7f6603579db2534937ccc6778 AS javabuilder
+FROM eclipse-temurin:17@sha256:330029ffc8a75f4c74ed35c882378e1854a6f7ebdc53c43f25b587dba0fd2f93 AS javabuilder
 
 # Install tar and gzip to extract the Maven binaries
 RUN apt install -y tar gzip
@@ -22,7 +22,7 @@ RUN ./mvnw -version
 RUN ./mvnw clean package
 
 # The App Image
-FROM eclipse-temurin:17.0.17_10-jre@sha256:fc0c46c43f873754d8651948b94da946449aee0c0262420a86c4d18e84bc3c49
+FROM eclipse-temurin:17.0.18_8-jre@sha256:cf778b3000a9033f6ffe6731ec6931285b29eb838e39b417028028007435701c
 
 EXPOSE 8085
 

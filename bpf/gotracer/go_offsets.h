@@ -42,6 +42,9 @@ typedef enum {
     _sc_conn_pos,
     _c_rwc_pos,
     _c_tls_pos,
+    _text_reader_r_pos,
+    _buf_reader_buf_pos,
+    _buf_reader_w_pos,
     // grpc
     _grpc_stream_st_ptr_pos,
     _grpc_stream_method_ptr_pos,
@@ -94,6 +97,9 @@ typedef enum {
     _mysql_conn_cfg_pos,
     _mysql_config_addr_pos,
     _mysql_conn_type_off,
+    // pgx driver
+    _pgx_conn_config_pos,
+    _pgx_config_host_pos,
     // route resolution
     _mux_template_pos,
     _gin_fullpath_pos,

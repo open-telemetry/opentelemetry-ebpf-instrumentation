@@ -29,6 +29,7 @@ internal/test/cmd/grpc/client/client
 
 .tools/
 bin/
+dist/
 internal/test/integration/components/server
 internal/test/integration/components/testserver/testserver
 
@@ -85,6 +86,8 @@ internal/test/integration/components/pythonserver/pyvenv.cfg
 internal/test/integration/components/gosql/qosql
 *_bpfel.go
 *_bpfel.o
+*_bpfel.go.d
+*_bpfeb.go.d
 opentelemetry-ebpf-instrumentation.sln
 obi.sln
 internal/test/integration/components/javakafka/target/*
@@ -98,3 +101,7 @@ pkg/internal/java/loader/src/main/resources/agent
 pkg/internal/java/.gradle
 internal/test/integration/components/java_tls/netty_tls/target
 internal/test/integration/components/java_tls/sync_async_tls/target
+internal/test/integration/components/java_tls/jdk8/target
+
+# Ignore the generated OpenTelemetry Collector configuration files for development.
+examples/otel-collector/otelcol-dev/*

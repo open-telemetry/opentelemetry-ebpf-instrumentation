@@ -1,22 +1,22 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration_k8s
-
 package otel
 
 import (
+	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/kube"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	k8s "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 	"go.opentelemetry.io/obi/internal/test/integration/k8s/common/testpath"
 	"go.opentelemetry.io/obi/internal/test/tools"
@@ -30,6 +30,12 @@ const (
 var cluster *kube.Kind
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	if testing.Short() {
+		fmt.Println("skipping integration tests in short mode")
+		return
+	}
+
 	if err := docker.Build(os.Stdout, tools.ProjectDir(),
 		docker.ImageBuild{Tag: "obi:dev", Dockerfile: k8s.DockerfileOBI},
 	); err != nil {
@@ -53,7 +59,7 @@ func TestMain(m *testing.M) {
 
 func TestNoSourceAndDestAvailable(t *testing.T) {
 	// Wait for some metrics available at Prometheus
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 	for _, args := range []string{
 		`k8s_dst_name="httppinger"`,
 		`k8s_src_name="httppinger"`,
@@ -61,12 +67,12 @@ func TestNoSourceAndDestAvailable(t *testing.T) {
 		`k8s_src_name=~"otherinstance.*"`,
 	} {
 		t.Run("check "+args, func(t *testing.T) {
-			test.Eventually(t, testTimeout, func(t require.TestingT) {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
 				var err error
 				results, err := pq.Query(`obi_network_flow_bytes_total{` + args + `}`)
-				require.NoError(t, err)
-				require.NotEmpty(t, results)
-			})
+				require.NoError(ct, err)
+				require.NotEmpty(ct, results)
+			}, testTimeout, 100*time.Millisecond)
 		})
 	}
 

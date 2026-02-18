@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package otelcfg
+package otelcfg // import "go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 
 import (
 	"fmt"
@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/collector/consumer"
+
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
@@ -21,8 +23,9 @@ func tlog() *slog.Logger {
 }
 
 type TracesConfig struct {
-	CommonEndpoint string `yaml:"-" env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
-	TracesEndpoint string `yaml:"endpoint" env:"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"`
+	TracesConsumer consumer.Traces `yaml:"-"`
+	CommonEndpoint string          `yaml:"-" env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
+	TracesEndpoint string          `yaml:"endpoint" env:"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"`
 
 	Protocol       Protocol `yaml:"protocol" env:"OTEL_EXPORTER_OTLP_PROTOCOL"`
 	TracesProtocol Protocol `yaml:"-" env:"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"`
@@ -52,6 +55,7 @@ type TracesConfig struct {
 
 	// SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode
 	// and the Info messages leak internal details that are not usually valuable for the final user.
+	// Accepted values: debug, info, warn, error (case-insensitive). dpanic/panic/fatal are mapped to error.
 	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_SDK_LOG_LEVEL"`
 
 	// OTLPEndpointProvider allows overriding the OTLP Endpoint. It needs to return an endpoint and
@@ -73,10 +77,13 @@ func (m TracesConfig) MarshalYAML() (any, error) {
 // either the OTEL endpoint and OTEL traces endpoint is defined.
 // If not enabled, this node won't be instantiated
 func (m *TracesConfig) Enabled() bool {
-	return m.CommonEndpoint != "" || m.TracesEndpoint != "" || m.GetProtocol() == ProtocolDebug
+	return m.TracesConsumer != nil || m.CommonEndpoint != "" || m.TracesEndpoint != "" || m.GetProtocol() == ProtocolDebug
 }
 
 func (m *TracesConfig) GetProtocol() Protocol {
+	if m.TracesConsumer != nil {
+		return ProtocolUnset
+	}
 	if m.TracesProtocol != "" {
 		return m.TracesProtocol
 	}

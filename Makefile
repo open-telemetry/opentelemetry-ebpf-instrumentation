@@ -1,5 +1,6 @@
 # Main binary configuration
-CMD ?= ebpf-instrument
+# CMD: Default binary name is now "obi" (OpenTelemetry eBPF Instrumentation)
+CMD ?= obi
 JAVA_AGENT ?= obi-java-agent.jar
 MAIN_GO_FILE ?= cmd/$(CMD)/main.go
 
@@ -14,6 +15,7 @@ RELEASE_VERSION := $(shell git describe --all | cut -d/ -f2)
 RELEASE_REVISION := $(shell git rev-parse --short HEAD )
 BUILDINFO_PKG ?= go.opentelemetry.io/obi/pkg/buildinfo
 TEST_OUTPUT ?= ./testoutput
+RELEASE_DIR ?= ./dist
 
 IMG_REGISTRY ?= docker.io
 # Set your registry username. CI will set 'otel' but you mustn't use it for manual pushing.
@@ -26,7 +28,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.3
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.6
 
 OCI_BIN ?= docker
 
@@ -44,7 +46,7 @@ CILIUM_EBPF_VER ?= v0.20.0
 CILIUM_EBPF_PKG := github.com/cilium/ebpf
 
 # regular expressions for excluded file patterns
-EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/internal/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)|(/cmd/obi-genfiles)"
+EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/internal/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)"
 
 .DEFAULT_GOAL := all
 
@@ -52,6 +54,12 @@ EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/interna
 # This will prevent that they are installed in the $USER/go/bin folder and different
 # projects ca have different versions of the tools
 PROJECT_DIR := $(shell dirname $(abspath $(firstword $(MAKEFILE_LIST))))
+
+# BPF2GO_MAKEBASE tells bpf2go to generate Make-compatible dependency files (.d files)
+# relative to the project root. These .d files track dependencies between generated
+# Go code and source .c/.h files, enabling smart incremental builds.
+# See: https://pkg.go.dev/github.com/cilium/ebpf/cmd/bpf2go
+export BPF2GO_MAKEBASE := $(PROJECT_DIR)
 
 # Check that given variables are set and all have non-empty values,
 # die with an error otherwise.
@@ -109,8 +117,11 @@ $(TOOLS)/gotestsum: PACKAGE=gotest.tools/gotestsum
 MULTIMOD = $(TOOLS)/multimod
 $(TOOLS)/multimod: PACKAGE=go.opentelemetry.io/build-tools/multimod
 
+PORTO = $(TOOLS)/porto
+$(TOOLS)/porto: PACKAGE=github.com/jcchavezs/porto/cmd/porto
+
 .PHONY: tools
-tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM) $(MULTIMOD)
+tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM) $(PORTO)
 
 ### Development Tools (end) #################################################
 
@@ -143,7 +154,7 @@ clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" | xargs clang-tidy
 
 .PHONY: lint
-lint: $(GOLANGCI_LINT)
+lint: $(GOLANGCI_LINT) vanity-import-check
 	@echo "### Linting code"
 	$(GOLANGCI_LINT) run ./... --timeout=6m
 
@@ -164,18 +175,87 @@ update-offsets: $(GO_OFFSETS_TRACKER)
 	@echo "### Updating pkg/internal/goexec/offsets.json"
 	$(GO_OFFSETS_TRACKER) -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
 
-.PHONY: generate
+### eBPF Code Generation ###########################################################
+#
+# This section handles generation of Go code from eBPF C sources using bpf2go.
+# The system supports smart incremental builds via Make's dependency tracking.
+#
+# Developer Guide:
+#
+#   make generate      - Smart incremental build (recommended for development)
+#                        Only regenerates files that are missing or out-of-date.
+#                        Takes ~0.05s when nothing needs rebuilding.
+#
+#   make generate/all  - Force regeneration of everything (use after git clean)
+#                        Always regenerates all eBPF code (~60s).
+#                        Use after: git clean -dxf, initial clone, or when in doubt.
+#
+#   make docker-generate - Generate in Docker container (for reproducible builds)
+#                          Mounts workspace and runs 'make generate' inside container.
+#                          Image: $(GEN_IMG)
+#
+# How it works:
+#   - bpf2go generates .d files (thanks to BPF2GO_MAKEBASE) that track dependencies
+#   - Make reads these .d files to know when source .c/.h files have changed
+#   - Only affected packages are rebuilt when sources change
+#   - Pattern rule runs go generate for each out-of-date file's directory
+#
+# Generated files (gitignored):
+#   - *_bpfel.go, *_bpfeb.go  - Go bindings for eBPF programs
+#   - *_bpfel.o, *_bpfeb.o    - Compiled eBPF bytecode
+#   - *_bpfel.go.d, *_bpfeb.go.d - Dependency files for Make
+#
+# NOTE on parallel builds:
+#   Using 'make -j' with the 'generate' target may result in a race condition.
+#   Each go generate invocation produces multiple files, and parallel execution
+#   can cause bpf2go to simultaneously be run on the same directory. This
+#   command should be idempotent, but it may cause redundant generation and
+#   potential conflicts.
+#
+################################################################################
+
+BPF_ROOT = pkg/
+
+# Find all generated Go and object files (used as Make targets)
+BPF_GEN_GO := $(shell find $(BPF_ROOT) -type f \( -name 'bpf_*_bpfe[lb].go' -o -name 'net_*_bpfe[lb].go' -o -name 'netsk_*_bpfe[lb].go' \))
+BPF_GEN_OBJ := $(BPF_GEN_GO:.go=.o)
+BPF_GEN_ALL := $(if $(BPF_GEN_GO),$(BPF_GEN_GO) $(BPF_GEN_OBJ))
+
+# Include dependency files generated by bpf2go for smart incremental builds.
+# These .d files contain Make rules like:
+#   pkg/internal/ebpf/logger/bpf_x86_bpfel.go: bpf/logger/logger.c bpf/bpfcore/vmlinux.h ...
+-include $(shell find $(BPF_ROOT) -type f -name '*_bpfe[lb].go.d' 2>/dev/null)
+
+.PHONY: generate generate/all
+# Smart incremental build - only regenerates what's needed
 generate: export BPF_CLANG := $(CLANG)
 generate: export BPF_CFLAGS := $(CFLAGS)
 generate: export BPF2GO := $(BPF2GO)
-generate: $(BPF2GO)
-	@echo "### Generating files..."
-	@OTEL_EBPF_GENFILES_RUN_LOCALLY=1 go generate cmd/obi-genfiles/obi_genfiles.go
+generate: $(BPF2GO) $(if $(BPF_GEN_ALL),$(BPF_GEN_ALL),generate/all)
 
+# Pattern rule: regenerate specific eBPF files when dependencies change
+$(BPF_GEN_ALL): $(BPF2GO)
+	@echo "Generating $(dir $@)..."
+	@go generate ./$(dir $@)
+
+# Force regeneration of all eBPF code (use after git clean or initial clone)
+generate/all: export BPF_CLANG := $(CLANG)
+generate/all: export BPF_CFLAGS := $(CFLAGS)
+generate/all: export BPF2GO := $(BPF2GO)
+generate/all: $(BPF2GO)
+	@echo "### Generating all eBPF files..."
+	@go generate ./...
+
+# Generate eBPF code in Docker container for reproducible builds
 .PHONY: docker-generate
 docker-generate:
-	@echo "### Generating files (docker)..."
-	@OTEL_EBPF_GENFILES_GEN_IMG=$(GEN_IMG) go generate cmd/obi-genfiles/obi_genfiles.go
+	@echo "### Generating files in Docker..."
+	@$(OCI_BIN) run --rm \
+		$(if $(findstring podman,$(OCI_BIN)),  ,-u "$(DOCKER_USER)") \
+		-v "$(CURDIR):/src:z" \
+		-w /src \
+		$(GEN_IMG) \
+		make generate
 
 .PHONY: verify
 verify: prereqs lint test license-header-check
@@ -213,12 +293,12 @@ compile-cache-for-coverage:
 .PHONY: test
 test: $(ENVTEST)
 	@echo "### Testing code"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: test-privileged
 test-privileged: $(ENVTEST)
 	@echo "### Testing code with privileged tests enabled"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: cov-exclude-generated
 cov-exclude-generated:
@@ -305,13 +385,13 @@ cleanup-integration-test: $(KIND)
 run-integration-test:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/... --tags=integration
+	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration
 
 .PHONY: run-integration-test-k8s
 run-integration-test-k8s:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/... --tags=integration_k8s
+	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/k8s/...
 
 .PHONY: run-integration-test-vm
 run-integration-test-vm:
@@ -335,23 +415,22 @@ run-integration-test-vm:
 			-timeout $$TEST_TIMEOUT \
 			-failfast \
 			-v -a \
-			-tags=integration \
-			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration/...; \
+			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
 	fi
 
 .PHONY: run-integration-test-arm
 run-integration-test-arm:
 	@echo "### Running integration tests"
 	go clean -testcache
-	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration/... --tags=integration -run "^TestMultiProcess"
+	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
 
 .PHONY: integration-test-matrix-json
 integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" internal/test/integration "$${PARTITIONS:-5}"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}"
 
 .PHONY: vm-integration-test-matrix-json
 vm-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh "$${TEST_TAGS:-integration}" internal/test/integration "$${PARTITIONS:-5}" "TestMultiProcess"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "TestMultiProcess"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
@@ -385,7 +464,7 @@ itest-coverage-data:
 	mkdir -p $(TEST_OUTPUT)/merge
 	go tool covdata merge -i=$(TEST_OUTPUT) -o $(TEST_OUTPUT)/merge
 	go tool covdata textfmt -i=$(TEST_OUTPUT)/merge -o $(TEST_OUTPUT)/itest-covdata.raw.txt
-	# replace the unexpected /src/cmd/ebpf-instrument/main.go file by the module path
+	# replace the unexpected /src/cmd/obi/main.go file by the module path
 	sed 's/^\/src\/cmd\//github.com\/open-telemetry\/opentelemetry-ebpf-instrumentation\/cmd\//' $(TEST_OUTPUT)/itest-covdata.raw.txt > $(TEST_OUTPUT)/itest-covdata.all.txt
 	# exclude generated files from coverage data
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt
@@ -438,11 +517,55 @@ license-header-check:
 	   fi
 
 .PHONY: artifact
-artifact: docker-generate compile java-docker-build
-	@echo "### Packing generated artifact"
-	cp LICENSE ./bin
-	cp NOTICE ./bin
-	tar -C ./bin -cvzf bin/opentelemetry-ebpf-instrumentation.tar.gz $(CMD) LICENSE NOTICE $(JAVA_AGENT)
+artifact: docker-generate compile compile-cache java-docker-build
+	@echo "### Packing generated artifact for $(GOOS)/$(GOARCH)"
+	@STAGING_DIR=$$(mktemp -d 2>/dev/null || mktemp -d -t obi.XXXXXX); \
+	trap "rm -rf $$STAGING_DIR" EXIT; \
+	cp ./bin/$(CMD) $$STAGING_DIR/; \
+	cp ./bin/$(CACHE_CMD) $$STAGING_DIR/; \
+	cp ./bin/$(JAVA_AGENT) $$STAGING_DIR/; \
+	cp LICENSE $$STAGING_DIR/; \
+	cp NOTICE $$STAGING_DIR/; \
+	cp -r NOTICES $$STAGING_DIR/; \
+	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(CACHE_CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
+
+.PHONY: release
+release: artifact
+	@echo "### Moving artifacts to $(RELEASE_DIR) directory"
+	mkdir -p $(RELEASE_DIR)
+	mv bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(RELEASE_DIR)/
+	@echo "Verifying obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz..."
+	@mkdir -p $(RELEASE_DIR)/verify-$(GOARCH)
+	@tar -xzf $(RELEASE_DIR)/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz -C $(RELEASE_DIR)/verify-$(GOARCH)
+	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary missing in $(GOARCH) archive"; exit 1; fi
+	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(CACHE_CMD) ]; then echo "ERROR: $(CACHE_CMD) binary missing in $(GOARCH) archive"; exit 1; fi
+	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(JAVA_AGENT) ]; then echo "ERROR: $(JAVA_AGENT) missing in $(GOARCH) archive"; exit 1; fi
+	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/LICENSE ]; then echo "ERROR: LICENSE missing in $(GOARCH) archive"; exit 1; fi
+	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/NOTICE ]; then echo "ERROR: NOTICE missing in $(GOARCH) archive"; exit 1; fi
+	@if [ ! -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES ]; then echo "ERROR: NOTICES directory missing in $(GOARCH) archive"; exit 1; fi
+	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
+	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CACHE_CMD) ]; then echo "ERROR: $(CACHE_CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
+	@echo "✓ Archive $(GOARCH) verified successfully"
+	@rm -rf $(RELEASE_DIR)/verify-$(GOARCH)
+	@echo "### Generating checksums"
+	@if command -v sha256sum >/dev/null 2>&1; then \
+		cd $(RELEASE_DIR) && sha256sum obi-$(RELEASE_VERSION)-$(GOOS)-*.tar.gz > SHA256SUMS; \
+	elif command -v shasum >/dev/null 2>&1; then \
+		cd $(RELEASE_DIR) && shasum -a 256 obi-$(RELEASE_VERSION)-$(GOOS)-*.tar.gz > SHA256SUMS; \
+	else \
+		echo "ERROR: Neither sha256sum nor shasum found. Please install coreutils or use macOS builtin shasum."; \
+		exit 1; \
+	fi
+	cd $(RELEASE_DIR) && cp SHA256SUMS SHA256SUMS-$(RELEASE_VERSION)
+	@echo "### Release artifacts ready in $(RELEASE_DIR)/"
+	@ls -lh $(RELEASE_DIR)/
+
+.PHONY: clean-release-dir
+clean-release-dir:
+	@echo "### Cleaning release directory"
+	rm -rf $(RELEASE_DIR)/
+	rm -f bin/obi-*.tar.gz
+	rm -rf bin/LICENSE bin/NOTICE bin/NOTICES
 
 .PHONY: clean-testoutput
 clean-testoutput:
@@ -477,7 +600,7 @@ notices-update: docker-generate go-notices-update $(TARGET_BPF)
 
 .PHONY: go-notices-update
 go-notices-update: $(GOLICENSES)
-	@$(GOLICENSES) save ./... --save_path=$(NOTICES_DIR) --force
+	@GOOS=$(GOOS) GOARCH=amd64 $(GOLICENSES) save ./... --save_path=$(NOTICES_DIR) --force
 
 $(NOTICES_DIR)/%: %
 	@mkdir -p $(dir $@)
@@ -488,7 +611,7 @@ check-clean-work-tree:
 	if [ -n "$$(git status --porcelain)" ]; then \
 		git status; \
 		git --no-pager diff; \
-		echo 'Working tree is not clean, did you forget to run "make"?' \
+		echo 'Working tree is not clean, did you forget to run "make"?'; \
 		exit 1; \
 	fi
 
@@ -521,3 +644,16 @@ check-ebpf-ver-synced:
 		echo "ebpf lib version out of sync between go.mod and bpf/bpfcore/placeholder.go!"; \
 		exit 1; \
 	fi
+
+.PHONY: vanity-import-check
+vanity-import-check: $(PORTO)
+	$(PORTO) --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
+
+.PHONY: vanity-import-fix
+vanity-import-fix: $(PORTO)
+	$(PORTO) --include-internal --skip-dirs "^NOTICES$$" -w .
+
+.PHONY: regenerate-port-lookup
+regenerate-port-lookup:
+	go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go
+	$(MAKE) fmt

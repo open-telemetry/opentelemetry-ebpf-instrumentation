@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package k8s
+package k8s // import "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 
 import (
 	"path"
@@ -11,7 +11,7 @@ import (
 
 var (
 	DockerfileTestServer       = path.Join(testpath.Components, "testserver", "Dockerfile")
-	DockerfileOBI              = path.Join(testpath.Components, "ebpf-instrument", "Dockerfile")
+	DockerfileOBI              = path.Join(testpath.Components, "obi", "Dockerfile")
 	DockerfileK8sCache         = path.Join(testpath.Components, "ebpf-instrument-k8s-cache", "Dockerfile")
 	DockerfilePinger           = path.Join(testpath.Components, "grpcpinger", "Dockerfile")
 	DockerfilePythonTestServer = path.Join(testpath.Components, "pythonserver", "Dockerfile_7773")

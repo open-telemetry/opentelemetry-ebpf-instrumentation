@@ -3,8 +3,25 @@ import os
 import click
 import requests
 import time
+import json
+import logging
+
+
+class SimpleJsonFormatter(logging.Formatter):
+    def format(self, record):
+        data = {
+            "message": record.getMessage(),
+            "level": record.levelname
+        }
+        return json.dumps(data)
+
 
 app = Flask(__name__)
+
+handler = logging.StreamHandler()
+handler.setFormatter(SimpleJsonFormatter())
+app.logger.handlers = [handler]
+app.logger.setLevel(logging.INFO)
 
 
 @app.cli.command("hello")
@@ -60,6 +77,13 @@ def ok_dns():
 
     return "OK DNS"
 
+@app.route("/json_logger")
+def json_logger():
+    log = "this is a json log"
+    app.logger.info(log)
+    return log
+
+
 if __name__ == '__main__':
     print(f"Server running: port={8380} process_id={os.getpid()}")
-    app.run(host="localhost", port=8380, debug=False)
+    app.run(host="0.0.0.0", port=8380, debug=False)

@@ -22,6 +22,7 @@ type dummyCriterion struct {
 	export    services.ExportModes
 	sampler   *services.SamplerConfig
 	routes    *services.CustomRoutesConfig
+	features  export.Features
 }
 
 func (d dummyCriterion) GetName() string                                                { return d.name }
@@ -38,7 +39,7 @@ func (d dummyCriterion) GetSamplerConfig() *services.SamplerConfig              
 func (d dummyCriterion) GetRoutesConfig() *services.CustomRoutesConfig                  { return d.routes }
 
 func (d dummyCriterion) MetricsConfig() perapp.SvcMetricsConfig {
-	return perapp.SvcMetricsConfig{Features: export.FeatureApplicationRED}
+	return perapp.SvcMetricsConfig{Features: d.features}
 }
 
 func TestMakeServiceAttrs(t *testing.T) {
@@ -53,7 +54,7 @@ func TestMakeServiceAttrs(t *testing.T) {
 	attrs := ty.makeServiceAttrs(proc)
 	assert.Equal(t, "svc1", attrs.UID.Name)
 	assert.Equal(t, "ns1", attrs.UID.Namespace)
-	assert.Equal(t, int32(1234), attrs.ProcPID)
+	assert.EqualValues(t, 1234, attrs.ProcPID)
 	assert.Equal(t, services.ExportModeUnset, attrs.ExportModes)
 
 	// Test with sampler and routes
@@ -73,4 +74,62 @@ func TestMakeServiceAttrs(t *testing.T) {
 	assert.NotNil(t, attrs2.Sampler)
 	assert.NotNil(t, attrs2.CustomInRouteMatcher)
 	assert.NotNil(t, attrs2.CustomOutRouteMatcher)
+}
+
+func TestMakeServiceAttrs_FeaturesMatchingMultipleCriteria(t *testing.T) {
+	exTra := services.ExportModes{}
+	exTra.AllowTraces()
+	exMet := services.ExportModes{}
+	exMet.AllowMetrics()
+
+	type testCase struct {
+		name     string
+		criteria []services.Selector
+		expected export.Features
+	}
+
+	for _, tc := range []testCase{{
+		name: "last match wins",
+		criteria: []services.Selector{
+			dummyCriterion{export: exMet, features: export.FeatureGraph},
+			dummyCriterion{
+				export: exTra, name: "svc1", namespace: "ns1",
+				features: export.FeatureApplicationRED | export.FeatureGraph,
+			},
+		},
+		expected: export.FeatureApplicationRED | export.FeatureGraph,
+	}, {
+		name: "if no features are defined, global metrics features prevail",
+		criteria: []services.Selector{
+			dummyCriterion{export: exTra, name: "svc2", namespace: "ns2"},
+			dummyCriterion{name: "svc1", namespace: "ns1"},
+		},
+		expected: export.FeatureSpanOTel,
+	}, {
+		name: "if last match does not define features, global metrics config override any prior match",
+		criteria: []services.Selector{
+			dummyCriterion{name: "svc2", namespace: "ns2", features: export.FeatureGraph},
+			dummyCriterion{export: exTra, name: "svc1", namespace: "ns1"},
+		},
+		expected: export.FeatureSpanOTel,
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			proc := &ProcessMatch{
+				Process:  &services.ProcessInfo{Pid: 1234},
+				Criteria: tc.criteria,
+			}
+			ty := typer{cfg: &obi.Config{
+				Routes:  &transform.RoutesConfig{},
+				Metrics: perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+			}}
+			attrs := ty.makeServiceAttrs(proc)
+			assert.Equal(t, "svc1", attrs.UID.Name)
+			assert.Equal(t, "ns1", attrs.UID.Namespace)
+			assert.EqualValues(t, 1234, attrs.ProcPID)
+
+			// the later matching criteria prevails
+			assert.Equal(t, exTra, attrs.ExportModes)
+			assert.Equal(t, tc.expected, attrs.Features)
+		})
+	}
 }

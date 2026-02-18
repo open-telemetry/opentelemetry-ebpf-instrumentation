@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package meta
+package meta // import "go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 
 import (
 	"context"
@@ -508,6 +508,7 @@ func (inf *Informers) initServiceIPInformer(ctx context.Context, informerFactory
 				Labels:          svc.Labels,
 				Ips:             ips,
 				Kind:            typeService,
+				Annotations:     svc.Annotations,
 				StatusTimeEpoch: objLastUpdateTime(&svc.ObjectMeta, nil, nil),
 			},
 		}, nil

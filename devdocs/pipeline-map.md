@@ -20,10 +20,11 @@ flowchart TD
     classDef optional stroke-dasharray: 3 3;
     subgraph discovery.Finder pipeline
         PW(ProcessWatcher) --> |new/removed processes| KWE
-        KWE(WatcherKubeEnricher):::optional --> |process enriched with k8s metadata| CM
+        KWE(WatcherKubeEnricher):::optional --> |process enriched with k8s metadata| DE
+        DE(DockerEnricher):::optional --> |process enriched with docker metadata| CM
         CM(CriteriaMatcher) --> |processes matching the selection criteria| ET(ExecTyper)
         ET --> |ELFs and its metadata| CU
-        CU(ContainerDBUpdater):::optional --> |ELFs and its metadata| TA
+        CU(ContainerStoreUpdater):::optional --> |ELFs and its metadata| TA
         TA(TraceAttacher) -.-> EBPF1(ebpf.Tracer)
         TA -.-> |creates one per executable| EBPF2(ebpf.Tracer)
         TA -.-> EBPF3(ebpf.Tracer)
@@ -33,8 +34,10 @@ flowchart TD
         EBPF2 -.-> |"[]request.Span"| TR
         EBPF3 -.-> TR
         TR(traces.ReadDecorator) --> ROUT(Routes<br/>decorator)
+        ROUT:::optional --> DOCKDEC(Docker<br/>decorator)
         ROUT:::optional --> KD(Kubernetes<br/>decorator)
-        KD:::optional --> NR
+        KD:::optional --> DOCKDEC
+        DOCKDEC:::optional --> NR
         NR(Name resolver):::optional --> AF
         
         AF(Attributes filter):::optional --> OTELT(OTEL/ALLOY<br/> traces<br/> exporter):::optional
@@ -46,9 +49,11 @@ flowchart TD
         SNCL --> OTELSM(OTEL<br/>span/svc graph<br/>metrics<br/> exporter):::optional
         SNCL --> PROM(Prometheus<br/>HTTP<br/>endpoint):::optional
     end
-    CU -.-> |New PIDs| KDB
-    KDB(KubeDatabase):::optional <-.- | Aggregated & indexed Pod info | KD
-    IF("Informer<br/>(Kube API)"):::optional -.-> |Pods & ReplicaSets status| KDB
+    CU -.-> |New PIDs| KSTORE
+    DE -.-> |Pod info| DOCKAPI(Docker API):::optional
+    DOCKDEC -.-> |Pod info| DOCKAPI(Docker API):::optional
+    KSTORE(KubeStore):::optional <-.- | Aggregated & indexed Pod info | KD
+    IF("Informer<br/>(Kube API)"):::optional -.-> |Pods & ReplicaSets status| KSTORE
     IF -.-> |new Kube objects| KWE
     AF ---> PC
     subgraph process metrics pipeline
@@ -68,8 +73,8 @@ flowchart TD
     RT(eBPF<br/>Ringbuf Tracer) --> PF
     PF(Internet<br/>protocol filter):::optional --> DD
     DD(Flow Deduper):::optional --> K8S
-    KIN(Kube informer):::optional --> KDB
-    KDB(Kube Database):::optional --> K8S
+    KIN(Kube informer):::optional --> KSTORE
+    KSTORE(Kube Store):::optional --> K8S
     K8S(Kubernetes<br/>decorator):::optional --> RDNS
     RDNS(Reverse DNS):::optional --> CIDRS
     CIDRS(CIDRs<br/>redecorator):::optional --> FLTR

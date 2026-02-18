@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package mqttparser
+package mqttparser // import "go.opentelemetry.io/obi/pkg/internal/ebpf/mqttparser"
 
 import (
 	"errors"
@@ -101,6 +101,11 @@ func NewMQTTControlPacket(pkt []byte) (MQTTControlPacket, error) {
 	firstByte := pkt[0]
 	packetType := PacketType((firstByte >> 4) & 0x0F)
 	flags := firstByte & 0x0F
+
+	// Validate packet type (0 is reserved, valid range is 1-15)
+	if packetType < PacketTypeCONNECT || packetType > PacketTypeAUTH {
+		return MQTTControlPacket{}, errors.New("invalid MQTT packet type")
+	}
 
 	// Parse remaining length (variable-length encoding)
 	r := NewPacketReader(pkt, 1)

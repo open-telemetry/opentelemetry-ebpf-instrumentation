@@ -1,9 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
-package integration
+package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
 	"encoding/json"
@@ -13,49 +11,48 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 func testNodeClientWithMethodAndStatusCode(t *testing.T, method string, statusCode, port int, traceIDLookup string) {
 	// Eventually, Prometheus would make this query visible
 	var (
-		pq     = prom.Client{HostPort: prometheusHostPort}
+		pq     = promtest.Client{HostPort: prometheusHostPort}
 		labels = fmt.Sprintf(`http_request_method="%s",`, method) +
 			fmt.Sprintf(`http_response_status_code="%d",`, statusCode) +
 			`service_namespace="integration-test",` +
 			`service_name="node"`
 	)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_client_request_duration_seconds_count{%s}", labels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		checkClientPromQueryResult(ct, pq, query, 1)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_client_request_body_size_bytes_count{%s}", labels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		checkClientPromQueryResult(ct, pq, query, 1)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_client_response_body_size_bytes_count{%s}", labels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		checkClientPromQueryResult(ct, pq, query, 1)
+	}, testTimeout, 100*time.Millisecond)
 
 	var trace jaeger.Trace
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=node")
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		if resp == nil {
 			return
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		tracesAll := tq.FindBySpan(jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(statusCode)})
 
 		var traces []jaeger.Trace
@@ -63,15 +60,15 @@ func testNodeClientWithMethodAndStatusCode(t *testing.T, method string, statusCo
 		// Sometimes we can instrument between the connect and the data being sent
 		// In that case we won't have enough info and we won't look in the parsed
 		// traceID. We filter for that.
-		for _, t := range tracesAll {
-			if strings.HasPrefix(t.TraceID, "0000") {
-				traces = append(traces, t)
+		for _, ct := range tracesAll {
+			if strings.HasPrefix(ct.TraceID, "0000") {
+				traces = append(traces, ct)
 			}
 		}
 
-		require.GreaterOrEqual(t, len(traces), 1)
+		require.GreaterOrEqual(ct, len(traces), 1)
 		trace = traces[0]
-	}, test.Interval(100*time.Millisecond))
+	}, testTimeout, 100*time.Millisecond)
 
 	spans := trace.FindByOperationName(method+" /", "")
 	require.Len(t, spans, 1)

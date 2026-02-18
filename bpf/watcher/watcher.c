@@ -7,7 +7,6 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <common/sockaddr.h>
-#include <common/tcp_info.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -48,7 +47,7 @@ int obi_kprobe_sys_bind(struct pt_regs *ctx) {
     if (trace) {
         trace->flags = WATCH_BIND;
         trace->payload = port;
-        bpf_dbg_printk("New port bound %d", trace->payload);
+        bpf_dbg_printk("New port bound, payload=%d", trace->payload);
 
         bpf_ringbuf_submit(trace, 0);
     }

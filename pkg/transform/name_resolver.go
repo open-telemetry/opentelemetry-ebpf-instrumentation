@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package transform
+package transform // import "go.opentelemetry.io/obi/pkg/transform"
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
-	"go.opentelemetry.io/obi/pkg/internal/rdns/store"
+	memorystore "go.opentelemetry.io/obi/pkg/internal/rdns/store"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -70,11 +70,11 @@ type NameResolverConfig struct {
 }
 
 type NameResolver struct {
-	cache  *expirable.LRU[string, string]
-	cfg    *NameResolverConfig
-	db     *kube.Store
-	dnsDB  *store.InMemory
-	logger *slog.Logger
+	cache    *expirable.LRU[string, string]
+	cfg      *NameResolverConfig
+	store    *kube.Store
+	dnsCache *memorystore.InMemory
+	logger   *slog.Logger
 
 	sources maps.Bits
 }
@@ -97,10 +97,10 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 ) (swarm.RunFunc, error) {
 	sources := resolverSources(cfg.Sources)
 
-	var kubeStore *kube.Store
+	var store *kube.Store
 	if ctxInfo.K8sInformer.IsKubeEnabled() {
 		var err error
-		kubeStore, err = ctxInfo.K8sInformer.Get(ctx)
+		store, err = ctxInfo.K8sInformer.Get(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("initializing NameResolutionProvider: %w", err)
 		}
@@ -109,18 +109,18 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 	}
 
 	logger := slog.With("component", "transform.NameResolver")
-	dnsDB, err := store.NewInMemory(cfg.CacheLen)
+	dnsCache, err := memorystore.NewInMemory(cfg.CacheLen)
 	if err != nil {
 		logger.Warn("failed to create reverse DNS cache", "error", err)
 	}
 
 	nr := NameResolver{
-		cfg:     cfg,
-		db:      kubeStore,
-		dnsDB:   dnsDB,
-		cache:   expirable.NewLRU[string, string](cfg.CacheLen, nil, cfg.CacheTTL),
-		sources: sources,
-		logger:  logger,
+		cfg:      cfg,
+		store:    store,
+		dnsCache: dnsCache,
+		cache:    expirable.NewLRU[string, string](cfg.CacheLen, nil, cfg.CacheTTL),
+		sources:  sources,
+		logger:   logger,
 	}
 
 	in := input.Subscribe(msg.SubscriberName("transform.NameResolver"))
@@ -172,19 +172,19 @@ func parseK8sFQDN(fqdn string) (string, string) {
 func (nr *NameResolver) resolveNames(span *request.Span) {
 	var hn, pn, ns string
 
-	if span.Type == request.EventTypeDNS && nr.sources.Has(ResolverRDNS) && nr.dnsDB != nil {
+	if span.Type == request.EventTypeDNS && nr.sources.Has(ResolverRDNS) && nr.dnsCache != nil {
 		nr.handleRDNS(span)
 	}
 
 	if span.IsClientSpan() {
-		hn, span.OtherNamespace = nr.resolve(&span.Service, span.Host, span.HostName)
+		hn, span.OtherNamespace, span.OtherK8SNamespace = nr.resolve(&span.Service, span.Host, span.HostName)
 		if hn == "" || hn == span.Host {
 			hostHeader := request.HostFromSchemeHost(span)
 			if hostHeader != "" {
 				hn, span.OtherNamespace = parseK8sFQDN(hostHeader)
 			}
 		}
-		pn, ns = nr.resolve(&span.Service, span.Peer, span.PeerName)
+		pn, ns, _ = nr.resolve(&span.Service, span.Peer, span.PeerName)
 		if pn == "" || pn == span.Peer {
 			pn = span.Service.UID.Name
 			if ns == "" {
@@ -192,8 +192,8 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 			}
 		}
 	} else {
-		pn, span.OtherNamespace = nr.resolve(&span.Service, span.Peer, span.PeerName)
-		hn, ns = nr.resolve(&span.Service, span.Host, span.HostName)
+		pn, span.OtherNamespace, span.OtherK8SNamespace = nr.resolve(&span.Service, span.Peer, span.PeerName)
+		hn, ns, _ = nr.resolve(&span.Service, span.Host, span.HostName)
 		if hn == "" || hn == span.Host {
 			hn = span.Service.UID.Name
 			if ns == "" {
@@ -212,17 +212,27 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 	if hn != "" {
 		span.HostName = hn
 	}
+
+	nr.logger.Debug("resolved peer names",
+		"type", span.Type,
+		"host_ip", span.Host,
+		"host_name", span.HostName,
+		"peer_ip", span.Peer,
+		"peer_name", span.PeerName,
+		"other_namespace", span.OtherNamespace,
+		"other_k8s_namespace", span.OtherK8SNamespace,
+	)
 }
 
 // resolve attempts to resolve an IP address to a hostname using available resolution methods.
 // If resolution fails (no K8s metadata, no DNS/RDNS entry), it returns the fallback value if provided,
 // otherwise it returns the IP itself.
-func (nr *NameResolver) resolve(svc *svc.Attrs, ip string, fallback string) (string, string) {
-	var name, ns string
+func (nr *NameResolver) resolve(svc *svc.Attrs, ip string, fallback string) (string, string, string) {
+	var name, ns, k8sNs string
 
 	if len(ip) > 0 {
 		var peer string
-		peer, ns = nr.dnsResolve(svc, ip)
+		peer, ns, k8sNs = nr.dnsResolve(svc, ip)
 		name = ip
 		if fallback != "" {
 			name = fallback
@@ -234,7 +244,7 @@ func (nr *NameResolver) resolve(svc *svc.Attrs, ip string, fallback string) (str
 		name = fallback
 	}
 
-	return name, ns
+	return name, ns, k8sNs
 }
 
 func (nr *NameResolver) cleanName(svc *svc.Attrs, ip, n string) string {
@@ -253,42 +263,44 @@ func (nr *NameResolver) cleanName(svc *svc.Attrs, ip, n string) string {
 	return n
 }
 
-func (nr *NameResolver) dnsResolve(svc *svc.Attrs, ip string) (string, string) {
+func (nr *NameResolver) dnsResolve(svc *svc.Attrs, ip string) (string, string, string) {
 	if ip == "" {
-		return "", ""
+		return "", "", ""
 	}
 
-	if nr.sources.Has(ResolverK8s) && nr.db != nil {
+	if nr.sources.Has(ResolverK8s) && nr.store != nil {
 		ipAddr := net.ParseIP(ip)
 
 		if ipAddr != nil && !ipAddr.IsLoopback() {
-			n, ns := nr.resolveFromK8s(ip)
+			n, ns, k8sNs := nr.resolveFromK8s(ip)
 
 			if n != "" {
-				return n, ns
+				return n, ns, k8sNs
 			}
 		}
 	}
 
-	if nr.sources.Has(ResolverRDNS) && nr.dnsDB != nil {
+	if nr.sources.Has(ResolverRDNS) && nr.dnsCache != nil {
 		n := nr.resolveRDNS(ip)
 		n = nr.cleanName(svc, ip, n)
-		return n, svc.UID.Namespace
+		return n, svc.UID.Namespace, ""
 	}
 
 	if nr.sources.Has(ResolverDNS) {
 		n := nr.resolveIP(ip)
 		if n == ip {
-			return n, svc.UID.Namespace
+			return n, svc.UID.Namespace, ""
 		}
 		n = nr.cleanName(svc, ip, n)
-		return n, svc.UID.Namespace
+		return n, svc.UID.Namespace, ""
 	}
-	return "", ""
+	return "", "", ""
 }
 
-func (nr *NameResolver) resolveFromK8s(ip string) (string, string) {
-	return nr.db.ServiceNameNamespaceForIP(ip)
+func (nr *NameResolver) resolveFromK8s(ip string) (string, string, string) {
+	name, ns, k8sNs := nr.store.ServiceNameNamespaceForIP(ip)
+	nr.logger.Debug("k8s resolve result", "ip", ip, "name", name, "namespace", ns, "k8s_namespace", k8sNs)
+	return name, ns, k8sNs
 }
 
 func (nr *NameResolver) resolveIP(ip string) string {
@@ -318,14 +330,14 @@ func (nr *NameResolver) handleRDNS(span *request.Span) {
 		ips := strings.Split(span.Statement, ",")
 		for _, ip := range ips {
 			if isValidRDNS(ip) {
-				nr.dnsDB.StorePair(ip, span.Path)
+				nr.dnsCache.StorePair(ip, span.Path)
 			}
 		}
 	}
 }
 
 func (nr *NameResolver) resolveRDNS(ip string) string {
-	names, err := nr.dnsDB.GetHostnames(ip)
+	names, err := nr.dnsCache.GetHostnames(ip)
 
 	nr.logger.Debug("reverse DNS lookup", "ip", ip, "names", names)
 

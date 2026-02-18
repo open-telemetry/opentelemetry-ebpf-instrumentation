@@ -6,7 +6,6 @@
 #include <bpfcore/vmlinux.h>
 
 #include <common/http_types.h>
-#include <common/pin_internal.h>
 #include <common/trace_util.h>
 
 #include <maps/trace_map.h>

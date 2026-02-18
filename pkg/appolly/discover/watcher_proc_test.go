@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/watcher"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
@@ -38,22 +39,22 @@ func TestWatcher_Poll(t *testing.T) {
 		interval: time.Microsecond,
 		cfg:      &obi.Config{},
 		pidPorts: map[pidPort]ProcessAttrs{},
-		listProcesses: func(bool) (map[PID]ProcessAttrs, error) {
+		listProcesses: func(bool) (map[app.PID]ProcessAttrs, error) {
 			invocation++
 			switch invocation {
 			case 1:
-				return map[PID]ProcessAttrs{p1_1.pid: p1_1, p2.pid: p2, p3.pid: p3}, nil
+				return map[app.PID]ProcessAttrs{p1_1.pid: p1_1, p2.pid: p2, p3.pid: p3}, nil
 			case 2:
 				// p1_2 simulates that a new connection has been created for an existing process
-				return map[PID]ProcessAttrs{p1_2.pid: p1_2, p3.pid: p3, p4.pid: p4}, nil
+				return map[app.PID]ProcessAttrs{p1_2.pid: p1_2, p3.pid: p3, p4.pid: p4}, nil
 			case 3:
-				return map[PID]ProcessAttrs{p2.pid: p2, p3.pid: p3, p4.pid: p4}, nil
+				return map[app.PID]ProcessAttrs{p2.pid: p2, p3.pid: p3, p4.pid: p4}, nil
 			default:
 				// new processes with no connections (p5) should be also reported
-				return map[PID]ProcessAttrs{p5.pid: p5, p2.pid: p2, p3.pid: p3, p4.pid: p4}, nil
+				return map[app.PID]ProcessAttrs{p5.pid: p5, p2.pid: p2, p3.pid: p3, p4.pid: p4}, nil
 			}
 		},
-		executableReady: func(PID) (string, bool) {
+		executableReady: func(app.PID) (string, bool) {
 			return "", true
 		},
 		loadBPFWatcher: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config, chan<- watcher.Event) error {
@@ -134,10 +135,10 @@ func TestProcessNotReady(t *testing.T) {
 		interval: time.Microsecond,
 		cfg:      &obi.Config{},
 		pidPorts: map[pidPort]ProcessAttrs{},
-		listProcesses: func(bool) (map[PID]ProcessAttrs, error) {
-			return map[PID]ProcessAttrs{p1.pid: p1, p5.pid: p5, p2.pid: p2, p3.pid: p3, p4.pid: p4}, nil
+		listProcesses: func(bool) (map[app.PID]ProcessAttrs, error) {
+			return map[app.PID]ProcessAttrs{p1.pid: p1, p5.pid: p5, p2.pid: p2, p3.pid: p3, p4.pid: p4}, nil
 		},
-		executableReady: func(pid PID) (string, bool) {
+		executableReady: func(pid app.PID) (string, bool) {
 			return "", pid >= 3
 		},
 		loadBPFWatcher: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config, chan<- watcher.Event) error {
@@ -160,13 +161,13 @@ func TestProcessNotReady(t *testing.T) {
 	assert.Empty(t, eventsNext) // 0 new events
 	assert.Len(t, acc.pids, 3)  // this should equal the first invocation of snapshot, no changes
 
-	acc.executableReady = func(pid PID) (string, bool) { // we change so that pid=1 becomes ready
+	acc.executableReady = func(pid app.PID) (string, bool) { // we change so that pid=1 becomes ready
 		return "", pid != 2
 	}
 
 	eventsNextNext := acc.snapshot(procs)
 	assert.Len(t, eventsNextNext, 1) // 1 net new event
-	assert.Len(t, acc.pids, 4)       // this should increase by one since we have one more PID we are caching now
+	assert.Len(t, acc.pids, 4)       // this should increase by one since we have one more app.PID we are caching now
 	assert.Len(t, acc.pidPorts, 4)   // this is now 4 because pid=1 has 2 port mappings
 }
 
@@ -185,10 +186,10 @@ func TestPortsFetchRequired(t *testing.T) {
 		cfg:      cfg,
 		interval: time.Hour, // don't let the inner loop mess with our test
 		pidPorts: map[pidPort]ProcessAttrs{},
-		listProcesses: func(bool) (map[PID]ProcessAttrs, error) {
+		listProcesses: func(bool) (map[app.PID]ProcessAttrs, error) {
 			return nil, nil
 		},
-		executableReady: func(_ PID) (string, bool) {
+		executableReady: func(_ app.PID) (string, bool) {
 			return "", true
 		},
 		loadBPFWatcher: func(_ context.Context, _ *ebpfcommon.EBPFEventContext, _ *obi.Config, events chan<- watcher.Event) error {
@@ -259,7 +260,7 @@ func sort(events []Event[ProcessAttrs]) []Event[ProcessAttrs] {
 
 func TestMinProcessAge(t *testing.T) {
 	count := 1
-	processAgeFunc = func(pid int32) time.Duration {
+	processAgeFunc = func(pid app.PID) time.Duration {
 		if pid == 3 {
 			return time.Duration(0)
 		}
@@ -283,10 +284,10 @@ func TestMinProcessAge(t *testing.T) {
 		cfg:      cfg,
 		interval: time.Hour, // don't let the inner loop mess with our test
 		pidPorts: map[pidPort]ProcessAttrs{},
-		listProcesses: func(bool) (map[PID]ProcessAttrs, error) {
+		listProcesses: func(bool) (map[app.PID]ProcessAttrs, error) {
 			return nil, nil
 		},
-		executableReady: func(_ PID) (string, bool) {
+		executableReady: func(_ app.PID) (string, bool) {
 			return "", true
 		},
 		loadBPFWatcher: func(_ context.Context, _ *ebpfcommon.EBPFEventContext, _ *obi.Config, events chan<- watcher.Event) error {
@@ -305,14 +306,14 @@ func TestMinProcessAge(t *testing.T) {
 
 	procs, err := fetchProcessPorts(false)
 	require.NoError(t, err)
-	process, ok := procs[PID(1)]
+	process, ok := procs[app.PID(1)]
 
 	assert.True(t, ok)
 	assert.True(t, acc.processTooNew(process))
 
 	// Pid 3 has 0 duration meaning we had to scan it without checking duration
 	// it's never too new
-	process, ok = procs[PID(3)]
+	process, ok = procs[app.PID(3)]
 
 	assert.True(t, ok)
 	assert.False(t, acc.processTooNew(process))
@@ -322,7 +323,7 @@ func TestMinProcessAge(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	process, ok = procs[PID(1)]
+	process, ok = procs[app.PID(1)]
 
 	assert.True(t, ok)
 	assert.False(t, acc.processTooNew(process))

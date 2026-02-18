@@ -6,6 +6,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/iov_iter.h>
 #include <common/http_types.h>
 #include <common/tc_common.h>
 #include <common/tracing.h>
@@ -146,7 +147,8 @@ int BPF_KPROBE(obi_kprobe_unix_stream_recvmsg,
         .sock_ptr = (u64)sk,
     };
 
-    get_iovec_ctx((iovec_iter_ctx *)&args.iovec_ctx, msg);
+    struct iov_iter___dummy *iov_iter = (struct iov_iter___dummy *)&msg->msg_iter;
+    get_iovec_ctx((iovec_iter_ctx *)&args.iovec_ctx, iov_iter);
 
     bpf_map_update_elem(&active_recv_args, &id, &args, BPF_ANY);
 

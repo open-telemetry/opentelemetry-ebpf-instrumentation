@@ -1,4 +1,7 @@
-FROM gradle:9.2.1-jdk21-corretto@sha256:3392a25fbe142defde5a13ec7e7171cac8c08ec6bcec00b44705d9a24b544fa3 AS builder
+FROM gradle:9.3.1-jdk21-noble@sha256:5f836f4642496f816f15d495b007e1912f36bf58fbea0247c0b761af438d7cf2 AS builder
+
+RUN apt update
+RUN apt install -y clang llvm
 
 WORKDIR /build
 

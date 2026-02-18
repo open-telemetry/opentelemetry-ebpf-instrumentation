@@ -1,18 +1,18 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package discover
+package discover // import "go.opentelemetry.io/obi/pkg/appolly/discover"
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/ebpf"
@@ -35,7 +35,6 @@ type traceAttacher struct {
 	log     *slog.Logger
 	Cfg     *obi.Config
 	Metrics imetrics.Reporter
-	obiPID  int
 
 	// processInstances keeps track of the instances of each process. This will help making sure
 	// that we don't remove the BPF resources of an executable until all their instances are removed
@@ -73,7 +72,7 @@ type traceAttacher struct {
 	routeHarvester *harvest.RouteHarvester
 
 	// Is able to find process lifetime duration
-	processAgeFunc func(int32) time.Duration
+	processAgeFunc func(app.PID) time.Duration
 }
 
 func traceAttacherProvider(ta *traceAttacher) swarm.InstanceFunc {
@@ -91,8 +90,7 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 		ta.javaInjector = javaInjector
 	}
 	ta.processInstances = maps.MultiCounter[uint64]{}
-	ta.obiPID = os.Getpid()
-	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.CommonPIDsFilter(&ta.Cfg.Discovery, ta.Metrics)
+	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.NewPIDsFilter(&ta.Cfg.Discovery, slog.With("component", "ebpfCommon.CommonPIDsFilter"), ta.Metrics)
 	ta.routeHarvester = harvest.NewRouteHarvester(&ta.Cfg.Discovery.RouteHarvestConfig, ta.Cfg.Discovery.DisabledRouteHarvesters, ta.Cfg.Discovery.RouteHarvesterTimeout)
 	ta.processAgeFunc = ProcessAgeFunc()
 
@@ -159,12 +157,14 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 		ta.log.Debug(".done", "success", ok)
 		return ok
 	}
+
 	ta.log.Info("instrumenting process",
 		"cmd", ie.FileInfo.CmdExePath,
 		"pid", ie.FileInfo.Pid,
 		"ino", ie.FileInfo.Ino,
 		"type", ie.Type,
 		"service", ie.FileInfo.Service.UID.Name,
+		"logenricher", ie.FileInfo.Service.LogEnricherEnabled,
 	)
 
 	// builds a tracer for that executable
@@ -175,10 +175,12 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 		// gets all the possible supported tracers for a go program, and filters out
 		// those whose symbols are not present in the ELF functions list
 		if ta.Cfg.Discovery.SkipGoSpecificTracers || ie.InstrumentationError != nil || ie.Offsets == nil {
-			if ie.InstrumentationError != nil {
-				ta.log.Warn("Unsupported Go program detected, using generic instrumentation", "error", ie.InstrumentationError)
-			} else if ie.Offsets == nil {
-				ta.log.Warn("Go program with null offsets detected, using generic instrumentation")
+			if !ta.Cfg.Discovery.SkipGoSpecificTracers {
+				if ie.InstrumentationError != nil {
+					ta.log.Warn("Unsupported Go program detected, using generic instrumentation", "error", ie.InstrumentationError)
+				} else if ie.Offsets == nil {
+					ta.log.Warn("Go program with null offsets detected, using generic instrumentation")
+				}
 			}
 			if ta.reusableTracer != nil {
 				// We need to do more than monitor PIDs. It's possible that this new
@@ -194,7 +196,7 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 			tracerType = ebpf.Go
 			programs = ta.withCommonTracersGroup(newGoTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
 		}
-	case svc.InstrumentableNodejs, svc.InstrumentableJava, svc.InstrumentableJavaNative, svc.InstrumentableRuby, svc.InstrumentablePython, svc.InstrumentableDotnet, svc.InstrumentableGeneric, svc.InstrumentableRust, svc.InstrumentablePHP:
+	case svc.InstrumentableNodejs, svc.InstrumentableJava, svc.InstrumentableJavaNative, svc.InstrumentableRuby, svc.InstrumentablePython, svc.InstrumentableDotnet, svc.InstrumentableGeneric, svc.InstrumentableRust, svc.InstrumentablePHP, svc.InstrumentableCPP:
 		if ta.reusableTracer != nil {
 			return ta.reuseTracer(ta.reusableTracer, ie)
 		}
@@ -220,7 +222,7 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 		return false
 	}
 
-	tracer := ebpf.NewProcessTracer(tracerType, programs, ta.Cfg.ShutdownTimeout, ta.Metrics)
+	tracer := ebpf.NewProcessTracer(tracerType, programs, ta.Cfg, ta.Metrics)
 
 	if err := tracer.Init(ta.EbpfEventContext); err != nil {
 		ta.log.Error("couldn't trace process. Stopping process tracer", "error", err)
@@ -285,7 +287,7 @@ func (ta *traceAttacher) harvestRoutes(ie *ebpf.Instrumentable, reused bool) {
 		if procAge < delayTime {
 			time.AfterFunc(delayTime-procAge, func() {
 				// sanity check that the program is still up and running and it's the same command
-				if exePath, ready := ExecutableReady(PID(ie.FileInfo.Pid)); ready && exePath == ie.FileInfo.CmdExePath {
+				if exePath, ready := ExecutableReady(ie.FileInfo.Pid); ready && exePath == ie.FileInfo.CmdExePath {
 					ta.harvestRoutesProcessor(ie, reused)
 				}
 			})
@@ -353,7 +355,7 @@ func (ta *traceAttacher) monitorPIDs(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 	ie.CopyToServiceAttributes()
 
 	// allowing the tracer to forward traces from the discovered PID and its children processes
-	tracer.AllowPID(uint32(ie.FileInfo.Pid), ie.FileInfo.Ns, &ie.FileInfo.Service)
+	tracer.AllowPID(ie.FileInfo.Pid, ie.FileInfo.Ns, &ie.FileInfo.Service)
 	for _, pid := range ie.ChildPids {
 		tracer.AllowPID(pid, ie.FileInfo.Ns, &ie.FileInfo.Service)
 	}
@@ -369,7 +371,7 @@ func (ta *traceAttacher) monitorPIDs(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 		})
 		for _, pid := range ie.ChildPids {
 			service := ie.FileInfo.Service
-			service.ProcPID = int32(pid)
+			service.ProcPID = pid
 			spans = append(spans, request.Span{
 				Type:    request.EventTypeProcessAlive,
 				Service: service,
@@ -393,7 +395,7 @@ func (ta *traceAttacher) notifyProcessDeletion(ie *ebpf.Instrumentable) {
 		// to avoid that a new process reusing this PID could send traces
 		// unless explicitly allowed
 		ta.Metrics.UninstrumentProcess(ie.FileInfo.ExecutableName())
-		tracer.BlockPID(uint32(ie.FileInfo.Pid), ie.FileInfo.Ns)
+		tracer.BlockPID(ie.FileInfo.Pid, ie.FileInfo.Ns)
 
 		// if there are no more trace instances for a program, we need to notify that
 		// the tracer needs to be stopped and deleted.

@@ -1,25 +1,25 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration_k8s
-
 package otel
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/kube"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	k8s "go.opentelemetry.io/obi/internal/test/integration/k8s/common"
 	"go.opentelemetry.io/obi/internal/test/integration/k8s/common/testpath"
 	"go.opentelemetry.io/obi/internal/test/tools"
@@ -33,6 +33,12 @@ const (
 var cluster *kube.Kind
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	if testing.Short() {
+		fmt.Println("skipping integration tests in short mode")
+		return
+	}
+
 	if err := docker.Build(os.Stdout, tools.ProjectDir(),
 		docker.ImageBuild{Tag: "testserver:dev", Dockerfile: k8s.DockerfileTestServer},
 		docker.ImageBuild{Tag: "obi:dev", Dockerfile: k8s.DockerfileOBI},
@@ -75,15 +81,15 @@ func TestNetworkFlowBytes_DropExternal(t *testing.T) {
 }
 
 func testNoFlowsForExternalTraffic(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-	pq := prom.Client{HostPort: prometheusHostPort}
+	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	// testing first that internal traffic is reported (this leaves room to populate Prometheus with
 	// the inspected metrics)
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger",dst_name="testserver"}`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	})
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, testTimeout, 100*time.Millisecond)
 
 	// test that there isn't external traffic neither as source nor as a destination
 	results, err := pq.Query(`obi_network_flow_bytes_total{k8s_src_owner_name=""}`)

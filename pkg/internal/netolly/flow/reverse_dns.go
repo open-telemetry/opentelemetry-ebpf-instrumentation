@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package flow
+package flow // import "go.opentelemetry.io/obi/pkg/internal/netolly/flow"
 
 import (
 	"context"
@@ -91,14 +91,14 @@ func ReverseDNSProvider(cfg *ReverseDNS, input, output *msg.Queue[[]*ebpf.Record
 func checkEBPFReverseDNS(ctx context.Context, cfg *ReverseDNS) error {
 	if cfg.Type == ReverseDNSEBPF {
 		// overriding netLookupAddr by an eBPF-based alternative
-		ipToHosts, err := store.NewInMemory(cfg.CacheLen)
+		dnsCache, err := store.NewInMemory(cfg.CacheLen)
 		if err != nil {
 			return fmt.Errorf("initializing eBPF-based reverse DNS cache: %w", err)
 		}
-		if err := xdp.StartDNSPacketInspector(ctx, ipToHosts); err != nil {
+		if err := xdp.StartDNSPacketInspector(ctx, dnsCache); err != nil {
 			return fmt.Errorf("starting eBPF-based reverse DNS: %w", err)
 		}
-		netLookupAddr = ipToHosts.GetHostnames
+		netLookupAddr = dnsCache.GetHostnames
 	}
 	return nil
 }

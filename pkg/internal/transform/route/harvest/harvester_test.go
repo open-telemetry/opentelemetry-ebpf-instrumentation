@@ -14,13 +14,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 )
 
 // successfulExtractRoutes simulates a successful route extraction
-func successfulExtractRoutes(int32) (*RouteHarvesterResult, error) {
+func successfulExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
 	return &RouteHarvesterResult{
 		Routes: []string{"/api/users", "/api/orders"},
 		Kind:   CompleteRoutes,
@@ -28,12 +29,12 @@ func successfulExtractRoutes(int32) (*RouteHarvesterResult, error) {
 }
 
 // errorExtractRoutes simulates an error during route extraction
-func errorExtractRoutes(int32) (*RouteHarvesterResult, error) {
+func errorExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
 	return nil, errors.New("failed to connect to Java process")
 }
 
 // timeoutExtractRoutes simulates a slow operation that will timeout
-func timeoutExtractRoutes(int32) (*RouteHarvesterResult, error) {
+func timeoutExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
 	// Sleep longer than any reasonable timeout
 	time.Sleep(5 * time.Second)
 	return &RouteHarvesterResult{
@@ -43,12 +44,12 @@ func timeoutExtractRoutes(int32) (*RouteHarvesterResult, error) {
 }
 
 // panicExtractRoutes simulates a panic during route extraction
-func panicExtractRoutes(int32) (*RouteHarvesterResult, error) {
+func panicExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
 	panic("unexpected error in java route extraction")
 }
 
 // slowButSuccessfulExtractRoutes simulates a slow but successful operation
-func slowButSuccessfulExtractRoutes(int32) (*RouteHarvesterResult, error) {
+func slowButSuccessfulExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
 	time.Sleep(50 * time.Millisecond) // Slow but within timeout
 	return &RouteHarvesterResult{
 		Routes: []string{"/api/slow"},
@@ -57,7 +58,7 @@ func slowButSuccessfulExtractRoutes(int32) (*RouteHarvesterResult, error) {
 }
 
 // emptyResultExtractRoutes simulates successful extraction with no routes
-func emptyResultExtractRoutes(int32) (*RouteHarvesterResult, error) {
+func emptyResultExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
 	return &RouteHarvesterResult{
 		Routes: []string{},
 		Kind:   CompleteRoutes,
@@ -171,7 +172,7 @@ func TestHarvestRoutes_EmptyResult(t *testing.T) {
 func TestHarvestRoutes_NonJavaLanguage(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 1*time.Second)
 	// javaExtractRoutes should not be called for non-Java languages
-	harvester.javaExtractRoutes = func(_ int32) (*RouteHarvesterResult, error) {
+	harvester.javaExtractRoutes = func(_ app.PID) (*RouteHarvesterResult, error) {
 		t.Fatal("javaExtractRoutes should not be called for non-Java languages")
 		return nil, nil
 	}

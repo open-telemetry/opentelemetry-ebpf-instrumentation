@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package gotracer
+package gotracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 
 import (
 	"context"
@@ -25,6 +25,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -46,6 +47,7 @@ type Tracer struct {
 	bpfObjects              BpfObjects
 	closers                 []io.Closer
 	disabledRouteHarvesting bool
+	supportsBPFLoop         bool
 }
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
@@ -66,14 +68,15 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		cfg:                     &cfg.EBPF,
 		metrics:                 metrics,
 		disabledRouteHarvesting: disabledRouteHarvesting,
+		supportsBPFLoop:         ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 	}
 }
 
-func (p *Tracer) AllowPID(pid, ns uint32, svc *svc.Attrs) {
+func (p *Tracer) AllowPID(pid app.PID, ns uint32, svc *svc.Attrs) {
 	p.pidsFilter.AllowPID(pid, ns, svc, ebpfcommon.PIDTypeGo)
 }
 
-func (p *Tracer) BlockPID(pid, ns uint32) {
+func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
 }
 
@@ -99,19 +102,21 @@ func (p *Tracer) Constants() map[string]any {
 	}
 
 	return map[string]any{
-		"g_bpf_debug":              p.cfg.BpfDebug,
-		"g_bpf_header_propagation": p.supportsContextPropagation(),
-		"wakeup_data_bytes":        uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
-		"disable_black_box_cp":     blackBoxCP,
-		"attr_type_invalid":        uint64(attribute.INVALID),
-		"attr_type_bool":           uint64(attribute.BOOL),
-		"attr_type_int64":          uint64(attribute.INT64),
-		"attr_type_float64":        uint64(attribute.FLOAT64),
-		"attr_type_string":         uint64(attribute.STRING),
-		"attr_type_boolslice":      uint64(attribute.BOOLSLICE),
-		"attr_type_int64slice":     uint64(attribute.INT64SLICE),
-		"attr_type_float64slice":   uint64(attribute.FLOAT64SLICE),
-		"attr_type_stringslice":    uint64(attribute.STRINGSLICE),
+		"g_bpf_debug":               p.cfg.BpfDebug,
+		"g_bpf_header_propagation":  p.supportsContextPropagation(),
+		"wakeup_data_bytes":         uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
+		"disable_black_box_cp":      blackBoxCP,
+		"attr_type_invalid":         uint64(attribute.INVALID),
+		"attr_type_bool":            uint64(attribute.BOOL),
+		"attr_type_int64":           uint64(attribute.INT64),
+		"attr_type_float64":         uint64(attribute.FLOAT64),
+		"attr_type_string":          uint64(attribute.STRING),
+		"attr_type_boolslice":       uint64(attribute.BOOLSLICE),
+		"attr_type_int64slice":      uint64(attribute.INT64SLICE),
+		"attr_type_float64slice":    uint64(attribute.FLOAT64SLICE),
+		"attr_type_stringslice":     uint64(attribute.STRINGSLICE),
+		"g_bpf_traceparent_enabled": true,
+		"g_bpf_loop_enabled":        p.supportsBPFLoop,
 	}
 }
 
@@ -149,6 +154,9 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.ScConnPos,
 		goexec.CRwcPos,
 		goexec.CTlsPos,
+		goexec.TextReaderRPos,
+		goexec.BufReaderBufPos,
+		goexec.BufReaderWPos,
 		// grpc
 		goexec.GrpcStreamStPtrPos,
 		goexec.GrpcStreamMethodPtrPos,
@@ -198,6 +206,9 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		// mysql driver
 		goexec.MySQLConnCfgPos,
 		goexec.MySQLConfigAddrPos,
+		// pgx driver
+		goexec.PgxConnConfigPos,
+		goexec.PgxConfigHostPos,
 		goexec.MuxTemplatePos,
 		goexec.GinFullpathPos,
 	} {
@@ -250,9 +261,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeProcNewproc1,
 			End:   p.bpfObjects.ObiUprobeProcNewproc1Ret,
 		}},
-		"runtime.goexit1": {{
-			Start: p.bpfObjects.ObiUprobeProcGoexit1,
-		}},
 		// Go net/http
 		"net/http.serverHandler.ServeHTTP": {{
 			Start: p.bpfObjects.ObiUprobeServeHTTP,
@@ -266,9 +274,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/rpc/jsonrpc.(*serverCodec).ReadRequestHeader": {{
 			Start: p.bpfObjects.ObiUprobeJsonrpcReadRequestHeader,
 			End:   p.bpfObjects.ObiUprobeJsonrpcReadRequestHeaderReturns,
-		}},
-		"net/textproto.(*Reader).readContinuedLineSlice": {{
-			End: p.bpfObjects.ObiUprobeReadContinuedLineSliceReturns,
 		}},
 		"net/http.(*Transport).roundTrip": {{ // HTTP client, works with Client.Do as well as using the RoundTripper directly
 			Start: p.bpfObjects.ObiUprobeRoundTrip,
@@ -318,11 +323,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeConnServe,
 			End:   p.bpfObjects.ObiUprobeConnServeRet,
 		}},
-		"net.(*netFD).Read": {
-			{
-				Start: p.bpfObjects.ObiUprobeNetFdRead,
-			},
-		},
+		"net.(*netFD).Read": {{
+			Start: p.bpfObjects.ObiUprobeNetFdRead,
+		}},
 		"net/http.(*persistConn).roundTrip": {{ // http client
 			Start: p.bpfObjects.ObiUprobePersistConnRoundTrip,
 		}},
@@ -338,6 +341,15 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		// PostgreSQL lib/pq
 		"github.com/lib/pq.network": {{
 			End: p.bpfObjects.ObiUprobePqNetworkReturn,
+		}},
+		// PostgreSQL pgx
+		"github.com/jackc/pgx/v5.(*Conn).Query": {{
+			Start: p.bpfObjects.ObiUprobePgxQuery,
+			End:   p.bpfObjects.ObiUprobePgxQueryReturn,
+		}},
+		"github.com/jackc/pgx/v5.(*Conn).Exec": {{
+			Start: p.bpfObjects.ObiUprobePgxExec,
+			End:   p.bpfObjects.ObiUprobePgxQueryReturn,
 		}},
 		// Go gRPC
 		"google.golang.org/grpc.(*Server).handleStream": {{
@@ -552,6 +564,23 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 	}
 
+	// HTTP Header extraction
+	// with bpf_loop we scan the buffer with a single uprobe - this is less overhead
+	// otherwise we have a probe per header net/textproto.(*Reader).readContinuedLineSlice
+	if p.supportsBPFLoop {
+		m["net/textproto.readMIMEHeader"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeReadMimeHeader,
+		}}
+		// old go versions
+		m["net/textproto.(*Reader).ReadMIMEHeader"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeReadMimeHeader,
+		}}
+	} else {
+		m["net/textproto.(*Reader).readContinuedLineSlice"] = []*ebpfcommon.ProbeDesc{{
+			End: p.bpfObjects.ObiUprobeReadContinuedLineSliceReturns,
+		}}
+	}
+
 	// Route extraction
 	if !p.disabledRouteHarvesting {
 		// Go mux router
@@ -615,6 +644,8 @@ func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg { return nil }
 func (p *Tracer) SockOps() []ebpfcommon.SockOps { return nil }
 
 func (p *Tracer) Iters() []*ebpfcommon.Iter { return nil }
+
+func (p *Tracer) Tracing() []*ebpfcommon.Tracing { return nil }
 
 func (p *Tracer) RecordInstrumentedLib(_ uint64, _ []io.Closer) {}
 

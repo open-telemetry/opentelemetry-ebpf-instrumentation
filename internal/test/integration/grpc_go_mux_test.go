@@ -1,8 +1,6 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
 package integration
 
 import (
@@ -10,19 +8,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 func testREDMetricsForGRPCMuxLibrary(t *testing.T, route, svcNs, serverPort string) {
 	// Eventually, Prometheus would make this query visible
-	pq := prom.Client{HostPort: prometheusHostPort}
-	var results []prom.Result
-	test.Eventually(t, time.Duration(1)*time.Minute, func(t require.TestingT) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	var results []promtest.Result
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
 			`rpc_grpc_status_code="0",` +
@@ -30,16 +27,16 @@ func testREDMetricsForGRPCMuxLibrary(t *testing.T, route, svcNs, serverPort stri
 			`service_name="server",` +
 			`rpc_method="` + route + `",` +
 			`server_port="` + serverPort + `"}`)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		// check duration_count has 3 calls and all the arguments
-		enoughPromResults(t, results)
-		val := totalPromCount(t, results)
-		assert.LessOrEqual(t, 1, val)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 1, val)
 		if len(results) > 0 {
 			res := results[0]
-			assert.NotNil(t, res.Metric["server_port"])
+			assert.NotNil(ct, res.Metric["server_port"])
 		}
-	})
+	}, time.Minute, 100*time.Millisecond)
 }
 
 func TestGRPCMux(t *testing.T) {

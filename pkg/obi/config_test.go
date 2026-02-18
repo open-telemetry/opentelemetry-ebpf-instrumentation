@@ -41,6 +41,8 @@ func TestConfig_Overrides(t *testing.T) {
 trace_printer: json
 shutdown_timeout: 30s
 channel_buffer_len: 33
+channel_send_timeout: 10s
+channel_send_timeout_panic: true
 ebpf:
   functions:
     - FooBar
@@ -115,17 +117,22 @@ discovery:
 	metaSources["service.namespace"] = []string{"huha.com/yeah"}
 
 	assert.Equal(t, &Config{
-		Exec:             cfg.Exec,
-		Port:             cfg.Port,
-		ServiceName:      "svc-name",
-		ChannelBufferLen: 33,
-		LogLevel:         LogLevelInfo,
-		ShutdownTimeout:  30 * time.Second,
-		EnforceSysCaps:   false,
-		TracePrinter:     "json",
+		Exec:        cfg.Exec,
+		Port:        cfg.Port,
+		ServiceName: "svc-name",
+
+		ChannelBufferLen:        33,
+		ChannelSendTimeout:      10 * time.Second,
+		ChannelSendTimeoutPanic: true,
+
+		LogLevel:        LogLevelInfo,
+		ShutdownTimeout: 30 * time.Second,
+		EnforceSysCaps:  false,
+		TracePrinter:    "json",
 		EBPF: config.EBPFTracer{
 			BatchLength:        100,
 			BatchTimeout:       time.Second,
+			WakeupLen:          500,
 			HTTPRequestTimeout: 0,
 			MaxTransactionTime: 5 * time.Minute,
 			TCBackend:          config.TCBackendAuto,
@@ -138,11 +145,30 @@ discovery:
 			BufferSizes: config.EBPFBufferSizes{
 				MySQL:    0,
 				Postgres: 0,
+				Kafka:    0,
 			},
 			MySQLPreparedStatementsCacheSize:    1024,
 			PostgresPreparedStatementsCacheSize: 1024,
 			MongoRequestsCacheSize:              1024,
 			KafkaTopicUUIDCacheSize:             1024,
+			CouchbaseDBCacheSize:                1024,
+			PayloadExtraction: config.PayloadExtraction{
+				HTTP: config.HTTPConfig{
+					SQLPP: config.SQLPPConfig{
+						EndpointPatterns: []string{
+							"/query/service",
+						},
+					},
+				},
+			},
+			LogEnricher: config.LogEnricherConfig{
+				CacheTTL:              30 * time.Minute,
+				CacheSize:             128,
+				AsyncWriterWorkers:    8,
+				AsyncWriterChannelLen: 500,
+			},
+			BPFFSPath:      "/sys/fs/bpf/",
+			InstrumentCuda: config.CudaModeAuto,
 		},
 		NetworkFlows: nc,
 		Metrics: perapp.MetricsConfig{
@@ -179,7 +205,9 @@ discovery:
 				instrumentations.InstrumentationSQL,
 				instrumentations.InstrumentationRedis,
 				instrumentations.InstrumentationKafka,
+				instrumentations.InstrumentationMQTT,
 				instrumentations.InstrumentationMongo,
+				instrumentations.InstrumentationCouchbase,
 				// no traces for DNS and GPU by default
 			},
 		},
@@ -245,7 +273,7 @@ discovery:
 			MinProcessAge:                   5 * time.Second,
 			DefaultExcludeServices: services.RegexDefinitionCriteria{
 				services.RegexSelector{
-					Path: services.NewRegexp("(?:^|/)(beyla$|alloy$|otelcol[^/]*$)"),
+					Path: services.NewRegexp("(?:^|/)(beyla$|obi$|alloy$|otelcol[^/]*$)"),
 				},
 				services.RegexSelector{
 					Metadata: map[string]*services.RegexpAttr{"k8s_namespace": &k8sDefaultNamespacesRegex},
@@ -253,7 +281,7 @@ discovery:
 			},
 			DefaultExcludeInstrument: services.GlobDefinitionCriteria{
 				services.GlobAttributes{
-					Path: services.NewGlob("{*beyla,*alloy,*ebpf-instrument,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}"),
+					Path: services.NewGlob("{*beyla,*alloy,*/obi,obi,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}"),
 				},
 				services.GlobAttributes{
 					Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
@@ -264,6 +292,7 @@ discovery:
 			RouteHarvestConfig: services.RouteHarvestingConfig{
 				JavaHarvestDelay: 60 * time.Second,
 			},
+			ExcludedLinuxSystemPaths: []string{"/lib/systemd/", "/usr/lib/systemd/", "/usr/libexec/", "/sbin/", "/usr/sbin/"},
 		},
 		NodeJS: NodeJSConfig{
 			Enabled: true,
@@ -541,18 +570,22 @@ func TestDefaultExclusionFilter(t *testing.T) {
 
 	assert.True(t, c[0].Path.MatchString("beyla"))
 	assert.True(t, c[0].Path.MatchString("alloy"))
+	assert.True(t, c[0].Path.MatchString("obi"))
 	assert.True(t, c[0].Path.MatchString("otelcol-contrib"))
 
 	assert.False(t, c[0].Path.MatchString("/usr/bin/beyla/test"))
 	assert.False(t, c[0].Path.MatchString("/usr/bin/alloy/test"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/obi/test"))
 	assert.False(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib/test"))
 
 	assert.True(t, c[0].Path.MatchString("/beyla"))
 	assert.True(t, c[0].Path.MatchString("/alloy"))
+	assert.True(t, c[0].Path.MatchString("/obi"))
 	assert.True(t, c[0].Path.MatchString("/otelcol-contrib"))
 
 	assert.True(t, c[0].Path.MatchString("/usr/bin/beyla"))
 	assert.True(t, c[0].Path.MatchString("/usr/bin/alloy"))
+	assert.True(t, c[0].Path.MatchString("/usr/bin/obi"))
 	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib"))
 	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib123"))
 }
@@ -562,6 +595,7 @@ func TestDefaultLegacyExclusionFilter(t *testing.T) {
 
 	assert.True(t, c[0].Path.MatchString("beyla"))
 	assert.True(t, c[0].Path.MatchString("alloy"))
+	assert.True(t, c[0].Path.MatchString("obi"))
 	assert.True(t, c[0].Path.MatchString("otelcol-contrib"))
 
 	assert.False(t, c[0].Path.MatchString("/usr/bin/beyla/test"))
@@ -570,6 +604,7 @@ func TestDefaultLegacyExclusionFilter(t *testing.T) {
 
 	assert.True(t, c[0].Path.MatchString("/beyla"))
 	assert.True(t, c[0].Path.MatchString("/alloy"))
+	assert.True(t, c[0].Path.MatchString("/obi"))
 	assert.True(t, c[0].Path.MatchString("/otelcol-contrib"))
 
 	assert.True(t, c[0].Path.MatchString("/usr/bin/beyla"))

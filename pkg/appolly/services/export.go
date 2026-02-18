@@ -1,10 +1,11 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package services
+package services // import "go.opentelemetry.io/obi/pkg/appolly/services"
 
 import (
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -16,11 +17,13 @@ const (
 	// is not going to be emitted
 	blockMetrics = maps.Bits(1 << iota)
 	blockTraces
+	blockLogs
 )
 
 var modeForText = map[string]maps.Bits{
 	"metrics": blockMetrics,
 	"traces":  blockTraces,
+	"logs":    blockLogs,
 }
 
 const (
@@ -35,17 +38,17 @@ const (
 )
 
 // ExportModeUnset corresponds to an undefined export mode in the configuration YAML
-// (null or undefined value). This means that all the signals (traces, metrics) are
+// (null or undefined value). This means that all the signals (traces, metrics, logs) are
 // going to be exported
 var ExportModeUnset = ExportModes{blockSignal: unset}
 
 // ExportModes specifies which signals are going to be exported for a given service,
-// via the public methods CanExportTraces and CanExportMetrics.
+// via the public methods CanExportTraces, CanExportMetrics, and CanExportLogs.
 // Internally, it has three modes of operation depending on how it is defined in the YAML:
 //   - When it is undefined or null in the YAML, it will allow exporting all the signals
 //     (as no blocking signals are defined)
 //   - When it is defined as an empty list in the YAML, it will block all the signals. No
-//     metrics nor traces are exported.
+//     signals (metrics, traces, logs) are exported.
 //   - When it is defined as a non-empty list, it will only allow the explicitly specified signals.
 type ExportModes struct {
 	blockSignal maps.Bits
@@ -67,6 +70,12 @@ func (modes ExportModes) CanExportMetrics() bool {
 	return !modes.blockSignal.Has(blockMetrics)
 }
 
+// CanExportLogs reports whether logs can be exported.
+// It's provided as a convenience function.
+func (modes ExportModes) CanExportLogs() bool {
+	return !modes.blockSignal.Has(blockLogs)
+}
+
 // Allow ExportModes to be pragmatically constructed:
 //
 //  modes := NewExportModes()
@@ -78,6 +87,10 @@ func (modes *ExportModes) AllowTraces() {
 
 func (modes *ExportModes) AllowMetrics() {
 	modes.blockSignal ^= blockMetrics
+}
+
+func (modes *ExportModes) AllowLogs() {
+	modes.blockSignal ^= blockLogs
 }
 
 func (modes *ExportModes) UnmarshalYAML(value *yaml.Node) error {
@@ -95,6 +108,28 @@ func (modes *ExportModes) UnmarshalYAML(value *yaml.Node) error {
 			return fmt.Errorf("ExportModes[%d]: unknown export mode %q", i, inner.Value)
 		} else {
 			// a given signal is defined. Remove it from the blocking list
+			modes.blockSignal ^= mode
+		}
+	}
+	return nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler for ExportModes.
+// It parses a comma-separated list of export modes (e.g., "metrics,traces").
+// An empty string blocks all signals.
+func (modes *ExportModes) UnmarshalText(text []byte) error {
+	modes.blockSignal = blockAll
+	if len(text) == 0 {
+		return nil
+	}
+	for _, part := range strings.Split(string(text), ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if mode, ok := modeForText[part]; !ok {
+			return fmt.Errorf("ExportModes: unknown export mode %q", part)
+		} else {
 			modes.blockSignal ^= mode
 		}
 	}

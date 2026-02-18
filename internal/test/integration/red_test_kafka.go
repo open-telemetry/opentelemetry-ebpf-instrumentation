@@ -1,9 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
-package integration
+package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
 	"encoding/json"
@@ -11,14 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -26,13 +23,13 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 	t.Helper()
 
 	var (
-		pq = prom.Client{HostPort: prometheusHostPort}
+		pq = promtest.Client{HostPort: prometheusHostPort}
 
 		url     = testCase.Route
 		urlPath = testCase.Subpath
 		comm    = testCase.Comm
 
-		results []prom.Result
+		results []promtest.Result
 		err     error
 	)
 
@@ -44,25 +41,25 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 	require.Empty(t, results, "expected no HTTP requests, got %d", len(results))
 
 	// Ensure we see the expected spans in Jaeger
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
 			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&limit=1000")
-			require.NoError(t, err, "failed to query jaeger for %s", comm)
+			require.NoError(ct, err, "failed to query jaeger for %s", comm)
 			if resp == nil {
 				return
 			}
-			require.Equal(t, http.StatusOK, resp.StatusCode, "unexpected status code for %s: %d", command, resp.StatusCode)
+			require.Equal(ct, http.StatusOK, resp.StatusCode, "unexpected status code for %s: %d", command, resp.StatusCode)
 			var tq jaeger.TracesQuery
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq), "failed to decode jaeger response for %s", command)
+			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq), "failed to decode jaeger response for %s", command)
 			var tags []jaeger.Tag
 			for _, attr := range span.Attributes {
 				tags = append(tags, otelAttributeToJaegerTag(attr))
 			}
 			traces := tq.FindBySpan(tags...)
-			assert.LessOrEqual(t, 1, len(traces), "span %s with tags %v not found in traces %v", command, tags, tq.Data)
+			assert.LessOrEqual(ct, 1, len(traces), "span %s with tags %v not found in traces %v", command, tags, tq.Data)
 		}
-	}, test.Interval(100*time.Millisecond))
+	}, 2*testTimeout, 100*time.Millisecond)
 
 	// Ensure we don't find any HTTP traces, since we filter them out
 	resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2F" + urlPath)
@@ -95,7 +92,7 @@ func testREDMetricsPythonKafkaOnly(t *testing.T) {
 						attribute.String("span.kind", "producer"),
 						attribute.String("messaging.operation.type", "publish"),
 						attribute.String("messaging.destination.name", "my-topic"),
-						attribute.String("messaging.client_id", "kafka-python-producer-1"),
+						attribute.String("messaging.client.id", "kafka-python-producer-1"),
 						attribute.Int64("messaging.destination.partition.id", 0),
 					},
 				},
@@ -142,19 +139,68 @@ func testJavaKafka(t *testing.T) {
 						attribute.String("span.kind", "producer"),
 						attribute.String("messaging.operation.type", "publish"),
 						attribute.String("messaging.destination.name", "my-topic"),
-						attribute.String("messaging.client_id", "producer-1"),
+						attribute.String("messaging.client.id", "producer-1"),
 						attribute.Int64("messaging.destination.partition.id", 0),
 					},
 				},
 				{
-					// TODO: in here we can't recognize the topic name since the metadata response is cut to the first 4 bytes
-					// in java, to get this to work we need to use eBPF large buffers for kafka, will do so in a future PR
+					// In here we can't recognize the topic name (so we use *) since the metadata response is cut to
+					// the first 4 bytes in java, to get this to work we need to use eBPF large buffer feature for
+					// kafka which is tested in testJavaKafkaLargeBuffer
 					Name: "process *",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "consumer"),
 						attribute.String("messaging.operation.type", "process"),
 						attribute.String("messaging.destination.name", "*"),
-						attribute.String("messaging.client_id", "consumer-1-1"),
+						attribute.String("messaging.client.id", "consumer-1-1"),
+						attribute.Int64("messaging.destination.partition.id", 0),
+					},
+				},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		for i := range testCase.Spans {
+			testCase.Spans[i].Attributes = append(testCase.Spans[i].Attributes, commonAttrs...)
+		}
+
+		t.Run(testCase.Route, func(t *testing.T) {
+			waitForKafkaTestComponents(t, testCase.Route, "/"+testCase.Subpath)
+			runKafkaTestCase(t, testCase)
+		})
+	}
+}
+
+func testJavaKafkaLargeBuffer(t *testing.T) {
+	commonAttrs := []attribute.KeyValue{
+		attribute.String("messaging.system", "kafka"),
+		attribute.Int("server.port", 9092),
+	}
+
+	testCases := []TestCase{
+		{
+			Route:   "http://localhost:8381",
+			Subpath: "message",
+			Comm:    "javakafka-lb",
+			Spans: []TestCaseSpan{
+				{
+					Name: "publish theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree",
+					Attributes: []attribute.KeyValue{
+						attribute.String("span.kind", "producer"),
+						attribute.String("messaging.operation.type", "publish"),
+						attribute.String("messaging.destination.name", "theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree"),
+						attribute.String("messaging.client.id", "producer-1"),
+						attribute.Int64("messaging.destination.partition.id", 0),
+					},
+				},
+				{
+					Name: "process theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree",
+					Attributes: []attribute.KeyValue{
+						attribute.String("span.kind", "consumer"),
+						attribute.String("messaging.operation.type", "process"),
+						attribute.String("messaging.destination.name", "theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree"),
+						attribute.String("messaging.client.id", "consumer-1-1"),
 						attribute.Int64("messaging.destination.partition.id", 0),
 					},
 				},
@@ -177,11 +223,11 @@ func testJavaKafka(t *testing.T) {
 func waitForKafkaTestComponents(t *testing.T, url string, subpath string) {
 	t.Helper()
 
-	test.Eventually(t, time.Minute, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
-	}, test.Interval(time.Second))
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, r.StatusCode)
+	}, time.Minute, time.Second)
 }

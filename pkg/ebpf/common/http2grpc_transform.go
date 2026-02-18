@@ -1,12 +1,13 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package ebpfcommon
+package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/bhpack"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
@@ -47,8 +49,10 @@ type h2Connection struct {
 }
 
 func byteFramer(data []uint8) *http2.Framer {
-	buf := bytes.NewBuffer(data)
-	fr := http2.NewFramer(buf, buf) // the write is same as read, but we never write
+	fr := http2.NewFramer(
+		// we never write. We can save some resources
+		io.Discard,
+		bytes.NewReader(data))
 
 	return fr
 }
@@ -95,16 +99,13 @@ func isHTTPOp(op string) bool {
 }
 
 func handleHeaderField(hf *bhpack.HeaderField) bool {
-	hfKey := strings.ToLower(hf.Name)
-	switch hfKey {
+	switch hf.Name {
 	case ":method":
-		val := strings.ToUpper(hf.Value)
-		if isHTTPOp(val) {
+		if isHTTPOp(hf.Value) {
 			return true
 		}
 	case ":scheme":
-		val := strings.ToUpper(hf.Value)
-		if val == "HTTP" {
+		if hf.Value == "http" {
 			return true
 		}
 	case "traceparent":
@@ -175,8 +176,7 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 	}
 
 	h2c.hdec.SetEmitFunc(func(hf bhpack.HeaderField) {
-		hfKey := strings.ToLower(hf.Name)
-		switch hfKey {
+		switch hf.Name {
 		case ":method":
 			method = hf.Value
 			ok = true
@@ -184,7 +184,7 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 			path = hf.Value
 			ok = true
 		case "content-type":
-			contentType = strings.ToLower(hf.Value)
+			contentType = hf.Value
 			if contentType == "application/grpc" {
 				protocolIsGRPC(parseContext.h2c, connID)
 			}
@@ -240,11 +240,10 @@ func readRetMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.F
 	}
 
 	h2c.hdecRet.SetEmitFunc(func(hf bhpack.HeaderField) {
-		hfKey := strings.ToLower(hf.Name)
 		// grpc requests may have :status and grpc-status. :status will be HTTP code.
 		// we prefer the grpc one if it exists, it's always later since : tagged headers
 		// end up first in the headers list.
-		switch hfKey {
+		switch hf.Name {
 		case ":status":
 			if !grpc { // only set the HTTP status if we didn't find grpc status
 				status, _ = strconv.Atoi(hf.Value)
@@ -306,8 +305,8 @@ func http2InfoToSpan(info *BPFHTTP2Info, method, path, peer, host string, status
 		ParentSpanID:  trace.SpanID(info.Tp.ParentId),
 		TraceFlags:    info.Tp.Flags,
 		Pid: request.PidInfo{
-			HostPID:   info.Pid.HostPid,
-			UserPID:   info.Pid.UserPid,
+			HostPID:   app.PID(info.Pid.HostPid),
+			UserPID:   app.PID(info.Pid.UserPid),
 			Namespace: info.Pid.Ns,
 		},
 	}
@@ -454,7 +453,7 @@ func ReadHTTP2InfoIntoSpan(parseContext *EBPFParseContext, record *ringbuf.Recor
 		return request.Span{}, true, err
 	}
 
-	if !filter.ValidPID(event.Pid.UserPid, event.Pid.Ns, PIDTypeKProbes) {
+	if !filter.ValidPID(app.PID(event.Pid.UserPid), event.Pid.Ns, PIDTypeKProbes) {
 		return request.Span{}, true, nil
 	}
 

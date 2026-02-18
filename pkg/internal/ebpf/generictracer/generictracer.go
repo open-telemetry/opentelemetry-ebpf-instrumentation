@@ -3,7 +3,7 @@
 
 //go:build linux
 
-package generictracer
+package generictracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 
 import (
 	"bufio"
@@ -21,6 +21,7 @@ import (
 	"github.com/gavv/monotime"
 	"github.com/vishvananda/netlink"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -119,12 +120,12 @@ func (p *Tracer) rebuildValidPids() {
 	}
 }
 
-func (p *Tracer) AllowPID(pid, ns uint32, svc *svc.Attrs) {
+func (p *Tracer) AllowPID(pid app.PID, ns uint32, svc *svc.Attrs) {
 	p.pidsFilter.AllowPID(pid, ns, svc, ebpfcommon.PIDTypeKProbes)
 	p.rebuildValidPids()
 }
 
-func (p *Tracer) BlockPID(pid, ns uint32) {
+func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
 	p.rebuildValidPids()
 }
@@ -200,6 +201,7 @@ func (p *Tracer) Constants() map[string]any {
 
 	m["http_buffer_size"] = p.cfg.EBPF.BufferSizes.HTTP
 	m["mysql_buffer_size"] = p.cfg.EBPF.BufferSizes.MySQL
+	m["kafka_buffer_size"] = p.cfg.EBPF.BufferSizes.Kafka
 	m["postgres_buffer_size"] = p.cfg.EBPF.BufferSizes.Postgres
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
 
@@ -439,6 +441,8 @@ func (p *Tracer) Iters() []*ebpfcommon.Iter {
 
 	return p.iters
 }
+
+func (p *Tracer) Tracing() []*ebpfcommon.Tracing { return nil }
 
 func (p *Tracer) RecordInstrumentedLib(id uint64, closers []io.Closer) {
 	p.libsMux.Lock()

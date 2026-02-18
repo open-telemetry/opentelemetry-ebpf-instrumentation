@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package procs
+package procs // import "go.opentelemetry.io/obi/pkg/internal/procs"
 
 import (
 	"bufio"
@@ -11,9 +11,11 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
-func FindNamespace(pid int32) (uint32, error) {
+func FindNamespace(pid app.PID) (uint32, error) {
 	pidPath := fmt.Sprintf("/proc/%d/ns/pid", pid)
 	f, err := os.Open(pidPath)
 	if err != nil {
@@ -50,35 +52,38 @@ func FindNamespace(pid int32) (uint32, error) {
 	return 0, fmt.Errorf("couldn't find ns pid in the symlink [%s]", nsPid)
 }
 
-func FindNamespacedPids(pid int32) ([]uint32, error) {
+func FindNamespacedPids(pid app.PID) ([]app.PID, error) {
 	statusPath := fmt.Sprintf("/proc/%d/status", pid)
 	f, err := os.Open(statusPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open(/proc/%d/status): %w", pid, err)
 	}
-
 	defer f.Close()
+
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "NSpid:") {
 			l := line[6:]
 			parts := strings.Split(l, "\t")
-			result := make([]uint32, 0)
+			result := make([]app.PID, 0)
+
 			for _, p := range parts {
 				if len(p) == 0 {
 					continue
 				}
-				id, err := strconv.ParseUint(p, 10, 32)
 
-				if err == nil {
-					result = append(result, uint32(id))
-				} else {
-					return nil, err
+				id, err := strconv.ParseUint(p, 10, 32)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse namespaced pid %w", err)
 				}
+
+				result = append(result, app.PID(id))
 			}
+
 			return result, nil
 		}
 	}
+
 	return nil, nil
 }

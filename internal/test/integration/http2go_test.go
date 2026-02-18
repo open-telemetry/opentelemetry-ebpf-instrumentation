@@ -1,8 +1,6 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
 package integration
 
 import (
@@ -13,18 +11,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 func testREDMetricsForHTTP2Library(t *testing.T, route, svcNs string) {
 	// Eventually, Prometheus would make this query visible
 	var (
-		pq           = prom.Client{HostPort: prometheusHostPort}
+		pq           = promtest.Client{HostPort: prometheusHostPort}
 		serverLabels = `http_request_method="GET",` +
 			`http_response_status_code="200",` +
 			`service_namespace="` + svcNs + `",` +
@@ -37,54 +35,54 @@ func testREDMetricsForHTTP2Library(t *testing.T, route, svcNs string) {
 			`service_name="client"`
 	)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_server_request_duration_seconds_count{%s}", serverLabels)
-		checkServerPromQueryResult(t, pq, query, 1)
-	})
+		checkServerPromQueryResult(ct, pq, query, 1)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", serverLabels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", serverLabels)
-		checkServerPromQueryResult(t, pq, query, 3)
-	})
+		checkServerPromQueryResult(ct, pq, query, 3)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_client_request_duration_seconds_count{%s}", clientLabels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		checkClientPromQueryResult(ct, pq, query, 1)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_client_request_body_size_bytes_count{%s}", clientLabels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		checkClientPromQueryResult(ct, pq, query, 1)
+	}, testTimeout, 100*time.Millisecond)
 
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		query := fmt.Sprintf("http_client_response_body_size_bytes_count{%s}", clientLabels)
-		checkClientPromQueryResult(t, pq, query, 1)
-	})
+		checkClientPromQueryResult(ct, pq, query, 1)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testNestedHTTP2Traces(t *testing.T, url string) {
 	var traceID string
 
 	var trace jaeger.Trace
-	test.Eventually(t, time.Duration(1)*time.Minute, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=client&operation=GET%20%2F" + url)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		if resp == nil {
 			return
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"})
-		require.GreaterOrEqual(t, len(traces), 1)
+		require.GreaterOrEqual(ct, len(traces), 1)
 		trace = traces[0]
-	}, test.Interval(100*time.Millisecond))
+	}, 1*time.Minute, 100*time.Millisecond)
 
 	// Check the information of the HTTP2 client span
 	res := trace.FindByOperationName("GET /"+url, "client")
@@ -95,19 +93,19 @@ func testNestedHTTP2Traces(t *testing.T, url string) {
 	require.NotEmpty(t, parent.SpanID)
 
 	// Find the same traceID on a server span
-	test.Eventually(t, time.Duration(1)*time.Minute, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=server&operation=GET%20%2F" + url + "&traceID=" + traceID)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		if resp == nil {
 			return
 		}
-		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"})
-		require.GreaterOrEqual(t, len(traces), 1)
+		require.GreaterOrEqual(ct, len(traces), 1)
 		trace = traces[0]
-	}, test.Interval(100*time.Millisecond))
+	}, 1*time.Minute, 100*time.Millisecond)
 }
 
 func TestHTTP2Go(t *testing.T) {

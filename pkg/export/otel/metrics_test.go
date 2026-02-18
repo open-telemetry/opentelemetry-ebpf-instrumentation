@@ -15,13 +15,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -46,11 +46,11 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	}))
 	defer coll.Close()
 	// Wait for the HTTP server to be alive
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := coll.Client().Get(coll.URL + "/foo")
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-	})
+		require.NoError(ct, err)
+		assert.Equal(ct, http.StatusOK, resp.StatusCode)
+	}, timeout, 100*time.Millisecond)
 
 	// Run the metrics reporter node standalone
 	exportMetrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
@@ -72,57 +72,57 @@ func TestMetrics_InternalInstrumentation(t *testing.T) {
 	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
 
 	var previousSum, previousCount int
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// we can't guarantee the number of calls at test time, but they must be at least 1
 		previousSum, previousCount = internalMetrics.SumCount()
-		assert.LessOrEqual(t, 1, previousSum)
-		assert.LessOrEqual(t, 1, previousCount)
+		assert.LessOrEqual(ct, 1, previousSum)
+		assert.LessOrEqual(ct, 1, previousCount)
 		// the count of metrics should be larger than the number of calls (1 call : n metrics)
-		assert.Less(t, previousCount, previousSum)
+		assert.Less(ct, previousCount, previousSum)
 		// no call should return error
-		assert.Zero(t, internalMetrics.Errors())
-	})
+		assert.Zero(ct, internalMetrics.Errors())
+	}, timeout, 100*time.Millisecond)
 
 	// send another trace
 	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
 
 	// after some time, the number of calls should be higher than before
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		sum, cnt := internalMetrics.SumCount()
-		assert.LessOrEqual(t, previousSum, sum)
-		assert.LessOrEqual(t, previousCount, cnt)
-		assert.Less(t, cnt, sum)
+		assert.LessOrEqual(ct, previousSum, sum)
+		assert.LessOrEqual(ct, previousCount, cnt)
+		assert.Less(ct, cnt, sum)
 		// no call should return error
-		assert.Zero(t, internalMetrics.Errors())
-	})
+		assert.Zero(ct, internalMetrics.Errors())
+	}, timeout, 100*time.Millisecond)
 
 	// collector starts failing, so errors should be received
 	coll.CloseClientConnections()
 	coll.Close()
 	// Wait for the HTTP server to be stopped
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		_, err := coll.Client().Get(coll.URL + "/foo")
-		require.Error(t, err)
-	})
+		require.Error(ct, err)
+	}, timeout, 100*time.Millisecond)
 
 	var previousErrCount int
 	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		previousSum, previousCount = internalMetrics.SumCount()
 		// calls should start returning errors
 		previousErrCount = internalMetrics.Errors()
-		assert.NotZero(t, previousErrCount)
-	})
+		assert.NotZero(ct, previousErrCount)
+	}, timeout, 100*time.Millisecond)
 
 	// after a while, metrics count should not increase but errors do
 	exportMetrics.Send([]request.Span{{Service: svc.Attrs{Features: export.FeatureAll}, Type: request.EventTypeHTTP}})
-	test.Eventually(t, timeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		sum, cnt := internalMetrics.SumCount()
-		assert.Equal(t, previousSum, sum)
-		assert.Equal(t, previousCount, cnt)
+		assert.Equal(ct, previousSum, sum)
+		assert.Equal(ct, previousCount, cnt)
 		// calls should start returning errors
-		assert.Less(t, previousErrCount, internalMetrics.Errors())
-	})
+		assert.Less(ct, previousErrCount, internalMetrics.Errors())
+	}, timeout, 100*time.Millisecond)
 }
 
 type fakeInternalMetrics struct {
@@ -133,10 +133,11 @@ type fakeInternalMetrics struct {
 }
 
 type InstrTest struct {
-	name      string
-	instr     []instrumentations.Instrumentation
-	expected  []string
-	extraColl int
+	name       string
+	instr      []instrumentations.Instrumentation
+	expected   []string
+	unexpected []string
+	extraColl  int
 }
 
 func TestAppMetrics_ByInstrumentation(t *testing.T) {
@@ -156,8 +157,16 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"db.client.operation.duration", // REDIS client SET
 				"db.client.operation.duration", // Redis server GET (TODO is this a bug?)
 				"db.client.operation.duration", // MongoDB client find
-				"messaging.publish.duration",
-				"messaging.process.duration",
+				"messaging.publish.duration",   // Kafka client
+				"messaging.publish.duration",   // MQTT client
+				"messaging.process.duration",   // MQTT server (ordering within aggregated metrics)
+				"messaging.process.duration",   // Kafka server
+				"gpu.cuda.kernel.launch.calls", // Cuda events
+				"gpu.cuda.graph.launch.calls",  // Cuda events
+				"gpu.cuda.kernel.grid.size",    // Cuda events
+				"gpu.cuda.kernel.block.size",   // Cuda events
+				"gpu.cuda.memory.allocations",  // Cuda events
+				"gpu.cuda.memory.copies",       // Cuda events
 			},
 		},
 		{
@@ -167,6 +176,14 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			expected: []string{
 				"http.server.request.duration",
 				"http.client.request.duration",
+			},
+			unexpected: []string{
+				"gpu.cuda.kernel.launch.calls",
+				"gpu.cuda.graph.launch.calls",
+				"gpu.cuda.kernel.grid.size",
+				"gpu.cuda.kernel.block.size",
+				"gpu.cuda.memory.allocations",
+				"gpu.cuda.memory.copies",
 			},
 		},
 		{
@@ -198,6 +215,15 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		{
 			name:      "kafka only",
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationKafka},
+			extraColl: 0,
+			expected: []string{
+				"messaging.publish.duration",
+				"messaging.process.duration",
+			},
+		},
+		{
+			name:      "mqtt only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationMQTT},
 			extraColl: 0,
 			expected: []string{
 				"messaging.publish.duration",
@@ -256,8 +282,9 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			EventTypeRedisClient
 			EventTypeRedisServer
 			EventTypeKafkaClient
-			EventTypeRedisServer
 			EventTypeKafkaServer
+			EventTypeMQTTClient
+			EventTypeMQTTServer
 			*/
 			// WHEN it receives metrics
 			metrics.Send([]request.Span{
@@ -271,6 +298,12 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaGraphLaunch},
 			})
 
 			// Read the exported metrics, add +extraColl for HTTP size metrics
@@ -278,16 +311,19 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			m := []collector.MetricRecord{}
 			// skip over the byte size metrics
 			for _, r := range res {
-				if strings.HasSuffix(r.Name, ".duration") {
+				if strings.HasSuffix(r.Name, ".duration") || strings.HasPrefix(r.Name, "gpu.") {
 					m = append(m, r)
 				}
 			}
 			assert.Len(t, m, len(tt.expected))
 
-			for i := 0; i < len(tt.expected); i++ {
-				assert.Equal(t, tt.expected[i], m[i].Name)
+			for i := 0; i < len(m); i++ {
+				assert.Contains(t, tt.expected, m[i].Name)
 			}
 
+			for i := 0; i < len(m); i++ {
+				assert.NotContains(t, tt.unexpected, m[i].Name)
+			}
 			otelcfg.RestoreEnvAfterExecution()
 		})
 	}
@@ -580,10 +616,10 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 		{Service: svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
 	})
 
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		assert.NotEmpty(t, mr.hostInfo.entries.All(),
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.NotEmpty(ct, mr.hostInfo.entries.All(),
 			"traces_host_info metric has not been created yet")
-	})
+	}, timeout, 100*time.Millisecond)
 
 	// Check expiration logic
 	processEvents.Send(exec.ProcessEvent{
@@ -598,10 +634,10 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	now.Advance(50 * time.Minute)
 
-	test.Eventually(t, timeout, func(t require.TestingT) {
-		assert.Empty(t, mr.hostInfo.entries.All(),
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.Empty(ct, mr.hostInfo.entries.All(),
 			"traces_host_info metric has not expired yet") // The entry should be expired
-	})
+	}, timeout, 100*time.Millisecond)
 }
 
 func TestMetricResourceAttributes(t *testing.T) {
@@ -1260,7 +1296,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 
 			event := exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{Pid: int32(1000 + i), Service: service},
+				File: &exec.FileInfo{Pid: app.PID(1000 + i), Service: service},
 			}
 			reporter.onProcessEvent(&event)
 		}

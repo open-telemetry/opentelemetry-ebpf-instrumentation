@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package instrumenter
+package instrumenter // import "go.opentelemetry.io/obi/pkg/instrumenter"
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -31,10 +32,17 @@ func Run(
 	ctx context.Context, cfg *obi.Config,
 	opts ...Option,
 ) error {
-	ctxInfo, err := buildCommonContextInfo(ctx, cfg)
+	ctxInfo, err := BuildCommonContextInfo(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("can't build common context info: %w", err)
 	}
+	return RunWithContextInfo(ctx, cfg, ctxInfo, opts...)
+}
+
+func RunWithContextInfo(
+	ctx context.Context, cfg *obi.Config, ctxInfo *global.ContextInfo,
+	opts ...Option,
+) error {
 	for _, opt := range opts {
 		opt(ctxInfo)
 	}
@@ -130,9 +138,9 @@ func buildServiceNameTemplate(config *obi.Config) (*template.Template, error) {
 	return templ, nil
 }
 
-// BuildContextInfo populates some globally shared components and properties
+// BuildCommonContextInfo populates some globally shared components and properties
 // from the user-provided configuration
-func buildCommonContextInfo(
+func BuildCommonContextInfo(
 	ctx context.Context, config *obi.Config,
 ) (*global.ContextInfo, error) {
 	// merging deprecated resource labels definition for backwards compatibility
@@ -186,6 +194,8 @@ func buildCommonContextInfo(
 		ServiceNameTemplate: templ,
 	}, ctxInfo.Metrics)
 
+	ctxInfo.DockerMetadata = docker.NewStore()
+
 	attributeGroups(config, ctxInfo)
 
 	return ctxInfo, nil
@@ -222,6 +232,8 @@ func internalMetrics(
 func attributeGroups(config *obi.Config, ctxInfo *global.ContextInfo) {
 	if ctxInfo.K8sInformer.IsKubeEnabled() {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupKubernetes)
+	} else if ctxInfo.DockerMetadata.IsEnabled(context.Background()) {
+		ctxInfo.MetricAttributeGroups.Add(attributes.GroupContainer)
 	}
 	if config.Routes != nil {
 		ctxInfo.MetricAttributeGroups.Add(attributes.GroupHTTPRoutes)

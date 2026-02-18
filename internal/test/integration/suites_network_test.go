@@ -1,8 +1,6 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration
-
 package integration
 
 import (
@@ -15,12 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
-	"go.opentelemetry.io/obi/internal/test/integration/components/prom"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 func TestNetwork_Deduplication(t *testing.T) {
@@ -113,13 +110,13 @@ func TestNetwork_ReverseDNS(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	checkCurlFlows := func(query string) {
-		pq := prom.Client{HostPort: prometheusHostPort}
-		test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
+		pq := promtest.Client{HostPort: prometheusHostPort}
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			// now, verify that the network metric has been reported.
 			results, err := pq.Query(`obi_network_flow_bytes_total` + query)
-			require.NoError(t, err)
-			require.NotEmpty(t, results)
-		})
+			require.NoError(ct, err)
+			require.NotEmpty(ct, results)
+		}, 4*testTimeout, 100*time.Millisecond)
 	}
 
 	checkCurlFlows(`{dst_name="github.com"}`)
@@ -141,13 +138,13 @@ func TestNetwork_Direction(t *testing.T) {
 	}
 
 	// test correct direction labels and client/server ports
-	client := results[slices.IndexFunc(results, func(result prom.Result) bool { return result.Metric["dst_port"] == "8080" })]
+	client := results[slices.IndexFunc(results, func(result promtest.Result) bool { return result.Metric["dst_port"] == "8080" })]
 	assert.Equal(t, "request", client.Metric["direction"])
 	assert.Equal(t, "egress", client.Metric["iface_direction"])
 	assert.Equal(t, "7000", client.Metric["client_port"])
 	assert.Equal(t, "8080", client.Metric["server_port"])
 
-	server := results[slices.IndexFunc(results, func(result prom.Result) bool { return result.Metric["src_port"] == "8080" })]
+	server := results[slices.IndexFunc(results, func(result promtest.Result) bool { return result.Metric["src_port"] == "8080" })]
 	assert.Equal(t, "response", server.Metric["direction"])
 	assert.Equal(t, "ingress", server.Metric["iface_direction"], "ingress")
 	assert.Equal(t, "7000", server.Metric["client_port"])
@@ -169,13 +166,13 @@ func TestNetwork_IfaceDirection_Use_Socket_Filter(t *testing.T) {
 	}
 
 	// test correct direction labels and client/server ports
-	client := results[slices.IndexFunc(results, func(result prom.Result) bool { return result.Metric["dst_port"] == "8080" })]
+	client := results[slices.IndexFunc(results, func(result promtest.Result) bool { return result.Metric["dst_port"] == "8080" })]
 	require.Equal(t, "request", client.Metric["direction"])
 	require.Equal(t, "egress", client.Metric["iface_direction"])
 	require.Equal(t, "7000", client.Metric["client_port"])
 	require.Equal(t, "8080", client.Metric["server_port"])
 
-	server := results[slices.IndexFunc(results, func(result prom.Result) bool { return result.Metric["src_port"] == "8080" })]
+	server := results[slices.IndexFunc(results, func(result promtest.Result) bool { return result.Metric["src_port"] == "8080" })]
 	require.Equal(t, "response", server.Metric["direction"])
 	require.Equal(t, "ingress", server.Metric["iface_direction"])
 	require.Equal(t, "7000", server.Metric["client_port"])
@@ -184,35 +181,35 @@ func TestNetwork_IfaceDirection_Use_Socket_Filter(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
-func getNetFlows(t *testing.T) []prom.Result {
-	var results []prom.Result
-	pq := prom.Client{HostPort: prometheusHostPort}
-	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
+func getNetFlows(t *testing.T) []promtest.Result {
+	var results []promtest.Result
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// first, verify that the test service endpoint is healthy
 		req, err := http.NewRequest(http.MethodGet, instrumentedServiceStdURL, nil)
-		require.NoError(t, err)
+		require.NoError(ct, err)
 		r, err := testHTTPClient.Do(req)
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, r.StatusCode)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, r.StatusCode)
 
 		// now, verify that the network metric has been reported.
 		results, err = pq.Query(`obi_network_flow_bytes_total`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, 4*testTimeout, time.Second)
 	return results
 }
 
-func getDirectionNetFlows(t *testing.T) []prom.Result {
-	var results []prom.Result
-	pq := prom.Client{HostPort: prometheusHostPort}
+func getDirectionNetFlows(t *testing.T) []promtest.Result {
+	var results []promtest.Result
+	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	// wait for first network flow metrics
-	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total`)
-		require.NoError(t, err)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, 4*testTimeout, time.Second)
 
 	// make a few calls to the testserver, which will call testserver2 with a source port lower than a destination port (7000 -> 8080)
 	req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/echoLowPort", nil)
@@ -222,16 +219,16 @@ func getDirectionNetFlows(t *testing.T) []prom.Result {
 	callAndCheckMetrics(t, req, pq, clientBytes, serverBytes)
 
 	// verify that the correct network metric has been reported.
-	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err = pq.Query(`obi_network_flow_bytes_total{src_port="7000", dst_port="8080"} or obi_network_flow_bytes_total{src_port="8080", dst_port="7000"}`)
-		require.NoError(t, err)
-		require.Len(t, results, 2)
-		require.NotEmpty(t, results)
-	}, test.Interval(time.Second))
+		require.NoError(ct, err)
+		require.Len(ct, results, 2)
+		require.NotEmpty(ct, results)
+	}, 4*testTimeout, time.Second)
 	return results
 }
 
-func callAndCheckMetrics(t *testing.T, req *http.Request, pq prom.Client, previousClientValue int, previousServerValue int) (int, int) {
+func callAndCheckMetrics(t *testing.T, req *http.Request, pq promtest.Client, previousClientValue int, previousServerValue int) (int, int) {
 	var clientValue, serverValue int
 
 	// make call
@@ -240,18 +237,18 @@ func callAndCheckMetrics(t *testing.T, req *http.Request, pq prom.Client, previo
 	require.Equal(t, http.StatusOK, r.StatusCode)
 
 	// wait for fetching aggregated flows in beyla about this call
-	test.Eventually(t, 4*testTimeout, func(t require.TestingT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_port="7000", dst_port="8080"} or obi_network_flow_bytes_total{src_port="8080", dst_port="7000"}`)
-		require.NoError(t, err)
-		require.Len(t, results, 2)
-		require.NotEmpty(t, results)
+		require.NoError(ct, err)
+		require.Len(ct, results, 2)
+		require.NotEmpty(ct, results)
 		// wait till the amount of bytes is greater than the previous read
-		client := results[slices.IndexFunc(results, func(result prom.Result) bool { return result.Metric["dst_port"] == "8080" })]
+		client := results[slices.IndexFunc(results, func(result promtest.Result) bool { return result.Metric["dst_port"] == "8080" })]
 		clientValue, _ = strconv.Atoi(client.Value[1].(string))
-		require.Greater(t, clientValue, previousClientValue)
-		server := results[slices.IndexFunc(results, func(result prom.Result) bool { return result.Metric["src_port"] == "8080" })]
+		require.Greater(ct, clientValue, previousClientValue)
+		server := results[slices.IndexFunc(results, func(result promtest.Result) bool { return result.Metric["src_port"] == "8080" })]
 		serverValue, _ = strconv.Atoi(server.Value[1].(string))
-		require.Greater(t, serverValue, previousServerValue)
-	}, test.Interval(time.Second))
+		require.Greater(ct, serverValue, previousServerValue)
+	}, 4*testTimeout, time.Second)
 	return clientValue, serverValue
 }

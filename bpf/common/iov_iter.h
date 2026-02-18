@@ -1,0 +1,128 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+#pragma once
+
+#include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_helpers.h>
+#include <bpfcore/bpf_core_read.h>
+#include <bpfcore/utils.h>
+
+#include <logger/bpf_dbg.h>
+
+enum { k_iovec_max_len = 8192 };
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpadded"
+
+struct iov_iter___dummy {
+    unsigned int type; // for co-re support, use iter_type instead
+    u8 iter_type;
+    void *ubuf;
+    const struct iovec *iov;
+    const struct iovec *__iov;
+    unsigned long nr_segs;
+};
+
+#pragma clang diagnostic pop
+
+typedef struct iov_iter___dummy iovec_iter_ctx;
+
+enum iter_type___dummy { ITER_UBUF };
+
+// extracts kernel specific iov_iter information into a iovec_iter_ctx instance
+static __always_inline void get_iovec_ctx(iovec_iter_ctx *ctx, struct iov_iter___dummy *iov_iter) {
+    ctx->ubuf = NULL;
+    ctx->iov = NULL;
+    if (bpf_core_field_exists(iov_iter->type)) {
+        // clear the direction bit when reading iovec_iter::type to end up
+        // with the original enumerator value (the direction bit is the LSB
+        // and is either 0 (READ) or 1 (WRITE)).
+        ctx->iter_type = BPF_CORE_READ(iov_iter, type) & 0xfe;
+    } else {
+        ctx->iter_type = BPF_CORE_READ(iov_iter, iter_type);
+    }
+
+    if (bpf_core_field_exists(iov_iter->ubuf)) {
+        ctx->ubuf = BPF_CORE_READ(iov_iter, ubuf);
+    }
+
+    if (bpf_core_field_exists(iov_iter->iov)) {
+        ctx->iov = BPF_CORE_READ(iov_iter, iov);
+    } else if (bpf_core_field_exists(iov_iter->__iov)) {
+        ctx->iov = BPF_CORE_READ(iov_iter, __iov);
+    }
+
+    ctx->nr_segs = BPF_CORE_READ(iov_iter, nr_segs);
+}
+
+static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *buf, size_t max_len) {
+    if (max_len == 0) {
+        return 0;
+    }
+
+    bpf_clamp_umax(max_len, k_iovec_max_len);
+
+    bpf_dbg_printk("iter_type=%u", ctx->iter_type);
+    bpf_dbg_printk("nr_segs=%lu, iov=%p, ubuf=%p", ctx->nr_segs, ctx->iov, ctx->ubuf);
+
+    // ITER_UBUF only exists in kernels >= 6.0 - earlier kernels use ITER_IOVEC
+    if (bpf_core_enum_value_exists(enum iter_type___dummy, ITER_UBUF)) {
+        const int iter_ubuf = bpf_core_enum_value(enum iter_type___dummy, ITER_UBUF);
+
+        // ITER_UBUF is never a bitmask, and can be 0, so we perform a proper
+        // equality check rather than a bitwise and like we do for ITER_IOVEC
+        if (ctx->ubuf != NULL && ctx->iter_type == iter_ubuf) {
+            bpf_clamp_umax(max_len, k_iovec_max_len);
+            return bpf_probe_read(buf, max_len, ctx->ubuf) == 0 ? max_len : 0;
+        }
+    }
+
+    const int iter_iovec = bpf_core_enum_value(enum iter_type, ITER_IOVEC);
+
+    if (ctx->iter_type != iter_iovec) {
+        return 0;
+    }
+
+    u32 tot_len = 0;
+
+    enum { max_segments = 16 };
+
+    bpf_clamp_umax(ctx->nr_segs, max_segments);
+
+    // Loop couple of times reading the various io_vecs
+    for (unsigned long i = 0; i < ctx->nr_segs && i < max_segments; i++) {
+        struct iovec vec;
+
+        if (bpf_probe_read_kernel(&vec, sizeof(vec), &ctx->iov[i]) != 0) {
+            break;
+        }
+
+        // bpf_dbg_printk("iov[%d]=%llx", i, &ctx->iov[i]);
+        // bpf_dbg_printk("base=%llx, len=%d", vec.iov_base, vec.iov_len);
+
+        if (!vec.iov_base || !vec.iov_len) {
+            continue;
+        }
+
+        const u32 remaining = k_iovec_max_len > tot_len ? (k_iovec_max_len - tot_len) : 0;
+        u32 iov_size = vec.iov_len < max_len ? vec.iov_len : max_len;
+        iov_size = iov_size < remaining ? iov_size : remaining;
+        bpf_clamp_umax(tot_len, k_iovec_max_len);
+        bpf_clamp_umax(iov_size, k_iovec_max_len);
+
+        // bpf_dbg_printk("tot_len=%d, remaining=%d", tot_len, remaining);
+
+        if (tot_len + iov_size > max_len) {
+            break;
+        }
+
+        bpf_probe_read(&buf[tot_len], iov_size, vec.iov_base);
+
+        // bpf_dbg_printk("iov_size=%d, buf=[%s]", iov_size, buf);
+
+        tot_len += iov_size;
+    }
+
+    return tot_len;
+}

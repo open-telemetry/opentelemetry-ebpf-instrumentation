@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf"
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/config"
@@ -33,7 +33,7 @@ func TestForwardRingbuf_CapacityFull(t *testing.T) {
 	metrics := &metricsReporter{}
 	forwardedMessagesQueue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100))
 	forwardedMessages := forwardedMessagesQueue.Subscribe()
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 	fltr.AllowPID(1, 1, &svc.Attrs{UID: svc.UID{Name: "myService"}}, PIDTypeGo)
 	go ForwardRingbuf(
 		&config.EBPFTracer{BatchLength: 10},
@@ -85,7 +85,7 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 	metrics := &metricsReporter{}
 	forwardedMessagesQueue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100))
 	forwardedMessages := forwardedMessagesQueue.Subscribe()
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 	fltr.AllowPID(1, 1, &svc.Attrs{UID: svc.UID{Name: "myService"}}, PIDTypeGo)
 	go ForwardRingbuf(
 		&config.EBPFTracer{BatchLength: 10, BatchTimeout: 20 * time.Millisecond},
@@ -145,9 +145,9 @@ func TestForwardRingbuf_Close(t *testing.T) {
 	close(ringBuf.closeCh)
 
 	// THEN the ring buffer and the passed io.Closer elements have been explicitly closed
-	test.Eventually(t, testTimeout, func(t require.TestingT) {
-		assert.True(t, ringBuf.explicitClose.Load())
-	})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.True(ct, ringBuf.explicitClose.Load())
+	}, testTimeout, 100*time.Millisecond)
 	// Wait a bit for the defer to close resources
 	time.Sleep(time.Second)
 
@@ -227,22 +227,22 @@ func (m *metricsReporter) TracerFlush(length int) {
 }
 
 type TestPidsFilter struct {
-	services map[uint32]svc.Attrs
+	services map[app.PID]svc.Attrs
 }
 
-func (pf *TestPidsFilter) AllowPID(p uint32, _ uint32, s *svc.Attrs, _ PIDType) {
+func (pf *TestPidsFilter) AllowPID(p app.PID, _ uint32, s *svc.Attrs, _ PIDType) {
 	pf.services[p] = *s
 }
 
-func (pf *TestPidsFilter) BlockPID(p uint32, _ uint32) {
+func (pf *TestPidsFilter) BlockPID(p app.PID, _ uint32) {
 	delete(pf.services, p)
 }
 
-func (pf *TestPidsFilter) ValidPID(_ uint32, _ uint32, _ PIDType) bool {
+func (pf *TestPidsFilter) ValidPID(_ app.PID, _ uint32, _ PIDType) bool {
 	return true
 }
 
-func (pf *TestPidsFilter) CurrentPIDs(_ PIDType) map[uint32]map[uint32]svc.Attrs {
+func (pf *TestPidsFilter) CurrentPIDs(_ PIDType) map[uint32]map[app.PID]svc.Attrs {
 	return nil
 }
 

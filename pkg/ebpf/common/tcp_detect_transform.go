@@ -1,13 +1,14 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package ebpfcommon
+package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"errors"
 	"fmt"
 	"log/slog"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
@@ -35,7 +36,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		return request.Span{}, true, err
 	}
 
-	if !filter.ValidPID(event.Pid.UserPid, event.Pid.Ns, PIDTypeKProbes) {
+	if !filter.ValidPID(app.PID(event.Pid.UserPid), event.Pid.Ns, PIDTypeKProbes) {
 		return request.Span{}, true, nil
 	}
 
@@ -48,6 +49,24 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 
 	// We might know already the protocol for this event
 	switch event.ProtocolType {
+	case ProtocolTypeKafka:
+		k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
+		if ignore && err == nil {
+			return request.Span{}, true, nil // parsed kafka event, but we don't want to create a span for it
+		}
+		if err == nil {
+			return TCPToKafkaToSpan(event, k), false, nil
+		}
+		return request.Span{}, true, fmt.Errorf("failed to handle Kafka event: %w", err)
+	case ProtocolTypeMQTT:
+		m, ignore, err := ProcessPossibleMQTTEvent(event, requestBuffer, responseBuffer)
+		if ignore && err == nil {
+			return request.Span{}, true, nil // parsed MQTT event, but we don't want to create a span for it
+		}
+		if err == nil {
+			return TCPToMQTTToSpan(event, m), false, nil
+		}
+		return request.Span{}, true, fmt.Errorf("failed to handle MQTT event: %w", err)
 	case ProtocolTypeMySQL:
 		span, err := handleMySQL(parseCtx, event, requestBuffer, responseBuffer)
 		if errors.Is(err, errFallback) {
@@ -104,6 +123,17 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		return mongoSpan, false, nil
 	}
 
+	// Check for Couchbase memcached binary protocol
+	cbInfo, ignore, err := ProcessPossibleCouchbaseEvent(event, requestBuffer, responseBuffer, parseCtx.couchbaseBucketCache)
+	if err == nil {
+		if ignore {
+			return request.Span{}, true, nil
+		}
+		if cbInfo != nil {
+			return TCPToCouchbaseToSpan(event, cbInfo), false, nil
+		}
+	}
+
 	switch {
 	case isRedis(requestBuffer) && isRedis(responseBuffer):
 		op, text, ok := parseRedisRequest(string(requestBuffer))
@@ -130,6 +160,16 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			}
 			return TCPToRedisToSpan(event, op, text, status, db, redisErr), false, nil
 		}
+	case isMQTT(requestBuffer) || isMQTT(responseBuffer):
+		m, ignore, err := ProcessPossibleMQTTEvent(event, requestBuffer, responseBuffer)
+		if ignore && err == nil {
+			return request.Span{}, true, nil // parsed MQTT event, but we don't want to create a span for it
+		}
+		if err == nil {
+			return TCPToMQTTToSpan(event, m), false, nil
+		}
+		// MQTT heuristic matched but full parsing failed - ignore the packet
+		slog.Debug("MQTT heuristic detection failed, ignoring", "error", err)
 	default:
 		// Kafka and gRPC can look very similar in terms of bytes. We can mistake one for another.
 		// We try gRPC first because it's more reliable in detecting false gRPC sequences.
@@ -138,6 +178,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			MisclassifiedEvents <- MisclassifiedEvent{EventType: EventTypeKHTTP2, TCPInfo: &evCopy}
 			return request.Span{}, true, nil // ignore for now, next event will be parsed
 		} else {
+			// we should not arrive here, leave it for completeness
 			k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
 			if ignore && err == nil {
 				return request.Span{}, true, nil // parsed kafka event, but we don't want to create a span for it
@@ -170,10 +211,10 @@ func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req []byte, 
 	resp = event.Rbuf[:l]
 
 	if event.HasLargeBuffers == 1 {
-		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionSend, event.ConnInfo); ok {
+		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, !event.IsServer), event.ConnInfo); ok {
 			req = b
 		}
-		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionRecv, event.ConnInfo); ok {
+		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, !event.IsServer), event.ConnInfo); ok {
 			resp = b
 		}
 	}

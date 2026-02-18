@@ -24,7 +24,9 @@
       "net/http.http2Framer": ["w"],
       "net/http.http2MetaHeadersFrame": ["Fields"],
       "net/rpc.Request": ["ServiceMethod"],
-      "database/sql.driverConn": ["ci"]
+      "database/sql.driverConn": ["ci"],
+      "net/textproto.Reader": ["R"],
+      "bufio.Reader": ["buf", "w"]
     }
   },
   "golang.org/x/net": {
@@ -156,6 +158,14 @@
     "fields": {
       "github.com/go-sql-driver/mysql.mysqlConn": ["cfg"],
       "github.com/go-sql-driver/mysql.Config": ["Addr"]
+    }
+  },
+  "github.com/jackc/pgx/v5": {
+    "inspect": "./configs/offsets/pgx/inspect.go",
+    "versions": ">= v5.0.0",
+    "fields": {
+      "github.com/jackc/pgx/v5.Conn": ["config"],
+      "github.com/jackc/pgx/v5/pgconn.Config": ["Host"]
     }
   }
 }

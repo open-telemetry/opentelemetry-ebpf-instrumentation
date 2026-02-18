@@ -36,7 +36,7 @@ func TestSuffixPrefix(t *testing.T) {
 
 func TestResolvePodsFromK8s(t *testing.T) {
 	inf := &fakeInformer{}
-	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	store := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	pod1 := &informer.ObjectMeta{Name: "pod1", Kind: "Pod", Ips: []string{"10.0.0.1", "10.1.0.1"}}
 	pod2 := &informer.ObjectMeta{Name: "pod2", Namespace: "something", Kind: "Pod", Ips: []string{"10.0.0.2", "10.1.0.2"}}
 	pod3 := &informer.ObjectMeta{Name: "pod3", Kind: "Pod", Ips: []string{"10.0.0.3", "10.1.0.3"}}
@@ -44,32 +44,36 @@ func TestResolvePodsFromK8s(t *testing.T) {
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod2})
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod3})
 
-	assert.Equal(t, pod1, db.ObjectMetaByIP("10.0.0.1").Meta)
-	assert.Equal(t, pod1, db.ObjectMetaByIP("10.1.0.1").Meta)
-	assert.Equal(t, pod2, db.ObjectMetaByIP("10.0.0.2").Meta)
-	assert.Equal(t, pod2, db.ObjectMetaByIP("10.1.0.2").Meta)
-	assert.Equal(t, pod3, db.ObjectMetaByIP("10.1.0.3").Meta)
+	assert.Equal(t, pod1, store.ObjectMetaByIP("10.0.0.1").Meta)
+	assert.Equal(t, pod1, store.ObjectMetaByIP("10.1.0.1").Meta)
+	assert.Equal(t, pod2, store.ObjectMetaByIP("10.0.0.2").Meta)
+	assert.Equal(t, pod2, store.ObjectMetaByIP("10.1.0.2").Meta)
+	assert.Equal(t, pod3, store.ObjectMetaByIP("10.1.0.3").Meta)
 
 	inf.Notify(&informer.Event{Type: informer.EventType_DELETED, Resource: pod3})
-	assert.Nil(t, db.ObjectMetaByIP("10.1.0.3"))
+	assert.Nil(t, store.ObjectMetaByIP("10.1.0.3"))
 
 	nr := NameResolver{
-		db:      db,
+		store:   store,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		logger:  nrlog(),
 		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
-	name, namespace := nr.resolveFromK8s("10.0.0.1")
+	name, namespace, k8sNamespace := nr.resolveFromK8s("10.0.0.1")
 	assert.Equal(t, "pod1", name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.2")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.2")
 	assert.Equal(t, "pod2", name)
 	assert.Equal(t, "something", namespace)
+	assert.Equal(t, "something", k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.3")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.3")
 	assert.Empty(t, name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
 	clientSpan := request.Span{
 		Type: request.EventTypeHTTPClient,
@@ -108,7 +112,7 @@ func TestResolvePodsFromK8s(t *testing.T) {
 
 func TestResolveServiceFromK8s(t *testing.T) {
 	inf := &fakeInformer{}
-	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	store := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	pod1 := &informer.ObjectMeta{Name: "pod1", Kind: "Service", Ips: []string{"10.0.0.1", "10.1.0.1"}}
 	pod2 := &informer.ObjectMeta{Name: "pod2", Namespace: "something", Kind: "Service", Ips: []string{"10.0.0.2", "10.1.0.2"}}
 	pod3 := &informer.ObjectMeta{Name: "pod3", Kind: "Service", Ips: []string{"10.0.0.3", "10.1.0.3"}}
@@ -116,31 +120,35 @@ func TestResolveServiceFromK8s(t *testing.T) {
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod2})
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod3})
 
-	assert.Equal(t, pod1, db.ObjectMetaByIP("10.0.0.1").Meta)
-	assert.Equal(t, pod1, db.ObjectMetaByIP("10.1.0.1").Meta)
-	assert.Equal(t, pod2, db.ObjectMetaByIP("10.0.0.2").Meta)
-	assert.Equal(t, pod2, db.ObjectMetaByIP("10.1.0.2").Meta)
-	assert.Equal(t, pod3, db.ObjectMetaByIP("10.1.0.3").Meta)
+	assert.Equal(t, pod1, store.ObjectMetaByIP("10.0.0.1").Meta)
+	assert.Equal(t, pod1, store.ObjectMetaByIP("10.1.0.1").Meta)
+	assert.Equal(t, pod2, store.ObjectMetaByIP("10.0.0.2").Meta)
+	assert.Equal(t, pod2, store.ObjectMetaByIP("10.1.0.2").Meta)
+	assert.Equal(t, pod3, store.ObjectMetaByIP("10.1.0.3").Meta)
 	inf.Notify(&informer.Event{Type: informer.EventType_DELETED, Resource: pod3})
-	assert.Nil(t, db.ObjectMetaByIP("10.1.0.3"))
+	assert.Nil(t, store.ObjectMetaByIP("10.1.0.3"))
 
 	nr := NameResolver{
-		db:      db,
+		store:   store,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		logger:  nrlog(),
 		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
-	name, namespace := nr.resolveFromK8s("10.0.0.1")
+	name, namespace, k8sNamespace := nr.resolveFromK8s("10.0.0.1")
 	assert.Equal(t, "pod1", name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.2")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.2")
 	assert.Equal(t, "pod2", name)
 	assert.Equal(t, "something", namespace)
+	assert.Equal(t, "something", k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.3")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.3")
 	assert.Empty(t, name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
 	clientSpan := request.Span{
 		Type: request.EventTypeHTTPClient,
@@ -188,7 +196,7 @@ func TestCleanName(t *testing.T) {
 		},
 	}
 
-	nr := NameResolver{}
+	nr := NameResolver{logger: nrlog()}
 
 	assert.Equal(t, "service", nr.cleanName(&s, "127.0.0.1", "127-0-0-1.service"))
 	assert.Equal(t, "1.service", nr.cleanName(&s, "127.0.0.1", "1.service"))
@@ -260,7 +268,7 @@ func TestParseK8sFQDN(t *testing.T) {
 
 func TestResolveNodesFromK8s(t *testing.T) {
 	inf := &fakeInformer{}
-	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	store := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	node1 := &informer.ObjectMeta{Name: "node1", Kind: "Node", Ips: []string{"10.0.0.1", "10.1.0.1"}}
 	node2 := &informer.ObjectMeta{Name: "node2", Namespace: "something", Kind: "Node", Ips: []string{"10.0.0.2", "10.1.0.2"}}
 	node3 := &informer.ObjectMeta{Name: "node3", Kind: "Node", Ips: []string{"10.0.0.3", "10.1.0.3"}}
@@ -268,29 +276,30 @@ func TestResolveNodesFromK8s(t *testing.T) {
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: node2})
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: node3})
 
-	assert.Equal(t, node1, db.ObjectMetaByIP("10.0.0.1").Meta)
-	assert.Equal(t, node1, db.ObjectMetaByIP("10.1.0.1").Meta)
-	assert.Equal(t, node2, db.ObjectMetaByIP("10.0.0.2").Meta)
-	assert.Equal(t, node2, db.ObjectMetaByIP("10.1.0.2").Meta)
-	assert.Equal(t, node3, db.ObjectMetaByIP("10.1.0.3").Meta)
+	assert.Equal(t, node1, store.ObjectMetaByIP("10.0.0.1").Meta)
+	assert.Equal(t, node1, store.ObjectMetaByIP("10.1.0.1").Meta)
+	assert.Equal(t, node2, store.ObjectMetaByIP("10.0.0.2").Meta)
+	assert.Equal(t, node2, store.ObjectMetaByIP("10.1.0.2").Meta)
+	assert.Equal(t, node3, store.ObjectMetaByIP("10.1.0.3").Meta)
 	inf.Notify(&informer.Event{Type: informer.EventType_DELETED, Resource: node3})
-	assert.Nil(t, db.ObjectMetaByIP("10.1.0.3"))
+	assert.Nil(t, store.ObjectMetaByIP("10.1.0.3"))
 
 	nr := NameResolver{
-		db:      db,
+		store:   store,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		logger:  nrlog(),
 		sources: resolverSources([]Source{SourceDNS, SourceK8s}),
 	}
 
-	name, namespace := nr.resolveFromK8s("10.0.0.1")
+	name, namespace, _ := nr.resolveFromK8s("10.0.0.1")
 	assert.Equal(t, "node1", name)
 	assert.Empty(t, namespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.2")
+	name, namespace, _ = nr.resolveFromK8s("10.0.0.2")
 	assert.Equal(t, "node2", name)
 	assert.Equal(t, "something", namespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.3")
+	name, namespace, _ = nr.resolveFromK8s("10.0.0.3")
 	assert.Empty(t, name)
 	assert.Empty(t, namespace)
 
@@ -331,7 +340,7 @@ func TestResolveNodesFromK8s(t *testing.T) {
 
 func TestResolveClientFromHost(t *testing.T) {
 	inf := &fakeInformer{}
-	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	store := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	pod1 := &informer.ObjectMeta{Name: "pod1", Kind: "Service", Ips: []string{"10.0.0.1", "10.1.0.1"}}
 	pod2 := &informer.ObjectMeta{Name: "pod2", Namespace: "something", Kind: "Service", Ips: []string{"10.0.0.2", "10.1.0.2"}}
 	pod3 := &informer.ObjectMeta{Name: "pod3", Kind: "Service", Ips: []string{"10.0.0.3", "10.1.0.3"}}
@@ -339,31 +348,35 @@ func TestResolveClientFromHost(t *testing.T) {
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod2})
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod3})
 
-	assert.Equal(t, pod1, db.ObjectMetaByIP("10.0.0.1").Meta)
-	assert.Equal(t, pod1, db.ObjectMetaByIP("10.1.0.1").Meta)
-	assert.Equal(t, pod2, db.ObjectMetaByIP("10.0.0.2").Meta)
-	assert.Equal(t, pod2, db.ObjectMetaByIP("10.1.0.2").Meta)
-	assert.Equal(t, pod3, db.ObjectMetaByIP("10.1.0.3").Meta)
+	assert.Equal(t, pod1, store.ObjectMetaByIP("10.0.0.1").Meta)
+	assert.Equal(t, pod1, store.ObjectMetaByIP("10.1.0.1").Meta)
+	assert.Equal(t, pod2, store.ObjectMetaByIP("10.0.0.2").Meta)
+	assert.Equal(t, pod2, store.ObjectMetaByIP("10.1.0.2").Meta)
+	assert.Equal(t, pod3, store.ObjectMetaByIP("10.1.0.3").Meta)
 	inf.Notify(&informer.Event{Type: informer.EventType_DELETED, Resource: pod3})
-	assert.Nil(t, db.ObjectMetaByIP("10.1.0.3"))
+	assert.Nil(t, store.ObjectMetaByIP("10.1.0.3"))
 
 	nr := NameResolver{
-		db:      db,
+		store:   store,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		logger:  nrlog(),
 		sources: resolverSources([]Source{SourceK8s}),
 	}
 
-	name, namespace := nr.resolveFromK8s("10.0.0.1")
+	name, namespace, k8sNamespace := nr.resolveFromK8s("10.0.0.1")
 	assert.Equal(t, "pod1", name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.2")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.2")
 	assert.Equal(t, "pod2", name)
 	assert.Equal(t, "something", namespace)
+	assert.Equal(t, "something", k8sNamespace)
 
-	name, namespace = nr.resolveFromK8s("10.0.0.3")
+	name, namespace, k8sNamespace = nr.resolveFromK8s("10.0.0.3")
 	assert.Empty(t, name)
 	assert.Empty(t, namespace)
+	assert.Empty(t, k8sNamespace)
 
 	clientSpan := request.Span{
 		Type:      request.EventTypeHTTPClient,
@@ -411,7 +424,7 @@ func TestResolveClientFromHost_K8sFQDN(t *testing.T) {
 	// Create a K8s store with NO matching entries for the destination Pod IP
 	// This simulates the case where the Pod IP can't be resolved via K8s metadata
 	inf := &fakeInformer{}
-	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	store := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 
 	// Add only the source pod to the store, not the destination
 	sourcePod := &informer.ObjectMeta{
@@ -428,8 +441,9 @@ func TestResolveClientFromHost_K8sFQDN(t *testing.T) {
 	// The destination Pod IP (10.0.2.5) is NOT in the store
 	// This simulates the NAT scenario where we see the Pod IP but can't resolve it
 	nr := NameResolver{
-		db:      db,
+		store:   store,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		logger:  nrlog(),
 		sources: resolverSources([]Source{SourceK8s}),
 	}
 
@@ -458,10 +472,10 @@ func TestResolveClientFromHost_K8sFQDN(t *testing.T) {
 
 func TestPreserveBPFHostnameWhenResolutionFails(t *testing.T) {
 	inf := &fakeInformer{}
-	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	store := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 
 	nr := NameResolver{
-		db:      db,
+		store:   store,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
 		sources: resolverSources([]Source{SourceK8s}),
 		logger:  nrlog(),
@@ -488,7 +502,7 @@ func TestPreserveBPFHostnameWhenResolutionFails(t *testing.T) {
 
 func TestResolver(t *testing.T) {
 	inf := &fakeInformer{}
-	db := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	store := kube.NewStore(inf, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 
 	pod := &informer.ObjectMeta{
 		Name:      "resolved-pod",
@@ -499,7 +513,7 @@ func TestResolver(t *testing.T) {
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod})
 
 	nr := NameResolver{
-		db:      db,
+		store:   store,
 		cache:   expirable.NewLRU[string, string](10, nil, 5*time.Hour),
 		sources: resolverSources([]Source{SourceK8s, SourceDNS, SourceRDNS}),
 		logger:  nrlog(),
@@ -565,7 +579,7 @@ func TestResolver(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			name, ns := nr.resolve(&svcAttrs, tt.ip, tt.fallback)
+			name, ns, _ := nr.resolve(&svcAttrs, tt.ip, tt.fallback)
 			assert.Equal(t, tt.expectedName, name)
 			assert.Equal(t, tt.expectedNamespace, ns)
 		})

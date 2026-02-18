@@ -10,11 +10,11 @@
 #include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/large_buffers.h>
-#include <common/pin_internal.h>
 #include <common/ringbuf.h>
 #include <common/trace_common.h>
 
 #include <generictracer/protocol_common.h>
+#include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
 
@@ -32,19 +32,6 @@ static __always_inline tcp_req_t *empty_tcp_req() {
     return value;
 }
 
-static __always_inline void init_new_trace(tp_info_t *tp) {
-    bpf_d_printk("Generating new traceparent id");
-    new_trace_id(tp);
-    urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
-    __builtin_memset(tp->parent_id, 0, sizeof(tp->span_id));
-
-    if (g_bpf_debug) {
-        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-        make_tp_string(tp_buf, tp);
-        bpf_dbg_printk("tp: %s", tp_buf);
-    }
-}
-
 static __always_inline u8 already_tracked_tcp(const pid_connection_info_t *p_conn) {
     tcp_req_t *tcp_info = bpf_map_lookup_elem(&ongoing_tcp_req, p_conn);
     return tcp_info != 0;
@@ -60,7 +47,7 @@ static __always_inline void set_tcp_trace_info(
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
     make_tp_string(tp_buf, tp);
-    bpf_d_printk("tp: %s", tp_buf);
+    bpf_d_printk("tp_buf=[%s] [%s]", tp_buf, __FUNCTION__);
 
     tp_p->tp = *tp;
     tp_p->tp.flags = 1;
@@ -78,7 +65,7 @@ static __always_inline void
 tcp_get_or_set_trace_info(tcp_req_t *req, pid_connection_info_t *pid_conn, u8 ssl, u16 orig_dport) {
     if (req->direction == TCP_SEND) { // Client
         u8 found = find_trace_for_client_request(pid_conn, orig_dport, &req->tp);
-        bpf_dbg_printk("Looking up client trace info, found %d", found);
+        bpf_dbg_printk("Looking up client trace info, found=%d", found);
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
         } else {
@@ -89,7 +76,7 @@ tcp_get_or_set_trace_info(tcp_req_t *req, pid_connection_info_t *pid_conn, u8 ss
             TRACE_TYPE_CLIENT, &pid_conn->conn, &req->tp, pid_conn->pid, ssl, orig_dport);
     } else { // Server
         u8 found = find_trace_for_server_request(&pid_conn->conn, &req->tp, EVENT_TCP_REQUEST);
-        bpf_dbg_printk("Looking up server trace info, found %d", found);
+        bpf_dbg_printk("Looking up server trace info, found=%d", found);
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
         } else {
@@ -142,7 +129,14 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
             ret = postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
         }
         break;
+    case k_protocol_type_kafka:
+        if (kafka_buffer_size > 0) {
+            ret = kafka_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
+        }
+        break;
     case k_protocol_type_http:
+        break;
+    case k_protocol_type_mqtt:
         break;
     case k_protocol_type_unknown:
         break;
@@ -187,7 +181,10 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                                                           u16 orig_dport,
                                                           enum protocol_type protocol_type) {
     tcp_req_t *existing = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
-
+    // NOTE: this shouldn't happen, but the is_server value may be incorrect,
+    // for example if an unrelated service is bound to the process port (like the metrics server)
+    u32 netns = task_netns();
+    bool is_server = is_listening(pid_conn->conn.d_port, netns);
     if (existing) {
         if (existing->direction == direction && existing->end_monotime_ns != 0) {
             bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
@@ -224,6 +221,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
         tcp_req_t *req = empty_tcp_req();
         if (req) {
+            req->is_server = is_server;
             bpf_clamp_umax(bytes_len, K_TCP_MAX_LEN);
             req->flags = EVENT_TCP_REQUEST;
             req->conn_info = pid_conn->conn;
@@ -242,7 +240,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
             req->tp.ts = bpf_ktime_get_ns();
 
-            bpf_dbg_printk("TCP request start, direction = %d, ssl = %d, protocol = %d",
+            bpf_dbg_printk("TCP request start, direction=%d, ssl=%d, protocol=%d",
                            direction,
                            ssl,
                            protocol_type);
@@ -255,6 +253,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             bpf_map_update_elem(&ongoing_tcp_req, pid_conn, req, BPF_ANY);
         }
     } else if (existing->direction != direction) {
+        existing->is_server = is_server;
         if (tcp_send_large_buffer(existing,
                                   pid_conn,
                                   u_buf,
@@ -262,7 +261,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                                   direction,
                                   protocol_type,
                                   k_large_buf_action_init) < 0) {
-            bpf_dbg_printk("handle_unknown_tcp_connection: waiting additional response data");
+            bpf_dbg_printk("waiting additional response data");
             return;
         }
 
@@ -270,17 +269,19 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             bpf_clamp_umax(bytes_len, K_TCP_RES_LEN);
             existing->end_monotime_ns = bpf_ktime_get_ns();
             existing->resp_len = bytes_len;
+            existing->is_server = is_server;
             tcp_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
             if (trace) {
-                bpf_dbg_printk(
-                    "Sending TCP trace %lx, response length %d", existing, existing->resp_len);
+                bpf_dbg_printk("Sending TCP trace: existing=%lx, resp_length=%d",
+                               existing,
+                               existing->resp_len);
 
                 __builtin_memcpy(trace, existing, sizeof(tcp_req_t));
                 bpf_probe_read(trace->rbuf, bytes_len, u_buf);
 
                 bpf_ringbuf_submit(trace, get_flags());
             } else {
-                bpf_printk("failed to reserve space on the ringbuf");
+                bpf_dbg_printk("failed to reserve space on the ringbuf");
             }
             cleanup_trace_info(existing, pid_conn);
         }
@@ -296,6 +297,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         existing->len += bytes_len;
         existing->req_len = existing->len;
         existing->protocol_type = protocol_type;
+        existing->is_server = is_server;
 
         tcp_send_large_buffer(existing,
                               pid_conn,
@@ -327,7 +329,7 @@ int obi_protocol_tcp(void *ctx) {
         return 0;
     }
 
-    bpf_dbg_printk("=== tcp_event len=%d pid=%d protocol_type=%d ===",
+    bpf_dbg_printk("=== kprobe/tcp len=%d, pid=%d, protocol_type=%d ===",
                    args->bytes_len,
                    args->pid_conn.pid,
                    args->protocol_type);

@@ -1,16 +1,18 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package procs
+package procs // import "go.opentelemetry.io/obi/pkg/internal/procs"
 
 import (
 	"path/filepath"
 	"strings"
 
 	"github.com/prometheus/procfs"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
-func FindLibMaps(pid int32) ([]*procfs.ProcMap, error) {
+func FindLibMaps(pid app.PID) ([]*procfs.ProcMap, error) {
 	proc, err := procfs.NewProc(int(pid))
 	if err != nil {
 		return nil, err
