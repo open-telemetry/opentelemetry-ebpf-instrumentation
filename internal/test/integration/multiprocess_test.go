@@ -324,7 +324,7 @@ func testPartialLanguageHTTPProbes(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func TestMultiProcessLanguage(t *testing.T) {
+func TestLanguageSelectors(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec.yml", path.Join(pathOutput, "test-suite-multiexec-lang.log"))
 	require.NoError(t, err)
 
