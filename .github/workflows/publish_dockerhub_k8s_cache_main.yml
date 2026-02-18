@@ -43,6 +43,12 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+
       - name: Log in to the Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
@@ -67,7 +73,7 @@ jobs:
           file: ./k8scache.Dockerfile
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,"name=ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}",push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }},docker.io/otel/${{ env.IMAGE_NAME }}",push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
         env:
@@ -147,12 +153,12 @@ jobs:
           IMAGE_TO_INSPECT: ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
         run: |
           for i in 1 2 3 4 5; do
-            RAW=$(docker buildx imagetools inspect "${IMAGE_TO_INSPECT}" --raw 2>/dev/null) && break
+            DIGEST=$(docker buildx imagetools inspect "${IMAGE_TO_INSPECT}" --format '{{.Manifest.Digest}}' 2>/dev/null | tr -d '\n')
+            [ -n "${DIGEST}" ] && break
             echo "Inspect attempt $i failed, retrying in 5s..."
             sleep 5
           done
-          if [ -z "${RAW}" ]; then echo "Failed to inspect image after 5 attempts"; exit 1; fi
-          DIGEST="sha256:$(echo -n "${RAW}" | sha256sum | cut -d ' ' -f 1)"
+          if [ -z "${DIGEST}" ]; then echo "Failed to inspect image after 5 attempts"; exit 1; fi
           images=""
           for tag in ${TAGS}; do
             images+="${tag}@${DIGEST} "
