@@ -10,7 +10,7 @@ ENV PROTOC_AARCH_64_SHA256="56af3fc2e43a0230802e6fadb621d890ba506c5c17a1ae1070f6
 
 ARG TARGETARCH
 
-RUN apk add clang llvm20 wget unzip curl make bash
+RUN apk add clang llvm20 wget unzip curl make bash git
 RUN apk cache purge
 
 # Install protoc
@@ -38,7 +38,7 @@ RUN --mount=type=cache,target=/go/pkg \
 RUN cat <<EOF > /generate.sh
 #!/bin/sh
 export PATH="/usr/lib/llvm20/bin:\$PATH"
-export BPF2GO=bpf2go
+export BPF2GO=/go/bin/bpf2go
 export BPF_CLANG=clang
 export BPF_CFLAGS="-O2 -g -Wall -Werror"
 export GOCACHE=/tmp/go-build
