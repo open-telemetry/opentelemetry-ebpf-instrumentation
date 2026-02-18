@@ -19,7 +19,6 @@ import (
 type dummyCriterion struct {
 	name      string
 	namespace string
-	language  string
 	export    services.ExportModes
 	sampler   *services.SamplerConfig
 	routes    *services.CustomRoutesConfig

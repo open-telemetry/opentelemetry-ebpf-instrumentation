@@ -272,23 +272,23 @@ func testPartialLanguageHTTPProbes(t *testing.T) {
 
 			// Check the information of the java parent span
 			res = trace.FindByOperationName("GET /jtrace", "server")
-			require.Len(ct, res, 0)
+			require.Empty(ct, res)
 
 			// Check the information of the nodejs parent span
 			res = trace.FindByOperationName("GET /traceme", "server")
-			require.Len(ct, res, 0)
+			require.Empty(ct, res)
 
 			// Check the information of the go parent span
 			res = trace.FindByOperationName("GET /gotracemetoo", "server")
-			require.Len(ct, res, 0)
+			require.Empty(ct, res)
 
 			// Check the information of the python parent span
 			res = trace.FindByOperationName("GET /tracemetoo", "server")
-			require.Len(t, res, 0)
+			require.Empty(t, res)
 
 			// Check the information of the rails parent span
 			res = trace.FindByOperationName("GET /users", "server")
-			require.Len(t, res, 0)
+			require.Empty(t, res)
 		}
 	}, testTimeout, 100*time.Millisecond)
 
@@ -320,7 +320,7 @@ func testPartialLanguageHTTPProbes(t *testing.T) {
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/gotracemetoo"})
-		require.Equal(ct, 0, len(traces))
+		require.Empty(ct, traces)
 	}, testTimeout, 100*time.Millisecond)
 }
 
