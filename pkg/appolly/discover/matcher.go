@@ -368,13 +368,14 @@ func FindingCriteria(cfg *obi.Config) []services.Selector {
 
 	if len(cfg.Discovery.Instrument) > 0 {
 		finderCriteria := cfg.Discovery.Instrument
-		if cfg.AutoTargetExe.IsSet() || cfg.Port.Len() > 0 {
+		if cfg.AutoTargetExe.IsSet() || cfg.Port.Len() > 0 || cfg.AutoTargetLanguage.IsSet() {
 			finderCriteria = slices.Clone(cfg.Discovery.Instrument)
 			finderCriteria = append(finderCriteria, services.GlobAttributes{
 				Name:      cfg.ServiceName,
 				Namespace: cfg.ServiceNamespace,
 				Path:      cfg.AutoTargetExe,
 				OpenPorts: cfg.Port,
+				Languages: cfg.AutoTargetLanguage,
 			})
 		}
 		return NormalizeGlobCriteria(finderCriteria)
@@ -383,13 +384,14 @@ func FindingCriteria(cfg *obi.Config) []services.Selector {
 	// edge use case: when neither discovery > services nor discovery > instrument sections are set
 	// we will prioritize the newer OTEL_EBPF_AUTO_TARGET_EXE/OTEL_GO_AUTO_TARGET_EXE property
 	// over the old, deprecated OTEL_EBPF_EXECUTABLE_PATH
-	if cfg.AutoTargetExe.IsSet() {
+	if cfg.AutoTargetExe.IsSet() || cfg.AutoTargetLanguage.IsSet() {
 		return []services.Selector{
 			&services.GlobAttributes{
 				Name:      cfg.ServiceName,
 				Namespace: cfg.ServiceNamespace,
 				Path:      cfg.AutoTargetExe,
 				OpenPorts: cfg.Port,
+				Languages: cfg.AutoTargetLanguage,
 			},
 		}
 	}

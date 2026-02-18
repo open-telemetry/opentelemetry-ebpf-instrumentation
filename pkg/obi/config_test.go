@@ -508,6 +508,15 @@ func TestConfig_NetworkImplicitProm(t *testing.T) {
 	assert.True(t, cfg.Enabled(FeatureNetO11y)) // Net o11y should be on
 }
 
+func TestConfig_AutoLanguageEnv(t *testing.T) {
+	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_AUTO_TARGET_EXE
+	// (Compatibility with OpenTelemetry)
+	t.Setenv("OTEL_EBPF_AUTO_TARGET_LANGUAGE", "{go,java}")
+	cfg, err := LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+	assert.True(t, cfg.AutoTargetLanguage.MatchString("java"))
+}
+
 func TestConfig_ExternalLogger(t *testing.T) {
 	type testCase struct {
 		name          string
