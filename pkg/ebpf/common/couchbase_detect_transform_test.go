@@ -117,9 +117,12 @@ func TestHandleSelectBucket(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			responseBuf := makeCouchbaseResponsePacket(couchbasekv.OpcodeSelectBucket, tt.responseStatus, "")
+			respPacket, err := couchbasekv.ParsePacket(
+				makeCouchbaseResponsePacket(couchbasekv.OpcodeSelectBucket, tt.responseStatus, ""),
+			)
+			require.NoError(t, err)
 
-			handleSelectBucket(connInfo, reqPacket, responseBuf, cache)
+			handleSelectBucketWithResponse(connInfo, reqPacket, respPacket, cache)
 
 			bucketInfo, found := cache.Get(connInfo)
 			assert.Equal(t, tt.expectCached, found)
@@ -141,10 +144,13 @@ func TestHandleSelectBucketNilCache(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	responseBuf := makeCouchbaseResponsePacket(couchbasekv.OpcodeSelectBucket, couchbasekv.StatusSuccess, "")
+	respPacket, err := couchbasekv.ParsePacket(
+		makeCouchbaseResponsePacket(couchbasekv.OpcodeSelectBucket, couchbasekv.StatusSuccess, ""),
+	)
+	require.NoError(t, err)
 
 	// Should not panic with nil cache
-	handleSelectBucket(connInfo, reqPacket, responseBuf, nil)
+	handleSelectBucketWithResponse(connInfo, reqPacket, respPacket, nil)
 }
 
 func TestHandleGetCollectionID(t *testing.T) {
@@ -223,9 +229,12 @@ func TestHandleGetCollectionID(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			responseBuf := makeCouchbaseResponsePacket(couchbasekv.OpcodeCollectionsGetID, tt.responseStatus, "")
+			respPacket, err := couchbasekv.ParsePacket(
+				makeCouchbaseResponsePacket(couchbasekv.OpcodeCollectionsGetID, tt.responseStatus, ""),
+			)
+			require.NoError(t, err)
 
-			handleGetCollectionID(connInfo, reqPacket, responseBuf, cache)
+			handleGetCollectionIDWithResponse(connInfo, reqPacket, respPacket, cache)
 
 			bucketInfo, found := cache.Get(connInfo)
 
