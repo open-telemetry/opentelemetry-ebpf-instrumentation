@@ -90,6 +90,11 @@ while ! docker info >/dev/null 2>&1; do
 done
 echo "Docker daemon is ready"
 
+# Panic immediately on RCU CPU stalls instead of hanging for the full
+# job timeout. Combined with 'panic' boot param and QEMU -no-reboot,
+# this causes QEMU to exit after the first stall.
+sysctl -w kernel.panic_on_rcu_stall=1 2>/dev/null || true
+
 # Verify runc version
 echo "=== Docker/runc versions in VM ==="
 docker version
@@ -102,6 +107,15 @@ if [[ -n "$target" ]]; then
     
     # Set project directory for pre-compiled binaries
     export TEST_PROJECT_DIR=/build
+    
+    # Load pre-built Docker images if available (built on host at native speed)
+    if [ -f "/precompiled-tests/docker-images.tar" ]; then
+        echo "Loading pre-built Docker images..."
+        docker load -i /precompiled-tests/docker-images.tar
+        echo "Pre-built Docker images loaded:"
+        docker images --format "  {{.Repository}}:{{.Tag}} ({{.Size}})"
+        export SKIP_DOCKER_BUILD=1
+    fi
     
     cd /build && make $target TEST_PATTERN="$test_pattern" RUN_NUMBER="$run_number" && touch /build/testoutput/success
     poweroff

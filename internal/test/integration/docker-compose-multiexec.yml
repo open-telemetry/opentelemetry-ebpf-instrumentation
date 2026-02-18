@@ -120,7 +120,7 @@ services:
       context: ../../..
       dockerfile: ./internal/test/integration/components/obi/Dockerfile
     command:
-      - --config=/configs/obi-config-multiexec.yml
+      - --config=/configs/obi-config-multiexec${MULTI_TEST_MODE}.yml
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
