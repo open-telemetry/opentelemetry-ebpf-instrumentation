@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -74,6 +75,51 @@ func TestCriteriaMatcher(t *testing.T) {
 	testMatch(t, matches[1], "port-only", "foo", services.ProcessInfo{Pid: 4, ExePath: "/bin/something", OpenPorts: []uint32{8083}})
 	testMatch(t, matches[2], "both", "", services.ProcessInfo{Pid: 5, ExePath: "server", OpenPorts: []uint32{443}})
 	testMatch(t, matches[3], "exec-only", "", services.ProcessInfo{Pid: 6, ExePath: "/bin/clientweird99"})
+}
+
+func TestCriteriaMatcherLanguage(t *testing.T) {
+	pipeConfig := obi.Config{}
+	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
+  services:
+  - name: go-and-java
+    namespace: foo
+    languages: "go|java"
+  - name: rust
+    languages: rust
+`), &pipeConfig))
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu)(t.Context())
+	require.NoError(t, err)
+	go matcherFunc(t.Context())
+	defer filteredProcessesQu.Close()
+
+	// it will filter unmatching processes and return a ProcessMatch for these that match
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		exePath := map[app.PID]string{
+			1: "/bin/weird33", 2: "/bin/weird33", 3: "server",
+			4: "/bin/something", 5: "server", 6: "/bin/clientweird99",
+		}[pp.pid]
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: exePath, OpenPorts: pp.openPorts}, nil
+	}
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{1, 2, 3}, detectedType: svc.InstrumentableCPP}},     // filter
+		{Type: EventDeleted, Obj: ProcessAttrs{pid: 2, openPorts: []uint32{4}, detectedType: svc.InstrumentableGeneric}},       // filter
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 3, openPorts: []uint32{8433}, detectedType: svc.InstrumentableJavaNative}}, // pass
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 4, openPorts: []uint32{8083}, detectedType: svc.InstrumentableJava}},       // pass
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 5, openPorts: []uint32{443}, detectedType: svc.InstrumentableGolang}},      // pass
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 6, detectedType: svc.InstrumentableRust}},                                  // pass
+	})
+
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 4)
+
+	testMatch(t, matches[0], "go-and-java", "foo", services.ProcessInfo{Pid: 3, ExePath: "server", OpenPorts: []uint32{8433}})
+	testMatch(t, matches[1], "go-and-java", "foo", services.ProcessInfo{Pid: 4, ExePath: "/bin/something", OpenPorts: []uint32{8083}})
+	testMatch(t, matches[2], "go-and-java", "foo", services.ProcessInfo{Pid: 5, ExePath: "server", OpenPorts: []uint32{443}})
+	testMatch(t, matches[3], "rust", "", services.ProcessInfo{Pid: 6, ExePath: "/bin/clientweird99"})
 }
 
 func TestCriteriaMatcher_Exclude(t *testing.T) {
