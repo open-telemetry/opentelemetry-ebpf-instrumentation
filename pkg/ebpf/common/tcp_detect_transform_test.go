@@ -323,7 +323,7 @@ func TestReadTCPRequestIntoSpan_CouchbaseKeyNotFound(t *testing.T) {
 	binaryRecord := bytes.Buffer{}
 	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, tri))
 
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 
 	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
 	require.NoError(t, err)
@@ -385,7 +385,7 @@ func TestReadTCPRequestIntoSpan_CouchbaseFlexibleFraming(t *testing.T) {
 	binaryRecord := bytes.Buffer{}
 	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, tri))
 
-	fltr := TestPidsFilter{services: map[uint32]svc.Attrs{}}
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 
 	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
 	require.NoError(t, err)
