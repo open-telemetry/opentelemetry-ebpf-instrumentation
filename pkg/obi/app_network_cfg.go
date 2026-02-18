@@ -7,11 +7,11 @@ type AppNetworkConfig struct {
 	// It enables app network metrics.
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_APP_NETWORK_METRICS_ENABLED" validate:"boolean"`
 
-	// Enables the calculation of srtt of a given instrumented service
-	Rtt bool `yaml:"rtt" env:"OTEL_EBPF_APP_NETWORK_METRICS_RTT" validate:"boolean"`
+	// Enables the calculation of tcp srtt of a given instrumented service
+	TCPRtt bool `yaml:"rtt" env:"OTEL_EBPF_APP_NETWORK_METRICS_TCP_RTT" validate:"boolean"`
 }
 
 var DefaultAppNetworkConfig = AppNetworkConfig{
 	Enabled: false,
-	Rtt:     false,
+	TCPRtt:  false,
 }

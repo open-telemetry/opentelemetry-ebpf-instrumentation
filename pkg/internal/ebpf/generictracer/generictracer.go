@@ -205,6 +205,8 @@ func (p *Tracer) constants() map[string]any {
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
 	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
 
+	m["g_bpf_app_net_metrics_tcp_rtt"] = p.cfg.AppNetworkMetrics.TCPRtt
+
 	return m
 }
 

@@ -167,16 +167,23 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 }
 
 func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
-	kp := map[string]ebpfcommon.ProbeDesc{}
+	// add kprobes only if generictracer is not loaded,
+	// otherwise we use generictracer probes to calculate metrics
+	// if the hook point is already used in the generictracer
+	if !p.isGenericTracerActive {
+		kp := map[string]ebpfcommon.ProbeDesc{}
 
-	if p.cfg.AppNetworkMetrics.Rtt {
-		kp["tcp_close"] = ebpfcommon.ProbeDesc{
-			Required: true,
-			Start:    p.bpfObjects.ObiKprobeTcpCloseRtt,
+		if p.cfg.AppNetworkMetrics.TCPRtt {
+			kp["tcp_close"] = ebpfcommon.ProbeDesc{
+				Required: true,
+				Start:    p.bpfObjects.ObiKprobeTcpCloseRtt,
+			}
 		}
+
+		return kp
 	}
 
-	return kp
+	return nil
 }
 
 func (p *Tracer) Tracepoints() map[string]ebpfcommon.ProbeDesc {
@@ -226,7 +233,6 @@ func (p *Tracer) Required() bool {
 
 func (p *Tracer) handleAppNetworkEvent(_ *ebpfcommon.EBPFParseContext, _ *config.EBPFTracer, record *ringbuf.Record, _ ebpfcommon.ServiceFilter) (request.Span, bool, error) {
 	eventType := record.RawSample[0]
-
 	switch eventType {
 	case EventTypeAppNetTCPRtt:
 		return p.readTCPRttIntoSpan(record)
