@@ -4,6 +4,7 @@
 package discover
 
 import (
+	"log/slog"
 	"testing"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -17,6 +18,7 @@ func newTestDecorator(ignoredPaths []string) *languageDecorator {
 	cache, _ := lru.New[uint64, svc.InstrumentableType](100)
 	return &languageDecorator{
 		typeCache:    cache,
+		log:          slog.With("component", "LanguageDecorator"),
 		ignoredPaths: ignoredPaths,
 	}
 }
