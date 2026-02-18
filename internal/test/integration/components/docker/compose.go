@@ -46,6 +46,13 @@ func ComposeSuite(composeFile, logFile string) (*Compose, error) {
 }
 
 func (c *Compose) Up() error {
+	// When SKIP_DOCKER_BUILD is set, Docker images have been pre-built on the host
+	// and loaded into the VM's Docker daemon. Skip --build to avoid rebuilding them
+	// inside the VM (which is extremely slow under TCG/software CPU emulation).
+	// Without --build, compose will still auto-build any missing images.
+	if os.Getenv("SKIP_DOCKER_BUILD") != "" {
+		return c.command("up", "--detach", "--quiet-pull")
+	}
 	return c.command("up", "--build", "--detach", "--quiet-pull")
 }
 

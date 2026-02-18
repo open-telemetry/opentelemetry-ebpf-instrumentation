@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
@@ -52,8 +53,8 @@ var cgroupFormats = []*regexp.Regexp{
 }
 
 // InfoForPID returns the container ID and PID namespace for the given PID.
-func InfoForPID(pid uint32) (Info, error) {
-	ns, err := namespaceFinder(int32(pid))
+func InfoForPID(pid app.PID) (Info, error) {
+	ns, err := namespaceFinder(pid)
 	if err != nil {
 		return Info{}, fmt.Errorf("finding PID %d namespace: %w", pid, err)
 	}

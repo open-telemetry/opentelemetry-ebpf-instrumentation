@@ -35,7 +35,7 @@ public class GreetingController {
                 .version(java.net.http.HttpClient.Version.HTTP_1_1)
                 .build();
 		HttpRequest request = HttpRequest.newBuilder()
-				.uri(URI.create("https://example.com"))
+				.uri(URI.create("https://google.com"))
 				.GET()
 				.build();
 

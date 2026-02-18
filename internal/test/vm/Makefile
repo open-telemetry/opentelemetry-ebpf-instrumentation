@@ -12,7 +12,7 @@ TEST_PATTERN ?= TestMultiProcess
 RUN_NUMBER ?= 1
 TEST_OUTPUT = $(REPO_ROOT)/testoutput
 MNT ?= mnt
-IMG_SIZE ?= 10G
+IMG_SIZE ?= 20G
 QEMU_BIN = qemu-system-$(ARCH)
 QEMU := $(shell which $(QEMU_BIN))
 PRECOMPILED_TESTS_DIR ?= 
@@ -56,8 +56,14 @@ launchvm: check_qemu $(ROOT_IMG) $(TEST_OUTPUT)
 		echo "Starting QEMU with pre-compiled tests from $(PRECOMPILED_TESTS_DIR)"; \
 		PRECOMPILED_VIRTFS="-virtfs local,path=$(PRECOMPILED_TESTS_DIR),mount_tag=precompiled,security_model=mapped,id=precompiled"; \
 	fi; \
-	qemu-system-$(ARCH) -enable-kvm -cpu host -m 8192 -smp 3 -kernel $(KERNEL) -drive file=$(ROOT_IMG),format=qcow2 \
-		-append "earlyprintk=ttyS0 console=ttyS0 root=/dev/sda rw quiet" \
+	QEMU_ACCEL="-enable-kvm -cpu host"; \
+	if [ ! -e /dev/kvm ]; then \
+		echo "KVM not available, falling back to TCG"; \
+		QEMU_ACCEL="-accel tcg,thread=multi -cpu qemu64"; \
+	fi; \
+	qemu-system-$(ARCH) $$QEMU_ACCEL -m 8192 -smp 2 -kernel $(KERNEL) -drive file=$(ROOT_IMG),format=qcow2 \
+		-append "earlyprintk=ttyS0 console=ttyS0 root=/dev/sda rw quiet rcupdate.rcu_cpu_stall_timeout=60 panic=5" \
+		-no-reboot \
 		-virtfs local,path=$(REPO_ROOT),mount_tag=beyla,security_model=mapped,id=beyla \
 		-virtfs local,path=$(TEST_OUTPUT),mount_tag=testout,security_model=mapped,id=testout \
 		$$PRECOMPILED_VIRTFS \

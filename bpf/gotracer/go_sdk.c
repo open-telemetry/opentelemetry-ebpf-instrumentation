@@ -100,7 +100,7 @@ read_span_name(unsigned char *buf, const u64 span_name_len, void *span_name_ptr)
 static __always_inline int tracer_start(struct pt_regs *ctx, u8 check_delegate) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
-    bpf_dbg_printk("=== uprobe/tracer.Start [%lx]=== ", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     void *tracer_ptr = GO_PARAM1(ctx);
     if (check_delegate) {
         off_table_t *ot = get_offsets_table();
@@ -128,7 +128,7 @@ static __always_inline int tracer_start(struct pt_regs *ctx, u8 check_delegate) 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    bpf_dbg_printk("span name %s", span_info.name.buf);
+    bpf_dbg_printk("span_info.name.buf=[%s]", span_info.name.buf);
 
     bpf_map_update_elem(&span_names, &g_key, &span_info, 0);
     return 0;
@@ -149,7 +149,7 @@ static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_p
     bpf_clamp_umax(count, 5);
     off_table_t *ot = get_offsets_table();
     u64 sym_addr = go_offset_of(ot, (go_offset){.v = _tracer_attribute_opt_off});
-    bpf_dbg_printk("lookup type off %llx", sym_addr);
+    bpf_dbg_printk("lookup type off sym_addr: %llx", sym_addr);
 
     if (!sym_addr) {
         return;
@@ -162,7 +162,7 @@ static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_p
         return;
     }
 
-    bpf_dbg_printk("lookup itype %llx", type_off);
+    bpf_dbg_printk("lookup type_off: %llx", type_off);
 
     int read_from = -1;
 
@@ -179,7 +179,7 @@ static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_p
         }
     }
 
-    bpf_dbg_printk("read_from %d", read_from);
+    bpf_dbg_printk("read_from=%d", read_from);
 
     if (read_from >= 0) {
         void *attrs_arg = 0;
@@ -192,7 +192,8 @@ static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_p
             bpf_probe_read(&attributes_usr_buf, sizeof(void *), attrs_arg);
             bpf_probe_read(&attributes_len, sizeof(u64), attrs_arg + 8);
 
-            bpf_dbg_printk("attr_ptr %llx, attr_len %d", attributes_usr_buf, attributes_len);
+            bpf_dbg_printk(
+                "attributes_usr_buf=%llx, attributes_len=%d", attributes_usr_buf, attributes_len);
 
             if (attributes_usr_buf && attributes_len && attributes_len < 100) {
                 convert_go_otel_attributes(attributes_usr_buf, attributes_len, &span->span_attrs);
@@ -208,7 +209,8 @@ SEC("uprobe/tracer_Start_ret")
 int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     void *span_ptr = (void *)GO_PARAM4(ctx);
-    bpf_dbg_printk("=== uretprobe/tracer.Start [%lx] span %lx === ", goroutine_addr, span_ptr);
+    bpf_dbg_printk("=== uprobe/tracer_Start_ret ===");
+    bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", goroutine_addr, span_ptr);
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
@@ -259,9 +261,8 @@ int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
 SEC("uprobe/nonRecordingSpan_End")
 int obi_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
-    bpf_dbg_printk("=== uprobe/nonRecordingSpan.End [%lx] span %lx === ",
-                   (void *)GOROUTINE_PTR(ctx),
-                   span_ptr);
+    bpf_dbg_printk("=== uprobe/nonRecordingSpan_End ===");
+    bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", (void *)GOROUTINE_PTR(ctx), span_ptr);
 
     go_addr_key_t s_key = {};
     go_addr_key_from_id(&s_key, span_ptr);
@@ -292,8 +293,8 @@ int obi_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
 SEC("uprobe/span_SetStatus")
 int obi_uprobe_SetStatus(struct pt_regs *ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
-    bpf_dbg_printk(
-        "=== uprobe/span.SetStatus [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
+    bpf_dbg_printk("=== uprobe/span_SetStatus ===");
+    bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", (void *)GOROUTINE_PTR(ctx), span_ptr);
 
     go_addr_key_t s_key = {};
     go_addr_key_from_id(&s_key, span_ptr);
@@ -324,8 +325,8 @@ int obi_uprobe_SetStatus(struct pt_regs *ctx) {
 SEC("uprobe/span_SetAttributes")
 int obi_uprobe_SetAttributes(struct pt_regs *ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
-    bpf_dbg_printk(
-        "=== uprobe/span.SetAttributes [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
+    bpf_dbg_printk("=== uprobe/span_SetAttributes ===");
+    bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", (void *)GOROUTINE_PTR(ctx), span_ptr);
 
     go_addr_key_t s_key = {};
     go_addr_key_from_id(&s_key, span_ptr);
@@ -345,8 +346,8 @@ int obi_uprobe_SetAttributes(struct pt_regs *ctx) {
 SEC("uprobe/span_SetName")
 int obi_uprobe_SetName(struct pt_regs *ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
-    bpf_dbg_printk(
-        "=== uprobe/span.SetName [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
+    bpf_dbg_printk("=== uprobe/span_SetName ===");
+    bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", (void *)GOROUTINE_PTR(ctx), span_ptr);
 
     go_addr_key_t s_key = {};
     go_addr_key_from_id(&s_key, span_ptr);
@@ -376,8 +377,8 @@ int obi_uprobe_SetName(struct pt_regs *ctx) {
 SEC("uprobe/span_RecordError")
 int obi_uprobe_RecordError(struct pt_regs *ctx) {
     void *span_ptr = (void *)GO_PARAM1(ctx);
-    bpf_dbg_printk(
-        "=== uprobe/span.RecordError [%lx] span %lx === ", (void *)GOROUTINE_PTR(ctx), span_ptr);
+    bpf_dbg_printk("=== uprobe/span_RecordError ===");
+    bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", (void *)GOROUTINE_PTR(ctx), span_ptr);
 
     go_addr_key_t s_key = {};
     go_addr_key_from_id(&s_key, span_ptr);
@@ -398,7 +399,7 @@ int obi_uprobe_RecordError(struct pt_regs *ctx) {
 
     void *itype = 0;
     bpf_probe_read(&itype, sizeof(void *), err_type + k_go_interface_type_offset);
-    bpf_dbg_printk("itype err %llx", itype);
+    bpf_dbg_printk("error, itype=%llx", itype);
 
     if (!itype) {
         return 0;
@@ -406,7 +407,7 @@ int obi_uprobe_RecordError(struct pt_regs *ctx) {
 
     off_table_t *ot = get_offsets_table();
     u64 sym_addr = go_offset_of(ot, (go_offset){.v = _error_string_off});
-    bpf_dbg_printk("err lookup off %llx", sym_addr);
+    bpf_dbg_printk("err lookup off, sym_addr=%llx", sym_addr);
 
     if (!sym_addr) {
         return 0;
@@ -421,13 +422,12 @@ int obi_uprobe_RecordError(struct pt_regs *ctx) {
 
     if (itype == type_off) {
         void *str_err = (void *)GO_PARAM3(ctx);
-        bpf_dbg_printk("str_err %llx", str_err);
+        bpf_dbg_printk("str_err=%llx", str_err);
         if (str_err) {
             struct go_string go_str = {0};
             bpf_probe_read(&go_str, sizeof(struct go_string), str_err);
             u8 valid_attrs = span->span_attrs.valid_attrs;
-            bpf_dbg_printk(
-                "valid_attrs %d, len %d, go_str %s", valid_attrs, go_str.len, go_str.str);
+            bpf_dbg_printk("valid_attrs=%d, len=%d, str=%s", valid_attrs, go_str.len, go_str.str);
 
             if ((go_str.len < OTEL_ATTRIBUTE_KEY_MAX_LEN) &&
                 (valid_attrs < OTEL_ATTRIBUTE_MAX_COUNT)) {

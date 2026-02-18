@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 )
 
@@ -52,8 +53,8 @@ var AllowedAttributeNames = map[string]struct{}{
 
 // ProcessInfo stores some relevant information about a running process
 type ProcessInfo struct {
-	Pid       int32
-	PPid      int32
+	Pid       app.PID
+	PPid      app.PID
 	ExePath   string
 	OpenPorts []uint32
 }
@@ -118,6 +119,11 @@ type DiscoveryConfig struct {
 	DisabledRouteHarvesters []string `yaml:"disabled_route_harvesters"`
 
 	RouteHarvestConfig RouteHarvestingConfig `yaml:"route_harvester_advanced"`
+
+	// Executable paths for which we don't run language detection and cannot be
+	// selected using the path or language selection criteria
+	//nolint:undoc
+	ExcludedLinuxSystemPaths []string `yaml:"excluded_linux_system_paths"`
 }
 
 type RouteHarvestingConfig struct {

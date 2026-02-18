@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/procfs"
 	"golang.org/x/sys/unix"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
@@ -145,7 +146,7 @@ type uprobeModule struct {
 	probes    []map[string][]*ebpfcommon.ProbeDesc
 }
 
-func (i *instrumenter) uprobeModules(p Tracer, pid int32, maps []*procfs.ProcMap, exePath string, exeIno uint64, log *slog.Logger) map[uint64]*uprobeModule {
+func (i *instrumenter) uprobeModules(p Tracer, pid app.PID, maps []*procfs.ProcMap, exePath string, exeIno uint64, log *slog.Logger) map[uint64]*uprobeModule {
 	modules := map[uint64]*uprobeModule{}
 
 	for lib, pMap := range p.UProbes() {
@@ -190,7 +191,7 @@ func (i *instrumenter) uprobeModules(p Tracer, pid int32, maps []*procfs.ProcMap
 	return modules
 }
 
-func resolveExePath(pid int32) (string, uint64, error) {
+func resolveExePath(pid app.PID) (string, uint64, error) {
 	exePath := fmt.Sprintf("/proc/%d/exe", pid)
 
 	info, err := os.Stat(exePath)
@@ -207,7 +208,7 @@ func resolveExePath(pid int32) (string, uint64, error) {
 	return exePath, stat.Ino, nil
 }
 
-func (i *instrumenter) uprobes(pid int32, p Tracer) error {
+func (i *instrumenter) uprobes(pid app.PID, p Tracer) error {
 	maps, err := processMaps(pid)
 	if err != nil {
 		return err
@@ -518,7 +519,7 @@ func htons(a uint16) uint16 {
 	return a
 }
 
-func processMaps(pid int32) ([]*procfs.ProcMap, error) {
+func processMaps(pid app.PID) ([]*procfs.ProcMap, error) {
 	return procs.FindLibMaps(pid)
 }
 

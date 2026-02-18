@@ -475,6 +475,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
         return 0;
     }
 
+    msg_ptr[0] = 0;
     bpf_probe_read_kernel(msg_ptr, copy_bytes & k_msg_buffer_size_max_mask, msg->data);
     bpf_map_update_elem(&msg_buffer_mem, &(u32){0}, msg_ptr, BPF_ANY);
 
@@ -867,7 +868,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
     const u32 data_size = (e - ptr) & 0x3ff; // 1KB chunks per iteration
 
     for (u32 i = 0; i < data_size; ++i) {
-        if (ptr + TP_SIZE >= e || is_eoh(ptr)) {
+        if ((ptr + TP_SIZE >= e) || is_eoh(ptr)) {
             bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
             break;
         }

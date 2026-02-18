@@ -118,7 +118,7 @@ services:
   obi:
     build:
       context: ../../..
-      dockerfile: ./internal/test/integration/components/ebpf-instrument/Dockerfile
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
     command:
       - --config=/configs/obi-config-multiexec.yml
     volumes:

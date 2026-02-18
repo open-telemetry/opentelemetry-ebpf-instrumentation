@@ -97,9 +97,9 @@ struct {
 
 SEC("uprobe/server_handleStream")
 int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/server_handleStream === ");
+    bpf_dbg_printk("=== uprobe/server_handleStream ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -111,7 +111,7 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
 
     u64 new_handle_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_six_nine});
     u64 reduce_pointers_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_seven_seven});
-    bpf_dbg_printk("stream pointer %llx, new_handle_stream %d, reduce_pointers %d",
+    bpf_dbg_printk("stream_ptr=%llx, new_handle_stream=%d, reduce_pointers_stream=%d",
                    stream_ptr,
                    new_handle_stream,
                    reduce_pointers_stream);
@@ -122,9 +122,10 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
             sizeof(stream_stream_ptr),
             (void *)(stream_ptr + go_offset_of(ot, (go_offset){.v = _grpc_server_stream_stream})));
 
-        bpf_dbg_printk("new stream pointer %llx", stream_stream_ptr);
+        bpf_dbg_printk("new stream pointer, stream_stream_ptr=%llx", stream_stream_ptr);
         if (!stream_stream_ptr) {
-            bpf_dbg_printk("Error loading embedded server stream pointer from %llx", stream_ptr);
+            bpf_dbg_printk("Error loading embedded server stream pointer from stream_ptr: %llx",
+                           stream_ptr);
             return 0;
         }
         st_offset = go_offset_of(ot, (go_offset){.v = _grpc_server_stream_st_ptr_pos});
@@ -143,12 +144,12 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
         // Read the embedded object ptr
         bpf_probe_read(&st_ptr, sizeof(st_ptr), (void *)(stream_ptr + st_offset + sizeof(void *)));
 
-        bpf_dbg_printk("st_ptr %llx", st_ptr);
+        bpf_dbg_printk("st_ptr=%llx", st_ptr);
         invocation.st = (u64)st_ptr;
         if (st_ptr) {
             grpc_transports_t *t = bpf_map_lookup_elem(&ongoing_grpc_transports, &st_ptr);
 
-            bpf_dbg_printk("found t %llx", t);
+            bpf_dbg_printk("found t: %llx", t);
             if (t) {
                 bpf_dbg_printk("reading the traceparent from frame headers");
                 if (valid_trace(t->tp.trace_id)) {
@@ -183,10 +184,8 @@ int obi_uprobe_http2Server_operateHeaders(struct pt_regs *ctx) {
         frame = GO_PARAM4(ctx);
     }
 
-    bpf_dbg_printk("=== uprobe/GRPC http2Server_operateHeaders tr %llx goroutine %lx, new %d === ",
-                   tr,
-                   goroutine_addr,
-                   new_offset_version);
+    bpf_dbg_printk("=== uprobe/http2Server_operateHeaders ===");
+    bpf_dbg_printk("tr=%llx, goroutine_addr=%lx, new=%d", tr, goroutine_addr, new_offset_version);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -209,20 +208,19 @@ SEC("uprobe/serverHandlerTransport_HandleStreams")
 int obi_uprobe_server_handler_transport_handle_streams(struct pt_regs *ctx) {
     void *tr = GO_PARAM1(ctx);
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("=== uprobe/serverHandlerTransport_HandleStreams tr %llx goroutine %lx === ",
-                   tr,
-                   goroutine_addr);
+    bpf_dbg_printk("=== uprobe/serverHandlerTransport_HandleStreams ===");
+    bpf_dbg_printk("tr=%llx, goroutine_addr=%lx", tr, goroutine_addr);
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     void *parent_go = (void *)find_parent_goroutine(&g_key);
     if (parent_go) {
-        bpf_dbg_printk("found parent goroutine for transport handler [%llx]", parent_go);
+        bpf_dbg_printk("found parent goroutine for transport handler, parent_go=%llx", parent_go);
         go_addr_key_t p_key = {};
         go_addr_key_from_id(&p_key, parent_go);
         connection_info_t *conn = bpf_map_lookup_elem(&ongoing_server_connections, &p_key);
-        bpf_dbg_printk("conn %llx", conn);
+        bpf_dbg_printk("conn=%llx", conn);
         if (conn) {
             grpc_transports_t t = {
                 .type = TRANSPORT_HANDLER,
@@ -238,12 +236,12 @@ int obi_uprobe_server_handler_transport_handle_streams(struct pt_regs *ctx) {
 
 SEC("uprobe/server_handleStream")
 int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/server_handleStream return === ");
+    bpf_dbg_printk("=== uprobe/server_handleStream ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     off_table_t *ot = get_offsets_table();
 
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -266,7 +264,7 @@ int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
     void *st_ptr = (void *)invocation->st;
     u64 grpc_stream_method_ptr_pos =
         go_offset_of(ot, (go_offset){.v = _grpc_stream_method_ptr_pos});
-    bpf_dbg_printk("stream_ptr %lx, st_ptr %lx, method pos %lx",
+    bpf_dbg_printk("stream_ptr=%lx, st_ptr=%lx, grpc_stream_method_ptr_pos=%lx",
                    stream_ptr,
                    st_ptr,
                    grpc_stream_method_ptr_pos);
@@ -304,7 +302,7 @@ int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
     if (st_ptr) {
         grpc_transports_t *t = bpf_map_lookup_elem(&ongoing_grpc_transports, &st_ptr);
 
-        bpf_dbg_printk("found t %llx", t);
+        bpf_dbg_printk("found t: %llx", t);
         if (t) {
             bpf_dbg_printk("setting up connection info from grpc handler");
             __builtin_memcpy(&trace->conn, &t->conn, sizeof(connection_info_t));
@@ -313,7 +311,7 @@ int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
     }
 
     if (!found_conn) {
-        bpf_dbg_printk("can't find connection info for st_ptr %llx", st_ptr);
+        bpf_dbg_printk("can't find connection info for st_ptr: %llx", st_ptr);
         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
     }
 
@@ -334,17 +332,17 @@ done:
 
 SEC("uprobe/transport_writeStatus")
 int obi_uprobe_transport_writeStatus(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/transport_writeStatus === ");
+    bpf_dbg_printk("=== uprobe/transport_writeStatus ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     off_table_t *ot = get_offsets_table();
 
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     void *status_ptr = GO_PARAM3(ctx);
-    bpf_dbg_printk("status_ptr %lx", status_ptr);
+    bpf_dbg_printk("status_ptr=%lx", status_ptr);
 
     if (status_ptr != NULL) {
         void *s_ptr;
@@ -353,7 +351,7 @@ int obi_uprobe_transport_writeStatus(struct pt_regs *ctx) {
             sizeof(s_ptr),
             (void *)(status_ptr + go_offset_of(ot, (go_offset){.v = _grpc_status_s_pos})));
 
-        bpf_dbg_printk("s_ptr %lx", s_ptr);
+        bpf_dbg_printk("s_ptr=%lx", s_ptr);
 
         if (s_ptr != NULL) {
             u16 status = -1;
@@ -361,7 +359,7 @@ int obi_uprobe_transport_writeStatus(struct pt_regs *ctx) {
                 &status,
                 sizeof(status),
                 (void *)(s_ptr + go_offset_of(ot, (go_offset){.v = _grpc_status_code_ptr_pos})));
-            bpf_dbg_printk("status code %d", status);
+            bpf_dbg_printk("status=%d", status);
             bpf_map_update_elem(&ongoing_grpc_request_status, &g_key, &status, BPF_ANY);
         }
     }
@@ -396,7 +394,7 @@ static __always_inline void clientConnStart(
         invocation.flags = client_trace_parent(goroutine_addr, &invocation.tp);
     } else {
         // it's OK sending empty tp for a client, the userspace id generator will make random trace_id, span_id
-        bpf_dbg_printk("No ctx_ptr %llx", ctx_ptr);
+        bpf_dbg_printk("No ctx_ptr: %llx", ctx_ptr);
     }
 
     // Write event
@@ -407,10 +405,10 @@ static __always_inline void clientConnStart(
 
 SEC("uprobe/ClientConn_Invoke")
 int obi_uprobe_ClientConn_Invoke(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/proc grpc ClientConn.Invoke === ");
+    bpf_dbg_printk("=== uprobe/ClientConn_Invoke ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     void *cc_ptr = GO_PARAM1(ctx);
     void *ctx_ptr = GO_PARAM3(ctx);
@@ -425,10 +423,10 @@ int obi_uprobe_ClientConn_Invoke(struct pt_regs *ctx) {
 // Same as ClientConn_Invoke, registers for the method are offset by one
 SEC("uprobe/ClientConn_NewStream")
 int obi_uprobe_ClientConn_NewStream(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/proc grpc ClientConn.NewStream === ");
+    bpf_dbg_printk("=== uprobe/ClientConn_NewStream ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     void *cc_ptr = GO_PARAM1(ctx);
     void *ctx_ptr = GO_PARAM3(ctx);
@@ -442,7 +440,7 @@ int obi_uprobe_ClientConn_NewStream(struct pt_regs *ctx) {
 
 static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -478,7 +476,7 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
     void *method_ptr = (void *)invocation->method;
     void *method_len = (void *)invocation->method_len;
 
-    bpf_dbg_printk("method ptr = %lx, method_len = %d", method_ptr, method_len);
+    bpf_dbg_printk("method_ptr=%lx, method_len=%d", method_ptr, method_len);
 
     // Get method from the incoming call arguments
     if (!read_go_str_n("method", method_ptr, (u64)method_len, trace->path, sizeof(trace->path))) {
@@ -513,7 +511,7 @@ done:
 // Same as ClientConn_Invoke, registers for the method are offset by one
 SEC("uprobe/ClientConn_NewStream")
 int obi_uprobe_ClientConn_NewStream_return(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/proc grpc ClientConn.NewStream return === ");
+    bpf_dbg_printk("=== uprobe/ClientConn_NewStream ===");
 
     void *stream = GO_PARAM1(ctx);
 
@@ -526,10 +524,10 @@ int obi_uprobe_ClientConn_NewStream_return(struct pt_regs *ctx) {
 
 SEC("uprobe/ClientConn_Close")
 int obi_uprobe_ClientConn_Close(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/proc grpc ClientConn.Close === ");
+    bpf_dbg_printk("=== uprobe/ClientConn_Close ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -540,7 +538,7 @@ int obi_uprobe_ClientConn_Close(struct pt_regs *ctx) {
 
 SEC("uprobe/ClientConn_Invoke")
 int obi_uprobe_ClientConn_Invoke_return(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/proc grpc ClientConn.Invoke return === ");
+    bpf_dbg_printk("=== uprobe/ClientConn_Invoke ===");
 
     void *err = GO_PARAM1(ctx);
 
@@ -554,7 +552,7 @@ int obi_uprobe_ClientConn_Invoke_return(struct pt_regs *ctx) {
 // google.golang.org/grpc.(*clientStream).RecvMsg
 SEC("uprobe/clientStream_RecvMsg")
 int obi_uprobe_clientStream_RecvMsg_return(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/proc grpc clientStream.RecvMsg return === ");
+    bpf_dbg_printk("=== uprobe/clientStream_RecvMsg ===");
     void *err = (void *)GO_PARAM1(ctx);
     return grpc_connect_done(ctx, err);
 }
@@ -575,7 +573,7 @@ struct {
 // We extract the stream ID when it's just created and make a mapping of it to our goroutine that's executing ClientConn.Invoke.
 SEC("uprobe/transport_http2Client_NewStream")
 int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/proc transport.(*http2Client).NewStream === ");
+    bpf_dbg_printk("=== uprobe/transport_http2Client_NewStream ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *t_ptr = GO_PARAM1(ctx);
@@ -585,7 +583,7 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
 
     u64 grpc_t_conn_pos = go_offset_of(ot, (go_offset){.v = _grpc_t_scheme_pos});
     bpf_dbg_printk(
-        "goroutine_addr %lx, t_ptr %llx, t.conn_pos %x", goroutine_addr, t_ptr, grpc_t_conn_pos);
+        "goroutine_addr=%lx, t_ptr=%llx, t.conn_pos=%x", goroutine_addr, t_ptr, grpc_t_conn_pos);
 
     if (t_ptr) {
         void *conn_ptr = t_ptr + go_offset_of(ot, (go_offset){.v = _grpc_t_conn_pos}) + 8;
@@ -608,7 +606,7 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
             bpf_probe_read(&s_ptr, sizeof(s_ptr), (void *)(t_ptr + grpc_t_conn_pos));
             bpf_probe_read(buf, sizeof(buf), s_ptr);
 
-            //bpf_dbg_printk("scheme %s", buf);
+            //bpf_dbg_printk("scheme=%s", buf);
 
             if (buf[0] == 'h' && buf[1] == 't' && buf[2] == 't' && buf[3] == 'p' && buf[4] == 's') {
                 is_secure = 1;
@@ -619,11 +617,11 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
                 conn_ptr = unwrap_tls_conn_info(conn_ptr, (void *)is_secure);
                 conn_ptr = unwrap_tls_conn_info(conn_ptr, (void *)is_secure);
             }
-            bpf_dbg_printk("conn_ptr %llx is_secure %lld", conn_ptr, is_secure);
+            bpf_dbg_printk("conn_ptr=%llx, is_secure=%lld", conn_ptr, is_secure);
             if (conn_ptr) {
                 void *conn_conn_ptr = 0;
                 bpf_probe_read(&conn_conn_ptr, sizeof(conn_conn_ptr), conn_ptr);
-                bpf_dbg_printk("conn_conn_ptr %llx", conn_conn_ptr);
+                bpf_dbg_printk("conn_conn_ptr=%llx", conn_conn_ptr);
                 if (conn_conn_ptr) {
                     connection_info_t conn = {0};
                     u8 ok = get_conn_info(conn_conn_ptr, &conn);
@@ -639,7 +637,7 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
         }
 
         if (g_bpf_header_propagation) {
-            bpf_dbg_printk("conn_ptr %llx", conn_ptr_key);
+            bpf_dbg_printk("conn_ptr_key=%llx", conn_ptr_key);
 
             grpc_client_func_invocation_t *invocation =
                 bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
@@ -653,7 +651,7 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
                 bpf_map_update_elem(&transport_new_client_invocations, &g_key, &wrapper, BPF_ANY);
             } else {
                 bpf_dbg_printk(
-                    "Couldn't find invocation metadata for goroutine %lx, conn_ptr_key %llx",
+                    "Couldn't find invocation metadata for goroutine=%lx, conn_ptr_key=%llx",
                     goroutine_addr,
                     conn_ptr_key);
             }
@@ -673,7 +671,7 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/proc returns transport.(*http2Client).NewStream === ");
+    bpf_dbg_printk("=== uprobe/transport_http2Client_NewStream_ret ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *stream = GO_PARAM1(ctx);
@@ -697,7 +695,7 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
     u64 new_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_six_nine});
 
     u64 reduce_pointers_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_seven_seven});
-    bpf_dbg_printk("stream pointer %llx, new_stream %d, reduce_pointers %d",
+    bpf_dbg_printk("stream=%llx, new_stream=%d, reduce_pointers_stream=%d",
                    stream,
                    new_stream,
                    reduce_pointers_stream);
@@ -707,7 +705,7 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
                             sizeof(stream),
                             stream +
                                 go_offset_of(ot, (go_offset){.v = _grpc_client_stream_stream}));
-        bpf_dbg_printk("stream pointer %llx", stream);
+        bpf_dbg_printk("stream pointer=%llx", stream);
     }
 
     u64 stream_id = 0;
@@ -716,7 +714,7 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
                         stream + go_offset_of(ot, (go_offset){.v = _grpc_transport_stream_id_pos}));
     wrapper->s_key.stream_id = stream_id;
 
-    bpf_dbg_printk("after return stream id %d, conn_ptr %llx",
+    bpf_dbg_printk("after return, stream_id=%d, conn_ptr=%llx",
                    wrapper->s_key.stream_id,
                    wrapper->s_key.conn_ptr);
 
@@ -750,7 +748,7 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/proc grpc Framer writeHeaders === ");
+    bpf_dbg_printk("=== uprobe/grpcFramerWriteHeaders ===");
 
     void *framer = GO_PARAM1(ctx);
     off_table_t *ot = get_offsets_table();
@@ -769,7 +767,7 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     }
 
     bpf_dbg_printk(
-        "framer=%llx, stream_id=%llu, framer_w_pos %llx", framer, stream_id, framer_w_pos);
+        "framer=%llx, stream_id=%llu, framer_w_pos=%llx", framer, stream_id, framer_w_pos);
 
     void *w_ptr = (void *)(framer + framer_w_pos + 16);
     bpf_probe_read(&w_ptr, sizeof(w_ptr), (void *)(framer + framer_w_pos + 8));
@@ -787,7 +785,7 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
         bpf_dbg_printk("conn ptr is 0");
         return 0;
     } else {
-        bpf_dbg_printk("conn_ptr %llx, stream_id %d", conn_ptr, stream_id);
+        bpf_dbg_printk("conn_ptr=%llx, stream_id=%d", conn_ptr, stream_id);
     }
 
     stream_key_t key = {
@@ -798,7 +796,7 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     grpc_client_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_streams, &key);
 
     if (invocation) {
-        bpf_dbg_printk("Found invocation info %llx", invocation);
+        bpf_dbg_printk("Found invocation info: %llx", invocation);
         void *goroutine_addr = GOROUTINE_PTR(ctx);
         go_addr_key_t g_key = {};
         go_addr_key_from_id(&g_key, goroutine_addr);
@@ -810,7 +808,7 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
             (void *)(w_ptr +
                      go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_offset_pos})));
 
-        bpf_dbg_printk("Found initial data offset %d", offset);
+        bpf_dbg_printk("Found initial data offset: %d", offset);
 
         // The offset will be 0 on first connection through the stream and 9 on subsequent.
         // If we read some very large offset, we don't do anything since it might be a situation
@@ -841,7 +839,7 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
         return 0;
     }
 
-    bpf_dbg_printk("=== uprobe/proc grpc Framer writeHeaders returns === ");
+    bpf_dbg_printk("=== uprobe/grpcFramerWriteHeaders_returns ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     off_table_t *ot = get_offsets_table();
@@ -889,7 +887,7 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
 
             bpf_clamp_umax(off, MAX_W_PTR_OFFSET);
 
-            //bpf_dbg_printk("Found f_info, this is the place to write to w = %llx, buf=%llx, n=%lld, size=%lld", w_ptr, buf_arr, n, cap);
+            //bpf_dbg_printk("Found f_info, this is the place to write to w_ptr=%llx, buf_arr=%llx, n=%lld, cap=%lld", w_ptr, buf_arr, n, cap);
             if (buf_arr && n < (cap - HTTP2_ENCODED_HEADER_LEN)) {
                 uint8_t tp_str[TP_MAX_VAL_LENGTH];
 
@@ -902,7 +900,7 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
                 bpf_probe_read(&size_2, sizeof(size_2), (void *)(buf_arr + off + 1));
                 bpf_probe_read(&size_3, sizeof(size_3), (void *)(buf_arr + off + 2));
 
-                bpf_dbg_printk("size 1:%x, 2:%x, 3:%x", size_1, size_2, size_3);
+                bpf_dbg_printk("sizes: 1=%x, 2=%x, 3=%x", size_1, size_2, size_3);
 
                 u32 original_size = ((u32)(size_1) << 16) | ((u32)(size_2) << 8) | size_3;
 
@@ -915,7 +913,7 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
                     // We don't hpack encode the value of the traceparent field, because that will require that
                     // we use bpf_loop, which in turn increases the kernel requirement to 5.17+.
                     make_tp_string(tp_str, &f_info->tp);
-                    //bpf_dbg_printk("Will write %s, type = %d, key_len = %d, val_len = %d", tp_str, type_byte, key_len, val_len);
+                    //bpf_dbg_printk("Will write tp_str=[%s], type_byte=%d, key_len=%d, val_len=%d", tp_str, type_byte, key_len, val_len);
 
                     bpf_probe_write_user(buf_arr + (n & 0x0ffff), &type_byte, sizeof(type_byte));
                     n++;

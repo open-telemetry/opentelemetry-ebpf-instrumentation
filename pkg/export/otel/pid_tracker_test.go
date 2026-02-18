@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 )
 
@@ -28,7 +29,7 @@ func makeNameNamespace(name, ns string) svc.ServiceNameNamespace {
 func TestPidServiceTracker_AddAndRemovePID(t *testing.T) {
 	tracker := NewPidServiceTracker()
 	uid := makeUID("foo", "bar")
-	pid := int32(1234)
+	pid := app.PID(1234)
 
 	tracker.AddPID(pid, uid)
 
@@ -65,8 +66,8 @@ func TestPidServiceTracker_AddAndRemovePID(t *testing.T) {
 func TestPidServiceTracker_RemovePID_NotLast(t *testing.T) {
 	tracker := NewPidServiceTracker()
 	uid := makeUID("foo1", "bar1")
-	pid1 := int32(1)
-	pid2 := int32(2)
+	pid1 := app.PID(1)
+	pid2 := app.PID(2)
 	tracker.AddPID(pid1, uid)
 	tracker.AddPID(pid2, uid)
 
@@ -93,8 +94,8 @@ func TestPidServiceTracker_RemovePID_NotLast(t *testing.T) {
 func TestPidServiceTracker_RemovePID_Last(t *testing.T) {
 	tracker := NewPidServiceTracker()
 	uid := makeUID("foo", "bar")
-	pid1 := int32(1)
-	pid2 := int32(2)
+	pid1 := app.PID(1)
+	pid2 := app.PID(2)
 	tracker.AddPID(pid1, uid)
 	tracker.AddPID(pid2, uid)
 
@@ -131,8 +132,8 @@ func TestPidServiceTracker_RemovePID_Last(t *testing.T) {
 func TestPidServiceTracker_Count(t *testing.T) {
 	tracker := NewPidServiceTracker()
 	uid := makeUID("foo", "bar")
-	pid1 := int32(1)
-	pid2 := int32(2)
+	pid1 := app.PID(1)
+	pid2 := app.PID(2)
 
 	assert.Equal(t, 0, tracker.Count())
 
@@ -169,9 +170,9 @@ func TestPidServiceTracker_TracksPID(t *testing.T) {
 	tracker := NewPidServiceTracker()
 	uid1 := makeUID("service1", "namespace1")
 	uid2 := makeUID("service2", "namespace2")
-	pid1 := int32(1001)
-	pid2 := int32(1002)
-	pid3 := int32(1003) // untracked PID
+	pid1 := app.PID(1001)
+	pid2 := app.PID(1002)
+	pid3 := app.PID(1003) // untracked PID
 
 	// Test tracking non-existent PID
 	gotUID, exists := tracker.TracksPID(pid1)
@@ -213,8 +214,8 @@ func TestPidServiceTracker_UpdateUID(t *testing.T) {
 		tracker := NewPidServiceTracker()
 		oldUID := makeUID("old-service", "namespace1")
 		newUID := makeUID("new-service", "namespace1")
-		pid1 := int32(1001)
-		pid2 := int32(1002)
+		pid1 := app.PID(1001)
+		pid2 := app.PID(1002)
 
 		// Add PIDs to old UID
 		tracker.AddPID(pid1, oldUID)
@@ -276,9 +277,9 @@ func TestPidServiceTracker_UpdateUID(t *testing.T) {
 		uid1 := makeUID("service1", "namespace1")
 		uid2 := makeUID("service2", "namespace2")
 		newUID := makeUID("updated-service1", "namespace1")
-		pid1 := int32(1001)
-		pid2 := int32(1002)
-		pid3 := int32(1003)
+		pid1 := app.PID(1001)
+		pid2 := app.PID(1002)
+		pid3 := app.PID(1003)
 
 		// Add PIDs to different UIDs
 		tracker.AddPID(pid1, uid1)
@@ -313,7 +314,7 @@ func TestPidServiceTracker_UpdateUID(t *testing.T) {
 	t.Run("update UID to same UID", func(t *testing.T) {
 		tracker := NewPidServiceTracker()
 		uid := makeUID("same-service", "namespace1")
-		pid1 := int32(1001)
+		pid1 := app.PID(1001)
 
 		tracker.AddPID(pid1, uid)
 

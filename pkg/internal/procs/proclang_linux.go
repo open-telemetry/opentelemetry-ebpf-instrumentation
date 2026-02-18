@@ -10,23 +10,30 @@ import (
 	"os"
 	"slices"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/internal/fastelf"
 )
 
-func FindProcLanguage(pid int32) svc.InstrumentableType {
+func FindProcLanguage(pid app.PID) svc.InstrumentableType {
 	maps, err := FindLibMaps(pid)
 	if err != nil {
 		return svc.InstrumentableGeneric
 	}
 
+	// We first check for the languages as cheaply as possible when
+	// know they link certain libraries that can tell us the language.
 	for _, m := range maps {
-		t := instrumentableFromModuleMap(m.Pathname)
+		t := instrumentableFromModuleMapSharedLib(m.Pathname)
 		if t != svc.InstrumentableGeneric {
 			return t
 		}
 	}
 
+	// We must find the language type from the binary first
+	// before resorting to discovery by path or environment variables.
+	// For example, a Go application can be called 'node' and we must
+	// not identify this application as Node.js.
 	filePath, err := resolveProcBinary(pid)
 	if err != nil {
 		return svc.InstrumentableGeneric
@@ -38,6 +45,13 @@ func FindProcLanguage(pid int32) svc.InstrumentableType {
 		return t
 	}
 
+	for _, m := range maps {
+		t := instrumentableFromModuleMap(m.Pathname)
+		if t != svc.InstrumentableGeneric {
+			return t
+		}
+	}
+
 	t = instrumentableFromPath(filePath)
 	if t != svc.InstrumentableGeneric {
 		return t
@@ -47,10 +61,23 @@ func FindProcLanguage(pid int32) svc.InstrumentableType {
 	if err != nil {
 		return svc.InstrumentableGeneric
 	}
-	return instrumentableFromEnviron(string(bytes))
+	t = instrumentableFromEnviron(string(bytes))
+	if t != svc.InstrumentableGeneric {
+		return t
+	}
+
+	// Last resort to tell Generic from C++ (and maybe others in the future)
+	for _, m := range maps {
+		t := instrumentableLastResort(m.Pathname)
+		if t != svc.InstrumentableGeneric {
+			return t
+		}
+	}
+
+	return svc.InstrumentableGeneric
 }
 
-func resolveProcBinary(pid int32) (string, error) {
+func resolveProcBinary(pid app.PID) (string, error) {
 	exePath := fmt.Sprintf("/proc/%d/exe", pid)
 
 	realPath, err := os.Readlink(exePath)
