@@ -5,13 +5,9 @@ package integration
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"testing"
 	"time"
-
-	"github.com/ory/dockertest/v3"
-	"github.com/ory/dockertest/v3/docker"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,72 +17,15 @@ import (
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
-func setupIMDSSubnet(t *testing.T) *dockertest.Network {
-	t.Helper()
-	t.Log("Starting IMDS Mock network...")
-	imdsSubnet, err := dockerPool.CreateNetwork(fmt.Sprintf("test-imds-network-%d", time.Now().UnixNano()),
-		func(opts *docker.CreateNetworkOptions) {
-			opts.IPAM = &docker.IPAMOptions{
-				Config: []docker.IPAMConfig{
-					{
-						Subnet: "169.254.0.0/16",
-					},
-				},
-			}
-		})
-	require.NoError(t, err, "could not create Docker IMDS subnet")
-	t.Cleanup(func() {
-		require.NoError(t, dockerPool.RemoveNetwork(imdsSubnet), "could not remove Docker IMDS subnet")
-	})
-	return imdsSubnet
-}
-
-func setupMockAzureIMDS(t *testing.T, network, imdsSubnet *dockertest.Network) {
-	t.Helper()
-	t.Log("Starting Azure IMDS Mock container...")
-
-	// The contents served by this mock IMDS are extracted from the official Azure docs:
-	// https://learn.microsoft.com/en-us/azure/virtual-machines/instance-metadata-service?tabs=linux
-	mockIMDS, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "nginx",
-		Tag:        versionNginx,
-		Name:       fmt.Sprintf("mock-imds-nginx-%d", time.Now().UnixNano()),
-		Mounts: []string{
-			pathRoot + "/internal/test/integration/components/azure-imds/nginx.conf:/etc/nginx/nginx.conf",
-			pathRoot + "/internal/test/integration/components/azure-imds/azure-metadata-mock.json:/azure-metadata-mock.json",
-		},
-	})
-	require.NoError(t, err, "could not start Azure IMDS Mock container")
-	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(mockIMDS), "could not remove Azure IMDS Mock container")
-	})
-
-	// Connect to network with alias for metadata service
-	err = dockerPool.Client.ConnectNetwork(imdsSubnet.Network.ID, docker.NetworkConnectionOptions{
-		Container: mockIMDS.Container.ID,
-		EndpointConfig: &docker.EndpointConfig{
-			IPAMConfig: &docker.EndpointIPAMConfig{
-				IPv4Address: "169.254.169.254",
-			},
-			Aliases: []string{"mock-imds"},
-		},
-	})
-	require.NoError(t, err, "could not connect Azure IMDS Mock container to network")
-	for mockIMDS.Container.State.Status != "running" {
-		t.Log("Waiting for Azure IMDS Mock container to start...", "status", mockIMDS.Container.State.Status)
-	}
-	t.Log("Azure IMDS Mock container started", "state", mockIMDS.Container.State.Status)
-}
-
 // This file contains tests related with the integration with Amazon Web Services
 func TestCloudResourceMetadata_Azure(t *testing.T) {
 	network := setupDockerNetwork(t)
 	imdsSubnet := setupIMDSSubnet(t)
+	setupMockAzureIMDS(t, imdsSubnet)
 
 	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
-	setupMockAzureIMDS(t, network, imdsSubnet)
 	defer network.Close()
 	testserver := setupGoOTelTestServer(t, network, nil)
 

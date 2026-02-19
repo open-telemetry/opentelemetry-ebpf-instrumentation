@@ -5,13 +5,10 @@ package integration
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"testing"
 	"time"
 
-	"github.com/ory/dockertest/v3"
-	"github.com/ory/dockertest/v3/docker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,49 +17,14 @@ import (
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
-func setupMockIMDS(t *testing.T, network *dockertest.Network) {
-	t.Helper()
-
-	t.Log("Starting AWS EC2 Metadata Mock container...")
-	mockIMDS, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "amazon/amazon-ec2-metadata-mock",
-		Tag:        versionAWSMetaMock,
-		Name:       fmt.Sprintf("mock-imds-test-%d", time.Now().UnixNano()),
-		Mounts: []string{
-			pathRoot + "/internal/test/integration/configs/aws-metadata-mock.json:/config/aws-metadata-mock.json",
-		},
-		Cmd: []string{
-			"--config-file", "/config/aws-metadata-mock.json",
-			"--port", "1338",
-		},
-		ExposedPorts: []string{"1338/tcp"},
-	})
-	require.NoError(t, err, "could not start AWS EC2 Metadata Mock container")
-	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(mockIMDS), "could not remove AWS EC2 Metadata Mock container")
-	})
-
-	// Connect to network with alias for metadata service
-	err = dockerPool.Client.ConnectNetwork(network.Network.ID, docker.NetworkConnectionOptions{
-		Container: mockIMDS.Container.ID,
-		EndpointConfig: &docker.EndpointConfig{
-			Aliases: []string{"mock-imds"},
-		},
-	})
-	require.NoError(t, err, "could not connect AWS EC2 Metadata Mock container to network")
-	for mockIMDS.Container.State.Status != "running" {
-		t.Log("Waiting for AWS EC2 IMDS Mock container to start...", "status", mockIMDS.Container.State.Status)
-	}
-	t.Log("AWS EC2 Metadata Mock container started", "state", mockIMDS.Container.State.Status)
-}
-
 // This file contains tests related with the integration with Amazon Web Services
 func TestCloudResourceMetadata_AWS(t *testing.T) {
 	network := setupDockerNetwork(t)
+	imdsSubnet := setupIMDSSubnet(t)
+	setupAWSMockIMDS(t, imdsSubnet)
 	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
-	setupMockIMDS(t, network)
 	defer network.Close()
 	testserver := setupGoOTelTestServer(t, network, nil)
 
@@ -76,15 +38,12 @@ func TestCloudResourceMetadata_AWS(t *testing.T) {
 		Env: []string{
 			`OTEL_EBPF_PROMETHEUS_PORT=8999`,
 			"OTEL_EBPF_OPEN_PORT=8080",
-			// Configure AWS SDK to use custom endpoint for EC2 metadata
-			// The official amazon-ec2-metadata-mock runs on port 1338
-			"AWS_EC2_METADATA_SERVICE_ENDPOINT=http://mock-imds:1338",
 		},
 	}
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver, "obi-config.yml")
+	o.instrument(t, network, testserver, "obi-config.yml", imdsSubnet)
 
 	// Wait for test components to be ready
 	waitForTestComponents(t, "http://localhost:8080")
