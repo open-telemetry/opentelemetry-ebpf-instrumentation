@@ -258,7 +258,7 @@ docker-generate:
 		make generate
 
 .PHONY: verify
-verify: prereqs lint test license-header-check
+verify: prereqs go-mod-tidy lint test license-header-check
 
 .PHONY: build
 build: docker-generate verify compile
@@ -627,10 +627,24 @@ check-clean-work-tree:
 		exit 1; \
 	fi
 
+.PHONY: go-mod-tidy
+GO_MOD_FILES := $(shell find . -type f -name 'go.mod' ! -path './NOTICES/*')
+GO_MOD_TIDY_TARGETS := $(patsubst %/go.mod,%/.go-mod-tidy,$(GO_MOD_FILES))
+GO_MOD_TIDY_117_TARGETS := $(filter %/testserver_1.17/.go-mod-tidy,$(GO_MOD_TIDY_TARGETS))
+GO_MOD_TIDY_DEFAULT_TARGETS := $(filter-out $(GO_MOD_TIDY_117_TARGETS),$(GO_MOD_TIDY_TARGETS))
+.PHONY: $(GO_MOD_TIDY_TARGETS)
+go-mod-tidy: $(GO_MOD_TIDY_TARGETS)
+
+$(GO_MOD_TIDY_DEFAULT_TARGETS):
+	@echo "### Running go mod tidy in $(dir $@)"
+	@cd "$(dir $@)" && go mod tidy
+
+$(GO_MOD_TIDY_117_TARGETS):
+	@echo "### Running go mod tidy -go=1.17 -compat=1.17 in $(dir $@)"
+	@cd "$(dir $@)" && go mod tidy -go=1.17 -compat=1.17
+
 .PHONY: check-go-mod
-check-go-mod:
-	go mod tidy
-	git diff --quiet -- go.mod go.sum
+check-go-mod: go-mod-tidy check-clean-work-tree
 
 .PHONY: verify-mods
 verify-mods: $(MULTIMOD)
