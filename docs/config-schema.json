@@ -173,11 +173,11 @@
         },
         "default_exclude_instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
-          "description": "DefaultExcludeInstrument by default prevents self-instrumentation of OBI as well as related services (OBI, Beyla, Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired."
+          "description": "DefaultExcludeInstrument by default prevents self-instrumentation of OBI as well as related observability tools\nIt must be set to an empty string or a different value if self-instrumentation is desired."
         },
         "default_exclude_services": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
-          "description": "DefaultExcludeServices by default prevents self-instrumentation of OBI as well as related services (Alloy and OpenTelemetry collector)\nIt must be set to an empty string or a different value if self-instrumentation is desired.\nUse DefaultExcludeInstrument instead",
+          "description": "DefaultExcludeServices by default prevents self-instrumentation of OBI as well as related observability tools\nIt must be set to an empty string or a different value if self-instrumentation is desired.\nUse DefaultExcludeInstrument instead",
           "deprecated": true
         },
         "default_otlp_grpc_port": {
@@ -610,6 +610,10 @@
         "k8s_statefulset_name": {
           "$ref": "#/$defs/GlobAttr"
         },
+        "languages": {
+          "$ref": "#/$defs/GlobAttr",
+          "description": "Language allows defining services to instrument based on the\nprogramming language they are written in. Use lowercase names, e.g. java,go"
+        },
         "metrics": {
           "$ref": "#/$defs/SvcMetricsConfig",
           "description": "Metrics configuration that is custom for this service match",
@@ -617,12 +621,12 @@
         },
         "name": {
           "type": "string",
-          "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\nName should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
+          "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\n\nName should be set in the instrumentation target via kube metadata or standard env vars.\n\nTo be kept undocumented until we remove it.",
           "deprecated": true
         },
         "namespace": {
           "type": "string",
-          "description": "Namespace will define a namespace for the matching service. If unset, it will be left empty.\nNamespace should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
+          "description": "Namespace will define a namespace for the matching service. If unset, it will be left empty.\n\nNamespace should be set in the instrumentation target via kube metadata or standard env vars.\n\nTo be kept undocumented until we remove it.",
           "deprecated": true
         },
         "open_ports": {
@@ -863,7 +867,7 @@
         },
         "meta_source_labels": {
           "$ref": "#/$defs/MetaSourceLabels",
-          "description": "MetaSourceLabels allows OBI overriding the service name and namespace of an application from\nthe given labels.",
+          "description": "MetaSourceLabels allows OBI overriding the service name and namespace of an application from\nthe given labels.\n\nkept for backwards-compatibility with Beyla 1.9",
           "deprecated": true
         },
         "resource_labels": {
@@ -995,7 +999,7 @@
         },
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nenvDefault is provided to avoid breaking changes\nuse top-level MetricsConfig.Features instead.",
+          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nenvDefault is provided to avoid breaking changes\n\nuse top-level MetricsConfig.Features instead.",
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         },
@@ -1190,7 +1194,7 @@
         },
         "enable": {
           "type": "boolean",
-          "description": "Enable network metrics.\nDefault value is false (disabled)\nadd \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES\nTODO OBI 3.0: remove",
+          "description": "Enable network metrics.\nDefault value is false (disabled)\n\nadd \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES\n\nTODO OBI 3.0: remove",
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_NETWORK_METRICS"
         },
@@ -1333,7 +1337,7 @@
         },
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\nuse top-level MetricsConfig.Features instead.",
+          "description": "Features of metrics that can be exported. Accepted values: application, network,\napplication_span, application_service_graph, ...\n\nuse top-level MetricsConfig.Features instead.",
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_PROMETHEUS_FEATURES"
         },
@@ -1470,18 +1474,22 @@
         "k8s_statefulset_name": {
           "$ref": "#/$defs/RegexpAttr"
         },
+        "languages": {
+          "$ref": "#/$defs/RegexpAttr",
+          "description": "Language allows defining services to instrument based on the\nprogramming language they are written in."
+        },
         "metrics": {
           "$ref": "#/$defs/SvcMetricsConfig",
           "description": "Metrics configuration that is custom for this service match"
         },
         "name": {
           "type": "string",
-          "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\nName should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
+          "description": "Name will define a name for the matching service. If unset, it will take the name of the executable process,\nfrom the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.\n\nName should be set in the instrumentation target via kube metadata or standard env vars.\n\nTo be kept undocumented until we remove it.",
           "deprecated": true
         },
         "namespace": {
           "type": "string",
-          "description": "Namespace will define a namespace for the matching service. If unset, it will be left empty.\nNamespace should be set in the instrumentation target via kube metadata or standard env vars.\nTo be kept undocumented until we remove it.",
+          "description": "Namespace will define a namespace for the matching service. If unset, it will be left empty.\n\nNamespace should be set in the instrumentation target via kube metadata or standard env vars.\n\nTo be kept undocumented until we remove it.",
           "deprecated": true
         },
         "open_ports": {
@@ -1786,6 +1794,10 @@
       "$ref": "#/$defs/GlobAttr",
       "description": "AutoTargetExe selects the executable to instrument matching a Glob against the executable path.\nTo set this value via YAML, use discovery > instrument.\nIt also accepts OTEL_GO_AUTO_TARGET_EXE for compatibility with opentelemetry-go-instrumentation"
     },
+    "AutoTargetLanguage": {
+      "$ref": "#/$defs/GlobAttr",
+      "description": "AutoTargetLanguage selects the executable to instrument matching a Glob of chosen languages.\nTo set this value via YAML, use discovery > instrument."
+    },
     "attributes": {
       "$ref": "#/$defs/Attributes"
     },
@@ -1821,7 +1833,7 @@
     },
     "executable_path": {
       "$ref": "#/$defs/RegexpAttr",
-      "description": "Exec allows selecting the instrumented executable whose complete path contains the Exec value.\nUse OTEL_EBPF_AUTO_TARGET_EXE",
+      "description": "Exec allows selecting the instrumented executable whose complete path contains the Exec value.\n\nUse OTEL_EBPF_AUTO_TARGET_EXE",
       "deprecated": true,
       "x-env-var": "OTEL_EBPF_EXECUTABLE_PATH"
     },
@@ -1891,7 +1903,7 @@
     },
     "service_name": {
       "type": "string",
-      "description": "ServiceName is taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility)\nUsing env and envDefault is a trick to get the value either from one of either variables.\nService name should be set in the instrumentation target (env vars, kube metadata...)\nas this is a reminiscence of past times when we only supported one executable per instance.",
+      "description": "ServiceName is taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility)\nUsing env and envDefault is a trick to get the value either from one of either variables.\n\nService name should be set in the instrumentation target (env vars, kube metadata...)\nas this is a reminiscence of past times when we only supported one executable per instance.",
       "deprecated": true,
       "x-env-var": "OTEL_SERVICE_NAME"
     },
