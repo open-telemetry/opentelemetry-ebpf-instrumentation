@@ -69,7 +69,7 @@ func NewNodeMeta(
 		// will retrieve also host attributes that will be merged
 		// in order of the priority below (the later the highest)
 		linuxLocalFetcher,
-		// kubeNodeFetcher(kubeInformer),
+		kubeNodeFetcher(kubeInformer),
 		// otelNodeFetcher(azurevm.New()),
 		// otelNodeFetcher(gcp.NewDetector()),
 		// otelNodeFetcher(ec2.NewResourceDetector()),
