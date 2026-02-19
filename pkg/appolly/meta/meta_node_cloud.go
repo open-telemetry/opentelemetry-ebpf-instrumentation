@@ -23,9 +23,9 @@ func otelNodeFetcher(detector resource.Detector) fetcher {
 		ctx, cancel := context.WithTimeout(ctx, connectionTimeout)
 		defer cancel()
 		resource, err := detector.Detect(ctx)
-		// none of the errors from the ec2 detect are retriable, so we just log them.
+		// none of the errors from the detector are retriable, so we just log them.
 		if err != nil {
-			log.Debug("failed to detect AWS EC2 metadata", "error", err)
+			log.Debug("can't detect Cloud metadata", "error", err)
 		}
 		if resource == nil {
 			return NodeMeta{}, nil
@@ -40,7 +40,7 @@ func otelNodeFetcher(detector resource.Detector) fetcher {
 				store.HostID = at.Value.Emit()
 			case semconv.OSTypeKey:
 				// we ignore some values that are explicitly added in the
-				// exporters and would cause attributes duplication (panic)
+				// exporters and would cause attribute duplication (panic)
 			default:
 				store.Metadata = append(store.Metadata,
 					Entry{Key: attr.Name(at.Key), Value: at.Value.Emit()})
