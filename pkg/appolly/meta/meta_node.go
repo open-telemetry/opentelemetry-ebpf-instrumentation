@@ -11,6 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/contrib/detectors/aws/ec2/v2"
+	"go.opentelemetry.io/contrib/detectors/azure/azurevm"
+	"go.opentelemetry.io/contrib/detectors/gcp"
+
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/kube"
 )
@@ -69,10 +73,10 @@ func NewNodeMeta(
 		// will retrieve also host attributes that will be merged
 		// in order of the priority below (the later the highest)
 		linuxLocalFetcher,
-		kubeNodeFetcher(kubeInformer),
-		// otelNodeFetcher(azurevm.New()),
-		// otelNodeFetcher(gcp.NewDetector()),
-		// otelNodeFetcher(ec2.NewResourceDetector()),
+		// kubeNodeFetcher(kubeInformer),
+		otelNodeFetcher(azurevm.New()),
+		otelNodeFetcher(gcp.NewDetector()),
+		otelNodeFetcher(ec2.NewResourceDetector()),
 		func(_ context.Context) (NodeMeta, error) {
 			return NodeMeta{HostID: overrideHost}, nil
 		},
