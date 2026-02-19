@@ -113,7 +113,7 @@ When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-su
 4. **Create Draft Release**: A draft release is automatically created with:
    - Auto-generated release notes from GitHub
    - Multi-architecture tarballs: `obi-<version>-linux-amd64.tar.gz` and `obi-<version>-linux-arm64.tar.gz`
-   - Checksum files: `SHA256SUMS` and `SHA256SUMS-<version>`
+   - Checksum file: `SHA256SUMS`
 
    The draft release allows maintainers to review artifacts before publication.
 
@@ -163,7 +163,6 @@ The `dist/` directory will contain:
 - `obi-<version>-linux-amd64.tar.gz`
 - `obi-<version>-linux-arm64.tar.gz`
 - `SHA256SUMS`
-- `SHA256SUMS-<version>`
 
 ### Manual Release Trigger
 
