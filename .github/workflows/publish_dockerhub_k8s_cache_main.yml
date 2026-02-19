@@ -163,12 +163,12 @@ jobs:
           IMAGE_TO_INSPECT: ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
         run: |
           for i in 1 2 3 4 5; do
-            DIGEST=$(docker buildx imagetools inspect "${IMAGE_TO_INSPECT}" --format '{{.Manifest.Digest}}' 2>/dev/null | tr -d '\n')
-            [ -n "${DIGEST}" ] && break
+            DIGEST=$(docker buildx imagetools inspect "${IMAGE_TO_INSPECT}" --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest' | tr -d '\n')
+            [ -n "${DIGEST}" ] && [ "${DIGEST}" != "null" ] && break
             echo "Inspect attempt $i failed, retrying in 5s..."
             sleep 5
           done
-          if [ -z "${DIGEST}" ]; then echo "Failed to inspect image after 5 attempts"; exit 1; fi
+          if [ -z "${DIGEST}" ] || [ "${DIGEST}" = "null" ]; then echo "Failed to inspect image after 5 attempts"; exit 1; fi
           images=""
           for tag in ${TAGS}; do
             images+="${tag}@${DIGEST} "
