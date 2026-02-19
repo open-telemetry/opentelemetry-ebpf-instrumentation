@@ -67,10 +67,10 @@ type KubernetesDecorator struct {
 	// node as the OBI instance. It will also restrict the Node information to the local node.
 	MetaRestrictLocalNode bool `yaml:"meta_restrict_local_node" env:"OTEL_EBPF_KUBE_META_RESTRICT_LOCAL_NODE"`
 
-	// Deprecated: kept for backwards-compatibility with Beyla 1.9
-
-	// Deprecated: MetaSourceLabels allows OBI overriding the service name and namespace of an application from
+	// MetaSourceLabels allows OBI overriding the service name and namespace of an application from
 	// the given labels.
+	//
+	// Deprecated: kept for backwards-compatibility with Beyla 1.9
 	MetaSourceLabels kube.MetaSourceLabels `yaml:"meta_source_labels"`
 
 	// ResourceLabels allows OBI overriding the OTEL Resource attributes from a map of user-defined labels.

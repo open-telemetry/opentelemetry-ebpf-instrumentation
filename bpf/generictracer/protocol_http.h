@@ -130,7 +130,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
 
     u8 skip_tp_parsing = 0;
 
-    // If we receive SSL request, we know that Beyla definitely didn't
+    // If we receive SSL request, we know that OBI definitely didn't
     // inject the traceparent via the header, so if we already have
     // info about this transaction keep that, don't parse headers. Istio
     // for example can forward headers as-is, which can give us a stale

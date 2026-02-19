@@ -1,9 +1,9 @@
 VIRTUAL MACHINE TESTS
 =====================
 
-Virtual Machine Tests (VM tests) enables Beyla to be tested under different
+Virtual Machine Tests (VM tests) enables OBI to be tested under different
 kernel versions and architectures. This works by exposing the path to the
-Beyla source code (i.e. this git repository) to the guest by means of mounting
+OBI source code (i.e. this git repository) to the guest by means of mounting
 it to the '/build' directory. This allows Makefile targets to be invoked from
 within the guest, in particular those tied to integration tests. Analogous to
 a Docker container, changes to the '/build' directory are volatile and are
@@ -26,7 +26,7 @@ specify the kernel version or architecture to run:
 
   - KERNEL: path the kernel image to use
 
-  - TARGET_TEST: the target to pass to Beyla's toplevel Makefile (defaults to
+  - TARGET_TEST: the target to pass to OBI's toplevel Makefile (defaults to
     run-integration-test-vm). When set to empty, the VM will drop onto an
     interactive shell
 
@@ -76,12 +76,12 @@ TECHNICAL NOTES
     - The VM relies on an Alpine root filesystem containing the minimal
       dependencies to run the 'run-integration-test-vm' target.
 
-    - The Beyla sources are mounted using an 9p filesystem to /beyla
+    - The OBI sources are mounted using an 9p filesystem to /obi
 
     - For backwards compatibility, $OTEL_EBPF_REPO_ROOT/testoutput is mounted
       using an 9p filesystem to /overlay/upper/testoutput - as such, the test
       outputs are available back to the host in the respective directory
 
     - The final work directory from which tests are run is an overlay of
-      /beyla and /overlay/upper mounted using overlayfs to /build
+      /obi and /overlay/upper mounted using overlayfs to /build
 

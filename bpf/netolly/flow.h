@@ -64,7 +64,7 @@ typedef struct flow_metrics_t {
 } flow_metrics;
 
 // Attributes that uniquely identify a flow
-// TODO: remove attributes that won't be used in Beyla (e.g. MAC, maybe protocol...)
+// TODO: remove attributes that won't be used in OBI (e.g. MAC, maybe protocol...)
 typedef struct flow_id_t {
     // L3 network layer
     // IPv4 addresses are encoded as IPv6 addresses with prefix ::ffff/96

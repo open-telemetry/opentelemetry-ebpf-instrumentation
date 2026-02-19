@@ -57,6 +57,32 @@ linters:
           - staticcheck
         text: "SA1019:"
 
+      # Ignore var-naming conflicts with standard library package names for established packages
+      - path: internal/test/integration/components/testserver/jsonrpc/
+        linters:
+          - revive
+        text: "var-naming:"
+      - path: pkg/appolly/discover/exec/
+        linters:
+          - revive
+        text: "var-naming:"
+      - path: pkg/buildinfo/
+        linters:
+          - revive
+        text: "var-naming:"
+      - path: pkg/export/debug/
+        linters:
+          - revive
+        text: "var-naming:"
+      - path: pkg/internal/helpers/maps/
+        linters:
+          - revive
+        text: "var-naming:"
+      - path: pkg/internal/helpers/sync/
+        linters:
+          - revive
+        text: "var-naming:"
+
       # TODO: enable
       - path: .*
         linters:

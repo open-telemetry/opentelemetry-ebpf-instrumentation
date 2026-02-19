@@ -106,7 +106,7 @@ When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-su
 
 3. **Build Release Artifacts**: Once all checks pass, the workflow builds multi-architecture release artifacts:
    - Runs `make release` to generate versioned tarballs for amd64 and arm64
-   - Archives contain: `obi`, `k8s-cache`, `obi-java-agent.jar`, LICENSE, NOTICE, and NOTICES/ directory
+   - Archives contain: `obi`, `obi-java-agent.jar`, LICENSE, NOTICE, and NOTICES/ directory
    - Generates SHA256 checksums for all archives
    - Verifies archive contents and binary executability
 
@@ -138,7 +138,6 @@ Once the workflow completes successfully, a draft release is automatically creat
 Each release archive (`obi-<version>-linux-<arch>.tar.gz`) contains:
 
 - `obi`: Main OBI binary
-- `k8s-cache`: Kubernetes cache service binary
 - `obi-java-agent.jar`: Java instrumentation agent
 - `LICENSE`: Apache 2.0 license file
 - `NOTICE`: Legal notices

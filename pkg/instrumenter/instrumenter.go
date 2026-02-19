@@ -107,7 +107,7 @@ func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.
 }
 
 func setupNetO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *obi.Config) error {
-	slog.Info("starting Beyla in Network metrics mode")
+	slog.Info("starting OBI in Network metrics mode")
 	flowsAgent, err := agent.FlowsAgent(ctxInfo, cfg)
 	if err != nil {
 		slog.Debug("can't start network metrics capture", "error", err)

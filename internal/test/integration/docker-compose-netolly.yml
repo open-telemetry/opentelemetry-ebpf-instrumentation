@@ -24,7 +24,7 @@ services:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../../testoutput:/coverage
-      - ../../../testoutput/run-netolly:/var/run/beyla
+      - ../../../testoutput/run-netolly:/var/run/obi
     image: hatest-obi
     privileged: true
     network_mode: service:testserver

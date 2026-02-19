@@ -1,6 +1,6 @@
 services:
   mongo:
-    image: mongo:8.2.4@sha256:6f55a078e025aa29fea2826c82f67ff2f774b82efd816c4c30bbfe67904f0bb8
+    image: mongo:8.2.5@sha256:474f5c3bf0e355bb97dafda730e725169a4d51c5578abf7be9ec7ad3fdee4481
     ports:
       - "27017:27017"
 
@@ -20,7 +20,7 @@ services:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
       - {{ .ConfigDir }}:/configs
-      - ./testoutput/run:/var/run/beyla
+      - ./testoutput/run:/var/run/obi
       - ../../../../testoutput:/coverage
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     network_mode: "service:testserver"

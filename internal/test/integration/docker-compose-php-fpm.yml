@@ -13,7 +13,7 @@ services:
       - php-fpm
 
   php-fpm:
-    image: php:fpm@sha256:cf0ad713a40b4728a5de6055633285a92e3fe84dddfddd5218098b203f8395b5
+    image: php:fpm@sha256:eec1cad70c74f96cb4a7bd0e05ee857796e3333c731aaf846b96dd9978f5f397
     mem_limit: 512m
     container_name: hatest-php-fpm
     volumes:
@@ -43,7 +43,7 @@ services:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../../testoutput:/coverage
-      - ../../../testoutput/run-php:/var/run/beyla
+      - ../../../testoutput/run-php:/var/run/obi
     image: hatest-javaobi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     network_mode: "host"

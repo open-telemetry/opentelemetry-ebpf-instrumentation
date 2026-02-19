@@ -1,19 +1,10 @@
 version: "3.9"
 services:
-  sqlserver:
-    build:
-      context: ../../integration/components/postgresql
-      dockerfile: Dockerfile
-    image: postgres
-    environment:
-      POSTGRES_PASSWORD: "postgres" # Supplied so we can load the test schema
-    ports:
-      - "5432:5432"
   testserver:
     build:
-      context: ../../integration/components/gopgx
+      context: ../../integration/components/sqlclient
       dockerfile: Dockerfile
-    image: gopgxclient
+    image: gosqlclient
     ports:
       - "8080:8080"
   # eBPF auto instrumenter
@@ -22,10 +13,10 @@ services:
       context: ../../../..
       dockerfile: ./internal/test/integration/components/obi/Dockerfile
     command:
-      - --config=/configs/instrumenter-config-traces.yml
+      - --config=/configs/instrumenter-config-traces-sql-text.yml
     volumes:
       - {{ .ConfigDir }}:/configs
-      - ./testoutput/run:/var/run/beyla
+      - ./testoutput/run:/var/run/obi
       - ../../../../testoutput:/coverage
     cap_add:
       - SYS_ADMIN

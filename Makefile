@@ -28,7 +28,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.6
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.9
 
 OCI_BIN ?= docker
 
@@ -398,22 +398,35 @@ run-integration-test-vm:
 	@echo "### Running integration tests (pattern: $(TEST_PATTERN))"
 	@TEST_TIMEOUT="60m"; \
 	TEST_PARALLEL="1"; \
-	if [ -f "/precompiled-tests/integration.test" ]; then \
-		echo "Using pre-compiled integration tests"; \
+	if [ -f "/precompiled-tests/integration.test" ] && [ -f "/precompiled-tests/gotestsum" ]; then \
+		echo "Using pre-compiled integration tests with gotestsum"; \
+		chmod +x /precompiled-tests/integration.test /precompiled-tests/gotestsum; \
+		/precompiled-tests/gotestsum \
+			--rerun-fails=2 --rerun-fails-max-failures=2 \
+			--raw-command -ftestname \
+			--jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log \
+			-- go tool test2json -t -p integration \
+			/precompiled-tests/integration.test \
+			-test.parallel=$$TEST_PARALLEL \
+			-test.timeout=$$TEST_TIMEOUT \
+			-test.v \
+			-test.run="^($(TEST_PATTERN))\$$"; \
+	elif [ -f "/precompiled-tests/integration.test" ]; then \
+		echo "Using pre-compiled integration tests (gotestsum not available)"; \
 		chmod +x /precompiled-tests/integration.test; \
 		/precompiled-tests/integration.test \
 			-test.parallel=$$TEST_PARALLEL \
 			-test.timeout=$$TEST_TIMEOUT \
-			-test.failfast \
 			-test.v \
 			-test.run="^($(TEST_PATTERN))\$$"; \
 	else \
 		echo "Pre-compiled tests not found, compiling in VM"; \
 		$(MAKE) $(GOTESTSUM); \
-		$(GOTESTSUM) -ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
+		$(GOTESTSUM) \
+			--rerun-fails=2 --rerun-fails-max-failures=2 \
+			-ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
 			-p $$TEST_PARALLEL \
 			-timeout $$TEST_TIMEOUT \
-			-failfast \
 			-v -a \
 			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
 	fi
@@ -428,8 +441,10 @@ run-integration-test-arm:
 integration-test-matrix-json:
 	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}"
 
-.PHONY: vm-integration-test-matrix-json
-vm-integration-test-matrix-json:
+# Shared matrix for workflows that run the TestMultiProcess* suite
+# (VM integration tests and ARM integration tests use the same set of tests).
+.PHONY: multiprocess-integration-test-matrix-json
+multiprocess-integration-test-matrix-json:
 	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "TestMultiProcess"
 
 .PHONY: k8s-integration-test-matrix-json
@@ -517,17 +532,16 @@ license-header-check:
 	   fi
 
 .PHONY: artifact
-artifact: docker-generate compile compile-cache java-docker-build
+artifact: docker-generate compile java-docker-build
 	@echo "### Packing generated artifact for $(GOOS)/$(GOARCH)"
 	@STAGING_DIR=$$(mktemp -d 2>/dev/null || mktemp -d -t obi.XXXXXX); \
 	trap "rm -rf $$STAGING_DIR" EXIT; \
 	cp ./bin/$(CMD) $$STAGING_DIR/; \
-	cp ./bin/$(CACHE_CMD) $$STAGING_DIR/; \
 	cp ./bin/$(JAVA_AGENT) $$STAGING_DIR/; \
 	cp LICENSE $$STAGING_DIR/; \
 	cp NOTICE $$STAGING_DIR/; \
 	cp -r NOTICES $$STAGING_DIR/; \
-	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(CACHE_CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
+	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
 
 .PHONY: release
 release: artifact
@@ -538,13 +552,11 @@ release: artifact
 	@mkdir -p $(RELEASE_DIR)/verify-$(GOARCH)
 	@tar -xzf $(RELEASE_DIR)/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz -C $(RELEASE_DIR)/verify-$(GOARCH)
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary missing in $(GOARCH) archive"; exit 1; fi
-	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(CACHE_CMD) ]; then echo "ERROR: $(CACHE_CMD) binary missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(JAVA_AGENT) ]; then echo "ERROR: $(JAVA_AGENT) missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/LICENSE ]; then echo "ERROR: LICENSE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/NOTICE ]; then echo "ERROR: NOTICE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES ]; then echo "ERROR: NOTICES directory missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
-	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CACHE_CMD) ]; then echo "ERROR: $(CACHE_CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
 	@echo "✓ Archive $(GOARCH) verified successfully"
 	@rm -rf $(RELEASE_DIR)/verify-$(GOARCH)
 	@echo "### Generating checksums"

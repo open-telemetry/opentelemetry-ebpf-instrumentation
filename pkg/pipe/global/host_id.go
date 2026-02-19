@@ -33,11 +33,11 @@ func cilog() *slog.Logger {
 }
 
 // FetchHostID tries to get the host ID from one of the following sources, by priority
-// 1. If Beyla runs in AWS, GCP or Azure, it will take the instance ID
+// 1. If OBI runs in AWS, GCP or Azure, it will take the instance ID
 // 2. Otherwise, will try to read the Kubernetes Node MachineID field
 // 3. Otherwise, will try to read the machine ID from the local OS filesystem
 // 4. Otherwise, will fallback to the Hostname
-// This process is known to fail when Beyla runs inside a Kubernetes Pod out of the cloud providers
+// This process is known to fail when OBI runs inside a Kubernetes Pod out of the cloud providers
 // mentioned in (1). In that case, the host.id will be later set to the full hostname.
 // This method must be invoked once the ContextInfo object is completely initialized
 func (ci *ContextInfo) FetchHostID(ctx context.Context, timeout time.Duration) {

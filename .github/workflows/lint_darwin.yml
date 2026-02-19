@@ -3,17 +3,6 @@ name: Lint (Darwin)
 on:
   push:
     branches: ["main", "release-*"]
-    paths:
-      - ".github/workflows/lint_darwin.yml"
-      - "**.go"
-      - "go.mod"
-      - "go.sum"
-      - "bpf/**"
-      - "cmd/**"
-      - "configs/**"
-      - "internal/**"
-      - "pkg/**"
-      - "scripts/**"
   pull_request:
     branches: ["main", "release-*"]
     paths:
@@ -27,6 +16,10 @@ on:
       - "internal/**"
       - "pkg/**"
       - "scripts/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
