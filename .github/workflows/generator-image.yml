@@ -113,5 +113,11 @@ jobs:
         run: |
           cosign sign --yes \
             "${{ env.REGISTRY }}/${{ env.IMAGE }}:${IMGTAG}@${DIGEST}"
+          cosign verify "${{ env.REGISTRY }}/${{ env.IMAGE }}:${IMGTAG}@${DIGEST}" \
+            --certificate-identity-regexp='.*' \
+            --certificate-oidc-issuer='https://token.actions.githubusercontent.com'
           cosign sign --yes \
             "${{ env.REGISTRY }}/${{ env.IMAGE }}:latest@${DIGEST}"
+          cosign verify "${{ env.REGISTRY }}/${{ env.IMAGE }}:latest@${DIGEST}" \
+            --certificate-identity-regexp='.*' \
+            --certificate-oidc-issuer='https://token.actions.githubusercontent.com'
