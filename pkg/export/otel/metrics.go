@@ -56,9 +56,9 @@ const (
 	AggregationExponential = "base2_exponential_bucket_histogram"
 )
 
-// GrafanaHostIDKey is the same attribute Key as HostIDKey, but used for
-// traces_target_info
-const GrafanaHostIDKey = attribute.Key("grafana.host.id")
+// CloudHostIDKey is the host ID attribute for cloud provider integrations,
+// used for traces_target_info
+var CloudHostIDKey = attribute.Key("cloud.host.id")
 
 // MetricTypes contains all the supported metric type prefixes used for filtering attributes
 var MetricTypes = []string{
@@ -636,7 +636,7 @@ func (mr *MetricsReporter) setupHostInfoMeter(meter instrument.Meter) error {
 		return fmt.Errorf("creating span metric traces host info: %w", err)
 	}
 	attr := attributes.Field[*request.Span, attribute.KeyValue]{
-		ExposedName: string(GrafanaHostIDKey),
+		ExposedName: string(CloudHostIDKey),
 		Get: func(_ *request.Span) attribute.KeyValue {
 			return semconv.HostID(mr.nodeMeta.HostID)
 		},

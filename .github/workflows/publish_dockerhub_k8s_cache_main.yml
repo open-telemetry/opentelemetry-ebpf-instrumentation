@@ -18,26 +18,30 @@ on:
 permissions:
   contents: read
 
+env:
+  IMAGE_NAME: opentelemetry-ebpf-k8s-cache
+
 jobs:
-  build-and-push-image:
+  build:
     if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
     permissions:
-      id-token: write
       packages: write
-    runs-on: ubuntu-latest
-    env:
-      IMAGE_NAME: opentelemetry-ebpf-k8s-cache
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            artifact_suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            artifact_suffix: arm64
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
-
-      - name: Check Cosign version
-        run: cosign version
 
       - name: Log in to Docker Hub
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
@@ -52,8 +56,74 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: |
+            otel/${{ env.IMAGE_NAME }}
+            ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: ./k8scache.Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,"name=ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }},docker.io/otel/${{ env.IMAGE_NAME }}",push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          touch "${{ runner.temp }}/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: k8s-cache-digests-${{ matrix.artifact_suffix }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  create-manifest-and-sign:
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
+    needs: build
+    permissions:
+      id-token: write
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: k8s-cache-digests-*
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+
+      - name: Check Cosign version
+        run: cosign version
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -66,22 +136,39 @@ jobs:
             otel/${{ env.IMAGE_NAME }}
             ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}
 
-      - name: Build and push
-        id: push
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
-        with:
-          context: .
-          file: ./k8scache.Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/arm64
+      - name: Create manifest list and push
+        env:
+          GHCR_IMAGE: ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}
+          META_JSON: ${{ steps.meta.outputs.json }}
+          DIGESTS_DIR: ${{ runner.temp }}/digests
+        run: |
+          shopt -s nullglob
+          for arch in amd64 arm64; do
+            files=("${DIGESTS_DIR}"/k8s-cache-digests-${arch}/*)
+            if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
+              echo "Error: Expected exactly one digest file in k8s-cache-digests-${arch}, found ${#files[@]}"
+              exit 1
+            fi
+          done
+          AMD64_DIGEST=$(basename "${DIGESTS_DIR}"/k8s-cache-digests-amd64/*)
+          ARM64_DIGEST=$(basename "${DIGESTS_DIR}"/k8s-cache-digests-arm64/*)
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "${META_JSON}") \
+            "${GHCR_IMAGE}@sha256:${AMD64_DIGEST}" \
+            "${GHCR_IMAGE}@sha256:${ARM64_DIGEST}"
 
       - name: Sign the images using Cosign with GitHub OIDC Token
         env: # interpolation via env is safer: https://docs.github.com/en/actions/reference/security/secure-use#use-an-intermediate-environment-variable
           TAGS: ${{ steps.meta.outputs.tags }}
-          DIGEST: ${{ steps.push.outputs.digest }}
+          IMAGE_TO_INSPECT: ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
         run: |
+          for i in 1 2 3 4 5; do
+            DIGEST=$(docker buildx imagetools inspect "${IMAGE_TO_INSPECT}" --format '{{.Manifest.Digest}}' 2>/dev/null | tr -d '\n')
+            [ -n "${DIGEST}" ] && break
+            echo "Inspect attempt $i failed, retrying in 5s..."
+            sleep 5
+          done
+          if [ -z "${DIGEST}" ]; then echo "Failed to inspect image after 5 attempts"; exit 1; fi
           images=""
           for tag in ${TAGS}; do
             images+="${tag}@${DIGEST} "

@@ -125,7 +125,7 @@ static inline u8 fill_conn_initiator_key(flow_id *id, conn_initiator_key *key) {
 }
 
 // returns INITIATOR_SRC or INITIATOR_DST, but might return INITIATOR_UNKNOWN
-// if the connection initiator couldn't be found. The user-space Beyla pipeline
+// if the connection initiator couldn't be found. The user-space OBI pipeline
 // will handle this last case heuristically
 static inline u8 get_connection_initiator(flow_id *id, u16 flags) {
     conn_initiator_key initiator_key;

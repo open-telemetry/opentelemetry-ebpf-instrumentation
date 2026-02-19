@@ -230,7 +230,7 @@ func setupFeatureContextInfo(ctx context.Context, ctxInfo *global.ContextInfo, c
 }
 
 // setupKubernetes sets up common Kubernetes database and API clients that need to be accessed
-// from different stages in the Beyla pipeline
+// from different stages in the OBI pipeline
 func setupKubernetes(ctx context.Context, ctxInfo *global.ContextInfo) {
 	if !ctxInfo.K8sInformer.IsKubeEnabled() {
 		return

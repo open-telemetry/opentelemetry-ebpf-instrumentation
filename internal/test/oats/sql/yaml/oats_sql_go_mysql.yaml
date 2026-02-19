@@ -1,7 +1,7 @@
 docker-compose:
   generator: generic
   files:
-    - ../docker-compose-beyla-gomysqlclient.yml
+    - ../docker-compose-obi-gomysqlclient.yml
 input:
   - path: /mysqltest
   - path: /mysqlerror

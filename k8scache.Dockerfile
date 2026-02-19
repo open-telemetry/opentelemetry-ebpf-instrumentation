@@ -22,7 +22,7 @@ RUN make compile-cache
 # Create final image from minimal + built binary
 FROM scratch
 
-LABEL maintainer="Grafana Labs <hello@grafana.com>"
+LABEL maintainer="OpenTelemetry Authors <cncf-opentelemetry-maintainers@lists.cncf.io>"
 
 WORKDIR /
 

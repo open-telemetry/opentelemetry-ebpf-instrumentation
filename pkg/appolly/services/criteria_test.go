@@ -13,7 +13,8 @@ import (
 )
 
 type yamlFile struct {
-	Services RegexDefinitionCriteria `yaml:"services"`
+	Services   RegexDefinitionCriteria `yaml:"services"`
+	Instrument GlobDefinitionCriteria  `yaml:"instrument"`
 }
 
 func TestYAMLParse_PathRegexp(t *testing.T) {
@@ -174,4 +175,173 @@ portenumptr: 80,8080-8099,443
 regexptr: ^foo.*$
 globptr: bar*
 `, string(yamlOut))
+}
+
+func TestRegexDefinitionCriteria_Validate(t *testing.T) {
+	t.Run("empty criteria is valid", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with open_ports", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- open_ports: 80`), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with exe_path", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- exe_path: "^/usr/bin/.*$"`), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with exe_path_regexp", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- exe_path_regexp: "^/usr/bin/.*$"`), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with languages", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- languages: "go|java"`), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with metadata", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- k8s_namespace: "default"`), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with pod labels", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte("- k8s_pod_labels:\n    app: myapp"), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with pod annotations", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte("- k8s_pod_annotations:\n    sidecar: \"true\""), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("error when entry has no selection criteria", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{RegexSelector{Name: "my-service"}}
+		err := dc.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "index [0] should define at least one selection criteria")
+	})
+	t.Run("error on second empty entry", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte("- open_ports: 80\n- name: orphan"), &dc))
+		err := dc.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "index [1] should define at least one selection criteria")
+	})
+	t.Run("error on unknown metadata attribute", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- unknown_attr: "val"`), &dc))
+		err := dc.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown attribute")
+		assert.Contains(t, err.Error(), "unknown_attr")
+	})
+	t.Run("valid with multiple entries", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte("- open_ports: 80\n- languages: go\n- exe_path: \"^/bin/.*$\""), &dc))
+		require.NoError(t, dc.Validate())
+	})
+}
+
+func TestGlobDefinitionCriteria_Validate(t *testing.T) {
+	t.Run("empty criteria is valid", func(t *testing.T) {
+		dc := GlobDefinitionCriteria{}
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with open_ports", func(t *testing.T) {
+		dc := GlobDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- open_ports: 80`), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with exe_path", func(t *testing.T) {
+		dc := GlobDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- exe_path: "/usr/bin/*"`), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with languages", func(t *testing.T) {
+		dc := GlobDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- languages: "{go,java}"`), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with metadata", func(t *testing.T) {
+		dc := GlobDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- k8s_namespace: "default"`), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with pod labels", func(t *testing.T) {
+		dc := GlobDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte("- k8s_pod_labels:\n    app: myapp"), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("valid with pod annotations", func(t *testing.T) {
+		dc := GlobDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte("- k8s_pod_annotations:\n    sidecar: \"true\""), &dc))
+		require.NoError(t, dc.Validate())
+	})
+	t.Run("error when entry has no selection criteria", func(t *testing.T) {
+		dc := GlobDefinitionCriteria{GlobAttributes{Name: "my-service"}}
+		err := dc.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "entry [0] should define at least one selection criteria")
+	})
+	t.Run("error on second empty entry", func(t *testing.T) {
+		dc := GlobDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte("- open_ports: 80\n- name: orphan"), &dc))
+		err := dc.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "entry [1] should define at least one selection criteria")
+	})
+	t.Run("error on unknown metadata attribute", func(t *testing.T) {
+		dc := GlobDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- unknown_attr: "val"`), &dc))
+		err := dc.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown attribute")
+		assert.Contains(t, err.Error(), "unknown_attr")
+	})
+	t.Run("valid with multiple entries", func(t *testing.T) {
+		dc := GlobDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte("- open_ports: 80\n- languages: go\n- exe_path: \"/bin/*\""), &dc))
+		require.NoError(t, dc.Validate())
+	})
+}
+
+func TestYAMLParse_Language(t *testing.T) {
+	inputFile := `
+instrument:
+  - name: foo
+    languages: "{go,rust}"
+`
+	yf := yamlFile{}
+	require.NoError(t, yaml.Unmarshal([]byte(inputFile), &yf))
+
+	require.Len(t, yf.Instrument, 1)
+
+	assert.True(t, yf.Instrument[0].Languages.IsSet())
+	assert.True(t, yf.Instrument[0].Languages.MatchString("go"))
+	assert.True(t, yf.Instrument[0].Languages.MatchString("rust"))
+	assert.False(t, yf.Instrument[0].Languages.MatchString("java"))
+
+	assert.Zero(t, yf.Instrument[0].OpenPorts.Len())
+}
+
+func TestYAMLParse_Language_RegEx(t *testing.T) {
+	inputFile := `
+services:
+  - name: foo
+    languages: "go|rust"
+`
+	yf := yamlFile{}
+	require.NoError(t, yaml.Unmarshal([]byte(inputFile), &yf))
+
+	require.Len(t, yf.Services, 1)
+
+	assert.True(t, yf.Services[0].Languages.IsSet())
+	assert.True(t, yf.Services[0].Languages.MatchString("go"))
+	assert.True(t, yf.Services[0].Languages.MatchString("rust"))
+	assert.False(t, yf.Services[0].Languages.MatchString("java"))
+
+	assert.Zero(t, yf.Services[0].OpenPorts.Len())
 }

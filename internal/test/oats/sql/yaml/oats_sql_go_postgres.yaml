@@ -1,7 +1,7 @@
 docker-compose:
   generator: generic
   files:
-    - ../docker-compose-beyla-gosqlclient-postgres.yml
+    - ../docker-compose-obi-gosqlclient-postgres.yml
 input:
   - path: /psqltest
 

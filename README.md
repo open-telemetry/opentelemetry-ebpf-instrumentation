@@ -111,13 +111,16 @@ OBI is also available as container images:
 # Set your desired version (or use 'latest' for the most recent release)
 VERSION=latest  # or VERSION=1.0.0 for a specific version
 
+# (Optional) Verify the signature of the container image
+cosign verify --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' otel/ebpf-instrument:${VERSION}
+
 # Pull the image
-docker pull docker.io/otel/ebpf-instrument:${VERSION}
+docker pull otel/ebpf-instrument:${VERSION}
 
 # Run OBI in a container
 # Note: OBI requires elevated privileges (--privileged) to instrument processes
 # See https://opentelemetry.io/docs/zero-code/obi/setup/docker/ for more details
-docker run --privileged docker.io/otel/ebpf-instrument:${VERSION}
+docker run --privileged otel/ebpf-instrument:${VERSION}
 ```
 
 ## Contributing

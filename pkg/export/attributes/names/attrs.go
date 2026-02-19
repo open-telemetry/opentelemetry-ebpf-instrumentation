@@ -200,7 +200,7 @@ const (
 	CloudRegion = Name(semconv.CloudRegionKey)
 )
 
-// Beyla specific GPU events
+// OBI specific GPU events
 const (
 	// GPU/Cuda related attributes
 	CudaMemcpyKind = Name("cuda.memcpy.kind")

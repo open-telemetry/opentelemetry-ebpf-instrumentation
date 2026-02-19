@@ -1,7 +1,7 @@
 docker-compose:
   generator: generic
   files:
-    - ../docker-compose-beyla-go-kafka-go.yml
+    - ../docker-compose-obi-go-kafka-go.yml
 input:
   - path: '/withTopic'
 

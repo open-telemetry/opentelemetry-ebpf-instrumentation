@@ -25,7 +25,7 @@ services:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
       - {{ .ConfigDir }}:/configs
-      - ./testoutput/run:/var/run/beyla
+      - ./testoutput/run:/var/run/obi
       - ../../../../testoutput:/coverage
     cap_add:
       - SYS_ADMIN

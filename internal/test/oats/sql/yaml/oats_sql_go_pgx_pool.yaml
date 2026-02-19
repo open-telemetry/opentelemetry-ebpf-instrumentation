@@ -1,7 +1,7 @@
 docker-compose:
   generator: generic
   files:
-    - ../docker-compose-beyla-gopgx-pool.yml
+    - ../docker-compose-obi-gopgx-pool.yml
 input:
   - path: /pgxpooltest
 

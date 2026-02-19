@@ -16,9 +16,9 @@ services:
       retries: 10
   testserver:
     build:
-      context: ../../integration/components/gopgx-stdlib
+      context: ../../integration/components/gopgx-pool
       dockerfile: Dockerfile
-    image: gopgx-stdlib-client
+    image: gopgx-pool-client
     ports:
       - "8080:8080"
     depends_on:
@@ -33,7 +33,7 @@ services:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
       - {{ .ConfigDir }}:/configs
-      - ./testoutput/run:/var/run/beyla
+      - ./testoutput/run:/var/run/obi
       - ../../../../testoutput:/coverage
     cap_add:
       - SYS_ADMIN
