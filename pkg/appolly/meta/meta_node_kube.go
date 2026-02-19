@@ -6,17 +6,23 @@ package meta // import "go.opentelemetry.io/obi/pkg/appolly/meta"
 import (
 	"context"
 	"fmt"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"go.opentelemetry.io/obi/pkg/kube"
 )
 
+const kubeTimeout = 30 * time.Second
+
 func kubeNodeFetcher(k8sInformer *kube.MetadataProvider) fetcher {
 	return func(ctx context.Context) (NodeMeta, error) {
 		if !k8sInformer.IsKubeEnabled() {
 			return NodeMeta{}, nil
 		}
+		ctx, cancel := context.WithTimeout(ctx, kubeTimeout)
+		defer cancel()
+
 		nodeName, err := k8sInformer.CurrentNodeName(ctx)
 		if err != nil {
 			// forwarding an error will force the NodeMeta to
