@@ -62,6 +62,7 @@ func otelNodeFetcher(detector resource.Detector) fetcher {
 					Entry{Key: attr.Name(at.Key), Value: at.Value.Emit()})
 			}
 		}
+		log.Debug("cloud metadata", "metadata", fmt.Sprintf("%+v", store))
 		return store, nil
 	}
 }

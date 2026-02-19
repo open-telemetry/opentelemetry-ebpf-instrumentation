@@ -50,11 +50,14 @@ func setupMockIMDS(t *testing.T, network *dockertest.Network) {
 		},
 	})
 	require.NoError(t, err, "could not connect AWS EC2 Metadata Mock container to network")
+	for mockIMDS.Container.State.Status != "running" {
+		t.Log("Waiting for AWS EC2 IMDS Mock container to start...", "status", mockIMDS.Container.State.Status)
+	}
 	t.Log("AWS EC2 Metadata Mock container started", "state", mockIMDS.Container.State.Status)
 }
 
 // This file contains tests related with the integration with Amazon Web Services
-func TestCloudResourceMetadata(t *testing.T) {
+func TestCloudResourceMetadata_AWS(t *testing.T) {
 	network := setupDockerNetwork(t)
 	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
 	setupContainerJaeger(t, network)
@@ -95,17 +98,17 @@ func TestCloudResourceMetadata(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	t.Run("OTEL metrics", func(t *testing.T) {
-		testMetrics(t, pq, "rolldice", "otel")
+		testAWSMetrics(t, pq, "rolldice", "otel")
 	})
 	t.Run("Prometheus metrics", func(t *testing.T) {
-		testMetrics(t, pq, "rolldice", "prometheus")
+		testAWSMetrics(t, pq, "rolldice", "prometheus")
 	})
 	t.Run("OTEL traces", func(t *testing.T) {
-		testTraces(t)
+		testAWSTraces(t)
 	})
 }
 
-func testMetrics(t *testing.T, pq promtest.Client, serviceName, exporter string) {
+func testAWSMetrics(t *testing.T, pq promtest.Client, serviceName, exporter string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// attribute values taken from aws-metadata-mock.json
 		query := `target_info{` +
@@ -126,7 +129,7 @@ func testMetrics(t *testing.T, pq promtest.Client, serviceName, exporter string)
 	}, testTimeout, 500*time.Millisecond)
 }
 
-func testTraces(t *testing.T) {
+func testAWSTraces(t *testing.T) {
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=rolldice&operation=GET%20%2Frolldice")

@@ -20,6 +20,7 @@ const (
 	versionJaeger      = "1.60"
 	versionCollector   = "0.144.0"
 	versionAWSMetaMock = "v1.9.2"
+	versionNginx       = "1.29.5"
 )
 
 // setupDockerNetwork initializes a custom network for the test.
@@ -160,7 +161,14 @@ type obi struct {
 }
 
 // instrument starts the OBI container to instrument the target application.
-func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *dockertest.Resource, configFile string) {
+func (o obi) instrument(
+	t *testing.T,
+	network *dockertest.Network,
+	resource *dockertest.Resource,
+	configFile string,
+	// can be empty. Used, for example, for cloud metadata tests that need to connect to a simulated 169.254.169.254 endpoint
+	extraNetworks ...*dockertest.Network,
+) {
 	t.Helper()
 
 	t.Log("Starting OBI container with PID namespace sharing...")
@@ -213,6 +221,13 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *doc
 		},
 	})
 	require.NoError(t, err, "could not attach OBI to network")
+
+	for _, extraNetwork := range extraNetworks {
+		err = dockerPool.Client.ConnectNetwork(extraNetwork.Network.ID, docker.NetworkConnectionOptions{
+			Container: obi.Container.ID,
+		})
+		require.NoError(t, err, "could not attach OBI to extra network")
+	}
 
 	t.Cleanup(func() {
 		if err := dockerPool.Purge(obi); err != nil {
