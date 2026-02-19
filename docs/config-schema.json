@@ -177,7 +177,7 @@
         },
         "default_exclude_services": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
-          "description": "DefaultExcludeServices by default prevents self-instrumentation of OBI as well as related observability tools\nIt must be set to an empty string or a different value if self-instrumentation is desired.\nUse DefaultExcludeInstrument instead",
+          "description": "DefaultExcludeServices by default prevents self-instrumentation of OBI as well as related observability tools\nIt must be set to an empty string or a different value if self-instrumentation is desired.\n\nUse DefaultExcludeInstrument instead",
           "deprecated": true
         },
         "default_otlp_grpc_port": {
@@ -212,7 +212,7 @@
         },
         "exclude_services": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
-          "description": "ExcludeServices works analogously to Services, but the applications matching this section won't be instrumented\neven if they match the Services selection.\nUse ExcludeInstrument instead",
+          "description": "ExcludeServices works analogously to Services, but the applications matching this section won't be instrumented\neven if they match the Services selection.\n\nUse ExcludeInstrument instead",
           "deprecated": true
         },
         "excluded_linux_system_paths": {
@@ -263,7 +263,7 @@
         },
         "services": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
-          "description": "Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically\nadded to the services definition criteria, with the lowest preference.\nUse Instrument instead",
+          "description": "Services selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically\nadded to the services definition criteria, with the lowest preference.\n\nUse Instrument instead",
           "deprecated": true
         },
         "skip_go_specific_tracers": {
