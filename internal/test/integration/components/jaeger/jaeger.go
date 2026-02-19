@@ -154,9 +154,9 @@ func (mr DiffResult) String() string {
 	for _, td := range mr {
 		switch td.ErrType {
 		case ErrTypeMissing:
-			sb.WriteString(fmt.Sprintf("\tmissing tag: %+v\n", td.Expected))
+			fmt.Fprintf(&sb, "\tmissing tag: %+v\n", td.Expected)
 		case ErrTypeNotEqual, ErrTypeNotMatching:
-			sb.WriteString(fmt.Sprintf("\ttag values do not match:\n\t\twant: %+v\n\t\tgot:  %+v\n", td.Expected, td.Actual))
+			fmt.Fprintf(&sb, "\ttag values do not match:\n\t\twant: %+v\n\t\tgot:  %+v\n", td.Expected, td.Actual)
 		}
 	}
 	return sb.String()

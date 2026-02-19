@@ -136,6 +136,7 @@ func (q *Queue[T]) SendCtx(ctx context.Context, o T) {
 // Send is analogous to SendCtx(context.Background()).
 // This operation could get into a deadlock if during the Send operation, the subscriber node stops
 // reading messages (e.g. during OBI shutdown). So it is highly recommended to use SendCtx instead.
+//
 // Deprecated: use SendCtx instead.
 func (q *Queue[T]) Send(o T) {
 	q.chainedSend(context.Background(), o, []string{q.cfg.name})
