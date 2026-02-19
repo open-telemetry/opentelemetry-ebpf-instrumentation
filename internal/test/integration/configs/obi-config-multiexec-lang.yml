@@ -14,7 +14,6 @@ discovery:
     - exe_path: "{obi,prometheus,otelcol*,all*,launcher}"
 attributes:
   kubernetes:
-    enable: true
     cluster_name: my-kube
   select:
     http_server_request_duration_seconds_count:

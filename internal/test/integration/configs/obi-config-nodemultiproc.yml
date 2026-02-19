@@ -22,7 +22,6 @@ discovery:
       open_ports: 5003
 attributes:
   kubernetes:
-    enable: true
     cluster_name: my-kube
   select:
     http_server_request_duration_seconds_count:

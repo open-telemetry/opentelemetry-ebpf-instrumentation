@@ -13,9 +13,6 @@ discovery:
       name: testserver
       open_ports: 8080
       exe_path: "testserver"
-attributes:
-  kubernetes:
-    enable: true
 # Enable context propagation to trigger cgroup operations that may fail
 ebpf:
   context_propagation: all

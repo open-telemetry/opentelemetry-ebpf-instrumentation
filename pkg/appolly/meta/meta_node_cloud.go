@@ -22,15 +22,31 @@ func otelNodeFetcher(detector resource.Detector) fetcher {
 		// we expect very short response time in a cloud environment
 		ctx, cancel := context.WithTimeout(ctx, connectionTimeout)
 		defer cancel()
-		resource, err := detector.Detect(ctx)
-		// none of the errors from the detector are retriable, so we just log them.
-		if err != nil {
-			log.Debug("can't detect Cloud metadata", "error", err)
-		}
-		if resource == nil {
+		// running asynchronously to avoid that any connection issue blocks the main goroutine
+		resCh := make(chan *resource.Resource, 1)
+		go func() {
+			resource, err := detector.Detect(ctx)
+			// none of the errors from the detector are retriable, so we just log them.
+			if err != nil {
+				log.Debug("can't detect Cloud metadata", "error", err)
+			}
+			resCh <- resource
+		}()
+
+		var resource *resource.Resource
+		select {
+		case resource = <-resCh:
+			if resource == nil {
+				// everything is fine, we might have asked for a Cloud resource from a baremetal machine
+				return NodeMeta{}, nil
+			}
+		case <-ctx.Done():
+			log.Warn("timed out while waiting for Cloud metadata. Ignoring")
 			return NodeMeta{}, nil
 		}
-		// In any case, the API can return an error with a valid (partial resource)
+
+		log.Info("detected Cloud metadata")
+		// In some cases, the API can return an error with a valid (partial resource)
 		attrs := resource.Iter()
 		store := NodeMeta{Metadata: make([]Entry, 0, attrs.Len())}
 		for attrs.Next() {
