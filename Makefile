@@ -568,7 +568,6 @@ release: artifact
 		echo "ERROR: Neither sha256sum nor shasum found. Please install coreutils or use macOS builtin shasum."; \
 		exit 1; \
 	fi
-	cd $(RELEASE_DIR) && cp SHA256SUMS SHA256SUMS-$(RELEASE_VERSION)
 	@echo "### Release artifacts ready in $(RELEASE_DIR)/"
 	@ls -lh $(RELEASE_DIR)/
 
