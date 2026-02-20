@@ -207,7 +207,7 @@ int obi_uprobe_findHandlerRet(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx, invocation=%llx", goroutine_addr, invocation);
 
     if (invocation) {
-        u64 len = (u64)GO_PARAM4(ctx);
+        const u64 len = (u64)GO_PARAM4(ctx);
         void *ptr = GO_PARAM3(ctx);
         if (ptr) {
             bpf_dbg_printk("reading pattern information with len: %d", len);
@@ -237,7 +237,7 @@ int obi_uprobe_muxSetMatch(struct pt_regs *ctx) {
         void *path = GO_PARAM2(ctx);
         if (path) {
             bpf_dbg_printk("reading template from path: %llx", path);
-            u64 templ_off = go_offset_of(ot, (go_offset){.v = _mux_template_pos});
+            const u64 templ_off = go_offset_of(ot, (go_offset){.v = _mux_template_pos});
             read_go_str("pattern", path, templ_off, invocation->pattern, PATTERN_MAX_LEN);
             bpf_dbg_printk("pattern=%s", invocation->pattern);
         }
@@ -514,7 +514,7 @@ int obi_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
         return 0;
     }
 
-    u64 len = (u64)GO_PARAM2(ctx);
+    const u64 len = (u64)GO_PARAM2(ctx);
     const unsigned char *buf = (const unsigned char *)GO_PARAM1(ctx);
 
     unsigned char *temp = temp_header_mem();
@@ -810,7 +810,7 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
     bpf_dbg_printk("method=%s", trace->method);
     bpf_dbg_printk("path=%s", trace->path);
 
-    u64 status_code_ptr_pos = go_offset_of(ot, (go_offset){.v = _status_code_ptr_pos});
+    const u64 status_code_ptr_pos = go_offset_of(ot, (go_offset){.v = _status_code_ptr_pos});
     bpf_probe_read(&trace->status, sizeof(trace->status), (void *)(resp_ptr + status_code_ptr_pos));
 
     bpf_dbg_printk("status=%d, status_code_ptr_pos=%d, resp_ptr=%lx",
@@ -818,7 +818,8 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
                    status_code_ptr_pos,
                    (u64)resp_ptr);
 
-    u64 response_length_ptr_pos = go_offset_of(ot, (go_offset){.v = _response_length_ptr_pos});
+    const u64 response_length_ptr_pos =
+        go_offset_of(ot, (go_offset){.v = _response_length_ptr_pos});
     bpf_probe_read(&trace->response_length,
                    sizeof(trace->response_length),
                    (void *)(resp_ptr + response_length_ptr_pos));
@@ -882,8 +883,8 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
     make_tp_string(buf, &func_inv->tp);
 
     void *buf_ptr = 0;
-    u64 io_writer_buf_ptr_pos = go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos});
-    u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
+    const u64 io_writer_buf_ptr_pos = go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos});
+    const u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
 
     // writing with bad offsets can crash the application, be defensive here
     if (!io_writer_buf_ptr_pos || !io_writer_n_pos) {
@@ -1061,7 +1062,7 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
     off_table_t *ot = get_offsets_table();
 
     if (cc_ptr) {
-        u64 cc_tconn_pos = go_offset_of(ot, (go_offset){.v = off_cc_tconn_pos});
+        const u64 cc_tconn_pos = go_offset_of(ot, (go_offset){.v = off_cc_tconn_pos});
         bpf_dbg_printk("cc_ptr=%llx, cc_tconn_ptr=%llx", cc_ptr, cc_ptr + cc_tconn_pos);
         void *tconn = cc_ptr + go_offset_of(ot, (go_offset){.v = off_cc_tconn_pos});
         bpf_probe_read(&tconn, sizeof(tconn), (void *)(cc_ptr + cc_tconn_pos + 8));
@@ -1073,7 +1074,7 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
             bpf_dbg_printk("tconn_conn=%llx", tconn_conn);
 
             connection_info_t conn = {0};
-            u8 ok = get_conn_info(tconn_conn, &conn);
+            const u8 ok = get_conn_info(tconn_conn, &conn);
 
             if (ok) {
                 bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -1118,7 +1119,7 @@ SEC("uprobe/http2WriteHeaders")
 int obi_uprobe_http2WriteHeaders(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *cc_ptr = GO_PARAM1(ctx);
-    u64 stream_id = (u64)GO_PARAM2(ctx);
+    const u64 stream_id = (u64)GO_PARAM2(ctx);
 
     bpf_dbg_printk("=== uprobe/http2WriteHeaders ===");
 
@@ -1134,7 +1135,7 @@ SEC("uprobe/http2WriteHeadersVendored")
 int obi_uprobe_http2WriteHeaders_vendored(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *cc_ptr = GO_PARAM1(ctx);
-    u64 stream_id = (u64)GO_PARAM2(ctx);
+    const u64 stream_id = (u64)GO_PARAM2(ctx);
 
     bpf_dbg_printk("=== uprobe/http2WriteHeadersVendored ===");
 
@@ -1174,7 +1175,7 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
         return;
     }
 
-    u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
+    const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
 
     if (framer_w_pos == -1) {
         bpf_dbg_printk("framer w not found");
@@ -1292,8 +1293,8 @@ int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
 
     if (f_info) {
         void *w_ptr = 0;
-        u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
-        u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
+        const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
+        const u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
 
         // being defensive here if we can't find the offsets
         if (!framer_w_pos || !io_writer_n_pos) {
@@ -1343,12 +1344,12 @@ int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
 
                 bpf_dbg_printk("sizes: 1=%x, 2=%x, 3=%x", size_1, size_2, size_3);
 
-                u32 original_size = ((u32)(size_1) << 16) | ((u32)(size_2) << 8) | size_3;
+                const u32 original_size = ((u32)(size_1) << 16) | ((u32)(size_2) << 8) | size_3;
                 if (original_size > 0) {
                     u8 type_byte = 0;
-                    u8 key_len =
+                    const u8 key_len =
                         TP_ENCODED_LEN | 0x80; // high tagged to signify hpack encoded value
-                    u8 val_len = TP_MAX_VAL_LENGTH;
+                    const u8 val_len = TP_MAX_VAL_LENGTH;
 
                     // We don't hpack encode the value of the traceparent field, because that will require that
                     // we use bpf_loop, which in turn increases the kernel requirement to 5.17+.
@@ -1372,7 +1373,7 @@ int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
                     // Update the value of n in w to reflect the new size
                     bpf_probe_write_user((void *)(w_ptr + io_writer_n_pos), &n, sizeof(n));
 
-                    u32 new_size = original_size + HTTP2_ENCODED_HEADER_LEN;
+                    const u32 new_size = original_size + HTTP2_ENCODED_HEADER_LEN;
 
                     bpf_dbg_printk("Changing size from %d to %d", original_size, new_size);
                     size_1 = (u8)(new_size >> 16);
@@ -1529,8 +1530,8 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
                 get_conn_info(
                     conn_ptr,
                     &conn); // initialized to 0, no need to check the result if we succeeded
-                u64 pid_tid = bpf_get_current_pid_tgid();
-                u32 pid = pid_from_pid_tgid(pid_tid);
+                const u64 pid_tid = bpf_get_current_pid_tgid();
+                const u32 pid = pid_from_pid_tgid(pid_tid);
                 tp_info_pid_t tp_p = {
                     .pid = pid,
                     .valid = 1,

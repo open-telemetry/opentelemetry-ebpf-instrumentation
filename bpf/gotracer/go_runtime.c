@@ -61,8 +61,8 @@ SEC("uprobe/runtime_newproc1_return")
 int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/runtime_newproc1_return ===");
     void *creator_goroutine_addr = GOROUTINE_PTR(ctx);
-    u64 pid_tid = bpf_get_current_pid_tgid();
-    u32 pid = pid_from_pid_tgid(pid_tid);
+    const u64 pid_tid = bpf_get_current_pid_tgid();
+    const u32 pid = pid_from_pid_tgid(pid_tid);
     go_addr_key_t c_key = {.addr = (u64)creator_goroutine_addr, .pid = pid};
 
     bpf_dbg_printk("creator_goroutine_addr=%lx", creator_goroutine_addr);

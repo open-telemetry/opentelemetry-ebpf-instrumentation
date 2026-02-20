@@ -88,7 +88,7 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
         // the api key is 2 bytes, but num APIs at the moment is max 50.
         // instead of reading 2 bytes and then doing ntohs, we just read
         // the second byte of the api key, assuming the first is 0.
-        u8 api_key = small_buf[KAFKA_API_KEY_POS];
+        const u8 api_key = small_buf[KAFKA_API_KEY_POS];
 
         bpf_dbg_printk("api_key=%d", api_key);
 
@@ -118,7 +118,7 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
                         &conn_ptr, sizeof(conn_ptr), (void *)(tcp_conn_ptr + 8)); // find conn
                     bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
                     if (conn_ptr) {
-                        u8 ok = get_conn_info(conn_ptr, &req.conn);
+                        const u8 ok = get_conn_info(conn_ptr, &req.conn);
                         if (!ok) {
                             __builtin_memset(&req.conn, 0, sizeof(connection_info_t));
                         }
