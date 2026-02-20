@@ -644,7 +644,12 @@ $(GO_MOD_TIDY_117_TARGETS):
 	@cd "$(dir $@)" && go mod tidy -go=1.17 -compat=1.17
 
 .PHONY: check-go-mod
-check-go-mod: go-mod-tidy check-clean-work-tree
+check-go-mod: go-mod-tidy
+	@if ! git diff --quiet -- ':(glob)**/go.mod' ':(glob)**/go.sum' ':(exclude,glob)NOTICES/**'; then \
+		echo 'go.mod/go.sum files are not clean, did you forget to run "make go-mod-tidy"?'; \
+		git --no-pager diff -- ':(glob)**/go.mod' ':(glob)**/go.sum' ':(exclude,glob)NOTICES/**'; \
+		exit 1; \
+	fi
 
 .PHONY: verify-mods
 verify-mods: $(MULTIMOD)
