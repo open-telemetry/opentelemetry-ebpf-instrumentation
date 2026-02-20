@@ -29,6 +29,7 @@ jobs:
   vm-test-matrix:
     name: "Build VM integration matrix"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
     steps:
@@ -62,6 +63,7 @@ jobs:
       # Required for uploading artifacts
       actions: write
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -179,7 +181,6 @@ jobs:
           fi
 
       - name: Run VM integration tests (${{ matrix.test.description }})
-        timeout-minutes: 60
         env:
           # zizmor template-injection fixes: pass data as env vars
           MATRIX_ID: ${{ matrix.test.id }}
