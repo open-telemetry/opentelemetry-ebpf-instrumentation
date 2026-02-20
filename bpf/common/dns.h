@@ -132,7 +132,7 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
                                      protocol_info_t *p_info) {
 
     u16 dns_off = 0;
-    u16 l4_off = p_info->ip_len;
+    const u16 l4_off = p_info->ip_len;
     // Calculate the DNS offset in the packet
     struct tcphdr tcph;
 

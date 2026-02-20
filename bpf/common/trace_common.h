@@ -52,7 +52,7 @@ static __always_inline tp_info_pid_t *tp_buf() {
 static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
     task_tid(&t_key->p_key);
 
-    u64 extra_id = extra_runtime_id();
+    const u64 extra_id = extra_runtime_id();
     t_key->extra_id = extra_id;
 }
 
@@ -60,7 +60,7 @@ static __always_inline void
 trace_key_from_pid_tid_with_p_key(trace_key_t *t_key, const pid_key_t *p_key, u64 id) {
     t_key->p_key = *p_key;
 
-    u64 extra_id = extra_runtime_id_with_task_id(id);
+    const u64 extra_id = extra_runtime_id_with_task_id(id);
     t_key->extra_id = extra_id;
 }
 
@@ -290,8 +290,8 @@ static __always_inline u8 valid_trace(const unsigned char *trace_id) {
 static __always_inline void server_or_client_trace(
     u8 type, connection_info_t *conn, tp_info_pid_t *tp_p, u8 ssl, u16 orig_dport) {
 
-    u64 id = bpf_get_current_pid_tgid();
-    u32 host_pid = pid_from_pid_tgid(id);
+    const u64 id = bpf_get_current_pid_tgid();
+    const u32 host_pid = pid_from_pid_tgid(id);
 
     if (type == EVENT_HTTP_REQUEST) {
         trace_key_t t_key = {0};
@@ -399,7 +399,7 @@ static __always_inline u8 should_be_in_same_transaction(const tp_info_t *parent_
         return 0;
     }
 
-    u64 diff = child_tp->ts - parent_tp->ts;
+    const u64 diff = child_tp->ts - parent_tp->ts;
 
     return diff < max_transaction_time;
 }

@@ -103,7 +103,7 @@ static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, con
 
     struct callback_ctx data = {.buf = buf, .pos = 0};
 
-    u32 nr_loops = (u32)buf_len;
+    const u32 nr_loops = (u32)buf_len;
 
     bpf_loop(nr_loops, tp_match, &data, 0);
 
