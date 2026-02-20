@@ -301,7 +301,7 @@ func main() {
 		FieldNameTag:               "yaml",
 		Mapper:                     g.customMapper(),
 	}
-	if err := reflector.AddGoComments("go.opentelemetry.io/obi", "./"); err != nil {
+	if err := reflector.AddGoComments("go.opentelemetry.io/obi", "./", jsonschema.WithFullComment()); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not add Go comments: %v\n", err)
 	}
 
@@ -317,6 +317,9 @@ func main() {
 
 	// Add environment variable annotations
 	g.processEnvVars(schema)
+
+	// Normalize descriptions: collapse newlines into single spaces
+	normalizeDescriptions(schema)
 
 	// Sort properties for deterministic output
 	sortSchemaProperties(schema)
@@ -654,6 +657,16 @@ func processSchemaDeprecation(schema *jsonschema.Schema) {
 			return
 		}
 	}
+}
+
+// normalizeDescriptions collapses newlines in all schema descriptions into single spaces.
+func normalizeDescriptions(schema *jsonschema.Schema) {
+	visitNestedSchemas(schema, func(s *jsonschema.Schema) {
+		if s == nil || s.Description == "" {
+			return
+		}
+		s.Description = strings.ReplaceAll(s.Description, "\n", " ")
+	})
 }
 
 // jsonSchemaerType is the reflect.Type for the jsonSchemaer interface.
