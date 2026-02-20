@@ -43,8 +43,19 @@ type IPAddr [net.IPv6len]uint8
 type Record struct {
 	NetFlowRecordT
 
+	NetStats
+	// pino
+	// qui devi aggiungere un campo per le appnetmetrics come fatto in span
+
 	// Attrs of the flow record: source/destination, Interface, OBI IP, etc...
 	Attrs RecordAttrs
+}
+
+type NetStats struct {
+	TCPRtt TCPRtt
+}
+type TCPRtt struct {
+	Srtt uint32 `json:"srtt"`
 }
 
 type RecordAttrs struct {

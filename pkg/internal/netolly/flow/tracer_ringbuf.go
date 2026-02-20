@@ -20,6 +20,7 @@
 // https://github.com/netobserv/netobserv-ebpf-agent/tree/release-1.4
 
 package flow // import "go.opentelemetry.io/obi/pkg/internal/netolly/flow"
+// TODO pino change pkg name
 
 import (
 	"bytes"
@@ -27,10 +28,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -39,6 +42,10 @@ import (
 
 func rtlog() *slog.Logger {
 	return slog.With("component", "flow.RingBufTracer")
+}
+
+type RingBufStatsTracer struct {
+	ringBuffer ringBufReader
 }
 
 // RingBufTracer receives single-packet flows via ringbuffer (usually, these that couldn't be
@@ -76,6 +83,36 @@ func NewRingBufTracer(
 	}
 }
 
+func NewRingBufStatsTracer(reader ringBufReader) *RingBufStatsTracer {
+	return &RingBufStatsTracer{
+		ringBuffer: reader,
+	}
+}
+
+func (m *RingBufStatsTracer) TraceLoop(out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
+	return func(ctx context.Context) {
+		defer out.MarkCloseable()
+		rtlog := rtlog()
+		debugging := rtlog.Enabled(ctx, slog.LevelDebug)
+		for {
+			select {
+			case <-ctx.Done():
+				rtlog.Debug("exiting trace loop due to context cancellation")
+				return
+			default:
+				if err := m.listenAndForwardRingBuffer(debugging, out); err != nil {
+					if errors.Is(err, ringbuf.ErrClosed) {
+						rtlog.Debug("Received signal, exiting..")
+						return
+					}
+					rtlog.Warn("ignoring flow event", "error", err)
+					continue
+				}
+			}
+		}
+	}
+}
+
 func (m *RingBufTracer) TraceLoop(out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
 	return func(ctx context.Context) {
 		defer out.MarkCloseable()
@@ -100,6 +137,81 @@ func (m *RingBufTracer) TraceLoop(out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc 
 	}
 }
 
+func (m *RingBufStatsTracer) listenAndForwardRingBuffer(debugging bool, forwardCh *msg.Queue[[]*ebpf.Record]) error {
+	rRecord, err := m.ringBuffer.ReadRingBuf()
+	if err != nil {
+		return fmt.Errorf("reading from ring buffer: %w", err)
+	}
+	record, err := m.handleStatsEvent(&rRecord)
+	if err != nil {
+		return fmt.Errorf("handle stat event: %w", err)
+	}
+	forwardCh.Send([]*ebpf.Record{&record})
+
+	return nil
+}
+
+// The following consts need to coincide with some C identifiers defined in bpf/appnetworktracer/types.h
+const (
+	EventTypeAppNetTCPRtt = 1 // event_app_net_tcp_rtt Application Network metrics related event - RTT
+)
+
+func (m *RingBufStatsTracer) handleStatsEvent(record *ringbuf.Record) (ebpf.Record, error) {
+	eventType := record.RawSample[0]
+	switch eventType {
+	case EventTypeAppNetTCPRtt:
+		return m.readTCPRttIntoSpan(record)
+	default:
+		fmt.Errorf("unknown net app event", "eventType", eventType)
+	}
+
+	return ebpf.Record{}, nil
+}
+
+func (m *RingBufStatsTracer) readTCPRttIntoSpan(record *ringbuf.Record) (ebpf.Record, error) {
+	event, err := ebpfcommon.ReinterpretCast[ebpf.AppNetTCPRtt](record.RawSample)
+	if err != nil {
+		return ebpf.Record{}, err
+	}
+
+	// peer := ""
+	// hostname := ""
+	// hostPort := 0
+	// if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
+	// 	peer, hostname = reqHostInfo(event.Conn.S_addr, event.Conn.D_addr)
+	// 	hostPort = int(event.Conn.D_port)
+	// }
+
+	// peerPort := int(event.Conn.S_port)
+	return ebpf.Record{
+		NetStats: ebpf.NetStats{
+			TCPRtt: ebpf.TCPRtt{
+				Srtt: event.Srtt,
+			},
+		},
+	}, nil
+}
+
+func reqHostInfo(srcAddr, dstAddr [16]uint8) (source, target string) {
+	src := make(net.IP, net.IPv6len)
+	dst := make(net.IP, net.IPv6len)
+	copy(src, srcAddr[:])
+	copy(dst, dstAddr[:])
+
+	srcStr := src.String()
+	dstStr := dst.String()
+
+	if src.IsUnspecified() {
+		srcStr = ""
+	}
+
+	if dst.IsUnspecified() {
+		dstStr = ""
+	}
+
+	return srcStr, dstStr
+}
+
 func (m *RingBufTracer) listenAndForwardRingBuffer(debugging bool, forwardCh *msg.Queue[[]*ebpf.Record]) error {
 	event, err := m.ringBuffer.ReadRingBuf()
 	if err != nil {
@@ -111,6 +223,7 @@ func (m *RingBufTracer) listenAndForwardRingBuffer(debugging bool, forwardCh *ms
 		return fmt.Errorf("parsing data received from the ring buffer: %w", err)
 	}
 	mapFullError := readFlow.Metrics.Errno == uint8(syscall.E2BIG)
+	// TODO pino is this needed for netStats?
 	if debugging {
 		m.stats.logRingBufferFlows(mapFullError)
 	}

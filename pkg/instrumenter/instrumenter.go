@@ -107,8 +107,13 @@ func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.
 	return nil
 }
 
+// pino 1
+// qui parte netolly
 func setupNetO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *obi.Config) error {
 	slog.Info("starting OBI in Network metrics mode")
+	// pino 2
+	// flowsAgent e' quello che ha il metodo Run che fa girare la pipeline quindi devo ficcarlo li dentro
+	// c'e' da considerare che un utente potrebbe volere le appnetmetrics senza volere i flow quindi devo controllare sta cosa
 	flowsAgent, err := agent.FlowsAgent(ctxInfo, cfg)
 	if err != nil {
 		slog.Debug("can't start network metrics capture", "error", err)

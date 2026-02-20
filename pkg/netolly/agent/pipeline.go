@@ -30,6 +30,10 @@ var newRingBufTracer = func(f *Flows, out *msg.Queue[[]*ebpf.Record]) swarm.RunF
 	return f.rbTracer.TraceLoop(out)
 }
 
+var newRingBufStatsTracer = func(f *Flows, out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
+	return f.rbStatsTracer.TraceLoop(out)
+}
+
 // buildPipeline defines the different nodes in the OBI's NetO11y module,
 // as well as how they are interconnected (in its Connect() method)
 func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
@@ -45,9 +49,16 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	swi := &swarm.Instancer{}
 	// Start nodes: those generating flow records (reading them from eBPF)
 	ebpfFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "ebpfFlows")
-	swi.Add(swarm.DirectInstance(newMapTracer(f, ebpfFlows)), swarm.WithID("MapTracer"))
-	swi.Add(swarm.DirectInstance(newRingBufTracer(f, ebpfFlows)), swarm.WithID("RingBufTracer"))
+	mode := f.cfg.NetworkFlows.Metrics
+	if mode == "flows" || mode == "all" {
+		swi.Add(swarm.DirectInstance(newMapTracer(f, ebpfFlows)), swarm.WithID("MapTracer"))
+		swi.Add(swarm.DirectInstance(newRingBufTracer(f, ebpfFlows)), swarm.WithID("RingBufTracer"))
+	}
+	if mode == "stats" || mode == "all" {
+		swi.Add(swarm.DirectInstance(newRingBufStatsTracer(f, ebpfFlows)), swarm.WithID("RingBufStatsTracer"))
+	}
 
+	// pino --> transforming flow records and app net?? come lo scrio
 	// Middle nodes: transforming flow records and passing them to the next stage in the pipeline.
 	// Many of the nodes here are not mandatory. It's decision of each InstanceFunc to decide
 	// whether the node needs to be instantiated or just bypass their input/output channels.
@@ -79,6 +90,7 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		swarm.WithID("CIDRDecorator"))
 
 	decoratedFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "decoratedFlows")
+	// TODO pino check if ifaceNamer
 	swi.Add(func(_ context.Context) (swarm.RunFunc, error) {
 		// If deduper is enabled, we know that interfaces are unset.
 		// As an optimization, we just pass here an empty-string interface namer
