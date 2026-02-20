@@ -71,7 +71,7 @@ func setupAWSMockIMDS(t *testing.T, imdsSubnet *dockertest.Network) {
 	t.Log("AWS EC2 Metadata Mock container started", "state", mockIMDS.Container.State.Status)
 }
 
-// unlike the AWS EC2 Imds, there is no mock container providing the information,
+// unlike the AWS EC2 Imds, there is no mock container providing the Azure metadata,
 // so we mock our own.
 // The contents served by this mock IMDS are extracted from the official Azure docs:
 // https://learn.microsoft.com/en-us/azure/virtual-machines/instance-metadata-service?tabs=linux
@@ -105,4 +105,43 @@ func setupMockAzureIMDS(t *testing.T, imdsSubnet *dockertest.Network) {
 	require.NoError(t, err, "could not connect Azure IMDS Mock container to network")
 
 	t.Log("Azure IMDS Mock container started", "state", mockIMDS.Container.State.Status)
+}
+
+// unlike the AWS EC2 IMDS, there is no mock container providing the GCP metadata
+// so we mock our own using nginx. Each metadata endpoint is served as plain text,
+// matching what the real GCP Compute Engine metadata service returns.
+// The GCP metadata client validates the "Metadata-Flavor: Google" response header
+// on every request, so nginx is configured to add it on all responses.
+func setupMockGCPIMDS(t *testing.T, imdsSubnet *dockertest.Network) {
+	t.Helper()
+	t.Log("Starting GCP IMDS Mock container...")
+
+	mockIMDS, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
+		Repository: "nginx",
+		Tag:        versionNginx,
+		Name:       fmt.Sprintf("mock-imds-gcp-nginx-%d", time.Now().UnixNano()),
+		Mounts: []string{
+			pathRoot + "/internal/test/integration/components/gcp-imds/nginx.conf:/etc/nginx/nginx.conf",
+		},
+	})
+	require.NoError(t, err, "could not start GCP IMDS Mock container")
+	t.Cleanup(func() {
+		require.NoError(t, dockerPool.Purge(mockIMDS), "could not remove GCP IMDS Mock container")
+	})
+
+	// Connect to network at 169.254.169.254 and register the DNS alias used by the
+	// GCP metadata client. Docker's embedded DNS will resolve metadata.google.internal
+	// to 169.254.169.254, satisfying both the DNS and HTTP probes in metadata.OnGCE().
+	err = dockerPool.Client.ConnectNetwork(imdsSubnet.Network.ID, docker.NetworkConnectionOptions{
+		Container: mockIMDS.Container.ID,
+		EndpointConfig: &docker.EndpointConfig{
+			Aliases: []string{"metadata.google.internal"},
+			IPAMConfig: &docker.EndpointIPAMConfig{
+				IPv4Address: "169.254.169.254",
+			},
+		},
+	})
+	require.NoError(t, err, "could not connect GCP IMDS Mock container to network")
+
+	t.Log("GCP IMDS Mock container started", "state", mockIMDS.Container.State.Status)
 }
