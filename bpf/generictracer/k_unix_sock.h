@@ -141,7 +141,7 @@ int BPF_KPROBE(obi_kprobe_unix_stream_recvmsg,
     // sent through the same socket. This mainly happens if the server overlays virtual
     // threads in the runtime.
     u64 sock_p = (u64)sk;
-    ensure_sent_event(id, &sock_p);
+    ensure_sent_event(id, &sock_p, TCP_RECV);
 
     recv_args_t args = {
         .sock_ptr = (u64)sk,

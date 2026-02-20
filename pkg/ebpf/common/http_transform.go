@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -145,6 +146,13 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		}
 	}
 
+	if isClientEvent(event.Type) {
+		span, ok := ebpfhttp.OpenAISpan(&httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
 	return httpSpan
 }
 
@@ -213,8 +221,10 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 // Try to parse the original buffer first, if an EOF is encountered, append an empty
 // body to the buffer and try again.
 func httpSafeParseResponse(responseBuffer []byte, req *http.Request) (*http.Response, error) {
+	fmt.Printf("RESP BUFFER %s\n", string(responseBuffer))
 	rd := bufio.NewReader(bytes.NewReader(responseBuffer))
 	resp, err := http.ReadResponse(rd, req)
+	fmt.Printf("ERROR %v\n", err)
 	if err != nil && errors.Is(err, io.ErrUnexpectedEOF) {
 		// Append empty body and try again
 		responseBuffer := append(responseBuffer, []byte("\r\n\r\n")...)

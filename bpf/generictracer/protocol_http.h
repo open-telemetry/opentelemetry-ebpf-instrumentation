@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "bpfcore/utils.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
@@ -441,22 +442,15 @@ static __always_inline void process_http_response(http_info_t *info, const unsig
 static __always_inline void handle_http_response(unsigned char *small_buf,
                                                  pid_connection_info_t *pid_conn,
                                                  http_info_t *info,
-                                                 int orig_len,
-                                                 u8 direction,
-                                                 u8 ssl) {
+                                                 int orig_len) {
     process_http_response(info, small_buf);
     cleanup_http_request_data(pid_conn, info);
 
-    if ((direction != TCP_SEND) ||
-        high_request_volume /*|| (ssl != NO_SSL) || (orig_len < KPROBES_LARGE_RESPONSE_LEN)*/) {
+    if (high_request_volume) {
         finish_http(info, pid_conn);
     } else {
-        if (ssl) {
-            finish_http(info, pid_conn);
-        } else {
-            bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);
-            info->delayed = 1;
-        }
+        bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);
+        info->delayed = 1;
     }
 }
 
@@ -483,22 +477,42 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
     large_buf->action = action;
     large_buf->tp = req->tp;
 
-    large_buf->len = bytes_len;
-    if (large_buf->len >= http_buffer_size) {
-        large_buf->len = http_buffer_size;
-        bpf_dbg_printk("WARN: buffer is full, truncating data");
-    }
-
-    bpf_probe_read(large_buf->buf, large_buf->len & k_large_buf_payload_max_size_mask, u_buf);
-
-    u32 total_size = sizeof(tcp_large_buffer_t);
-    total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);
-
     req->has_large_buffers = true;
 
-    bpf_dbg_printk("sending large buffer, size=%d", bytes_len);
+    u32 max = bytes_len;
+    bpf_clamp_umax(max, k_large_buf_abs_max_size);
 
-    bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
+    u32 chunk = bytes_len;
+
+    bpf_dbg_printk("large buffer, total size=%d", bytes_len);
+
+    int b = 0;
+    for (; b <= (max / k_large_buf_payload_max_size); b++) {
+        u32 offset = b * k_large_buf_payload_max_size;
+        if (offset >= k_large_buf_abs_max_size) {
+            break;
+        }
+        u32 read_size = chunk;
+        bpf_clamp_umax(read_size, k_large_buf_payload_max_size);
+        bpf_probe_read(large_buf->buf, read_size, (void *)(&u_buf[offset]));
+
+        bpf_d_printk("sending large buffer, size=%d", read_size);
+
+        large_buf->len = read_size;
+
+        u32 total_size = sizeof(tcp_large_buffer_t);
+        total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);
+
+        bpf_clamp_umax(total_size, k_large_buf_max_size);
+        bpf_ringbuf_output(&events, large_buf, total_size, get_flags());
+
+        if (read_size <= k_large_buf_payload_max_size) {
+            break;
+        }
+        chunk -= k_large_buf_payload_max_size;
+        large_buf->action = k_large_buf_action_append;
+    }
+
     return 0;
 }
 
@@ -659,9 +673,9 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
                                args->packet_type,
                                args->direction,
                                k_large_buf_action_init);
-        handle_http_response(
-            args->small_buf, &args->pid_conn, info, args->bytes_len, args->direction, args->ssl);
+        handle_http_response(args->small_buf, &args->pid_conn, info, args->bytes_len);
     } else if (still_reading(info)) {
+        // print here
         http_send_large_buffer(info,
                                (void *)args->u_buf,
                                args->bytes_len,
