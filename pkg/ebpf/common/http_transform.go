@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -87,6 +86,20 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 			scheme = "http"
 		}
 	}
+
+	// Make sure the content length is non-zero
+	reqContentLen := req.ContentLength
+	if reqContentLen <= 0 {
+		reqContentLen = int64(event.Len)
+	}
+
+	// The response len can be -1 if we use chunked
+	// responses
+	respContentLen := resp.ContentLength
+	if respContentLen <= 0 {
+		respContentLen = int64(event.RespLen)
+	}
+
 	httpSpan := request.Span{
 		Type:           request.EventType(event.Type),
 		Method:         req.Method,
@@ -95,8 +108,8 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		PeerPort:       int(event.ConnInfo.S_port),
 		Host:           host,
 		HostPort:       int(event.ConnInfo.D_port),
-		ContentLength:  req.ContentLength,
-		ResponseLength: resp.ContentLength,
+		ContentLength:  reqContentLen,
+		ResponseLength: respContentLen,
 		RequestStart:   int64(event.ReqMonotimeNs),
 		Start:          int64(event.StartMonotimeNs),
 		End:            int64(event.EndMonotimeNs),
@@ -217,21 +230,22 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 	return httpRequestResponseToSpan(parseCtx, event, req, resp), false, nil
 }
 
-// HTTP response buffers might have been sent incomplete, before the full body.
-// Try to parse the original buffer first, if an EOF is encountered, append an empty
-// body to the buffer and try again.
 func httpSafeParseResponse(responseBuffer []byte, req *http.Request) (*http.Response, error) {
-	fmt.Printf("RESP BUFFER %s\n", string(responseBuffer))
 	rd := bufio.NewReader(bytes.NewReader(responseBuffer))
 	resp, err := http.ReadResponse(rd, req)
-	fmt.Printf("ERROR %v\n", err)
-	if err != nil && errors.Is(err, io.ErrUnexpectedEOF) {
-		// Append empty body and try again
-		responseBuffer := append(responseBuffer, []byte("\r\n\r\n")...)
-		rd = bufio.NewReader(bytes.NewReader(responseBuffer))
-		return http.ReadResponse(rd, req)
+
+	if err == nil {
+		return resp, nil
 	}
-	return resp, nil
+
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		return resp, err
+	}
+
+	// Final fallback: append an empty body separator (handles truncated non-chunked bodies)
+	nonChunked := append(responseBuffer, []byte("\r\n\r\n")...)
+	rd = bufio.NewReader(bytes.NewReader(nonChunked))
+	return http.ReadResponse(rd, req)
 }
 
 func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer []byte) request.Span {

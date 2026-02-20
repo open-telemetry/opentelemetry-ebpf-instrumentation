@@ -25,6 +25,7 @@
 #include <generictracer/maps/active_connect_args.h>
 #include <generictracer/maps/listening_ports.h>
 #include <generictracer/maps/tcp_connection_map.h>
+#include <generictracer/protocol_common.h>
 #include <generictracer/protocol_http.h>
 #include <generictracer/protocol_http2.h>
 #include <generictracer/protocol_mysql.h>
@@ -1212,18 +1213,21 @@ int obi_handle_buf_with_args(void *ctx) {
                     }
                 }
 
-                http_send_large_buffer(
-                    info,
-                    (void *)args->u_buf,
-                    args->bytes_len,
-                    // Packet type can't be reliably determined in HTTP split packets. This should
-                    // always be a request.
-                    PACKET_TYPE_REQUEST,
-                    args->direction,
-                    k_large_buf_action_append);
+                u8 packet_type = PACKET_TYPE_REQUEST;
+                if (responding) {
+                    packet_type = PACKET_TYPE_RESPONSE;
+                }
+
+                http_send_large_buffer(info,
+                                       (void *)args->u_buf,
+                                       args->bytes_len,
+                                       packet_type,
+                                       args->direction,
+                                       k_large_buf_action_append);
 
                 if (responding) {
                     info->end_monotime_ns = bpf_ktime_get_ns();
+                    bpf_d_printk("bytes len %d, new bytes %d", info->resp_len, args->bytes_len);
                     info->resp_len += args->bytes_len;
                 }
             }
