@@ -27,14 +27,14 @@ volatile const s32 ngx_connection_s_sockaddr = 0x68;
 
 SEC("uprobe/nginx:ngx_http_upstream_init")
 int obi_ngx_http_upstream_init(struct pt_regs *ctx) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
     }
 
     void *req = (void *)PT_REGS_PARM1(ctx);
-    u64 req_val = (u64)req;
+    const u64 req_val = (u64)req;
 
     bpf_map_update_elem(&upstream_init_args, &id, &req_val, BPF_ANY);
 
@@ -43,7 +43,7 @@ int obi_ngx_http_upstream_init(struct pt_regs *ctx) {
 
 static __always_inline void get_sock_info(u64 id, void *conn_ptr, connection_info_part_t *part) {
     if (conn_ptr) {
-        u32 host_pid = pid_from_pid_tgid(id);
+        const u32 host_pid = pid_from_pid_tgid(id);
         void *sockaddr_ptr = 0;
         bpf_probe_read(&sockaddr_ptr, sizeof(void *), conn_ptr + ngx_connection_s_sockaddr);
 
@@ -59,7 +59,7 @@ SEC("uprobe/nginx:ngx_event_connect_peer_ret")
 int obi_ngx_event_connect_peer_ret(struct pt_regs *ctx) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
