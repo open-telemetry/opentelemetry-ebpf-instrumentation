@@ -19,10 +19,8 @@ import (
 
 // This file contains tests related with the integration with Amazon Web Services
 func TestCloudResourceMetadata_Azure(t *testing.T) {
-	network := setupDockerNetwork(t)
-	imdsSubnet := setupIMDSSubnet(t)
-	setupMockAzureIMDS(t, imdsSubnet)
-
+	network := setupIMDSSubnet(t)
+	setupMockAzureIMDS(t, network)
 	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
@@ -44,7 +42,7 @@ func TestCloudResourceMetadata_Azure(t *testing.T) {
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver, "obi-config.yml", imdsSubnet)
+	o.instrument(t, network, testserver, "obi-config.yml")
 
 	// Wait for test components to be ready
 	waitForTestComponents(t, "http://localhost:8080")

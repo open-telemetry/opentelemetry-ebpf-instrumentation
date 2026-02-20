@@ -20,8 +20,7 @@ import (
 // This file contains tests related with the integration with Amazon Web Services
 func TestCloudResourceMetadata_AWS(t *testing.T) {
 	network := setupDockerNetwork(t)
-	imdsSubnet := setupIMDSSubnet(t)
-	setupAWSMockIMDS(t, imdsSubnet)
+	setupAWSMockIMDS(t, network)
 	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
@@ -38,12 +37,14 @@ func TestCloudResourceMetadata_AWS(t *testing.T) {
 		Env: []string{
 			`OTEL_EBPF_PROMETHEUS_PORT=8999`,
 			"OTEL_EBPF_OPEN_PORT=8080",
+			// Configure AWS SDK to use custom endpoint for EC2 metadata
+			"AWS_EC2_METADATA_SERVICE_ENDPOINT=http://mock-imds:80",
 		},
 	}
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver, "obi-config.yml", imdsSubnet)
+	o.instrument(t, network, testserver, "obi-config.yml")
 
 	// Wait for test components to be ready
 	waitForTestComponents(t, "http://localhost:8080")

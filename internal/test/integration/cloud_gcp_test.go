@@ -20,8 +20,7 @@ import (
 // This file contains tests related with the integration with Google Cloud Platform
 func TestCloudResourceMetadata_GCP(t *testing.T) {
 	network := setupDockerNetwork(t)
-	imdsSubnet := setupIMDSSubnet(t)
-	setupMockGCPIMDS(t, imdsSubnet)
+	setupMockGCPIMDS(t, network)
 
 	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
 	setupContainerJaeger(t, network)
@@ -38,12 +37,13 @@ func TestCloudResourceMetadata_GCP(t *testing.T) {
 		Env: []string{
 			`OTEL_EBPF_PROMETHEUS_PORT=8999`,
 			"OTEL_EBPF_OPEN_PORT=8080",
+			"GCE_METADATA_HOST=mock-imds",
 		},
 	}
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver, "obi-config.yml", imdsSubnet)
+	o.instrument(t, network, testserver, "obi-config.yml")
 
 	// Wait for test components to be ready
 	waitForTestComponents(t, "http://localhost:8080")
