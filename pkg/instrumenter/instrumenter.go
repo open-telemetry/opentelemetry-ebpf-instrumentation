@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
@@ -172,11 +173,6 @@ func BuildCommonContextInfo(
 		Prometheus:          promMgr,
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: &config.OTELMetrics},
 	}
-	if config.Attributes.HostID.Override == "" {
-		ctxInfo.FetchHostID(ctx, config.Attributes.HostID.FetchTimeout)
-	} else {
-		ctxInfo.HostID = config.Attributes.HostID.Override
-	}
 	ctxInfo.Metrics, err = internalMetrics(ctx, config, ctxInfo, promMgr)
 	if err != nil {
 		return nil, fmt.Errorf("can't create internal metrics: %w", err)
@@ -193,6 +189,12 @@ func BuildCommonContextInfo(
 		RestrictLocalNode:   config.Attributes.Kubernetes.MetaRestrictLocalNode,
 		ServiceNameTemplate: templ,
 	}, ctxInfo.Metrics)
+
+	ctxInfo.NodeMeta = meta.NewNodeMeta(
+		ctx,
+		config.Attributes.HostID.Override,
+		ctxInfo.K8sInformer,
+	)
 
 	ctxInfo.DockerMetadata = docker.NewStore()
 

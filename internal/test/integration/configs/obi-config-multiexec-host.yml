@@ -49,7 +49,6 @@ discovery:
       exports: [] # test exports field, do not export docker-proxy metrics or traces
 attributes:
   kubernetes:
-    enable: true
     cluster_name: my-kube
   select:
     http_server_request_duration_seconds_count:

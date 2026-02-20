@@ -15,6 +15,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	versionPrometheus  = "v2.55.1"
+	versionJaeger      = "1.60"
+	versionCollector   = "0.144.0"
+	versionAWSMetaMock = "v1.9.2"
+)
+
 // setupDockerNetwork initializes a custom network for the test.
 func setupDockerNetwork(t *testing.T) *dockertest.Network {
 	t.Helper()
@@ -30,13 +37,13 @@ func setupDockerNetwork(t *testing.T) *dockertest.Network {
 }
 
 // setupContainerPrometheus starts a Prometheus container for metrics scraping.
-func setupContainerPrometheus(t *testing.T, network *dockertest.Network, configFile string) { //nolint:unparam // configFile is always passed in current usages but may vary in future
+func setupContainerPrometheus(t *testing.T, network *dockertest.Network, configFile string) {
 	t.Helper()
 
 	t.Log("Starting Prometheus container...")
 	prometheus, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "quay.io/prometheus/prometheus",
-		Tag:        "v2.55.1",
+		Tag:        versionPrometheus,
 		Name:       fmt.Sprintf("prometheus-otel-test-%d", time.Now().UnixNano()),
 		Networks:   []*dockertest.Network{network},
 		Mounts: []string{
@@ -66,7 +73,7 @@ func setupContainerJaeger(t *testing.T, network *dockertest.Network) {
 	t.Log("Starting Jaeger container...")
 	jaeger, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "jaegertracing/all-in-one",
-		Tag:        "1.60",
+		Tag:        versionJaeger,
 		Name:       fmt.Sprintf("jaeger-otel-test-%d", time.Now().UnixNano()),
 		Env: []string{
 			"COLLECTOR_OTLP_ENABLED=true",
@@ -100,7 +107,7 @@ func setupContainerCollector(t *testing.T, network *dockertest.Network, configFi
 	t.Log("Starting OpenTelemetry Collector container...")
 	otelcol, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "otel/opentelemetry-collector-contrib",
-		Tag:        "0.144.0",
+		Tag:        versionCollector,
 		Name:       fmt.Sprintf("otelcol-otel-test-%d", time.Now().UnixNano()),
 		Cmd:        []string{"--config=/etc/otelcol-config/" + configFile},
 		Mounts: []string{
@@ -153,7 +160,7 @@ type obi struct {
 }
 
 // instrument starts the OBI container to instrument the target application.
-func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *dockertest.Resource, configFile string) { //nolint:unparam // configFile is always passed in current usages but may vary in future
+func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *dockertest.Resource, configFile string) {
 	t.Helper()
 
 	t.Log("Starting OBI container with PID namespace sharing...")
@@ -164,7 +171,6 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *doc
 	obi, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "hatest-obi",
 		Name:       fmt.Sprintf("obi-otel-test-%d", time.Now().UnixNano()),
-		Networks:   []*dockertest.Network{network},
 		Cmd: []string{
 			"--config=/configs/" + configFile,
 		},
@@ -199,8 +205,19 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *doc
 		hc.PidMode = "container:" + resource.Container.ID
 	})
 	require.NoError(t, err, "could not start OBI container")
+
+	err = dockerPool.Client.ConnectNetwork(network.Network.ID, docker.NetworkConnectionOptions{
+		Container: obi.Container.ID,
+		EndpointConfig: &docker.EndpointConfig{
+			Aliases: []string{"obi"},
+		},
+	})
+	require.NoError(t, err, "could not attach OBI to network")
+
 	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(obi), "could not remove OBI container")
+		if err := dockerPool.Purge(obi); err != nil {
+			t.Logf("could not remove OBI container: %v", err)
+		}
 	})
 	t.Log("OBI container started")
 }

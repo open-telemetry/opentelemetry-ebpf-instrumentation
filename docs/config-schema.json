@@ -630,7 +630,7 @@
           "deprecated": true
         },
         "open_ports": {
-          "$ref": "#/$defs/PortEnum",
+          "$ref": "#/$defs/IntEnum",
           "description": "OpenPorts allows defining a group of ports that this service could open. It accepts a comma-separated\nlist of port numbers (e.g. 80) and port ranges (e.g. 8080-8089)"
         },
         "routes": {
@@ -638,6 +638,14 @@
         },
         "sampler": {
           "$ref": "#/$defs/SamplerConfig"
+        },
+        "target_pids": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array",
+          "description": "PIDs allows selecting processes by PID. When non-empty, the process PID must be in this list (in addition to any path/port criteria).",
+          "x-env-var": "OTEL_EBPF_TARGET_PID"
         }
       },
       "type": "object"
@@ -682,17 +690,6 @@
     },
     "HostIDConfig": {
       "properties": {
-        "fetch_timeout": {
-          "type": "string",
-          "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "FetchTimeout specifies the timeout for trying to fetch the HostID from diverse Cloud Providers",
-          "examples": [
-            "30s",
-            "5m",
-            "1ms"
-          ],
-          "x-env-var": "OTEL_EBPF_HOST_ID_FETCH_TIMEOUT"
-        },
         "override": {
           "type": "string",
           "description": "Override allows overriding the reported host.id in OBI",
@@ -744,6 +741,29 @@
       },
       "type": "object",
       "description": "InstanceIDConfig configures how OBI will get the Instance ID of the traces/metrics from the current hostname + the instrumented process PID"
+    },
+    "IntEnum": {
+      "properties": {
+        "Ranges": {
+          "items": {
+            "$ref": "#/$defs/IntRange"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object",
+      "description": "IntEnum defines an enumeration of integers (e.g."
+    },
+    "IntRange": {
+      "type": "string",
+      "pattern": "^\\s*\\d+\\s*(-\\s*\\d+\\s*)?(,\\s*\\d+\\s*(-\\s*\\d+\\s*)?)*$",
+      "description": "A comma-separated list of numerics or numeric ranges",
+      "examples": [
+        "1",
+        "1000",
+        "8080-8090",
+        "80,443,8000-8999"
+      ]
     },
     "InternalMetricsConfig": {
       "properties": {
@@ -1296,16 +1316,6 @@
       },
       "type": "object"
     },
-    "PortEnum": {
-      "type": "string",
-      "pattern": "^\\s*\\d+\\s*(-\\s*\\d+\\s*)?(,\\s*\\d+\\s*(-\\s*\\d+\\s*)?)*$",
-      "description": "A comma-separated list of numeric ports or port ranges (e.g. 80,443,8000-8999)",
-      "examples": [
-        "80",
-        "8080-8090",
-        "80,443,8000-8999"
-      ]
-    },
     "PrometheusConfig": {
       "properties": {
         "allow_service_graph_self_references": {
@@ -1493,7 +1503,7 @@
           "deprecated": true
         },
         "open_ports": {
-          "$ref": "#/$defs/PortEnum",
+          "$ref": "#/$defs/IntEnum",
           "description": "OpenPorts allows defining a group of ports that this service could open. It accepts a comma-separated\nlist of port numbers (e.g. 80) and port ranges (e.g. 8080-8089)"
         },
         "routes": {
@@ -1501,6 +1511,14 @@
         },
         "sampler": {
           "$ref": "#/$defs/SamplerConfig"
+        },
+        "target_pids": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array",
+          "description": "PIDs allows selecting processes by PID. When non-empty, the process PID must be in this list (in addition to any path/port criteria).",
+          "x-env-var": "OTEL_EBPF_TARGET_PID"
         }
       },
       "type": "object",
@@ -1880,7 +1898,7 @@
       "$ref": "#/$defs/NodeJSConfig"
     },
     "open_port": {
-      "$ref": "#/$defs/PortEnum",
+      "$ref": "#/$defs/IntEnum",
       "description": "Port allows selecting the instrumented executable that owns the Port value. If this value is set (and\ndifferent to zero), the value of the Exec property won't take effect.\nIt's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter\nwill instrument all the service calls in all the ports, not only the port specified here.",
       "x-env-var": "OTEL_EBPF_OPEN_PORT"
     },
@@ -1923,6 +1941,11 @@
         "1ms"
       ],
       "x-env-var": "OTEL_EBPF_SHUTDOWN_TIMEOUT"
+    },
+    "target_pids": {
+      "$ref": "#/$defs/IntEnum",
+      "description": "TargetPIDs selects processes by PID for instrumentation. When non-empty, only these PIDs are\ninstrumented. Accepts YAML list (target_pids: [1234, 5678]), single number, or env\nOTEL_EBPF_TARGET_PID=1234,5678. Alternative to Exec or AutoTargetExe when PIDs are known.",
+      "x-env-var": "OTEL_EBPF_TARGET_PID"
     },
     "trace_printer": {
       "type": "string",

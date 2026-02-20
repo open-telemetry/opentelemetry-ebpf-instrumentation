@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -237,7 +238,7 @@ type metricsReporter struct {
 
 	kubeEnabled   bool
 	dockerEnabled bool
-	hostID        string
+	nodeMeta      meta.NodeMeta
 
 	serviceMap  map[svc.UID]svc.Attrs
 	pidsTracker otel.PidServiceTracker
@@ -406,7 +407,7 @@ func newReporter(
 		dockerEnabled:              dockerEnabled,
 		extraMetadataLabels:        extraMetadataLabels,
 		extraSpanMetadataLabels:    extraSpanMetadataLabels,
-		hostID:                     ctxInfo.HostID,
+		nodeMeta:                   ctxInfo.NodeMeta,
 		clock:                      clock,
 		is:                         is,
 		promConnect:                ctxInfo.Prometheus,
@@ -584,7 +585,7 @@ func newReporter(
 			return prometheus.NewGaugeVec(prometheus.GaugeOpts{
 				Name: TracesTargetInfo,
 				Help: "target service information in trace span metric format",
-			}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, extraMetadataLabels))
+			}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels))
 		}),
 		tracesHostInfo: optionalGaugeProvider(jointMetricsConfig.Features.AppHost(), func() *Expirer[prometheus.Gauge] {
 			return NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -627,7 +628,7 @@ func newReporter(
 		targetInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: TargetInfo,
 			Help: "attributes associated to a given monitored entity",
-		}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, extraMetadataLabels)),
+		}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels)),
 		cudaKernelCallsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: attributes.GPUCudaKernelLaunchCalls.Prom,
@@ -868,7 +869,7 @@ func (r *metricsReporter) observe(span *request.Span) {
 	t := span.Timings()
 	r.obiInfo.WithLabelValues(span.Service.SDKLanguage.String()).Metric.Set(1.0)
 	if span.Service.Features.AppHost() {
-		r.tracesHostInfo.WithLabelValues(r.hostID).Metric.Set(1.0)
+		r.tracesHostInfo.WithLabelValues(r.nodeMeta.HostID).Metric.Set(1.0)
 	}
 	duration := t.End.Sub(t.RequestStart).Seconds()
 
@@ -1102,7 +1103,7 @@ func (r *metricsReporter) labelValuesSpans(span *request.Span) []string {
 	return values
 }
 
-func labelNamesTargetInfo(kubeEnabled, dockerEnabled bool, extraMetadataLabelNames []attr.Name) []string {
+func labelNamesTargetInfo(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMeta, extraMetadataLabelNames []attr.Name) []string {
 	names := []string{
 		hostIDKey,
 		hostNameKey,
@@ -1124,6 +1125,10 @@ func labelNamesTargetInfo(kubeEnabled, dockerEnabled bool, extraMetadataLabelNam
 		names = appendDockerLabelNames(names)
 	}
 
+	for _, entry := range nodeMeta.Metadata {
+		names = append(names, entry.Key.Prom())
+	}
+
 	for _, mdn := range extraMetadataLabelNames {
 		names = append(names, mdn.Prom())
 	}
@@ -1133,7 +1138,7 @@ func labelNamesTargetInfo(kubeEnabled, dockerEnabled bool, extraMetadataLabelNam
 
 func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 	values := []string{
-		r.hostID,
+		r.nodeMeta.HostID,
 		service.HostName,
 		service.UID.Name,
 		service.UID.Namespace,
@@ -1152,6 +1157,10 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 
 	if r.dockerEnabled {
 		values = appendDockerLabelValuesService(values, service)
+	}
+
+	for _, entry := range r.nodeMeta.Metadata {
+		values = append(values, entry.Value)
 	}
 
 	for _, k := range r.extraMetadataLabels {
