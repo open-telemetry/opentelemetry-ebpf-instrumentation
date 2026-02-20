@@ -111,7 +111,9 @@ jobs:
           IMGTAG: ${{ steps.image_tag.outputs.imgtag }}
           DIGEST: ${{ steps.push.outputs.digest }}
         run: |
-          cosign sign --yes \
-            "${{ env.REGISTRY }}/${{ env.IMAGE }}:${IMGTAG}@${DIGEST}"
-          cosign sign --yes \
-            "${{ env.REGISTRY }}/${{ env.IMAGE }}:latest@${DIGEST}"
+          images="${{ env.REGISTRY }}/${{ env.IMAGE }}:${IMGTAG}@${DIGEST}"
+          images+=" ${{ env.REGISTRY }}/${{ env.IMAGE }}:latest@${DIGEST}"
+          cosign sign --yes ${images}
+          cosign verify ${images} \
+            --certificate-identity-regexp='.*' \
+            --certificate-oidc-issuer='https://token.actions.githubusercontent.com'

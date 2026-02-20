@@ -174,3 +174,7 @@ jobs:
             images+="${tag}@${DIGEST} "
           done
           cosign sign --yes ${images}
+          cosign verify ${images} \
+            --certificate-identity-regexp='.*' \
+            --certificate-oidc-issuer='https://token.actions.githubusercontent.com'
+

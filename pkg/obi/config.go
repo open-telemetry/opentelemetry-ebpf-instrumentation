@@ -289,11 +289,16 @@ type Config struct {
 	// different to zero), the value of the Exec property won't take effect.
 	// It's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter
 	// will instrument all the service calls in all the ports, not only the port specified here.
-	Port services.PortEnum `yaml:"open_port" env:"OTEL_EBPF_OPEN_PORT"`
+	Port services.IntEnum `yaml:"open_port" env:"OTEL_EBPF_OPEN_PORT"`
 
 	// AutoTargetLanguage selects the executable to instrument matching a Glob of chosen languages.
 	// To set this value via YAML, use discovery > instrument.
 	AutoTargetLanguage services.GlobAttr `env:"OTEL_EBPF_AUTO_TARGET_LANGUAGE,expand"`
+
+	// TargetPIDs selects processes by PID for instrumentation. When non-empty, only these PIDs are
+	// instrumented. Accepts YAML list (target_pids: [1234, 5678]), single number, or env
+	// OTEL_EBPF_TARGET_PID=1234,5678. Alternative to Exec or AutoTargetExe when PIDs are known.
+	TargetPIDs services.IntEnum `yaml:"target_pids" env:"OTEL_EBPF_TARGET_PID"`
 
 	// ServiceName is taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility)
 	// Using env and envDefault is a trick to get the value either from one of either variables.
@@ -643,7 +648,7 @@ func (c *Config) Enabled(feature Feature) bool {
 		return c.NetworkFlows.Enable || c.promNetO11yEnabled() || c.otelNetO11yEnabled()
 	case FeatureAppO11y:
 		return c.Port.Len() > 0 || c.AutoTargetExe.IsSet() || c.AutoTargetLanguage.IsSet() || len(c.Discovery.Instrument) > 0 ||
-			c.Exec.IsSet() || len(c.Discovery.Services) > 0
+			c.Exec.IsSet() || len(c.Discovery.Services) > 0 || c.TargetPIDs.Len() > 0
 	}
 	return false
 }

@@ -34,6 +34,7 @@ jobs:
   test-matrix:
     name: "Build ARM integration matrix"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
     steps:
@@ -66,6 +67,7 @@ jobs:
       # Required for uploading artifacts
       actions: write
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.test-matrix.outputs.matrix) }}
@@ -133,7 +135,6 @@ jobs:
         run: df -h
 
       - name: Run integration tests
-        timeout-minutes: 35
         env:
           MATRIX_ID: ${{ matrix.id }}
           MATRIX_JSON: ${{ toJson(matrix) }}

@@ -489,6 +489,33 @@ func TestConfig_OtelGoAutoEnv(t *testing.T) {
 	assert.True(t, cfg.AutoTargetExe.MatchString("/bin/testserver"))
 }
 
+func TestConfig_TargetPIDs(t *testing.T) {
+	t.Run("single PID from env", func(t *testing.T) {
+		t.Setenv("OTEL_EBPF_TARGET_PID", "1234")
+		cfg, err := LoadConfig(bytes.NewReader(nil))
+		require.NoError(t, err)
+		assert.Equal(t, services.IntEnum{Ranges: []services.IntRange{{Start: 1234}}}, cfg.TargetPIDs)
+		assert.True(t, cfg.Enabled(FeatureAppO11y))
+	})
+	t.Run("multiple PIDs from env", func(t *testing.T) {
+		t.Setenv("OTEL_EBPF_TARGET_PID", "1234,5678,90")
+		cfg, err := LoadConfig(bytes.NewReader(nil))
+		require.NoError(t, err)
+		assert.Equal(t, services.IntEnum{Ranges: []services.IntRange{{Start: 1234}, {Start: 5678}, {Start: 90}}}, cfg.TargetPIDs)
+		assert.True(t, cfg.Enabled(FeatureAppO11y))
+	})
+	t.Run("YAML array", func(t *testing.T) {
+		cfg, err := LoadConfig(bytes.NewReader([]byte("target_pids: [11, 22, 33]")))
+		require.NoError(t, err)
+		assert.Equal(t, services.IntEnum{Ranges: []services.IntRange{{Start: 11}, {Start: 22}, {Start: 33}}}, cfg.TargetPIDs)
+	})
+	t.Run("YAML single number", func(t *testing.T) {
+		cfg, err := LoadConfig(bytes.NewReader([]byte("target_pids: 999")))
+		require.NoError(t, err)
+		assert.Equal(t, services.IntEnum{Ranges: []services.IntRange{{Start: 999}}}, cfg.TargetPIDs)
+	})
+}
+
 func TestConfig_NetworkImplicit(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
 	t.Setenv("OTEL_EBPF_METRIC_FEATURES", "network")

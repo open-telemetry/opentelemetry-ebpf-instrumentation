@@ -154,9 +154,17 @@ clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" | xargs clang-tidy
 
 .PHONY: lint
-lint: $(GOLANGCI_LINT) vanity-import-check
+lint: LINT_EXTRA_ARGS =
+lint: lint-run
+
+.PHONY: lint-fix
+lint-fix: LINT_EXTRA_ARGS = --fix
+lint-fix: lint-run
+
+.PHONY: lint-run
+lint-run: $(GOLANGCI_LINT) vanity-import-check
 	@echo "### Linting code"
-	$(GOLANGCI_LINT) run ./... --timeout=6m
+	$(GOLANGCI_LINT) run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
 MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 WORKDIR := "/go/src/go.opentelemetry.io/obi"
@@ -568,7 +576,6 @@ release: artifact
 		echo "ERROR: Neither sha256sum nor shasum found. Please install coreutils or use macOS builtin shasum."; \
 		exit 1; \
 	fi
-	cd $(RELEASE_DIR) && cp SHA256SUMS SHA256SUMS-$(RELEASE_VERSION)
 	@echo "### Release artifacts ready in $(RELEASE_DIR)/"
 	@ls -lh $(RELEASE_DIR)/
 

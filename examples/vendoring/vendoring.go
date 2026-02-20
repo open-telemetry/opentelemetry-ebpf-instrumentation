@@ -32,7 +32,7 @@ func main() {
 	// for example, we override the instrumentation ports from the PORT env, otherwise we provide some defaults
 	if err := config.Port.UnmarshalText([]byte(os.Getenv("PORT"))); err != nil {
 		log.Println("Error parsing PORT environment variable. Defaulting to 80,8080,443,8443: " + err.Error())
-		config.Port.Ranges = []services.PortRange{{Start: 80}, {Start: 8080}, {Start: 443}, {Start: 8443}}
+		config.Port.Ranges = []services.IntRange{{Start: 80}, {Start: 8080}, {Start: 443}, {Start: 8443}}
 	}
 
 	// the instrumenter creates internally some communication Queues, but we can override some of them

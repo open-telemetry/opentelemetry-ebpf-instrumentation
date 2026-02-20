@@ -10,6 +10,7 @@ import (
 	"github.com/gobwas/glob"
 	"gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 )
 
@@ -24,6 +25,7 @@ func (dc GlobDefinitionCriteria) Validate() error {
 		if dc[i].OpenPorts.Len() == 0 &&
 			!dc[i].Path.IsSet() &&
 			!dc[i].Languages.IsSet() &&
+			len(dc[i].PIDs) == 0 &&
 			len(dc[i].Metadata) == 0 &&
 			len(dc[i].PodLabels) == 0 &&
 			len(dc[i].PodAnnotations) == 0 {
@@ -64,11 +66,14 @@ type GlobAttributes struct {
 
 	// OpenPorts allows defining a group of ports that this service could open. It accepts a comma-separated
 	// list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089)
-	OpenPorts PortEnum `yaml:"open_ports"`
+	OpenPorts IntEnum `yaml:"open_ports"`
 
 	// Language allows defining services to instrument based on the
 	// programming language they are written in. Use lowercase names, e.g. java,go
 	Languages GlobAttr `yaml:"languages"`
+
+	// PIDs allows selecting processes by PID. When non-empty, the process PID must be in this list (in addition to any path/port criteria).
+	PIDs []uint32 `yaml:"target_pids"`
 
 	// Path allows defining the regular expression matching the full executable path.
 	Path GlobAttr `yaml:"exe_path"`
@@ -161,7 +166,8 @@ func (ga *GlobAttributes) GetNamespace() string                   { return ga.Na
 func (ga *GlobAttributes) GetPath() StringMatcher                 { return &ga.Path }
 func (ga *GlobAttributes) GetLanguages() StringMatcher            { return &ga.Languages }
 func (ga *GlobAttributes) GetPathRegexp() StringMatcher           { return nilMatcher{} }
-func (ga *GlobAttributes) GetOpenPorts() *PortEnum                { return &ga.OpenPorts }
+func (ga *GlobAttributes) GetOpenPorts() *IntEnum                 { return &ga.OpenPorts }
+func (ga *GlobAttributes) GetPIDs() ([]app.PID, bool)             { return ga.pids() }
 func (ga *GlobAttributes) IsContainersOnly() bool                 { return ga.ContainersOnly }
 func (ga *GlobAttributes) MetricsConfig() perapp.SvcMetricsConfig { return ga.Metrics }
 
@@ -200,6 +206,17 @@ func (ga *GlobAttributes) GetExportModes() ExportModes { return ga.ExportModes }
 func (ga *GlobAttributes) GetSamplerConfig() *SamplerConfig { return ga.SamplerConfig }
 
 func (ga *GlobAttributes) GetRoutesConfig() *CustomRoutesConfig { return ga.Routes }
+
+func (ga *GlobAttributes) pids() ([]app.PID, bool) {
+	if len(ga.PIDs) == 0 {
+		return nil, false
+	}
+	out := make([]app.PID, len(ga.PIDs))
+	for i, pid := range ga.PIDs {
+		out[i] = app.PID(pid)
+	}
+	return out, true
+}
 
 type nilMatcher struct{}
 

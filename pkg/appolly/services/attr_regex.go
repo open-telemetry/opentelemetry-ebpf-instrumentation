@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 )
 
@@ -25,6 +26,7 @@ func (dc RegexDefinitionCriteria) Validate() error {
 			!dc[i].Path.IsSet() &&
 			!dc[i].PathRegexp.IsSet() &&
 			!dc[i].Languages.IsSet() &&
+			len(dc[i].PIDs) == 0 &&
 			len(dc[i].Metadata) == 0 &&
 			len(dc[i].PodLabels) == 0 &&
 			len(dc[i].PodAnnotations) == 0 {
@@ -68,7 +70,9 @@ type RegexSelector struct {
 	Namespace string `yaml:"namespace"`
 	// OpenPorts allows defining a group of ports that this service could open. It accepts a comma-separated
 	// list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089)
-	OpenPorts PortEnum `yaml:"open_ports"`
+	OpenPorts IntEnum `yaml:"open_ports"`
+	// PIDs allows selecting processes by PID. When non-empty, the process PID must be in this list (in addition to any path/port criteria).
+	PIDs []uint32 `yaml:"target_pids"`
 	// Path allows defining the regular expression matching the full executable path.
 	Path RegexpAttr `yaml:"exe_path"`
 	// Language allows defining services to instrument based on the
@@ -165,7 +169,8 @@ func (a *RegexSelector) GetNamespace() string                   { return a.Names
 func (a *RegexSelector) GetPath() StringMatcher                 { return &a.Path }
 func (a *RegexSelector) GetLanguages() StringMatcher            { return &a.Languages }
 func (a *RegexSelector) GetPathRegexp() StringMatcher           { return &a.PathRegexp }
-func (a *RegexSelector) GetOpenPorts() *PortEnum                { return &a.OpenPorts }
+func (a *RegexSelector) GetOpenPorts() *IntEnum                 { return &a.OpenPorts }
+func (a *RegexSelector) GetPIDs() ([]app.PID, bool)             { return a.pids() }
 func (a *RegexSelector) IsContainersOnly() bool                 { return a.ContainersOnly }
 func (a *RegexSelector) MetricsConfig() perapp.SvcMetricsConfig { return a.Metrics }
 func (a *RegexSelector) RangeMetadata() iter.Seq2[string, StringMatcher] {
@@ -203,3 +208,14 @@ func (a *RegexSelector) GetExportModes() ExportModes { return a.ExportModes }
 func (a *RegexSelector) GetSamplerConfig() *SamplerConfig { return a.SamplerConfig }
 
 func (a *RegexSelector) GetRoutesConfig() *CustomRoutesConfig { return a.Routes }
+
+func (a *RegexSelector) pids() ([]app.PID, bool) {
+	if len(a.PIDs) == 0 {
+		return nil, false
+	}
+	out := make([]app.PID, len(a.PIDs))
+	for i, pid := range a.PIDs {
+		out[i] = app.PID(pid)
+	}
+	return out, true
+}
