@@ -25,7 +25,7 @@ func TestCloudResourceMetadata_AWS(t *testing.T) {
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
 	defer network.Close()
-	testserver := setupGoOTelTestServer(t, network, nil)
+	setupGoOTelTestServer(t, network, nil)
 
 	if t.Failed() {
 		return
@@ -44,7 +44,7 @@ func TestCloudResourceMetadata_AWS(t *testing.T) {
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver, "obi-config.yml")
+	o.instrument(t, network, "obi-config.yml")
 
 	// Wait for test components to be ready
 	waitForTestComponents(t, "http://localhost:8080")
