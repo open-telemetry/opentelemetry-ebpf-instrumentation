@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opentelemetry.io/obi/schemas/obi-extension.schema.json",
+  "title": "OBI Extension Configuration",
+  "description": "Schema for the `extensions.obi` section in OTel declarative config files.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "OBI extension schema version.",
+      "const": "2.0"
+    },
+    "selection": {
+      "$ref": "#/$defs/Selection"
+    },
+    "instrumentation": {
+      "$ref": "#/$defs/Instrumentation"
+    },
+    "network": {
+      "$ref": "#/$defs/Network"
+    },
+    "enrich": {
+      "$ref": "#/$defs/Enrich"
+    },
+    "operations": {
+      "$ref": "#/$defs/Operations"
+    }
+  },
+  "$defs": {
+    "SignalEnabled": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "traces": { "type": "boolean" },
+        "metrics": { "type": "boolean" }
+      },
+      "required": ["traces", "metrics"]
+    },
+    "MatchDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "match": { "type": "string" },
+        "not_match": { "type": "string" }
+      },
+      "oneOf": [
+        {
+          "required": ["match"],
+          "not": { "required": ["not_match"] }
+        },
+        {
+          "required": ["not_match"],
+          "not": { "required": ["match"] }
+        }
+      ]
+    },
+    "FilterMap": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/MatchDefinition"
+      }
+    },
+    "SignalFilters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "traces": { "$ref": "#/$defs/FilterMap" },
+        "metrics": { "$ref": "#/$defs/FilterMap" }
+      },
+      "required": ["traces", "metrics"]
+    },
+    "Selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "default_action": { "type": "string", "enum": ["include", "exclude"] },
+            "match_order": { "type": "string", "enum": ["first_match_wins"] },
+            "poll_interval": { "type": "string" },
+            "min_process_age": { "type": "string" }
+          },
+          "required": ["default_action", "match_order"]
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "action": { "type": "string", "enum": ["include", "exclude"] },
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "match": { "type": "object" }
+            },
+            "required": ["action", "match"]
+          }
+        }
+      },
+      "required": ["policy", "rules"]
+    },
+    "InstrumentationProtocol": {
+      "type": "object",
+      "description": "Shared envelope for protocol sections.",
+      "properties": {
+        "enabled": { "$ref": "#/$defs/SignalEnabled" },
+        "filters": { "$ref": "#/$defs/SignalFilters" }
+      },
+      "required": ["enabled", "filters"],
+      "additionalProperties": true
+    },
+    "Instrumentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "http": { "$ref": "#/$defs/InstrumentationProtocol" },
+        "grpc": { "$ref": "#/$defs/InstrumentationProtocol" },
+        "sql": { "$ref": "#/$defs/InstrumentationProtocol" },
+        "redis": { "$ref": "#/$defs/InstrumentationProtocol" },
+        "kafka": { "$ref": "#/$defs/InstrumentationProtocol" },
+        "mongo": { "$ref": "#/$defs/InstrumentationProtocol" },
+        "couchbase": { "$ref": "#/$defs/InstrumentationProtocol" },
+        "dns": { "$ref": "#/$defs/InstrumentationProtocol" },
+        "gpu": { "$ref": "#/$defs/InstrumentationProtocol" },
+        "java": { "$ref": "#/$defs/InstrumentationProtocol" },
+        "nodejs": { "$ref": "#/$defs/InstrumentationProtocol" },
+        "go": { "$ref": "#/$defs/InstrumentationProtocol" }
+      },
+      "required": ["http", "grpc", "sql", "redis", "kafka", "mongo", "couchbase", "dns", "gpu", "java", "nodejs", "go"]
+    },
+    "Network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capture": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "source": { "type": "string", "enum": ["socket_filter", "tc"] },
+            "filters": { "$ref": "#/$defs/SignalFilters" }
+          },
+          "required": ["enabled", "source", "filters"]
+        }
+      },
+      "required": ["capture"]
+    },
+    "Enrich": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enrichers": { "type": "object" },
+        "service_name": { "type": "object" },
+        "attributes": { "type": "object" }
+      }
+    },
+    "Operations": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "network_packets": { "type": "integer", "minimum": 0 },
+            "metric_span_names": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["network_packets", "metric_span_names"]
+        }
+      },
+      "required": ["limits"]
+    }
+  },
+  "required": [
+    "version",
+    "selection",
+    "instrumentation",
+    "network",
+    "enrich",
+    "operations"
+  ]
+}

@@ -1,0 +1,562 @@
+# Authored v2 configuration example (journey-first, one-concern-one-place).
+# Values are mapped from current defaults in pkg/obi/DefaultConfig.
+
+# OTel declarative document version.
+version: '1.0-rc.1'
+
+# Standard OTel resource attributes (service.name, service.namespace, etc.).
+resource: {}
+# Global propagation format configuration (tracecontext, baggage, b3, etc.).
+propagator: {}
+
+# Trace pipeline definition (OTel-native). OBI-specific tracing controls live under extensions.obi.*.
+tracer_provider:
+  # Trace exporters (where traces are sent).
+  exporters:
+    otlp:
+      # Collector/backend endpoint. Empty means inherited/default behavior.
+      endpoint: ""
+      # Transport protocol (for example grpc, http/protobuf) when explicitly set.
+      protocol: ""
+      # TLS verification skip toggle for development/testing scenarios.
+      insecure_skip_verify: false
+  # Trace processors applied before export.
+  processors:
+    batch:
+      # Max in-memory queue before flush.
+      max_queue_size: 4096
+      # Max wait before batch flush.
+      timeout: 15s
+      # Retry/backoff tuning for exporter sends.
+      backoff:
+        initial_interval: 0s
+        max_interval: 0s
+        max_elapsed_time: 0s
+  # Trace sampler policy (OTel SDK sampler configuration).
+  sampler:
+    name: ""
+    arg: ""
+  # Protocol instrumentation classes whose traces are emitted.
+  instrumentations:
+    - http
+    - grpc
+    - sql
+    - redis
+    - kafka
+    - mqtt
+    - mongo
+    - couchbase
+  # Per-service reporter cache size.
+  reporters_cache_len: 256
+
+# Metrics pipeline definition (OTel-native). OBI-specific metric behavior lives under extensions.obi.*.
+meter_provider:
+  # Metric readers/exporters.
+  readers:
+    otlp:
+      endpoint: ""
+      protocol: ""
+      insecure_skip_verify: false
+      # Metrics export interval.
+      interval: 60s
+    prometheus:
+      # Enables built-in Prometheus scrape endpoint.
+      enabled: false
+      port: 0
+      path: /metrics
+      disable_build_info: false
+  # Aggregation/view behavior for metrics.
+  views:
+    histogram_aggregation: explicit_bucket_histogram
+    # Bucket presets used for RED histograms.
+    buckets:
+      duration_histogram: [0, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10]
+      request_size_histogram: [0, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
+      response_size_histogram: [0, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
+  # Protocol instrumentation classes whose metrics are emitted.
+  instrumentations:
+    - "*"
+  # Metric time-to-live and cache sizing controls.
+  ttl: 5m0s
+  reporters_cache_len: 256
+  allow_service_graph_self_references: false
+  span_metrics_service_cache_size: 10000
+  # Extra resource attrs attached to emitted metrics/traces when configured.
+  extra_resource_attributes: []
+  extra_span_resource_attributes: []
+
+extensions:
+  obi:
+    # OBI extension schema version (parsed after root declarative parse succeeds).
+    version: "2.0"
+    # selection decides which processes/workloads are in scope for OBI instrumentation.
+    selection:
+      # Global rule engine behavior.
+      policy:
+        # Include by default unless matched by an exclude rule.
+        default_action: include
+        # First matching rule decides outcome.
+        match_order: first_match_wins
+        # Process re-scan interval (0s uses implementation default/event-driven behavior).
+        poll_interval: 0s
+        # Ignore very new processes until they are old enough to evaluate.
+        min_process_age: 5s
+      # Ordered include/exclude rules.
+      rules:
+        - action: exclude
+          name: exclude-obi-and-collectors
+          description: Exclude OBI and collector binaries to avoid self-instrumentation and collector recursion.
+          match:
+            process:
+              exe_path_glob:
+                - "*/obi"
+                - "obi"
+                - "*otelcol"
+                - "*otelcol-contrib"
+                - "*otelcol-contrib[!/]*"
+        - action: exclude
+          name: exclude-system-namespaces
+          description: Exclude common platform/system Kubernetes namespaces from instrumentation by default.
+          match:
+            kubernetes:
+              namespace_glob:
+                - kube-system
+                - kube-node-lease
+                - local-path-storage
+                - cert-manager
+                - monitoring
+                - gke-connect
+                - gke-gmp-system
+                - gke-managed-cim
+                - gke-managed-filestorecsi
+                - gke-managed-metrics-server
+                - gke-managed-system
+                - gke-system
+                - gke-managed-volumepopulator
+                - gatekeeper-system
+        - action: exclude
+          name: exclude-otlp-exporters
+          description: Exclude services that already export OTLP to prevent duplicate telemetry pipelines.
+          match:
+            process:
+              exports_otlp:
+                port: 4317
+                protocol: protobuf
+        - action: exclude
+          name: exclude-linux-system-paths
+          description: Exclude Linux system/service executable paths that are not typical application workloads.
+          match:
+            process:
+              exe_path_glob:
+                - /lib/systemd/*
+                - /usr/lib/systemd/*
+                - /usr/libexec/*
+                - /sbin/*
+                - /usr/sbin/*
+
+    instrumentation:
+      # HTTP protocol instrumentation and HTTP-specific enrichment/parsing.
+      http:
+        enabled:
+          traces: true
+          metrics: true
+        # Filter behavior: allow records that match all configured criteria; drop non-matching records.
+        # Use `match` to keep matching values, and `not_match` to keep values that do not match.
+        # Example (commented): keep prod namespaces and drop health endpoints.
+        # filters:
+        #   traces:
+        #     k8s.namespace.name:
+        #       match: "prod-*"
+        #     url.path:
+        #       not_match: "/health*"
+        #   metrics:
+        #     k8s.namespace.name:
+        #       match: "prod-*"
+        filters:
+          traces: {}
+          metrics: {}
+        # Capture configured incoming/outgoing request headers when enabled.
+        track_request_headers: false
+        # HTTP request timeout guard for capture/processing.
+        request_timeout: 0s
+        # Internal parser/capture buffer size (0 uses default behavior).
+        buffer_size: 0
+        # HTTP route normalization and low-cardinality route naming controls.
+        routes:
+          # Fallback policy when no explicit route match is found.
+          unmatched: heuristic
+          # Optional user-supplied route patterns.
+          patterns: []
+          # Optional route patterns to ignore.
+          ignored_patterns: []
+          # Ignore applies to traces, metrics, or all.
+          ignore_mode: all
+          # Route wildcard replacement character.
+          wildcard_char: "*"
+          # Caps per-segment route cardinality in heuristic mode.
+          max_path_segment_cardinality: 10
+          # Route template discovery from runtime/language frameworks.
+          discovery:
+            # Global timeout for route template discovery runs.
+            timeout: 10s
+            # Languages to skip for route template discovery.
+            disabled_languages: []
+            java:
+              # Delay before Java route template discovery to allow runtime readiness.
+              delay: 1m0s
+        # HTTP payload-level extraction features.
+        payload_extraction:
+          graphql:
+            enabled: false
+          elasticsearch:
+            enabled: false
+          aws:
+            enabled: false
+          sqlpp:
+            enabled: false
+            endpoint_patterns:
+              - /query/service
+        # HTTP log enrichment controls.
+        log_enrichment:
+          # Services for which log enrichment is enabled.
+          services: []
+          cache:
+            ttl: 30m0s
+            size: 128
+          async_writer:
+            workers: 8
+            channel_len: 500
+      # gRPC protocol instrumentation toggle.
+      grpc:
+        enabled:
+          traces: true
+          metrics: true
+        filters:
+          traces: {}
+          metrics: {}
+      # SQL protocol instrumentation and driver-specific tuning.
+      sql:
+        enabled:
+          traces: true
+          metrics: true
+        filters:
+          traces: {}
+          metrics: {}
+        heuristic_detect: false
+        mysql:
+          buffer_size: 0
+          prepared_statements_cache_size: 1024
+        postgres:
+          buffer_size: 0
+          prepared_statements_cache_size: 1024
+      # Redis instrumentation and DB cache behavior.
+      redis:
+        enabled:
+          traces: true
+          metrics: true
+        filters:
+          traces: {}
+          metrics: {}
+        db_cache:
+          enabled: false
+          max_size: 1000
+      # Kafka instrumentation tuning.
+      kafka:
+        enabled:
+          traces: true
+          metrics: true
+        filters:
+          traces: {}
+          metrics: {}
+        buffer_size: 0
+        topic_uuid_cache_size: 1024
+      # Mongo instrumentation tuning.
+      mongo:
+        enabled:
+          traces: true
+          metrics: true
+        filters:
+          traces: {}
+          metrics: {}
+        requests_cache_size: 1024
+      # Couchbase instrumentation tuning.
+      couchbase:
+        enabled:
+          traces: true
+          metrics: true
+        filters:
+          traces: {}
+          metrics: {}
+        db_cache_size: 1024
+      # DNS event instrumentation.
+      dns:
+        enabled:
+          traces: false
+          metrics: false
+        filters:
+          traces: {}
+          metrics: {}
+        request_timeout: 5s
+      # GPU instrumentation mode.
+      gpu:
+        enabled:
+          traces: true
+          metrics: true
+        filters:
+          traces: {}
+          metrics: {}
+        enabled_mode: auto
+      # Java auto-attach and debug controls.
+      java:
+        enabled:
+          traces: true
+          metrics: true
+        filters:
+          traces: {}
+          metrics: {}
+        debug:
+          enabled: false
+          bytecode_instrumentation: false
+        attach_timeout: 10s
+      # Node.js instrumentation toggle.
+      nodejs:
+        enabled:
+          traces: true
+          metrics: true
+        filters:
+          traces: {}
+          metrics: {}
+      go:
+        # Signal-specific enablement for Go package/library-level instrumentation.
+        # When both are false, Go services use generic network-only fallback behavior.
+        enabled:
+          traces: true
+          metrics: true
+        filters:
+          traces: {}
+          metrics: {}
+
+    # network controls how network flow telemetry is captured and interpreted
+    # for in-scope workloads (interfaces/protocols/cidrs, dedupe, enrichment, diagnostics).
+    network:
+      capture:
+        # Master switch for network flow observability.
+        enabled: false
+        # Capture backend: socket_filter (default) or tc.
+        source: socket_filter
+        # Identity of this OBI agent in flow metadata.
+        endpoint_identity:
+          agent_ip: ""
+          agent_ip_interface: external
+          agent_ip_family: any
+        # Scope/filtering for captured network traffic.
+        selection:
+          interfaces:
+            include: []
+            exclude:
+              - lo
+          protocols:
+            include: []
+            exclude: []
+          # Optional CIDR definitions for src/dst network grouping attributes.
+          cidrs: []
+          direction: both
+        # Network-level filtering for flow capture/output by signal.
+        # Filter behavior: allow records that match all configured criteria; drop non-matching records.
+        # Example (commented): keep pod traffic and drop kube-system.
+        # filters:
+        #   metrics:
+        #     dst.k8s.namespace.name:
+        #       match: "*"
+        #     src.k8s.namespace.name:
+        #       not_match: "kube-system"
+        #   traces: {}
+        filters:
+          traces: {}
+          metrics: {}
+        # Flow cache and reduction behavior.
+        flow_lifecycle:
+          max_tracked_flows: 5000
+          active_timeout: 5s
+          deduplication:
+            # Dedup strategy for multi-interface duplicate flows.
+            strategy: first_come
+            first_come_ttl: 0s
+          # Packet sampling rate (0 means disabled/default behavior).
+          sampling: 0
+        # How interface changes are detected.
+        interface_discovery:
+          # watch (event-based) or poll.
+          mode: watch
+          poll_interval: 10s
+        # Optional network-level data enrichment.
+        enrichment:
+          geo_ip:
+            ipinfo:
+              path: ""
+            maxmind:
+              country_path: ""
+              asn_path: ""
+            cache:
+              size: 512
+              ttl: 1h0m0s
+          reverse_dns:
+            mode: none
+            cache:
+              size: 256
+              ttl: 1h0m0s
+        # Debug/diagnostics output controls.
+        diagnostics:
+          print_flows: false
+
+    enrich:
+      # Runtime configuration for metadata enrichers.
+      enrichers:
+        kubernetes:
+          # autodetect, enabled, or disabled per implementation semantics.
+          mode: autodetect
+          cluster_name: ""
+          auth:
+            kubeconfig_path: ""
+          # Informer cache/sync controls.
+          informers:
+            initial_sync_timeout: 30s
+            resync_period: 30m0s
+            disabled: []
+          drop_external: false
+          # Optional remote/local metadata cache controls.
+          metadata_cache:
+            address: ""
+            restrict_local_node: false
+            source_labels:
+              service_name: ""
+              service_namespace: ""
+        # DNS enricher runtime configuration.
+        dns:
+          enabled: true
+      # Service identity enrichment policy from configured enrichers.
+      service_name:
+        # Shared cache for peer/host service-name lookups.
+        cache:
+          size: 1024
+          ttl: 5m0s
+        # Rule-based service identity mapping.
+        # Rule order is the precedence model: earlier rules win when they set the same target field.
+        rules:
+          - id: k8s-default
+            from: kubernetes
+            description: Default Kubernetes label mapping into canonical service identity.
+            map:
+              service.name:
+                - app.kubernetes.io/name
+              service.namespace:
+                - app.kubernetes.io/part-of
+              service.version:
+                - app.kubernetes.io/version
+          # Example only (commented out): additional enricher-based rule.
+          # This demonstrates how to add a second identity source while preserving default
+          # precedence semantics (earlier rules have higher precedence).
+          # - id: cloud-default
+          #   from: cloud
+          #   description: Example cloud metadata mapping into canonical service identity.
+          #   map:
+          #     service.name:
+          #       - cloud.service.name
+          #       - cloud.instance.name
+          #     service.namespace:
+          #       - cloud.account.id
+          #     service.version:
+          #       - cloud.service.version
+        # Fallback names when peer/host resolution fails.
+        unresolved_hosts:
+          names:
+            default: unresolved
+            outgoing: outgoing
+            incoming: incoming
+      # Attribute enrichment/selection controls.
+      attributes:
+        # Rule order is the precedence model: earlier rules win when they set the same target attribute.
+        rules:
+          - id: k8s-default-attributes
+            from: kubernetes
+            description: Default Kubernetes-derived attribute enrichment and selection.
+            add:
+              # Explicit attribute mapping policy for Kubernetes metadata.
+              map:
+                k8s.namespace.name:
+                  - kubernetes.namespace
+                k8s.pod.name:
+                  - kubernetes.pod.name
+                k8s.deployment.name:
+                  - kubernetes.workload.deployment
+                k8s.node.name:
+                  - kubernetes.node.name
+          - id: dns-default-attributes
+            from: dns
+            description: Default DNS-based host and instance identity enrichment.
+            add:
+              # Explicit attribute mapping policy for DNS metadata.
+              map:
+                host.name:
+                  - dns.host_name
+                  - dns.ptr_name
+                service.instance.id:
+                  - dns.host_name
+                server.address:
+                  - dns.resolved_ip
+
+    operations:
+      # Runtime limits and guardrails.
+      limits:
+        network_packets: 0
+        metric_span_names: 100
+      # Runtime capture internals, safety/perf/debug toggles.
+      capture:
+        debug:
+          bpf: false
+          protocol_print: false
+        pid_filter:
+          disabled: false
+        batching:
+          wakeup_len: 500
+          batch_length: 100
+          batch_timeout: 1s
+        propagation:
+          context_propagation: disabled
+          override_bpfloop_enabled: false
+          disable_black_box_cp: false
+        traffic:
+          control_backend: auto
+          high_request_volume: false
+        transactions:
+          max_duration: 5m0s
+        bpf_filesystem:
+          path: /sys/fs/bpf/
+      # Logging behavior and startup config dump.
+      logging:
+        level: INFO
+        startup_dump: ""
+        debug_trace_output: disabled
+      # Optional profiling endpoint.
+      profiling:
+        port: 0
+      # Graceful shutdown controls.
+      shutdown:
+        timeout: 10s
+      # Host/runtime safety checks.
+      safety:
+        enforce_system_capabilities: false
+      # Internal channel/backpressure behavior.
+      runtime:
+        channels:
+          buffer_len: 50
+          send_timeout: 1m0s
+          panic_on_send_timeout: false
+      # OBI internal metrics export configuration.
+      internal_metrics:
+        exporter: disabled
+        prometheus:
+          port: 0
+          path: /internal/metrics
+        bpf:
+          scrape_interval: 15s
