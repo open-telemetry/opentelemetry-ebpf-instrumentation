@@ -148,7 +148,7 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
 
         // The data offset field in the header is specified in 32-bit words. We
         // have to multiply this value by 4 to get the TCP header length in bytes.
-        __u8 tcp_header_len = tcph.doff * 4;
+        const u8 tcp_header_len = tcph.doff * 4;
 
         // DNS is after the TCP header and the 2 bytes of the length of the DNS packet
         const u16 size_bytes_len = 2;

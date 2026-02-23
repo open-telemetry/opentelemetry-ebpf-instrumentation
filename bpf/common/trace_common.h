@@ -52,8 +52,7 @@ static __always_inline tp_info_pid_t *tp_buf() {
 static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
     task_tid(&t_key->p_key);
 
-    const u64 extra_id = extra_runtime_id();
-    t_key->extra_id = extra_id;
+    t_key->extra_id = extra_runtime_id();
 }
 
 static __always_inline void

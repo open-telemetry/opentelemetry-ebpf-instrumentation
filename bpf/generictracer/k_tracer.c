@@ -274,8 +274,7 @@ static __always_inline void setup_cp_support_conn_info(pid_connection_info_t *p_
     }
 
     task_tid(&ct.t_key.p_key);
-    const u64 extra_id = extra_runtime_id();
-    ct.t_key.extra_id = extra_id;
+    ct.t_key.extra_id = extra_runtime_id();
     ct.ts = bpf_ktime_get_ns();
 
     // Support connection thread pools
