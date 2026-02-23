@@ -4,29 +4,121 @@ Status: Draft for discussion
 Audience: OBI maintainers and contributors  
 Scope: configuration model, schema, validation, and migration UX
 
-## Related docs
+The current configuration model has evolved organically with a focus on implementation needs and incremental user feedback.
+This has led to some structural inconsistencies, redundant controls, and a mix of user-facing and internal configuration in the same sections.
+To address this, a user-centric redesign of the configuration schema that optimizes for common user journeys, clear ownership of concerns, and a clean separation between user-facing configuration and internal implementation details is being proposed here.
 
-- Principles and rename governance: `devdocs/config/principles.md`
-- Full target-shape default example (mapped from current defaults): `devdocs/config/default-configuration-example.yaml`
-- User-centric design drivers (top 10 use cases): `devdocs/config/user-use-cases.md`
+Goals:
 
-## User-centric redesign anchor
+- Define a clear, consistent configuration schema that maps directly to user intent and common use cases.
+- Provide an extension to the OpenTelemetry declarative configuration model that configures OBI-specific behavior.
+- Grantee a smooth migration path from the current v1 configuration shape to the new v2 shape, with clear validation and tooling support.
 
-The next schema iteration SHOULD be derived from `devdocs/config/user-use-cases.md` first, then validated against implementation constraints.
+## Design principles
 
-## V2 design goals (journey-first)
+To ensure that the redesign is guided by consistent values and priorities, we define the following design principles for the configuration model, schema, validation, and migration UX.
 
-- Users SHOULD configure each concern in one place.
-- Protocol/instrumentation-specific settings (for example HTTP) MUST be configured under one protocol section.
-- Users SHOULD be able to complete common journeys by editing only one primary section.
-- Canonical runtime/effective config MAY be expanded internally, but authored config MUST stay task-centric.
+- **Journey-first, user-mental-model first**
+  - Configuration should match what users are trying to do, not internal implementation layering.
+  - Structure should optimize for readability and safe default operation.
 
-## Target Schema Shape (Authored v2)
+- **One concern, one place**
+  - Every concern has one canonical home.
+  - Avoid parallel knobs for the same behavior across sections.
+
+- **Compatible with OpenTelemetry declarative configuartion**
+  - **Top-level OTel is authoritative for pipeline semantics**
+    - Exporters/processors/samplers belong to top-level declarative OTel configuration sections.
+    - OBI extension config should not reintroduce a competing pipeline model.
+  - **OBI-specific behavior lives under `extensions.obi`**
+    - Runtime capture, selection, protocol controls, enrichment, and OBI limits are extension concerns.
+    - OBI config should stay namespaced and composable.
+
+- **Protocol-local ownership over global toggles**
+  - Protocol behavior should be configured under each protocol section.
+  - Enablement and filtering should be signal-scoped at the protocol/network ownership point.
+
+- **Deterministic precedence over hidden heuristics**
+  - Ordered rules should define precedence explicitly.
+  - Configuration should avoid ambiguous override behavior.
+
+- **Reduce redundancy and surprise**
+  - Remove redundant gates that can silently disable already-configured behavior.
+  - Keep naming concise when section context already conveys meaning.
+
+- **Versioning should be explicit and layered**
+  - The root declarative document version and OBI extension version are separate concerns.
+  - Parsing flow should validate declarative shape first, then parse `extensions.obi` by its own version.
+
+- **Backward compatibility is deliberate, not accidental**
+  - Detect declarative vs legacy shape deterministically.
+  - Legacy aliases are compatibility inputs that map into canonical v2 shape.
+
+- **Proof-backed evolution**
+  - Structural changes should be backed by explicit mapping, validation, and parity checks.
+  - There exists a clear migration path to support users in moving from v1 to v2.
+
+These principles are intentionally user-centered and decision-oriented, prioritizing clear user mental models, safe defaults, and a clean separation of concerns in the configuration schema.
+
+## User Journeys
+
+To ground this redesign in user needs, we start with the top user journeys and expectations.
+
+### Onboard and activate
+
+1. A user wants to instrument all services running on platform `<X>`.
+    - Linux hosts (amd64/arm64)
+    - Kubernetes workloads
+    - Collector receiver deployments
+2. A user wants to get useful default telemetry quickly, without deep OBI knowledge.
+3. A user wants to enable network observability in addition to application observability.
+
+### Target and scope
+
+1. A user wants to instrument only `<Y>` services and exclude everything else.
+    - process identity (executable path, PID)
+    - network identity (open ports)
+    - language identity (programming language)
+    - Kubernetes/container identity (metadata, labels/annotations, containers-only)
+2. A user wants to combine multiple target rules to scope instrumentation and control telemetry volume/cost.
+3. A user wants to avoid instrumenting services that are already instrumented.
+
+### Export and integrate
+
+1. A user wants to send telemetry to an OTLP backend.
+2. A user wants to expose Prometheus metrics when needed.
+3. A user wants to leverage Collector processing and exporting pipelines when running OBI as a receiver.
+
+### Enrich and optimize
+
+1. A user wants to enable Kubernetes metadata enrichment for all instrumented services.
+2. A user wants to enable protocol-specific parsing only for selected sources (for example HTTP payload extraction).
+3. A user wants controls to limit cardinality and data growth.
+
+### Operate in production
+
+1. A user wants safe production operations with clear logging, profiling, and shutdown controls.
+2. A user wants troubleshooting workflows for "no data", partial data, or unexpected cardinality spikes.
+3. A user wants clear visibility into effective/resolved configuration before rollout.
+
+### Validate and migrate
+
+1. A user wants invalid or conflicting configuration to fail fast with actionable errors.
+2. A user wants to migrate from legacy config keys to the new schema with minimal manual edits.
+3. A user wants stable configuration patterns across environments with minimal duplication.
+
+## Target v2.0 Configuration Shape
+
+- [Full target-shape with defaults example](./default-configuration-example.yaml) (mapped from current defaults)
+- [JSONSchema](./obi-extension.schema.json) (draft schema reflecting target shape)
 
 ### High-level shape
 
+At a high level, the target configuration shape is a standard [OpenTelemetry declarative configuration](https://github.com/open-telemetry/opentelemetry-configuration) document with a root `version` field and top-level sections for `resource`, `propagator`, `tracer_provider`, and `meter_provider`.
+All OBI-specific configuration lives under `extensions.obi`, which includes user-facing controls for selection, instrumentation, network observability, enrichment, optimization, and operations.
+
 ```yaml
-version: "2.0"
+version: '1.0-rc.1'
 
 resource: {}
 propagator: {}
@@ -100,111 +192,150 @@ extensions:
       internal_metrics: {}
 ```
 
-### One concern, one place rules
+#### `version` property
 
-- HTTP instrumentation configuration MUST live under `extensions.obi.instrumentation.http`.
-  - This includes enablement, payload extraction, protocol parsing knobs, and HTTP-specific enrichment behavior.
-- Trace sampler configuration MUST live under top-level `tracer_provider.sampler` (OTel sampler `name`/`arg`).
-- Every protocol under `extensions.obi.instrumentation.<protocol>` MUST scope enablement by signal using
-  - `enabled.traces` and
-  - `enabled.metrics`.
-- Every protocol under `extensions.obi.instrumentation.<protocol>` MUST scope filters by signal using
-  - `filters.traces` and
-  - `filters.metrics`.
-- Filter semantics are allow-list style: records that match all configured criteria are forwarded; non-matching records are dropped.
-- Within each filter rule, `match` keeps matching values and `not_match` keeps values that do not match.
-- SQL driver-specific controls MUST live under `extensions.obi.instrumentation.sql.mysql` and `extensions.obi.instrumentation.sql.postgres`.
-- Go-specific tracer strategy MUST live under `extensions.obi.instrumentation.go` (for example `enabled`).
-- Protocol buffer and parser knobs MUST live under the corresponding protocol section (for example HTTP/Kafka/SQL), not under a generic runtime bag.
-- When multiple fields share a semantic prefix (for example `cache_*`, `async_writer_*`, `backoff_*`, `debug_*`), authored v2 config SHOULD group them into nested objects rather than repeating prefixes.
-- Capture runtime/debug/performance toggles (for example `pid_filter.disabled`) MUST live under `extensions.obi.operations.capture`.
-- Network observability controls MUST live under `extensions.obi.network.capture`, grouped by user intent:
-  - `endpoint_identity` for host/agent address identity,
-  - `selection` for interface/protocol/cidr scoping,
-  - `filters` for network-flow filtering policy (signal-scoped `traces` and `metrics` sections),
-  - `flow_lifecycle` for flow cache, dedupe, and sampling,
-  - `interface_discovery` for watch vs poll behavior,
-  - `enrichment` for GeoIP and reverse DNS,
-  - `diagnostics` for operator-facing flow debug output.
-- Service selection MUST live under `extensions.obi.selection` only.
-  - `extensions.obi.selection` MUST use a single ordered `rules` list (not separate include/exclude lists).
-  - Selection behavior knobs (polling and ordering defaults) MUST live under `extensions.obi.selection.policy`.
-  - Every rule in `extensions.obi.selection.rules[]` SHOULD define:
-    - `name`: a stable, kebab-case identifier (for example `exclude-otlp-exporters`).
-    - `description`: a short operator-facing explanation of intent/effect.
-  - Already-instrumented target exclusion MUST be encoded as an `action: exclude` rule with OTLP export detection parameters under `extensions.obi.selection.rules[].match.process.exports_otlp`.
-  - Executable path exclusions (for Linux system paths) MUST be encoded as `extensions.obi.selection.rules[].match.process.exe_path_glob`.
-  - Kubernetes namespace exclusions MUST be encoded as `extensions.obi.selection.rules[].match.kubernetes.namespace_glob`.
-- Route harvesting controls (timeouts, disabled languages, language-specific delays) MUST live under `extensions.obi.instrumentation.http.routes.discovery`.
-- Enricher runtime configuration SHOULD live under `extensions.obi.enrich.enrichers.*` (for example Kubernetes informer/auth/cache controls).
-- Service identity enrichment policy SHOULD live under `extensions.obi.enrich.service_name`.
-  - `extensions.obi.enrich.service_name.rules[]` SHOULD define `id`, `from`, and `map` entries.
-  - `extensions.obi.enrich.service_name.rules[]` order SHOULD define precedence (earlier rules win for conflicting target fields).
-- Attribute enrichment policy SHOULD live under `extensions.obi.enrich.attributes.rules[]`.
-  - `extensions.obi.enrich.attributes.rules[]` SHOULD define `id`, `from`, and `add.map` entries.
-  - `add.map` SHOULD declare target attribute keys with ordered source lists.
-  - `extensions.obi.enrich.attributes.rules[]` order SHOULD define precedence (earlier rules win for conflicting target attributes).
-- Signal and cost controls MUST live under `extensions.obi.optimize` only.
-- Export and pipeline definition MUST live in top-level OTel declarative sections (`tracer_provider`, `meter_provider`, `resource`, `propagator`).
-- Runtime/operational controls MUST live under `extensions.obi.operations` only.
+The `extensions.obi.version` field defines the version of the OBI extension schema being used. This allows the parsing and validation logic to apply the correct schema rules and migration logic based on the declared version.
 
-### Ownership model
+#### `selection` Section
 
-- Authored user-facing config is `extensions.obi.*` and is optimized for user journeys.
-- Effective/canonical runtime config MAY expand into lower-level internal structures after validation.
-- Legacy OBI keys are migration inputs only; they are not canonical in v2 authored config.
+This section defines the service selection and target discovery policy for instrumentation.
+It includes:
 
-### Journey to primary section mapping
+- `policy`: global selection behavior controls, such as default action for unmatched services and rule precedence strategy.
+- `rules`: an ordered list of selection rules that define matching criteria and actions (include/exclude) for services.
+  These rules, currently, are based on:
+  - process identity
+  - network identity
+  - language
+  - Kubernetes metadata
+  - already-instrumented status.
 
-| User journey | Primary authored section |
-|---|---|
-| Instrument all services on platform `<X>` | `extensions.obi.selection` |
-| Scope to only `<Y>` services | `extensions.obi.selection` |
-| Enable network observability | `extensions.obi.network` |
-| Configure HTTP instrumentation | `extensions.obi.instrumentation.http` |
-| Configure language-specific behavior (Java/Node.js) | `extensions.obi.instrumentation.java` / `extensions.obi.instrumentation.nodejs` |
-| Add Kubernetes metadata enrichment | `extensions.obi.enrich.enrichers.kubernetes` |
-| Reduce cost and telemetry volume | `extensions.obi.optimize` |
-| Send telemetry to OTLP/Prometheus | top-level `tracer_provider` / `meter_provider` |
-| Leverage Collector receiver pipelines | Collector pipeline sections + top-level declarative config |
-| Operate safely in production | `extensions.obi.operations` |
-| Validate config before rollout | `obi config validate` (CLI/utility) |
-| Migrate from legacy config | `obi config migrate` (CLI/utility) |
+This section is the primary user control for defining which services get instrumented by OBI, and it supports complex selection logic through ordered rules.
 
-## Grounded Analysis: What OBI Supports Today and How It Maps
+#### `instrumentation` Section
 
-This inventory is grounded in current config structs and tags from:
+The `extension.obi.instrumentation` section defines protocol-specific instrumentation controls, including enablement and filtering for traces and metrics.
 
-- `pkg/obi/config.go`
-- `pkg/obi/network_cfg.go`
-- `pkg/config/ebpf_tracer.go`
-- `pkg/config/payload_extraction.go`
-- `pkg/config/log_enricher.go`
-- `pkg/appolly/services/criteria.go`
-- `pkg/export/otel/otelcfg/config_metrics.go`
-- `pkg/export/otel/otelcfg/config_traces.go`
-- `pkg/export/prom/prom.go`
+All protocols (HTTP, gRPC, Go, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Java, Node.js) have a consistent base structure for defining whether traces and metrics are enabled and what filters apply to each signal.
+Each protocol can also have its own specific configuration subsections.
+For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP has `routes.discovery` for route harvesting controls, etc.
 
-### Current capability families and mapping
+#### `network` Section
 
-| Capability family | Existing config surface (today) | Target config surface |
+The `extensions.obi.network` section defines how network observability is configured, including endpoint identity, selection criteria, flow lifecycle controls, interface discovery behavior, enrichment options, and diagnostics. This section is the primary user control for defining how OBI captures and processes network telemetry.
+
+#### `enrich` Section
+
+The `extensions.obi.enrich` section defines enrichment behavior for telemetry, including service naming policy, and general attribute enrichment rules. This section allows users to configure how OBI adds contextual information to telemetry based on various sources.
+
+#### `operation` Section
+
+The `extensions.obi.operations` section defines runtime and operational controls for OBI, including limits, capture behavior, logging configuration, profiling options, shutdown behavior, safety controls, and internal metrics configuration. This section is the primary user control for defining how OBI operates in production environments.
+
+### Compatibility and mapping from v1
+
+v2 is a structural redesign of v1, but migration is deterministic and feature-complete.
+The shape changes are intentional: top-level OTel sections own pipeline semantics, while OBI-specific behavior moves under `extensions.obi`.
+
+Important migration rules before using the table:
+
+- Pipeline ownership moved out of OBI-local export sections:
+  - `otel_metrics_export.*` and `prometheus_export.*` move to top-level `meter_provider.*`.
+  - `otel_traces_export.*` (including sampler) moves to top-level `tracer_provider.*`.
+- Some keys fan out or invert:
+  - `filter.application` fans out to protocol+signal filter sections.
+  - `filter.network` fans out to network signal filter sections.
+  - `metrics.features` maps to protocol metric enablement and network capture enablement.
+  - `discovery.skip_go_specific_tracers` maps to `instrumentation.go.enabled` with inverted semantics.
+
+| v1 field | v2 canonical location | Notes |
 |---|---|---|
-| eBPF tracer behavior | `ebpf.*` | `extensions.obi.operations.capture.*`, `extensions.obi.instrumentation.*`, and `extensions.obi.network.capture.*` |
-| App discovery and target selection | `discovery.*`, `open_port`, `target_pids`, `AutoTargetExe`, `AutoTargetLanguage`, `executable_path` | `extensions.obi.selection.policy.*` + `extensions.obi.selection.rules[]` (except route-discovery controls) |
-| Route naming harvest behavior | `discovery.route_harvester_timeout`, `discovery.disabled_route_harvesters`, `discovery.route_harvester_advanced.*` | `extensions.obi.instrumentation.http.routes.discovery.{timeout,disabled_languages,java.delay}` |
-| Network observability capture | `network.*` | `extensions.obi.network.capture.*` |
-| Kubernetes metadata decoration | `attributes.kubernetes.*` | `extensions.obi.enrich.enrichers.kubernetes.*` (metadata runtime) + `extensions.obi.enrich.service_name.rules[]` (identity mapping policy) |
-| Attribute decoration/selection | `attributes.*` | `extensions.obi.enrich.attributes.rules[]` |
-| Route normalization | `routes.*` | `extensions.obi.instrumentation.http.routes.*` |
-| Name resolution | `name_resolver.*` | `extensions.obi.enrich.service_name.{cache,rules}` |
-| Language toggles/attach controls | `nodejs.*`, `javaagent.*`, `discovery.skip_go_specific_tracers` | `extensions.obi.instrumentation.nodejs.*`, `extensions.obi.instrumentation.java.*`, `extensions.obi.instrumentation.go.*` |
-| Payload extraction | `ebpf.payload_extraction.*` | `extensions.obi.instrumentation.http.payload_extraction.*` |
-| Log enrichment | `ebpf.log_enricher.*` | `extensions.obi.instrumentation.http.log_enrichment.*` |
-| OBI-local filtering/selection | `filter.application`, `filter.network`, `metrics.features` | `extensions.obi.instrumentation.<protocol>.filters.<signal>`, `extensions.obi.network.capture.filters.<signal>`, and `extensions.obi.instrumentation.<protocol>.enabled.<signal>` |
-| Runtime operations | `log_level`, `log_config`, `shutdown_timeout`, `enforce_sys_caps`, `profile_port`, `channel_*`, `internal_metrics.*` | `extensions.obi.operations.*` |
-| OTLP metrics/traces export config | `otel_metrics_export.*`, `otel_traces_export.*` | top-level `meter_provider.*`, `tracer_provider.*` |
-| Prometheus export config | `prometheus_export.*` | top-level `meter_provider.*` |
-| Receiver integration behavior | receiver runtime wiring | collector pipeline sections + capability validation |
+| `attributes.kubernetes.informers_sync_timeout` | `extensions.obi.enrich.enrichers.kubernetes.informers.initial_sync_timeout` | Move |
+| `attributes.kubernetes.informers_resync_period` | `extensions.obi.enrich.enrichers.kubernetes.informers.resync_period` | Move |
+| `attributes.metric_span_names_limit` | `extensions.obi.operations.limits.metric_span_names` | Move + rename |
+| `attributes.rename_unresolved_hosts` | `extensions.obi.enrich.service_name.unresolved_hosts.names.default` | Move |
+| `channel_buffer_len` | `extensions.obi.operations.runtime.channels.buffer_len` | Move |
+| `channel_send_timeout` | `extensions.obi.operations.runtime.channels.send_timeout` | Move |
+| `channel_send_timeout_panic` | `extensions.obi.operations.runtime.channels.panic_on_send_timeout` | Move + rename |
+| `discovery.bpf_pid_filter_off` | `extensions.obi.operations.capture.pid_filter.disabled` | Move + rename |
+| `discovery.default_otlp_grpc_port` | `extensions.obi.selection.rules[].match.process.exports_otlp.port` | Move + reshape |
+| `discovery.disabled_route_harvesters` | `extensions.obi.instrumentation.http.routes.discovery.disabled_languages` | Move + rename |
+| `discovery.exclude_otel_instrumented_services` | `extensions.obi.selection.rules[].match.process.exports_otlp` (exclude rule) | Move + reshape |
+| `discovery.excluded_linux_system_paths` | `extensions.obi.selection.rules[].match.process.exe_path_glob` (exclude rule) | Move + reshape |
+| `discovery.min_process_age` | `extensions.obi.selection.policy.min_process_age` | Move |
+| `discovery.route_harvester_advanced.java_harvest_delay` | `extensions.obi.instrumentation.http.routes.discovery.java.delay` | Move + rename |
+| `discovery.route_harvester_timeout` | `extensions.obi.instrumentation.http.routes.discovery.timeout` | Move + rename |
+| `discovery.skip_go_specific_tracers` | `extensions.obi.instrumentation.go.enabled.{traces,metrics}` | Inverted boolean mapping |
+| `ebpf.batch_length` | `extensions.obi.operations.capture.batching.batch_length` | Move |
+| `ebpf.batch_timeout` | `extensions.obi.operations.capture.batching.batch_timeout` | Move |
+| `ebpf.bpf_fs_path` | `extensions.obi.operations.capture.bpf_filesystem.path` | Move + rename |
+| `ebpf.buffer_sizes.http` | `extensions.obi.instrumentation.http.buffer_size` | Move |
+| `ebpf.buffer_sizes.kafka` | `extensions.obi.instrumentation.kafka.buffer_size` | Move |
+| `ebpf.buffer_sizes.mysql` | `extensions.obi.instrumentation.sql.mysql.buffer_size` | Move |
+| `ebpf.buffer_sizes.postgres` | `extensions.obi.instrumentation.sql.postgres.buffer_size` | Move |
+| `ebpf.dns_request_timeout` | `extensions.obi.instrumentation.dns.request_timeout` | Move |
+| `ebpf.heuristic_sql_detect` | `extensions.obi.instrumentation.sql.heuristic_detect` | Move + rename |
+| `ebpf.kafka_topic_uuid_cache_size` | `extensions.obi.instrumentation.kafka.topic_uuid_cache_size` | Move |
+| `ebpf.log_enricher.cache_size` | `extensions.obi.instrumentation.http.log_enrichment.cache.size` | Move + rename |
+| `ebpf.log_enricher.cache_ttl` | `extensions.obi.instrumentation.http.log_enrichment.cache.ttl` | Move + rename |
+| `ebpf.log_enricher.async_writer_workers` | `extensions.obi.instrumentation.http.log_enrichment.async_writer.workers` | Move + rename |
+| `ebpf.log_enricher.async_writer_channel_len` | `extensions.obi.instrumentation.http.log_enrichment.async_writer.channel_len` | Move + rename |
+| `ebpf.max_transaction_time` | `extensions.obi.operations.capture.transactions.max_duration` | Move + rename |
+| `ebpf.mysql_prepared_statements_cache_size` | `extensions.obi.instrumentation.sql.mysql.prepared_statements_cache_size` | Move |
+| `ebpf.payload_extraction.http.graphql.enabled` | `extensions.obi.instrumentation.http.payload_extraction.graphql.enabled` | Move |
+| `ebpf.payload_extraction.http.sqlpp.enabled` | `extensions.obi.instrumentation.http.payload_extraction.sqlpp.enabled` | Move |
+| `ebpf.postgres_prepared_statements_cache_size` | `extensions.obi.instrumentation.sql.postgres.prepared_statements_cache_size` | Move |
+| `ebpf.redis_db_cache.enabled` | `extensions.obi.instrumentation.redis.db_cache.enabled` | Move |
+| `ebpf.traffic_control_backend` | `extensions.obi.operations.capture.traffic.control_backend` | Move + rename |
+| `ebpf.wakeup_len` | `extensions.obi.operations.capture.batching.wakeup_len` | Move |
+| `enforce_sys_caps` | `extensions.obi.operations.safety.enforce_system_capabilities` | Move + rename |
+| `filter.application` | `extensions.obi.instrumentation.<protocol>.filters.{traces,metrics}` | Fan-out to all protocols/signals |
+| `filter.network` | `extensions.obi.network.capture.filters.{traces,metrics}` | Fan-out to both signals |
+| `internal_metrics.bpf_metric_scrape_interval` | `extensions.obi.operations.internal_metrics.bpf.scrape_interval` | Move + rename |
+| `internal_metrics.exporter` | `extensions.obi.operations.internal_metrics.exporter` | Move |
+| `internal_metrics.prometheus.path` | `extensions.obi.operations.internal_metrics.prometheus.path` | Move |
+| `javaagent.attach_timeout` | `extensions.obi.instrumentation.java.attach_timeout` | Move |
+| `javaagent.debug` | `extensions.obi.instrumentation.java.debug.enabled` | Move + rename |
+| `javaagent.debug_instrumentation` | `extensions.obi.instrumentation.java.debug.bytecode_instrumentation` | Move + rename |
+| `javaagent.enabled` | `extensions.obi.instrumentation.java.enabled.{traces,metrics}` | Fan-out to both signals |
+| `log_config` | `extensions.obi.operations.logging.startup_dump` | Move + rename |
+| `log_level` | `extensions.obi.operations.logging.level` | Move |
+| `metrics.features` | `extensions.obi.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.network.capture.enabled` | Split mapping |
+| `name_resolver.cache_expiry` | `extensions.obi.enrich.service_name.cache.ttl` | Move + rename |
+| `name_resolver.cache_len` | `extensions.obi.enrich.service_name.cache.size` | Move + rename |
+| `network.agent_ip` | `extensions.obi.network.capture.endpoint_identity.agent_ip` | Move |
+| `network.agent_ip_iface` | `extensions.obi.network.capture.endpoint_identity.agent_ip_interface` | Move + rename |
+| `network.agent_ip_type` | `extensions.obi.network.capture.endpoint_identity.agent_ip_family` | Move + rename |
+| `network.cache_active_timeout` | `extensions.obi.network.capture.flow_lifecycle.active_timeout` | Move + rename |
+| `network.cache_max_flows` | `extensions.obi.network.capture.flow_lifecycle.max_tracked_flows` | Move + rename |
+| `network.deduper` | `extensions.obi.network.capture.flow_lifecycle.deduplication.strategy` | Move + rename |
+| `network.deduper_fc_ttl` | `extensions.obi.network.capture.flow_lifecycle.deduplication.first_come_ttl` | Move + rename |
+| `network.direction` | `extensions.obi.network.capture.selection.direction` | Move |
+| `network.enable` | `extensions.obi.network.capture.enabled` | Move + rename |
+| `network.geo_ip.cache_expiry` | `extensions.obi.network.capture.enrichment.geo_ip.cache.ttl` | Move + rename |
+| `network.listen_interfaces` | `extensions.obi.network.capture.interface_discovery.mode` | Move + reshape |
+| `network.listen_poll_period` | `extensions.obi.network.capture.interface_discovery.poll_interval` | Move + rename |
+| `network.print_flows` | `extensions.obi.network.capture.diagnostics.print_flows` | Move |
+| `network.reverse_dns.cache_expiry` | `extensions.obi.network.capture.enrichment.reverse_dns.cache.ttl` | Move + rename |
+| `network.sampling` | `extensions.obi.network.capture.flow_lifecycle.sampling` | Move |
+| `network.source` | `extensions.obi.network.capture.source` | Move |
+| `nodejs.enabled` | `extensions.obi.instrumentation.nodejs.enabled.{traces,metrics}` | Fan-out to both signals |
+| `otel_metrics_export.histogram_aggregation` | `meter_provider.views.histogram_aggregation` | OTel ownership move |
+| `otel_metrics_export.reporters_cache_len` | `meter_provider.reporters_cache_len` | OTel ownership move |
+| `otel_metrics_export.ttl` | `meter_provider.ttl` | OTel ownership move |
+| `otel_traces_export.batch_timeout` | `tracer_provider.processors.batch.timeout` | OTel ownership move |
+| `otel_traces_export.max_queue_size` | `tracer_provider.processors.batch.max_queue_size` | OTel ownership move |
+| `otel_traces_export.reporters_cache_len` | `tracer_provider.reporters_cache_len` | OTel ownership move |
+| `otel_traces_export.sampler.arg` | `tracer_provider.sampler.arg` | OTel ownership move |
+| `otel_traces_export.sampler.name` | `tracer_provider.sampler.name` | OTel ownership move |
+| `profile_port` | `extensions.obi.operations.profiling.port` | Move |
+| `prometheus_export.path` | `meter_provider.readers.prometheus.path` | OTel ownership move |
+| `prometheus_export.service_cache_size` | `meter_provider.span_metrics_service_cache_size` | OTel ownership move + rename |
+| `routes.max_path_segment_cardinality` | `extensions.obi.instrumentation.http.routes.max_path_segment_cardinality` | Move |
+| `routes.unmatched` | `extensions.obi.instrumentation.http.routes.unmatched` | Move |
+| `routes.wildcard_char` | `extensions.obi.instrumentation.http.routes.wildcard_char` | Move |
+| `shutdown_timeout` | `extensions.obi.operations.shutdown.timeout` | Move |
+| `trace_printer` | `extensions.obi.operations.logging.debug_trace_output` | Move + rename |
 
 ## Capability-Based Applicability Matrix
 
@@ -246,102 +377,6 @@ Example receiver errors:
 - `otel_traces_export` is extraneous for OBI receiver; configure processors/exporters in Collector pipelines.
 - `otel_metrics_export` is extraneous for OBI receiver; configure exporters in Collector pipelines.
 
-## Explicit Key-by-Key Migration Matrix
-
-### Core OBI controls
-
-| Current key | Current location | Target canonical location | Rule |
-|---|---|---|---|
-| `ebpf` | top-level | `extensions.obi.instrumentation.*` / `extensions.obi.network.capture.*` | Move + split |
-| `network` | top-level | `extensions.obi.network.capture.{endpoint_identity,selection,flow_lifecycle,interface_discovery,enrichment,diagnostics}` | Move + group |
-| `filter.application` | top-level | `extensions.obi.instrumentation.<protocol>.filters.{traces,metrics}` | Move + fan-out |
-| `filter.network` | top-level | `extensions.obi.network.capture.filters.{traces,metrics}` | Move + fan-out |
-| `attributes` | top-level | `extensions.obi.enrich.attributes` / `extensions.obi.enrich.enrichers.kubernetes` / `extensions.obi.enrich.service_name.rules` | Move + split |
-| `routes` | top-level | `extensions.obi.instrumentation.http.routes` | Move |
-| `name_resolver` | top-level | `extensions.obi.enrich.service_name` | Move + rename |
-| `discovery` | top-level | `extensions.obi.selection` | Move |
-| `javaagent` | top-level | `extensions.obi.instrumentation.java` | Move |
-| `nodejs` | top-level | `extensions.obi.instrumentation.nodejs` | Move |
-| `internal_metrics` | top-level | `extensions.obi.operations.internal_metrics` | Move |
-| `optimize.sampling.network_packets` | top-level optimize | `extensions.obi.operations.limits.network_packets` | Move + flatten |
-| `optimize.cardinality.metric_span_names_limit` | top-level optimize | `extensions.obi.operations.limits.metric_span_names` | Move + flatten + rename |
-| `log_level` | top-level | `extensions.obi.operations.logging.level` | Move |
-| `log_config` | top-level | `extensions.obi.operations.logging.startup_dump` | Move + rename |
-| `profile_port` | top-level | `extensions.obi.operations.profiling.port` | Move |
-| `shutdown_timeout` | top-level | `extensions.obi.operations.shutdown.timeout` | Move |
-| `enforce_sys_caps` | top-level | `extensions.obi.operations.safety.enforce_system_capabilities` | Move + rename |
-
-### Legacy export keys (de-canonicalize)
-
-| Current key | Current location | Target canonical location | Standalone | Receiver | Rule |
-|---|---|---|---:|---:|---|
-| `otel_metrics_export` | top-level | top-level declarative `meter_provider.*` | I | F | Rewrite where deterministic; else fail |
-| `otel_traces_export` | top-level | top-level declarative `tracer_provider.*` | I | F | Rewrite where deterministic; else fail |
-| `otel_traces_export.sampler` | top-level | top-level declarative `tracer_provider.sampler` | I | F | Rewrite where deterministic |
-| `prometheus_export` | top-level | top-level declarative `meter_provider.*` | I | F | Rewrite where deterministic; else fail |
-| `trace_printer` | top-level | `extensions.obi.operations.logging.debug_trace_output` | I | F | Rewrite where deterministic; else fail |
-| `metrics.features` | top-level | `extensions.obi.instrumentation.<protocol>.enabled.metrics` and `extensions.obi.network.capture.enabled` | A | A | Move signal enablement to owning protocol/network sections |
-
-### Target selection and discovery aliases
-
-| Current key | Current location | Target canonical location | Rule |
-|---|---|---|---|
-| `executable_path` (deprecated) | top-level | `extensions.obi.selection.rules[].match.process.exe_path_regex` | Keep alias + warn |
-| `AutoTargetExe` | top-level/env alias | `extensions.obi.selection.rules[].match.process.exe_path_glob` | Canonicalize |
-| `open_port` | top-level | `extensions.obi.selection.rules[].match.network.open_ports` | Move |
-| `AutoTargetLanguage` | top-level | `extensions.obi.selection.rules[].match.language.languages` | Move |
-| `target_pids` | top-level | `extensions.obi.selection.rules[].match.process.pids` | Move |
-| `discovery.exclude_otel_instrumented_services` | discovery | `extensions.obi.selection.rules[].match.process.exports_otlp` (`action: exclude`) | Rewrite |
-| `discovery.default_otlp_grpc_port` | discovery | `extensions.obi.selection.rules[].match.process.exports_otlp.port` | Rewrite |
-| `discovery.bpf_pid_filter_off` | discovery | `extensions.obi.operations.capture.pid_filter.disabled` | Move |
-| `discovery.skip_go_specific_tracers` | discovery | `extensions.obi.instrumentation.go.enabled` (inverted boolean) | Rewrite |
-| `javaagent.debug_instrumentation` | javaagent | `extensions.obi.instrumentation.java.debug.bytecode_instrumentation` | Rename + move |
-| `discovery.services` (deprecated) | discovery | `extensions.obi.selection.rules` with `action: include` | Rewrite + warn |
-| `discovery.exclude_services` (deprecated) | discovery | `extensions.obi.selection.rules` with `action: exclude` | Rewrite + warn |
-| `discovery.default_exclude_services` (deprecated) | discovery | `extensions.obi.selection.rules` with `action: exclude` (default marker) | Rewrite + warn |
-| `discovery.excluded_linux_system_paths` | discovery | `extensions.obi.selection.rules[].match.process.exe_path_glob` (`action: exclude`) | Rewrite paths with `/*` suffix |
-
-### Rename policy and rationale map
-
-Rename reason codes:
-
-- **OTEL**: aligns term/location with OTel declarative model.
-- **OWN**: places key under canonical owning section.
-- **CONS**: improves naming consistency and syntax consistency with the surrounding model.
-- **TERM**: improves terminology clarity while preserving semantics.
-- **DEBT**: resolves historical/deprecated naming debt.
-
-| Rename | Reason code(s) | Rationale |
-|---|---|---|
-| `name_resolver` → `enrich.service_name` | OWN, CONS | Places service identity resolution controls under a dedicated service-name enrichment section in v2 authored config. |
-| `log_config` → `operations.logging.startup_dump` | OWN, TERM | Clarifies this controls startup config logging format/output intent, not global logger behavior. |
-| `enforce_sys_caps` → `operations.safety.enforce_system_capabilities` | TERM, OWN, CONS | Expands abbreviation and places under safety policy where enforcement semantics belong; aligns with long-form operation keys. |
-| `executable_path` (legacy) → `selection.rules[].match.process.exe_path_regex` | TERM, DEBT, CONS | Makes selector type explicit and places it in user-facing selection controls. |
-| `AutoTargetExe` → `selection.rules[].match.process.exe_path_glob` | TERM, DEBT, CONS | Removes mixed casing/legacy naming and makes match type explicit (`glob`) in consistent selection syntax. |
-| `open_port` → `selection.rules[].match.network.open_ports` | TERM, OWN, CONS | Reflects `IntEnum` semantics (single values and ranges), grouped in selection controls. |
-| `AutoTargetLanguage` → `selection.rules[].match.language.languages` | TERM, DEBT, CONS | Removes legacy “AutoTarget” phrasing; keeps pure selector meaning in selection syntax. |
-| `javaagent.debug_instrumentation` → `instrumentation.java.debug.bytecode_instrumentation` | TERM, CONS | Makes scope explicit (bytecode instrumentation debug) and distinguishes it from general Java agent debug output. |
-| `discovery.services` → `discovery.instrument` | DEBT, TERM | Aligns to current discovery terminology and removes deprecated regex-era naming. |
-| `discovery.exclude_services` → `discovery.exclude_instrument` | DEBT, TERM | Mirrors canonical include/exclude vocabulary for instrumentation selection. |
-| `discovery.default_exclude_services` → `discovery.default_exclude_instrument` | DEBT, TERM | Same as above, for default exclusion path. |
-
-Policy application notes:
-
-- Moves that only change nesting without changing key term are treated as ownership moves, not renames.
-- Every rename in migration tooling output SHOULD include its reason code(s).
-- Consistency checks SHOULD be part of schema review, including casing style, pluralization rules, selector suffix patterns (`*_glob`, `*_regex`), and hierarchy term reuse.
-
-### Recent v2 rename log
-
-This short log tracks recent user-facing naming decisions already reflected in `default-configuration-example.yaml`.
-
-| Legacy/current key | v2 authored key | Type | Notes |
-|---|---|---|---|
-| `discovery.skip_go_specific_tracers` | `extensions.obi.instrumentation.go.enabled` (inverted boolean) | Rename + move | `enabled: true` means Go package-level instrumentation is on; legacy key was a negative switch. |
-| `javaagent.debug_instrumentation` | `extensions.obi.instrumentation.java.debug.bytecode_instrumentation` | Rename + move | Clarifies this is ByteBuddy/bytecode instrumentation debug, not general Java agent debug. |
-| `discovery.default_otlp_grpc_port` | `extensions.obi.selection.rules[].match.process.exports_otlp.port` | Move + reshape | OTLP export-detection fallback port now lives with already-instrumented exclusion rule semantics. |
-| `discovery.bpf_pid_filter_off` | `extensions.obi.operations.capture.pid_filter.disabled` | Move | Capture runtime debug/filter toggle is now grouped under operations capture controls. |
-
 ## Validation and Tooling Plan
 
 1. Schema layer
@@ -356,12 +391,14 @@ This short log tracks recent user-facing naming decisions already reflected in `
 
 4. Migration CLI
    - `obi config migrate --from v1 --to v2` rewrites keys to canonical locations.
-  - For legacy export keys, rewrite to top-level declarative pipeline sections where deterministic; otherwise fail with actionable guidance.
+
+- For legacy export keys, rewrite to top-level declarative pipeline sections where deterministic; otherwise fail with actionable guidance.
 
 5. Docs
    - Provide two composition views:
-  - standalone: `extensions.obi.*` extension + top-level declarative pipeline sections
-  - receiver: `extensions.obi.*` extension + collector-owned pipeline sections
+
+- standalone: `extensions.obi.*` extension + top-level declarative pipeline sections
+- receiver: `extensions.obi.*` extension + collector-owned pipeline sections
 
 ## Migration Program (v1 → v2)
 
