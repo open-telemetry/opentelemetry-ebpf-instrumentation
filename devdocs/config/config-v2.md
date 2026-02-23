@@ -27,10 +27,10 @@ To ensure that the redesign is guided by consistent values and priorities, we de
   - Avoid parallel knobs for the same behavior across sections.
 
 - **Compatible with OpenTelemetry declarative configuartion**
-  - **Top-level OTel is authoritative for pipeline semantics**
+  - Top-level OTel is authoritative for pipeline semantics:
     - Exporters/processors/samplers belong to top-level declarative OTel configuration sections.
     - OBI extension config should not reintroduce a competing pipeline model.
-  - **OBI-specific behavior lives under `extensions.obi`**
+  - OBI-specific behavior lives under `extensions.obi`:
     - Runtime capture, selection, protocol controls, enrichment, and OBI limits are extension concerns.
     - OBI config should stay namespaced and composable.
 
@@ -234,17 +234,17 @@ The `extensions.obi.operations` section defines runtime and operational controls
 
 ### Compatibility and mapping from v1
 
-v2 is a structural redesign of v1, but migration is deterministic and feature-complete.
-The shape changes are intentional: top-level OTel sections own pipeline semantics, while OBI-specific behavior moves under `extensions.obi`.
+v2 is a structural redesign of v1, with deterministic compatibility mapping.
+Use the table below to find any v1 field and its v2 canonical location.
 
-Important migration rules before using the table:
+Important mapping notes:
 
-- Pipeline ownership moved out of OBI-local export sections:
-  - `otel_metrics_export.*` and `prometheus_export.*` move to top-level `meter_provider.*`.
-  - `otel_traces_export.*` (including sampler) moves to top-level `tracer_provider.*`.
-- Some keys fan out or invert:
-  - `filter.application` fans out to protocol+signal filter sections.
-  - `filter.network` fans out to network signal filter sections.
+- Export pipeline ownership moved to top-level OTel declarative sections:
+  - `otel_metrics_export.*` and `prometheus_export.*` → `meter_provider.*`
+  - `otel_traces_export.*` (including sampler) → `tracer_provider.*`
+- Some mappings are non-1:1:
+  - `filter.application` fans out to protocol+signal filters.
+  - `filter.network` fans out to network signal filters.
   - `metrics.features` maps to protocol metric enablement and network capture enablement.
   - `discovery.skip_go_specific_tracers` maps to `instrumentation.go.enabled` with inverted semantics.
 
@@ -337,152 +337,7 @@ Important migration rules before using the table:
 | `shutdown_timeout` | `extensions.obi.operations.shutdown.timeout` | Move |
 | `trace_printer` | `extensions.obi.operations.logging.debug_trace_output` | Move + rename |
 
-## Capability-Based Applicability Matrix
+## Related docs
 
-Legend: **A** = Allowed, **I** = Ignored (warning), **F** = Forbidden (validation error)
-
-| Section | Standalone host capability | Collector receiver capability |
-|---|---:|---:|
-| `extensions.obi.selection|instrumentation|network|enrich|operations` | A | A |
-| top-level `tracer_provider|meter_provider|resource|propagator` | A | A |
-| Legacy OBI exporter keys (`otel_*_export`, `prometheus_export`, `trace_printer`) | I (migration only) | F |
-| Collector pipeline/exporters (collector config) | I | A |
-
-Notes:
-
-- In receiver capability, extraneous OBI exporter/processing config is invalid by design.
-- DaemonSet vs non-DaemonSet deployment is runtime topology and MUST NOT be encoded as a config mode.
-
-## Validation Contract in Practice
-
-Validation is two-stage:
-
-1. Base schema validation
-   - Validate structure, types, and required fields of the composable schema.
-
-2. Capability validation (host-provided)
-   - Host supplies capability set (`standalone_host` or `collector_receiver`).
-   - Validator enforces applicability matrix and rejects forbidden sections.
-
-Required behavior:
-
-- `obi --config` MUST validate with `standalone_host` capability.
-- OBI Collector receiver MUST validate with `collector_receiver` capability.
-- In `collector_receiver` capability:
-  - legacy OBI exporter keys MUST fail as extraneous,
-  - OBI-local exporter aliases MUST fail where collector pipelines are authoritative.
-
-Example receiver errors:
-
-- `otel_traces_export` is extraneous for OBI receiver; configure processors/exporters in Collector pipelines.
-- `otel_metrics_export` is extraneous for OBI receiver; configure exporters in Collector pipelines.
-
-## Validation and Tooling Plan
-
-1. Schema layer
-   - Maintain one composable base schema for structure and types.
-
-2. Capability layer
-   - Apply host-provided capability rules after schema validation.
-   - Keep applicability rules explicit and testable.
-
-3. Runtime guardrails
-   - Receiver startup MUST enforce forbidden-section checks even if schema gating is bypassed.
-
-4. Migration CLI
-   - `obi config migrate --from v1 --to v2` rewrites keys to canonical locations.
-
-- For legacy export keys, rewrite to top-level declarative pipeline sections where deterministic; otherwise fail with actionable guidance.
-
-5. Docs
-   - Provide two composition views:
-
-- standalone: `extensions.obi.*` extension + top-level declarative pipeline sections
-- receiver: `extensions.obi.*` extension + collector-owned pipeline sections
-
-## Migration Program (v1 → v2)
-
-This section defines the end-to-end migration path and aligns with the proposed sequence.
-
-### Phase 0: Freeze and identify v1
-
-- v1 key surface SHOULD be treated as frozen except for critical fixes.
-- v2 files MUST include root `version` (OTel declarative doc format) and SHOULD include `extensions.obi.version` (OBI extension schema format).
-- Loader behavior SHOULD be two-stage:
-  1. Parse/validate root OTel declarative document using top-level `version`.
-  2. Parse `extensions.obi` using `extensions.obi.version`.
-- Backward compatibility behavior SHOULD be:
-  - if root `version` indicates declarative format and `extensions.obi.version` exists/supported: parse OBI extension with that version,
-  - if root `version` indicates declarative format and `extensions.obi.version` is absent: treat OBI extension as legacy-v1-compatible shape and apply compatibility translation,
-  - if root `version` is absent: parse as legacy v1,
-  - if either declared format is unsupported: fail with actionable version guidance.
-- We SHOULD NOT add a mandatory new header to legacy v1; absence of `version` remains a supported discriminator during migration.
-
-### Phase 1: Build v2 contract and tooling
-
-- v2 schema MUST be authored as the source-of-truth model and compiled to JSON Schema artifacts.
-- Generated artifacts MUST include:
-  - validation schema,
-  - human docs,
-  - examples/snippets,
-  - capability rule definitions.
-- Loader plumbing MUST support v2 parse + validation in both standalone and receiver hosts.
-
-### Phase 2: Dual-read and migration tooling
-
-- Runtime MUST support both v1 and v2 during transition.
-- `obi config migrate` MUST:
-  - read v1,
-  - emit v2,
-  - emit mapping report/warnings,
-  - fail only when rewrite is non-deterministic and requires user decision.
-- Receiver host MUST enforce capability validation for both v1 and v2 inputs (with v1 compatibility aliases translated first).
-
-### Phase 3: Deprecation and v2-only
-
-- Deprecation policy SHOULD define explicit release-based gates, for example:
-  - N: v2 GA, v1 supported with warnings,
-  - N+1: stricter warnings + CI/docs default to v2,
-  - N+2 (or policy-defined): v1 parsing removed.
-- Removal gates MUST include:
-  - migration tool coverage for major v1 patterns,
-  - published migration guide,
-  - telemetry/evidence that remaining v1 usage is low enough.
-
-### Backward compatibility behavior during transition
-
-- Standalone host:
-  - v1 accepted (with migration warnings), v2 accepted.
-- Receiver host:
-  - v1 accepted only through compatibility translation + capability validation.
-  - extraneous exporter/processing config remains invalid per receiver policy.
-
-## Open Questions for Review
-
-1. In receiver capability, should legacy OBI exporter aliases be hard-fail immediately or phased warn → fail?
-2. How strict should standalone migration be when legacy exporter keys cannot be mapped 1:1 to top-level declarative pipeline sections?
-3. Should `obi.operations.internal_metrics` remain partially allowed in receiver capability or be fully delegated to Collector telemetry?
-4. How long should legacy aliases remain after migration tooling is available?
-5. What exact release cadence should be used for v1 freeze, v2 GA, and v1 removal?
-
-## Proposed Next Increment
-
-- Lock two-stage format detection contract:
-  - root `version` selects OTel declarative document contract,
-  - `extensions.obi.version` selects OBI extension contract,
-  - absent `extensions.obi.version` under declarative root triggers legacy OBI compatibility translation.
-- Lock canonical section names and capability matrix.
-- Lock policy that top-level declarative sections are the single user-facing export/pipeline authority.
-- Implement first migration pass for:
-  - legacy export keys → top-level declarative pipeline sections,
-  - legacy discovery aliases,
-  - legacy target selector aliases.
-- Add CI checks for:
-  - v2 schema validity,
-  - v1→v2 migration golden tests,
-  - receiver capability rejection of extraneous sections.
-
-## Artifacts
-
-- OBI extension schema artifact: [devdocs/config/obi-extension.schema.json](devdocs/config/obi-extension.schema.json)
-  - Scope: validates `extensions.obi` for authored v2 shape (`extensions.obi.version: "2.0"`).
+- Migration, validation, and tooling plan: [migration.md](migration.md)
+- OBI extension schema artifact: [obi-extension.schema.json](obi-extension.schema.json)
