@@ -79,6 +79,7 @@ const (
 	DBGeneric SQLKind = iota + 1
 	DBPostgres
 	DBMySQL
+	DBMSSQL
 )
 
 const (
@@ -956,6 +957,8 @@ func (s *Span) DBSystemName() attribute.KeyValue {
 			return semconv.DBSystemNamePostgreSQL
 		case int(DBMySQL):
 			return semconv.DBSystemNameMySQL
+		case int(DBMSSQL):
+			return semconv.DBSystemNameMicrosoftSQLServer
 		}
 	}
 

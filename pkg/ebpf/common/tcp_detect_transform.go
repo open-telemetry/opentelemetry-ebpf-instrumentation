@@ -81,6 +81,20 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		}
 
 		return span, false, nil
+	case ProtocolTypeMSSQL:
+		span, err := handleMSSQL(parseCtx, event, requestBuffer, responseBuffer)
+		if errors.Is(err, errFallback) {
+			slog.Debug("MSSQL: falling back to generic handler")
+			break
+		}
+		if errors.Is(err, errIgnore) {
+			return request.Span{}, true, nil
+		}
+		if err != nil {
+			return request.Span{}, true, fmt.Errorf("failed to handle MSSQL event: %w", err)
+		}
+
+		return span, false, nil
 	case ProtocolTypePostgres:
 		span, err := handlePostgres(parseCtx, event, requestBuffer, responseBuffer)
 		if errors.Is(err, errFallback) {

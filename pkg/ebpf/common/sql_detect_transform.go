@@ -17,6 +17,8 @@ func sqlKind(b []byte) request.SQLKind {
 		return request.DBPostgres
 	} else if isMySQL(b) {
 		return request.DBMySQL
+	} else if isMSSQL(b) {
+		return request.DBMSSQL
 	}
 
 	return request.DBGeneric
@@ -72,6 +74,8 @@ func detectSQLPayload(useHeuristics bool, b []byte) (string, string, string, req
 			op, table, sql = postgresPreparedStatements(b)
 		case request.DBMySQL:
 			op, table, sql = mysqlPreparedStatements(b)
+		case request.DBMSSQL:
+			op, table, sql = mssqlPreparedStatements(b)
 		}
 	}
 
