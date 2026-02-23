@@ -4,9 +4,8 @@ Status: Draft for discussion
 Audience: OBI maintainers and contributors  
 Scope: principles for configuration model, schema, validation, and migration UX
 
-## Working Principles (used to derive the current design)
-
-These are the design principles used in the current redesign work. They are intentionally user-centered and decision-oriented.
+These are the design principles used in the current redesign work.
+They are intentionally user-centered and decision-oriented.
 
 - **Journey-first, user-mental-model first**
   - Configuration should match what users are trying to do, not internal implementation layering.
