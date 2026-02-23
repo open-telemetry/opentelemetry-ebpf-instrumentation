@@ -86,8 +86,6 @@ const (
 
 	ContainerName = Name(semconv.ContainerNameKey)
 	ContainerID   = Name(semconv.ContainerIDKey)
-
-	Metadata = Name("metadata")
 )
 
 // OBI-specific network attributes
@@ -198,6 +196,12 @@ const (
 
 	// Cloud
 	CloudRegion = Name(semconv.CloudRegionKey)
+
+	// GenAI
+	GenAIInput        = Name(semconv.GenAIInputMessagesKey)
+	GenAIInstructions = Name(semconv.GenAISystemInstructionsKey)
+	GenAIOutput       = Name(semconv.GenAIOutputMessagesKey)
+	GenAIMetadata     = Name("gen_ai.metadata")
 )
 
 // Beyla specific GPU events

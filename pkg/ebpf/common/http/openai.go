@@ -6,8 +6,8 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -35,12 +35,10 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 
 	respB, err := getResponseBody(resp)
 	if err != nil && len(respB) == 0 {
-		fmt.Printf("Error response parsing %v", err)
 		return *baseSpan, false
 	}
 
-	fmt.Printf("****Request:\n%s\n", string(reqB))
-	fmt.Printf("****Response:\n%s\n", string(respB))
+	slog.Debug("OpenAI", "request", string(reqB), "response", string(respB))
 
 	var parsedRequest request.OpenAIInput
 	_ = json.Unmarshal(reqB, &parsedRequest)

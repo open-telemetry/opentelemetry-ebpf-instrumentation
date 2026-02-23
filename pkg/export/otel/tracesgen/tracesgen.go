@@ -442,13 +442,21 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 			attrs = append(attrs, semconv.GenAIUsageInputTokens(ai.Usage.GetInputTokens()))
 			attrs = append(attrs, semconv.GenAIUsageOutputTokens(ai.Usage.GetOutputTokens()))
-			attrs = append(attrs, semconv.GenAIInputMessagesKey.String(string(ai.Request.GetInput())))
-			attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(string(ai.GetOutput())))
-			if ai.Request.Instructions != "" {
-				attrs = append(attrs, semconv.GenAISystemInstructionsKey.String(ai.Request.Instructions))
+			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
+				attrs = append(attrs, semconv.GenAIInputMessagesKey.String(string(ai.Request.GetInput())))
 			}
-			if len(ai.Metadata) > 0 {
-				attrs = append(attrs, request.Metadata(string(ai.Metadata)))
+			if _, ok := optionalAttrs[attr.GenAIOutput]; ok {
+				attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(string(ai.GetOutput())))
+			}
+			if _, ok := optionalAttrs[attr.GenAIInstructions]; ok {
+				if ai.Request.Instructions != "" {
+					attrs = append(attrs, semconv.GenAISystemInstructionsKey.String(ai.Request.Instructions))
+				}
+			}
+			if _, ok := optionalAttrs[attr.GenAIMetadata]; ok {
+				if len(ai.Metadata) > 0 {
+					attrs = append(attrs, request.Metadata(string(ai.Metadata)))
+				}
 			}
 			// add error info
 			if ai.Error.Type != "" {

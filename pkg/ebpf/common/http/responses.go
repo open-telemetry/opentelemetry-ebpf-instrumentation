@@ -31,7 +31,7 @@ func getResponseBody(resp *http.Response) ([]byte, error) {
 		if dec, derr := decompressBody(enc, respB); derr == nil {
 			body = dec
 		} else {
-			fmt.Errorf("decompress error (enc=%s, truncated body?): %v\n", enc, derr)
+			return nil, fmt.Errorf("decompress error (enc=%s, truncated body?): %v", enc, derr)
 		}
 	}
 
@@ -39,7 +39,7 @@ func getResponseBody(resp *http.Response) ([]byte, error) {
 }
 
 // decompressBody decompresses b according to the Content-Encoding value.
-// Mirrors what http.Transport does for gzip, extended to cover zstd and deflate.
+// Mirrors what http.Transport does for gzip, extended to cover zstd, deflate and brotli.
 func decompressBody(encoding string, b []byte) ([]byte, error) {
 	switch encoding {
 	case "gzip":

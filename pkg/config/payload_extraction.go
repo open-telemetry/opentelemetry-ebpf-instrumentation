@@ -48,6 +48,10 @@ type SQLPPConfig struct {
 }
 
 type OpenAIConfig struct {
-	// Enable Elasticsearch payload extraction and parsing
+	// Enable OpenAI payload extraction and parsing
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_OPENAI_ENABLED" validate:"boolean"`
+	// Include AI input tokens and messages
+	IncludeInput bool `yaml:"include_input" env:"OTEL_EBPF_HTTP_OPENAI_INCLUDE_INPUT" validate:"boolean"`
+	// Include AI output tokens and messages
+	IncludeOutput bool `yaml:"include_output" env:"OTEL_EBPF_HTTP_OPENAI_INCLUDE_OUTPUT" validate:"boolean"`
 }
