@@ -19,7 +19,14 @@
 
 #include <gotracer/go_common.h>
 
+#include <gotracer/types/grpc.h>
+
+#include <gotracer/maps/grpc.h>
+#include <gotracer/maps/runtime.h>
+
 #include <logger/bpf_dbg.h>
+
+#include <shared/obi_ctx.h>
 
 typedef struct new_func_invocation {
     u64 parent;
@@ -33,7 +40,7 @@ struct {
 } newproc1 SEC(".maps");
 
 SEC("uprobe/runtime_newproc1")
-int obi_uprobe_proc_newproc1(struct pt_regs *ctx) {
+int obi_uprobe_runtime_newproc1(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/runtime_newproc1 ===");
     void *creator_goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("creator_goroutine_addr=%lx", creator_goroutine_addr);
@@ -51,7 +58,7 @@ int obi_uprobe_proc_newproc1(struct pt_regs *ctx) {
 }
 
 SEC("uprobe/runtime_newproc1_return")
-int obi_uprobe_proc_newproc1_ret(struct pt_regs *ctx) {
+int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/runtime_newproc1_return ===");
     void *creator_goroutine_addr = GOROUTINE_PTR(ctx);
     u64 pid_tid = bpf_get_current_pid_tgid();
@@ -89,6 +96,144 @@ int obi_uprobe_proc_newproc1_ret(struct pt_regs *ctx) {
 
 done:
     bpf_map_delete_elem(&newproc1, &c_key);
+
+    return 0;
+}
+
+enum gstatus {
+    // _Gidle: just allocated, not yet initialized
+    g_idle = 0,
+    // _Grunnable: on a run queue, not executing user code
+    g_runnable, // 1
+    // _Grunning: may execute user code, stack is owned, assigned to M and P
+    g_running, // 2
+    // _Gsyscall: executing a system call, not user code, stack owned
+    g_syscall, // 3
+    // _Gwaiting: blocked in runtime, not executing user code, not on run queue
+    g_waiting, // 4
+    // _Gmoribund_unused: currently unused, hardcoded in gdb scripts
+    g_moribund_unused, // 5
+    // _Gdead: currently unused, may have just exited or on free list
+    g_dead, // 6
+    // _Genqueue_unused: currently unused
+    g_enqueue_unused, // 7
+    // _Gcopystack: stack is being moved, not executing user code
+    g_copystack, // 8
+    // _Gpreempted: stopped for suspendG preemption
+    g_preempted, // 9
+};
+
+// NOTE: this is a hot path in the Go runtime, fetching offsets from the offsets map
+// introduces a non negligible overhead. These structs appear to be stable since
+// old versions of Go, so keep the values hardcoded.
+//
+// pahole -C runtime.g main
+//
+// struct runtime.g {
+//  runtime.stack              stack;                /*     0    16 */
+//  uintptr                    stackguard0;          /*    16     8 */
+//  uintptr                    stackguard1;          /*    24     8 */
+//  runtime._panic *           _panic;               /*    32     8 */
+//  runtime._defer *           _defer;               /*    40     8 */
+//  runtime.m *                m;                    /*    48     8 */
+//  ...
+// }
+//
+// pahole -C runtime.m main
+//
+// struct runtime.m {
+//  runtime.g *                g0;                   /*     0     8 */
+//  runtime.gobuf              morebuf;              /*     8    48 */
+//  uint32                     divmod;               /*    56     4 */
+//
+//  /* XXX 4 bytes hole, try to pack */
+//
+//  /* --- cacheline 1 boundary (64 bytes) --- */
+//  uint64                     procid;               /*    64     8 */
+//  ...
+// }
+enum offsets : u8 {
+    k_g_m_off = 0x30,
+    k_m_procid_off = 0x40,
+};
+
+SEC("uprobe/runtime.mstart1")
+int obi_uprobe_runtime_mstart1(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+
+    void *g = (void *)GOROUTINE_PTR(ctx);
+    void *m = NULL;
+
+    bpf_probe_read_user(&m, sizeof(m), (void *)((char *)g + k_g_m_off));
+    if (!m) {
+        return 0;
+    }
+
+    bpf_map_update_elem(&mptr_to_root_tid, &m, &(u32){pid_tgid}, BPF_ANY);
+    return 0;
+}
+
+SEC("uprobe/runtime.mexit")
+int obi_uprobe_runtime_mexit(struct pt_regs *ctx) {
+    void *g = (void *)GOROUTINE_PTR(ctx);
+    void *m = NULL;
+
+    bpf_probe_read_user(&m, sizeof(m), (void *)((char *)g + k_g_m_off));
+    if (!m) {
+        return 0;
+    }
+
+    bpf_map_delete_elem(&mptr_to_root_tid, &m);
+    return 0;
+}
+
+// gp *g, oldval, newval uint32
+SEC("uprobe/runtime.casgstatus")
+int obi_uprobe_runtime_casgstatus(struct pt_regs *ctx) {
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+
+    void *g = (void *)GO_PARAM1(ctx);
+    void *m = NULL;
+
+    bpf_probe_read_user(&m, sizeof(m), (void *)((char *)g + k_g_m_off));
+    if (!m) {
+        return 0;
+    }
+
+    u64 procid = 0;
+    bpf_probe_read_user(&procid, sizeof(procid), (void *)((char *)m + k_m_procid_off));
+    if (procid == 0) {
+        return 0;
+    }
+
+    const u32 pid = pid_tgid >> 32;
+    u32 *root_tid = bpf_map_lookup_elem(&mptr_to_root_tid, &m);
+    if (root_tid != NULL) {
+        procid = *root_tid;
+    }
+
+    const u64 g_pid_tgid = ((u64)pid << 32) | (procid & 0xffffffff);
+    go_addr_key_t g_key = {
+        .addr = (u64)g,
+        .pid = pid,
+    };
+    grpc_srv_func_invocation_t *invocation;
+
+    u32 newval = (u32)(uintptr_t)GO_PARAM3(ctx);
+    switch (newval) {
+    case g_running:
+    case g_syscall:
+        // grpc server
+        invocation = bpf_map_lookup_elem(&ongoing_grpc_server_requests, &g_key);
+        if (invocation) {
+            obi_ctx__set(g_pid_tgid, &invocation->tp);
+            return 0;
+        }
+
+        break;
+    default:
+        obi_ctx__del(g_pid_tgid);
+    }
 
     return 0;
 }

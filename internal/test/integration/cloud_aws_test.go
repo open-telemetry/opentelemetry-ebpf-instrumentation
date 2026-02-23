@@ -5,13 +5,10 @@ package integration
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"testing"
 	"time"
 
-	"github.com/ory/dockertest/v3"
-	"github.com/ory/dockertest/v3/docker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,48 +17,15 @@ import (
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
-func setupMockIMDS(t *testing.T, network *dockertest.Network) {
-	t.Helper()
-
-	t.Log("Starting AWS EC2 Metadata Mock container...")
-	mockIMDS, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "amazon/amazon-ec2-metadata-mock",
-		Tag:        versionAWSMetaMock,
-		Name:       fmt.Sprintf("mock-imds-test-%d", time.Now().UnixNano()),
-		Mounts: []string{
-			pathRoot + "/internal/test/integration/configs/aws-metadata-mock.json:/config/aws-metadata-mock.json",
-		},
-		Cmd: []string{
-			"--config-file", "/config/aws-metadata-mock.json",
-			"--port", "1338",
-		},
-		ExposedPorts: []string{"1338/tcp"},
-	})
-	require.NoError(t, err, "could not start AWS EC2 Metadata Mock container")
-	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(mockIMDS), "could not remove AWS EC2 Metadata Mock container")
-	})
-
-	// Connect to network with alias for metadata service
-	err = dockerPool.Client.ConnectNetwork(network.Network.ID, docker.NetworkConnectionOptions{
-		Container: mockIMDS.Container.ID,
-		EndpointConfig: &docker.EndpointConfig{
-			Aliases: []string{"mock-imds"},
-		},
-	})
-	require.NoError(t, err, "could not connect AWS EC2 Metadata Mock container to network")
-	t.Log("AWS EC2 Metadata Mock container started", "state", mockIMDS.Container.State.Status)
-}
-
 // This file contains tests related with the integration with Amazon Web Services
-func TestCloudResourceMetadata(t *testing.T) {
+func TestCloudResourceMetadata_AWS(t *testing.T) {
 	network := setupDockerNetwork(t)
+	setupAWSMockIMDS(t, network)
 	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
-	setupMockIMDS(t, network)
 	defer network.Close()
-	testserver := setupGoOTelTestServer(t, network, nil)
+	setupGoOTelTestServer(t, network, nil)
 
 	if t.Failed() {
 		return
@@ -74,14 +38,13 @@ func TestCloudResourceMetadata(t *testing.T) {
 			`OTEL_EBPF_PROMETHEUS_PORT=8999`,
 			"OTEL_EBPF_OPEN_PORT=8080",
 			// Configure AWS SDK to use custom endpoint for EC2 metadata
-			// The official amazon-ec2-metadata-mock runs on port 1338
-			"AWS_EC2_METADATA_SERVICE_ENDPOINT=http://mock-imds:1338",
+			"AWS_EC2_METADATA_SERVICE_ENDPOINT=http://mock-imds:80",
 		},
 	}
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver, "obi-config.yml")
+	o.instrument(t, network, "obi-config.yml")
 
 	// Wait for test components to be ready
 	waitForTestComponents(t, "http://localhost:8080")
@@ -95,17 +58,17 @@ func TestCloudResourceMetadata(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	t.Run("OTEL metrics", func(t *testing.T) {
-		testMetrics(t, pq, "rolldice", "otel")
+		testAWSMetrics(t, pq, "rolldice", "otel")
 	})
 	t.Run("Prometheus metrics", func(t *testing.T) {
-		testMetrics(t, pq, "rolldice", "prometheus")
+		testAWSMetrics(t, pq, "rolldice", "prometheus")
 	})
 	t.Run("OTEL traces", func(t *testing.T) {
-		testTraces(t)
+		testAWSTraces(t)
 	})
 }
 
-func testMetrics(t *testing.T, pq promtest.Client, serviceName, exporter string) {
+func testAWSMetrics(t *testing.T, pq promtest.Client, serviceName, exporter string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// attribute values taken from aws-metadata-mock.json
 		query := `target_info{` +
@@ -126,7 +89,7 @@ func testMetrics(t *testing.T, pq promtest.Client, serviceName, exporter string)
 	}, testTimeout, 500*time.Millisecond)
 }
 
-func testTraces(t *testing.T) {
+func testAWSTraces(t *testing.T) {
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=rolldice&operation=GET%20%2Frolldice")

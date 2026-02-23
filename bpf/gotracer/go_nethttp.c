@@ -27,8 +27,9 @@
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
-#include <gotracer/go_stream_key.h>
 #include <gotracer/hpack.h>
+
+#include <gotracer/types/stream_key.h>
 
 #include <logger/bpf_dbg.h>
 

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -58,6 +59,14 @@ type ProcessInfo struct {
 	ExePath   string
 	OpenPorts []uint32
 }
+
+type RouteHarvesterLanguage string
+
+const (
+	RouteHarvesterLanguageJava   RouteHarvesterLanguage = "java"
+	RouteHarvesterLanguageNodejs RouteHarvesterLanguage = "nodejs"
+	RouteHarvesterLanguageGo     RouteHarvesterLanguage = "go"
+)
 
 // DiscoveryConfig for the discover.ProcessFinder pipeline
 type DiscoveryConfig struct {
@@ -119,7 +128,7 @@ type DiscoveryConfig struct {
 
 	RouteHarvesterTimeout time.Duration `yaml:"route_harvester_timeout" env:"OTEL_EBPF_ROUTE_HARVESTER_TIMEOUT"`
 
-	DisabledRouteHarvesters []string `yaml:"disabled_route_harvesters"`
+	DisabledRouteHarvesters []RouteHarvesterLanguage `yaml:"disabled_route_harvesters"`
 
 	RouteHarvestConfig RouteHarvestingConfig `yaml:"route_harvester_advanced"`
 
@@ -189,6 +198,15 @@ type IntRange struct {
 	Start int
 	// if End == 0, this entry is a single value; otherwise it's an inclusive range
 	End int
+}
+
+func (IntRange) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:        "string",
+		Pattern:     validIntEnum.String(),
+		Description: "A comma-separated list of numerics or numeric ranges",
+		Examples:    []any{"1", "1000", "8080-8090", "80,443,8000-8999"},
+	}
 }
 
 func (p *IntEnum) Len() int {

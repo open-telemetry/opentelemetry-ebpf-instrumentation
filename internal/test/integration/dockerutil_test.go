@@ -5,6 +5,7 @@ package integration
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/ory/dockertest/v3"
 	"github.com/ory/dockertest/v3/docker"
+	"github.com/ory/dockertest/v3/docker/opts"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,6 +22,7 @@ const (
 	versionJaeger      = "1.60"
 	versionCollector   = "0.144.0"
 	versionAWSMetaMock = "v1.9.2"
+	versionNginx       = "1.29.5"
 )
 
 // setupDockerNetwork initializes a custom network for the test.
@@ -157,10 +160,11 @@ type obi struct {
 	Env []string
 	// SecurityConfigSuffix is the suffix for the security config file to use.
 	SecurityConfigSuffix string
+	Logs                 io.Writer
 }
 
 // instrument starts the OBI container to instrument the target application.
-func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *dockertest.Resource, configFile string) {
+func (o obi) instrument(t *testing.T, network *dockertest.Network, configFile string) {
 	t.Helper()
 
 	t.Log("Starting OBI container with PID namespace sharing...")
@@ -168,56 +172,99 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, resource *doc
 	require.NoError(t, os.MkdirAll(pathOutput, 0o755), "could not create coverage directory")
 	require.NoError(t, os.MkdirAll(runOtelDir, 0o755), "could not create run-otel directory")
 
-	obi, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "hatest-obi",
-		Name:       fmt.Sprintf("obi-otel-test-%d", time.Now().UnixNano()),
-		Cmd: []string{
-			"--config=/configs/" + configFile,
-		},
-		Mounts: []string{
-			filepath.Join(pathRoot, "internal/test/integration/configs") + ":/configs",
-			filepath.Join(pathRoot, "internal/test/integration/system/sys/kernel/security"+o.SecurityConfigSuffix) + ":/sys/kernel/security",
-			pathOutput + ":/coverage",
-			runOtelDir + ":/var/run/obi",
-		},
-		Env: append([]string{
-			"GOCOVERDIR=/coverage",
-			"OTEL_EBPF_TRACE_PRINTER=text",
-			"OTEL_EBPF_METRICS_FEATURES=application,application_span",
-			"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span",
-			"OTEL_EBPF_DISCOVERY_POLL_INTERVAL=500ms",
-			"OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT=1ms",
-			"OTEL_EBPF_SERVICE_NAMESPACE=integration-test",
-			"OTEL_EBPF_METRICS_INTERVAL=10ms",
-			"OTEL_EBPF_BPF_BATCH_TIMEOUT=10ms",
-			"OTEL_EBPF_LOG_LEVEL=DEBUG",
-			"OTEL_EBPF_BPF_DEBUG=TRUE",
-			"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",
-			"OTEL_EBPF_PROCESSES_INTERVAL=100ms",
-			"OTEL_EBPF_HOSTNAME=beyla",
-		}, o.Env...),
-		Privileged:   true,
-		ExposedPorts: []string{"8999/tcp"},
+	cntName := "obi"
+
+	var mounts []docker.Mount
+	for _, m := range []string{
+		filepath.Join(pathRoot, "internal/test/integration/configs") + ":/configs",
+		filepath.Join(pathRoot, "internal/test/integration/system/sys/kernel/security"+o.SecurityConfigSuffix) + ":/sys/kernel/security",
+		pathOutput + ":/coverage",
+		runOtelDir + ":/var/run/obi",
+	} {
+		s, d, err := opts.MountParser(m)
+		require.NoError(t, err, "could not parse mount %q", m)
+		mounts = append(mounts, docker.Mount{Source: s, Destination: d, RW: true})
+	}
+	var hostMounts []docker.HostMount
+	for _, m := range mounts {
+		hostMounts = append(hostMounts, docker.HostMount{Source: m.Source, Target: m.Destination, Type: "bind"})
+	}
+	hostConfig := &docker.HostConfig{
+		PublishAllPorts: true,
 		PortBindings: map[docker.Port][]docker.PortBinding{
 			"8999/tcp": {{HostIP: "127.0.0.1", HostPort: "8999"}},
 		},
-	}, func(hc *docker.HostConfig) {
-		hc.PidMode = "container:" + resource.Container.ID
-	})
-	require.NoError(t, err, "could not start OBI container")
-
-	err = dockerPool.Client.ConnectNetwork(network.Network.ID, docker.NetworkConnectionOptions{
-		Container: obi.Container.ID,
-		EndpointConfig: &docker.EndpointConfig{
-			Aliases: []string{"obi"},
+		Privileged: true,
+		PidMode:    "host",
+		Mounts:     hostMounts,
+	}
+	container, err := dockerPool.Client.CreateContainer(docker.CreateContainerOptions{
+		Context: t.Context(),
+		Name:    cntName,
+		Config: &docker.Config{
+			Cmd:   []string{"--config=/configs/" + configFile},
+			Image: "hatest-obi",
+			Env: append([]string{
+				"GOCOVERDIR=/coverage",
+				"OTEL_EBPF_TRACE_PRINTER=text",
+				"OTEL_EBPF_METRICS_FEATURES=application,application_span",
+				"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span",
+				"OTEL_EBPF_DISCOVERY_POLL_INTERVAL=500ms",
+				"OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT=1ms",
+				"OTEL_EBPF_SERVICE_NAMESPACE=integration-test",
+				"OTEL_EBPF_METRICS_INTERVAL=10ms",
+				"OTEL_EBPF_BPF_BATCH_TIMEOUT=10ms",
+				"OTEL_EBPF_LOG_LEVEL=DEBUG",
+				"OTEL_EBPF_BPF_DEBUG=TRUE",
+				"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",
+				"OTEL_EBPF_PROCESSES_INTERVAL=100ms",
+				"OTEL_EBPF_HOSTNAME=beyla",
+			}, o.Env...),
+			StopSignal:   "SIGWINCH", // to support timeouts
+			ExposedPorts: map[docker.Port]struct{}{"8999/tcp": {}},
+			Mounts:       mounts,
+		},
+		HostConfig: hostConfig,
+		NetworkingConfig: &docker.NetworkingConfig{
+			EndpointsConfig: map[string]*docker.EndpointConfig{
+				network.Network.ID: {Aliases: []string{"obi"}},
+			},
 		},
 	})
-	require.NoError(t, err, "could not attach OBI to network")
+	require.NoError(t, err, "could not create test server container")
+
+	require.NoError(t, dockerPool.Client.StartContainer(container.ID, nil), "could not start test server container")
 
 	t.Cleanup(func() {
-		if err := dockerPool.Purge(obi); err != nil {
+		if o.Logs != nil {
+			if err := dockerPool.Client.Logs(docker.LogsOptions{
+				Stderr:       true,
+				Stdout:       true,
+				Container:    container.ID,
+				OutputStream: o.Logs,
+			}); err != nil {
+				t.Logf("could not stream logs: %v", err)
+			}
+		}
+
+		if err := dockerPool.Client.RemoveContainer(
+			docker.RemoveContainerOptions{ID: container.ID, Force: true, RemoveVolumes: true},
+		); err != nil {
 			t.Logf("could not remove OBI container: %v", err)
 		}
 	})
 	t.Log("OBI container started")
+}
+
+func createLogOutput(t *testing.T, testCase string) io.Writer {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(pathOutput, 0o755), "could not create coverage directory")
+	out, err := os.Create(filepath.Join(pathOutput, testCase+"-obi.log"))
+	require.NoError(t, err, "could not create logs file")
+	t.Cleanup(func() {
+		if err := out.Close(); err != nil {
+			t.Logf("could not close logs file: %v", err)
+		}
+	})
+	return out
 }

@@ -224,7 +224,7 @@ discovery:
 				ResponseSizeHistogram: []float64{0, 10, 20, 22},
 			},
 		},
-		InternalMetrics: imetrics.Config{
+		InternalMetrics: imetrics.InternalMetricsConfig{
 			Exporter: imetrics.InternalMetricsExporterDisabled,
 			Prometheus: imetrics.PrometheusConfig{
 				Port: 3210,

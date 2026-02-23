@@ -8,6 +8,8 @@ import (
 	"iter"
 
 	"github.com/gobwas/glob"
+	"github.com/invopop/jsonschema"
+	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -49,6 +51,22 @@ func (dc GlobDefinitionCriteria) PortOfInterest(port int) bool {
 	return false
 }
 
+type MetadataGlobMap map[string]*GlobAttr
+
+func (MetadataGlobMap) JSONSchema() *jsonschema.Schema {
+	propMap := orderedmap.New[string, *jsonschema.Schema]()
+	for k := range AllowedAttributeNames {
+		propMap.Set(k, &jsonschema.Schema{
+			Ref: "#/$defs/GlobAttr",
+		})
+	}
+	return &jsonschema.Schema{
+		Properties:  propMap,
+		Type:        "object",
+		Description: "Metadata attributes to match against the instrumented service",
+	}
+}
+
 type GlobAttributes struct {
 	// Name will define a name for the matching service. If unset, it will take the name of the executable process,
 	// from the OTEL_SERVICE_NAME env var of the instrumented process, or from other metadata like Kubernetes annotations.
@@ -79,7 +97,7 @@ type GlobAttributes struct {
 	Path GlobAttr `yaml:"exe_path"`
 
 	// Metadata stores other attributes, such as Kubernetes object metadata
-	Metadata map[string]*GlobAttr `yaml:",inline" mapstructure:",remain"`
+	Metadata MetadataGlobMap `yaml:",inline" mapstructure:",remain"`
 
 	// PodLabels allows matching against the labels of a pod
 	PodLabels map[string]*GlobAttr `yaml:"k8s_pod_labels"`
@@ -108,6 +126,15 @@ type GlobAttr struct {
 	// str is kept for debugging/printing purposes
 	str  string
 	glob glob.Glob
+}
+
+func (GlobAttr) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:        "string",
+		Description: "Glob pattern to match against the attribute value",
+		Format:      "glob",
+		Examples:    []any{"app-*", "service-??", "prod-*-db"},
+	}
 }
 
 func NewGlob(pattern string) GlobAttr {

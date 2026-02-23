@@ -23,71 +23,16 @@
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
-#include <gotracer/go_stream_key.h>
 #include <gotracer/hpack.h>
+
+#include <gotracer/maps/grpc.h>
+
+#include <gotracer/types/grpc.h>
+#include <gotracer/types/stream_key.h>
 
 #include <logger/bpf_dbg.h>
 
 #include <pid/pid_helpers.h>
-
-typedef struct grpc_srv_func_invocation {
-    u64 start_monotime_ns;
-    u64 stream;
-    u64 st;
-    tp_info_t tp;
-} grpc_srv_func_invocation_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, u16);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_grpc_request_status SEC(".maps");
-
-typedef struct grpc_client_func_invocation {
-    u64 start_monotime_ns;
-    u64 cc;
-    u64 method;
-    u64 method_len;
-    tp_info_t tp;
-    u64 flags;
-} grpc_client_func_invocation_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, grpc_client_func_invocation_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_grpc_client_requests SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, grpc_srv_func_invocation_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_grpc_server_requests SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64); // key: pointer to the client
-    __type(value, connection_info_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} cached_grpc_client_connections SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, stream_key_t);                    // key: conn_ptr + stream id
-    __type(value, grpc_client_func_invocation_t); // stored info for the client request
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_streams SEC(".maps");
-
-// TODO: use go_addr_key_t as key
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, void *); // key: pointer to the request goroutine
-    __type(value, grpc_client_func_invocation_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_grpc_header_writes SEC(".maps");
 
 #define TRANSPORT_HTTP2 1
 #define TRANSPORT_HANDLER 2
@@ -557,18 +502,6 @@ int obi_uprobe_clientStream_RecvMsg_return(struct pt_regs *ctx) {
     return grpc_connect_done(ctx, err);
 }
 
-typedef struct transport_new_client_invocation {
-    grpc_client_func_invocation_t inv;
-    stream_key_t s_key;
-} transport_new_client_invocation_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, transport_new_client_invocation_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} transport_new_client_invocations SEC(".maps");
-
 // The gRPC client stream is written on another goroutine in transport loopyWriter (controlbuf.go).
 // We extract the stream ID when it's just created and make a mapping of it to our goroutine that's executing ClientConn.Invoke.
 SEC("uprobe/transport_http2Client_NewStream")
@@ -725,22 +658,7 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
     return 0;
 }
 
-typedef struct grpc_framer_func_invocation {
-    u64 framer_ptr;
-    tp_info_t tp;
-    s64 offset;
-} grpc_framer_func_invocation_t;
-
 #define MAX_W_PTR_OFFSET 1024
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: go routine doing framer write headers
-    __type(
-        value,
-        grpc_framer_func_invocation_t); // the goroutine of the round trip request, which is the key for our traceparent info
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} grpc_framer_invocation_map SEC(".maps");
 
 SEC("uprobe/grpcFramerWriteHeaders")
 int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {

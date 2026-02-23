@@ -40,7 +40,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 	setupContainerPrometheus(t, network, "prometheus-config.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
-	testserver := setupGoOTelTestServer(t, network, []string{
+	setupGoOTelTestServer(t, network, []string{
 		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 	})
@@ -59,7 +59,7 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver, "obi-config-go-otel.yml")
+	o.instrument(t, network, "obi-config-go-otel.yml")
 
 	t.Run("Avoided services metrics are recorded", func(t *testing.T) {
 		// Wait for the service to start and make some requests to trigger OTLP detection

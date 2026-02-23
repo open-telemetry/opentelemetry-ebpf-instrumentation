@@ -13,3 +13,10 @@ if [ -n "$files" ]; then
 		git add "$file" # Re-add formatted files to staging
 	done
 fi
+
+# check if make check-config-schema >/dev/null 2>&1 is successful
+if ! $(make check-config-schema >/dev/null 2>&1); then
+  echo "Found differences in config schema. Generating new config schema..."
+  make generate-config-schema
+  git add docs/config-schema.json
+fi

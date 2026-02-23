@@ -75,7 +75,7 @@ func createTestFileInfo(language svc.InstrumentableType) *exec.FileInfo {
 }
 
 func TestHarvestRoutes_Successful(t *testing.T) {
-	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 1*time.Second)
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	harvester.javaExtractRoutes = successfulExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
@@ -89,7 +89,7 @@ func TestHarvestRoutes_Successful(t *testing.T) {
 }
 
 func TestHarvestRoutes_Error(t *testing.T) {
-	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 1*time.Second)
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	harvester.javaExtractRoutes = errorExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
@@ -102,7 +102,7 @@ func TestHarvestRoutes_Error(t *testing.T) {
 }
 
 func TestHarvestRoutes_Timeout(t *testing.T) {
-	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 100*time.Millisecond) // Short timeout
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 100*time.Millisecond) // Short timeout
 	harvester.javaExtractRoutes = timeoutExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
@@ -125,7 +125,7 @@ func TestHarvestRoutes_Timeout(t *testing.T) {
 }
 
 func TestHarvestRoutes_Panic(t *testing.T) {
-	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 1*time.Second)
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	harvester.javaExtractRoutes = panicExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
@@ -142,7 +142,7 @@ func TestHarvestRoutes_Panic(t *testing.T) {
 }
 
 func TestHarvestRoutes_SlowButSuccessful(t *testing.T) {
-	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 200*time.Millisecond) // Enough time for slow operation
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 200*time.Millisecond) // Enough time for slow operation
 	harvester.javaExtractRoutes = slowButSuccessfulExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
@@ -156,7 +156,7 @@ func TestHarvestRoutes_SlowButSuccessful(t *testing.T) {
 }
 
 func TestHarvestRoutes_EmptyResult(t *testing.T) {
-	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 1*time.Second)
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	harvester.javaExtractRoutes = emptyResultExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
@@ -170,7 +170,7 @@ func TestHarvestRoutes_EmptyResult(t *testing.T) {
 }
 
 func TestHarvestRoutes_NonJavaLanguage(t *testing.T) {
-	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 1*time.Second)
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	// javaExtractRoutes should not be called for non-Java languages
 	harvester.javaExtractRoutes = func(_ app.PID) (*RouteHarvesterResult, error) {
 		t.Fatal("javaExtractRoutes should not be called for non-Java languages")
@@ -186,7 +186,7 @@ func TestHarvestRoutes_NonJavaLanguage(t *testing.T) {
 }
 
 func TestHarvestRoutes_MultipleTimeouts(t *testing.T) {
-	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 50*time.Millisecond)
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 50*time.Millisecond)
 	harvester.javaExtractRoutes = timeoutExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
@@ -205,7 +205,7 @@ func TestHarvestRoutes_MultipleTimeouts(t *testing.T) {
 }
 
 func TestHarvestNodejsRoutes_Successful(t *testing.T) {
-	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 1*time.Second)
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	harvester.nodeExtractRoutes = successfulExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableNodejs)
@@ -219,7 +219,7 @@ func TestHarvestNodejsRoutes_Successful(t *testing.T) {
 }
 
 func TestHarvestNodejsRoutes_Error(t *testing.T) {
-	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []string{}, 1*time.Second)
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	harvester.nodeExtractRoutes = errorExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableNodejs)

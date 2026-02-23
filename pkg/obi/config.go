@@ -16,6 +16,7 @@ import (
 	"github.com/caarlos0/env/v9"
 	"github.com/go-playground/validator/v10"
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/collector/confmap"
@@ -29,7 +30,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
-	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
@@ -68,6 +68,26 @@ const (
 const (
 	defaultMetricsTTL = 5 * time.Minute
 )
+
+// ExtraGroupAttributesMap defines additional attributes for attribute groups.
+// Currently only "k8s_app_meta" is supported as a key.
+type ExtraGroupAttributesMap map[string][]attr.Name
+
+func (ExtraGroupAttributesMap) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:        "object",
+		Description: "Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key.",
+		PropertyNames: &jsonschema.Schema{
+			Enum: []any{"k8s_app_meta"},
+		},
+		AdditionalProperties: &jsonschema.Schema{
+			Type: "array",
+			Items: &jsonschema.Schema{
+				Type: "string",
+			},
+		},
+	}
+}
 
 const (
 	k8sGKEDefaultNamespacesRegex = "|^gke-connect$|^gke-gmp-system$|^gke-managed-cim$|^gke-managed-filestorecsi$|^gke-managed-metrics-server$|^gke-managed-system$|^gke-system$|^gke-managed-volumepopulator$"
@@ -159,7 +179,7 @@ var DefaultConfig = Config{
 		OTELIntervalMS:       60_000,
 		Buckets:              export.DefaultBuckets,
 		ReportersCacheLen:    ReporterLRUSize,
-		HistogramAggregation: otel.AggregationExplicit,
+		HistogramAggregation: otelcfg.HistogramAggregationExplicit,
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
@@ -193,7 +213,7 @@ var DefaultConfig = Config{
 		SpanMetricsServiceCacheSize: 10000,
 	},
 	TracePrinter: debug.TracePrinterDisabled,
-	InternalMetrics: imetrics.Config{
+	InternalMetrics: imetrics.InternalMetricsConfig{
 		Exporter: imetrics.InternalMetricsExporterDisabled,
 		Prometheus: imetrics.PrometheusConfig{
 			Port: 0, // disabled by default
@@ -334,8 +354,8 @@ type Config struct {
 	ChannelSendTimeout      time.Duration `yaml:"channel_send_timeout" env:"OTEL_EBPF_CHANNEL_SEND_TIMEOUT"`
 	ChannelSendTimeoutPanic bool          `yaml:"channel_send_timeout_panic" env:"OTEL_EBPF_CHANNEL_SEND_TIMEOUT_PANIC"`
 
-	ProfilePort     int             `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
-	InternalMetrics imetrics.Config `yaml:"internal_metrics"`
+	ProfilePort     int                            `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
+	InternalMetrics imetrics.InternalMetricsConfig `yaml:"internal_metrics"`
 
 	// LogConfig enables the logging of the configuration on startup.
 	LogConfig LogConfigOption `yaml:"log_config" env:"OTEL_EBPF_LOG_CONFIG"`
@@ -498,7 +518,7 @@ type Attributes struct {
 	InstanceID           config.InstanceIDConfig       `yaml:"instance_id"`
 	Select               attributes.Selection          `yaml:"select"`
 	HostID               HostIDConfig                  `yaml:"host_id"`
-	ExtraGroupAttributes map[string][]attr.Name        `yaml:"extra_group_attributes"`
+	ExtraGroupAttributes ExtraGroupAttributesMap       `yaml:"extra_group_attributes"`
 
 	// RenameUnresolvedHosts will replace HostName and PeerName attributes when they are empty or contain
 	// unresolved IP addresses to reduce cardinality.
