@@ -81,20 +81,20 @@ func toStringSlice(v any) []string {
 func mustMapExcludedSystemPaths(cur map[string]any, ex map[string]any) error {
 	currentPathsValue, ok := get(cur, "discovery", "excluded_linux_system_paths")
 	if !ok {
-		return fmt.Errorf("missing current key [discovery excluded_linux_system_paths]")
+		return errors.New("missing current key [discovery excluded_linux_system_paths]")
 	}
 	currentPaths := toStringSlice(currentPathsValue)
 	if len(currentPaths) == 0 {
-		return fmt.Errorf("current discovery.excluded_linux_system_paths is empty or not a list")
+		return errors.New("current discovery.excluded_linux_system_paths is empty or not a list")
 	}
 
 	rulesValue, ok := get(ex, "obi", "selection", "rules")
 	if !ok {
-		return fmt.Errorf("missing example key [obi selection rules]")
+		return errors.New("missing example key [obi selection rules]")
 	}
 	rules, ok := rulesValue.([]any)
 	if !ok {
-		return fmt.Errorf("example obi.selection.rules is not a list")
+		return errors.New("example obi.selection.rules is not a list")
 	}
 
 	foundGlobs := map[string]bool{}
@@ -133,23 +133,23 @@ func mustMapExcludedSystemPaths(cur map[string]any, ex map[string]any) error {
 func mustMapAlreadyInstrumentedExclusion(cur map[string]any, ex map[string]any) error {
 	currentValue, ok := get(cur, "discovery", "exclude_otel_instrumented_services")
 	if !ok {
-		return fmt.Errorf("missing current key [discovery exclude_otel_instrumented_services]")
+		return errors.New("missing current key [discovery exclude_otel_instrumented_services]")
 	}
 	wantExclude := fmt.Sprintf("%v", currentValue) == "true"
 
 	defaultPortValue, ok := get(cur, "discovery", "default_otlp_grpc_port")
 	if !ok {
-		return fmt.Errorf("missing current key [discovery default_otlp_grpc_port]")
+		return errors.New("missing current key [discovery default_otlp_grpc_port]")
 	}
 	wantPort := fmt.Sprintf("%v", defaultPortValue)
 
 	rulesValue, ok := get(ex, "obi", "selection", "rules")
 	if !ok {
-		return fmt.Errorf("missing example key [obi selection rules]")
+		return errors.New("missing example key [obi selection rules]")
 	}
 	rules, ok := rulesValue.([]any)
 	if !ok {
-		return fmt.Errorf("example obi.selection.rules is not a list")
+		return errors.New("example obi.selection.rules is not a list")
 	}
 
 	found := false
@@ -177,17 +177,17 @@ func mustMapAlreadyInstrumentedExclusion(cur map[string]any, ex map[string]any) 
 			return fmt.Errorf("mismatch discovery.default_otlp_grpc_port=%s vs process.exports_otlp.port=%v", wantPort, exportsOTLP["port"])
 		}
 		if fmt.Sprintf("%v", exportsOTLP["protocol"]) == "" {
-			return fmt.Errorf("missing process.exports_otlp.protocol in already-instrumented exclusion rule")
+			return errors.New("missing process.exports_otlp.protocol in already-instrumented exclusion rule")
 		}
 		found = true
 		break
 	}
 
 	if wantExclude && !found {
-		return fmt.Errorf("missing selection rule for already-instrumented exclusion")
+		return errors.New("missing selection rule for already-instrumented exclusion")
 	}
 	if !wantExclude && found {
-		return fmt.Errorf("unexpected already-instrumented exclusion rule while source default is false")
+		return errors.New("unexpected already-instrumented exclusion rule while source default is false")
 	}
 
 	return nil
@@ -196,17 +196,17 @@ func mustMapAlreadyInstrumentedExclusion(cur map[string]any, ex map[string]any) 
 func mustMapGoSpecificTracers(cur map[string]any, ex map[string]any) error {
 	currentValue, ok := get(cur, "discovery", "skip_go_specific_tracers")
 	if !ok {
-		return fmt.Errorf("missing current key [discovery skip_go_specific_tracers]")
+		return errors.New("missing current key [discovery skip_go_specific_tracers]")
 	}
 	currentSkip := fmt.Sprintf("%v", currentValue) == "true"
 
 	tracesEnabled, ok := get(ex, "obi", "instrumentation", "go", "enabled", "traces")
 	if !ok {
-		return fmt.Errorf("missing example key [obi instrumentation go enabled traces]")
+		return errors.New("missing example key [obi instrumentation go enabled traces]")
 	}
 	metricsEnabled, ok := get(ex, "obi", "instrumentation", "go", "enabled", "metrics")
 	if !ok {
-		return fmt.Errorf("missing example key [obi instrumentation go enabled metrics]")
+		return errors.New("missing example key [obi instrumentation go enabled metrics]")
 	}
 	enableTraces := fmt.Sprintf("%v", tracesEnabled) == "true"
 	enableMetrics := fmt.Sprintf("%v", metricsEnabled) == "true"
@@ -221,7 +221,7 @@ func mustMapGoSpecificTracers(cur map[string]any, ex map[string]any) error {
 func mustMapApplicationFiltersPerInstrumentation(cur map[string]any, ex map[string]any) error {
 	currentValue, ok := get(cur, "filter", "application")
 	if !ok {
-		return fmt.Errorf("missing current key [filter application]")
+		return errors.New("missing current key [filter application]")
 	}
 
 	protocols := []string{"http", "grpc", "sql", "redis", "kafka", "mongo", "couchbase", "dns", "gpu", "java", "nodejs", "go"}
@@ -245,7 +245,7 @@ func mustMapApplicationFiltersPerInstrumentation(cur map[string]any, ex map[stri
 func mustMapNetworkFiltersPerSignal(cur map[string]any, ex map[string]any) error {
 	currentValue, ok := get(cur, "filter", "network")
 	if !ok {
-		return fmt.Errorf("missing current key [filter network]")
+		return errors.New("missing current key [filter network]")
 	}
 
 	signals := []string{"traces", "metrics"}
