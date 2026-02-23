@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -29,6 +30,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
+)
+
+const PinInternal = ebpf.PinType(100)
+
+const (
+	MaxMapEntries uint32 = 1 << 24
+	MinMapEntries uint32 = 1
 )
 
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
@@ -177,54 +185,54 @@ func (pt *ProcessTracer) setupOtelBPFFSPath(bundles []*common.SpecBundle) string
 	return ""
 }
 
-// TODO pino validate new size
-func (pt *ProcessTracer) setupBPFMapSizes(p Tracer, spec *ebpf.CollectionSpec, cfg *obi.Config) {
-	mapsCfg := cfg.EBPF.MapsConfig
-	globalScale := mapsCfg.GlobalScaleFactor
-
-	// specific hardcoded maps
-	maps := p.GetRuntimeMapSizes(cfg)
-
-	// global scale factor is the master override
-	if globalScale != 0 {
-		for name, _ := range maps {
-			mSpec, ok := spec.Maps[name]
-			if !ok {
-				continue // map doesn't exist in this specific tracer OR we don't want to be resizeable
-			}
-			if globalScale > 0 {
-				// to double the size
-				mSpec.MaxEntries = mSpec.MaxEntries << uint32(globalScale)
-			} else {
-				// to halve the size
-				mSpec.MaxEntries = mSpec.MaxEntries >> uint32(-globalScale)
-			}
-		}
+func setupBPFMapSizes(spec *ebpf.CollectionSpec, cfg *obi.Config, otelBPFFSPath string) {
+	globalScale := cfg.EBPF.MapsConfig.GlobalScaleFactor
+	if globalScale == 0 {
 		return
 	}
 
-	for name, settings := range maps {
-		mSpec, ok := spec.Maps[name]
-		if !ok {
-			continue // map doesn't exist in this specific tracer OR we don't want to be resizeable
+	for name, mSpec := range spec.Maps {
+		// Skip .rodata, .bss, .data sections (they're created as Array with max_entries = 1),
+		// plus any intentionally single-entry maps (like scratch map)
+		if mSpec.MaxEntries == 1 {
+			continue
 		}
 
-		if settings.ScaleFactor != 0 {
-			if settings.ScaleFactor > 0 {
-				// to double the size
-				mSpec.MaxEntries = mSpec.MaxEntries << uint32(settings.ScaleFactor)
-			} else {
-				// to halve the size
-				mSpec.MaxEntries = mSpec.MaxEntries >> uint32(-settings.ScaleFactor)
-			}
-		} else if settings.MaxEntries > 0 {
-			mSpec.MaxEntries = settings.MaxEntries
+		// If the map is already pinned on bpffs, we must not change MaxEntries
+		// because cilium/ebpf will reject the spec if it differs from the
+		// pinned map. Another tracer (or the utility tracer) already created it.
+		mapPath := filepath.Join(otelBPFFSPath, name)
+		if _, err := os.Stat(mapPath); err == nil {
+			continue
 		}
+
+		oldEntries := mSpec.MaxEntries
+		var newEntries uint32
+
+		if globalScale > 0 {
+			newEntries = oldEntries << uint32(globalScale)
+
+			// guard against overflow
+			if newEntries < oldEntries {
+				newEntries = MaxMapEntries
+			}
+		} else {
+			newEntries = oldEntries >> uint32(-globalScale)
+		}
+
+		if newEntries < MinMapEntries && oldEntries >= MinMapEntries {
+			newEntries = MinMapEntries
+		}
+		if newEntries > MaxMapEntries {
+			newEntries = MaxMapEntries
+		}
+
+		mSpec.MaxEntries = newEntries
 	}
 }
 
 func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p Tracer, cfg *obi.Config) error {
-	spec, err := pt.loadSpec(p)
+	bundles, err := p.LoadSpecs()
 	if err != nil {
 		return fmt.Errorf("loading eBPF program specs: %w", err)
 	}
@@ -232,21 +240,13 @@ func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p 
 	otelBPFFSPath := pt.setupOtelBPFFSPath(bundles)
 
 	for i, bundle := range bundles {
+		// set max entries map using user defined values
+		setupBPFMapSizes(bundle.Spec, cfg, otelBPFFSPath)
+
 		if err := loadSpec(eventContext, bundle, otelBPFFSPath, i); err != nil {
 			closeLoadedSpecs(bundles[:i])
 			return err
 		}
-	fmt.Println("===============================")
-	for k, _ := range spec.Maps {
-		fmt.Println(k)
-	}
-	fmt.Println("===============================") // TODO pino remove it
-	// set max entries map using user defined values
-	pt.setupBPFMapSizes(p, spec, cfg)
-
-	collOpts, err := resolveMaps(eventContext, spec)
-	if err != nil {
-		return err
 	}
 
 	return nil
@@ -428,7 +428,7 @@ func printVerifierErrorInfo(err error) {
 	}
 }
 
-func RunUtilityTracer(ctx context.Context, eventContext *common.EBPFEventContext, p UtilityTracer) error {
+func RunUtilityTracer(ctx context.Context, eventContext *common.EBPFEventContext, p UtilityTracer, cfg *obi.Config) error {
 	i := instrumenter{}
 	plog := ptlog()
 	plog.Debug("loading independent eBPF program")
@@ -439,6 +439,9 @@ func RunUtilityTracer(ctx context.Context, eventContext *common.EBPFEventContext
 	}
 
 	for idx, bundle := range bundles {
+		// Utility tracers don't pin maps (empty pin path), so no pinned
+		// map conflicts are possible — the empty path is intentional.
+		setupBPFMapSizes(bundle.Spec, cfg, "")
 		if err := loadSpec(eventContext, bundle, "", idx); err != nil {
 			closeLoadedSpecs(bundles[:idx])
 			printVerifierErrorInfo(err)

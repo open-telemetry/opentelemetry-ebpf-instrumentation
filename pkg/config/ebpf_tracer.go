@@ -34,28 +34,11 @@ const (
 	StrContextPropagationTCP      = "tcp"
 )
 
-type MapSettings struct {
-	// MaxEntries is the absolute size (e.g., 2048)
-	MaxEntries uint32 `yaml:"max_entries" validate:"lte=240000,excluded_with=ScaleFactor"`
-	// ScaleFactor is a multiplier for this specific map used as
-	// If ScaleFactor > 0 --> NewSize = DefaultSize << ScaleFactor // double it
-	// If ScaleFactor < 0 --> NewSize = DefaultSize >> ScaleFactor // halve it
-	ScaleFactor int `yaml:"scale_factor" validate:"gte=-3,lte=3,excluded_with=MaxEntries"`
-}
-
-// TODO pino try map[string]MapSettings
-type MapOverrides struct {
-	OutgoingTraceMap MapSettings `yaml:"outgoing_trace_map"`
-	SpanNames        MapSettings `yaml:"span_names"`
-}
 type MapsConfig struct {
-	// GlobalScaleFactor scales ALL maps by this factor
+	// GlobalScaleFactor scales ALL maps that we expose by this factor
 	// If GlobalScaleFactor > 0 --> NewSize = DefaultSize << GlobalScaleFactor // double it
 	// If GlobalScaleFactor < 0 --> NewSize = DefaultSize >> GlobalScaleFactor // halve it
-	GlobalScaleFactor int `yaml:"global_scale_factor" validate:"gte=-3,lte=3,excluded_with=MapOverrides"`
-
-	// MapSizes contains specific overrides for individual maps
-	MapOverrides MapOverrides `yaml:"map_overrides" validate:"excluded_with=GlobalScaleFactor"`
+	GlobalScaleFactor int `yaml:"global_scale_factor" validate:"gte=-3,lte=3"`
 }
 
 // EBPFTracer configuration for eBPF programs

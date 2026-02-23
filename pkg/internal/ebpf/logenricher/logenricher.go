@@ -397,5 +397,3 @@ func (p *Tracer) handle(e LogEvent) {
 		p.log.Error("failed to write enriched log line", "error", err)
 	}
 }
-
-func (p *Tracer) GetRuntimeMapSizes(_ *obi.Config) map[string]config.MapSettings { return nil }
