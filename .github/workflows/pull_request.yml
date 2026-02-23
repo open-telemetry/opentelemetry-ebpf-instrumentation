@@ -20,12 +20,59 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    permissions:
-      # Required for codecov
-      checks: write
-      pull-requests: write
-    name: test
+  generate-and-checks:
+    name: Generate and checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Go build cache
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        with:
+          path: ~/.cache/go-build
+          key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: |
+            go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Generate and build tools
+        run: make prereqs docker-generate unit-test-tools
+
+      - name: Run checks
+        run: make go-mod-tidy license-header-check notices-update check-go-mod check-ebpf-ver-synced check-config-schema check-clean-work-tree
+
+      - name: Build unit test matrix
+        id: build-matrix
+        env:
+          PARTITIONS: 3
+        run: |
+          echo -n "matrix=" >> $GITHUB_OUTPUT
+          make unit-test-matrix-json >> $GITHUB_OUTPUT
+
+      - name: Upload generated BPF files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          # prevent cache poisoning by using the SHA of the commit
+          name: bpf-generated-${{ github.sha }}
+          path: |
+            **/*_bpfel.go
+            **/*_bpfel.o
+          retention-days: 1
+
+  lint:
+    name: Lint
+    needs: generate-and-checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -48,13 +95,69 @@ jobs:
           restore-keys: |
             go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Run verification and unit tests
-        run: make docker-generate verify cov-exclude-generated check-go-mod notices-update check-ebpf-ver-synced check-config-schema check-clean-work-tree
+      - name: Download generated BPF files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bpf-generated-${{ github.sha }}
+
+      - name: Lint
+        run: make lint
+
+  unit-test:
+    name: "Unit test ${{ matrix.description }}"
+    needs: generate-and-checks
+    permissions:
+      checks: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.generate-and-checks.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Go build cache
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        with:
+          path: ~/.cache/go-build
+          key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: |
+            go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Download generated BPF files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bpf-generated-${{ github.sha }}
+
+      - name: Build test tools
+        run: make prereqs unit-test-tools
+
+      - name: Run unit tests
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+          MATRIX_PACKAGES: ${{ matrix.packages }}
+        run: make run-unit-test-shard SHARD_ID="${MATRIX_ID}" UNIT_TEST_PACKAGES="${MATRIX_PACKAGES}"
+
+      - name: Exclude generated files from coverage
+        run: grep -vE "(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/internal/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)" testoutput/cover-shard-"${MATRIX_ID}".all.txt > testoutput/cover-shard-"${MATRIX_ID}".txt
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+
       - name: Report coverage
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
-          files: ./testoutput/cover.txt
+          files: ./testoutput/cover-shard-${{ matrix.id }}.txt
           flags: unittests
-          name: go-unittests-coverage-${{ github.run_number }}
+          name: go-unittests-coverage-shard-${{ matrix.id }}-${{ github.run_number }}

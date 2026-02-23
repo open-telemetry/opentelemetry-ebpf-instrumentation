@@ -445,6 +445,23 @@ run-integration-test-arm:
 	go clean -testcache
 	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
 
+.PHONY: unit-test-tools
+unit-test-tools: $(GOTESTSUM) $(ENVTEST)
+
+.PHONY: unit-test-matrix-json
+unit-test-matrix-json: $(GOTESTSUM)
+	@go list ./... | $(GOTESTSUM) tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
+
+.PHONY: run-unit-test-shard
+run-unit-test-shard: $(GOTESTSUM) $(ENVTEST)
+	@echo "### Running unit test shard $(SHARD_ID)"
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(GOTESTSUM) \
+		--jsonfile=$(TEST_OUTPUT)/unit-test-shard-$(SHARD_ID).log \
+		-- -short -race -a -coverpkg=./... \
+		-coverprofile $(TEST_OUTPUT)/cover-shard-$(SHARD_ID).all.txt \
+		$(UNIT_TEST_PACKAGES)
+
 .PHONY: integration-test-matrix-json
 integration-test-matrix-json:
 	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}"
