@@ -268,11 +268,22 @@ type OpenAI struct {
 	Output           json.RawMessage `json:"output"`
 	Request          OpenAIInput
 	Choices          json.RawMessage `json:"choices"`
+	Items            json.RawMessage `json:"items"`
+	Metadata         json.RawMessage `json:"metadata"`
+	Data             json.RawMessage `json:"data"`
 }
 
 func (ai *OpenAI) GetOutput() string {
 	if len(ai.Output) > 0 {
 		return string(ai.Output)
+	}
+
+	if len(ai.Items) > 0 {
+		return string(ai.Items)
+	}
+
+	if len(ai.Data) > 0 {
+		return string(ai.Data)
 	}
 
 	return string(ai.Choices)

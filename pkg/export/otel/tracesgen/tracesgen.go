@@ -424,6 +424,9 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, semconv.GenAIProviderNameOpenAI)
 			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
 			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
+			if ai.OperationName == "conversation" || ai.OperationName == "chatkit.session" || ai.OperationName == "chatkit.thread" {
+				attrs = append(attrs, semconv.GenAIConversationID(ai.ID))
+			}
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
 			attrs = append(attrs, semconv.GenAIResponseModel(ai.ResponseModel))
 			if ai.FrequencyPenalty != 0 {
@@ -443,6 +446,9 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(string(ai.GetOutput())))
 			if ai.Request.Instructions != "" {
 				attrs = append(attrs, semconv.GenAISystemInstructionsKey.String(ai.Request.Instructions))
+			}
+			if len(ai.Metadata) > 0 {
+				attrs = append(attrs, request.Metadata(string(ai.Metadata)))
 			}
 			// add error info
 			if ai.Error.Type != "" {

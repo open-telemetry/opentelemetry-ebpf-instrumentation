@@ -86,6 +86,8 @@ const (
 
 	ContainerName = Name(semconv.ContainerNameKey)
 	ContainerID   = Name(semconv.ContainerIDKey)
+
+	Metadata = Name("metadata")
 )
 
 // OBI-specific network attributes
