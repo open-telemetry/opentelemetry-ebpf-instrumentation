@@ -133,10 +133,47 @@ const completionsBody = `
 }
 `
 
+const conversationBody = `
+{
+  "id": "conv_699c949418b08194ba11beed9ba85d9607f4edeb470fde91",
+  "object": "conversation",
+  "created_at": 1771869332,
+  "metadata": {
+    "topic": "python-help",
+    "user": "nino"
+  }
+}
+`
+
 type responsesRequest struct {
 	Input        string `json:"input"`
 	Instructions string `json:"instructions"`
 	Model        string `json:"model"`
+}
+
+func setResponseHeaders(h http.Header) http.Header {
+	h.Set("X-Ratelimit-Limit-Tokens", "500000")
+	h.Set("X-Ratelimit-Reset-Requests", "120ms")
+	h.Set("X-Ratelimit-Reset-Tokens", "56ms")
+	h.Set("X-Ratelimit-Remaining-Tokens", "499526")
+	h.Set("X-Ratelimit-Remaining-Requests", "499")
+	h.Set("X-Ratelimit-Limit-Requests", "500")
+	h.Set("X-Request-Id", "req_a4bd76e7bcfc4ba4aa69aa906769538f")
+	h.Set("Cf-Cache-Status", "DYNAMIC")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Encoding", "gzip")
+	h.Set("Content-Type", "application/json")
+	h.Set("Openai-Project", "proj_HKghDmlTiTtE4xukGeSiuu2s")
+	h.Set("Openai-Processing-Ms", "9377")
+	h.Set("Openai-Version", "2020-10-01")
+	h.Set("Openai-Organization", "user-kunmtqznir9mbekxyegxrwo8")
+	h.Set("Cf-Ray", "9d1033dc5d83a641-YYZ")
+	h.Set("Server", "cloudflare")
+	h.Set("Alt-Svc", `h3=":443"; ma=86400`)
+	h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+	h.Set("Connection", "keep-alive")
+
+	return h
 }
 
 func handleResponses(w http.ResponseWriter, r *http.Request) {
@@ -182,27 +219,7 @@ func handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h := w.Header()
-	h.Set("X-Ratelimit-Limit-Tokens", "500000")
-	h.Set("X-Ratelimit-Reset-Requests", "120ms")
-	h.Set("X-Ratelimit-Reset-Tokens", "56ms")
-	h.Set("X-Ratelimit-Remaining-Tokens", "499526")
-	h.Set("X-Ratelimit-Remaining-Requests", "499")
-	h.Set("X-Ratelimit-Limit-Requests", "500")
-	h.Set("X-Request-Id", "req_a4bd76e7bcfc4ba4aa69aa906769538f")
-	h.Set("Cf-Cache-Status", "DYNAMIC")
-	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Content-Encoding", "gzip")
-	h.Set("Content-Type", "application/json")
-	h.Set("Openai-Project", "proj_HKghDmlTiTtE4xukGeSiuu2s")
-	h.Set("Openai-Processing-Ms", "9377")
-	h.Set("Openai-Version", "2020-10-01")
-	h.Set("Openai-Organization", "user-kunmtqznir9mbekxyegxrwo8")
-	h.Set("Cf-Ray", "9d1033dc5d83a641-YYZ")
-	h.Set("Server", "cloudflare")
-	h.Set("Alt-Svc", `h3=":443"; ma=86400`)
-	h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
-	h.Set("Connection", "keep-alive")
-
+	h = setResponseHeaders(h)
 	w.WriteHeader(http.StatusOK)
 
 	gz := gzip.NewWriter(w)
@@ -264,31 +281,69 @@ func handleCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h := w.Header()
-	h.Set("X-Ratelimit-Limit-Tokens", "500000")
-	h.Set("X-Ratelimit-Reset-Requests", "120ms")
-	h.Set("X-Ratelimit-Reset-Tokens", "56ms")
-	h.Set("X-Ratelimit-Remaining-Tokens", "499526")
-	h.Set("X-Ratelimit-Remaining-Requests", "499")
-	h.Set("X-Ratelimit-Limit-Requests", "500")
-	h.Set("X-Request-Id", "req_a4bd76e7bcfc4ba4aa69aa906769538f")
-	h.Set("Cf-Cache-Status", "DYNAMIC")
-	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Content-Encoding", "gzip")
-	h.Set("Content-Type", "application/json")
-	h.Set("Openai-Project", "proj_HKghDmlTiTtE4xukGeSiuu2s")
-	h.Set("Openai-Processing-Ms", "9377")
-	h.Set("Openai-Version", "2020-10-01")
-	h.Set("Openai-Organization", "user-kunmtqznir9mbekxyegxrwo8")
-	h.Set("Cf-Ray", "9d1033dc5d83a641-YYZ")
-	h.Set("Server", "cloudflare")
-	h.Set("Alt-Svc", `h3=":443"; ma=86400`)
-	h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
-	h.Set("Connection", "keep-alive")
-
+	h = setResponseHeaders(h)
 	w.WriteHeader(http.StatusOK)
 
 	gz := gzip.NewWriter(w)
 	if _, err := gz.Write([]byte(completionsBody)); err != nil {
+		log.Printf("error writing gzip body: %v", err)
+		return
+	}
+	if err := gz.Close(); err != nil {
+		log.Printf("error closing gzip writer: %v", err)
+	}
+}
+
+type conversationRequest struct {
+	Items    json.RawMessage `json:"items"`
+	Metadata json.RawMessage `json:"metadata"`
+}
+
+func handleConversations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to read request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	var req conversationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	var validationErrors []string
+	if len(req.Items) == 0 {
+		validationErrors = append(validationErrors, "items cannot be empty")
+	}
+	if len(req.Metadata) == 0 {
+		validationErrors = append(validationErrors, "metadata cannot be empty")
+	}
+	if len(validationErrors) > 0 {
+		http.Error(w, "request validation failed:\n"+strings.Join(validationErrors, "\n"), http.StatusBadRequest)
+		return
+	}
+
+	if r.URL.Query().Has("error") {
+		h := w.Header()
+		h.Set("Content-Type", "application/json")
+		h.Set("Openai-Version", "2020-10-01")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(errorBody))
+		return
+	}
+
+	h := w.Header()
+	h = setResponseHeaders(h)
+	w.WriteHeader(http.StatusOK)
+
+	gz := gzip.NewWriter(w)
+	if _, err := gz.Write([]byte(conversationBody)); err != nil {
 		log.Printf("error writing gzip body: %v", err)
 		return
 	}
@@ -306,6 +361,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/responses", handleResponses)
 	mux.HandleFunc("/v1/chat/completions", handleCompletions)
+	mux.HandleFunc("/v1/conversations", handleConversations)
 
 	addr := ":" + port
 	log.Printf("mock OpenAI server listening on %s", addr)

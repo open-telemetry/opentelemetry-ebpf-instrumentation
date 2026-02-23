@@ -429,15 +429,15 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
 			attrs = append(attrs, semconv.GenAIResponseModel(ai.ResponseModel))
-			if ai.FrequencyPenalty != 0 {
+			if ai.FrequencyPenalty > 0.0 {
 				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.FrequencyPenalty))
 			}
-			if ai.Temperature != 0 {
+			if ai.Temperature > 0.0 {
 				attrs = append(attrs, semconv.GenAIRequestTemperature(ai.Temperature))
 			} else if ai.Request.Temperature != 0 {
 				attrs = append(attrs, semconv.GenAIRequestTemperature(ai.Request.Temperature))
 			}
-			if ai.TopP != 0 {
+			if ai.TopP > 0.0 {
 				attrs = append(attrs, semconv.GenAIRequestTopP(ai.TopP))
 			}
 			attrs = append(attrs, semconv.GenAIUsageInputTokens(ai.Usage.GetInputTokens()))

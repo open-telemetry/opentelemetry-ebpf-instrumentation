@@ -1225,7 +1225,9 @@ int obi_handle_buf_with_args(void *ctx) {
                                        args->direction,
                                        k_large_buf_action_append);
 
-                if (responding) {
+                if (reading) {
+                    info->len += args->bytes_len;
+                } else if (responding) {
                     info->end_monotime_ns = bpf_ktime_get_ns();
                     bpf_d_printk("bytes len %d, new bytes %d", info->resp_len, args->bytes_len);
                     info->resp_len += args->bytes_len;

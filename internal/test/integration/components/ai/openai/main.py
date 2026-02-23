@@ -23,7 +23,7 @@ async def messages():
     return resp.json()
 
 @app.get("/error")
-async def messages():
+async def error_messages():
     payload = {
         "input": "How do I check if a Python object is an instance of a class?",
         "instructions": "You are a coding assistant that talks like a pirate.",
@@ -44,6 +44,19 @@ async def createobject():
         "temperature": 0.7,
     }
     resp = requests.post(f"{OPENAI_BASE_URL}/v1/chat/completions", json=payload)
+    resp.raise_for_status()
+    return resp.json()
+
+@app.get("/conversations")
+async def conversations():
+    payload = {
+        "items": [
+            {"type":"message","role":"user","content":"Hello! I am learning Python and need some guidance."}
+        ],
+        "metadata": {"topic":"python-help","user":"nino"},
+        "model": "gpt-5-mini",
+    }
+    resp = requests.post(f"{OPENAI_BASE_URL}/v1/conversations", json=payload)
     resp.raise_for_status()
     return resp.json()
 

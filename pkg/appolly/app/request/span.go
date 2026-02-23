@@ -236,7 +236,7 @@ type OpenAIUsage struct {
 }
 
 func (u *OpenAIUsage) GetInputTokens() int {
-	if u.InputTokens != 0 {
+	if u.InputTokens > 0 {
 		return u.InputTokens
 	}
 
@@ -244,7 +244,7 @@ func (u *OpenAIUsage) GetInputTokens() int {
 }
 
 func (u *OpenAIUsage) GetOutputTokens() int {
-	if u.OutputTokens != 0 {
+	if u.OutputTokens > 0 {
 		return u.OutputTokens
 	}
 
@@ -291,15 +291,25 @@ func (ai *OpenAI) GetOutput() string {
 
 type OpenAIInput struct {
 	Input        string          `json:"input"`
+	Prompt       string          `json:"prompt"`
 	Model        string          `json:"model"`
 	Instructions string          `json:"instructions"`
 	Messages     json.RawMessage `json:"messages"`
+	Items        json.RawMessage `json:"items"`
 	Temperature  float64         `json:"temperature"`
 }
 
 func (air *OpenAIInput) GetInput() string {
 	if len(air.Input) > 0 {
-		return string(air.Input)
+		return air.Input
+	}
+
+	if len(air.Prompt) > 0 {
+		return air.Prompt
+	}
+
+	if len(air.Items) > 0 {
+		return string(air.Items)
 	}
 
 	return string(air.Messages)
