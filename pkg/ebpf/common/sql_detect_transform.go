@@ -13,15 +13,16 @@ import (
 )
 
 func sqlKind(b []byte) request.SQLKind {
-	if isPostgres(b) {
+	switch {
+	case isPostgres(b):
 		return request.DBPostgres
-	} else if isMySQL(b) {
+	case isMySQL(b):
 		return request.DBMySQL
-	} else if isMSSQL(b) {
+	case isMSSQL(b):
 		return request.DBMSSQL
+	default:
+		return request.DBGeneric
 	}
-
-	return request.DBGeneric
 }
 
 // If we have already identified Postgres or MySQL, allow the SQL
