@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"strings"
@@ -261,22 +262,19 @@ func mustMapNetworkFiltersPerSignal(cur map[string]any, ex map[string]any) error
 	return nil
 }
 
-func main() {
-	curB, err := os.ReadFile("devdocs/config/.verify/default-config-current.yaml")
-	if err != nil {
-		panic(err)
-	}
-	exB, err := os.ReadFile("devdocs/config/default-configuration-example.yaml")
-	if err != nil {
-		panic(err)
-	}
+//go:embed .verify/default-config-current.yaml
+var defaultConf []byte
 
+//go:embed examples/default-configuration.yaml
+var v2DefaultConf []byte
+
+func main() {
 	var cur map[string]any
 	var ex map[string]any
-	if err := yaml.Unmarshal(curB, &cur); err != nil {
+	if err := yaml.Unmarshal(defaultConf, &cur); err != nil {
 		panic(err)
 	}
-	if err := yaml.Unmarshal(exB, &ex); err != nil {
+	if err := yaml.Unmarshal(v2DefaultConf, &ex); err != nil {
 		panic(err)
 	}
 
