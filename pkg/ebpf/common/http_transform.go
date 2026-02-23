@@ -100,8 +100,14 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		respContentLen = int64(event.RespLen)
 	}
 
+	reqType := request.EventType(event.Type)
+	headerHost := ""
+	if request.EventType(reqType) == request.EventTypeHTTPClient {
+		headerHost, _ = httpHostFromBuf(event.Buf[:])
+	}
+
 	httpSpan := request.Span{
-		Type:           request.EventType(event.Type),
+		Type:           reqType,
 		Method:         req.Method,
 		Path:           removeQuery(req.URL.String()),
 		Peer:           peer,
@@ -123,7 +129,7 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 			UserPID:   app.PID(event.Pid.UserPid),
 			Namespace: event.Pid.Ns,
 		},
-		Statement: scheme + request.SchemeHostSeparator + req.Host,
+		Statement: scheme + request.SchemeHostSeparator + headerHost,
 	}
 
 	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.AWS.Enabled {
@@ -159,7 +165,7 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		}
 	}
 
-	if isClientEvent(event.Type) {
+	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.OpenAI.Enabled {
 		span, ok := ebpfhttp.OpenAISpan(&httpSpan, req, resp)
 		if ok {
 			return span

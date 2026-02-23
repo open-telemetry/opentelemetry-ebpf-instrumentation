@@ -5,6 +5,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,23 +20,17 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	}
 	req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 
-	fmt.Printf("REQUEST\n")
-	// Print response headers
-	for key, values := range req.Header {
-		for _, v := range values {
-			fmt.Printf("header: %s: %s\n", key, v)
+	// Check any of the well known response headers that OpenAI would use
+	isOpenAI := false
+	for _, header := range []string{"Openai-Version", "Openai-Organization", "Openai-Project", "Openai-Processing-Ms"} {
+		if _, ok := resp.Header[header]; ok {
+			isOpenAI = true
+			break
 		}
 	}
 
-	fmt.Printf("%s\n", req.Body)
-
-	fmt.Printf("\n\n\nRESPONSE\n")
-
-	// Print response headers
-	for key, values := range resp.Header {
-		for _, v := range values {
-			fmt.Printf("header: %s: %s\n", key, v)
-		}
+	if !isOpenAI {
+		return *baseSpan, false
 	}
 
 	respB, err := getResponseBody(resp)
@@ -44,6 +39,19 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		return *baseSpan, false
 	}
 
-	fmt.Printf("response (body_err=%v): %s\n", err, string(respB))
-	return *baseSpan, false
+	fmt.Printf("****Request:\n%s\n", string(reqB))
+	fmt.Printf("****Response:\n%s\n", string(respB))
+
+	var parsedRequest request.OpenAIInput
+	_ = json.Unmarshal(reqB, &parsedRequest)
+
+	var parsedResponse request.OpenAI
+	_ = json.Unmarshal(respB, &parsedResponse)
+
+	parsedResponse.Request = parsedRequest
+
+	baseSpan.SubType = request.HTTPSubtypeOpenAI
+	baseSpan.OpenAI = &parsedResponse
+
+	return *baseSpan, true
 }

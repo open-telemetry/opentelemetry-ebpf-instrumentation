@@ -418,6 +418,39 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, request.AWSExtendedRequestID(sqs.Meta.ExtendedRequestID))
 			attrs = append(attrs, request.AWSSQSQueueURL(sqs.QueueURL))
 		}
+
+		if span.SubType == request.HTTPSubtypeOpenAI && span.OpenAI != nil {
+			ai := span.OpenAI
+			attrs = append(attrs, semconv.GenAIProviderNameOpenAI)
+			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
+			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
+			attrs = append(attrs, semconv.GenAIResponseModel(ai.ResponseModel))
+			if ai.FrequencyPenalty != 0 {
+				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.FrequencyPenalty))
+			}
+			if ai.Temperature != 0 {
+				attrs = append(attrs, semconv.GenAIRequestTemperature(ai.Temperature))
+			} else if ai.Request.Temperature != 0 {
+				attrs = append(attrs, semconv.GenAIRequestTemperature(ai.Request.Temperature))
+			}
+			if ai.TopP != 0 {
+				attrs = append(attrs, semconv.GenAIRequestTopP(ai.TopP))
+			}
+			attrs = append(attrs, semconv.GenAIUsageInputTokens(ai.Usage.GetInputTokens()))
+			attrs = append(attrs, semconv.GenAIUsageOutputTokens(ai.Usage.GetOutputTokens()))
+			attrs = append(attrs, semconv.GenAIInputMessagesKey.String(string(ai.Request.GetInput())))
+			attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(string(ai.GetOutput())))
+			if ai.Request.Instructions != "" {
+				attrs = append(attrs, semconv.GenAISystemInstructionsKey.String(ai.Request.Instructions))
+			}
+			// add error info
+			if ai.Error.Type != "" {
+				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
+				attrs = append(attrs, semconv.ErrorMessage(ai.Error.Message))
+			}
+		}
+
 	case request.EventTypeGRPCClient:
 		attrs = []attribute.KeyValue{
 			semconv.RPCMethod(span.Path),
