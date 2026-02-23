@@ -951,9 +951,28 @@
     },
     "MatchDefinition": {
       "properties": {
+        "equals": {
+          "type": "integer"
+        },
+        "greater_equals": {
+          "type": "integer"
+        },
+        "greater_than": {
+          "type": "integer",
+          "description": "Numerical comparison for e.g. http.code or timings"
+        },
+        "less_equals": {
+          "type": "integer"
+        },
+        "less_than": {
+          "type": "integer"
+        },
         "match": {
           "type": "string",
           "description": "Match stores the glob that a given attribute must match to let the record pass"
+        },
+        "not_equals": {
+          "type": "integer"
         },
         "not_match": {
           "type": "string",
