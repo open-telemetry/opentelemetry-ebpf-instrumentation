@@ -700,6 +700,9 @@ func HTTPSpanStatusCode(span *Span) string {
 
 	if span.Type == EventTypeHTTPClient {
 		if span.Status < 400 {
+			// this is possibly not needed, because in my experiments they
+			// respond with 429, but just to be correct according to the OTel
+			// GenAI spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/openai/
 			if span.SubType == HTTPSubtypeOpenAI && span.OpenAI != nil {
 				if span.OpenAI.Error.Type != "" {
 					return StatusCodeError
