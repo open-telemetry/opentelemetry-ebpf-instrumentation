@@ -174,10 +174,18 @@ jobs:
             images+="${tag}@${DIGEST} "
           done
           cosign sign --yes ${images}
+          verified=false
           for i in 1 2 3 4 5; do
-            cosign verify ${images} \
+            if cosign verify ${images} \
               --certificate-identity-regexp='.*' \
-              --certificate-oidc-issuer='https://token.actions.githubusercontent.com' && break
+              --certificate-oidc-issuer='https://token.actions.githubusercontent.com'; then
+              verified=true
+              break
+            fi
             echo "Verify attempt $i failed, retrying in 10s..."
             sleep 10
           done
+          if [ "$verified" != "true" ]; then
+            echo "Failed to verify cosign signatures after 5 attempts"
+            exit 1
+          fi
