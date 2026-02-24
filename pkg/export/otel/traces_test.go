@@ -708,7 +708,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		require.Equal(t, 1, traces.ResourceSpans().Len())
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
@@ -737,7 +737,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.GenAIInput: {}})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, "How do I check if a Python object is an instance of a class?")
@@ -755,7 +755,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.GenAIOutput: {}})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOutputMessagesKey, `[{"type":"message","role":"assistant","content":"Arrr!"}]`)
@@ -775,7 +775,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.GenAIInstructions: {}})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, "You are a coding assistant that talks like a pirate.")
@@ -792,7 +792,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.GenAIInstructions: {}})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAISystemInstructionsKey)
@@ -819,7 +819,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			attr.GenAIOutput:       {},
 			attr.GenAIInstructions: {},
 		})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, "How do I check if a Python object is an instance of a class?")
@@ -837,7 +837,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.GenAIMetadata: {}})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, spanAttrs, attribute.Key(attr.GenAIMetadata), `{"session_id":"sess_42","user":"alice"}`)
@@ -853,7 +853,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.GenAIMetadata: {}})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key(attr.GenAIMetadata))
@@ -869,7 +869,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{}) // GenAIMetadata NOT in optional set
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key(attr.GenAIMetadata))
@@ -886,7 +886,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "insufficient_quota")
@@ -912,7 +912,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			attr.GenAIInput:  {},
 			attr.GenAIOutput: {},
 		})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "openai")
@@ -936,7 +936,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		v, ok := spanAttrs.Get(string(semconv.GenAIRequestTemperatureKey))
@@ -958,7 +958,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			attr.GenAIOutput:       {},
 			attr.GenAIInstructions: {},
 		})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, "host-id", groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIProviderNameKey)
