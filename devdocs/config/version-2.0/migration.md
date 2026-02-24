@@ -29,6 +29,8 @@ It will be up to these callers to deterine:
 
 It is assumed that users that need SDK will use the `go.opentelemetry.io/contrib/otelconf` package to parse top-level objects of the declartive config accordingly.
 SDK object contruction is outside the v2 configuration package scope and configuration for that portion of the configuration will be ignored.
+The OBI v2 configuration package only parses and validates `extensions.obi`.
+It does not merge or translate `instrumentation/development` into OBI-owned settings.
 
 ### Backward compatibility behavior
 
@@ -43,6 +45,7 @@ From this, the v2 configuration pacakge will behave as follows:
 - If config is not v2 (including detectable v1 shape), return a structured version error with actionable guidance.
 - Caller decides fallback behavior (for example, route to legacy v1 parsing/setup path).
 - The v2 parser does not perform legacy setup or implicit v1→v2 translation.
+- If both `extensions.obi` and `instrumentation/development` are present, OBI behavior is sourced from `extensions.obi` only.
 
 Going forward, the configuration package may need to add support for future versions (i.e. v3).
 It will be structured in a way to seamlessly support these new configuration files.

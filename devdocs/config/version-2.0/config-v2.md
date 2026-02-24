@@ -25,6 +25,7 @@ To ensure that the redesign is guided by consistent values and priorities, we de
 - **One concern, one place**
   - Every concern has one canonical home.
   - Avoid parallel knobs for the same behavior across sections.
+  - OBI-specific concerns remain under `extensions.obi`, independent of generic instrumentation sections.
 
 - **Compatible with OpenTelemetry declarative configuartion**
   - Top-level OTel is authoritative for pipeline semantics:
@@ -33,6 +34,9 @@ To ensure that the redesign is guided by consistent values and priorities, we de
   - OBI-specific behavior lives under `extensions.obi`:
     - Runtime capture, selection, protocol controls, enrichment, and OBI limits are extension concerns.
     - OBI config should stay namespaced and composable.
+  - Ownership boundary:
+    - `instrumentation/development` is not merged into OBI-specific controls.
+    - OBI behavior is configured through `extensions.obi` only.
 
 - **Protocol-local ownership over global toggles**
   - Protocol behavior should be configured under each protocol section.
@@ -377,3 +381,24 @@ Important mapping notes:
 
 - Migration, validation, and tooling plan: [migration.md](migration.md)
 - OBI extension schema artifact: [obi-extension.schema.json](obi-extension.schema.json)
+
+## Appendix: upstream alignment status (2026-02-24)
+
+The OTel declarative schema does not currently define `extensions` as a first-class root node,
+but the root schema allows additional properties and does not explicitly exclude it.
+
+After review and discussion in upstream issues:
+
+- Placement discussion: https://github.com/open-telemetry/opentelemetry-configuration/issues/335
+- OBI comment with context: https://github.com/open-telemetry/opentelemetry-configuration/issues/335#issuecomment-3954773010
+- Ownership/overlap follow-up: https://github.com/open-telemetry/opentelemetry-configuration/issues/545
+
+Decision for OBI v2:
+
+- Keep `extensions.obi` as the canonical OBI-owned configuration namespace.
+- Keep top-level declarative OTel sections authoritative for pipeline semantics.
+- Do not treat `instrumentation/development` as an OBI configuration source.
+
+This is an intentional middle-ground while upstream schema guidance evolves.
+OBI will support `extensions.obi` with its own parser and validation rules until a better
+standardized schema location is available.
