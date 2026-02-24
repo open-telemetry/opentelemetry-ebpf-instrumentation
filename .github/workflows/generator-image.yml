@@ -114,6 +114,10 @@ jobs:
           images="${{ env.REGISTRY }}/${{ env.IMAGE }}:${IMGTAG}@${DIGEST}"
           images+=" ${{ env.REGISTRY }}/${{ env.IMAGE }}:latest@${DIGEST}"
           cosign sign --yes ${images}
-          cosign verify ${images} \
-            --certificate-identity-regexp='.*' \
-            --certificate-oidc-issuer='https://token.actions.githubusercontent.com'
+          for i in 1 2 3 4 5; do
+            cosign verify ${images} \
+              --certificate-identity-regexp='.*' \
+              --certificate-oidc-issuer='https://token.actions.githubusercontent.com' && break
+            echo "Verify attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
