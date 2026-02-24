@@ -5,10 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import urllib.request
 from pathlib import Path
 
 import yaml
 from jsonschema import Draft202012Validator
+
+
+DEFAULT_OTEL_SCHEMA_URL = (
+    "https://raw.githubusercontent.com/open-telemetry/opentelemetry-configuration/"
+    "49c531f78f86b85e220ec23c5be1a925254f0f9d/opentelemetry_configuration.json"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,6 +47,17 @@ def parse_args() -> argparse.Namespace:
         default=20,
         help="Maximum number of validation errors to print.",
     )
+    parser.add_argument(
+        "--otel-schema-url",
+        type=str,
+        default=DEFAULT_OTEL_SCHEMA_URL,
+        help="URL for full-document OTel declarative JSON schema validation.",
+    )
+    parser.add_argument(
+        "--skip-otel",
+        action="store_true",
+        help="Skip full-document OTel declarative schema validation.",
+    )
     return parser.parse_args()
 
 
@@ -50,6 +68,14 @@ def get_subtree(data: object, dot_path: str) -> object:
             raise KeyError(f"Missing path segment: {key}")
         current = current[key]
     return current
+
+
+def print_errors(errors: list, max_errors: int) -> None:
+    for err in errors[: max(max_errors, 1)]:
+        path = ".".join(str(x) for x in err.path) or "<root>"
+        print(f"- {path}: {err.message}")
+    if len(errors) > max_errors:
+        print(f"... {len(errors) - max_errors} more error(s) omitted")
 
 
 def main() -> int:
@@ -77,22 +103,43 @@ def main() -> int:
     errors = sorted(validator.iter_errors(instance), key=lambda err: list(err.path))
 
     if not errors:
+        print(f"OBI VALID: {args.config} -> {args.subtree} conforms to {args.schema}")
+    else:
         print(
-            f"VALID: {args.config} -> {args.subtree} conforms to {args.schema}"
+            f"OBI INVALID: {args.config} -> {args.subtree} has {len(errors)} validation error(s)"
         )
-        return 0
+        print_errors(errors, args.max_errors)
 
-    print(
-        f"INVALID: {args.config} -> {args.subtree} has {len(errors)} validation error(s)"
-    )
-    for err in errors[: max(args.max_errors, 1)]:
-        path = ".".join(str(x) for x in err.path) or "<root>"
-        print(f"- {path}: {err.message}")
+    otel_errors = []
+    if args.skip_otel:
+        print("OTEL SKIPPED: full-document OTel validation disabled by --skip-otel")
+    else:
+        try:
+            with urllib.request.urlopen(args.otel_schema_url, timeout=30) as response:
+                otel_schema = json.load(response)
+        except Exception as exc:
+            print(
+                f"Failed to load OTel schema from {args.otel_schema_url}: {exc}",
+                file=sys.stderr,
+            )
+            return 2
 
-    if len(errors) > args.max_errors:
-        print(f"... {len(errors) - args.max_errors} more error(s) omitted")
+        otel_validator = Draft202012Validator(otel_schema)
+        otel_errors = sorted(
+            otel_validator.iter_errors(document), key=lambda err: list(err.path)
+        )
 
-    return 1
+        if not otel_errors:
+            print(
+                f"OTEL VALID: {args.config} conforms to OTel schema from {args.otel_schema_url}"
+            )
+        else:
+            print(
+                f"OTEL INVALID: {args.config} has {len(otel_errors)} validation error(s)"
+            )
+            print_errors(otel_errors, args.max_errors)
+
+    return 0 if not errors and (args.skip_otel or not otel_errors) else 1
 
 
 if __name__ == "__main__":

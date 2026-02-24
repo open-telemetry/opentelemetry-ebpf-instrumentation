@@ -2,7 +2,7 @@
 # Values are mapped from current defaults in pkg/obi/DefaultConfig.
 
 # OTel declarative document version.
-version: '1.0-rc.1'
+file_format: '1.0-rc.1'
 
 # Standard OTel resource attributes (service.name, service.namespace, etc.).
 resource: {}
@@ -11,79 +11,37 @@ propagator: {}
 
 # Trace pipeline definition (OTel-native). OBI-specific tracing controls live under extensions.obi.*.
 tracer_provider:
-  # Trace exporters (where traces are sent).
-  exporters:
-    otlp:
-      # Collector/backend endpoint. Empty means inherited/default behavior.
-      endpoint: ""
-      # Transport protocol (for example grpc, http/protobuf) when explicitly set.
-      protocol: ""
-      # TLS verification skip toggle for development/testing scenarios.
-      insecure_skip_verify: false
   # Trace processors applied before export.
   processors:
-    batch:
-      # Max in-memory queue before flush.
-      max_queue_size: 4096
-      # Max wait before batch flush.
-      timeout: 15s
-      # Retry/backoff tuning for exporter sends.
-      backoff:
-        initial_interval: 0s
-        max_interval: 0s
-        max_elapsed_time: 0s
-  # Trace sampler policy (OTel SDK sampler configuration).
-  sampler:
-    name: ""
-    arg: ""
-  # Protocol instrumentation classes whose traces are emitted.
-  instrumentations:
-    - http
-    - grpc
-    - sql
-    - redis
-    - kafka
-    - mqtt
-    - mongo
-    - couchbase
-  # Per-service reporter cache size.
-  reporters_cache_len: 256
+    - batch:
+        # Max in-memory queue before flush.
+        max_queue_size: 4096
+        # Delay interval between batch exports in milliseconds.
+        schedule_delay: 15000
+        # Trace exporter.
+        exporter:
+          otlp_grpc:
+            endpoint: ""
+            tls:
+              insecure: false
 
 # Metrics pipeline definition (OTel-native). OBI-specific metric behavior lives under extensions.obi.*.
 meter_provider:
   # Metric readers/exporters.
   readers:
-    otlp:
-      endpoint: ""
-      protocol: ""
-      insecure_skip_verify: false
-      # Metrics export interval.
-      interval: 60s
-    prometheus:
-      # Enables built-in Prometheus scrape endpoint.
-      enabled: false
-      port: 0
-      path: /metrics
-      disable_build_info: false
-  # Aggregation/view behavior for metrics.
-  views:
-    histogram_aggregation: explicit_bucket_histogram
-    # Bucket presets used for RED histograms.
-    buckets:
-      duration_histogram: [0, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10]
-      request_size_histogram: [0, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
-      response_size_histogram: [0, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
-  # Protocol instrumentation classes whose metrics are emitted.
-  instrumentations:
-    - "*"
-  # Metric time-to-live and cache sizing controls.
-  ttl: 5m0s
-  reporters_cache_len: 256
-  allow_service_graph_self_references: false
-  span_metrics_service_cache_size: 10000
-  # Extra resource attrs attached to emitted metrics/traces when configured.
-  extra_resource_attributes: []
-  extra_span_resource_attributes: []
+    - periodic:
+        # Metrics export interval in milliseconds.
+        interval: 60000
+        exporter:
+          otlp_grpc:
+            endpoint: ""
+            default_histogram_aggregation: explicit_bucket_histogram
+            tls:
+              insecure: false
+    - pull:
+        exporter:
+          prometheus/development:
+            port: 0
 
 extensions:
   obi:
@@ -508,8 +466,20 @@ extensions:
     operations:
       # Runtime limits and guardrails.
       limits:
-        network_packets: 0
+        network_packets: 5000
         metric_span_names: 100
+      # Signal/exporter tuning.
+      telemetry:
+        traces:
+          reporters_cache_len: 256
+        metrics:
+          ttl: 5m0s
+          reporters_cache_len: 256
+          prometheus:
+            allow_service_graph_self_references: false
+            span_metrics_service_cache_size: 10000
+            extra_resource_attributes: []
+            extra_span_resource_attributes: []
       # Runtime capture internals, safety/perf/debug toggles.
       capture:
         debug:

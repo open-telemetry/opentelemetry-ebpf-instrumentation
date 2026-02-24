@@ -2,9 +2,12 @@ package main
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -23,6 +26,15 @@ func asMap(v any) map[string]any {
 func get(root map[string]any, path ...string) (any, bool) {
 	cur := any(root)
 	for i, p := range path {
+		if arr, ok := cur.([]any); ok {
+			idx, err := strconv.Atoi(p)
+			if err != nil || idx < 0 || idx >= len(arr) {
+				return nil, false
+			}
+			cur = arr[idx]
+			continue
+		}
+
 		m := asMap(cur)
 		if m == nil {
 			return nil, false
@@ -63,6 +75,46 @@ func mustEq(cur map[string]any, ex map[string]any, curPath []string, exPath []st
 	if fmt.Sprintf("%v", cv) != fmt.Sprintf("%v", ev) {
 		return fmt.Errorf("mismatch current %v=%v example %v=%v", curPath, cv, exPath, ev)
 	}
+	return nil
+}
+
+func mustEqDurationToMilliseconds(cur map[string]any, ex map[string]any, curPath []string, exPath []string) error {
+	cv, ok := get(cur, curPath...)
+	if !ok {
+		return fmt.Errorf("missing current key %v", curPath)
+	}
+	ev, ok := get(ex, exPath...)
+	if !ok {
+		return fmt.Errorf("missing example key %v", exPath)
+	}
+
+	curDuration, err := time.ParseDuration(fmt.Sprintf("%v", cv))
+	if err != nil {
+		return fmt.Errorf("invalid current duration %v=%v", curPath, cv)
+	}
+
+	var exMillis int64
+	switch value := ev.(type) {
+	case int:
+		exMillis = int64(value)
+	case int64:
+		exMillis = value
+	case float64:
+		exMillis = int64(value)
+	case string:
+		parsed, parseErr := strconv.ParseInt(value, 10, 64)
+		if parseErr != nil {
+			return fmt.Errorf("invalid example milliseconds %v=%v", exPath, ev)
+		}
+		exMillis = parsed
+	default:
+		return fmt.Errorf("unsupported example milliseconds type for %v=%v", exPath, ev)
+	}
+
+	if curDuration.Milliseconds() != exMillis {
+		return fmt.Errorf("mismatch current %v=%vms example %v=%v", curPath, curDuration.Milliseconds(), exPath, exMillis)
+	}
+
 	return nil
 }
 
@@ -338,18 +390,19 @@ func main() {
 		{[]string{"routes", "wildcard_char"}, []string{"obi", "instrumentation", "http", "routes", "wildcard_char"}},
 		{[]string{"routes", "max_path_segment_cardinality"}, []string{"obi", "instrumentation", "http", "routes", "max_path_segment_cardinality"}},
 
-		{[]string{"otel_metrics_export", "histogram_aggregation"}, []string{"meter_provider", "views", "histogram_aggregation"}},
-		{[]string{"otel_metrics_export", "reporters_cache_len"}, []string{"meter_provider", "reporters_cache_len"}},
-		{[]string{"otel_metrics_export", "ttl"}, []string{"meter_provider", "ttl"}},
+		{[]string{"otel_metrics_export", "histogram_aggregation"}, []string{"meter_provider", "readers", "0", "periodic", "exporter", "otlp_grpc", "default_histogram_aggregation"}},
+		{[]string{"otel_metrics_export", "reporters_cache_len"}, []string{"obi", "operations", "telemetry", "metrics", "reporters_cache_len"}},
+		{[]string{"otel_metrics_export", "ttl"}, []string{"obi", "operations", "telemetry", "metrics", "ttl"}},
+		{[]string{"otel_metrics_export", "extra_span_resource_attributes"}, []string{"obi", "operations", "telemetry", "metrics", "prometheus", "extra_span_resource_attributes"}},
 
-		{[]string{"otel_traces_export", "max_queue_size"}, []string{"tracer_provider", "processors", "batch", "max_queue_size"}},
-		{[]string{"otel_traces_export", "batch_timeout"}, []string{"tracer_provider", "processors", "batch", "timeout"}},
-		{[]string{"otel_traces_export", "sampler", "name"}, []string{"tracer_provider", "sampler", "name"}},
-		{[]string{"otel_traces_export", "sampler", "arg"}, []string{"tracer_provider", "sampler", "arg"}},
-		{[]string{"otel_traces_export", "reporters_cache_len"}, []string{"tracer_provider", "reporters_cache_len"}},
+		{[]string{"otel_traces_export", "max_queue_size"}, []string{"tracer_provider", "processors", "0", "batch", "max_queue_size"}},
+		{[]string{"otel_traces_export", "reporters_cache_len"}, []string{"obi", "operations", "telemetry", "traces", "reporters_cache_len"}},
 
-		{[]string{"prometheus_export", "path"}, []string{"meter_provider", "readers", "prometheus", "path"}},
-		{[]string{"prometheus_export", "service_cache_size"}, []string{"meter_provider", "span_metrics_service_cache_size"}},
+		{[]string{"prometheus_export", "port"}, []string{"meter_provider", "readers", "1", "pull", "exporter", "prometheus/development", "port"}},
+		{[]string{"prometheus_export", "service_cache_size"}, []string{"obi", "operations", "telemetry", "metrics", "prometheus", "span_metrics_service_cache_size"}},
+		{[]string{"prometheus_export", "allow_service_graph_self_references"}, []string{"obi", "operations", "telemetry", "metrics", "prometheus", "allow_service_graph_self_references"}},
+		{[]string{"prometheus_export", "extra_resource_attributes"}, []string{"obi", "operations", "telemetry", "metrics", "prometheus", "extra_resource_attributes"}},
+		{[]string{"prometheus_export", "extra_span_resource_attributes"}, []string{"obi", "operations", "telemetry", "metrics", "prometheus", "extra_span_resource_attributes"}},
 
 		{[]string{"log_level"}, []string{"obi", "operations", "logging", "level"}},
 		{[]string{"trace_printer"}, []string{"obi", "operations", "logging", "debug_trace_output"}},
@@ -378,6 +431,16 @@ func main() {
 			fmt.Println("FAIL:", err)
 			failures++
 		}
+	}
+
+	if err := mustEqDurationToMilliseconds(
+		cur,
+		ex,
+		[]string{"otel_traces_export", "batch_timeout"},
+		[]string{"tracer_provider", "processors", "0", "batch", "schedule_delay"},
+	); err != nil {
+		fmt.Println("FAIL:", err)
+		failures++
 	}
 
 	if failures > 0 {
@@ -415,5 +478,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("feature parity verification passed: %d mapped default checks\n", len(checks)+5)
+	fmt.Printf("feature parity verification passed: %d mapped default checks\n", len(checks)+6)
 }

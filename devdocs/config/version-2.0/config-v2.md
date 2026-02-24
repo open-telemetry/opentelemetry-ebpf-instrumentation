@@ -114,11 +114,11 @@ To ground this redesign in user needs, we start with the top user journeys and e
 
 ### High-level shape
 
-At a high level, the target configuration shape is a standard [OpenTelemetry declarative configuration](https://github.com/open-telemetry/opentelemetry-configuration) document with a root `version` field and top-level sections for `resource`, `propagator`, `tracer_provider`, and `meter_provider`.
+At a high level, the target configuration shape is a standard [OpenTelemetry declarative configuration](https://github.com/open-telemetry/opentelemetry-configuration) document with a root `file_format` field and top-level sections for `resource`, `propagator`, `tracer_provider`, and `meter_provider`.
 All OBI-specific configuration lives under `extensions.obi`, which includes user-facing controls for selection, instrumentation, network observability, enrichment, optimization, and operations.
 
 ```yaml
-version: '1.0-rc.1'
+file_format: '1.0-rc.1'
 
 resource: {}
 propagator: {}
@@ -184,6 +184,7 @@ extensions:
 
     operations:
       limits: {}
+      telemetry: {}
       capture: {}
       logging: {}
       profiling: {}
@@ -228,9 +229,9 @@ The `extensions.obi.network` section defines how network observability is config
 
 The `extensions.obi.enrich` section defines enrichment behavior for telemetry, including service naming policy, and general attribute enrichment rules. This section allows users to configure how OBI adds contextual information to telemetry based on various sources.
 
-#### `operation` Section
+#### `operations` Section
 
-The `extensions.obi.operations` section defines runtime and operational controls for OBI, including limits, capture behavior, logging configuration, profiling options, shutdown behavior, safety controls, and internal metrics configuration. This section is the primary user control for defining how OBI operates in production environments.
+The `extensions.obi.operations` section defines runtime and operational controls for OBI, including limits, telemetry tuning, capture behavior, logging configuration, profiling options, shutdown behavior, safety controls, and internal metrics configuration. This section is the primary user control for defining how OBI operates in production environments.
 
 ### Compatibility and mapping from v1
 
@@ -239,9 +240,14 @@ Use the table below to find any v1 field and its v2 canonical location.
 
 Important mapping notes:
 
-- Export pipeline ownership moved to top-level OTel declarative sections:
-  - `otel_metrics_export.*` and `prometheus_export.*` → `meter_provider.*`
-  - `otel_traces_export.*` (including sampler) → `tracer_provider.*`
+- OTel pipeline structure ownership moved to top-level declarative sections:
+  - `otel_metrics_export` pipeline structure and transport settings → `meter_provider.*`
+  - `prometheus_export.path` → `meter_provider.*`
+  - `otel_traces_export` pipeline structure and transport/sampler settings → `tracer_provider.*`
+- OBI runtime telemetry tuning is mapped under `extensions.obi.operations.telemetry`:
+  - Common metric tuning stays under `extensions.obi.operations.telemetry.metrics`.
+  - Prometheus-specific metric tuning is grouped under `extensions.obi.operations.telemetry.metrics.prometheus`.
+  - Trace reporter cache tuning is under `extensions.obi.operations.telemetry.traces`.
 - Some mappings are non-1:1:
   - `filter.application` fans out to protocol+signal filters.
   - `filter.network` fans out to network signal filters.
@@ -320,17 +326,22 @@ Important mapping notes:
 | `network.sampling` | `extensions.obi.network.capture.flow_lifecycle.sampling` | Move |
 | `network.source` | `extensions.obi.network.capture.source` | Move |
 | `nodejs.enabled` | `extensions.obi.instrumentation.nodejs.enabled.{traces,metrics}` | Fan-out to both signals |
-| `otel_metrics_export.histogram_aggregation` | `meter_provider.views.histogram_aggregation` | OTel ownership move |
-| `otel_metrics_export.reporters_cache_len` | `meter_provider.reporters_cache_len` | OTel ownership move |
-| `otel_metrics_export.ttl` | `meter_provider.ttl` | OTel ownership move |
-| `otel_traces_export.batch_timeout` | `tracer_provider.processors.batch.timeout` | OTel ownership move |
-| `otel_traces_export.max_queue_size` | `tracer_provider.processors.batch.max_queue_size` | OTel ownership move |
-| `otel_traces_export.reporters_cache_len` | `tracer_provider.reporters_cache_len` | OTel ownership move |
-| `otel_traces_export.sampler.arg` | `tracer_provider.sampler.arg` | OTel ownership move |
-| `otel_traces_export.sampler.name` | `tracer_provider.sampler.name` | OTel ownership move |
+| `otel_metrics_export.histogram_aggregation` | `meter_provider.readers[0].periodic.exporter.otlp_grpc.default_histogram_aggregation` | OTel ownership move + declarative reader/exporter shape |
+| `otel_metrics_export.reporters_cache_len` | `extensions.obi.operations.telemetry.metrics.reporters_cache_len` | Move to OBI-owned telemetry tuning |
+| `otel_metrics_export.ttl` | `extensions.obi.operations.telemetry.metrics.ttl` | Move to OBI-owned telemetry tuning |
+| `otel_metrics_export.extra_span_resource_attributes` | `extensions.obi.operations.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to OBI-owned telemetry tuning |
+| `otel_traces_export.batch_timeout` | `tracer_provider.processors[0].batch.schedule_delay` | OTel ownership move + rename + duration(ms) representation |
+| `otel_traces_export.max_queue_size` | `tracer_provider.processors[0].batch.max_queue_size` | OTel ownership move + declarative processor list shape |
+| `otel_traces_export.reporters_cache_len` | `extensions.obi.operations.telemetry.traces.reporters_cache_len` | Move to OBI-owned telemetry tuning |
+| `otel_traces_export.sampler.arg` | `tracer_provider.sampler` | OTel ownership move + semantic translation (no 1:1 arg field in declarative schema) |
+| `otel_traces_export.sampler.name` | `tracer_provider.sampler` | OTel ownership move + semantic translation (no 1:1 name field in declarative schema) |
 | `profile_port` | `extensions.obi.operations.profiling.port` | Move |
-| `prometheus_export.path` | `meter_provider.readers.prometheus.path` | OTel ownership move |
-| `prometheus_export.service_cache_size` | `meter_provider.span_metrics_service_cache_size` | OTel ownership move + rename |
+| `prometheus_export.allow_service_graph_self_references` | `extensions.obi.operations.telemetry.metrics.prometheus.allow_service_graph_self_references` | Move to OBI-owned telemetry tuning |
+| `prometheus_export.extra_resource_attributes` | `extensions.obi.operations.telemetry.metrics.prometheus.extra_resource_attributes` | Move to OBI-owned telemetry tuning |
+| `prometheus_export.extra_span_resource_attributes` | `extensions.obi.operations.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to OBI-owned telemetry tuning |
+| `prometheus_export.port` | `meter_provider.readers[1].pull.exporter.prometheus/development.port` | OTel ownership move + declarative reader/exporter shape |
+| `prometheus_export.path` | _No canonical OTel core path in current declarative schema_ | Distribution-specific/unsupported in current target shape |
+| `prometheus_export.service_cache_size` | `extensions.obi.operations.telemetry.metrics.prometheus.span_metrics_service_cache_size` | Move to OBI-owned telemetry tuning + rename |
 | `routes.max_path_segment_cardinality` | `extensions.obi.instrumentation.http.routes.max_path_segment_cardinality` | Move |
 | `routes.unmatched` | `extensions.obi.instrumentation.http.routes.unmatched` | Move |
 | `routes.wildcard_char` | `extensions.obi.instrumentation.http.routes.wildcard_char` | Move |
