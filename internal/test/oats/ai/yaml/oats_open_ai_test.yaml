@@ -1,0 +1,45 @@
+docker-compose:
+  generator: generic
+  files:
+    - ../docker-compose-open-ai.yml
+input:
+  - path: '/messages'
+  - path: '/error'
+  - path: '/chat'
+  - path: '/conversations'
+
+interval: 500ms
+expected:
+  traces:
+    # Messages API call
+    - traceql: '{ .gen_ai.provider.name = "openai" && .gen_ai.request.model = "gpt-5-mini" && .gen_ai.response.id = "resp_09687a288637e2be006998ad7af05481a2bb0938f77da5a9db"}'
+      spans:
+        - name: 'response gpt-5-mini'
+          attributes:
+            gen_ai.input.messages: "How do I check if a Python object is an instance of a class?"
+            gen_ai.operation.name: response
+            gen_ai.system_instructions: "You are a coding assistant that talks like a pirate."
+            gen_ai.response.model: "gpt-5-mini-2025-08-07"
+    # Error returned by OpenAI
+    - traceql: '{ .error.type = "insufficient_quota" && .gen_ai.request.model = "gpt-5-mini"}'
+      spans:
+        - name: 'POST /v1/responses'
+          attributes:
+            gen_ai.input.messages: "How do I check if a Python object is an instance of a class?"
+            gen_ai.system_instructions: "You are a coding assistant that talks like a pirate."
+            gen_ai.provider.name: "openai"
+    # Chat completion
+    - traceql: '{ .gen_ai.provider.name = "openai" && .gen_ai.request.model = "gpt-4o-mini"}'
+      spans:
+        - name: 'chat.completion gpt-4o-mini'
+          attributes:
+            gen_ai.operation.name: chat.completion
+            gen_ai.response.model: "gpt-4o-mini-2024-07-18"
+            gen_ai.usage.output_tokens: 816
+    # Conversations
+    - traceql: '{ .gen_ai.provider.name = "openai" && .gen_ai.request.model = "gpt-5-mini" && .gen_ai.response.id = "conv_699c949418b08194ba11beed9ba85d9607f4edeb470fde91"}'
+      spans:
+        - name: 'conversation gpt-5-mini'
+          attributes:
+            gen_ai.operation.name: conversation
+            gen_ai.conversation.id: "conv_699c949418b08194ba11beed9ba85d9607f4edeb470fde91"

@@ -30,7 +30,6 @@ async def error_messages():
         "model": "gpt-5-mini",
     }
     resp = requests.post(f"{OPENAI_BASE_URL}/v1/responses?error", json=payload)
-    resp.raise_for_status()
     return resp.json()
 
 @app.get("/chat")

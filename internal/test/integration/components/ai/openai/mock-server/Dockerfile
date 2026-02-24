@@ -9,12 +9,10 @@ ENV GOARCH=$TARGETARCH
 WORKDIR /src
 
 # Copy the go manifests and source
-COPY internal/test/ internal/test/
-COPY go.mod go.mod
-COPY go.sum go.sum
+COPY main.go main.go
 
 # Build
-RUN go build -o openai-mock ./internal/test/integration/components/ai/openai/
+RUN go build -o openai-mock main.go
 
 # Create final image from minimal + built binary
 FROM debian:bookworm-slim@sha256:98f4b71de414932439ac6ac690d7060df1f27161073c5036a7553723881bffbe
