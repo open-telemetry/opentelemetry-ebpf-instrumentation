@@ -97,6 +97,70 @@
         }
       }
     },
+    "SelectionExportsOTLP": {
+      "type": "object",
+      "description": "Match predicate for detecting workloads that already export OTLP.",
+      "additionalProperties": false,
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "OTLP receiver port expected on the target workload.\nValue must be between 1 and 65535.\n"
+        },
+        "protocol": {
+          "type": "string",
+          "description": "OTLP transport/protocol identifier expected on the target workload (for example `protobuf`).\n"
+        }
+      },
+      "required": ["port", "protocol"]
+    },
+    "SelectionProcessMatch": {
+      "type": "object",
+      "description": "Process-level selection predicates.",
+      "additionalProperties": true,
+      "properties": {
+        "exe_path_glob": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Glob patterns matched against process executable paths.\n"
+        },
+        "exports_otlp": {
+          "$ref": "#/$defs/SelectionExportsOTLP",
+          "description": "Predicate matching workloads that expose OTLP exports.\n"
+        }
+      }
+    },
+    "SelectionKubernetesMatch": {
+      "type": "object",
+      "description": "Kubernetes-level selection predicates.",
+      "additionalProperties": true,
+      "properties": {
+        "namespace_glob": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Glob patterns matched against Kubernetes namespace names.\n"
+        }
+      }
+    },
+    "SelectionRuleMatch": {
+      "type": "object",
+      "description": "Rule match clause with light validation for known predicates while remaining extensible.",
+      "minProperties": 1,
+      "additionalProperties": true,
+      "properties": {
+        "process": {
+          "$ref": "#/$defs/SelectionProcessMatch",
+          "description": "Process identity and runtime predicate matches.\n"
+        },
+        "kubernetes": {
+          "$ref": "#/$defs/SelectionKubernetesMatch",
+          "description": "Kubernetes metadata predicate matches.\n"
+        }
+      }
+    },
     "Selection": {
       "type": "object",
       "description": "Selection policy and rule list controlling which workloads are included or excluded.",
@@ -219,8 +283,8 @@
                 "description": "Human-readable rule intent.\nIf omitted, no description is recorded.\n"
               },
               "match": {
-                "type": "object",
-                "description": "Rule match clause. Structure is implementation-defined and may contain nested predicates.\nProperty is required and must be non-null.\n"
+                "$ref": "#/$defs/SelectionRuleMatch",
+                "description": "Rule match clause. Known predicates are lightly validated while extension predicates remain allowed.\nProperty is required and must be non-null.\n"
               }
             },
             "required": ["action", "match"]
