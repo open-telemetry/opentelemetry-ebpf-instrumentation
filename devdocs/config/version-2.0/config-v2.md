@@ -252,7 +252,7 @@ Important mapping notes:
   - `filter.application` fans out to protocol+signal filters.
   - `filter.network` fans out to network signal filters.
   - `metrics.features` maps to protocol metric enablement and network capture enablement.
-  - `discovery.skip_go_specific_tracers` maps to `instrumentation.go.enabled` with inverted semantics.
+  - `discovery.skip_go_specific_tracers` maps to `runtimes.go.enabled` with inverted semantics.
 
 | v1 field | v2 canonical location | Notes |
 |---|---|---|
@@ -271,7 +271,7 @@ Important mapping notes:
 | `discovery.min_process_age` | `extensions.obi.selection.policy.min_process_age` | Move |
 | `discovery.route_harvester_advanced.java_harvest_delay` | `extensions.obi.instrumentation.http.routes.discovery.java.delay` | Move + rename |
 | `discovery.route_harvester_timeout` | `extensions.obi.instrumentation.http.routes.discovery.timeout` | Move + rename |
-| `discovery.skip_go_specific_tracers` | `extensions.obi.instrumentation.go.enabled.{traces,metrics}` | Inverted boolean mapping |
+| `discovery.skip_go_specific_tracers` | `extensions.obi.runtimes.go.enabled` | Inverted boolean mapping |
 | `ebpf.batch_length` | `extensions.obi.operations.capture.batching.batch_length` | Move |
 | `ebpf.batch_timeout` | `extensions.obi.operations.capture.batching.batch_timeout` | Move |
 | `ebpf.bpf_fs_path` | `extensions.obi.operations.capture.bpf_filesystem.path` | Move + rename |
@@ -300,10 +300,10 @@ Important mapping notes:
 | `internal_metrics.bpf_metric_scrape_interval` | `extensions.obi.operations.internal_metrics.bpf.scrape_interval` | Move + rename |
 | `internal_metrics.exporter` | `extensions.obi.operations.internal_metrics.exporter` | Move |
 | `internal_metrics.prometheus.path` | `extensions.obi.operations.internal_metrics.prometheus.path` | Move |
-| `javaagent.attach_timeout` | `extensions.obi.instrumentation.java.attach_timeout` | Move |
-| `javaagent.debug` | `extensions.obi.instrumentation.java.debug.enabled` | Move + rename |
-| `javaagent.debug_instrumentation` | `extensions.obi.instrumentation.java.debug.bytecode_instrumentation` | Move + rename |
-| `javaagent.enabled` | `extensions.obi.instrumentation.java.enabled.{traces,metrics}` | Fan-out to both signals |
+| `javaagent.attach_timeout` | `extensions.obi.runtimes.java.attach_timeout` | Move |
+| `javaagent.debug` | `extensions.obi.runtimes.java.debug.enabled` | Move + rename |
+| `javaagent.debug_instrumentation` | `extensions.obi.runtimes.java.debug.bytecode_instrumentation` | Move + rename |
+| `javaagent.enabled` | `extensions.obi.runtimes.java.enabled` | Simplified to boolean |
 | `log_config` | `extensions.obi.operations.logging.format` | Move + rename |
 | `log_level` | `extensions.obi.operations.logging.level` | Move |
 | `metrics.features` | `extensions.obi.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.network.capture.enabled` | Split mapping |
@@ -325,7 +325,7 @@ Important mapping notes:
 | `network.reverse_dns.cache_expiry` | `extensions.obi.network.capture.enrichment.reverse_dns.cache.ttl` | Move + rename |
 | `network.sampling` | `extensions.obi.network.capture.flow_lifecycle.sampling` | Move |
 | `network.source` | `extensions.obi.network.capture.source` | Move |
-| `nodejs.enabled` | `extensions.obi.instrumentation.nodejs.enabled.{traces,metrics}` | Fan-out to both signals |
+| `nodejs.enabled` | `extensions.obi.runtimes.nodejs.enabled` | Simplified to boolean |
 | `otel_metrics_export.histogram_aggregation` | `meter_provider.readers[0].periodic.exporter.otlp_grpc.default_histogram_aggregation` | OTel ownership move + declarative reader/exporter shape |
 | `otel_metrics_export.reporters_cache_len` | `extensions.obi.operations.telemetry.metrics.reporters_cache_len` | Move to OBI-owned telemetry tuning |
 | `otel_metrics_export.ttl` | `extensions.obi.operations.telemetry.metrics.ttl` | Move to OBI-owned telemetry tuning |

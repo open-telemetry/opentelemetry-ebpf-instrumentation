@@ -17,7 +17,11 @@
     },
     "instrumentation": {
       "$ref": "#/$defs/Instrumentation",
-      "description": "Configure protocol and language instrumentation controls.\nIf omitted, per-protocol defaults are used.\n"
+      "description": "Configure protocol instrumentation controls.\nIf omitted, per-protocol defaults are used.\n"
+    },
+    "runtimes": {
+      "$ref": "#/$defs/Runtimes",
+      "description": "Configure runtime injection mechanisms (Go, Node.js, Java).\nIf omitted, runtime injection defaults are used.\n"
     },
     "network": {
       "$ref": "#/$defs/Network",
@@ -614,13 +618,22 @@
         "enabled_mode": { "type": "string", "default": "auto", "description": "GPU instrumentation mode.\nIf omitted, `auto` is used.\n" }
       }
     },
-    "JavaInstrumentation": {
+    "RuntimeInjection": {
       "type": "object",
-      "description": "Java instrumentation controls.",
+      "description": "Runtime injection mechanism configuration. Controls whether a runtime injection (Go probes, Node.js SIGUSR1, Java agent) is enabled for workloads selected via the global selection rules.",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "$ref": "#/$defs/SignalEnabled", "description": "Enable Java traces/metrics.\nIf omitted, signal defaults are used.\n" },
-        "filters": { "$ref": "#/$defs/SignalFilters", "description": "Signal-specific Java filters.\nIf omitted, no filtering is applied.\n" },
+        "enabled": { "type": "boolean", "default": true, "description": "Enable this runtime injection mechanism.\nIf omitted, true is used.\n" },
+        "filter": { "$ref": "#/$defs/FilterMap", "description": "Optional per-injector refinement filter.\nIf omitted, injection applies to all selected services.\n" }
+      }
+    },
+    "JavaRuntime": {
+      "type": "object",
+      "description": "Java runtime injection controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true, "description": "Enable Java agent injection.\nIf omitted, true is used.\n" },
+        "filter": { "$ref": "#/$defs/FilterMap", "description": "Optional per-injector refinement filter.\nIf omitted, injection applies to all selected services.\n" },
         "debug": {
           "type": "object",
           "additionalProperties": false,
@@ -630,6 +643,37 @@
           }
         },
         "attach_timeout": { "type": "string", "default": "10s", "description": "Java attach timeout.\nIf omitted, `10s` is used.\n" }
+      }
+    },
+    "Runtimes": {
+      "type": "object",
+      "description": "Runtime injection mechanism configurations. These control how language-specific runtime instrumentation is injected into workloads selected via the global selection rules.",
+      "additionalProperties": false,
+      "properties": {
+        "go": {
+          "$ref": "#/$defs/RuntimeInjection",
+          "description": "Go runtime instrumentation controls.\nIf omitted, Go injection defaults are used.\n",
+          "default": {
+            "enabled": true,
+            "filter": {}
+          }
+        },
+        "nodejs": {
+          "$ref": "#/$defs/RuntimeInjection",
+          "description": "Node.js runtime instrumentation controls.\nIf omitted, Node.js injection defaults are used.\n",
+          "default": {
+            "enabled": true,
+            "filter": {}
+          }
+        },
+        "java": {
+          "$ref": "#/$defs/JavaRuntime",
+          "description": "Java runtime instrumentation controls.\nIf omitted, Java injection defaults are used.\n",
+          "default": {
+            "enabled": true,
+            "filter": {}
+          }
+        }
       }
     },
     "Instrumentation": {
@@ -676,26 +720,6 @@
         "gpu": {
           "$ref": "#/$defs/GpuInstrumentation",
           "description": "GPU event instrumentation controls.\nIf omitted, GPU defaults are used.\n"
-        },
-        "java": {
-          "$ref": "#/$defs/JavaInstrumentation",
-          "description": "Java runtime instrumentation controls.\nIf omitted, Java defaults are used.\n"
-        },
-        "nodejs": {
-          "$ref": "#/$defs/InstrumentationProtocol",
-          "description": "Node.js runtime instrumentation controls.\nIf omitted, Node.js defaults are used.\n",
-          "default": {
-            "enabled": { "traces": true, "metrics": true },
-            "filters": {}
-          }
-        },
-        "go": {
-          "$ref": "#/$defs/InstrumentationProtocol",
-          "description": "Go runtime instrumentation controls.\nIf omitted, Go defaults are used.\n",
-          "default": {
-            "enabled": { "traces": true, "metrics": true },
-            "filters": {}
-          }
         }
       },
       "default": {
@@ -732,18 +756,6 @@
           "filters": {}
         },
         "gpu": {
-          "enabled": { "traces": true, "metrics": true },
-          "filters": {}
-        },
-        "java": {
-          "enabled": { "traces": true, "metrics": true },
-          "filters": {}
-        },
-        "nodejs": {
-          "enabled": { "traces": true, "metrics": true },
-          "filters": {}
-        },
-        "go": {
           "enabled": { "traces": true, "metrics": true },
           "filters": {}
         }

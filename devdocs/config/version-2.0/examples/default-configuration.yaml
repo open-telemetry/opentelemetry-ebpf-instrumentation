@@ -254,35 +254,43 @@ extensions:
           traces: {}
           metrics: {}
         enabled_mode: auto
-      # Java auto-attach and debug controls.
+
+    # Runtimes control injection of language-specific runtime instrumentation mechanisms.
+    # These are independent from protocol instrumentation (HTTP, gRPC, etc.) and are used
+    # to inject Go probes, Node.js SIGUSR1 signal handlers, or Java agents into workloads
+    # that match the global selection rules. The `enabled` flag controls whether to attempt
+    # injection; `filter` refines which selected services receive the injection.
+    runtimes:
+      # Go runtime instrumentation allows Go packages to be instrumented with probes.
+      # When enabled, Go services can use Go-specific probes. When disabled, they fall back
+      # to generic network-only instrumentation. Selection controls which services to target;
+      # filter provides per-injector refinement.
+      go:
+        enabled: true
+        # Optional filter to refine which selected services get Go instrumentation.
+        # By default (empty filter), all selected Go services receive instrumentation.
+        filter: {}
+      # Node.js runtime instrumentation allows Node.js services to be instrumented via
+      # SIGUSR1 signal injection. The enabled flag controls whether to attempt injection.
+      nodejs:
+        enabled: true
+        # Optional filter to refine which selected services get Node.js instrumentation.
+        # By default (empty filter), all selected Node.js services receive instrumentation.
+        filter: {}
+      # Java runtime instrumentation allows Java services to be instrumented via agent
+      # attachment. The enabled flag controls whether to attempt agent injection.
       java:
-        enabled:
-          traces: true
-          metrics: true
-        filters:
-          traces: {}
-          metrics: {}
+        enabled: true
+        # Optional filter to refine which selected services get Java instrumentation.
+        # By default (empty filter), all selected Java services receive instrumentation.
+        filter: {}
+        # Java-specific debug controls.
         debug:
           enabled: false
           bytecode_instrumentation: false
+        # Timeout for Java agent attachment.
         attach_timeout: 10s
-      # Node.js instrumentation toggle.
-      nodejs:
-        enabled:
-          traces: true
-          metrics: true
-        filters:
-          traces: {}
-          metrics: {}
-      go:
-        # Signal-specific enablement for Go package/library-level instrumentation.
-        # When both are false, Go services use generic network-only fallback behavior.
-        enabled:
-          traces: true
-          metrics: true
-        filters:
-          traces: {}
-          metrics: {}
+
     # network controls how network flow telemetry is captured and interpreted
     # for in-scope workloads (interfaces/protocols/cidrs, dedupe, enrichment, diagnostics).
     network:

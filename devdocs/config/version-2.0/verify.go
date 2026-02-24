@@ -252,19 +252,14 @@ func mustMapGoSpecificTracers(cur map[string]any, ex map[string]any) error {
 	}
 	currentSkip := fmt.Sprintf("%v", currentValue) == "true"
 
-	tracesEnabled, ok := get(ex, "obi", "instrumentation", "go", "enabled", "traces")
+	goEnabled, ok := get(ex, "obi", "runtimes", "go", "enabled")
 	if !ok {
-		return errors.New("missing example key [obi instrumentation go enabled traces]")
+		return errors.New("missing example key [obi runtimes go enabled]")
 	}
-	metricsEnabled, ok := get(ex, "obi", "instrumentation", "go", "enabled", "metrics")
-	if !ok {
-		return errors.New("missing example key [obi instrumentation go enabled metrics]")
-	}
-	enableTraces := fmt.Sprintf("%v", tracesEnabled) == "true"
-	enableMetrics := fmt.Sprintf("%v", metricsEnabled) == "true"
+	enableGo := fmt.Sprintf("%v", goEnabled) == "true"
 	wantEnabled := !currentSkip
-	if enableTraces != wantEnabled || enableMetrics != wantEnabled {
-		return fmt.Errorf("mismatch discovery.skip_go_specific_tracers=%v vs obi.instrumentation.go.enabled={traces:%v metrics:%v}", currentSkip, enableTraces, enableMetrics)
+	if enableGo != wantEnabled {
+		return fmt.Errorf("mismatch discovery.skip_go_specific_tracers=%v vs obi.runtimes.go.enabled=%v", currentSkip, enableGo)
 	}
 
 	return nil
@@ -276,7 +271,7 @@ func mustMapApplicationFiltersPerInstrumentation(cur map[string]any, ex map[stri
 		return errors.New("missing current key [filter application]")
 	}
 
-	protocols := []string{"http", "grpc", "sql", "redis", "kafka", "mongo", "couchbase", "dns", "gpu", "java", "nodejs", "go"}
+	protocols := []string{"http", "grpc", "sql", "redis", "kafka", "mongo", "couchbase", "dns", "gpu"}
 	signals := []string{"traces", "metrics"}
 
 	for _, protocol := range protocols {
@@ -417,13 +412,11 @@ func main() {
 		{[]string{"internal_metrics", "prometheus", "path"}, []string{"obi", "operations", "internal_metrics", "prometheus", "path"}},
 		{[]string{"internal_metrics", "bpf_metric_scrape_interval"}, []string{"obi", "operations", "internal_metrics", "bpf", "scrape_interval"}},
 
-		{[]string{"nodejs", "enabled"}, []string{"obi", "instrumentation", "nodejs", "enabled", "traces"}},
-		{[]string{"nodejs", "enabled"}, []string{"obi", "instrumentation", "nodejs", "enabled", "metrics"}},
-		{[]string{"javaagent", "enabled"}, []string{"obi", "instrumentation", "java", "enabled", "traces"}},
-		{[]string{"javaagent", "enabled"}, []string{"obi", "instrumentation", "java", "enabled", "metrics"}},
-		{[]string{"javaagent", "debug"}, []string{"obi", "instrumentation", "java", "debug", "enabled"}},
-		{[]string{"javaagent", "debug_instrumentation"}, []string{"obi", "instrumentation", "java", "debug", "bytecode_instrumentation"}},
-		{[]string{"javaagent", "attach_timeout"}, []string{"obi", "instrumentation", "java", "attach_timeout"}},
+		{[]string{"nodejs", "enabled"}, []string{"obi", "runtimes", "nodejs", "enabled"}},
+		{[]string{"javaagent", "enabled"}, []string{"obi", "runtimes", "java", "enabled"}},
+		{[]string{"javaagent", "debug"}, []string{"obi", "runtimes", "java", "debug", "enabled"}},
+		{[]string{"javaagent", "debug_instrumentation"}, []string{"obi", "runtimes", "java", "debug", "bytecode_instrumentation"}},
+		{[]string{"javaagent", "attach_timeout"}, []string{"obi", "runtimes", "java", "attach_timeout"}},
 	}
 
 	failures := 0
