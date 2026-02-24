@@ -27,6 +27,10 @@
       "$ref": "#/$defs/Enrich",
       "description": "Configure metadata enrichment behavior.\nIf omitted, enrichment defaults are used.\n"
     },
+    "correlation": {
+      "$ref": "#/$defs/Correlation",
+      "description": "Configure trace-context correlation features for external streams.\nIf omitted, correlation defaults are used.\n"
+    },
     "operations": {
       "$ref": "#/$defs/Operations",
       "description": "Configure operational guardrails and limits.\nIf omitted, operation defaults are used.\n"
@@ -456,34 +460,62 @@
               }
             }
           }
+        }
+      }
+    },
+    "TraceAnnotation": {
+      "type": "object",
+      "description": "Trace-context annotation controls for process logs.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable trace-context annotation on log streams for selected workloads.\nIf omitted, false is used.\n"
         },
-        "log_enrichment": {
+        "filter": {
+          "$ref": "#/$defs/FilterMap",
+          "description": "Attribute-based refinement filter for log trace annotation.\nApplied after selection admits a workload.\nIf omitted, no additional filtering is applied.\n"
+        },
+        "cache": {
           "type": "object",
-          "description": "HTTP log enrichment controls.",
           "additionalProperties": false,
           "properties": {
-            "services": {
-              "type": "array",
-              "items": { "type": "string" },
-              "default": [],
-              "description": "Services for which HTTP log enrichment is enabled.\nIf omitted, no service is explicitly enabled.\n"
-            },
-            "cache": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "ttl": { "type": "string", "default": "30m0s", "description": "HTTP log enrichment cache TTL.\nIf omitted, `30m0s` is used.\n" },
-                "size": { "type": "integer", "minimum": 0, "default": 128, "description": "HTTP log enrichment cache size.\nIf omitted, `128` is used.\n" }
-              }
-            },
-            "async_writer": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "workers": { "type": "integer", "minimum": 0, "default": 8, "description": "HTTP log enrichment async writer worker count.\nIf omitted, `8` is used.\n" },
-                "channel_len": { "type": "integer", "minimum": 0, "default": 500, "description": "HTTP log enrichment async writer channel length.\nIf omitted, `500` is used.\n" }
-              }
-            }
+            "ttl": { "type": "string", "default": "30m0s", "description": "Trace annotation cache TTL.\nIf omitted, `30m0s` is used.\n" },
+            "size": { "type": "integer", "minimum": 0, "default": 128, "description": "Trace annotation cache size.\nIf omitted, `128` is used.\n" }
+          }
+        },
+        "async_writer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "workers": { "type": "integer", "minimum": 0, "default": 8, "description": "Trace annotation async writer worker count.\nIf omitted, `8` is used.\n" },
+            "channel_len": { "type": "integer", "minimum": 0, "default": 500, "description": "Trace annotation async writer channel length.\nIf omitted, `500` is used.\n" }
+          }
+        }
+      }
+    },
+    "Correlation": {
+      "type": "object",
+      "description": "Trace-context correlation feature controls for external streams.",
+      "additionalProperties": false,
+      "properties": {
+        "log_trace_annotation": {
+          "$ref": "#/$defs/TraceAnnotation",
+          "description": "Trace-context annotation controls for process logs.\nIf omitted, defaults are used.\n"
+        }
+      },
+      "default": {
+        "log_trace_annotation": {
+          "enabled": false,
+          "filter": {},
+          "cache": {
+            "ttl": "30m0s",
+            "size": 128
+          },
+          "async_writer": {
+            "workers": 8,
+            "channel_len": 500
           }
         }
       }

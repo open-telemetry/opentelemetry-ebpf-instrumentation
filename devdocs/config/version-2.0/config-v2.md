@@ -282,10 +282,10 @@ Important mapping notes:
 | `ebpf.dns_request_timeout` | `extensions.obi.instrumentation.dns.request_timeout` | Move |
 | `ebpf.heuristic_sql_detect` | `extensions.obi.instrumentation.sql.heuristic_detect` | Move + rename |
 | `ebpf.kafka_topic_uuid_cache_size` | `extensions.obi.instrumentation.kafka.topic_uuid_cache_size` | Move |
-| `ebpf.log_enricher.cache_size` | `extensions.obi.instrumentation.http.log_enrichment.cache.size` | Move + rename |
-| `ebpf.log_enricher.cache_ttl` | `extensions.obi.instrumentation.http.log_enrichment.cache.ttl` | Move + rename |
-| `ebpf.log_enricher.async_writer_workers` | `extensions.obi.instrumentation.http.log_enrichment.async_writer.workers` | Move + rename |
-| `ebpf.log_enricher.async_writer_channel_len` | `extensions.obi.instrumentation.http.log_enrichment.async_writer.channel_len` | Move + rename |
+| `ebpf.log_enricher.cache_size` | `extensions.obi.correlation.log_trace_annotation.cache.size` | Move + rename |
+| `ebpf.log_enricher.cache_ttl` | `extensions.obi.correlation.log_trace_annotation.cache.ttl` | Move + rename |
+| `ebpf.log_enricher.async_writer_workers` | `extensions.obi.correlation.log_trace_annotation.async_writer.workers` | Move + rename |
+| `ebpf.log_enricher.async_writer_channel_len` | `extensions.obi.correlation.log_trace_annotation.async_writer.channel_len` | Move + rename |
 | `ebpf.max_transaction_time` | `extensions.obi.operations.capture.transactions.max_duration` | Move + rename |
 | `ebpf.mysql_prepared_statements_cache_size` | `extensions.obi.instrumentation.sql.mysql.prepared_statements_cache_size` | Move |
 | `ebpf.payload_extraction.http.graphql.enabled` | `extensions.obi.instrumentation.http.payload_extraction.graphql.enabled` | Move |
