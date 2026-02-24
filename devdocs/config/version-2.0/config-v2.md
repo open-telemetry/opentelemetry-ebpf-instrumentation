@@ -115,7 +115,7 @@ To ground this redesign in user needs, we start with the top user journeys and e
 ### High-level shape
 
 At a high level, the target configuration shape is a standard [OpenTelemetry declarative configuration](https://github.com/open-telemetry/opentelemetry-configuration) document with a root `file_format` field and top-level sections for `resource`, `propagator`, `tracer_provider`, and `meter_provider`.
-All OBI-specific configuration lives under `extensions.obi`, which includes user-facing controls for selection, instrumentation, network observability, enrichment, optimization, and operations.
+All OBI-specific configuration lives under `extensions.obi`, which includes user-facing controls for selection, instrumentation, runtime injection, network observability, enrichment, correlation, and operations.
 
 ```yaml
 file_format: '1.0-rc.1'
@@ -141,9 +141,6 @@ extensions:
       grpc:
         enabled: { traces: true, metrics: true }
         filters: { traces: {}, metrics: {} }
-      go:
-        enabled: { traces: true, metrics: true }
-        filters: { traces: {}, metrics: {} }
       sql:
         enabled: { traces: true, metrics: true }
         filters: { traces: {}, metrics: {} }
@@ -167,12 +164,24 @@ extensions:
       gpu:
         enabled: { traces: true, metrics: true }
         filters: { traces: {}, metrics: {} }
-      java:
-        enabled: { traces: true, metrics: true }
-        filters: { traces: {}, metrics: {} }
+
+    runtimes:
+      go:
+        enabled: true
+        filter: {}
       nodejs:
-        enabled: { traces: true, metrics: true }
-        filters: { traces: {}, metrics: {} }
+        enabled: true
+        filter: {}
+      java:
+        enabled: true
+        filter: {}
+        debug: {}
+        attach_timeout: 10s
+
+    correlation:
+      log_trace_annotation:
+        enabled: false
+        filter: {}
 
     network:
       capture: {}
@@ -217,9 +226,25 @@ This section is the primary user control for defining which services get instrum
 
 The `extension.obi.instrumentation` section defines protocol-specific instrumentation controls, including enablement and filtering for traces and metrics.
 
-All protocols (HTTP, gRPC, Go, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Java, Node.js) have a consistent base structure for defining whether traces and metrics are enabled and what filters apply to each signal.
+All protocols (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU) have a consistent base structure for defining whether traces and metrics are enabled and what filters apply to each signal.
 Each protocol can also have its own specific configuration subsections.
 For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP has `routes.discovery` for route harvesting controls, etc.
+
+#### `runtimes` Section
+
+The `extensions.obi.runtimes` section defines how language-specific runtime instrumentation injection mechanisms are controlled.
+These include Go probes, Node.js SIGUSR1 signal injection, and Java agent attachment.
+
+Unlike protocol instrumentation, runtimes are not about capturing specific telemetry signals—they are about *how* to instrument a service once it's selected.
+Each runtime has a simple structure: `enabled` (boolean) controls whether to attempt injection, and `filter` provides optional per-runtime refinement for which selected services receive the injection.
+Java also includes additional runtime-specific configuration such as debug controls and attachment timeout.
+
+#### `correlation` Section
+
+The `extensions.obi.correlation` section defines trace-context correlation features that propagate OBI-generated trace context into external streams.
+Unlike telemetry instrumentation (protocol signals), correlation features operate *after* traces are captured to enrich related observability data.
+
+For example, `log_trace_annotation` allows trace context to be injected into application logs from selected services, linking logs to traces through context correlation.
 
 #### `network` Section
 
