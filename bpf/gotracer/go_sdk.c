@@ -119,7 +119,7 @@ static __always_inline int tracer_start(struct pt_regs *ctx, u8 check_delegate) 
 
     // Getting span name
     void *span_name_ptr = GO_PARAM4(ctx);
-    u64 span_name_len = (u64)GO_PARAM5(ctx);
+    const u64 span_name_len = (u64)GO_PARAM5(ctx);
     read_span_name(span_info.name.buf, span_name_len, span_name_ptr);
 
     span_info.opts_ptr = (u64)GO_PARAM6(ctx);
@@ -148,7 +148,7 @@ static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_p
     u64 count = len;
     bpf_clamp_umax(count, 5);
     off_table_t *ot = get_offsets_table();
-    u64 sym_addr = go_offset_of(ot, (go_offset){.v = _tracer_attribute_opt_off});
+    const u64 sym_addr = go_offset_of(ot, (go_offset){.v = _tracer_attribute_opt_off});
     bpf_dbg_printk("lookup type off sym_addr: %llx", sym_addr);
 
     if (!sym_addr) {
@@ -304,7 +304,7 @@ int obi_uprobe_SetStatus(struct pt_regs *ctx) {
         return 0;
     }
 
-    u64 status_code = (u64)GO_PARAM2(ctx);
+    const u64 status_code = (u64)GO_PARAM2(ctx);
 
     void *description_ptr = GO_PARAM3(ctx);
     if (description_ptr == NULL) {
@@ -312,8 +312,8 @@ int obi_uprobe_SetStatus(struct pt_regs *ctx) {
     }
 
     // Getting span description
-    u64 description_len = (u64)GO_PARAM4(ctx);
-    u64 description_size =
+    const u64 description_len = (u64)GO_PARAM4(ctx);
+    const u64 description_size =
         MAX_STATUS_DESCRIPTION_LEN < description_len ? MAX_STATUS_DESCRIPTION_LEN : description_len;
     bpf_probe_read(span->span_description.buf, description_size, description_ptr);
 
@@ -337,7 +337,7 @@ int obi_uprobe_SetAttributes(struct pt_regs *ctx) {
     }
 
     void *attributes_usr_buf = GO_PARAM2(ctx);
-    u64 attributes_len = (u64)GO_PARAM3(ctx);
+    const u64 attributes_len = (u64)GO_PARAM3(ctx);
     convert_go_otel_attributes(attributes_usr_buf, attributes_len, &span->span_attrs);
 
     return 0;
@@ -367,7 +367,7 @@ int obi_uprobe_SetName(struct pt_regs *ctx) {
         return 0;
     }
 
-    u64 span_name_len = (u64)span_name_len_ptr;
+    const u64 span_name_len = (u64)span_name_len_ptr;
 
     read_span_name(span->span_name.buf, span_name_len, span_name_ptr);
 
@@ -389,7 +389,7 @@ int obi_uprobe_RecordError(struct pt_regs *ctx) {
     }
 
     void *opts_ptr = (void *)GO_PARAM4(ctx);
-    u64 opts_len = (u64)GO_PARAM5(ctx);
+    const u64 opts_len = (u64)GO_PARAM5(ctx);
 
     if (opts_ptr && opts_len) {
         read_attrs_from_opts(span, opts_ptr, opts_len);
@@ -406,7 +406,7 @@ int obi_uprobe_RecordError(struct pt_regs *ctx) {
     }
 
     off_table_t *ot = get_offsets_table();
-    u64 sym_addr = go_offset_of(ot, (go_offset){.v = _error_string_off});
+    const u64 sym_addr = go_offset_of(ot, (go_offset){.v = _error_string_off});
     bpf_dbg_printk("err lookup off, sym_addr=%llx", sym_addr);
 
     if (!sym_addr) {

@@ -99,7 +99,8 @@ func TestMain(m *testing.M) {
 	// Create and start informers client cache
 	iConfig := kubecache.DefaultConfig
 	iConfig.Port = freePort
-	svc := service.InformersCache{Config: &iConfig, SendTimeout: 150 * time.Millisecond}
+	iConfig.SendTimeout = 150 * time.Millisecond
+	svc := service.InformersCache{Config: &iConfig}
 	go func() {
 		if err := svc.Run(ctx,
 			meta.WithResyncPeriod(iConfig.InformerResyncPeriod),
@@ -268,7 +269,8 @@ func TestAsynchronousStartup(t *testing.T) {
 
 	iConfig := kubecache.DefaultConfig
 	iConfig.Port = newFreePort
-	svc := service.InformersCache{Config: &iConfig, SendTimeout: time.Second}
+	iConfig.SendTimeout = time.Second
+	svc := service.InformersCache{Config: &iConfig}
 	go func() {
 		if err := svc.Run(ctx,
 			meta.WithResyncPeriod(iConfig.InformerResyncPeriod),

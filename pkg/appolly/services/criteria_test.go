@@ -55,8 +55,8 @@ func TestYAMLParse_PathRegexp_Errors(t *testing.T) {
 	})
 }
 
-func TestYAMLParse_PortEnum(t *testing.T) {
-	portEnumYAML := func(enum string) PortEnum {
+func TestYAMLParse_IntEnum(t *testing.T) {
+	intEnumYAML := func(enum string) IntEnum {
 		yf := yamlFile{}
 		err := yaml.Unmarshal(fmt.Appendf(nil, "services:\n  - open_ports: %s\n", enum), &yf)
 		require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestYAMLParse_PortEnum(t *testing.T) {
 		return yf.Services[0].OpenPorts
 	}
 	t.Run("single port number", func(t *testing.T) {
-		pe := portEnumYAML("80")
+		pe := intEnumYAML("80")
 		require.True(t, pe.Matches(80))
 		require.False(t, pe.Matches(8))
 		require.False(t, pe.Matches(79))
@@ -73,14 +73,14 @@ func TestYAMLParse_PortEnum(t *testing.T) {
 		require.False(t, pe.Matches(8080))
 	})
 	t.Run("comma-separated port numbers", func(t *testing.T) {
-		pe := portEnumYAML("80,8080")
+		pe := intEnumYAML("80,8080")
 		require.True(t, pe.Matches(80))
 		require.True(t, pe.Matches(8080))
 		require.False(t, pe.Matches(79))
 		require.False(t, pe.Matches(8081))
 	})
 	t.Run("ranges", func(t *testing.T) {
-		pe := portEnumYAML("8000-8999")
+		pe := intEnumYAML("8000-8999")
 		require.True(t, pe.Matches(8000))
 		require.True(t, pe.Matches(8999))
 		require.True(t, pe.Matches(8080))
@@ -88,7 +88,7 @@ func TestYAMLParse_PortEnum(t *testing.T) {
 		require.False(t, pe.Matches(9000))
 	})
 	t.Run("merging ranges and single ports, and lots of spaces", func(t *testing.T) {
-		pe := portEnumYAML("   80\t,   100 -200,443, 8000- 8999   ")
+		pe := intEnumYAML("   80\t,   100 -200,443, 8000- 8999   ")
 		require.True(t, pe.Matches(80))
 		require.True(t, pe.Matches(100))
 		require.True(t, pe.Matches(200))
@@ -104,7 +104,7 @@ func TestYAMLParse_PortEnum(t *testing.T) {
 	})
 }
 
-func TestYAMLParse_PortEnum_Errors(t *testing.T) {
+func TestYAMLParse_IntEnum_Errors(t *testing.T) {
 	assertError := func(desc, enum string) {
 		t.Run(desc, func(t *testing.T) {
 			err := yaml.Unmarshal(fmt.Appendf(nil, "services:\n  - open_ports: %s\n", enum), &yamlFile{})
@@ -148,30 +148,30 @@ services:
 
 func TestYAMLMarshal_CustomTypes(t *testing.T) {
 	type tc struct {
-		PortEnum    PortEnum
-		Regex       RegexpAttr
-		Glob        GlobAttr
-		PortEnumPtr *PortEnum
-		RegexPtr    *RegexpAttr
-		GlobPtr     *GlobAttr
+		IntEnum    IntEnum
+		Regex      RegexpAttr
+		Glob       GlobAttr
+		IntEnumPtr *IntEnum
+		RegexPtr   *RegexpAttr
+		GlobPtr    *GlobAttr
 	}
 	cases := &tc{
-		PortEnum: PortEnum{
-			Ranges: []PortRange{{Start: 80}, {Start: 8080, End: 8099}, {Start: 443}},
+		IntEnum: IntEnum{
+			Ranges: []IntRange{{Start: 80}, {Start: 8080, End: 8099}, {Start: 443}},
 		},
 		Regex: NewRegexp("^foo.*$"),
 		Glob:  NewGlob("bar*"),
 	}
 	cases.RegexPtr = &cases.Regex
 	cases.GlobPtr = &cases.Glob
-	cases.PortEnumPtr = &cases.PortEnum
+	cases.IntEnumPtr = &cases.IntEnum
 
 	yamlOut, err := yaml.Marshal(cases)
 	require.NoError(t, err)
-	assert.YAMLEq(t, `portenum: 80,8080-8099,443
+	assert.YAMLEq(t, `intenum: 80,8080-8099,443
 regex: ^foo.*$
 glob: bar*
-portenumptr: 80,8080-8099,443
+intenumptr: 80,8080-8099,443
 regexptr: ^foo.*$
 globptr: bar*
 `, string(yamlOut))

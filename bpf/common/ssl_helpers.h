@@ -53,7 +53,7 @@ static __always_inline void connect_ssl_to_sock(u64 id, struct sock *sock, u8 di
     }
     ssl_pid_connection_info_t ssl_conn = {0};
     ssl_conn.p_conn.pid = pid_from_pid_tgid(id);
-    bool success = parse_sock_info(sock, &ssl_conn.p_conn.conn);
+    const bool success = parse_sock_info(sock, &ssl_conn.p_conn.conn);
     if (success) {
         ssl_conn.orig_dport = ssl_conn.p_conn.conn.d_port;
         sort_connection_info(&ssl_conn.p_conn.conn);

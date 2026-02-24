@@ -1,7 +1,7 @@
 docker-compose:
   generator: generic
   files:
-    - ../docker-compose-beyla-mysql.yml
+    - ../docker-compose-obi-mysql.yml
 input:
   - path: '/query'
 

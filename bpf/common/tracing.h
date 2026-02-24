@@ -83,12 +83,12 @@ static __always_inline void delete_trace_info_for_connection(connection_info_t *
 }
 
 static __always_inline u64 current_epoch(u64 ts) {
-    u64 temp = ts / NANOSECONDS_PER_EPOCH;
+    const u64 temp = ts / NANOSECONDS_PER_EPOCH;
     return temp * NANOSECONDS_PER_EPOCH;
 }
 
 static __always_inline u64 current_immediate_epoch(u64 ts) {
-    u64 temp = ts / NANOSECONDS_PER_IMM_EPOCH;
+    const u64 temp = ts / NANOSECONDS_PER_IMM_EPOCH;
     return temp * NANOSECONDS_PER_IMM_EPOCH;
 }
 
@@ -113,10 +113,10 @@ static __always_inline u8 correlated_request_with_current(tp_info_pid_t *existin
         return 0;
     }
 
-    //u64 pid_tid = bpf_get_current_pid_tgid();
-    u64 ts = bpf_ktime_get_ns();
+    //const u64 pid_tid = bpf_get_current_pid_tgid();
+    const u64 ts = bpf_ktime_get_ns();
 
-    //u32 pid = pid_from_pid_tgid(pid_tid);
+    //const u32 pid = pid_from_pid_tgid(pid_tid);
 
     // We check for correlated requests which are in order, but from different PIDs
     // Same PID means that we had client port reuse, which might falsely match prior

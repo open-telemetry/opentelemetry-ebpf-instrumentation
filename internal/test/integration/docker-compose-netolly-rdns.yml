@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   curler:
-    image: alpine/curl@sha256:956ed14ce7361a4aba16c1b043e4491db3c9e08498e30be1385504278debce3b
+    image: alpine/curl@sha256:4920f498fb7a3ddeb7cbe813a37ebbd83247a0744f3daa21c4572e9a5e696ff1
     command:
       - sh
       - -c
@@ -16,7 +16,7 @@ services:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../../testoutput:/coverage
-      - ../../../testoutput/run-netolly:/var/run/beyla
+      - ../../../testoutput/run-netolly:/var/run/obi
     image: hatest-obi
     privileged: true
     network_mode: host

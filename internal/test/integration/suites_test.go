@@ -682,14 +682,29 @@ func TestSuite_Elixir(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
-func TestSuite_LogEnricher(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher.log"))
+func TestSuite_LogEnricherHTTP(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-http.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8380`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8380`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8380`, `OTEL_EBPF_EXECUTABLE_PATH=`)
 	require.NoError(t, compose.Up())
 
-	t.Run("Log Enricher", testLogEnricher)
+	t.Run("Log Enricher HTTP", func(t *testing.T) {
+		testLogEnricher(t, logEnricherHTTPConstants)
+	})
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_LogEnricherGoGRPC(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-go-grpc.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=50051`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Log Enricher Go gRPC", func(t *testing.T) {
+		testLogEnricher(t, logEnricherGoGRPCConstants)
+	})
 	require.NoError(t, compose.Close())
 }
 

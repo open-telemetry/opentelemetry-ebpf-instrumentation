@@ -29,6 +29,7 @@ jobs:
   vm-test-matrix:
     name: "Build VM integration matrix"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
     steps:
@@ -62,6 +63,7 @@ jobs:
       # Required for uploading artifacts
       actions: write
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -120,10 +122,18 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
           go-version-file: "go.mod"
-          cache: false
+          cache: true
+
+      - name: Go build cache
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        with:
+          path: ~/.cache/go-build
+          key: go-build-vm-integration-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: |
+            go-build-vm-integration-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Generate files
         run: make prereqs docker-generate
@@ -179,7 +189,6 @@ jobs:
           fi
 
       - name: Run VM integration tests (${{ matrix.test.description }})
-        timeout-minutes: 60
         env:
           # zizmor template-injection fixes: pass data as env vars
           MATRIX_ID: ${{ matrix.test.id }}

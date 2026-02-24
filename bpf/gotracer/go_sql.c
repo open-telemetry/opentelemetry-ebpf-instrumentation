@@ -37,7 +37,7 @@ static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
     off_table_t *ot = get_offsets_table();
 
     // Get driverConn.ci offset
-    u64 ci_offset = go_offset_of(ot, (go_offset){.v = _driverconn_ci_pos});
+    const u64 ci_offset = go_offset_of(ot, (go_offset){.v = _driverconn_ci_pos});
     if (!ci_offset) {
         bpf_dbg_printk("can't get driverConn.ci offset");
         return NULL;
@@ -54,7 +54,7 @@ static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
         return NULL;
     }
 
-    u64 mysql_type_addr = go_offset_of(ot, (go_offset){.v = _mysql_conn_type_off});
+    const u64 mysql_type_addr = go_offset_of(ot, (go_offset){.v = _mysql_conn_type_off});
     if (!mysql_type_addr) {
         bpf_dbg_printk("can't read mysql.mysqlConn offset");
         return NULL;
@@ -373,7 +373,7 @@ int obi_uprobe_pq_network_return(struct pt_regs *ctx) {
 
     // network returns (string, string) where 2nd return is address ("host:port")
     void *address_ptr = (void *)GO_PARAM3(ctx);
-    u64 address_len = (u64)GO_PARAM4(ctx);
+    const u64 address_len = (u64)GO_PARAM4(ctx);
 
     bpf_dbg_printk("address_ptr=%llx, address_len=%d", address_ptr, address_len);
 

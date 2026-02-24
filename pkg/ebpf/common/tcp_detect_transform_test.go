@@ -273,6 +273,134 @@ func randomStringWithSub(sub string) string {
 	return fmt.Sprintf("%s%s%s", randomString(rand.IntN(10)), sub, randomString(rand.IntN(20)))
 }
 
+func TestReadTCPRequestIntoSpan_CouchbaseKeyNotFound(t *testing.T) {
+	// Real Couchbase memcached binary protocol packets captured from eBPF
+	// Request: GET for key "non_existent_document_xyz_123" (with collection ID prefix byte)
+	// Original response used flexible framing (magic 0x18) which isn't fully supported,
+	// so we construct an equivalent standard response (magic 0x81) with KEY_NOT_FOUND status
+	requestBuffer := []byte{128, 0, 0, 30, 0, 0, 0, 70, 0, 0, 0, 30, 0, 0, 92, 240, 0, 0, 0, 0, 0, 0, 0, 0, 0, 110, 111, 110, 95, 101, 120, 105, 115, 116, 101, 110, 116, 95, 100, 111, 99, 117, 109, 101, 110, 116, 95, 120, 121, 122, 95, 49, 50, 51}
+
+	// Construct a standard response packet (magic 0x81) with KEY_NOT_FOUND status (0x0001)
+	// Header format: magic(1) + opcode(1) + keyLen(2) + extrasLen(1) + dataType(1) + status(2) + bodyLen(4) + opaque(4) + CAS(8) = 24 bytes
+	responseBuffer := []byte{
+		0x81,       // Magic: MagicClientResponse
+		0x00,       // Opcode: GET
+		0x00, 0x00, // Key length: 0
+		0x00,       // Extras length: 0
+		0x00,       // Data type: raw
+		0x00, 0x01, // Status: KEY_NOT_FOUND (1)
+		0x00, 0x00, 0x00, 0x00, // Body length: 0
+		0x00, 0x00, 0x5c, 0xf0, // Opaque: 23792 (same as request)
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // CAS: 0
+	}
+
+	// Create TCPRequestInfo with the captured buffers
+	tri := TCPRequestInfo{
+		StartMonotimeNs: 1000000000,
+		EndMonotimeNs:   1000500000,
+		Len:             uint32(len(requestBuffer)),
+		RespLen:         uint32(len(responseBuffer)),
+		Direction:       directionSend,
+	}
+
+	copy(tri.Buf[:], requestBuffer)
+	copy(tri.Rbuf[:], responseBuffer)
+
+	// Set up connection info (client -> Couchbase server on port 11210)
+	tri.ConnInfo.S_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1}
+	tri.ConnInfo.D_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 1}
+	tri.ConnInfo.S_port = 54321
+	tri.ConnInfo.D_port = 11210
+
+	// Set PID info
+	tri.Pid.HostPid = 1234
+	tri.Pid.UserPid = 1234
+	tri.Pid.Ns = 4026531840
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: false}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, tri))
+
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.False(t, ignore, "Couchbase event should not be ignored")
+
+	// Verify the span is correctly identified as a Couchbase event
+	assert.Equal(t, request.EventTypeCouchbaseClient, span.Type)
+	assert.Equal(t, "GET", span.Method)
+
+	assert.Equal(t, 1, span.Status, "Status should be 1 (KeyNotFound)")
+	assert.NotEmpty(t, span.DBError.ErrorCode, "DBError.ErrorCode should be set for KeyNotFound")
+	assert.Equal(t, "1", span.DBError.ErrorCode, "DBError.ErrorCode should be 1 (KeyNotFound)")
+	assert.NotEmpty(t, span.DBError.Description, "DBError.Description should be set for KeyNotFound")
+	assert.Equal(t, "KeyNotFound", span.DBError.Description, "DBError.Description should indicate KeyNotFound")
+}
+
+func TestReadTCPRequestIntoSpan_CouchbaseFlexibleFraming(t *testing.T) {
+	// Real Couchbase memcached binary protocol packets captured from eBPF
+	// Request: GET for key with collection ID prefix
+	// Response: Uses flexible framing (magic 0x18) with KEY_NOT_FOUND status
+	//
+	// Original captured buffers:
+	// [>] [128 0 0 30 0 0 0 70 0 0 0 30 0 0 92 240 0 0 0 0 0 0 0 0 0 110 111 110 95 101 120 105 115 116 101 110 116 95 100 111 99 117 109 101 110 116 95 120 121 122 95 49 50 51]
+	// [<] [24 0 3 0 0 0 0 1 0 0 0 3 0 0 92 240 0 0 0 0 0 0 0 0 2 0 15]
+	//
+	// The response uses MagicAltClientResponse (0x18) which has a different header layout:
+	// - byte 2: framing extras length (not part of key length)
+	// - byte 3: key length (single byte)
+	// Currently the parser doesn't fully support flexible framing, so the status may not be extracted correctly.
+	requestBuffer := []byte{128, 0, 0, 30, 0, 0, 0, 70, 0, 0, 0, 30, 0, 0, 92, 240, 0, 0, 0, 0, 0, 0, 0, 0, 0, 110, 111, 110, 95, 101, 120, 105, 115, 116, 101, 110, 116, 95, 100, 111, 99, 117, 109, 101, 110, 116, 95, 120, 121, 122, 95, 49, 50, 51}
+	responseBuffer := []byte{24, 0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 92, 240, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 15}
+
+	// Create TCPRequestInfo with the captured buffers
+	tri := TCPRequestInfo{
+		StartMonotimeNs: 1000000000,
+		EndMonotimeNs:   1000500000,
+		Len:             uint32(len(requestBuffer)),
+		RespLen:         uint32(len(responseBuffer)),
+		Direction:       directionSend,
+	}
+
+	copy(tri.Buf[:], requestBuffer)
+	copy(tri.Rbuf[:], responseBuffer)
+
+	// Set up connection info (client -> Couchbase server on port 11210)
+	tri.ConnInfo.S_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1}
+	tri.ConnInfo.D_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 1}
+	tri.ConnInfo.S_port = 54321
+	tri.ConnInfo.D_port = 11210
+
+	// Set PID info
+	tri.Pid.HostPid = 1234
+	tri.Pid.UserPid = 1234
+	tri.Pid.Ns = 4026531840
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: false}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, tri))
+
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.False(t, ignore, "Couchbase event should not be ignored")
+
+	// Verify the span is correctly identified as a Couchbase event
+	assert.Equal(t, request.EventTypeCouchbaseClient, span.Type)
+	assert.Equal(t, "GET", span.Method)
+
+	assert.NotEmpty(t, span.DBError.ErrorCode, "DBError.ErrorCode should be set for KeyNotFound")
+	assert.Equal(t, "1", span.DBError.ErrorCode, "DBError.ErrorCode should be 1 (KeyNotFound)")
+	assert.NotEmpty(t, span.DBError.Description, "DBError.Description should be set for KeyNotFound")
+	assert.Equal(t, "KeyNotFound", span.DBError.Description, "DBError.Description should indicate KeyNotFound")
+}
+
 func makeTCPReq(buf string, peerPort uint32) TCPRequestInfo {
 	i := TCPRequestInfo{
 		StartMonotimeNs: 2000 * 1000000,

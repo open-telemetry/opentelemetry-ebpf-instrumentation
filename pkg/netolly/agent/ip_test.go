@@ -96,27 +96,27 @@ func TestAgentIP_Any(t *testing.T) {
 		},
 		{
 			dsc:    "any IP given an interface name",
-			cfg:    obi.NetworkConfig{AgentIPIface: "name:" + testIFName, AgentIPType: "any"},
+			cfg:    obi.NetworkConfig{AgentIPIface: obi.AgentTypeIface("name:" + testIFName), AgentIPType: "any"},
 			expect: testIfIP4,
 		},
 		{
 			dsc:    "IPv4 address given an interface name",
-			cfg:    obi.NetworkConfig{AgentIPIface: "name:" + testIFName, AgentIPType: "ipv4"},
+			cfg:    obi.NetworkConfig{AgentIPIface: obi.AgentTypeIface("name:" + testIFName), AgentIPType: "ipv4"},
 			expect: testIfIP4,
 		},
 		{
 			dsc:    "IPv6 address given an interface name",
-			cfg:    obi.NetworkConfig{AgentIPIface: "name:" + testIFName, AgentIPType: "ipv6"},
+			cfg:    obi.NetworkConfig{AgentIPIface: obi.AgentTypeIface("name:" + testIFName), AgentIPType: "ipv6"},
 			expect: testIfIP6,
 		},
 		{
 			dsc:    "any IP given an IPV6-only interface name",
-			cfg:    obi.NetworkConfig{AgentIPIface: "name:" + testIFName2, AgentIPType: "any"},
+			cfg:    obi.NetworkConfig{AgentIPIface: obi.AgentTypeIface("name:" + testIFName2), AgentIPType: "any"},
 			expect: testIf2IP6,
 		},
 		{
 			dsc:    "IPv6 address given an IPV6-only interface name",
-			cfg:    obi.NetworkConfig{AgentIPIface: "name:" + testIFName2, AgentIPType: "ipv6"},
+			cfg:    obi.NetworkConfig{AgentIPIface: obi.AgentTypeIface("name:" + testIFName2), AgentIPType: "ipv6"},
 			expect: testIf2IP6,
 		},
 	} {

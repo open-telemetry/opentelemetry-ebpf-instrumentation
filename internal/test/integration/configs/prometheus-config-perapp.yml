@@ -21,4 +21,5 @@ scrape_configs:
       - labels:
           exported: "prometheus"
         targets:
+          - 'obi:8999'
           - '172.17.0.1:8999'

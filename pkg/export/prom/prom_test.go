@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -58,7 +59,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	exporter, err := PrometheusEndpoint(
 		&global.ContextInfo{
 			Prometheus:            &connector.PrometheusManager{},
-			HostID:                "my-host",
+			NodeMeta:              meta.NodeMeta{HostID: "my-host"},
 			MetricAttributeGroups: g,
 		},
 		&PrometheusConfig{
@@ -115,7 +116,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
 	containsTargetInfoSDKVersion := regexp.MustCompile(`\ntarget_info\{.*telemetry_sdk_version=.*`)
-	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*grafana_host_id="my-host"`)
+	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*cloud_host_id="my-host"`)
 	containsJob := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*job="default/test-app".*`)
 	containsInstance := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*instance="test-app-1".*"`)
 

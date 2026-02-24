@@ -78,7 +78,7 @@ static __always_inline void
 handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction) {
     if (args) {
         void *ssl = ((void *)args->ssl);
-        u64 ssl_ptr = (u64)ssl;
+        const u64 ssl_ptr = (u64)ssl;
         bpf_dbg_printk("SSL_buf id=%d ssl=%llx", id, ssl);
         ssl_pid_connection_info_t *conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
 
@@ -94,7 +94,7 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
                 u64 *pid_tid_ptr = bpf_map_lookup_elem(&ssl_to_pid_tid, &ssl_ptr);
 
                 if (pid_tid_ptr) {
-                    u64 pid_tid = *pid_tid_ptr;
+                    const u64 pid_tid = *pid_tid_ptr;
 
                     conn = bpf_map_lookup_elem(&pid_tid_to_conn, &pid_tid);
                     bpf_dbg_printk(

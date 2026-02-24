@@ -80,7 +80,7 @@ the array:item pair for the work, rather than the file descriptors.
 
 SEC("uprobe/ruby:rb_obj_call_init_kw")
 int obi_rb_obj_call_init_kw(struct pt_regs *ctx) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -92,7 +92,7 @@ int obi_rb_obj_call_init_kw(struct pt_regs *ctx) {
         return 0;
     }
 
-    u64 item = (u64)PT_REGS_PARM1(ctx);
+    const u64 item = (u64)PT_REGS_PARM1(ctx);
 
     if (!obi_bpf_memcmp(buf, PUMA_WORKER, sizeof(PUMA_WORKER) - 1) ||
         !obi_bpf_memcmp(buf, PUMA_SRV_THREAD, sizeof(PUMA_SRV_THREAD) - 1)) {
@@ -107,7 +107,7 @@ int obi_rb_obj_call_init_kw(struct pt_regs *ctx) {
 
         bpf_dbg_printk("rb_obj_call_init_kw ==> item %llx, thread %s", item, buf);
 
-        u32 host_pid = pid_from_pid_tgid(id);
+        const u32 host_pid = pid_from_pid_tgid(id);
         connection_info_part_t conn_part = {};
         populate_ephemeral_info(
             &conn_part, &info->p_conn.conn, info->orig_dport, host_pid, FD_SERVER);
@@ -125,13 +125,13 @@ int obi_rb_obj_call_init_kw(struct pt_regs *ctx) {
 
 SEC("uprobe/ruby:rb_ary_shift")
 int obi_rb_ary_shift(struct pt_regs *ctx) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
     }
 
-    u64 item_ptr = (u64)PT_REGS_PARM1(ctx);
+    const u64 item_ptr = (u64)PT_REGS_PARM1(ctx);
 
     if (!item_ptr) {
         return 0;
@@ -166,7 +166,7 @@ int obi_rb_ary_shift(struct pt_regs *ctx) {
             }
         }
 
-        u32 host_pid = pid_from_pid_tgid(id);
+        const u32 host_pid = pid_from_pid_tgid(id);
 
         puma_task_id_t task_id = {
             .item = item,

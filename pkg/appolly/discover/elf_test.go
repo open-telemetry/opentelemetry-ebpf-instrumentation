@@ -6,6 +6,7 @@ package discover
 import (
 	"os"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -14,6 +15,10 @@ import (
 )
 
 func TestFindINodeForPID(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("skipping FindINodeForPID test on non-linux platform")
+	}
+
 	// Use our own PID — guaranteed to exist and have a valid /proc/<pid>/exe
 	self := app.PID(os.Getpid())
 

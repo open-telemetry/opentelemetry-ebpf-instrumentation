@@ -154,9 +154,17 @@ clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" | xargs clang-tidy
 
 .PHONY: lint
-lint: $(GOLANGCI_LINT) vanity-import-check
+lint: LINT_EXTRA_ARGS =
+lint: lint-run
+
+.PHONY: lint-fix
+lint-fix: LINT_EXTRA_ARGS = --fix
+lint-fix: lint-run
+
+.PHONY: lint-run
+lint-run: $(GOLANGCI_LINT) vanity-import-check
 	@echo "### Linting code"
-	$(GOLANGCI_LINT) run ./... --timeout=6m
+	$(GOLANGCI_LINT) run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
 MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 WORKDIR := "/go/src/go.opentelemetry.io/obi"
@@ -258,7 +266,7 @@ docker-generate:
 		make generate
 
 .PHONY: verify
-verify: prereqs lint test license-header-check
+verify: prereqs go-mod-tidy lint test license-header-check
 
 .PHONY: build
 build: docker-generate verify compile
@@ -437,6 +445,23 @@ run-integration-test-arm:
 	go clean -testcache
 	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
 
+.PHONY: unit-test-tools
+unit-test-tools: $(GOTESTSUM) $(ENVTEST)
+
+.PHONY: unit-test-matrix-json
+unit-test-matrix-json: $(GOTESTSUM)
+	@go list ./... | $(GOTESTSUM) tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
+
+.PHONY: run-unit-test-shard
+run-unit-test-shard: $(GOTESTSUM) $(ENVTEST)
+	@echo "### Running unit test shard $(SHARD_ID)"
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(GOTESTSUM) \
+		--jsonfile=$(TEST_OUTPUT)/unit-test-shard-$(SHARD_ID).log \
+		-- -short -race -a -coverpkg=./... \
+		-coverprofile $(TEST_OUTPUT)/cover-shard-$(SHARD_ID).all.txt \
+		$(UNIT_TEST_PACKAGES)
+
 .PHONY: integration-test-matrix-json
 integration-test-matrix-json:
 	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}"
@@ -537,17 +562,16 @@ license-header-check:
 	   fi
 
 .PHONY: artifact
-artifact: docker-generate compile compile-cache java-docker-build
+artifact: docker-generate compile java-docker-build
 	@echo "### Packing generated artifact for $(GOOS)/$(GOARCH)"
 	@STAGING_DIR=$$(mktemp -d 2>/dev/null || mktemp -d -t obi.XXXXXX); \
 	trap "rm -rf $$STAGING_DIR" EXIT; \
 	cp ./bin/$(CMD) $$STAGING_DIR/; \
-	cp ./bin/$(CACHE_CMD) $$STAGING_DIR/; \
 	cp ./bin/$(JAVA_AGENT) $$STAGING_DIR/; \
 	cp LICENSE $$STAGING_DIR/; \
 	cp NOTICE $$STAGING_DIR/; \
 	cp -r NOTICES $$STAGING_DIR/; \
-	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(CACHE_CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
+	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
 
 .PHONY: release
 release: artifact
@@ -558,13 +582,11 @@ release: artifact
 	@mkdir -p $(RELEASE_DIR)/verify-$(GOARCH)
 	@tar -xzf $(RELEASE_DIR)/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz -C $(RELEASE_DIR)/verify-$(GOARCH)
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary missing in $(GOARCH) archive"; exit 1; fi
-	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(CACHE_CMD) ]; then echo "ERROR: $(CACHE_CMD) binary missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(JAVA_AGENT) ]; then echo "ERROR: $(JAVA_AGENT) missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/LICENSE ]; then echo "ERROR: LICENSE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/NOTICE ]; then echo "ERROR: NOTICE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES ]; then echo "ERROR: NOTICES directory missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
-	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CACHE_CMD) ]; then echo "ERROR: $(CACHE_CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
 	@echo "✓ Archive $(GOARCH) verified successfully"
 	@rm -rf $(RELEASE_DIR)/verify-$(GOARCH)
 	@echo "### Generating checksums"
@@ -576,7 +598,6 @@ release: artifact
 		echo "ERROR: Neither sha256sum nor shasum found. Please install coreutils or use macOS builtin shasum."; \
 		exit 1; \
 	fi
-	cd $(RELEASE_DIR) && cp SHA256SUMS SHA256SUMS-$(RELEASE_VERSION)
 	@echo "### Release artifacts ready in $(RELEASE_DIR)/"
 	@ls -lh $(RELEASE_DIR)/
 
@@ -635,10 +656,29 @@ check-clean-work-tree:
 		exit 1; \
 	fi
 
+.PHONY: go-mod-tidy
+GO_MOD_FILES := $(shell find . -type f -name 'go.mod' ! -path './NOTICES/*')
+GO_MOD_TIDY_TARGETS := $(patsubst %/go.mod,%/.go-mod-tidy,$(GO_MOD_FILES))
+GO_MOD_TIDY_117_TARGETS := $(filter %/testserver_1.17/.go-mod-tidy,$(GO_MOD_TIDY_TARGETS))
+GO_MOD_TIDY_DEFAULT_TARGETS := $(filter-out $(GO_MOD_TIDY_117_TARGETS),$(GO_MOD_TIDY_TARGETS))
+.PHONY: $(GO_MOD_TIDY_TARGETS)
+go-mod-tidy: $(GO_MOD_TIDY_TARGETS)
+
+$(GO_MOD_TIDY_DEFAULT_TARGETS):
+	@echo "### Running go mod tidy in $(dir $@)"
+	@cd "$(dir $@)" && go mod tidy
+
+$(GO_MOD_TIDY_117_TARGETS):
+	@echo "### Running go mod tidy -go=1.17 -compat=1.17 in $(dir $@)"
+	@cd "$(dir $@)" && go mod tidy -go=1.17 -compat=1.17
+
 .PHONY: check-go-mod
-check-go-mod:
-	go mod tidy
-	git diff --quiet -- go.mod go.sum
+check-go-mod: go-mod-tidy
+	@if ! git diff --quiet -- ':(glob)**/go.mod' ':(glob)**/go.sum' ':(exclude,glob)NOTICES/**'; then \
+		echo 'go.mod/go.sum files are not clean, did you forget to run "make go-mod-tidy"?'; \
+		git --no-pager diff -- ':(glob)**/go.mod' ':(glob)**/go.sum' ':(exclude,glob)NOTICES/**'; \
+		exit 1; \
+	fi
 
 .PHONY: verify-mods
 verify-mods: $(MULTIMOD)
@@ -677,3 +717,26 @@ vanity-import-fix: $(PORTO)
 regenerate-port-lookup:
 	go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go
 	$(MAKE) fmt
+
+CONFIG_SCHEMA_FILE ?= docs/config-schema.json
+
+.PHONY: generate-config-schema
+generate-config-schema:
+	@echo "### Generating JSON schema for OBI configuration"
+	@mkdir -p $(dir $(CONFIG_SCHEMA_FILE))
+	go run ./cmd/obi-schema -output $(CONFIG_SCHEMA_FILE)
+
+.PHONY: check-config-schema
+check-config-schema:
+	@echo "### Checking if JSON schema is up-to-date"
+	@mkdir -p $(dir $(CONFIG_SCHEMA_FILE))
+	@go run ./cmd/obi-schema -output $(CONFIG_SCHEMA_FILE).tmp
+	@if ! diff -q $(CONFIG_SCHEMA_FILE) $(CONFIG_SCHEMA_FILE).tmp > /dev/null 2>&1; then \
+		echo "JSON schema is out of date. Run 'make generate-config-schema' to update it."; \
+		echo "Diff:"; \
+		diff $(CONFIG_SCHEMA_FILE) $(CONFIG_SCHEMA_FILE).tmp || true; \
+		rm -f $(CONFIG_SCHEMA_FILE).tmp; \
+		exit 1; \
+	fi
+	@rm -f $(CONFIG_SCHEMA_FILE).tmp
+	@echo "JSON schema is up-to-date"

@@ -1,7 +1,7 @@
 docker-compose:
   generator: generic
   files:
-    - ../docker-compose-beyla-redis.yml
+    - ../docker-compose-obi-redis.yml
 input:
   - path: '/redis'
 

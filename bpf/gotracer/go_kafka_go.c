@@ -232,7 +232,7 @@ int obi_uprobe_protocol_roundtrip_ret(struct pt_regs *ctx) {
                     &conn_ptr, sizeof(conn_ptr), (void *)(p_ptr->conn_ptr + 8)); // find conn
                 bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
                 if (conn_ptr) {
-                    u8 ok = get_conn_info(conn_ptr, &trace->conn);
+                    const u8 ok = get_conn_info(conn_ptr, &trace->conn);
                     if (!ok) {
                         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
                     }
@@ -288,7 +288,7 @@ int obi_uprobe_reader_read(struct pt_regs *ctx) {
             bpf_probe_read(&conn_ptr, sizeof(conn_ptr), (void *)(conn + 8)); // find conn
             bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
             if (conn_ptr) {
-                u8 ok = get_conn_info(conn_ptr, &r.conn);
+                const u8 ok = get_conn_info(conn_ptr, &r.conn);
                 if (!ok) {
                     __builtin_memset(&r.conn, 0, sizeof(connection_info_t));
                 }

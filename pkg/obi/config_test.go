@@ -224,7 +224,7 @@ discovery:
 				ResponseSizeHistogram: []float64{0, 10, 20, 22},
 			},
 		},
-		InternalMetrics: imetrics.Config{
+		InternalMetrics: imetrics.InternalMetricsConfig{
 			Exporter: imetrics.InternalMetricsExporterDisabled,
 			Prometheus: imetrics.PrometheusConfig{
 				Port: 3210,
@@ -244,8 +244,7 @@ discovery:
 				ResourceLabels:        metaSources,
 			},
 			HostID: HostIDConfig{
-				Override:     "the-host-id",
-				FetchTimeout: 4 * time.Second,
+				Override: "the-host-id",
 			},
 			Select: attributes.Selection{
 				attributes.NetworkFlow.Section: attributes.InclusionLists{
@@ -273,7 +272,7 @@ discovery:
 			MinProcessAge:                   5 * time.Second,
 			DefaultExcludeServices: services.RegexDefinitionCriteria{
 				services.RegexSelector{
-					Path: services.NewRegexp("(?:^|/)(beyla$|obi$|alloy$|otelcol[^/]*$)"),
+					Path: services.NewRegexp("(?:^|/)(obi$|otelcol[^/]*$)"),
 				},
 				services.RegexSelector{
 					Metadata: map[string]*services.RegexpAttr{"k8s_namespace": &k8sDefaultNamespacesRegex},
@@ -281,7 +280,7 @@ discovery:
 			},
 			DefaultExcludeInstrument: services.GlobDefinitionCriteria{
 				services.GlobAttributes{
-					Path: services.NewGlob("{*beyla,*alloy,*/obi,obi,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}"),
+					Path: services.NewGlob("{*/obi,obi,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}"),
 				},
 				services.GlobAttributes{
 					Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
@@ -490,6 +489,33 @@ func TestConfig_OtelGoAutoEnv(t *testing.T) {
 	assert.True(t, cfg.AutoTargetExe.MatchString("/bin/testserver"))
 }
 
+func TestConfig_TargetPIDs(t *testing.T) {
+	t.Run("single PID from env", func(t *testing.T) {
+		t.Setenv("OTEL_EBPF_TARGET_PID", "1234")
+		cfg, err := LoadConfig(bytes.NewReader(nil))
+		require.NoError(t, err)
+		assert.Equal(t, services.IntEnum{Ranges: []services.IntRange{{Start: 1234}}}, cfg.TargetPIDs)
+		assert.True(t, cfg.Enabled(FeatureAppO11y))
+	})
+	t.Run("multiple PIDs from env", func(t *testing.T) {
+		t.Setenv("OTEL_EBPF_TARGET_PID", "1234,5678,90")
+		cfg, err := LoadConfig(bytes.NewReader(nil))
+		require.NoError(t, err)
+		assert.Equal(t, services.IntEnum{Ranges: []services.IntRange{{Start: 1234}, {Start: 5678}, {Start: 90}}}, cfg.TargetPIDs)
+		assert.True(t, cfg.Enabled(FeatureAppO11y))
+	})
+	t.Run("YAML array", func(t *testing.T) {
+		cfg, err := LoadConfig(bytes.NewReader([]byte("target_pids: [11, 22, 33]")))
+		require.NoError(t, err)
+		assert.Equal(t, services.IntEnum{Ranges: []services.IntRange{{Start: 11}, {Start: 22}, {Start: 33}}}, cfg.TargetPIDs)
+	})
+	t.Run("YAML single number", func(t *testing.T) {
+		cfg, err := LoadConfig(bytes.NewReader([]byte("target_pids: 999")))
+		require.NoError(t, err)
+		assert.Equal(t, services.IntEnum{Ranges: []services.IntRange{{Start: 999}}}, cfg.TargetPIDs)
+	})
+}
+
 func TestConfig_NetworkImplicit(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
 	t.Setenv("OTEL_EBPF_METRIC_FEATURES", "network")
@@ -506,6 +532,15 @@ func TestConfig_NetworkImplicitProm(t *testing.T) {
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.True(t, cfg.Enabled(FeatureNetO11y)) // Net o11y should be on
+}
+
+func TestConfig_AutoLanguageEnv(t *testing.T) {
+	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_AUTO_TARGET_EXE
+	// (Compatibility with OpenTelemetry)
+	t.Setenv("OTEL_EBPF_AUTO_TARGET_LANGUAGE", "{go,java}")
+	cfg, err := LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+	assert.True(t, cfg.AutoTargetLanguage.MatchString("java"))
 }
 
 func TestConfig_ExternalLogger(t *testing.T) {
@@ -568,23 +603,15 @@ time=\S+ level=DEBUG msg=debug arg=debug$`),
 func TestDefaultExclusionFilter(t *testing.T) {
 	c := DefaultConfig.Discovery.DefaultExcludeInstrument
 
-	assert.True(t, c[0].Path.MatchString("beyla"))
-	assert.True(t, c[0].Path.MatchString("alloy"))
 	assert.True(t, c[0].Path.MatchString("obi"))
 	assert.True(t, c[0].Path.MatchString("otelcol-contrib"))
 
-	assert.False(t, c[0].Path.MatchString("/usr/bin/beyla/test"))
-	assert.False(t, c[0].Path.MatchString("/usr/bin/alloy/test"))
 	assert.False(t, c[0].Path.MatchString("/usr/bin/obi/test"))
 	assert.False(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib/test"))
 
-	assert.True(t, c[0].Path.MatchString("/beyla"))
-	assert.True(t, c[0].Path.MatchString("/alloy"))
 	assert.True(t, c[0].Path.MatchString("/obi"))
 	assert.True(t, c[0].Path.MatchString("/otelcol-contrib"))
 
-	assert.True(t, c[0].Path.MatchString("/usr/bin/beyla"))
-	assert.True(t, c[0].Path.MatchString("/usr/bin/alloy"))
 	assert.True(t, c[0].Path.MatchString("/usr/bin/obi"))
 	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib"))
 	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib123"))
@@ -593,22 +620,14 @@ func TestDefaultExclusionFilter(t *testing.T) {
 func TestDefaultLegacyExclusionFilter(t *testing.T) {
 	c := DefaultConfig.Discovery.DefaultExcludeServices
 
-	assert.True(t, c[0].Path.MatchString("beyla"))
-	assert.True(t, c[0].Path.MatchString("alloy"))
 	assert.True(t, c[0].Path.MatchString("obi"))
 	assert.True(t, c[0].Path.MatchString("otelcol-contrib"))
 
-	assert.False(t, c[0].Path.MatchString("/usr/bin/beyla/test"))
-	assert.False(t, c[0].Path.MatchString("/usr/bin/alloy/test"))
 	assert.False(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib/test"))
 
-	assert.True(t, c[0].Path.MatchString("/beyla"))
-	assert.True(t, c[0].Path.MatchString("/alloy"))
 	assert.True(t, c[0].Path.MatchString("/obi"))
 	assert.True(t, c[0].Path.MatchString("/otelcol-contrib"))
 
-	assert.True(t, c[0].Path.MatchString("/usr/bin/beyla"))
-	assert.True(t, c[0].Path.MatchString("/usr/bin/alloy"))
 	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib"))
 	assert.True(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib123"))
 }

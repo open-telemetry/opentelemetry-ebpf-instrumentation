@@ -20,7 +20,7 @@ services:
       - ./configs/:/configs
       - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
       - ../../../testoutput:/coverage
-      - ../../../testoutput/run-base${TESTSERVER_DOCKERFILE_SUFFIX}:/var/run/beyla
+      - ../../../testoutput/run-base${TESTSERVER_DOCKERFILE_SUFFIX}:/var/run/obi
       # required for docker metadata decoration
       - /var/run/docker.sock:/var/run/docker.sock
     image: hatest-obi

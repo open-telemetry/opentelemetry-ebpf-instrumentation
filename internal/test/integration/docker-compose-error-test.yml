@@ -26,7 +26,7 @@ services:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../../testoutput:/coverage
-      - ../../../testoutput/run-error:/var/run/beyla
+      - ../../../testoutput/run-error:/var/run/obi
     image: hatest-obi
     # Give basic capabilities but remove BPF capability to force eBPF loading errors
     cap_add:

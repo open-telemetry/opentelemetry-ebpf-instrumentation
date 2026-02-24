@@ -1,7 +1,7 @@
 docker-compose:
   generator: generic
   files:
-    - ../docker-compose-beyla-python-kafka.yml
+    - ../docker-compose-obi-python-kafka.yml
 input:
   - path: '/message'
 

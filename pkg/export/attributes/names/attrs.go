@@ -163,8 +163,10 @@ const (
 	ServiceName      = Name(semconv.ServiceNameKey)
 	ServiceNamespace = Name(semconv.ServiceNamespaceKey)
 
-	HostName = Name(semconv.HostNameKey)
-	HostID   = Name(semconv.HostIDKey)
+	HostID      = Name(semconv.HostIDKey)
+	HostImageID = Name(semconv.HostImageIDKey)
+	HostName    = Name(semconv.HostNameKey)
+	HostType    = Name(semconv.HostTypeKey)
 
 	ServiceInstanceID = Name(semconv.ServiceInstanceIDKey)
 	SkipSpanMetrics   = Name("span.metrics.skip")
@@ -204,7 +206,7 @@ const (
 	GenAIMetadata     = Name("gen_ai.metadata")
 )
 
-// Beyla specific GPU events
+// OBI specific GPU events
 const (
 	// GPU/Cuda related attributes
 	CudaMemcpyKind = Name("cuda.memcpy.kind")

@@ -49,7 +49,7 @@ func TestSamplerImplementation(t *testing.T) {
 		in:  SamplerConfig{Name: "parentbased_traceidratio", Arg: "wrong argument"},
 		out: trace.ParentBased(trace.AlwaysSample()),
 	}} {
-		t.Run(tc.in.Name+"/"+tc.in.Arg, func(t *testing.T) {
+		t.Run(string(tc.in.Name)+"/"+tc.in.Arg, func(t *testing.T) {
 			assert.Equal(t, tc.out, tc.in.Implementation())
 		})
 	}

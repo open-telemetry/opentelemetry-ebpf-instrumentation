@@ -23,7 +23,7 @@ int BPF_UPROBE(obi_uprobe_ssl_read, void *ssl, const void *buf, int num) {
     (void)ctx;
     (void)num;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -53,7 +53,7 @@ int BPF_UPROBE(obi_uprobe_ssl_read, void *ssl, const void *buf, int num) {
 
 SEC("uretprobe/libssl.so:SSL_read")
 int BPF_URETPROBE(obi_uretprobe_ssl_read, int ret) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -79,7 +79,7 @@ int BPF_UPROBE(obi_uprobe_ssl_read_ex,
     (void)ctx;
     (void)num;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -109,7 +109,7 @@ int BPF_UPROBE(obi_uprobe_ssl_read_ex,
 
 SEC("uretprobe/libssl.so:SSL_read_ex")
 int BPF_URETPROBE(obi_uretprobe_ssl_read_ex, int ret) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -140,7 +140,7 @@ SEC("uprobe/libssl.so:SSL_write")
 int BPF_UPROBE(obi_uprobe_ssl_write, void *ssl, const void *buf, int num) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -163,7 +163,7 @@ SEC("uretprobe/libssl.so:SSL_write")
 int BPF_URETPROBE(obi_uretprobe_ssl_write, int ret) {
     (void)ret;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -193,7 +193,7 @@ int BPF_UPROBE(obi_uprobe_ssl_write_ex,
     (void)ctx;
     (void)written;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -216,7 +216,7 @@ SEC("uretprobe/libssl.so:SSL_write_ex")
 int BPF_URETPROBE(obi_uretprobe_ssl_write_ex, int ret) {
     (void)ret;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -241,7 +241,7 @@ SEC("uprobe/libssl.so:SSL_shutdown")
 int BPF_UPROBE(obi_uprobe_ssl_shutdown, void *s) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;

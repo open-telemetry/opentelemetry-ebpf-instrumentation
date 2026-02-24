@@ -155,7 +155,7 @@ int obi_uprobe_mongo_op_execute(struct pt_regs *ctx) {
 
     bpf_dbg_printk("op_ptr=%llx", op_ptr);
 
-    u64 new_mongo_version = go_offset_of(ot, (go_offset){.v = _mongo_op_name_new});
+    const u64 new_mongo_version = go_offset_of(ot, (go_offset){.v = _mongo_op_name_new});
 
     // If we see driver > 1.13.1 we read the operation name
     if (new_mongo_version) {

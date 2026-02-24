@@ -28,7 +28,7 @@ var (
 	buildGoOTelTestServerErr  error
 )
 
-func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []string) *dockertest.Resource {
+func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []string) {
 	t.Helper()
 
 	buildGoOTelTestServerOnce.Do(func() {
@@ -63,7 +63,6 @@ func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []stri
 		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
 	})
 	t.Log("Go OpenTelemetry test server container started")
-	return testserver
 }
 
 func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
@@ -178,7 +177,7 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	setupContainerPrometheus(t, network, "prometheus-config.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
-	testserver := setupGoOTelTestServer(t, network, nil)
+	setupGoOTelTestServer(t, network, nil)
 
 	if t.Failed() {
 		return
@@ -193,7 +192,7 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver, "obi-config-go-otel.yml")
+	o.instrument(t, network, "obi-config-go-otel.yml")
 
 	t.Run("Go RED metrics: http service instrumented with OTel", func(t *testing.T) {
 		waitForTestComponents(t, "http://localhost:8080")
@@ -225,7 +224,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	setupContainerPrometheus(t, network, "prometheus-config.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
-	testserver := setupGoOTelTestServer(t, network, []string{
+	setupGoOTelTestServer(t, network, []string{
 		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 	})
@@ -243,7 +242,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver, "obi-config-go-otel.yml")
+	o.instrument(t, network, "obi-config-go-otel.yml")
 
 	t.Run("Go RED metrics: http service instrumented with OTel, no istrumentation", func(t *testing.T) {
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")
@@ -257,7 +256,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	setupContainerPrometheus(t, network, "prometheus-config.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
-	testserver := setupGoOTelTestServer(t, network, []string{
+	setupGoOTelTestServer(t, network, []string{
 		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 	})
@@ -276,7 +275,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, testserver, "obi-config-go-otel.yml")
+	o.instrument(t, network, "obi-config-go-otel.yml")
 
 	t.Run("Go RED metrics: http service instrumented with OTel, option disabled", func(t *testing.T) {
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")
