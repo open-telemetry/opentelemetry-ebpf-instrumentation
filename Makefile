@@ -310,7 +310,7 @@ test-privileged: $(ENVTEST)
 
 .PHONY: cov-exclude-generated
 cov-exclude-generated:
-	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/cover.all.txt > $(TEST_OUTPUT)/cover.txt
+	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/cover.all.txt > $(TEST_OUTPUT)/cover.txt || true
 
 .PHONY: coverage-report
 coverage-report: cov-exclude-generated
