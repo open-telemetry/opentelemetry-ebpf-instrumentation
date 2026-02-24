@@ -70,8 +70,6 @@ type NetworkConfig struct {
 	// TODO OBI 3.0: remove
 	Enable bool `yaml:"enable" env:"OTEL_EBPF_NETWORK_METRICS" validate:"boolean"`
 
-	Metrics string `yaml:"metrics" env:"OTEL_EBPF_NETWORK_METRICS" validate:"oneof=stats flows all"`
-
 	// Specify the source type for network events, e.g tc or socket_filter. The tc implementation
 	// cannot be used when there are other tc eBPF probes, e.g. Cilium CNI.
 	Source string `yaml:"source" env:"OTEL_EBPF_NETWORK_SOURCE"  validate:"oneof=tc socket_filter" jsonschema:"type=string,enum=tc,enum=socket_filter"`

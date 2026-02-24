@@ -25,9 +25,6 @@ func FlowPrinterProvider(enabled bool, input *msg.Queue[[]*ebpf.Record]) swarm.R
 	return func(_ context.Context) {
 		for flows := range in {
 			for _, flow := range flows {
-				if flow.NetStats.TCPRtt.Srtt != 0 {
-					fmt.Println("pinooooooooo srtt", flow.NetStats.TCPRtt.Srtt)
-				}
 				printFlow(flow)
 			}
 		}

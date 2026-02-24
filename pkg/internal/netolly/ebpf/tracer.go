@@ -60,8 +60,6 @@ func tlog() *slog.Logger {
 // It provides access both to flows that are aggregated in the kernel space (via PerfCPU hashmap)
 // and to flows that are forwarded by the kernel via ringbuffer because could not be aggregated
 // in the map
-// pino 8
-// questa e' la struct importante!
 type FlowFetcher struct {
 	log           *slog.Logger
 	objects       *NetObjects
@@ -72,10 +70,6 @@ type FlowFetcher struct {
 	enableEgress  bool
 }
 
-// pino
-// come esiste tracer.go per tc ed esiste sock_tracer.go per sock, posso fare un app_tracer per app net metrics?
-// IL FATTO E' CHE NON deve essere esclusivo
-// non posso neanche creare un pkg comune e crearlo dentro di essi perche' l'utente potrebbe volere solo le appnetmetrics
 func NewFlowFetcher(
 	sampling, cacheMaxSize int,
 	ingress, egress bool,

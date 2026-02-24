@@ -28,8 +28,6 @@ func serverPort(r *Record) uint16 {
 	}
 }
 
-// pino
-// qui devi aggiungere tutti gli attributi che ti servono
 // RecordGetters returns the attributes.Getter function that returns the string value of a given
 // attribute name.
 //
