@@ -505,7 +505,7 @@ extensions:
       # Logging behavior and startup config dump.
       logging:
         level: INFO
-        startup_dump: ""
+        format: ""
         debug_trace_output: disabled
       # Optional profiling endpoint.
       profiling:

@@ -404,6 +404,7 @@ func main() {
 		{[]string{"prometheus_export", "extra_resource_attributes"}, []string{"obi", "operations", "telemetry", "metrics", "prometheus", "extra_resource_attributes"}},
 		{[]string{"prometheus_export", "extra_span_resource_attributes"}, []string{"obi", "operations", "telemetry", "metrics", "prometheus", "extra_span_resource_attributes"}},
 
+		{[]string{"log_config"}, []string{"obi", "operations", "logging", "format"}},
 		{[]string{"log_level"}, []string{"obi", "operations", "logging", "level"}},
 		{[]string{"trace_printer"}, []string{"obi", "operations", "logging", "debug_trace_output"}},
 		{[]string{"shutdown_timeout"}, []string{"obi", "operations", "shutdown", "timeout"}},

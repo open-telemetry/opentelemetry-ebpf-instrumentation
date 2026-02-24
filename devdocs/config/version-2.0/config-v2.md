@@ -304,7 +304,7 @@ Important mapping notes:
 | `javaagent.debug` | `extensions.obi.instrumentation.java.debug.enabled` | Move + rename |
 | `javaagent.debug_instrumentation` | `extensions.obi.instrumentation.java.debug.bytecode_instrumentation` | Move + rename |
 | `javaagent.enabled` | `extensions.obi.instrumentation.java.enabled.{traces,metrics}` | Fan-out to both signals |
-| `log_config` | `extensions.obi.operations.logging.startup_dump` | Move + rename |
+| `log_config` | `extensions.obi.operations.logging.format` | Move + rename |
 | `log_level` | `extensions.obi.operations.logging.level` | Move |
 | `metrics.features` | `extensions.obi.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.network.capture.enabled` | Split mapping |
 | `name_resolver.cache_expiry` | `extensions.obi.enrich.service_name.cache.ttl` | Move + rename |
