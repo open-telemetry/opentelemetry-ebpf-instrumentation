@@ -551,6 +551,10 @@
     },
     "GlobAttributes": {
       "properties": {
+        "cmd_args": {
+          "$ref": "#/$defs/GlobAttr",
+          "description": "CmdArgs allows to limit by matching command line arguments"
+        },
         "container_name": {
           "$ref": "#/$defs/GlobAttr"
         },
@@ -1439,6 +1443,10 @@
     },
     "RegexSelector": {
       "properties": {
+        "cmd_args": {
+          "$ref": "#/$defs/RegexpAttr",
+          "description": "CmdArgs allows matching by command line arguments"
+        },
         "container_name": {
           "$ref": "#/$defs/RegexpAttr"
         },

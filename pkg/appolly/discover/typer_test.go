@@ -35,6 +35,7 @@ func (d dummyCriterion) RangePodAnnotations() iter.Seq2[string, services.StringM
 func (d dummyCriterion) RangePodLabels() iter.Seq2[string, services.StringMatcher]      { return nil }
 func (d dummyCriterion) IsContainersOnly() bool                                         { return false }
 func (d dummyCriterion) GetPathRegexp() services.StringMatcher                          { return nil }
+func (d dummyCriterion) GetCmdArgs() services.StringMatcher                             { return nil }
 func (d dummyCriterion) GetPIDs() ([]app.PID, bool)                                     { return nil, false }
 func (d dummyCriterion) GetNamespace() string                                           { return d.namespace }
 func (d dummyCriterion) GetExportModes() services.ExportModes                           { return d.export }
