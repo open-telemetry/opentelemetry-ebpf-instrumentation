@@ -681,6 +681,10 @@
           "$ref": "#/$defs/GraphQLConfig",
           "description": "GraphQL payload extraction and parsing"
         },
+        "openai": {
+          "$ref": "#/$defs/OpenAIConfig",
+          "description": "OpenAI payload extraction"
+        },
         "sqlpp": {
           "$ref": "#/$defs/SQLPPConfig",
           "description": "SQL++ payload extraction and parsing (Couchbase and other SQL++ databases)"
@@ -1323,6 +1327,16 @@
         "enabled": {
           "type": "boolean",
           "x-env-var": "OTEL_EBPF_NODEJS_ENABLED"
+        }
+      },
+      "type": "object"
+    },
+    "OpenAIConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable OpenAI payload extraction and parsing",
+          "x-env-var": "OTEL_EBPF_HTTP_OPENAI_ENABLED"
         }
       },
       "type": "object"
