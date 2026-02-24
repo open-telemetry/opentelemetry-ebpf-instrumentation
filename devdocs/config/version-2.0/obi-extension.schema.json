@@ -704,7 +704,7 @@
     "Operations": {
       "type": "object",
       "description": "Operational controls and protective limits.",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "limits": {
           "type": "object",
@@ -722,6 +722,252 @@
               "minimum": 0,
               "default": 100,
               "description": "Maximum tracked span-name cardinality for derived metrics.\nValue must be non-negative.\nA value of `0` disables span-name limiting.\nIf omitted, `100` is used.\n"
+            }
+          }
+        },
+        "capture": {
+          "type": "object",
+          "description": "Runtime capture internals and performance/safety toggles.",
+          "additionalProperties": false,
+          "properties": {
+            "debug": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "bpf": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable eBPF debug logging.\nIf omitted, false is used.\n"
+                },
+                "protocol_print": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable protocol debug printing.\nIf omitted, false is used.\n"
+                }
+              }
+            },
+            "pid_filter": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "disabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Disable PID-based filtering in discovery/capture flows.\nIf omitted, false is used.\n"
+                }
+              }
+            },
+            "batching": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "wakeup_len": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 500,
+                  "description": "Ringbuffer wakeup threshold for capture batching.\nIf omitted, `500` is used.\n"
+                },
+                "batch_length": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 100,
+                  "description": "Maximum number of captured events grouped per batch.\nIf omitted, `100` is used.\n"
+                },
+                "batch_timeout": {
+                  "type": "string",
+                  "default": "1s",
+                  "description": "Maximum time to wait before flushing a partial batch.\nIf omitted, `1s` is used.\n"
+                }
+              }
+            },
+            "propagation": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "context_propagation": {
+                  "type": "string",
+                  "enum": ["disabled", "headers", "tcp", "ip", "all"],
+                  "default": "disabled",
+                  "description": "Context propagation mode.\nValues include: `disabled`, `headers`, `tcp`, `ip`, `all`.\nIf omitted, `disabled` is used.\n"
+                },
+                "override_bpfloop_enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Override kernel bpf_loop capability checks.\nIf omitted, false is used.\n"
+                },
+                "disable_black_box_cp": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Disable black-box context propagation.\nIf omitted, false is used.\n"
+                }
+              }
+            },
+            "traffic": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "control_backend": {
+                  "type": "string",
+                  "enum": ["auto", "tc", "tcx"],
+                  "default": "auto",
+                  "description": "Traffic control backend selection.\nValues include: `auto`, `tc`, `tcx`.\nIf omitted, `auto` is used.\n"
+                },
+                "high_request_volume": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Optimize capture behavior for high request volume workloads.\nIf omitted, false is used.\n"
+                }
+              }
+            },
+            "transactions": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_duration": {
+                  "type": "string",
+                  "default": "5m0s",
+                  "description": "Maximum duration allowed for correlating request/response transactions.\nIf omitted, `5m0s` is used.\n"
+                }
+              }
+            },
+            "bpf_filesystem": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "default": "/sys/fs/bpf/",
+                  "description": "Filesystem path used for pinned BPF objects/maps.\nIf omitted, `/sys/fs/bpf/` is used.\n"
+                }
+              }
+            }
+          }
+        },
+        "logging": {
+          "type": "object",
+          "description": "Logging behavior and debug-output controls.",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+              "default": "INFO",
+              "description": "OBI log level.\nValues include: `DEBUG`, `INFO`, `WARN`, `ERROR`.\nIf omitted, `INFO` is used.\n"
+            },
+            "format": {
+              "type": "string",
+              "enum": ["", "yaml", "json"],
+              "default": "",
+              "description": "Startup configuration log format. Empty string disables startup config logging.\nValues include: `yaml`, `json`.\nIf omitted, empty string is used.\n"
+            },
+            "debug_trace_output": {
+              "type": "string",
+              "enum": ["disabled", "counter", "text", "json", "json_indent"],
+              "default": "disabled",
+              "description": "Debug trace output mode.\nValues include: `disabled`, `counter`, `text`, `json`, `json_indent`.\nIf omitted, `disabled` is used.\n"
+            }
+          }
+        },
+        "profiling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "port": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "Profiling server port. Set `0` to disable.\nIf omitted, `0` is used.\n"
+            }
+          }
+        },
+        "shutdown": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "timeout": {
+              "type": "string",
+              "default": "10s",
+              "description": "Graceful shutdown timeout.\nIf omitted, `10s` is used.\n"
+            }
+          }
+        },
+        "safety": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enforce_system_capabilities": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enforce required system capabilities on startup.\nIf omitted, false is used.\n"
+            }
+          }
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "channels": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "buffer_len": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 50,
+                  "description": "Runtime channel buffer length.\nIf omitted, `50` is used.\n"
+                },
+                "send_timeout": {
+                  "type": "string",
+                  "default": "1m0s",
+                  "description": "Runtime channel send timeout.\nIf omitted, `1m0s` is used.\n"
+                },
+                "panic_on_send_timeout": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Panic when a runtime channel send timeout occurs.\nIf omitted, false is used.\n"
+                }
+              }
+            }
+          }
+        },
+        "internal_metrics": {
+          "type": "object",
+          "description": "OBI internal metrics exporter configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "exporter": {
+              "type": "string",
+              "enum": ["disabled", "prometheus", "otel"],
+              "default": "disabled",
+              "description": "Internal metrics exporter mode.\nValues include: `disabled`, `prometheus`, `otel`.\nIf omitted, `disabled` is used.\n"
+            },
+            "prometheus": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "port": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 0,
+                  "description": "Internal Prometheus exporter port. Set `0` to disable listener.\nIf omitted, `0` is used.\n"
+                },
+                "path": {
+                  "type": "string",
+                  "default": "/internal/metrics",
+                  "description": "Internal Prometheus metrics path.\nIf omitted, `/internal/metrics` is used.\n"
+                }
+              }
+            },
+            "bpf": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "scrape_interval": {
+                  "type": "string",
+                  "default": "15s",
+                  "description": "Scrape interval for BPF internal metrics collection.\nIf omitted, `15s` is used.\n"
+                }
+              }
             }
           }
         },
