@@ -321,14 +321,14 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.GenAIInput:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAI && s.OpenAI != nil {
-				return semconv.GenAIInputMessagesKey.String(string(s.OpenAI.Request.GetInput()))
+				return semconv.GenAIInputMessagesKey.String(s.OpenAI.Request.GetInput())
 			}
 			return semconv.GenAIInputMessagesKey.String("")
 		}
 	case attr.GenAIOutput:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAI && s.OpenAI != nil {
-				return semconv.GenAIOutputMessagesKey.String(string(s.OpenAI.GetOutput()))
+				return semconv.GenAIOutputMessagesKey.String(s.OpenAI.GetOutput())
 			}
 			return semconv.GenAIOutputMessagesKey.String("")
 		}

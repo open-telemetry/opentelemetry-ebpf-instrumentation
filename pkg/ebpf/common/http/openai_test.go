@@ -79,8 +79,6 @@ const quotaErrorResponseBody = `{
     }
 }`
 
-// helpers
-
 func gzipBody(t *testing.T, body string) io.ReadCloser {
 	t.Helper()
 	var buf bytes.Buffer
@@ -91,6 +89,7 @@ func gzipBody(t *testing.T, body string) io.ReadCloser {
 	return io.NopCloser(&buf)
 }
 
+//nolint:unparam
 func makeRequest(t *testing.T, method, url, body string) *http.Request {
 	t.Helper()
 	req, err := http.NewRequest(method, url, strings.NewReader(body))
@@ -144,8 +143,8 @@ func TestOpenAISpan_Responses(t *testing.T) {
 	assert.Equal(t, "gpt-5-mini-2025-08-07", ai.ResponseModel)
 	assert.Equal(t, 36, ai.Usage.GetInputTokens())
 	assert.Equal(t, 691, ai.Usage.GetOutputTokens())
-	assert.Equal(t, 1.0, ai.Temperature)
-	assert.Equal(t, 1.0, ai.TopP)
+	assert.InEpsilon(t, 1.0, 0.01, ai.Temperature)
+	assert.InEpsilon(t, 1.0, 0.01, ai.TopP)
 	assert.NotEmpty(t, ai.Output)
 
 	// request fields
@@ -255,19 +254,19 @@ func TestOpenAISpan_UsageTokenHelpers(t *testing.T) {
 func TestOpenAISpan_GetOutput(t *testing.T) {
 	// output field populated (responses API)
 	ai := &request.OpenAI{Output: []byte(`[{"type":"message"}]`)}
-	assert.Equal(t, `[{"type":"message"}]`, ai.GetOutput())
+	assert.JSONEq(t, `[{"type":"message"}]`, ai.GetOutput())
 
 	// items fallback
 	ai2 := &request.OpenAI{Items: []byte(`[{"item":1}]`)}
-	assert.Equal(t, `[{"item":1}]`, ai2.GetOutput())
+	assert.JSONEq(t, `[{"item":1}]`, ai2.GetOutput())
 
 	// data fallback
 	ai3 := &request.OpenAI{Data: []byte(`[{"id":"emb-1"}]`)}
-	assert.Equal(t, `[{"id":"emb-1"}]`, ai3.GetOutput())
+	assert.JSONEq(t, `[{"id":"emb-1"}]`, ai3.GetOutput())
 
 	// choices fallback (completions API)
 	ai4 := &request.OpenAI{Choices: []byte(`[{"index":0}]`)}
-	assert.Equal(t, `[{"index":0}]`, ai4.GetOutput())
+	assert.JSONEq(t, `[{"index":0}]`, ai4.GetOutput())
 }
 
 func TestOpenAIInput_GetInput(t *testing.T) {
@@ -281,9 +280,9 @@ func TestOpenAIInput_GetInput(t *testing.T) {
 
 	// messages fallback
 	inp3 := &request.OpenAIInput{Messages: []byte(`[{"role":"user"}]`)}
-	assert.Equal(t, `[{"role":"user"}]`, inp3.GetInput())
+	assert.JSONEq(t, `[{"role":"user"}]`, inp3.GetInput())
 
 	// items fallback
 	inp4 := &request.OpenAIInput{Items: []byte(`[{"item":1}]`)}
-	assert.Equal(t, `[{"item":1}]`, inp4.GetInput())
+	assert.JSONEq(t, `[{"item":1}]`, inp4.GetInput())
 }

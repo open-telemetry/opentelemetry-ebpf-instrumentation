@@ -105,7 +105,7 @@ const completionsBody = `
       "index": 0,
       "message": {
         "role": "assistant",
-        "content": "I now can give a great answer  \nFinal Answer: \n\n**Comprehensive Travel Report for a 6-Day Luxury Trip to London, UK**\n\n**1. Best Time to Visit and Weather Conditions:**\nThe ideal time to visit London is during late spring (May to early June) and early autumn (September to October) when the weather is mild and pleasant. During these months, temperatures generally range from 15°C to 20°C (59°F to 68°F). Rain is possible at any time of the year, so packing a light raincoat or umbrella is recommended.\n\n**2. Top Attractions and Must-See Places:**\n- **The British Museum:** A world-renowned museum offering free entry, showcasing a vast collection of art and antiquities.\n- **The Tower of London:** Explore this historic castle, home to the Crown Jewels and steeped in royal history.\n- **Buckingham Palace:** Witness the Changing of the Guard and explore the beautiful surrounding gardens.\n- **The Shard:** Enjoy breathtaking views of London from the tallest building in the UK.\n- **West End Theatre District:** Catch a luxurious show at one of London's famous theatres.\n- **Borough Market:** A food lover's paradise with gourmet offerings and local delicacies.\n- **Kensington Palace:** Visit the stunning royal residence and its beautiful gardens.\n\n**3. Transportation Options:**\n- **Airports:** London is served by several airports, including Heathrow (LHR), Gatwick (LGW), and London City Airport (LCY). Heathrow is the main international airport and is about 15 miles from Central London.\n- **Local Transport:** The London Underground (Tube) is the most efficient way to navigate the city. A contactless Oyster Card or contactless payment methods are recommended for easy travel. Buses, taxis, and riverboats are also excellent options for getting around.\n\n**4. Accommodation Areas and Recommendations:**\nFor a luxury experience, consider staying in the following areas:\n- **Mayfair:** Known for upscale hotels, fine dining, and luxury shopping.\n  - Recommended: The Dorchester or Claridge's.\n- **Kensington:** Offers beautiful parks and close proximity to major attractions.\n  - Recommended: The Milestone Hotel or The Baglioni Hotel.\n- **Covent Garden:** A vibrant area with entertainment, dining, and shopping.\n  - Recommended: The Henrietta Hotel or the Covent Garden Hotel.\n\n**5. Local Customs and Cultural Considerations:**\n- **Tipping:** A 10-15% tip is customary in restaurants, though many establishments include service charges.\n- **Queuing:** The British are known for their orderly queuing; wait your turn patiently.\n- **Politeness:** Saying “please” and “thank you” is essential in British culture.\n\n**6. Safety Information and Travel Requirements:**\nLondon is generally safe for tourists, but standard precautions should be taken, such as avoiding poorly lit areas at night. As of October 2023, ensure to check for any travel advisories or entry requirements related to health, such as vaccinations or documentation.\n\n**7. Currency and Payment Methods:**\nThe currency used is the British Pound Sterling (GBP). Credit and debit cards are widely accepted, and contactless payments are very common. It's advisable to carry some cash for smaller purchases. ATMs are readily available.\n\n**8. Language Considerations:**\nThe primary language spoken is English. While most locals are fluent in English, having a few basic phrases can enhance your experience.\n\n**Final Notes:**\nWith a budget of $4400 for three travelers for six days in London, you can enjoy luxurious accommodations, gourmet dining experiences, and entrance to various attractions. Plan for a mix of fine dining and local food experiences at places like Dishoom (Indian), Sketch (high tea), and The Ivy (British cuisine). \n\nThis comprehensive travel report should serve as a valuable guide for your luxury trip to London, ensuring you experience the best that this vibrant city has to offer. Enjoy your adventure!",
+        "content": "I now can give a great answer  \nFinal Answer: \n\n**Comprehensive Travel Report for a 6-Day Luxury Trip to London, UK**\n\n**1. Best Time to Visit and Weather Conditions:**\nThe ideal time to visit London is during late spring (May to early June) and early autumn (September to October) when the weather is mild and pleasant. During these months, temperatures generally range from 15°C to 20°C (59°F to 68°F). Rain is possible at any time of the year, so packing a light raincoat or umbrella is recommended.\n\n**2. Top Attractions and Must-See Places:**\n- **The British Museum:** A world-renowned museum offering free entry, showcasing a vast collection of art and antiquities.\n- **The Tower of London:** Explore this historic castle, home to the Crown Jewels and steeped in royal history.\n- **Buckingham Palace:** Witness the Changing of the Guard and explore the beautiful surrounding gardens.\n- **The Shard:** Enjoy breathtaking views of London from the tallest building in the UK.\n- **West End Theater District:** Catch a luxurious show at one of London's famous theaters.\n- **Borough Market:** A food lover's paradise with gourmet offerings and local delicacies.\n- **Kensington Palace:** Visit the stunning royal residence and its beautiful gardens.\n\n**3. Transportation Options:**\n- **Airports:** London is served by several airports, including Heathrow (LHR), Gatwick (LGW), and London City Airport (LCY). Heathrow is the main international airport and is about 15 miles from Central London.\n- **Local Transport:** The London Underground (Tube) is the most efficient way to navigate the city. A contactless Oyster Card or contactless payment methods are recommended for easy travel. Buses, taxis, and riverboats are also excellent options for getting around.\n\n**4. Accommodation Areas and Recommendations:**\nFor a luxury experience, consider staying in the following areas:\n- **Mayfair:** Known for upscale hotels, fine dining, and luxury shopping.\n  - Recommended: The Dorchester or Claridge's.\n- **Kensington:** Offers beautiful parks and close proximity to major attractions.\n  - Recommended: The Milestone Hotel or The Baglioni Hotel.\n- **Covent Garden:** A vibrant area with entertainment, dining, and shopping.\n  - Recommended: The Henrietta Hotel or the Covent Garden Hotel.\n\n**5. Local Customs and Cultural Considerations:**\n- **Tipping:** A 10-15% tip is customary in restaurants, though many establishments include service charges.\n- **Queuing:** The British are known for their orderly queuing; wait your turn patiently.\n- **Politeness:** Saying “please” and “thank you” is essential in British culture.\n\n**6. Safety Information and Travel Requirements:**\nLondon is generally safe for tourists, but standard precautions should be taken, such as avoiding poorly lit areas at night. As of October 2023, ensure to check for any travel advisories or entry requirements related to health, such as vaccinations or documentation.\n\n**7. Currency and Payment Methods:**\nThe currency used is the British Pound Sterling (GBP). Credit and debit cards are widely accepted, and contactless payments are very common. It's advisable to carry some cash for smaller purchases. ATMs are readily available.\n\n**8. Language Considerations:**\nThe primary language spoken is English. While most locals are fluent in English, having a few basic phrases can enhance your experience.\n\n**Final Notes:**\nWith a budget of $4400 for three travelers for six days in London, you can enjoy luxurious accommodations, gourmet dining experiences, and entrance to various attractions. Plan for a mix of fine dining and local food experiences at places like Dishoom (Indian), Sketch (high tea), and The Ivy (British cuisine). \n\nThis comprehensive travel report should serve as a valuable guide for your luxury trip to London, ensuring you experience the best that this vibrant city has to offer. Enjoy your adventure!",
         "refusal": null,
         "annotations": []
       },
@@ -151,7 +151,7 @@ type responsesRequest struct {
 	Model        string `json:"model"`
 }
 
-func setResponseHeaders(h http.Header) http.Header {
+func setResponseHeaders(h http.Header) {
 	h.Set("X-Ratelimit-Limit-Tokens", "500000")
 	h.Set("X-Ratelimit-Reset-Requests", "120ms")
 	h.Set("X-Ratelimit-Reset-Tokens", "56ms")
@@ -172,8 +172,6 @@ func setResponseHeaders(h http.Header) http.Header {
 	h.Set("Alt-Svc", `h3=":443"; ma=86400`)
 	h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 	h.Set("Connection", "keep-alive")
-
-	return h
 }
 
 func handleResponses(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +217,7 @@ func handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h := w.Header()
-	h = setResponseHeaders(h)
+	setResponseHeaders(h)
 	w.WriteHeader(http.StatusOK)
 
 	gz := gzip.NewWriter(w)
@@ -281,7 +279,7 @@ func handleCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h := w.Header()
-	h = setResponseHeaders(h)
+	setResponseHeaders(h)
 	w.WriteHeader(http.StatusOK)
 
 	gz := gzip.NewWriter(w)
@@ -339,7 +337,7 @@ func handleConversations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h := w.Header()
-	h = setResponseHeaders(h)
+	setResponseHeaders(h)
 	w.WriteHeader(http.StatusOK)
 
 	gz := gzip.NewWriter(w)
