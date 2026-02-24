@@ -484,7 +484,10 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
 
     u32 chunk = bytes_len;
 
-    bpf_dbg_printk("large buffer, total size=%d", bytes_len);
+    bpf_dbg_printk("sending large buffer, total size=%d, packet_type=%d, direction %d",
+                   bytes_len,
+                   packet_type,
+                   direction);
 
     int b = 0;
     for (; b <= (max / k_large_buf_payload_max_size); b++) {
@@ -496,7 +499,8 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
         bpf_clamp_umax(read_size, k_large_buf_payload_max_size);
         bpf_probe_read(large_buf->buf, read_size, (void *)(&u_buf[offset]));
 
-        bpf_d_printk("sending large buffer, size=%d", read_size);
+        // left here intentionally for debugging
+        // bpf_dbg_printk("sending large buffer, size=%d, action=%d", read_size, action);
 
         large_buf->len = read_size;
 

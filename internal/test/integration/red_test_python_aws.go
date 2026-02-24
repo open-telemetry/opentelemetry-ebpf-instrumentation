@@ -60,7 +60,7 @@ func fetchAWSSpanByOP(t require.TestingT, op string) jaeger.Span {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
-	require.GreaterOrEqual(t, len(tq.Data), 1)
+	require.GreaterOrEqual(t, len(tq.Data), 1, op)
 
 	for _, tr := range tq.Data {
 		spans := tr.FindByOperationName(op, "client")
