@@ -481,7 +481,9 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
 
     u32 available_bytes = bytes_len;
     // limit by the userspace requested size
-    bpf_clamp_umax(available_bytes, http_buffer_size);
+    if (available_bytes > http_buffer_size) {
+        available_bytes = http_buffer_size;
+    }
     // limit by the maximum bytes we can ever export
     bpf_clamp_umax(available_bytes, k_large_buffer_read_limit);
 
