@@ -15,6 +15,11 @@ on:
         description: "Release tag (e.g., v1.2.3)"
         required: true
         type: string
+      latest:
+        description: "Tag image as 'latest'"
+        required: false
+        type: boolean
+        default: false
 
 # https://docs.zizmor.sh/audits/#excessive-permissions
 permissions: {}
@@ -198,6 +203,46 @@ jobs:
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
+  determine-latest:
+    name: Determine if Latest Release
+    runs-on: ubuntu-latest
+    needs: validate-tag
+    permissions:
+      contents: read
+    outputs:
+      is_latest: ${{ steps.check.outputs.is_latest }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Check if this is the latest release
+        id: check
+        env:
+          WORKFLOW_TAG: ${{ inputs.tag }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          WORKFLOW_EVENT: ${{ github.event_name }}
+          INPUT_LATEST: ${{ inputs.latest }}
+        run: |
+          if [ "$WORKFLOW_EVENT" = "workflow_dispatch" ]; then
+            echo "is_latest=$INPUT_LATEST" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          TAG="$GITHUB_REF_NAME"
+          # Only a clean vX.Y.Z tag (no pre-release suffix or build metadata) can be latest
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_latest=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Find the highest stable semver tag (excludes pre-releases and build metadata)
+          LATEST=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          if [ "$TAG" = "$LATEST" ]; then
+            echo "is_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_latest=false" >> "$GITHUB_OUTPUT"
+          fi
+
   tests-passed:
     name: All Tests Passed
     needs:
@@ -221,26 +266,28 @@ jobs:
   docker-publish-main:
     name: Publish Docker Image (main)
     uses: ./.github/workflows/publish_dockerhub_main.yml
-    needs: tests-passed
+    needs: [tests-passed, determine-latest]
     permissions:
       contents: read
       id-token: write
       packages: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
+      latest: ${{ needs.determine-latest.outputs.is_latest == 'true' }}
     secrets:
       DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
 
   docker-publish-k8s-cache:
     name: Publish Docker Image (k8s cache)
     uses: ./.github/workflows/publish_dockerhub_k8s_cache_main.yml
-    needs: tests-passed
+    needs: [tests-passed, determine-latest]
     permissions:
       contents: read
       id-token: write
       packages: write
     with:
       ref: ${{ inputs.tag || github.ref_name }}
+      latest: ${{ needs.determine-latest.outputs.is_latest == 'true' }}
     secrets:
       DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
 

@@ -10,6 +10,11 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+      latest:
+        description: "Tag image as 'latest'"
+        required: false
+        type: boolean
+        default: false
     secrets:
       DOCKER_TOKEN_EBPF_INSTRUMENTATION:
         description: "Docker Hub access token for otel"
@@ -66,6 +71,13 @@ jobs:
           images: |
             otel/${{ env.IMAGE_NAME }}
             ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern=v{{version}},value=${{ inputs.ref }}
+            type=raw,value=latest,enable=${{ inputs.latest == true }}
+            type=ref,event=branch
+            type=ref,event=tag
 
       - name: Build and push by digest
         id: build
@@ -135,6 +147,13 @@ jobs:
           images: |
             otel/${{ env.IMAGE_NAME }}
             ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern=v{{version}},value=${{ inputs.ref }}
+            type=raw,value=latest,enable=${{ inputs.latest == true }}
+            type=ref,event=branch
+            type=ref,event=tag
 
       - name: Create manifest list and push
         env:
