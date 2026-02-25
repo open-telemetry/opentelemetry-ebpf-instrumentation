@@ -28,11 +28,11 @@ func getResponseBody(resp *http.Response) ([]byte, error) {
 	// (only http.Transport does, and only for gzip). Decompress manually.
 	body := respB
 	if enc := resp.Header.Get("Content-Encoding"); enc != "" && len(respB) > 0 {
-		if dec, derr := decompressBody(enc, respB); derr == nil {
-			body = dec
-		} else {
-			return nil, fmt.Errorf("decompress error (enc=%s, truncated body?): %w", enc, derr)
+		dec, err := decompressBody(enc, respB)
+		if err != nil {
+			return nil, fmt.Errorf("decompress error (enc=%s, truncated body?): %w", enc, err)
 		}
+		body = dec
 	}
 
 	return body, nil
