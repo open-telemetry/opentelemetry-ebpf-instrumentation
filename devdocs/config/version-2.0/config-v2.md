@@ -389,9 +389,9 @@ but the root schema allows additional properties and does not explicitly exclude
 
 After review and discussion in upstream issues:
 
-- Placement discussion: https://github.com/open-telemetry/opentelemetry-configuration/issues/335
-- OBI comment with context: https://github.com/open-telemetry/opentelemetry-configuration/issues/335#issuecomment-3954773010
-- Ownership/overlap follow-up: https://github.com/open-telemetry/opentelemetry-configuration/issues/545
+- [Placement discussion](https://github.com/open-telemetry/opentelemetry-configuration/issues/335)
+- [OBI comment with context](https://github.com/open-telemetry/opentelemetry-configuration/issues/335#issuecomment-3954773010)
+- [Ownership/overlap follow-up](https://github.com/open-telemetry/opentelemetry-configuration/issues/545)
 
 Decision for OBI v2:
 
