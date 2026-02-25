@@ -295,7 +295,7 @@
         }
       },
       "type": "object",
-      "description": "Per-protocol data buffer size in bytes. Max: 8192 bytes. Default: 0 (disabled)."
+      "description": "Per-protocol data buffer size in bytes. Max: 64K bytes for HTTP. 8K bytes for other protocols.  Default: 0 (disabled)."
     },
     "EBPFTracer": {
       "properties": {

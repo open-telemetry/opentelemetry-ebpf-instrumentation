@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include <bpfcore/utils.h>
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
+#include <bpfcore/utils.h>
 
 #include <common/common.h>
 #include <common/http_types.h>
