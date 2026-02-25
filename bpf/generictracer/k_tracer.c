@@ -1164,7 +1164,7 @@ int obi_handle_buf_with_args(void *ctx) {
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
 
-        bpf_d_printk("http? info %llx, submitted %d, still reading %d",
+        bpf_d_printk("http info %llx, submitted %d, still reading %d",
                      info,
                      (info) ? info->submitted : 0,
                      (info) ? still_reading(info) : 0);

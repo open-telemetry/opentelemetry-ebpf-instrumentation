@@ -23,7 +23,7 @@ enum {
     k_large_buf_payload_max_size = 1 << 14, // 16K
     k_large_buf_payload_max_size_mask = k_large_buf_payload_max_size - 1,
 
-    // Absolute maximum of buffers we'll send
+    // Absolute maximum of bytes that we'll send, smaller chunks are sent one after another
     k_large_buffer_read_limit = 1 << 16, // 64K
 };
 
