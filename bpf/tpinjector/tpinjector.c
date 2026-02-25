@@ -294,9 +294,9 @@ static __always_inline void bpf_sock_ops_set_flags(struct bpf_sock_ops *skops, u
 
 // Helper that writes in the sock map for a sock_ops program
 static __always_inline void bpf_sock_ops_active_est_cb(struct bpf_sock_ops *skops) {
-    connection_info_t conn = get_connection_info_ops(skops);
+    const u64 cookie = bpf_get_socket_cookie(skops);
 
-    bpf_sock_hash_update(skops, &sock_dir, &conn, BPF_ANY);
+    bpf_sock_hash_update(skops, &sock_dir, (void *)&cookie, BPF_ANY);
     bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_WRITE_HDR_OPT_CB_FLAG);
 }
 
@@ -975,3 +975,5 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
 
     return SK_PASS;
 }
+
+#include "sock_iter.c"

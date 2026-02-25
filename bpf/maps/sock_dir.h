@@ -6,8 +6,6 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-#include <common/connection_info.h>
-
 // A map of sockets which we track with sock_ops. The sock_msg
 // program subscribes to this map and runs for each new socket
 // activity
@@ -16,6 +14,6 @@
 struct {
     __uint(type, BPF_MAP_TYPE_SOCKHASH);
     __uint(max_entries, 65535);
-    __uint(key_size, sizeof(connection_info_t));
+    __uint(key_size, sizeof(u64));
     __uint(value_size, sizeof(u32));
 } sock_dir SEC(".maps");

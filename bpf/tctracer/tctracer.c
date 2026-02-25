@@ -580,59 +580,17 @@ static __always_inline void inject_tc_ip_options_ipv6(struct __sk_buff *skb,
     print_tp("injected", &tp->tp);
 }
 
-static __always_inline u8 is_sock_tracked(const connection_info_t *conn) {
-    struct bpf_sock *sk = (struct bpf_sock *)bpf_map_lookup_elem(&sock_dir, conn);
-
-    if (sk) {
-        bpf_sk_release(sk);
-        return 1;
-    }
-
-    return 0;
-}
-
-static __always_inline void track_sock(struct __sk_buff *skb, const connection_info_t *conn) {
-    if (is_sock_tracked(conn)) {
-        return;
-    }
-
-    struct bpf_sock_tuple tuple = {};
-
-    u32 tuple_size = 0;
-
-    if (skb->protocol == bpf_htons(ETH_P_IPV6)) {
-        __builtin_memcpy(tuple.ipv6.saddr, conn->s_addr, IP_V6_ADDR_LEN);
-        __builtin_memcpy(tuple.ipv6.daddr, conn->d_addr, IP_V6_ADDR_LEN);
-
-        tuple.ipv6.sport = bpf_htons(conn->s_port);
-        tuple.ipv6.dport = bpf_htons(conn->d_port);
-
-        tuple_size = sizeof(tuple.ipv6);
-    } else if (skb->protocol == bpf_htons(ETH_P_IP)) {
-        __builtin_memcpy(&tuple.ipv4.saddr, conn->s_addr + sizeof(ip4ip6_prefix), sizeof(u32));
-        __builtin_memcpy(&tuple.ipv4.saddr, conn->s_addr + sizeof(ip4ip6_prefix), sizeof(u32));
-        __builtin_memcpy(&tuple.ipv4.daddr, conn->d_addr + sizeof(ip4ip6_prefix), sizeof(u32));
-
-        tuple.ipv4.sport = bpf_htons(conn->s_port);
-        tuple.ipv4.dport = bpf_htons(conn->d_port);
-
-        tuple_size = sizeof(tuple.ipv4);
-    } else {
-        return;
-    }
-
-    // this MUST be a signed 32-bit number
-    const s32 BPF_F_CURRENT_NETNS = -1;
-
-    struct bpf_sock *sk = bpf_sk_lookup_tcp(skb, &tuple, tuple_size, BPF_F_CURRENT_NETNS, 0);
+static __always_inline void track_sock(struct __sk_buff *skb) {
+    struct bpf_sock *sk = skb->sk;
 
     if (!sk) {
         return;
     }
 
-    bpf_map_update_elem(&sock_dir, conn, sk, BPF_NOEXIST);
+    const u64 cookie = bpf_get_socket_cookie(skb);
 
-    bpf_sk_release(sk);
+    bpf_dbg_printk("adding to sock_dir sock=%llu", cookie);
+    bpf_map_update_elem(&sock_dir, &cookie, sk, BPF_NOEXIST);
 }
 
 static __always_inline bool parse_ip_options(struct __sk_buff *skb, connection_info_t *conn) {
@@ -695,13 +653,13 @@ static __always_inline void inject_ip_options(struct __sk_buff *skb,
 }
 
 static __always_inline void process_ip_options(struct __sk_buff *skb) {
+    track_sock(skb);
+
     connection_info_t conn = {};
 
     if (!conn_info_from_skb(skb, &conn)) {
         return;
     }
-
-    track_sock(skb, &conn);
 
     sort_connection_info(&conn);
 

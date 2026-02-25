@@ -29,14 +29,16 @@ type Tracer struct {
 	bpfObjects BpfObjects
 	closers    []io.Closer
 	log        *slog.Logger
+	iters      []*ebpfcommon.Iter
 }
 
 func New(cfg *obi.Config) *Tracer {
 	log := slog.With("component", "tpinjector")
 
 	return &Tracer{
-		log: log,
-		cfg: cfg,
+		log:   log,
+		cfg:   cfg,
+		iters: []*ebpfcommon.Iter{},
 	}
 }
 
@@ -132,7 +134,15 @@ func (p *Tracer) SockOps() []ebpfcommon.SockOps {
 }
 
 func (p *Tracer) Iters() []*ebpfcommon.Iter {
-	return nil
+	if len(p.iters) == 0 {
+		p.iters = []*ebpfcommon.Iter{
+			{
+				Program: p.bpfObjects.ObiSkIterTcp,
+			},
+		}
+	}
+
+	return p.iters
 }
 
 func (p *Tracer) Tracing() []*ebpfcommon.Tracing {
@@ -152,6 +162,12 @@ func (p *Tracer) AlreadyInstrumentedLib(uint64) bool {
 func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg.Queue[[]request.Span]) {
 	p.log.Debug("tpinjector started")
 
+	for _, it := range p.Iters() {
+		if err := it.Run(p.log); err != nil {
+			p.log.Error("error running iterator", "error", err)
+		}
+	}
+
 	<-ctx.Done()
 
 	p.bpfObjects.Close()
@@ -162,3 +178,4 @@ func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg
 func (p *Tracer) Required() bool {
 	return false
 }
+
