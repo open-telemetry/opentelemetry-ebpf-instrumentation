@@ -42,12 +42,12 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 
 	var parsedRequest request.OpenAIInput
 	if err := json.Unmarshal(reqB, &parsedRequest); err != nil {
-		return *baseSpan, false
+		slog.Debug("failed to parse OpenAI request", "error", err)
 	}
 
 	var parsedResponse request.OpenAI
 	if err := json.Unmarshal(respB, &parsedResponse); err != nil {
-		return *baseSpan, false
+		slog.Debug("failed to parse OpenAI response", "error", err)
 	}
 
 	parsedResponse.Request = parsedRequest
