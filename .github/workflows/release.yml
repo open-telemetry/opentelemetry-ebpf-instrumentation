@@ -16,9 +16,6 @@ on:
         required: true
         type: string
 
-# https://docs.zizmor.sh/audits/#excessive-permissions
-permissions: {}
-
 jobs:
   # Validate tag format before proceeding with release.
   validate-tag:
