@@ -99,7 +99,7 @@ obi config validate ./path/to/config
 ### Phase 3 — v2-first default
 
 - Default docs/examples/CI to v2.
-- Deprecate the v1 configuration. Warn users, and tell them how migrate with tooling.
+- Deprecate the v1 configuration. Warn users, and tell them how to migrate with tooling.
 
 ### Phase 4 — v1 retirement
 
