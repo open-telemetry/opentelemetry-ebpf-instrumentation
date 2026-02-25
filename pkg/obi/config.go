@@ -63,6 +63,7 @@ type Feature uint
 const (
 	FeatureAppO11y = Feature(1 << iota)
 	FeatureNetO11y
+	FeatureStatsO11y
 )
 
 const (
@@ -247,6 +248,7 @@ var DefaultConfig = Config{
 	},
 	NetworkFlows:      DefaultNetworkConfig,
 	AppNetworkMetrics: DefaultAppNetworkConfig,
+	Stats:             DefaultStatsConfig,
 	Discovery: services.DiscoveryConfig{
 		ExcludeOTelInstrumentedServices: true,
 		DefaultExcludeServices: services.RegexDefinitionCriteria{
@@ -288,6 +290,7 @@ type Config struct {
 	// NetworkFlows configuration for Network Observability feature
 	NetworkFlows      NetworkConfig    `yaml:"network"`
 	AppNetworkMetrics AppNetworkConfig `yaml:"app_network"`
+	Stats             StatsConfig      `yaml:"stats"`
 
 	Filters filter.AttributesConfig `yaml:"filter"`
 
@@ -583,11 +586,11 @@ func (c *Config) Validate() error {
 		return ConfigError(err.Error())
 	}
 
-	if !c.Enabled(FeatureNetO11y) && !c.Enabled(FeatureAppO11y) {
-		return ConfigError("at least one of 'network' or 'application' features must be enabled. " +
-			"Enable an OpenTelemetry or Prometheus metrics export, then enable any of the network* or application*" +
-			"features using the 'OTEL_EBPF_METRICS_FEATURES=network,application' environment variable " +
-			"or 'meter_provider: { features: [network,application] }' in the YAML configuration file. ")
+	if !c.Enabled(FeatureNetO11y) && !c.Enabled(FeatureAppO11y) && !c.Enabled(FeatureStatsO11y) {
+		return ConfigError("at least one of 'network', 'application' or 'stats' features must be enabled. " +
+			"Enable an OpenTelemetry or Prometheus metrics export, then enable any of the network*, application* or stats*" +
+			"features using the 'OTEL_EBPF_METRICS_FEATURES=network,application,stats' environment variable " +
+			"or 'meter_provider: { features: [network,application,stats] }' in the YAML configuration file. ")
 	}
 
 	if c.willUseTC() {
@@ -600,6 +603,7 @@ func (c *Config) Validate() error {
 		return ConfigError("OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT duration must be greater than 0s")
 	}
 
+	// TODO pinoOgni check
 	if c.Enabled(FeatureNetO11y) && !c.OTELMetrics.EndpointEnabled() &&
 		!c.Prometheus.EndpointEnabled() && !c.NetworkFlows.Print {
 		return ConfigError("enabling network metrics requires to enable at least the OpenTelemetry" +
@@ -647,6 +651,14 @@ func (c *Config) otelNetO11yEnabled() bool {
 	return c.OTELMetrics.EndpointEnabled() && c.Metrics.Features.AnyNetwork()
 }
 
+func (c *Config) promStatsO11yEnabled() bool {
+	return c.Prometheus.EndpointEnabled() && c.Metrics.Features.StatsMetrics()
+}
+
+func (c *Config) otelStatsO11yEnabled() bool {
+	return c.OTELMetrics.EndpointEnabled() && c.Metrics.Features.StatsMetrics()
+}
+
 func (c *Config) willUseTC() bool {
 	return c.Enabled(FeatureNetO11y) && c.NetworkFlows.Source == EbpfSourceTC
 }
@@ -659,6 +671,8 @@ func (c *Config) Enabled(feature Feature) bool {
 	case FeatureAppO11y:
 		return c.Port.Len() > 0 || c.AutoTargetExe.IsSet() || c.AutoTargetLanguage.IsSet() || len(c.Discovery.Instrument) > 0 ||
 			c.Exec.IsSet() || len(c.Discovery.Services) > 0 || c.TargetPIDs.Len() > 0
+	case FeatureStatsO11y:
+		return c.NetworkFlows.Enable || c.promStatsO11yEnabled() || c.otelStatsO11yEnabled()
 	}
 	return false
 }

@@ -21,7 +21,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
 	"go.opentelemetry.io/obi/pkg/kube"
-	"go.opentelemetry.io/obi/pkg/netolly/agent"
+	netagent "go.opentelemetry.io/obi/pkg/netolly/agent"
+	statsagent "go.opentelemetry.io/obi/pkg/statsolly/agent"
+
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -50,6 +52,7 @@ func RunWithContextInfo(
 
 	app := cfg.Enabled(obi.FeatureAppO11y)
 	net := cfg.Enabled(obi.FeatureNetO11y)
+	stats := cfg.Enabled(obi.FeatureStatsO11y)
 
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
@@ -67,6 +70,15 @@ func RunWithContextInfo(
 		g.Go(func() error {
 			if err := setupNetO11y(ctx, ctxInfo, cfg); err != nil {
 				return fmt.Errorf("setupNetO11y: %w", err)
+			}
+			return nil
+		})
+	}
+
+	if stats {
+		g.Go(func() error {
+			if err := setupStatsO11y(ctx, ctxInfo, cfg); err != nil {
+				return fmt.Errorf("setupStatsO11y: %w", err)
 			}
 			return nil
 		})
@@ -107,14 +119,10 @@ func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.
 	return nil
 }
 
-// pino 1
-// qui parte netolly
 func setupNetO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *obi.Config) error {
 	slog.Info("starting OBI in Network metrics mode")
-	// pino 2
-	// flowsAgent e' quello che ha il metodo Run che fa girare la pipeline quindi devo ficcarlo li dentro
-	// c'e' da considerare che un utente potrebbe volere le appnetmetrics senza volere i flow quindi devo controllare sta cosa
-	flowsAgent, err := agent.FlowsAgent(ctxInfo, cfg)
+
+	flowsAgent, err := netagent.FlowsAgent(ctxInfo, cfg)
 	if err != nil {
 		slog.Debug("can't start network metrics capture", "error", err)
 		return fmt.Errorf("can't start network metrics capture: %w", err)
@@ -124,6 +132,25 @@ func setupNetO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *obi.Con
 	if err != nil {
 		slog.Debug("can't run network metrics capture", "error", err)
 		return fmt.Errorf("can't run network metrics capture: %w", err)
+	}
+
+	return nil
+}
+
+// TODO pinoOgni add ctx context.Context and change Send to SendCtx
+// like in appolly
+func setupStatsO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *obi.Config) error {
+	slog.Info("starting OBI in Stats metrics mode")
+	statsAgent, err := statsagent.StatsAgent(ctxInfo, cfg)
+	if err != nil {
+		slog.Debug("can't start stats metrics capture", "error", err)
+		return fmt.Errorf("can't start stats metrics capture: %w", err)
+	}
+
+	err = statsAgent.Run(ctx)
+	if err != nil {
+		slog.Debug("can't run stats metrics capture", "error", err)
+		return fmt.Errorf("can't run statsa metrics capture: %w", err)
 	}
 
 	return nil

@@ -129,6 +129,11 @@ var (
 		Prom:    "obi_net_tcp_rtt_seconds",
 		OTEL:    "obi.net.tcp.rtt",
 	}
+	StatTCPRtt = Name{
+		Section: "obi.stat.tcp.rtt",
+		Prom:    "obi_stat_tcp_rtt_seconds",
+		OTEL:    "obi.stat.tcp.rtt",
+	}
 )
 
 // normalizeMetric will facilitate the user-input in the attributes.enable section.
