@@ -149,7 +149,10 @@ func (e *EBPFTracer) CudaInstrumentationEnabled() bool {
 }
 
 // Per-protocol data buffer size in bytes.
-// Max: 8192 bytes.
+// Max:
+// 64K bytes for HTTP.
+// 8K bytes for other protocols.
+//
 // Default: 0 (disabled).
 type EBPFBufferSizes struct {
 	HTTP     uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP" validate:"lte=65536"`
