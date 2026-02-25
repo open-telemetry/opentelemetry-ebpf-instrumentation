@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/appnetworktracer"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	javaagent "go.opentelemetry.io/obi/pkg/internal/java"
 	"go.opentelemetry.io/obi/pkg/internal/nodejs"
@@ -171,7 +170,6 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 	// builds a tracer for that executable
 	var programs []ebpf.Tracer
 	tracerType := ebpf.Generic
-	var isGenericTracerActive bool
 	switch ie.Type {
 	case svc.InstrumentableGolang:
 		// gets all the possible supported tracers for a go program, and filters out
@@ -190,7 +188,6 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 				return ta.reuseTracer(ta.reusableTracer, ie)
 			} else {
 				programs = ta.withCommonTracersGroup(newGenericTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
-				isGenericTracerActive = true
 			}
 		} else {
 			if ta.reusableGoTracer != nil {
@@ -204,13 +201,10 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 			return ta.reuseTracer(ta.reusableTracer, ie)
 		}
 		programs = ta.withCommonTracersGroup(newGenericTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
-		isGenericTracerActive = true
 	default:
 		ta.log.Warn("unexpected instrumentable type. This is basically a bug", "type", ie.Type)
 	}
-	if ta.Cfg.AppNetworkMetrics.Enabled {
-		programs = append(programs, appnetworktracer.New(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics, isGenericTracerActive))
-	}
+
 	if len(programs) == 0 {
 		ta.log.Warn("no instrumentable functions found. Ignoring", "pid", ie.FileInfo.Pid, "cmd", ie.FileInfo.CmdExePath)
 		ta.Metrics.InstrumentationError(ie.FileInfo.ExecutableName(), imetrics.InstrumentationErrorNoInstrumentableFunctionsFound)

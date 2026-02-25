@@ -124,11 +124,6 @@ var (
 		Prom:    "dns_lookup_duration_seconds",
 		OTEL:    "dns.lookup.duration",
 	}
-	AppNetworkTCPRtt = Name{
-		Section: "obi.net.tcp.rtt",
-		Prom:    "obi_net_tcp_rtt_seconds",
-		OTEL:    "obi.net.tcp.rtt",
-	}
 	StatTCPRtt = Name{
 		Section: "obi.stat.tcp.rtt",
 		Prom:    "obi_stat_tcp_rtt_seconds",

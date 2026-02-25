@@ -204,9 +204,6 @@ type metricsReporter struct {
 	attrSvcGraph               []attributes.Field[*request.Span, string]
 	attrDNSLookupDuration      []attributes.Field[*request.Span, string]
 
-	// user-selected attributes for the application network level metrics
-	attrAppNetTCPRtt []attributes.Field[*request.Span, string]
-
 	// trace span metrics
 	spanMetricsLatency           *Expirer[prometheus.Histogram]
 	spanMetricsCallsTotal        *Expirer[prometheus.Counter]
@@ -231,9 +228,6 @@ type metricsReporter struct {
 
 	// dns related metrics
 	dnsLookupDuration *Expirer[prometheus.Histogram]
-
-	// app network metrics
-	tcpRtt *Expirer[prometheus.Histogram]
 
 	promConnect *connector.PrometheusManager
 
@@ -381,8 +375,6 @@ func newReporter(
 
 	var attrDNSLookupDuration []attributes.Field[*request.Span, string]
 
-	var attrAppNetTCPRtt []attributes.Field[*request.Span, string]
-
 	if is.DNSEnabled() {
 		attrDNSLookupDuration = attributes.PrometheusGetters(attributeGetters,
 			attrsProvider.For(attributes.DNSLookupDuration))
@@ -390,9 +382,6 @@ func newReporter(
 
 	kubeEnabled := ctxInfo.K8sInformer.IsKubeEnabled()
 	dockerEnabled := ctxInfo.DockerMetadata.IsEnabled(ctx)
-	if is.AppNetEnabled() {
-		attrAppNetTCPRtt = attributes.PrometheusGetters(attributeGetters, attrsProvider.For(attributes.AppNetworkTCPRtt))
-	}
 
 	if jointMetricsConfig.Features.ServiceGraph() {
 		attrs := []attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source}
@@ -440,7 +429,6 @@ func newReporter(
 		attrCudaKernelBlockSize:    attrCudaKernelBlockSize,
 		attrCudaMemoryCopies:       attrCudaMemoryCopies,
 		attrDNSLookupDuration:      attrDNSLookupDuration,
-		attrAppNetTCPRtt:           attrAppNetTCPRtt,
 		attrSvcGraph:               attrSvcGraph,
 		obiInfo: NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: attr.VendorPrefix + buildInfoSuffix,
@@ -699,17 +687,6 @@ func newReporter(
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
 			}, labelNames(attrDNSLookupDuration)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		tcpRtt: optionalHistogramProvider(is.AppNetEnabled(), func() *Expirer[prometheus.Histogram] {
-			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
-				Name: attributes.AppNetworkTCPRtt.Prom,
-				Help: "measures the smoothed TCP RTT as calculated by the kernel in seconds",
-				// TODO define a default bucket for network metrics when we have enough metrics to have something standard
-				Buckets:                         []float64{0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0},
-				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
-				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
-				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
-			}, labelNames(attrAppNetTCPRtt)).MetricVec, clock.Time, cfg.TTL)
-		}),
 	}
 
 	// testing aid
@@ -756,10 +733,6 @@ func newReporter(
 
 		if is.DNSEnabled() {
 			registeredMetrics = append(registeredMetrics, mr.dnsLookupDuration)
-		}
-
-		if is.AppNetEnabled() {
-			registeredMetrics = append(registeredMetrics, mr.tcpRtt)
 		}
 	}
 
@@ -1010,12 +983,6 @@ func (r *metricsReporter) observe(span *request.Span) {
 				r.dnsLookupDuration.WithLabelValues(
 					labelValues(span, r.attrDNSLookupDuration)...,
 				).Metric.Observe(duration)
-			}
-		case request.EventTypeAppNetTCPRtt:
-			if r.is.AppNetEnabled() {
-				r.tcpRtt.WithLabelValues(
-					labelValues(span, r.attrAppNetTCPRtt)...,
-				).Metric.Observe(float64(span.AppNet.TCPRtt.Srtt) / 1000.0)
 			}
 		}
 	}
