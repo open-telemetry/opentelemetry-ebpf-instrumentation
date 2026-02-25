@@ -1,4 +1,0 @@
-FROM python:3.14@sha256:4b827abf32c14b7df9a0dc5199c2f0bc46e2c9862cd5d77eddae8a2cd8460f60
-EXPOSE 8080
-COPY internal/test/integration/components/python-app-net-metrics-server/main.py main.py
-CMD ["python", "main.py"]

@@ -34,8 +34,8 @@ const (
 	GroupHost
 	GroupMessaging
 	GroupNetGeoIP
-	GroupAppNet
-	GroupAppNetKube
+	GroupStats
+	GroupStatsKube
 )
 
 func (e *AttrGroups) Has(groups AttrGroups) bool {
@@ -107,11 +107,12 @@ func getDefinitions(
 		extraGroupAttributes[GroupNet],
 	)
 
-	// application network metrics attributes
-	appNetworkAttributes := NewAttrReportGroup(
+	// stats metrics attributes
+	statsAttributes := NewAttrReportGroup(
 		false,
-		[]*AttrReportGroup{&prometheusAttributes},
+		nil,
 		map[attr.Name]Default{
+			attr.OBIIP:      false,
 			attr.SrcAddress: true,
 			attr.DstAddress: true,
 			attr.SrcPort:    false,
@@ -121,7 +122,7 @@ func getDefinitions(
 			attr.SrcZone:    false,
 			attr.DstZone:    false,
 		},
-		extraGroupAttributes[GroupAppNet],
+		extraGroupAttributes[GroupStats],
 	)
 
 	// attributes to be reported exclusively for network metrics when
@@ -149,9 +150,9 @@ func getDefinitions(
 		extraGroupAttributes[GroupNetKube],
 	)
 
-	// attributes to be reported exclusively for app network metrics when
+	// attributes to be reported exclusively for stats metrics when
 	// kubernetes metadata is enabled
-	appNetworkKubeAttributes := NewAttrReportGroup(
+	statsKubeAttributes := NewAttrReportGroup(
 		!kubeEnabled,
 		nil,
 		map[attr.Name]Default{
@@ -171,9 +172,8 @@ func getDefinitions(
 			attr.K8sDstNodeIP:    false,
 			attr.K8sDstNodeName:  false,
 		},
-		extraGroupAttributes[GroupAppNetKube],
+		extraGroupAttributes[GroupStatsKube],
 	)
-
 	// network CIDR attributes are only enabled if the CIDRs configuration
 	// is defined
 	networkCIDR := NewAttrReportGroup(
@@ -409,8 +409,8 @@ func getDefinitions(
 				attr.ErrorType:       true,
 			},
 		},
-		AppNetworkTCPRtt.Section: {
-			SubGroups:  []*AttrReportGroup{&appNetworkAttributes, &appNetworkKubeAttributes},
+		StatTCPRtt.Section: {
+			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
 

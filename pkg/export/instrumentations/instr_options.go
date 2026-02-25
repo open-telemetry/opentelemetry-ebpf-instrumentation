@@ -17,7 +17,6 @@ const (
 	InstrumentationMongo     Instrumentation = "mongo"
 	InstrumentationDNS       Instrumentation = "dns"
 	InstrumentationCouchbase Instrumentation = "couchbase"
-	InstrumentationAppNet    Instrumentation = "network"
 	// Traces export selectively enables only some instrumentations by
 	// default. If you add a new instrumentation type, make sure you
 	// update the TracesConfig accordingly. Metrics do ALL == "*".
@@ -37,7 +36,6 @@ const (
 	flagMongo
 	flagDNS
 	flagCouchbase
-	flagAppNet
 )
 
 func instrumentationToFlag(str Instrumentation) InstrumentationSelection {
@@ -64,8 +62,6 @@ func instrumentationToFlag(str Instrumentation) InstrumentationSelection {
 		return flagDNS
 	case InstrumentationCouchbase:
 		return flagCouchbase
-	case InstrumentationAppNet:
-		return flagAppNet
 	}
 	return 0
 }
@@ -125,8 +121,4 @@ func (s InstrumentationSelection) CouchbaseEnabled() bool {
 
 func (s InstrumentationSelection) DNSEnabled() bool {
 	return s&flagDNS != 0
-}
-
-func (s InstrumentationSelection) AppNetEnabled() bool {
-	return s&flagAppNet != 0
 }

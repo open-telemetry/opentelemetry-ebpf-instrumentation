@@ -446,24 +446,6 @@ func TestSuite_PythonMQTT(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
-func TestSuite_GoAppNetworkMetrics(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-go-app-net-metrics.yml", path.Join(pathOutput, "test-suite-go-app-net-metrics.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `TEST_SERVICE_PORTS=8381:8080`, `INSTRUMENTER_CONFIG_SUFFIX=-go-app-net-metrics`)
-	require.NoError(t, err)
-	require.NoError(t, compose.Up())
-	t.Run("Go Application Network Metrics TCP RTT tests", testAppNetMetricsTCPRttGo)
-	require.NoError(t, compose.Close())
-}
-
-func TestSuite_PythonAppNetworkMetrics(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-python-app-net-metrics.yml", path.Join(pathOutput, "test-suite-python-app-net-metrics.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `TEST_SERVICE_PORTS=8381:8080`, `INSTRUMENTER_CONFIG_SUFFIX=-python-app-net-metrics`)
-	require.NoError(t, err)
-	require.NoError(t, compose.Up())
-	t.Run("Go Application Network Metrics TCP RTT tests", testAppNetMetricsTCPRttPython)
-	require.NoError(t, compose.Close())
-}
-
 func TestSuite_JavaKafka(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400.yml", path.Join(pathOutput, "test-suite-java-kafka.log"))
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)

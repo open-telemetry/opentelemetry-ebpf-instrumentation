@@ -81,6 +81,8 @@ func (p *BPFLogger) Run(ctx context.Context) {
 		nil,
 		p.log,
 		nil,
+		p.log,
+		nil,
 		append(p.closers, &p.bpfObjects)...,
 	)(ctx, nil)
 }

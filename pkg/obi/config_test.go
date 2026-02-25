@@ -78,6 +78,9 @@ attributes:
     obi.network.flow:
       include: ["foo", "bar"]
       exclude: ["baz", "bae"]
+    obi.stat.tcp.rtt:
+      include: ["src.port", "dst.port"]
+      exclude: ["src.door", "dst.door"]
   extra_group_attributes:
     k8s_app_meta: ["k8s.app.version"]	  
 network:
@@ -114,6 +117,8 @@ discovery:
 	nc.Enable = true
 	nc.AgentIP = "1.2.3.4"
 	nc.CIDRs = cidr.Definitions{"10.244.0.0/16"}
+
+	sc := DefaultStatsConfig
 
 	metaSources := maps.Clone(kube.DefaultResourceLabels)
 	metaSources["service.namespace"] = []string{"huha.com/yeah"}
@@ -181,6 +186,7 @@ discovery:
 			InstrumentCuda: config.CudaModeAuto,
 		},
 		NetworkFlows: nc,
+		Stats:        sc,
 		Metrics: perapp.MetricsConfig{
 			// after normalization, network feature is added from network > enable: true
 			Features: export.FeatureApplicationRED | export.FeatureNetwork,
@@ -260,6 +266,10 @@ discovery:
 				attributes.NetworkFlow.Section: attributes.InclusionLists{
 					Include: []string{"foo", "bar"},
 					Exclude: []string{"baz", "bae"},
+				},
+				attributes.StatTCPRtt.Section: attributes.InclusionLists{
+					Include: []string{"src.port", "dst.port"},
+					Exclude: []string{"src.door", "dst.door"},
 				},
 			},
 			ExtraGroupAttributes: map[string][]attr.Name{
