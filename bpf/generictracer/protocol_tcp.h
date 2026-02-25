@@ -64,7 +64,7 @@ static __always_inline void set_tcp_trace_info(
 static __always_inline void
 tcp_get_or_set_trace_info(tcp_req_t *req, pid_connection_info_t *pid_conn, u8 ssl, u16 orig_dport) {
     if (req->direction == TCP_SEND) { // Client
-        u8 found = find_trace_for_client_request(pid_conn, orig_dport, &req->tp);
+        const u8 found = find_trace_for_client_request(pid_conn, orig_dport, &req->tp);
         bpf_dbg_printk("Looking up client trace info, found=%d", found);
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
@@ -75,7 +75,8 @@ tcp_get_or_set_trace_info(tcp_req_t *req, pid_connection_info_t *pid_conn, u8 ss
         set_tcp_trace_info(
             TRACE_TYPE_CLIENT, &pid_conn->conn, &req->tp, pid_conn->pid, ssl, orig_dport);
     } else { // Server
-        u8 found = find_trace_for_server_request(&pid_conn->conn, &req->tp, EVENT_TCP_REQUEST);
+        const u8 found =
+            find_trace_for_server_request(&pid_conn->conn, &req->tp, EVENT_TCP_REQUEST);
         bpf_dbg_printk("Looking up server trace info, found=%d", found);
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
@@ -118,14 +119,14 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     switch (protocol_type) {
     case k_protocol_type_mysql:
         if (mysql_buffer_size > 0) {
-            u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
+            const u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
             ret = mysql_send_large_buffer(
                 req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         }
         break;
     case k_protocol_type_postgres:
         if (postgres_buffer_size > 0) {
-            u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
+            const u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
             ret = postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
         }
         break;
@@ -183,8 +184,8 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
     tcp_req_t *existing = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
     // NOTE: this shouldn't happen, but the is_server value may be incorrect,
     // for example if an unrelated service is bound to the process port (like the metrics server)
-    u32 netns = task_netns();
-    bool is_server = is_listening(pid_conn->conn.d_port, netns);
+    const u32 netns = task_netns();
+    const bool is_server = is_listening(pid_conn->conn.d_port, netns);
     if (existing) {
         if (existing->direction == direction && existing->end_monotime_ns != 0) {
             bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);

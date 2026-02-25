@@ -147,7 +147,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         // for customers to enable it. Off by default.
         if (!capture_header_buffer) {
             if (meta) {
-                u32 type = trace_type_from_meta(meta);
+                const u32 type = trace_type_from_meta(meta);
                 set_trace_info_for_connection(conn, type, tp_p);
                 server_or_client_trace(meta->type, conn, tp_p, ssl, orig_dport);
             }
@@ -191,7 +191,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
     }
 
     if (meta) {
-        u32 type = trace_type_from_meta(meta);
+        const u32 type = trace_type_from_meta(meta);
         set_trace_info_for_connection(conn, type, tp_p);
         // TODO: If the user code setup traceparent manually, don't interfere and add
         // something else with TC L7. The main challenge is that with kprobes, the
@@ -245,7 +245,7 @@ static __always_inline u8 http_will_complete(http_info_t *info, unsigned char *b
 }
 
 static __always_inline u8 is_duplicate_info(http_info_t *info) {
-    u64 ts = bpf_ktime_get_ns();
+    const u64 ts = bpf_ktime_get_ns();
     return info->start_monotime_ns && (ts >= info->start_monotime_ns) &&
            current_immediate_epoch(ts) == current_immediate_epoch(info->start_monotime_ns);
 }
@@ -309,7 +309,7 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
     if (packet_type == PACKET_TYPE_REQUEST) {
         http_info_t *old_info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
         if (old_info && !old_info->submitted) {
-            u8 req_type = request_type_by_direction(direction, packet_type);
+            const u8 req_type = request_type_by_direction(direction, packet_type);
             if (!http_info_complete(old_info)) {
                 if (old_info->type == req_type && is_duplicate_info(old_info)) {
                     return 0;
@@ -401,7 +401,7 @@ static __always_inline void process_http_request(
 
     fixup_connection_info(&info->conn_info, info->type == EVENT_HTTP_CLIENT, orig_dport);
 
-    u64 start_time = bpf_ktime_get_ns();
+    const u64 start_time = bpf_ktime_get_ns();
     u64 req_time = start_time;
 
     if (info->type == EVENT_HTTP_REQUEST) {
@@ -509,7 +509,7 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
     (void)ctx;
 
     if (meta) {
-        u32 type = trace_type_from_meta(meta);
+        const u32 type = trace_type_from_meta(meta);
         tp_info_pid_t *tp_p = trace_info_for_connection(&args->pid_conn.conn, type);
         if (tp_p) {
             info->tp = tp_p->tp;

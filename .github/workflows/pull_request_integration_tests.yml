@@ -158,7 +158,7 @@ jobs:
               --rerun-fails=2 --rerun-fails-max-failures=2 --rerun-fails-abort-on-data-race \
               --packages="./internal/test/integration" -ftestname \
               --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
-              -- -race -timeout 30m \
+              -- -race -count=1 -timeout 30m \
               -run="^(${MATRIX_TEST_PATTERN})$" ./internal/test/integration
 
       - name: Process coverage data

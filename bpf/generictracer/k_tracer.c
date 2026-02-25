@@ -49,7 +49,7 @@ int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct so
     (void)ctx;
     (void)sock;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -57,7 +57,7 @@ int BPF_KPROBE(obi_kprobe_security_socket_accept, struct socket *sock, struct so
 
     bpf_dbg_printk("=== kprobe/security_socket_accept id=%llx ===", id);
 
-    u64 addr = (u64)newsock;
+    const u64 addr = (u64)newsock;
 
     sock_args_t args = {0};
 
@@ -81,7 +81,7 @@ SEC("kretprobe/sys_accept4")
 int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
     if (!valid_pid(id)) {
         return 0;
     }
@@ -108,11 +108,11 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
     ssl_pid_connection_info_t info = {};
 
     if (parse_accept_socket_info(args, &info.p_conn.conn)) {
-        u32 host_pid = pid_from_pid_tgid(id);
+        const u32 host_pid = pid_from_pid_tgid(id);
         // store fd to connection mapping
         store_accept_fd_info(host_pid, fd, &info.p_conn.conn);
 
-        u16 orig_dport = info.p_conn.conn.d_port;
+        const u16 orig_dport = info.p_conn.conn.d_port;
         dbg_print_http_connection_info(&info.p_conn.conn);
         sort_connection_info(&info.p_conn.conn);
         info.p_conn.pid = host_pid;
@@ -142,7 +142,7 @@ cleanup:
 
 SEC("kprobe/sys_connect")
 int BPF_KPROBE(obi_kprobe_sys_connect) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -184,13 +184,12 @@ SEC("kprobe/tcp_connect")
 int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
     }
 
-    u64 addr = (u64)sk;
     store_sock_pid(sk);
 
     sock_args_t *args = bpf_map_lookup_elem(&active_connect_args, &id);
@@ -200,13 +199,13 @@ int BPF_KPROBE(obi_kprobe_tcp_connect, struct sock *sk) {
     if (args) {
         pid_connection_info_t p_conn = {0};
         if (parse_connect_sock_info(args, &p_conn.conn)) {
-            u32 host_pid = pid_from_pid_tgid(id);
+            const u32 host_pid = pid_from_pid_tgid(id);
             p_conn.pid = host_pid;
             // clean-up any stale connect info
             bpf_map_delete_elem(&cp_support_connect_info, &p_conn);
         }
 
-        args->addr = addr;
+        args->addr = (u64)sk;
     }
 
     return 0;
@@ -216,7 +215,7 @@ SEC("kprobe/udp_sendmsg")
 int BPF_KPROBE(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *msg, size_t len) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -229,7 +228,7 @@ int BPF_KPROBE(obi_kprobe_udp_sendmsg, struct sock *sk, struct msghdr *msg, size
     send_args_t s_args = {.size = len};
 
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
-        u16 orig_dport = s_args.p_conn.conn.d_port;
+        const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(&s_args.p_conn.conn);
         if (is_dns(&s_args.p_conn.conn)) {
             sort_connection_info(&s_args.p_conn.conn);
@@ -275,8 +274,7 @@ static __always_inline void setup_cp_support_conn_info(pid_connection_info_t *p_
     }
 
     task_tid(&ct.t_key.p_key);
-    u64 extra_id = extra_runtime_id();
-    ct.t_key.extra_id = extra_id;
+    ct.t_key.extra_id = extra_runtime_id();
     ct.ts = bpf_ktime_get_ns();
 
     // Support connection thread pools
@@ -289,7 +287,7 @@ SEC("kretprobe/sys_connect")
 int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -313,12 +311,12 @@ int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
     ssl_pid_connection_info_t info = {};
 
     if (parse_connect_sock_info(args, &info.p_conn.conn)) {
-        u32 host_pid = pid_from_pid_tgid(id);
+        const u32 host_pid = pid_from_pid_tgid(id);
         info.p_conn.pid = host_pid;
         bpf_dbg_printk("id=%d, pid=%d, fd=%d", id, host_pid, args->fd);
         store_connect_fd_info(host_pid, args->fd, &info.p_conn.conn);
 
-        u16 orig_dport = info.p_conn.conn.d_port;
+        const u16 orig_dport = info.p_conn.conn.d_port;
         dbg_print_http_connection_info(&info.p_conn.conn);
         sort_connection_info(&info.p_conn.conn);
         info.orig_dport = orig_dport;
@@ -381,7 +379,7 @@ setup_connection_to_pid_mapping(u64 id, pid_connection_info_t *p_conn, u16 orig_
 // than 1MB we just finish the request on the kprobe path.
 SEC("kprobe/tcp_sendmsg")
 int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size_t size) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -392,7 +390,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
     send_args_t s_args = {.size = size};
 
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
-        u16 orig_dport = s_args.p_conn.conn.d_port;
+        const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(
             &s_args.p_conn.conn); // commented out since GitHub CI doesn't like this call
         // Create the egress key before we sort the connection info.
@@ -424,7 +422,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                         msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
                         bpf_dbg_printk("No size, m_buf=%llx", m_buf);
                         if (m_buf) {
-                            u32 cpu_id = bpf_get_smp_processor_id();
+                            const u32 cpu_id = bpf_get_smp_processor_id();
                             if (m_buf->cpu_id != cpu_id) {
                                 bpf_dbg_printk(
                                     "cpu id mismatch, using stack-allocated fallback buffer");
@@ -465,7 +463,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                         return 0;
                     }
 
-                    u64 sock_p = (u64)sk;
+                    const u64 sock_p = (u64)sk;
                     bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
                     bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
 
@@ -493,7 +491,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
 // happens on certain kernels if sk_msg is attached.
 SEC("kprobe/tcp_rate_check_app_limited")
 int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -504,7 +502,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
     send_args_t s_args = {};
 
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
-        u16 orig_dport = s_args.p_conn.conn.d_port;
+        const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(&s_args.p_conn.conn);
         const egress_key_t e_key = {
             .d_port = s_args.p_conn.conn.d_port,
@@ -524,7 +522,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
             msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
             if (m_buf) {
                 unsigned char *buf = NULL;
-                u32 cpu_id = bpf_get_smp_processor_id();
+                const u32 cpu_id = bpf_get_smp_processor_id();
                 if (m_buf->cpu_id != cpu_id) {
                     bpf_dbg_printk("cpu id mismatch, using stack-allocated fallback buffer");
                     buf = m_buf->fallback_buf;
@@ -545,11 +543,11 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                 // handle_buf_with_connection logic and then mark it as seen by making
                 // m_buf->pos be the size of the buffer.
                 if (!m_buf->pos) {
-                    u16 size = m_buf->real_size;
+                    const u16 size = m_buf->real_size;
                     m_buf->pos = size;
                     s_args.size = size;
                     bpf_dbg_printk("msg_buffer: size %d, buf=[%s]", size, buf);
-                    u64 sock_p = (u64)sk;
+                    const u64 sock_p = (u64)sk;
                     bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
                     bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
 
@@ -572,7 +570,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
 SEC("kretprobe/tcp_sendmsg")
 int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg, int sent_len) {
     (void)ctx;
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -600,7 +598,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
     (void)ctx;
     (void)timeout;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -611,10 +609,10 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
     bpf_dbg_printk("=== kprobe/tcp_close id=%d, sock=%llx ===", id, sk);
 
     pid_connection_info_t info = {};
-    bool success = parse_sock_info(sk, &info.conn);
+    const bool success = parse_sock_info(sk, &info.conn);
 
     if (success) {
-        u16 orig_dport = info.conn.d_port;
+        const u16 orig_dport = info.conn.d_port;
         sort_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
 
@@ -655,7 +653,7 @@ SEC("kprobe/sock_def_error_report")
 int BPF_KPROBE(obi_kprobe_sock_def_error_report, struct sock *sk) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -669,7 +667,7 @@ int BPF_KPROBE(obi_kprobe_sock_def_error_report, struct sock *sk) {
     pid_connection_info_t info = {};
     if (parse_sock_info(sk, &info.conn)) {
         info.pid = pid_from_pid_tgid(id);
-        u16 orig_dport = info.conn.d_port;
+        const u16 orig_dport = info.conn.d_port;
         sort_connection_info(&info.conn);
 
         if (args) {
@@ -726,7 +724,7 @@ int BPF_KPROBE(obi_kprobe_tcp_recvmsg,
     (void)flags;
     (void)addr_len;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -749,7 +747,7 @@ int BPF_KPROBE(obi_kprobe_sock_recvmsg, struct socket *sock, struct msghdr *msg,
     (void)ctx;
     (void)flags;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -775,7 +773,7 @@ SEC("kretprobe/sock_recvmsg")
 int BPF_KRETPROBE(obi_kretprobe_sock_recvmsg, int copied_len) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -796,7 +794,7 @@ int BPF_KRETPROBE(obi_kretprobe_sock_recvmsg, int copied_len) {
 
     if (sock_ptr) {
         if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
-            u16 orig_dport = info.conn.d_port;
+            const u16 orig_dport = info.conn.d_port;
             sort_connection_info(&info.conn);
             info.pid = pid_from_pid_tgid(id);
             setup_cp_support_conn_info(&info, false);
@@ -856,7 +854,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
 
     if (copied_len <= 0) {
         if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
-            u16 orig_dport = info.conn.d_port;
+            const u16 orig_dport = info.conn.d_port;
             sort_connection_info(&info.conn);
             info.pid = pid_from_pid_tgid(id);
             setup_cp_support_conn_info(&info, false);
@@ -928,7 +926,7 @@ done:
 
 SEC("kprobe/tcp_cleanup_rbuf")
 int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -950,7 +948,7 @@ int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
 
 SEC("kretprobe/tcp_recvmsg")
 int BPF_KRETPROBE(obi_kretprobe_tcp_recvmsg, int copied_len) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -967,7 +965,7 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
     protocol_info_t tcp = {};
     connection_info_t conn = {};
 
-    u8 success = read_sk_buff(skb, &tcp, &conn);
+    const u8 success = read_sk_buff(skb, &tcp, &conn);
 
     if (is_dns(&conn)) {
         if (handle_dns(skb, &conn, &tcp)) {
@@ -1057,7 +1055,7 @@ SEC("kretprobe/sys_clone")
 int BPF_KRETPROBE(obi_kretprobe_sys_clone, int tid) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id) || tid < 0) {
         return 0;
@@ -1083,7 +1081,7 @@ int BPF_KPROBE(obi_kprobe_sys_exit, int status) {
     (void)ctx;
     (void)status;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -1230,7 +1228,7 @@ SEC("kprobe/inet_csk_listen_stop")
 int BPF_KPROBE(obi_kprobe_inet_csk_listen_stop, struct sock *sk) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
     (void)id;
 
     bpf_dbg_printk("=== kprobe/inet_csk_listen_stop id=%d ===", id);

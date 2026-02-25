@@ -42,7 +42,7 @@ static __always_inline u8 cmd_to_op(u8 cmd) {
 SEC("kprobe/sys_ioctl")
 // unsigned int fd, unsigned int cmd, void *arg
 int BPF_KPROBE(obi_kprobe_sys_ioctl) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -87,7 +87,7 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
         pid_key_t child = {0};
         task_tid(&child);
         pid_key_t parent = child;
-        u32 parent_tid = tid_from_pid_tgid(parent_id);
+        const u32 parent_tid = tid_from_pid_tgid(parent_id);
         parent.tid = parent_tid;
 
         if (parent.tid == child.tid) {
@@ -100,7 +100,7 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
         return 0;
     }
 
-    u8 op = cmd_to_op(op_cmd);
+    const u8 op = cmd_to_op(op_cmd);
 
     if (op == k_ioctl_invalid_op) {
         bpf_dbg_printk("unknown cmd=%d", op_cmd);

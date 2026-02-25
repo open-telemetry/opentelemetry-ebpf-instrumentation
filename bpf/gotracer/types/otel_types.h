@@ -28,7 +28,7 @@ volatile const u64 attr_type_stringslice;
 
 static __always_inline bool set_attr_value(otel_attribute_t *attr,
                                            go_otel_attr_value_t *go_attr_value) {
-    u64 vtype = go_attr_value->vtype;
+    const u64 vtype = go_attr_value->vtype;
 
     // Constant size values
     if (vtype == attr_type_bool || vtype == attr_type_int64 || vtype == attr_type_float64) {
@@ -42,7 +42,7 @@ static __always_inline bool set_attr_value(otel_attribute_t *attr,
             bpf_dbg_printk("Attribute string value is too long");
             return false;
         }
-        long res =
+        const long res =
             bpf_probe_read_user(attr->value,
                                 go_attr_value->string.len & (OTEL_ATTRIBUTE_VALUE_MAX_LEN - 1),
                                 go_attr_value->string.str);

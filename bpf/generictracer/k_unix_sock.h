@@ -59,7 +59,7 @@ int BPF_KPROBE(obi_kprobe_unix_stream_recvmsg,
     (void)size;
     (void)flags;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -211,7 +211,7 @@ static __always_inline int return_unix_recvmsg(void *ctx, u64 id, int copied_len
 
 SEC("kretprobe/unix_stream_recvmsg")
 int BPF_KRETPROBE(obi_kretprobe_unix_stream_recvmsg, size_t copied) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -227,7 +227,7 @@ int BPF_KPROBE(obi_kprobe_unix_stream_sendmsg,
                struct socket *sock,
                struct msghdr *msg,
                size_t size) {
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -260,7 +260,7 @@ int BPF_KPROBE(obi_kprobe_unix_stream_sendmsg,
             bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
 
             if (sk) {
-                u64 sock_p = (u64)sk;
+                const u64 sock_p = (u64)sk;
                 bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
             }
 
@@ -277,7 +277,7 @@ SEC("kretprobe/unix_stream_sendmsg")
 int BPF_KRETPROBE(obi_kretprobe_unix_stream_sendmsg, int sent_len) {
     (void)ctx;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;

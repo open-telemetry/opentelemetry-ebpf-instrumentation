@@ -20,12 +20,29 @@ import (
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
-const (
-	serverURL     = "http://localhost:8381"
-	smokeEndpoint = "/smoke"
-	jsonEndpoint  = "/json_logger"
+type testServerConstants struct {
+	url            string
+	smokeEndpoint  string
+	logEndpoint    string
+	containerImage string
+	message        string
+}
 
-	containerImage = "hatest-testserver-logenricher"
+var (
+	logEnricherHTTPConstants = testServerConstants{
+		url:            "http://localhost:8381",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/json_logger",
+		containerImage: "hatest-testserver-logenricher-http",
+		message:        "this is a json log",
+	}
+	logEnricherGoGRPCConstants = testServerConstants{
+		url:            "http://localhost:8382",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/log",
+		containerImage: "hatest-testserver-logenricher-grpc-go",
+		message:        "hello!",
+	}
 )
 
 func containerLogs(t require.TestingT, cl *client.Client, containerID string) []string {
@@ -65,17 +82,17 @@ func testContainerID(t require.TestingT, cl *client.Client, image string) string
 	return ""
 }
 
-func testLogEnricher(t *testing.T) {
-	waitForTestComponentsNoMetrics(t, serverURL+smokeEndpoint)
+func testLogEnricher(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
 
 	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	require.NoError(t, err)
 	defer cl.Close()
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		ti.DoHTTPGet(ct, serverURL+jsonEndpoint, 200)
+		ti.DoHTTPGet(ct, constants.url+constants.logEndpoint, 200)
 
-		containerID := testContainerID(ct, cl, containerImage)
+		containerID := testContainerID(ct, cl, constants.containerImage)
 		require.NotEmpty(ct, containerID, "could not find test container ID")
 		logs := containerLogs(ct, cl, containerID)
 		require.NotEmpty(ct, logs)
@@ -93,7 +110,7 @@ func testLogEnricher(t *testing.T) {
 		var logFields map[string]string
 		require.NoError(ct, json.Unmarshal([]byte(logs[logIdx]), &logFields))
 
-		assert.Equal(ct, "this is a json log", logFields["message"])
+		assert.Equal(ct, constants.message, logFields["message"])
 		assert.Equal(ct, "INFO", logFields["level"])
 		assert.Contains(ct, logFields, "trace_id")
 		assert.Contains(ct, logFields, "span_id")

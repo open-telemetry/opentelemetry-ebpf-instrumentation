@@ -23,71 +23,16 @@
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
-#include <gotracer/go_stream_key.h>
 #include <gotracer/hpack.h>
+
+#include <gotracer/maps/grpc.h>
+
+#include <gotracer/types/grpc.h>
+#include <gotracer/types/stream_key.h>
 
 #include <logger/bpf_dbg.h>
 
 #include <pid/pid_helpers.h>
-
-typedef struct grpc_srv_func_invocation {
-    u64 start_monotime_ns;
-    u64 stream;
-    u64 st;
-    tp_info_t tp;
-} grpc_srv_func_invocation_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, u16);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_grpc_request_status SEC(".maps");
-
-typedef struct grpc_client_func_invocation {
-    u64 start_monotime_ns;
-    u64 cc;
-    u64 method;
-    u64 method_len;
-    tp_info_t tp;
-    u64 flags;
-} grpc_client_func_invocation_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, grpc_client_func_invocation_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_grpc_client_requests SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, grpc_srv_func_invocation_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_grpc_server_requests SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64); // key: pointer to the client
-    __type(value, connection_info_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} cached_grpc_client_connections SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, stream_key_t);                    // key: conn_ptr + stream id
-    __type(value, grpc_client_func_invocation_t); // stored info for the client request
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_streams SEC(".maps");
-
-// TODO: use go_addr_key_t as key
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, void *); // key: pointer to the request goroutine
-    __type(value, grpc_client_func_invocation_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_grpc_header_writes SEC(".maps");
 
 #define TRANSPORT_HTTP2 1
 #define TRANSPORT_HANDLER 2
@@ -109,8 +54,8 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
 
     u64 st_offset = go_offset_of(ot, (go_offset){.v = _grpc_stream_st_ptr_pos});
 
-    u64 new_handle_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_six_nine});
-    u64 reduce_pointers_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_seven_seven});
+    const u64 new_handle_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_six_nine});
+    const u64 reduce_pointers_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_seven_seven});
     bpf_dbg_printk("stream_ptr=%llx, new_handle_stream=%d, reduce_pointers_stream=%d",
                    stream_ptr,
                    new_handle_stream,
@@ -176,7 +121,7 @@ int obi_uprobe_http2Server_operateHeaders(struct pt_regs *ctx) {
     void *frame = GO_PARAM2(ctx);
     off_table_t *ot = get_offsets_table();
 
-    u64 new_offset_version = go_offset_of(ot, (go_offset){.v = _grpc_one_six_zero});
+    const u64 new_offset_version = go_offset_of(ot, (go_offset){.v = _grpc_one_six_zero});
 
     // After grpc version 1.60, they added extra context argument to the
     // function call, which adds two extra arguments.
@@ -262,7 +207,7 @@ int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
 
     void *stream_ptr = (void *)invocation->stream;
     void *st_ptr = (void *)invocation->st;
-    u64 grpc_stream_method_ptr_pos =
+    const u64 grpc_stream_method_ptr_pos =
         go_offset_of(ot, (go_offset){.v = _grpc_stream_method_ptr_pos});
     bpf_dbg_printk("stream_ptr=%lx, st_ptr=%lx, grpc_stream_method_ptr_pos=%lx",
                    stream_ptr,
@@ -557,18 +502,6 @@ int obi_uprobe_clientStream_RecvMsg_return(struct pt_regs *ctx) {
     return grpc_connect_done(ctx, err);
 }
 
-typedef struct transport_new_client_invocation {
-    grpc_client_func_invocation_t inv;
-    stream_key_t s_key;
-} transport_new_client_invocation_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, transport_new_client_invocation_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} transport_new_client_invocations SEC(".maps");
-
 // The gRPC client stream is written on another goroutine in transport loopyWriter (controlbuf.go).
 // We extract the stream ID when it's just created and make a mapping of it to our goroutine that's executing ClientConn.Invoke.
 SEC("uprobe/transport_http2Client_NewStream")
@@ -581,7 +514,7 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    u64 grpc_t_conn_pos = go_offset_of(ot, (go_offset){.v = _grpc_t_scheme_pos});
+    const u64 grpc_t_conn_pos = go_offset_of(ot, (go_offset){.v = _grpc_t_scheme_pos});
     bpf_dbg_printk(
         "goroutine_addr=%lx, t_ptr=%llx, t.conn_pos=%x", goroutine_addr, t_ptr, grpc_t_conn_pos);
 
@@ -624,7 +557,7 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
                 bpf_dbg_printk("conn_conn_ptr=%llx", conn_conn_ptr);
                 if (conn_conn_ptr) {
                     connection_info_t conn = {0};
-                    u8 ok = get_conn_info(conn_conn_ptr, &conn);
+                    const u8 ok = get_conn_info(conn_conn_ptr, &conn);
                     if (ok) {
                         bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
                         bpf_map_update_elem(
@@ -692,9 +625,9 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
         return 0;
     }
 
-    u64 new_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_six_nine});
+    const u64 new_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_six_nine});
 
-    u64 reduce_pointers_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_seven_seven});
+    const u64 reduce_pointers_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_seven_seven});
     bpf_dbg_printk("stream=%llx, new_stream=%d, reduce_pointers_stream=%d",
                    stream,
                    new_stream,
@@ -725,22 +658,7 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
     return 0;
 }
 
-typedef struct grpc_framer_func_invocation {
-    u64 framer_ptr;
-    tp_info_t tp;
-    s64 offset;
-} grpc_framer_func_invocation_t;
-
 #define MAX_W_PTR_OFFSET 1024
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: go routine doing framer write headers
-    __type(
-        value,
-        grpc_framer_func_invocation_t); // the goroutine of the round trip request, which is the key for our traceparent info
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} grpc_framer_invocation_map SEC(".maps");
 
 SEC("uprobe/grpcFramerWriteHeaders")
 int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
@@ -753,13 +671,13 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     void *framer = GO_PARAM1(ctx);
     off_table_t *ot = get_offsets_table();
 
-    u64 stream_id = golang_stream_id(ctx, ot);
+    const u64 stream_id = golang_stream_id(ctx, ot);
 
     if (stream_id == 0) {
         return 0;
     }
 
-    u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
+    const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
 
     if (framer_w_pos == -1) {
         bpf_dbg_printk("framer w not found");
@@ -777,7 +695,8 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
         return 0;
     }
 
-    u32 conn_ptr_pos = go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_conn_pos});
+    const u32 conn_ptr_pos =
+        go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_conn_pos});
     void *conn_ptr = 0;
     bpf_probe_read(&conn_ptr, sizeof(conn_ptr), (void *)(w_ptr + conn_ptr_pos + 8));
 
@@ -902,13 +821,13 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
 
                 bpf_dbg_printk("sizes: 1=%x, 2=%x, 3=%x", size_1, size_2, size_3);
 
-                u32 original_size = ((u32)(size_1) << 16) | ((u32)(size_2) << 8) | size_3;
+                const u32 original_size = ((u32)(size_1) << 16) | ((u32)(size_2) << 8) | size_3;
 
                 if (original_size > 0) {
                     u8 type_byte = 0;
-                    u8 key_len =
+                    const u8 key_len =
                         TP_ENCODED_LEN | 0x80; // high tagged to signify hpack encoded value
-                    u8 val_len = TP_MAX_VAL_LENGTH;
+                    const u8 val_len = TP_MAX_VAL_LENGTH;
 
                     // We don't hpack encode the value of the traceparent field, because that will require that
                     // we use bpf_loop, which in turn increases the kernel requirement to 5.17+.
@@ -937,7 +856,7 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
                         &n,
                         sizeof(n));
 
-                    u32 new_size = original_size + HTTP2_ENCODED_HEADER_LEN;
+                    const u32 new_size = original_size + HTTP2_ENCODED_HEADER_LEN;
 
                     bpf_dbg_printk("Changing size from %d to %d", original_size, new_size);
                     size_1 = (u8)(new_size >> 16);

@@ -266,7 +266,7 @@ docker-generate:
 		make generate
 
 .PHONY: verify
-verify: prereqs lint test license-header-check
+verify: prereqs go-mod-tidy lint test license-header-check
 
 .PHONY: build
 build: docker-generate verify compile
@@ -444,6 +444,23 @@ run-integration-test-arm:
 	@echo "### Running integration tests"
 	go clean -testcache
 	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
+
+.PHONY: unit-test-tools
+unit-test-tools: $(GOTESTSUM) $(ENVTEST)
+
+.PHONY: unit-test-matrix-json
+unit-test-matrix-json: $(GOTESTSUM)
+	@go list ./... | $(GOTESTSUM) tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
+
+.PHONY: run-unit-test-shard
+run-unit-test-shard: $(GOTESTSUM) $(ENVTEST)
+	@echo "### Running unit test shard $(SHARD_ID)"
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(GOTESTSUM) \
+		--jsonfile=$(TEST_OUTPUT)/unit-test-shard-$(SHARD_ID).log \
+		-- -short -race -a -coverpkg=./... \
+		-coverprofile $(TEST_OUTPUT)/cover-shard-$(SHARD_ID).all.txt \
+		$(UNIT_TEST_PACKAGES)
 
 .PHONY: integration-test-matrix-json
 integration-test-matrix-json:
@@ -634,10 +651,29 @@ check-clean-work-tree:
 		exit 1; \
 	fi
 
+.PHONY: go-mod-tidy
+GO_MOD_FILES := $(shell find . -type f -name 'go.mod' ! -path './NOTICES/*')
+GO_MOD_TIDY_TARGETS := $(patsubst %/go.mod,%/.go-mod-tidy,$(GO_MOD_FILES))
+GO_MOD_TIDY_117_TARGETS := $(filter %/testserver_1.17/.go-mod-tidy,$(GO_MOD_TIDY_TARGETS))
+GO_MOD_TIDY_DEFAULT_TARGETS := $(filter-out $(GO_MOD_TIDY_117_TARGETS),$(GO_MOD_TIDY_TARGETS))
+.PHONY: $(GO_MOD_TIDY_TARGETS)
+go-mod-tidy: $(GO_MOD_TIDY_TARGETS)
+
+$(GO_MOD_TIDY_DEFAULT_TARGETS):
+	@echo "### Running go mod tidy in $(dir $@)"
+	@cd "$(dir $@)" && go mod tidy
+
+$(GO_MOD_TIDY_117_TARGETS):
+	@echo "### Running go mod tidy -go=1.17 -compat=1.17 in $(dir $@)"
+	@cd "$(dir $@)" && go mod tidy -go=1.17 -compat=1.17
+
 .PHONY: check-go-mod
-check-go-mod:
-	go mod tidy
-	git diff --quiet -- go.mod go.sum
+check-go-mod: go-mod-tidy
+	@if ! git diff --quiet -- ':(glob)**/go.mod' ':(glob)**/go.sum' ':(exclude,glob)NOTICES/**'; then \
+		echo 'go.mod/go.sum files are not clean, did you forget to run "make go-mod-tidy"?'; \
+		git --no-pager diff -- ':(glob)**/go.mod' ':(glob)**/go.sum' ':(exclude,glob)NOTICES/**'; \
+		exit 1; \
+	fi
 
 .PHONY: verify-mods
 verify-mods: $(MULTIMOD)

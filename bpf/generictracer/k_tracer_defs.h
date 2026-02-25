@@ -84,7 +84,7 @@ static __always_inline void handle_buf_with_connection(void *ctx,
 
 static __always_inline void
 read_skb_bytes(const void *skb, u32 offset, unsigned char *buf, const u32 len) {
-    u32 max = offset + len;
+    const u32 max = offset + len;
     int b = 0;
     for (; b < (FULL_BUF_SIZE / BUF_COPY_BLOCK_SIZE); b++) {
         if ((offset + (BUF_COPY_BLOCK_SIZE - 1)) >= max) {

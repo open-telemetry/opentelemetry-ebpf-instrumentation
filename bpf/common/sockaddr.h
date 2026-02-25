@@ -111,7 +111,7 @@ static __always_inline u16 get_sockaddr_port_user(struct sockaddr *addr) {
 }
 
 static __always_inline bool
-parse_sockaddr_info(u32 pid, struct sockaddr *addr, connection_info_part_t *info) {
+parse_sockaddr_info(const u32 pid, struct sockaddr *addr, connection_info_part_t *info) {
     short unsigned int sa_family;
 
     bpf_probe_read(&sa_family, sizeof(short unsigned int), &addr->sa_family);
@@ -143,7 +143,7 @@ static __always_inline bool is_tcp_socket_never_connected(struct sock *sk) {
     }
 
     // Read the socket state
-    u8 sk_state = BPF_CORE_READ(sk, __sk_common.skc_state);
+    const u8 sk_state = BPF_CORE_READ(sk, __sk_common.skc_state);
 
     // Socket was never connected if it's in these states:
     if (sk_state == TCP_SYN_SENT || // Connection attempt in progress
@@ -153,8 +153,8 @@ static __always_inline bool is_tcp_socket_never_connected(struct sock *sk) {
     }
 
     struct tcp_sock *tp = (struct tcp_sock *)sk;
-    u64 bytes_sent = BPF_CORE_READ(tp, bytes_sent);
-    u64 bytes_received = BPF_CORE_READ(tp, bytes_received);
+    const u64 bytes_sent = BPF_CORE_READ(tp, bytes_sent);
+    const u64 bytes_received = BPF_CORE_READ(tp, bytes_received);
 
     return (bytes_sent == 0 && bytes_received == 0);
 }

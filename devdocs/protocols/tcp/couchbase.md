@@ -6,7 +6,8 @@ This document describes the Couchbase protocol parser that OBI provides.
 
 Couchbase bases its client-server communication on
 the [Memcached Binary Protocol](https://github.com/couchbase/memcached/blob/master/docs/BinaryProtocol.md),
-[extending it](https://github.com/couchbase/kv_engine/tree/master/include/mcbp/protocol) with custom opcodes and features.
+[extending it](https://github.com/couchbase/kv_engine/tree/master/include/mcbp/protocol) with custom opcodes and
+features.
 This is a binary protocol with a fixed 24-byte header followed by optional body data.
 
 ### Packet Header Format
@@ -56,14 +57,14 @@ Key differences in flexible framing:
 
 **Magic bytes** identify the packet direction and format:
 
-| Magic  | Format           | Direction                                       |
-|:-------|:-----------------|:------------------------------------------------|
-| `0x80` | Classic          | Client request (client → server)                |
-| `0x81` | Classic          | Server response (server → client)               |
-| `0x82` | Classic          | Server request (server → client)                |
-| `0x83` | Classic          | Client response (client → server)               |
-| `0x08` | Flexible framing | Client request (client → server)                |
-| `0x18` | Flexible framing | Server response (server → client)               |
+| Magic  | Format           | Direction                         |
+|:-------|:-----------------|:----------------------------------|
+| `0x80` | Classic          | Client request (client → server)  |
+| `0x81` | Classic          | Server response (server → client) |
+| `0x82` | Classic          | Server request (server → client)  |
+| `0x83` | Classic          | Client response (client → server) |
+| `0x08` | Flexible framing | Client request (client → server)  |
+| `0x18` | Flexible framing | Server response (server → client) |
 
 **Bytes 6-7** serve dual purpose:
 
@@ -167,15 +168,15 @@ The parser handles truncated packets gracefully:
 
 OBI generates spans with the following OpenTelemetry semantic conventions:
 
-| Attribute                 | Source            | Example              |
-|---------------------------|-------------------|----------------------|
-| `db.system.name`          | Constant          | `"couchbase"`        |
-| `db.operation.name`       | Opcode            | `"GET"`, `"SET"`     |
-| `db.namespace`            | Bucket + Scope    | `"mybucket.myscope"` |
-| `db.collection.name`      | Collection        | `"mycollection"`     |
-| `db.response.status_code` | Status (on error) | `"1"`                |
-| `server.address`          | Connection info   | Server hostname      |
-| `server.port`             | Connection info   | `11210`              |
+| Attribute                 | Source             | Example                  |
+|---------------------------|--------------------|--------------------------|
+| `db.system.name`          | Constant           | `"couchbase"`            |
+| `db.operation.name`       | Opcode             | `"GET"`, `"SET"`         |
+| `db.namespace`            | Bucket             | `"mybucket"`             |
+| `db.collection.name`      | Scope + Collection | `"myscope.mycollection"` |
+| `db.response.status_code` | Status (on error)  | `"1"`                    |
+| `server.address`          | Connection info    | Server hostname          |
+| `server.port`             | Connection info    | `11210`                  |
 
 ## Configuration
 
@@ -185,9 +186,12 @@ Couchbase tracing can be configured via:
 
 ## SQL++ (N1QL) Query Parsing
 
-In addition to the binary KV protocol on port 11210, Couchbase supports SQL++ (also known as N1QL) queries via HTTP on port 8093. OBI can parse these HTTP-based queries to generate database spans.
+In addition to the binary KV protocol on port 11210, Couchbase supports SQL++ (also known as N1QL) queries via HTTP on
+port 8093. OBI can parse these HTTP-based queries to generate database spans.
 
-**Note:** SQL++ parsing is a generic feature that works with any database using the SQL++ protocol, not just Couchbase. When the response contains the N1QL version header, `db.system.name` is set to `"couchbase"`. Otherwise, it is set to `"other_sql"` for non-Couchbase SQL++ endpoints.
+**Note:** SQL++ parsing is a generic feature that works with any database using the SQL++ protocol, not just Couchbase.
+When the response contains the N1QL version header, `db.system.name` is set to `"couchbase"`. Otherwise, it is set to
+`"other_sql"` for non-Couchbase SQL++ endpoints.
 
 ### How It Works
 
@@ -223,16 +227,16 @@ statement=SELECT+*+FROM+users&query_context=default:`mybucket`.`myscope`
 The parser extracts bucket and collection information from multiple sources:
 
 1. **Table path in statement**: `SELECT * FROM`bucket`.`scope`.`collection``
-   - Bucket: `bucket`
-   - Collection: `scope.collection`
+    - Bucket: `bucket`
+    - Collection: `scope.collection`
 
 2. **query_context field**: When present, provides the default namespace
-   - Format: `default:`bucket`.`scope``
-   - The bucket is extracted from this context if not in the table path
+    - Format: `default:`bucket`.`scope``
+    - The bucket is extracted from this context if not in the table path
 
 3. **Single identifier**: Interpretation depends on whether `query_context` is set
-   - With `query_context`: treated as collection name
-   - Without `query_context`: treated as bucket name (legacy mode)
+    - With `query_context`: treated as collection name
+    - Without `query_context`: treated as bucket name (legacy mode)
 
 ### Response Error Handling
 
@@ -271,7 +275,8 @@ SQL++ spans are generated with the following attributes:
 SQL++ parsing requires the following configuration:
 
 - `OTEL_EBPF_HTTP_SQLPP_ENABLED` - Enable/disable SQL++ parsing (default: `false`)
-- `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP` - Must be set to a larger value (e.g., `2048`) to capture SQL++ request/response bodies. The default HTTP buffer size is insufficient for parsing SQL++ queries.
+- `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP` - Must be set to a larger value (e.g., `2048`) to capture SQL++ request/response
+  bodies. The default HTTP buffer size is insufficient for parsing SQL++ queries.
 - Endpoint patterns are configured internally to match `/query/service`
 
 ### Implementation
