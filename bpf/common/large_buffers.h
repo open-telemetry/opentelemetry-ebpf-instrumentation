@@ -23,8 +23,8 @@ enum {
     k_large_buf_payload_max_size = 1 << 14, // 16K
     k_large_buf_payload_max_size_mask = k_large_buf_payload_max_size - 1,
 
-    // Absolute maximum
-    k_large_buf_abs_max_size = 1 << 16, // 64K
+    // Absolute maximum of buffers we'll send
+    k_large_buffer_read_limit = 1 << 16, // 64K
 };
 
 SCRATCH_MEM_SIZED(http_large_buffers, k_large_buf_max_size);

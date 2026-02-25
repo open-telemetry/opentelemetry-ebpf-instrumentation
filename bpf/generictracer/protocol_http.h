@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "bpfcore/utils.h"
+#include <bpfcore/utils.h>
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
@@ -479,8 +479,8 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
 
     req->has_large_buffers = true;
 
-    u32 max = bytes_len;
-    bpf_clamp_umax(max, k_large_buf_abs_max_size);
+    u32 available_bytes = bytes_len;
+    bpf_clamp_umax(available_bytes, k_large_buffer_read_limit);
 
     u32 chunk = bytes_len;
 
@@ -490,9 +490,9 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
                    direction);
 
     int b = 0;
-    for (; b <= (max / k_large_buf_payload_max_size); b++) {
-        u32 offset = b * k_large_buf_payload_max_size;
-        if (offset >= k_large_buf_abs_max_size) {
+    for (; b <= (available_bytes / k_large_buf_payload_max_size); b++) {
+        const u32 offset = b * k_large_buf_payload_max_size;
+        if (offset >= k_large_buffer_read_limit) {
             break;
         }
         u32 read_size = chunk;
@@ -510,7 +510,7 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
         bpf_clamp_umax(total_size, k_large_buf_max_size);
         bpf_ringbuf_output(&events, large_buf, total_size, get_flags());
 
-        if (read_size <= k_large_buf_payload_max_size) {
+        if (chunk <= k_large_buf_payload_max_size) {
             break;
         }
         chunk -= k_large_buf_payload_max_size;
