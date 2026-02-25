@@ -482,20 +482,21 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
     u32 available_bytes = bytes_len;
     bpf_clamp_umax(available_bytes, k_large_buffer_read_limit);
 
-    u32 chunk = bytes_len;
-
     bpf_dbg_printk("sending large buffer, total size=%d, packet_type=%d, direction %d",
                    bytes_len,
                    packet_type,
                    direction);
 
+    const uint32_t niter = (available_bytes / k_large_buf_payload_max_size) +
+                           ((available_bytes % k_large_buf_payload_max_size) > 0);
+
     int b = 0;
-    for (; b <= (available_bytes / k_large_buf_payload_max_size); b++) {
+    for (; b < niter; b++) {
         const u32 offset = b * k_large_buf_payload_max_size;
         if (offset >= k_large_buffer_read_limit) {
             break;
         }
-        u32 read_size = chunk;
+        u32 read_size = available_bytes;
         bpf_clamp_umax(read_size, k_large_buf_payload_max_size);
         bpf_probe_read(large_buf->buf, read_size, (void *)(&u_buf[offset]));
 
@@ -510,10 +511,7 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
         bpf_clamp_umax(total_size, k_large_buf_max_size);
         bpf_ringbuf_output(&events, large_buf, total_size, get_flags());
 
-        if (chunk <= k_large_buf_payload_max_size) {
-            break;
-        }
-        chunk -= k_large_buf_payload_max_size;
+        available_bytes -= read_size;
         large_buf->action = k_large_buf_action_append;
     }
 

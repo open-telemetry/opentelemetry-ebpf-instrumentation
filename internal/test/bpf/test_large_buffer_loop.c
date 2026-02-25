@@ -73,13 +73,13 @@ loop_result_t simulate_large_buffer_loop(uint32_t bytes_len,
   loop_result_t result = {0, 0, initial_action, 0};
   tcp_large_buffer_t large_buf;
 
-  uint32_t max = bytes_len;
-  bpf_clamp_umax(max, k_large_buf_abs_max_size);
+  uint32_t available_bytes = bytes_len;
+  bpf_clamp_umax(available_bytes, k_large_buf_abs_max_size);
 
-  uint32_t chunk = bytes_len;
-
+  const uint32_t niter = (available_bytes / k_large_buf_payload_max_size) +
+                         ((available_bytes % k_large_buf_payload_max_size) > 0);
   int b = 0;
-  for (; b <= (max / k_large_buf_payload_max_size); b++) {
+  for (; b < niter; b++) {
     result.loop_iterations++;
 
     uint32_t offset = b * k_large_buf_payload_max_size;
@@ -87,7 +87,7 @@ loop_result_t simulate_large_buffer_loop(uint32_t bytes_len,
       break;
     }
 
-    uint32_t read_size = chunk;
+    uint32_t read_size = available_bytes;
     bpf_clamp_umax(read_size, k_large_buf_payload_max_size);
 
     large_buf.len = read_size;
@@ -107,10 +107,7 @@ loop_result_t simulate_large_buffer_loop(uint32_t bytes_len,
     result.total_bytes_sent += read_size;
     result.final_action = large_buf.action;
 
-    if (chunk <= k_large_buf_payload_max_size) {
-      break;
-    }
-    chunk -= k_large_buf_payload_max_size;
+    available_bytes -= read_size;
   }
 
   return result;
@@ -121,12 +118,12 @@ void test_empty_buffer() {
   const char *test_name = "empty_buffer";
   loop_result_t result = simulate_large_buffer_loop(0, k_large_buf_action_init);
 
-  test_assert(result.num_chunks == 1, test_name,
+  test_assert(result.num_chunks == 0, test_name,
               "should produce 1 chunk for empty buffer");
   test_assert(result.total_bytes_sent == 0, test_name, "should send 0 bytes");
   test_assert(result.final_action == k_large_buf_action_init, test_name,
               "should have init action");
-  test_assert(result.loop_iterations == 1, test_name, "should iterate once");
+  test_assert(result.loop_iterations == 0, test_name, "should iterate once");
 }
 
 void test_small_buffer() {
@@ -296,29 +293,28 @@ void test_chunk_distribution() {
       3 * k_large_buf_payload_max_size + 1000; // 49152 + 1000 = 50152
 
   tcp_large_buffer_t large_buf;
-  uint32_t max = size;
-  bpf_clamp_umax(max, k_large_buf_abs_max_size);
-  uint32_t chunk = size;
+  uint32_t available_bytes = size;
+  bpf_clamp_umax(available_bytes, k_large_buf_abs_max_size);
 
   int chunk_sizes[10] = {0};
   int chunk_count = 0;
 
   int b = 0;
-  for (; b <= (max / k_large_buf_payload_max_size); b++) {
+  const uint32_t niter = (available_bytes / k_large_buf_payload_max_size) +
+                         ((available_bytes % k_large_buf_payload_max_size) > 0);
+
+  for (; b < niter; b++) {
     uint32_t offset = b * k_large_buf_payload_max_size;
     if (offset >= k_large_buf_abs_max_size) {
       break;
     }
 
-    uint32_t read_size = chunk;
+    uint32_t read_size = available_bytes;
     bpf_clamp_umax(read_size, k_large_buf_payload_max_size);
 
     chunk_sizes[chunk_count++] = read_size;
 
-    if (chunk <= k_large_buf_payload_max_size) {
-      break;
-    }
-    chunk -= k_large_buf_payload_max_size;
+    available_bytes -= read_size;
   }
 
   test_assert(chunk_count == 4, test_name, "should have 4 chunks");
@@ -375,30 +371,29 @@ void test_action_progression() {
   uint32_t size = 3 * k_large_buf_payload_max_size;
   enum large_buf_action initial = k_large_buf_action_init;
 
-  uint32_t max = size;
-  bpf_clamp_umax(max, k_large_buf_abs_max_size);
-  uint32_t chunk = size;
+  uint32_t available_bytes = size;
+  bpf_clamp_umax(available_bytes, k_large_buf_abs_max_size);
 
   enum large_buf_action actions[10];
   int action_count = 0;
 
+  const uint32_t niter = (available_bytes / k_large_buf_payload_max_size) +
+                         ((available_bytes % k_large_buf_payload_max_size) > 0);
+
   int b = 0;
-  for (; b <= (max / k_large_buf_payload_max_size); b++) {
+  for (; b < niter; b++) {
     uint32_t offset = b * k_large_buf_payload_max_size;
     if (offset >= k_large_buf_abs_max_size) {
       break;
     }
 
-    uint32_t read_size = chunk;
+    uint32_t read_size = available_bytes;
     bpf_clamp_umax(read_size, k_large_buf_payload_max_size);
 
     large_buf.action = (b == 0) ? initial : k_large_buf_action_append;
     actions[action_count++] = large_buf.action;
 
-    if (chunk <= k_large_buf_payload_max_size) {
-      break;
-    }
-    chunk -= k_large_buf_payload_max_size;
+    available_bytes -= k_large_buf_payload_max_size;
   }
 
   test_assert(actions[0] == k_large_buf_action_init, test_name,

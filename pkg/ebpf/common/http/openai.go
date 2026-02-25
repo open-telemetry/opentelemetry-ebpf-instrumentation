@@ -23,15 +23,15 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		}
 	}
 
+	if !isOpenAI {
+		return *baseSpan, false
+	}
+
 	reqB, err := io.ReadAll(req.Body)
 	if err != nil {
 		return *baseSpan, false
 	}
 	req.Body = io.NopCloser(bytes.NewBuffer(reqB))
-
-	if !isOpenAI {
-		return *baseSpan, false
-	}
 
 	respB, err := getResponseBody(resp)
 	if err != nil && len(respB) == 0 {
