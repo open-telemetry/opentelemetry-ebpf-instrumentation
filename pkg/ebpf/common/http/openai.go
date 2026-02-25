@@ -41,10 +41,14 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	slog.Debug("OpenAI", "request", string(reqB), "response", string(respB))
 
 	var parsedRequest request.OpenAIInput
-	_ = json.Unmarshal(reqB, &parsedRequest)
+	if err := json.Unmarshal(reqB, &parsedRequest); err != nil {
+		return *baseSpan, false
+	}
 
 	var parsedResponse request.OpenAI
-	_ = json.Unmarshal(respB, &parsedResponse)
+	if err := json.Unmarshal(respB, &parsedResponse); err != nil {
+		return *baseSpan, false
+	}
 
 	parsedResponse.Request = parsedRequest
 
