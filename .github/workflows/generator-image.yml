@@ -122,8 +122,8 @@ jobs:
               verified=true
               break
             fi
-            echo "Verify attempt $i failed, retrying in 10s..."
-            sleep 10
+            echo "Verify attempt $i failed, retrying in 60s..."
+            sleep 60
           done
           if [ "$verified" != "true" ]; then
             echo "Failed to verify cosign signatures after 5 attempts"
