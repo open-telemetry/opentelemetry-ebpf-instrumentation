@@ -101,12 +101,12 @@ const (
 )
 
 type capTestData struct {
-	osCap          helpers.OSCapability
-	class          capClass
-	kernMaj        int
-	kernMin        int
-	tcSource       bool // use TC as network source (capNet only)
-	contextPropOn  bool // enable context propagation (capApp only)
+	osCap         helpers.OSCapability
+	class         capClass
+	kernMaj       int
+	kernMin       int
+	tcSource      bool // use TC as network source (capNet only)
+	contextPropOn bool // enable context propagation (capApp only)
 }
 
 var capTests = []capTestData{

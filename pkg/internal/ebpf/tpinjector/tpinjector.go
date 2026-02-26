@@ -178,4 +178,3 @@ func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg
 func (p *Tracer) Required() bool {
 	return false
 }
-
