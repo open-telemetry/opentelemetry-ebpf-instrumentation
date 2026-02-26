@@ -44,24 +44,9 @@ func TestTracer_Constants_InjectFlags(t *testing.T) {
 			expectedInjectFlags: 3, // k_inject_http_headers | k_inject_tcp_options
 		},
 		{
-			name:                "ip only",
-			contextPropagation:  "ip",
-			expectedInjectFlags: 0, // tpinjector doesn't handle IP options
-		},
-		{
 			name:                "all",
 			contextPropagation:  "all",
-			expectedInjectFlags: 3, // k_inject_http_headers | k_inject_tcp_options (IP handled by tctracer)
-		},
-		{
-			name:                "tcp and ip",
-			contextPropagation:  "tcp,ip",
-			expectedInjectFlags: 2, // k_inject_tcp_options only (IP handled by tctracer)
-		},
-		{
-			name:                "headers and ip",
-			contextPropagation:  "headers,ip",
-			expectedInjectFlags: 1, // k_inject_http_headers only (IP handled by tctracer)
+			expectedInjectFlags: 3, // k_inject_http_headers | k_inject_tcp_options
 		},
 	}
 
