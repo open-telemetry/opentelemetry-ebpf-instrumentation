@@ -159,7 +159,7 @@ enum offsets : u8 {
 
 SEC("uprobe/runtime.mstart1")
 int obi_uprobe_runtime_mstart1(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
 
     void *g = (void *)GOROUTINE_PTR(ctx);
     void *m = NULL;
@@ -190,7 +190,7 @@ int obi_uprobe_runtime_mexit(struct pt_regs *ctx) {
 // gp *g, oldval, newval uint32
 SEC("uprobe/runtime.casgstatus")
 int obi_uprobe_runtime_casgstatus(struct pt_regs *ctx) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
 
     void *g = (void *)GO_PARAM1(ctx);
     void *m = NULL;
@@ -219,7 +219,7 @@ int obi_uprobe_runtime_casgstatus(struct pt_regs *ctx) {
     };
     grpc_srv_func_invocation_t *invocation;
 
-    u32 newval = (u32)(uintptr_t)GO_PARAM3(ctx);
+    const u32 newval = (u32)(uintptr_t)GO_PARAM3(ctx);
     switch (newval) {
     case g_running:
     case g_syscall:

@@ -22,12 +22,12 @@ enum { k_prime_hash = 192053 }; // closest prime to k_max_concurrent_pids * 64
 
 static __always_inline u8 pid_matches(pid_data_t *p) {
     // combine the namespace id and the pid into one single u64
-    u64 k = (((u64)p->ns) << 32) | p->pid;
+    const u64 k = (((u64)p->ns) << 32) | p->pid;
 
     // divide with prime number lower than max pids * 64, modulo with primes gives good hash functions
-    u32 h = (u32)(k % k_prime_hash);
-    u32 segment = h / 64; // divide by the segment size (8 bytes) to find the segment
-    u32 bit = h & 63;     // lowest 64 bits gives us the placement inside the segment
+    const u32 h = (u32)(k % k_prime_hash);
+    const u32 segment = h / 64; // divide by the segment size (8 bytes) to find the segment
+    const u32 bit = h & 63;     // lowest 64 bits gives us the placement inside the segment
 
     u64 *v = bpf_map_lookup_elem(&valid_pids, &segment);
     if (!v) {
@@ -40,7 +40,7 @@ static __always_inline u8 pid_matches(pid_data_t *p) {
 }
 
 static __always_inline u32 valid_pid(u64 id) {
-    u32 a_pid = id >> 32;
+    const u32 a_pid = id >> 32;
     // accept all PIDs if debugging OTEL_EBPF_BPF_PID_FILTER_OFF option is set
     if (!filter_pids) {
         return a_pid;
@@ -63,7 +63,7 @@ static __always_inline u32 valid_pid(u64 id) {
     if (a_pid != 0) {
         pid_data_t p_key = {.pid = a_pid, .ns = pid_ns_id};
 
-        u8 found_ns_pid = pid_matches(&p_key);
+        const u8 found_ns_pid = pid_matches(&p_key);
 
         if (found_ns_pid) {
             bpf_map_update_elem(&pid_cache, &a_pid, &a_pid, BPF_ANY);
@@ -71,7 +71,7 @@ static __always_inline u32 valid_pid(u64 id) {
         } else if (ns_ppid != 0) {
             pid_data_t pp_key = {.pid = ns_ppid, .ns = pid_ns_id};
 
-            u8 found_ns_ppid = pid_matches(&pp_key);
+            const u8 found_ns_ppid = pid_matches(&pp_key);
 
             if (found_ns_ppid) {
                 bpf_map_update_elem(&pid_cache, &a_pid, &a_pid, BPF_ANY);

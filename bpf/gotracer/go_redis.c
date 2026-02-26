@@ -130,7 +130,7 @@ int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
                     &conn_ptr, sizeof(conn_ptr), (void *)(tcp_conn_ptr + 8)); // find conn
                 bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
                 if (conn_ptr) {
-                    u8 ok = get_conn_info(conn_ptr, &req->conn);
+                    const u8 ok = get_conn_info(conn_ptr, &req->conn);
                     if (!ok) {
                         __builtin_memset(&req->conn, 0, sizeof(connection_info_t));
                     }
@@ -161,7 +161,7 @@ int obi_uprobe_redis_with_writer_ret(struct pt_regs *ctx) {
             if (bw) {
                 bpf_dbg_printk("Found bw: %llx", bw);
 
-                u64 io_writer_buf_ptr_pos =
+                const u64 io_writer_buf_ptr_pos =
                     go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos});
 
                 void *buf = 0;

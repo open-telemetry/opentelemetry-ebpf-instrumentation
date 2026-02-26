@@ -258,7 +258,7 @@ int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
         bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
 
     off_table_t *ot = get_offsets_table();
-    u64 fullpath_off = go_offset_of(ot, (go_offset){.v = _gin_fullpath_pos});
+    const u64 fullpath_off = go_offset_of(ot, (go_offset){.v = _gin_fullpath_pos});
 
     bpf_dbg_printk("goroutine_addr=%lx, invocation=%llx, fullpath_off=%d",
                    goroutine_addr,
@@ -273,7 +273,7 @@ int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
                 // registers
                 if (fullpath_off == _gin_fullpath_off_pre_17) {
                     void *ptr = GO_PARAM8(ctx);
-                    u64 len = (u64)GO_PARAM9(ctx);
+                    const u64 len = (u64)GO_PARAM9(ctx);
 
                     if (ptr) {
                         bpf_dbg_printk("pre gin 1.7.0 fullPath from: %llx", ptr);
@@ -282,7 +282,7 @@ int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
                     }
                 } else {
                     void *ptr = GO_PARAM6(ctx);
-                    u64 len = (u64)GO_PARAM7(ctx);
+                    const u64 len = (u64)GO_PARAM7(ctx);
 
                     if (ptr) {
                         bpf_dbg_printk("post gin 1.7.0 fullPath from: %llx", ptr);
@@ -950,7 +950,7 @@ int obi_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/http2ResponseWriterStateWriteHeader ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    u64 status = (u64)GO_PARAM2(ctx);
+    const u64 status = (u64)GO_PARAM2(ctx);
     bpf_dbg_printk("goroutine_addr=%lx, status=%d", goroutine_addr, status);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
