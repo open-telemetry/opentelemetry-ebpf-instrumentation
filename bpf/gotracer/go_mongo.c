@@ -17,10 +17,13 @@
 
 #include <bpfcore/utils.h>
 
+#include <common/common.h>
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_str.h>
+
+#include <gotracer/maps/mongo.h>
 
 #include <logger/bpf_dbg.h>
 

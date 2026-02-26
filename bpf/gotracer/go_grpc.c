@@ -23,7 +23,6 @@
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
-#include <gotracer/hpack.h>
 
 #include <gotracer/maps/grpc.h>
 

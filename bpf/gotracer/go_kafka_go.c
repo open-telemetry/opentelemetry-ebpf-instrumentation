@@ -17,58 +17,16 @@
 
 #include <bpfcore/utils.h>
 
+#include <common/common.h>
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
-#include <gotracer/go_kafka_def.h>
+
+#include <gotracer/maps/kafka.h>
+
+#include <gotracer/types/kafka.h>
 
 #include <logger/bpf_dbg.h>
-
-typedef struct produce_req {
-    u64 msg_ptr;
-    u64 conn_ptr;
-    u64 start_monotime_ns;
-} produce_req_t;
-
-typedef struct topic {
-    char name[MAX_TOPIC_NAME_LEN];
-    tp_info_t tp;
-} topic_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // w_ptr
-    __type(value, tp_info_t);   // traceparent
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} produce_traceparents SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // goroutine
-    __type(value, topic_t);     // topic info
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_produce_topics SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // msg ptr
-    __type(value, topic_t);     // topic info
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_produce_messages SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t);   // goroutine
-    __type(value, produce_req_t); // rw ptr + start time
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} produce_requests SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t);    // goroutine
-    __type(value, kafka_go_req_t); // rw ptr + start time
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} fetch_requests SEC(".maps");
 
 // Code for the produce messages path
 SEC("uprobe/writer_write_messages")
@@ -84,7 +42,12 @@ int obi_uprobe_writer_write_messages(struct pt_regs *ctx) {
     go_addr_key_t p_key = {};
     go_addr_key_from_id(&p_key, w_ptr);
 
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
     bpf_map_update_elem(&produce_traceparents, &p_key, &tp, BPF_ANY);
+    bpf_map_update_elem(&produce_traceparents_by_goroutine, &g_key, &tp, BPF_ANY);
+
     return 0;
 }
 

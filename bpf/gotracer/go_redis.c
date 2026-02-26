@@ -21,21 +21,9 @@
 
 #include <gotracer/go_common.h>
 
+#include <gotracer/maps/redis.h>
+
 #include <logger/bpf_dbg.h>
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t);        // key: goroutine id
-    __type(value, redis_client_req_t); // the request
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_redis_requests SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: goroutine id
-    __type(value, void *);      // the *Conn
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} redis_writes SEC(".maps");
 
 static __always_inline void setup_request(void *goroutine_addr) {
     redis_client_req_t req = {

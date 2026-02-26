@@ -19,10 +19,16 @@
 
 #include <gotracer/go_common.h>
 
-#include <gotracer/types/grpc.h>
-
 #include <gotracer/maps/grpc.h>
+#include <gotracer/maps/kafka.h>
+#include <gotracer/maps/mongo.h>
+#include <gotracer/maps/nethttp.h>
+#include <gotracer/maps/redis.h>
 #include <gotracer/maps/runtime.h>
+
+#include <gotracer/types/grpc.h>
+#include <gotracer/types/kafka.h>
+#include <gotracer/types/nethttp.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -217,16 +223,64 @@ int obi_uprobe_runtime_casgstatus(struct pt_regs *ctx) {
         .addr = (u64)g,
         .pid = pid,
     };
-    grpc_srv_func_invocation_t *invocation;
+
+    // grpc
+    grpc_srv_func_invocation_t *grpc_server_inv;
+    grpc_client_func_invocation_t *grpc_client_inv;
+    // http
+    server_http_func_invocation_t *http_server_inv;
+    // kafka_go
+    tp_info_t *kafka_go_tp;
+    // mongo
+    mongo_go_client_req_t *mongo;
+    // redis
+    redis_client_req_t *redis;
+    // sql
+    sql_func_invocation_t *sql;
 
     const u32 newval = (u32)(uintptr_t)GO_PARAM3(ctx);
     switch (newval) {
     case g_running:
     case g_syscall:
-        // grpc server
-        invocation = bpf_map_lookup_elem(&ongoing_grpc_server_requests, &g_key);
-        if (invocation) {
-            obi_ctx__set(g_pid_tgid, &invocation->tp);
+        // grpc
+        grpc_server_inv = bpf_map_lookup_elem(&ongoing_grpc_server_requests, &g_key);
+        if (grpc_server_inv) {
+            obi_ctx__set(g_pid_tgid, &grpc_server_inv->tp);
+            return 0;
+        }
+        grpc_client_inv = bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+        if (grpc_client_inv) {
+            obi_ctx__set(g_pid_tgid, &grpc_client_inv->tp);
+            return 0;
+        }
+        // http
+        http_server_inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+        if (http_server_inv) {
+            obi_ctx__set(g_pid_tgid, &http_server_inv->tp);
+            return 0;
+        }
+        // kafka_go
+        kafka_go_tp = bpf_map_lookup_elem(&produce_traceparents_by_goroutine, &g_key);
+        if (kafka_go_tp) {
+            obi_ctx__set(g_pid_tgid, kafka_go_tp);
+            return 0;
+        }
+        // mongo
+        mongo = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
+        if (mongo) {
+            obi_ctx__set(g_pid_tgid, &mongo->tp);
+            return 0;
+        }
+        // redis
+        redis = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
+        if (redis) {
+            obi_ctx__set(g_pid_tgid, &redis->tp);
+            return 0;
+        }
+        // sql
+        sql = bpf_map_lookup_elem(&ongoing_sql_queries, &g_key);
+        if (sql) {
+            obi_ctx__set(g_pid_tgid, &sql->tp);
             return 0;
         }
 

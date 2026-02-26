@@ -27,8 +27,10 @@
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
-#include <gotracer/hpack.h>
 
+#include <gotracer/maps/nethttp.h>
+
+#include <gotracer/types/nethttp.h>
 #include <gotracer/types/stream_key.h>
 
 #include <logger/bpf_dbg.h>
@@ -39,63 +41,10 @@
 
 #include <pid/pid_helpers.h>
 
-static const char traceparent[] = "traceparent: ";
-
 static __always_inline unsigned char *tp_char_buf() {
     int zero = 0;
     return bpf_map_lookup_elem(&tp_char_buf_mem, &zero);
 }
-
-typedef struct http_client_data {
-    s64 content_length;
-    pid_info pid;
-    unsigned char path[PATH_MAX_LEN];
-    unsigned char host[HOST_MAX_LEN];
-    unsigned char scheme[SCHEME_MAX_LEN];
-    unsigned char method[METHOD_MAX_LEN];
-    u8 _pad[3];
-} http_client_data_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, http_client_data_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_http_client_requests_data SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, tp_info_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} http2_server_requests_tp SEC(".maps");
-
-typedef struct server_http_func_invocation {
-    u64 start_monotime_ns;
-    u64 content_length;
-    u64 response_length;
-    u64 status;
-    u64 rpc_request_addr; // pointer to the jsonrpc Request
-    tp_info_t tp;
-    u8 method[METHOD_MAX_LEN];
-    u8 path[PATH_MAX_LEN];
-    u8 pattern[PATTERN_MAX_LEN];
-    u8 _pad[5];
-} server_http_func_invocation_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, server_http_func_invocation_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_http_server_requests SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, u32);
-    __type(value, unsigned char[HTTP_HEADER_MAX_LEN]);
-    __uint(max_entries, 1);
-} temp_header_mem_store SEC(".maps");
 
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;
@@ -636,13 +585,6 @@ int obi_uprobe_ServeHTTPReturns(struct pt_regs *ctx) {
     return serve_http_returns(ctx);
 }
 
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, void *); // key: pointer to the request header map
-    __type(value, u64);  // the goroutine of the transport request
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} header_req_map SEC(".maps");
-
 /* HTTP Client. We expect to see HTTP client in both HTTP server and gRPC server calls.*/
 static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -1032,15 +974,6 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
     return 0;
 }
 
-// HTTP 2.0 client support
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, stream_key_t); // key: stream id + connection info
-    // the goroutine of the round trip request, which is the key for our traceparent info
-    __type(value, u64);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} http2_req_map SEC(".maps");
-
 static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                                                     void *cc_ptr,
                                                     u32 stream_id,
@@ -1144,23 +1077,6 @@ int obi_uprobe_http2WriteHeaders_vendored(struct pt_regs *ctx) {
 
     return 0;
 }
-
-#define MAX_W_PTR_N 1024
-
-typedef struct framer_func_invocation {
-    u64 framer_ptr;
-    tp_info_t tp;
-    s64 initial_n;
-} framer_func_invocation_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: go routine doing framer write headers
-    __type(
-        value,
-        framer_func_invocation_t); // the goroutine of the round trip request, which is the key for our traceparent info
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} framer_invocation_map SEC(".maps");
 
 static __always_inline void
 on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) {
@@ -1272,9 +1188,6 @@ int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
 
     return 0;
 }
-
-#define HTTP2_ENCODED_HEADER_LEN                                                                   \
-    66 // 1 + 1 + 8 + 1 + 55 = type byte + hpack_len_as_byte("traceparent") + strlen(hpack("traceparent")) + len_as_byte(55) + generated traceparent id
 
 SEC("uprobe/http2FramerWriteHeaders_returns")
 int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {

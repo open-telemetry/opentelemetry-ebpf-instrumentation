@@ -20,23 +20,12 @@
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
-#include <gotracer/go_kafka_def.h>
+
+#include <gotracer/maps/kafka.h>
+
+#include <gotracer/types/kafka.h>
 
 #include <logger/bpf_dbg.h>
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: correlation id
-    __type(value, kafka_client_req_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} kafka_requests SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: goroutine id
-    __type(value, u32);         // correlation id
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_kafka_requests SEC(".maps");
 
 SEC("uprobe/sarama_sendInternal")
 int obi_uprobe_sarama_sendInternal(struct pt_regs *ctx) {
