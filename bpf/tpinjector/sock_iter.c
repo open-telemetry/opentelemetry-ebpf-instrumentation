@@ -39,7 +39,7 @@ static __always_inline void
 format_in6_addr(const struct in6_addr *addr, u16 port, char buf[k_addr_buf_len]) {
     BPF_SNPRINTF(buf,
                  k_addr_buf_len,
-                 "[%x:%x:%x:%x:%x:%x:%x:%x:%d]",
+                 "[%x:%x:%x:%x:%x:%x:%x:%x]:%u",
                  bpf_ntohs(addr->in6_u.u6_addr16[0]),
                  bpf_ntohs(addr->in6_u.u6_addr16[1]),
                  bpf_ntohs(addr->in6_u.u6_addr16[2]),
