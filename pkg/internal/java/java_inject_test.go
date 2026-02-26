@@ -465,3 +465,43 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 		})
 	}
 }
+
+func TestEnsureEmbeddedAgentInCache_WritesAndReuses(t *testing.T) {
+	originalUserCacheDir := userCacheDir
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		userCacheDir = originalUserCacheDir
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	cacheRoot := t.TempDir()
+	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
+	userCacheDir = func() (string, error) {
+		return cacheRoot, nil
+	}
+
+	firstPath, err := ensureEmbeddedAgentInCache()
+	require.NoError(t, err)
+	content, err := os.ReadFile(firstPath)
+	require.NoError(t, err)
+	assert.Equal(t, embeddedJavaAgentBytes, content)
+
+	secondPath, err := ensureEmbeddedAgentInCache()
+	require.NoError(t, err)
+	assert.Equal(t, firstPath, secondPath)
+}
+
+func TestEnsureEmbeddedAgentInCache_PlaceholderBytesError(t *testing.T) {
+	originalUserCacheDir := userCacheDir
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		userCacheDir = originalUserCacheDir
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	embeddedJavaAgentBytes = []byte(javaAgentEmbedPlaceholder + "\n")
+
+	_, err := ensureEmbeddedAgentInCache()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing")
+}
