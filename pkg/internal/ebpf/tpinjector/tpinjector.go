@@ -36,9 +36,8 @@ func New(cfg *obi.Config) *Tracer {
 	log := slog.With("component", "tpinjector")
 
 	return &Tracer{
-		log:   log,
-		cfg:   cfg,
-		iters: []*ebpfcommon.Iter{},
+		log: log,
+		cfg: cfg,
 	}
 }
 
@@ -134,13 +133,21 @@ func (p *Tracer) SockOps() []ebpfcommon.SockOps {
 }
 
 func (p *Tracer) Iters() []*ebpfcommon.Iter {
-	if len(p.iters) == 0 {
-		p.iters = []*ebpfcommon.Iter{
-			{
-				Program: p.bpfObjects.ObiSkIterTcp,
-			},
-		}
+	if p.iters != nil {
+		return p.iters
 	}
+
+	major, minor := ebpfcommon.KernelVersion()
+
+	if major < 6 || (major == 6 && minor < 4) {
+		p.log.Warn("TCP socket iterator disabled: kernel versions < 6.4 have a locking bug " +
+			"in iter/tcp + sockhash that can cause an RCU stall and kernel panic. " +
+			"Existing connections at startup will not be tracked for context propagation.")
+		p.iters = []*ebpfcommon.Iter{}
+		return p.iters
+	}
+
+	p.iters = []*ebpfcommon.Iter{{Program: p.bpfObjects.ObiSkIterTcp}}
 
 	return p.iters
 }
