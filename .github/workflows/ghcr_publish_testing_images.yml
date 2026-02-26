@@ -90,6 +90,22 @@ jobs:
             echo "imgtag=$OVERRIDE_IMG_TAG" >> $GITHUB_OUTPUT
           fi
 
+      - name: go
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: go
+          file: internal/test/integration/components/testserver/Dockerfile
+
+      - name: go-http-client
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: go-http-client
+          file: internal/test/integration/components/httppinger/Dockerfile
+
       - name: rust
         uses: ./.github/actions/integration-test-image-build
         with:
@@ -146,14 +162,6 @@ jobs:
           tag-id: node
           file: internal/test/integration/components/nodejsserver/Dockerfile
 
-      - name: go
-        uses: ./.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: go
-          file: internal/test/integration/components/testserver/Dockerfile
-
       - name: python
         uses: ./.github/actions/integration-test-image-build
         with:
@@ -161,11 +169,3 @@ jobs:
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: python
           file: internal/test/integration/components/pythonserver/Dockerfile
-
-      - name: go-http-client
-        uses: ./.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: go-http-client
-          file: internal/test/integration/components/httppinger/Dockerfile

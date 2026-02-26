@@ -3,23 +3,29 @@ FROM ruby:3.4.8@sha256:a02a5f7b2412b75ac6ad4f14b253a33d59626b110b3e3d151cf6b1ddf
 # Set the working directory to /build
 WORKDIR /build
 
+ENV BUNDLE_PATH=/usr/local/bundle
+
 # Copy the source code into the image for building
 COPY internal/test/integration/components/rubytestserver/testapi .
 
-# Install Rails
-RUN gem install rails
-RUN gem install bundler
+RUN gem update --system
+RUN gem install bundler -v 4.0.7
 RUN bundle install
-RUN bundle exec rake app:update:bin
-RUN bin/rails db:migrate
-
-EXPOSE 3043
+RUN bundle binstubs railties
+RUN bundle exec rake db:migrate
 
 FROM ruby:3.4.8-slim@sha256:dcc535e858eeeac1f70eaf8c39ef7ee257b183a9e495cc5a9ef3e340eadf2d3d
 
-WORKDIR /
+RUN gem update --system
+
+WORKDIR /build
+
+ENV BUNDLE_PATH=/usr/local/bundle
+
 COPY --from=builder /build .
 COPY --from=builder /usr/local/bundle /usr/local/bundle
 
+EXPOSE 3043
+
 # Run the node app
-CMD [ "rails", "server", "-b", "ssl://0.0.0.0:3043?key=config/key.pem&cert=config/cert.pem" ]
+CMD [ "bundle", "exec", "rails", "server", "-b", "ssl://0.0.0.0:3043?key=config/key.pem&cert=config/cert.pem" ]
