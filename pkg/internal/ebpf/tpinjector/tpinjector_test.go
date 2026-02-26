@@ -57,17 +57,10 @@ func TestTracer_Constants(t *testing.T) {
 			expectedFilterPids:  1,
 		},
 		{
-			name:                "ip only (handled by tctracer)",
-			contextPropagation:  "ip",
-			bpfPidFilterOff:     false,
-			expectedInjectFlags: 0,
-			expectedFilterPids:  1,
-		},
-		{
 			name:                "all",
 			contextPropagation:  "all",
 			bpfPidFilterOff:     false,
-			expectedInjectFlags: 3, // k_inject_http_headers | k_inject_tcp_options; IP handled by tctracer
+			expectedInjectFlags: 3, // k_inject_http_headers | k_inject_tcp_options
 			expectedFilterPids:  1,
 		},
 		{
