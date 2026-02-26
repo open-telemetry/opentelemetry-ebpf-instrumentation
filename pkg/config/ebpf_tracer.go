@@ -5,6 +5,7 @@ package config // import "go.opentelemetry.io/obi/pkg/config"
 
 import (
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
@@ -195,6 +196,8 @@ func (m *ContextPropagationMode) UnmarshalText(text []byte) error {
 			result |= ContextPropagationHeaders
 		case StrContextPropagationTCP:
 			result |= ContextPropagationTCP
+		case "ip":
+			slog.Warn("context_propagation value 'ip' is deprecated and has no effect; IP options injection has been removed")
 		default:
 			return fmt.Errorf("invalid value for context_propagation: '%s' (valid: all, disabled, headers, tcp)", part)
 		}
