@@ -344,6 +344,9 @@ cleanup:
 static __always_inline void
 tcp_send_ssl_check(u64 id, void *ssl, pid_connection_info_t *p_conn, u16 orig_dport) {
     bpf_dbg_printk("id=%d, ssl=%llx", id, ssl);
+    if (!ssl) {
+        return;
+    }
     ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
     if (s_conn) {
         finish_possible_delayed_tls_http_request(&s_conn->p_conn, ssl);
