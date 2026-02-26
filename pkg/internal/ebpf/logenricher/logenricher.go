@@ -90,29 +90,23 @@ func New(cfg *obi.Config) *Tracer {
 	return tr
 }
 
-func (p *Tracer) LoadSpecs() ([]*ebpf.CollectionSpec, error) {
+func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	spec, err := LoadBpf()
 	if err != nil {
 		return nil, err
 	}
-	return []*ebpf.CollectionSpec{spec}, nil
+	return []*ebpfcommon.SpecBundle{{
+		Spec:      spec,
+		Objects:   &p.bpfObjects,
+		Constants: map[string]any{"g_bpf_debug": p.cfg.EBPF.BpfDebug},
+	}}, nil
 }
 
 func (p *Tracer) SetupTailCalls() {}
 
-func (p *Tracer) Constants() []map[string]any {
-	return []map[string]any{{
-		"g_bpf_debug": p.cfg.EBPF.BpfDebug,
-	}}
-}
-
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 
 func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
-
-func (p *Tracer) BpfObjects() []any {
-	return []any{&p.bpfObjects}
-}
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
 	p.closers = append(p.closers, c...)

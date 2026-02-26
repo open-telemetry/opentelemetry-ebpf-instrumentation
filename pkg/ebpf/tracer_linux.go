@@ -99,12 +99,12 @@ func resolveMaps(eventContext *common.EBPFEventContext, spec *ebpf.CollectionSpe
 	return &collOpts, nil
 }
 
-func loadSpec(eventContext *common.EBPFEventContext, spec *ebpf.CollectionSpec, constants map[string]any, obj any, otelBPFFSPath string, idx int) error {
-	if err := ebpfconvenience.RewriteConstants(spec, constants); err != nil {
+func loadSpec(eventContext *common.EBPFEventContext, bundle *common.SpecBundle, otelBPFFSPath string, idx int) error {
+	if err := ebpfconvenience.RewriteConstants(bundle.Spec, bundle.Constants); err != nil {
 		return fmt.Errorf("rewriting BPF constants for spec %d: %w", idx, err)
 	}
 
-	collOpts, err := resolveMaps(eventContext, spec)
+	collOpts, err := resolveMaps(eventContext, bundle.Spec)
 	if err != nil {
 		return fmt.Errorf("resolving maps for spec %d: %w", idx, err)
 	}
@@ -112,16 +112,16 @@ func loadSpec(eventContext *common.EBPFEventContext, spec *ebpf.CollectionSpec, 
 	collOpts.Programs = ebpf.ProgramOptions{LogSizeStart: 640 * 1024}
 	collOpts.Maps = ebpf.MapOptions{PinPath: otelBPFFSPath}
 
-	if err := spec.LoadAndAssign(obj, collOpts); err != nil {
+	if err := bundle.Spec.LoadAndAssign(bundle.Objects, collOpts); err != nil {
 		return fmt.Errorf("loading spec %d: %w", idx, err)
 	}
 
 	return nil
 }
 
-func closeLoadedSpecs(objs []any, count int) {
-	for j := 0; j < count; j++ {
-		if c, ok := objs[j].(io.Closer); ok {
+func closeLoadedSpecs(bundles []*common.SpecBundle) {
+	for _, bundle := range bundles {
+		if c, ok := bundle.Objects.(io.Closer); ok {
 			c.Close()
 		}
 	}
@@ -211,7 +211,7 @@ func (pt *ProcessTracer) makeOtelBPFFSPath() (string, error) {
 	return otelPath, nil
 }
 
-func (pt *ProcessTracer) setupOtelBPFFFSPath(specs []*ebpf.CollectionSpec) string {
+func (pt *ProcessTracer) setupOtelBPFFFSPath(bundles []*common.SpecBundle) string {
 	// Set up BPF FS path once for all specs
 	otelBPFFSPath, err := pt.makeOtelBPFFSPath()
 
@@ -227,8 +227,8 @@ func (pt *ProcessTracer) setupOtelBPFFFSPath(specs []*ebpf.CollectionSpec) strin
 	log.Warn("OBI will still work, but features depending on pinned maps (e.g., log enricher, profile correlation) will be disabled")
 
 	// disable pinning for ALL specs
-	for _, spec := range specs {
-		for _, v := range spec.Maps {
+	for _, bundle := range bundles {
+		for _, v := range bundle.Spec.Maps {
 			if v.Pinning == ebpf.PinByName {
 				v.Pinning = ebpf.PinNone
 				v.MaxEntries = 1
@@ -240,28 +240,16 @@ func (pt *ProcessTracer) setupOtelBPFFFSPath(specs []*ebpf.CollectionSpec) strin
 }
 
 func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p Tracer) error {
-	specs, err := p.LoadSpecs()
+	bundles, err := p.LoadSpecs()
 	if err != nil {
 		return fmt.Errorf("loading eBPF program specs: %w", err)
 	}
 
-	// Set up BPF FS path once for all specs
-	otelBPFFSPath := pt.setupOtelBPFFFSPath(specs)
+	otelBPFFSPath := pt.setupOtelBPFFFSPath(bundles)
 
-	objs := p.BpfObjects()
-	constants := p.Constants()
-
-	if len(objs) != len(specs) {
-		return fmt.Errorf("BpfObjects() returned %d objects but LoadSpecs() returned %d specs", len(objs), len(specs))
-	}
-
-	if len(constants) != len(specs) {
-		return fmt.Errorf("Constants() returned %d maps but LoadSpecs() returned %d specs", len(constants), len(specs))
-	}
-
-	for i, spec := range specs {
-		if err := loadSpec(eventContext, spec, constants[i], objs[i], otelBPFFSPath, i); err != nil {
-			closeLoadedSpecs(objs, i)
+	for i, bundle := range bundles {
+		if err := loadSpec(eventContext, bundle, otelBPFFSPath, i); err != nil {
+			closeLoadedSpecs(bundles[:i])
 			return err
 		}
 	}
@@ -449,25 +437,17 @@ func RunUtilityTracer(ctx context.Context, eventContext *common.EBPFEventContext
 	i := instrumenter{}
 	plog := ptlog()
 	plog.Debug("loading independent eBPF program")
-	specs, err := p.LoadSpecs()
+
+	bundles, err := p.LoadSpecs()
 	if err != nil {
 		return fmt.Errorf("loading eBPF program specs: %w", err)
 	}
 
-	objs := p.BpfObjects()
-	if len(objs) != len(specs) {
-		return fmt.Errorf("BpfObjects() returned %d objects but LoadSpecs() returned %d specs", len(objs), len(specs))
-	}
-
-	for idx, spec := range specs {
-		collOpts, err := resolveMaps(eventContext, spec)
-		if err != nil {
-			return err
-		}
-
-		if err := spec.LoadAndAssign(objs[idx], collOpts); err != nil {
+	for idx, bundle := range bundles {
+		if err := loadSpec(eventContext, bundle, "", idx); err != nil {
+			closeLoadedSpecs(bundles[:idx])
 			printVerifierErrorInfo(err)
-			return fmt.Errorf("loading and assigning BPF objects: %w", err)
+			return err
 		}
 	}
 

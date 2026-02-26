@@ -17,8 +17,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-// tpinjector has a single BPF spec; all constants live in spec 0.
-const expectedSpecCount = 1
+// tpinjector has two BPF specs: the main tpinjector (spec 0) and the sock iterator (spec 1).
+const expectedSpecCount = 2
 
 func TestTracer_Constants(t *testing.T) {
 	tests := []struct {
@@ -99,11 +99,12 @@ func TestTracer_Constants(t *testing.T) {
 			err := cfg.EBPF.ContextPropagation.UnmarshalText([]byte(tt.contextPropagation))
 			require.NoError(t, err)
 
-			constants := New(cfg).Constants()
-			require.Len(t, constants, expectedSpecCount, "tpinjector should have exactly one spec")
+			bundles, err := New(cfg).LoadSpecs()
+			require.NoError(t, err)
+			require.Len(t, bundles, expectedSpecCount, "tpinjector should have exactly one spec")
 
-			// Spec 0 carries all constants for this tracer.
-			c := constants[0]
+			// Spec 0 (tpinjector) carries the main constants.
+			c := bundles[0].Constants
 
 			injectFlags, ok := c["inject_flags"]
 			assert.True(t, ok, "inject_flags should be present")
@@ -118,6 +119,12 @@ func TestTracer_Constants(t *testing.T) {
 
 			_, ok = c["g_bpf_debug"]
 			assert.True(t, ok, "g_bpf_debug should be present")
+
+			// Spec 1 (sock_iter) carries only the debug flag.
+			iterC := bundles[1].Constants
+			_, ok = iterC["g_bpf_debug"]
+			assert.True(t, ok, "iter g_bpf_debug should be present")
+			assert.Len(t, iterC, 1, "iter spec should have only g_bpf_debug")
 		})
 	}
 }

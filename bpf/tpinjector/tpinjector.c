@@ -975,5 +975,3 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
 
     return SK_PASS;
 }
-
-#include "sock_iter.c"

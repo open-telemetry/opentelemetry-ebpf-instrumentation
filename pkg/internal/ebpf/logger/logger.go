@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -42,19 +41,19 @@ func New(cfg *obi.Config) *BPFLogger {
 	}
 }
 
-func (p *BPFLogger) LoadSpecs() ([]*ebpf.CollectionSpec, error) {
+func (p *BPFLogger) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if p.cfg.EBPF.BpfDebug {
 		spec, err := LoadBpf()
 		if err != nil {
 			return nil, err
 		}
-		return []*ebpf.CollectionSpec{spec}, nil
+		return []*ebpfcommon.SpecBundle{{
+			Spec:      spec,
+			Objects:   &p.bpfObjects,
+			Constants: map[string]any{"g_bpf_debug": p.cfg.EBPF.BpfDebug},
+		}}, nil
 	}
 	return nil, errors.New("BPF debug is not enabled")
-}
-
-func (p *BPFLogger) BpfObjects() []any {
-	return []any{&p.bpfObjects}
 }
 
 func (p *BPFLogger) AddCloser(c ...io.Closer) {
@@ -67,12 +66,6 @@ func (p *BPFLogger) KProbes() map[string]ebpfcommon.ProbeDesc {
 
 func (p *BPFLogger) Tracepoints() map[string]ebpfcommon.ProbeDesc {
 	return nil
-}
-
-func (p *BPFLogger) Constants() []map[string]any {
-	return []map[string]any{{
-		"g_bpf_debug": p.cfg.EBPF.BpfDebug,
-	}}
 }
 
 func (p *BPFLogger) SetupTailCalls() {}

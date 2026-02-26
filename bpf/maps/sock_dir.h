@@ -6,6 +6,8 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/pin_internal.h>
+
 // A map of sockets which we track with sock_ops. The sock_msg
 // program subscribes to this map and runs for each new socket
 // activity
@@ -16,4 +18,5 @@ struct {
     __uint(max_entries, 65535);
     __uint(key_size, sizeof(u64));
     __uint(value_size, sizeof(u32));
+    __uint(pinning, OBI_PIN_INTERNAL);
 } sock_dir SEC(".maps");

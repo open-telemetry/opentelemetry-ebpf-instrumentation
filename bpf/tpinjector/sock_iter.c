@@ -12,6 +12,8 @@
 
 #include <maps/sock_dir.h>
 
+char __license[] SEC("license") = "Dual MIT/GPL";
+
 // max IPv6+port: "[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]:65535" = 48 chars
 enum { k_addr_buf_len = 48 };
 
