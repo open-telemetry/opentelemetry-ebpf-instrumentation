@@ -18,7 +18,7 @@ enum { k_addr_buf_len = 48 };
 static __always_inline void format_in_addr(__be32 addr, u16 port, char buf[k_addr_buf_len]) {
     BPF_SNPRINTF(buf,
                  k_addr_buf_len,
-                 "%d.%d.%d.%d:%d",
+                 "%u.%u.%u.%u:%u",
                  (addr) & 0xFF,
                  (addr >> 8) & 0xFF,
                  (addr >> 16) & 0xFF,
