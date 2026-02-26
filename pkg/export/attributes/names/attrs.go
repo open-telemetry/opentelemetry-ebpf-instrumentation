@@ -96,8 +96,9 @@ const (
 // as custom metrics, since at the moment they don't follow any semantic convention for them.
 // This value can be overridden when OBI is vendored as a library (e.g. from the OTEL collector)
 var (
-	VendorPrefix  = "obi"
-	VendorSDKName = "opentelemetry-ebpf-instrumentation"
+	VendorPrefix        = "obi"
+	VendorSDKName       = "opentelemetry-go"
+	TelemetryDistroName = "opentelemetry-ebpf-instrumentation"
 )
 
 var OBIIP = Name("obi.ip")

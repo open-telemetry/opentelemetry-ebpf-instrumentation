@@ -111,6 +111,7 @@ func GetResourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs) []attribute.K
 		// We set the SDK name as OBI, so we can distinguish OBI generated metrics from other SDKs
 		semconv.TelemetrySDKNameKey.String(attr.VendorSDKName),
 		semconv.TelemetrySDKVersion(buildinfo.Version),
+		semconv.TelemetryDistroName(attr.TelemetryDistroName),
 		semconv.HostName(service.HostName),
 		semconv.HostID(nodeMeta.HostID),
 		semconv.OSTypeLinux,
