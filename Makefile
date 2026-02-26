@@ -654,7 +654,11 @@ java-notices-update:
 		-w /src/pkg/internal/java \
 		$(GRADLE_IMAGE) \
 		./gradlew :agent:generateLicenseReport --no-daemon
-	@cp pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.txt $(NOTICES_DIR)/java/agent/
+	# Normalize the non-deterministic generation timestamp footer to keep
+	# notices-update/check-clean-work-tree stable across CI runs.
+	@awk '{ if ($$0 ~ /^This report was generated at /) print "This report was generated at <normalized>."; else print $$0 }' \
+		pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.txt > \
+		$(NOTICES_DIR)/java/agent/THIRD_PARTY_LICENSES.txt
 	@cp pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.csv $(NOTICES_DIR)/java/agent/
 
 .PHONY: go-notices-update
