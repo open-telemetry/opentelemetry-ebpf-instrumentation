@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
@@ -298,6 +299,22 @@ var (
 	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
 
+// httpHeaderAttributes converts extracted HTTP headers to OTel span attributes
+// following the semantic convention: http.request.header.<key> and http.response.header.<key>
+// where <key> is the lowercase, hyphen-separated header name.
+func httpHeaderAttributes(span *request.Span) []attribute.KeyValue {
+	var attrs []attribute.KeyValue
+	for name, value := range span.RequestHeaders {
+		key := "http.request.header." + strings.ToLower(name)
+		attrs = append(attrs, attribute.String(key, value))
+	}
+	for name, value := range span.ResponseHeaders {
+		key := "http.response.header." + strings.ToLower(name)
+		attrs = append(attrs, attribute.String(key, value))
+	}
+	return attrs
+}
+
 //nolint:cyclop
 func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
@@ -326,6 +343,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, semconv.GraphQLOperationName(span.GraphQL.OperationName))
 			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
 		}
+		attrs = append(attrs, httpHeaderAttributes(span)...)
 	case request.EventTypeGRPC:
 		attrs = []attribute.KeyValue{
 			semconv.RPCMethod(span.Path),
@@ -466,6 +484,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 		}
 
+		attrs = append(attrs, httpHeaderAttributes(span)...)
 	case request.EventTypeGRPCClient:
 		attrs = []attribute.KeyValue{
 			semconv.RPCMethod(span.Path),

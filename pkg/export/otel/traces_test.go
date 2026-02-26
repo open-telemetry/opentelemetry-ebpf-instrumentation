@@ -965,6 +965,76 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOperationNameKey)
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
 	})
+	t.Run("test HTTP server span with extracted headers", func(t *testing.T) {
+		span := request.Span{
+			Type:   request.EventTypeHTTP,
+			Method: "GET",
+			Path:   "/api/v1/users",
+			Route:  "/api/v1/users",
+			Status: 200,
+			RequestHeaders: map[string]string{
+				"Content-Type": "application/json",
+				"X-Request-Id": "abc-123",
+			},
+			ResponseHeaders: map[string]string{
+				"X-Response-Id": "resp-456",
+			},
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+
+		ensureTraceStrAttr(t, attrs, "http.request.header.content-type", "application/json")
+		ensureTraceStrAttr(t, attrs, "http.request.header.x-request-id", "abc-123")
+		ensureTraceStrAttr(t, attrs, "http.response.header.x-response-id", "resp-456")
+		ensureTraceAttrNotExists(t, attrs, "http.request.header.authorization")
+	})
+	t.Run("test HTTP client span with extracted headers", func(t *testing.T) {
+		span := request.Span{
+			Type:   request.EventTypeHTTPClient,
+			Method: "POST",
+			Path:   "/external/api",
+			Status: 201,
+			RequestHeaders: map[string]string{
+				"Authorization": "***",
+			},
+			ResponseHeaders: map[string]string{
+				"X-Ratelimit-Remaining": "42",
+			},
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+
+		ensureTraceStrAttr(t, attrs, "http.request.header.authorization", "***")
+		ensureTraceStrAttr(t, attrs, "http.response.header.x-ratelimit-remaining", "42")
+	})
+	t.Run("test HTTP span without headers has no header attributes", func(t *testing.T) {
+		span := request.Span{
+			Type:   request.EventTypeHTTP,
+			Method: "GET",
+			Path:   "/health",
+			Status: 200,
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+
+		// No header attributes should be present
+		ensureTraceAttrNotExists(t, attrs, "http.request.header.content-type")
+		ensureTraceAttrNotExists(t, attrs, "http.response.header.content-type")
+	})
 }
 
 func TestTraceSampling(t *testing.T) {

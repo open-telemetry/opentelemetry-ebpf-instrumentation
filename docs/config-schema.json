@@ -677,6 +677,10 @@
           "$ref": "#/$defs/ElasticsearchConfig",
           "description": "Elasticsearch payload extraction and parsing"
         },
+        "generic": {
+          "$ref": "#/$defs/HTTPGenericParsingConfig",
+          "description": "Generic HTTP header and payload extraction with policy-based rules"
+        },
         "graphql": {
           "$ref": "#/$defs/GraphQLConfig",
           "description": "GraphQL payload extraction and parsing"
@@ -691,6 +695,102 @@
         }
       },
       "type": "object"
+    },
+    "HTTPGenericParsingConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable generic HTTP header and payload extraction",
+          "x-env-var": "OTEL_EBPF_HTTP_GENERIC_PARSING_ENABLED"
+        },
+        "policy": {
+          "$ref": "#/$defs/HTTPParsingPolicy",
+          "description": "Policy controls the default behavior and matching strategy"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/HTTPParsingRule"
+          },
+          "type": "array",
+          "description": "Rules is an ordered list of include/exclude/obfuscate rules. Rules are evaluated according to Policy.MatchOrder."
+        }
+      },
+      "type": "object",
+      "description": "HTTPGenericParsingConfig configures generic HTTP header and payload extraction."
+    },
+    "HTTPParsingMatch": {
+      "properties": {
+        "case_sensitive": {
+          "type": "boolean",
+          "description": "CaseSensitive controls whether matching is case-sensitive."
+        }
+      },
+      "type": "object",
+      "description": "HTTPParsingMatch defines matching criteria for an HTTP parsing rule. Regex patterns are compiled during YAML unmarshaling. When CaseSensitive is false (the default), patterns are automatically wrapped with (?i)."
+    },
+    "HTTPParsingPolicy": {
+      "properties": {
+        "default_action": {
+          "type": "string",
+          "enum": [
+            "exclude",
+            "include",
+            "obfuscate"
+          ],
+          "description": "DefaultAction specifies what to do when no rule matches: \"include\" or \"exclude\"",
+          "x-env-var": "OTEL_EBPF_HTTP_PARSING_DEFAULT_ACTION"
+        },
+        "match_order": {
+          "type": "string",
+          "enum": [
+            "first_match_wins"
+          ],
+          "description": "MatchOrder controls how rules are evaluated: \"first_match_wins\"",
+          "x-env-var": "OTEL_EBPF_HTTP_PARSING_MATCH_ORDER"
+        },
+        "obfuscation_string": {
+          "type": "string",
+          "description": "ObfuscationString is the replacement string used when a rule's action is \"obfuscate\"",
+          "x-env-var": "OTEL_EBPF_HTTP_PARSING_OBFUSCATION_STRING"
+        }
+      },
+      "type": "object",
+      "description": "HTTPParsingPolicy defines the default action and match strategy for generic parsing rules."
+    },
+    "HTTPParsingRule": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "exclude",
+            "include",
+            "obfuscate"
+          ],
+          "description": "Action of the rule: \"include\", \"exclude\", or \"obfuscate\""
+        },
+        "match": {
+          "$ref": "#/$defs/HTTPParsingMatch",
+          "description": "Match defines the matching criteria for this rule"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "both",
+            "request",
+            "response"
+          ],
+          "description": "Scope of the rule: \"request\", \"response\", or \"both\""
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "headers"
+          ],
+          "description": "Type specifies what this rule matches against: \"headers\""
+        }
+      },
+      "type": "object",
+      "description": "HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header and payload extraction."
     },
     "HostIDConfig": {
       "properties": {

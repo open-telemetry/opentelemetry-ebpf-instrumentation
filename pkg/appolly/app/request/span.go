@@ -359,6 +359,12 @@ type Span struct {
 	AWS               *AWS           `json:"-"`
 	OpenAI            *OpenAI        `json:"-"`
 
+	// RequestHeaders stores extracted HTTP request headers based on generic parsing rules.
+	// Keys are canonical header names, values are the (possibly obfuscated) header values.
+	RequestHeaders map[string]string `json:"-"`
+	// ResponseHeaders stores extracted HTTP response headers based on generic parsing rules.
+	ResponseHeaders map[string]string `json:"-"`
+
 	// OverrideTraceName is set under some conditions, like spanmetrics reaching the maximum
 	// cardinality for trace names.
 	OverrideTraceName string `json:"-"`
