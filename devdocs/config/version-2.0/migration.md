@@ -17,17 +17,17 @@ Goals:
 A new configuration package will be added. It's purpose will be to provide:
 
 - Parsing functionality of the `extension.obi` portion of the `v2` configuration
-- Export types representing the OBI conifguration
+- Export types representing the OBI configuration
 
 Using this new package, both the OBI command and the collector receiver will parse user provided configuration.
-It will be up to these callers to deterine:
+It will be up to these callers to determine:
 
 - how to fallback to v1 support when the parser informs it that is then input format
 - how to setup the SDK which is outside the scope of the v2 configuration package
 
 ### Integration with `otelconf`
 
-It is assumed that users that need SDK will use the `go.opentelemetry.io/contrib/otelconf` package to parse top-level objects of the declartive config accordingly.
+It is assumed that users that need SDK will use the `go.opentelemetry.io/contrib/otelconf` package to parse top-level objects of the declarative config accordingly.
 SDK object contruction is outside the v2 configuration package scope and configuration for that portion of the configuration will be ignored.
 The OBI v2 configuration package only parses and validates `extensions.obi`.
 It does not merge or translate `instrumentation/development` into OBI-owned settings.
@@ -39,7 +39,7 @@ Based on the structure of the configuration, the version of that configuration c
 - Root `version` identifies OTel declarative document contract.
 - `extensions.obi.version` identifies OBI extension contract.
 
-From this, the v2 configuration pacakge will behave as follows:
+From this, the v2 configuration package will behave as follows:
 
 - The v2 parser only accepts supported v2 configuration contracts.
 - If config is not v2 (including detectable v1 shape), return a structured version error with actionable guidance.

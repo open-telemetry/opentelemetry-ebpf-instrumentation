@@ -12,7 +12,7 @@ Goals:
 
 - Define a clear, consistent configuration schema that maps directly to user intent and common use cases.
 - Provide an extension to the OpenTelemetry declarative configuration model that configures OBI-specific behavior.
-- Grantee a smooth migration path from the current v1 configuration shape to the new v2 shape, with clear validation and tooling support.
+- Guarantee a smooth migration path from the current v1 configuration shape to the new v2 shape, with clear validation and tooling support.
 
 ## Design principles
 
@@ -27,7 +27,7 @@ To ensure that the redesign is guided by consistent values and priorities, we de
   - Avoid parallel knobs for the same behavior across sections.
   - OBI-specific concerns remain under `extensions.obi`, independent of generic instrumentation sections.
 
-- **Compatible with OpenTelemetry declarative configuartion**
+- **Compatible with OpenTelemetry declarative configuration**
   - Top-level OTel is authoritative for pipeline semantics:
     - Exporters/processors/samplers belong to top-level declarative OTel configuration sections.
     - OBI extension config should not reintroduce a competing pipeline model.
