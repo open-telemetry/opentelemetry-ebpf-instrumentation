@@ -15,25 +15,24 @@ This document explains how OpenTelemetry context propagation works in the eBPF i
     - [Case 1: Traffic in sockmap with Go/SSL uprobes](#case-1-traffic-in-sockmap-with-gossl-uprobes)
     - [Case 2: Traffic in sockmap without uprobes (plain HTTP via kprobes)](#case-2-traffic-in-sockmap-without-uprobes-plain-http-via-kprobes)
     - [Case 3: Traffic NOT in sockmap (tpinjector doesn't run)](#case-3-traffic-not-in-sockmap-tpinjector-doesnt-run)
-    - [Case 4: TCP option injection fails](#case-4-tcp-option-injection-fails)
 - [Ingress (Receiving) Flow](#ingress-receiving-flow)
-  - [Execution Order](#execution-order)
+  - [Execution Order](#execution-order-1)
   - ["Last One Wins" Strategy](#last-one-wins-strategy)
   - [Why "Last One Wins" on Ingress?](#why-last-one-wins-on-ingress)
 - [The outgoing_trace_map](#the-outgoing_trace_map)
   - [tp_info_pid_t::valid (u8)](#tp_info_pid_tvalid-u8)
   - [tp_info_pid_t::written (u8)](#tp_info_pid_twritten-u8)
 - [The incoming_trace_map](#the-incoming_trace_map)
+- [The sock_dir sockmap](#the-sock_dir-sockmap)
 - [Summary](#summary)
 - [Logs correlation](#logs-correlation)
 
 ## Overview
 
-Context propagation allows distributed tracing by injecting trace context (trace ID, span ID) into outgoing requests. The eBPF instrumentation supports multiple injection methods organized in a fallback hierarchy:
+Context propagation allows distributed tracing by injecting trace context (trace ID, span ID) into outgoing requests. The eBPF instrumentation supports two injection methods:
 
 1. **HTTP headers** (L7) - `Traceparent:` header in plaintext HTTP requests
 2. **TCP options** (L4) - Custom TCP option (kind 25) for any TCP traffic
-3. **IP options** (L3) - IPv4 options or IPv6 Destination Options as fallback
 
 ## Configuration
 
@@ -41,15 +40,14 @@ Context propagation is controlled via `OTEL_EBPF_BPF_CONTEXT_PROPAGATION` which 
 
 - `headers` - Inject HTTP headers
 - `tcp` - Inject TCP options
-- `ip` - Inject IP options
 - `all` - Enable all methods (default)
 - `disabled` - Disable context propagation
 
 Examples:
 
 - `headers,tcp` - HTTP headers for plaintext HTTP, TCP options otherwise
-- `tcp,ip` - TCP options with IP options as fallback
 - `tcp` - TCP options only
+- `headers` - HTTP headers only
 
 ## Egress (Sending) Flow
 
@@ -73,10 +71,6 @@ The order in which BPF programs execute varies depending on whether Go uprobes o
    - Checks `written` flag to reuse trace info
    - Deletes from `outgoing_trace_map` if tpinjector handled it
 
-4. **TC egress (tctracer)**
-   - Injects IP options if not handled by upper layers
-   - Checks `written` flag for mutual exclusion
-
 #### Scenario B: Plain HTTP (no uprobes, kprobes only)
 
 1. **sk_msg (tpinjector)**
@@ -90,19 +84,13 @@ The order in which BPF programs execute varies depending on whether Go uprobes o
    - Checks `written` flag - if set, reuses trace from tpinjector
    - Deletes from `outgoing_trace_map` if tpinjector handled it
 
-3. **TC egress (tctracer)**
-   - Injects IP options if not handled by upper layers
-   - Checks `written` flag for mutual exclusion
-
 #### Scenario C: Non-HTTP TCP (no uprobes, socket not in sockmap)
 
 1. **kprobe (tcp_sendmsg)**
    - Creates trace info in `outgoing_trace_map`
    - Sets `valid=1, written=0`
 
-2. **TC egress (tctracer)**
-   - Sees `written=0`, injects IP options as fallback
-   - Sets `valid=0` after injection
+Note: tpinjector does not run for this traffic because the socket was not in `sock_dir`. The `iter/tcp` iterator pre-populates `sock_dir` at startup for existing connections; new connections are added via `BPF_SOCK_OPS`.
 
 ### Mutual Exclusion Mechanism
 
@@ -119,8 +107,6 @@ The `written` flag implements mutual exclusion through the natural execution ord
    - Sees valid=0 (SSL), deletes outgoing_trace_map entry
 3. protocol_http runs:
    - Lookup fails (entry deleted), skips
-4. tctracer runs:
-   - Lookup fails (entry deleted), no IP injection
 Result: TCP options only ✓
 ```
 
@@ -144,9 +130,6 @@ The uprobe attempts approach 1 first. If successful, it deletes the `outgoing_tr
 4. protocol_http runs:
    - If written=1: reuses trace, deletes outgoing_trace_map
    - If written=0: creates new trace
-5. tctracer runs:
-   - If entry deleted: no IP injection
-   - If entry exists with written=0: injects IP options
 Result: HTTP headers (via uprobe OR sk_msg) + TCP options ✓
 ```
 
@@ -163,8 +146,6 @@ Result: HTTP headers (via uprobe OR sk_msg) + TCP options ✓
 2. protocol_http (kprobe) runs:
    - Sees written=1, reuses trace from tpinjector
    - Deletes outgoing_trace_map
-3. tctracer runs:
-   - Lookup fails (entry deleted), no IP injection
 Result: HTTP headers + TCP options ✓
 ```
 
@@ -179,62 +160,43 @@ Result: HTTP headers + TCP options ✓
 2. protocol_http (kprobe) runs:
    - Sees written=1, reuses trace from tpinjector
    - Deletes outgoing_trace_map
-3. tctracer runs:
-   - Lookup fails (entry deleted), no IP injection
 Result: TCP options only ✓
 ```
 
 #### Case 3: Traffic NOT in sockmap (tpinjector doesn't run)
-
-**For any traffic:**
 
 ```
 1. Kprobe sets valid=1, written=0 in outgoing_trace_map
 2. tpinjector doesn't run (socket not in sockmap)
 3. protocol_http runs:
    - Sees written=0, creates new trace
-   - Does NOT delete outgoing_trace_map
-4. tctracer runs:
-   - Sees written=0, injects IP options
-   - Sets valid=0 (done)
-Result: IP options as fallback ✓
+Result: no context propagation for this connection ✓
 ```
-
-#### Case 4: TCP option injection fails
-
-If `bpf_sk_storage_get()` fails in `schedule_write_tcp_option`, the function returns early **without setting written=1**. This allows IP options to be injected as fallback.
 
 ## Ingress (Receiving) Flow
 
 ### Execution Order
 
-On ingress, the execution order is different:
+On ingress, the execution order is:
 
-1. **TC ingress (tctracer)** - Parses IP options first
-2. **BPF_SOCK_OPS (tpinjector)** - Parses TCP options second
-3. **kprobe (tcp_recvmsg / protocol_http)** - Parses HTTP headers last
+1. **BPF_SOCK_OPS (tpinjector)** - Parses TCP options
+2. **kprobe (tcp_recvmsg / protocol_http)** - Parses HTTP headers
 
 ### "Last One Wins" Strategy
 
 Unlike egress (which uses mutual exclusion), ingress uses a **"last one wins"** approach:
 
-1. **TC ingress** parses IP options (if present)
-   - Extracts trace_id from IP options
-   - Generates span_id from TCP seq/ack
+1. **BPF_SOCK_OPS** parses TCP options (if present)
+   - Extracts trace_id and span_id from TCP option
    - Stores in `incoming_trace_map`
 
-2. **BPF_SOCK_OPS** parses TCP options (if present)
-   - Extracts trace_id and span_id from TCP option
-   - **Overwrites** entry in `incoming_trace_map`
-
-3. **protocol_http** parses HTTP headers (if present)
+2. **protocol_http** parses HTTP headers (if present)
    - Extracts trace_id, span_id, flags from `Traceparent:` header
    - **Overwrites** previous values
 
 This creates a natural priority hierarchy:
 
-- **IP options**: Lowest priority (most likely to be stripped by middleboxes)
-- **TCP options**: Medium priority (better reliability)
+- **TCP options**: Lower priority
 - **HTTP headers**: Highest priority (W3C standard, most reliable)
 
 ### Why "Last One Wins" on Ingress?
@@ -252,7 +214,7 @@ This creates a natural priority hierarchy:
 
 State machine tracking the injection lifecycle:
 
-- **0**: Invalid/SSL (don't inject) OR injection complete (set by tctracer after IP injection)
+- **0**: Invalid/SSL (don't inject)
 - **1**: First packet seen, needs L4 span ID setup
 - **2**: L4 span ID setup done, ready for injection
 
@@ -260,7 +222,6 @@ State machine tracking the injection lifecycle:
 
 - Go uprobes: SSL connections (`go_nethttp.c`)
 - Kprobes: SSL connections (`trace_common.h`)
-- tctracer: After successful IP option injection (`tctracer.c::encode_data_in_ip_options`)
 - trace_common: Conflicting requests or timeouts (`trace_common.h`)
 
 **Set to 1:**
@@ -271,12 +232,11 @@ State machine tracking the injection lifecycle:
 
 **Set to 2:**
 
-- tctracer: After populating span ID from TCP seq/ack (`tctracer.c::obi_app_egress`)
+- tpinjector: After populating span ID from TCP seq/ack
 
 **Checked:**
 
 - tpinjector: Skip protocol detection for SSL (`tpinjector.c::handle_existing_tp_pid`)
-- tctracer: First packet handling and injection decision (`tctracer.c::obi_app_egress`)
 
 ### tp_info_pid_t::written (u8)
 
@@ -301,12 +261,6 @@ Coordination flag for mutual exclusion between egress injection layers:
 **Checked:**
 
 - protocol_http: Skip processing if tpinjector handled it (`protocol_http.h::protocol_http`)
-- tctracer: Skip IP injection if upper layer handled it (`tctracer.c::obi_app_egress`)
-
-**Key Behavior**: The `written` flag serves two purposes:
-
-1. **protocol_http optimization**: Reuse existing trace info, avoid regenerating span IDs
-2. **tctracer mutual exclusion**: Signal that upper layer already injected context
 
 ## The incoming_trace_map
 
@@ -314,11 +268,20 @@ Coordination flag for mutual exclusion between egress injection layers:
 
 Unlike `outgoing_trace_map`, there is no coordination between layers - each layer independently parses and overwrites the map entry if context is found, implementing the "last one wins" strategy.
 
+## The sock_dir sockmap
+
+`sock_dir` is a `BPF_MAP_TYPE_SOCKHASH` map keyed by `u64` socket cookie. It controls which sockets the `sk_msg` program (tpinjector) runs on.
+
+Sockets are added to `sock_dir` in two ways:
+
+1. **`BPF_SOCK_OPS`**: New connections are added automatically as they are established
+2. **`iter/tcp` iterator** (`bpf/tpinjector/sock_iter.c`): Runs at tpinjector startup and iterates over all existing TCP sockets, inserting each into `sock_dir` with `BPF_NOEXIST`. This ensures connections established before tpinjector attached are tracked.
+
 ## Summary
 
 1. **Egress uses mutual exclusion**:
    - Upper layers (tpinjector, protocol_http) delete the `outgoing_trace_map` entry
-   - Lower layers (tctracer) can't inject if entry is already deleted
+   - Lower layers can't inject if entry is already deleted
    - Result: Only one injection method per connection
 
 2. **Ingress uses "last one wins"**:
@@ -326,19 +289,15 @@ Unlike `outgoing_trace_map`, there is no coordination between layers - each laye
    - Later layers overwrite earlier layers
    - Result: Most reliable method takes precedence
 
-3. **IP options are truly a fallback**:
-   - On egress: Only injected when TCP options fail or socket isn't in sockmap
-   - On ingress: Lowest priority, overwritten by TCP options or HTTP headers
-
-4. **SSL/TLS uses TCP options, not HTTP headers**:
+3. **SSL/TLS uses TCP options, not HTTP headers**:
    - Can't inject into encrypted payload
    - TCP options work before TLS handshake
    - tpinjector deletes entry early to skip HTTP detection
 
-5. **Execution order varies by scenario**:
-   - Go/SSL: uprobes → tpinjector → kprobe → tctracer
-   - Plain HTTP (sockmap): tpinjector → kprobe → tctracer
-   - Non-sockmap: kprobe → tctracer
+4. **Execution order varies by scenario**:
+   - Go/SSL: uprobes → tpinjector → kprobe
+   - Plain HTTP (sockmap): tpinjector → kprobe
+   - Non-sockmap: kprobe only
 
 ## Logs correlation
 
