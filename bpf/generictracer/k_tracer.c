@@ -509,10 +509,12 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
         const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(&s_args.p_conn.conn);
-        const egress_key_t e_key = {
+        egress_key_t e_key = {
             .d_port = s_args.p_conn.conn.d_port,
             .s_port = s_args.p_conn.conn.s_port,
         };
+
+        sort_egress_key(&e_key);
 
         sort_connection_info(&s_args.p_conn.conn);
         s_args.p_conn.pid = pid_from_pid_tgid(id);
