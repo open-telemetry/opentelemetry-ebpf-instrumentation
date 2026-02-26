@@ -84,24 +84,28 @@ func (p *Tracer) supportsContextPropagation() bool {
 	return !ebpfcommon.IntegrityModeOverride && ebpfcommon.SupportsContextPropagationWithProbe(p.log)
 }
 
-func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
+func (p *Tracer) LoadSpecs() ([]*ebpf.CollectionSpec, error) {
 	if !p.supportsContextPropagation() {
 		p.log.Info("Kernel in lockdown mode or missing CAP_SYS_ADMIN.")
 	}
 
-	return LoadBpf()
+	spec, err := LoadBpf()
+	if err != nil {
+		return nil, err
+	}
+	return []*ebpf.CollectionSpec{spec}, nil
 }
 
 func (p *Tracer) SetupTailCalls() {
 }
 
-func (p *Tracer) Constants() map[string]any {
+func (p *Tracer) Constants() []map[string]any {
 	blackBoxCP := uint32(0)
 	if p.cfg.DisableBlackBoxCP {
 		blackBoxCP = uint32(1)
 	}
 
-	return map[string]any{
+	return []map[string]any{{
 		"g_bpf_debug":               p.cfg.BpfDebug,
 		"g_bpf_header_propagation":  p.supportsContextPropagation(),
 		"wakeup_data_bytes":         uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
@@ -117,7 +121,7 @@ func (p *Tracer) Constants() map[string]any {
 		"attr_type_stringslice":     uint64(attribute.STRINGSLICE),
 		"g_bpf_traceparent_enabled": true,
 		"g_bpf_loop_enabled":        p.supportsBPFLoop,
-	}
+	}}
 }
 
 func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
@@ -246,8 +250,8 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 
 func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
 
-func (p *Tracer) BpfObjects() any {
-	return &p.bpfObjects
+func (p *Tracer) BpfObjects() []any {
+	return []any{&p.bpfObjects}
 }
 
 func (p *Tracer) AddCloser(c ...io.Closer) {

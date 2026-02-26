@@ -42,15 +42,19 @@ func New(cfg *obi.Config) *BPFLogger {
 	}
 }
 
-func (p *BPFLogger) Load() (*ebpf.CollectionSpec, error) {
+func (p *BPFLogger) LoadSpecs() ([]*ebpf.CollectionSpec, error) {
 	if p.cfg.EBPF.BpfDebug {
-		return LoadBpf()
+		spec, err := LoadBpf()
+		if err != nil {
+			return nil, err
+		}
+		return []*ebpf.CollectionSpec{spec}, nil
 	}
 	return nil, errors.New("BPF debug is not enabled")
 }
 
-func (p *BPFLogger) BpfObjects() any {
-	return &p.bpfObjects
+func (p *BPFLogger) BpfObjects() []any {
+	return []any{&p.bpfObjects}
 }
 
 func (p *BPFLogger) AddCloser(c ...io.Closer) {
@@ -65,10 +69,10 @@ func (p *BPFLogger) Tracepoints() map[string]ebpfcommon.ProbeDesc {
 	return nil
 }
 
-func (p *BPFLogger) Constants() map[string]any {
-	return map[string]any{
+func (p *BPFLogger) Constants() []map[string]any {
+	return []map[string]any{{
 		"g_bpf_debug": p.cfg.EBPF.BpfDebug,
-	}
+	}}
 }
 
 func (p *BPFLogger) SetupTailCalls() {}

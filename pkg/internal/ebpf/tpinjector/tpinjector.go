@@ -45,20 +45,20 @@ func (p *Tracer) AllowPID(app.PID, uint32, *svc.Attrs) {}
 
 func (p *Tracer) BlockPID(app.PID, uint32) {}
 
-func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
-	return LoadBpf()
+func (p *Tracer) LoadSpecs() ([]*ebpf.CollectionSpec, error) {
+	spec, err := LoadBpf()
+	if err != nil {
+		return nil, err
+	}
+	return []*ebpf.CollectionSpec{spec}, nil
 }
 
 func (p *Tracer) SetupTailCalls() {
 }
 
-func (p *Tracer) Constants() map[string]any {
-	m := make(map[string]any, 3)
+func (p *Tracer) Constants() []map[string]any {
+	m := make(map[string]any, 4)
 
-	// The eBPF side does some basic filtering of events that do not belong to
-	// processes which we monitor. We filter more accurately in the userspace, but
-	// for performance reasons we enable the PID based filtering in eBPF.
-	// This must match httpfltr.go, otherwise we get partial events in userspace.
 	if p.cfg.Discovery.BPFPidFilterOff {
 		m["filter_pids"] = int32(0)
 	} else {
@@ -67,7 +67,6 @@ func (p *Tracer) Constants() map[string]any {
 
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
 
-	// Set injection flags based on context propagation configuration
 	flags := uint32(0)
 	if p.cfg.EBPF.ContextPropagation.HasHeaders() {
 		flags |= 1 // k_inject_http_headers
@@ -78,15 +77,15 @@ func (p *Tracer) Constants() map[string]any {
 	m["inject_flags"] = flags
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
 
-	return m
+	return []map[string]any{m}
 }
 
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 
 func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
 
-func (p *Tracer) BpfObjects() any {
-	return &p.bpfObjects
+func (p *Tracer) BpfObjects() []any {
+	return []any{&p.bpfObjects}
 }
 
 func (p *Tracer) AddCloser(c ...io.Closer) {

@@ -86,11 +86,15 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
 }
 
-func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
-	return LoadBpf()
+func (p *Tracer) LoadSpecs() ([]*ebpf.CollectionSpec, error) {
+	spec, err := LoadBpf()
+	if err != nil {
+		return nil, err
+	}
+	return []*ebpf.CollectionSpec{spec}, nil
 }
 
-func (p *Tracer) Constants() map[string]any {
+func (p *Tracer) Constants() []map[string]any {
 	m := make(map[string]any, 2)
 
 	// The eBPF side does some basic filtering of events that do not belong to
@@ -103,15 +107,15 @@ func (p *Tracer) Constants() map[string]any {
 	}
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
 
-	return m
+	return []map[string]any{m}
 }
 
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 
 func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
 
-func (p *Tracer) BpfObjects() any {
-	return &p.bpfObjects
+func (p *Tracer) BpfObjects() []any {
+	return []any{&p.bpfObjects}
 }
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
