@@ -451,7 +451,16 @@ func TestSuite_JavaKafka(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
-	t.Run("Java Kafka 4.0.0 tests", testJavaKafka)
+	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9092, "javakafka") })
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_JavaKafkaTLS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400-tls.yml", path.Join(pathOutput, "test-suite-java-kafka.log"))
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9094, "java") })
 	require.NoError(t, compose.Close())
 }
 
