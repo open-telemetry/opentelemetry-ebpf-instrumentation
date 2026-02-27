@@ -594,35 +594,10 @@ release: artifact
 	@ls -lh $(RELEASE_DIR)/
 
 .PHONY: release-source
+RELEASE_SOURCE_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || git symbolic-ref --short -q HEAD || echo main)
 release-source: docker-generate
-	@echo "### Building source-generated release archive"
-	@mkdir -p $(RELEASE_DIR)
-	@SOURCE_ROOT=$$(mktemp -d 2>/dev/null || mktemp -d -t obi-source.XXXXXX); \
-	SOURCE_BASENAME=obi-$(RELEASE_VERSION)-source-generated; \
-	SOURCE_DIR="$$SOURCE_ROOT/$$SOURCE_BASENAME"; \
-	GENERATED_FILES=$$(mktemp 2>/dev/null || mktemp -t obi-generated.XXXXXX); \
-	trap "rm -rf $$SOURCE_ROOT; rm -f $$GENERATED_FILES" EXIT; \
-	mkdir -p "$$SOURCE_DIR"; \
-	git archive --format=tar $(RELEASE_VERSION) | tar -xf - -C $$SOURCE_DIR; \
-	{ \
-		git diff --name-only; \
-		git ls-files --others --exclude-standard; \
-	} | sort -u > $$GENERATED_FILES; \
-	GENERATED_COUNT=0; \
-	while IFS= read -r path; do \
-		if [ -f "$$path" ] || [ -L "$$path" ]; then \
-			mkdir -p "$$SOURCE_DIR/$$(dirname "$$path")"; \
-			cp -a "$$path" "$$SOURCE_DIR/$$path"; \
-			GENERATED_COUNT=$$((GENERATED_COUNT + 1)); \
-		fi; \
-	done < $$GENERATED_FILES; \
-	echo "Added $${GENERATED_COUNT} generated files to source archive"; \
-	if find "$$SOURCE_DIR" -name '.git' | grep -q .; then \
-		echo "ERROR: source archive contains git metadata files"; \
-		exit 1; \
-	fi; \
-	tar -czf $(RELEASE_DIR)/obi-$(RELEASE_VERSION)-source-generated.tar.gz -C $$SOURCE_ROOT "$$SOURCE_BASENAME"
-	@$(MAKE) release-checksums
+	@./scripts/release-source.sh --release-version "$(RELEASE_SOURCE_VERSION)" --release-dir "$(RELEASE_DIR)"
+	@$(MAKE) release-checksums RELEASE_VERSION=$(RELEASE_SOURCE_VERSION)
 
 .PHONY: release-checksums
 release-checksums:
