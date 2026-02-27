@@ -243,6 +243,7 @@ main() {
   local archive_path
   local generated_count
   local tar_generated_count
+  local version_slug  # RELEASE_VERSION_ARG with '/' replaced by '-' for use in file paths
 
   parse_args "$@"
 
@@ -255,6 +256,8 @@ main() {
 
   verify_version_matches_head "$RELEASE_VERSION_ARG"
 
+  version_slug="${RELEASE_VERSION_ARG//\//-}"
+
   log_info "### Building source-generated release archive"
   mkdir -p "$RELEASE_DIR_ARG"
 
@@ -263,7 +266,7 @@ main() {
   generated_files="$(create_temp_file "$temp_base_dir")"
   readonly RELEASE_SOURCE_ROOT_ARG="$source_root"
   readonly RELEASE_GENERATED_FILES_ARG="$generated_files"
-  source_basename="obi-${RELEASE_VERSION_ARG}-source-generated"
+  source_basename="obi-${version_slug}-source-generated"
   source_dir="$source_root/$source_basename"
 
   trap 'cleanup "$RELEASE_SOURCE_ROOT_ARG" "$RELEASE_GENERATED_FILES_ARG" "$RELEASE_SOURCE_DEBUG_ARG"' EXIT
@@ -282,7 +285,7 @@ main() {
   copy_java_agent "$source_dir"
   log_info "Added Java agent JAR to source archive"
 
-  archive_path="$RELEASE_DIR_ARG/obi-${RELEASE_VERSION_ARG}-source-generated.tar.gz"
+  archive_path="$RELEASE_DIR_ARG/obi-${version_slug}-source-generated.tar.gz"
   rm -f "$RELEASE_DIR_ARG"/obi-*-source-generated.tar.gz
   tar -czf "$archive_path" -C "$source_root" "$source_basename"
 
