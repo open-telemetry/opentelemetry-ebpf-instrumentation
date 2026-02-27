@@ -44,7 +44,9 @@ Usage: $PROGNAME [--release-version <version>] [--release-dir <dir>] [--debug|-x
 Builds source-generated release archive with generated bpf2go artifacts.
 
 Options:
-  --release-version  Release version/tag to archive (default: exact tag or main)
+  --release-version  Version label for the archive (default: exact tag, current branch, or 'main').
+                     Must resolve to the same commit as HEAD — generated artifacts in the working
+                     tree must correspond to the source revision being archived.
   --release-dir      Output directory (default: ./dist)
   -x, --debug   Preserve temporary files for debugging
   -h, --help    Show this help message
@@ -155,6 +157,23 @@ resolve_default_release_version() {
   printf '%s\n' "$DETACHED_HEAD_FALLBACK_VERSION"
 }
 
+verify_version_matches_head() {
+  local version="$1"
+  local version_commit
+  local head_commit
+
+  version_commit="$(git rev-parse "${version}^{commit}" 2>/dev/null)" \
+    || die "cannot resolve '$version' to a commit; is it a valid ref?"
+
+  head_commit="$(git rev-parse HEAD)"
+
+  if [[ "$version_commit" != "$head_commit" ]]; then
+    die "'$version' resolves to $version_commit but HEAD is $head_commit.
+  Generated artifacts in the working tree must match the source revision being archived.
+  Check out '$version' before running this script, or omit --release-version to use HEAD."
+  fi
+}
+
 create_temp_dir() {
   local base_dir="$1"
   mktemp -d "$base_dir/obi-source.XXXXXX"
@@ -233,6 +252,8 @@ main() {
   require_cmd grep
   require_cmd cp
   require_cmd mktemp
+
+  verify_version_matches_head "$RELEASE_VERSION_ARG"
 
   log_info "### Building source-generated release archive"
   mkdir -p "$RELEASE_DIR_ARG"
