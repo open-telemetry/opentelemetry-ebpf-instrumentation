@@ -1,0 +1,46 @@
+version: "3.8"
+
+services:
+  tpinjector-server:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/tpinjector-server/Dockerfile
+    image: hatest-tpinjector-server
+    ports:
+      - "8080:8080"
+
+  keepaliveclient:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/keepaliveclient/Dockerfile
+    image: hatest-keepaliveclient
+    ports:
+      - "9091:9091"
+    depends_on:
+      tpinjector-server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/connected"]
+      interval: 1s
+      retries: 15
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-keepalive.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-keepalive:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    network_mode: "service:keepaliveclient"
+    environment:
+      GOCOVERDIR: "/coverage"
+    depends_on:
+      keepaliveclient:
+        condition: service_healthy
