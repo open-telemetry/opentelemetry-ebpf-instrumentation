@@ -570,3 +570,22 @@ func TestEnsureEmbeddedAgentInCache_RewritesIncorrectSizedCacheFile(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, embeddedJavaAgentBytes, content)
 }
+
+func TestEnsureEmbeddedAgentInCache_UserCacheDirError(t *testing.T) {
+	originalUserCacheDir := userCacheDir
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		userCacheDir = originalUserCacheDir
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
+	userCacheDir = func() (string, error) {
+		return "", errors.New("cache dir lookup failed")
+	}
+
+	_, err := ensureEmbeddedAgentInCache()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unable to resolve user cache directory")
+	assert.Contains(t, err.Error(), "cache dir lookup failed")
+}
