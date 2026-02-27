@@ -81,6 +81,7 @@ tar -xzf obi-v${VERSION}-linux-${ARCH}.tar.gz
 After extracting the archive, you can install the binaries to a location in your PATH so they can be used from any directory.
 
 The Java agent is embedded in the `obi` binary, so no separate Java agent JAR installation is required.
+At runtime, OBI extracts the embedded Java agent into the user cache directory (typically `$XDG_CACHE_HOME/obi/java` or `~/.cache/obi/java`) and reuses a checksum-named cached file across runs.
 
 The following example installs to `/usr/local/bin`, which is a standard location on most Linux distributions. You can install to any other directory in your PATH:
 
