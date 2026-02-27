@@ -41,6 +41,7 @@ var embeddedJavaAgentRaw []byte
 var (
 	embeddedJavaAgentBytes = embeddedJavaAgentRaw
 	userCacheDir           = os.UserCacheDir
+	renameFile             = os.Rename
 )
 
 type JavaInjectError struct {
@@ -254,7 +255,16 @@ func ensureEmbeddedAgentInCache() (string, error) {
 
 	// Publish by atomic rename (same directory/filesystem), which also behaves
 	// safely under concurrent writers of identical content.
-	if err := os.Rename(tmpPath, targetPath); err != nil {
+	if err := renameFile(tmpPath, targetPath); err != nil {
+		// A concurrent OBI process may have already published the same
+		// checksum-addressed file between our initial stat and rename.
+		// If the target is now present and valid, treat this as success.
+		if info, statErr := os.Stat(targetPath); statErr == nil {
+			if !info.IsDir() && info.Size() == int64(len(embeddedJavaAgentBytes)) {
+				return targetPath, nil
+			}
+		}
+
 		return "", fmt.Errorf("unable to move java agent into cache: %w", err)
 	}
 

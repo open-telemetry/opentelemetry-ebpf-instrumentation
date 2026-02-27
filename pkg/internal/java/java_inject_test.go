@@ -6,6 +6,9 @@
 package javaagent
 
 import (
+	"crypto/sha256"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -504,4 +507,38 @@ func TestEnsureEmbeddedAgentInCache_PlaceholderBytesError(t *testing.T) {
 	_, err := ensureEmbeddedAgentInCache()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing")
+}
+
+func TestEnsureEmbeddedAgentInCache_RenameRaceTreatsAsSuccess(t *testing.T) {
+	originalUserCacheDir := userCacheDir
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	originalRenameFile := renameFile
+	t.Cleanup(func() {
+		userCacheDir = originalUserCacheDir
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+		renameFile = originalRenameFile
+	})
+
+	cacheRoot := t.TempDir()
+	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
+	userCacheDir = func() (string, error) {
+		return cacheRoot, nil
+	}
+
+	checksum := sha256.Sum256(embeddedJavaAgentBytes)
+	expectedPath := filepath.Join(cacheRoot, "obi", "java", fmt.Sprintf("obi-java-agent-%x.jar", checksum))
+
+	renameFile = func(_, target string) error {
+		require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o755))
+		require.NoError(t, os.WriteFile(target, embeddedJavaAgentBytes, 0o644))
+		return errors.New("simulated concurrent rename conflict")
+	}
+
+	path, err := ensureEmbeddedAgentInCache()
+	require.NoError(t, err)
+	assert.Equal(t, expectedPath, path)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, embeddedJavaAgentBytes, content)
 }
