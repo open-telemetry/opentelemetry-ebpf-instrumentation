@@ -11,6 +11,37 @@ propagator: {}
 
 # Trace pipeline definition (OTel-native). OBI-specific tracing controls live under extensions.obi.*.
 tracer_provider:
+  # Sampling policy is configured in top-level OTel tracer_provider.sampler.
+  # OBI selection decides which workloads are instrumented; it does not override sampler behavior.
+  # The custom `obi_rule_based` sampler shown below is intended to be implemented
+  # and shipped by OBI as part of the v2 work.
+  #
+  # Example (global built-in sampler):
+  # sampler:
+  #   parent_based:
+  #     root:
+  #       trace_id_ratio_based:
+  #         ratio: 0.10
+  #
+  # Example (custom sampler plugin with workload rules):
+  # sampler:
+  #   obi_rule_based:
+  #     fallback:
+  #       always_on: {}
+  #     rules:
+  #       - match:
+  #           attributes:
+  #             service.namespace:
+  #               - low-priority
+  #         sample:
+  #           trace_id_ratio_based:
+  #             ratio: 0.01
+  #       - match:
+  #           attributes:
+  #             service.name:
+  #               - checkout
+  #         sample:
+  #           always_on: {}
   # Trace processors applied before export.
   processors:
     - batch:

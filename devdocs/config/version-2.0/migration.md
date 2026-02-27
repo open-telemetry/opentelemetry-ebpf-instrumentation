@@ -84,6 +84,8 @@ obi config validate ./path/to/config
 ### Phase 0 — Build contract and tooling
 
 - Finalize v2 configuration artifacts.
+- Implement and ship an OBI-provided sampler plugin (referenced via `tracer_provider.sampler`) with documented rule semantics.
+- Integrate sampler plugin registration/wiring in OBI startup paths (standalone and receiver embedding paths where applicable).
 - Implement migration CLI.
 - Implement validation CLI.
 

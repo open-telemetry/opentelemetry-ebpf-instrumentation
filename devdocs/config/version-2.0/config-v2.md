@@ -226,6 +226,66 @@ It includes:
 
 This section is the primary user control for defining which services get instrumented by OBI, and it supports complex selection logic through ordered rules.
 
+#### Sampling model
+
+Sampling remains owned by top-level OTel declarative configuration under `tracer_provider.sampler`.
+OBI does not define a parallel sampling section under `extensions.obi`, and selection rules do not override sampler behavior.
+
+For v2 scope, OBI will provide and ship an OBI sampler plugin implementation in this project,
+so users can reference it directly from `tracer_provider.sampler`.
+
+When workload-specific sampling behavior is needed, users should configure it through the sampler itself:
+
+- Use built-in OTel samplers when global behavior is sufficient.
+- Use a custom sampler plugin (SDK extension plugin component) when rule/pattern-based workload sampling is required.
+
+In OBI v2, this custom plugin is a planned deliverable of this work.
+The implementation will include:
+
+- sampler component implementation in OBI,
+- registration/wiring in OBI runtime initialization,
+- validation/documentation for supported sampler rule semantics.
+
+This keeps concerns separated and explicit:
+
+- `extensions.obi.selection`: workload discovery/targeting.
+- `tracer_provider.sampler`: trace sampling policy.
+
+Example (global built-in sampler):
+
+```yaml
+tracer_provider:
+  sampler:
+    parent_based:
+      root:
+        trace_id_ratio_based:
+          ratio: 0.10
+```
+
+Example (custom sampler plugin with workload-matching semantics):
+
+```yaml
+tracer_provider:
+  sampler:
+    obi_rule_based:
+      fallback:
+        always_on: {}
+      rules:
+        - match:
+            attributes:
+              service.namespace:
+                - low-priority
+          sample:
+            trace_id_ratio_based:
+              ratio: 0.01
+        - match:
+            attributes:
+              service.name:
+                - checkout
+          sample:
+            always_on: {}
+```
+
 #### `instrumentation` Section
 
 The `extension.obi.instrumentation` section defines protocol-specific instrumentation controls, including enablement and filtering for traces and metrics.
@@ -362,8 +422,8 @@ Important mapping notes:
 | `otel_traces_export.batch_timeout` | `tracer_provider.processors[0].batch.schedule_delay` | OTel ownership move + rename + duration(ms) representation |
 | `otel_traces_export.max_queue_size` | `tracer_provider.processors[0].batch.max_queue_size` | OTel ownership move + declarative processor list shape |
 | `otel_traces_export.reporters_cache_len` | `extensions.obi.operations.telemetry.traces.reporters_cache_len` | Move to OBI-owned telemetry tuning |
-| `otel_traces_export.sampler.arg` | `tracer_provider.sampler` | OTel ownership move + semantic translation (no 1:1 arg field in declarative schema) |
-| `otel_traces_export.sampler.name` | `tracer_provider.sampler` | OTel ownership move + semantic translation (no 1:1 name field in declarative schema) |
+| `otel_traces_export.sampler.arg` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler arguments when possible; per-workload semantics require a custom sampler plugin. |
+| `otel_traces_export.sampler.name` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler names when possible; per-workload semantics require a custom sampler plugin. |
 | `profile_port` | `extensions.obi.operations.profiling.port` | Move |
 | `prometheus_export.allow_service_graph_self_references` | `extensions.obi.operations.telemetry.metrics.prometheus.allow_service_graph_self_references` | Move to OBI-owned telemetry tuning |
 | `prometheus_export.extra_resource_attributes` | `extensions.obi.operations.telemetry.metrics.prometheus.extra_resource_attributes` | Move to OBI-owned telemetry tuning |
