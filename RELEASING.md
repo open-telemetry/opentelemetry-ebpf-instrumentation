@@ -163,9 +163,8 @@ This will:
 
 1. Build artifacts for both amd64 and arm64 architectures
 2. Build a source+generated archive from the current release version ref
-3. Generate versioned tarballs in the `dist/` directory
-4. Verify archive contents
-5. Generate a single `SHA256SUMS` file for all `obi-<version>-*.tar.gz` release archives
+3. Verify archive contents
+4. Generate a single `SHA256SUMS` file for all `obi-<version>-*.tar.gz` release archives
 
 The `dist/` directory will contain:
 
