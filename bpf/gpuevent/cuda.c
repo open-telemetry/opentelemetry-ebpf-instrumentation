@@ -34,7 +34,7 @@ enum {
 SEC("uprobe/cudaLaunchKernel")
 int BPF_KPROBE(obi_cuda_launch, u64 func_off, u64 grid_xy, u64 grid_z, u64 block_xy, u64 block_z) {
     (void)ctx;
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -68,7 +68,7 @@ int BPF_KPROBE(obi_cuda_malloc, void **devPtr, size_t size) {
     (void)ctx;
     (void)devPtr;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -96,7 +96,7 @@ int BPF_KPROBE(obi_cuda_memcpy, void *dst, void *src, size_t size, u8 kind) {
     (void)dst;
     (void)src;
 
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;
@@ -122,7 +122,7 @@ int BPF_KPROBE(obi_cuda_memcpy, void *dst, void *src, size_t size, u8 kind) {
 SEC("uprobe/cudaGraphLaunch")
 int BPF_KPROBE(obi_graph_launch) {
     (void)ctx;
-    u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
         return 0;

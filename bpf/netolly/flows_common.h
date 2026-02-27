@@ -131,7 +131,7 @@ static inline u8 get_connection_initiator(flow_id *id, u16 flags) {
     conn_initiator_key initiator_key;
     // from the initiator_key with sorted ip/ports, know the index of the
     // endpoint that that initiated the connection, which might be the low or the high address
-    u8 low_is_src = fill_conn_initiator_key(id, &initiator_key);
+    const u8 low_is_src = fill_conn_initiator_key(id, &initiator_key);
     u8 *initiator = (u8 *)bpf_map_lookup_elem(&conn_initiators, &initiator_key);
     u8 initiator_index = INITIATOR_UNKNOWN;
     if (initiator == NULL) {

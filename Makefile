@@ -35,6 +35,7 @@ OCI_BIN ?= docker
 # User to run as in docker images.
 DOCKER_USER=$(shell id -u):$(shell id -g)
 DEPENDENCIES_DOCKERFILE=./dependencies.Dockerfile
+GRADLE_IMAGE := $(shell awk '$$4=="gradle-java" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 
 # BPF code generator dependencies
 CLANG ?= clang
@@ -324,17 +325,21 @@ coverage-report-html: cov-exclude-generated
 
 # Java agent targets
 JAVA_AGENT_DIR := pkg/internal/java
+JAVA_AGENT_EMBED_DIR := $(JAVA_AGENT_DIR)/embedded
+JAVA_AGENT_EMBED_PATH := $(JAVA_AGENT_EMBED_DIR)/$(JAVA_AGENT)
 
 .PHONY: java-build
 java-build:
 	@echo "### Building Java agent"
 	cd $(JAVA_AGENT_DIR) && ./gradlew build
-	cp $(JAVA_AGENT_DIR)/build/$(JAVA_AGENT) bin/
+	mkdir -p $(JAVA_AGENT_EMBED_DIR)
+	cp $(JAVA_AGENT_DIR)/build/$(JAVA_AGENT) $(JAVA_AGENT_EMBED_PATH)
 
 .PHONY: java-docker-build
 java-docker-build:
 	@echo "### Building Java agent with Docker"
-	$(OCI_BIN) build --output type=local,dest=./bin --target=export -f javaagent.Dockerfile .
+	mkdir -p $(JAVA_AGENT_EMBED_DIR)
+	$(OCI_BIN) build --output type=local,dest=$(JAVA_AGENT_EMBED_DIR) --target=export -f javaagent.Dockerfile .
 
 .PHONY: java-test
 java-test:
@@ -562,16 +567,15 @@ license-header-check:
 	   fi
 
 .PHONY: artifact
-artifact: docker-generate compile java-docker-build
+artifact: docker-generate java-docker-build compile
 	@echo "### Packing generated artifact for $(GOOS)/$(GOARCH)"
 	@STAGING_DIR=$$(mktemp -d 2>/dev/null || mktemp -d -t obi.XXXXXX); \
 	trap "rm -rf $$STAGING_DIR" EXIT; \
 	cp ./bin/$(CMD) $$STAGING_DIR/; \
-	cp ./bin/$(JAVA_AGENT) $$STAGING_DIR/; \
 	cp LICENSE $$STAGING_DIR/; \
 	cp NOTICE $$STAGING_DIR/; \
 	cp -r NOTICES $$STAGING_DIR/; \
-	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) $(JAVA_AGENT) LICENSE NOTICE NOTICES
+	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) LICENSE NOTICE NOTICES
 
 .PHONY: release
 release: artifact
@@ -582,7 +586,6 @@ release: artifact
 	@mkdir -p $(RELEASE_DIR)/verify-$(GOARCH)
 	@tar -xzf $(RELEASE_DIR)/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz -C $(RELEASE_DIR)/verify-$(GOARCH)
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary missing in $(GOARCH) archive"; exit 1; fi
-	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/$(JAVA_AGENT) ]; then echo "ERROR: $(JAVA_AGENT) missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/LICENSE ]; then echo "ERROR: LICENSE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/NOTICE ]; then echo "ERROR: NOTICE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES ]; then echo "ERROR: NOTICES directory missing in $(GOARCH) archive"; exit 1; fi
@@ -656,7 +659,26 @@ TARGET_BPF_FILES := $(patsubst ./%,$(NOTICES_DIR)/%,$(BPF_FILES))
 TARGET_BPF := $(TARGET_C_LICENSES) $(TARGET_BPF_FILES)
 
 .PHONY: notices-update
-notices-update: docker-generate go-notices-update $(TARGET_BPF)
+notices-update: docker-generate go-notices-update java-notices-update $(TARGET_BPF)
+
+.PHONY: java-notices-update
+java-notices-update:
+	@echo "### Updating Java dependency notices"
+	@mkdir -p $(NOTICES_DIR)/java/agent
+	@$(OCI_BIN) run --rm \
+		$(if $(findstring podman,$(OCI_BIN)),  ,-u "$(DOCKER_USER)") \
+		-e HOME=/tmp \
+		-e GRADLE_USER_HOME=/tmp/.gradle \
+		-v "$(CURDIR):/src:z" \
+		-w /src/pkg/internal/java \
+		$(GRADLE_IMAGE) \
+		./gradlew :agent:generateLicenseReport --no-daemon
+	# Normalize the non-deterministic generation timestamp footer to keep
+	# notices-update/check-clean-work-tree stable across CI runs.
+	@awk '{ if ($$0 ~ /^This report was generated at /) print "This report was generated at <normalized>."; else print $$0 }' \
+		pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.txt > \
+		$(NOTICES_DIR)/java/agent/THIRD_PARTY_LICENSES.txt
+	@cp pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.csv $(NOTICES_DIR)/java/agent/
 
 .PHONY: go-notices-update
 go-notices-update: $(GOLICENSES)

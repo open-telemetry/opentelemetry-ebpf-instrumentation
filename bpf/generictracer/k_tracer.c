@@ -130,7 +130,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
         // TODO: try to merge with store_accept_fd_info() above
         bpf_map_update_elem(&fd_to_connection, &key, &info.p_conn.conn, BPF_ANY);
 
-        u64 accept_time = bpf_ktime_get_ns();
+        const u64 accept_time = bpf_ktime_get_ns();
 
         bpf_map_update_elem(&accepted_connections, &info.p_conn.conn, &accept_time, BPF_ANY);
     } else {
@@ -509,10 +509,12 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
         const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(&s_args.p_conn.conn);
-        const egress_key_t e_key = {
+        egress_key_t e_key = {
             .d_port = s_args.p_conn.conn.d_port,
             .s_port = s_args.p_conn.conn.s_port,
         };
+
+        sort_egress_key(&e_key);
 
         sort_connection_info(&s_args.p_conn.conn);
         s_args.p_conn.pid = pid_from_pid_tgid(id);
@@ -1005,7 +1007,7 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
         //bpf_d_printk("http buf=[%s] [%s]", buf, __FUNCTION__);
         //d_print_http_connection_info(&conn);
         if (packet_type == PACKET_TYPE_REQUEST) {
-            u64 cookie = bpf_get_socket_cookie(skb);
+            const u64 cookie = bpf_get_socket_cookie(skb);
             //bpf_dbg_printk("cookie=%llx, len=%d, buf=[%s]", cookie, len, buf);
             //dbg_print_http_connection_info(&conn);
 
@@ -1173,8 +1175,8 @@ int obi_handle_buf_with_args(void *ctx) {
                      (info) ? still_reading(info) : 0);
 
         if (info && !info->submitted) {
-            u8 reading = still_reading(info);
-            u8 responding = still_responding(info);
+            const u8 reading = still_reading(info);
+            const u8 responding = still_responding(info);
             // Still reading checks if we are processing buffers of a HTTP request
             // that has started, but we haven't seen a response yet.
             if (reading || responding) {

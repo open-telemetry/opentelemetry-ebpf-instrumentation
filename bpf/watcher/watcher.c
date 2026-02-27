@@ -37,7 +37,7 @@ int obi_kprobe_sys_bind(struct pt_regs *ctx) {
         return 0;
     }
 
-    u16 port = get_sockaddr_port_user(addr);
+    const u16 port = get_sockaddr_port_user(addr);
 
     if (!port) {
         return 0;

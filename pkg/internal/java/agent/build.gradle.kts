@@ -1,6 +1,7 @@
 plugins {
     java
     id("com.gradleup.shadow") version "8.3.9"
+    id("com.github.jk1.dependency-license-report") version "2.9"
     id("me.champeau.jmh") version "0.7.3"
     id("com.diffplug.spotless") version "8.2.1"
 }
@@ -134,4 +135,13 @@ tasks.shadowJar {
     // Exclude META-INF files as in Maven Shade plugin
     exclude("META-INF/**")
     exclude("META-INF/versions/9/module-info.class")
+}
+
+licenseReport {
+    outputDir = layout.buildDirectory.dir("reports/dependency-license").get().asFile.absolutePath
+    configurations = arrayOf("runtimeClasspath")
+    renderers = arrayOf<com.github.jk1.license.render.ReportRenderer>(
+        com.github.jk1.license.render.TextReportRenderer("THIRD_PARTY_LICENSES.txt"),
+        com.github.jk1.license.render.CsvReportRenderer("THIRD_PARTY_LICENSES.csv"),
+    )
 }

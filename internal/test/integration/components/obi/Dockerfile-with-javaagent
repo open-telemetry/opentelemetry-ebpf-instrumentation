@@ -1,3 +1,17 @@
+# Build the Java OBI agent
+FROM gradle:9.3.1-jdk21-noble@sha256:f3784cc59d7fbab1e0ddb09c4cd082f13e16d3fb8c50b7922b7aeae8e9507da5 AS javaagent-builder
+
+RUN apt update
+RUN apt install -y clang llvm
+
+WORKDIR /build
+
+# Copy build files
+COPY pkg/internal/java .
+
+# Build the project
+RUN ./gradlew build --no-daemon
+
 # Development version of the beyla Dockerfile that compiles for coverage
 # and allows retrieving coverage files.
 # The production-ready minimal image is in the project root's dockerfile.
@@ -18,29 +32,15 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 COPY Makefile Makefile
 COPY internal/test/integration/components/obi/ebpf_instrument_wrapper_minimal.sh /ebpf_instrument_wrapper_minimal.sh
+COPY --from=javaagent-builder /build/build/obi-java-agent.jar /src/pkg/internal/java/embedded/obi-java-agent.jar
 
 # Build
 RUN make compile-for-coverage
-
-# Build the Java OBI agent
-FROM gradle:9.3.1-jdk21-noble@sha256:f3784cc59d7fbab1e0ddb09c4cd082f13e16d3fb8c50b7922b7aeae8e9507da5 AS javaagent-builder
-
-RUN apt update
-RUN apt install -y clang llvm
-
-WORKDIR /build
-
-# Copy build files
-COPY pkg/internal/java .
-
-# Build the project
-RUN ./gradlew build --no-daemon
 
 # Create final image from minimal + built binary
 FROM ubuntu@sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9
 
 COPY --from=builder /src/bin/obi /obi
-COPY --from=javaagent-builder /build/build/obi-java-agent.jar /obi-java-agent.jar
 # Wrap the executable in a script that waits for the processes to end
 # in order to avoid issues when tearing down the container on kernels 6.14+.
 # https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/781

@@ -23,7 +23,6 @@
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
-#include <gotracer/hpack.h>
 
 #include <gotracer/maps/grpc.h>
 
@@ -826,7 +825,7 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
                 if (original_size > 0) {
                     u8 type_byte = 0;
                     const u8 key_len =
-                        TP_ENCODED_LEN | 0x80; // high tagged to signify hpack encoded value
+                        sizeof(tp_encoded) | 0x80; // high tagged to signify hpack encoded value
                     const u8 val_len = TP_MAX_VAL_LENGTH;
 
                     // We don't hpack encode the value of the traceparent field, because that will require that
@@ -842,7 +841,7 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
                     // Write 'traceparent' encoded as hpack
                     bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_encoded, sizeof(tp_encoded));
                     ;
-                    n += TP_ENCODED_LEN;
+                    n += sizeof(tp_encoded);
                     // Write the length of the hpack encoded traceparent field
                     bpf_probe_write_user(buf_arr + (n & 0x0ffff), &val_len, sizeof(val_len));
                     n++;

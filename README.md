@@ -71,7 +71,6 @@ tar -xzf obi-v${VERSION}-linux-${ARCH}.tar.gz
 # The archive contains:
 # - obi: Main OBI binary
 # - k8s-cache: Kubernetes cache binary
-# - obi-java-agent.jar: Java agent
 # - LICENSE: Project license
 # - NOTICE: Legal notices
 # - NOTICES/: Third-party licenses and attributions
@@ -81,7 +80,8 @@ tar -xzf obi-v${VERSION}-linux-${ARCH}.tar.gz
 
 After extracting the archive, you can install the binaries to a location in your PATH so they can be used from any directory.
 
-By default, the OBI binary expects the Java agent to be located in the same directory as the OBI executable. However, you can configure a custom path using the `--java-agent` flag or the `OTEL_EBPF_JAVAAGENT_PATH` environment variable.
+The Java agent is embedded in the `obi` binary, so no separate Java agent JAR installation is required.
+At runtime, OBI extracts the embedded Java agent into the user cache directory (typically `$XDG_CACHE_HOME/obi/java` or `~/.cache/obi/java`) and reuses a checksum-named cached file across runs.
 
 The following example installs to `/usr/local/bin`, which is a standard location on most Linux distributions. You can install to any other directory in your PATH:
 
@@ -89,15 +89,6 @@ The following example installs to `/usr/local/bin`, which is a standard location
 # Move binaries to a directory in your PATH
 sudo cp obi /usr/local/bin/
 sudo cp k8s-cache /usr/local/bin/
-
-# Install Java agent to the same directory (default behavior)
-sudo cp obi-java-agent.jar /usr/local/bin/
-
-# Alternatively, install Java agent to a different location and specify it:
-# Via flag:
-#   obi --java-agent /opt/obi/obi-java-agent.jar
-# Via environment variable:
-#   export OTEL_EBPF_JAVAAGENT_PATH=/opt/obi/obi-java-agent.jar
 
 # Verify installation
 obi --version

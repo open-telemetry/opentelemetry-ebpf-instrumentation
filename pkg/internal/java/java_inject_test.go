@@ -6,6 +6,9 @@
 package javaagent
 
 import (
+	"crypto/sha256"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -464,4 +467,125 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestEnsureEmbeddedAgentInCache_WritesAndReuses(t *testing.T) {
+	originalUserCacheDir := userCacheDir
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		userCacheDir = originalUserCacheDir
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	cacheRoot := t.TempDir()
+	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
+	userCacheDir = func() (string, error) {
+		return cacheRoot, nil
+	}
+
+	firstPath, err := ensureEmbeddedAgentInCache()
+	require.NoError(t, err)
+	content, err := os.ReadFile(firstPath)
+	require.NoError(t, err)
+	assert.Equal(t, embeddedJavaAgentBytes, content)
+
+	secondPath, err := ensureEmbeddedAgentInCache()
+	require.NoError(t, err)
+	assert.Equal(t, firstPath, secondPath)
+}
+
+func TestEnsureEmbeddedAgentInCache_PlaceholderBytesError(t *testing.T) {
+	originalUserCacheDir := userCacheDir
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		userCacheDir = originalUserCacheDir
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	embeddedJavaAgentBytes = []byte(javaAgentEmbedPlaceholder + "\n")
+
+	_, err := ensureEmbeddedAgentInCache()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing")
+}
+
+func TestEnsureEmbeddedAgentInCache_RenameRaceTreatsAsSuccess(t *testing.T) {
+	originalUserCacheDir := userCacheDir
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	originalRenameFile := renameFile
+	t.Cleanup(func() {
+		userCacheDir = originalUserCacheDir
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+		renameFile = originalRenameFile
+	})
+
+	cacheRoot := t.TempDir()
+	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
+	userCacheDir = func() (string, error) {
+		return cacheRoot, nil
+	}
+
+	checksum := sha256.Sum256(embeddedJavaAgentBytes)
+	expectedPath := filepath.Join(cacheRoot, "obi", "java", fmt.Sprintf("obi-java-agent-%x.jar", checksum))
+
+	renameFile = func(_, target string) error {
+		require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o755))
+		require.NoError(t, os.WriteFile(target, embeddedJavaAgentBytes, 0o644))
+		return errors.New("simulated concurrent rename conflict")
+	}
+
+	path, err := ensureEmbeddedAgentInCache()
+	require.NoError(t, err)
+	assert.Equal(t, expectedPath, path)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, embeddedJavaAgentBytes, content)
+}
+
+func TestEnsureEmbeddedAgentInCache_RewritesIncorrectSizedCacheFile(t *testing.T) {
+	originalUserCacheDir := userCacheDir
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		userCacheDir = originalUserCacheDir
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	cacheRoot := t.TempDir()
+	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
+	userCacheDir = func() (string, error) {
+		return cacheRoot, nil
+	}
+
+	checksum := sha256.Sum256(embeddedJavaAgentBytes)
+	expectedPath := filepath.Join(cacheRoot, "obi", "java", fmt.Sprintf("obi-java-agent-%x.jar", checksum))
+	require.NoError(t, os.MkdirAll(filepath.Dir(expectedPath), 0o755))
+	require.NoError(t, os.WriteFile(expectedPath, []byte("bad"), 0o644))
+
+	path, err := ensureEmbeddedAgentInCache()
+	require.NoError(t, err)
+	assert.Equal(t, expectedPath, path)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, embeddedJavaAgentBytes, content)
+}
+
+func TestEnsureEmbeddedAgentInCache_UserCacheDirError(t *testing.T) {
+	originalUserCacheDir := userCacheDir
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		userCacheDir = originalUserCacheDir
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
+	userCacheDir = func() (string, error) {
+		return "", errors.New("cache dir lookup failed")
+	}
+
+	_, err := ensureEmbeddedAgentInCache()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unable to resolve user cache directory")
+	assert.Contains(t, err.Error(), "cache dir lookup failed")
 }
