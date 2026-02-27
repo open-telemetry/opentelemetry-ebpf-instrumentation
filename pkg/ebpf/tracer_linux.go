@@ -211,7 +211,7 @@ func (pt *ProcessTracer) makeOtelBPFFSPath() (string, error) {
 	return otelPath, nil
 }
 
-func (pt *ProcessTracer) setupOtelBPFFFSPath(bundles []*common.SpecBundle) string {
+func (pt *ProcessTracer) setupOtelBPFFSPath(bundles []*common.SpecBundle) string {
 	// Set up BPF FS path once for all specs
 	otelBPFFSPath, err := pt.makeOtelBPFFSPath()
 
@@ -245,7 +245,7 @@ func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p 
 		return fmt.Errorf("loading eBPF program specs: %w", err)
 	}
 
-	otelBPFFSPath := pt.setupOtelBPFFFSPath(bundles)
+	otelBPFFSPath := pt.setupOtelBPFFSPath(bundles)
 
 	for i, bundle := range bundles {
 		if err := loadSpec(eventContext, bundle, otelBPFFSPath, i); err != nil {
