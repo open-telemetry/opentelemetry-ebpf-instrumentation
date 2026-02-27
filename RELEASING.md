@@ -147,7 +147,7 @@ Each release archive (`obi-<version>-linux-<arch>.tar.gz`) contains:
 The release also includes a custom source archive, `obi-<version>-source-generated.tar.gz`, which contains:
 
 - Source files from the exact tagged revision
-- Generated artifacts produced by the release generation pipeline (including bpf2go-generated `.go` and `.o` outputs)
+- Generated artifacts produced by the release generation pipeline (including bpf2go-generated `.go` and `.o` outputs and the Java agent JAR `obi-java-agent.jar`)
 
 ### Building Release Artifacts Locally
 
