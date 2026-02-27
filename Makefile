@@ -589,17 +589,61 @@ release: artifact
 	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
 	@echo "✓ Archive $(GOARCH) verified successfully"
 	@rm -rf $(RELEASE_DIR)/verify-$(GOARCH)
+	@$(MAKE) release-checksums
+	@echo "### Release artifacts ready in $(RELEASE_DIR)/"
+	@ls -lh $(RELEASE_DIR)/
+
+.PHONY: release-source
+release-source: docker-generate
+	@echo "### Building source-generated release archive"
+	@mkdir -p $(RELEASE_DIR)
+	@SOURCE_ROOT=$$(mktemp -d 2>/dev/null || mktemp -d -t obi-source.XXXXXX); \
+	SOURCE_BASENAME=obi-$(RELEASE_VERSION)-source-generated; \
+	SOURCE_DIR="$$SOURCE_ROOT/$$SOURCE_BASENAME"; \
+	GENERATED_FILES=$$(mktemp 2>/dev/null || mktemp -t obi-generated.XXXXXX); \
+	trap "rm -rf $$SOURCE_ROOT; rm -f $$GENERATED_FILES" EXIT; \
+	mkdir -p "$$SOURCE_DIR"; \
+	git archive --format=tar $(RELEASE_VERSION) | tar -xf - -C $$SOURCE_DIR; \
+	{ \
+		git diff --name-only; \
+		git ls-files --others --exclude-standard; \
+	} | sort -u > $$GENERATED_FILES; \
+	GENERATED_COUNT=0; \
+	while IFS= read -r path; do \
+		if [ -f "$$path" ] || [ -L "$$path" ]; then \
+			mkdir -p "$$SOURCE_DIR/$$(dirname "$$path")"; \
+			cp -a "$$path" "$$SOURCE_DIR/$$path"; \
+			GENERATED_COUNT=$$((GENERATED_COUNT + 1)); \
+		fi; \
+	done < $$GENERATED_FILES; \
+	echo "Added $${GENERATED_COUNT} generated files to source archive"; \
+	if find "$$SOURCE_DIR" -name '.git' | grep -q .; then \
+		echo "ERROR: source archive contains git metadata files"; \
+		exit 1; \
+	fi; \
+	tar -czf $(RELEASE_DIR)/obi-$(RELEASE_VERSION)-source-generated.tar.gz -C $$SOURCE_ROOT "$$SOURCE_BASENAME"
+	@$(MAKE) release-checksums
+
+.PHONY: release-checksums
+release-checksums:
 	@echo "### Generating checksums"
-	@if command -v sha256sum >/dev/null 2>&1; then \
-		cd $(RELEASE_DIR) && sha256sum obi-$(RELEASE_VERSION)-$(GOOS)-*.tar.gz > SHA256SUMS; \
+	@mkdir -p $(RELEASE_DIR)
+	@cd $(RELEASE_DIR) && \
+	shopt -s nullglob && \
+	files=(obi-$(RELEASE_VERSION)-*.tar.gz) && \
+	if [ $${#files[@]} -eq 0 ]; then \
+		echo "ERROR: No release archives found for obi-$(RELEASE_VERSION)-*.tar.gz in $(RELEASE_DIR)"; \
+		exit 1; \
+	fi && \
+	IFS=$$'\n' sorted_files=($$(printf '%s\n' "$${files[@]}" | sort)) && \
+	if command -v sha256sum >/dev/null 2>&1; then \
+		sha256sum "$${sorted_files[@]}" > SHA256SUMS; \
 	elif command -v shasum >/dev/null 2>&1; then \
-		cd $(RELEASE_DIR) && shasum -a 256 obi-$(RELEASE_VERSION)-$(GOOS)-*.tar.gz > SHA256SUMS; \
+		shasum -a 256 "$${sorted_files[@]}" > SHA256SUMS; \
 	else \
 		echo "ERROR: Neither sha256sum nor shasum found. Please install coreutils or use macOS builtin shasum."; \
 		exit 1; \
 	fi
-	@echo "### Release artifacts ready in $(RELEASE_DIR)/"
-	@ls -lh $(RELEASE_DIR)/
 
 .PHONY: clean-release-dir
 clean-release-dir:

@@ -320,6 +320,9 @@ jobs:
           GOARCH: arm64
         run: make release
 
+      - name: Build source-generated release artifacts
+        run: make release-source
+
       - name: Upload artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
@@ -354,4 +357,5 @@ jobs:
           draft: true
           files: |
             dist/obi-*-linux-*.tar.gz
-            dist/SHA256SUMS*
+            dist/obi-*-source-generated.tar.gz
+            dist/SHA256SUMS

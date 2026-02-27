@@ -107,12 +107,14 @@ When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-su
 3. **Build Release Artifacts**: Once all checks pass, the workflow builds multi-architecture release artifacts:
    - Runs `make release` to generate versioned tarballs for amd64 and arm64
    - Archives contain: `obi`, `obi-java-agent.jar`, LICENSE, NOTICE, and NOTICES/ directory
-   - Generates SHA256 checksums for all archives
+   - Builds a custom source archive from the exact tagged source snapshot plus generated artifacts (including bpf2go outputs)
+   - Generates SHA256 checksums for all uploaded release archives
    - Verifies archive contents and binary executability
 
 4. **Create Draft Release**: A draft release is automatically created with:
    - Auto-generated release notes from GitHub
    - Multi-architecture tarballs: `obi-<version>-linux-amd64.tar.gz` and `obi-<version>-linux-arm64.tar.gz`
+   - Source+generated archive: `obi-<version>-source-generated.tar.gz`
    - Checksum file: `SHA256SUMS`
 
    The draft release allows maintainers to review artifacts before publication.
@@ -143,25 +145,34 @@ Each release archive (`obi-<version>-linux-<arch>.tar.gz`) contains:
 - `NOTICE`: Legal notices
 - `NOTICES/`: Directory with third-party licenses and attributions
 
+The release also includes a custom source archive, `obi-<version>-source-generated.tar.gz`, which contains:
+
+- Source files from the exact tagged revision
+- Generated artifacts produced by the release generation pipeline (including bpf2go-generated `.go` and `.o` outputs)
+
 ### Building Release Artifacts Locally
 
 To test the release artifact generation locally before tagging:
 
 ```console
-make release
+make release GOARCH=amd64
+make release GOARCH=arm64
+make release-source
 ```
 
 This will:
 
 1. Build artifacts for both amd64 and arm64 architectures
-2. Generate versioned tarballs in the `dist/` directory
-3. Verify archive contents
-4. Generate SHA256 checksums
+2. Build a source+generated archive from the current release version ref
+3. Generate versioned tarballs in the `dist/` directory
+4. Verify archive contents
+5. Generate a single `SHA256SUMS` file for all `obi-<version>-*.tar.gz` release archives
 
 The `dist/` directory will contain:
 
 - `obi-<version>-linux-amd64.tar.gz`
 - `obi-<version>-linux-arm64.tar.gz`
+- `obi-<version>-source-generated.tar.gz`
 - `SHA256SUMS`
 
 ### Manual Release Trigger
