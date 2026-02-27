@@ -542,3 +542,31 @@ func TestEnsureEmbeddedAgentInCache_RenameRaceTreatsAsSuccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, embeddedJavaAgentBytes, content)
 }
+
+func TestEnsureEmbeddedAgentInCache_RewritesIncorrectSizedCacheFile(t *testing.T) {
+	originalUserCacheDir := userCacheDir
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		userCacheDir = originalUserCacheDir
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	cacheRoot := t.TempDir()
+	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
+	userCacheDir = func() (string, error) {
+		return cacheRoot, nil
+	}
+
+	checksum := sha256.Sum256(embeddedJavaAgentBytes)
+	expectedPath := filepath.Join(cacheRoot, "obi", "java", fmt.Sprintf("obi-java-agent-%x.jar", checksum))
+	require.NoError(t, os.MkdirAll(filepath.Dir(expectedPath), 0o755))
+	require.NoError(t, os.WriteFile(expectedPath, []byte("bad"), 0o644))
+
+	path, err := ensureEmbeddedAgentInCache()
+	require.NoError(t, err)
+	assert.Equal(t, expectedPath, path)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, embeddedJavaAgentBytes, content)
+}
