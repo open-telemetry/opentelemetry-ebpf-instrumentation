@@ -16,7 +16,6 @@ import io.opentelemetry.obi.java.instrumentations.data.Connection;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import io.opentelemetry.obi.java.instrumentations.util.ByteBufferExtractor;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import net.bytebuddy.agent.builder.AgentBuilder;
@@ -66,26 +65,41 @@ public class SSLEngineInst {
 
   public static final class UnwrapAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static int unwrap(
+    public static Object[] unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
+        @Advice.Argument(0) final ByteBuffer src,
         @Advice.Argument(1) final ByteBuffer dst) {
       if (dst == null) {
-        return -1;
+        return null;
       }
       if (engine.getSession().getId().length == 0) {
-        return -1;
+        return null;
       }
 
-      return b(dst).position();
+      int savedPos = b(dst).position();
+      // Capture the buffer key from src BEFORE unwrap() modifies the buffer content
+      // in-place. TLS 1.3 (AES-GCM) decrypts directly in the source buffer's backing
+      // array, so after unwrap() the bytes no longer match what SocketChannelInst stored.
+      String srcBufKey =
+          (src != null && b(src).hasRemaining())
+              ? ByteBufferExtractor.keyFromFreshBuffer(src)
+              : null;
+      return new Object[] {savedPos, srcBufKey};
     }
 
     @Advice.OnMethodExit(suppress = Throwable.class)
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
-        @Advice.Enter int savedPos,
+        @Advice.Enter Object[] saved,
         @Advice.Argument(0) final ByteBuffer src,
         @Advice.Argument(1) final ByteBuffer dst,
         @Advice.Return SSLEngineResult result) {
+      if (saved == null) {
+        return;
+      }
+      int savedPos = (Integer) saved[0];
+      String srcBufKey = (String) saved[1];
+
       Connection c = SSLStorage.getConnectionForSession(engine);
 
       if (src == null || dst == null) {
@@ -93,8 +107,12 @@ public class SSLEngineInst {
       }
 
       if (c == null) {
-        String bufKey = ByteBufferExtractor.keyFromUsedBuffer(src);
-        c = SSLStorage.getConnectionForBuf(bufKey);
+        if (SSLStorage.debugOn) {
+          System.err.println("[SSLEngineInst] looking up connection for  " + srcBufKey);
+        }
+        if (srcBufKey != null) {
+          c = SSLStorage.getConnectionForBuf(srcBufKey);
+        }
 
         if (c == null) {
           c = (Connection) SSLStorage.nettyConnection.get();
@@ -106,6 +124,12 @@ public class SSLEngineInst {
           }
         } else {
           SSLStorage.setConnectionForSession(engine, c);
+        }
+      }
+
+      if (SSLStorage.debugOn) {
+        if (c != null) {
+          System.err.println("[SSLEngineInst] unwrap found connection " + c);
         }
       }
 
@@ -125,8 +149,7 @@ public class SSLEngineInst {
         byte[] b = dstBuffer.array();
 
         if (SSLStorage.debugOn) {
-          System.err.println(
-              "[SSLEngineInst] unwrap:" + new String(b, java.nio.charset.StandardCharsets.UTF_8));
+          System.err.println("[SSLEngineInst] unwrap:" + java.util.Arrays.toString(b));
         }
 
         NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + b.length);
@@ -139,8 +162,9 @@ public class SSLEngineInst {
 
   public static final class UnwrapAdviceArray {
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static int[] unwrap(
+    public static Object[] unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
+        @Advice.Argument(0) final ByteBuffer src,
         @Advice.Argument(1) final ByteBuffer[] dsts) {
       if (dsts == null) {
         return null;
@@ -158,25 +182,38 @@ public class SSLEngineInst {
         positions[i] = b(dsts[i]).position();
       }
 
-      return positions;
+      // Capture the buffer key from src BEFORE unwrap() modifies the buffer content
+      // in-place. TLS 1.3 (AES-GCM) decrypts directly in the source buffer's backing
+      // array, so after unwrap() the bytes no longer match what SocketChannelInst stored.
+      String srcBufKey =
+          (src != null && b(src).hasRemaining())
+              ? ByteBufferExtractor.keyFromFreshBuffer(src)
+              : null;
+
+      return new Object[] {positions, srcBufKey};
     }
 
     @Advice.OnMethodExit(suppress = Throwable.class)
     public static void unwrap(
         @Advice.This final javax.net.ssl.SSLEngine engine,
-        @Advice.Enter int[] savedDstPositions,
+        @Advice.Enter Object[] saved,
         @Advice.Argument(1) final ByteBuffer[] dsts,
         @Advice.Return SSLEngineResult result) {
-      if (dsts == null) {
+      if (dsts == null || saved == null) {
         return;
       }
+      int[] savedDstPositions = (int[]) saved[0];
+      String srcBufKey = (String) saved[1];
+
       Connection c = SSLStorage.getConnectionForSession(engine);
 
       if (c == null) {
-        ByteBuffer dstBuffer =
-            ByteBufferExtractor.flattenUsedByteBufferArray(dsts, ByteBufferExtractor.MAX_KEY_SIZE);
-        String bufKey = Arrays.toString(dstBuffer.array());
-        c = SSLStorage.getConnectionForBuf(bufKey);
+        if (SSLStorage.debugOn) {
+          System.err.println("[SSLEngineInst] looking up connection for array " + srcBufKey);
+        }
+        if (srcBufKey != null) {
+          c = SSLStorage.getConnectionForBuf(srcBufKey);
+        }
 
         if (c == null) {
           c = (Connection) SSLStorage.nettyConnection.get();
@@ -188,6 +225,12 @@ public class SSLEngineInst {
           }
         } else {
           SSLStorage.setConnectionForSession(engine, c);
+        }
+      }
+
+      if (SSLStorage.debugOn) {
+        if (c != null) {
+          System.err.println("[SSLEngineInst] unwrap array found connection " + c);
         }
       }
 
@@ -217,9 +260,7 @@ public class SSLEngineInst {
         int len = b(dstBuffer).position();
 
         if (SSLStorage.debugOn) {
-          System.err.println(
-              "[SSLEngineInst] unwrap array:"
-                  + new String(b, java.nio.charset.StandardCharsets.UTF_8));
+          System.err.println("[SSLEngineInst] unwrap array:" + java.util.Arrays.toString(b));
         }
 
         NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + len);
@@ -275,9 +316,7 @@ public class SSLEngineInst {
         }
 
         if (SSLStorage.debugOn) {
-          System.err.println(
-              "[SSLEngineInst] wrap :"
-                  + new String(bLen.buf, java.nio.charset.StandardCharsets.UTF_8));
+          System.err.println("[SSLEngineInst] wrap :" + java.util.Arrays.toString(bLen.buf));
         }
 
         Connection c = (Connection) SSLStorage.nettyConnection.get();
@@ -351,7 +390,7 @@ public class SSLEngineInst {
               "[SSLEngineInst] wrap array :["
                   + bLen.len
                   + "]"
-                  + new String(bLen.buf, java.nio.charset.StandardCharsets.UTF_8));
+                  + java.util.Arrays.toString(bLen.buf));
         }
 
         Connection c = (Connection) SSLStorage.nettyConnection.get();
