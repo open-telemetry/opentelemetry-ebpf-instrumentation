@@ -98,8 +98,12 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	return []*ebpfcommon.SpecBundle{{
 		Spec:      spec,
 		Objects:   &p.bpfObjects,
-		Constants: map[string]any{"g_bpf_debug": p.cfg.EBPF.BpfDebug},
+		Constants: p.constants(),
 	}}, nil
+}
+
+func (p *Tracer) constants() map[string]any {
+	return map[string]any{"g_bpf_debug": p.cfg.EBPF.BpfDebug}
 }
 
 func (p *Tracer) SetupTailCalls() {}

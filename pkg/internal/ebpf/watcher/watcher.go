@@ -58,8 +58,12 @@ func (p *Watcher) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	return []*ebpfcommon.SpecBundle{{
 		Spec:      spec,
 		Objects:   &p.bpfObjects,
-		Constants: map[string]any{"g_bpf_debug": p.cfg.EBPF.BpfDebug},
+		Constants: p.constants(),
 	}}, nil
+}
+
+func (p *Watcher) constants() map[string]any {
+	return map[string]any{"g_bpf_debug": p.cfg.EBPF.BpfDebug}
 }
 
 func (p *Watcher) AddCloser(c ...io.Closer) {
