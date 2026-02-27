@@ -5,9 +5,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -46,8 +44,11 @@ func main() {
 
 	go func() {
 		http.HandleFunc("/status", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]bool{"traceparent_seen": traceparentSeen.Load()})
+			if traceparentSeen.Load() {
+				w.WriteHeader(http.StatusOK)
+			} else {
+				w.WriteHeader(http.StatusNoContent)
+			}
 		})
 		log.Fatal(http.ListenAndServe(":9091", nil))
 	}()
@@ -59,7 +60,6 @@ func main() {
 			time.Sleep(time.Second)
 			continue
 		}
-		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 
 		if tp := resp.Header.Get("X-Received-Traceparent"); tp != "" {

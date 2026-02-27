@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	json "github.com/goccy/go-json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -28,13 +27,9 @@ func TestExistingSocketsDetection(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get("http://localhost:9091/status")
 		require.NoError(ct, err)
-		defer resp.Body.Close()
-		var status struct {
-			TraceparentSeen bool `json:"traceparent_seen"`
-		}
-		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&status))
-		require.True(ct, status.TraceparentSeen)
-	}, 2*time.Minute, time.Second)
+		resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+	}, testTimeout, time.Second)
 
 	require.NoError(t, compose.Close())
 }
