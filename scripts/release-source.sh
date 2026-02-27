@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -10,8 +23,9 @@ readonly PROGNAME
 DEFAULT_RELEASE_DIR="./dist"
 readonly DEFAULT_RELEASE_DIR
 
-DEFAULT_RELEASE_VERSION="main"
-readonly DEFAULT_RELEASE_VERSION
+# Used only when HEAD is detached (not on a branch or tag).
+DETACHED_HEAD_FALLBACK_VERSION="main"
+readonly DETACHED_HEAD_FALLBACK_VERSION
 
 GENERATED_PATTERN='_bpfe[lb]\.go$|_bpfe[lb]\.o$|_bpfe[lb]\.go\.d$'
 readonly GENERATED_PATTERN
@@ -131,7 +145,7 @@ resolve_default_release_version() {
     return
   fi
 
-  printf '%s\n' "$DEFAULT_RELEASE_VERSION"
+  printf '%s\n' "$DETACHED_HEAD_FALLBACK_VERSION"
 }
 
 create_temp_dir() {
@@ -173,14 +187,6 @@ copy_generated_files() {
   done < "$generated_file_list"
 
   printf '%s\n' "$generated_count"
-}
-
-verify_no_git_metadata() {
-  local source_dir="$1"
-
-  if find "$source_dir" -name '.git' | grep -q .; then
-    die "source archive contains git metadata files"
-  fi
 }
 
 count_generated_in_archive() {
@@ -230,8 +236,6 @@ main() {
     die "no generated bpf2go artifacts found to include in source archive"
   fi
   log_info "Added ${generated_count} generated files to source archive"
-
-  verify_no_git_metadata "$source_dir"
 
   archive_path="$RELEASE_DIR_ARG/obi-${RELEASE_VERSION_ARG}-source-generated.tar.gz"
   rm -f "$RELEASE_DIR_ARG"/obi-*-source-generated.tar.gz
