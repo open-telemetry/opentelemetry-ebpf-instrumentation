@@ -149,7 +149,7 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 	jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "go"},
-		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry-go"},
+		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry"},
 		{Key: "telemetry.distro.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},
 		serviceInstance,
@@ -362,7 +362,7 @@ func testHTTPTracesKProbes(t *testing.T) {
 	jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "nodejs"},
-		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry-go"},
+		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry"},
 		{Key: "telemetry.distro.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},
 		serviceInstance,

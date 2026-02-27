@@ -33,7 +33,7 @@ func DefaultOBIConfig() *TestConfig {
 		ConfigPath:         "obi-config.yml",
 		MetricPrefix:       "obi",
 		IPAttribute:        "obi.ip",
-		SDKName:            "opentelemetry-go",
+		SDKName:            "opentelemetry",
 		VersionPkg:         "obibuildinfo.Version",
 	}
 }
