@@ -235,22 +235,27 @@ func ensureEmbeddedAgentInCache() (string, error) {
 	}()
 
 	written, err := tmpFile.Write(embeddedJavaAgentBytes)
+	func() {
+		defer func() {
+			e := tmpFile.Close()
+			if e != nil {
+				err = errors.Join(err, e)
+			}
+		}()
+		if err != nil {
+			return
+		}
+		if written != len(embeddedJavaAgentBytes) {
+			err = errors.New("short write")
+			return
+		}
+		if err = tmpFile.Chmod(0o644); err != nil {
+			err = fmt.Errorf("unable to set permissions on temporary java agent file: %w", err)
+			return
+		}
+	}()
 	if err != nil {
-		_ = tmpFile.Close()
 		return "", fmt.Errorf("unable to write embedded java agent: %w", err)
-	}
-	if written != len(embeddedJavaAgentBytes) {
-		_ = tmpFile.Close()
-		return "", errors.New("unable to write embedded java agent: short write")
-	}
-
-	if err := tmpFile.Chmod(0o644); err != nil {
-		_ = tmpFile.Close()
-		return "", fmt.Errorf("unable to set permissions on temporary java agent file: %w", err)
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		return "", fmt.Errorf("unable to close temporary java agent file: %w", err)
 	}
 
 	// Publish by atomic rename (same directory/filesystem), which also behaves
