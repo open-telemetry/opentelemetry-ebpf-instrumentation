@@ -35,9 +35,7 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 
 enum { W3C_KEY_LENGTH = 11, W3C_VAL_LENGTH = 55 };
 
-#define TP_ENCODED_LEN 8
-
-static unsigned char tp_encoded[TP_ENCODED_LEN] = {
+static unsigned char tp_encoded[] = {
     0x4d, 0x83, 0x21, 0x6b, 0x1d, 0x85, 0xa9, 0x3f}; // hpack encoded "traceparent"
 
 // Temporary information about a function invocation. It stores the invocation time of a function

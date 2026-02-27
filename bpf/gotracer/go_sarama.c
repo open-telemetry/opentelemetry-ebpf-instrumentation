@@ -77,12 +77,12 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
         // the api key is 2 bytes, but num APIs at the moment is max 50.
         // instead of reading 2 bytes and then doing ntohs, we just read
         // the second byte of the api key, assuming the first is 0.
-        const u8 api_key = small_buf[KAFKA_API_KEY_POS];
+        const u8 api_key = small_buf[k_kafka_api_key_pos];
 
         bpf_dbg_printk("api_key=%d", api_key);
 
         // We only care about fetch and produce
-        if (api_key == KAFKA_API_FETCH || api_key == KAFKA_API_PRODUCE) {
+        if (api_key == k_kafka_api_fetch || api_key == k_kafka_api_produce) {
             u32 correlation_id = *invocation;
             kafka_client_req_t req = {
                 .type = EVENT_GO_KAFKA,

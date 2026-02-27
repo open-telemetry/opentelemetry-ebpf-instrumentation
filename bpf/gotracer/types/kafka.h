@@ -8,9 +8,11 @@
 #include <common/common.h>
 #include <common/tp_info.h>
 
-#define KAFKA_API_FETCH 0
-#define KAFKA_API_PRODUCE 1
-#define KAFKA_API_KEY_POS 5
+enum {
+    k_kafka_api_fetch = 0,
+    k_kafka_api_produce = 1,
+    k_kafka_api_key_pos = 5,
+};
 
 typedef struct produce_req {
     u64 msg_ptr;

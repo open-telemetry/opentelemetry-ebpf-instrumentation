@@ -186,7 +186,7 @@ int obi_uprobe_protocol_roundtrip_ret(struct pt_regs *ctx) {
             kafka_go_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(kafka_go_req_t), 0);
             if (trace) {
                 trace->type = EVENT_GO_KAFKA_SEG;
-                trace->op = KAFKA_API_PRODUCE;
+                trace->op = k_kafka_api_produce;
                 trace->start_monotime_ns = p_ptr->start_monotime_ns;
                 trace->end_monotime_ns = bpf_ktime_get_ns();
 
@@ -232,7 +232,7 @@ int obi_uprobe_reader_read(struct pt_regs *ctx) {
     if (r_ptr) {
         kafka_go_req_t r = {
             .type = EVENT_GO_KAFKA_SEG,
-            .op = KAFKA_API_FETCH,
+            .op = k_kafka_api_fetch,
             .start_monotime_ns = 0,
         };
 
