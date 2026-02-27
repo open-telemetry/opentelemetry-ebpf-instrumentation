@@ -607,17 +607,15 @@ release-checksums:
 	@echo "### Generating checksums"
 	@mkdir -p $(RELEASE_DIR)
 	@cd $(RELEASE_DIR) && \
-	shopt -s nullglob && \
-	files=(obi-$(RELEASE_VERSION)-*.tar.gz) && \
-	if [ $${#files[@]} -eq 0 ]; then \
+	files=$$(find . -maxdepth 1 -name 'obi-$(RELEASE_VERSION)-*.tar.gz' | sed 's|^\./||' | sort) && \
+	if [ -z "$$files" ]; then \
 		echo "ERROR: No release archives found for obi-$(RELEASE_VERSION)-*.tar.gz in $(RELEASE_DIR)"; \
 		exit 1; \
 	fi && \
-	IFS=$$'\n' sorted_files=($$(printf '%s\n' "$${files[@]}" | sort)) && \
 	if command -v sha256sum >/dev/null 2>&1; then \
-		sha256sum "$${sorted_files[@]}" > SHA256SUMS; \
+		printf '%s\n' "$$files" | xargs sha256sum > SHA256SUMS; \
 	elif command -v shasum >/dev/null 2>&1; then \
-		shasum -a 256 "$${sorted_files[@]}" > SHA256SUMS; \
+		printf '%s\n' "$$files" | xargs shasum -a 256 > SHA256SUMS; \
 	else \
 		echo "ERROR: Neither sha256sum nor shasum found. Please install coreutils or use macOS builtin shasum."; \
 		exit 1; \
