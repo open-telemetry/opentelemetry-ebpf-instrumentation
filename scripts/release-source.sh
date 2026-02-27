@@ -27,8 +27,15 @@ readonly DEFAULT_RELEASE_DIR
 DETACHED_HEAD_FALLBACK_VERSION="main"
 readonly DETACHED_HEAD_FALLBACK_VERSION
 
-GENERATED_PATTERN='_bpfe[lb]\.go$|_bpfe[lb]\.o$|_bpfe[lb]\.go\.d$'
+GENERATED_PATTERN='_bpfe[lb]\.go$|_bpfe[lb]\.o$|_bpfe[lb]\.go\.d$|obi-java-agent\.jar$'
 readonly GENERATED_PATTERN
+
+JAVA_AGENT_EMBED_PATH="pkg/internal/java/embedded/obi-java-agent.jar"
+readonly JAVA_AGENT_EMBED_PATH
+
+# Placeholder value committed to git; replaced by java-docker-build.
+JAVA_AGENT_PLACEHOLDER="OBI_JAVA_AGENT_PLACEHOLDER"
+readonly JAVA_AGENT_PLACEHOLDER
 
 usage() {
   cat <<EOF
@@ -189,6 +196,20 @@ copy_generated_files() {
   printf '%s\n' "$generated_count"
 }
 
+copy_java_agent() {
+  local source_dir="$1"
+
+  [[ -f "$JAVA_AGENT_EMBED_PATH" ]] \
+    || die "Java agent JAR not found: $JAVA_AGENT_EMBED_PATH"
+
+  if grep -qF "$JAVA_AGENT_PLACEHOLDER" "$JAVA_AGENT_EMBED_PATH" 2>/dev/null; then
+    die "Java agent JAR is still a placeholder. Run 'make java-docker-build' first."
+  fi
+
+  mkdir -p "$source_dir/$(dirname "$JAVA_AGENT_EMBED_PATH")"
+  cp -a "$JAVA_AGENT_EMBED_PATH" "$source_dir/$JAVA_AGENT_EMBED_PATH"
+}
+
 count_generated_in_archive() {
   local archive_path="$1"
   tar -tf "$archive_path" | grep -Ec "$GENERATED_PATTERN" || true
@@ -235,7 +256,10 @@ main() {
   if [[ "$generated_count" -eq 0 ]]; then
     die "no generated bpf2go artifacts found to include in source archive"
   fi
-  log_info "Added ${generated_count} generated files to source archive"
+  log_info "Added ${generated_count} generated bpf2go files to source archive"
+
+  copy_java_agent "$source_dir"
+  log_info "Added Java agent JAR to source archive"
 
   archive_path="$RELEASE_DIR_ARG/obi-${RELEASE_VERSION_ARG}-source-generated.tar.gz"
   rm -f "$RELEASE_DIR_ARG"/obi-*-source-generated.tar.gz

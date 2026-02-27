@@ -598,7 +598,7 @@ release: artifact
 
 .PHONY: release-source
 RELEASE_SOURCE_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || git symbolic-ref --short -q HEAD || echo main)
-release-source: docker-generate
+release-source: docker-generate java-docker-build
 	@./scripts/release-source.sh --release-version "$(RELEASE_SOURCE_VERSION)" --release-dir "$(RELEASE_DIR)"
 	@$(MAKE) release-checksums RELEASE_VERSION=$(RELEASE_SOURCE_VERSION)
 
