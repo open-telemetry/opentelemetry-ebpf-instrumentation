@@ -47,13 +47,13 @@ func packetTypeToMethod(packetType mqttparser.PacketType) string {
 // Otherwise, returns MQTTInfo with the processed data. The ignore bool indicates whether the event
 // should be ignored for span creation (e.g., control packets like CONNECT).
 func ProcessPossibleMQTTEvent(event *TCPRequestInfo, pkt *LargeBuffer, rpkt *LargeBuffer) (*MQTTInfo, bool, error) {
-	// Bytes() is the documented escape hatch for external packages requiring contiguous []byte.
-	// The mqttparser package falls into this category — TODO: migrate when it accepts BinaryReader.
-	m, ignore, err := ProcessMQTTEvent(pkt.Bytes())
+	// CloneBytes(): mqttparser requires a contiguous []byte of the full payload regardless of
+	// cursor position — TODO: migrate when it accepts BinaryReader.
+	m, ignore, err := ProcessMQTTEvent(pkt.CloneBytes())
 	if err != nil {
 		// If we are getting the information in the response buffer, the event
 		// must be reversed and that's how we captured it.
-		m, ignore, err = ProcessMQTTEvent(rpkt.Bytes())
+		m, ignore, err = ProcessMQTTEvent(rpkt.CloneBytes())
 		if err == nil && !ignore {
 			reverseTCPEvent(event)
 		}
@@ -183,8 +183,8 @@ func isMQTT(pkt *LargeBuffer) bool {
 	if pkt == nil {
 		return false
 	}
-	// Bytes() escape hatch: mqttparser requires contiguous []byte.
-	_, err := mqttparser.NewMQTTControlPacket(pkt.Bytes())
+	// CloneBytes(): mqttparser requires contiguous []byte of the full payload.
+	_, err := mqttparser.NewMQTTControlPacket(pkt.CloneBytes())
 	return err == nil
 }
 

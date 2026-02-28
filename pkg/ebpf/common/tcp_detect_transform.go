@@ -43,8 +43,8 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	requestBuffer, responseBuffer := getBuffers(parseCtx, event)
 
 	if cfg.ProtocolDebug {
-		fmt.Printf("[>] %v\n", requestBuffer.Bytes())
-		fmt.Printf("[<] %v\n", responseBuffer.Bytes())
+		fmt.Printf("[>] %v\n", requestBuffer.CloneBytes())
+		fmt.Printf("[<] %v\n", responseBuffer.CloneBytes())
 	}
 
 	// We might know already the protocol for this event
@@ -193,8 +193,8 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	}
 
 	if cfg.ProtocolDebug {
-		fmt.Printf("![>] %v\n", requestBuffer.Bytes())
-		fmt.Printf("![<] %v\n", responseBuffer.Bytes())
+		fmt.Printf("![>] %v\n", requestBuffer.CloneBytes())
+		fmt.Printf("![<] %v\n", responseBuffer.CloneBytes())
 	}
 
 	return request.Span{}, true, nil // ignore if we couldn't parse it

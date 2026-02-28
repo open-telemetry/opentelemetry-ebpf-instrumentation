@@ -232,11 +232,12 @@ func (it *postgresMessageIterator) next() (msg postgresMessage) {
 		return
 	}
 
-	// Slice (retainable) because msg.data is sub-sliced in PARSE/BIND cases.
+	// ReadN is safe: all uses of msg.data convert it to a Go string before the next
+	// it.next() call, so scratch overwrite between iterations is not a concern.
 	// Use empty non-nil slice for zero-length payloads to match []byte{} semantics.
 	data := []byte{}
 	if payloadSize > 0 {
-		data, err = it.r.Slice(int(payloadSize))
+		data, err = it.r.ReadN(int(payloadSize))
 		if err != nil {
 			it.err = err
 			return

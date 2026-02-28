@@ -88,7 +88,7 @@ func extractTCPLargeBuffer(
 
 	if parseCtx.protocolDebug {
 		fmt.Printf("<<< LargeBufferExtract: (packet=%d direction=%d len=%d)\n%s\n",
-			key.packetType, key.direction, lb.Len(), string(lb.Bytes()))
+			key.packetType, key.direction, lb.Len(), string(lb.CloneBytes()))
 	}
 
 	parseCtx.largeBuffers.Remove(key)

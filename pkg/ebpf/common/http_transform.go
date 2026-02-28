@@ -269,8 +269,9 @@ func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *LargeBuffer) request.S
 		parsedHost bool
 	)
 
-	// Materialise once for the string-oriented helpers below.
-	// When requestBuffer is a single chunk (the common case) this is zero-copy.
+	// Reset so Bytes() returns the full request regardless of how far the caller's cursor
+	// advanced (e.g. after a failed http.ReadRequest). Zero-copy in the single-chunk case.
+	requestBuffer.ResetRead()
 	raw := requestBuffer.Bytes()
 
 	// When we can't find the connection info, we signal that through making the
