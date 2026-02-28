@@ -46,12 +46,14 @@ func packetTypeToMethod(packetType mqttparser.PacketType) string {
 // ProcessPossibleMQTTEvent processes a TCP packet and returns error if the packet is not a valid MQTT packet.
 // Otherwise, returns MQTTInfo with the processed data. The ignore bool indicates whether the event
 // should be ignored for span creation (e.g., control packets like CONNECT).
-func ProcessPossibleMQTTEvent(event *TCPRequestInfo, pkt []byte, rpkt []byte) (*MQTTInfo, bool, error) {
-	m, ignore, err := ProcessMQTTEvent(pkt)
+func ProcessPossibleMQTTEvent(event *TCPRequestInfo, pkt *LargeBuffer, rpkt *LargeBuffer) (*MQTTInfo, bool, error) {
+	// Bytes() is the documented escape hatch for external packages requiring contiguous []byte.
+	// The mqttparser package falls into this category — TODO: migrate when it accepts BinaryReader.
+	m, ignore, err := ProcessMQTTEvent(pkt.Bytes())
 	if err != nil {
 		// If we are getting the information in the response buffer, the event
 		// must be reversed and that's how we captured it.
-		m, ignore, err = ProcessMQTTEvent(rpkt)
+		m, ignore, err = ProcessMQTTEvent(rpkt.Bytes())
 		if err == nil && !ignore {
 			reverseTCPEvent(event)
 		}
@@ -177,8 +179,12 @@ func processConnectPacket(pkt []byte, offset int) (*MQTTInfo, bool, error) {
 
 // isMQTT performs a quick heuristic check to determine if the packet looks like MQTT.
 // This is used for userspace protocol detection when the kernel hasn't classified the protocol.
-func isMQTT(pkt []byte) bool {
-	_, err := mqttparser.NewMQTTControlPacket(pkt)
+func isMQTT(pkt *LargeBuffer) bool {
+	if pkt == nil {
+		return false
+	}
+	// Bytes() escape hatch: mqttparser requires contiguous []byte.
+	_, err := mqttparser.NewMQTTControlPacket(pkt.Bytes())
 	return err == nil
 }
 

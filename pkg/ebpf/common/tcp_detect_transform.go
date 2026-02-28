@@ -43,8 +43,8 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	requestBuffer, responseBuffer := getBuffers(parseCtx, event)
 
 	if cfg.ProtocolDebug {
-		fmt.Printf("[>] %v\n", requestBuffer)
-		fmt.Printf("[<] %v\n", responseBuffer)
+		fmt.Printf("[>] %v\n", requestBuffer.Bytes())
+		fmt.Printf("[<] %v\n", responseBuffer.Bytes())
 	}
 
 	// We might know already the protocol for this event
@@ -136,13 +136,16 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 
 	switch {
 	case isRedis(requestBuffer) && isRedis(responseBuffer):
-		op, text, ok := parseRedisRequest(string(requestBuffer))
+		// Peek — non-advancing; isRedis already used Peek so cursors are still at 0.
+		reqData, _ := requestBuffer.Peek(requestBuffer.Remaining())
+		op, text, ok := parseRedisRequest(string(reqData))
 
 		if ok {
 			var status int
 			var redisErr request.DBError
 			if op == "" {
-				op, text, ok = parseRedisRequest(string(responseBuffer))
+				respData, _ := responseBuffer.Peek(responseBuffer.Remaining())
+				op, text, ok = parseRedisRequest(string(respData))
 				if !ok || op == "" {
 					return request.Span{}, true, nil // ignore if we couldn't parse it
 				}
@@ -190,25 +193,25 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	}
 
 	if cfg.ProtocolDebug {
-		fmt.Printf("![>] %v\n", requestBuffer)
-		fmt.Printf("![<] %v\n", responseBuffer)
+		fmt.Printf("![>] %v\n", requestBuffer.Bytes())
+		fmt.Printf("![<] %v\n", responseBuffer.Bytes())
 	}
 
 	return request.Span{}, true, nil // ignore if we couldn't parse it
 }
 
-func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req []byte, resp []byte) {
+func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req *LargeBuffer, resp *LargeBuffer) {
 	l := int(event.Len)
 	if l < 0 || len(event.Buf) < l {
 		l = len(event.Buf)
 	}
-	req = event.Buf[:l]
+	req = NewLargeBufferFrom(event.Buf[:l])
 
 	l = int(event.RespLen)
 	if l < 0 || len(event.Rbuf) < l {
 		l = len(event.Rbuf)
 	}
-	resp = event.Rbuf[:l]
+	resp = NewLargeBufferFrom(event.Rbuf[:l])
 
 	if event.HasLargeBuffers == 1 {
 		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, !event.IsServer), event.ConnInfo); ok {

@@ -191,7 +191,7 @@ func ReadHTTPInfoIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record, fi
 
 func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (request.Span, bool, error) {
 	var (
-		requestBuffer, responseBuffer []byte
+		requestBuffer, responseBuffer *LargeBuffer
 		hasResponse                   bool
 		isClient                      = isClientEvent(event.Type)
 	)
@@ -204,7 +204,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 			requestBuffer = b
 		} else {
 			slog.Debug("missing large buffer for HTTP request", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "packetType", packetTypeRequest)
-			requestBuffer = event.Buf[:]
+			requestBuffer = NewLargeBufferFrom(event.Buf[:])
 		}
 
 		b, ok = extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo)
@@ -215,7 +215,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 			slog.Debug("missing large buffer for HTTP response", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "packetType", packetTypeResponse)
 		}
 	} else {
-		requestBuffer = event.Buf[:]
+		requestBuffer = NewLargeBufferFrom(event.Buf[:])
 	}
 
 	if parseCtx != nil && !parseCtx.payloadExtraction.Enabled() {
@@ -229,7 +229,9 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 		return httpRequestToSpan(event, requestBuffer), false, nil
 	}
 
-	req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(requestBuffer)))
+	// LargeBuffer implements io.Reader — no intermediate bytes.NewReader needed.
+	// http.ReadRequest requires a *bufio.Reader; that one allocation is unavoidable.
+	req, err := http.ReadRequest(bufio.NewReader(requestBuffer))
 	resp, err2 := httpSafeParseResponse(responseBuffer, req)
 	if err != nil || err2 != nil {
 		slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "reqErr", err, "respErr", err2)
@@ -242,25 +244,34 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 // HTTP response buffers might have been sent incomplete, before the full body.
 // Try to parse the original buffer first, if an EOF is encountered, append an empty
 // body to the buffer and try again.
-func httpSafeParseResponse(responseBuffer []byte, req *http.Request) (*http.Response, error) {
-	rd := bufio.NewReader(bytes.NewReader(responseBuffer))
+//
+// Using AppendChunk + ResetRead avoids copying the entire response into a new flat
+// []byte. The bufio.Reader is reused across both attempts via Reset.
+func httpSafeParseResponse(responseBuffer *LargeBuffer, req *http.Request) (*http.Response, error) {
+	responseBuffer.ResetRead()
+	rd := bufio.NewReader(responseBuffer)
 	resp, err := http.ReadResponse(rd, req)
 	if err != nil && errors.Is(err, io.ErrUnexpectedEOF) {
-		// Append empty body and try again
-		responseBuffer := append(responseBuffer, []byte("\r\n\r\n")...)
-		rd = bufio.NewReader(bytes.NewReader(responseBuffer))
+		// Append empty body terminator and retry using the same bufio.Reader.
+		responseBuffer.AppendChunk([]byte("\r\n\r\n"))
+		responseBuffer.ResetRead()
+		rd.Reset(responseBuffer)
 		return http.ReadResponse(rd, req)
 	}
 	return resp, nil
 }
 
-func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer []byte) request.Span {
+func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *LargeBuffer) request.Span {
 	var (
 		result     = HTTPInfo{BPFHTTPInfo: *event}
 		bufHost    string
 		bufPort    int
 		parsedHost bool
 	)
+
+	// Materialise once for the string-oriented helpers below.
+	// When requestBuffer is a single chunk (the common case) this is zero-copy.
+	raw := requestBuffer.Bytes()
 
 	// When we can't find the connection info, we signal that through making the
 	// source and destination ports equal to max short. E.g. async SSL
@@ -269,7 +280,7 @@ func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer []byte) request.Span {
 		result.Host = target
 		result.Peer = source
 	} else {
-		bufHost, bufPort = httpHostFromBuf(requestBuffer)
+		bufHost, bufPort = httpHostFromBuf(raw)
 		parsedHost = true
 
 		if bufPort >= 0 {
@@ -277,11 +288,11 @@ func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer []byte) request.Span {
 			result.ConnInfo.D_port = uint16(bufPort)
 		}
 	}
-	result.URL = httpURLFromBuf(requestBuffer)
-	result.Method = httpMethodFromBuf(requestBuffer)
+	result.URL = httpURLFromBuf(raw)
+	result.Method = httpMethodFromBuf(raw)
 
 	if request.EventType(result.Type) == request.EventTypeHTTPClient && !parsedHost {
-		bufHost, _ = httpHostFromBuf(requestBuffer)
+		bufHost, _ = httpHostFromBuf(raw)
 	}
 
 	result.HeaderHost = bufHost

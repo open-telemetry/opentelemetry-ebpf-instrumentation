@@ -174,7 +174,7 @@ type EBPFParseContext struct {
 	h2c                        *lru.Cache[uint64, h2Connection]
 	redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
 	couchbaseBucketCache       *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
-	largeBuffers               *expirable.LRU[largeBufferKey, *largeBuffer]
+	largeBuffers               *expirable.LRU[largeBufferKey, *LargeBuffer]
 	mongoRequestCache          PendingMongoDBRequests
 	mysqlPreparedStatements    *simplelru.LRU[mysqlPreparedStatementsKey, string]
 	postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, string]
@@ -213,7 +213,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	)
 
 	h2c, _ := lru.New[uint64, h2Connection](1024 * 10)
-	largeBuffers := expirable.NewLRU[largeBufferKey, *largeBuffer](1024, nil, 5*time.Minute)
+	largeBuffers := expirable.NewLRU[largeBufferKey, *LargeBuffer](1024, nil, 5*time.Minute)
 
 	if cfg != nil {
 		protocolDebug = cfg.ProtocolDebug

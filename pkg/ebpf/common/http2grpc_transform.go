@@ -544,16 +544,21 @@ func isLikelyHTTP2(data []uint8, eventLen int) bool {
 	return false
 }
 
-func isHTTP2(data []uint8, eventLen int) bool {
+func isHTTP2(data *LargeBuffer, eventLen int) bool {
 	// Parsing HTTP2 frames with the Go HTTP2/gRPC parser is very expensive.
 	// Therefore, we replicate some of our HTTP2 frame reader from eBPF here to
 	// check if this payload even remotely looks like HTTP2/gRPC, e.g. we must
 	// find a resonably looking HTTP "headers" frame.
-	if !isLikelyHTTP2(data, eventLen) {
+	// ResetRead: always check from the start (caller may have read other protocols first).
+	data.ResetRead()
+	// Peek — non-advancing, zero-copy within chunk.
+	raw, _ := data.Peek(data.Remaining())
+	if !isLikelyHTTP2(raw, eventLen) {
 		return false
 	}
 
-	framer := byteFramer(data)
+	// data implements io.Reader — pass directly; cursor is at 0 after Peek.
+	framer := http2.NewFramer(io.Discard, data)
 
 	for {
 		f, err := framer.ReadFrame()

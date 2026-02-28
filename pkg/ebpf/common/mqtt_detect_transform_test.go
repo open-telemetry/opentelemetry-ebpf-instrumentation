@@ -295,7 +295,7 @@ func TestProcessPossibleMQTTEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			event := &TCPRequestInfo{}
-			res, _, err := ProcessPossibleMQTTEvent(event, tt.request, tt.response)
+			res, _, err := ProcessPossibleMQTTEvent(event, NewLargeBufferFrom(tt.request), NewLargeBufferFrom(tt.response))
 			if tt.err {
 				assert.Error(t, err)
 				return
@@ -429,7 +429,7 @@ func TestIsMQTT(t *testing.T) {
 	validPacket := []byte{0xC0, 0x00}   // PINGREQ - minimal valid MQTT packet
 	invalidPacket := []byte{0x00, 0x00} // Reserved packet type (invalid)
 
-	assert.True(t, isMQTT(validPacket), "valid MQTT packet should return true")
-	assert.False(t, isMQTT(invalidPacket), "invalid packet should return false")
+	assert.True(t, isMQTT(NewLargeBufferFrom(validPacket)), "valid MQTT packet should return true")
+	assert.False(t, isMQTT(NewLargeBufferFrom(invalidPacket)), "invalid packet should return false")
 	assert.False(t, isMQTT(nil), "nil packet should return false")
 }

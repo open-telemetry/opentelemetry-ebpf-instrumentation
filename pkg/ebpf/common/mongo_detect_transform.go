@@ -359,17 +359,23 @@ func validateFlagBits(flagBits int32) error {
 	return nil
 }
 
-func mongoInfoFromEvent(event *TCPRequestInfo, requestBuffer []byte, responseBuffer []byte, mongoRequestCache PendingMongoDBRequests) *mongoSpanInfo {
+func mongoInfoFromEvent(event *TCPRequestInfo, requestBuffer *LargeBuffer, responseBuffer *LargeBuffer, mongoRequestCache PendingMongoDBRequests) *mongoSpanInfo {
 	if event.Direction == 0 {
 		return nil
 	}
+	// ResetRead: we always parse from the beginning of the buffer.
+	requestBuffer.ResetRead()
+	responseBuffer.ResetRead()
+	// ReadN(remaining) — zero-copy for single-chunk; scratch-reuse for multi-chunk.
+	reqRaw, _ := requestBuffer.ReadN(requestBuffer.Remaining())
+	respRaw, _ := responseBuffer.ReadN(responseBuffer.Remaining())
 	var mongoRequest *MongoRequestValue
 	var moreToCome bool
-	_, _, err := ProcessMongoEvent(requestBuffer, int64(event.StartMonotimeNs), int64(event.EndMonotimeNs), event.ConnInfo, mongoRequestCache)
+	_, _, err := ProcessMongoEvent(reqRaw, int64(event.StartMonotimeNs), int64(event.EndMonotimeNs), event.ConnInfo, mongoRequestCache)
 	if err != nil {
 		return nil
 	}
-	mongoRequest, moreToCome, err = ProcessMongoEvent(responseBuffer, int64(event.StartMonotimeNs), int64(event.EndMonotimeNs), event.ConnInfo, mongoRequestCache)
+	mongoRequest, moreToCome, err = ProcessMongoEvent(respRaw, int64(event.StartMonotimeNs), int64(event.EndMonotimeNs), event.ConnInfo, mongoRequestCache)
 	if err != nil || mongoRequest == nil || moreToCome {
 		return nil
 	}

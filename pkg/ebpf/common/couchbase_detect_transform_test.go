@@ -551,7 +551,7 @@ func TestProcessPossibleCouchbaseEventReversedBuffers(t *testing.T) {
 	}
 
 	// Test with buffers in correct order
-	info, ignore, err := ProcessPossibleCouchbaseEvent(event, requestBuf, responseBuf, cache)
+	info, ignore, err := ProcessPossibleCouchbaseEvent(event, NewLargeBufferFrom(requestBuf), NewLargeBufferFrom(responseBuf), cache)
 	require.NoError(t, err)
 	assert.False(t, ignore)
 	assert.Equal(t, "GET", info.Operation)
@@ -563,7 +563,7 @@ func TestProcessPossibleCouchbaseEventReversedBuffers(t *testing.T) {
 		ConnInfo:  connInfo,
 		Direction: 1,
 	}
-	info, ignore, err = ProcessPossibleCouchbaseEvent(event2, garbageBuf, requestBuf, cache)
+	info, ignore, err = ProcessPossibleCouchbaseEvent(event2, NewLargeBufferFrom(garbageBuf), NewLargeBufferFrom(requestBuf), cache)
 	require.NoError(t, err)
 	assert.False(t, ignore)
 	require.NotNil(t, info)
@@ -594,7 +594,7 @@ func TestProcessPossibleCouchbaseEventConnectionIsolation(t *testing.T) {
 	selectBucket1Resp := makeCouchbaseResponsePacket(couchbasekv.OpcodeSelectBucket, couchbasekv.StatusSuccess, "")
 
 	event1 := &TCPRequestInfo{ConnInfo: connInfo1, Direction: 1}
-	_, ignore, err := ProcessPossibleCouchbaseEvent(event1, selectBucket1Req, selectBucket1Resp, cache)
+	_, ignore, err := ProcessPossibleCouchbaseEvent(event1, NewLargeBufferFrom(selectBucket1Req), NewLargeBufferFrom(selectBucket1Resp), cache)
 	require.NoError(t, err)
 	assert.True(t, ignore) // SELECT_BUCKET is ignored
 
@@ -603,7 +603,7 @@ func TestProcessPossibleCouchbaseEventConnectionIsolation(t *testing.T) {
 	selectBucket2Resp := makeCouchbaseResponsePacket(couchbasekv.OpcodeSelectBucket, couchbasekv.StatusSuccess, "")
 
 	event2 := &TCPRequestInfo{ConnInfo: connInfo2, Direction: 1}
-	_, ignore, err = ProcessPossibleCouchbaseEvent(event2, selectBucket2Req, selectBucket2Resp, cache)
+	_, ignore, err = ProcessPossibleCouchbaseEvent(event2, NewLargeBufferFrom(selectBucket2Req), NewLargeBufferFrom(selectBucket2Resp), cache)
 	require.NoError(t, err)
 	assert.True(t, ignore)
 
@@ -612,7 +612,7 @@ func TestProcessPossibleCouchbaseEventConnectionIsolation(t *testing.T) {
 	getCollID1Resp := makeCouchbaseResponsePacket(couchbasekv.OpcodeCollectionsGetID, couchbasekv.StatusSuccess, "")
 
 	event1 = &TCPRequestInfo{ConnInfo: connInfo1, Direction: 1}
-	_, ignore, err = ProcessPossibleCouchbaseEvent(event1, getCollID1Req, getCollID1Resp, cache)
+	_, ignore, err = ProcessPossibleCouchbaseEvent(event1, NewLargeBufferFrom(getCollID1Req), NewLargeBufferFrom(getCollID1Resp), cache)
 	require.NoError(t, err)
 	assert.True(t, ignore)
 
@@ -621,7 +621,7 @@ func TestProcessPossibleCouchbaseEventConnectionIsolation(t *testing.T) {
 	getCollID2Resp := makeCouchbaseResponsePacket(couchbasekv.OpcodeCollectionsGetID, couchbasekv.StatusSuccess, "")
 
 	event2 = &TCPRequestInfo{ConnInfo: connInfo2, Direction: 1}
-	_, ignore, err = ProcessPossibleCouchbaseEvent(event2, getCollID2Req, getCollID2Resp, cache)
+	_, ignore, err = ProcessPossibleCouchbaseEvent(event2, NewLargeBufferFrom(getCollID2Req), NewLargeBufferFrom(getCollID2Resp), cache)
 	require.NoError(t, err)
 	assert.True(t, ignore)
 
@@ -631,7 +631,7 @@ func TestProcessPossibleCouchbaseEventConnectionIsolation(t *testing.T) {
 
 	// GET on connection 1 should have bucket1/scope1/coll1
 	event1 = &TCPRequestInfo{ConnInfo: connInfo1, Direction: 1}
-	info1, ignore, err := ProcessPossibleCouchbaseEvent(event1, getReq, getResp, cache)
+	info1, ignore, err := ProcessPossibleCouchbaseEvent(event1, NewLargeBufferFrom(getReq), NewLargeBufferFrom(getResp), cache)
 	require.NoError(t, err)
 	assert.False(t, ignore)
 	require.NotNil(t, info1)
@@ -641,7 +641,7 @@ func TestProcessPossibleCouchbaseEventConnectionIsolation(t *testing.T) {
 
 	// GET on connection 2 should have bucket2/scope2/coll2
 	event2 = &TCPRequestInfo{ConnInfo: connInfo2, Direction: 1}
-	info2, ignore, err := ProcessPossibleCouchbaseEvent(event2, getReq, getResp, cache)
+	info2, ignore, err := ProcessPossibleCouchbaseEvent(event2, NewLargeBufferFrom(getReq), NewLargeBufferFrom(getResp), cache)
 	require.NoError(t, err)
 	assert.False(t, ignore)
 	require.NotNil(t, info2)

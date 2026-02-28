@@ -58,20 +58,27 @@ func isASCII(s string) bool {
 	return true
 }
 
-func detectSQLPayload(useHeuristics bool, b []byte) (string, string, string, request.SQLKind) {
-	sqlKind := sqlKind(b)
+func detectSQLPayload(useHeuristics bool, b *LargeBuffer) (string, string, string, request.SQLKind) {
+	// ResetRead: always parse from the start (caller may have read other protocols first).
+	b.ResetRead()
+	// Peek first 6 bytes for protocol detection — non-advancing, zero-copy within chunk.
+	// isPostgres needs 5 bytes, isMySQL needs 6 bytes.
+	header, _ := b.Peek(min(6, b.Remaining()))
+	sqlKind := sqlKind(header)
 	if !useHeuristics {
 		if sqlKind == request.DBGeneric {
 			return "", "", "", sqlKind
 		}
 	}
-	op, table, sql := detectSQL(string(b))
+	// ReadN(remaining) — zero-copy for single-chunk; scratch-reuse for multi-chunk.
+	raw, _ := b.ReadN(b.Remaining())
+	op, table, sql := detectSQL(string(raw))
 	if !validSQL(op, table, sqlKind) {
 		switch sqlKind {
 		case request.DBPostgres:
-			op, table, sql = postgresPreparedStatements(b)
+			op, table, sql = postgresPreparedStatements(raw)
 		case request.DBMySQL:
-			op, table, sql = mysqlPreparedStatements(b)
+			op, table, sql = mysqlPreparedStatements(raw)
 		}
 	}
 

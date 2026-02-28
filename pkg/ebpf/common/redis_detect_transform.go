@@ -32,12 +32,15 @@ var redisErrorCodes = [...]string{
 	"READONLY ",
 }
 
-func isRedis(buf []uint8) bool {
-	if len(buf) < minRedisFrameLen {
+func isRedis(buf *LargeBuffer) bool {
+	// ResetRead: always check from the start (caller may have read other protocols first).
+	buf.ResetRead()
+	if buf.Remaining() < minRedisFrameLen {
 		return false
 	}
-
-	return isRedisOp(buf)
+	// Peek — non-advancing; same buffer is re-used by parseRedisRequest / redisStatus.
+	data, _ := buf.Peek(buf.Remaining())
+	return isRedisOp(data)
 }
 
 //nolint:cyclop
@@ -183,13 +186,18 @@ func parseRedisRequest(buf string) (string, string, bool) {
 	return op, strings.TrimSpace(text.String()), true
 }
 
-func redisStatus(buf []byte) (request.DBError, int) {
+func redisStatus(buf *LargeBuffer) (request.DBError, int) {
+	if buf.Remaining() == 0 {
+		return request.DBError{}, 0
+	}
+	// Peek — non-advancing; zero-copy within chunk.
+	data, _ := buf.Peek(buf.Remaining())
 	status := 0
-	firstChar := buf[0]
+	firstChar := data[0]
 	if firstChar != '-' {
 		return request.DBError{}, status
 	}
-	dbError, isError := getRedisError(buf[1:])
+	dbError, isError := getRedisError(data[1:])
 	if isError {
 		status = 1
 	}

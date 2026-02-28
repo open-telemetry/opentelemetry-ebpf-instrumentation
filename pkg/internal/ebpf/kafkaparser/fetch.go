@@ -19,15 +19,14 @@ type FetchRequest struct {
 	Topics []*FetchTopic
 }
 
-func ParseFetchRequest(pkt []byte, header *KafkaRequestHeader, offset Offset) (*FetchRequest, error) {
-	offset, err := fetchRequestSkipUntilTopics(pkt, header, offset)
-	if err != nil {
+func ParseFetchRequest(r byteReader, header *KafkaRequestHeader) (*FetchRequest, error) {
+	if err := fetchRequestSkipUntilTopics(r, header); err != nil {
 		return nil, err
 	}
-	if offset >= len(pkt) {
+	if r.Remaining() == 0 {
 		return nil, errors.New("offset exceeds packet size")
 	}
-	topics, err := parseFetchTopics(pkt, header, offset)
+	topics, err := parseFetchTopics(r, header)
 	if err != nil {
 		return nil, err
 	}
@@ -39,8 +38,8 @@ func ParseFetchRequest(pkt []byte, header *KafkaRequestHeader, offset Offset) (*
 	}, nil
 }
 
-func fetchRequestSkipUntilTopics(pkt []byte, header *KafkaRequestHeader, offset Offset) (Offset, error) {
-	var err error
+func fetchRequestSkipUntilTopics(r byteReader, header *KafkaRequestHeader) error {
+	var skipLen int
 	switch {
 	case header.APIVersion >= 15:
 		/*
@@ -53,14 +52,12 @@ func fetchRequestSkipUntilTopics(pkt []byte, header *KafkaRequestHeader, offset 
 			  session_epoch => INT32
 			  Topics => ...
 		*/
-		offset, err = skipBytes(pkt, offset,
-			Int32Len+ // max_wait_ms
-				Int32Len+ // min_bytes
-				Int32Len+ // max_bytes
-				Int8Len+ // isolation_level
-				Int32Len+ // session_id
-				Int32Len, // session_epoch
-		)
+		skipLen = Int32Len + // max_wait_ms
+			Int32Len + // min_bytes
+			Int32Len + // max_bytes
+			Int8Len + // isolation_level
+			Int32Len + // session_id
+			Int32Len // session_epoch
 	case header.APIVersion >= 7:
 		/*
 				Fetch Request (Version: 7-14) => replica_id max_wait_ms min_bytes max_bytes isolation_level session_id session_epoch ...
@@ -73,15 +70,13 @@ func fetchRequestSkipUntilTopics(pkt []byte, header *KafkaRequestHeader, offset 
 				  session_epoch => INT32
 				  Topics => ...
 		*/
-		offset, err = skipBytes(pkt, offset,
-			Int32Len+ // replica_id
-				Int32Len+ // max_wait_ms
-				Int32Len+ // min_bytes
-				Int32Len+ // max_bytes
-				Int8Len+ // isolation_level
-				Int32Len+ // session_id
-				Int32Len, // session_epoch
-		)
+		skipLen = Int32Len + // replica_id
+			Int32Len + // max_wait_ms
+			Int32Len + // min_bytes
+			Int32Len + // max_bytes
+			Int8Len + // isolation_level
+			Int32Len + // session_id
+			Int32Len // session_epoch
 
 	case header.APIVersion >= 4:
 		/*
@@ -93,29 +88,26 @@ func fetchRequestSkipUntilTopics(pkt []byte, header *KafkaRequestHeader, offset 
 			  isolation_level => INT8
 			  Topics => ...
 		*/
-		offset, err = skipBytes(pkt, offset,
-			Int32Len+ // replica_id
-				Int32Len+ // max_wait_ms
-				Int32Len+ // min_bytes
-				Int32Len+ // max_bytes
-				Int8Len, // isolation_level
-		)
+		skipLen = Int32Len + // replica_id
+			Int32Len + // max_wait_ms
+			Int32Len + // min_bytes
+			Int32Len + // max_bytes
+			Int8Len // isolation_level
 	}
-	if err != nil {
-		return 0, err
+	if skipLen > 0 {
+		return r.Skip(skipLen)
 	}
-	return offset, nil
+	return nil
 }
 
-func parseFetchTopics(pkt []byte, header *KafkaRequestHeader, offset Offset) ([]*FetchTopic, error) {
-	topicsLen, offset, err := readArrayLength(pkt, header, offset)
+func parseFetchTopics(r byteReader, header *KafkaRequestHeader) ([]*FetchTopic, error) {
+	topicsLen, err := readArrayLength(r, header)
 	if err != nil {
 		return nil, err
 	}
 	var topics []*FetchTopic
-	var topic *FetchTopic
 	for range topicsLen {
-		topic, offset, err = parseFetchTopic(pkt, header, offset)
+		topic, err := parseFetchTopic(r, header)
 		if err != nil {
 			// return the Topics parsed so far, even if one topic failed
 			return topics, nil
@@ -124,10 +116,10 @@ func parseFetchTopics(pkt []byte, header *KafkaRequestHeader, offset Offset) ([]
 			topics = append(topics, topic)
 		}
 	}
-	return topics, err
+	return topics, nil
 }
 
-func parseFetchTopic(pkt []byte, header *KafkaRequestHeader, offset Offset) (*FetchTopic, Offset, error) {
+func parseFetchTopic(r byteReader, header *KafkaRequestHeader) (*FetchTopic, error) {
 	var topic FetchTopic
 	var err error
 	if header.APIVersion >= 13 {
@@ -139,9 +131,9 @@ func parseFetchTopic(pkt []byte, header *KafkaRequestHeader, offset Offset) (*Fe
 		    topic_id => UUID
 		*/
 		var topicUUID *UUID
-		topicUUID, offset, err = readUUID(pkt, offset)
+		topicUUID, err = readUUID(r)
 		if err != nil {
-			return nil, offset, err
+			return nil, err
 		}
 		topic.UUID = topicUUID
 	} else {
@@ -150,49 +142,47 @@ func parseFetchTopic(pkt []byte, header *KafkaRequestHeader, offset Offset) (*Fe
 		    topic => STRING / COMPACT_STRING
 		*/
 		var topicName string
-		topicName, offset, err = readString(pkt, header, offset, false)
+		topicName, err = readString(r, header, false)
 		if err != nil {
-			return nil, offset, err
+			return nil, err
 		}
 		topic.Name = topicName
 	}
-	partitionCount, offset, err := readArrayLength(pkt, header, offset)
+	partitionCount, err := readArrayLength(r, header)
 	if err != nil {
 		// if we fail to read Partition count, we can still return the topic
-		return &topic, offset, nil
+		return &topic, nil
 	}
 	if partitionCount != 1 {
 		// no need to capture multiple partitions for fetch request, if its 1 Partition we can add it to the span
-		offset, err = skipFetchPartitions(pkt, header, offset, partitionCount)
-		if err != nil {
+		if err = skipFetchPartitions(r, header, partitionCount); err != nil {
 			// if we fail to skip partitions, we can still return the topic
-			return &topic, offset, nil
+			return &topic, nil
 		}
 	} else {
 		var partition *FetchPartition
-		partition, offset, err = parseFetchPartition(pkt, header, offset)
+		partition, err = parseFetchPartition(r, header)
 		if err != nil {
 			// if we fail to parse Partition, we can still return the topic
-			return &topic, offset, nil
+			return &topic, nil
 		}
 		topic.Partition = partition
 	}
-	offset, err = skipTaggedFields(pkt, header, offset)
-	if err != nil {
-		return &topic, offset, nil
+	if err = skipTaggedFields(r, header); err != nil {
+		return &topic, nil
 	}
-	return &topic, offset, nil
+	return &topic, nil
 }
 
-func parseFetchPartition(pkt []byte, header *KafkaRequestHeader, offset Offset) (*FetchPartition, Offset, error) {
+func parseFetchPartition(r byteReader, header *KafkaRequestHeader) (*FetchPartition, error) {
 	/*
 	   partitions => Partition fetch_offset log_start_offset partition_max_bytes
 	     Partition => INT32
 	     fetch_offset => INT64
 	*/
-	partition, offset, err := readInt32(pkt, offset)
+	partition, err := readInt32(r)
 	if err != nil {
-		return nil, offset, err
+		return nil, err
 	}
 	if header.APIVersion >= 9 {
 		/*
@@ -202,22 +192,21 @@ func parseFetchPartition(pkt []byte, header *KafkaRequestHeader, offset Offset) 
 			      current_leader_epoch => INT32
 			      fetch_offset => INT64
 		*/
-		offset, err = skipBytes(pkt, offset, Int32Len) // current_leader_epoch
-		if err != nil {
-			return nil, offset, err
+		if err = r.Skip(Int32Len); err != nil { // current_leader_epoch
+			return nil, err
 		}
 	}
-	fetchOffset, offset, err := readInt64(pkt, offset)
+	fetchOffset, err := readInt64(r)
 	if err != nil {
-		return nil, offset, err
+		return nil, err
 	}
 	return &FetchPartition{
 		Partition:   partition,
 		FetchOffset: fetchOffset,
-	}, offset, nil
+	}, nil
 }
 
-func skipFetchPartitions(pkt []byte, header *KafkaRequestHeader, offset Offset, partitionCount int) (Offset, error) {
+func skipFetchPartitions(r byteReader, header *KafkaRequestHeader, partitionCount int) error {
 	var fetchPartitionLen int
 	switch {
 	case header.APIVersion >= 12:
@@ -273,9 +262,5 @@ func skipFetchPartitions(pkt []byte, header *KafkaRequestHeader, offset Offset, 
 			Int64Len + // fetch_offset
 			Int32Len // partition_max_bytes
 	}
-	offset, err := skipBytes(pkt, offset, fetchPartitionLen*partitionCount)
-	if err != nil {
-		return 0, err
-	}
-	return offset, nil
+	return r.Skip(fetchPartitionLen * partitionCount)
 }

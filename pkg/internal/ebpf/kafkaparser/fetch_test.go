@@ -354,7 +354,7 @@ func TestParseFetchRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, err := ParseFetchRequest(tt.packet, tt.header, 0)
+			req, err := ParseFetchRequest(newBytesReader(tt.packet), tt.header)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -398,7 +398,7 @@ func TestParseFetchRequestTruncation(t *testing.T) {
 			for i := 1; i < len(validPacket); i++ {
 				t.Run(fmt.Sprintf("truncated_at_%d", i), func(t *testing.T) {
 					truncated := validPacket[:i]
-					_, err := ParseFetchRequest(truncated, header, 0)
+					_, err := ParseFetchRequest(newBytesReader(truncated), header)
 					assert.Error(t, err, "expected error for truncated packet at position %d for version %d", i, version)
 				})
 			}
