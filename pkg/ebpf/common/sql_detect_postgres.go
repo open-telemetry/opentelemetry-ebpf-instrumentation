@@ -192,7 +192,7 @@ type postgresMessage struct {
 }
 
 type postgresMessageIterator struct {
-	buf []byte
+	r   *LargeBufferReader
 	err error
 	eof bool
 }
@@ -202,19 +202,24 @@ func (it *postgresMessageIterator) isEOF() bool {
 }
 
 func (it *postgresMessageIterator) next() (msg postgresMessage) {
-	if it.err != nil || len(it.buf) == 0 {
+	if it.err != nil || it.r.Remaining() == 0 {
 		it.eof = true
 		return
 	}
-	if len(it.buf) < sqlprune.PostgresHdrSize {
+	if it.r.Remaining() < sqlprune.PostgresHdrSize {
 		it.err = errors.New("remaining buffer too short for message header")
 		return
 	}
 
-	msgType := sqlprune.SQLParseCommandID(request.DBPostgres, it.buf)
-	it.buf = it.buf[1:]
-	size := int32(binary.BigEndian.Uint32(it.buf[:4]))
-	it.buf = it.buf[4:]
+	// Read the 5-byte header (type byte + 4-byte size) atomically.
+	// SQLParseCommandID needs buf[0] as the type byte; it requires len(buf) >= PostgresHdrSize (5).
+	hdrBuf, err := it.r.ReadN(sqlprune.PostgresHdrSize)
+	if err != nil {
+		it.err = err
+		return
+	}
+	msgType := sqlprune.SQLParseCommandID(request.DBPostgres, hdrBuf)
+	size := int32(binary.BigEndian.Uint32(hdrBuf[1:5]))
 
 	if size < sqlprune.PostgresHdrSize-1 {
 		it.err = errors.New("malformed Postgres message")
@@ -222,38 +227,50 @@ func (it *postgresMessageIterator) next() (msg postgresMessage) {
 	}
 
 	payloadSize := size - sqlprune.PostgresHdrSize + 1
-	if len(it.buf) < int(payloadSize) {
-		it.err = fmt.Errorf("remaining buffer too short for message data: expected %d bytes, got %d", payloadSize, len(it.buf))
+	if it.r.Remaining() < int(payloadSize) {
+		it.err = fmt.Errorf("remaining buffer too short for message data: expected %d bytes, got %d", payloadSize, it.r.Remaining())
 		return
 	}
 
-	data := it.buf[:payloadSize]
-	it.buf = it.buf[payloadSize:]
+	// ReadN is safe: all uses of msg.data convert it to a Go string before the next
+	// it.next() call, so scratch overwrite between iterations is not a concern.
+	// Use empty non-nil slice for zero-length payloads to match []byte{} semantics.
+	data := []byte{}
+	if payloadSize > 0 {
+		data, err = it.r.ReadN(int(payloadSize))
+		if err != nil {
+			it.err = err
+			return
+		}
+	}
 
 	msg = postgresMessage{typ: msgType, data: data}
 	return
 }
 
-func handlePostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer []byte) (request.Span, error) {
+func handlePostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *LargeBufferReader) (request.Span, error) {
 	var (
 		hasSpan         bool
 		op, table, stmt string
 		span            request.Span
 	)
 
-	if len(requestBuffer) < sqlprune.PostgresHdrSize+1 {
+	if requestBuffer.Remaining() < sqlprune.PostgresHdrSize+1 {
 		slog.Debug("Postgres request too short")
 		return span, errFallback
 	}
-	if len(responseBuffer) < sqlprune.PostgresHdrSize+1 {
+	if responseBuffer.Remaining() < sqlprune.PostgresHdrSize+1 {
 		slog.Debug("Postgres response too short")
 		return span, errFallback
 	}
 
+	// ReadN(remaining) for response — materialized once for sqlprune.SQLParseError.
+	respRaw, _ := responseBuffer.ReadN(responseBuffer.Remaining())
+
 	var (
 		msg      postgresMessage
-		it       = &postgresMessageIterator{buf: requestBuffer}
-		sqlError = sqlprune.SQLParseError(request.DBPostgres, responseBuffer)
+		it       = &postgresMessageIterator{r: requestBuffer}
+		sqlError = sqlprune.SQLParseError(request.DBPostgres, respRaw)
 	)
 
 Loop:

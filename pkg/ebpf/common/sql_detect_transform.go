@@ -58,20 +58,21 @@ func isASCII(s string) bool {
 	return true
 }
 
-func detectSQLPayload(useHeuristics bool, b []byte) (string, string, string, request.SQLKind) {
-	sqlKind := sqlKind(b)
+func detectSQLPayload(useHeuristics bool, b *LargeBuffer) (string, string, string, request.SQLKind) {
+	raw := b.UnsafeView()
+	sqlKind := sqlKind(raw)
 	if !useHeuristics {
 		if sqlKind == request.DBGeneric {
 			return "", "", "", sqlKind
 		}
 	}
-	op, table, sql := detectSQL(string(b))
+	op, table, sql := detectSQL(string(raw))
 	if !validSQL(op, table, sqlKind) {
 		switch sqlKind {
 		case request.DBPostgres:
-			op, table, sql = postgresPreparedStatements(b)
+			op, table, sql = postgresPreparedStatements(raw)
 		case request.DBMySQL:
-			op, table, sql = mysqlPreparedStatements(b)
+			op, table, sql = mysqlPreparedStatements(raw)
 		}
 	}
 

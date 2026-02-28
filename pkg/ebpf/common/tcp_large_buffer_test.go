@@ -22,7 +22,7 @@ func TestTCPLargeBuffers(t *testing.T) {
 	verifyLargeBuffer := func(traceID [16]uint8, packetType, direction uint8, connInfo BpfConnectionInfoT, expectedBuf string) {
 		buf, ok := extractTCPLargeBuffer(pctx, traceID, packetType, direction, connInfo)
 		require.True(t, ok, "Expected to find large buffer")
-		require.Equal(t, expectedBuf, unix.ByteSliceToString(buf), "Buffer content mismatch")
+		require.Equal(t, expectedBuf, unix.ByteSliceToString(buf.UnsafeView()), "Buffer content mismatch")
 	}
 
 	firstEvent := TCPLargeBufferHeader{

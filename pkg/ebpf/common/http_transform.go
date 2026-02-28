@@ -191,7 +191,7 @@ func ReadHTTPInfoIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record, fi
 
 func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (request.Span, bool, error) {
 	var (
-		requestBuffer, responseBuffer []byte
+		requestBuffer, responseBuffer *LargeBuffer
 		hasResponse                   bool
 		isClient                      = isClientEvent(event.Type)
 	)
@@ -204,7 +204,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 			requestBuffer = b
 		} else {
 			slog.Debug("missing large buffer for HTTP request", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "packetType", packetTypeRequest)
-			requestBuffer = event.Buf[:]
+			requestBuffer = NewLargeBufferFrom(event.Buf[:])
 		}
 
 		b, ok = extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo)
@@ -215,7 +215,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 			slog.Debug("missing large buffer for HTTP response", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "packetType", packetTypeResponse)
 		}
 	} else {
-		requestBuffer = event.Buf[:]
+		requestBuffer = NewLargeBufferFrom(event.Buf[:])
 	}
 
 	if parseCtx != nil && !parseCtx.payloadExtraction.Enabled() {
@@ -229,7 +229,8 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 		return httpRequestToSpan(event, requestBuffer), false, nil
 	}
 
-	req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(requestBuffer)))
+	// http.ReadRequest requires a *bufio.Reader; that one allocation is unavoidable.
+	req, err := http.ReadRequest(bufio.NewReader(requestBuffer.NewReader()))
 	resp, err2 := httpSafeParseResponse(responseBuffer, req)
 	if err != nil || err2 != nil {
 		slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "reqErr", err, "respErr", err2)
@@ -242,25 +243,31 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 // HTTP response buffers might have been sent incomplete, before the full body.
 // Try to parse the original buffer first, if an EOF is encountered, append an empty
 // body to the buffer and try again.
-func httpSafeParseResponse(responseBuffer []byte, req *http.Request) (*http.Response, error) {
-	rd := bufio.NewReader(bytes.NewReader(responseBuffer))
+//
+// HTTP response buffers might have been sent incomplete, before the full body.
+// Try to parse the original buffer first, if an EOF is encountered, append an empty
+// body to the buffer and try again.
+func httpSafeParseResponse(responseBuffer *LargeBuffer, req *http.Request) (*http.Response, error) {
+	rd := bufio.NewReader(responseBuffer.NewReader())
 	resp, err := http.ReadResponse(rd, req)
 	if err != nil && errors.Is(err, io.ErrUnexpectedEOF) {
-		// Append empty body and try again
-		responseBuffer := append(responseBuffer, []byte("\r\n\r\n")...)
-		rd = bufio.NewReader(bytes.NewReader(responseBuffer))
+		// Append empty body terminator and retry with a fresh reader.
+		responseBuffer.AppendChunk([]byte("\r\n\r\n"))
+		rd.Reset(responseBuffer.NewReader())
 		return http.ReadResponse(rd, req)
 	}
 	return resp, nil
 }
 
-func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer []byte) request.Span {
+func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *LargeBuffer) request.Span {
 	var (
 		result     = HTTPInfo{BPFHTTPInfo: *event}
 		bufHost    string
 		bufPort    int
 		parsedHost bool
 	)
+
+	raw := requestBuffer.UnsafeView()
 
 	// When we can't find the connection info, we signal that through making the
 	// source and destination ports equal to max short. E.g. async SSL
@@ -269,7 +276,7 @@ func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer []byte) request.Span {
 		result.Host = target
 		result.Peer = source
 	} else {
-		bufHost, bufPort = httpHostFromBuf(requestBuffer)
+		bufHost, bufPort = httpHostFromBuf(raw)
 		parsedHost = true
 
 		if bufPort >= 0 {
@@ -277,11 +284,11 @@ func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer []byte) request.Span {
 			result.ConnInfo.D_port = uint16(bufPort)
 		}
 	}
-	result.URL = httpURLFromBuf(requestBuffer)
-	result.Method = httpMethodFromBuf(requestBuffer)
+	result.URL = httpURLFromBuf(raw)
+	result.Method = httpMethodFromBuf(raw)
 
 	if request.EventType(result.Type) == request.EventTypeHTTPClient && !parsedHost {
-		bufHost, _ = httpHostFromBuf(requestBuffer)
+		bufHost, _ = httpHostFromBuf(raw)
 	}
 
 	result.HeaderHost = bufHost
@@ -290,64 +297,55 @@ func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer []byte) request.Span {
 }
 
 func httpURLFromBuf(req []byte) string {
-	buf := string(req)
-	space := strings.Index(buf, " ")
+	if end := bytes.IndexByte(req, 0); end >= 0 {
+		req = req[:end]
+	}
+
+	space := bytes.IndexByte(req, ' ')
 	if space < 0 {
 		return ""
 	}
 
-	bufEnd := bytes.IndexByte(req, 0) // We assume the buffer was zero initialized in eBPF
-	if bufEnd < 0 {
-		bufEnd = len(buf)
-	}
+	req = req[space+1:]
 
-	if space+1 > bufEnd {
-		return ""
-	}
-
-	nextSpace := strings.IndexAny(buf[space+1:bufEnd], " \r\n")
+	nextSpace := bytes.IndexAny(req, " \r\n")
 	if nextSpace < 0 {
-		return buf[space+1 : bufEnd]
+		return string(req)
 	}
 
-	end := min(nextSpace+space+1, bufEnd)
-
-	return buf[space+1 : end]
+	return string(req[:nextSpace])
 }
 
 func httpMethodFromBuf(req []byte) string {
-	buf := string(req)
-	space := strings.Index(buf, " ")
-	if space < 0 {
+	method, _, found := bytes.Cut(req, []byte(" "))
+	if !found {
 		return ""
 	}
 
-	return buf[:space]
+	return string(method)
 }
 
 func httpHostFromBuf(req []byte) (string, int) {
-	buf := cstr(req)
+	if end := bytes.IndexByte(req, 0); end >= 0 {
+		req = req[:end]
+	}
 
-	host := "Host: "
-	idx := strings.Index(buf, host)
-
+	idx := bytes.Index(req, []byte("Host: "))
 	if idx < 0 {
 		return "", -1
 	}
 
-	buf = buf[idx+len(host):]
-
-	rIdx := strings.Index(buf, "\r")
+	req = req[idx+len("Host: "):]
 
 	// only parse full host information, partial may
 	// get the wrong name or wrong port
-	if rIdx < 0 {
+	hostPort, _, found := bytes.Cut(req, []byte("\r"))
+	if !found {
 		return "", -1
 	}
-
-	host, portStr, err := net.SplitHostPort(buf[:rIdx])
+	host, portStr, err := net.SplitHostPort(string(hostPort))
 	if err != nil {
-		return buf[:rIdx], -1
+		return string(hostPort), -1
 	}
 
 	port, _ := strconv.Atoi(portStr)

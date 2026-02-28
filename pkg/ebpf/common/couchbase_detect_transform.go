@@ -31,12 +31,14 @@ type CouchbaseInfo struct {
 // ProcessPossibleCouchbaseEvent attempts to parse the event as a Couchbase memcached binary protocol event.
 // Returns a slice of CouchbaseInfo if successful, along with a boolean indicating if the event should be ignored,
 // and an error if parsing failed. Multiple packets may be present in a single TCP segment due to pipelining.
-func ProcessPossibleCouchbaseEvent(event *TCPRequestInfo, requestBuf []byte, responseBuf []byte, bucketCache *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]) (*CouchbaseInfo, bool, error) {
-	info, ignore, err := processCouchbaseEvent(event.ConnInfo, requestBuf, responseBuf, bucketCache)
+func ProcessPossibleCouchbaseEvent(event *TCPRequestInfo, requestBuf *LargeBuffer, responseBuf *LargeBuffer, bucketCache *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]) (*CouchbaseInfo, bool, error) {
+	reqRaw := requestBuf.UnsafeView()
+	respRaw := responseBuf.UnsafeView()
+	info, ignore, err := processCouchbaseEvent(event.ConnInfo, reqRaw, respRaw, bucketCache)
 	// If parsing failed (error or no valid packets found), try with buffers reversed
 	if err != nil {
 		// Try with buffers reversed - we might have captured it backwards
-		info, ignore, err = processCouchbaseEvent(event.ConnInfo, responseBuf, requestBuf, bucketCache)
+		info, ignore, err = processCouchbaseEvent(event.ConnInfo, respRaw, reqRaw, bucketCache)
 		if err == nil {
 			reverseTCPEvent(event)
 			return info, false, nil

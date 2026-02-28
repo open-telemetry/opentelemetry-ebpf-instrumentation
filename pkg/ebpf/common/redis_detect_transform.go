@@ -32,12 +32,11 @@ var redisErrorCodes = [...]string{
 	"READONLY ",
 }
 
-func isRedis(buf []uint8) bool {
-	if len(buf) < minRedisFrameLen {
+func isRedis(buf *LargeBuffer) bool {
+	if buf.Len() < minRedisFrameLen {
 		return false
 	}
-
-	return isRedisOp(buf)
+	return isRedisOp(buf.UnsafeView())
 }
 
 //nolint:cyclop
@@ -183,17 +182,19 @@ func parseRedisRequest(buf string) (string, string, bool) {
 	return op, strings.TrimSpace(text.String()), true
 }
 
-func redisStatus(buf []byte) (request.DBError, int) {
-	status := 0
-	firstChar := buf[0]
-	if firstChar != '-' {
-		return request.DBError{}, status
+func redisStatus(buf *LargeBuffer) (request.DBError, int) {
+	if buf.Len() == 0 {
+		return request.DBError{}, 0
 	}
-	dbError, isError := getRedisError(buf[1:])
+	data := buf.UnsafeView()
+	if data[0] != '-' {
+		return request.DBError{}, 0
+	}
+	dbError, isError := getRedisError(data[1:])
+	status := 0
 	if isError {
 		status = 1
 	}
-
 	return dbError, status
 }
 

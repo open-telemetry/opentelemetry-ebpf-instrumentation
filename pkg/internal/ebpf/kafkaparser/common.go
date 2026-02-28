@@ -33,10 +33,7 @@ const (
 	APIKeyMetadata KafkaAPIKey = 3
 )
 
-type (
-	UUID   [UUIDLen]byte
-	Offset = int
-)
+type UUID [UUIDLen]byte
 
 type KafkaRequestHeader struct {
 	MessageSize   int32
@@ -51,88 +48,121 @@ type KafkaResponseHeader struct {
 	CorrelationID int32
 }
 
-func ParseKafkaRequestHeader(pkt []byte) (*KafkaRequestHeader, Offset, error) {
-	if len(pkt) < MinKafkaRequestLen {
-		return nil, 0, errors.New("packet too short for Kafka request header")
+// byteReader is the sequential-read interface satisfied by *LargeBuffer.
+// Defined here so sub-packages don't need to import ebpfcommon (which would be circular).
+type byteReader interface {
+	ReadN(n int) ([]byte, error)
+	Peek(n int) ([]byte, error)
+	Skip(n int) error
+	Remaining() int
+}
+
+func ParseKafkaRequestHeader(r byteReader) (*KafkaRequestHeader, error) {
+	if r.Remaining() < MinKafkaRequestLen {
+		return nil, errors.New("packet too short for Kafka request header")
+	}
+
+	msgSizeBytes, err := r.ReadN(Int32Len)
+	if err != nil {
+		return nil, err
+	}
+	apiKeyBytes, err := r.ReadN(Int16Len)
+	if err != nil {
+		return nil, err
+	}
+	apiVersionBytes, err := r.ReadN(Int16Len)
+	if err != nil {
+		return nil, err
+	}
+	correlationIDBytes, err := r.ReadN(Int32Len)
+	if err != nil {
+		return nil, err
 	}
 	header := &KafkaRequestHeader{
-		MessageSize:   int32(binary.BigEndian.Uint32(pkt[0:4])),
-		APIKey:        KafkaAPIKey(int16(binary.BigEndian.Uint16(pkt[4:6]))),
-		APIVersion:    int16(binary.BigEndian.Uint16(pkt[6:8])),
-		CorrelationID: int32(binary.BigEndian.Uint32(pkt[8:12])),
+		MessageSize:   int32(binary.BigEndian.Uint32(msgSizeBytes)),
+		APIKey:        KafkaAPIKey(int16(binary.BigEndian.Uint16(apiKeyBytes))),
+		APIVersion:    int16(binary.BigEndian.Uint16(apiVersionBytes)),
+		CorrelationID: int32(binary.BigEndian.Uint32(correlationIDBytes)),
 	}
 
-	clientIDSize := int16(binary.BigEndian.Uint16(pkt[12:14]))
-	err := validateKafkaRequestHeader(header)
+	clientIDSizeBytes, err := r.ReadN(Int16Len)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
+	}
+	clientIDSize := int16(binary.BigEndian.Uint16(clientIDSizeBytes))
+
+	if err := validateKafkaRequestHeader(header); err != nil {
+		return nil, err
 	}
 	if clientIDSize < 0 {
-		return nil, 0, errors.New("invalid client ID size")
+		return nil, errors.New("invalid client ID size")
 	}
-	offset := MinKafkaRequestLen
 	if clientIDSize == 0 {
 		header.ClientID = ""
-		return header, offset, nil
+		return header, nil
 	}
-	if offset+int(clientIDSize) > len(pkt) {
-		return nil, 0, errors.New("packet too short for client ID")
+	if r.Remaining() < int(clientIDSize) {
+		return nil, errors.New("packet too short for client ID")
 	}
-	header.ClientID = string(pkt[offset : offset+int(clientIDSize)])
-	offset += int(clientIDSize)
-	offset, err = skipTaggedFields(pkt, header, offset)
+	clientIDBytes, err := r.ReadN(int(clientIDSize))
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	return header, offset, nil
+	header.ClientID = string(clientIDBytes)
+
+	if err := skipTaggedFields(r, header); err != nil {
+		return nil, err
+	}
+	return header, nil
 }
 
-func ParseKafkaResponseHeader(pkt []byte, requestHeader *KafkaRequestHeader) (*KafkaResponseHeader, Offset, error) {
-	if len(pkt) < MinKafkaResponseLen {
-		return nil, 0, errors.New("packet too short for Kafka response header")
+func ParseKafkaResponseHeader(r byteReader, requestHeader *KafkaRequestHeader) (*KafkaResponseHeader, error) {
+	if r.Remaining() < MinKafkaResponseLen {
+		return nil, errors.New("packet too short for Kafka response header")
+	}
+	msgSizeBytes, err := r.ReadN(Int32Len)
+	if err != nil {
+		return nil, err
+	}
+	correlationIDBytes, err := r.ReadN(Int32Len)
+	if err != nil {
+		return nil, err
 	}
 	header := &KafkaResponseHeader{
-		MessageSize:   int32(binary.BigEndian.Uint32(pkt[0:4])),
-		CorrelationID: int32(binary.BigEndian.Uint32(pkt[4:8])),
+		MessageSize:   int32(binary.BigEndian.Uint32(msgSizeBytes)),
+		CorrelationID: int32(binary.BigEndian.Uint32(correlationIDBytes)),
 	}
 
-	offset := MinKafkaResponseLen
-	err := validateKafkaResponseHeader(header, requestHeader)
-	if err != nil {
-		return nil, 0, err
+	if err := validateKafkaResponseHeader(header, requestHeader); err != nil {
+		return nil, err
 	}
-	offset, err = skipTaggedFields(pkt, requestHeader, offset)
-	if err != nil {
-		return nil, 0, err
+	if err := skipTaggedFields(r, requestHeader); err != nil {
+		return nil, err
 	}
-	return header, offset, nil
+	return header, nil
 }
 
-func skipTaggedFields(pkt []byte, header *KafkaRequestHeader, offset Offset) (Offset, error) {
+func skipTaggedFields(r byteReader, header *KafkaRequestHeader) error {
 	if !isFlexible(header) {
-		return offset, nil // no tagged fields to skip for non-flexible versions
+		return nil // no tagged fields to skip for non-flexible versions
 	}
-	taggedFieldsLen, offset, err := readUnsignedVarint(pkt[offset:], offset)
+	taggedFieldsLen, err := readUnsignedVarint(r)
 	if err != nil {
-		return 0, err
+		return err
 	}
-
 	for range taggedFieldsLen {
-		_, offset, err = readUnsignedVarint(pkt[offset:], offset) // read tag ID
-		if err != nil {
-			return 0, err
+		if _, err = readUnsignedVarint(r); err != nil { // read tag ID
+			return err
 		}
-		var tagLen int
-		tagLen, offset, err = readUnsignedVarint(pkt[offset:], offset) // read tag length
+		tagLen, err := readUnsignedVarint(r) // read tag length
 		if err != nil {
-			return 0, err
+			return err
 		}
-		offset, err = skipBytes(pkt, offset, tagLen) // skip tag value
-		if err != nil {
-			return 0, err
+		if err = r.Skip(tagLen); err != nil { // skip tag value
+			return err
 		}
 	}
-	return offset, nil
+	return nil
 }
 
 func validateKafkaRequestHeader(header *KafkaRequestHeader) error {
@@ -202,42 +232,49 @@ func isFlexible(header *KafkaRequestHeader) bool {
 	}
 }
 
-func readArrayLength(pkt []byte, header *KafkaRequestHeader, offset Offset) (int, Offset, error) {
+func readArrayLength(r byteReader, header *KafkaRequestHeader) (int, error) {
 	if isFlexible(header) {
-		size, offset, err := readUnsignedVarint(pkt[offset:], offset)
-		if size == 0 {
-			return 0, offset, nil // return 0 for null
+		size, err := readUnsignedVarint(r)
+		if err != nil {
+			return 0, err
 		}
-		return size - 1, offset, err
-	} else {
-		return readInt32(pkt, offset)
+		if size == 0 {
+			return 0, nil // return 0 for null
+		}
+		return size - 1, nil
 	}
+	return readInt32(r)
 }
 
-func readUUID(pkt []byte, offset Offset) (*UUID, Offset, error) {
-	if offset+UUIDLen > len(pkt) {
-		return nil, offset, errors.New("packet too short for topic UUID")
-	}
-	uuid := (UUID)(pkt[offset : offset+UUIDLen])
-	return &uuid, offset + UUIDLen, nil
-}
-
-func readString(pkt []byte, header *KafkaRequestHeader, offset Offset, nullable bool) (string, Offset, error) {
-	size, offset, err := readStringLength(pkt, header, offset, nullable)
+func readUUID(r byteReader) (*UUID, error) {
+	b, err := r.ReadN(UUIDLen)
 	if err != nil {
-		return "", offset, err
+		return nil, errors.New("packet too short for topic UUID")
+	}
+	var uuid UUID
+	copy(uuid[:], b)
+	return &uuid, nil
+}
+
+func readString(r byteReader, header *KafkaRequestHeader, nullable bool) (string, error) {
+	size, err := readStringLength(r, header, nullable)
+	if err != nil {
+		return "", err
 	}
 	if nullable && size == 0 {
-		return "", offset, nil // return empty string for null
+		return "", nil // return empty string for null
 	}
-	if offset+size > len(pkt) {
-		return "", 0, errors.New("string size exceeds packet size")
+	if r.Remaining() < size {
+		return "", errors.New("string size exceeds packet size")
 	}
-	if !validateKafkaString(pkt[offset:offset+size], size) {
-		return "", 0, errors.New("invalid characters in string")
+	b, err := r.ReadN(size)
+	if err != nil {
+		return "", errors.New("string size exceeds packet size")
 	}
-	str := string(pkt[offset : offset+size])
-	return str, offset + size, nil
+	if !validateKafkaString(b, size) {
+		return "", errors.New("invalid characters in string")
+	}
+	return string(b), nil
 }
 
 func validateKafkaString(pkt []byte, size int) bool {
@@ -251,80 +288,79 @@ func validateKafkaString(pkt []byte, size int) bool {
 	return true
 }
 
-func readStringLength(pkt []byte, header *KafkaRequestHeader, offset Offset, nullable bool) (int, Offset, error) {
+func readStringLength(r byteReader, header *KafkaRequestHeader, nullable bool) (int, error) {
 	if !isFlexible(header) {
 		// length is stored as a fixed size int16
-		if offset+Int16Len > len(pkt) {
-			return 0, 0, errors.New("packet too short for string length")
+		if r.Remaining() < Int16Len {
+			return 0, errors.New("packet too short for string length")
 		}
-		size := int16(binary.BigEndian.Uint16(pkt[offset:]))
+		b, err := r.ReadN(Int16Len)
+		if err != nil {
+			return 0, errors.New("packet too short for string length")
+		}
+		size := int16(binary.BigEndian.Uint16(b))
 		if nullable && size == -1 {
-			return 0, offset + Int16Len, nil // return 0 for null
+			return 0, nil // return 0 for null
 		}
 		if size < 1 {
-			return 0, 0, errors.New("invalid string size")
+			return 0, errors.New("invalid string size")
 		}
-		return int(size), offset + Int16Len, nil
+		return int(size), nil
 	}
 
 	// length is stored as a varint
-	size, offset, err := readUnsignedVarint(pkt[offset:], offset)
+	size, err := readUnsignedVarint(r)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	if nullable && size == 0 {
-		return 0, offset, nil // return 0 for null
+		return 0, nil // return 0 for null
 	}
 	if size <= 0 {
-		return 0, 0, errors.New("invalid string size")
+		return 0, errors.New("invalid string size")
 	}
 	size-- // size is stored as a varint, so we subtract 1
 	if size < 0 {
-		return 0, 0, errors.New("invalid string size")
+		return 0, errors.New("invalid string size")
 	}
-	return size, offset, nil
+	return size, nil
 }
 
-func readUnsignedVarint(data []byte, offset Offset) (int, Offset, error) {
+func readUnsignedVarint(r byteReader) (int, error) {
 	value := 0
 	i := 0
-	for idx := range data {
-		if idx > len(data) {
-			return 0, 0, errors.New("offset exceeds data length")
+	for {
+		if r.Remaining() == 0 {
+			return 0, errors.New("data ended before varint was complete")
 		}
-		b := data[idx]
-		if (b & 0x80) == 0 {
-			value |= int(b) << i
-			return value, offset + idx + 1, nil
+		b, err := r.ReadN(1)
+		if err != nil {
+			return 0, err
 		}
-		value |= int(b&0x7F) << i
+		if (b[0] & 0x80) == 0 {
+			value |= int(b[0]) << i
+			return value, nil
+		}
+		value |= int(b[0]&0x7F) << i
 		i += 7
 		if i > 28 {
-			return 0, 0, errors.New("illegal varint")
+			return 0, errors.New("illegal varint")
 		}
 	}
-	return 0, 0, errors.New("data ended before varint was complete")
 }
 
-func skipBytes(pkt []byte, offset Offset, length int) (Offset, error) {
-	if offset+length > len(pkt) {
-		return 0, errors.New("offset and length exceed packet size")
+func readInt32(r byteReader) (int, error) {
+	b, err := r.ReadN(Int32Len)
+	if err != nil {
+		return 0, errors.New("data too short for int32")
 	}
-	return offset + length, nil
+	return int(binary.BigEndian.Uint32(b)), nil
 }
 
-func readInt32(data []byte, offset Offset) (int, Offset, error) {
-	if offset+Int32Len > len(data) {
-		return 0, 0, errors.New("data too short for uint32")
+func readInt64(r byteReader) (int64, error) {
+	b, err := r.ReadN(Int64Len)
+	if err != nil {
+		return 0, errors.New("data too short for int64")
 	}
-	value := int(binary.BigEndian.Uint32(data[offset:]))
-	return value, offset + Int32Len, nil
-}
-
-func readInt64(data []byte, offset Offset) (int64, Offset, error) {
-	if offset+Int64Len > len(data) {
-		return 0, 0, errors.New("data too short for uint32")
-	}
-	value := int64(binary.BigEndian.Uint64(data[offset:]))
-	return value, offset + Int64Len, nil
+	return int64(binary.BigEndian.Uint64(b)), nil
 }

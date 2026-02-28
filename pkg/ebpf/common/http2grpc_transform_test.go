@@ -117,7 +117,7 @@ func TestHTTP2QuickDetection(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			res := isLikelyHTTP2(tt.input, tt.inputLen)
 			assert.Equal(t, tt.expectedQuick, res)
-			res1 := isHTTP2(tt.input, tt.inputLen)
+			res1 := isHTTP2(NewLargeBufferFrom(tt.input), tt.inputLen)
 			assert.Equal(t, tt.expected, res1)
 		})
 	}
@@ -535,7 +535,7 @@ func TestHandleHeaderField(t *testing.T) {
 func BenchmarkIsHTTP2(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		for _, tt := range isHTTP2TestCases {
-			_ = isHTTP2(tt.input, tt.inputLen)
+			_ = isHTTP2(NewLargeBufferFrom(tt.input), tt.inputLen)
 		}
 	}
 }

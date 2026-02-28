@@ -43,14 +43,14 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	requestBuffer, responseBuffer := getBuffers(parseCtx, event)
 
 	if cfg.ProtocolDebug {
-		fmt.Printf("[>] %v\n", requestBuffer)
-		fmt.Printf("[<] %v\n", responseBuffer)
+		fmt.Printf("[>] %v\n", requestBuffer.UnsafeView())
+		fmt.Printf("[<] %v\n", responseBuffer.UnsafeView())
 	}
 
 	// We might know already the protocol for this event
 	switch event.ProtocolType {
 	case ProtocolTypeKafka:
-		k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
+		k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer.NewReader(), responseBuffer.NewReader(), parseCtx.kafkaTopicUUIDToName)
 		if ignore && err == nil {
 			return request.Span{}, true, nil // parsed kafka event, but we don't want to create a span for it
 		}
@@ -82,7 +82,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 
 		return span, false, nil
 	case ProtocolTypePostgres:
-		span, err := handlePostgres(parseCtx, event, requestBuffer, responseBuffer)
+		span, err := handlePostgres(parseCtx, event, requestBuffer.NewReader(), responseBuffer.NewReader())
 		if errors.Is(err, errFallback) {
 			slog.Debug("Postgres: falling back to generic handler")
 			break
@@ -136,13 +136,13 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 
 	switch {
 	case isRedis(requestBuffer) && isRedis(responseBuffer):
-		op, text, ok := parseRedisRequest(string(requestBuffer))
+		op, text, ok := parseRedisRequest(string(requestBuffer.UnsafeView()))
 
 		if ok {
 			var status int
 			var redisErr request.DBError
 			if op == "" {
-				op, text, ok = parseRedisRequest(string(responseBuffer))
+				op, text, ok = parseRedisRequest(string(responseBuffer.UnsafeView()))
 				if !ok || op == "" {
 					return request.Span{}, true, nil // ignore if we couldn't parse it
 				}
@@ -179,7 +179,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			return request.Span{}, true, nil // ignore for now, next event will be parsed
 		} else {
 			// we should not arrive here, leave it for completeness
-			k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
+			k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer.NewReader(), responseBuffer.NewReader(), parseCtx.kafkaTopicUUIDToName)
 			if ignore && err == nil {
 				return request.Span{}, true, nil // parsed kafka event, but we don't want to create a span for it
 			}
@@ -190,25 +190,25 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	}
 
 	if cfg.ProtocolDebug {
-		fmt.Printf("![>] %v\n", requestBuffer)
-		fmt.Printf("![<] %v\n", responseBuffer)
+		fmt.Printf("![>] %v\n", requestBuffer.UnsafeView())
+		fmt.Printf("![<] %v\n", responseBuffer.UnsafeView())
 	}
 
 	return request.Span{}, true, nil // ignore if we couldn't parse it
 }
 
-func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req []byte, resp []byte) {
+func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req *LargeBuffer, resp *LargeBuffer) {
 	l := int(event.Len)
 	if l < 0 || len(event.Buf) < l {
 		l = len(event.Buf)
 	}
-	req = event.Buf[:l]
+	req = NewLargeBufferFrom(event.Buf[:l])
 
 	l = int(event.RespLen)
 	if l < 0 || len(event.Rbuf) < l {
 		l = len(event.Rbuf)
 	}
-	resp = event.Rbuf[:l]
+	resp = NewLargeBufferFrom(event.Rbuf[:l])
 
 	if event.HasLargeBuffers == 1 {
 		if b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, !event.IsServer), event.ConnInfo); ok {

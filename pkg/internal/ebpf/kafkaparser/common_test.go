@@ -152,7 +152,8 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			header, offset, err := ParseKafkaRequestHeader(tt.packet)
+			r := newBytesReader(tt.packet)
+			header, err := ParseKafkaRequestHeader(r)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -168,11 +169,11 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 			assert.Equal(t, tt.expected.CorrelationID, header.CorrelationID)
 			assert.Equal(t, tt.expected.ClientID, header.ClientID)
 
-			expectedOffset := MinKafkaRequestLen + len(tt.expected.ClientID)
+			expectedConsumed := MinKafkaRequestLen + len(tt.expected.ClientID)
 			if tt.flexible {
-				expectedOffset++ // Account for tagged fields byte
+				expectedConsumed++ // Account for tagged fields byte
 			}
-			assert.Equal(t, expectedOffset, offset)
+			assert.Equal(t, expectedConsumed, r.Pos())
 		})
 	}
 }
@@ -404,7 +405,8 @@ func TestReadArrayLength(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			length, offset, err := readArrayLength(tt.packet, tt.header, tt.offset)
+			r := newBytesReader(tt.packet[tt.offset:])
+			length, err := readArrayLength(r, tt.header)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -413,7 +415,7 @@ func TestReadArrayLength(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedLength, length)
-			assert.Equal(t, tt.expectedOffset, offset)
+			assert.Equal(t, tt.expectedOffset-tt.offset, r.Pos())
 		})
 	}
 }
@@ -481,7 +483,8 @@ func TestReadUUID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uuid, offset, err := readUUID(tt.packet, tt.offset)
+			r := newBytesReader(tt.packet[tt.offset:])
+			uuid, err := readUUID(r)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -491,7 +494,7 @@ func TestReadUUID(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, uuid)
 			assert.Equal(t, tt.expectedUUID, *uuid)
-			assert.Equal(t, tt.expectedOffset, offset)
+			assert.Equal(t, tt.expectedOffset-tt.offset, r.Pos())
 		})
 	}
 }
@@ -562,7 +565,8 @@ func TestReadString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			str, offset, err := readString(tt.packet, tt.header, tt.offset, tt.nullable)
+			r := newBytesReader(tt.packet[tt.offset:])
+			str, err := readString(r, tt.header, tt.nullable)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -571,43 +575,43 @@ func TestReadString(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedString, str)
-			assert.Equal(t, tt.expectedOffset, offset)
+			assert.Equal(t, tt.expectedOffset-tt.offset, r.Pos())
 		})
 	}
 }
 
 func TestReadUnsignedVarint(t *testing.T) {
 	tests := []struct {
-		name           string
-		data           []byte
-		offset         int
-		expectedValue  int
-		expectedOffset int
-		expectErr      bool
+		name          string
+		data          []byte
+		offset        int
+		expectedValue int
+		expectedBytes int // bytes consumed
+		expectErr     bool
 	}{
 		{
-			name:           "single byte varint",
-			data:           []byte{0x05},
-			offset:         0,
-			expectedValue:  5,
-			expectedOffset: 1,
-			expectErr:      false,
+			name:          "single byte varint",
+			data:          []byte{0x05},
+			offset:        0,
+			expectedValue: 5,
+			expectedBytes: 1,
+			expectErr:     false,
 		},
 		{
-			name:           "multi-byte varint",
-			data:           []byte{0x96, 0x01}, // 150 in varint
-			offset:         0,
-			expectedValue:  150,
-			expectedOffset: 2,
-			expectErr:      false,
+			name:          "multi-byte varint",
+			data:          []byte{0x96, 0x01}, // 150 in varint
+			offset:        0,
+			expectedValue: 150,
+			expectedBytes: 2,
+			expectErr:     false,
 		},
 		{
-			name:           "large varint",
-			data:           []byte{0xFF, 0xFF, 0x7F}, // Large number
-			offset:         0,
-			expectedValue:  2097151,
-			expectedOffset: 3,
-			expectErr:      false,
+			name:          "large varint",
+			data:          []byte{0xFF, 0xFF, 0x7F}, // Large number
+			offset:        0,
+			expectedValue: 2097151,
+			expectedBytes: 3,
+			expectErr:     false,
 		},
 		{
 			name:      "incomplete varint",
@@ -625,7 +629,8 @@ func TestReadUnsignedVarint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			value, offset, err := readUnsignedVarint(tt.data, tt.offset)
+			r := newBytesReader(tt.data[tt.offset:])
+			value, err := readUnsignedVarint(r)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -634,48 +639,49 @@ func TestReadUnsignedVarint(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedValue, value)
-			assert.Equal(t, tt.expectedOffset, offset)
+			assert.Equal(t, tt.expectedBytes, r.Pos())
 		})
 	}
 }
 
-func TestSkipBytes(t *testing.T) {
+func TestSkip(t *testing.T) {
 	tests := []struct {
-		name           string
-		packet         []byte
-		offset         int
-		length         int
-		expectedOffset int
-		expectErr      bool
+		name          string
+		packet        []byte
+		offset        int
+		length        int
+		expectedBytes int // bytes consumed by Skip
+		expectErr     bool
 	}{
 		{
-			name:           "valid skip",
-			packet:         make([]byte, 20),
-			offset:         5,
-			length:         10,
-			expectedOffset: 15,
-			expectErr:      false,
+			name:          "valid skip",
+			packet:        make([]byte, 20),
+			offset:        5,
+			length:        10,
+			expectedBytes: 10,
+			expectErr:     false,
 		},
 		{
 			name:      "skip exceeds packet",
 			packet:    make([]byte, 10),
 			offset:    5,
-			length:    10, // 5 + 10 > 10
+			length:    10, // 5 remaining, but skip 10
 			expectErr: true,
 		},
 		{
-			name:           "skip zero bytes",
-			packet:         make([]byte, 10),
-			offset:         3,
-			length:         0,
-			expectedOffset: 3,
-			expectErr:      false,
+			name:          "skip zero bytes",
+			packet:        make([]byte, 10),
+			offset:        3,
+			length:        0,
+			expectedBytes: 0,
+			expectErr:     false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			offset, err := skipBytes(tt.packet, tt.offset, tt.length)
+			r := newBytesReader(tt.packet[tt.offset:])
+			err := r.Skip(tt.length)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -683,7 +689,7 @@ func TestSkipBytes(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedOffset, offset)
+			assert.Equal(t, tt.expectedBytes, r.Pos())
 		})
 	}
 }
@@ -703,7 +709,7 @@ func TestParseKafkaRequestHeaderTruncation(t *testing.T) {
 	for i := 1; i < len(validPacket); i++ {
 		t.Run(fmt.Sprintf("truncated_at_%d", i), func(t *testing.T) {
 			truncated := validPacket[:i]
-			_, _, err := ParseKafkaRequestHeader(truncated)
+			_, err := ParseKafkaRequestHeader(newBytesReader(truncated))
 			assert.Error(t, err, "expected error for truncated packet at position %d", i)
 		})
 	}

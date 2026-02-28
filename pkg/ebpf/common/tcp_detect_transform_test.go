@@ -168,7 +168,7 @@ func TestRedisDetection(t *testing.T) {
 	} {
 		lines := strings.Split(s, "|")
 		test := strings.Join(lines, "\r\n")
-		assert.True(t, isRedis([]uint8(test)))
+		assert.True(t, isRedis(NewLargeBufferFrom([]uint8(test))))
 		assert.True(t, isRedisOp([]uint8(test)))
 	}
 
@@ -182,7 +182,7 @@ func TestRedisDetection(t *testing.T) {
 	} {
 		lines := strings.Split(s, "|")
 		test := strings.Join(lines, "\r\n")
-		assert.False(t, isRedis([]uint8(test)))
+		assert.False(t, isRedis(NewLargeBufferFrom([]uint8(test))))
 		assert.False(t, isRedisOp([]uint8(test)))
 	}
 }
@@ -191,7 +191,7 @@ func TestTCPReqKafkaParsing(t *testing.T) {
 	// kafka message
 	b := []byte{0, 0, 0, 94, 0, 1, 0, 11, 0, 0, 0, 224, 0, 6, 115, 97, 114, 97, 109, 97, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 6, 64, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0}
 	r := makeTCPReq(string(b), 343534)
-	k, _, err := ProcessKafkaRequest(b, nil)
+	k, _, err := ProcessKafkaRequest(NewLargeBufferFrom(b).NewReader(), nil)
 	require.NoError(t, err)
 	s := TCPToKafkaToSpan(&r, k)
 	assert.NotNil(t, s)
@@ -240,7 +240,7 @@ func TestTCPReqMQTTHeuristicFailure(t *testing.T) {
 	}
 
 	// Verify the heuristic passes but full parsing fails
-	assert.True(t, isMQTT(b), "packet should pass isMQTT heuristic")
+	assert.True(t, isMQTT(NewLargeBufferFrom(b)), "packet should pass isMQTT heuristic")
 	_, _, err := ProcessMQTTEvent(b)
 	require.Error(t, err, "full MQTT parsing should fail")
 

@@ -84,23 +84,25 @@ func mysqlPreparedStatements(b []byte) (string, string, string) {
 	return op, table, sql
 }
 
-func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer []byte) (request.Span, error) {
+func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *LargeBuffer) (request.Span, error) {
 	var (
 		op, table, stmt string
 		span            request.Span
 	)
 
-	if len(requestBuffer) < sqlprune.MySQLHdrSize+1 {
+	if requestBuffer.Len() < sqlprune.MySQLHdrSize+1 {
 		slog.Debug("MySQL request too short")
 		return span, errFallback
 	}
-	if len(responseBuffer) < sqlprune.MySQLHdrSize+1 {
+	if responseBuffer.Len() < sqlprune.MySQLHdrSize+1 {
 		slog.Debug("MySQL response too short")
 		return span, errFallback
 	}
+	reqRaw := requestBuffer.UnsafeView()
+	respRaw := responseBuffer.UnsafeView()
 
-	sqlCommand := sqlprune.SQLParseCommandID(request.DBMySQL, requestBuffer)
-	sqlError := sqlprune.SQLParseError(request.DBMySQL, responseBuffer)
+	sqlCommand := sqlprune.SQLParseCommandID(request.DBMySQL, reqRaw)
+	sqlError := sqlprune.SQLParseError(request.DBMySQL, respRaw)
 
 	switch sqlCommand {
 	case "STMT_PREPARE":
@@ -111,13 +113,13 @@ func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 
 		// On the PREPARE command, the statement ID is the first 4 bytes after the header and command ID
 		// in the response buffer.
-		stmtID := sqlprune.SQLParseStatementID(request.DBMySQL, responseBuffer)
+		stmtID := sqlprune.SQLParseStatementID(request.DBMySQL, respRaw)
 		if stmtID == 0 {
 			slog.Debug("MySQL PREPARE command with invalid statement ID")
 			return span, errFallback
 		}
 
-		_, _, stmt = detectSQL(string(requestBuffer[sqlprune.MySQLHdrSize+1:]))
+		_, _, stmt = detectSQL(string(reqRaw[sqlprune.MySQLHdrSize+1:]))
 		parseCtx.mysqlPreparedStatements.Add(mysqlPreparedStatementsKey{
 			connInfo: event.ConnInfo,
 			stmtID:   stmtID,
@@ -127,7 +129,7 @@ func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 	case "STMT_EXECUTE":
 		// On the EXECUTE command, the statement ID is the first 4 bytes after the header and command ID
 		// in the request buffer.
-		stmtID := sqlprune.SQLParseStatementID(request.DBMySQL, requestBuffer)
+		stmtID := sqlprune.SQLParseStatementID(request.DBMySQL, reqRaw)
 		if stmtID == 0 {
 			slog.Debug("MySQL EXECUTE command with invalid statement ID")
 			return span, errFallback
@@ -144,9 +146,9 @@ func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 		}
 		op, table = sqlprune.SQLParseOperationAndTable(stmt)
 	case "QUERY":
-		op, table, stmt = detectSQL(string(requestBuffer[sqlprune.MySQLHdrSize+1:]))
+		op, table, stmt = detectSQL(string(reqRaw[sqlprune.MySQLHdrSize+1:]))
 	default:
-		slog.Debug("MySQL command ID unhandled", "commandID", requestBuffer[sqlprune.MySQLHdrSize])
+		slog.Debug("MySQL command ID unhandled", "commandID", reqRaw[sqlprune.MySQLHdrSize])
 		return span, errFallback
 	}
 
