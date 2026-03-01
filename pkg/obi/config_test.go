@@ -165,6 +165,7 @@ discovery:
 							MatchOrder:        config.HTTPParsingMatchOrderFirstMatchWins,
 							ObfuscationString: "***",
 						},
+						Rules: []config.HTTPParsingRule{},
 					},
 				},
 			},
