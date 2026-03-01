@@ -155,12 +155,12 @@ var DefaultConfig = Config{
 				OpenAI: config.OpenAIConfig{
 					Enabled: false,
 				},
-				GenericParsing: config.HTTPGenericParsingConfig{
+				Generic: config.HTTPGenericParsingConfig{
 					Enabled: false,
 					Policy: config.HTTPParsingPolicy{
 						DefaultAction:     config.HTTPParsingActionExclude,
 						MatchOrder:        config.HTTPParsingMatchOrderFirstMatchWins,
-						ObfuscationString: "*",
+						ObfuscationString: "***",
 					},
 					Rules: []config.HTTPParsingRule{},
 				},

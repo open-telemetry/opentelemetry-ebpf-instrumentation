@@ -172,8 +172,8 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		}
 	}
 
-	if parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenericParsing.Enabled {
-		span, ok := ebpfhttp.GenericParsingSpan(&httpSpan, req, resp, parseCtx.payloadExtraction.HTTP.GenericParsing)
+	if parseCtx != nil && parseCtx.payloadExtraction.HTTP.Generic.Enabled {
+		span, ok := ebpfhttp.GenericParsingSpan(&httpSpan, req, resp, parseCtx.payloadExtraction.HTTP.Generic)
 		if ok {
 			httpSpan = span
 		}

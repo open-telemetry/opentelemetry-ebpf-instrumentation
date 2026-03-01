@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type PayloadExtraction struct {
@@ -14,7 +16,7 @@ type PayloadExtraction struct {
 }
 
 func (p PayloadExtraction) Enabled() bool {
-	return p.HTTP.GraphQL.Enabled || p.HTTP.Elasticsearch.Enabled || p.HTTP.AWS.Enabled || p.HTTP.SQLPP.Enabled || p.HTTP.OpenAI.Enabled || p.HTTP.GenericParsing.Enabled
+	return p.HTTP.GraphQL.Enabled || p.HTTP.Elasticsearch.Enabled || p.HTTP.AWS.Enabled || p.HTTP.SQLPP.Enabled || p.HTTP.OpenAI.Enabled || p.HTTP.Generic.Enabled
 }
 
 type HTTPConfig struct {
@@ -29,7 +31,7 @@ type HTTPConfig struct {
 	// OpenAI payload extraction
 	OpenAI OpenAIConfig `yaml:"openai"`
 	// Generic HTTP header and payload extraction with policy-based rules
-	GenericParsing HTTPGenericParsingConfig `yaml:"generic"`
+	Generic HTTPGenericParsingConfig `yaml:"generic"`
 }
 
 type GraphQLConfig struct {
@@ -122,13 +124,13 @@ type HTTPParsingMatch struct {
 }
 
 // UnmarshalYAML deserializes the match config and compiles regex patterns.
-func (m *HTTPParsingMatch) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 	// Use a raw struct to capture the string patterns before compiling.
 	var raw struct {
 		Regex         []string `yaml:"regex"`
 		CaseSensitive bool     `yaml:"case_sensitive"`
 	}
-	if err := unmarshal(&raw); err != nil {
+	if err := value.Decode(&raw); err != nil {
 		return err
 	}
 
