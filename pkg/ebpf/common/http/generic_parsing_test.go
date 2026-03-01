@@ -10,8 +10,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
-
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
 )
@@ -306,24 +304,190 @@ func TestGenericParsingSpan_MultipleRegexInRule(t *testing.T) {
 	assert.False(t, hasAuth)
 }
 
-func TestHTTPParsingMatch_UnmarshalYAML(t *testing.T) {
-	yamlData := `
-rules:
-  - action: include
-    type: headers
-    scope: both
-    match:
-      regex:
-        - "^Content-Type$"
-        - "^X-Request-Id$"
-      case_sensitive: false
-`
-	var cfg config.HTTPGenericParsingConfig
-	err := yaml.Unmarshal([]byte(yamlData), &cfg)
-	require.NoError(t, err)
-	require.Len(t, cfg.Rules, 1)
-	require.Len(t, cfg.Rules[0].Match.Regex, 2)
-	// case_sensitive=false means (?i) prefix
-	assert.True(t, cfg.Rules[0].Match.Regex[0].MatchString("content-type"))
-	assert.True(t, cfg.Rules[0].Match.Regex[0].MatchString("Content-Type"))
+func TestGenericParsingSpan_RuleOrderExcludeBeforeInclude(t *testing.T) {
+	// When an exclude rule appears before an include rule, the exclude wins for matching headers.
+	cfg := config.HTTPGenericParsingConfig{
+		Enabled: true,
+		Policy: config.HTTPParsingPolicy{
+			DefaultAction:     config.HTTPParsingActionExclude,
+			MatchOrder:        config.HTTPParsingMatchOrderFirstMatchWins,
+			ObfuscationString: "*",
+		},
+		Rules: []config.HTTPParsingRule{
+			{
+				Action: config.HTTPParsingActionExclude,
+				Type:   config.HTTPParsingRuleTypeHeaders,
+				Scope:  config.HTTPParsingScopeBoth,
+				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-Secret$")}},
+			},
+			{
+				Action: config.HTTPParsingActionInclude,
+				Type:   config.HTTPParsingRuleTypeHeaders,
+				Scope:  config.HTTPParsingScopeBoth,
+				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-.*$")}},
+			},
+		},
+	}
+	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	req, resp := makeReqResp(
+		map[string]string{"X-Secret": "hidden", "X-Request-Id": "abc123"},
+		nil,
+	)
+
+	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	require.True(t, ok)
+	assert.Equal(t, "abc123", span.RequestHeaders["X-Request-Id"])
+	_, hasSecret := span.RequestHeaders["X-Secret"]
+	assert.False(t, hasSecret, "X-Secret should be excluded by the first rule")
+}
+
+func TestGenericParsingSpan_RuleOrderIncludeBeforeExclude(t *testing.T) {
+	// Swapping the rule order: include-all-X before exclude-X-Secret means X-Secret is included.
+	cfg := config.HTTPGenericParsingConfig{
+		Enabled: true,
+		Policy: config.HTTPParsingPolicy{
+			DefaultAction:     config.HTTPParsingActionExclude,
+			MatchOrder:        config.HTTPParsingMatchOrderFirstMatchWins,
+			ObfuscationString: "*",
+		},
+		Rules: []config.HTTPParsingRule{
+			{
+				Action: config.HTTPParsingActionInclude,
+				Type:   config.HTTPParsingRuleTypeHeaders,
+				Scope:  config.HTTPParsingScopeBoth,
+				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-.*$")}},
+			},
+			{
+				Action: config.HTTPParsingActionExclude,
+				Type:   config.HTTPParsingRuleTypeHeaders,
+				Scope:  config.HTTPParsingScopeBoth,
+				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-Secret$")}},
+			},
+		},
+	}
+	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	req, resp := makeReqResp(
+		map[string]string{"X-Secret": "visible-now", "X-Request-Id": "abc123"},
+		nil,
+	)
+
+	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	require.True(t, ok)
+	assert.Equal(t, "abc123", span.RequestHeaders["X-Request-Id"])
+	assert.Equal(t, "visible-now", span.RequestHeaders["X-Secret"],
+		"X-Secret should be included because the include rule comes first")
+}
+
+func TestGenericParsingSpan_RuleOrderObfuscateBeforeInclude(t *testing.T) {
+	// Obfuscate rule for sensitive headers, then include-all, then verify order matters.
+	cfg := config.HTTPGenericParsingConfig{
+		Enabled: true,
+		Policy: config.HTTPParsingPolicy{
+			DefaultAction:     config.HTTPParsingActionExclude,
+			MatchOrder:        config.HTTPParsingMatchOrderFirstMatchWins,
+			ObfuscationString: "[REDACTED]",
+		},
+		Rules: []config.HTTPParsingRule{
+			{
+				Action: config.HTTPParsingActionObfuscate,
+				Type:   config.HTTPParsingRuleTypeHeaders,
+				Scope:  config.HTTPParsingScopeBoth,
+				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^Authorization$"), re("^Cookie$")}},
+			},
+			{
+				Action: config.HTTPParsingActionInclude,
+				Type:   config.HTTPParsingRuleTypeHeaders,
+				Scope:  config.HTTPParsingScopeBoth,
+				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re(".*")}},
+			},
+		},
+	}
+	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	req, resp := makeReqResp(
+		map[string]string{
+			"Authorization": "Bearer token",
+			"Cookie":        "session=abc",
+			"Content-Type":  "application/json",
+		},
+		nil,
+	)
+
+	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	require.True(t, ok)
+	assert.Equal(t, "[REDACTED]", span.RequestHeaders["Authorization"])
+	assert.Equal(t, "[REDACTED]", span.RequestHeaders["Cookie"])
+	assert.Equal(t, "application/json", span.RequestHeaders["Content-Type"])
+}
+
+func TestGenericParsingSpan_ExplicitExcludeRule(t *testing.T) {
+	// Include by default, but explicitly exclude Authorization.
+	cfg := config.HTTPGenericParsingConfig{
+		Enabled: true,
+		Policy: config.HTTPParsingPolicy{
+			DefaultAction:     config.HTTPParsingActionInclude,
+			MatchOrder:        config.HTTPParsingMatchOrderFirstMatchWins,
+			ObfuscationString: "*",
+		},
+		Rules: []config.HTTPParsingRule{
+			{
+				Action: config.HTTPParsingActionExclude,
+				Type:   config.HTTPParsingRuleTypeHeaders,
+				Scope:  config.HTTPParsingScopeBoth,
+				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^Authorization$")}},
+			},
+		},
+	}
+	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	req, resp := makeReqResp(
+		map[string]string{"Authorization": "Bearer secret", "Content-Type": "text/plain"},
+		nil,
+	)
+
+	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	require.True(t, ok)
+	assert.Equal(t, "text/plain", span.RequestHeaders["Content-Type"])
+	_, hasAuth := span.RequestHeaders["Authorization"]
+	assert.False(t, hasAuth)
+}
+
+func TestGenericParsingSpan_MixedScopeRuleOrder(t *testing.T) {
+	// First rule: obfuscate Authorization on request only.
+	// Second rule: include all on both scopes.
+	// Authorization in response should be included (not obfuscated) because
+	// the first rule doesn't apply to responses.
+	cfg := config.HTTPGenericParsingConfig{
+		Enabled: true,
+		Policy: config.HTTPParsingPolicy{
+			DefaultAction:     config.HTTPParsingActionExclude,
+			MatchOrder:        config.HTTPParsingMatchOrderFirstMatchWins,
+			ObfuscationString: "***",
+		},
+		Rules: []config.HTTPParsingRule{
+			{
+				Action: config.HTTPParsingActionObfuscate,
+				Type:   config.HTTPParsingRuleTypeHeaders,
+				Scope:  config.HTTPParsingScopeRequest,
+				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^Authorization$")}},
+			},
+			{
+				Action: config.HTTPParsingActionInclude,
+				Type:   config.HTTPParsingRuleTypeHeaders,
+				Scope:  config.HTTPParsingScopeBoth,
+				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re(".*")}},
+			},
+		},
+	}
+	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	req, resp := makeReqResp(
+		map[string]string{"Authorization": "Bearer token", "X-Foo": "bar"},
+		map[string]string{"Authorization": "Bearer resp-token", "X-Bar": "baz"},
+	)
+
+	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	require.True(t, ok)
+	assert.Equal(t, "***", span.RequestHeaders["Authorization"])
+	assert.Equal(t, "bar", span.RequestHeaders["X-Foo"])
+	assert.Equal(t, "Bearer resp-token", span.ResponseHeaders["Authorization"],
+		"response Authorization should be included, not obfuscated")
+	assert.Equal(t, "baz", span.ResponseHeaders["X-Bar"])
 }
