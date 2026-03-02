@@ -10,4 +10,4 @@ This directory contains documentation that is not useful for our users but might
 - [Context Propagation Architecture](context-propagation.md): how OpenTelemetry context propagation works in the eBPF instrumentation.
 - [Protocols](protocols/README.md): documentation about supported protocols.
 - [BPF print format](bpf-print-format.md): it explains a uniform standard for all BPF print debug statements across the project.
-- [Application Network Metrics](app-network-tracer.md): it explains how to add a new application network metric to OBI.
+- [Statistical Metrics](statsolly.md): it explains how to add a new statitiscal metric to OBI.
