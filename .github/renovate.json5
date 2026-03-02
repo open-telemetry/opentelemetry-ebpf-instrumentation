@@ -19,7 +19,7 @@
   "prHourlyLimit": 3,
   "packageRules": [
     {
-      "groupName": "go dependencies",
+      "groupName": "Go",
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
       "schedule": ["before 6am on Monday"],
@@ -32,19 +32,19 @@
       }
     },
     {
-      "groupName": "docker dependencies",
+      "groupName": "Docker",
       "matchManagers": ["dockerfile"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
       "schedule": ["before 6am on Tuesday"]
     },
     {
-      "groupName": "github actions",
+      "groupName": "Github Actions",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
       "schedule": ["before 6am on Wednesday"]
     },
     {
-      "groupName": "java dependencies",
+      "groupName": "Java",
       "matchManagers": ["gradle", "maven"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
       "schedule": ["before 6am on Thursday"],
@@ -56,13 +56,13 @@
       }
     },
     {
-      "groupName": "npm dependencies",
+      "groupName": "NPM",
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
       "schedule": ["before 6am on Thursday"]
     },
     {
-      "groupName": "rust dependencies",
+      "groupName": "Rust",
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
       "schedule": ["before 6am on Thursday"]
