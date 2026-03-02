@@ -126,7 +126,7 @@ GEM
       timeout
     net-smtp (0.3.3)
       net-protocol
-    nio4r (2.5.9)
+    nio4r (2.7.5)
     nokogiri (1.19.1-x86_64-linux-gnu)
       racc (~> 1.4)
     pp (0.6.3)
@@ -136,7 +136,7 @@ GEM
     psych (5.3.1)
       date
       stringio
-    puma (6.6.1)
+    puma (7.2.0)
       nio4r (~> 2.0)
     racc (1.8.1)
     rack (3.2.4)
@@ -207,7 +207,7 @@ DEPENDENCIES
   bootsnap
   debug
   mysql2
-  puma (~> 6.0)
+  puma (~> 7.0)
   rails (~> 7.2.3)
   sqlite3 (~> 1.4)
   tzinfo-data

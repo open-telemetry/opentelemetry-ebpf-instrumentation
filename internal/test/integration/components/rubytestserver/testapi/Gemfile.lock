@@ -136,7 +136,7 @@ GEM
     psych (5.2.6)
       date
       stringio
-    puma (6.6.1)
+    puma (7.2.0)
       nio4r (~> 2.0)
     racc (1.8.1)
     rack (3.2.4)
@@ -208,7 +208,7 @@ PLATFORMS
 DEPENDENCIES
   bootsnap
   debug
-  puma (~> 6.0)
+  puma (~> 7.0)
   rails (~> 7.2.0)
   sqlite3 (~> 1.4)
   tzinfo-data
