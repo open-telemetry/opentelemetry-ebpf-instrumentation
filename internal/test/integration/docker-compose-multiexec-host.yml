@@ -55,12 +55,12 @@ services:
       BYPASS_JSONRPC: "${BYPASS_JSONRPC}"
 
   rtestserver:
-    image: ghcr.io/open-telemetry/obi-testimg:rust-0.1.0@sha256:4e01a4f839db0df6cdd825ae30e2a17f65725d61dd65b15549e4006e142a8844
+    image: ghcr.io/open-telemetry/obi-testimg:rust-0.1.0@sha256:3989aa18c1e23cbb5a4c511ae1ad3456f94a9b967fd916bc21ee10c1d940a95d
     ports:
       - 8091:8090
 
   rtestserverssl:
-    image: ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.0@sha256:4d0ef8af1a86ecb131b2ac20102764df03aeafc0daec681ab52de2a8616ac43b
+    image: ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.0@sha256:9f7d6352112dd6f3999f85cdb847c1e8b462a48dedbf2ba55337f3efcbd6fd1a
     ports:
       - 8491:8490
     environment:
@@ -105,17 +105,17 @@ services:
       - 3031:3030
 
   utestserver:
-    image: ghcr.io/open-telemetry/obi-testimg:rails-0.1.0@sha256:9572472984207009a252655aeb54a70e7e27830ce33b77cf4a1c0fc242ca1c96
+    image: ghcr.io/open-telemetry/obi-testimg:rails-0.1.0@sha256:7a72159a113b9044378c42f7ea27ab00673c6a0ebfe3ac205cc006f46606b36c
     ports:
       - 3041:3040
 
   utestserverssl:
-    image: ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.0@sha256:29bf8491610b55ec786d7fa19b8d59d79b01cd3df74ec39c0752e3f5952926b8
+    image: ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.0@sha256:b230987a8e15e33c42f4d8fc1bdda22539c9614695ac833c1e7e9697efd2aaa7
     ports:
       - 3044:3043
 
   jtestserver:
-    image: ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.0@sha256:5008adf6a82209ef08fddf24c21a9f7f37255265b17778e33abfe5e569483011
+    image: ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.0@sha256:92d325a0a7aadcce2559de70ef66d39fa07075b57d8fa33b4244ada4dde3787e
     ports:
       - "8086:8085"
 
