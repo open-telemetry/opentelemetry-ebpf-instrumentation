@@ -101,21 +101,28 @@ typedef struct http2_grpc_request {
 const http_info_t *unused __attribute__((unused));
 const http2_grpc_request_t *unused_http2 __attribute__((unused));
 
+// Checks whether the request target after the method+space is valid.
+// Accepts origin-form (/...), absolute-form (http:// or https://), and asterisk-form (*).
+static __always_inline u8 is_http_request_target(unsigned char c) {
+    return c == '/' || c == 'h' || c == 'H' || c == '*';
+}
+
 static __always_inline u8 is_http_request_buf(const unsigned char *p) {
     //HTTP/1.x
-    return (((p[0] == 'G') && (p[1] == 'E') && (p[2] == 'T') && (p[3] == ' ') &&
-             (p[4] == '/')) || // GET
-            ((p[0] == 'P') && (p[1] == 'O') && (p[2] == 'S') && (p[3] == 'T') && (p[4] == ' ') &&
-             (p[5] == '/')) || // POST
-            ((p[0] == 'P') && (p[1] == 'U') && (p[2] == 'T') && (p[3] == ' ') &&
-             (p[4] == '/')) || // PUT
-            ((p[0] == 'P') && (p[1] == 'A') && (p[2] == 'T') && (p[3] == 'C') && (p[4] == 'H') &&
-             (p[5] == ' ') && (p[6] == '/')) || // PATCH
-            ((p[0] == 'D') && (p[1] == 'E') && (p[2] == 'L') && (p[3] == 'E') && (p[4] == 'T') &&
-             (p[5] == 'E') && (p[6] == ' ') && (p[7] == '/')) || // DELETE
-            ((p[0] == 'H') && (p[1] == 'E') && (p[2] == 'A') && (p[3] == 'D') && (p[4] == ' ') &&
-             (p[5] == '/')) || // HEAD
-            ((p[0] == 'O') && (p[1] == 'P') && (p[2] == 'T') && (p[3] == 'I') && (p[4] == 'O') &&
-             (p[5] == 'N') && (p[6] == 'S') && (p[7] == ' ') && (p[8] == '/')) // OPTIONS
+    return (
+        ((p[0] == 'G') && (p[1] == 'E') && (p[2] == 'T') && (p[3] == ' ') &&
+         is_http_request_target(p[4])) || // GET
+        ((p[0] == 'P') && (p[1] == 'O') && (p[2] == 'S') && (p[3] == 'T') && (p[4] == ' ') &&
+         is_http_request_target(p[5])) || // POST
+        ((p[0] == 'P') && (p[1] == 'U') && (p[2] == 'T') && (p[3] == ' ') &&
+         is_http_request_target(p[4])) || // PUT
+        ((p[0] == 'P') && (p[1] == 'A') && (p[2] == 'T') && (p[3] == 'C') && (p[4] == 'H') &&
+         (p[5] == ' ') && is_http_request_target(p[6])) || // PATCH
+        ((p[0] == 'D') && (p[1] == 'E') && (p[2] == 'L') && (p[3] == 'E') && (p[4] == 'T') &&
+         (p[5] == 'E') && (p[6] == ' ') && is_http_request_target(p[7])) || // DELETE
+        ((p[0] == 'H') && (p[1] == 'E') && (p[2] == 'A') && (p[3] == 'D') && (p[4] == ' ') &&
+         is_http_request_target(p[5])) || // HEAD
+        ((p[0] == 'O') && (p[1] == 'P') && (p[2] == 'T') && (p[3] == 'I') && (p[4] == 'O') &&
+         (p[5] == 'N') && (p[6] == 'S') && (p[7] == ' ') && is_http_request_target(p[8])) // OPTIONS
     );
 }
