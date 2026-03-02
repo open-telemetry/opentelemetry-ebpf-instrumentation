@@ -15,19 +15,57 @@
     "configs/offsets/shopify/**",
     "NOTICES/**"
   ],
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 2,
   "packageRules": [
     {
-      "groupName": "all patch and digest versions",
-      "matchUpdateTypes": ["patch", "digest"],
-      "schedule": ["before 8am on Monday"],
-      // group all patches in a single PR
-      "matchPackageNames": [
-        "*"
-      ]
+      "groupName": "go dependencies",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "schedule": ["before 6am on Monday"],
+      "postUpgradeTasks": {
+        "commands": [
+          "make go-mod-tidy",
+          "make go-notices-update"
+        ],
+        "executionMode": "branch"
+      }
     },
     {
-      "matchUpdateTypes": ["minor", "major"],
-      "schedule": ["before 8am on Monday"]
+      "groupName": "docker dependencies",
+      "matchManagers": ["dockerfile"],
+      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "groupName": "github actions",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "schedule": ["before 6am on Wednesday"]
+    },
+    {
+      "groupName": "java dependencies",
+      "matchManagers": ["gradle", "maven"],
+      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "schedule": ["before 6am on Thursday"],
+      "postUpgradeTasks": {
+        "commands": [
+          "make java-notices-update"
+        ],
+        "executionMode": "branch"
+      }
+    },
+    {
+      "groupName": "npm dependencies",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "schedule": ["before 6am on Thursday"]
+    },
+    {
+      "groupName": "rust dependencies",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "schedule": ["before 6am on Thursday"]
     },
     {
       "description": "Disable Go 1.17 testserver updates",
