@@ -1,7 +1,7 @@
 
 Dependency License Report for agent 0.1.0
 
-1. Group: net.bytebuddy  Name: byte-buddy  Version: 1.18.5
+1. Group: net.bytebuddy  Name: byte-buddy  Version: 1.18.7-jdk5
 
 POM License: Apache License, Version 2.0 - https://www.apache.org/licenses/LICENSE-2.0.txt
 
