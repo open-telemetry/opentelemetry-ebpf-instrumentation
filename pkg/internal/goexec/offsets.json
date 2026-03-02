@@ -192,7 +192,7 @@
       "fullPath": {
         "versions": {
           "oldest": "1.6.0",
-          "newest": "1.11.0"
+          "newest": "1.12.0"
         },
         "offsets": [
           {
