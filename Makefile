@@ -259,9 +259,13 @@ generate/all: $(BPF2GO)
 .PHONY: docker-generate
 docker-generate:
 	@echo "### Generating files in Docker..."
-	@$(OCI_BIN) run --rm \
+	@_git_dir=$$(git rev-parse --absolute-git-dir) && \
+	_git_common_dir=$$(git rev-parse --path-format=absolute --git-common-dir) && \
+	$(OCI_BIN) run --rm \
 		$(if $(findstring podman,$(OCI_BIN)),  ,-u "$(DOCKER_USER)") \
 		-v "$(CURDIR):/src:z" \
+		-v "$$_git_common_dir:/src/.gitrepo:ro,z" \
+		-e GIT_DIR="/src/.gitrepo$${_git_dir#$$_git_common_dir}" \
 		-w /src \
 		$(GEN_IMG) \
 		make generate
