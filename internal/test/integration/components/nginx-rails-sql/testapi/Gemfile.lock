@@ -127,7 +127,7 @@ GEM
     net-smtp (0.3.3)
       net-protocol
     nio4r (2.5.9)
-    nokogiri (1.15.2-x86_64-linux)
+    nokogiri (1.19.1-x86_64-linux-gnu)
       racc (~> 1.4)
     pp (0.6.3)
       prettyprint
@@ -138,7 +138,7 @@ GEM
       stringio
     puma (6.6.1)
       nio4r (~> 2.0)
-    racc (1.7.1)
+    racc (1.8.1)
     rack (3.2.4)
     rack-session (2.1.1)
       base64 (>= 0.1.0)
