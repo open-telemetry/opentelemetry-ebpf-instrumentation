@@ -16,7 +16,7 @@
     "NOTICES/**"
   ],
   "prConcurrentLimit": 10,
-  "prHourlyLimit": 2,
+  "prHourlyLimit": 3,
   "packageRules": [
     {
       "groupName": "go dependencies",
