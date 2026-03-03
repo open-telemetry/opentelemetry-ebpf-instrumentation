@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 func TestParseFetchRequest(t *testing.T) {
@@ -354,7 +356,7 @@ func TestParseFetchRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, err := ParseFetchRequest(newBytesReader(tt.packet), tt.header)
+			req, err := ParseFetchRequest(largebuf.NewLargeBufferFrom(tt.packet).NewReader(), tt.header)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -398,7 +400,7 @@ func TestParseFetchRequestTruncation(t *testing.T) {
 			for i := 1; i < len(validPacket); i++ {
 				t.Run(fmt.Sprintf("truncated_at_%d", i), func(t *testing.T) {
 					truncated := validPacket[:i]
-					_, err := ParseFetchRequest(newBytesReader(truncated), header)
+					_, err := ParseFetchRequest(largebuf.NewLargeBufferFrom(truncated).NewReader(), header)
 					assert.Error(t, err, "expected error for truncated packet at position %d for version %d", i, version)
 				})
 			}

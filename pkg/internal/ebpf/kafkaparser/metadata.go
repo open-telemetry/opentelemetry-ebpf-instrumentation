@@ -5,6 +5,8 @@ package kafkaparser // import "go.opentelemetry.io/obi/pkg/internal/ebpf/kafkapa
 
 import (
 	"errors"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 const partitionLen = // 26
@@ -25,7 +27,7 @@ type MetadataResponse struct {
 	Topics []*MetadataTopic
 }
 
-func ParseMetadataResponse(r byteReader, header *KafkaRequestHeader) (*MetadataResponse, error) {
+func ParseMetadataResponse(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) (*MetadataResponse, error) {
 	if err := metadataResponseSkipUntilTopics(r, header); err != nil {
 		return nil, err
 	}
@@ -41,7 +43,7 @@ func ParseMetadataResponse(r byteReader, header *KafkaRequestHeader) (*MetadataR
 	}, nil
 }
 
-func metadataResponseSkipUntilTopics(r byteReader, header *KafkaRequestHeader) error {
+func metadataResponseSkipUntilTopics(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) error {
 	if err := r.Skip(Int32Len); err != nil { // throttle_time_ms
 		return err
 	}
@@ -56,7 +58,7 @@ func metadataResponseSkipUntilTopics(r byteReader, header *KafkaRequestHeader) e
 	return r.Skip(clusterIDLen + Int32Len) // cluster_id + controller_id
 }
 
-func skipMetadataResponseBrokers(r byteReader, header *KafkaRequestHeader) error {
+func skipMetadataResponseBrokers(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) error {
 	brokersLen, err := readArrayLength(r, header)
 	if err != nil {
 		return err
@@ -88,7 +90,7 @@ func skipMetadataResponseBrokers(r byteReader, header *KafkaRequestHeader) error
 	return nil
 }
 
-func parseMetadataTopics(r byteReader, header *KafkaRequestHeader) ([]*MetadataTopic, error) {
+func parseMetadataTopics(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) ([]*MetadataTopic, error) {
 	topicsLen, err := readArrayLength(r, header)
 	if err != nil {
 		return nil, err
@@ -107,7 +109,7 @@ func parseMetadataTopics(r byteReader, header *KafkaRequestHeader) ([]*MetadataT
 	return topics, nil
 }
 
-func parseMetadataTopic(r byteReader, header *KafkaRequestHeader, isLast bool) (*MetadataTopic, error) {
+func parseMetadataTopic(r *largebuf.LargeBufferReader, header *KafkaRequestHeader, isLast bool) (*MetadataTopic, error) {
 	var topic MetadataTopic
 	/*
 	  Metadata Response (Version: 10, 11, 12 and 13)

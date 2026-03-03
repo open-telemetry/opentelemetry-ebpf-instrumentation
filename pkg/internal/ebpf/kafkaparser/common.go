@@ -6,6 +6,8 @@ package kafkaparser // import "go.opentelemetry.io/obi/pkg/internal/ebpf/kafkapa
 import (
 	"encoding/binary"
 	"errors"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 const (
@@ -48,16 +50,7 @@ type KafkaResponseHeader struct {
 	CorrelationID int32
 }
 
-// byteReader is the sequential-read interface satisfied by *LargeBuffer.
-// Defined here so sub-packages don't need to import ebpfcommon (which would be circular).
-type byteReader interface {
-	ReadN(n int) ([]byte, error)
-	Peek(n int) ([]byte, error)
-	Skip(n int) error
-	Remaining() int
-}
-
-func ParseKafkaRequestHeader(r byteReader) (*KafkaRequestHeader, error) {
+func ParseKafkaRequestHeader(r *largebuf.LargeBufferReader) (*KafkaRequestHeader, error) {
 	if r.Remaining() < MinKafkaRequestLen {
 		return nil, errors.New("packet too short for Kafka request header")
 	}
@@ -116,7 +109,7 @@ func ParseKafkaRequestHeader(r byteReader) (*KafkaRequestHeader, error) {
 	return header, nil
 }
 
-func ParseKafkaResponseHeader(r byteReader, requestHeader *KafkaRequestHeader) (*KafkaResponseHeader, error) {
+func ParseKafkaResponseHeader(r *largebuf.LargeBufferReader, requestHeader *KafkaRequestHeader) (*KafkaResponseHeader, error) {
 	if r.Remaining() < MinKafkaResponseLen {
 		return nil, errors.New("packet too short for Kafka response header")
 	}
@@ -142,7 +135,7 @@ func ParseKafkaResponseHeader(r byteReader, requestHeader *KafkaRequestHeader) (
 	return header, nil
 }
 
-func skipTaggedFields(r byteReader, header *KafkaRequestHeader) error {
+func skipTaggedFields(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) error {
 	if !isFlexible(header) {
 		return nil // no tagged fields to skip for non-flexible versions
 	}
@@ -232,7 +225,7 @@ func isFlexible(header *KafkaRequestHeader) bool {
 	}
 }
 
-func readArrayLength(r byteReader, header *KafkaRequestHeader) (int, error) {
+func readArrayLength(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) (int, error) {
 	if isFlexible(header) {
 		size, err := readUnsignedVarint(r)
 		if err != nil {
@@ -246,7 +239,7 @@ func readArrayLength(r byteReader, header *KafkaRequestHeader) (int, error) {
 	return readInt32(r)
 }
 
-func readUUID(r byteReader) (*UUID, error) {
+func readUUID(r *largebuf.LargeBufferReader) (*UUID, error) {
 	b, err := r.ReadN(UUIDLen)
 	if err != nil {
 		return nil, errors.New("packet too short for topic UUID")
@@ -256,7 +249,7 @@ func readUUID(r byteReader) (*UUID, error) {
 	return &uuid, nil
 }
 
-func readString(r byteReader, header *KafkaRequestHeader, nullable bool) (string, error) {
+func readString(r *largebuf.LargeBufferReader, header *KafkaRequestHeader, nullable bool) (string, error) {
 	size, err := readStringLength(r, header, nullable)
 	if err != nil {
 		return "", err
@@ -288,7 +281,7 @@ func validateKafkaString(pkt []byte, size int) bool {
 	return true
 }
 
-func readStringLength(r byteReader, header *KafkaRequestHeader, nullable bool) (int, error) {
+func readStringLength(r *largebuf.LargeBufferReader, header *KafkaRequestHeader, nullable bool) (int, error) {
 	if !isFlexible(header) {
 		// length is stored as a fixed size int16
 		if r.Remaining() < Int16Len {
@@ -326,7 +319,7 @@ func readStringLength(r byteReader, header *KafkaRequestHeader, nullable bool) (
 	return size, nil
 }
 
-func readUnsignedVarint(r byteReader) (int, error) {
+func readUnsignedVarint(r *largebuf.LargeBufferReader) (int, error) {
 	value := 0
 	i := 0
 	for {
@@ -349,7 +342,7 @@ func readUnsignedVarint(r byteReader) (int, error) {
 	}
 }
 
-func readInt32(r byteReader) (int, error) {
+func readInt32(r *largebuf.LargeBufferReader) (int, error) {
 	b, err := r.ReadN(Int32Len)
 	if err != nil {
 		return 0, errors.New("data too short for int32")
@@ -357,7 +350,7 @@ func readInt32(r byteReader) (int, error) {
 	return int(binary.BigEndian.Uint32(b)), nil
 }
 
-func readInt64(r byteReader) (int64, error) {
+func readInt64(r *largebuf.LargeBufferReader) (int64, error) {
 	b, err := r.ReadN(Int64Len)
 	if err != nil {
 		return 0, errors.New("data too short for int64")

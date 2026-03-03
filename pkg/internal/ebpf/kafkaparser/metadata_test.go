@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 func TestParseMetadataResponse(t *testing.T) {
@@ -338,7 +340,7 @@ func TestParseMetadataResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := ParseMetadataResponse(newBytesReader(tt.packet), tt.header)
+			resp, err := ParseMetadataResponse(largebuf.NewLargeBufferFrom(tt.packet).NewReader(), tt.header)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -380,7 +382,7 @@ func TestParseMetadataResponseTruncation(t *testing.T) {
 			for i := 1; i < len(validPacket); i++ {
 				t.Run(fmt.Sprintf("truncated_at_%d", i), func(t *testing.T) {
 					truncated := validPacket[:i]
-					_, err := ParseMetadataResponse(newBytesReader(truncated), header)
+					_, err := ParseMetadataResponse(largebuf.NewLargeBufferFrom(truncated).NewReader(), header)
 					assert.Error(t, err, "expected error for truncated packet at position %d for version %d", i, version)
 				})
 			}
@@ -402,7 +404,7 @@ func TestParseMetadataResponseAllVersions(t *testing.T) {
 			// Create a valid packet for this version
 			validPacket := createValidMetadataPacket(version)
 
-			resp, err := ParseMetadataResponse(newBytesReader(validPacket), header)
+			resp, err := ParseMetadataResponse(largebuf.NewLargeBufferFrom(validPacket).NewReader(), header)
 			require.NoError(t, err, "unexpected error for version %d", version)
 			require.NotNil(t, resp)
 

@@ -3,7 +3,11 @@
 
 package kafkaparser // import "go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 
-import "errors"
+import (
+	"errors"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
+)
 
 type FetchPartition struct {
 	Partition   int
@@ -19,7 +23,7 @@ type FetchRequest struct {
 	Topics []*FetchTopic
 }
 
-func ParseFetchRequest(r byteReader, header *KafkaRequestHeader) (*FetchRequest, error) {
+func ParseFetchRequest(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) (*FetchRequest, error) {
 	if err := fetchRequestSkipUntilTopics(r, header); err != nil {
 		return nil, err
 	}
@@ -38,7 +42,7 @@ func ParseFetchRequest(r byteReader, header *KafkaRequestHeader) (*FetchRequest,
 	}, nil
 }
 
-func fetchRequestSkipUntilTopics(r byteReader, header *KafkaRequestHeader) error {
+func fetchRequestSkipUntilTopics(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) error {
 	var skipLen int
 	switch {
 	case header.APIVersion >= 15:
@@ -100,7 +104,7 @@ func fetchRequestSkipUntilTopics(r byteReader, header *KafkaRequestHeader) error
 	return nil
 }
 
-func parseFetchTopics(r byteReader, header *KafkaRequestHeader) ([]*FetchTopic, error) {
+func parseFetchTopics(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) ([]*FetchTopic, error) {
 	topicsLen, err := readArrayLength(r, header)
 	if err != nil {
 		return nil, err
@@ -119,7 +123,7 @@ func parseFetchTopics(r byteReader, header *KafkaRequestHeader) ([]*FetchTopic, 
 	return topics, nil
 }
 
-func parseFetchTopic(r byteReader, header *KafkaRequestHeader) (*FetchTopic, error) {
+func parseFetchTopic(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) (*FetchTopic, error) {
 	var topic FetchTopic
 	var err error
 	if header.APIVersion >= 13 {
@@ -174,7 +178,7 @@ func parseFetchTopic(r byteReader, header *KafkaRequestHeader) (*FetchTopic, err
 	return &topic, nil
 }
 
-func parseFetchPartition(r byteReader, header *KafkaRequestHeader) (*FetchPartition, error) {
+func parseFetchPartition(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) (*FetchPartition, error) {
 	/*
 	   partitions => Partition fetch_offset log_start_offset partition_max_bytes
 	     Partition => INT32
@@ -206,7 +210,7 @@ func parseFetchPartition(r byteReader, header *KafkaRequestHeader) (*FetchPartit
 	}, nil
 }
 
-func skipFetchPartitions(r byteReader, header *KafkaRequestHeader, partitionCount int) error {
+func skipFetchPartitions(r *largebuf.LargeBufferReader, header *KafkaRequestHeader, partitionCount int) error {
 	var fetchPartitionLen int
 	switch {
 	case header.APIVersion >= 12:

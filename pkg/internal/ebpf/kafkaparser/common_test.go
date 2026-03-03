@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 func TestParseKafkaRequestHeader(t *testing.T) {
@@ -152,7 +154,7 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newBytesReader(tt.packet)
+			r := largebuf.NewLargeBufferFrom(tt.packet).NewReader()
 			header, err := ParseKafkaRequestHeader(r)
 
 			if tt.expectErr {
@@ -173,7 +175,7 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 			if tt.flexible {
 				expectedConsumed++ // Account for tagged fields byte
 			}
-			assert.Equal(t, expectedConsumed, r.Pos())
+			assert.Equal(t, expectedConsumed, r.ReadOffset())
 		})
 	}
 }
@@ -405,7 +407,7 @@ func TestReadArrayLength(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newBytesReader(tt.packet[tt.offset:])
+			r := largebuf.NewLargeBufferFrom(tt.packet[tt.offset:]).NewReader()
 			length, err := readArrayLength(r, tt.header)
 
 			if tt.expectErr {
@@ -415,7 +417,7 @@ func TestReadArrayLength(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedLength, length)
-			assert.Equal(t, tt.expectedOffset-tt.offset, r.Pos())
+			assert.Equal(t, tt.expectedOffset-tt.offset, r.ReadOffset())
 		})
 	}
 }
@@ -483,7 +485,7 @@ func TestReadUUID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newBytesReader(tt.packet[tt.offset:])
+			r := largebuf.NewLargeBufferFrom(tt.packet[tt.offset:]).NewReader()
 			uuid, err := readUUID(r)
 
 			if tt.expectErr {
@@ -494,7 +496,7 @@ func TestReadUUID(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, uuid)
 			assert.Equal(t, tt.expectedUUID, *uuid)
-			assert.Equal(t, tt.expectedOffset-tt.offset, r.Pos())
+			assert.Equal(t, tt.expectedOffset-tt.offset, r.ReadOffset())
 		})
 	}
 }
@@ -565,7 +567,7 @@ func TestReadString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newBytesReader(tt.packet[tt.offset:])
+			r := largebuf.NewLargeBufferFrom(tt.packet[tt.offset:]).NewReader()
 			str, err := readString(r, tt.header, tt.nullable)
 
 			if tt.expectErr {
@@ -575,7 +577,7 @@ func TestReadString(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedString, str)
-			assert.Equal(t, tt.expectedOffset-tt.offset, r.Pos())
+			assert.Equal(t, tt.expectedOffset-tt.offset, r.ReadOffset())
 		})
 	}
 }
@@ -629,7 +631,7 @@ func TestReadUnsignedVarint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newBytesReader(tt.data[tt.offset:])
+			r := largebuf.NewLargeBufferFrom(tt.data[tt.offset:]).NewReader()
 			value, err := readUnsignedVarint(r)
 
 			if tt.expectErr {
@@ -639,7 +641,7 @@ func TestReadUnsignedVarint(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedValue, value)
-			assert.Equal(t, tt.expectedBytes, r.Pos())
+			assert.Equal(t, tt.expectedBytes, r.ReadOffset())
 		})
 	}
 }
@@ -680,7 +682,7 @@ func TestSkip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newBytesReader(tt.packet[tt.offset:])
+			r := largebuf.NewLargeBufferFrom(tt.packet[tt.offset:]).NewReader()
 			err := r.Skip(tt.length)
 
 			if tt.expectErr {
@@ -689,7 +691,7 @@ func TestSkip(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedBytes, r.Pos())
+			assert.Equal(t, tt.expectedBytes, r.ReadOffset())
 		})
 	}
 }
@@ -709,7 +711,7 @@ func TestParseKafkaRequestHeaderTruncation(t *testing.T) {
 	for i := 1; i < len(validPacket); i++ {
 		t.Run(fmt.Sprintf("truncated_at_%d", i), func(t *testing.T) {
 			truncated := validPacket[:i]
-			_, err := ParseKafkaRequestHeader(newBytesReader(truncated))
+			_, err := ParseKafkaRequestHeader(largebuf.NewLargeBufferFrom(truncated).NewReader())
 			assert.Error(t, err, "expected error for truncated packet at position %d", i)
 		})
 	}

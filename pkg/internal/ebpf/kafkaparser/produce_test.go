@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 var negativeLength int16 = -1
@@ -283,7 +285,7 @@ func TestParseProduceRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, err := ParseProduceRequest(newBytesReader(tt.packet), tt.header)
+			req, err := ParseProduceRequest(largebuf.NewLargeBufferFrom(tt.packet).NewReader(), tt.header)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -452,7 +454,7 @@ func TestProduceRequestSkipUntilTopics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newBytesReader(tt.packet)
+			r := largebuf.NewLargeBufferFrom(tt.packet).NewReader()
 			err := produceRequestSkipUntilTopics(r, tt.header)
 
 			if tt.expectErr {
@@ -461,7 +463,7 @@ func TestProduceRequestSkipUntilTopics(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedOffset, r.Pos())
+			assert.Equal(t, tt.expectedOffset, r.ReadOffset())
 		})
 	}
 }
@@ -485,7 +487,7 @@ func TestParseProduceRequestTruncation(t *testing.T) {
 			for i := 1; i < len(validPacket); i++ {
 				t.Run(fmt.Sprintf("truncated_at_%d", i), func(t *testing.T) {
 					truncated := validPacket[:i]
-					_, err := ParseProduceRequest(newBytesReader(truncated), header)
+					_, err := ParseProduceRequest(largebuf.NewLargeBufferFrom(truncated).NewReader(), header)
 					assert.Error(t, err, "expected error for truncated packet at position %d for version %d", i, version)
 				})
 			}
@@ -507,7 +509,7 @@ func TestParseProduceRequestAllVersions(t *testing.T) {
 			// Create a valid packet for this version
 			validPacket := createValidProducePacket(version)
 
-			req, err := ParseProduceRequest(newBytesReader(validPacket), header)
+			req, err := ParseProduceRequest(largebuf.NewLargeBufferFrom(validPacket).NewReader(), header)
 			require.NoError(t, err, "unexpected error for version %d", version)
 			require.NotNil(t, req)
 
@@ -665,7 +667,7 @@ func TestParseProduceRequestEdgeCases(t *testing.T) {
 			}
 
 			packet := tt.packet()
-			_, err := ParseProduceRequest(newBytesReader(packet), header)
+			_, err := ParseProduceRequest(largebuf.NewLargeBufferFrom(packet).NewReader(), header)
 
 			if tt.expectErr {
 				assert.Error(t, err)

@@ -3,7 +3,11 @@
 
 package kafkaparser // import "go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 
-import "errors"
+import (
+	"errors"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
+)
 
 type ProduceTopic struct {
 	Name      string
@@ -14,7 +18,7 @@ type ProduceRequest struct {
 	Topics []*ProduceTopic
 }
 
-func ParseProduceRequest(r byteReader, header *KafkaRequestHeader) (*ProduceRequest, error) {
+func ParseProduceRequest(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) (*ProduceRequest, error) {
 	if err := produceRequestSkipUntilTopics(r, header); err != nil {
 		return nil, err
 	}
@@ -30,7 +34,7 @@ func ParseProduceRequest(r byteReader, header *KafkaRequestHeader) (*ProduceRequ
 	}, nil
 }
 
-func produceRequestSkipUntilTopics(r byteReader, header *KafkaRequestHeader) error {
+func produceRequestSkipUntilTopics(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) error {
 	/*
 		Produce Request (Version: 3-12) => transactional_id acks timeout_ms [topic_data] _tagged_fields
 		  transactional_id => NULLABLE_STRING / COMPACT_NULLABLE_STRING
@@ -49,7 +53,7 @@ func produceRequestSkipUntilTopics(r byteReader, header *KafkaRequestHeader) err
 	)
 }
 
-func parseProduceTopics(r byteReader, header *KafkaRequestHeader) ([]*ProduceTopic, error) {
+func parseProduceTopics(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) ([]*ProduceTopic, error) {
 	topicsLen, err := readArrayLength(r, header)
 	if err != nil {
 		return nil, err
@@ -70,7 +74,7 @@ func parseProduceTopics(r byteReader, header *KafkaRequestHeader) ([]*ProduceTop
 	return topics, nil
 }
 
-func parseProduceTopic(r byteReader, header *KafkaRequestHeader) (*ProduceTopic, error) {
+func parseProduceTopic(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) (*ProduceTopic, error) {
 	var topic ProduceTopic
 	/*
 	  Topics => topic [partitions] _tagged_fields
