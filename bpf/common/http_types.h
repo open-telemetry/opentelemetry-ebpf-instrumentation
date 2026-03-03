@@ -107,7 +107,7 @@ const http2_grpc_request_t *unused_http2 __attribute__((unused));
 // older kernel versions - it replaces branching with bitwise operations whose
 // result are equivalent in this particular context.
 static __always_inline u8 is_http_request_target(unsigned char c) {
-    return (c == '/') | (c == '*') | (((c | 0x20) == 'h'));
+    return (c == '/'); // | (c == '*') | (((c | 0x20) == 'h'));
 }
 
 static __always_inline u8 is_http_request_buf(const unsigned char *p) {
