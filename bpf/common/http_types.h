@@ -111,21 +111,25 @@ static __always_inline u8 is_http_request_target(unsigned char c) {
 }
 
 static __always_inline u8 is_http_request_buf(const unsigned char *p) {
-    //HTTP/1.x
-    return (
-        ((p[0] == 'G') && (p[1] == 'E') && (p[2] == 'T') && (p[3] == ' ') &&
-         is_http_request_target(p[4])) || // GET
-        ((p[0] == 'P') && (p[1] == 'O') && (p[2] == 'S') && (p[3] == 'T') && (p[4] == ' ') &&
-         is_http_request_target(p[5])) || // POST
-        ((p[0] == 'P') && (p[1] == 'U') && (p[2] == 'T') && (p[3] == ' ') &&
-         is_http_request_target(p[4])) || // PUT
-        ((p[0] == 'P') && (p[1] == 'A') && (p[2] == 'T') && (p[3] == 'C') && (p[4] == 'H') &&
-         (p[5] == ' ') && is_http_request_target(p[6])) || // PATCH
-        ((p[0] == 'D') && (p[1] == 'E') && (p[2] == 'L') && (p[3] == 'E') && (p[4] == 'T') &&
-         (p[5] == 'E') && (p[6] == ' ') && is_http_request_target(p[7])) || // DELETE
-        ((p[0] == 'H') && (p[1] == 'E') && (p[2] == 'A') && (p[3] == 'D') && (p[4] == ' ') &&
-         is_http_request_target(p[5])) || // HEAD
-        ((p[0] == 'O') && (p[1] == 'P') && (p[2] == 'T') && (p[3] == 'I') && (p[4] == 'O') &&
-         (p[5] == 'N') && (p[6] == 'S') && (p[7] == ' ') && is_http_request_target(p[8])) // OPTIONS
-    );
+    unsigned char target;
+
+    if (__builtin_memcmp(p, "GET ", 4) == 0) {
+        target = p[4];
+    } else if (__builtin_memcmp(p, "POST ", 5) == 0) {
+        target = p[5];
+    } else if (__builtin_memcmp(p, "PUT ", 4) == 0) {
+        target = p[4];
+    } else if (__builtin_memcmp(p, "PATCH ", 6) == 0) {
+        target = p[6];
+    } else if (__builtin_memcmp(p, "DELETE ", 7) == 0) {
+        target = p[7];
+    } else if (__builtin_memcmp(p, "HEAD ", 5) == 0) {
+        target = p[5];
+    } else if (__builtin_memcmp(p, "OPTIONS ", 8) == 0) {
+        target = p[8];
+    } else {
+        return 0;
+    }
+
+    return is_http_request_target(target);
 }
