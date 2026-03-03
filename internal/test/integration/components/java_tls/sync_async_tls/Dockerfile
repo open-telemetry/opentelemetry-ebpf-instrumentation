@@ -20,7 +20,7 @@ RUN mvn -version
 RUN mvn clean package
 
 # The App Image
-FROM eclipse-temurin:25.0.2_10-jre@sha256:0a9c973778b03b88f39ccae4f8cc26022d84a3237a818cb98770369eb6c5daf9
+FROM eclipse-temurin:21.0.10_7-jre@sha256:34a58218d838035428163eb35abb629944c5906d1bedcfef8bc8864cce11dfe5
 
 EXPOSE 8080
 
