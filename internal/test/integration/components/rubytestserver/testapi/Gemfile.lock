@@ -189,8 +189,9 @@ GEM
     reline (0.6.3)
       io-console (~> 0.5)
     securerandom (0.4.1)
-    sqlite3 (1.7.3)
+    sqlite3 (2.9.1)
       mini_portile2 (~> 2.8.0)
+    sqlite3 (2.9.1-x86_64-linux-gnu)
     stringio (3.2.0)
     thor (1.5.0)
     timeout (0.6.0)
@@ -214,7 +215,7 @@ DEPENDENCIES
   debug
   puma (~> 7.0)
   rails (~> 8.1.0)
-  sqlite3 (~> 1.4)
+  sqlite3 (~> 2.0)
   tzinfo-data
 
 RUBY VERSION
