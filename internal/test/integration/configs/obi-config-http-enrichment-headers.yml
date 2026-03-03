@@ -15,6 +15,8 @@ attributes:
     "*":
       include: ["*"]
 ebpf:
+  buffer_sizes:
+    http: 8192
   payload_extraction:
     http:
       generic:
