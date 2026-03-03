@@ -67,9 +67,6 @@ func ProcessPossibleKafkaEvent(event *TCPRequestInfo, pkt *LargeBufferReader, rp
 }
 
 func ProcessKafkaEvent(pkt *LargeBufferReader, rpkt *LargeBufferReader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
-	if pkt == nil {
-		return nil, true, errors.New("nil request buffer")
-	}
 	hdr, err := kafkaparser.ParseKafkaRequestHeader(pkt)
 	if err != nil {
 		return nil, true, err
@@ -157,9 +154,6 @@ func processMetadataResponse(rpkt *LargeBufferReader, hdr *kafkaparser.KafkaRequ
 }
 
 func ProcessKafkaRequest(pkt *LargeBufferReader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
-	if pkt == nil {
-		return nil, true, errors.New("nil request buffer")
-	}
 	hdr, err := kafkaparser.ParseKafkaRequestHeader(pkt)
 	if err != nil {
 		return nil, true, err

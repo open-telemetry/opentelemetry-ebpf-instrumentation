@@ -243,10 +243,6 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 // HTTP response buffers might have been sent incomplete, before the full body.
 // Try to parse the original buffer first, if an EOF is encountered, append an empty
 // body to the buffer and try again.
-//
-// HTTP response buffers might have been sent incomplete, before the full body.
-// Try to parse the original buffer first, if an EOF is encountered, append an empty
-// body to the buffer and try again.
 func httpSafeParseResponse(responseBuffer *LargeBuffer, req *http.Request) (*http.Response, error) {
 	rd := bufio.NewReader(responseBuffer.NewReader())
 	resp, err := http.ReadResponse(rd, req)
