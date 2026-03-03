@@ -103,8 +103,11 @@ const http2_grpc_request_t *unused_http2 __attribute__((unused));
 
 // Checks whether the request target after the method+space is valid.
 // Accepts origin-form (/...), absolute-form (http:// or https://), and asterisk-form (*).
+// The usage of '|' is intended to minimise the size of jitted code affecting
+// older kernel versions - it replaces branching with bitwise operations whose
+// result are equivalent in this particular context.
 static __always_inline u8 is_http_request_target(unsigned char c) {
-    return c == '/' || c == 'h' || c == 'H' || c == '*';
+    return (c == '/') | (c == '*') | (((c | 0x20) == 'h'));
 }
 
 static __always_inline u8 is_http_request_buf(const unsigned char *p) {
