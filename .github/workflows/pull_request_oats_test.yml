@@ -111,6 +111,12 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:

@@ -39,6 +39,7 @@ func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []stri
 			Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
 			OutputStream: t.Output(),
 			ErrorStream:  t.Output(),
+			AuthConfigs:  dockerAuthConfigs(),
 		})
 		if buildGoOTelTestServerErr != nil {
 			return
