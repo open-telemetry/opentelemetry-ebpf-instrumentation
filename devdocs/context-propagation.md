@@ -307,4 +307,4 @@ OBI allows injecting trace context into JSON logs. The following requirements mu
 - `CAP_SYS_ADMIN` capability and permission to use `bpf_probe_write_user` (kernel security lockdown mode should be `[none]`)
 - The target application writes logs in **JSON format**
 - BPFFS mounted at /sys/fs/bpf (or another mountpath configurable via `config.ebpf.bpf_fs_path`)
-- Async primitives: only Go runtime is currently supported
+- Async primitives: only Go and NodeJS runtimes are currently supported

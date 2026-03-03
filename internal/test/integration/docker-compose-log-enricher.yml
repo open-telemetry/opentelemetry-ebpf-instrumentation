@@ -21,6 +21,16 @@ services:
     ports:
       - "8381:8380"
 
+  testservernodejs:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/nodejsserver/Dockerfile
+    image: hatest-testserver-node
+    networks:
+      - shared
+    ports:
+      - "8383:3030"
+
   obi:
     build:
       context: ../../..
@@ -51,6 +61,7 @@ services:
       OTEL_EBPF_HOSTNAME: "beyla"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
+      OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS: "true"
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_METRICS_FEATURES: "application,application_process,application_span,application_service_graph"
       OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span,application_process,application_service_graph"
@@ -58,6 +69,8 @@ services:
       testserverhttp:
         condition: service_started
       testservergrpcgo:
+        condition: service_started
+      testservernodejs:
         condition: service_started
 
 networks:

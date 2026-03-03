@@ -137,6 +137,16 @@ app.get("/api/test-apm", async (req, res) => {
   }
 });
 
+app.get("/json_logger", (_req, res) => {
+  // Fixed async delay so all concurrent in-flight callbacks interleave inside
+  // the libuv event loop, exercising the traces_ctx_v1 context-switch fix.
+  setTimeout(() => {
+    const message = "this is a json log from node";
+    process.stdout.write(JSON.stringify({ message, level: "INFO" }) + "\n");
+    res.send(message);
+  }, 35);
+});
+
 app.listen(port, () => {
   console.log("Server running on port " + port);
 });

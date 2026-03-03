@@ -7,7 +7,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,7 +46,25 @@ var (
 		containerImage: "hatest-testserver-logenricher-grpc-go",
 		message:        "hello!",
 	}
+	logEnricherNodeJSConstants = testServerConstants{
+		url:            "http://localhost:8383",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/json_logger",
+		containerImage: "hatest-testserver-node",
+		message:        "this is a json log from node",
+	}
 )
+
+// nodejsTestTraceparents are fixed W3C traceparents used by testLogEnricherNodeJS.
+// Fixed IDs allow exact equality assertions on trace_id and ordering assertions
+// on the enriched container logs.
+var nodejsTestTraceparents = [5]struct{ traceID, parentID string }{
+	{"4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"},
+	{"7b5c1e7d8f2a4b6c9e0d3f1a2b4c5d6e", "1a2b3c4d5e6f7a8b"},
+	{"a1b2c3d4e5f60718293a4b5c6d7e8f90", "fedcba9876543210"},
+	{"0102030405060708090a0b0c0d0e0f10", "0102030405060708"},
+	{"deadbeefcafebabe0123456789abcdef", "cafebabe01234567"},
+}
 
 func containerLogs(t require.TestingT, cl *client.Client, containerID string) []string {
 	reader, err := cl.ContainerLogs(context.TODO(), containerID, container.LogsOptions{
@@ -80,6 +101,91 @@ func testContainerID(t require.TestingT, cl *client.Client, image string) string
 	}
 
 	return ""
+}
+
+// testLogEnricherNodeJS sends N concurrent requests, each carrying a distinct
+// W3C traceparent, and verifies that every injected trace_id appears in an
+// enriched container log line. The server introduces a random async delay so
+// that multiple libuv I/O callbacks are in-flight simultaneously, exercising
+// the traces_ctx_v1 context-switch fix in the async_hooks before hook.
+func testLogEnricherNodeJS(t *testing.T) {
+	waitForTestComponentsNoMetrics(t, logEnricherNodeJSConstants.url+logEnricherNodeJSConstants.smokeEndpoint)
+
+	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer cl.Close()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		// Fire one request per traceparent concurrently so all libuv callbacks
+		// are in-flight simultaneously. Goroutines are staggered by 5 ms so that
+		// requests arrive at the server in array order (server delay is 35 ms,
+		// much larger than the stagger), giving a deterministic log order.
+		var wg sync.WaitGroup
+		for i, tp := range nodejsTestTraceparents {
+			wg.Add(1)
+			go func(tp struct{ traceID, parentID string }) {
+				defer wg.Done()
+				req, err := http.NewRequest(http.MethodGet,
+					logEnricherNodeJSConstants.url+logEnricherNodeJSConstants.logEndpoint, nil)
+				if err != nil {
+					return
+				}
+				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return
+				}
+				resp.Body.Close()
+			}(tp)
+			// Small stagger between goroutine starts so HTTP requests reach the
+			// server in the same order they are launched.
+			if i < len(nodejsTestTraceparents)-1 {
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+		wg.Wait()
+
+		containerID := testContainerID(ct, cl, logEnricherNodeJSConstants.containerImage)
+		require.NotEmpty(ct, containerID, "could not find test container ID")
+		logs := containerLogs(ct, cl, containerID)
+		require.NotEmpty(ct, logs)
+
+		// Find the last log-position of each injected trace_id (most recent retry).
+		lastPos := make(map[string]int, len(nodejsTestTraceparents))
+		lastSpanID := make(map[string]string, len(nodejsTestTraceparents))
+		for i, line := range logs {
+			var fields map[string]string
+			if json.Unmarshal([]byte(line), &fields) != nil {
+				continue
+			}
+			if tid, ok := fields["trace_id"]; ok {
+				lastPos[tid] = i
+				lastSpanID[tid] = fields["span_id"]
+			}
+		}
+
+		// Every injected trace_id must appear with a non-empty span_id.
+		for _, tp := range nodejsTestTraceparents {
+			_, found := lastPos[tp.traceID]
+			assert.True(ct, found, "no enriched log line found for trace_id %s", tp.traceID)
+			if found {
+				assert.NotEmpty(ct, lastSpanID[tp.traceID], "span_id missing for trace_id %s", tp.traceID)
+			}
+		}
+
+		// Log lines must appear in the same order requests were made.
+		// Using last-occurrence positions compares within the most recent batch.
+		for i := 0; i < len(nodejsTestTraceparents)-1; i++ {
+			a, b := nodejsTestTraceparents[i], nodejsTestTraceparents[i+1]
+			posA, okA := lastPos[a.traceID]
+			posB, okB := lastPos[b.traceID]
+			if okA && okB {
+				assert.Less(ct, posA, posB,
+					"trace_id %s should appear before %s in logs (request order)",
+					a.traceID, b.traceID)
+			}
+		}
+	}, testTimeout, 500*time.Millisecond)
 }
 
 func testLogEnricher(t *testing.T, constants testServerConstants) {
