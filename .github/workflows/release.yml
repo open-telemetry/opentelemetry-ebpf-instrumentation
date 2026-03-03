@@ -102,7 +102,6 @@ jobs:
       contents: read
       checks: write
       pull-requests: write
-    secrets: inherit
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -115,7 +114,8 @@ jobs:
       checks: write
       pull-requests: write
       actions: write
-    secrets: inherit
+    secrets:
+      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -128,7 +128,8 @@ jobs:
       checks: write
       pull-requests: write
       actions: write
-    secrets: inherit
+    secrets:
+      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -141,7 +142,8 @@ jobs:
       checks: write
       pull-requests: write
       actions: write
-    secrets: inherit
+    secrets:
+      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -154,7 +156,8 @@ jobs:
       checks: write
       pull-requests: write
       actions: write
-    secrets: inherit
+    secrets:
+      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -194,7 +197,8 @@ jobs:
       checks: write
       pull-requests: write
       actions: write
-    secrets: inherit
+    secrets:
+      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
