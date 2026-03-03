@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/mqttparser"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 // MQTTInfo holds parsed information from an MQTT packet.
@@ -46,7 +47,7 @@ func packetTypeToMethod(packetType mqttparser.PacketType) string {
 // ProcessPossibleMQTTEvent processes a TCP packet and returns error if the packet is not a valid MQTT packet.
 // Otherwise, returns MQTTInfo with the processed data. The ignore bool indicates whether the event
 // should be ignored for span creation (e.g., control packets like CONNECT).
-func ProcessPossibleMQTTEvent(event *TCPRequestInfo, pkt *LargeBuffer, rpkt *LargeBuffer) (*MQTTInfo, bool, error) {
+func ProcessPossibleMQTTEvent(event *TCPRequestInfo, pkt *largebuf.LargeBuffer, rpkt *largebuf.LargeBuffer) (*MQTTInfo, bool, error) {
 	m, ignore, err := ProcessMQTTEvent(pkt.UnsafeView())
 	if err != nil {
 		// If we are getting the information in the response buffer, the event
@@ -177,7 +178,7 @@ func processConnectPacket(pkt []byte, offset int) (*MQTTInfo, bool, error) {
 
 // isMQTT performs a quick heuristic check to determine if the packet looks like MQTT.
 // This is used for userspace protocol detection when the kernel hasn't classified the protocol.
-func isMQTT(pkt *LargeBuffer) bool {
+func isMQTT(pkt *largebuf.LargeBuffer) bool {
 	if pkt == nil {
 		return false
 	}

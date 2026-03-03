@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
 )
 
@@ -192,7 +193,7 @@ type postgresMessage struct {
 }
 
 type postgresMessageIterator struct {
-	r   *LargeBufferReader
+	r   *largebuf.LargeBufferReader
 	err error
 	eof bool
 }
@@ -248,7 +249,7 @@ func (it *postgresMessageIterator) next() (msg postgresMessage) {
 	return
 }
 
-func handlePostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *LargeBufferReader) (request.Span, error) {
+func handlePostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBufferReader) (request.Span, error) {
 	var (
 		hasSpan         bool
 		op, table, stmt string

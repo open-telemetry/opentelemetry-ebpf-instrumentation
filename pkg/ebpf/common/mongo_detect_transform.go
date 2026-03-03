@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 type mongoSpanInfo struct {
@@ -359,7 +360,7 @@ func validateFlagBits(flagBits int32) error {
 	return nil
 }
 
-func mongoInfoFromEvent(event *TCPRequestInfo, requestBuffer *LargeBuffer, responseBuffer *LargeBuffer, mongoRequestCache PendingMongoDBRequests) *mongoSpanInfo {
+func mongoInfoFromEvent(event *TCPRequestInfo, requestBuffer *largebuf.LargeBuffer, responseBuffer *largebuf.LargeBuffer, mongoRequestCache PendingMongoDBRequests) *mongoSpanInfo {
 	if event.Direction == 0 {
 		return nil
 	}

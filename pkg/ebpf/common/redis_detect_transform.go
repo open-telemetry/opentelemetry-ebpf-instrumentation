@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/internal/split"
 )
 
@@ -32,7 +33,7 @@ var redisErrorCodes = [...]string{
 	"READONLY ",
 }
 
-func isRedis(buf *LargeBuffer) bool {
+func isRedis(buf *largebuf.LargeBuffer) bool {
 	if buf.Len() < minRedisFrameLen {
 		return false
 	}
@@ -182,7 +183,7 @@ func parseRedisRequest(buf string) (string, string, bool) {
 	return op, strings.TrimSpace(text.String()), true
 }
 
-func redisStatus(buf *LargeBuffer) (request.DBError, int) {
+func redisStatus(buf *largebuf.LargeBuffer) (request.DBError, int) {
 	if buf.Len() == 0 {
 		return request.DBError{}, 0
 	}

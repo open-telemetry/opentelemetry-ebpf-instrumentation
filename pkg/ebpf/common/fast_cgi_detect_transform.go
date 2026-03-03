@@ -14,6 +14,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 const (
@@ -108,14 +109,14 @@ func parseCGITable(b []byte) map[string]string {
 	return res
 }
 
-func maybeFastCGI(b *LargeBuffer) bool {
+func maybeFastCGI(b *largebuf.LargeBuffer) bool {
 	if b.Len() <= fastCGIRequestHeaderLen {
 		return false
 	}
 	return bytes.Contains(b.UnsafeView(), []byte(requestMethodKey))
 }
 
-func parseHeader(b *LargeBuffer) ([]byte, error) {
+func parseHeader(b *largebuf.LargeBuffer) ([]byte, error) {
 	r := b.NewReader()
 	for {
 		if r.Remaining() < fastCGIRequestHeaderLen {
@@ -144,7 +145,7 @@ func parseHeader(b *LargeBuffer) ([]byte, error) {
 	}
 }
 
-func detectFastCGI(b, rb *LargeBuffer) (string, string, int) {
+func detectFastCGI(b, rb *largebuf.LargeBuffer) (string, string, int) {
 	raw, err := parseHeader(b)
 	if err != nil {
 		return "", "", -1

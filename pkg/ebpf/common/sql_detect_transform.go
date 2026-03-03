@@ -9,6 +9,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
 )
 
@@ -58,7 +59,7 @@ func isASCII(s string) bool {
 	return true
 }
 
-func detectSQLPayload(useHeuristics bool, b *LargeBuffer) (string, string, string, request.SQLKind) {
+func detectSQLPayload(useHeuristics bool, b *largebuf.LargeBuffer) (string, string, string, request.SQLKind) {
 	raw := b.UnsafeView()
 	sqlKind := sqlKind(raw)
 	if !useHeuristics {

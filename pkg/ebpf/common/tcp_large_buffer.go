@@ -9,6 +9,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 type largeBufferKey struct {
@@ -47,7 +48,7 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 
 	switch event.Action {
 	case largeBufferActionInit:
-		lb := NewLargeBuffer()
+		lb := largebuf.NewLargeBuffer()
 		lb.AppendChunk(chunk)
 		parseCtx.largeBuffers.Add(key, lb)
 
@@ -70,7 +71,7 @@ func extractTCPLargeBuffer(
 	traceID [16]uint8,
 	packetType, direction uint8,
 	connInfo BpfConnectionInfoT,
-) (*LargeBuffer, bool) {
+) (*largebuf.LargeBuffer, bool) {
 	key := largeBufferKey{
 		traceID:    traceID,
 		packetType: packetType,

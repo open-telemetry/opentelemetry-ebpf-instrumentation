@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 func removeQuery(url string) string {
@@ -191,7 +192,7 @@ func ReadHTTPInfoIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record, fi
 
 func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (request.Span, bool, error) {
 	var (
-		requestBuffer, responseBuffer *LargeBuffer
+		requestBuffer, responseBuffer *largebuf.LargeBuffer
 		hasResponse                   bool
 		isClient                      = isClientEvent(event.Type)
 	)
@@ -204,7 +205,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 			requestBuffer = b
 		} else {
 			slog.Debug("missing large buffer for HTTP request", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "packetType", packetTypeRequest)
-			requestBuffer = NewLargeBufferFrom(event.Buf[:])
+			requestBuffer = largebuf.NewLargeBufferFrom(event.Buf[:])
 		}
 
 		b, ok = extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo)
@@ -215,7 +216,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 			slog.Debug("missing large buffer for HTTP response", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "packetType", packetTypeResponse)
 		}
 	} else {
-		requestBuffer = NewLargeBufferFrom(event.Buf[:])
+		requestBuffer = largebuf.NewLargeBufferFrom(event.Buf[:])
 	}
 
 	if parseCtx != nil && !parseCtx.payloadExtraction.Enabled() {
@@ -243,7 +244,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 // HTTP response buffers might have been sent incomplete, before the full body.
 // Try to parse the original buffer first, if an EOF is encountered, append an empty
 // body to the buffer and try again.
-func httpSafeParseResponse(responseBuffer *LargeBuffer, req *http.Request) (*http.Response, error) {
+func httpSafeParseResponse(responseBuffer *largebuf.LargeBuffer, req *http.Request) (*http.Response, error) {
 	rd := bufio.NewReader(responseBuffer.NewReader())
 	resp, err := http.ReadResponse(rd, req)
 	if err != nil && errors.Is(err, io.ErrUnexpectedEOF) {
@@ -255,7 +256,7 @@ func httpSafeParseResponse(responseBuffer *LargeBuffer, req *http.Request) (*htt
 	return resp, nil
 }
 
-func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *LargeBuffer) request.Span {
+func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *largebuf.LargeBuffer) request.Span {
 	var (
 		result     = HTTPInfo{BPFHTTPInfo: *event}
 		bufHost    string

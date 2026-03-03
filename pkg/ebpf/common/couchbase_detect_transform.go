@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/couchbasekv"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 // CouchbaseInfo holds parsed Couchbase memcached binary protocol information.
@@ -31,7 +32,7 @@ type CouchbaseInfo struct {
 // ProcessPossibleCouchbaseEvent attempts to parse the event as a Couchbase memcached binary protocol event.
 // Returns a slice of CouchbaseInfo if successful, along with a boolean indicating if the event should be ignored,
 // and an error if parsing failed. Multiple packets may be present in a single TCP segment due to pipelining.
-func ProcessPossibleCouchbaseEvent(event *TCPRequestInfo, requestBuf *LargeBuffer, responseBuf *LargeBuffer, bucketCache *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]) (*CouchbaseInfo, bool, error) {
+func ProcessPossibleCouchbaseEvent(event *TCPRequestInfo, requestBuf *largebuf.LargeBuffer, responseBuf *largebuf.LargeBuffer, bucketCache *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]) (*CouchbaseInfo, bool, error) {
 	reqRaw := requestBuf.UnsafeView()
 	respRaw := responseBuf.UnsafeView()
 	info, ignore, err := processCouchbaseEvent(event.ConnInfo, reqRaw, respRaw, bucketCache)

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
 )
 
@@ -84,7 +85,7 @@ func mysqlPreparedStatements(b []byte) (string, string, string) {
 	return op, table, sql
 }
 
-func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *LargeBuffer) (request.Span, error) {
+func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, error) {
 	var (
 		op, table, stmt string
 		span            request.Span

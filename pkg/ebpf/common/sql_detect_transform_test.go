@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 type bindParseResult struct {
@@ -185,12 +187,12 @@ func TestPostgresQueryParsing(t *testing.T) {
 		},
 	} {
 		t.Run(ts.name, func(t *testing.T) {
-			op, table, sql, _ := detectSQLPayload(false, NewLargeBufferFrom(ts.bytes))
+			op, table, sql, _ := detectSQLPayload(false, largebuf.NewLargeBufferFrom(ts.bytes))
 			assert.Equal(t, ts.op, op)
 			assert.Equal(t, ts.table, table)
 			assert.Equal(t, ts.sql, sql)
 
-			op, table, sql, _ = detectSQLPayload(true, NewLargeBufferFrom(ts.bytes))
+			op, table, sql, _ = detectSQLPayload(true, largebuf.NewLargeBufferFrom(ts.bytes))
 			assert.Equal(t, ts.op, op)
 			assert.Equal(t, ts.table, table)
 			assert.Equal(t, ts.sql, sql)

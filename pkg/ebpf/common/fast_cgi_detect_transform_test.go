@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 func TestMaybeFastCGI(t *testing.T) {
@@ -45,7 +47,7 @@ func TestMaybeFastCGI(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ilen := min(len(tt.input), tt.inputLen)
-			res := maybeFastCGI(NewLargeBufferFrom(tt.input[0:ilen]))
+			res := maybeFastCGI(largebuf.NewLargeBufferFrom(tt.input[0:ilen]))
 			assert.Equal(t, tt.expected, res)
 		})
 	}
@@ -214,7 +216,7 @@ func TestDetectFastCGI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ilen := min(len(tt.input), tt.inputLen)
 			olen := min(len(tt.output), tt.outputLen)
-			method, path, status := detectFastCGI(NewLargeBufferFrom(tt.input[0:ilen]), NewLargeBufferFrom(tt.output[0:olen]))
+			method, path, status := detectFastCGI(largebuf.NewLargeBufferFrom(tt.input[0:ilen]), largebuf.NewLargeBufferFrom(tt.output[0:olen]))
 			assert.Equal(t, tt.expectedMethod, method)
 			assert.Equal(t, tt.expectedPath, path)
 			assert.Equal(t, tt.expectedResult, status)

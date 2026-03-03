@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 type Operation int8
@@ -46,7 +47,7 @@ func (k Operation) String() string {
 
 // ProcessPossibleKafkaEvent processes a TCP packet and returns error if the packet is not a valid Kafka request.
 // Otherwise, return kafka.Info with the processed data.
-func ProcessPossibleKafkaEvent(event *TCPRequestInfo, pkt *LargeBufferReader, rpkt *LargeBufferReader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
+func ProcessPossibleKafkaEvent(event *TCPRequestInfo, pkt *largebuf.LargeBufferReader, rpkt *largebuf.LargeBufferReader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
 	k, ok, err := ProcessKafkaEvent(pkt, rpkt, kafkaTopicUUIDToName)
 	if err != nil {
 		// If we are getting the information in the response buffer, the event
@@ -66,7 +67,7 @@ func ProcessPossibleKafkaEvent(event *TCPRequestInfo, pkt *LargeBufferReader, rp
 	return k, ok, err
 }
 
-func ProcessKafkaEvent(pkt *LargeBufferReader, rpkt *LargeBufferReader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
+func ProcessKafkaEvent(pkt *largebuf.LargeBufferReader, rpkt *largebuf.LargeBufferReader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
 	hdr, err := kafkaparser.ParseKafkaRequestHeader(pkt)
 	if err != nil {
 		return nil, true, err
@@ -83,7 +84,7 @@ func ProcessKafkaEvent(pkt *LargeBufferReader, rpkt *LargeBufferReader, kafkaTop
 	}
 }
 
-func processProduceRequest(pkt *LargeBufferReader, hdr *kafkaparser.KafkaRequestHeader) (*KafkaInfo, bool, error) {
+func processProduceRequest(pkt *largebuf.LargeBufferReader, hdr *kafkaparser.KafkaRequestHeader) (*KafkaInfo, bool, error) {
 	produceReq, err := kafkaparser.ParseProduceRequest(pkt, hdr)
 	if err != nil {
 		return nil, true, err
@@ -103,7 +104,7 @@ func processProduceRequest(pkt *LargeBufferReader, hdr *kafkaparser.KafkaRequest
 	}, false, nil
 }
 
-func processFetchRequest(pkt *LargeBufferReader, hdr *kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
+func processFetchRequest(pkt *largebuf.LargeBufferReader, hdr *kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
 	fetchReq, err := kafkaparser.ParseFetchRequest(pkt, hdr)
 	if err != nil {
 		return nil, true, err
@@ -134,7 +135,7 @@ func processFetchRequest(pkt *LargeBufferReader, hdr *kafkaparser.KafkaRequestHe
 	}, false, nil
 }
 
-func processMetadataResponse(rpkt *LargeBufferReader, hdr *kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
+func processMetadataResponse(rpkt *largebuf.LargeBufferReader, hdr *kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
 	if rpkt == nil {
 		return nil, true, errors.New("no response buffer for metadata request")
 	}
@@ -153,7 +154,7 @@ func processMetadataResponse(rpkt *LargeBufferReader, hdr *kafkaparser.KafkaRequ
 	return nil, true, nil
 }
 
-func ProcessKafkaRequest(pkt *LargeBufferReader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
+func ProcessKafkaRequest(pkt *largebuf.LargeBufferReader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
 	hdr, err := kafkaparser.ParseKafkaRequestHeader(pkt)
 	if err != nil {
 		return nil, true, err
