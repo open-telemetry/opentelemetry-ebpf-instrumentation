@@ -134,14 +134,14 @@ func TestSuiteGenericHeaders(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-generic-headers.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, "INSTRUMENTER_CONFIG_SUFFIX=-generic-headers")
+	compose.Env = append(compose.Env, "INSTRUMENTER_CONFIG_SUFFIX=-http-enrichment-headers")
 	require.NoError(t, compose.Up())
 
-	t.Run("Generic header extraction", func(t *testing.T) {
+	t.Run("Enrichment header extraction", func(t *testing.T) {
 		waitForTestComponents(t, instrumentedServiceStdURL)
 		testGenericHeaderExtraction(t)
 	})
-	t.Run("Generic header rule order", func(t *testing.T) {
+	t.Run("Enrichment header rule order", func(t *testing.T) {
 		testGenericHeaderRuleOrder(t)
 	})
 

@@ -159,7 +159,7 @@ discovery:
 							"/query/service",
 						},
 					},
-					Generic: config.HTTPGenericParsingConfig{
+					Enrichment: config.EnrichmentConfig{
 						Policy: config.HTTPParsingPolicy{
 							DefaultAction:     config.HTTPParsingActionExclude,
 							MatchOrder:        config.HTTPParsingMatchOrderFirstMatchWins,

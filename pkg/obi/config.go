@@ -155,7 +155,7 @@ var DefaultConfig = Config{
 				OpenAI: config.OpenAIConfig{
 					Enabled: false,
 				},
-				Generic: config.HTTPGenericParsingConfig{
+				Enrichment: config.EnrichmentConfig{
 					Enabled: false,
 					Policy: config.HTTPParsingPolicy{
 						DefaultAction:     config.HTTPParsingActionExclude,

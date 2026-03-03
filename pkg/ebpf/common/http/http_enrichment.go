@@ -10,15 +10,15 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 )
 
-// GenericParsingSpan applies generic HTTP parsing rules to extract headers into the span.
+// EnrichHTTPSpan applies generic HTTP parsing rules to extract headers into the span.
 // Regex patterns in rules are already compiled during YAML deserialization.
 // Unlike other parsers, this enriches the span with headers rather than replacing it.
-func GenericParsingSpan(
+func EnrichHTTPSpan(
 	baseSpan *request.Span,
 	req *http.Request,
 	resp *http.Response,
-	cfg config.HTTPGenericParsingConfig,
-) (request.Span, bool) {
+	cfg config.EnrichmentConfig,
+) bool {
 	reqHeaders := make(map[string]string)
 	respHeaders := make(map[string]string)
 
@@ -35,7 +35,7 @@ func GenericParsingSpan(
 	}
 
 	if len(reqHeaders) == 0 && len(respHeaders) == 0 {
-		return *baseSpan, false
+		return false
 	}
 
 	if len(reqHeaders) > 0 {
@@ -44,7 +44,7 @@ func GenericParsingSpan(
 	if len(respHeaders) > 0 {
 		baseSpan.ResponseHeaders = respHeaders
 	}
-	return *baseSpan, true
+	return true
 }
 
 // resolveHeaderAction determines what action to take for a given header name
@@ -73,7 +73,7 @@ func resolveHeaderAction(
 
 // scopeApplies returns true if the rule scope covers the given header source.
 func scopeApplies(ruleScope config.HTTPParsingScope, headerSource config.HTTPParsingScope) bool {
-	return ruleScope == config.HTTPParsingScopeBoth || ruleScope == headerSource
+	return ruleScope == config.HTTPParsingScopeAll || ruleScope == headerSource
 }
 
 // applyHeaderAction adds the header to the map based on the resolved action.

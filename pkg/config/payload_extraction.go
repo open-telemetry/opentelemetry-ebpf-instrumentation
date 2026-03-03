@@ -16,7 +16,7 @@ type PayloadExtraction struct {
 }
 
 func (p PayloadExtraction) Enabled() bool {
-	return p.HTTP.GraphQL.Enabled || p.HTTP.Elasticsearch.Enabled || p.HTTP.AWS.Enabled || p.HTTP.SQLPP.Enabled || p.HTTP.OpenAI.Enabled || p.HTTP.Generic.Enabled
+	return p.HTTP.GraphQL.Enabled || p.HTTP.Elasticsearch.Enabled || p.HTTP.AWS.Enabled || p.HTTP.SQLPP.Enabled || p.HTTP.OpenAI.Enabled || p.HTTP.Enrichment.Enabled
 }
 
 type HTTPConfig struct {
@@ -30,8 +30,8 @@ type HTTPConfig struct {
 	SQLPP SQLPPConfig `yaml:"sqlpp"`
 	// OpenAI payload extraction
 	OpenAI OpenAIConfig `yaml:"openai"`
-	// Generic HTTP header and payload extraction with policy-based rules
-	Generic HTTPGenericParsingConfig `yaml:"generic"`
+	// Enrichment HTTP header and payload extraction with policy-based rules
+	Enrichment EnrichmentConfig `yaml:"enrichment"`
 }
 
 type GraphQLConfig struct {
@@ -62,8 +62,8 @@ type OpenAIConfig struct {
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_OPENAI_ENABLED" validate:"boolean"`
 }
 
-// HTTPGenericParsingConfig configures generic HTTP header and payload extraction.
-type HTTPGenericParsingConfig struct {
+// EnrichmentConfig configures generic HTTP header and payload extraction.
+type EnrichmentConfig struct {
 	// Enable generic HTTP header and payload extraction
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_GENERIC_PARSING_ENABLED" validate:"boolean"`
 	// Policy controls the default behavior and matching strategy
@@ -89,7 +89,7 @@ type HTTPParsingRule struct {
 	Action HTTPParsingAction `yaml:"action"`
 	// Type specifies what this rule matches against: "headers"
 	Type HTTPParsingRuleType `yaml:"type"`
-	// Scope of the rule: "request", "response", or "both"
+	// Scope of the rule: "request", "response", or "all"
 	Scope HTTPParsingScope `yaml:"scope"`
 	// Match defines the matching criteria for this rule
 	Match HTTPParsingMatch `yaml:"match"`
@@ -175,13 +175,13 @@ type HTTPParsingScope string
 const (
 	HTTPParsingScopeRequest  HTTPParsingScope = "request"
 	HTTPParsingScopeResponse HTTPParsingScope = "response"
-	HTTPParsingScopeBoth     HTTPParsingScope = "both"
+	HTTPParsingScopeAll      HTTPParsingScope = "all"
 )
 
 func (a *HTTPParsingScope) UnmarshalText(text []byte) error {
 	str := HTTPParsingScope(strings.TrimSpace(strings.ToLower(string(text))))
 	switch str {
-	case HTTPParsingScopeRequest, HTTPParsingScopeResponse, HTTPParsingScopeBoth:
+	case HTTPParsingScopeRequest, HTTPParsingScopeResponse, HTTPParsingScopeAll:
 		*a = str
 		return nil
 	default:

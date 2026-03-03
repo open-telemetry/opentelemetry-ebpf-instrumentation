@@ -462,6 +462,28 @@
       },
       "type": "object"
     },
+    "EnrichmentConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable generic HTTP header and payload extraction",
+          "x-env-var": "OTEL_EBPF_HTTP_GENERIC_PARSING_ENABLED"
+        },
+        "policy": {
+          "$ref": "#/$defs/HTTPParsingPolicy",
+          "description": "Policy controls the default behavior and matching strategy"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/HTTPParsingRule"
+          },
+          "type": "array",
+          "description": "Rules is an ordered list of include/exclude/obfuscate rules. Rules are evaluated according to Policy.MatchOrder."
+        }
+      },
+      "type": "object",
+      "description": "EnrichmentConfig configures generic HTTP header and payload extraction."
+    },
     "ExportModes": {
       "items": {
         "type": "string",
@@ -677,9 +699,9 @@
           "$ref": "#/$defs/ElasticsearchConfig",
           "description": "Elasticsearch payload extraction and parsing"
         },
-        "generic": {
-          "$ref": "#/$defs/HTTPGenericParsingConfig",
-          "description": "Generic HTTP header and payload extraction with policy-based rules"
+        "enrichment": {
+          "$ref": "#/$defs/EnrichmentConfig",
+          "description": "Enrichment HTTP header and payload extraction with policy-based rules"
         },
         "graphql": {
           "$ref": "#/$defs/GraphQLConfig",
@@ -695,28 +717,6 @@
         }
       },
       "type": "object"
-    },
-    "HTTPGenericParsingConfig": {
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable generic HTTP header and payload extraction",
-          "x-env-var": "OTEL_EBPF_HTTP_GENERIC_PARSING_ENABLED"
-        },
-        "policy": {
-          "$ref": "#/$defs/HTTPParsingPolicy",
-          "description": "Policy controls the default behavior and matching strategy"
-        },
-        "rules": {
-          "items": {
-            "$ref": "#/$defs/HTTPParsingRule"
-          },
-          "type": "array",
-          "description": "Rules is an ordered list of include/exclude/obfuscate rules. Rules are evaluated according to Policy.MatchOrder."
-        }
-      },
-      "type": "object",
-      "description": "HTTPGenericParsingConfig configures generic HTTP header and payload extraction."
     },
     "HTTPParsingMatch": {
       "properties": {
@@ -775,11 +775,11 @@
         "scope": {
           "type": "string",
           "enum": [
-            "both",
+            "all",
             "request",
             "response"
           ],
-          "description": "Scope of the rule: \"request\", \"response\", or \"both\""
+          "description": "Scope of the rule: \"request\", \"response\", or \"all\""
         },
         "type": {
           "type": "string",

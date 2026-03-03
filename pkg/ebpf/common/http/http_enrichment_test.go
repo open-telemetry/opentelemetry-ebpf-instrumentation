@@ -38,7 +38,7 @@ func rei(pattern string) *regexp.Regexp {
 }
 
 func TestGenericParsingSpan_IncludeByDefault(t *testing.T) {
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionInclude,
@@ -46,13 +46,13 @@ func TestGenericParsingSpan_IncludeByDefault(t *testing.T) {
 			ObfuscationString: "*",
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"Content-Type": "application/json", "X-Request-Id": "abc123"},
 		map[string]string{"X-Response-Id": "resp456"},
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "application/json", span.RequestHeaders["Content-Type"])
 	assert.Equal(t, "abc123", span.RequestHeaders["X-Request-Id"])
@@ -60,7 +60,7 @@ func TestGenericParsingSpan_IncludeByDefault(t *testing.T) {
 }
 
 func TestGenericParsingSpan_ExcludeByDefault(t *testing.T) {
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -68,18 +68,18 @@ func TestGenericParsingSpan_ExcludeByDefault(t *testing.T) {
 			ObfuscationString: "*",
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"Content-Type": "application/json"},
 		map[string]string{"X-Response-Id": "resp456"},
 	)
 
-	_, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	assert.False(t, ok)
 }
 
 func TestGenericParsingSpan_IncludeRule(t *testing.T) {
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -90,20 +90,20 @@ func TestGenericParsingSpan_IncludeRule(t *testing.T) {
 			{
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
 					Regex: []*regexp.Regexp{re("^X-Request-Id$")},
 				},
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"Content-Type": "application/json", "X-Request-Id": "abc123"},
 		map[string]string{"X-Response-Id": "resp456"},
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "abc123", span.RequestHeaders["X-Request-Id"])
 	_, hasContentType := span.RequestHeaders["Content-Type"]
@@ -112,7 +112,7 @@ func TestGenericParsingSpan_IncludeRule(t *testing.T) {
 }
 
 func TestGenericParsingSpan_ObfuscateRule(t *testing.T) {
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -123,20 +123,20 @@ func TestGenericParsingSpan_ObfuscateRule(t *testing.T) {
 			{
 				Action: config.HTTPParsingActionObfuscate,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
 					Regex: []*regexp.Regexp{rei("^Authorization$")},
 				},
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"Authorization": "Bearer secret-token", "Content-Type": "text/plain"},
 		nil,
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "***", span.RequestHeaders["Authorization"])
 	_, hasContentType := span.RequestHeaders["Content-Type"]
@@ -144,7 +144,7 @@ func TestGenericParsingSpan_ObfuscateRule(t *testing.T) {
 }
 
 func TestGenericParsingSpan_ScopeRequest(t *testing.T) {
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -162,19 +162,19 @@ func TestGenericParsingSpan_ScopeRequest(t *testing.T) {
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"X-Custom": "req-value"},
 		map[string]string{"X-Custom": "resp-value"},
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "req-value", span.RequestHeaders["X-Custom"])
 }
 
 func TestGenericParsingSpan_ScopeResponse(t *testing.T) {
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -192,19 +192,19 @@ func TestGenericParsingSpan_ScopeResponse(t *testing.T) {
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"X-Custom": "req-value"},
 		map[string]string{"X-Custom": "resp-value"},
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "resp-value", span.ResponseHeaders["X-Custom"])
 }
 
 func TestGenericParsingSpan_CaseInsensitiveMatch(t *testing.T) {
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -215,26 +215,26 @@ func TestGenericParsingSpan_CaseInsensitiveMatch(t *testing.T) {
 			{
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
 					Regex: []*regexp.Regexp{rei("^x-custom$")},
 				},
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"X-Custom": "value"},
 		nil,
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "value", span.RequestHeaders["X-Custom"])
 }
 
 func TestGenericParsingSpan_FirstMatchWins(t *testing.T) {
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -245,7 +245,7 @@ func TestGenericParsingSpan_FirstMatchWins(t *testing.T) {
 			{
 				Action: config.HTTPParsingActionObfuscate,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
 					Regex: []*regexp.Regexp{re("^Authorization$")},
 				},
@@ -253,27 +253,27 @@ func TestGenericParsingSpan_FirstMatchWins(t *testing.T) {
 			{
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
 					Regex: []*regexp.Regexp{re(".*")},
 				},
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"Authorization": "Bearer token", "Content-Type": "application/json"},
 		nil,
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "***", span.RequestHeaders["Authorization"])
 	assert.Equal(t, "application/json", span.RequestHeaders["Content-Type"])
 }
 
 func TestGenericParsingSpan_MultipleRegexInRule(t *testing.T) {
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -284,20 +284,20 @@ func TestGenericParsingSpan_MultipleRegexInRule(t *testing.T) {
 			{
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
 					Regex: []*regexp.Regexp{re("^Content-Type$"), re("^X-Request-Id$")},
 				},
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"Content-Type": "text/html", "X-Request-Id": "123", "Authorization": "secret"},
 		nil,
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "text/html", span.RequestHeaders["Content-Type"])
 	assert.Equal(t, "123", span.RequestHeaders["X-Request-Id"])
@@ -307,7 +307,7 @@ func TestGenericParsingSpan_MultipleRegexInRule(t *testing.T) {
 
 func TestGenericParsingSpan_RuleOrderExcludeBeforeInclude(t *testing.T) {
 	// When an exclude rule appears before an include rule, the exclude wins for matching headers.
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -318,24 +318,24 @@ func TestGenericParsingSpan_RuleOrderExcludeBeforeInclude(t *testing.T) {
 			{
 				Action: config.HTTPParsingActionExclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-Secret$")}},
 			},
 			{
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-.*$")}},
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"X-Secret": "hidden", "X-Request-Id": "abc123"},
 		nil,
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "abc123", span.RequestHeaders["X-Request-Id"])
 	_, hasSecret := span.RequestHeaders["X-Secret"]
@@ -344,7 +344,7 @@ func TestGenericParsingSpan_RuleOrderExcludeBeforeInclude(t *testing.T) {
 
 func TestGenericParsingSpan_RuleOrderIncludeBeforeExclude(t *testing.T) {
 	// Swapping the rule order: include-all-X before exclude-X-Secret means X-Secret is included.
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -355,24 +355,24 @@ func TestGenericParsingSpan_RuleOrderIncludeBeforeExclude(t *testing.T) {
 			{
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-.*$")}},
 			},
 			{
 				Action: config.HTTPParsingActionExclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-Secret$")}},
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"X-Secret": "visible-now", "X-Request-Id": "abc123"},
 		nil,
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "abc123", span.RequestHeaders["X-Request-Id"])
 	assert.Equal(t, "visible-now", span.RequestHeaders["X-Secret"],
@@ -381,7 +381,7 @@ func TestGenericParsingSpan_RuleOrderIncludeBeforeExclude(t *testing.T) {
 
 func TestGenericParsingSpan_RuleOrderObfuscateBeforeInclude(t *testing.T) {
 	// Obfuscate rule for sensitive headers, then include-all, then verify order matters.
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -392,18 +392,18 @@ func TestGenericParsingSpan_RuleOrderObfuscateBeforeInclude(t *testing.T) {
 			{
 				Action: config.HTTPParsingActionObfuscate,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^Authorization$"), re("^Cookie$")}},
 			},
 			{
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re(".*")}},
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{
 			"Authorization": "Bearer token",
@@ -413,7 +413,7 @@ func TestGenericParsingSpan_RuleOrderObfuscateBeforeInclude(t *testing.T) {
 		nil,
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "[REDACTED]", span.RequestHeaders["Authorization"])
 	assert.Equal(t, "[REDACTED]", span.RequestHeaders["Cookie"])
@@ -422,7 +422,7 @@ func TestGenericParsingSpan_RuleOrderObfuscateBeforeInclude(t *testing.T) {
 
 func TestGenericParsingSpan_ExplicitExcludeRule(t *testing.T) {
 	// Include by default, but explicitly exclude Authorization.
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionInclude,
@@ -433,18 +433,18 @@ func TestGenericParsingSpan_ExplicitExcludeRule(t *testing.T) {
 			{
 				Action: config.HTTPParsingActionExclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^Authorization$")}},
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"Authorization": "Bearer secret", "Content-Type": "text/plain"},
 		nil,
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "text/plain", span.RequestHeaders["Content-Type"])
 	_, hasAuth := span.RequestHeaders["Authorization"]
@@ -456,7 +456,7 @@ func TestGenericParsingSpan_MixedScopeRuleOrder(t *testing.T) {
 	// Second rule: include all on both scopes.
 	// Authorization in response should be included (not obfuscated) because
 	// the first rule doesn't apply to responses.
-	cfg := config.HTTPGenericParsingConfig{
+	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
 			DefaultAction:     config.HTTPParsingActionExclude,
@@ -473,18 +473,18 @@ func TestGenericParsingSpan_MixedScopeRuleOrder(t *testing.T) {
 			{
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
-				Scope:  config.HTTPParsingScopeBoth,
+				Scope:  config.HTTPParsingScopeAll,
 				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re(".*")}},
 			},
 		},
 	}
-	baseSpan := &request.Span{Method: "GET", Path: "/test"}
+	span := &request.Span{Method: "GET", Path: "/test"}
 	req, resp := makeReqResp(
 		map[string]string{"Authorization": "Bearer token", "X-Foo": "bar"},
 		map[string]string{"Authorization": "Bearer resp-token", "X-Bar": "baz"},
 	)
 
-	span, ok := GenericParsingSpan(baseSpan, req, resp, cfg)
+	ok := EnrichHTTPSpan(span, req, resp, cfg)
 	require.True(t, ok)
 	assert.Equal(t, "***", span.RequestHeaders["Authorization"])
 	assert.Equal(t, "bar", span.RequestHeaders["X-Foo"])
