@@ -1,6 +1,6 @@
 plugins {
     java
-    id("com.gradleup.shadow") version "8.3.9"
+    id("com.gradleup.shadow") version "8.3.10"
     id("com.github.jk1.dependency-license-report") version "2.9"
     id("me.champeau.jmh") version "0.7.3"
     id("com.diffplug.spotless") version "8.2.1"
@@ -40,7 +40,7 @@ repositories {
 }
 
 dependencies {
-    implementation("net.bytebuddy:byte-buddy:1.18.5")
+    implementation("net.bytebuddy:byte-buddy:1.18.7-jdk5")
     implementation("net.bytebuddy:byte-buddy-agent:1.17.8")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.13.3")

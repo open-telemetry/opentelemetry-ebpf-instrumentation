@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   nginx:
-    image: nginx:latest@sha256:341bf0f3ce6c5277d6002cf6e1fb0319fa4252add24ab6a0e262e0056d313208
+    image: nginx:latest@sha256:0236ee02dcbce00b9bd83e0f5fbc51069e7e1161bd59d99885b3ae1734f3392e
     mem_limit: 128m
     container_name: hatest-nginx
     ports:
@@ -13,7 +13,7 @@ services:
       - php-fpm
 
   php-fpm:
-    image: php:fpm@sha256:eec1cad70c74f96cb4a7bd0e05ee857796e3333c731aaf846b96dd9978f5f397
+    image: php:fpm@sha256:10855b6da433b9cbc9975bbf142850910ee1cb977390669f5630d1bdde57664b
     mem_limit: 512m
     container_name: hatest-php-fpm
     volumes:
@@ -65,7 +65,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.144.0@sha256:213886eb6407af91b87fa47551c3632be1a6419ff3a5114ef1e6fc364628496f
+    image: otel/opentelemetry-collector-contrib:0.147.0@sha256:e7c92c715f28ff142f3bcaccd4fc5603cf4c71276ef09954a38eb4038500a5a5
     container_name: otel-col
     deploy:
       resources:

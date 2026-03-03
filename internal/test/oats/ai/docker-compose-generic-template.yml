@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   grafana:
-    image: grafana/grafana:10.4.19@sha256:a9043254ba16fb10945cc27333963dfd08eccbb43b51f1222d831cc564e3a1f4
+    image: grafana/grafana:12.4.0@sha256:b0ae311af06228bcfd4a620504b653db80f5b91e94dc3dc2a5b7dab202bcde20
     volumes:
       - "{{ .ConfigDir }}/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/grafana-datasources.yaml"
     ports:
@@ -16,7 +16,7 @@ services:
     ports:
       - "{{ .PrometheusHTTPPort }}:9090"
   tempo:
-    image: grafana/tempo:2.10.0@sha256:d7f4c72e0bad2b42b4e7263b0addaf3f5bbc105cec6b1917eba0aae3b9b70364
+    image: grafana/tempo:2.10.1@sha256:9371af1b75b4e057eb77f22dc4dd4d9176cd6985e29f181527be6723b7f29c41
     volumes:
       - "{{ .ConfigDir }}/tempo-config.yaml:/config.yaml"
     command:
@@ -29,7 +29,7 @@ services:
 #    ports:
 #      - "{{ .LokiHTTPPort }}:3100"
   collector:
-    image: otel/opentelemetry-collector-contrib:0.144.0@sha256:213886eb6407af91b87fa47551c3632be1a6419ff3a5114ef1e6fc364628496f
+    image: otel/opentelemetry-collector-contrib:0.147.0@sha256:e7c92c715f28ff142f3bcaccd4fc5603cf4c71276ef09954a38eb4038500a5a5
     volumes:
       - "{{ .ConfigDir }}/otelcol-config.yaml:/config.yaml"
     command:

@@ -19,7 +19,7 @@ services:
       - ./components/nginx-rails-sql/certs/newcerts:/certs
 
   nginx:
-    image: nginx:latest@sha256:341bf0f3ce6c5277d6002cf6e1fb0319fa4252add24ab6a0e262e0056d313208
+    image: nginx:latest@sha256:0236ee02dcbce00b9bd83e0f5fbc51069e7e1161bd59d99885b3ae1734f3392e
     container_name: nginx_server
     ports:
       - "8443:443" # Expose TLS port
@@ -33,7 +33,7 @@ services:
       - app_network
 
   db:
-    image: mysql:8.4.8@sha256:a2d126916bc2ba79a890a4bf62d305eb8b68fcbdd35c6e582d529df18faf5ebb
+    image: mysql:9.6.0@sha256:e5dc14f6e01c3e577e669337d2855c6d1561b30d8ef2c592e63e4e8a9a52650a
     command:
       - --ssl-ca=/etc/mysql/certs/ca.pem
       - --ssl-cert=/etc/mysql/certs/server-cert.pem
@@ -85,7 +85,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.144.0@sha256:213886eb6407af91b87fa47551c3632be1a6419ff3a5114ef1e6fc364628496f
+    image: otel/opentelemetry-collector-contrib:0.147.0@sha256:e7c92c715f28ff142f3bcaccd4fc5603cf4c71276ef09954a38eb4038500a5a5
     container_name: otel-col
     deploy:
       resources:
