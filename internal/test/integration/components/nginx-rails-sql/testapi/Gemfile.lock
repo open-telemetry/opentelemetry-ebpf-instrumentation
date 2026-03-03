@@ -117,12 +117,12 @@ GEM
     msgpack (1.8.0)
     mysql2 (0.5.7)
       bigdecimal
-    net-imap (0.3.6)
+    net-imap (0.3.9)
       date
       net-protocol
     net-pop (0.1.2)
       net-protocol
-    net-protocol (0.2.1)
+    net-protocol (0.2.2)
       timeout
     net-smtp (0.3.3)
       net-protocol
@@ -190,7 +190,7 @@ GEM
       mini_portile2 (~> 2.8.0)
     stringio (3.2.0)
     thor (1.2.2)
-    timeout (0.4.0)
+    timeout (0.6.0)
     tsort (0.2.0)
     tzinfo (2.0.6)
       concurrent-ruby (~> 1.0)
