@@ -22,6 +22,10 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+    secrets:
+      DOCKER_TOKEN_EBPF_INSTRUMENTATION:
+        description: "Docker Hub token for pulling images (optional)"
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -113,8 +117,19 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Check for Docker Hub token
+        id: check-docker-token
+        run: |
+          if [ -n "${DOCKER_TOKEN}" ]; then
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+
       - name: Log in to Docker Hub
-        if: secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION != ''
+        if: steps.check-docker-token.outputs.has_token == 'true'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ vars.DOCKER_USERNAME }}
