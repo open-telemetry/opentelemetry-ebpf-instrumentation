@@ -44,6 +44,27 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Resolve Gradle source of truth
+        id: gradle-source
+        working-directory: .
+        run: |
+          set -euo pipefail
+
+          gradle_image="$(awk '$1=="FROM" && $4=="gradle-java" {print $2}' dependencies.Dockerfile)"
+          if [[ -z "$gradle_image" ]]; then
+            echo "Unable to find gradle-java image in dependencies.Dockerfile" >&2
+            exit 1
+          fi
+
+          gradle_version="$(printf '%s' "$gradle_image" | sed -E 's#^gradle:([0-9.]+)-.*#\1#')"
+          if [[ -z "$gradle_version" || "$gradle_version" == "$gradle_image" ]]; then
+            echo "Unable to parse Gradle version from image: $gradle_image" >&2
+            exit 1
+          fi
+
+          echo "image=$gradle_image" >> "$GITHUB_OUTPUT"
+          echo "version=$gradle_version" >> "$GITHUB_OUTPUT"
+
       - name: Set up JDK ${{ matrix.test-java }} for testing
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -59,6 +80,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
         with:
+          gradle-version: ${{ steps.gradle-source.outputs.version }}
           cache-disabled: true
 
       - name: Check code formatting (Spotless)
