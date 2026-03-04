@@ -140,10 +140,32 @@ p.getByte(1 + 36 + 4)  → 42   (Data byte at offset 41)
 
 ### Prerequisites
 
-- JDK 8 or higher
-- Gradle 8.0+
+- Docker and GNU Make (recommended; no local Gradle install required), or
+- Local Gradle 9.x and JDK 17+ (for running Gradle locally)
+
+Note: the Java agent bytecode target is Java 8, but Gradle itself requires JDK 17+ to run.
 
 ### Build Commands
+
+Run these commands from the repository root.
+
+#### Option A: Local Gradle
+
+```bash
+# Build Java agent and copy it to pkg/internal/java/embedded/obi-java-agent.jar
+make java-build
+
+# Run Java tests
+make java-test
+
+# Check formatting
+make java-spotless-check
+
+# Apply formatting
+make java-spotless-apply
+```
+
+You can also run Gradle directly from `pkg/internal/java`:
 
 ```bash
 # Build all modules and distribution
@@ -158,6 +180,14 @@ gradle :loader:build
 # Fix code formatting
 gradle spotlessApply
 
+```
+
+#### Option B: Docker-only (no local Gradle)
+
+```bash
+# Build Java agent artifact using javaagent.Dockerfile and export it to:
+# pkg/internal/java/embedded/obi-java-agent.jar
+make java-docker-build
 ```
 
 The final agent JAR will be located at:
