@@ -19,13 +19,13 @@ import (
 const timeout = 5 * time.Second
 
 func TestDecoration(t *testing.T) {
-	// Given a flow Decorator node
+	// Given a stat Decorator node
 	in := msg.NewQueue[[]*ebpf.Stat](msg.ChannelBufferLen(10))
 	out := msg.NewQueue[[]*ebpf.Stat](msg.ChannelBufferLen(10))
 	outCh := out.Subscribe()
 	go Decorate(net.IPv4(3, 3, 3, 3), in, out)(t.Context())
 
-	// When it receives flows
+	// When it receives stats
 	s1 := &ebpf.Stat{}
 	s2 := &ebpf.Stat{}
 

@@ -15,7 +15,7 @@ import (
 
 type InterfaceNamer func(ifIndex int) string
 
-// Decorate the flows with extra metadata fields that are not directly fetched by eBPF
+// Decorate the stats with extra metadata fields that are not directly fetched by eBPF
 // or by any previous pipeline stage (DNS, Kubernetes...):
 // - The IP address of the agent host.
 // NOTE: source and destination ip addresses are set in the attriutes for every calculated metric.
@@ -28,7 +28,7 @@ func Decorate(agentIP net.IP, input *msg.Queue[[]*ebpf.Stat], output *msg.Queue[
 			for _, stat := range stats {
 				stat.Attrs.OBIIP = ip
 			}
-			output.Send(stats)
+			output.SendCtx(ctx, stats)
 		})
 	}
 }

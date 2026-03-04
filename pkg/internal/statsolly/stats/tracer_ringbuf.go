@@ -36,18 +36,17 @@ func NewRingBufTracer(reader ringBufReader) *RingBufTracer {
 	}
 }
 
-func (m *RingBufTracer) TraceLoop(ctx context.Context, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
+func (m *RingBufTracer) TraceLoop(out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
 	return func(ctx context.Context) {
 		defer out.MarkCloseable()
 		rtlog := rtlog()
-		debugging := rtlog.Enabled(ctx, slog.LevelDebug)
 		for {
 			select {
 			case <-ctx.Done():
 				rtlog.Debug("exiting trace loop due to context cancellation")
 				return
 			default:
-				if err := m.listenAndForwardRingBuffer(ctx, debugging, out); err != nil {
+				if err := m.listenAndForwardRingBuffer(ctx, out); err != nil {
 					if errors.Is(err, ringbuf.ErrClosed) {
 						rtlog.Debug("Received signal, exiting..")
 						return
@@ -60,13 +59,13 @@ func (m *RingBufTracer) TraceLoop(ctx context.Context, out *msg.Queue[[]*ebpf.St
 	}
 }
 
-func (m *RingBufTracer) listenAndForwardRingBuffer(ctx context.Context, debugging bool, forwardCh *msg.Queue[[]*ebpf.Stat]) error {
+func (m *RingBufTracer) listenAndForwardRingBuffer(ctx context.Context, forwardCh *msg.Queue[[]*ebpf.Stat]) error {
 	event, err := m.ringBuffer.ReadRingBuf()
 	if err != nil {
 		return fmt.Errorf("reading from ring buffer: %w", err)
 	}
 
-	stat, err := m.handleStatsEvent(&event)
+	stat, err := m.handleStatEvent(&event)
 	if err != nil {
 		return fmt.Errorf("handle stat event: %w", err)
 	}
@@ -75,16 +74,14 @@ func (m *RingBufTracer) listenAndForwardRingBuffer(ctx context.Context, debuggin
 	return nil
 }
 
-func (m *RingBufTracer) handleStatsEvent(record *ringbuf.Record) (ebpf.Stat, error) {
+func (m *RingBufTracer) handleStatEvent(record *ringbuf.Record) (ebpf.Stat, error) {
 	eventType := ebpf.StatType(record.RawSample[0])
 	switch eventType {
 	case ebpf.StatTypeTCPRtt:
 		return m.readTCPRttIntoStat(record)
 	default:
-		fmt.Errorf("unknown stats event [type %d]", uint8(eventType))
+		return ebpf.Stat{}, fmt.Errorf("unknown stats event [type %d]", uint8(eventType))
 	}
-
-	return ebpf.Stat{}, nil
 }
 
 func (m *RingBufTracer) readTCPRttIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {

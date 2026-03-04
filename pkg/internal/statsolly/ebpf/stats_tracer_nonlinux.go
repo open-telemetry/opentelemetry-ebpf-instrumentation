@@ -6,10 +6,26 @@
 package ebpf // import "go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 
 import (
+	"structs"
+
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
 
 type StatsFetcher struct{}
+
+type StatsTCPRtt struct {
+	_     structs.HostLayout
+	Flags uint8
+	Pad   [3]uint8
+	Srtt  uint32
+	Conn  struct {
+		_      structs.HostLayout
+		S_addr [16]uint8 //nolint:revive,staticcheck
+		D_addr [16]uint8 //nolint:revive,staticcheck
+		S_port uint16    //nolint:revive,staticcheck
+		D_port uint16    //nolint:revive,staticcheck
+	}
+}
 
 func NewStatsFetcher() (*StatsFetcher, error) {
 	return nil, nil

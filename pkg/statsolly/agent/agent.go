@@ -114,7 +114,7 @@ func StatsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Stats, error) {
 	}
 	alog.Debug("agent IP: " + agentIP.String())
 
-	statsFetcher, err = newFetcher(cfg, alog)
+	statsFetcher, err = newFetcher()
 	if err != nil {
 		return nil, err
 	}
@@ -127,8 +127,8 @@ func StatsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Stats, error) {
 	return statsAgent(ctxInfo, cfg, statsFetcher, agentIP, ifaceManager)
 }
 
-func newFetcher(cfg *obi.Config, alog *slog.Logger) (ebpFetcher, error) {
-	// We may need to add some arguments in the future
+func newFetcher() (ebpFetcher, error) {
+	// TODO pinoOgni any arguments needed?
 	return ebpf.NewStatsFetcher()
 }
 
@@ -160,9 +160,7 @@ func statsAgent(
 	agentIP net.IP,
 	ifaceManager *tcmanager.InterfaceManager,
 ) (*Stats, error) {
-	var rbTracer *stats.RingBufTracer
-
-	rbTracer = stats.NewRingBufTracer(statsFetcher)
+	rbTracer := stats.NewRingBufTracer(statsFetcher)
 
 	return &Stats{
 		ctxInfo:      ctxInfo,

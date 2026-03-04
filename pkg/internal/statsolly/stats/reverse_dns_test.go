@@ -41,7 +41,7 @@ func TestReverseDNS(t *testing.T) {
 	require.NoError(t, err)
 	go reverseDNS(t.Context())
 
-	// When it receives flows without source nor destination name
+	// When it receives stats without source nor destination name
 	s1 := &ebpf.Stat{}
 	srcStr := net.IP(srcIP[:]).String() // Result: "140.82.121.4"
 	dstStr := net.IP(dstIP[:]).String() // Result: "127.0.0.1"
@@ -72,7 +72,7 @@ func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
 	require.NoError(t, err)
 	go reverseDNS(t.Context())
 
-	// When it receives flows with source and destination names
+	// When it receives stats with source and destination names
 	s1 := &ebpf.Stat{
 		Attrs: ebpf.StatAttrs{SrcName: "src", DstName: "dst"},
 	}
@@ -124,7 +124,7 @@ func TestReverseDNS_Cache(t *testing.T) {
 	require.Len(t, decorated, 1)
 	assert.Contains(t, decorated[0].Attrs.DstName, "amazon")
 
-	// AND when it receives the same flow again
+	// AND when it receives the same stat again
 	s1.Attrs.DstName = ""
 	in.Send([]*ebpf.Stat{s1})
 

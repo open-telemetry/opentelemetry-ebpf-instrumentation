@@ -56,7 +56,7 @@ func TestFilter(t *testing.T) {
 
 	ringBuf := make(chan []*ebpf.Stat, 10)
 	// override eBPF stat fetchers
-	newRingBufTracer = func(ctx context.Context, _ *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
+	newRingBufTracer = func(_ *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
 		return func(ctx context.Context) {
 			for i := range ringBuf {
 				out.SendCtx(ctx, i)

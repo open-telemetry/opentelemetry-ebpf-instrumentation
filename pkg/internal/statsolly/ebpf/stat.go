@@ -76,7 +76,7 @@ type StatAttrs struct {
 	SrcZone string
 	DstZone string
 
-	// OBIIP provides information about the source of the flow (the Agent that traced it)
+	// OBIIP provides information about the source of the stat (the Agent that traced it)
 	OBIIP    string
 	Metadata map[attr.Name]string
 }
@@ -90,7 +90,8 @@ func (ia *IPAddr) IP() net.IP {
 	return ia[:]
 }
 
-// TODO pinoOgni not sure if this is a good idea
+// SrcIP returns the source IP address of the Stat entry as an IPAddr.
+// TODO: pinoOgni not sure if this is a good idea
 func (s *Stat) SrcIP() *IPAddr {
 	ip := net.ParseIP(s.Attrs.SourceAddress)
 	if ip == nil {
@@ -103,6 +104,7 @@ func (s *Stat) SrcIP() *IPAddr {
 	return &addr
 }
 
+// DstIP returns the destination IP address of the Stat entry as an IPAddr.
 // TODO pinoOgni not sure if this is a good idea
 func (s *Stat) DstIP() *IPAddr {
 	ip := net.ParseIP(s.Attrs.DestinationAddress)

@@ -136,8 +136,6 @@ func setupNetO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *obi.Con
 	return nil
 }
 
-// TODO pinoOgni add ctx context.Context and change Send to SendCtx
-// like in appolly
 func setupStatsO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *obi.Config) error {
 	slog.Info("starting OBI in Stats metrics mode")
 	statsAgent, err := statsagent.StatsAgent(ctxInfo, cfg)

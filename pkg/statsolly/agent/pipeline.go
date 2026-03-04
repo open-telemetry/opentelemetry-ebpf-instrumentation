@@ -22,8 +22,8 @@ import (
 
 // mockable functions for testing
 
-var newRingBufTracer = func(ctx context.Context, s *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
-	return s.rbTracer.TraceLoop(ctx, out)
+var newRingBufTracer = func(s *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
+	return s.rbTracer.TraceLoop(out)
 }
 
 // buildPipeline defines the different nodes in the OBI's StatsO11y module,
@@ -41,7 +41,7 @@ func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	swi := &swarm.Instancer{}
 	// Start nodes: those generating stats (reading them from eBPF)
 	ebpfStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "ebpfStats")
-	swi.Add(swarm.DirectInstance(newRingBufTracer(ctx, s, ebpfStats)), swarm.WithID("RingBufTracer"))
+	swi.Add(swarm.DirectInstance(newRingBufTracer(s, ebpfStats)), swarm.WithID("RingBufTracer"))
 
 	// Middle nodes: transforming stats and passing them to the next stage in the pipeline.
 	// Many of the nodes here are not mandatory. It's decision of each InstanceFunc to decide
@@ -59,7 +59,7 @@ func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		dnsDecoratedStats, geoIPDecoratedStats), swarm.WithID("GeoIPDecorator"))
 
 	cidrDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "cidrDecoratedStats")
-	swi.Add(cidr.DecoratorProvider(cidr.Definitions(s.cfg.Stats.CIDRs), geoIPDecoratedStats, cidrDecoratedStats),
+	swi.Add(cidr.DecoratorProvider(s.cfg.Stats.CIDRs, geoIPDecoratedStats, cidrDecoratedStats),
 		swarm.WithID("CIDRDecorator"))
 
 	decoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "decoratedStats")
