@@ -194,6 +194,7 @@ func BuildCommonContextInfo(
 		ctx,
 		config.Attributes.HostID.Override,
 		ctxInfo.K8sInformer,
+		config.Attributes.MetadataRetry,
 	)
 
 	ctxInfo.DockerMetadata = docker.NewStore()

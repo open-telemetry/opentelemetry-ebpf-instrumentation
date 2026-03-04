@@ -27,7 +27,7 @@ func TestFetchEntries_RetryAndKeepOrder(t *testing.T) {
 		failTwice := makeFetcherThatFailsNTimes(2, "fetcher2", "value2")
 		succeedImmediately := makeFetcherThatFailsNTimes(0, "fetcher3", "value3")
 
-		entries := fetchEntries(t.Context(), failOnce, alwaysFails, failTwice, succeedImmediately)
+		entries := fetchEntries(t.Context(), DefaultRetryConfig, failOnce, alwaysFails, failTwice, succeedImmediately)
 
 		// All fetchers should eventually succeed and return their data
 		require.Equal(t, NodeMeta{
@@ -47,6 +47,7 @@ func TestFetchEntries_RetryAndKeepOrder(t *testing.T) {
 
 func TestFetchEntries_DeduplicateByPriority(t *testing.T) {
 	entries := fetchEntries(t.Context(),
+		DefaultRetryConfig,
 		// lowest-priority fetcher
 		func(_ context.Context) (NodeMeta, error) {
 			return NodeMeta{
@@ -86,7 +87,7 @@ func TestFetchEntries_DeduplicateByPriority(t *testing.T) {
 
 func TestHostIDOverride(t *testing.T) {
 	connectionTimeout = 50 * time.Millisecond
-	nm := NewNodeMeta(t.Context(), "host_override", nil)
+	nm := NewNodeMeta(t.Context(), "host_override", nil, DefaultRetryConfig)
 	assert.Equal(t, "host_override", nm.HostID)
 }
 
