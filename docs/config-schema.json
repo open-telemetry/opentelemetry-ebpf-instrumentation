@@ -82,6 +82,9 @@
         },
         "network": {
           "$ref": "#/$defs/AttributeFamilyConfig"
+        },
+        "stats": {
+          "$ref": "#/$defs/AttributeFamilyConfig"
         }
       },
       "type": "object",
@@ -503,7 +506,8 @@
           "application_span_sizes",
           "ebpf",
           "network",
-          "network_inter_zone"
+          "network_inter_zone",
+          "stats"
         ]
       },
       "type": "array",
@@ -1725,6 +1729,70 @@
       "type": "object",
       "description": "Selection specifies which attributes are allowed for each metric. The key is the metric name (either in Prometheus or OpenTelemetry format) The value is the enumeration of included/excluded attribute globs"
     },
+    "StatsConfig": {
+      "properties": {
+        "agent_ip": {
+          "type": "string",
+          "format": "ip",
+          "description": "AgentIP allows overriding the reported Agent IP address on each stat.",
+          "x-env-var": "OTEL_EBPF_STATS_AGENT_IP"
+        },
+        "agent_ip_iface": {
+          "$ref": "#/$defs/AgentTypeIface",
+          "description": "AgentIPIface specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each stat. Accepted values are: external (default), local, or name:<interface name> (e.g. name:eth0). If the AgentIP configuration property is set, this property has no effect.",
+          "x-env-var": "OTEL_EBPF_STATS_AGENT_IP_IFACE"
+        },
+        "agent_ip_type": {
+          "type": "string",
+          "enum": [
+            "any",
+            "ipv4",
+            "ipv6"
+          ],
+          "description": "AgentIPType specifies which type of IP address (IPv4 or IPv6 or any) should the agent report in the AgentID field of each stat. Accepted values are: any (default), ipv4, ipv6. If the AgentIP configuration property is set, this property has no effect.",
+          "x-env-var": "OTEL_EBPF_STATS_AGENT_IP_TYPE"
+        },
+        "cidrs": {
+          "$ref": "#/$defs/Definitions",
+          "description": "CIDRs list, to be set as the \"src.cidr\" and \"dst.cidr\" attribute as a function of the source and destination IP addresses. If an IP does not match any address here, the attributes won't be set. If an IP matches multiple CIDR definitions, the stat will be decorated with the narrowest CIDR. By this reason, you can safely add a 0.0.0.0/0 entry to group there all the traffic that does not match any of the other CIDRs.",
+          "x-env-var": "OTEL_EBPF_STATS_CIDRS"
+        },
+        "geo_ip": {
+          "$ref": "#/$defs/GeoIP"
+        },
+        "listen_interfaces": {
+          "type": "string",
+          "enum": [
+            "poll",
+            "watch"
+          ],
+          "description": "ListenInterfaces specifies the mechanism used by the agent to listen for added or removed network interfaces. Accepted values are \"watch\" (default) or \"poll\". If the value is \"watch\", interfaces are traced immediately after they are created. This is the recommended setting for most configurations. \"poll\" value is a fallback mechanism that periodically queries the current network interfaces (frequency specified by ListenPollPeriod).",
+          "x-env-var": "OTEL_EBPF_STATS_LISTEN_INTERFACES"
+        },
+        "listen_poll_period": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "ListenPollPeriod specifies the periodicity to query the network interfaces when the ListenInterfaces value is set to \"poll\".",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_STATS_LISTEN_POLL_PERIOD"
+        },
+        "print_stats": {
+          "type": "boolean",
+          "description": "Print the stats in the Standard Output, if true",
+          "x-env-var": "OTEL_EBPF_STATS_PRINT_STATS"
+        },
+        "reverse_dns": {
+          "$ref": "#/$defs/ReverseDNS",
+          "description": "ReverseDNS allows stats that haven't been previously decorated with any source/destination name to override the name with the network hostname of the source and destination IPs. This is an experimental feature and it is not guaranteed to work on most virtualized environments for external traffic."
+        }
+      },
+      "type": "object",
+      "description": "TODO pinoOgni: right now it is a copy and paste of more or less netolly config"
+    },
     "SvcMetricsConfig": {
       "properties": {
         "features": {
@@ -1978,6 +2046,9 @@
         "1ms"
       ],
       "x-env-var": "OTEL_EBPF_SHUTDOWN_TIMEOUT"
+    },
+    "stats": {
+      "$ref": "#/$defs/StatsConfig"
     },
     "target_pids": {
       "$ref": "#/$defs/IntEnum",
