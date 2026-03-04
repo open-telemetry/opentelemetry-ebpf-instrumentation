@@ -415,7 +415,9 @@ func TestGetMongoInfoErrorRequest(t *testing.T) {
 		ResponseSections: []mongoSection{
 			{
 				Type: sectionTypeBody,
-				Body: bson.D{bson.E{Key: "ok", Value: float64(0)}, bson.E{Key: "errmsg", Value: "some error"}, bson.E{Key: "code", Value: 12345}, bson.E{Key: "codeName", Value: "SomeError"}},
+				// Use int32 as bson.Unmarshal produces int32 for MongoDB int32 fields,
+				// not plain Go int. Using plain int here would bypass the real code path.
+				Body: bson.D{bson.E{Key: "ok", Value: float64(0)}, bson.E{Key: "errmsg", Value: "some error"}, bson.E{Key: "code", Value: int32(12345)}, bson.E{Key: "codeName", Value: "SomeError"}},
 			},
 		},
 	}
@@ -428,6 +430,42 @@ func TestGetMongoInfoErrorRequest(t *testing.T) {
 	assert.Equal(t, "some error", res.Error, "Expected Error to be 'some error'")
 	assert.Equal(t, 12345, res.ErrorCode, "Expected ErrorCode to be 12345")
 	assert.Equal(t, "SomeError", res.ErrorCodeName, "Expected ErrorCodeName to be 'SomeError'")
+}
+
+// TestGetMongoInfoErrorCodeFromBsonRoundTrip verifies that error codes are correctly
+// parsed when the BSON body comes from a real marshal/unmarshal round-trip, as happens
+// in production (parseBodySection calls bson.Unmarshal which yields int32, not int).
+// With the old findIntInBson (value.(int)), this test silently produced ErrorCode=0.
+func TestGetMongoInfoErrorCodeFromBsonRoundTrip(t *testing.T) {
+	// Simulate the production path: marshal a document with an integer code field,
+	// then unmarshal it back into bson.D. bson.Unmarshal stores MongoDB int32 as
+	// Go int32, so the result is bson.E{Key: "code", Value: int32(11000)}, not int.
+	raw, err := bson.Marshal(bson.D{
+		{Key: "ok", Value: float64(0)},
+		{Key: "errmsg", Value: "E11000 duplicate key error"},
+		{Key: "code", Value: int32(11000)},
+		{Key: "codeName", Value: "DuplicateKey"},
+	})
+	require.NoError(t, err)
+
+	var body bson.D
+	require.NoError(t, bson.Unmarshal(raw, &body))
+
+	mongoRequest := MongoRequestValue{
+		RequestSections: []mongoSection{
+			{Type: sectionTypeBody, Body: bson.D{{Key: commInsert, Value: "col"}, {Key: "$db", Value: "db"}}},
+		},
+		ResponseSections: []mongoSection{
+			{Type: sectionTypeBody, Body: body},
+		},
+	}
+
+	res, err := getMongoInfo(&mongoRequest)
+	require.NoError(t, err)
+	assert.False(t, res.Success)
+	assert.Equal(t, "E11000 duplicate key error", res.Error)
+	assert.Equal(t, 11000, res.ErrorCode, "error code must be parsed from int32 BSON value")
+	assert.Equal(t, "DuplicateKey", res.ErrorCodeName)
 }
 
 func TestGetMongoInfoNoResponseSectionShouldBeSuccess(t *testing.T) {

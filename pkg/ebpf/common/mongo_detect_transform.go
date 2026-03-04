@@ -549,11 +549,18 @@ func findIntInBson(doc bson.D, key string) (int, bool) {
 	if !found {
 		return 0, false
 	}
-	intValue, ok := value.(int) // MongoDB uses int32 for integer values
-	if !ok {
-		return 0, false
+
+	// bson.Unmarshal stores MongoDB int32 as Go int32 and int64 as Go int64.
+	switch v := value.(type) {
+	case int32:
+		return int(v), true
+	case int64:
+		return int(v), true
+	case int:
+		return v, true
 	}
-	return intValue, true
+
+	return 0, false
 }
 
 func findDoubleInBson(doc bson.D, key string) (float64, bool) {
@@ -561,7 +568,7 @@ func findDoubleInBson(doc bson.D, key string) (float64, bool) {
 	if !found {
 		return 0, false
 	}
-	doubleValue, ok := value.(float64) // MongoDB uses int32 for integer values
+	doubleValue, ok := value.(float64) // MongoDB uses float64 (double) for floating-point values
 	if !ok {
 		return 0, false
 	}
