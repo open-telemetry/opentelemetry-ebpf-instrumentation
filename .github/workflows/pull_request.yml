@@ -23,7 +23,7 @@ jobs:
   generate-and-checks:
     name: Generate and checks
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
     steps:
@@ -74,7 +74,7 @@ jobs:
     name: Lint
     needs: generate-and-checks
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -110,7 +110,7 @@ jobs:
       checks: write
       pull-requests: write
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.generate-and-checks.outputs.matrix) }}
