@@ -231,7 +231,8 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 	}
 
 	// http.ReadRequest requires a *bufio.Reader; that one allocation is unavoidable.
-	req, err := http.ReadRequest(bufio.NewReader(requestBuffer.NewReader()))
+	reqReader := requestBuffer.NewReader()
+	req, err := http.ReadRequest(bufio.NewReader(&reqReader))
 	resp, err2 := httpSafeParseResponse(responseBuffer, req)
 	if err != nil || err2 != nil {
 		slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "reqErr", err, "respErr", err2)
@@ -245,12 +246,14 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 // Try to parse the original buffer first, if an EOF is encountered, append an empty
 // body to the buffer and try again.
 func httpSafeParseResponse(responseBuffer *largebuf.LargeBuffer, req *http.Request) (*http.Response, error) {
-	rd := bufio.NewReader(responseBuffer.NewReader())
+	r := responseBuffer.NewReader()
+	rd := bufio.NewReader(&r)
 	resp, err := http.ReadResponse(rd, req)
 	if err != nil && errors.Is(err, io.ErrUnexpectedEOF) {
-		// Append empty body terminator and retry with a fresh reader.
+		// Append empty body terminator and retry, reusing the same reader (preserves scratch).
 		responseBuffer.AppendChunk([]byte("\r\n\r\n"))
-		rd.Reset(responseBuffer.NewReader())
+		r.Reset()
+		rd.Reset(&r)
 		return http.ReadResponse(rd, req)
 	}
 	return resp, nil

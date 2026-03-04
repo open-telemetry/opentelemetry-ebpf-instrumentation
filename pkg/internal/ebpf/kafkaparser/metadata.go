@@ -27,7 +27,7 @@ type MetadataResponse struct {
 	Topics []*MetadataTopic
 }
 
-func ParseMetadataResponse(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) (*MetadataResponse, error) {
+func ParseMetadataResponse(r *largebuf.LargeBufferReader, header KafkaRequestHeader) (*MetadataResponse, error) {
 	if err := metadataResponseSkipUntilTopics(r, header); err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func ParseMetadataResponse(r *largebuf.LargeBufferReader, header *KafkaRequestHe
 	}, nil
 }
 
-func metadataResponseSkipUntilTopics(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) error {
+func metadataResponseSkipUntilTopics(r *largebuf.LargeBufferReader, header KafkaRequestHeader) error {
 	if err := r.Skip(Int32Len); err != nil { // throttle_time_ms
 		return err
 	}
@@ -58,7 +58,7 @@ func metadataResponseSkipUntilTopics(r *largebuf.LargeBufferReader, header *Kafk
 	return r.Skip(clusterIDLen + Int32Len) // cluster_id + controller_id
 }
 
-func skipMetadataResponseBrokers(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) error {
+func skipMetadataResponseBrokers(r *largebuf.LargeBufferReader, header KafkaRequestHeader) error {
 	brokersLen, err := readArrayLength(r, header)
 	if err != nil {
 		return err
@@ -90,7 +90,7 @@ func skipMetadataResponseBrokers(r *largebuf.LargeBufferReader, header *KafkaReq
 	return nil
 }
 
-func parseMetadataTopics(r *largebuf.LargeBufferReader, header *KafkaRequestHeader) ([]*MetadataTopic, error) {
+func parseMetadataTopics(r *largebuf.LargeBufferReader, header KafkaRequestHeader) ([]*MetadataTopic, error) {
 	topicsLen, err := readArrayLength(r, header)
 	if err != nil {
 		return nil, err
@@ -109,7 +109,7 @@ func parseMetadataTopics(r *largebuf.LargeBufferReader, header *KafkaRequestHead
 	return topics, nil
 }
 
-func parseMetadataTopic(r *largebuf.LargeBufferReader, header *KafkaRequestHeader, isLast bool) (*MetadataTopic, error) {
+func parseMetadataTopic(r *largebuf.LargeBufferReader, header KafkaRequestHeader, isLast bool) (*MetadataTopic, error) {
 	var topic MetadataTopic
 	/*
 	  Metadata Response (Version: 10, 11, 12 and 13)
@@ -131,7 +131,7 @@ func parseMetadataTopic(r *largebuf.LargeBufferReader, header *KafkaRequestHeade
 	if err := r.Skip(Int16Len); err != nil { // error_code
 		return nil, err
 	}
-	isNullable := header.APIVersion >= 12
+	isNullable := header.APIVersion() >= 12
 	topicName, err := readString(r, header, isNullable)
 	if err != nil {
 		return nil, err

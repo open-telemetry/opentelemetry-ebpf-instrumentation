@@ -20,7 +20,7 @@ func ReadGoSaramaRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 		return request.Span{}, true, err
 	}
 
-	info, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(event.Buf[:]).NewReader(), nil)
+	info, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(event.Buf[:]), nil)
 
 	if err == nil && !ignore {
 		return GoKafkaSaramaToSpan(event, info), false, nil

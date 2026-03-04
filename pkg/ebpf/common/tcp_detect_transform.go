@@ -51,7 +51,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	// We might know already the protocol for this event
 	switch event.ProtocolType {
 	case ProtocolTypeKafka:
-		k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer.NewReader(), responseBuffer.NewReader(), parseCtx.kafkaTopicUUIDToName)
+		k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
 		if ignore && err == nil {
 			return request.Span{}, true, nil // parsed kafka event, but we don't want to create a span for it
 		}
@@ -83,7 +83,8 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 
 		return span, false, nil
 	case ProtocolTypePostgres:
-		span, err := handlePostgres(parseCtx, event, requestBuffer.NewReader(), responseBuffer.NewReader())
+		reqR, respR := requestBuffer.NewReader(), responseBuffer.NewReader()
+		span, err := handlePostgres(parseCtx, event, &reqR, &respR)
 		if errors.Is(err, errFallback) {
 			slog.Debug("Postgres: falling back to generic handler")
 			break
@@ -180,7 +181,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			return request.Span{}, true, nil // ignore for now, next event will be parsed
 		} else {
 			// we should not arrive here, leave it for completeness
-			k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer.NewReader(), responseBuffer.NewReader(), parseCtx.kafkaTopicUUIDToName)
+			k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
 			if ignore && err == nil {
 				return request.Span{}, true, nil // parsed kafka event, but we don't want to create a span for it
 			}

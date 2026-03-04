@@ -49,7 +49,8 @@ func TestAppendChunk_copiesData(t *testing.T) {
 	// Mutating src must not affect the buffer.
 	src[0] = 'X'
 
-	got, err := lb.NewReader().ReadN(5)
+	r := lb.NewReader()
+	got, err := r.ReadN(5)
 	require.NoError(t, err)
 	assert.Equal(t, "world", string(got))
 }
@@ -61,7 +62,8 @@ func TestAppendChunk_multipleChunks(t *testing.T) {
 	lb.AppendChunk([]byte("baz"))
 
 	assert.Equal(t, 9, lb.Len())
-	assert.Equal(t, 9, lb.NewReader().Remaining())
+	r := lb.NewReader()
+	assert.Equal(t, 9, r.Remaining())
 }
 
 // ── ReadN ─────────────────────────────────────────────────────────────────────
@@ -119,7 +121,8 @@ func TestReadN_crossChunk_returnsCorrectBytes(t *testing.T) {
 	lb.AppendChunk([]byte("abc"))
 	lb.AppendChunk([]byte("def"))
 
-	got, err := lb.NewReader().ReadN(5)
+	r := lb.NewReader()
+	got, err := r.ReadN(5)
 	require.NoError(t, err)
 	assert.Equal(t, "abcde", string(got))
 }
@@ -145,7 +148,8 @@ func TestReadN_tooManyBytes_returnsError(t *testing.T) {
 	lb := NewLargeBuffer()
 	lb.AppendChunk([]byte("hi"))
 
-	_, err := lb.NewReader().ReadN(10)
+	r := lb.NewReader()
+	_, err := r.ReadN(10)
 	assert.Error(t, err)
 }
 
@@ -153,7 +157,8 @@ func TestReadN_zero_returnsNil(t *testing.T) {
 	lb := NewLargeBuffer()
 	lb.AppendChunk([]byte("hi"))
 
-	got, err := lb.NewReader().ReadN(0)
+	r := lb.NewReader()
+	got, err := r.ReadN(0)
 	require.NoError(t, err)
 	assert.Nil(t, got)
 }
@@ -219,7 +224,8 @@ func TestSkip_tooMany_returnsError(t *testing.T) {
 	lb := NewLargeBuffer()
 	lb.AppendChunk([]byte("hi"))
 
-	assert.Error(t, lb.NewReader().Skip(10))
+	r := lb.NewReader()
+	assert.Error(t, r.Skip(10))
 }
 
 // ── Remaining ────────────────────────────────────────────────────────────────
@@ -278,7 +284,8 @@ func TestRead_ioReaderCompliance(t *testing.T) {
 	lb.AppendChunk([]byte("hello "))
 	lb.AppendChunk([]byte("world"))
 
-	all, err := io.ReadAll(lb.NewReader())
+	r := lb.NewReader()
+	all, err := io.ReadAll(&r)
 	require.NoError(t, err)
 	assert.Equal(t, "hello world", string(all))
 }
@@ -288,7 +295,7 @@ func TestRead_eoFOnEmpty(t *testing.T) {
 	lb.AppendChunk([]byte("hi"))
 	r := lb.NewReader()
 
-	_, _ = io.ReadAll(r)
+	_, _ = io.ReadAll(&r)
 
 	n, err := r.Read(make([]byte, 4))
 	assert.Equal(t, 0, n)
@@ -299,7 +306,8 @@ func TestRead_withBufioReader(t *testing.T) {
 	lb := NewLargeBuffer()
 	lb.AppendChunk([]byte("GET / HTTP/1.0\r\nHost: x\r\n\r\n"))
 
-	br := bufio.NewReader(lb.NewReader())
+	r := lb.NewReader()
+	br := bufio.NewReader(&r)
 	line, err := br.ReadString('\n')
 	require.NoError(t, err)
 	assert.Equal(t, "GET / HTTP/1.0\r\n", line)
@@ -344,7 +352,8 @@ func TestBytes_multiChunk(t *testing.T) {
 
 func TestBytes_empty(t *testing.T) {
 	lb := NewLargeBuffer()
-	assert.Nil(t, lb.NewReader().Bytes())
+	r := lb.NewReader()
+	assert.Nil(t, r.Bytes())
 }
 
 func TestBytes_afterReadAll_returnsNil(t *testing.T) {
@@ -360,7 +369,8 @@ func TestBytes_singleChunk_isSharedView(t *testing.T) {
 	lb := NewLargeBuffer()
 	lb.AppendChunk([]byte("hello"))
 
-	got := lb.NewReader().Bytes()
+	r := lb.NewReader()
+	got := r.Bytes()
 
 	// Bytes() returns a view into the internal chunk — mutating it affects the chunk.
 	got[0] = 'X'
@@ -371,7 +381,8 @@ func TestBytes_newLargeBufferFrom_isSharedView(t *testing.T) {
 	src := []byte("hello")
 	lb := NewLargeBufferFrom(src)
 
-	got := lb.NewReader().Bytes()
+	r := lb.NewReader()
+	got := r.Bytes()
 
 	// Bytes() returns a view into src — mutating it affects the original slice.
 	got[0] = 'X'
@@ -462,7 +473,8 @@ func TestReadN_manySmallChunks(t *testing.T) {
 		expected = append(expected, b)
 	}
 
-	got, err := lb.NewReader().ReadN(26)
+	r := lb.NewReader()
+	got, err := r.ReadN(26)
 	require.NoError(t, err)
 	assert.Equal(t, expected, got)
 }
@@ -473,7 +485,8 @@ func TestReadN_spanThreeChunks(t *testing.T) {
 	lb.AppendChunk([]byte("cd"))
 	lb.AppendChunk([]byte("ef"))
 
-	got, err := lb.NewReader().ReadN(5)
+	r := lb.NewReader()
+	got, err := r.ReadN(5)
 	require.NoError(t, err)
 	assert.Equal(t, "abcde", string(got))
 }
@@ -1001,4 +1014,47 @@ func TestMultipleReaders_independent(t *testing.T) {
 	got1, err = r1.ReadN(3)
 	require.NoError(t, err)
 	assert.Equal(t, "def", string(got1))
+}
+
+// ── Heap-escape verification ──────────────────────────────────────────────────
+
+// TestNewReader_zeroAllocs verifies that NewReader() does not heap-allocate the
+// returned LargeBufferReader. The reader is assigned to a local variable and used
+// only within the same call frame, so escape analysis can (and must) stack-allocate it.
+func TestNewReader_zeroAllocs(t *testing.T) {
+	lb := NewLargeBufferFrom(bytes.Repeat([]byte{0xAB}, 32))
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		r := lb.NewReader()
+		// Read a few fields to ensure the compiler doesn't elide the reader.
+		b, _ := r.ReadN(4)
+		_ = b[0]
+		b, _ = r.ReadN(4)
+		_ = b[0]
+	})
+
+	assert.InDelta(t, float64(0), allocs, 0, "NewReader() must not heap-allocate the LargeBufferReader")
+}
+
+// TestNewReader_multiChunk_zeroAllocs verifies that LargeBufferReader does not
+// heap-allocate on cross-chunk reads once the scratch buffer is warmed up.
+// The reader is reused via Reset() so that scratch reuse is exercised without
+// re-allocating a new reader (and new scratch slice) on each iteration.
+func TestNewReader_multiChunk_zeroAllocs(t *testing.T) {
+	lb := NewLargeBuffer()
+	lb.AppendChunk(bytes.Repeat([]byte{0x01}, 8))
+	lb.AppendChunk(bytes.Repeat([]byte{0x02}, 8))
+
+	// Create a single reader and warm up its scratch buffer with a cross-chunk read.
+	r := lb.NewReader()
+	_, _ = r.ReadN(12)
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		r.Reset()
+		// Cross-chunk read reuses the already-allocated scratch — zero new allocations.
+		b, _ := r.ReadN(12)
+		_ = b[0]
+	})
+
+	assert.InDelta(t, float64(0), allocs, 0, "cross-chunk ReadN must not allocate after scratch warm-up")
 }

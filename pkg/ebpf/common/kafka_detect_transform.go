@@ -47,18 +47,11 @@ func (k Operation) String() string {
 
 // ProcessPossibleKafkaEvent processes a TCP packet and returns error if the packet is not a valid Kafka request.
 // Otherwise, return kafka.Info with the processed data.
-func ProcessPossibleKafkaEvent(event *TCPRequestInfo, pkt *largebuf.LargeBufferReader, rpkt *largebuf.LargeBufferReader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
+func ProcessPossibleKafkaEvent(event *TCPRequestInfo, pkt *largebuf.LargeBuffer, rpkt *largebuf.LargeBuffer, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
 	k, ok, err := ProcessKafkaEvent(pkt, rpkt, kafkaTopicUUIDToName)
 	if err != nil {
 		// If we are getting the information in the response buffer, the event
 		// must be reversed and that's how we captured it.
-		// Reset readers before retrying with swapped buffers.
-		if pkt != nil {
-			pkt.Reset()
-		}
-		if rpkt != nil {
-			rpkt.Reset()
-		}
 		k, ok, err = ProcessKafkaEvent(rpkt, pkt, kafkaTopicUUIDToName)
 		if err == nil {
 			reverseTCPEvent(event)
@@ -67,16 +60,16 @@ func ProcessPossibleKafkaEvent(event *TCPRequestInfo, pkt *largebuf.LargeBufferR
 	return k, ok, err
 }
 
-func ProcessKafkaEvent(pkt *largebuf.LargeBufferReader, rpkt *largebuf.LargeBufferReader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
-	hdr, err := kafkaparser.ParseKafkaRequestHeader(pkt)
+func ProcessKafkaEvent(pkt *largebuf.LargeBuffer, rpkt *largebuf.LargeBuffer, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
+	hdr, err := kafkaparser.NewKafkaRequestHeader(pkt)
 	if err != nil {
 		return nil, true, err
 	}
-	switch hdr.APIKey {
+	switch hdr.APIKey() {
 	case kafkaparser.APIKeyProduce:
-		return processProduceRequest(pkt, hdr)
+		return processProduceRequest(hdr)
 	case kafkaparser.APIKeyFetch:
-		return processFetchRequest(pkt, hdr, kafkaTopicUUIDToName)
+		return processFetchRequest(hdr, kafkaTopicUUIDToName)
 	case kafkaparser.APIKeyMetadata:
 		return processMetadataResponse(rpkt, hdr, kafkaTopicUUIDToName)
 	default:
@@ -84,8 +77,9 @@ func ProcessKafkaEvent(pkt *largebuf.LargeBufferReader, rpkt *largebuf.LargeBuff
 	}
 }
 
-func processProduceRequest(pkt *largebuf.LargeBufferReader, hdr *kafkaparser.KafkaRequestHeader) (*KafkaInfo, bool, error) {
-	produceReq, err := kafkaparser.ParseProduceRequest(pkt, hdr)
+func processProduceRequest(hdr kafkaparser.KafkaRequestHeader) (*KafkaInfo, bool, error) {
+	r := hdr.NewBodyReader()
+	produceReq, err := kafkaparser.ParseProduceRequest(&r, hdr)
 	if err != nil {
 		return nil, true, err
 	}
@@ -96,7 +90,7 @@ func processProduceRequest(pkt *largebuf.LargeBufferReader, hdr *kafkaparser.Kaf
 		}
 	}
 	return &KafkaInfo{
-		ClientID:  hdr.ClientID,
+		ClientID:  hdr.ClientID(),
 		Operation: Produce,
 		// TODO: handle multiple topics
 		Topic:         produceReq.Topics[0].Name,
@@ -104,8 +98,9 @@ func processProduceRequest(pkt *largebuf.LargeBufferReader, hdr *kafkaparser.Kaf
 	}, false, nil
 }
 
-func processFetchRequest(pkt *largebuf.LargeBufferReader, hdr *kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
-	fetchReq, err := kafkaparser.ParseFetchRequest(pkt, hdr)
+func processFetchRequest(hdr kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
+	r := hdr.NewBodyReader()
+	fetchReq, err := kafkaparser.ParseFetchRequest(&r, hdr)
 	if err != nil {
 		return nil, true, err
 	}
@@ -127,7 +122,7 @@ func processFetchRequest(pkt *largebuf.LargeBufferReader, hdr *kafkaparser.Kafka
 		}
 	}
 	return &KafkaInfo{
-		ClientID:  hdr.ClientID,
+		ClientID:  hdr.ClientID(),
 		Operation: Fetch,
 		// TODO: handle multiple topics
 		Topic:         topicName,
@@ -135,16 +130,17 @@ func processFetchRequest(pkt *largebuf.LargeBufferReader, hdr *kafkaparser.Kafka
 	}, false, nil
 }
 
-func processMetadataResponse(rpkt *largebuf.LargeBufferReader, hdr *kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
+func processMetadataResponse(rpkt *largebuf.LargeBuffer, hdr kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
 	if rpkt == nil {
 		return nil, true, errors.New("no response buffer for metadata request")
 	}
 	// only interested in response
-	_, err := kafkaparser.ParseKafkaResponseHeader(rpkt, hdr)
+	r := rpkt.NewReader()
+	_, err := kafkaparser.ParseKafkaResponseHeader(&r, hdr)
 	if err != nil {
 		return nil, true, err
 	}
-	metadataResponse, err := kafkaparser.ParseMetadataResponse(rpkt, hdr)
+	metadataResponse, err := kafkaparser.ParseMetadataResponse(&r, hdr)
 	if err != nil {
 		return nil, true, err
 	}
@@ -154,16 +150,16 @@ func processMetadataResponse(rpkt *largebuf.LargeBufferReader, hdr *kafkaparser.
 	return nil, true, nil
 }
 
-func ProcessKafkaRequest(pkt *largebuf.LargeBufferReader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
-	hdr, err := kafkaparser.ParseKafkaRequestHeader(pkt)
+func ProcessKafkaRequest(pkt *largebuf.LargeBuffer, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
+	hdr, err := kafkaparser.NewKafkaRequestHeader(pkt)
 	if err != nil {
 		return nil, true, err
 	}
-	switch hdr.APIKey {
+	switch hdr.APIKey() {
 	case kafkaparser.APIKeyProduce:
-		return processProduceRequest(pkt, hdr)
+		return processProduceRequest(hdr)
 	case kafkaparser.APIKeyFetch:
-		return processFetchRequest(pkt, hdr, kafkaTopicUUIDToName)
+		return processFetchRequest(hdr, kafkaTopicUUIDToName)
 	default:
 		return nil, true, errors.New("unsupported Kafka API key")
 	}

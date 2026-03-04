@@ -91,7 +91,7 @@ func TestProcessKafkaRequest(t *testing.T) {
 								ClientID      string
 							}
 						*/
-						0, 0, 0, 80, 0, 3, 0, 12, 2, 0, 0, 0, 0, 0,
+						0, 0, 0, 80, 0, 3, 0, 12, 2, 0, 0, 0, 0, 0, 0,
 					},
 					response: []byte{
 						// Header
@@ -173,12 +173,12 @@ func TestProcessKafkaRequest(t *testing.T) {
 			cache, _ := simplelru.NewLRU[kafkaparser.UUID, string](1000, nil)
 			if len(tt.preRequests) > 0 {
 				for _, preInput := range tt.preRequests {
-					_, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(preInput.request).NewReader(), largebuf.NewLargeBufferFrom(preInput.response).NewReader(), cache)
+					_, ignore, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(preInput.request), largebuf.NewLargeBufferFrom(preInput.response), cache)
 					require.NoError(t, err)
 					require.True(t, ignore)
 				}
 			}
-			res, _, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(tt.request).NewReader(), nil, cache)
+			res, _, err := ProcessKafkaEvent(largebuf.NewLargeBufferFrom(tt.request), nil, cache)
 			if tt.err {
 				assert.Error(t, err)
 				return

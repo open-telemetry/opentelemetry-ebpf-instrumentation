@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package largebuf // import "go.opentelemetry.io/obi/pkg/internal/largebuf"
+package largebuf
 
 import (
 	"encoding/binary"
@@ -106,10 +106,12 @@ func (lb *LargeBuffer) Reset() {
 	lb.total = 0
 }
 
-// NewReader creates a new [LargeBufferReader] positioned at byte 0 of the buffer.
+// NewReader returns a new [LargeBufferReader] positioned at byte 0 of the buffer.
+// The reader is returned by value; take its address (&r) when passing to functions
+// that accept *LargeBufferReader or io.Reader.
 // Multiple independent readers can operate on the same buffer simultaneously.
-func (lb *LargeBuffer) NewReader() *LargeBufferReader {
-	return &LargeBufferReader{lb: lb}
+func (lb *LargeBuffer) NewReader() LargeBufferReader {
+	return LargeBufferReader{lb: lb}
 }
 
 // ── Absolute-offset access ────────────────────────────────────────────────────
@@ -360,7 +362,7 @@ type LargeBufferReader struct {
 }
 
 // Reset repositions this reader to the beginning of the buffer.
-// Equivalent to discarding this reader and calling lb.NewReader(), but without the allocation.
+// Equivalent to discarding this reader and calling lb.NewReader().
 func (r *LargeBufferReader) Reset() {
 	r.rchunk = 0
 	r.roff = 0

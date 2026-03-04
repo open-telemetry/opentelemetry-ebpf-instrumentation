@@ -18,7 +18,7 @@ func TestParseMetadataResponse(t *testing.T) {
 	tests := []struct {
 		name               string
 		packet             []byte
-		header             *KafkaRequestHeader
+		header             KafkaRequestHeader
 		expectErr          bool
 		expectedTopicCount int
 		expectedTopicName  string
@@ -90,10 +90,7 @@ func TestParseMetadataResponse(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyMetadata,
-				APIVersion: 12,
-			},
+			header:             newTestHeader(APIKeyMetadata, 12),
 			expectErr:          false,
 			expectedTopicCount: 1,
 			expectedTopicName:  "topic-test",
@@ -167,10 +164,7 @@ func TestParseMetadataResponse(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyMetadata,
-				APIVersion: 12,
-			},
+			header:             newTestHeader(APIKeyMetadata, 12),
 			expectErr:          false,
 			expectedTopicCount: 1,
 			expectedTopicName:  "", // null Name in v12+
@@ -281,10 +275,7 @@ func TestParseMetadataResponse(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyMetadata,
-				APIVersion: 13,
-			},
+			header:             newTestHeader(APIKeyMetadata, 13),
 			expectErr:          false,
 			expectedTopicCount: 2,
 			expectedTopicName:  "topic1", // We'll check the first topic
@@ -321,26 +312,21 @@ func TestParseMetadataResponse(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyMetadata,
-				APIVersion: 10,
-			},
+			header:    newTestHeader(APIKeyMetadata, 10),
 			expectErr: true, // Should error on no Topics
 		},
 		{
-			name:   "metadata response packet too short",
-			packet: []byte{0x01, 0x02}, // Too short
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyMetadata,
-				APIVersion: 10,
-			},
+			name:      "metadata response packet too short",
+			packet:    []byte{0x01, 0x02}, // Too short
+			header:    newTestHeader(APIKeyMetadata, 10),
 			expectErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := ParseMetadataResponse(largebuf.NewLargeBufferFrom(tt.packet).NewReader(), tt.header)
+			r := largebuf.NewLargeBufferFrom(tt.packet).NewReader()
+			resp, err := ParseMetadataResponse(&r, tt.header)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -370,10 +356,7 @@ func TestParseMetadataResponseTruncation(t *testing.T) {
 
 	for _, version := range versions {
 		t.Run(fmt.Sprintf("version_%d_truncation", version), func(t *testing.T) {
-			header := &KafkaRequestHeader{
-				APIKey:     APIKeyMetadata,
-				APIVersion: version,
-			}
+			header := newTestHeader(APIKeyMetadata, version)
 
 			// Create a valid packet for this version
 			validPacket := createValidMetadataPacket(version)
@@ -382,7 +365,8 @@ func TestParseMetadataResponseTruncation(t *testing.T) {
 			for i := 1; i < len(validPacket); i++ {
 				t.Run(fmt.Sprintf("truncated_at_%d", i), func(t *testing.T) {
 					truncated := validPacket[:i]
-					_, err := ParseMetadataResponse(largebuf.NewLargeBufferFrom(truncated).NewReader(), header)
+					r := largebuf.NewLargeBufferFrom(truncated).NewReader()
+					_, err := ParseMetadataResponse(&r, header)
 					assert.Error(t, err, "expected error for truncated packet at position %d for version %d", i, version)
 				})
 			}
@@ -396,15 +380,13 @@ func TestParseMetadataResponseAllVersions(t *testing.T) {
 
 	for _, version := range versions {
 		t.Run(fmt.Sprintf("version_%d", version), func(t *testing.T) {
-			header := &KafkaRequestHeader{
-				APIKey:     APIKeyMetadata,
-				APIVersion: version,
-			}
+			header := newTestHeader(APIKeyMetadata, version)
 
 			// Create a valid packet for this version
 			validPacket := createValidMetadataPacket(version)
 
-			resp, err := ParseMetadataResponse(largebuf.NewLargeBufferFrom(validPacket).NewReader(), header)
+			r := largebuf.NewLargeBufferFrom(validPacket).NewReader()
+			resp, err := ParseMetadataResponse(&r, header)
 			require.NoError(t, err, "unexpected error for version %d", version)
 			require.NotNil(t, resp)
 
