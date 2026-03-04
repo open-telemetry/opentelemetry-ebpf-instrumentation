@@ -9,7 +9,7 @@ ENV GOARCH=$TARGETARCH
 WORKDIR /src
 
 # Copy the go manifests and source
-COPY internal/test/integration/components/go-app-net-metrics-server/ .
+COPY internal/test/integration/components/go-stat-metrics-server/ .
 
 # Build
 RUN go mod download && go build -o testserver main.go
