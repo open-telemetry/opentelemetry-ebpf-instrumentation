@@ -12,7 +12,7 @@ RUN apt install -y clang llvm
 COPY pkg/internal/java .
 
 # Build the project
-RUN ./gradlew build --no-daemon
+RUN gradle build --no-daemon
 
 # Build the autoinstrumenter binary
 FROM ghcr.io/open-telemetry/obi-generator:${TAG} AS builder

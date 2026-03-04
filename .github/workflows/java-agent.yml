@@ -62,10 +62,10 @@ jobs:
           cache-disabled: true
 
       - name: Check code formatting (Spotless)
-        run: ./gradlew spotlessCheck --no-daemon --stacktrace
+        run: gradle spotlessCheck --no-daemon --stacktrace
 
       - name: Build agent
-        run: ./gradlew build --no-daemon --stacktrace
+        run: gradle build --no-daemon --stacktrace
 
       - name: Upload build artifacts
         if: matrix.test-java == 21

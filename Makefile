@@ -331,11 +331,16 @@ coverage-report-html: cov-exclude-generated
 JAVA_AGENT_DIR := pkg/internal/java
 JAVA_AGENT_EMBED_DIR := $(JAVA_AGENT_DIR)/embedded
 JAVA_AGENT_EMBED_PATH := $(JAVA_AGENT_EMBED_DIR)/$(JAVA_AGENT)
+JAVA_AGENT_JAVA_VERSION := $(shell tr -d '[:space:]' < $(JAVA_AGENT_DIR)/.java-version)
+JAVA_AGENT_JAVA_HOME_CANDIDATES := /usr/lib/jvm/java-$(JAVA_AGENT_JAVA_VERSION)-openjdk /usr/lib/jvm/java-$(JAVA_AGENT_JAVA_VERSION)-openjdk-amd64
+JAVA_AGENT_JAVA_HOME_FALLBACK := $(shell ls -d /usr/lib/jvm/java-*-openjdk* 2>/dev/null | sort -V | tail -n 1)
+JAVA_AGENT_JAVA_HOME ?= $(or $(shell for d in $(JAVA_AGENT_JAVA_HOME_CANDIDATES); do [ -d "$$d" ] && { echo "$$d"; break; }; done),$(JAVA_AGENT_JAVA_HOME_FALLBACK))
+JAVA_AGENT_GRADLE_ENV := $(if $(JAVA_AGENT_JAVA_HOME),JAVA_HOME=$(JAVA_AGENT_JAVA_HOME) PATH=$(JAVA_AGENT_JAVA_HOME)/bin:$$PATH,)
 
 .PHONY: java-build
 java-build:
 	@echo "### Building Java agent"
-	cd $(JAVA_AGENT_DIR) && ./gradlew build
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build
 	mkdir -p $(JAVA_AGENT_EMBED_DIR)
 	cp $(JAVA_AGENT_DIR)/build/$(JAVA_AGENT) $(JAVA_AGENT_EMBED_PATH)
 
@@ -348,22 +353,22 @@ java-docker-build:
 .PHONY: java-test
 java-test:
 	@echo "### Testing Java agent"
-	cd $(JAVA_AGENT_DIR) && ./gradlew test
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle test
 
 .PHONY: java-spotless-check
 java-spotless-check:
 	@echo "### Checking Java code formatting"
-	cd $(JAVA_AGENT_DIR) && ./gradlew spotlessCheck
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessCheck
 
 .PHONY: java-spotless-apply
 java-spotless-apply:
 	@echo "### Formatting Java code"
-	cd $(JAVA_AGENT_DIR) && ./gradlew spotlessApply
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessApply
 
 .PHONY: java-clean
 java-clean:
 	@echo "### Cleaning Java agent build artifacts"
-	cd $(JAVA_AGENT_DIR) && ./gradlew clean
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle clean
 
 .PHONY: java-verify
 java-verify: java-spotless-check java-test java-build
@@ -674,7 +679,7 @@ java-notices-update:
 		-v "$(CURDIR):/src:z" \
 		-w /src/pkg/internal/java \
 		$(GRADLE_IMAGE) \
-		./gradlew :agent:generateLicenseReport --no-daemon
+		gradle :agent:generateLicenseReport --no-daemon
 	# Normalize the non-deterministic generation timestamp footer to keep
 	# notices-update/check-clean-work-tree stable across CI runs.
 	@awk '{ if ($$0 ~ /^This report was generated at /) print "This report was generated at <normalized>."; else print $$0 }' \

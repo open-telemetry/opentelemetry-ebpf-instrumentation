@@ -147,16 +147,16 @@ p.getByte(1 + 36 + 4)  → 42   (Data byte at offset 41)
 
 ```bash
 # Build all modules and distribution
-./gradlew build
+gradle build
 
 # Build only the agent
-./gradlew :agent:build
+gradle :agent:build
 
 # Build only the loader
-./gradlew :loader:build
+gradle :loader:build
 
 # Fix code formatting
-./gradlew spotlessApply
+gradle spotlessApply
 
 ```
 
@@ -262,16 +262,16 @@ jattach <PID of Java program> load instrument false "/path/to/obi-java-agent.jar
 
 ```bash
 # Run all benchmarks
-./gradlew :agent:jmh
+gradle :agent:jmh
 
 # Run specific benchmark
-./gradlew :agent:jmh -Pjmh.includes=benchmarkFlattenDstByteBufferArray
+gradle :agent:jmh -Pjmh.includes=benchmarkFlattenDstByteBufferArray
 
 # Run with GC profiling
-./gradlew :agent:jmh -Pjmh.profilers=gc
+gradle :agent:jmh -Pjmh.profilers=gc
 
 # Run with memory allocation profiling
-./gradlew :agent:jmh -Pjmh.profilers=gc,stack
+gradle :agent:jmh -Pjmh.profilers=gc,stack
 ```
 
 ### Benchmark Results
@@ -292,13 +292,13 @@ flattenDstByteBufferArray                  direct           64    523.1
 
 ```bash
 # Run all tests
-./gradlew test
+gradle test
 
 # Run tests for specific module
-./gradlew :agent:test
+gradle :agent:test
 
 # Run specific test class
-./gradlew :agent:test --tests ByteBufferExtractorTest
+gradle :agent:test --tests ByteBufferExtractorTest
 ```
 
 ## 📝 License
