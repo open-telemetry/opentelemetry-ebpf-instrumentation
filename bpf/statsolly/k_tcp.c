@@ -16,7 +16,6 @@
 
 #include <logger/bpf_dbg.h>
 
-
 enum {
     k_usec_per_sec = 1000000ULL,
     k_max_srtt_allowed = 60 * k_usec_per_sec,
@@ -57,14 +56,12 @@ int BPF_KPROBE(obi_kprobe_tcp_close_srtt, struct sock *sk) {
     if (!se) {
         return 0;
     }
+
     se->flags = k_event_stat_tcp_rtt;
     se->srtt = srtt / 1000; // convert to millisecond
     se->conn = conn;
 
-    bpf_printk("src port %d, dst port %d, srtt %d",
-                 se->conn.s_port,
-                 se->conn.d_port,
-                 se->srtt);
+    bpf_printk("src port %d, dst port %d, srtt %d", se->conn.s_port, se->conn.d_port, se->srtt);
     // stats_events_flags()
     bpf_ringbuf_submit(se, 0);
 

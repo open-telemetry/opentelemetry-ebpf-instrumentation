@@ -11,8 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/golang-lru/v2/simplelru"
-
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -28,21 +26,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
-)
-
-// TODO (pinoOgni) find a common place between netolly and appolly
-const (
-	attrPrefixSrc       = "k8s.src"
-	attrPrefixDst       = "k8s.dst"
-	attrSuffixNs        = ".namespace"
-	attrSuffixName      = ".name"
-	attrSuffixType      = ".type"
-	attrSuffixOwnerName = ".owner.name"
-	attrSuffixOwnerType = ".owner.type"
-	attrSuffixHostIP    = ".node.ip"
-	attrSuffixHostName  = ".node.name"
-
-	cloudZoneLabel = "topology.kubernetes.io/zone"
 )
 
 var containerInfoForPID = container.InfoForPID
@@ -156,12 +139,10 @@ func KubeProcessEventDecoratorProvider(
 }
 
 type metadataDecorator struct {
-	store            *kube.Store
-	clusterName      string
-	input            <-chan []request.Span
-	output           *msg.Queue[[]request.Span]
-	alreadyLoggedIPs *simplelru.LRU[string, struct{}]
-	log              *slog.Logger
+	store       *kube.Store
+	clusterName string
+	input       <-chan []request.Span
+	output      *msg.Queue[[]request.Span]
 }
 
 func (md *metadataDecorator) nodeLoop(ctx context.Context) {

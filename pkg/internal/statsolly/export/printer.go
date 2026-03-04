@@ -53,6 +53,9 @@ func printStat(s *ebpf.Stat) {
 		sb.WriteString("=")
 		sb.WriteString(v)
 	}
-
+	if s.Type == ebpf.StatTypeTCPRtt {
+		sb.WriteString(" srtt=")
+		sb.WriteString(strconv.FormatFloat(float64(s.TCPRtt.Srtt), 'f', -1, 64))
+	}
 	fmt.Println("stats:", sb.String())
 }

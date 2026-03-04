@@ -31,7 +31,7 @@ type StatsPrometheusConfig struct {
 
 // Enabled returns whether the node needs to be activated
 func (p StatsPrometheusConfig) Enabled() bool {
-	return p.Config != nil && p.Config.EndpointEnabled() && (p.CommonCfg.Features.StatsMetrics())
+	return p.Config != nil && p.Config.EndpointEnabled() && (p.CommonCfg.Features.StatMetrics())
 }
 
 type statsMetricsReporter struct {
@@ -95,8 +95,8 @@ func newStatsReporter(
 
 	var register []prometheus.Collector
 	log := slog.With("component", "prom.StatsEndpoint")
-	if cfg.CommonCfg.Features.StatsMetrics() {
-		log.Debug("registering stats metric")
+	if cfg.CommonCfg.Features.StatMetrics() {
+		log.Debug("registering stat metrics")
 		mr.statsAttrs = attributes.PrometheusGetters(
 			ebpf.StatStringGetters,
 			provider.For(attributes.StatTCPRtt))
@@ -144,6 +144,7 @@ func (r *statsMetricsReporter) observeTCPRtt(stat *ebpf.Stat) {
 	if r.tcpRtt == nil || stat.TCPRtt.Srtt == 0 || stat.TCPRtt == nil {
 		return
 	}
+
 	r.tcpRtt.WithLabelValues(labelValues(stat, r.statsAttrs)...).
 		Metric.Observe(float64(stat.TCPRtt.Srtt) / 1000.0)
 }

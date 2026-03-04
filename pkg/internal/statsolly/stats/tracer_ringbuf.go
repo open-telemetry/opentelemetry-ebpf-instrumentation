@@ -88,7 +88,6 @@ func (m *RingBufTracer) handleStatsEvent(record *ringbuf.Record) (ebpf.Stat, err
 }
 
 func (m *RingBufTracer) readTCPRttIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
-
 	event, err := ebpfcommon.ReinterpretCast[ebpf.StatsTCPRtt](record.RawSample)
 	if err != nil {
 		return ebpf.Stat{}, err
@@ -118,7 +117,6 @@ func (m *RingBufTracer) readTCPRttIntoStat(record *ringbuf.Record) (ebpf.Stat, e
 }
 
 func reqHostInfo(srcAddr, dstAddr [16]uint8) (source, target string) {
-
 	src := make(net.IP, net.IPv6len)
 	dst := make(net.IP, net.IPv6len)
 	copy(src, srcAddr[:])

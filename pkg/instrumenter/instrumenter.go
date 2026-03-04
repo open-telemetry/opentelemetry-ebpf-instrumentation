@@ -22,11 +22,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
 	"go.opentelemetry.io/obi/pkg/kube"
 	netagent "go.opentelemetry.io/obi/pkg/netolly/agent"
-	statsagent "go.opentelemetry.io/obi/pkg/statsolly/agent"
-
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
+	statsagent "go.opentelemetry.io/obi/pkg/statsolly/agent"
 )
 
 // Run in the foreground process. This is a blocking function and won't exit

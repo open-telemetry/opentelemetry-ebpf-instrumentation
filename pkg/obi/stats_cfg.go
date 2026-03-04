@@ -57,7 +57,7 @@ type StatsConfig struct {
 	GeoIP stats.GeoIP `yaml:"geo_ip"`
 
 	// TODO pinoOgni add more granular configuration
-	//TCPRtt bool `yaml:"rtt" env:"OTEL_EBPF_APP_STATS_METRICS_TCP_RTT" validate:"boolean"`
+	// TCPRtt bool `yaml:"rtt" env:"OTEL_EBPF_APP_STATS_METRICS_TCP_RTT" validate:"boolean"`
 }
 
 var DefaultStatsConfig = StatsConfig{

@@ -131,7 +131,7 @@ func newStatsMetricsExporter(
 		clock:     clock,
 		expireTTL: cfg.Metrics.TTL,
 	}
-	if cfg.CommonCfg.Features.StatsMetrics() {
+	if cfg.CommonCfg.Features.StatMetrics() {
 		log := log.With("metricFamily", "StatsTCPRtt")
 
 		tcpRtt, err := ebpfEvents.Float64Histogram(attributes.StatTCPRtt.OTEL, metric2.WithUnit("s"))

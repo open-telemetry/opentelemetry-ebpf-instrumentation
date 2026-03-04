@@ -8,6 +8,7 @@ package ebpf // import "go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -26,8 +27,8 @@ type StatsTCPRtt StatsTcpRttT
 
 type StatsFetcher struct {
 	log           *slog.Logger
-	objects       *StatsObjects
 	ringbufReader *ringbuf.Reader
+	closables     []io.Closer
 }
 
 func tlog() *slog.Logger {
@@ -69,7 +70,7 @@ func NewStatsFetcher() (*StatsFetcher, error) {
 		return nil, fmt.Errorf("loading and assigning BPF objects: %w", err)
 	}
 
-	_, err = link.Kprobe("tcp_close", objects.ObiKprobeTcpCloseSrtt, nil)
+	ktc, err := link.Kprobe("tcp_close", objects.ObiKprobeTcpCloseSrtt, nil)
 	if err != nil {
 		tlog.Error("opening %s: %s", "tcp_close", err)
 		return nil, fmt.Errorf("opening kprobe: %w", err)
@@ -80,10 +81,11 @@ func NewStatsFetcher() (*StatsFetcher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("accessing to ringbuffer: %w", err)
 	}
+	var closables []io.Closer
 	return &StatsFetcher{
 		log:           tlog,
-		objects:       &objects,
 		ringbufReader: stats,
+		closables:     append(closables, ktc),
 	}, nil
 }
 
@@ -101,11 +103,12 @@ func (m *StatsFetcher) Close() error {
 		}
 	}
 
-	if m.objects != nil {
-		errs = append(errs, m.closeObjects()...)
-	}
-	if len(errs) == 0 {
-		return nil
+	for _, c := range m.closables {
+		if c != nil {
+			if err := c.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
 	}
 
 	var errStrings []string
@@ -113,15 +116,6 @@ func (m *StatsFetcher) Close() error {
 		errStrings = append(errStrings, err.Error())
 	}
 	return errors.New(`errors: "` + strings.Join(errStrings, `", "`) + `"`)
-}
-
-func (m *StatsFetcher) closeObjects() []error {
-	var errs []error
-	if err := m.objects.ObiKprobeTcpCloseSrtt.Close(); err != nil {
-		errs = append(errs, err)
-	}
-	m.objects = nil
-	return errs
 }
 
 func (m *StatsFetcher) ReadRingBuf() (ringbuf.Record, error) {

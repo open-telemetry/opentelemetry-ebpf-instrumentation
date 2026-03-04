@@ -19,7 +19,6 @@ import (
 const timeout = 5 * time.Second
 
 func TestDecoration(t *testing.T) {
-
 	// Given a flow Decorator node
 	in := msg.NewQueue[[]*ebpf.Stat](msg.ChannelBufferLen(10))
 	out := msg.NewQueue[[]*ebpf.Stat](msg.ChannelBufferLen(10))
@@ -39,5 +38,4 @@ func TestDecoration(t *testing.T) {
 	assert.Equal(t, "3.3.3.3", decorated[0].Attrs.OBIIP)
 
 	assert.Equal(t, "3.3.3.3", decorated[1].Attrs.OBIIP)
-
 }

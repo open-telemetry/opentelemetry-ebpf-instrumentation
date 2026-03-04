@@ -650,11 +650,11 @@ func (c *Config) otelNetO11yEnabled() bool {
 }
 
 func (c *Config) promStatsO11yEnabled() bool {
-	return c.Prometheus.EndpointEnabled() && c.Metrics.Features.StatsMetrics()
+	return c.Prometheus.EndpointEnabled() && c.Metrics.Features.StatMetrics()
 }
 
 func (c *Config) otelStatsO11yEnabled() bool {
-	return c.OTELMetrics.EndpointEnabled() && c.Metrics.Features.StatsMetrics()
+	return c.OTELMetrics.EndpointEnabled() && c.Metrics.Features.StatMetrics()
 }
 
 func (c *Config) willUseTC() bool {
@@ -670,7 +670,8 @@ func (c *Config) Enabled(feature Feature) bool {
 		return c.Port.Len() > 0 || c.AutoTargetExe.IsSet() || c.AutoTargetLanguage.IsSet() || len(c.Discovery.Instrument) > 0 ||
 			c.Exec.IsSet() || len(c.Discovery.Services) > 0 || c.TargetPIDs.Len() > 0
 	case FeatureStatsO11y:
-		return c.NetworkFlows.Enable || c.promStatsO11yEnabled() || c.otelStatsO11yEnabled()
+		// TODO pinoOgni is this enough?
+		return c.promStatsO11yEnabled() || c.otelStatsO11yEnabled()
 	}
 	return false
 }

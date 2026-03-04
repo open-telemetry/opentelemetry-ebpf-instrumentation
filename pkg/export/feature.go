@@ -174,7 +174,7 @@ func (f Features) NetworkBytes() bool {
 	return f.any(FeatureNetwork)
 }
 
-func (f Features) StatsMetrics() bool {
+func (f Features) StatMetrics() bool {
 	return f.any(FeatureStats)
 }
 
