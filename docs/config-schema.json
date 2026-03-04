@@ -50,6 +50,9 @@
         "kubernetes": {
           "$ref": "#/$defs/KubernetesDecorator"
         },
+        "metadata_retry": {
+          "$ref": "#/$defs/RetryConfig"
+        },
         "metric_span_names_limit": {
           "type": "integer",
           "description": "MetricSpanNameAggregationLimit works PER SERVICE and only relates to span_metrics. When the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED. If the value <= 0, it is disabled.",
@@ -1577,6 +1580,38 @@
           "type": "string"
         },
         "type": "array"
+      },
+      "type": "object"
+    },
+    "RetryConfig": {
+      "properties": {
+        "max_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ]
+        },
+        "start_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ]
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ]
+        }
       },
       "type": "object"
     },
