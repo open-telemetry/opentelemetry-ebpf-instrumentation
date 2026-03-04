@@ -6,12 +6,14 @@ This directory contains JMH (Java Microbenchmark Harness) benchmarks for the `By
 
 ### Prerequisites
 
-- JDK 8 or higher
+- JDK 17 or higher (required to run Gradle 9)
 - Gradle
+
+Note: benchmark/module bytecode targets Java 8, but the Gradle runtime requires JDK 17+.
 
 ### Run all benchmarks
 
-From the root directory:
+From the Java Gradle project root (`pkg/internal/java`):
 
 ```bash
 gradle :agent:jmh
