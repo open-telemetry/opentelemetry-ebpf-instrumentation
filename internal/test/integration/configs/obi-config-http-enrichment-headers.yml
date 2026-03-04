@@ -19,23 +19,23 @@ ebpf:
     http: 8192
   payload_extraction:
     http:
-      generic:
+      enrichment:
         enabled: true
         policy:
-          default_action: exclude
+          default_action: include
           match_order: first_match_wins
           obfuscation_string: "***"
         rules:
           - action: obfuscate
             type: headers
-            scope: both
+            scope: all
             match:
               regex:
                 - "^Authorization$"
               case_sensitive: false
           - action: include
             type: headers
-            scope: both
+            scope: all
             match:
               regex:
                 - "^Content-Type$"

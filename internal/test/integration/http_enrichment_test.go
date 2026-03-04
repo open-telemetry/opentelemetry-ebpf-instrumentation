@@ -135,6 +135,7 @@ func TestSuiteGenericHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	compose.Env = append(compose.Env, "INSTRUMENTER_CONFIG_SUFFIX=-http-enrichment-headers")
+	compose.Env = append(compose.Env, "OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS=true")
 	require.NoError(t, compose.Up())
 
 	t.Run("Enrichment header extraction", func(t *testing.T) {
