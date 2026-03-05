@@ -163,9 +163,19 @@ lint-fix: LINT_EXTRA_ARGS = --fix
 lint-fix: lint-run
 
 .PHONY: lint-run
-lint-run: $(GOLANGCI_LINT) vanity-import-check
+lint-run: $(GOLANGCI_LINT) vanity-import-check lint-dependency-policy
 	@echo "### Linting code"
 	$(GOLANGCI_LINT) run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+
+.PHONY: lint-dependency-policy
+lint-dependency-policy:
+	@echo "### Linting dependency integrity policy"
+	@if [ -n "$$CI" ]; then \
+		echo "### CI detected: enabling verbose dependency-policy lint logging"; \
+		./scripts/lint-dependency-policy.sh --verbose; \
+	else \
+		./scripts/lint-dependency-policy.sh; \
+	fi
 
 MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 WORKDIR := "/go/src/go.opentelemetry.io/obi"
