@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 import os
 import uvicorn
-import psycopg2
+import psycopg
 
 app = FastAPI()
 
@@ -14,7 +14,7 @@ async def root():
     global conn
     global server
     if conn is None:
-        conn = psycopg2.connect(
+        conn = psycopg.connect(
             dbname="sqltest",
             user="postgres",
             password="postgres",
@@ -34,7 +34,7 @@ async def root():
     global conn
     global server
     if conn is None:
-        conn = psycopg2.connect(
+        conn = psycopg.connect(
             dbname="sqltest",
             user="postgres",
             password="postgres",
@@ -57,7 +57,7 @@ async def root():
     global gCurr
     global server
     if conn is None:
-        conn = psycopg2.connect(
+        conn = psycopg.connect(
             dbname="sqltest",
             user="postgres",
             password="postgres",

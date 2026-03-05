@@ -1,0 +1,5 @@
+fastapi==0.135.1
+uvicorn==0.41.0
+gunicorn==25.1.0
+psycopg==3.2.9
+mysql-connector-python==9.5.0
