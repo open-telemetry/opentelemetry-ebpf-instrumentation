@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
@@ -255,6 +256,7 @@ discovery:
 			ExtraGroupAttributes: map[string][]attr.Name{
 				"k8s_app_meta": {"k8s.app.version"},
 			},
+			MetadataRetry:                  meta.DefaultRetryConfig,
 			MetricSpanNameAggregationLimit: 100,
 		},
 		Routes: &transform.RoutesConfig{
