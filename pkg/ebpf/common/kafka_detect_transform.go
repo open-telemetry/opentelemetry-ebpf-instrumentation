@@ -78,7 +78,11 @@ func ProcessKafkaEvent(pkt *largebuf.LargeBuffer, rpkt *largebuf.LargeBuffer, ka
 }
 
 func processProduceRequest(hdr kafkaparser.KafkaRequestHeader) (*KafkaInfo, bool, error) {
-	r := hdr.NewBodyReader()
+	r, err := hdr.NewBodyReader()
+	if err != nil {
+		return nil, true, err
+	}
+
 	produceReq, err := kafkaparser.ParseProduceRequest(&r, hdr)
 	if err != nil {
 		return nil, true, err
@@ -99,7 +103,11 @@ func processProduceRequest(hdr kafkaparser.KafkaRequestHeader) (*KafkaInfo, bool
 }
 
 func processFetchRequest(hdr kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (*KafkaInfo, bool, error) {
-	r := hdr.NewBodyReader()
+	r, err := hdr.NewBodyReader()
+	if err != nil {
+		return nil, true, err
+	}
+
 	fetchReq, err := kafkaparser.ParseFetchRequest(&r, hdr)
 	if err != nil {
 		return nil, true, err

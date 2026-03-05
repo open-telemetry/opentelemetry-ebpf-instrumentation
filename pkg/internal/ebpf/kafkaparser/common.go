@@ -77,10 +77,15 @@ func (h KafkaRequestHeader) ClientID() string {
 	return string(b)
 }
 
-func (h KafkaRequestHeader) NewBodyReader() largebuf.LargeBufferReader {
+func (h KafkaRequestHeader) NewBodyReader() (largebuf.LargeBufferReader, error) {
 	r := h.lb.NewReader()
-	_ = r.Skip(int(h.bodyOffset))
-	return r
+
+	err := r.Skip(int(h.bodyOffset))
+	if err != nil {
+		return largebuf.LargeBufferReader{}, err
+	}
+
+	return r, nil
 }
 
 func NewKafkaRequestHeader(lb *largebuf.LargeBuffer) (KafkaRequestHeader, error) {
