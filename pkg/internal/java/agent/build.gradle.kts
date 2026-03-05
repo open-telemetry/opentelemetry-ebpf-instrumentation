@@ -3,7 +3,7 @@ plugins {
     id("com.gradleup.shadow") version "8.3.10"
     id("com.github.jk1.dependency-license-report") version "2.9"
     id("me.champeau.jmh") version "0.7.3"
-    id("com.diffplug.spotless") version "8.3.0"
+    id("com.diffplug.spotless")
 }
 
 group = "io.opentelemetry.obi"
