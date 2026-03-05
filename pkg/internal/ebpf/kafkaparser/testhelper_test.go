@@ -31,7 +31,10 @@ func newTestHeader(apiKey KafkaAPIKey, apiVersion int16) KafkaRequestHeader {
 	binary.BigEndian.PutUint32(buf[8:12], 1) // CorrelationID = 1
 	// buf[12:14] = 0 (clientID length = 0)
 	// buf[14]   = 0 if flexible (tagged fields = empty, already 0 from make)
-	h, _ := NewKafkaRequestHeader(largebuf.NewLargeBufferFrom(buf))
+	h, err := NewKafkaRequestHeader(largebuf.NewLargeBufferFrom(buf))
+	if err != nil {
+		panic("newTestHeader: " + err.Error())
+	}
 	return h
 }
 
