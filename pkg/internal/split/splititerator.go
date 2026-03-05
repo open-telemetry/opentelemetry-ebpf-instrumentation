@@ -6,34 +6,37 @@
 package split // import "go.opentelemetry.io/obi/pkg/internal/split"
 
 import (
+	"bytes"
 	"strings"
 )
 
-// Iterator is alternative to strings.Split(str, delim) - each call to Nex()
-// returns a a substring slice, allowing string tokens or lines to be processed
-// in place (zero-copy), without the need of allocations
-type Iterator struct {
-	startBuf string
-	buf      string
-	delim    string
+// Iterator is an alternative to strings.Split / bytes.Split — each call to
+// Next returns a sub-slice of the original, allowing tokens or lines to be
+// processed in place without allocations.
+type Iterator[T string | []byte] struct {
+	startBuf T
+	buf      T
+	delim    T
+	indexOf  func(T, T) int
 }
 
-func NewIterator(buf string, delim string) *Iterator {
-	return &Iterator{
-		startBuf: buf,
-		buf:      buf,
-		delim:    delim,
-	}
+func NewStringIterator(buf, delim string) Iterator[string] {
+	return Iterator[string]{startBuf: buf, buf: buf, delim: delim, indexOf: strings.Index}
+}
+
+func NewBytesIterator(buf, delim []byte) Iterator[[]byte] {
+	return Iterator[[]byte]{startBuf: buf, buf: buf, delim: delim, indexOf: bytes.Index}
 }
 
 // Next returns a token and false if there are any tokens available, otherwise
-// returns "" and true to convey EOF has been reached
-func (sp *Iterator) Next() (string, bool) {
+// returns the zero value and true to convey EOF has been reached.
+func (sp *Iterator[T]) Next() (T, bool) {
 	if len(sp.buf) == 0 {
-		return "", true
+		var zero T
+		return zero, true
 	}
 
-	index := strings.Index(sp.buf, sp.delim)
+	index := sp.indexOf(sp.buf, sp.delim)
 
 	if index == -1 {
 		buf := sp.buf
@@ -49,6 +52,7 @@ func (sp *Iterator) Next() (string, bool) {
 	return buf, false
 }
 
-func (sp *Iterator) Reset() {
+// Reset repositions the iterator to the beginning of the buffer.
+func (sp *Iterator[T]) Reset() {
 	sp.buf = sp.startBuf
 }

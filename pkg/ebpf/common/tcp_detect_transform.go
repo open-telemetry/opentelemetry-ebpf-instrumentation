@@ -138,13 +138,13 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 
 	switch {
 	case isRedis(requestBuffer) && isRedis(responseBuffer):
-		op, text, ok := parseRedisRequest(string(requestBuffer.UnsafeView()))
+		op, text, ok := parseRedisRequest(requestBuffer.UnsafeView())
 
 		if ok {
 			var status int
 			var redisErr request.DBError
 			if op == "" {
-				op, text, ok = parseRedisRequest(string(responseBuffer.UnsafeView()))
+				op, text, ok = parseRedisRequest(responseBuffer.UnsafeView())
 				if !ok || op == "" {
 					return request.Span{}, true, nil // ignore if we couldn't parse it
 				}
