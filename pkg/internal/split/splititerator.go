@@ -1,8 +1,8 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package split provides an Iterator that allows for zero-copy string
-// splitting.
+// Package split provides a generic Iterator for zero-copy splitting of
+// strings and byte slices.
 package split // import "go.opentelemetry.io/obi/pkg/internal/split"
 
 import (
@@ -21,10 +21,16 @@ type Iterator[T string | []byte] struct {
 }
 
 func NewStringIterator(buf, delim string) Iterator[string] {
+	if len(delim) == 0 {
+		panic("split: empty delimiter")
+	}
 	return Iterator[string]{startBuf: buf, buf: buf, delim: delim, indexOf: strings.Index}
 }
 
 func NewBytesIterator(buf, delim []byte) Iterator[[]byte] {
+	if len(delim) == 0 {
+		panic("split: empty delimiter")
+	}
 	return Iterator[[]byte]{startBuf: buf, buf: buf, delim: delim, indexOf: bytes.Index}
 }
 

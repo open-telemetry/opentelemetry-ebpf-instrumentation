@@ -153,6 +153,14 @@ func TestBytesIterator_multi(t *testing.T) {
 	runBytesTest(t, in, []byte("\r\n"), expected)
 }
 
+func TestStringIterator_emptyDelim_panics(t *testing.T) {
+	assert.Panics(t, func() { NewStringIterator("abc", "") })
+}
+
+func TestBytesIterator_emptyDelim_panics(t *testing.T) {
+	assert.Panics(t, func() { NewBytesIterator([]byte("abc"), []byte{}) })
+}
+
 func TestBytesIterator_reset(t *testing.T) {
 	in := []byte("one|line|per|time|")
 
