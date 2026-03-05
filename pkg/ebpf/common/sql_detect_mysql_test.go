@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 func TestMySQLParsing(t *testing.T) {
@@ -74,7 +76,7 @@ func TestMySQLParsing(t *testing.T) {
 		t.Run(ts.name, func(t *testing.T) {
 			hdr := readMySQLHeader(ts.bytes)
 			assert.Equal(t, ts.result, hdr)
-			assert.Equal(t, ts.valid, isMySQL(ts.bytes))
+			assert.Equal(t, ts.valid, isMySQL(largebuf.NewLargeBufferFrom(ts.bytes)))
 		})
 	}
 }

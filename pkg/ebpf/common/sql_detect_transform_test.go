@@ -103,10 +103,11 @@ func TestPostgresBindParsing(t *testing.T) {
 		},
 	} {
 		t.Run(ts.name, func(t *testing.T) {
-			ok := isPostgresBindCommand(ts.bytes)
+			lb := largebuf.NewLargeBufferFrom(ts.bytes)
+			ok := isPostgresBindCommand(lb)
 			assert.Equal(t, ts.isBind, ok)
 			if ok {
-				statement, portal, args, err := parsePostgresBindCommand(ts.bytes)
+				statement, portal, args, err := parsePostgresBindCommand(lb)
 				if ts.result.hasErr {
 					require.Error(t, err)
 				} else {

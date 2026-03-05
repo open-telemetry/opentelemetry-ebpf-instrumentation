@@ -83,8 +83,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 
 		return span, false, nil
 	case ProtocolTypePostgres:
-		reqR, respR := requestBuffer.NewReader(), responseBuffer.NewReader()
-		span, err := handlePostgres(parseCtx, event, &reqR, &respR)
+		span, err := handlePostgres(parseCtx, event, requestBuffer, responseBuffer)
 		if errors.Is(err, errFallback) {
 			slog.Debug("Postgres: falling back to generic handler")
 			break
