@@ -20,7 +20,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/split"
 )
 
-const minRedisFrameLen = 3
+const (
+	minRedisFrameLen = 3
+	redisDelim       = "\r\n"
+)
+
+var redisDelimBytes = []byte(redisDelim)
 
 var redisErrors = [...]struct {
 	prefix []byte
@@ -115,9 +120,7 @@ func isValidRedisChar(c byte) bool {
 }
 
 func parseRedisRequest(buf []byte) (string, string, bool) {
-	const redisDelim = "\r\n"
-
-	lines := split.NewBytesIterator(buf, []byte(redisDelim))
+	lines := split.NewBytesIterator(buf, redisDelimBytes)
 
 	_, eof := lines.Next()
 
@@ -153,7 +156,7 @@ func parseRedisRequest(buf []byte) (string, string, bool) {
 			break
 		}
 
-		if bytes.Equal(line, []byte(redisDelim)) {
+		if bytes.Equal(line, redisDelimBytes) {
 			continue
 		}
 
@@ -172,7 +175,7 @@ func parseRedisRequest(buf []byte) (string, string, bool) {
 				break
 			}
 
-			trimmed := bytes.TrimSuffix(line, []byte(redisDelim))
+			trimmed := bytes.TrimSuffix(line, redisDelimBytes)
 
 			if op == "" {
 				op = string(trimmed)
