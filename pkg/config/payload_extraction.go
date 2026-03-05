@@ -118,7 +118,7 @@ func (t *HTTPParsingRuleType) UnmarshalText(text []byte) error {
 // is false (the default), patterns are automatically wrapped with (?i).
 type HTTPParsingMatch struct {
 	// Regex is a list of compiled regular expressions to match against.
-	Regex []*regexp.Regexp `yaml:"-"`
+	Regex []*regexp.Regexp `yaml:"-" jsonschema:"type=string,format=regex"`
 	// CaseSensitive controls whether matching is case-sensitive.
 	CaseSensitive bool `yaml:"case_sensitive"`
 }
@@ -147,6 +147,27 @@ func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 		m.Regex = append(m.Regex, re)
 	}
 	return nil
+}
+
+// MarshalYAML serializes the match config back to YAML, converting compiled
+// regexps back to their string patterns and stripping the (?i) prefix that
+// was added for case-insensitive matching.
+func (m HTTPParsingMatch) MarshalYAML() (interface{}, error) {
+	patterns := make([]string, 0, len(m.Regex))
+	for _, re := range m.Regex {
+		p := re.String()
+		if !m.CaseSensitive {
+			p = strings.TrimPrefix(p, "(?i)")
+		}
+		patterns = append(patterns, p)
+	}
+	return struct {
+		Regex         []string `yaml:"regex"`
+		CaseSensitive bool     `yaml:"case_sensitive"`
+	}{
+		Regex:         patterns,
+		CaseSensitive: m.CaseSensitive,
+	}, nil
 }
 
 // HTTPParsingAction represents the action for a generic parsing rule or default policy.
