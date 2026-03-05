@@ -1,4 +1,4 @@
-module go_simple_grpc
+module go.opentelemetry.io/obi/internal/test/integration/components/go_simple_grpc
 
 go 1.25.6
 
