@@ -83,8 +83,11 @@ var sqlKeywords = [][]byte{
 	[]byte("INSERT"), []byte("ALTER"), []byte("CREATE"), []byte("DROP"),
 }
 
+var sqlExecuteKeyword = []byte("EXECUTE ")
+
 func detectSQLPayload(useHeuristics bool, b *largebuf.LargeBuffer) (string, string, string, request.SQLKind) {
 	sqlKind := sqlKind(b)
+
 	if !useHeuristics && sqlKind == request.DBGeneric {
 		return "", "", "", sqlKind
 	}
@@ -92,6 +95,7 @@ func detectSQLPayload(useHeuristics bool, b *largebuf.LargeBuffer) (string, stri
 	view := b.UnsafeView()
 
 	op, table, sql := detectSQL(view)
+
 	if !validSQL(op, table, sqlKind) {
 		switch sqlKind {
 		case request.DBPostgres:

@@ -1398,7 +1398,7 @@ func TestReadCStr_consecutiveCalls(t *testing.T) {
 
 	s1, err := r.ReadCStr()
 	require.NoError(t, err)
-	got1 := string(s1) // materialise before next call
+	got1 := string(s1) // materialize before next call
 
 	s2, err := r.ReadCStr()
 	require.NoError(t, err)

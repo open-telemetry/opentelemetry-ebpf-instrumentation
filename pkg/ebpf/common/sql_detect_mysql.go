@@ -65,7 +65,7 @@ func isMySQL(b *largebuf.LargeBuffer) bool {
 }
 
 func mysqlPreparedStatements(b []byte) (string, string, string) {
-	execIdx := asciiIndexFold(b, []byte("EXECUTE "))
+	execIdx := asciiIndexFold(b, sqlExecuteKeyword)
 	if execIdx < 0 {
 		return "", "", ""
 	}

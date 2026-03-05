@@ -6,6 +6,7 @@ package largebuf // import "go.opentelemetry.io/obi/pkg/internal/largebuf"
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -701,7 +702,7 @@ func (r *LargeBufferReader) IndexByte(c byte) int {
 func (r *LargeBufferReader) ReadCStr() ([]byte, error) {
 	n := r.IndexByte(0)
 	if n < 0 {
-		return nil, fmt.Errorf("LargeBuffer.ReadCStr: no null terminator found")
+		return nil, errors.New("LargeBuffer.ReadCStr: no null terminator found")
 	}
 
 	b, err := r.ReadN(n)
@@ -709,7 +710,11 @@ func (r *LargeBufferReader) ReadCStr() ([]byte, error) {
 		return nil, err
 	}
 
-	_ = r.Skip(1) // consume the null terminator
+	// Skip the null terminator. IndexByte(0) confirmed it exists and ReadN(n)
+	// left the cursor exactly there, so this must succeed.
+	if err = r.Skip(1); err != nil {
+		return nil, fmt.Errorf("LargeBuffer.ReadCStr: failed to skip null terminator: %w", err)
+	}
 
 	return b, nil
 }

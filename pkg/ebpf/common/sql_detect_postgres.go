@@ -79,7 +79,6 @@ func isValidPostgresPayload(b *largebuf.LargeBuffer) (byte, bool) {
 // 5-byte header), bounded by the message size field. Returns an error if the buffer is too short.
 func msgBodyReader(b *largebuf.LargeBuffer) (largebuf.LargeBufferReader, error) {
 	size, err := b.I32BEAt(1)
-
 	if err != nil {
 		return largebuf.LargeBufferReader{}, errors.New("too short")
 	}
@@ -91,7 +90,6 @@ func msgBodyReader(b *largebuf.LargeBuffer) (largebuf.LargeBufferReader, error) 
 	}
 
 	body, err := b.UnsafeViewAt(pgHeaderLen, msgSize-pgHeaderLen)
-
 	if err != nil {
 		return largebuf.LargeBufferReader{}, err
 	}
@@ -187,11 +185,13 @@ func postgresPreparedStatements(b *largebuf.LargeBuffer) (string, string, string
 	} else if isPostgresQueryCommand(b) {
 		text, err := parsePosgresQueryCommand(b)
 		if err == nil {
-			if asciiIndexFold(text, []byte("EXECUTE ")) == 0 {
-				parts := bytes.SplitN(text, []byte(" "), 3)
-				op = string(parts[0])
-				if len(parts) > 1 {
-					table = string(parts[1])
+			if asciiIndexFold(text, sqlExecuteKeyword) == 0 {
+				op = "EXECUTE"
+				rest := text[len(sqlExecuteKeyword):]
+				if i := bytes.IndexByte(rest, ' '); i >= 0 {
+					table = string(rest[:i])
+				} else {
+					table = string(rest)
 				}
 				sql = string(text)
 			}
