@@ -14,7 +14,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
-func TestParseKafkaRequestHeader(t *testing.T) {
+func TestNewKafkaRequestHeader(t *testing.T) {
 	tests := []struct {
 		name                  string
 		packet                []byte
@@ -610,7 +610,7 @@ func TestSkip(t *testing.T) {
 }
 
 // Truncation tests to simulate incomplete packets
-func TestParseKafkaRequestHeaderTruncation(t *testing.T) {
+func TestNewKafkaRequestHeaderTruncation(t *testing.T) {
 	// Create a valid header first
 	validPacket := make([]byte, 18)
 	binary.BigEndian.PutUint32(validPacket[0:4], 100)    // MessageSize
