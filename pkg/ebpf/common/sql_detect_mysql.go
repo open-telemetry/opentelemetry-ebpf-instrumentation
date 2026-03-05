@@ -43,7 +43,7 @@ func readMySQLHeader(b []byte) mySQLHdr {
 }
 
 func isMySQL(b *largebuf.LargeBuffer) bool {
-	// the header is at least 5 bytes
+	// 4-byte header (3-byte length + 1-byte sequence ID) + command byte + at least 1 payload byte
 	if b.Len() < 6 {
 		return false
 	}

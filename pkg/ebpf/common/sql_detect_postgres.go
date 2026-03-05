@@ -4,6 +4,7 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -31,6 +32,10 @@ const (
 	kPostgresBind    = byte('B')
 	kPostgresQuery   = byte('Q')
 	kPostgresCommand = byte('C')
+
+	// pgHeaderLen is the size of the Postgres message header:
+	// 1 byte type + 4 bytes length field.
+	pgHeaderLen = 5
 )
 
 func isPostgres(b *largebuf.LargeBuffer) bool {
@@ -53,7 +58,7 @@ func isPostgresQueryCommand(b *largebuf.LargeBuffer) bool {
 
 func isValidPostgresPayload(b *largebuf.LargeBuffer) (byte, bool) {
 	// https://github.com/postgres/postgres/blob/master/src/interfaces/libpq/fe-protocol3.c#L97
-	if b.Len() < 5 {
+	if b.Len() < pgHeaderLen {
 		return 0, false
 	}
 
@@ -74,99 +79,93 @@ func isValidPostgresPayload(b *largebuf.LargeBuffer) (byte, bool) {
 // 5-byte header), bounded by the message size field. Returns an error if the buffer is too short.
 func msgBodyReader(b *largebuf.LargeBuffer) (largebuf.LargeBufferReader, error) {
 	size, err := b.I32BEAt(1)
+
 	if err != nil {
 		return largebuf.LargeBufferReader{}, errors.New("too short")
 	}
-	msgSize := min(int(size), b.Len())
-	if msgSize < 5 {
+
+	msgSize := min(1+int(size), b.Len())
+
+	if msgSize < pgHeaderLen {
 		return largebuf.LargeBufferReader{}, errors.New("too short")
 	}
-	body, err := b.UnsafeViewAt(5, msgSize-5)
+
+	body, err := b.UnsafeViewAt(pgHeaderLen, msgSize-pgHeaderLen)
+
 	if err != nil {
 		return largebuf.LargeBufferReader{}, err
 	}
+
 	return largebuf.NewLargeBufferFrom(body).NewReader(), nil
 }
 
 //nolint:cyclop
 func parsePostgresBindCommand(b *largebuf.LargeBuffer) (string, string, []string, error) {
-	statement := []byte{}
-	portal := []byte{}
-	args := []string{}
-
 	r, err := msgBodyReader(b)
 	if err != nil {
 		return "", "", nil, err
 	}
 
-	// parse statement, zero terminated string
-	for {
-		if r.Remaining() == 0 {
-			return string(statement), string(portal), args, errors.New("too short, while parsing statement")
-		}
-		c, _ := r.ReadU8()
-		if c == 0 {
-			break
-		}
-		statement = append(statement, c)
+	stmtBytes, err := r.ReadCStr()
+	if err != nil {
+		return "", "", nil, errors.New("too short, while parsing statement")
 	}
 
-	// parse portal, zero terminated string
-	for {
-		if r.Remaining() == 0 {
-			return string(statement), string(portal), args, errors.New("too short, while parsing portal")
-		}
-		c, _ := r.ReadU8()
-		if c == 0 {
-			break
-		}
-		portal = append(portal, c)
+	portalBytes, err := r.ReadCStr()
+	if err != nil {
+		return "", "", nil, errors.New("too short, while parsing portal")
 	}
 
+	// skip format codes: Int16 count + count*Int16 entries
 	formats, err := r.ReadI16BE()
 	if err != nil {
-		return string(statement), string(portal), args, errors.New("too short, while parsing format codes")
+		return "", "", nil, errors.New("too short, while parsing format codes")
 	}
-	for i := 0; i < int(formats); i++ {
-		// ignore format codes
-		if err := r.Skip(2); err != nil {
-			return string(statement), string(portal), args, errors.New("too short, while parsing format codes")
+	if formats > 0 {
+		if err := r.Skip(2 * int(formats)); err != nil {
+			return "", "", nil, errors.New("too short, while parsing format codes")
 		}
 	}
 
+	// parse parameter values: Int16 count + repeated (Int32 length + bytes)
 	params, err := r.ReadI16BE()
 	if err != nil {
-		return string(statement), string(portal), args, errors.New("too short, while parsing params")
+		return "", "", nil, errors.New("too short, while parsing params")
 	}
-	for i := 0; i < int(params); i++ {
-		argLen, err := r.ReadU32BE()
+	if params <= 0 {
+		return string(stmtBytes), string(portalBytes), nil, nil
+	}
+	args := make([]string, 0, int(params))
+	for range int(params) {
+		argLen, err := r.ReadI32BE()
 		if err != nil {
-			return string(statement), string(portal), args, errors.New("too short, while parsing params")
+			return "", "", nil, errors.New("too short, while parsing params")
 		}
-		arg := []byte{}
-		for range int(argLen) {
-			if r.Remaining() == 0 {
-				break
-			}
-			c, _ := r.ReadU8()
-			arg = append(arg, c)
+		if argLen < 0 {
+			// NULL parameter value (-1 in the protocol)
+			continue
+		}
+		n := min(int(argLen), r.Remaining())
+		arg, err := r.ReadN(n)
+		if err != nil {
+			return "", "", nil, errors.New("too short, while parsing params")
 		}
 		args = append(args, string(arg))
 	}
 
-	return string(statement), string(portal), args, nil
+	return string(stmtBytes), string(portalBytes), args, nil
 }
 
-func parsePosgresQueryCommand(b *largebuf.LargeBuffer) (string, error) {
+func parsePosgresQueryCommand(b *largebuf.LargeBuffer) ([]byte, error) {
 	r, err := msgBodyReader(b)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	body, err := r.ReadN(r.Remaining())
 	if err != nil {
-		return "", errors.New("too short")
+		return nil, errors.New("too short")
 	}
-	return string(body), nil
+	return body, nil
 }
 
 func postgresPreparedStatements(b *largebuf.LargeBuffer) (string, string, string) {
@@ -188,13 +187,13 @@ func postgresPreparedStatements(b *largebuf.LargeBuffer) (string, string, string
 	} else if isPostgresQueryCommand(b) {
 		text, err := parsePosgresQueryCommand(b)
 		if err == nil {
-			if asciiIndexFold([]byte(text), []byte("EXECUTE ")) == 0 {
-				parts := strings.Split(text, " ")
-				op = parts[0]
+			if asciiIndexFold(text, []byte("EXECUTE ")) == 0 {
+				parts := bytes.SplitN(text, []byte(" "), 3)
+				op = string(parts[0])
 				if len(parts) > 1 {
-					table = parts[1]
+					table = string(parts[1])
 				}
-				sql = text
+				sql = string(text)
 			}
 		}
 	}
@@ -297,7 +296,7 @@ Loop:
 		if msg = it.next(); it.isEOF() {
 			break
 		}
-			if it.err != nil {
+		if it.err != nil {
 			slog.Debug("failed to parse Postgres request messages", "error", it.err)
 			return span, errFallback
 		}
