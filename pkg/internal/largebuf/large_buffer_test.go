@@ -974,6 +974,205 @@ func TestCursorUnchanged_byAbsoluteOffsetMethods(t *testing.T) {
 	assert.Equal(t, before, r.ReadOffset(), "U32LEAt must not move cursor")
 }
 
+// ── Cursor-based scalar helpers ───────────────────────────────────────────────
+
+func TestReaderScalarBE_withinSingleChunk(t *testing.T) {
+	// Sequential layout: U8 | U16BE | U32BE | U64BE | I16BE | I32BE | I64BE
+	data := []byte{
+		0x42,
+		0x01, 0x02,
+		0x01, 0x02, 0x03, 0x04,
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x01, 0x02,
+		0x01, 0x02, 0x03, 0x04,
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+	}
+	lb := NewLargeBufferFrom(data)
+	r := lb.NewReader()
+
+	u8, err := r.ReadU8()
+	require.NoError(t, err)
+	assert.Equal(t, uint8(0x42), u8)
+
+	u16, err := r.ReadU16BE()
+	require.NoError(t, err)
+	assert.Equal(t, uint16(0x0102), u16)
+
+	u32, err := r.ReadU32BE()
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0x01020304), u32)
+
+	u64, err := r.ReadU64BE()
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0x0102030405060708), u64)
+
+	i16, err := r.ReadI16BE()
+	require.NoError(t, err)
+	assert.Equal(t, int16(0x0102), i16)
+
+	i32, err := r.ReadI32BE()
+	require.NoError(t, err)
+	assert.Equal(t, int32(0x01020304), i32)
+
+	i64, err := r.ReadI64BE()
+	require.NoError(t, err)
+	assert.Equal(t, int64(0x0102030405060708), i64)
+
+	assert.Equal(t, 0, r.Remaining())
+}
+
+func TestReaderScalarBE_crossChunkBoundary(t *testing.T) {
+	lb := NewLargeBuffer()
+	lb.AppendChunk([]byte{0x01, 0x02})
+	lb.AppendChunk([]byte{0x03, 0x04, 0x05, 0x06, 0x07, 0x08})
+
+	r := lb.NewReader()
+
+	u32, err := r.ReadU32BE()
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0x01020304), u32)
+
+	r.Reset()
+	u64, err := r.ReadU64BE()
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0x0102030405060708), u64)
+}
+
+func TestReaderScalarBE_signedNegativeValues(t *testing.T) {
+	lb := NewLargeBufferFrom(bytes.Repeat([]byte{0xFF}, 14)) // 2+4+8 bytes
+	r := lb.NewReader()
+
+	i16, err := r.ReadI16BE()
+	require.NoError(t, err)
+	assert.Equal(t, int16(-1), i16)
+
+	i32, err := r.ReadI32BE()
+	require.NoError(t, err)
+	assert.Equal(t, int32(-1), i32)
+
+	i64, err := r.ReadI64BE()
+	require.NoError(t, err)
+	assert.Equal(t, int64(-1), i64)
+}
+
+func TestReaderScalarLE_withinSingleChunk(t *testing.T) {
+	// Sequential layout: U16LE | U32LE | U64LE | I16LE | I32LE | I64LE
+	data := []byte{
+		0x02, 0x01,
+		0x04, 0x03, 0x02, 0x01,
+		0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
+		0x02, 0x01,
+		0x04, 0x03, 0x02, 0x01,
+		0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
+	}
+	lb := NewLargeBufferFrom(data)
+	r := lb.NewReader()
+
+	u16, err := r.ReadU16LE()
+	require.NoError(t, err)
+	assert.Equal(t, uint16(0x0102), u16)
+
+	u32, err := r.ReadU32LE()
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0x01020304), u32)
+
+	u64, err := r.ReadU64LE()
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0x0102030405060708), u64)
+
+	i16, err := r.ReadI16LE()
+	require.NoError(t, err)
+	assert.Equal(t, int16(0x0102), i16)
+
+	i32, err := r.ReadI32LE()
+	require.NoError(t, err)
+	assert.Equal(t, int32(0x01020304), i32)
+
+	i64, err := r.ReadI64LE()
+	require.NoError(t, err)
+	assert.Equal(t, int64(0x0102030405060708), i64)
+
+	assert.Equal(t, 0, r.Remaining())
+}
+
+func TestReaderScalarLE_crossChunkBoundary(t *testing.T) {
+	lb := NewLargeBuffer()
+	lb.AppendChunk([]byte{0x04, 0x03})
+	lb.AppendChunk([]byte{0x02, 0x01, 0x08, 0x07, 0x06, 0x05})
+
+	r := lb.NewReader()
+
+	u32, err := r.ReadU32LE()
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0x01020304), u32)
+
+	r.Reset()
+	u64, err := r.ReadU64LE()
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0x0506070801020304), u64)
+}
+
+func TestReaderScalarLE_signedNegativeValues(t *testing.T) {
+	lb := NewLargeBufferFrom(bytes.Repeat([]byte{0xFF}, 14)) // 2+4+8 bytes
+	r := lb.NewReader()
+
+	i16, err := r.ReadI16LE()
+	require.NoError(t, err)
+	assert.Equal(t, int16(-1), i16)
+
+	i32, err := r.ReadI32LE()
+	require.NoError(t, err)
+	assert.Equal(t, int32(-1), i32)
+
+	i64, err := r.ReadI64LE()
+	require.NoError(t, err)
+	assert.Equal(t, int64(-1), i64)
+}
+
+func TestReaderScalar_advancesCursor(t *testing.T) {
+	lb := NewLargeBufferFrom(bytes.Repeat([]byte{0x00}, 16))
+	r := lb.NewReader()
+
+	assert.Equal(t, 16, r.Remaining())
+	_, _ = r.ReadU8()
+	assert.Equal(t, 15, r.Remaining())
+	_, _ = r.ReadU16BE()
+	assert.Equal(t, 13, r.Remaining())
+	_, _ = r.ReadU32BE()
+	assert.Equal(t, 9, r.Remaining())
+	_, _ = r.ReadU64BE()
+	assert.Equal(t, 1, r.Remaining())
+}
+
+func TestReaderScalar_tooShort_returnsError(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte{0x01, 0x02})
+	r := lb.NewReader()
+
+	_, _ = r.ReadU16BE() // consume all bytes
+
+	_, err := r.ReadU8()
+	require.Error(t, err)
+
+	r.Reset()
+	_, _ = r.ReadU8()
+	_, err = r.ReadU16BE() // only 1 byte left
+	require.Error(t, err)
+}
+
+func TestReaderScalar_zeroAllocs(t *testing.T) {
+	lb := NewLargeBufferFrom(bytes.Repeat([]byte{0x01}, 64))
+	r := lb.NewReader()
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		r.Reset()
+		for r.Remaining() >= 4 {
+			_, _ = r.ReadU32BE()
+		}
+	})
+
+	assert.InDelta(t, float64(0), allocs, 0, "cursor scalar reads within a single chunk must be zero-alloc")
+}
+
 // ── Zero-alloc verification for hot path ─────────────────────────────────────
 
 func TestReadN_singleChunk_zeroAllocsWithBinaryDecode(t *testing.T) {

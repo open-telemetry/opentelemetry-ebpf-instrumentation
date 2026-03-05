@@ -543,6 +543,123 @@ func (r *LargeBufferReader) Bytes() []byte {
 	return b
 }
 
+// ── Cursor-based scalar helpers ───────────────────────────────────────────────
+//
+// Each helper reads a fixed-width integer at the current cursor position and advances it.
+// All delegate to ReadN: zero-copy within a chunk, scratch-backed across boundaries.
+
+// ReadU8 reads a uint8 at the current cursor position.
+func (r *LargeBufferReader) ReadU8() (uint8, error) {
+	b, err := r.ReadN(1)
+	if err != nil {
+		return 0, err
+	}
+
+	return b[0], nil
+}
+
+// ReadU16BE reads a big-endian uint16 at the current cursor position.
+func (r *LargeBufferReader) ReadU16BE() (uint16, error) {
+	b, err := r.ReadN(2)
+	if err != nil {
+		return 0, err
+	}
+
+	return binary.BigEndian.Uint16(b), nil
+}
+
+// ReadI16BE reads a big-endian int16 at the current cursor position.
+func (r *LargeBufferReader) ReadI16BE() (int16, error) {
+	v, err := r.ReadU16BE()
+
+	return int16(v), err
+}
+
+// ReadU32BE reads a big-endian uint32 at the current cursor position.
+func (r *LargeBufferReader) ReadU32BE() (uint32, error) {
+	b, err := r.ReadN(4)
+	if err != nil {
+		return 0, err
+	}
+
+	return binary.BigEndian.Uint32(b), nil
+}
+
+// ReadI32BE reads a big-endian int32 at the current cursor position.
+func (r *LargeBufferReader) ReadI32BE() (int32, error) {
+	v, err := r.ReadU32BE()
+
+	return int32(v), err
+}
+
+// ReadU64BE reads a big-endian uint64 at the current cursor position.
+func (r *LargeBufferReader) ReadU64BE() (uint64, error) {
+	b, err := r.ReadN(8)
+	if err != nil {
+		return 0, err
+	}
+
+	return binary.BigEndian.Uint64(b), nil
+}
+
+// ReadI64BE reads a big-endian int64 at the current cursor position.
+func (r *LargeBufferReader) ReadI64BE() (int64, error) {
+	v, err := r.ReadU64BE()
+
+	return int64(v), err
+}
+
+// ReadU16LE reads a little-endian uint16 at the current cursor position.
+func (r *LargeBufferReader) ReadU16LE() (uint16, error) {
+	b, err := r.ReadN(2)
+	if err != nil {
+		return 0, err
+	}
+
+	return binary.LittleEndian.Uint16(b), nil
+}
+
+// ReadI16LE reads a little-endian int16 at the current cursor position.
+func (r *LargeBufferReader) ReadI16LE() (int16, error) {
+	v, err := r.ReadU16LE()
+
+	return int16(v), err
+}
+
+// ReadU32LE reads a little-endian uint32 at the current cursor position.
+func (r *LargeBufferReader) ReadU32LE() (uint32, error) {
+	b, err := r.ReadN(4)
+	if err != nil {
+		return 0, err
+	}
+
+	return binary.LittleEndian.Uint32(b), nil
+}
+
+// ReadI32LE reads a little-endian int32 at the current cursor position.
+func (r *LargeBufferReader) ReadI32LE() (int32, error) {
+	v, err := r.ReadU32LE()
+
+	return int32(v), err
+}
+
+// ReadU64LE reads a little-endian uint64 at the current cursor position.
+func (r *LargeBufferReader) ReadU64LE() (uint64, error) {
+	b, err := r.ReadN(8)
+	if err != nil {
+		return 0, err
+	}
+
+	return binary.LittleEndian.Uint64(b), nil
+}
+
+// ReadI64LE reads a little-endian int64 at the current cursor position.
+func (r *LargeBufferReader) ReadI64LE() (int64, error) {
+	v, err := r.ReadU64LE()
+
+	return int64(v), err
+}
+
 // copyN copies exactly len(dst) bytes from the current read position into dst, advancing the
 // cursor. Assumes the caller has already verified that len(dst) <= r.Remaining().
 func (r *LargeBufferReader) copyN(dst []byte) {
