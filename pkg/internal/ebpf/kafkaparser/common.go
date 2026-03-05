@@ -194,10 +194,10 @@ func skipTaggedFieldsAt(lb *largebuf.LargeBuffer, off int) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		off += n + tagLen
-		if off > lb.Len() {
+		if tagLen < 0 || tagLen > lb.Len()-off-n {
 			return 0, errors.New("tagged field value exceeds buffer")
 		}
+		off += n + tagLen
 	}
 	return off, nil
 }
@@ -225,8 +225,12 @@ func readUVarintAt(lb *largebuf.LargeBuffer, off int) (int, int, error) {
 }
 
 func (h KafkaRequestHeader) validate() error {
-	if h.MessageSize() < int32(MinKafkaRequestLen) || h.APIVersion() < 0 {
-		return errors.New("invalid Kafka request header: size or version is negative")
+	if h.MessageSize() < int32(MinKafkaRequestLen) {
+		return errors.New("invalid Kafka request header: message size too small")
+	}
+
+	if h.APIVersion() < 0 {
+		return errors.New("invalid Kafka request header: API version is negative")
 	}
 
 	if h.MessageSize() > KafkaMaxPayloadLen {
