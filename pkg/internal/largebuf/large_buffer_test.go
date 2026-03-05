@@ -1134,13 +1134,17 @@ func TestReaderScalar_advancesCursor(t *testing.T) {
 	r := lb.NewReader()
 
 	assert.Equal(t, 16, r.Remaining())
-	_, _ = r.ReadU8()
+	_, err := r.ReadU8()
+	require.NoError(t, err)
 	assert.Equal(t, 15, r.Remaining())
-	_, _ = r.ReadU16BE()
+	_, err = r.ReadU16BE()
+	require.NoError(t, err)
 	assert.Equal(t, 13, r.Remaining())
-	_, _ = r.ReadU32BE()
+	_, err = r.ReadU32BE()
+	require.NoError(t, err)
 	assert.Equal(t, 9, r.Remaining())
-	_, _ = r.ReadU64BE()
+	_, err = r.ReadU64BE()
+	require.NoError(t, err)
 	assert.Equal(t, 1, r.Remaining())
 }
 
@@ -1162,15 +1166,21 @@ func TestReaderScalar_tooShort_returnsError(t *testing.T) {
 func TestReaderScalar_zeroAllocs(t *testing.T) {
 	lb := NewLargeBufferFrom(bytes.Repeat([]byte{0x01}, 64))
 	r := lb.NewReader()
+	// lastErr is declared outside the closure so require.NoError can be called
+	// after AllocsPerRun as calling it inside the closure would itself allocate.
+	var lastErr error
 
 	allocs := testing.AllocsPerRun(1000, func() {
 		r.Reset()
 		for r.Remaining() >= 4 {
-			_, _ = r.ReadU32BE()
+			if _, lastErr = r.ReadU32BE(); lastErr != nil {
+				break
+			}
 		}
 	})
 
-	assert.InDelta(t, float64(0), allocs, 0, "cursor scalar reads within a single chunk must be zero-alloc")
+	require.NoError(t, lastErr)
+	assert.Zero(t, allocs, "cursor scalar reads within a single chunk must be zero-alloc")
 }
 
 // ── Zero-alloc verification for hot path ─────────────────────────────────────
