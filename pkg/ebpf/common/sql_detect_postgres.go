@@ -75,26 +75,35 @@ func isValidPostgresPayload(b *largebuf.LargeBuffer) (byte, bool) {
 	return op, true
 }
 
-// msgBodyReader returns a LargeBufferReader over the postgres message body (bytes after the
-// 5-byte header), bounded by the message size field. Returns an error if the buffer is too short.
-func msgBodyReader(b *largebuf.LargeBuffer) (largebuf.LargeBufferReader, error) {
+// msgBody returns the raw bytes of the Postgres message body (after the 5-byte header),
+// bounded by the message size field. Returns an error if the buffer is too short.
+func msgBody(b *largebuf.LargeBuffer) ([]byte, error) {
 	size, err := b.I32BEAt(1)
 	if err != nil {
-		return largebuf.LargeBufferReader{}, errors.New("too short")
+		return nil, errors.New("too short")
 	}
 
 	msgSize := min(1+int(size), b.Len())
 
 	if msgSize < pgHeaderLen {
+		return nil, errors.New("too short")
+	}
+
+	return b.UnsafeViewAt(pgHeaderLen, msgSize-pgHeaderLen)
+}
+
+// msgBodyReader returns a LargeBufferReader bounded to the Postgres message body.
+// The reader is a zero-copy, allocation-free window into b: no new LargeBuffer is created.
+func msgBodyReader(b *largebuf.LargeBuffer) (largebuf.LargeBufferReader, error) {
+	size, err := b.I32BEAt(1)
+	if err != nil {
 		return largebuf.LargeBufferReader{}, errors.New("too short")
 	}
-
-	body, err := b.UnsafeViewAt(pgHeaderLen, msgSize-pgHeaderLen)
-	if err != nil {
-		return largebuf.LargeBufferReader{}, err
+	end := min(1+int(size), b.Len())
+	if end < pgHeaderLen {
+		return largebuf.LargeBufferReader{}, errors.New("too short")
 	}
-
-	return largebuf.NewLargeBufferFrom(body).NewReader(), nil
+	return b.NewLimitedReader(pgHeaderLen, end)
 }
 
 //nolint:cyclop
@@ -155,13 +164,9 @@ func parsePostgresBindCommand(b *largebuf.LargeBuffer) (string, string, []string
 }
 
 func parsePosgresQueryCommand(b *largebuf.LargeBuffer) ([]byte, error) {
-	r, err := msgBodyReader(b)
+	body, err := msgBody(b)
 	if err != nil {
 		return nil, err
-	}
-	body, err := r.ReadN(r.Remaining())
-	if err != nil {
-		return nil, errors.New("too short")
 	}
 	// Query messages are null-terminated in the Postgres wire protocol; strip the trailing null.
 	return bytes.TrimRight(body, "\x00"), nil
@@ -189,11 +194,8 @@ func postgresPreparedStatements(b *largebuf.LargeBuffer) (string, string, string
 			if asciiIndexFold(text, sqlExecuteKeyword) == 0 {
 				op = "EXECUTE"
 				rest := text[len(sqlExecuteKeyword):]
-				if i := bytes.IndexByte(rest, ' '); i >= 0 {
-					table = string(rest[:i])
-				} else {
-					table = string(rest)
-				}
+				before, _, _ := bytes.Cut(rest, []byte{' '})
+				table = string(before)
 				sql = string(text)
 			}
 		}
@@ -310,7 +312,9 @@ Loop:
 		case "PARSE":
 			// On the PARSE command, the statement name is the first 4 bytes after the header and command ID
 			// in the request buffer.
-			stmtName := unix.ByteSliceToString(msg.data)
+			// strings.Clone is intentional: msg.data may alias a reusable scratch buffer
+			// inside LargeBufferReader; we must not keep a zero-copy reference past this iteration.
+			stmtName := strings.Clone(unix.ByteSliceToString(msg.data))
 			stmtNameLen := len(stmtName)
 			_, _, stmt = detectSQL(msg.data[stmtNameLen:])
 
@@ -321,9 +325,9 @@ Loop:
 
 			continue
 		case "BIND":
-			portal := unix.ByteSliceToString(msg.data)
+			portal := strings.Clone(unix.ByteSliceToString(msg.data))
 			portalLen := len(portal) + 1 // +1 for the null terminator
-			stmtName := unix.ByteSliceToString(msg.data[portalLen:])
+			stmtName := strings.Clone(unix.ByteSliceToString(msg.data[portalLen:]))
 
 			parseCtx.postgresPortals.Add(postgresPortalsKey{
 				connInfo:   event.ConnInfo,
@@ -334,7 +338,7 @@ Loop:
 		case "EXECUTE":
 			portalKey := postgresPortalsKey{
 				connInfo:   event.ConnInfo,
-				portalName: unix.ByteSliceToString(msg.data),
+				portalName: strings.Clone(unix.ByteSliceToString(msg.data)),
 			}
 
 			stmtName, found := parseCtx.postgresPortals.Get(portalKey)

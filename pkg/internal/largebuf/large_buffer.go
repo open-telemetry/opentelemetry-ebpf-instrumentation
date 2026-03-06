@@ -116,6 +116,29 @@ func (lb *LargeBuffer) NewReader() LargeBufferReader {
 	return LargeBufferReader{lb: lb}
 }
 
+// NewLimitedReader returns a [LargeBufferReader] positioned at offset whose reads are bounded
+// to [offset, end). offset and end must satisfy 0 ≤ offset ≤ end ≤ Len().
+//
+// This is zero-copy and allocation-free: no new LargeBuffer is created. It is the preferred
+// alternative to wrapping a sub-slice with [NewLargeBufferFrom] when only a window of the
+// buffer needs to be parsed.
+func (lb *LargeBuffer) NewLimitedReader(offset, end int) (LargeBufferReader, error) {
+	if offset < 0 || offset > lb.total {
+		return LargeBufferReader{}, fmt.Errorf("LargeBuffer.NewLimitedReader: offset %d out of range [0, %d]", offset, lb.total)
+	}
+	if end < offset || end > lb.total {
+		return LargeBufferReader{}, fmt.Errorf("LargeBuffer.NewLimitedReader: end %d out of range [%d, %d]", end, offset, lb.total)
+	}
+	r := lb.NewReader()
+	if offset > 0 {
+		if err := r.Skip(offset); err != nil {
+			return LargeBufferReader{}, err
+		}
+	}
+	r.end = end
+	return r, nil
+}
+
 // ── Absolute-offset access ────────────────────────────────────────────────────
 
 // findChunk maps absOff (an absolute byte offset from the start of the buffer) to the chunk
@@ -383,6 +406,7 @@ type LargeBufferReader struct {
 	lb      *LargeBuffer
 	rchunk  int // index of the current read chunk
 	roff    int // byte offset within lb.chunks[rchunk]
+	end     int // absolute end bound (0 = no limit, i.e. lb.total)
 	scratch []byte
 }
 
@@ -393,21 +417,25 @@ func (r *LargeBufferReader) Reset() {
 	r.roff = 0
 }
 
-// Remaining returns the number of unread bytes from the cursor to the end.
-func (r *LargeBufferReader) Remaining() int {
-	consumed := r.roff
-
-	for i := range r.rchunk {
-		consumed += len(r.lb.chunks[i])
-	}
-
-	return r.lb.total - consumed
-}
-
 // ReadOffset returns the current cursor position as an absolute byte offset from the start of
 // the buffer.
 func (r *LargeBufferReader) ReadOffset() int {
-	return r.lb.total - r.Remaining()
+	pos := r.roff
+	for i := range r.rchunk {
+		pos += len(r.lb.chunks[i])
+	}
+	return pos
+}
+
+// Remaining returns the number of unread bytes from the cursor to the end bound.
+// For readers created with [LargeBuffer.NewLimitedReader] the end bound is the limit
+// passed at construction; for ordinary readers it is [LargeBuffer.Len].
+func (r *LargeBufferReader) Remaining() int {
+	effectiveEnd := r.lb.total
+	if r.end != 0 {
+		effectiveEnd = r.end
+	}
+	return effectiveEnd - r.ReadOffset()
 }
 
 // BaseOffset always returns 0. Provided for API symmetry with ReadOffset.
@@ -518,15 +546,20 @@ func (r *LargeBufferReader) Skip(n int) error {
 	return nil
 }
 
-// Read implements [io.Reader]. Fills p with up to len(p) bytes from the current read position.
+// Read implements [io.Reader]. Fills p with up to len(p) bytes from the current read position,
+// clamped to the reader's end bound (see [LargeBuffer.NewLimitedReader]).
 //
 // Returns (n, nil) when bytes were read but the cursor has not yet reached the end.
 // Returns (0, io.EOF) when the cursor is already at the end of the buffer.
 // Per the io.Reader contract, may return (n, nil) even when the last byte was just read;
 // the subsequent call returns (0, io.EOF).
 func (r *LargeBufferReader) Read(p []byte) (int, error) {
-	if r.Remaining() == 0 {
+	maxRead := r.Remaining()
+	if maxRead == 0 {
 		return 0, io.EOF
+	}
+	if len(p) > maxRead {
+		p = p[:maxRead]
 	}
 
 	n := 0
@@ -686,11 +719,14 @@ func (r *LargeBufferReader) ReadI64LE() (int64, error) {
 }
 
 // IndexByte returns the number of bytes from the current read position to the first occurrence
-// of c in the remaining bytes, or -1 if c is not found.
+// of c in the remaining bytes (bounded by the reader's end), or -1 if c is not found.
 func (r *LargeBufferReader) IndexByte(c byte) int {
 	absOff := r.ReadOffset()
 	absIdx := r.lb.IndexByteAt(absOff, c)
 	if absIdx < 0 {
+		return -1
+	}
+	if r.end != 0 && absIdx >= r.end {
 		return -1
 	}
 	return absIdx - absOff
