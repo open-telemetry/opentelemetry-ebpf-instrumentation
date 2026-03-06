@@ -81,18 +81,63 @@ report_issue() {
 collect_files() {
   local -i lint_all_dockerfiles="$1"
   local base_ref="$2"
+  local -i verbose="$3"
+  local resolved_base_ref=""
 
   if (( lint_all_dockerfiles == 1 )); then
     git ls-files | grep -E "$DOCKERFILE_REGEX" || true
     return
   fi
 
-  if git rev-parse --verify "$base_ref" >/dev/null 2>&1; then
-    git --no-pager diff --name-only "${base_ref}...HEAD" | grep -E "$DOCKERFILE_REGEX" || true
+  resolved_base_ref="$(resolve_base_ref_for_diff "$base_ref" "$verbose")"
+  if [[ -n "$resolved_base_ref" ]]; then
+    if git merge-base "$resolved_base_ref" HEAD >/dev/null 2>&1; then
+      git --no-pager diff --name-only "${resolved_base_ref}...HEAD" | grep -E "$DOCKERFILE_REGEX" || true
+      return
+    fi
+
+    debug_log "$verbose" "no merge-base for ${resolved_base_ref}...HEAD; using two-dot diff"
+    git --no-pager diff --name-only "${resolved_base_ref}..HEAD" | grep -E "$DOCKERFILE_REGEX" || true
     return
   fi
 
+  debug_log "$verbose" "unable to resolve base ref '${base_ref}'; falling back to all tracked Dockerfiles"
   git ls-files | grep -E "$DOCKERFILE_REGEX" || true
+}
+
+resolve_base_ref_for_diff() {
+  # Base-ref resolution flow:
+  # 1) Use a local ref if present (<base_ref>).
+  # 2) Otherwise use remote-tracking ref if present (origin/<base_ref>).
+  # 3) In GitHub Actions, shallow checkout may omit the PR base ref, so try a
+  #    best-effort depth-1 fetch for origin/<base_ref>.
+  # 4) If still unresolved (for example due to auth/network/permissions),
+  #    return empty and let the caller apply its fallback behavior.
+  local base_ref="$1"
+  local -i verbose="$2"
+  local remote_ref="origin/${base_ref}"
+
+  if git rev-parse --verify "$base_ref" >/dev/null 2>&1; then
+    printf '%s\n' "$base_ref"
+    return
+  fi
+
+  if git rev-parse --verify "$remote_ref" >/dev/null 2>&1; then
+    printf '%s\n' "$remote_ref"
+    return
+  fi
+
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    debug_log "$verbose" "fetching missing base ref from origin: ${base_ref}"
+    if git fetch --no-tags --depth=1 origin "${base_ref}:${remote_ref}" >/dev/null 2>&1; then
+      if git rev-parse --verify "$remote_ref" >/dev/null 2>&1; then
+        printf '%s\n' "$remote_ref"
+        return
+      fi
+    fi
+  fi
+
+  printf '\n'
 }
 
 lint_from_digest_pinning() {
@@ -445,7 +490,7 @@ main() {
   while IFS= read -r file; do
     [[ -n "$file" ]] || continue
     files+=("$file")
-  done < <(collect_files "$lint_all_dockerfiles" "$base_ref" | sort -u)
+  done < <(collect_files "$lint_all_dockerfiles" "$base_ref" "$verbose" | sort -u)
 
   if [[ ${#files[@]} -eq 0 ]]; then
     echo "No Dockerfiles to lint."
