@@ -28,8 +28,6 @@
 #include <maps/puma_tasks.h>
 #include <maps/server_traces.h>
 
-#include <generictracer/types/puma_task_id.h>
-
 #include <pid/pid_helpers.h>
 
 #include <shared/obi_ctx.h>

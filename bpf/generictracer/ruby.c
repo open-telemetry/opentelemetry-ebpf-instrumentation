@@ -8,13 +8,12 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <common/connection_info.h>
+#include <common/puma_task_id.h>
 #include <common/strings.h>
 
 #include <maps/puma_tasks.h>
 
 #include <generictracer/maps/pid_tid_to_conn.h>
-
-#include <generictracer/types/puma_task_id.h>
 
 #include <logger/bpf_dbg.h>
 
