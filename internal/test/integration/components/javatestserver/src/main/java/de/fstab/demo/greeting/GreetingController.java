@@ -33,6 +33,18 @@ public class GreetingController {
 		Thread.sleep(sleepTime);
 	}
 
+	@GetMapping("/smoke")
+	public ResponseEntity<String> smoke() {
+		return ResponseEntity.ok("OK");
+	}
+
+	@GetMapping("/json_logger")
+	public ResponseEntity<String> jsonLogger() {
+		String message = "this is a json log from java";
+		System.out.println("{\"message\":\"" + message + "\",\"level\":\"INFO\"}");
+		return ResponseEntity.ok(message);
+	}
+
 	@GetMapping("/greeting")
 	public ResponseEntity<String> getGreeting123(
 			@RequestParam(required = false, defaultValue = "10", name = "delay") Integer delay,

@@ -301,10 +301,79 @@ Sockets are added to `sock_dir` in two ways:
 
 ## Logs correlation
 
-OBI allows injecting trace context into JSON logs. The following requirements must be met:
+OBI can enrich JSON log lines with `trace_id` and `span_id` fields, linking logs to the distributed trace that produced them.
+
+### Overview
+
+The logenricher (`bpf/logenricher/logenricher.c`) hooks write paths (`tty_write`, `pipe_write`, `ksys_write`) to intercept log output. When a write occurs it:
+
+1. Looks up `traces_ctx_v1[pid_tgid]` to get the active trace/span context for the calling thread.
+2. Reads the user buffer via `bpf_probe_read_user`, packages the log line together with the trace context into a `log_event_t`, and submits it to the `log_events` ring buffer.
+3. Overwrites the original user buffer with zeros via `bpf_probe_write_user` to suppress the un-enriched line.
+4. User-space reads from the ring buffer and re-emits the log with `trace_id`/`span_id` injected into the JSON.
+
+Only `ITER_UBUF`-type iterators are supported (a single contiguous user buffer), which requires Linux kernel 6.0+.
+
+### The `traces_ctx_v1` map
+
+`traces_ctx_v1` (`bpf/shared/obi_ctx.h`) is a **pinned** `LRU_HASH` map shared across all BPF programs:
+
+- **Key**: `u64 pid_tgid` — the combined PID and TID of the calling thread
+- **Value**: `obi_ctx_info_t` — `trace_id[16]` + `span_id[8]`
+- **Pinning**: `LIBBPF_PIN_BY_NAME` under `<bpf_fs_path>/otel/` (default `bpf_fs_path` is `/sys/fs/bpf`, configurable via `config.ebpf.bpf_fs_path` / `OTEL_EBPF_BPF_FS_PATH`).
+
+The map is **written** by the generic tracer (in `server_or_client_trace`, `trace_common.h:321`) whenever an HTTP request or client call is detected on the wire. The map is **read** by the logenricher when intercepting writes.
+
+### The context staleness problem
+
+`traces_ctx_v1` is keyed by OS-level `pid_tgid`. This works when the thread that receives the HTTP data is the same thread that writes the log. But many runtimes decouple I/O from processing:
+
+- **Go**: Goroutines are multiplexed onto OS threads (M's). A goroutine can resume on a different M after being descheduled.
+- **Node.js**: The single-threaded event loop can read data for multiple in-flight requests (via libuv) before invoking any JS callback, overwriting `traces_ctx_v1` each time.
+- **Java**: HTTP servers (Tomcat, Netty) use thread pools. The acceptor thread receives the data, but a worker thread from the pool processes the request and writes logs.
+
+Without correction, `traces_ctx_v1[pid_tgid]` may carry the wrong trace context when a log is written. Each runtime has a dedicated mechanism to refresh the map at the right moment.
+
+### Per-runtime context refresh
+
+#### Go — `runtime.casgstatus` uprobe
+
+**File**: `bpf/gotracer/go_runtime.c`
+
+The Go runtime calls `runtime.casgstatus` on every goroutine status transition. OBI hooks this function and, when a goroutine transitions to `g_running` (2) or `g_syscall` (3), looks up the goroutine's active operation (HTTP server, gRPC, Kafka, SQL, etc.) and calls `obi_ctx__set(pid_tgid, &tp)`.
+
+This fires on every context switch, so `traces_ctx_v1` is always in sync with whichever goroutine is currently executing on the OS thread.
+
+#### Node.js — `async_hooks` before callback + `uv_fs_access` uprobe
+
+**Files**: `pkg/internal/nodejs/fdextractor.js`, `bpf/generictracer/nodejs.c`
+
+The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Before each async callback executes, the hook calls `fs.accessSync('/dev/null/obi-ctx/<incomingFd>')`. This triggers the `obi_uv_fs_access` uprobe in BPF, which:
+
+1. Parses the 4-digit fd from the path.
+2. Looks up `fd_to_connection[pid_tgid, fd]` to get the connection info.
+3. Calls `trace_info_for_connection(conn, TRACE_TYPE_SERVER)` to find the server trace.
+4. Calls `obi_ctx__set(pid_tgid, &tp)` or `obi_ctx__del(pid_tgid)`.
+
+This fires before every JS callback, ensuring the correct trace context is active even when multiple requests are interleaved in the event loop.
+
+#### Java — `k_ioctl_java_threads` in the ioctl kprobe
+
+**Files**: `bpf/generictracer/java_tls.c`, Java agent (`RunnableInst.java`, `CallableInst.java`, `JavaExecutorInst.java`)
+
+The Java agent uses ByteBuddy to intercept `Executor.execute()`, `Runnable.run()`, `Callable.call()`, and `ForkJoinTask` methods. When a task starts executing on a worker thread, `ThreadInfo.sendParentThreadContext(parentId)` sends an `ioctl(0, 0x0b10b1, packet)` with operation type `k_ioctl_java_threads` (3).
+
+The BPF kprobe handler:
+
+1. Updates `java_tasks[child_tid] = parent_tid` (thread hierarchy map).
+2. Walks the `java_tasks` chain (up to 3 levels) looking up `server_traces` for each ancestor.
+3. If a valid server trace is found, calls `obi_ctx__set(child_pid_tgid, &tp)`. Otherwise calls `obi_ctx__del`.
+
+Unlike Node.js (which refreshes before every callback), Java only needs to refresh once when the task starts — Java threads don't multiplex like the Node.js event loop, so once a worker picks up a task it runs to completion on that OS thread.
+
+### Requirements
 
 - Linux kernel version **6.0 or later** (overwriting user memory requires a `UBUF`-type `iov_iter`)
 - `CAP_SYS_ADMIN` capability and permission to use `bpf_probe_write_user` (kernel security lockdown mode should be `[none]`)
 - The target application writes logs in **JSON format**
-- BPFFS mounted at /sys/fs/bpf (or another mountpath configurable via `config.ebpf.bpf_fs_path`)
-- Async primitives: only Go and NodeJS runtimes are currently supported
+- BPFFS mounted at `/sys/fs/bpf` (or another mountpath configurable via `config.ebpf.bpf_fs_path`)

@@ -16,7 +16,7 @@ ebpf:
   log_enricher:
     services:
       - service:
-        - open_ports: "8380,50051,3030"
+        - open_ports: "8380,50051,3030,8085"
 discovery:
   min_process_age: "0s"
 log_config: "yaml"

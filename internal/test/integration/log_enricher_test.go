@@ -53,6 +53,13 @@ var (
 		containerImage: "hatest-testserver-node",
 		message:        "this is a json log from node",
 	}
+	logEnricherJavaConstants = testServerConstants{
+		url:            "http://localhost:8384",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/json_logger",
+		containerImage: "hatest-testserver-logenricher-java",
+		message:        "this is a json log from java",
+	}
 )
 
 // nodejsTestTraceparents are fixed W3C traceparents used by testLogEnricherNodeJS.

@@ -730,6 +730,19 @@ func TestSuite_LogEnricherNodeJS(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_LogEnricherJava(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-java.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8085`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Log Enricher Java", func(t *testing.T) {
+		testLogEnricher(t, logEnricherJavaConstants)
+	})
+	require.NoError(t, compose.Close())
+}
+
 // Helpers
 
 var lockdownPath = "/sys/kernel/security/lockdown"

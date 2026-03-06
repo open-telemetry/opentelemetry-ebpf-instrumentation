@@ -31,6 +31,16 @@ services:
     ports:
       - "8383:3030"
 
+  testserverjava:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/javatestserver/Dockerfile_jar
+    image: hatest-testserver-logenricher-java
+    networks:
+      - shared
+    ports:
+      - "8384:8085"
+
   obi:
     build:
       context: ../../..
@@ -71,6 +81,8 @@ services:
       testservergrpcgo:
         condition: service_started
       testservernodejs:
+        condition: service_started
+      testserverjava:
         condition: service_started
 
 networks:
