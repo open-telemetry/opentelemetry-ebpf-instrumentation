@@ -9,7 +9,7 @@
 #include <common/cp_support_data.h>
 #include <common/globals.h>
 #include <common/http_types.h>
-#include <common/ringbuf.h>
+#include <common/event_defs.h>
 #include <common/runtime.h>
 #include <common/tp_info.h>
 #include <common/trace_key.h>
