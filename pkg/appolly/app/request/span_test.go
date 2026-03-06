@@ -17,7 +17,7 @@ import (
 )
 
 func TestSpanClientServer(t *testing.T) {
-	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer} {
+	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer, EventTypeSQLServer} {
 		span := &Span{
 			Type: st,
 		}
@@ -43,6 +43,7 @@ func TestEventTypeString(t *testing.T) {
 		EventTypeHTTPClient:  "HTTPClient",
 		EventTypeGRPCClient:  "GRPCClient",
 		EventTypeSQLClient:   "SQLClient",
+		EventTypeSQLServer:   "SQLServer",
 		EventTypeRedisClient: "RedisClient",
 		EventTypeKafkaClient: "KafkaClient",
 		EventTypeMQTTClient:  "MQTTClient",
@@ -65,6 +66,7 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeKafkaServer}:                           "SPAN_KIND_SERVER",
 		{Type: EventTypeMQTTServer}:                            "SPAN_KIND_SERVER",
 		{Type: EventTypeRedisServer}:                           "SPAN_KIND_SERVER",
+		{Type: EventTypeSQLServer}:                             "SPAN_KIND_SERVER",
 		{Type: EventTypeHTTPClient}:                            "SPAN_KIND_CLIENT",
 		{Type: EventTypeGRPCClient}:                            "SPAN_KIND_CLIENT",
 		{Type: EventTypeSQLClient}:                             "SPAN_KIND_CLIENT",
@@ -103,6 +105,7 @@ func TestServiceGraphConnectionType(t *testing.T) {
 
 		// Server spans should return empty
 		{name: "Redis server", span: &Span{Type: EventTypeRedisServer}, expected: ""},
+		{name: "SQL server", span: &Span{Type: EventTypeSQLServer}, expected: ""},
 		{name: "Kafka server", span: &Span{Type: EventTypeKafkaServer}, expected: ""},
 		{name: "MQTT server", span: &Span{Type: EventTypeMQTTServer}, expected: ""},
 
@@ -137,6 +140,7 @@ func TestTraceName(t *testing.T) {
 
 		// SQL spans
 		{name: "SQL client", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", Path: "users"}, expected: "SELECT users"},
+		{name: "SQL server", span: &Span{Type: EventTypeSQLServer, Method: "SELECT", Path: "users"}, expected: "SELECT users"},
 		{name: "SQL no table", span: &Span{Type: EventTypeSQLClient, Method: "BEGIN"}, expected: "BEGIN"},
 		{name: "SQL empty", span: &Span{Type: EventTypeSQLClient}, expected: "SQL"},
 

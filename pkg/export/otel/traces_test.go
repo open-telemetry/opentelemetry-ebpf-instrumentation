@@ -302,6 +302,26 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
 	})
 
+	t.Run("test SQL server trace generation", func(t *testing.T) {
+		span := makeSQLServerRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.Equal(t, ptrace.SpanKindServer, spans.At(0).Kind())
+
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 5, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
+	})
+
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password, name FROM credentials WHERE username=\"bill\"")
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
@@ -1821,6 +1841,11 @@ func TestCreateZapLoggerDevLevels(t *testing.T) {
 func makeSQLRequestSpan(sql string) request.Span {
 	method, path := sqlprune.SQLParseOperationAndTable(sql)
 	return request.Span{Type: request.EventTypeSQLClient, Method: method, Path: path, Statement: sql}
+}
+
+func makeSQLServerRequestSpan(sql string) request.Span {
+	method, path := sqlprune.SQLParseOperationAndTable(sql)
+	return request.Span{Type: request.EventTypeSQLServer, Method: method, Path: path, Statement: sql}
 }
 
 func makeSQLRequestErroredSpan(sql string) request.Span {
