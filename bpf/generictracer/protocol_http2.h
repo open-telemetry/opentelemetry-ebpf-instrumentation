@@ -10,7 +10,6 @@
 #include <common/http_buf_size.h>
 #include <common/ringbuf.h>
 
-
 #include <generictracer/http2_grpc.h>
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>

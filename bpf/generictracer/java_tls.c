@@ -17,7 +17,6 @@
 #include <generictracer/k_tracer_defs.h>
 #include <generictracer/maps/pid_tid_to_conn.h>
 
-
 #include <logger/bpf_dbg.h>
 
 #include <maps/server_traces.h>
