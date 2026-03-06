@@ -11,7 +11,6 @@
 #include <common/connection_info.h>
 #include <common/iov_iter.h>
 #include <common/msg_buffer.h>
-#include <common/dns.h>
 #include <common/protocol_defs.h>
 #include <common/protocol_http2.h>
 #include <common/sock_port_ns.h>
@@ -20,6 +19,7 @@
 #include <common/ssl_helpers.h>
 #include <common/tcp_info.h>
 
+#include <generictracer/dns.h>
 #include <generictracer/k_send_receive.h>
 #include <generictracer/k_tracer_defs.h>
 #include <generictracer/k_unix_sock.h>
