@@ -22,6 +22,7 @@
 #include <common/http_types.h>
 #include <common/ringbuf.h>
 #include <common/strings.h>
+#include <common/tp_char_buf.h>
 #include <common/tracing.h>
 
 #include <gotracer/go_common.h>
@@ -37,14 +38,8 @@
 
 #include <maps/go_ongoing_http.h>
 #include <maps/go_ongoing_http_client_requests.h>
-#include <maps/tp_char_buf_mem.h>
 
 #include <pid/pid_helpers.h>
-
-static __always_inline unsigned char *tp_char_buf() {
-    int zero = 0;
-    return bpf_map_lookup_elem(&tp_char_buf_mem, &zero);
-}
 
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;

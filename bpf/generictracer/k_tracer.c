@@ -17,6 +17,7 @@
 #include <common/sockaddr.h>
 #include <common/ssl_connection.h>
 #include <common/ssl_helpers.h>
+#include <common/tp_char_buf.h>
 #include <common/tcp_info.h>
 
 #include <generictracer/dns.h>
