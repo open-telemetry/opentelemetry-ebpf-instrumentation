@@ -16,6 +16,5 @@ import (
 	_ "go.opentelemetry.io/obi/bpf/netolly"
 	_ "go.opentelemetry.io/obi/bpf/pid"
 	_ "go.opentelemetry.io/obi/bpf/rdns"
-	_ "go.opentelemetry.io/obi/bpf/tctracer"
 	_ "go.opentelemetry.io/obi/bpf/watcher"
 )

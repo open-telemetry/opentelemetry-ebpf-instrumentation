@@ -101,36 +101,30 @@ const (
 )
 
 type capTestData struct {
-	osCap   helpers.OSCapability
-	class   capClass
-	kernMaj int
-	kernMin int
-	useTC   bool
-}
-
-func contextPropagationMode(useTC bool) config.ContextPropagationMode {
-	if useTC {
-		return config.ContextPropagationIPOptions
-	}
-	return config.ContextPropagationDisabled
+	osCap         helpers.OSCapability
+	class         capClass
+	kernMaj       int
+	kernMin       int
+	tcSource      bool // use TC as network source (capNet only)
+	contextPropOn bool // enable context propagation (capApp only)
 }
 
 var capTests = []capTestData{
 	// core
-	{osCap: unix.CAP_BPF, class: capCore, kernMaj: 6, kernMin: 10, useTC: false},
+	{osCap: unix.CAP_BPF, class: capCore, kernMaj: 6, kernMin: 10},
 
 	// app o11y
-	{osCap: unix.CAP_CHECKPOINT_RESTORE, class: capApp, kernMaj: 6, kernMin: 10, useTC: false},
-	{osCap: unix.CAP_DAC_READ_SEARCH, class: capApp, kernMaj: 6, kernMin: 10, useTC: false},
-	{osCap: unix.CAP_SYS_PTRACE, class: capApp, kernMaj: 6, kernMin: 10, useTC: false},
-	{osCap: unix.CAP_PERFMON, class: capApp, kernMaj: 6, kernMin: 10, useTC: false},
-	{osCap: unix.CAP_NET_RAW, class: capApp, kernMaj: 6, kernMin: 10, useTC: false},
-	{osCap: unix.CAP_NET_ADMIN, class: capApp, kernMaj: 6, kernMin: 10, useTC: true},
+	{osCap: unix.CAP_CHECKPOINT_RESTORE, class: capApp, kernMaj: 6, kernMin: 10},
+	{osCap: unix.CAP_DAC_READ_SEARCH, class: capApp, kernMaj: 6, kernMin: 10},
+	{osCap: unix.CAP_SYS_PTRACE, class: capApp, kernMaj: 6, kernMin: 10},
+	{osCap: unix.CAP_PERFMON, class: capApp, kernMaj: 6, kernMin: 10},
+	{osCap: unix.CAP_NET_RAW, class: capApp, kernMaj: 6, kernMin: 10},
+	{osCap: unix.CAP_NET_ADMIN, class: capApp, kernMaj: 6, kernMin: 10, contextPropOn: true},
 
 	// net o11y
-	{osCap: unix.CAP_NET_RAW, class: capNet, kernMaj: 6, kernMin: 10, useTC: false},
-	{osCap: unix.CAP_PERFMON, class: capNet, kernMaj: 6, kernMin: 10, useTC: true},
-	{osCap: unix.CAP_NET_ADMIN, class: capNet, kernMaj: 6, kernMin: 10, useTC: true},
+	{osCap: unix.CAP_NET_RAW, class: capNet, kernMaj: 6, kernMin: 10},
+	{osCap: unix.CAP_PERFMON, class: capNet, kernMaj: 6, kernMin: 10, tcSource: true},
+	{osCap: unix.CAP_NET_ADMIN, class: capNet, kernMaj: 6, kernMin: 10, tcSource: true},
 }
 
 func TestCheckOSCapabilities(t *testing.T) {
@@ -147,17 +141,19 @@ func TestCheckOSCapabilities(t *testing.T) {
 	test := func(data *capTestData) {
 		overrideKernelVersion(testCase{data.kernMaj, data.kernMin})
 
-		netSource := func(useTC bool) string {
-			if useTC {
-				return EbpfSourceTC
-			}
+		netSource := EbpfSourceSock
+		if data.tcSource {
+			netSource = EbpfSourceTC
+		}
 
-			return EbpfSourceSock
+		contextProp := config.ContextPropagationDisabled
+		if data.contextPropOn {
+			contextProp = config.ContextPropagationHeaders
 		}
 
 		cfg := Config{
-			NetworkFlows: NetworkConfig{Enable: data.class == capNet, Source: netSource(data.useTC)},
-			EBPF:         config.EBPFTracer{ContextPropagation: contextPropagationMode(data.useTC)},
+			NetworkFlows: NetworkConfig{Enable: data.class == capNet, Source: netSource},
+			EBPF:         config.EBPFTracer{ContextPropagation: contextProp},
 		}
 		if data.class == capApp {
 			// activates app o11y feature

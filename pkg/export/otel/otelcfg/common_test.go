@@ -235,7 +235,8 @@ func TestGetFilteredResourceAttrs(t *testing.T) {
 			name: "No filtering configuration",
 			baseAttrs: []attribute.KeyValue{
 				attribute.String("service.name", "test-service"),
-				attribute.String("telemetry.sdk.name", "opentelemetry-ebpf-instrumentation"),
+				attribute.String("telemetry.sdk.name", "opentelemetry"),
+				attribute.String("telemetry.distro.name", "opentelemetry-ebpf-instrumentation"),
 			},
 			attrSelector: attributes.Selection{},
 			extraAttrs: []attribute.KeyValue{
@@ -255,7 +256,8 @@ func TestGetFilteredResourceAttrs(t *testing.T) {
 			name: "With filtering configuration excluding process.command_args",
 			baseAttrs: []attribute.KeyValue{
 				attribute.String("service.name", "test-service"),
-				attribute.String("telemetry.sdk.name", "opentelemetry-ebpf-instrumentation"),
+				attribute.String("telemetry.sdk.name", "opentelemetry"),
+				attribute.String("telemetry.distro.name", "opentelemetry-ebpf-instrumentation"),
 			},
 			attrSelector: attributes.Selection{
 				testMetric.Section: attributes.InclusionLists{
@@ -281,7 +283,8 @@ func TestGetFilteredResourceAttrs(t *testing.T) {
 			name: "With filtering configuration using glob patterns",
 			baseAttrs: []attribute.KeyValue{
 				attribute.String("service.name", "test-service"),
-				attribute.String("telemetry.sdk.name", "opentelemetry-ebpf-instrumentation"),
+				attribute.String("telemetry.sdk.name", "opentelemetry"),
+				attribute.String("telemetry.distro.name", "opentelemetry-ebpf-instrumentation"),
 			},
 			attrSelector: attributes.Selection{
 				testMetric.Section: attributes.InclusionLists{
@@ -309,7 +312,8 @@ func TestGetFilteredResourceAttrs(t *testing.T) {
 			name: "With different exclusion patterns",
 			baseAttrs: []attribute.KeyValue{
 				attribute.String("service.name", "test-service"),
-				attribute.String("telemetry.sdk.name", "opentelemetry-ebpf-instrumentation"),
+				attribute.String("telemetry.sdk.name", "opentelemetry"),
+				attribute.String("telemetry.distro.name", "opentelemetry-ebpf-instrumentation"),
 			},
 			attrSelector: attributes.Selection{
 				testMetric.Section: attributes.InclusionLists{
@@ -337,7 +341,8 @@ func TestGetFilteredResourceAttrs(t *testing.T) {
 			name: "Testing selector order - specific patterns override general ones",
 			baseAttrs: []attribute.KeyValue{
 				attribute.String("service.name", "test-service"),
-				attribute.String("telemetry.sdk.name", "opentelemetry-ebpf-instrumentation"),
+				attribute.String("telemetry.sdk.name", "opentelemetry"),
+				attribute.String("telemetry.distro.name", "opentelemetry-ebpf-instrumentation"),
 			},
 			attrSelector: attributes.Selection{
 				"*": attributes.InclusionLists{

@@ -6,21 +6,23 @@ This directory contains JMH (Java Microbenchmark Harness) benchmarks for the `By
 
 ### Prerequisites
 
-- JDK 8 or higher
+- JDK 17 or higher (required to run Gradle 9)
 - Gradle
+
+Note: benchmark/module bytecode targets Java 8, but the Gradle runtime requires JDK 17+.
 
 ### Run all benchmarks
 
-From the root directory:
+From the Java Gradle project root (`pkg/internal/java`):
 
 ```bash
-./gradlew :agent:jmh
+gradle :agent:jmh
 ```
 
 ### Run specific benchmark method
 
 ```bash
-./gradlew :agent:jmh -Pjmh.includes=benchmarkFlattenDstByteBufferArray
+gradle :agent:jmh -Pjmh.includes=benchmarkFlattenDstByteBufferArray
 ```
 
 ## Benchmark Parameters
@@ -76,31 +78,31 @@ ByteBufferExtractorBenchmark.benchmarkFlattenDstByteBufferArray         64      
 ### GC Profiler (shows garbage collection stats)
 
 ```
-./gradlew :agent:jmh -Pjmh.profilers=gc
+gradle :agent:jmh -Pjmh.profilers=gc
 ```
 
 ### Memory Allocation Profiler
 
 ```
-./gradlew :agent:jmh -Pjmh.profilers=gc,stack
+gradle :agent:jmh -Pjmh.profilers=gc,stack
 ```
 
 ### Heap Allocation Profiler (detailed allocation tracking)
 
 ```
-./gradlew :agent:jmh -Pjmh.profilers=gc,hs_gc
+gradle :agent:jmh -Pjmh.profilers=gc,hs_gc
 ```
 
 ### Multiple Profilers (comprehensive memory analysis)
 
 ```
-./gradlew :agent:jmh -Pjmh.profilers=gc,stack,hs_gc
+gradle :agent:jmh -Pjmh.profilers=gc,stack,hs_gc
 ```
 
 ### Specific benchmark with profiler
 
 ```
-./gradlew :agent:jmh -Pjmh.includes=benchmarkFlattenDstByteBufferArray -Pjmh.profilers=gc
+gradle :agent:jmh -Pjmh.includes=benchmarkFlattenDstByteBufferArray -Pjmh.profilers=gc
 ```
 
 Available Memory-Related Profilers:

@@ -2,8 +2,8 @@ import com.diffplug.gradle.spotless.SpotlessExtension
 
 plugins {
     java
-    id("com.gradleup.shadow") version "8.3.9"
-    id("com.diffplug.spotless") version "8.2.1"
+    id("com.gradleup.shadow") version "8.3.10"
+    id("com.diffplug.spotless")
 }
 
 // We need this dependency to load the resource JNA shared libraries

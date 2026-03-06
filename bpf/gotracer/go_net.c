@@ -20,7 +20,11 @@
 #include <bpfcore/utils.h>
 #include <bpfcore/bpf_builtins.h>
 
+#include <common/common.h>
+
 #include <gotracer/go_common.h>
+
+#include <gotracer/maps/mongo.h>
 
 #include <logger/bpf_dbg.h>
 

@@ -112,7 +112,8 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 	sd = jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "rust"},
-		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
+		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry"},
+		{Key: "telemetry.distro.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},
 		serviceInstance,
 	}, process.Tags)

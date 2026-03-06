@@ -1,4 +1,4 @@
-FROM ruby:3.4.8@sha256:a02a5f7b2412b75ac6ad4f14b253a33d59626b110b3e3d151cf6b1ddf86bb2cc AS builder
+FROM ruby:3.4.8@sha256:998b24b17d0e8ac2a9974c11052cba9bb46f8ba519169969492181f262d27a58 AS builder
 
 # Set the working directory to /build
 WORKDIR /build
@@ -15,7 +15,7 @@ RUN bundle install
 
 EXPOSE 3040
 
-FROM ruby:3.4.8-slim@sha256:dcc535e858eeeac1f70eaf8c39ef7ee257b183a9e495cc5a9ef3e340eadf2d3d
+FROM ruby:3.4.8-slim@sha256:ff7780d9fc05a54690c722ee0621bae2aa818331be88ebbeb0f5e7bd7cdb7f37
 
 RUN apt-get update && apt-get install -y default-libmysqlclient-dev
 

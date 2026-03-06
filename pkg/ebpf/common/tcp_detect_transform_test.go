@@ -23,12 +23,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 func TestTCPReqSQLParsing(t *testing.T) {
 	sql := randomStringWithSub("SELECT * FROM accounts ")
 	r := makeTCPReq(sql, 343534)
-	op, table, sql := detectSQL(sql)
+	op, table, sql := detectSQL([]byte(sql))
 	assert.Equal(t, "SELECT", op)
 	assert.Equal(t, "accounts", table)
 	s := TCPToSQLToSpan(&r, op, table, sql, request.DBGeneric, "", nil)
@@ -46,7 +47,7 @@ func TestTCPReqSQLParsing(t *testing.T) {
 func TestTCPReqParsing(t *testing.T) {
 	sql := "Not a sql or any known protocol"
 	r := makeTCPReq(sql, 343534)
-	op, table, _ := detectSQL(sql)
+	op, table, _ := detectSQL([]byte(sql))
 	assert.Empty(t, op)
 	assert.Empty(t, table)
 	assert.NotNil(t, r)
@@ -86,8 +87,13 @@ func TestTCPReqParsing(t *testing.T) {
 }
 
 func TestSQLDetection(t *testing.T) {
-	for _, s := range []string{"SELECT * from accounts", "SELECT/*My comment*/ * from accounts", "--UPDATE accounts SET", "DELETE++ from accounts ", "INSERT into accounts ", "CREATE table accounts ", "DROP table accounts ", "ALTER table accounts"} {
-		surrounded := randomStringWithSub(s)
+	for _, s := range [][]byte{
+		[]byte("SELECT * from accounts"), []byte("SELECT/*My comment*/ * from accounts"),
+		[]byte("--UPDATE accounts SET"), []byte("DELETE++ from accounts "),
+		[]byte("INSERT into accounts "), []byte("CREATE table accounts "),
+		[]byte("DROP table accounts "), []byte("ALTER table accounts"),
+	} {
+		surrounded := []byte(randomStringWithSub(string(s)))
 		op, table, _ := detectSQL(s)
 		assert.NotEmpty(t, op)
 		assert.NotEmpty(t, table)
@@ -98,17 +104,19 @@ func TestSQLDetection(t *testing.T) {
 }
 
 func TestSQLDetectionFails(t *testing.T) {
-	for _, s := range []string{"SELECT", "UPDATES{}", "DELETE {} ", "INSERT// into accounts "} {
+	for _, s := range [][]byte{
+		[]byte("SELECT"), []byte("UPDATES{}"), []byte("DELETE {} "), []byte("INSERT// into accounts "),
+	} {
 		op, table, _ := detectSQL(s)
 		assert.False(t, validSQL(op, table, request.DBGeneric))
-		surrounded := randomStringWithSub(s)
+		surrounded := []byte(randomStringWithSub(string(s)))
 		op, table, _ = detectSQL(surrounded)
 		assert.False(t, validSQL(op, table, request.DBGeneric))
 	}
 }
 
 func TestSQLDetectionDoesntFailForDetectedKind(t *testing.T) {
-	for _, s := range []string{"SELECT", "DELETE {} "} {
+	for _, s := range [][]byte{[]byte("SELECT"), []byte("DELETE {} ")} {
 		op, table, _ := detectSQL(s)
 		assert.True(t, validSQL(op, table, request.DBPostgres))
 	}
@@ -168,7 +176,7 @@ func TestRedisDetection(t *testing.T) {
 	} {
 		lines := strings.Split(s, "|")
 		test := strings.Join(lines, "\r\n")
-		assert.True(t, isRedis([]uint8(test)))
+		assert.True(t, isRedis(largebuf.NewLargeBufferFrom([]uint8(test))))
 		assert.True(t, isRedisOp([]uint8(test)))
 	}
 
@@ -182,7 +190,7 @@ func TestRedisDetection(t *testing.T) {
 	} {
 		lines := strings.Split(s, "|")
 		test := strings.Join(lines, "\r\n")
-		assert.False(t, isRedis([]uint8(test)))
+		assert.False(t, isRedis(largebuf.NewLargeBufferFrom([]uint8(test))))
 		assert.False(t, isRedisOp([]uint8(test)))
 	}
 }
@@ -191,7 +199,7 @@ func TestTCPReqKafkaParsing(t *testing.T) {
 	// kafka message
 	b := []byte{0, 0, 0, 94, 0, 1, 0, 11, 0, 0, 0, 224, 0, 6, 115, 97, 114, 97, 109, 97, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 6, 64, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0}
 	r := makeTCPReq(string(b), 343534)
-	k, _, err := ProcessKafkaRequest(b, nil)
+	k, _, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(b), nil)
 	require.NoError(t, err)
 	s := TCPToKafkaToSpan(&r, k)
 	assert.NotNil(t, s)
@@ -240,7 +248,7 @@ func TestTCPReqMQTTHeuristicFailure(t *testing.T) {
 	}
 
 	// Verify the heuristic passes but full parsing fails
-	assert.True(t, isMQTT(b), "packet should pass isMQTT heuristic")
+	assert.True(t, isMQTT(largebuf.NewLargeBufferFrom(b)), "packet should pass isMQTT heuristic")
 	_, _, err := ProcessMQTTEvent(b)
 	require.Error(t, err, "full MQTT parsing should fail")
 

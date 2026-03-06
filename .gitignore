@@ -84,6 +84,8 @@ internal/test/integration/components/pythonserver/lib/
 internal/test/integration/components/pythonserver/lib64
 internal/test/integration/components/pythonserver/pyvenv.cfg
 internal/test/integration/components/gosql/qosql
+internal/test/integration/components/javakafka-tls/target
+internal/test/integration/components/java_tls/wrapper/wrapper
 *_bpfel.go
 *_bpfel.o
 *_bpfel.go.d

@@ -39,10 +39,38 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
+
+      - name: Resolve Gradle source of truth
+        id: gradle-source
+        working-directory: .
+        run: |
+          set -euo pipefail
+
+          gradle_image="$(awk '$1=="FROM" && $4=="gradle-java" {print $2}' dependencies.Dockerfile)"
+          if [[ -z "$gradle_image" ]]; then
+            echo "Unable to find gradle-java image in dependencies.Dockerfile" >&2
+            exit 1
+          fi
+
+          gradle_version="$(printf '%s' "$gradle_image" | sed -E 's#^gradle:([0-9.]+)-.*#\1#')"
+          if [[ -z "$gradle_version" || "$gradle_version" == "$gradle_image" ]]; then
+            echo "Unable to parse Gradle version from image: $gradle_image" >&2
+            exit 1
+          fi
+
+          echo "image=$gradle_image" >> "$GITHUB_OUTPUT"
+          echo "version=$gradle_version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK for running Gradle
+        id: gradle-jdk
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version-file: pkg/internal/java/.java-version
 
       - name: Set up JDK ${{ matrix.test-java }} for testing
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
@@ -50,26 +78,39 @@ jobs:
           distribution: temurin
           java-version: ${{ matrix.test-java }}
 
-      - name: Set up JDK for running Gradle
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        with:
-          distribution: temurin
-          java-version-file: pkg/internal/java/.java-version
-
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@f29f5a9d7b09a7c6b29859002d29d24e1674c884 # v5.0.1
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
         with:
+          gradle-version: ${{ steps.gradle-source.outputs.version }}
           cache-disabled: true
 
       - name: Check code formatting (Spotless)
-        run: ./gradlew spotlessCheck --no-daemon --stacktrace
+        env:
+          GRADLE_OPTS: -Dorg.gradle.java.home=${{ steps.gradle-jdk.outputs.path }}
+        run: gradle spotlessCheck --no-daemon --stacktrace
 
       - name: Build agent
-        run: ./gradlew build --no-daemon --stacktrace
+        env:
+          GRADLE_OPTS: -Dorg.gradle.java.home=${{ steps.gradle-jdk.outputs.path }}
+        run: gradle build -x test --no-daemon --stacktrace
+
+      - name: Run tests on JDK ${{ matrix.test-java }}
+        env:
+          GRADLE_OPTS: -Dorg.gradle.java.home=${{ steps.gradle-jdk.outputs.path }}
+        run: |
+          cat > /tmp/obi-test-jvm.init.gradle <<'EOF'
+          allprojects {
+            tasks.withType(Test).configureEach {
+              executable = System.getenv("JAVA_HOME") + "/bin/java"
+            }
+          }
+          EOF
+
+          gradle test -I /tmp/obi-test-jvm.init.gradle --no-daemon --stacktrace
 
       - name: Upload build artifacts
         if: matrix.test-java == 21
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: obi-java-agent
           path: pkg/internal/java/build/obi-java-agent.jar

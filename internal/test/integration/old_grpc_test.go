@@ -129,7 +129,7 @@ func TestSuiteOtherGRPCGo(t *testing.T) {
 	require.NoError(t, err)
 
 	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`, `PROM_CONFIG_SUFFIX=`)
 	lockdown := KernelLockdownMode()
 
 	if !lockdown {

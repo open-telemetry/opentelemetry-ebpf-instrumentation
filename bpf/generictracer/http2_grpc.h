@@ -55,16 +55,6 @@ static __always_inline u8 read_http2_grpc_frame_header(frame_header_t *frame,
     return 1;
 }
 
-static __always_inline u8 is_settings_frame(unsigned char *p, u32 len) {
-    frame_header_t frame = {0};
-
-    if (!read_http2_grpc_frame_header(&frame, p, len)) {
-        return 0;
-    }
-
-    return frame.type == FrameSettings && !frame.stream_id;
-}
-
 static __always_inline u8 is_headers_frame(const frame_header_t *frame) {
     return frame->type == FrameHeaders && frame->stream_id;
 }
@@ -78,7 +68,7 @@ static __always_inline u8 has_preface(unsigned char *p, u32 len) {
 }
 
 static __always_inline u8 is_http2_or_grpc(unsigned char *p, u32 len) {
-    return has_preface(p, len) || is_settings_frame(p, len);
+    return has_preface(p, len);
 }
 
 static __always_inline u8 http_grpc_stream_ended(const frame_header_t *frame) {

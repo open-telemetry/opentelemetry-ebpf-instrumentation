@@ -10,6 +10,11 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+      latest:
+        description: "Tag image as 'latest'"
+        required: false
+        type: boolean
+        default: false
     secrets:
       DOCKER_TOKEN_EBPF_INSTRUMENTATION:
         description: "Docker Hub access token for otel"
@@ -38,7 +43,7 @@ jobs:
             runner: ubuntu-24.04-arm
             artifact_suffix: arm64
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -66,6 +71,13 @@ jobs:
           images: |
             otel/${{ env.IMAGE_NAME }}
             ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern=v{{version}},value=${{ inputs.ref }}
+            type=raw,value=latest,enable=${{ inputs.latest == true }}
+            type=ref,event=branch
+            type=ref,event=tag
 
       - name: Build and push by digest
         id: build
@@ -85,7 +97,7 @@ jobs:
           touch "${{ runner.temp }}/digests/${DIGEST#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: k8s-cache-digests-${{ matrix.artifact_suffix }}
           path: ${{ runner.temp }}/digests/*
@@ -101,7 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download digests
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           path: ${{ runner.temp }}/digests
           pattern: k8s-cache-digests-*
@@ -135,6 +147,13 @@ jobs:
           images: |
             otel/${{ env.IMAGE_NAME }}
             ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern=v{{version}},value=${{ inputs.ref }}
+            type=raw,value=latest,enable=${{ inputs.latest == true }}
+            type=ref,event=branch
+            type=ref,event=tag
 
       - name: Create manifest list and push
         env:
@@ -174,6 +193,3 @@ jobs:
             images+="${tag}@${DIGEST} "
           done
           cosign sign --yes ${images}
-          cosign verify ${images} \
-            --certificate-identity-regexp='.*' \
-            --certificate-oidc-issuer='https://token.actions.githubusercontent.com'

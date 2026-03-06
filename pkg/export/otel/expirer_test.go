@@ -251,10 +251,17 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 300, End: 310},
 	})
 
-	// makes sure that the records channel is emptied and any remaining
-	// old metric is sent and then the channel is re-emptied
-	otlp.ResetRecords()
-	readChan(t, otlp.Records())
+	// Wait until the third /foo span is processed (count=3 confirms it).
+	// At that point removeOutdated has already run and /bar is no longer
+	// registered with the OTEL SDK, so subsequent reports will omit it.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		metric := readChan(ct, otlp.Records())
+		require.Equal(ct, "http.server.request.duration", metric.Name)
+		assert.Equal(ct, map[string]string{"url.path": "/foo"}, metric.Attributes)
+		assert.Equal(ct, 3, metric.Count)
+	}, timeout, 100*time.Millisecond)
+	// Discard any records that arrived in the same batch as the count=3 record
+	// (e.g. a trailing /bar before it was removed from the SDK).
 	otlp.ResetRecords()
 
 	// BUT not the metrics that haven't been received during that time.

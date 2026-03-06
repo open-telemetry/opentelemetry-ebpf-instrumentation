@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: 'false'
       - name: Set up QEMU
@@ -90,6 +90,22 @@ jobs:
             echo "imgtag=$OVERRIDE_IMG_TAG" >> $GITHUB_OUTPUT
           fi
 
+      - name: go
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: go
+          file: internal/test/integration/components/testserver/Dockerfile
+
+      - name: go-http-client
+        uses: ./.github/actions/integration-test-image-build
+        with:
+          labels: ${{ steps.meta.outputs.labels }}
+          tag-version: ${{ steps.image_tag.outputs.imgtag }}
+          tag-id: go-http-client
+          file: internal/test/integration/components/httppinger/Dockerfile
+
       - name: rust
         uses: ./.github/actions/integration-test-image-build
         with:
@@ -146,14 +162,6 @@ jobs:
           tag-id: node
           file: internal/test/integration/components/nodejsserver/Dockerfile
 
-      - name: go
-        uses: ./.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: go
-          file: internal/test/integration/components/testserver/Dockerfile
-
       - name: python
         uses: ./.github/actions/integration-test-image-build
         with:
@@ -161,11 +169,3 @@ jobs:
           tag-version: ${{ steps.image_tag.outputs.imgtag }}
           tag-id: python
           file: internal/test/integration/components/pythonserver/Dockerfile
-
-      - name: go-http-client
-        uses: ./.github/actions/integration-test-image-build
-        with:
-          labels: ${{ steps.meta.outputs.labels }}
-          tag-version: ${{ steps.image_tag.outputs.imgtag }}
-          tag-id: go-http-client
-          file: internal/test/integration/components/httppinger/Dockerfile

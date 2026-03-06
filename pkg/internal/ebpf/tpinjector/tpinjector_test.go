@@ -17,100 +17,65 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-func TestTracer_Constants_InjectFlags(t *testing.T) {
+// tpinjector has two BPF specs: the main tpinjector (spec 0) and the sock iterator (spec 1).
+const expectedSpecCount = 2
+
+func TestTracer_Constants(t *testing.T) {
 	tests := []struct {
 		name                string
 		contextPropagation  string
+		bpfPidFilterOff     bool
 		expectedInjectFlags uint32
+		expectedFilterPids  int32
 	}{
 		{
-			name:                "disabled",
+			name:                "all disabled, filter on",
 			contextPropagation:  "disabled",
-			expectedInjectFlags: 0, // neither HTTP headers nor TCP options
+			bpfPidFilterOff:     false,
+			expectedInjectFlags: 0,
+			expectedFilterPids:  1,
 		},
 		{
 			name:                "headers only",
 			contextPropagation:  "headers",
+			bpfPidFilterOff:     false,
 			expectedInjectFlags: 1, // k_inject_http_headers
+			expectedFilterPids:  1,
 		},
 		{
 			name:                "tcp only",
 			contextPropagation:  "tcp",
+			bpfPidFilterOff:     false,
 			expectedInjectFlags: 2, // k_inject_tcp_options
+			expectedFilterPids:  1,
 		},
 		{
 			name:                "headers and tcp",
 			contextPropagation:  "headers,tcp",
+			bpfPidFilterOff:     false,
 			expectedInjectFlags: 3, // k_inject_http_headers | k_inject_tcp_options
-		},
-		{
-			name:                "ip only",
-			contextPropagation:  "ip",
-			expectedInjectFlags: 0, // tpinjector doesn't handle IP options
+			expectedFilterPids:  1,
 		},
 		{
 			name:                "all",
 			contextPropagation:  "all",
-			expectedInjectFlags: 3, // k_inject_http_headers | k_inject_tcp_options (IP handled by tctracer)
+			bpfPidFilterOff:     false,
+			expectedInjectFlags: 3, // k_inject_http_headers | k_inject_tcp_options
+			expectedFilterPids:  1,
 		},
 		{
-			name:                "tcp and ip",
-			contextPropagation:  "tcp,ip",
-			expectedInjectFlags: 2, // k_inject_tcp_options only (IP handled by tctracer)
+			name:                "filter off",
+			contextPropagation:  "disabled",
+			bpfPidFilterOff:     true,
+			expectedInjectFlags: 0,
+			expectedFilterPids:  0,
 		},
 		{
-			name:                "headers and ip",
-			contextPropagation:  "headers,ip",
-			expectedInjectFlags: 1, // k_inject_http_headers only (IP handled by tctracer)
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &obi.Config{
-				EBPF: config.EBPFTracer{
-					MaxTransactionTime: 10 * time.Second,
-				},
-			}
-			err := cfg.EBPF.ContextPropagation.UnmarshalText([]byte(tt.contextPropagation))
-			require.NoError(t, err)
-
-			tracer := New(cfg)
-			constants := tracer.Constants()
-
-			// Check that inject_flags is set correctly
-			injectFlags, ok := constants["inject_flags"]
-			assert.True(t, ok, "inject_flags should be present in constants")
-			assert.Equal(t, tt.expectedInjectFlags, injectFlags, "inject_flags value mismatch")
-
-			// Verify the logic
-			expectedFlags := uint32(0)
-			if cfg.EBPF.ContextPropagation.HasHeaders() {
-				expectedFlags |= 1
-			}
-			if cfg.EBPF.ContextPropagation.HasTCP() {
-				expectedFlags |= 2
-			}
-			assert.Equal(t, expectedFlags, injectFlags, "inject_flags should match expected calculation")
-		})
-	}
-}
-
-func TestTracer_Constants_FilterPids(t *testing.T) {
-	tests := []struct {
-		name              string
-		bpfPidFilterOff   bool
-		expectedFilterVal int32
-	}{
-		{
-			name:              "filter enabled",
-			bpfPidFilterOff:   false,
-			expectedFilterVal: 1,
-		},
-		{
-			name:              "filter disabled",
-			bpfPidFilterOff:   true,
-			expectedFilterVal: 0,
+			name:                "headers, filter off",
+			contextPropagation:  "headers",
+			bpfPidFilterOff:     true,
+			expectedInjectFlags: 1,
+			expectedFilterPids:  0,
 		},
 	}
 
@@ -124,13 +89,35 @@ func TestTracer_Constants_FilterPids(t *testing.T) {
 					MaxTransactionTime: 10 * time.Second,
 				},
 			}
+			err := cfg.EBPF.ContextPropagation.UnmarshalText([]byte(tt.contextPropagation))
+			require.NoError(t, err)
 
-			tracer := New(cfg)
-			constants := tracer.Constants()
+			bundles, err := New(cfg).LoadSpecs()
+			require.NoError(t, err)
+			require.Len(t, bundles, expectedSpecCount, "tpinjector bundle count must match")
 
-			filterPids, ok := constants["filter_pids"]
-			assert.True(t, ok, "filter_pids should be present in constants")
-			assert.Equal(t, tt.expectedFilterVal, filterPids, "filter_pids value mismatch")
+			// Spec 0 (tpinjector) carries the main constants.
+			c := bundles[0].Constants
+
+			injectFlags, ok := c["inject_flags"]
+			assert.True(t, ok, "inject_flags should be present")
+			assert.Equal(t, tt.expectedInjectFlags, injectFlags)
+
+			filterPids, ok := c["filter_pids"]
+			assert.True(t, ok, "filter_pids should be present")
+			assert.Equal(t, tt.expectedFilterPids, filterPids)
+
+			_, ok = c["max_transaction_time"]
+			assert.True(t, ok, "max_transaction_time should be present")
+
+			_, ok = c["g_bpf_debug"]
+			assert.True(t, ok, "g_bpf_debug should be present")
+
+			// Spec 1 (sock_iter) carries only the debug flag.
+			iterC := bundles[1].Constants
+			_, ok = iterC["g_bpf_debug"]
+			assert.True(t, ok, "iter g_bpf_debug should be present")
+			assert.Len(t, iterC, 1, "iter spec should have only g_bpf_debug")
 		})
 	}
 }

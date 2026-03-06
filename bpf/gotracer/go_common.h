@@ -27,11 +27,16 @@
 
 #include <gotracer/go_offsets.h>
 
+#include <gotracer/maps/mongo.h>
+
 #include <logger/bpf_dbg.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
 enum { W3C_KEY_LENGTH = 11, W3C_VAL_LENGTH = 55 };
+
+static unsigned char tp_encoded[] = {
+    0x4d, 0x83, 0x21, 0x6b, 0x1d, 0x85, 0xa9, 0x3f}; // hpack encoded "traceparent"
 
 // Temporary information about a function invocation. It stores the invocation time of a function
 // as well as the value of registers at the invocation time. This way we can retrieve them at the
@@ -118,13 +123,6 @@ struct {
     __type(value, sql_func_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_sql_queries SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t);           // key: goroutine id
-    __type(value, mongo_go_client_req_t); // the request
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-} ongoing_mongo_requests SEC(".maps");
 
 typedef struct grpc_header_field {
     u8 *key_ptr;

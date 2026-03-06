@@ -111,6 +111,9 @@ public class SocketChannelInst {
       }
 
       BytesWithLen unencrypted = SSLStorage.getUnencryptedBuffer(bufKey);
+      if (SSLStorage.debugOn) {
+        System.err.println("[SocketChannelInst] write advice, unencrypted: " + unencrypted);
+      }
       if (unencrypted == null) {
         return;
       }
@@ -185,6 +188,9 @@ public class SocketChannelInst {
       }
 
       BytesWithLen unencrypted = SSLStorage.getUnencryptedBuffer(bufKey);
+      if (SSLStorage.debugOn) {
+        System.err.println("[SocketChannelInst] unencrypted: " + unencrypted);
+      }
       if (unencrypted == null) {
         return;
       }
@@ -229,11 +235,10 @@ public class SocketChannelInst {
               remoteSocketAddress.getAddress(),
               remoteSocketAddress.getPort());
 
-      if (SSLStorage.connectionUntracked(c)) {
-        String bufKey = ByteBufferExtractor.keyFromUsedBuffer(dst);
-        if (SSLStorage.debugOn) {
-          System.err.println("[SocketChannelInst] Setting connection for: " + bufKey);
-        }
+      String bufKey = ByteBufferExtractor.keyFromUsedBuffer(dst);
+      SSLStorage.setConnectionForBuf(bufKey, c);
+      if (SSLStorage.debugOn) {
+        System.err.println("[SocketChannelInst] Setting connection for: " + bufKey);
       }
     }
   }
@@ -259,15 +264,13 @@ public class SocketChannelInst {
               remoteSocketAddress.getAddress(),
               remoteSocketAddress.getPort());
 
-      if (SSLStorage.connectionUntracked(c)) {
-        ByteBuffer dstBuffer =
-            ByteBufferExtractor.flattenUsedByteBufferArray(dsts, ByteBufferExtractor.MAX_KEY_SIZE);
-        String bufKey = Arrays.toString(dstBuffer.array());
-        SSLStorage.setConnectionForBuf(bufKey, c);
+      ByteBuffer dstBuffer =
+          ByteBufferExtractor.flattenUsedByteBufferArray(dsts, ByteBufferExtractor.MAX_KEY_SIZE);
+      String bufKey = Arrays.toString(dstBuffer.array());
+      SSLStorage.setConnectionForBuf(bufKey, c);
 
-        if (SSLStorage.debugOn) {
-          System.err.println("[SocketChannelInst] Setting connection for: " + bufKey);
-        }
+      if (SSLStorage.debugOn) {
+        System.err.println("[SocketChannelInst] Setting connection for: " + bufKey);
       }
     }
   }

@@ -1,0 +1,14 @@
+trace_printer: text
+log_level: debug
+routes:
+  unmatched: path
+ebpf:
+  context_propagation: headers
+  bpf_debug: true
+discovery:
+  skip_go_specific_tracers: true
+  services:
+    - name: keepaliveclient
+      exe_path: keepaliveclient
+    - name: tpinjector-server
+      exe_path: tpinjector-server

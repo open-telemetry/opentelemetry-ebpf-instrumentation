@@ -1,8 +1,9 @@
 plugins {
     java
-    id("com.gradleup.shadow") version "8.3.9"
+    id("com.gradleup.shadow") version "8.3.10"
+    id("com.github.jk1.dependency-license-report") version "2.9"
     id("me.champeau.jmh") version "0.7.3"
-    id("com.diffplug.spotless") version "8.2.1"
+    id("com.diffplug.spotless")
 }
 
 group = "io.opentelemetry.obi"
@@ -39,14 +40,14 @@ repositories {
 }
 
 dependencies {
-    implementation("net.bytebuddy:byte-buddy:1.18.5")
-    implementation("net.bytebuddy:byte-buddy-agent:1.17.8")
+    implementation("net.bytebuddy:byte-buddy:1.18.7")
+    implementation("net.bytebuddy:byte-buddy-agent:1.18.7")
 
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.13.3")
-    testImplementation("org.junit.platform:junit-platform-launcher:1.10.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.14.3")
+    testImplementation("org.junit.platform:junit-platform-launcher:1.14.3")
     testImplementation("org.awaitility:awaitility:4.3.0")
 
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.13.3")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.14.3")
 }
 
 tasks.register("prepareKotlinBuildScriptModel"){}
@@ -134,4 +135,13 @@ tasks.shadowJar {
     // Exclude META-INF files as in Maven Shade plugin
     exclude("META-INF/**")
     exclude("META-INF/versions/9/module-info.class")
+}
+
+licenseReport {
+    outputDir = layout.buildDirectory.dir("reports/dependency-license").get().asFile.absolutePath
+    configurations = arrayOf("runtimeClasspath")
+    renderers = arrayOf<com.github.jk1.license.render.ReportRenderer>(
+        com.github.jk1.license.render.TextReportRenderer("THIRD_PARTY_LICENSES.txt"),
+        com.github.jk1.license.render.CsvReportRenderer("THIRD_PARTY_LICENSES.csv"),
+    )
 }

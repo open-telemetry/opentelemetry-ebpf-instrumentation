@@ -10,13 +10,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 func TestParseFetchRequest(t *testing.T) {
 	tests := []struct {
 		name               string
 		packet             []byte
-		header             *KafkaRequestHeader
+		header             KafkaRequestHeader
 		expectErr          bool
 		expectedTopicCount int
 		expectedTopicName  string
@@ -52,10 +54,7 @@ func TestParseFetchRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 4,
-			},
+			header:             newTestHeader(APIKeyFetch, 4),
 			expectErr:          false,
 			expectedTopicCount: 1,
 			expectedTopicName:  "my-topic",
@@ -96,10 +95,7 @@ func TestParseFetchRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 13,
-			},
+			header:             newTestHeader(APIKeyFetch, 13),
 			expectErr:          false,
 			expectedTopicCount: 1,
 			expectedTopicUUID: &UUID{
@@ -141,10 +137,7 @@ func TestParseFetchRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 15,
-			},
+			header:             newTestHeader(APIKeyFetch, 15),
 			expectErr:          false,
 			expectedTopicCount: 1,
 			expectedTopicUUID: &UUID{
@@ -186,10 +179,7 @@ func TestParseFetchRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 12,
-			},
+			header:             newTestHeader(APIKeyFetch, 12),
 			expectErr:          false,
 			expectedTopicCount: 1,
 			expectedTopicName:  "my-topic",
@@ -228,10 +218,7 @@ func TestParseFetchRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 17,
-			},
+			header:             newTestHeader(APIKeyFetch, 17),
 			expectErr:          false,
 			expectedTopicCount: 1,
 			expectedTopicUUID: &UUID{
@@ -276,10 +263,7 @@ func TestParseFetchRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 5,
-			},
+			header:             newTestHeader(APIKeyFetch, 5),
 			expectErr:          false,
 			expectedTopicCount: 2,
 			expectedTopicName:  "topic1", // We'll check the first topic
@@ -308,19 +292,13 @@ func TestParseFetchRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 4,
-			},
+			header:    newTestHeader(APIKeyFetch, 4),
 			expectErr: true, // Should error on no Topics
 		},
 		{
-			name:   "fetch request packet too short for skip",
-			packet: []byte{0x01, 0x02}, // Too short
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 4,
-			},
+			name:      "fetch request packet too short for skip",
+			packet:    []byte{0x01, 0x02}, // Too short
+			header:    newTestHeader(APIKeyFetch, 4),
 			expectErr: true,
 		},
 		{
@@ -344,17 +322,15 @@ func TestParseFetchRequest(t *testing.T) {
 				// No space for Topics array length
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 4,
-			},
+			header:    newTestHeader(APIKeyFetch, 4),
 			expectErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, err := ParseFetchRequest(tt.packet, tt.header, 0)
+			r := largebuf.NewLargeBufferFrom(tt.packet).NewReader()
+			req, err := ParseFetchRequest(&r, tt.header)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -386,10 +362,7 @@ func TestParseFetchRequestTruncation(t *testing.T) {
 
 	for _, version := range versions {
 		t.Run(fmt.Sprintf("version_%d_truncation", version), func(t *testing.T) {
-			header := &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: version,
-			}
+			header := newTestHeader(APIKeyFetch, version)
 
 			// Create a valid packet for this version
 			validPacket := createValidFetchPacket(version)
@@ -398,7 +371,8 @@ func TestParseFetchRequestTruncation(t *testing.T) {
 			for i := 1; i < len(validPacket); i++ {
 				t.Run(fmt.Sprintf("truncated_at_%d", i), func(t *testing.T) {
 					truncated := validPacket[:i]
-					_, err := ParseFetchRequest(truncated, header, 0)
+					r := largebuf.NewLargeBufferFrom(truncated).NewReader()
+					_, err := ParseFetchRequest(&r, header)
 					assert.Error(t, err, "expected error for truncated packet at position %d for version %d", i, version)
 				})
 			}

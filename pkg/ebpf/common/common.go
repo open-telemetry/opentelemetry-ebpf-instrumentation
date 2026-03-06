@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -28,6 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -125,6 +127,31 @@ type Iter struct {
 	Link    link.Link
 }
 
+func (it *Iter) Run(log *slog.Logger) error {
+	log.Debug("Running iterator", "iterator", it.Program.String())
+
+	if it.Link == nil {
+		return errors.New("iterator link is nil")
+	}
+
+	rd, err := it.Link.(*link.Iter).Open()
+	if err != nil {
+		return fmt.Errorf("open iterator: %w", err)
+	}
+	defer rd.Close()
+
+	scanner := bufio.NewScanner(rd)
+	for scanner.Scan() {
+		log.Debug("Iterator output", "line", scanner.Text(), "iterator", it.Program.String())
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read iterator: %w", err)
+	}
+
+	log.Debug("Iterator finished", "iterator", it.Program.String())
+	return nil
+}
+
 type Tracing struct {
 	Program  *ebpf.Program
 	AttachAs ebpf.AttachType
@@ -148,7 +175,7 @@ type EBPFParseContext struct {
 	h2c                        *lru.Cache[uint64, h2Connection]
 	redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
 	couchbaseBucketCache       *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
-	largeBuffers               *expirable.LRU[largeBufferKey, *largeBuffer]
+	largeBuffers               *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
 	mongoRequestCache          PendingMongoDBRequests
 	mysqlPreparedStatements    *simplelru.LRU[mysqlPreparedStatementsKey, string]
 	postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, string]
@@ -187,7 +214,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	)
 
 	h2c, _ := lru.New[uint64, h2Connection](1024 * 10)
-	largeBuffers := expirable.NewLRU[largeBufferKey, *largeBuffer](1024, nil, 5*time.Minute)
+	largeBuffers := expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](1024, nil, 5*time.Minute)
 
 	if cfg != nil {
 		protocolDebug = cfg.ProtocolDebug

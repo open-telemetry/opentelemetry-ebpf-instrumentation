@@ -12,6 +12,7 @@
 #include <common/iov_iter.h>
 #include <common/msg_buffer.h>
 #include <common/dns.h>
+#include <common/protocol_defs.h>
 #include <common/sock_port_ns.h>
 #include <common/sockaddr.h>
 #include <common/ssl_helpers.h>
@@ -24,6 +25,7 @@
 #include <generictracer/maps/active_connect_args.h>
 #include <generictracer/maps/listening_ports.h>
 #include <generictracer/maps/tcp_connection_map.h>
+#include <generictracer/protocol_common.h>
 #include <generictracer/protocol_http.h>
 #include <generictracer/protocol_http2.h>
 #include <generictracer/protocol_mysql.h>
@@ -128,7 +130,7 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
         // TODO: try to merge with store_accept_fd_info() above
         bpf_map_update_elem(&fd_to_connection, &key, &info.p_conn.conn, BPF_ANY);
 
-        u64 accept_time = bpf_ktime_get_ns();
+        const u64 accept_time = bpf_ktime_get_ns();
 
         bpf_map_update_elem(&accepted_connections, &info.p_conn.conn, &accept_time, BPF_ANY);
     } else {
@@ -342,6 +344,9 @@ cleanup:
 static __always_inline void
 tcp_send_ssl_check(u64 id, void *ssl, pid_connection_info_t *p_conn, u16 orig_dport) {
     bpf_dbg_printk("id=%d, ssl=%llx", id, ssl);
+    if (!ssl) {
+        return;
+    }
     ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
     if (s_conn) {
         finish_possible_delayed_tls_http_request(&s_conn->p_conn, ssl);
@@ -504,10 +509,12 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
         const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(&s_args.p_conn.conn);
-        const egress_key_t e_key = {
+        egress_key_t e_key = {
             .d_port = s_args.p_conn.conn.d_port,
             .s_port = s_args.p_conn.conn.s_port,
         };
+
+        sort_egress_key(&e_key);
 
         sort_connection_info(&s_args.p_conn.conn);
         s_args.p_conn.pid = pid_from_pid_tgid(id);
@@ -698,7 +705,7 @@ static __always_inline void setup_recvmsg(u64 id, struct sock *sk, struct msghdr
     // sent through the same socket. This mainly happens if the server overlays virtual
     // threads in the runtime.
     u64 sock_p = (u64)sk;
-    ensure_sent_event(id, &sock_p);
+    ensure_sent_event(id, &sock_p, TCP_RECV);
     connect_ssl_to_sock(id, sk, TCP_RECV);
 
     recv_args_t args = {
@@ -1000,7 +1007,7 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
         //bpf_d_printk("http buf=[%s] [%s]", buf, __FUNCTION__);
         //d_print_http_connection_info(&conn);
         if (packet_type == PACKET_TYPE_REQUEST) {
-            u64 cookie = bpf_get_socket_cookie(skb);
+            const u64 cookie = bpf_get_socket_cookie(skb);
             //bpf_dbg_printk("cookie=%llx, len=%d, buf=[%s]", cookie, len, buf);
             //dbg_print_http_connection_info(&conn);
 
@@ -1162,10 +1169,17 @@ int obi_handle_buf_with_args(void *ctx) {
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
 
+        bpf_d_printk("http info %llx, submitted %d, still reading %d",
+                     info,
+                     (info) ? info->submitted : 0,
+                     (info) ? still_reading(info) : 0);
+
         if (info && !info->submitted) {
+            const u8 reading = still_reading(info);
+            const u8 responding = still_responding(info);
             // Still reading checks if we are processing buffers of a HTTP request
             // that has started, but we haven't seen a response yet.
-            if (still_reading(info)) {
+            if (reading || responding) {
                 // Packets are split into chunks if OBI injected the Traceparent
                 // Make sure you look for split packets containing the real Traceparent.
                 // Essentially, when a packet is extended by our sock_msg program and
@@ -1175,7 +1189,7 @@ int obi_handle_buf_with_args(void *ctx) {
                 // scan for the incoming 'Traceparent' header. If they are not reassembled
                 // we'll see something like this:
                 // [before the injected header],[70 bytes for 'Traceparent...'],[the rest].
-                if (is_traceparent(args->small_buf)) {
+                if (reading && is_traceparent(args->small_buf)) {
                     unsigned char *buf = tp_char_buf();
                     if (buf) {
                         bpf_probe_read(buf, TP_SIZE, (unsigned char *)args->u_buf);
@@ -1202,17 +1216,25 @@ int obi_handle_buf_with_args(void *ctx) {
                     }
                 }
 
-                http_send_large_buffer(
-                    info,
-                    (void *)args->u_buf,
-                    args->bytes_len,
-                    // Packet type can't be reliably determined in HTTP split packets. This should
-                    // always be a request.
-                    PACKET_TYPE_REQUEST,
-                    args->direction,
-                    k_large_buf_action_append);
-            } else if (still_responding(info)) {
-                info->end_monotime_ns = bpf_ktime_get_ns();
+                u8 packet_type = PACKET_TYPE_REQUEST;
+                if (responding) {
+                    packet_type = PACKET_TYPE_RESPONSE;
+                }
+
+                http_send_large_buffer(info,
+                                       (void *)args->u_buf,
+                                       args->bytes_len,
+                                       packet_type,
+                                       args->direction,
+                                       k_large_buf_action_append);
+
+                if (reading) {
+                    info->len += args->bytes_len;
+                } else if (responding) {
+                    info->end_monotime_ns = bpf_ktime_get_ns();
+                    bpf_d_printk("bytes len %d, new bytes %d", info->resp_len, args->bytes_len);
+                    info->resp_len += args->bytes_len;
+                }
             }
         } else if (!info) {
             // SSL requests will see both TCP traffic and text traffic, ignore the TCP if

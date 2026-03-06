@@ -40,34 +40,14 @@ func TestContextPropagationMode_UnmarshalText(t *testing.T) {
 			want:  ContextPropagationTCP,
 		},
 		{
-			name:  "ip only",
-			input: "ip",
-			want:  ContextPropagationIPOptions,
-		},
-		{
 			name:  "headers and tcp",
 			input: "headers,tcp",
 			want:  ContextPropagationHeaders | ContextPropagationTCP,
 		},
 		{
-			name:  "tcp and ip",
-			input: "tcp,ip",
-			want:  ContextPropagationTCP | ContextPropagationIPOptions,
-		},
-		{
-			name:  "headers and ip",
-			input: "headers,ip",
-			want:  ContextPropagationHeaders | ContextPropagationIPOptions,
-		},
-		{
 			name:  "all two",
 			input: "headers,tcp",
 			want:  ContextPropagationAll,
-		},
-		{
-			name:  "with spaces",
-			input: " headers , tcp , ip ",
-			want:  ContextPropagationHeaders | ContextPropagationTCP | ContextPropagationIPOptions,
 		},
 		{
 			name:    "invalid value",
@@ -126,24 +106,9 @@ func TestContextPropagationMode_MarshalText(t *testing.T) {
 			want: "tcp",
 		},
 		{
-			name: "ip only",
-			mode: ContextPropagationIPOptions,
-			want: "ip",
-		},
-		{
 			name: "headers and tcp",
 			mode: ContextPropagationHeaders | ContextPropagationTCP,
 			want: "all",
-		},
-		{
-			name: "tcp and ip",
-			mode: ContextPropagationTCP | ContextPropagationIPOptions,
-			want: "tcp,ip",
-		},
-		{
-			name: "headers and ip",
-			mode: ContextPropagationHeaders | ContextPropagationIPOptions,
-			want: "headers,ip",
 		},
 	}
 
@@ -169,7 +134,6 @@ func TestContextPropagationMode_HasMethods(t *testing.T) {
 		mode          ContextPropagationMode
 		wantHeaders   bool
 		wantTCP       bool
-		wantIPOptions bool
 		wantIsEnabled bool
 	}{
 		{
@@ -177,7 +141,6 @@ func TestContextPropagationMode_HasMethods(t *testing.T) {
 			mode:          ContextPropagationAll,
 			wantHeaders:   true,
 			wantTCP:       true,
-			wantIPOptions: false,
 			wantIsEnabled: true,
 		},
 		{
@@ -185,7 +148,6 @@ func TestContextPropagationMode_HasMethods(t *testing.T) {
 			mode:          ContextPropagationDisabled,
 			wantHeaders:   false,
 			wantTCP:       false,
-			wantIPOptions: false,
 			wantIsEnabled: false,
 		},
 		{
@@ -193,7 +155,6 @@ func TestContextPropagationMode_HasMethods(t *testing.T) {
 			mode:          ContextPropagationHeaders,
 			wantHeaders:   true,
 			wantTCP:       false,
-			wantIPOptions: false,
 			wantIsEnabled: true,
 		},
 		{
@@ -201,15 +162,6 @@ func TestContextPropagationMode_HasMethods(t *testing.T) {
 			mode:          ContextPropagationTCP,
 			wantHeaders:   false,
 			wantTCP:       true,
-			wantIPOptions: false,
-			wantIsEnabled: true,
-		},
-		{
-			name:          "ip only",
-			mode:          ContextPropagationIPOptions,
-			wantHeaders:   false,
-			wantTCP:       false,
-			wantIPOptions: true,
 			wantIsEnabled: true,
 		},
 		{
@@ -217,7 +169,6 @@ func TestContextPropagationMode_HasMethods(t *testing.T) {
 			mode:          ContextPropagationHeaders | ContextPropagationTCP,
 			wantHeaders:   true,
 			wantTCP:       true,
-			wantIPOptions: false,
 			wantIsEnabled: true,
 		},
 	}
@@ -230,87 +181,8 @@ func TestContextPropagationMode_HasMethods(t *testing.T) {
 			if got := tt.mode.HasTCP(); got != tt.wantTCP {
 				t.Errorf("HasTCP() = %v, want %v", got, tt.wantTCP)
 			}
-			if got := tt.mode.HasIPOptions(); got != tt.wantIPOptions {
-				t.Errorf("HasIPOptions() = %v, want %v", got, tt.wantIPOptions)
-			}
 			if got := tt.mode.IsEnabled(); got != tt.wantIsEnabled {
 				t.Errorf("IsEnabled() = %v, want %v", got, tt.wantIsEnabled)
-			}
-		})
-	}
-}
-
-func TestContextPropagationMode_TracerLoading(t *testing.T) {
-	// Test which tracers should be loaded for each configuration
-	// tpinjector handles: HTTP headers (sk_msg) and TCP options (BPF_SOCK_OPS)
-	// tctracer handles: IP options only (TC egress/ingress)
-	tests := []struct {
-		name         string
-		mode         ContextPropagationMode
-		wantTPInject bool // should load tpinjector
-		wantTCTracer bool // should load tctracer
-	}{
-		{
-			name:         "tcp only",
-			mode:         ContextPropagationTCP,
-			wantTPInject: true,
-			wantTCTracer: false,
-		},
-		{
-			name:         "headers only",
-			mode:         ContextPropagationHeaders,
-			wantTPInject: true,
-			wantTCTracer: false,
-		},
-		{
-			name:         "ip only",
-			mode:         ContextPropagationIPOptions,
-			wantTPInject: false,
-			wantTCTracer: true,
-		},
-		{
-			name:         "headers and tcp",
-			mode:         ContextPropagationHeaders | ContextPropagationTCP,
-			wantTPInject: true,
-			wantTCTracer: false,
-		},
-		{
-			name:         "tcp and ip",
-			mode:         ContextPropagationTCP | ContextPropagationIPOptions,
-			wantTPInject: true,
-			wantTCTracer: true,
-		},
-		{
-			name:         "headers and ip",
-			mode:         ContextPropagationHeaders | ContextPropagationIPOptions,
-			wantTPInject: true,
-			wantTCTracer: true,
-		},
-		{
-			name:         "all",
-			mode:         ContextPropagationAll,
-			wantTPInject: true,
-			wantTCTracer: false,
-		},
-		{
-			name:         "disabled",
-			mode:         ContextPropagationDisabled,
-			wantTPInject: false,
-			wantTCTracer: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Determine what should load based on the logic in finder.go
-			shouldLoadTPInject := tt.mode.HasHeaders() || tt.mode.HasTCP()
-			shouldLoadTCTracer := tt.mode.HasIPOptions()
-
-			if shouldLoadTPInject != tt.wantTPInject {
-				t.Errorf("tpinjector loading = %v, want %v", shouldLoadTPInject, tt.wantTPInject)
-			}
-			if shouldLoadTCTracer != tt.wantTCTracer {
-				t.Errorf("tctracer loading = %v, want %v", shouldLoadTCTracer, tt.wantTCTracer)
 			}
 		})
 	}

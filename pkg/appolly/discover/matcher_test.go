@@ -41,6 +41,11 @@ func TestCriteriaMatcher(t *testing.T) {
   - name: both
     open_ports: 443
     exe_path_regexp: "server"
+  - name: exec-arg
+    exe_path: /bin/python
+    cmd_args: "my-server.py"
+  - name: arg-only
+    cmd_args: "my-server2.py"
 `), &pipeConfig))
 
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
@@ -56,8 +61,9 @@ func TestCriteriaMatcher(t *testing.T) {
 		exePath := map[app.PID]string{
 			1: "/bin/weird33", 2: "/bin/weird33", 3: "server",
 			4: "/bin/something", 5: "server", 6: "/bin/clientweird99",
+			7: "/bin/python", 8: "/bin/python", 9: "/bin/frobnitz",
 		}[pp.pid]
-		return &services.ProcessInfo{Pid: pp.pid, ExePath: exePath, OpenPorts: pp.openPorts}, nil
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: exePath, OpenPorts: pp.openPorts, CmdArgs: pp.cmdArgs}, nil
 	}
 	discoveredProcesses.Send([]Event[ProcessAttrs]{
 		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{1, 2, 3}}}, // pass
@@ -66,15 +72,20 @@ func TestCriteriaMatcher(t *testing.T) {
 		{Type: EventCreated, Obj: ProcessAttrs{pid: 4, openPorts: []uint32{8083}}},    // pass
 		{Type: EventCreated, Obj: ProcessAttrs{pid: 5, openPorts: []uint32{443}}},     // pass
 		{Type: EventCreated, Obj: ProcessAttrs{pid: 6}},                               // pass
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 7, cmdArgs: "my-server.py"}},      // pass
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 8, cmdArgs: "other-server.py"}},   // filter
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 9, cmdArgs: "my-server2.py"}},     // pass
 	})
 
 	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
-	require.Len(t, matches, 4)
+	require.Len(t, matches, 6)
 
 	testMatch(t, matches[0], "exec-only", "", services.ProcessInfo{Pid: 1, ExePath: "/bin/weird33", OpenPorts: []uint32{1, 2, 3}})
 	testMatch(t, matches[1], "port-only", "foo", services.ProcessInfo{Pid: 4, ExePath: "/bin/something", OpenPorts: []uint32{8083}})
 	testMatch(t, matches[2], "both", "", services.ProcessInfo{Pid: 5, ExePath: "server", OpenPorts: []uint32{443}})
 	testMatch(t, matches[3], "exec-only", "", services.ProcessInfo{Pid: 6, ExePath: "/bin/clientweird99"})
+	testMatch(t, matches[4], "exec-arg", "", services.ProcessInfo{Pid: 7, ExePath: "/bin/python", CmdArgs: "my-server.py"})
+	testMatch(t, matches[5], "arg-only", "", services.ProcessInfo{Pid: 9, ExePath: "/bin/frobnitz", CmdArgs: "my-server2.py"})
 }
 
 func TestCriteriaMatcherLanguage(t *testing.T) {

@@ -877,3 +877,89 @@ func TestIsHTTPSpan(t *testing.T) {
 	assert.False(t, spanGRPC.IsHTTPSpan(), "EventTypeGRPC should not be HTTP span")
 	assert.False(t, spanOther.IsHTTPSpan(), "Other types should not be HTTP span")
 }
+
+func TestHTTPSpanStatusCode_OpenAI(t *testing.T) {
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		{
+			name: "non-OpenAI 2xx → unset",
+			span: &Span{
+				Type:   EventTypeHTTPClient,
+				Status: 200,
+			},
+			expected: StatusCodeUnset,
+		},
+		{
+			name: "OpenAI 2xx, no error field → unset",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeOpenAI,
+				Status:  200,
+				OpenAI: &OpenAI{
+					OperationName: "response",
+					ResponseModel: "gpt-5-mini-2025-08-07",
+				},
+			},
+			expected: StatusCodeUnset,
+		},
+		{
+			name: "OpenAI 2xx, error.type set → error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeOpenAI,
+				Status:  200,
+				OpenAI: &OpenAI{
+					Error: OpenAIError{
+						Type:    "insufficient_quota",
+						Message: "You exceeded your current quota.",
+					},
+				},
+			},
+			expected: StatusCodeError,
+		},
+		{
+			name: "OpenAI 2xx, OpenAI is nil → unset (nil guard)",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeOpenAI,
+				Status:  200,
+				OpenAI:  nil,
+			},
+			expected: StatusCodeUnset,
+		},
+		{
+			name: "OpenAI 4xx → error (HTTP status wins regardless)",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeOpenAI,
+				Status:  429,
+				OpenAI: &OpenAI{
+					Error: OpenAIError{
+						Type:    "insufficient_quota",
+						Message: "You exceeded your current quota.",
+					},
+				},
+			},
+			expected: StatusCodeError,
+		},
+		{
+			name: "OpenAI status 0 → error (missing status)",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeOpenAI,
+				Status:  0,
+				OpenAI:  &OpenAI{},
+			},
+			expected: StatusCodeError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, HTTPSpanStatusCode(tt.span))
+		})
+	}
+}

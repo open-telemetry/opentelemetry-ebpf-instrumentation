@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 var negativeLength int16 = -1
@@ -18,7 +20,7 @@ func TestParseProduceRequest(t *testing.T) {
 	tests := []struct {
 		name                   string
 		packet                 []byte
-		header                 *KafkaRequestHeader
+		header                 KafkaRequestHeader
 		expectErr              bool
 		expectedTopicCount     int
 		expectedTopicName      string
@@ -54,10 +56,7 @@ func TestParseProduceRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: 3,
-			},
+			header:             newTestHeader(APIKeyProduce, 3),
 			expectErr:          false,
 			expectedTopicCount: 1,
 			expectedTopicName:  "my-topic",
@@ -94,10 +93,7 @@ func TestParseProduceRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: 8,
-			},
+			header:             newTestHeader(APIKeyProduce, 8),
 			expectErr:          false,
 			expectedTopicCount: 1,
 			expectedTopicName:  "another-topic",
@@ -132,10 +128,7 @@ func TestParseProduceRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: 9,
-			},
+			header:             newTestHeader(APIKeyProduce, 9),
 			expectErr:          false,
 			expectedTopicCount: 1,
 			expectedTopicName:  "my-topic",
@@ -172,10 +165,7 @@ func TestParseProduceRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: 12,
-			},
+			header:             newTestHeader(APIKeyProduce, 12),
 			expectErr:          false,
 			expectedTopicCount: 1,
 			expectedTopicName:  "topic1", // We'll check the first topic
@@ -217,10 +207,7 @@ func TestParseProduceRequest(t *testing.T) {
 				offset += 4
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: 12,
-			},
+			header:                 newTestHeader(APIKeyProduce, 12),
 			expectErr:              false,
 			expectedTopicCount:     1,
 			expectedTopicName:      "topic1", // We'll check the first topic
@@ -250,19 +237,13 @@ func TestParseProduceRequest(t *testing.T) {
 
 				return pkt[:offset]
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: 3,
-			},
+			header:    newTestHeader(APIKeyProduce, 3),
 			expectErr: true, // Should error on no Topics
 		},
 		{
-			name:   "produce request packet too short",
-			packet: []byte{0x01, 0x02}, // Too short
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: 3,
-			},
+			name:      "produce request packet too short",
+			packet:    []byte{0x01, 0x02}, // Too short
+			header:    newTestHeader(APIKeyProduce, 3),
 			expectErr: true,
 		},
 		{
@@ -273,17 +254,15 @@ func TestParseProduceRequest(t *testing.T) {
 				binary.BigEndian.PutUint16(pkt[0:], 100) // length too large
 				return pkt
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: 3,
-			},
+			header:    newTestHeader(APIKeyProduce, 3),
 			expectErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, err := ParseProduceRequest(tt.packet, tt.header, 0)
+			r := largebuf.NewLargeBufferFrom(tt.packet).NewReader()
+			req, err := ParseProduceRequest(&r, tt.header)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -312,7 +291,7 @@ func TestProduceRequestSkipUntilTopics(t *testing.T) {
 	tests := []struct {
 		name           string
 		packet         []byte
-		header         *KafkaRequestHeader
+		header         KafkaRequestHeader
 		expectedOffset int
 		expectErr      bool
 	}{
@@ -335,9 +314,7 @@ func TestProduceRequestSkipUntilTopics(t *testing.T) {
 
 				return pkt
 			}(),
-			header: &KafkaRequestHeader{
-				APIVersion: 5,
-			},
+			header:         newUncheckedHeader(APIKeyProduce, 5),
 			expectedOffset: 8,
 			expectErr:      false,
 		},
@@ -362,9 +339,7 @@ func TestProduceRequestSkipUntilTopics(t *testing.T) {
 
 				return pkt
 			}(),
-			header: &KafkaRequestHeader{
-				APIVersion: 7,
-			},
+			header:         newUncheckedHeader(APIKeyProduce, 7),
 			expectedOffset: 14,
 			expectErr:      false,
 		},
@@ -387,9 +362,7 @@ func TestProduceRequestSkipUntilTopics(t *testing.T) {
 
 				return pkt
 			}(),
-			header: &KafkaRequestHeader{
-				APIVersion: 9,
-			},
+			header:         newUncheckedHeader(APIKeyProduce, 9),
 			expectedOffset: 7,
 			expectErr:      false,
 		},
@@ -414,26 +387,20 @@ func TestProduceRequestSkipUntilTopics(t *testing.T) {
 
 				return pkt
 			}(),
-			header: &KafkaRequestHeader{
-				APIVersion: 10,
-			},
+			header:         newUncheckedHeader(APIKeyProduce, 10),
 			expectedOffset: 13,
 			expectErr:      false,
 		},
 		{
-			name:   "packet too short for non-flexible",
-			packet: make([]byte, 5),
-			header: &KafkaRequestHeader{
-				APIVersion: 5,
-			},
+			name:      "packet too short for non-flexible",
+			packet:    make([]byte, 5),
+			header:    newUncheckedHeader(APIKeyProduce, 5),
 			expectErr: true,
 		},
 		{
-			name:   "packet too short for flexible",
-			packet: make([]byte, 3),
-			header: &KafkaRequestHeader{
-				APIVersion: 9,
-			},
+			name:      "packet too short for flexible",
+			packet:    make([]byte, 3),
+			header:    newUncheckedHeader(APIKeyProduce, 9),
 			expectErr: true,
 		},
 		{
@@ -443,16 +410,15 @@ func TestProduceRequestSkipUntilTopics(t *testing.T) {
 				binary.BigEndian.PutUint16(pkt[0:], 100) // length too large
 				return pkt
 			}(),
-			header: &KafkaRequestHeader{
-				APIVersion: 5,
-			},
+			header:    newUncheckedHeader(APIKeyProduce, 5),
 			expectErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			offset, err := produceRequestSkipUntilTopics(tt.packet, tt.header, 0)
+			r := largebuf.NewLargeBufferFrom(tt.packet).NewReader()
+			err := produceRequestSkipUntilTopics(&r, tt.header)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -460,7 +426,7 @@ func TestProduceRequestSkipUntilTopics(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedOffset, offset)
+			assert.Equal(t, tt.expectedOffset, r.ReadOffset())
 		})
 	}
 }
@@ -472,10 +438,7 @@ func TestParseProduceRequestTruncation(t *testing.T) {
 
 	for _, version := range versions {
 		t.Run(fmt.Sprintf("version_%d_truncation", version), func(t *testing.T) {
-			header := &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: version,
-			}
+			header := newTestHeader(APIKeyProduce, version)
 
 			// Create a valid packet for this version
 			validPacket := createValidProducePacket(version)
@@ -484,7 +447,8 @@ func TestParseProduceRequestTruncation(t *testing.T) {
 			for i := 1; i < len(validPacket); i++ {
 				t.Run(fmt.Sprintf("truncated_at_%d", i), func(t *testing.T) {
 					truncated := validPacket[:i]
-					_, err := ParseProduceRequest(truncated, header, 0)
+					r := largebuf.NewLargeBufferFrom(truncated).NewReader()
+					_, err := ParseProduceRequest(&r, header)
 					assert.Error(t, err, "expected error for truncated packet at position %d for version %d", i, version)
 				})
 			}
@@ -498,15 +462,13 @@ func TestParseProduceRequestAllVersions(t *testing.T) {
 
 	for _, version := range versions {
 		t.Run(fmt.Sprintf("version_%d", version), func(t *testing.T) {
-			header := &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: version,
-			}
+			header := newTestHeader(APIKeyProduce, version)
 
 			// Create a valid packet for this version
 			validPacket := createValidProducePacket(version)
 
-			req, err := ParseProduceRequest(validPacket, header, 0)
+			r := largebuf.NewLargeBufferFrom(validPacket).NewReader()
+			req, err := ParseProduceRequest(&r, header)
 			require.NoError(t, err, "unexpected error for version %d", version)
 			require.NotNil(t, req)
 
@@ -658,13 +620,11 @@ func TestParseProduceRequestEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			header := &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: tt.version,
-			}
+			header := newTestHeader(APIKeyProduce, tt.version)
 
 			packet := tt.packet()
-			_, err := ParseProduceRequest(packet, header, 0)
+			r := largebuf.NewLargeBufferFrom(packet).NewReader()
+			_, err := ParseProduceRequest(&r, header)
 
 			if tt.expectErr {
 				assert.Error(t, err)

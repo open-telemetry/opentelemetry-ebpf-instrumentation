@@ -24,7 +24,7 @@ func TestNetwork_Deduplication(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly.yml", path.Join(pathOutput, "test-suite-netolly-dedupe.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_PATH=")
+	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_PATH=", `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 
 	// When there flow deduplication, results must not include "iface" field.
@@ -40,7 +40,7 @@ func TestNetwork_Deduplication_Use_Socket_Filter(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly.yml", path.Join(pathOutput, "test-suite-netolly-dedupe-no-tc.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_PATH=", "OTEL_EBPF_NETWORK_SOURCE=socket_filter")
+	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_PATH=", "OTEL_EBPF_NETWORK_SOURCE=socket_filter", `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 
 	// When there flow deduplication, results must not include "iface" field.
@@ -56,7 +56,7 @@ func TestNetwork_NoDeduplication(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly.yml", path.Join(pathOutput, "test-suite-netolly-nodedupe.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=none", "OTEL_EBPF_EXECUTABLE_PATH=")
+	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=none", "OTEL_EBPF_EXECUTABLE_PATH=", `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 
 	// When there is no flow deduplication, results must include "iface".
@@ -75,7 +75,7 @@ func TestNetwork_AllowedAttributes(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly.yml", path.Join(pathOutput, "test-suite-netolly-allowed-attrs.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, "OTEL_EBPF_EXECUTABLE_PATH=", `OTEL_EBPF_CONFIG_SUFFIX=-disallowattrs`)
+	compose.Env = append(compose.Env, "OTEL_EBPF_EXECUTABLE_PATH=", `OTEL_EBPF_CONFIG_SUFFIX=-disallowattrs`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 
 	// When there flow deduplication, results must only include
@@ -107,6 +107,7 @@ func TestNetwork_AllowedAttributes(t *testing.T) {
 func TestNetwork_ReverseDNS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly-rdns.yml", path.Join(pathOutput, "test-suite-netolly-reverse-dns.log"))
 	require.NoError(t, err)
+	compose.Env = append(compose.Env, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 
 	checkCurlFlows := func(query string) {
@@ -129,7 +130,7 @@ func TestNetwork_Direction(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly-direction.yml", path.Join(pathOutput, "test-suite-netolly-direction.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_NETWORK_SOURCE=tc", "OTEL_EBPF_EXECUTABLE_PATH=", `OTEL_EBPF_CONFIG_SUFFIX=-direction`)
+	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_NETWORK_SOURCE=tc", "OTEL_EBPF_EXECUTABLE_PATH=", `OTEL_EBPF_CONFIG_SUFFIX=-direction`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 
 	results := getDirectionNetFlows(t)
@@ -157,7 +158,7 @@ func TestNetwork_IfaceDirection_Use_Socket_Filter(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-netolly-direction.yml", path.Join(pathOutput, "test-suite-netolly-direction-no-tc.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_PATH=", "OTEL_EBPF_NETWORK_SOURCE=socket_filter", `OTEL_EBPF_CONFIG_SUFFIX=-direction`)
+	compose.Env = append(compose.Env, "OTEL_EBPF_NETWORK_DEDUPER=first_come", "OTEL_EBPF_EXECUTABLE_PATH=", "OTEL_EBPF_NETWORK_SOURCE=socket_filter", `OTEL_EBPF_CONFIG_SUFFIX=-direction`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 
 	results := getDirectionNetFlows(t)

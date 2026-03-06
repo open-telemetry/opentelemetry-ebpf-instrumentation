@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 type bindParseResult struct {
@@ -45,8 +47,8 @@ func TestPostgresBindParsing(t *testing.T) {
 			isBind: true,
 			result: bindParseResult{
 				statement:    "",
-				portal:       "ecto_1",
-				args:         []string{},
+				portal:       "",
+				args:         nil,
 				hasErr:       true,
 				hasASCIIArgs: true,
 			},
@@ -82,7 +84,7 @@ func TestPostgresBindParsing(t *testing.T) {
 			result: bindParseResult{
 				statement:    "",
 				portal:       "",
-				args:         []string{},
+				args:         nil,
 				hasErr:       true,
 				hasASCIIArgs: true,
 			},
@@ -101,10 +103,11 @@ func TestPostgresBindParsing(t *testing.T) {
 		},
 	} {
 		t.Run(ts.name, func(t *testing.T) {
-			ok := isPostgresBindCommand(ts.bytes)
+			lb := largebuf.NewLargeBufferFrom(ts.bytes)
+			ok := isPostgresBindCommand(lb)
 			assert.Equal(t, ts.isBind, ok)
 			if ok {
-				statement, portal, args, err := parsePostgresBindCommand(ts.bytes)
+				statement, portal, args, err := parsePostgresBindCommand(lb)
 				if ts.result.hasErr {
 					require.Error(t, err)
 				} else {
@@ -151,7 +154,7 @@ func TestPostgresQueryParsing(t *testing.T) {
 		{
 			name:  "Query prepared statement",
 			bytes: []byte{81, 0, 0, 0, 28, 101, 120, 101, 99, 117, 116, 101, 32, 109, 121, 95, 99, 111, 110, 116, 97, 99, 116, 115, 32, 40, 49, 41, 0, 69, 76, 69, 67, 84, 32, 42, 32, 102, 114, 111, 109, 32, 97, 99, 99, 111, 117, 110, 116, 105, 110, 103, 46, 99, 111, 110, 116, 97, 99, 116, 115, 32, 87, 72, 69, 82, 69, 32, 105, 100, 32, 61, 32, 36, 49, 0, 53, 90, 51, 106, 119, 55, 54, 111, 100, 85, 115, 57, 78, 75, 72, 73, 76, 119, 120, 104, 108, 81, 118, 50, 98, 122, 70, 72, 111, 73, 70, 48, 61},
-			op:    "execute",
+			op:    "EXECUTE",
 			table: "my_contacts",
 			sql:   "execute my_contacts (1)",
 		},
@@ -185,12 +188,12 @@ func TestPostgresQueryParsing(t *testing.T) {
 		},
 	} {
 		t.Run(ts.name, func(t *testing.T) {
-			op, table, sql, _ := detectSQLPayload(false, ts.bytes)
+			op, table, sql, _ := detectSQLPayload(false, largebuf.NewLargeBufferFrom(ts.bytes))
 			assert.Equal(t, ts.op, op)
 			assert.Equal(t, ts.table, table)
 			assert.Equal(t, ts.sql, sql)
 
-			op, table, sql, _ = detectSQLPayload(true, ts.bytes)
+			op, table, sql, _ = detectSQLPayload(true, largebuf.NewLargeBufferFrom(ts.bytes))
 			assert.Equal(t, ts.op, op)
 			assert.Equal(t, ts.table, table)
 			assert.Equal(t, ts.sql, sql)

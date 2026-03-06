@@ -123,8 +123,7 @@ func TestSuite_StaticCompilation(t *testing.T) {
 func TestSuite_OldestGoVersion(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-1.17.yml", path.Join(pathOutput, "test-suite-oldest-go.log"))
 	require.NoError(t, err)
-
-	compose.Env = []string{`OTEL_GO_AUTO_TARGET_EXE=*testserver`}
+	compose.Env = append(compose.Env, `OTEL_GO_AUTO_TARGET_EXE=*testserver`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 
 	config := ti.DefaultOBIConfig()
@@ -143,6 +142,7 @@ func TestSuite_UnsupportedGoVersion(t *testing.T) {
 	t.Skip("seems flaky, we need to look into this")
 	compose, err := docker.ComposeSuite("docker-compose-1.16.yml", path.Join(pathOutput, "test-suite-unsupported-go.log"))
 	require.NoError(t, err)
+	compose.Env = append(compose.Env, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 	t.Run("RED metrics", testREDMetricsUnsupportedHTTP)
 	require.NoError(t, compose.Close())
@@ -451,7 +451,16 @@ func TestSuite_JavaKafka(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
-	t.Run("Java Kafka 4.0.0 tests", testJavaKafka)
+	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9092, "javakafka") })
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_JavaKafkaTLS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400-tls.yml", path.Join(pathOutput, "test-suite-java-kafka.log"))
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9094, "java") })
 	require.NoError(t, compose.Close())
 }
 
@@ -634,7 +643,7 @@ func TestSuiteNodeClient(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-nodeclient.yml", path.Join(pathOutput, "test-suite-nodeclient.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {
 		testNodeClientWithMethodAndStatusCode(t, "GET", 301, 80, "0000000000000000")
@@ -646,7 +655,7 @@ func TestSuiteNodeClientTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-nodeclient.yml", path.Join(pathOutput, "test-suite-nodeclient-tls.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client_tls`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client_tls`, `PROM_CONFIG_SUFFIX=`)
 	require.NoError(t, compose.Up())
 	t.Run("Node Client RED metrics", func(t *testing.T) {
 		testNodeClientWithMethodAndStatusCode(t, "GET", 200, 443, "0000000000000001")
@@ -704,6 +713,19 @@ func TestSuite_LogEnricherGoGRPC(t *testing.T) {
 
 	t.Run("Log Enricher Go gRPC", func(t *testing.T) {
 		testLogEnricher(t, logEnricherGoGRPCConstants)
+	})
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_LogEnricherNodeJS(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-nodejs.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Log Enricher Node.js", func(t *testing.T) {
+		testLogEnricherNodeJS(t)
 	})
 	require.NoError(t, compose.Close())
 }

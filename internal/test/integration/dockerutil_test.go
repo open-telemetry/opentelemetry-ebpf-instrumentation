@@ -134,6 +134,16 @@ func setupContainerCollector(t *testing.T, network *dockertest.Network, configFi
 	t.Log("OpenTelemetry Collector container started")
 }
 
+// dockerAuthConfigs loads Docker registry credentials from ~/.docker/config.json
+// if available. In CI, docker/login-action populates this file. Returns an empty
+// AuthConfigurations (no-op) when the config file is absent or unreadable.
+func dockerAuthConfigs() docker.AuthConfigurations {
+	if cfgs, err := docker.NewAuthConfigurationsFromDockerCfg(); err == nil {
+		return *cfgs
+	}
+	return docker.AuthConfigurations{}
+}
+
 // buildOBIImage builds the OBI image. When SKIP_DOCKER_BUILD is set, the image
 // has been pre-built for the VM workflow prior to QEMU startup.
 func buildOBIImage() error {
@@ -151,6 +161,7 @@ func buildOBIImage() error {
 		Dockerfile:   "internal/test/integration/components/obi/Dockerfile",
 		OutputStream: os.Stdout,
 		ErrorStream:  os.Stderr,
+		AuthConfigs:  dockerAuthConfigs(),
 	})
 }
 

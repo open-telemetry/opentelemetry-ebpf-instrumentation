@@ -5,6 +5,6 @@
   "main": "service.js",
   "dependencies": {
     "axios": "^1.6.0",
-    "express": "^4.22.1"
+    "express": "^5.0.0"
   }
 }

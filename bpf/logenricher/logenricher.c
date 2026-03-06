@@ -133,7 +133,7 @@ int BPF_KPROBE(obi_kprobe_tty_write, struct kiocb *iocb, struct iov_iter *from) 
     struct tty_file_private *tfp =
         (struct tty_file_private *)BPF_CORE_READ(iocb, ki_filp, private_data);
     struct tty_struct *tty = BPF_CORE_READ(tfp, tty);
-    bool is_master = tty_driver_is_pty(tty) && tty_driver_is_master(tty);
+    const bool is_master = tty_driver_is_pty(tty) && tty_driver_is_master(tty);
 
     struct tty_dev master = {};
     struct tty_dev slave = {};

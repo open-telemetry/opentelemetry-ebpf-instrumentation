@@ -10,15 +10,21 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
-func TestParseKafkaRequestHeader(t *testing.T) {
+func TestNewKafkaRequestHeader(t *testing.T) {
 	tests := []struct {
-		name      string
-		packet    []byte
-		expectErr bool
-		flexible  bool
-		expected  *KafkaRequestHeader
+		name                  string
+		packet                []byte
+		expectErr             bool
+		flexible              bool
+		expectedMessageSize   int32
+		expectedAPIKey        KafkaAPIKey
+		expectedAPIVersion    int16
+		expectedCorrelationID int32
+		expectedClientID      string
 	}{
 		{
 			name: "valid fetch request header v1",
@@ -32,14 +38,12 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 				copy(pkt[14:18], "test")                     // ClientID
 				return pkt
 			}(),
-			expectErr: false,
-			expected: &KafkaRequestHeader{
-				MessageSize:   100,
-				APIKey:        1,
-				APIVersion:    1,
-				CorrelationID: 12345,
-				ClientID:      "test",
-			},
+			expectErr:             false,
+			expectedMessageSize:   100,
+			expectedAPIKey:        1,
+			expectedAPIVersion:    1,
+			expectedCorrelationID: 12345,
+			expectedClientID:      "test",
 		},
 		{
 			name: "valid produce request header v9 (flexible)",
@@ -54,35 +58,33 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 				pkt[20] = 0                                  // 0 tagged_fields
 				return pkt
 			}(),
-			expectErr: false,
-			flexible:  true,
-			expected: &KafkaRequestHeader{
-				MessageSize:   150,
-				APIKey:        0,
-				APIVersion:    9,
-				CorrelationID: 54321,
-				ClientID:      "client",
-			},
+			expectErr:             false,
+			flexible:              true,
+			expectedMessageSize:   150,
+			expectedAPIKey:        0,
+			expectedAPIVersion:    9,
+			expectedCorrelationID: 54321,
+			expectedClientID:      "client",
 		},
 		{
 			name: "valid metadata request header v10",
 			packet: func() []byte {
-				pkt := make([]byte, 14)
+				pkt := make([]byte, 15)                      // MinKafkaRequestLen + 1 for tagged fields byte
 				binary.BigEndian.PutUint32(pkt[0:4], 100)    // MessageSize
 				binary.BigEndian.PutUint16(pkt[4:6], 3)      // APIKey (Metadata)
 				binary.BigEndian.PutUint16(pkt[6:8], 10)     // APIVersion
 				binary.BigEndian.PutUint32(pkt[8:12], 98765) // CorrelationID
 				binary.BigEndian.PutUint16(pkt[12:14], 0)    // ClientID length (empty)
+				pkt[14] = 0                                  // tagged fields = 0
 				return pkt
 			}(),
-			expectErr: false,
-			expected: &KafkaRequestHeader{
-				MessageSize:   100,
-				APIKey:        3,
-				APIVersion:    10,
-				CorrelationID: 98765,
-				ClientID:      "",
-			},
+			expectErr:             false,
+			flexible:              true,
+			expectedMessageSize:   100,
+			expectedAPIKey:        3,
+			expectedAPIVersion:    10,
+			expectedCorrelationID: 98765,
+			expectedClientID:      "",
 		},
 		{
 			name: "packet too short",
@@ -90,7 +92,6 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 				return make([]byte, 10) // Less than MinKafkaRequestLen
 			}(),
 			expectErr: true,
-			expected:  nil,
 		},
 		{
 			name: "invalid API key",
@@ -104,7 +105,6 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 				return pkt
 			}(),
 			expectErr: true,
-			expected:  nil,
 		},
 		{
 			name: "unsupported fetch version",
@@ -118,7 +118,6 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 				return pkt
 			}(),
 			expectErr: true,
-			expected:  nil,
 		},
 		{
 			name: "negative client ID size",
@@ -132,7 +131,6 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 				return pkt
 			}(),
 			expectErr: true,
-			expected:  nil,
 		},
 		{
 			name: "packet too short for client ID",
@@ -146,13 +144,12 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 				return pkt
 			}(),
 			expectErr: true,
-			expected:  nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			header, offset, err := ParseKafkaRequestHeader(tt.packet)
+			header, err := NewKafkaRequestHeader(largebuf.NewLargeBufferFrom(tt.packet))
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -160,124 +157,107 @@ func TestParseKafkaRequestHeader(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			require.NotNil(t, header)
 
-			assert.Equal(t, tt.expected.MessageSize, header.MessageSize)
-			assert.Equal(t, tt.expected.APIKey, header.APIKey)
-			assert.Equal(t, tt.expected.APIVersion, header.APIVersion)
-			assert.Equal(t, tt.expected.CorrelationID, header.CorrelationID)
-			assert.Equal(t, tt.expected.ClientID, header.ClientID)
+			assert.Equal(t, tt.expectedMessageSize, header.MessageSize())
+			assert.Equal(t, tt.expectedAPIKey, header.APIKey())
+			assert.Equal(t, tt.expectedAPIVersion, header.APIVersion())
+			assert.Equal(t, tt.expectedCorrelationID, header.CorrelationID())
+			assert.Equal(t, tt.expectedClientID, header.ClientID())
 
-			expectedOffset := MinKafkaRequestLen + len(tt.expected.ClientID)
+			expectedBodyOffset := MinKafkaRequestLen + len(tt.expectedClientID)
 			if tt.flexible {
-				expectedOffset++ // Account for tagged fields byte
+				expectedBodyOffset++ // Account for tagged fields byte
 			}
-			assert.Equal(t, expectedOffset, offset)
+			assert.Equal(t, expectedBodyOffset, int(header.bodyOffset))
 		})
 	}
 }
 
 func TestValidateKafkaHeader(t *testing.T) {
 	tests := []struct {
-		name      string
-		header    *KafkaRequestHeader
-		expectErr bool
+		name          string
+		msgSize       int32
+		apiKey        KafkaAPIKey
+		apiVersion    int16
+		correlationID int32
+		expectErr     bool
 	}{
 		{
-			name: "valid fetch header",
-			header: &KafkaRequestHeader{
-				MessageSize:   100,
-				APIKey:        APIKeyFetch,
-				APIVersion:    5,
-				CorrelationID: 123,
-			},
-			expectErr: false,
+			name:          "valid fetch header",
+			msgSize:       100,
+			apiKey:        APIKeyFetch,
+			apiVersion:    5,
+			correlationID: 123,
 		},
 		{
-			name: "valid produce header",
-			header: &KafkaRequestHeader{
-				MessageSize:   200,
-				APIKey:        APIKeyProduce,
-				APIVersion:    8,
-				CorrelationID: 456,
-			},
-			expectErr: false,
+			name:          "valid produce header",
+			msgSize:       200,
+			apiKey:        APIKeyProduce,
+			apiVersion:    8,
+			correlationID: 456,
 		},
 		{
-			name: "valid metadata header",
-			header: &KafkaRequestHeader{
-				MessageSize:   150,
-				APIKey:        APIKeyMetadata,
-				APIVersion:    12,
-				CorrelationID: 789,
-			},
-			expectErr: false,
+			name:          "valid metadata header",
+			msgSize:       150,
+			apiKey:        APIKeyMetadata,
+			apiVersion:    12,
+			correlationID: 789,
 		},
 		{
-			name: "message size too small",
-			header: &KafkaRequestHeader{
-				MessageSize:   5,
-				APIKey:        APIKeyFetch,
-				APIVersion:    1,
-				CorrelationID: 123,
-			},
-			expectErr: true,
+			name:          "message size too small",
+			msgSize:       5,
+			apiKey:        APIKeyFetch,
+			apiVersion:    1,
+			correlationID: 123,
+			expectErr:     true,
 		},
 		{
-			name: "message size too large",
-			header: &KafkaRequestHeader{
-				MessageSize:   KafkaMaxPayloadLen + 1,
-				APIKey:        APIKeyFetch,
-				APIVersion:    1,
-				CorrelationID: 123,
-			},
-			expectErr: true,
+			name:          "message size too large",
+			msgSize:       KafkaMaxPayloadLen + 1,
+			apiKey:        APIKeyFetch,
+			apiVersion:    1,
+			correlationID: 123,
+			expectErr:     true,
 		},
 		{
-			name: "negative API version",
-			header: &KafkaRequestHeader{
-				MessageSize:   100,
-				APIKey:        APIKeyFetch,
-				APIVersion:    -1,
-				CorrelationID: 123,
-			},
-			expectErr: true,
+			name:          "negative API version",
+			msgSize:       100,
+			apiKey:        APIKeyFetch,
+			apiVersion:    -1,
+			correlationID: 123,
+			expectErr:     true,
 		},
 		{
-			name: "negative correlation ID",
-			header: &KafkaRequestHeader{
-				MessageSize:   100,
-				APIKey:        APIKeyFetch,
-				APIVersion:    1,
-				CorrelationID: -1,
-			},
-			expectErr: true,
+			name:          "negative correlation ID",
+			msgSize:       100,
+			apiKey:        APIKeyFetch,
+			apiVersion:    1,
+			correlationID: -1,
+			expectErr:     true,
 		},
 		{
-			name: "unsupported metadata version (too low)",
-			header: &KafkaRequestHeader{
-				MessageSize:   100,
-				APIKey:        APIKeyMetadata,
-				APIVersion:    9,
-				CorrelationID: 123,
-			},
-			expectErr: true,
+			name:          "unsupported metadata version (too low)",
+			msgSize:       100,
+			apiKey:        APIKeyMetadata,
+			apiVersion:    9,
+			correlationID: 123,
+			expectErr:     true,
 		},
 		{
-			name: "unsupported metadata version (too high)",
-			header: &KafkaRequestHeader{
-				MessageSize:   100,
-				APIKey:        APIKeyMetadata,
-				APIVersion:    14,
-				CorrelationID: 123,
-			},
-			expectErr: true,
+			name:          "unsupported metadata version (too high)",
+			msgSize:       100,
+			apiKey:        APIKeyMetadata,
+			apiVersion:    14,
+			correlationID: 123,
+			expectErr:     true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateKafkaRequestHeader(tt.header)
+			lb := buildRawHeaderBuf(tt.msgSize, tt.apiKey, tt.apiVersion, tt.correlationID)
+			h := KafkaRequestHeader{lb: lb}
+			err := h.validate()
 			if tt.expectErr {
 				assert.Error(t, err)
 			} else {
@@ -290,65 +270,16 @@ func TestValidateKafkaHeader(t *testing.T) {
 func TestIsFlexible(t *testing.T) {
 	tests := []struct {
 		name     string
-		header   *KafkaRequestHeader
+		header   KafkaRequestHeader
 		expected bool
 	}{
-		{
-			name: "produce v8 - not flexible",
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: 8,
-			},
-			expected: false,
-		},
-		{
-			name: "produce v9 - flexible",
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyProduce,
-				APIVersion: 9,
-			},
-			expected: true,
-		},
-		{
-			name: "fetch v11 - not flexible",
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 11,
-			},
-			expected: false,
-		},
-		{
-			name: "fetch v12 - flexible",
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 12,
-			},
-			expected: true,
-		},
-		{
-			name: "metadata v8 - not flexible",
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyMetadata,
-				APIVersion: 8,
-			},
-			expected: false,
-		},
-		{
-			name: "metadata v9 - flexible",
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyMetadata,
-				APIVersion: 9,
-			},
-			expected: true,
-		},
-		{
-			name: "unknown API key",
-			header: &KafkaRequestHeader{
-				APIKey:     99,
-				APIVersion: 1,
-			},
-			expected: false,
-		},
+		{name: "produce v8 - not flexible", header: newUncheckedHeader(APIKeyProduce, 8), expected: false},
+		{name: "produce v9 - flexible", header: newUncheckedHeader(APIKeyProduce, 9), expected: true},
+		{name: "fetch v11 - not flexible", header: newUncheckedHeader(APIKeyFetch, 11), expected: false},
+		{name: "fetch v12 - flexible", header: newUncheckedHeader(APIKeyFetch, 12), expected: true},
+		{name: "metadata v8 - not flexible", header: newUncheckedHeader(APIKeyMetadata, 8), expected: false},
+		{name: "metadata v9 - flexible", header: newUncheckedHeader(APIKeyMetadata, 9), expected: true},
+		{name: "unknown API key", header: newUncheckedHeader(99, 1), expected: false},
 	}
 
 	for _, tt := range tests {
@@ -363,7 +294,7 @@ func TestReadArrayLength(t *testing.T) {
 	tests := []struct {
 		name           string
 		packet         []byte
-		header         *KafkaRequestHeader
+		header         KafkaRequestHeader
 		offset         int
 		expectedLength int
 		expectedOffset int
@@ -376,10 +307,7 @@ func TestReadArrayLength(t *testing.T) {
 				binary.BigEndian.PutUint32(pkt[0:4], 5) // Array length
 				return pkt
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 5, // Non-flexible
-			},
+			header:         newUncheckedHeader(APIKeyFetch, 5),
 			offset:         0,
 			expectedLength: 5,
 			expectedOffset: 4,
@@ -391,10 +319,7 @@ func TestReadArrayLength(t *testing.T) {
 				// Varint encoding of 6 (5+1 for flexible arrays)
 				return []byte{0x06, 0x00, 0x00, 0x00}
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 12, // Flexible
-			},
+			header:         newUncheckedHeader(APIKeyFetch, 12),
 			offset:         0,
 			expectedLength: 5,
 			expectedOffset: 1,
@@ -404,7 +329,8 @@ func TestReadArrayLength(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			length, offset, err := readArrayLength(tt.packet, tt.header, tt.offset)
+			r := largebuf.NewLargeBufferFrom(tt.packet[tt.offset:]).NewReader()
+			length, err := readArrayLength(&r, tt.header)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -413,7 +339,7 @@ func TestReadArrayLength(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedLength, length)
-			assert.Equal(t, tt.expectedOffset, offset)
+			assert.Equal(t, tt.expectedOffset-tt.offset, r.ReadOffset())
 		})
 	}
 }
@@ -481,7 +407,8 @@ func TestReadUUID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uuid, offset, err := readUUID(tt.packet, tt.offset)
+			r := largebuf.NewLargeBufferFrom(tt.packet[tt.offset:]).NewReader()
+			uuid, err := readUUID(&r)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -491,7 +418,7 @@ func TestReadUUID(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, uuid)
 			assert.Equal(t, tt.expectedUUID, *uuid)
-			assert.Equal(t, tt.expectedOffset, offset)
+			assert.Equal(t, tt.expectedOffset-tt.offset, r.ReadOffset())
 		})
 	}
 }
@@ -500,7 +427,7 @@ func TestReadString(t *testing.T) {
 	tests := []struct {
 		name           string
 		packet         []byte
-		header         *KafkaRequestHeader
+		header         KafkaRequestHeader
 		offset         int
 		nullable       bool
 		expectedString string
@@ -515,10 +442,7 @@ func TestReadString(t *testing.T) {
 				copy(pkt[2:7], "hello")
 				return pkt
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 5, // Non-flexible
-			},
+			header:         newUncheckedHeader(APIKeyFetch, 5),
 			offset:         0,
 			nullable:       false,
 			expectedString: "hello",
@@ -533,10 +457,7 @@ func TestReadString(t *testing.T) {
 				pkt = append(pkt, []byte("world")...)
 				return pkt
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 12, // Flexible
-			},
+			header:         newUncheckedHeader(APIKeyFetch, 12),
 			offset:         0,
 			nullable:       false,
 			expectedString: "world",
@@ -550,10 +471,7 @@ func TestReadString(t *testing.T) {
 				binary.BigEndian.PutUint16(pkt[0:2], 10) // String length > available
 				return pkt
 			}(),
-			header: &KafkaRequestHeader{
-				APIKey:     APIKeyFetch,
-				APIVersion: 5,
-			},
+			header:    newUncheckedHeader(APIKeyFetch, 5),
 			offset:    0,
 			nullable:  false,
 			expectErr: true,
@@ -562,7 +480,8 @@ func TestReadString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			str, offset, err := readString(tt.packet, tt.header, tt.offset, tt.nullable)
+			r := largebuf.NewLargeBufferFrom(tt.packet[tt.offset:]).NewReader()
+			str, err := readString(&r, tt.header, tt.nullable)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -571,43 +490,43 @@ func TestReadString(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedString, str)
-			assert.Equal(t, tt.expectedOffset, offset)
+			assert.Equal(t, tt.expectedOffset-tt.offset, r.ReadOffset())
 		})
 	}
 }
 
 func TestReadUnsignedVarint(t *testing.T) {
 	tests := []struct {
-		name           string
-		data           []byte
-		offset         int
-		expectedValue  int
-		expectedOffset int
-		expectErr      bool
+		name          string
+		data          []byte
+		offset        int
+		expectedValue int
+		expectedBytes int // bytes consumed
+		expectErr     bool
 	}{
 		{
-			name:           "single byte varint",
-			data:           []byte{0x05},
-			offset:         0,
-			expectedValue:  5,
-			expectedOffset: 1,
-			expectErr:      false,
+			name:          "single byte varint",
+			data:          []byte{0x05},
+			offset:        0,
+			expectedValue: 5,
+			expectedBytes: 1,
+			expectErr:     false,
 		},
 		{
-			name:           "multi-byte varint",
-			data:           []byte{0x96, 0x01}, // 150 in varint
-			offset:         0,
-			expectedValue:  150,
-			expectedOffset: 2,
-			expectErr:      false,
+			name:          "multi-byte varint",
+			data:          []byte{0x96, 0x01}, // 150 in varint
+			offset:        0,
+			expectedValue: 150,
+			expectedBytes: 2,
+			expectErr:     false,
 		},
 		{
-			name:           "large varint",
-			data:           []byte{0xFF, 0xFF, 0x7F}, // Large number
-			offset:         0,
-			expectedValue:  2097151,
-			expectedOffset: 3,
-			expectErr:      false,
+			name:          "large varint",
+			data:          []byte{0xFF, 0xFF, 0x7F}, // Large number
+			offset:        0,
+			expectedValue: 2097151,
+			expectedBytes: 3,
+			expectErr:     false,
 		},
 		{
 			name:      "incomplete varint",
@@ -625,7 +544,8 @@ func TestReadUnsignedVarint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			value, offset, err := readUnsignedVarint(tt.data, tt.offset)
+			r := largebuf.NewLargeBufferFrom(tt.data[tt.offset:]).NewReader()
+			value, err := readUnsignedVarint(&r)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -634,48 +554,49 @@ func TestReadUnsignedVarint(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedValue, value)
-			assert.Equal(t, tt.expectedOffset, offset)
+			assert.Equal(t, tt.expectedBytes, r.ReadOffset())
 		})
 	}
 }
 
-func TestSkipBytes(t *testing.T) {
+func TestSkip(t *testing.T) {
 	tests := []struct {
-		name           string
-		packet         []byte
-		offset         int
-		length         int
-		expectedOffset int
-		expectErr      bool
+		name          string
+		packet        []byte
+		offset        int
+		length        int
+		expectedBytes int // bytes consumed by Skip
+		expectErr     bool
 	}{
 		{
-			name:           "valid skip",
-			packet:         make([]byte, 20),
-			offset:         5,
-			length:         10,
-			expectedOffset: 15,
-			expectErr:      false,
+			name:          "valid skip",
+			packet:        make([]byte, 20),
+			offset:        5,
+			length:        10,
+			expectedBytes: 10,
+			expectErr:     false,
 		},
 		{
 			name:      "skip exceeds packet",
 			packet:    make([]byte, 10),
 			offset:    5,
-			length:    10, // 5 + 10 > 10
+			length:    10, // 5 remaining, but skip 10
 			expectErr: true,
 		},
 		{
-			name:           "skip zero bytes",
-			packet:         make([]byte, 10),
-			offset:         3,
-			length:         0,
-			expectedOffset: 3,
-			expectErr:      false,
+			name:          "skip zero bytes",
+			packet:        make([]byte, 10),
+			offset:        3,
+			length:        0,
+			expectedBytes: 0,
+			expectErr:     false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			offset, err := skipBytes(tt.packet, tt.offset, tt.length)
+			r := largebuf.NewLargeBufferFrom(tt.packet[tt.offset:]).NewReader()
+			err := r.Skip(tt.length)
 
 			if tt.expectErr {
 				assert.Error(t, err)
@@ -683,13 +604,13 @@ func TestSkipBytes(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedOffset, offset)
+			assert.Equal(t, tt.expectedBytes, r.ReadOffset())
 		})
 	}
 }
 
 // Truncation tests to simulate incomplete packets
-func TestParseKafkaRequestHeaderTruncation(t *testing.T) {
+func TestNewKafkaRequestHeaderTruncation(t *testing.T) {
 	// Create a valid header first
 	validPacket := make([]byte, 18)
 	binary.BigEndian.PutUint32(validPacket[0:4], 100)    // MessageSize
@@ -703,7 +624,7 @@ func TestParseKafkaRequestHeaderTruncation(t *testing.T) {
 	for i := 1; i < len(validPacket); i++ {
 		t.Run(fmt.Sprintf("truncated_at_%d", i), func(t *testing.T) {
 			truncated := validPacket[:i]
-			_, _, err := ParseKafkaRequestHeader(truncated)
+			_, err := NewKafkaRequestHeader(largebuf.NewLargeBufferFrom(truncated))
 			assert.Error(t, err, "expected error for truncated packet at position %d", i)
 		})
 	}

@@ -203,7 +203,7 @@ int obi_socket__filter(struct __sk_buff *skb) {
         return TC_ACT_UNSPEC;
     }
 
-    u64 current_time = bpf_ktime_get_ns();
+    const u64 current_time = bpf_ktime_get_ns();
 
     // TODO: we need to add spinlock here when we deprecate versions prior to 5.1, or provide
     // a spinlocked alternative version and use it selectively https://lwn.net/Articles/779120/
@@ -219,7 +219,7 @@ int obi_socket__filter(struct __sk_buff *skb) {
         }
         aggregate_flow->flags |= flags;
 
-        long ret = bpf_map_update_elem(&aggregated_flows, &id, aggregate_flow, BPF_ANY);
+        const long ret = bpf_map_update_elem(&aggregated_flows, &id, aggregate_flow, BPF_ANY);
         if (trace_messages && ret != 0) {
             // usually error -16 (-EBUSY) is printed here.
             // In this case, the flow is dropped, as submitting it to the ringbuffer would cause
@@ -271,7 +271,7 @@ int obi_socket__filter(struct __sk_buff *skb) {
 
         // even if we know that the entry is new, another CPU might be concurrently inserting a flow
         // so we need to specify BPF_ANY
-        long ret = bpf_map_update_elem(&aggregated_flows, &id, &new_flow, BPF_ANY);
+        const long ret = bpf_map_update_elem(&aggregated_flows, &id, &new_flow, BPF_ANY);
         if (ret != 0) {
             // usually error -16 (-EBUSY) or -7 (E2BIG) is printed here.
             // In this case, we send the single-packet flow via ringbuffer as in the worst case we can have

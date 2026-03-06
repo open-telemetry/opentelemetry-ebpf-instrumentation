@@ -6,9 +6,7 @@
 package generictracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 
 import (
-	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,7 +15,6 @@ import (
 	"unsafe"
 
 	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
 	"github.com/gavv/monotime"
 	"github.com/vishvananda/netlink"
 
@@ -130,7 +127,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.rebuildValidPids()
 }
 
-func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
+func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if p.cfg.EBPF.TrackRequestHeaders ||
 		p.cfg.EBPF.ContextPropagation.IsEnabled() {
 		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled))
@@ -143,7 +140,7 @@ func (p *Tracer) Load() (*ebpf.CollectionSpec, error) {
 
 	ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
 
-	return spec, err
+	return []*ebpfcommon.SpecBundle{{Spec: spec, Objects: &p.bpfObjects, Constants: p.constants()}}, nil
 }
 
 func (p *Tracer) SetupTailCalls() {
@@ -165,7 +162,7 @@ func (p *Tracer) SetupTailCalls() {
 	}
 }
 
-func (p *Tracer) Constants() map[string]any {
+func (p *Tracer) constants() map[string]any {
 	m := make(map[string]any, 2)
 
 	m["wakeup_data_bytes"] = uint32(p.cfg.EBPF.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{}))
@@ -214,10 +211,6 @@ func (p *Tracer) Constants() map[string]any {
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 
 func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
-
-func (p *Tracer) BpfObjects() any {
-	return &p.bpfObjects
-}
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
 	p.closers = append(p.closers, c...)
@@ -502,7 +495,7 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 
 	for _, it := range p.Iters() {
 		if it.Program == p.bpfObjects.ObiIterTcp {
-			if err := p.runIterator(it); err != nil {
+			if err := it.Run(p.log); err != nil {
 				p.log.Error("error running TCP iterator", "error", err)
 			}
 		}
@@ -543,12 +536,12 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFP
 					// but it hasn't been posted yet, likely missed by the logic that looks at finishing requests
 					// where we track the full response. If we haven't updated the EndMonotimeNs in more than some
 					// short interval, we are likely not going to finish this request from eBPF, so let's do it here.
-					if v.EndMonotimeNs != 0 && v.Submitted == 0 && t.After(kernelTime(v.EndMonotimeNs).Add(2*time.Second)) {
+					if v.EndMonotimeNs != 0 && v.Submitted == 0 && t.After(kernelTime(v.EndMonotimeNs).Add(10*time.Second)) {
 						// Must use unsafe here, the two bpfHttpInfoTs are the same but generated from different
 						// ebpf2go outputs
 						s, ignore, err := ebpfcommon.HTTPInfoEventToSpan(parseCtx, (*ebpfcommon.BPFHTTPInfo)(unsafe.Pointer(&v)))
 						if !ignore && err == nil {
-							eventsChan.Send(p.pidsFilter.Filter([]request.Span{s}))
+							eventsChan.SendCtx(ctx, p.pidsFilter.Filter([]request.Span{s}))
 						}
 						if err := p.bpfObjects.OngoingHttp.Delete(k); err != nil {
 							p.log.Debug("Error deleting ongoing request", "error", err)
@@ -565,7 +558,7 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFP
 							}
 							s.End = s.Start + p.cfg.EBPF.HTTPRequestTimeout.Nanoseconds()
 
-							eventsChan.Send(p.pidsFilter.Filter([]request.Span{s}))
+							eventsChan.SendCtx(ctx, p.pidsFilter.Filter([]request.Span{s}))
 						}
 						if err := p.bpfObjects.OngoingHttp.Delete(k); err != nil {
 							p.log.Debug("Error deleting ongoing request", "error", err)
@@ -596,31 +589,6 @@ func (p *Tracer) watchForMisclassifedEvents(ctx context.Context) {
 			}
 		}
 	}
-}
-
-func (p *Tracer) runIterator(it *ebpfcommon.Iter) error {
-	p.log.Debug("Running iterator", "iterator", it.Program.String())
-
-	if it.Link == nil {
-		return errors.New("iterator link is nil")
-	}
-
-	rd, err := it.Link.(*link.Iter).Open()
-	if err != nil {
-		return fmt.Errorf("open iterator: %w", err)
-	}
-	defer rd.Close()
-
-	scanner := bufio.NewScanner(rd)
-	for scanner.Scan() {
-		p.log.Debug("Iterator output", "line", scanner.Text(), "iterator", it.Program.String())
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read iterator: %w", err)
-	}
-	p.log.Debug("Iterator finished", "iterator", it.Program.String())
-
-	return nil
 }
 
 // Cilium 0.19.0+ is adding a new private field to all the BpfConnectionInfoT

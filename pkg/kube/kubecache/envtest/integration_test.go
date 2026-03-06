@@ -380,19 +380,21 @@ func TestFilterByTimestamp(t *testing.T) {
 		svcClient.Start(ctx, ct, discardEventsBefore)
 	}, timeout, 100*time.Millisecond)
 
-	newestObjects := map[string]struct{}{
-		"service1-filter-by-ts": {},
-		"pod-filter-by-ts":      {},
+	// Collect all snapshot events until SYNC_FINISHED. The snapshot and the live watch
+	// stream can race, so an object may arrive more than once before SYNC_FINISHED.
+	// We track unique names rather than asserting a fixed event count.
+	seenObjects := map[string]struct{}{}
+	for {
+		evnt := testutil.ReadChannel(t, svcClient.Messages, timeout)
+		if evnt.Type == informer.EventType_SYNC_FINISHED {
+			break
+		}
+		if evnt.Resource != nil {
+			seenObjects[evnt.Resource.Name] = struct{}{}
+		}
 	}
-	evnt := testutil.ReadChannel(t, svcClient.Messages, timeout)
-	assert.Contains(t, newestObjects, evnt.Resource.Name)
-	delete(newestObjects, evnt.Resource.Name)
-	evnt = testutil.ReadChannel(t, svcClient.Messages, timeout)
-	require.NotNil(t, evnt)
-	require.NotNil(t, evnt.Resource)
-	assert.Contains(t, newestObjects, evnt.Resource.Name)
-	evnt = testutil.ReadChannel(t, svcClient.Messages, timeout)
-	assert.Equal(t, informer.EventType_SYNC_FINISHED, evnt.Type)
+	assert.Contains(t, seenObjects, "service1-filter-by-ts")
+	assert.Contains(t, seenObjects, "pod-filter-by-ts")
 
 	require.NoError(t, k8sClient.Create(ctx, &corev1.Service{
 		ObjectMeta: v1.ObjectMeta{Name: "more-filter-by-ts", Namespace: "default"},
@@ -401,7 +403,8 @@ func TestFilterByTimestamp(t *testing.T) {
 			ClusterIP: "10.0.0.127", ClusterIPs: []string{"10.0.0.127"},
 		},
 	}))
-	evnt = testutil.ReadChannel(t, svcClient.Messages, timeout)
+	evnt := testutil.ReadChannel(t, svcClient.Messages, timeout)
+	require.NotNil(t, evnt.Resource)
 	assert.Equal(t, "more-filter-by-ts", evnt.Resource.Name)
 }
 
