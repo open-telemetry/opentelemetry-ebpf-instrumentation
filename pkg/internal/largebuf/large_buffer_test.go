@@ -150,7 +150,7 @@ func TestReadN_tooManyBytes_returnsError(t *testing.T) {
 
 	r := lb.NewReader()
 	_, err := r.ReadN(10)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestReadN_zero_returnsNil(t *testing.T) {
@@ -225,7 +225,7 @@ func TestSkip_tooMany_returnsError(t *testing.T) {
 	lb.AppendChunk([]byte("hi"))
 
 	r := lb.NewReader()
-	assert.Error(t, r.Skip(10))
+	require.Error(t, r.Skip(10))
 }
 
 // ── Remaining ────────────────────────────────────────────────────────────────
@@ -1463,7 +1463,7 @@ func TestNewLimitedReader_readCStrBoundedAtEnd(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = r.ReadCStr()
-	assert.Error(t, err, "ReadCStr must fail when null terminator is outside the end bound")
+	require.Error(t, err, "ReadCStr must fail when null terminator is outside the end bound")
 }
 
 func TestNewLimitedReader_readViaIoReader(t *testing.T) {
@@ -1506,13 +1506,13 @@ func TestNewLimitedReader_invalidArgs(t *testing.T) {
 	lb := NewLargeBufferFrom([]byte("hello"))
 
 	_, err := lb.NewLimitedReader(-1, 3)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	_, err = lb.NewLimitedReader(3, 2) // end < offset
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	_, err = lb.NewLimitedReader(0, 10) // end > Len
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestNewLimitedReader_zeroAllocs(t *testing.T) {
