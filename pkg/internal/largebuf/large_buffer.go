@@ -113,7 +113,7 @@ func (lb *LargeBuffer) Reset() {
 // that accept *LargeBufferReader or io.Reader.
 // Multiple independent readers can operate on the same buffer simultaneously.
 func (lb *LargeBuffer) NewReader() LargeBufferReader {
-	return LargeBufferReader{lb: lb}
+	return LargeBufferReader{lb: lb, end: -1}
 }
 
 // NewLimitedReader returns a [LargeBufferReader] positioned at offset whose reads are bounded
@@ -406,12 +406,14 @@ type LargeBufferReader struct {
 	lb      *LargeBuffer
 	rchunk  int // index of the current read chunk
 	roff    int // byte offset within lb.chunks[rchunk]
-	end     int // absolute end bound (0 = no limit, i.e. lb.total)
+	end     int // absolute end bound; -1 means no limit (reads to lb.total)
 	scratch []byte
 }
 
-// Reset repositions this reader to the beginning of the buffer.
-// Equivalent to discarding this reader and calling lb.NewReader().
+// Reset repositions this reader to byte 0.
+// For readers created with [LargeBuffer.NewLimitedReader], the end bound is preserved —
+// subsequent reads are still limited to [0, end). Use [LargeBuffer.NewReader] if you need
+// a fresh unlimited reader.
 func (r *LargeBufferReader) Reset() {
 	r.rchunk = 0
 	r.roff = 0
@@ -432,7 +434,7 @@ func (r *LargeBufferReader) ReadOffset() int {
 // passed at construction; for ordinary readers it is [LargeBuffer.Len].
 func (r *LargeBufferReader) Remaining() int {
 	effectiveEnd := r.lb.total
-	if r.end != 0 {
+	if r.end >= 0 {
 		effectiveEnd = r.end
 	}
 	return effectiveEnd - r.ReadOffset()
@@ -726,7 +728,7 @@ func (r *LargeBufferReader) IndexByte(c byte) int {
 	if absIdx < 0 {
 		return -1
 	}
-	if r.end != 0 && absIdx >= r.end {
+	if r.end >= 0 && absIdx >= r.end {
 		return -1
 	}
 	return absIdx - absOff

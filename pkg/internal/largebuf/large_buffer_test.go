@@ -1433,7 +1433,7 @@ func TestNewLimitedReader_readNBoundedAtEnd(t *testing.T) {
 
 	// Reading past end must fail.
 	_, err = r.ReadN(1)
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestNewLimitedReader_skipBoundedAtEnd(t *testing.T) {
@@ -1444,7 +1444,7 @@ func TestNewLimitedReader_skipBoundedAtEnd(t *testing.T) {
 	require.NoError(t, r.Skip(3))
 	assert.Equal(t, 0, r.Remaining())
 
-	assert.Error(t, r.Skip(1))
+	require.Error(t, r.Skip(1))
 }
 
 func TestNewLimitedReader_indexByteIgnoresBytesAfterEnd(t *testing.T) {
@@ -1488,6 +1488,18 @@ func TestNewLimitedReader_crossChunk(t *testing.T) {
 	got, err := r.ReadN(5)
 	require.NoError(t, err)
 	assert.Equal(t, "defgh", string(got))
+}
+
+func TestNewLimitedReader_emptyWindow(t *testing.T) {
+	// NewLimitedReader(0, 0) must produce a zero-length window, not an unbounded reader.
+	lb := NewLargeBufferFrom([]byte("hello"))
+	r, err := lb.NewLimitedReader(0, 0)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, r.Remaining())
+	assert.Equal(t, -1, r.IndexByte('h'), "IndexByte must return -1 on empty window")
+	_, err = r.ReadN(1)
+	require.Error(t, err, "ReadN must fail on empty window")
 }
 
 func TestNewLimitedReader_invalidArgs(t *testing.T) {
