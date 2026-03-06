@@ -32,7 +32,7 @@ This policy exists to make builds predictable, auditable, and safer. The rules b
 - Do not use `go install ...@latest`.
 - Pin exact module versions.
 - Prefer copying tools from a pinned builder image over downloading ad-hoc archives in Dockerfiles.
-- Prefer a committed `go.mod` and `go.sum` over defining one-off verions in Dockerfiles.
+- Prefer a committed `go.mod` and `go.sum` over defining one-off versions in Dockerfiles.
 
 ### Python installs must be hash-locked
 
