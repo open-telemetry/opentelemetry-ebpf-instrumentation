@@ -15,7 +15,22 @@ type testInput struct {
 }
 
 func runTest(t *testing.T, in string, delim string, expected []testInput) {
-	sp := NewIterator(in, delim)
+	sp := NewStringIterator(in, delim)
+
+	for _, e := range expected {
+		w, eof := sp.Next()
+		assert.Equal(t, e.eof, eof)
+		assert.Equal(t, e.token, w)
+	}
+}
+
+type bytesTestInput struct {
+	token []byte
+	eof   bool
+}
+
+func runBytesTest(t *testing.T, in []byte, delim []byte, expected []bytesTestInput) {
+	sp := NewBytesIterator(in, delim)
 
 	for _, e := range expected {
 		w, eof := sp.Next()
@@ -77,7 +92,7 @@ func TestSplitIterator_multi(t *testing.T) {
 func TestSplitIterator_reset(t *testing.T) {
 	in := "one|line|per|time|"
 
-	sp := NewIterator(in, "|")
+	sp := NewStringIterator(in, "|")
 
 	w, eof := sp.Next()
 	assert.False(t, eof)
@@ -92,4 +107,76 @@ func TestSplitIterator_reset(t *testing.T) {
 	w, eof = sp.Next()
 	assert.False(t, eof)
 	assert.Equal(t, "one|", w)
+}
+
+func TestBytesIterator(t *testing.T) {
+	in := []byte("ab;cd;;fg;")
+
+	expected := []bytesTestInput{
+		{token: []byte("ab;"), eof: false},
+		{token: []byte("cd;"), eof: false},
+		{token: []byte(";"), eof: false},
+		{token: []byte("fg;"), eof: false},
+		{token: nil, eof: true},
+	}
+
+	runBytesTest(t, in, []byte(";"), expected)
+}
+
+func TestBytesIterator_empty(t *testing.T) {
+	runBytesTest(t, []byte{}, []byte(";"), []bytesTestInput{{token: nil, eof: true}})
+}
+
+func TestBytesIterator_lead_trail(t *testing.T) {
+	in := []byte("oo;oo")
+
+	expected := []bytesTestInput{
+		{token: []byte("oo;"), eof: false},
+		{token: []byte("oo"), eof: false},
+		{token: nil, eof: true},
+	}
+
+	runBytesTest(t, in, []byte(";"), expected)
+}
+
+func TestBytesIterator_multi(t *testing.T) {
+	in := []byte("one\r\nline\r\nper\r\ntime\r\n")
+
+	expected := []bytesTestInput{
+		{token: []byte("one\r\n"), eof: false},
+		{token: []byte("line\r\n"), eof: false},
+		{token: []byte("per\r\n"), eof: false},
+		{token: []byte("time\r\n"), eof: false},
+		{token: nil, eof: true},
+	}
+
+	runBytesTest(t, in, []byte("\r\n"), expected)
+}
+
+func TestStringIterator_emptyDelim_panics(t *testing.T) {
+	assert.Panics(t, func() { NewStringIterator("abc", "") })
+}
+
+func TestBytesIterator_emptyDelim_panics(t *testing.T) {
+	assert.Panics(t, func() { NewBytesIterator([]byte("abc"), []byte{}) })
+}
+
+func TestBytesIterator_reset(t *testing.T) {
+	in := []byte("one|line|per|time|")
+
+	sp := NewBytesIterator(in, []byte("|"))
+
+	w, eof := sp.Next()
+	assert.False(t, eof)
+	assert.Equal(t, []byte("one|"), w)
+
+	w, eof = sp.Next()
+	assert.False(t, eof)
+	assert.Equal(t, []byte("line|"), w)
+
+	sp.Reset()
+
+	w, eof = sp.Next()
+	assert.False(t, eof)
+	assert.Equal(t, []byte("one|"), w)
 }

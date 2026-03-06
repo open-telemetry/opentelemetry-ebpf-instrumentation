@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/contrib/detectors/aws/ec2/v2"
 	"go.opentelemetry.io/contrib/detectors/azure/azurevm"
 	"go.opentelemetry.io/contrib/detectors/gcp"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/kube"
@@ -32,10 +33,15 @@ const (
 
 var connectionTimeout = 2 * time.Second
 
-// some attributes from the node need to be filtered out, because they are
-// going to be specified for each service instance
-var filterAttrs []attr.Name = []attr.Name{
-	attr.HostName,
+// some attributes from the node need to be filtered out, becausee ither
+// - they are not common to all the services and is going to be specified for each service instance
+// - they are explicitly added later in the exporters and we don't want duplications
+// - they are already added by the K8s store client, and we don't want duplications
+var filterAttrs = map[attr.Name]struct{}{
+	attr.HostName:                {},
+	attr.Name(semconv.OSTypeKey): {},
+	attr.K8sClusterName:          {},
+	attr.K8sNodeName:             {},
 }
 
 // host metadata is common to all the instrumented applications within a single
@@ -150,7 +156,7 @@ func (ns *NodeMeta) merge(src NodeMeta) {
 		keyPos[att.Key] = i
 	}
 	for _, entry := range src.Metadata {
-		if slices.Contains(filterAttrs, entry.Key) {
+		if _, ok := filterAttrs[entry.Key]; ok {
 			continue
 		}
 		if pos, ok := keyPos[entry.Key]; ok {

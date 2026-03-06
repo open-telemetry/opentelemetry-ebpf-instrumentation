@@ -32,10 +32,6 @@ const kMySQLPrepare = uint8(0x16)
 // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
 const kMySQLExecute = uint8(0x17)
 
-func isMySQL(b []byte) bool {
-	return isValidMySQLPayload(b)
-}
-
 func readMySQLHeader(b []byte) mySQLHdr {
 	hdr := mySQLHdr{}
 
@@ -46,43 +42,43 @@ func readMySQLHeader(b []byte) mySQLHdr {
 	return hdr
 }
 
-func isValidMySQLPayload(b []byte) bool {
-	// the header is at least 5 bytes
-	if len(b) < 6 {
+func isMySQL(b *largebuf.LargeBuffer) bool {
+	// 4-byte header (3-byte length + 1-byte sequence ID) + command byte + at least 1 payload byte
+	if b.Len() < 6 {
 		return false
 	}
 
-	hdr := readMySQLHeader(b)
-	if hdr.length == 0 {
+	length, err := b.U32LEAt(0)
+	if err != nil {
+		return false
+	}
+	length &= 0x00ffffff // remove the sequence id from the length
+	if length == 0 {
+		return false
+	}
+	command, err := b.U8At(4)
+	if err != nil {
 		return false
 	}
 
-	return hdr.command == kMySQLQuery || hdr.command == kMySQLPrepare || hdr.command == kMySQLExecute
+	return command == kMySQLQuery || command == kMySQLPrepare || command == kMySQLExecute
 }
 
 func mysqlPreparedStatements(b []byte) (string, string, string) {
-	text := string(b)
-	query := asciiToUpper(text)
-	execIdx := strings.Index(query, "EXECUTE ")
+	execIdx := asciiIndexFold(b, sqlExecuteKeyword)
 	if execIdx < 0 {
 		return "", "", ""
 	}
 
-	if execIdx >= len(text) {
-		return "", "", ""
-	}
-
-	text = text[execIdx:]
-
+	text := string(b[execIdx:])
 	parts := strings.Split(text, " ")
 	op := parts[0]
 	var table string
 	if len(parts) > 1 {
 		table = parts[1]
 	}
-	sql := text
 
-	return op, table, sql
+	return op, table, text
 }
 
 func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, error) {
@@ -120,7 +116,7 @@ func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 			return span, errFallback
 		}
 
-		_, _, stmt = detectSQL(string(reqRaw[sqlprune.MySQLHdrSize+1:]))
+		_, _, stmt = detectSQL(reqRaw[sqlprune.MySQLHdrSize+1:])
 		parseCtx.mysqlPreparedStatements.Add(mysqlPreparedStatementsKey{
 			connInfo: event.ConnInfo,
 			stmtID:   stmtID,
@@ -147,7 +143,7 @@ func handleMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 		}
 		op, table = sqlprune.SQLParseOperationAndTable(stmt)
 	case "QUERY":
-		op, table, stmt = detectSQL(string(reqRaw[sqlprune.MySQLHdrSize+1:]))
+		op, table, stmt = detectSQL(reqRaw[sqlprune.MySQLHdrSize+1:])
 	default:
 		slog.Debug("MySQL command ID unhandled", "commandID", reqRaw[sqlprune.MySQLHdrSize])
 		return span, errFallback

@@ -4,7 +4,9 @@
 package largebuf // import "go.opentelemetry.io/obi/pkg/internal/largebuf"
 
 import (
+	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -339,6 +341,29 @@ func (lb *LargeBuffer) I64LEAt(absOff int) (int64, error) {
 	return int64(v), err
 }
 
+// IndexByteAt returns the absolute byte offset of the first occurrence of c
+// at or after absOff, or -1 if c is not found in [absOff, Len()).
+func (lb *LargeBuffer) IndexByteAt(absOff int, c byte) int {
+	if absOff < 0 || absOff >= lb.total {
+		return -1
+	}
+
+	ci, off := lb.findChunk(absOff)
+	abs := absOff
+
+	for ci < len(lb.chunks) {
+		chunk := lb.chunks[ci][off:]
+		if idx := bytes.IndexByte(chunk, c); idx >= 0 {
+			return abs + idx
+		}
+		abs += len(chunk)
+		ci++
+		off = 0
+	}
+
+	return -1
+}
+
 // ── LargeBufferReader ─────────────────────────────────────────────────────────
 
 // LargeBufferReader provides cursor-based sequential access to a [LargeBuffer].
@@ -658,6 +683,40 @@ func (r *LargeBufferReader) ReadI64LE() (int64, error) {
 	v, err := r.ReadU64LE()
 
 	return int64(v), err
+}
+
+// IndexByte returns the number of bytes from the current read position to the first occurrence
+// of c in the remaining bytes, or -1 if c is not found.
+func (r *LargeBufferReader) IndexByte(c byte) int {
+	absOff := r.ReadOffset()
+	absIdx := r.lb.IndexByteAt(absOff, c)
+	if absIdx < 0 {
+		return -1
+	}
+	return absIdx - absOff
+}
+
+// ReadCStr reads bytes up to the next null terminator, advances the cursor past the null,
+// and returns the bytes before it. Zero-copy when the null byte lies within the current chunk.
+// Returns an error if no null terminator is found in the remaining bytes.
+func (r *LargeBufferReader) ReadCStr() ([]byte, error) {
+	n := r.IndexByte(0)
+	if n < 0 {
+		return nil, errors.New("LargeBuffer.ReadCStr: no null terminator found")
+	}
+
+	b, err := r.ReadN(n)
+	if err != nil {
+		return nil, err
+	}
+
+	// Skip the null terminator. IndexByte(0) confirmed it exists and ReadN(n)
+	// left the cursor exactly there, so this must succeed.
+	if err = r.Skip(1); err != nil {
+		return nil, fmt.Errorf("LargeBuffer.ReadCStr: failed to skip null terminator: %w", err)
+	}
+
+	return b, nil
 }
 
 // copyN copies exactly len(dst) bytes from the current read position into dst, advancing the

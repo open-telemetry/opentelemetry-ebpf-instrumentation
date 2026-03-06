@@ -1267,3 +1267,144 @@ func TestNewReader_multiChunk_zeroAllocs(t *testing.T) {
 
 	assert.InDelta(t, float64(0), allocs, 0, "cross-chunk ReadN must not allocate after scratch warm-up")
 }
+
+// ── IndexByteAt ───────────────────────────────────────────────────────────────
+
+func TestIndexByteAt_singleChunk_found(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte("hello\x00world"))
+
+	assert.Equal(t, 5, lb.IndexByteAt(0, 0))
+}
+
+func TestIndexByteAt_singleChunk_notFound(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte("hello"))
+
+	assert.Equal(t, -1, lb.IndexByteAt(0, 0))
+}
+
+func TestIndexByteAt_startOffset_skipsEarlierOccurrence(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte("a\x00b\x00c"))
+
+	// Starting at offset 2 must skip the null at offset 1.
+	assert.Equal(t, 3, lb.IndexByteAt(2, 0))
+}
+
+func TestIndexByteAt_multiChunk_foundInSecondChunk(t *testing.T) {
+	lb := NewLargeBuffer()
+	lb.AppendChunk([]byte("abc"))
+	lb.AppendChunk([]byte("d\x00e"))
+
+	assert.Equal(t, 4, lb.IndexByteAt(0, 0))
+}
+
+func TestIndexByteAt_multiChunk_startOffsetInSecondChunk(t *testing.T) {
+	lb := NewLargeBuffer()
+	lb.AppendChunk([]byte("\x00ab")) // null at 0 — must be skipped
+	lb.AppendChunk([]byte("c\x00d"))
+
+	assert.Equal(t, 4, lb.IndexByteAt(1, 0))
+}
+
+func TestIndexByteAt_outOfRange(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte("hi"))
+
+	assert.Equal(t, -1, lb.IndexByteAt(-1, 'h'))
+	assert.Equal(t, -1, lb.IndexByteAt(2, 'h'))
+}
+
+// ── IndexByte (reader) ────────────────────────────────────────────────────────
+
+func TestIndexByte_withinChunk(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte("hello\x00"))
+	r := lb.NewReader()
+
+	assert.Equal(t, 5, r.IndexByte(0))
+}
+
+func TestIndexByte_afterCursorAdvance(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte("ab\x00cd\x00"))
+	r := lb.NewReader()
+
+	_, _ = r.ReadN(3) // advance past the first null
+
+	// Distance from current cursor (offset 3) to next null (offset 5) is 2.
+	assert.Equal(t, 2, r.IndexByte(0))
+}
+
+func TestIndexByte_crossChunk(t *testing.T) {
+	lb := NewLargeBuffer()
+	lb.AppendChunk([]byte("abc"))
+	lb.AppendChunk([]byte("d\x00e"))
+	r := lb.NewReader()
+
+	assert.Equal(t, 4, r.IndexByte(0))
+}
+
+func TestIndexByte_notFound(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte("hello"))
+	r := lb.NewReader()
+
+	assert.Equal(t, -1, r.IndexByte(0))
+}
+
+// ── ReadCStr ──────────────────────────────────────────────────────────────────
+
+func TestReadCStr_withinChunk_zeroCopy(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte("hello\x00world"))
+	r := lb.NewReader()
+
+	got, err := r.ReadCStr()
+	require.NoError(t, err)
+	assert.Equal(t, "hello", string(got))
+	// Cursor must sit on 'w', after the null.
+	assert.Equal(t, 6, r.ReadOffset())
+}
+
+func TestReadCStr_crossChunk(t *testing.T) {
+	lb := NewLargeBuffer()
+	lb.AppendChunk([]byte("hel"))
+	lb.AppendChunk([]byte("lo\x00rest"))
+	r := lb.NewReader()
+
+	got, err := r.ReadCStr()
+	require.NoError(t, err)
+	assert.Equal(t, "hello", string(got))
+	assert.Equal(t, 6, r.ReadOffset())
+}
+
+func TestReadCStr_emptyString(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte("\x00after"))
+	r := lb.NewReader()
+
+	got, err := r.ReadCStr()
+	require.NoError(t, err)
+	assert.Nil(t, got) // ReadN(0) returns nil
+	assert.Equal(t, 1, r.ReadOffset())
+}
+
+func TestReadCStr_noNullTerminator_returnsError(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte("no null here"))
+	r := lb.NewReader()
+
+	_, err := r.ReadCStr()
+	require.Error(t, err)
+	// Cursor must not have advanced on error.
+	assert.Equal(t, 0, r.ReadOffset())
+}
+
+func TestReadCStr_consecutiveCalls(t *testing.T) {
+	lb := NewLargeBufferFrom([]byte("foo\x00bar\x00"))
+	r := lb.NewReader()
+
+	s1, err := r.ReadCStr()
+	require.NoError(t, err)
+	got1 := string(s1) // materialize before next call
+
+	s2, err := r.ReadCStr()
+	require.NoError(t, err)
+	got2 := string(s2)
+
+	assert.Equal(t, "foo", got1)
+	assert.Equal(t, "bar", got2)
+	assert.Equal(t, 0, r.Remaining())
+}

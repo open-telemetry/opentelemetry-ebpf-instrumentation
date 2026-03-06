@@ -17,6 +17,11 @@
   ],
   "prConcurrentLimit": 10,
   "prHourlyLimit": 3,
+  "allowedCommands": [
+    "make go-mod-tidy",
+    "make go-notices-update",
+    "make java-notices-update"
+  ],
   "packageRules": [
     {
       "groupName": "Go",

@@ -29,7 +29,7 @@ import (
 func TestTCPReqSQLParsing(t *testing.T) {
 	sql := randomStringWithSub("SELECT * FROM accounts ")
 	r := makeTCPReq(sql, 343534)
-	op, table, sql := detectSQL(sql)
+	op, table, sql := detectSQL([]byte(sql))
 	assert.Equal(t, "SELECT", op)
 	assert.Equal(t, "accounts", table)
 	s := TCPToSQLToSpan(&r, op, table, sql, request.DBGeneric, "", nil)
@@ -47,7 +47,7 @@ func TestTCPReqSQLParsing(t *testing.T) {
 func TestTCPReqParsing(t *testing.T) {
 	sql := "Not a sql or any known protocol"
 	r := makeTCPReq(sql, 343534)
-	op, table, _ := detectSQL(sql)
+	op, table, _ := detectSQL([]byte(sql))
 	assert.Empty(t, op)
 	assert.Empty(t, table)
 	assert.NotNil(t, r)
@@ -87,8 +87,13 @@ func TestTCPReqParsing(t *testing.T) {
 }
 
 func TestSQLDetection(t *testing.T) {
-	for _, s := range []string{"SELECT * from accounts", "SELECT/*My comment*/ * from accounts", "--UPDATE accounts SET", "DELETE++ from accounts ", "INSERT into accounts ", "CREATE table accounts ", "DROP table accounts ", "ALTER table accounts"} {
-		surrounded := randomStringWithSub(s)
+	for _, s := range [][]byte{
+		[]byte("SELECT * from accounts"), []byte("SELECT/*My comment*/ * from accounts"),
+		[]byte("--UPDATE accounts SET"), []byte("DELETE++ from accounts "),
+		[]byte("INSERT into accounts "), []byte("CREATE table accounts "),
+		[]byte("DROP table accounts "), []byte("ALTER table accounts"),
+	} {
+		surrounded := []byte(randomStringWithSub(string(s)))
 		op, table, _ := detectSQL(s)
 		assert.NotEmpty(t, op)
 		assert.NotEmpty(t, table)
@@ -99,17 +104,19 @@ func TestSQLDetection(t *testing.T) {
 }
 
 func TestSQLDetectionFails(t *testing.T) {
-	for _, s := range []string{"SELECT", "UPDATES{}", "DELETE {} ", "INSERT// into accounts "} {
+	for _, s := range [][]byte{
+		[]byte("SELECT"), []byte("UPDATES{}"), []byte("DELETE {} "), []byte("INSERT// into accounts "),
+	} {
 		op, table, _ := detectSQL(s)
 		assert.False(t, validSQL(op, table, request.DBGeneric))
-		surrounded := randomStringWithSub(s)
+		surrounded := []byte(randomStringWithSub(string(s)))
 		op, table, _ = detectSQL(surrounded)
 		assert.False(t, validSQL(op, table, request.DBGeneric))
 	}
 }
 
 func TestSQLDetectionDoesntFailForDetectedKind(t *testing.T) {
-	for _, s := range []string{"SELECT", "DELETE {} "} {
+	for _, s := range [][]byte{[]byte("SELECT"), []byte("DELETE {} ")} {
 		op, table, _ := detectSQL(s)
 		assert.True(t, validSQL(op, table, request.DBPostgres))
 	}
