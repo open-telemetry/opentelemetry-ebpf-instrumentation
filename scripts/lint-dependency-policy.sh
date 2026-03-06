@@ -31,7 +31,8 @@ Lints Dockerfiles against repository dependency integrity policy.
 Options:
   --all, -a                 Lint all tracked Dockerfiles.
   --base-ref <ref>, -b <ref>
-                            Base git ref for changed-file linting (default: ${DEFAULT_BASE_REF}).
+                            Base git ref for changed-file linting.
+                            Default: CI PR base ref (if available), otherwise ${DEFAULT_BASE_REF}.
   --verbose, -v             Emit debug logs.
   -h, --help                Show this help message.
 EOF
@@ -347,9 +348,19 @@ lint_file() {
   printf '%d\n' "$issues"
 }
 
+derive_base_ref() {
+  if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
+    printf '%s\n' "$GITHUB_BASE_REF"
+    return
+  fi
+
+  printf '%s\n' "$DEFAULT_BASE_REF"
+}
+
 cmdline() {
   local -i out_lint_all=0
-  local out_base_ref="$DEFAULT_BASE_REF"
+  local out_base_ref=""
+  local -i out_base_ref_set=0
   local -i out_verbose=0
 
   while (( $# > 0 )); do
@@ -363,12 +374,14 @@ cmdline() {
           die "--base-ref requires a value"
         fi
         out_base_ref="$1"
+        out_base_ref_set=1
         ;;
       --base-ref=*)
         if [[ -z "${1#*=}" ]]; then
           die "--base-ref requires a non-empty value"
         fi
         out_base_ref="${1#*=}"
+        out_base_ref_set=1
         ;;
       --verbose|-v)
         out_verbose=1
@@ -395,12 +408,13 @@ cmdline() {
     shift
   done
 
-  printf '%s|%s|%s\n' "$out_lint_all" "$out_base_ref" "$out_verbose"
+  printf '%s|%s|%s|%s\n' "$out_lint_all" "$out_base_ref" "$out_base_ref_set" "$out_verbose"
 }
 
 main() {
   local -i lint_all_dockerfiles=0
-  local base_ref="$DEFAULT_BASE_REF"
+  local base_ref=""
+  local -i base_ref_set=0
   local -i verbose=0
   local cmdline_result=""
   local -i fail_count=0
@@ -416,7 +430,12 @@ main() {
   require_command sort
 
   cmdline_result="$(cmdline "$@")"
-  IFS='|' read -r lint_all_dockerfiles base_ref verbose <<< "$cmdline_result"
+  IFS='|' read -r lint_all_dockerfiles base_ref base_ref_set verbose <<< "$cmdline_result"
+  if (( base_ref_set == 0 )); then
+    base_ref="$(derive_base_ref)"
+  fi
+
+  debug_log "$verbose" "base-ref=${base_ref} source=$([[ ${base_ref_set} -eq 1 ]] && echo cli || echo env/default)"
   debug_log "$verbose" "using awk=$(command -v awk)"
 
   cd "$ROOT_DIR"
