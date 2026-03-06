@@ -163,7 +163,8 @@ func parsePosgresQueryCommand(b *largebuf.LargeBuffer) ([]byte, error) {
 	if err != nil {
 		return nil, errors.New("too short")
 	}
-	return body, nil
+	// Query messages are null-terminated in the Postgres wire protocol; strip the trailing null.
+	return bytes.TrimRight(body, "\x00"), nil
 }
 
 func postgresPreparedStatements(b *largebuf.LargeBuffer) (string, string, string) {
