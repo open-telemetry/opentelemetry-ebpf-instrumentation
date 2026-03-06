@@ -7,7 +7,6 @@
 
 #include <common/common.h>
 #include <common/iov_iter.h>
-#include <common/trace_common.h>
 #include <common/scratch_mem.h>
 
 #include <logger/bpf_dbg.h>
