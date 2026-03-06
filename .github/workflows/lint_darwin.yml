@@ -16,6 +16,8 @@ on:
       - "bpf/**"
       - "cmd/**"
       - "devdocs/dependency-integrity-policy.md"
+      - "devdocs/README.md"
+      - "scripts/lint-dependency-policy.sh"
       - "configs/**"
       - "internal/**"
       - "pkg/**"
