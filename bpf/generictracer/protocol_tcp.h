@@ -12,6 +12,7 @@
 #include <common/large_buffers.h>
 #include <common/ringbuf.h>
 #include <common/trace_common.h>
+#include <common/tp_buf.h>
 
 #include <maps/ongoing_tcp_req.h>
 

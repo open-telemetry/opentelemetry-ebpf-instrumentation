@@ -17,6 +17,7 @@
 #include <common/scratch_mem.h>
 #include <common/ssl_connection.h>
 #include <common/tc_common.h>
+#include <common/tp_buf.h>
 #include <common/tp_info.h>
 #include <common/trace_common.h>
 #include <common/trace_util.h>

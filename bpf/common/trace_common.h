@@ -27,7 +27,6 @@
 #include <maps/nodejs_fd_map.h>
 #include <maps/puma_tasks.h>
 #include <maps/server_traces.h>
-#include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>
 
 #include <generictracer/types/puma_task_id.h>
@@ -41,11 +40,6 @@ volatile const u64 max_transaction_time;
 static __always_inline unsigned char *tp_char_buf() {
     int zero = 0;
     return bpf_map_lookup_elem(&tp_char_buf_mem, &zero);
-}
-
-static __always_inline tp_info_pid_t *tp_buf() {
-    int zero = 0;
-    return bpf_map_lookup_elem(&tp_info_mem, &zero);
 }
 
 static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {

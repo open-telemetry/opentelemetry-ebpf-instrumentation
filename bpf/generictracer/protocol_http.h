@@ -14,6 +14,7 @@
 #include <common/ringbuf.h>
 #include <common/runtime.h>
 #include <common/trace_common.h>
+#include <common/tp_buf.h>
 
 #include <generictracer/maps/http_info_mem.h>
 
