@@ -430,13 +430,18 @@ static __always_inline void process_http_request(
 static __always_inline void process_http_response(http_info_t *info, const unsigned char *buf) {
     info->resp_len = 0;
     info->end_monotime_ns = bpf_ktime_get_ns();
-    info->status = 0;
-    info->status += (buf[RESPONSE_STATUS_POS] - '0') * 100;
-    info->status += (buf[RESPONSE_STATUS_POS + 1] - '0') * 10;
-    info->status += (buf[RESPONSE_STATUS_POS + 2] - '0');
-    if (info->status > MAX_HTTP_STATUS) { // we read something invalid
-        info->status = 0;
+
+    u16 status = 0;
+
+    status += (buf[RESPONSE_STATUS_POS] - '0') * 100;
+    status += (buf[RESPONSE_STATUS_POS + 1] - '0') * 10;
+    status += (buf[RESPONSE_STATUS_POS + 2] - '0');
+
+    if (status == 100 || status == 103 || status > MAX_HTTP_STATUS) {
+        status = 0;
     }
+
+    info->status = status;
 }
 
 static __always_inline void handle_http_response(unsigned char *small_buf,
