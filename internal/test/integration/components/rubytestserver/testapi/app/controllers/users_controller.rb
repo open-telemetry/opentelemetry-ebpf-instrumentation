@@ -1,5 +1,28 @@
+$stdout.sync = true
+
 class UsersController < ApplicationController
   before_action :set_user, only: %i[ show update destroy ]
+
+  # GET /smoke
+  def smoke
+    render plain: "OK"
+  end
+
+  # GET /json_logger — uses puts (writev syscall)
+  def json_logger
+    sleep 0.05
+    message = "this is a json log from ruby"
+    puts '{"message":"' + message + '","level":"INFO"}'
+    render plain: message
+  end
+
+  # GET /json_logger_write — uses syswrite (write syscall)
+  def json_logger_write
+    sleep 0.05
+    message = "this is a json log from ruby via write"
+    STDOUT.syswrite('{"message":"' + message + '","level":"INFO"}' + "\n")
+    render plain: message
+  end
 
   # GET /users
   def index

@@ -305,14 +305,14 @@ OBI can enrich JSON log lines with `trace_id` and `span_id` fields, linking logs
 
 ### Overview
 
-The logenricher (`bpf/logenricher/logenricher.c`) hooks write paths (`tty_write`, `pipe_write`, `ksys_write`) to intercept log output. When a write occurs it:
+The logenricher (`bpf/logenricher/logenricher.c`) hooks write paths (`tty_write`, `pipe_write`, `ksys_write`, `do_writev`) to intercept log output. When a write occurs it:
 
 1. Looks up `traces_ctx_v1[pid_tgid]` to get the active trace/span context for the calling thread.
 2. Reads the user buffer via `bpf_probe_read_user`, packages the log line together with the trace context into a `log_event_t`, and submits it to the `log_events` ring buffer.
 3. Overwrites the original user buffer with zeros via `bpf_probe_write_user` to suppress the un-enriched line.
 4. User-space reads from the ring buffer and re-emits the log with `trace_id`/`span_id` injected into the JSON.
 
-Only `ITER_UBUF`-type iterators are supported (a single contiguous user buffer), which requires Linux kernel 6.0+.
+Both `ITER_UBUF` (kernel ≥ 6.0, used by `write()`) and `ITER_IOVEC` (all kernel versions, used by `writev()`) iterator types are supported. The `do_writev` kprobe captures the fd for `writev()` calls so `pipe_write` can resolve the file descriptor (registered as non-required — if the symbol isn't available, `write()`-based enrichment still works).
 
 ### The `traces_ctx_v1` map
 
@@ -331,6 +331,7 @@ The map is **written** by the generic tracer (in `server_or_client_trace()` in `
 - **Go**: Goroutines are multiplexed onto OS threads (M's). A goroutine can resume on a different M after being descheduled.
 - **Node.js**: The single-threaded event loop can read data for multiple in-flight requests (via libuv) before invoking any JS callback, overwriting `traces_ctx_v1` each time.
 - **Java**: HTTP servers (Tomcat, Netty) use thread pools. The acceptor thread receives the data, but a worker thread from the pool processes the request and writes logs.
+- **Ruby (Puma)**: When all workers are busy, the reactor thread reads HTTP data (setting context for itself), then hands off to a worker that has no context.
 
 Without correction, `traces_ctx_v1[pid_tgid]` may carry the wrong trace context when a log is written. Each runtime has a dedicated mechanism to refresh the map at the right moment.
 
@@ -371,9 +372,22 @@ The BPF kprobe handler:
 
 Unlike Node.js (which refreshes before every callback), Java only needs to refresh once when the task starts — Java threads don't multiplex like the Node.js event loop, so once a worker picks up a task it runs to completion on that OS thread.
 
+#### Ruby (Puma) — `rb_ary_shift` uprobe
+
+**File**: `bpf/generictracer/ruby.c`
+
+Puma has two paths for incoming requests. In the **direct path**, the worker thread reads HTTP data itself — `server_or_client_trace()` fires on the worker and sets `traces_ctx_v1` correctly with no extra work. In the **reactor path** (when all workers are busy), the reactor thread reads HTTP data (setting `traces_ctx_v1` for itself), then enqueues the connection for a worker thread that has no context.
+
+OBI hooks `rb_ary_shift` (Ruby's `Array#shift`), which fires when a Puma worker picks up a task from the todo queue. The BPF handler:
+
+1. Updates `puma_worker_tasks[worker_tid] = reactor_tid` (thread mapping).
+2. Looks up `server_traces_aux` via `puma_task_connections` to find the reactor's server trace.
+3. If found, calls `obi_ctx__set(worker_pid_tgid, &tp)`.
+
+In the direct path, `server_traces_aux` won't have an entry yet (HTTP hasn't been parsed), so step 2 is a harmless no-op.
+
 ### Requirements
 
-- Linux kernel version **6.0 or later** (overwriting user memory requires a `UBUF`-type `iov_iter`)
 - `CAP_SYS_ADMIN` capability and permission to use `bpf_probe_write_user` (kernel security lockdown mode should be `[none]`)
 - The target application writes logs in **JSON format**
-- BPFFS mounted at `/sys/fs/bpf` (or another mountpath configurable via `config.ebpf.bpf_fs_path`)
+- BPFFS mounted at `/sys/fs/bpf` (or another mountpath configurable via `config.ebpf.bpf_fs_path` / `OTEL_EBPF_BPF_FS_PATH`)

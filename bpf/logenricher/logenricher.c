@@ -48,22 +48,33 @@ static __always_inline bool pid_tracked(const struct task_struct *task) {
     return tracked != NULL;
 }
 
-static __always_inline int
-__write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct task_struct *task) {
+static __always_inline bool __fill_iov(struct iovec *iov, struct iov_iter *from) {
     iovec_iter_ctx iov_ctx;
     get_iovec_ctx(&iov_ctx, (struct iov_iter___dummy *)from);
 
-    if (iov_ctx.iter_type != ITER_UBUF) {
+    if (bpf_core_enum_value_exists(enum iter_type___dummy, ITER_UBUF) &&
+        iov_ctx.iter_type == bpf_core_enum_value(enum iter_type___dummy, ITER_UBUF)) {
+        const long offset = bpf_core_field_offset(struct iov_iter, count) - 8;
+        bpf_probe_read(iov, sizeof(*iov), (char *)from + offset);
+    } else if (iov_ctx.iter_type == bpf_core_enum_value(enum iter_type, ITER_IOVEC) &&
+               iov_ctx.iov) {
+        bpf_probe_read(iov, sizeof(*iov), &iov_ctx.iov[0]);
+    } else {
         bpf_dbg_printk("logenricher: unsupported iter_type %d", iov_ctx.iter_type);
+        return false;
+    }
+
+    return iov->iov_base && iov->iov_len;
+}
+
+static __always_inline int
+__write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct task_struct *task) {
+    struct iovec iov = {};
+    if (!__fill_iov(&iov, from)) {
         return 0;
     }
 
     const size_t count = BPF_CORE_READ(from, count);
-    const long offset = bpf_core_field_offset(struct iov_iter, count) - 8;
-
-    struct iovec iov = {};
-    bpf_probe_read(&iov, sizeof(iov), (char *)from + offset);
-
     const u64 pid_tgid = bpf_get_current_pid_tgid();
     obi_ctx_info_t *obi_ctx = obi_ctx__get(pid_tgid);
 
@@ -173,10 +184,7 @@ int BPF_KPROBE(obi_kprobe_pipe_write, struct kiocb *iocb, struct iov_iter *from)
     return __write(iocb, from, *fdp, task);
 }
 
-SEC("kprobe/ksys_write")
-int BPF_KPROBE(obi_kprobe_ksys_write, unsigned int fd) {
-    (void)ctx;
-
+static __always_inline int __record_fd(unsigned int fd) {
     const struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     if (!pid_tracked(task)) {
         return 0;
@@ -187,4 +195,18 @@ int BPF_KPROBE(obi_kprobe_ksys_write, unsigned int fd) {
     }
 
     return 0;
+}
+
+SEC("kprobe/ksys_write")
+int BPF_KPROBE(obi_kprobe_ksys_write, unsigned int fd) {
+    (void)ctx;
+    return __record_fd(fd);
+}
+
+// writev() bypasses ksys_write, so pipe_write can't find the fd.
+// Hook do_writev to capture the fd for writev() calls too.
+SEC("kprobe/do_writev")
+int BPF_KPROBE(obi_kprobe_do_writev, unsigned long fd) {
+    (void)ctx;
+    return __record_fd((unsigned int)fd);
 }

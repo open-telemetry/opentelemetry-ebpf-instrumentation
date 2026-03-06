@@ -41,6 +41,19 @@ services:
     ports:
       - "8384:8085"
 
+  testserverruby:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/rubytestserver/testapi/Dockerfile
+    image: hatest-testserver-logenricher-ruby
+    networks:
+      - shared
+    ports:
+      - "8385:3040"
+    environment:
+      PORT: "3040"
+      RAILS_MAX_THREADS: "2"
+
   obi:
     build:
       context: ../../..
@@ -83,6 +96,8 @@ services:
       testservernodejs:
         condition: service_started
       testserverjava:
+        condition: service_started
+      testserverruby:
         condition: service_started
 
 networks:

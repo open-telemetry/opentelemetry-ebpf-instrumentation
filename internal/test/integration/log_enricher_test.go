@@ -60,6 +60,20 @@ var (
 		containerImage: "hatest-testserver-logenricher-java",
 		message:        "this is a json log from java",
 	}
+	logEnricherRubyWritevConstants = testServerConstants{
+		url:            "http://localhost:8385",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/json_logger",
+		containerImage: "hatest-testserver-logenricher-ruby",
+		message:        "this is a json log from ruby",
+	}
+	logEnricherRubyWriteConstants = testServerConstants{
+		url:            "http://localhost:8385",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/json_logger_write",
+		containerImage: "hatest-testserver-logenricher-ruby",
+		message:        "this is a json log from ruby via write",
+	}
 )
 
 // logEnricherTestTraceparents are fixed W3C traceparents used by log enricher tests.
@@ -237,6 +251,75 @@ func testLogEnricherJava(t *testing.T) {
 		for _, line := range logs {
 			var fields map[string]string
 			if json.Unmarshal([]byte(line), &fields) != nil {
+				continue
+			}
+			if tid, ok := fields["trace_id"]; ok {
+				lastSpanID[tid] = fields["span_id"]
+			}
+		}
+
+		// Every injected trace_id must appear with a non-empty span_id.
+		for _, tp := range logEnricherTestTraceparents {
+			spanID, found := lastSpanID[tp.traceID]
+			assert.True(ct, found, "no enriched log line found for trace_id %s", tp.traceID)
+			if found {
+				assert.NotEmpty(ct, spanID, "span_id missing for trace_id %s", tp.traceID)
+			}
+		}
+	}, testTimeout, 500*time.Millisecond)
+}
+
+// testLogEnricherRuby sends concurrent requests with distinct traceparent
+// headers and verifies each enriched log line contains the exact trace_id from
+// the request. Requests exceed Puma's thread pool size (2 threads), forcing the
+// reactor thread to buffer HTTP requests before handing them to workers. This
+// exercises the obi_ctx__set call in rb_ary_shift that refreshes traces_ctx_v1
+// for the worker thread when the reactor already parsed the HTTP request.
+func testLogEnricherRuby(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer cl.Close()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		// Fire one request per traceparent concurrently against 2 Puma threads.
+		// The server sleeps 50ms per request, so at least 3 requests will be
+		// queued in the reactor, exercising the reactor→worker handoff path.
+		var wg sync.WaitGroup
+		for _, tp := range logEnricherTestTraceparents {
+			wg.Add(1)
+			go func(tp struct{ traceID, parentID string }) {
+				defer wg.Done()
+				req, err := http.NewRequest(http.MethodGet,
+					constants.url+constants.logEndpoint, nil)
+				if err != nil {
+					return
+				}
+				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return
+				}
+				resp.Body.Close()
+			}(tp)
+		}
+		wg.Wait()
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		require.NotEmpty(ct, containerID, "could not find test container ID")
+		logs := containerLogs(ct, cl, containerID)
+		require.NotEmpty(ct, logs)
+
+		// Collect the last occurrence of each injected trace_id
+		// from log lines matching this test's expected message.
+		lastSpanID := make(map[string]string, len(logEnricherTestTraceparents))
+		for _, line := range logs {
+			var fields map[string]string
+			if json.Unmarshal([]byte(line), &fields) != nil {
+				continue
+			}
+			if fields["message"] != constants.message {
 				continue
 			}
 			if tid, ok := fields["trace_id"]; ok {
