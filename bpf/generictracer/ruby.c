@@ -10,8 +10,9 @@
 #include <common/connection_info.h>
 #include <common/strings.h>
 
+#include <maps/puma_tasks.h>
+
 #include <generictracer/maps/pid_tid_to_conn.h>
-#include <generictracer/maps/puma_tasks.h>
 
 #include <generictracer/types/puma_task_id.h>
 

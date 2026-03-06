@@ -16,17 +16,16 @@
 #include <common/trace_util.h>
 #include <common/tracing.h>
 
-#include <generictracer/maps/java_tasks.h>
-#include <generictracer/maps/puma_tasks.h>
-
 #include <logger/bpf_dbg.h>
 
 #include <maps/clone_map.h>
 #include <maps/cp_support_connect_info.h>
 #include <maps/fd_map.h>
 #include <maps/fd_to_connection.h>
+#include <maps/java_tasks.h>
 #include <maps/nginx_upstream.h>
 #include <maps/nodejs_fd_map.h>
+#include <maps/puma_tasks.h>
 #include <maps/server_traces.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>
