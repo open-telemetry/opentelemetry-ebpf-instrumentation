@@ -11,17 +11,16 @@
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
 #include <common/msg_buffer.h>
+#include <common/protocol_http.h>
+#include <common/protocol_http2.h>
+#include <common/protocol_tcp.h>
 #include <common/scratch_mem.h>
-#include <common/ssl_helpers.h>
+#include <common/ssl_connection.h>
 #include <common/tc_common.h>
 #include <common/tp_info.h>
 #include <common/trace_common.h>
 #include <common/trace_util.h>
 #include <common/tracing.h>
-
-#include <generictracer/protocol_http.h>
-#include <generictracer/protocol_tcp.h>
-#include <generictracer/protocol_http2.h>
 
 #include <logger/bpf_dbg.h>
 

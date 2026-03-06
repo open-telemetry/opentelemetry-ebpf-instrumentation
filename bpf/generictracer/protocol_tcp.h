@@ -13,12 +13,13 @@
 #include <common/ringbuf.h>
 #include <common/trace_common.h>
 
+#include <maps/ongoing_tcp_req.h>
+
 #include <generictracer/protocol_common.h>
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
 
-#include <generictracer/maps/ongoing_tcp_req.h>
 #include <generictracer/maps/tcp_req_mem.h>
 
 #include <logger/bpf_dbg.h>
@@ -30,11 +31,6 @@ static __always_inline tcp_req_t *empty_tcp_req() {
         __builtin_memset(value, 0, sizeof(tcp_req_t));
     }
     return value;
-}
-
-static __always_inline u8 already_tracked_tcp(const pid_connection_info_t *p_conn) {
-    tcp_req_t *tcp_info = bpf_map_lookup_elem(&ongoing_tcp_req, p_conn);
-    return tcp_info != 0;
 }
 
 static __always_inline void set_tcp_trace_info(

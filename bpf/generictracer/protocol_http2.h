@@ -10,6 +10,7 @@
 #include <common/http_buf_size.h>
 #include <common/ringbuf.h>
 
+
 #include <generictracer/http2_grpc.h>
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>
@@ -17,10 +18,11 @@
 
 #include <generictracer/maps/grpc_frames_ctx_mem.h>
 #include <generictracer/maps/http2_info_mem.h>
-#include <generictracer/maps/ongoing_http2_connections.h>
+
 #include <generictracer/maps/ongoing_http2_grpc.h>
 
 #include <maps/active_ssl_connections.h>
+#include <maps/ongoing_http2_connections.h>
 
 // These are bit flags, if you add any use power of 2 values
 enum { http2_conn_flag_ssl = WITH_SSL, http2_conn_flag_new = 0x2 };
@@ -36,11 +38,6 @@ static __always_inline u8 http2_flag_ssl(u8 flags) {
 
 static __always_inline u8 http2_flag_new(u8 flags) {
     return flags & http2_conn_flag_new;
-}
-
-static __always_inline u8 already_tracked_http2(const pid_connection_info_t *p_conn) {
-    http2_conn_info_data_t *http2_info = bpf_map_lookup_elem(&ongoing_http2_connections, p_conn);
-    return http2_info != 0;
 }
 
 static __always_inline http2_grpc_request_t *empty_http2_info() {
