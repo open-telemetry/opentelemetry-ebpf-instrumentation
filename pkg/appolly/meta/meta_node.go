@@ -66,10 +66,10 @@ func NewNodeMeta(
 	ctx context.Context,
 	overrideHost string,
 	kubeInformer *kube.MetadataProvider,
-	retry RetryConfig,
+	retryCfg RetryConfig,
 ) NodeMeta {
 	return fetchEntries(ctx,
-		retry,
+		retryCfg,
 		// some fetchers will only retrieve the host name while others
 		// will retrieve also host attributes that will be merged
 		// in order of the priority below (the later the highest)
@@ -86,7 +86,7 @@ func NewNodeMeta(
 
 func fetchEntries(
 	ctx context.Context,
-	retry RetryConfig,
+	retryCfg RetryConfig,
 	fetchers ...fetcher,
 ) NodeMeta {
 	log := nslog()
@@ -97,7 +97,7 @@ func fetchEntries(
 	results := make([]NodeMeta, len(fetchers))
 	for i, fetch := range fetchers {
 		wg.Go(func() {
-			results[i] = backoffFetch(ctx, retry, fetch, log.With("fetcher", i))
+			results[i] = backoffFetch(ctx, retryCfg, fetch, log.With("fetcher", i))
 		})
 	}
 	wg.Wait()
@@ -116,8 +116,8 @@ func fetchEntries(
 	return merged
 }
 
-func backoffFetch(ctx context.Context, retry RetryConfig, fetch fetcher, log *slog.Logger) NodeMeta {
-	backoff := retry.StartInterval
+func backoffFetch(ctx context.Context, retryCfg RetryConfig, fetch fetcher, log *slog.Logger) NodeMeta {
+	backoff := retryCfg.StartInterval
 	start := time.Now()
 	for {
 		entries, err := fetch(ctx)
@@ -125,7 +125,7 @@ func backoffFetch(ctx context.Context, retry RetryConfig, fetch fetcher, log *sl
 			return entries
 		}
 		// exponential backoff retry strategy
-		if time.Since(start) > retry.Timeout {
+		if time.Since(start) > retryCfg.Timeout {
 			log.Debug("timeout reached while looking for metadata. Giving up", "error", err)
 			return NodeMeta{}
 		}
@@ -137,7 +137,7 @@ func backoffFetch(ctx context.Context, retry RetryConfig, fetch fetcher, log *sl
 			log.Debug("context canceled. Exiting")
 			return NodeMeta{}
 		}
-		backoff = min(backoff*2, retry.MaxInterval)
+		backoff = min(backoff*2, retryCfg.MaxInterval)
 	}
 }
 

@@ -1588,32 +1588,39 @@
         "max_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "MaxInterval is the upper bound on the wait duration between consecutive retry attempts.",
           "examples": [
             "30s",
             "5m",
             "1ms"
-          ]
+          ],
+          "x-env-var": "OTEL_EBPF_METADATA_RETRY_MAX_INTERVAL"
         },
         "start_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "StartInterval is the initial wait duration between the first and second retry attempt.",
           "examples": [
             "30s",
             "5m",
             "1ms"
-          ]
+          ],
+          "x-env-var": "OTEL_EBPF_METADATA_RETRY_START_INTERVAL"
         },
         "timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Timeout is the maximum total time allowed for all retry attempts before giving up.",
           "examples": [
             "30s",
             "5m",
             "1ms"
-          ]
+          ],
+          "x-env-var": "OTEL_EBPF_METADATA_RETRY_TIMEOUT"
         }
       },
-      "type": "object"
+      "type": "object",
+      "description": "RetryConfig holds the retry policy for metadata fetch operations. It controls the exponential backoff used in physical node, cloud instance or local virtual machine."
     },
     "ReverseDNS": {
       "properties": {

@@ -64,6 +64,7 @@ var packagesToScan = []string{
 	"pkg/transform",
 	"pkg/filter",
 	"pkg/appolly/services",
+	"pkg/appolly/meta",
 }
 
 // scanSourceFiles scans all Go source files in packagesToScan and extracts metadata.
