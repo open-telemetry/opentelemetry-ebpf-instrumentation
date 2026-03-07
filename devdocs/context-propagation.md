@@ -221,8 +221,8 @@ State machine tracking the injection lifecycle:
 **Set to 0:**
 
 - Go uprobes: SSL connections (`go_nethttp.c`)
-- Kprobes: SSL connections (`trace_common.h`)
-- trace_common: Conflicting requests or timeouts (`trace_common.h`)
+- Kprobes: SSL connections (`trace_lifecycle.h`)
+- trace_lifecycle: Conflicting requests or timeouts (`trace_lifecycle.h`)
 
 **Set to 1:**
 
@@ -322,7 +322,7 @@ Only `ITER_UBUF`-type iterators are supported (a single contiguous user buffer),
 - **Value**: `obi_ctx_info_t` — `trace_id[16]` + `span_id[8]`
 - **Pinning**: `LIBBPF_PIN_BY_NAME` under `<bpf_fs_path>/otel/` (default `bpf_fs_path` is `/sys/fs/bpf`, configurable via `config.ebpf.bpf_fs_path` / `OTEL_EBPF_BPF_FS_PATH`).
 
-The map is **written** by the generic tracer (in `server_or_client_trace()` in `bpf/common/trace_common.h`) whenever an HTTP request or client call is detected on the wire. The map is **read** by the logenricher when intercepting writes.
+The map is **written** by the generic tracer (in `server_or_client_trace()` in `bpf/common/trace_lifecycle.h`) whenever an HTTP request or client call is detected on the wire. The map is **read** by the logenricher when intercepting writes.
 
 ### The context staleness problem
 

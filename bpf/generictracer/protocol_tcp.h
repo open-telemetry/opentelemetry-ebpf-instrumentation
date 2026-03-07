@@ -11,7 +11,9 @@
 #include <common/http_types.h>
 #include <common/large_buffers.h>
 #include <common/ringbuf.h>
-#include <common/trace_common.h>
+#include <common/trace_helpers.h>
+#include <common/trace_lifecycle.h>
+#include <common/trace_parent.h>
 #include <common/tp_buf.h>
 
 #include <maps/ongoing_tcp_req.h>

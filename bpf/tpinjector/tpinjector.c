@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
 
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/egress_key.h>
+#include <common/event_defs.h>
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
 #include <common/msg_buffer.h>
@@ -19,7 +21,7 @@
 #include <common/tc_common.h>
 #include <common/tp_buf.h>
 #include <common/tp_info.h>
-#include <common/trace_common.h>
+#include <common/trace_parent.h>
 #include <common/trace_util.h>
 #include <common/tracing.h>
 

@@ -13,7 +13,9 @@
 #include <common/large_buffers.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
-#include <common/trace_common.h>
+#include <common/trace_helpers.h>
+#include <common/trace_lifecycle.h>
+#include <common/trace_parent.h>
 #include <common/tp_buf.h>
 #include <common/tp_char_buf.h>
 

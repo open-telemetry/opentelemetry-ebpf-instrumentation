@@ -67,7 +67,7 @@ The approach we take to handle this is the follows:
    don't matter, since we would be throwing an exception on shift if this array was frozen.
 4. At the time of the "shift" probe, we take the item pointer and record it for the 
    current thread. 
-5. find_parent_trace in trace_common.h, looks up the puma metadata for the current pid:tgid pair. It
+5. find_parent_trace in trace_parent.h, looks up the puma metadata for the current pid:tgid pair. It
    would find the metadata recorded by the "rb_ary_shft" uprobe, i.e. the "puma srv tp NNN" worker, which
    is the client thread. We take the returned "array:item" pair from the client and look up in the map
    setup by "puma srv" thread on "rb_array_push" for the connection information of the original server
