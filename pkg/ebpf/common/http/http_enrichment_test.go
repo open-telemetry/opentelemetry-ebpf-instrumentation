@@ -5,13 +5,14 @@ package ebpfcommon
 
 import (
 	"net/http"
-	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 )
 
@@ -27,14 +28,14 @@ func makeReqResp(reqHeaders, respHeaders map[string]string) (*http.Request, *htt
 	return req, resp
 }
 
-// re is a helper to compile a regex in tests.
-func re(pattern string) *regexp.Regexp {
-	return regexp.MustCompile(pattern)
+// g creates a case-sensitive GlobAttr for tests.
+func g(pattern string) services.GlobAttr {
+	return services.NewGlob(pattern)
 }
 
-// rei is a helper to compile a case-insensitive regex in tests.
-func rei(pattern string) *regexp.Regexp {
-	return regexp.MustCompile("(?i)" + pattern)
+// gi creates a case-insensitive GlobAttr for tests (pattern lowercased at compile).
+func gi(pattern string) services.GlobAttr {
+	return services.NewGlob(strings.ToLower(pattern))
 }
 
 func TestGenericParsingSpan_IncludeByDefault(t *testing.T) {
@@ -92,7 +93,7 @@ func TestGenericParsingSpan_IncludeRule(t *testing.T) {
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
-					Regex: []*regexp.Regexp{re("^X-Request-Id$")},
+					Patterns: []services.GlobAttr{gi("X-Request-Id")},
 				},
 			},
 		},
@@ -125,7 +126,7 @@ func TestGenericParsingSpan_ObfuscateRule(t *testing.T) {
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
-					Regex: []*regexp.Regexp{rei("^Authorization$")},
+					Patterns: []services.GlobAttr{gi("Authorization")},
 				},
 			},
 		},
@@ -157,7 +158,7 @@ func TestGenericParsingSpan_ScopeRequest(t *testing.T) {
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeRequest,
 				Match: config.HTTPParsingMatch{
-					Regex: []*regexp.Regexp{re("^X-Custom$")},
+					Patterns: []services.GlobAttr{gi("X-Custom")},
 				},
 			},
 		},
@@ -187,7 +188,7 @@ func TestGenericParsingSpan_ScopeResponse(t *testing.T) {
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeResponse,
 				Match: config.HTTPParsingMatch{
-					Regex: []*regexp.Regexp{re("^X-Custom$")},
+					Patterns: []services.GlobAttr{gi("X-Custom")},
 				},
 			},
 		},
@@ -217,7 +218,7 @@ func TestGenericParsingSpan_CaseInsensitiveMatch(t *testing.T) {
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
-					Regex: []*regexp.Regexp{rei("^x-custom$")},
+					Patterns: []services.GlobAttr{gi("x-custom")},
 				},
 			},
 		},
@@ -247,7 +248,7 @@ func TestGenericParsingSpan_FirstMatchWins(t *testing.T) {
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
-					Regex: []*regexp.Regexp{re("^Authorization$")},
+					Patterns: []services.GlobAttr{gi("Authorization")},
 				},
 			},
 			{
@@ -255,7 +256,7 @@ func TestGenericParsingSpan_FirstMatchWins(t *testing.T) {
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
-					Regex: []*regexp.Regexp{re(".*")},
+					Patterns: []services.GlobAttr{gi("*")},
 				},
 			},
 		},
@@ -272,7 +273,7 @@ func TestGenericParsingSpan_FirstMatchWins(t *testing.T) {
 	assert.Equal(t, "application/json", span.RequestHeaders["Content-Type"])
 }
 
-func TestGenericParsingSpan_MultipleRegexInRule(t *testing.T) {
+func TestGenericParsingSpan_MultipleGlobsInRule(t *testing.T) {
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
@@ -286,7 +287,7 @@ func TestGenericParsingSpan_MultipleRegexInRule(t *testing.T) {
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
-					Regex: []*regexp.Regexp{re("^Content-Type$"), re("^X-Request-Id$")},
+					Patterns: []services.GlobAttr{gi("Content-Type"), gi("X-Request-Id")},
 				},
 			},
 		},
@@ -306,7 +307,6 @@ func TestGenericParsingSpan_MultipleRegexInRule(t *testing.T) {
 }
 
 func TestGenericParsingSpan_RuleOrderExcludeBeforeInclude(t *testing.T) {
-	// When an exclude rule appears before an include rule, the exclude wins for matching headers.
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
@@ -319,13 +319,13 @@ func TestGenericParsingSpan_RuleOrderExcludeBeforeInclude(t *testing.T) {
 				Action: config.HTTPParsingActionExclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
-				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-Secret$")}},
+				Match:  config.HTTPParsingMatch{Patterns: []services.GlobAttr{gi("X-Secret")}},
 			},
 			{
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
-				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-.*$")}},
+				Match:  config.HTTPParsingMatch{Patterns: []services.GlobAttr{gi("X-*")}},
 			},
 		},
 	}
@@ -343,7 +343,6 @@ func TestGenericParsingSpan_RuleOrderExcludeBeforeInclude(t *testing.T) {
 }
 
 func TestGenericParsingSpan_RuleOrderIncludeBeforeExclude(t *testing.T) {
-	// Swapping the rule order: include-all-X before exclude-X-Secret means X-Secret is included.
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
@@ -356,13 +355,13 @@ func TestGenericParsingSpan_RuleOrderIncludeBeforeExclude(t *testing.T) {
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
-				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-.*$")}},
+				Match:  config.HTTPParsingMatch{Patterns: []services.GlobAttr{gi("X-*")}},
 			},
 			{
 				Action: config.HTTPParsingActionExclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
-				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^X-Secret$")}},
+				Match:  config.HTTPParsingMatch{Patterns: []services.GlobAttr{gi("X-Secret")}},
 			},
 		},
 	}
@@ -380,7 +379,6 @@ func TestGenericParsingSpan_RuleOrderIncludeBeforeExclude(t *testing.T) {
 }
 
 func TestGenericParsingSpan_RuleOrderObfuscateBeforeInclude(t *testing.T) {
-	// Obfuscate rule for sensitive headers, then include-all, then verify order matters.
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
@@ -393,13 +391,13 @@ func TestGenericParsingSpan_RuleOrderObfuscateBeforeInclude(t *testing.T) {
 				Action: config.HTTPParsingActionObfuscate,
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
-				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^Authorization$"), re("^Cookie$")}},
+				Match:  config.HTTPParsingMatch{Patterns: []services.GlobAttr{gi("Authorization"), gi("Cookie")}},
 			},
 			{
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
-				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re(".*")}},
+				Match:  config.HTTPParsingMatch{Patterns: []services.GlobAttr{gi("*")}},
 			},
 		},
 	}
@@ -421,7 +419,6 @@ func TestGenericParsingSpan_RuleOrderObfuscateBeforeInclude(t *testing.T) {
 }
 
 func TestGenericParsingSpan_ExplicitExcludeRule(t *testing.T) {
-	// Include by default, but explicitly exclude Authorization.
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
@@ -434,7 +431,7 @@ func TestGenericParsingSpan_ExplicitExcludeRule(t *testing.T) {
 				Action: config.HTTPParsingActionExclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
-				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^Authorization$")}},
+				Match:  config.HTTPParsingMatch{Patterns: []services.GlobAttr{gi("Authorization")}},
 			},
 		},
 	}
@@ -452,10 +449,6 @@ func TestGenericParsingSpan_ExplicitExcludeRule(t *testing.T) {
 }
 
 func TestGenericParsingSpan_MixedScopeRuleOrder(t *testing.T) {
-	// First rule: obfuscate Authorization on request only.
-	// Second rule: include all on both scopes.
-	// Authorization in response should be included (not obfuscated) because
-	// the first rule doesn't apply to responses.
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
@@ -468,13 +461,13 @@ func TestGenericParsingSpan_MixedScopeRuleOrder(t *testing.T) {
 				Action: config.HTTPParsingActionObfuscate,
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeRequest,
-				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re("^Authorization$")}},
+				Match:  config.HTTPParsingMatch{Patterns: []services.GlobAttr{gi("Authorization")}},
 			},
 			{
 				Action: config.HTTPParsingActionInclude,
 				Type:   config.HTTPParsingRuleTypeHeaders,
 				Scope:  config.HTTPParsingScopeAll,
-				Match:  config.HTTPParsingMatch{Regex: []*regexp.Regexp{re(".*")}},
+				Match:  config.HTTPParsingMatch{Patterns: []services.GlobAttr{gi("*")}},
 			},
 		},
 	}

@@ -723,10 +723,17 @@
         "case_sensitive": {
           "type": "boolean",
           "description": "CaseSensitive controls whether matching is case-sensitive."
+        },
+        "patterns": {
+          "items": {
+            "$ref": "#/$defs/GlobAttr"
+          },
+          "type": "array",
+          "description": "Patterns is a list of compiled glob matchers."
         }
       },
       "type": "object",
-      "description": "HTTPParsingMatch defines matching criteria for an HTTP parsing rule. Regex patterns are compiled during YAML unmarshaling. When CaseSensitive is false (the default), patterns are automatically wrapped with (?i)."
+      "description": "HTTPParsingMatch defines matching criteria for an HTTP parsing rule."
     },
     "HTTPParsingPolicy": {
       "properties": {

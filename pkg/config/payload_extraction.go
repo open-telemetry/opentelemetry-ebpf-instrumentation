@@ -5,10 +5,11 @@ package config // import "go.opentelemetry.io/obi/pkg/config"
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 )
 
 type PayloadExtraction struct {
@@ -114,20 +115,17 @@ func (t *HTTPParsingRuleType) UnmarshalText(text []byte) error {
 }
 
 // HTTPParsingMatch defines matching criteria for an HTTP parsing rule.
-// Regex patterns are compiled during YAML unmarshaling. When CaseSensitive
-// is false (the default), patterns are automatically wrapped with (?i).
 type HTTPParsingMatch struct {
-	// Regex is a list of compiled regular expressions to match against.
-	Regex []*regexp.Regexp `yaml:"-" jsonschema:"type=string,format=regex"`
+	// Patterns is a list of compiled glob matchers.
+	Patterns []services.GlobAttr `yaml:"patterns"`
 	// CaseSensitive controls whether matching is case-sensitive.
 	CaseSensitive bool `yaml:"case_sensitive"`
 }
 
-// UnmarshalYAML deserializes the match config and compiles regex patterns.
+// UnmarshalYAML deserializes the match config and compiles glob patterns.
 func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
-	// Use a raw struct to capture the string patterns before compiling.
 	var raw struct {
-		Regex         []string `yaml:"regex"`
+		Patterns      []string `yaml:"patterns"`
 		CaseSensitive bool     `yaml:"case_sensitive"`
 	}
 	if err := value.Decode(&raw); err != nil {
@@ -135,39 +133,15 @@ func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	m.CaseSensitive = raw.CaseSensitive
-	m.Regex = make([]*regexp.Regexp, 0, len(raw.Regex))
-	for _, pattern := range raw.Regex {
+	m.Patterns = make([]services.GlobAttr, 0, len(raw.Patterns))
+	for _, pattern := range raw.Patterns {
+		compilePattern := pattern
 		if !m.CaseSensitive {
-			pattern = "(?i)" + pattern
+			compilePattern = strings.ToLower(pattern)
 		}
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			return fmt.Errorf("invalid regex %q in parsing match: %w", pattern, err)
-		}
-		m.Regex = append(m.Regex, re)
+		m.Patterns = append(m.Patterns, services.NewGlob(compilePattern))
 	}
 	return nil
-}
-
-// MarshalYAML serializes the match config back to YAML, converting compiled
-// regexps back to their string patterns and stripping the (?i) prefix that
-// was added for case-insensitive matching.
-func (m HTTPParsingMatch) MarshalYAML() (interface{}, error) {
-	patterns := make([]string, 0, len(m.Regex))
-	for _, re := range m.Regex {
-		p := re.String()
-		if !m.CaseSensitive {
-			p = strings.TrimPrefix(p, "(?i)")
-		}
-		patterns = append(patterns, p)
-	}
-	return struct {
-		Regex         []string `yaml:"regex"`
-		CaseSensitive bool     `yaml:"case_sensitive"`
-	}{
-		Regex:         patterns,
-		CaseSensitive: m.CaseSensitive,
-	}, nil
 }
 
 // HTTPParsingAction represents the action for a generic parsing rule or default policy.

@@ -30,15 +30,15 @@ ebpf:
             type: headers
             scope: all
             match:
-              regex:
-                - "^Authorization$"
+              patterns:
+                - "Authorization"
               case_sensitive: false
           - action: include
             type: headers
             scope: all
             match:
-              regex:
-                - "^Content-Type$"
-                - "^X-Custom-.*$"
-                - "^X-Dice-Roll$"
+              patterns:
+                - "Content-Type"
+                - "X-Custom-*"
+                - "X-Dice-Roll"
               case_sensitive: false

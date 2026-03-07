@@ -5,13 +5,14 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 
 import (
 	"net/http"
+	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
 )
 
 // EnrichHTTPSpan applies generic HTTP parsing rules to extract headers into the span.
-// Regex patterns in rules are already compiled during YAML deserialization.
+// Glob patterns in rules are already compiled during YAML deserialization.
 // Unlike other parsers, this enriches the span with headers rather than replacing it.
 func EnrichHTTPSpan(
 	baseSpan *request.Span,
@@ -49,12 +50,15 @@ func EnrichHTTPSpan(
 
 // resolveHeaderAction determines what action to take for a given header name
 // by evaluating rules in order (first_match_wins).
+// For case-insensitive rules, the header name is lowercased once and reused.
 func resolveHeaderAction(
 	headerName string,
 	rules []config.HTTPParsingRule,
 	policy config.HTTPParsingPolicy,
 	scope config.HTTPParsingScope,
 ) config.HTTPParsingAction {
+	var lowerName string
+
 	for _, rule := range rules {
 		if rule.Type != config.HTTPParsingRuleTypeHeaders {
 			continue
@@ -62,8 +66,15 @@ func resolveHeaderAction(
 		if !scopeApplies(rule.Scope, scope) {
 			continue
 		}
-		for _, re := range rule.Match.Regex {
-			if re.MatchString(headerName) {
+		matchName := headerName
+		if !rule.Match.CaseSensitive {
+			if lowerName == "" {
+				lowerName = strings.ToLower(headerName)
+			}
+			matchName = lowerName
+		}
+		for i := range rule.Match.Patterns {
+			if rule.Match.Patterns[i].MatchString(matchName) {
 				return rule.Action
 			}
 		}
