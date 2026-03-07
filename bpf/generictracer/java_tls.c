@@ -106,25 +106,12 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
 
         // Walk the java_tasks chain to find the parent's server trace and
         // refresh traces_ctx_v1 for this child thread.
-        enum { k_ctx_max_depth = 3 };
         trace_key_t t_key = {.p_key = parent, .extra_id = extra_runtime_id_with_task_id(parent_id)};
-        u8 found = 0;
+        tp_info_pid_t *server_tp = find_parent_java_trace(&t_key);
 
-        for (u8 i = 0; i < k_ctx_max_depth; ++i) {
-            tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces, &t_key);
-            if (server_tp && server_tp->valid) {
-                obi_ctx__set(id, &server_tp->tp);
-                found = 1;
-                break;
-            }
-            const pid_key_t *p_tid = bpf_map_lookup_elem(&java_tasks, &t_key.p_key);
-            if (!p_tid) {
-                break;
-            }
-            t_key.p_key = *p_tid;
-        }
-
-        if (!found) {
+        if (server_tp && server_tp->valid) {
+            obi_ctx__set(id, &server_tp->tp);
+        } else {
             obi_ctx__del(id);
         }
 

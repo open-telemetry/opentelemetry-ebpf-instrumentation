@@ -62,10 +62,10 @@ var (
 	}
 )
 
-// nodejsTestTraceparents are fixed W3C traceparents used by testLogEnricherNodeJS.
+// logEnricherTestTraceparents are fixed W3C traceparents used by log enricher tests.
 // Fixed IDs allow exact equality assertions on trace_id and ordering assertions
 // on the enriched container logs.
-var nodejsTestTraceparents = [5]struct{ traceID, parentID string }{
+var logEnricherTestTraceparents = [5]struct{ traceID, parentID string }{
 	{"4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"},
 	{"7b5c1e7d8f2a4b6c9e0d3f1a2b4c5d6e", "1a2b3c4d5e6f7a8b"},
 	{"a1b2c3d4e5f60718293a4b5c6d7e8f90", "fedcba9876543210"},
@@ -128,7 +128,7 @@ func testLogEnricherNodeJS(t *testing.T) {
 		// requests arrive at the server in array order (server delay is 35 ms,
 		// much larger than the stagger), giving a deterministic log order.
 		var wg sync.WaitGroup
-		for i, tp := range nodejsTestTraceparents {
+		for i, tp := range logEnricherTestTraceparents {
 			wg.Add(1)
 			go func(tp struct{ traceID, parentID string }) {
 				defer wg.Done()
@@ -146,7 +146,7 @@ func testLogEnricherNodeJS(t *testing.T) {
 			}(tp)
 			// Small stagger between goroutine starts so HTTP requests reach the
 			// server in the same order they are launched.
-			if i < len(nodejsTestTraceparents)-1 {
+			if i < len(logEnricherTestTraceparents)-1 {
 				time.Sleep(5 * time.Millisecond)
 			}
 		}
@@ -158,8 +158,8 @@ func testLogEnricherNodeJS(t *testing.T) {
 		require.NotEmpty(ct, logs)
 
 		// Find the last log-position of each injected trace_id (most recent retry).
-		lastPos := make(map[string]int, len(nodejsTestTraceparents))
-		lastSpanID := make(map[string]string, len(nodejsTestTraceparents))
+		lastPos := make(map[string]int, len(logEnricherTestTraceparents))
+		lastSpanID := make(map[string]string, len(logEnricherTestTraceparents))
 		for i, line := range logs {
 			var fields map[string]string
 			if json.Unmarshal([]byte(line), &fields) != nil {
@@ -172,7 +172,7 @@ func testLogEnricherNodeJS(t *testing.T) {
 		}
 
 		// Every injected trace_id must appear with a non-empty span_id.
-		for _, tp := range nodejsTestTraceparents {
+		for _, tp := range logEnricherTestTraceparents {
 			_, found := lastPos[tp.traceID]
 			assert.True(ct, found, "no enriched log line found for trace_id %s", tp.traceID)
 			if found {
@@ -182,14 +182,74 @@ func testLogEnricherNodeJS(t *testing.T) {
 
 		// Log lines must appear in the same order requests were made.
 		// Using last-occurrence positions compares within the most recent batch.
-		for i := 0; i < len(nodejsTestTraceparents)-1; i++ {
-			a, b := nodejsTestTraceparents[i], nodejsTestTraceparents[i+1]
+		for i := 0; i < len(logEnricherTestTraceparents)-1; i++ {
+			a, b := logEnricherTestTraceparents[i], logEnricherTestTraceparents[i+1]
 			posA, okA := lastPos[a.traceID]
 			posB, okB := lastPos[b.traceID]
 			if okA && okB {
 				assert.Less(ct, posA, posB,
 					"trace_id %s should appear before %s in logs (request order)",
 					a.traceID, b.traceID)
+			}
+		}
+	}, testTimeout, 500*time.Millisecond)
+}
+
+// testLogEnricherJava sends concurrent requests with distinct traceparent
+// headers and verifies each enriched log line contains the exact trace_id from
+// the request. This catches stale/wrong context that a simple existence check
+// would miss.
+func testLogEnricherJava(t *testing.T) {
+	waitForTestComponentsNoMetrics(t, logEnricherJavaConstants.url+logEnricherJavaConstants.smokeEndpoint)
+
+	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer cl.Close()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		var wg sync.WaitGroup
+		for _, tp := range logEnricherTestTraceparents {
+			wg.Add(1)
+			go func(tp struct{ traceID, parentID string }) {
+				defer wg.Done()
+				req, err := http.NewRequest(http.MethodGet,
+					logEnricherJavaConstants.url+logEnricherJavaConstants.logEndpoint, nil)
+				if err != nil {
+					return
+				}
+				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return
+				}
+				resp.Body.Close()
+			}(tp)
+		}
+		wg.Wait()
+
+		containerID := testContainerID(ct, cl, logEnricherJavaConstants.containerImage)
+		require.NotEmpty(ct, containerID, "could not find test container ID")
+		logs := containerLogs(ct, cl, containerID)
+		require.NotEmpty(ct, logs)
+
+		// Collect the last occurrence of each injected trace_id.
+		lastSpanID := make(map[string]string, len(logEnricherTestTraceparents))
+		for _, line := range logs {
+			var fields map[string]string
+			if json.Unmarshal([]byte(line), &fields) != nil {
+				continue
+			}
+			if tid, ok := fields["trace_id"]; ok {
+				lastSpanID[tid] = fields["span_id"]
+			}
+		}
+
+		// Every injected trace_id must appear with a non-empty span_id.
+		for _, tp := range logEnricherTestTraceparents {
+			spanID, found := lastSpanID[tp.traceID]
+			assert.True(ct, found, "no enriched log line found for trace_id %s", tp.traceID)
+			if found {
+				assert.NotEmpty(ct, spanID, "span_id missing for trace_id %s", tp.traceID)
 			}
 		}
 	}, testTimeout, 500*time.Millisecond)

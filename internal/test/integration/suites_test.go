@@ -738,7 +738,7 @@ func TestSuite_LogEnricherJava(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	t.Run("Log Enricher Java", func(t *testing.T) {
-		testLogEnricher(t, logEnricherJavaConstants)
+		testLogEnricherJava(t)
 	})
 	require.NoError(t, compose.Close())
 }
