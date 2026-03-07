@@ -28,11 +28,6 @@ func makeReqResp(reqHeaders, respHeaders map[string]string) (*http.Request, *htt
 	return req, resp
 }
 
-// g creates a case-sensitive GlobAttr for tests.
-func g(pattern string) services.GlobAttr {
-	return services.NewGlob(pattern)
-}
-
 // gi creates a case-insensitive GlobAttr for tests (pattern lowercased at compile).
 func gi(pattern string) services.GlobAttr {
 	return services.NewGlob(strings.ToLower(pattern))

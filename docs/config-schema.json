@@ -718,6 +718,14 @@
       },
       "type": "object"
     },
+    "HTTPParsingAction": {
+      "type": "string",
+      "enum": [
+        "exclude",
+        "include",
+        "obfuscate"
+      ]
+    },
     "HTTPParsingMatch": {
       "properties": {
         "case_sensitive": {
@@ -735,23 +743,21 @@
       "type": "object",
       "description": "HTTPParsingMatch defines matching criteria for an HTTP parsing rule."
     },
+    "HTTPParsingMatchOrder": {
+      "type": "string",
+      "enum": [
+        "first_match_wins"
+      ]
+    },
     "HTTPParsingPolicy": {
       "properties": {
         "default_action": {
-          "type": "string",
-          "enum": [
-            "exclude",
-            "include",
-            "obfuscate"
-          ],
+          "$ref": "#/$defs/HTTPParsingAction",
           "description": "DefaultAction specifies what to do when no rule matches: \"include\" or \"exclude\"",
           "x-env-var": "OTEL_EBPF_HTTP_PARSING_DEFAULT_ACTION"
         },
         "match_order": {
-          "type": "string",
-          "enum": [
-            "first_match_wins"
-          ],
+          "$ref": "#/$defs/HTTPParsingMatchOrder",
           "description": "MatchOrder controls how rules are evaluated: \"first_match_wins\"",
           "x-env-var": "OTEL_EBPF_HTTP_PARSING_MATCH_ORDER"
         },
@@ -767,12 +773,7 @@
     "HTTPParsingRule": {
       "properties": {
         "action": {
-          "type": "string",
-          "enum": [
-            "exclude",
-            "include",
-            "obfuscate"
-          ],
+          "$ref": "#/$defs/HTTPParsingAction",
           "description": "Action of the rule: \"include\", \"exclude\", or \"obfuscate\""
         },
         "match": {
@@ -780,24 +781,30 @@
           "description": "Match defines the matching criteria for this rule"
         },
         "scope": {
-          "type": "string",
-          "enum": [
-            "all",
-            "request",
-            "response"
-          ],
+          "$ref": "#/$defs/HTTPParsingScope",
           "description": "Scope of the rule: \"request\", \"response\", or \"all\""
         },
         "type": {
-          "type": "string",
-          "enum": [
-            "headers"
-          ],
+          "$ref": "#/$defs/HTTPParsingRuleType",
           "description": "Type specifies what this rule matches against: \"headers\""
         }
       },
       "type": "object",
       "description": "HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header and payload extraction."
+    },
+    "HTTPParsingRuleType": {
+      "type": "string",
+      "enum": [
+        "headers"
+      ]
+    },
+    "HTTPParsingScope": {
+      "type": "string",
+      "enum": [
+        "all",
+        "request",
+        "response"
+      ]
     },
     "HostIDConfig": {
       "properties": {

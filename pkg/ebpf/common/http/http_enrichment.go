@@ -20,20 +20,8 @@ func EnrichHTTPSpan(
 	resp *http.Response,
 	cfg config.EnrichmentConfig,
 ) bool {
-	reqHeaders := make(map[string]string)
-	respHeaders := make(map[string]string)
-
-	// Process request headers
-	for name, values := range req.Header {
-		action := resolveHeaderAction(name, cfg.Rules, cfg.Policy, config.HTTPParsingScopeRequest)
-		applyHeaderAction(action, name, values, reqHeaders, cfg.Policy.ObfuscationString)
-	}
-
-	// Process response headers
-	for name, values := range resp.Header {
-		action := resolveHeaderAction(name, cfg.Rules, cfg.Policy, config.HTTPParsingScopeResponse)
-		applyHeaderAction(action, name, values, respHeaders, cfg.Policy.ObfuscationString)
-	}
+	reqHeaders := processHeaders(req.Header, cfg, config.HTTPParsingScopeRequest)
+	respHeaders := processHeaders(resp.Header, cfg, config.HTTPParsingScopeResponse)
 
 	if len(reqHeaders) == 0 && len(respHeaders) == 0 {
 		return false
@@ -46,6 +34,21 @@ func EnrichHTTPSpan(
 		baseSpan.ResponseHeaders = respHeaders
 	}
 	return true
+}
+
+// processHeaders evaluates rules against each header and returns a map of
+// headers to include or obfuscate.
+func processHeaders(
+	headers http.Header,
+	cfg config.EnrichmentConfig,
+	scope config.HTTPParsingScope,
+) map[string]string {
+	result := make(map[string]string)
+	for name, values := range headers {
+		action := resolveHeaderAction(name, cfg.Rules, cfg.Policy, scope)
+		applyHeaderAction(action, name, values, result, cfg.Policy.ObfuscationString)
+	}
+	return result
 }
 
 // resolveHeaderAction determines what action to take for a given header name

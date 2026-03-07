@@ -301,9 +301,9 @@ var (
 
 // httpHeaderAttributes converts extracted HTTP headers to OTel span attributes
 // following the semantic convention: http.request.header.<key> and http.response.header.<key>
-// where <key> is the lowercase, hyphen-separated header name.
+// where <key> is the lowercased header field name.
 func httpHeaderAttributes(span *request.Span) []attribute.KeyValue {
-	var attrs []attribute.KeyValue
+	attrs := make([]attribute.KeyValue, 0, len(span.RequestHeaders)+len(span.ResponseHeaders))
 	for name, value := range span.RequestHeaders {
 		key := "http.request.header." + strings.ToLower(name)
 		attrs = append(attrs, attribute.String(key, value))

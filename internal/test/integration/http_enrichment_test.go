@@ -27,6 +27,7 @@ func doHTTPGetWithHeaders(t *testing.T, url string, status int, headers map[stri
 	}
 	r, err := testHTTPClient.Do(req)
 	require.NoError(t, err)
+	defer r.Body.Close()
 	require.Equal(t, status, r.StatusCode)
 }
 
@@ -50,6 +51,7 @@ func testGenericHeaderExtraction(t *testing.T) {
 		if resp == nil {
 			return
 		}
+		defer resp.Body.Close()
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
@@ -107,6 +109,7 @@ func testGenericHeaderRuleOrder(t *testing.T) {
 		if resp == nil {
 			return
 		}
+		defer resp.Body.Close()
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))

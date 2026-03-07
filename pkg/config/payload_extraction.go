@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -17,7 +18,12 @@ type PayloadExtraction struct {
 }
 
 func (p PayloadExtraction) Enabled() bool {
-	return p.HTTP.GraphQL.Enabled || p.HTTP.Elasticsearch.Enabled || p.HTTP.AWS.Enabled || p.HTTP.SQLPP.Enabled || p.HTTP.OpenAI.Enabled || p.HTTP.Enrichment.Enabled
+	return p.HTTP.GraphQL.Enabled ||
+		p.HTTP.Elasticsearch.Enabled ||
+		p.HTTP.AWS.Enabled ||
+		p.HTTP.SQLPP.Enabled ||
+		p.HTTP.OpenAI.Enabled ||
+		p.HTTP.Enrichment.Enabled
 }
 
 type HTTPConfig struct {
@@ -97,20 +103,35 @@ type HTTPParsingRule struct {
 }
 
 // HTTPParsingRuleType specifies the target of a parsing rule.
-type HTTPParsingRuleType string
+type HTTPParsingRuleType uint8
 
 const (
-	HTTPParsingRuleTypeHeaders HTTPParsingRuleType = "headers"
+	HTTPParsingRuleTypeHeaders HTTPParsingRuleType = iota + 1
 )
 
 func (t *HTTPParsingRuleType) UnmarshalText(text []byte) error {
-	str := HTTPParsingRuleType(strings.TrimSpace(strings.ToLower(string(text))))
-	switch str {
-	case HTTPParsingRuleTypeHeaders:
-		*t = str
+	switch strings.TrimSpace(string(text)) {
+	case "headers":
+		*t = HTTPParsingRuleTypeHeaders
 		return nil
 	default:
 		return fmt.Errorf("invalid parsing rule type: %q (valid: headers)", string(text))
+	}
+}
+
+func (t HTTPParsingRuleType) MarshalText() ([]byte, error) {
+	switch t {
+	case HTTPParsingRuleTypeHeaders:
+		return []byte("headers"), nil
+	default:
+		return nil, fmt.Errorf("unknown parsing rule type: %d", t)
+	}
+}
+
+func (HTTPParsingRuleType) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type: "string",
+		Enum: []any{"headers"},
 	}
 }
 
@@ -145,59 +166,120 @@ func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 }
 
 // HTTPParsingAction represents the action for a generic parsing rule or default policy.
-type HTTPParsingAction string
+type HTTPParsingAction uint8
 
 const (
-	HTTPParsingActionInclude   HTTPParsingAction = "include"
-	HTTPParsingActionExclude   HTTPParsingAction = "exclude"
-	HTTPParsingActionObfuscate HTTPParsingAction = "obfuscate"
+	HTTPParsingActionInclude HTTPParsingAction = iota + 1
+	HTTPParsingActionExclude
+	HTTPParsingActionObfuscate
 )
 
 func (a *HTTPParsingAction) UnmarshalText(text []byte) error {
-	str := HTTPParsingAction(strings.TrimSpace(strings.ToLower(string(text))))
-	switch str {
-	case HTTPParsingActionInclude, HTTPParsingActionExclude, HTTPParsingActionObfuscate:
-		*a = str
-		return nil
+	switch strings.TrimSpace(string(text)) {
+	case "include":
+		*a = HTTPParsingActionInclude
+	case "exclude":
+		*a = HTTPParsingActionExclude
+	case "obfuscate":
+		*a = HTTPParsingActionObfuscate
 	default:
 		return fmt.Errorf("invalid parsing action: %q (valid: include, exclude, obfuscate)", string(text))
 	}
+	return nil
 }
 
-// HTTPParsingAction represents the action for a http parsing rule or default policy.
-type HTTPParsingScope string
+func (a HTTPParsingAction) MarshalText() ([]byte, error) {
+	switch a {
+	case HTTPParsingActionInclude:
+		return []byte("include"), nil
+	case HTTPParsingActionExclude:
+		return []byte("exclude"), nil
+	case HTTPParsingActionObfuscate:
+		return []byte("obfuscate"), nil
+	default:
+		return nil, fmt.Errorf("unknown parsing action: %d", a)
+	}
+}
+
+func (HTTPParsingAction) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type: "string",
+		Enum: []any{"include", "exclude", "obfuscate"},
+	}
+}
+
+// HTTPParsingScope represents the scope of a parsing rule.
+type HTTPParsingScope uint8
 
 const (
-	HTTPParsingScopeRequest  HTTPParsingScope = "request"
-	HTTPParsingScopeResponse HTTPParsingScope = "response"
-	HTTPParsingScopeAll      HTTPParsingScope = "all"
+	HTTPParsingScopeRequest HTTPParsingScope = iota + 1
+	HTTPParsingScopeResponse
+	HTTPParsingScopeAll
 )
 
 func (a *HTTPParsingScope) UnmarshalText(text []byte) error {
-	str := HTTPParsingScope(strings.TrimSpace(strings.ToLower(string(text))))
-	switch str {
-	case HTTPParsingScopeRequest, HTTPParsingScopeResponse, HTTPParsingScopeAll:
-		*a = str
-		return nil
+	switch strings.TrimSpace(string(text)) {
+	case "request":
+		*a = HTTPParsingScopeRequest
+	case "response":
+		*a = HTTPParsingScopeResponse
+	case "all":
+		*a = HTTPParsingScopeAll
 	default:
-		return fmt.Errorf("invalid parsing scope: %q (valid: include, exclude, obfuscate)", string(text))
+		return fmt.Errorf("invalid parsing scope: %q (valid: request, response, all)", string(text))
+	}
+	return nil
+}
+
+func (a HTTPParsingScope) MarshalText() ([]byte, error) {
+	switch a {
+	case HTTPParsingScopeRequest:
+		return []byte("request"), nil
+	case HTTPParsingScopeResponse:
+		return []byte("response"), nil
+	case HTTPParsingScopeAll:
+		return []byte("all"), nil
+	default:
+		return nil, fmt.Errorf("unknown parsing scope: %d", a)
+	}
+}
+
+func (HTTPParsingScope) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type: "string",
+		Enum: []any{"request", "response", "all"},
 	}
 }
 
 // HTTPParsingMatchOrder controls how rules are evaluated.
-type HTTPParsingMatchOrder string
+type HTTPParsingMatchOrder uint8
 
 const (
-	HTTPParsingMatchOrderFirstMatchWins HTTPParsingMatchOrder = "first_match_wins"
+	HTTPParsingMatchOrderFirstMatchWins HTTPParsingMatchOrder = iota + 1
 )
 
 func (m *HTTPParsingMatchOrder) UnmarshalText(text []byte) error {
-	str := HTTPParsingMatchOrder(strings.TrimSpace(strings.ToLower(string(text))))
-	switch str {
-	case HTTPParsingMatchOrderFirstMatchWins:
-		*m = str
-		return nil
+	switch strings.TrimSpace(string(text)) {
+	case "first_match_wins":
+		*m = HTTPParsingMatchOrderFirstMatchWins
 	default:
 		return fmt.Errorf("invalid parsing match order: %q (valid: first_match_wins)", string(text))
+	}
+	return nil
+}
+
+func (m HTTPParsingMatchOrder) MarshalText() ([]byte, error) {
+	switch m {
+	case HTTPParsingMatchOrderFirstMatchWins:
+		return []byte("first_match_wins"), nil
+	default:
+		return nil, fmt.Errorf("unknown parsing match order: %d", m)
+	}
+}
+
+func (HTTPParsingMatchOrder) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type: "string",
+		Enum: []any{"first_match_wins"},
 	}
 }
