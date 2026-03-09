@@ -18,8 +18,6 @@
 #include <maps/puma_tasks.h>
 #include <maps/server_traces.h>
 
-volatile const u64 max_transaction_time;
-
 static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
     task_tid(&t_key->p_key);
 

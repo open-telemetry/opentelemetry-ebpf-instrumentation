@@ -8,16 +8,15 @@
 #include <common/event_defs.h>
 #include <common/runtime.h>
 #include <common/trace_parent.h>
+
 #include <maps/outgoing_trace_map.h>
 
 #include <shared/obi_ctx.h>
 
-volatile const u64 max_transaction_time;
-
 static __always_inline void delete_server_trace(pid_connection_info_t *pid_conn,
                                                 trace_key_t *t_key) {
     delete_trace_info_for_connection(&pid_conn->conn, TRACE_TYPE_SERVER);
-    int __attribute__((unused)) res = bpf_map_delete_elem(&server_traces, t_key);
+    int res = bpf_map_delete_elem(&server_traces, t_key);
     bpf_dbg_printk("Deleting server span for id=%llx, pid=%d, ns=%x",
                    bpf_get_current_pid_tgid(),
                    t_key->p_key.pid,
@@ -42,7 +41,7 @@ static __always_inline void delete_client_trace_info(pid_connection_info_t *pid_
 
 static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
                                                         tp_info_t *tp,
-                                                        u8 type) {
+                                                        const u8 type) {
     u8 found_tp = 0;
     tp_info_pid_t *existing_tp = bpf_map_lookup_elem(&incoming_trace_map, conn);
     if (existing_tp) {
@@ -90,7 +89,7 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
 }
 
 static __always_inline void server_or_client_trace(
-    u8 type, connection_info_t *conn, tp_info_pid_t *tp_p, u8 ssl, u16 orig_dport) {
+    const u8 type, connection_info_t *conn, tp_info_pid_t *tp_p, u8 ssl, const u16 orig_dport) {
 
     const u64 id = bpf_get_current_pid_tgid();
     const u32 host_pid = pid_from_pid_tgid(id);

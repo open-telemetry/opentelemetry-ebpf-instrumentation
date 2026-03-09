@@ -3,10 +3,6 @@
 
 #pragma once
 
-#include <bpfcore/utils.h>
-
-#include <common/pin_internal.h>
-
 // These need to line up with some Go identifiers:
 // EventTypeHTTP, EventTypeGRPC, EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeKHTTPRequest
 #define EVENT_HTTP_REQUEST 1

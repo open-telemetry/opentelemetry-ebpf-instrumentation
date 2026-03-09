@@ -6,7 +6,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-#include <logger/bpf_dbg.h>
+#include <common/connection_info.h>
 
 #include <maps/active_ssl_connections.h>
 
