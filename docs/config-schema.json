@@ -300,7 +300,7 @@
       "properties": {
         "batch_length": {
           "type": "integer",
-          "description": "BatchLength allows specifying how many traces will be batched at the initial stage before being forwarded to the next stage Must be at least 1",
+          "description": "BatchLength allows specifying how many items (traces/metrics) will be batched at the initial stage before being forwarded to the next stage Must be at least 1",
           "x-env-var": "OTEL_EBPF_BPF_BATCH_LENGTH"
         },
         "batch_timeout": {
