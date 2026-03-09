@@ -50,6 +50,14 @@ This policy exists to make builds predictable, auditable, and safer. The rules b
 
 - Use `cargo build --locked` (and equivalent locked flags for other cargo operations).
 
+### uvx / uv tool invocations must be version and hash pinned
+
+- Do not use bare `uvx <tool>` without a pinned version: this always fetches the latest available release.
+- Do not use `uvx <tool>==<version>` alone: this pins the version but does not verify integrity.
+- Commit a `<tool>-requirements.in` with the pinned version (e.g., `zizmor==1.23.1`) and a generated `<tool>-requirements.txt` produced by `pip-compile --generate-hashes --strip-extras`, following the same pattern as other `requirements.in`/`requirements.txt` pairs in this repo.
+- Install with `uv pip install --system --require-hashes -r <tool>-requirements.txt` and invoke the tool binary directly, rather than via `uvx`.
+- When upgrading, update the pinned version and replace all hashes in the requirements file, verifying the new hashes from PyPI.
+
 ### Remote downloads must be verified
 
 - Do not use `curl ... | bash` patterns.
