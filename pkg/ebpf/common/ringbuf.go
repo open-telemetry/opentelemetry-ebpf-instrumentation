@@ -85,6 +85,13 @@ func SharedRingbuf[T any](
 			logger.Debug("reusing ringbuf forwarder")
 			return existing.alreadyForwarded
 		}
+		// A forwarder for a different event type already owns this ring buffer.
+		// Replacing it would create multiple concurrent readers, causing lost or
+		// duplicated events and data races. We just log a warning and continue.
+		logger.Warn("shared ring buffer already owned by another forwarder of a different type, skipping")
+		return func(ctx context.Context, _ []io.Closer, _ *msg.Queue[[]T]) {
+			<-ctx.Done()
+		}
 	}
 
 	rbf := ringBufForwarder[T]{
@@ -115,7 +122,7 @@ func ForwardRingbuf[T any](
 
 func (rbf *ringBufForwarder[T]) sharedReadAndForward(ctx context.Context, closers []io.Closer, out *msg.Queue[[]T]) {
 	rbf.logger.Debug("start reading and forwarding")
-	// BPF will send each measured trace via Ring Buffer, so we listen for them from the
+	// BPF will send each measured item via Ring Buffer, so we listen for them from the
 	// user space.
 	eventsReader, err := readerFactory(rbf.ringbuffer)
 	if err != nil {
@@ -132,7 +139,7 @@ func (rbf *ringBufForwarder[T]) sharedReadAndForward(ctx context.Context, closer
 
 func (rbf *ringBufForwarder[T]) readAndForward(ctx context.Context, out *msg.Queue[[]T]) {
 	rbf.logger.Debug("start reading and forwarding")
-	// BPF will send each measured trace via Ring Buffer, so we listen for them from the
+	// BPF will send each measured item via Ring Buffer, so we listen for them from the
 	// user space.
 	eventsReader, err := readerFactory(rbf.ringbuffer)
 	if err != nil {
@@ -259,7 +266,7 @@ func (rbf *ringBufForwarder[T]) bgFlushOnTimeout(ctx context.Context, out *msg.Q
 		case <-rbf.ticker.C:
 			rbf.access.Lock()
 			if rbf.itemsLen > 0 {
-				rbf.logger.Debug("submitting traces on timeout", "len", rbf.itemsLen)
+				rbf.logger.Debug("submitting items on timeout", "len", rbf.itemsLen)
 				rbf.flushEvents(ctx, out)
 			}
 			rbf.access.Unlock()
