@@ -33,7 +33,8 @@ jobs:
 
       - name: Run zizmor 🌈
         run: |
-          uv pip install --system --require-hashes -r .github/zizmor-requirements.txt
-          zizmor --format=github .github/
+          uv venv .venv
+          uv pip install --require-hashes -r .github/zizmor-requirements.txt
+          .venv/bin/zizmor --format=github .github/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
