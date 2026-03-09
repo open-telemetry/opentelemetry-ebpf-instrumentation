@@ -4,6 +4,7 @@
 package nodejs // import "go.opentelemetry.io/obi/pkg/internal/nodejs"
 
 import (
+	"debug/elf"
 	_ "embed"
 	"errors"
 	"log/slog"
@@ -43,13 +44,19 @@ func (i *NodeInjector) NewExecutable(ie *ebpf.Instrumentable) {
 
 	i.log.Info("loading NodeJS instrumentation", "pid", ie.FileInfo.Pid)
 
-	if err := i.attachAgent(int(ie.FileInfo.Pid)); err != nil {
+	if err := i.attachAgent(int(ie.FileInfo.Pid), ie.FileInfo.ELF); err != nil {
 		i.log.Error("couldn't attach NodeJS injector", "pid", ie.FileInfo.Pid, "error", err)
 		i.log.Error("trace-context propagation will not work for NodeJS services!")
 	}
 }
 
-func (i *NodeInjector) attachAgent(pid int) error {
+func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
+	if elfFile != nil && hasUserSIGUSR1Handler(pid, elfFile) {
+		i.log.Debug("Node.js process has a custom SIGUSR1 handler, skipping agent injection",
+			"pid", pid)
+		return nil
+	}
+
 	err := syscall.Kill(pid, syscall.SIGUSR1)
 	if err != nil {
 		i.log.Error("error enabling node inspector", "err", err)
