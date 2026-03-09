@@ -28,6 +28,7 @@ internal/test/cmd/grpc/server/server
 internal/test/cmd/grpc/client/client
 
 .tools/
+internal/tools/debug/dlv
 bin/
 dist/
 internal/test/integration/components/server

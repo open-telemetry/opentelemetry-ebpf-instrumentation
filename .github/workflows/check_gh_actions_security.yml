@@ -32,6 +32,9 @@ jobs:
           enable-cache: false
 
       - name: Run zizmor 🌈
-        run: uvx zizmor --format=github .github/
+        run: |
+          uv venv .venv
+          uv pip install --require-hashes -r .github/zizmor-requirements.txt
+          .venv/bin/zizmor --format=github .github/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

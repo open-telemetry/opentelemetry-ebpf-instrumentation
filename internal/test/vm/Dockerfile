@@ -1,13 +1,18 @@
+FROM golang:1.25.1@sha256:d7098379b7da665ab25b99795465ec320b1ca9d4addb9f77409c4827dc904211 AS goimage
+
 FROM alpine:3.20@sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805
+
+# Import the Go toolchain from the pinned golang image while keeping Alpine as runtime base.
+COPY --from=goimage /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 # this is the toplevel Makefile target to be invoked
 # see the contents of 'startup.sh' at the end of this file
 ARG target=run-integration-test-vm
 ARG test_pattern=TestMultiProcess
 ARG run_number=1
-ARG GO_VERSION=1.25.1
 
-# Pin Docker/runc to Alpine 3.20 versions (before November 2025 CVE patches)
+# Install Docker/runc from the pinned Alpine 3.20 base image
 # The procfs security checks in newer runc (CVE-2025-52881, CVE-2025-52565,
 # CVE-2025-31133) prevent containers from starting in nested virtualization.
 # Even buildkit containers fail to boot, so insecure buildx approach is not viable.
@@ -21,16 +26,7 @@ RUN apk update && apk add --no-cache \
     make \
     openrc \
     openssh \
-    shadow \
-    wget
-
-# Install desired Go version
-RUN wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz && \
-    rm go${GO_VERSION}.linux-amd64.tar.gz && \
-    ln -s /usr/local/go/bin/go /usr/bin/go && \
-    ln -s /usr/local/go/bin/gofmt /usr/bin/gofmt && \
-    go version
+    shadow
 
 RUN ssh-keygen -A && \
     echo "root:root" | chpasswd && \

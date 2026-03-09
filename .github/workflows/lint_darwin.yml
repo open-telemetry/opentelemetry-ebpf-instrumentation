@@ -7,11 +7,17 @@ on:
     branches: ["main", "release-*"]
     paths:
       - ".github/workflows/lint_darwin.yml"
+      - "Dockerfile"
+      - "**/*Dockerfile*"
+      - "Makefile"
       - "**.go"
       - "go.mod"
       - "go.sum"
       - "bpf/**"
       - "cmd/**"
+      - "devdocs/dependency-integrity-policy.md"
+      - "devdocs/README.md"
+      - "scripts/lint-dependency-policy.sh"
       - "configs/**"
       - "internal/**"
       - "pkg/**"

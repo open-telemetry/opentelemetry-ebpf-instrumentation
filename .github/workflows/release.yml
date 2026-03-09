@@ -357,15 +357,14 @@ jobs:
         run: ls -lh dist/
 
       - name: Create GitHub draft release
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
-          repository: open-telemetry/opentelemetry-ebpf-instrumentation
-          generate_release_notes: true
-          draft: true
-          files: |
-            dist/obi-*-linux-*.tar.gz
-            dist/obi-*-source-generated.tar.gz
+          TAG_NAME: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release create "${TAG_NAME}" \
+            --repo "open-telemetry/opentelemetry-ebpf-instrumentation" \
+            --generate-notes \
+            --draft \
+            dist/obi-*-linux-*.tar.gz \
+            dist/obi-*-source-generated.tar.gz \
             dist/SHA256SUMS

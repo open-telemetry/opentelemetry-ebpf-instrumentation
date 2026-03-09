@@ -6,8 +6,8 @@ WORKDIR /
 # Copy the source code into the image for building
 COPY internal/test/integration/components/nodejsserver .
 
-# Install NodeJS express
-RUN npm install express --save
+# Install dependencies from committed lockfile
+RUN npm ci
 
 EXPOSE 3030
 EXPOSE 3033

@@ -6,8 +6,8 @@ WORKDIR /
 # Copy the source code into the image for building
 COPY internal/test/integration/components/nodejsdist .
 
-# Install NodeJS express
-RUN npm init -y && npm install express axios
+# Install dependencies from committed lockfile
+RUN npm ci
 
 EXPOSE 5006
 
