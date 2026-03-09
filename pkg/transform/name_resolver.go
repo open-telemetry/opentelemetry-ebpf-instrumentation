@@ -195,7 +195,6 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 		pn, span.OtherNamespace, span.OtherK8SNamespace = nr.resolve(&span.Service, span.Peer, span.PeerName)
 		hn, ns, _ = nr.resolve(&span.Service, span.Host, span.HostName)
 		if hn == "" || hn == span.Host {
-			hn = span.Service.UID.Name
 			if ns == "" {
 				ns = span.Service.UID.Namespace
 			}
