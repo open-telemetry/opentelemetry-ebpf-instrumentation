@@ -1,7 +1,7 @@
 # zizmor configuration
 # https://woodruffw.github.io/zizmor/configuration/
 
-[rules.secrets-no-environment]
+[rules.secrets-outside-env]
 # These secrets (Docker Hub publish token, Codecov, FOSSA, OTelBot private key)
 # are repository-level CI/CD operational credentials that do not require
 # GitHub Environment protection gates (e.g. required reviewers or deployment
