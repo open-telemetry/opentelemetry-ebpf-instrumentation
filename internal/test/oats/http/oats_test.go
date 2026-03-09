@@ -4,6 +4,7 @@
 package oats
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/grafana/oats/yaml"
@@ -17,6 +18,7 @@ func TestYaml(t *testing.T) {
 }
 
 var _ = Describe("test case", Label("docker", "integration", "slow"), func() {
+	fmt.Println("First test")
 	cases, base := yaml.ReadTestCases()
 	if base != "" {
 		It("should have at least one test case", func() {
@@ -28,10 +30,13 @@ var _ = Describe("test case", Label("docker", "integration", "slow"), func() {
 	if configuration.ParallelTotal > 1 {
 		ports := yaml.NewPortAllocator(len(cases))
 		for _, c := range cases {
-			// Pre-allocate ports before parallel execution to avoid collisions.
+			// Ports have to be allocated before we start executing in parallel to avoid taking the same port.
+			// Even though it sounds unlikely, it happens quite often.
 			c.PortConfig = ports.AllocatePorts()
 		}
 	}
+
+	yaml.VerboseLogging = true
 
 	for _, c := range cases {
 		Describe(c.Name, Ordered, func() {
