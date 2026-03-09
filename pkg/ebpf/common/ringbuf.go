@@ -50,9 +50,6 @@ type ringBufForwarder[T any] struct {
 	access     sync.Mutex
 	ticker     *time.Ticker
 
-	// isValid is optional (nil = all items valid)
-	isValid func(T) bool
-
 	// parse reads one record and returns (item, ignore, err).
 	// Callers close over whatever context they need (parse ctx, filter, etc.)
 	parse func(*ringbuf.Record) (T, bool, error)
@@ -76,7 +73,6 @@ func SharedRingbuf[T any](
 	cfg *config.EBPFTracer,
 	ringbuffer *ebpf.Map,
 	parse func(*ringbuf.Record) (T, bool, error),
-	isValid func(T) bool, // nil = all valid
 	filter func([]T) []T, // nil = no batch filter
 	logger *slog.Logger,
 	metrics imetrics.Reporter,
@@ -94,7 +90,7 @@ func SharedRingbuf[T any](
 	rbf := ringBufForwarder[T]{
 		cfg: cfg, logger: logger, ringbuffer: ringbuffer,
 		closers: nil, parse: parse,
-		isValid: isValid, filter: filter, metrics: metrics,
+		filter: filter, metrics: metrics,
 	}
 	eventContext.SharedRingBuffer = &rbf
 	return rbf.sharedReadAndForward
@@ -104,7 +100,6 @@ func ForwardRingbuf[T any](
 	cfg *config.EBPFTracer,
 	ringbuffer *ebpf.Map,
 	parse func(*ringbuf.Record) (T, bool, error),
-	isValid func(T) bool, // nil = all valid
 	filter func([]T) []T, // nil = no batch filter
 	logger *slog.Logger,
 	metrics imetrics.Reporter,
@@ -113,7 +108,7 @@ func ForwardRingbuf[T any](
 	rbf := ringBufForwarder[T]{
 		cfg: cfg, logger: logger, ringbuffer: ringbuffer,
 		closers: closers, parse: parse,
-		isValid: isValid, filter: filter, metrics: metrics,
+		filter: filter, metrics: metrics,
 	}
 	return rbf.readAndForward
 }
@@ -229,10 +224,6 @@ func (rbf *ringBufForwarder[T]) processAndForward(ctx context.Context, record ri
 		return
 	}
 	if ignore {
-		return
-	}
-	if rbf.isValid != nil && !rbf.isValid(item) {
-		rbf.logger.Debug("invalid item", "item", item)
 		return
 	}
 	rbf.items[rbf.itemsLen] = item

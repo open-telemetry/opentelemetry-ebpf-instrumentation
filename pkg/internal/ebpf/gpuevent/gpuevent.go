@@ -208,7 +208,6 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 		&p.cfg.EBPF,
 		p.bpfObjects.GpuEvents,
 		p.processCudaEvent,
-		func(s request.Span) bool { return s.IsValid() },
 		ebpfEventContext.CommonPIDsFilter.Filter,
 		p.log,
 		p.metrics,

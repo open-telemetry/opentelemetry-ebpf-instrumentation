@@ -40,9 +40,12 @@ func TestForwardRingbuf_CapacityFull(t *testing.T) {
 		cfg,
 		nil, // the source ring buffer can be null
 		func(r *ringbuf.Record) (request.Span, bool, error) {
-			return ReadBPFTraceAsSpan(nil, cfg, r, &fltr)
+			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &fltr)
+			if !ignore && err == nil && !s.IsValid() {
+				return s, true, nil
+			}
+			return s, ignore, err
 		},
-		func(s request.Span) bool { return s.IsValid() },
 		fltr.Filter,
 		slog.With("test", "TestForwardRingbuf_CapacityFull"),
 		metrics,
@@ -95,9 +98,12 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 		cfg,
 		nil, // the source ring buffer can be null
 		func(r *ringbuf.Record) (request.Span, bool, error) {
-			return ReadBPFTraceAsSpan(nil, cfg, r, &fltr)
+			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &fltr)
+			if !ignore && err == nil && !s.IsValid() {
+				return s, true, nil
+			}
+			return s, ignore, err
 		},
-		func(s request.Span) bool { return s.IsValid() },
 		fltr.Filter,
 		slog.With("test", "TestForwardRingbuf_Deadline"),
 		metrics,
@@ -138,9 +144,12 @@ func TestForwardRingbuf_Close(t *testing.T) {
 		cfg,
 		nil, // the source ring buffer can be null
 		func(r *ringbuf.Record) (request.Span, bool, error) {
-			return ReadBPFTraceAsSpan(nil, cfg, r, &IdentityPidsFilter{})
+			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &IdentityPidsFilter{})
+			if !ignore && err == nil && !s.IsValid() {
+				return s, true, nil
+			}
+			return s, ignore, err
 		},
-		func(s request.Span) bool { return s.IsValid() },
 		nil,
 		slog.With("test", "TestForwardRingbuf_Close"),
 		metrics,
