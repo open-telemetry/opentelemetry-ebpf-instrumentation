@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ifaces"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -503,12 +504,17 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 
 	p.log.Info("Launching p.Tracer")
 
+	cfg := &p.cfg.EBPF
 	ebpfcommon.SharedRingbuf(
 		ebpfEventContext,
-		parseContext,
-		&p.cfg.EBPF,
-		p.pidsFilter,
+		cfg,
 		p.bpfObjects.Events,
+		func(record *ringbuf.Record) (request.Span, bool, error) {
+			return ebpfcommon.ReadBPFTraceAsSpan(parseContext, cfg, record, p.pidsFilter)
+		},
+		func(s request.Span) bool { return s.IsValid() },
+		p.pidsFilter.Filter,
+		p.log,
 		p.metrics,
 	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
 }
