@@ -51,7 +51,7 @@ most of the Kafka parsing logic is in the file [Kafka_parser package](../../../p
 
 It's important to state that these parser ignore any fields that are not relevant for tracing, as well as being able to work on truncated packets.  Each parser also tries to handle all different versions of each message type, as well as any nested structures.
 
-OBI running with the default configuration gets the Metadata response at 128 bytes. If the response is larger than that, which in large clusters is very likely since the Metadata response contains all broker Metadata, OBI will miss the topic id mappings. To solve that, OBI can be run with the `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA` and use the large buffer feature. So, request/response analysis is performed in the kernel and if an event is of interest to us (currently only for Metadata), is sent to userspace using a large buffer event.
+OBI running with the default configuration gets the Metadata response at 128 bytes. If the response is larger than that, which in large clusters is very likely since the Metadata response contains all broker Metadata, OBI will miss the topic id mappings. To solve that, set `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA` to a value large enough to cover the expected Metadata response (up to 65535 bytes). This enables the large buffer feature: request/response analysis is performed in the kernel and events of interest (currently only Metadata responses) are streamed to userspace in chunks. The configured value is a **per-response limit** — OBI stops capturing once that many bytes have been sent for a given response.
 
 ### Tracking topic names for fetch requests v13 and above
 

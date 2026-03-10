@@ -43,6 +43,25 @@ To turn this off and fallback to the normal network based instrumentation for Go
 | github.com/IBM/sarama          |   Kafka    |               >= 1.37 | All     |  Yes   |                 No |         N/A
 | go.mongodb.org/mongo-driver    |  MongoDB   | >= v1.10.1, >= v2.0.1 | All     |  Yes   |                 No |         N/A
 
+## Payload Capture
+
+OBI can capture full request and response payloads for some protocols and forward them to userspace for richer analysis
+(e.g. SQL body extraction, Kafka Metadata parsing). This feature is disabled by default.
+
+Each limit is applied **per request and per direction independently**: the configured value caps the total bytes captured
+for the request direction and, separately, the total bytes captured for the response direction. For example,
+`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP=4096` captures up to 4096 bytes of request body and up to 4096 bytes of response body.
+Large payloads are streamed to userspace across multiple ring-buffer events and reassembled there.
+
+| Environment variable               | Protocol   | Maximum | Default      |
+|:-----------------------------------|:----------:|--------:|:------------:|
+| `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`   | HTTP       | 65535   | 0 (disabled) |
+| `OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL`  | MySQL      | 65535   | 0 (disabled) |
+| `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA`  | Kafka      | 65535   | 0 (disabled) |
+| `OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES` | PostgreSQL | 65535 | 0 (disabled) |
+
+Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres}`.
+
 ## GPU Instrumentation
 
 Specifically for instrumenting GPU execution primitives, like NVIDIA CUDA kernel launches and memory copies. This

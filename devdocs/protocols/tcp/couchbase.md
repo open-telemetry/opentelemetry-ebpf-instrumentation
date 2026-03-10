@@ -275,8 +275,10 @@ SQL++ spans are generated with the following attributes:
 SQL++ parsing requires the following configuration:
 
 - `OTEL_EBPF_HTTP_SQLPP_ENABLED` - Enable/disable SQL++ parsing (default: `false`)
-- `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP` - Must be set to a larger value (e.g., `2048`) to capture SQL++ request/response
-  bodies. The default HTTP buffer size is insufficient for parsing SQL++ queries.
+- `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP` - Must be set to a value large enough to capture SQL++ request/response bodies
+  (e.g., `2048`). The default is 0 (disabled), which prevents SQL++ body parsing. This is a **per-request and
+  per-response limit**: OBI captures up to the configured number of bytes for the request body and, separately, up to
+  the same limit for the response body. Maximum is 65535 bytes.
 - Endpoint patterns are configured internally to match `/query/service`
 
 ### Implementation
