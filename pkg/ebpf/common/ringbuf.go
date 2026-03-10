@@ -38,6 +38,12 @@ var readerFactory = func(rb *ebpf.Map) (ringBufReader, error) {
 	return ringbuf.NewReader(rb)
 }
 
+// RecordParserFunc reads one ring buffer record and returns (item, ignore, err).
+type RecordParserFunc[T any] func(*ringbuf.Record) (T, bool, error)
+
+// BatchFilterFunc is an optional batch-level filter applied at flush time (nil = identity).
+type BatchFilterFunc[T any] func([]T) []T
+
 // ringBufForwarder[T] handles the common loop: read -> parse -> batch -> flush
 // it's generic so it can be used for both request.Span (appolly) and others
 type ringBufForwarder[T any] struct {
@@ -52,12 +58,12 @@ type ringBufForwarder[T any] struct {
 
 	// parse reads one record and returns (item, ignore, err).
 	// Callers close over whatever context they need (parse ctx, filter, etc.)
-	parse func(*ringbuf.Record) (T, bool, error)
+	parse RecordParserFunc[T]
 
 	// filter is optional batch-level filter applied at flush time (nil = identity)
 	// in appolly, filter the input spans, eliminating these from processes whose PID
 	// belong to a process that does not match the discovery policies
-	filter func([]T) []T
+	filter BatchFilterFunc[T]
 
 	// metrics is optional (nil = no-op)
 	metrics    imetrics.Reporter
@@ -72,8 +78,8 @@ func SharedRingbuf[T any](
 	eventContext *EBPFEventContext,
 	cfg *config.EBPFTracer,
 	ringbuffer *ebpf.Map,
-	parse func(*ringbuf.Record) (T, bool, error),
-	filter func([]T) []T, // nil = no batch filter
+	parse RecordParserFunc[T],
+	filter BatchFilterFunc[T], // nil = no batch filter
 	logger *slog.Logger,
 	metrics imetrics.Reporter,
 ) func(context.Context, []io.Closer, *msg.Queue[[]T]) {
@@ -106,8 +112,8 @@ func SharedRingbuf[T any](
 func ForwardRingbuf[T any](
 	cfg *config.EBPFTracer,
 	ringbuffer *ebpf.Map,
-	parse func(*ringbuf.Record) (T, bool, error),
-	filter func([]T) []T, // nil = no batch filter
+	parse RecordParserFunc[T],
+	filter BatchFilterFunc[T], // nil = no batch filter
 	logger *slog.Logger,
 	metrics imetrics.Reporter,
 	closers ...io.Closer,
