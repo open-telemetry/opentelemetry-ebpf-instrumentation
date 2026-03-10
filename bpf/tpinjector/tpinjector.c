@@ -19,7 +19,6 @@
 #include <common/scratch_mem.h>
 #include <common/ssl_connection.h>
 #include <common/tc_common.h>
-#include <common/tp_buf.h>
 #include <common/tp_info.h>
 #include <common/trace_parent.h>
 #include <common/trace_util.h>
@@ -30,6 +29,7 @@
 #include <maps/incoming_trace_map.h>
 #include <maps/msg_buffers.h>
 #include <maps/sock_dir.h>
+#include <maps/tp_info_mem.h>
 
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
 
@@ -654,7 +654,7 @@ static __always_inline void schedule_write_tcp_option(struct sk_msg_md *msg, tp_
 
 static __always_inline void write_http_traceparent(struct sk_msg_md *msg, tp_info_pid_t *tp_pid) {
     // used for the upcoming tailcall
-    tp_info_pid_t *tp_p = tp_buf();
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
 
     if (!tp_p) {
         return;
@@ -782,7 +782,7 @@ SEC("sk_msg")
 int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
     bpf_dbg_printk("=== sk_msg ===");
 
-    tp_info_pid_t *tp_p = tp_buf();
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
 
     if (!tp_p) {
         bpf_dbg_printk("empty tp_buf");
@@ -845,7 +845,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    tp_info_pid_t *tp_p = tp_buf();
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
 
     if (!tp_p) {
         return SK_PASS;
@@ -950,7 +950,7 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    tp_info_pid_t *tp_p = tp_buf();
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
 
     if (!tp_p) {
         return SK_PASS;

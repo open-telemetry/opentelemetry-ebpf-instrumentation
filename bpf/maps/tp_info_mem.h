@@ -8,4 +8,4 @@
 #include <common/scratch_mem.h>
 #include <common/tp_info.h>
 
-SCRATCH_MEM_TYPED(tp_info_mem, tp_info_pid_t);
+SCRATCH_MEM_TYPED(tp_info, tp_info_pid_t);

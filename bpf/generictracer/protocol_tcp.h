@@ -14,9 +14,9 @@
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
 #include <common/trace_parent.h>
-#include <common/tp_buf.h>
 
 #include <maps/ongoing_tcp_req.h>
+#include <maps/tp_info_mem.h>
 
 #include <generictracer/protocol_common.h>
 #include <generictracer/protocol_kafka.h>
@@ -38,7 +38,7 @@ static __always_inline tcp_req_t *empty_tcp_req() {
 
 static __always_inline void set_tcp_trace_info(
     u32 type, connection_info_t *conn, tp_info_t *tp, u32 pid, u8 ssl, u16 orig_dport) {
-    tp_info_pid_t *tp_p = tp_buf();
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
 
     if (!tp_p) {
         return;

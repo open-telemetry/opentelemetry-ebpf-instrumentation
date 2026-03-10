@@ -16,7 +16,6 @@
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
 #include <common/trace_parent.h>
-#include <common/tp_buf.h>
 #include <common/tp_char_buf.h>
 
 #include <generictracer/maps/http_info_mem.h>
@@ -29,6 +28,7 @@
 #include <maps/accepted_connections.h>
 #include <maps/active_ssl_connections.h>
 #include <maps/ongoing_http.h>
+#include <maps/tp_info_mem.h>
 
 volatile const u32 high_request_volume;
 
@@ -83,7 +83,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         return;
     }
 
-    tp_p = tp_buf();
+    tp_p = (tp_info_pid_t *)tp_info_mem();
 
     if (!tp_p) {
         return;
