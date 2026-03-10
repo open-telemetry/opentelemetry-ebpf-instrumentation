@@ -12,7 +12,6 @@
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
 #include <common/ringbuf.h>
-#include <common/sql.h>
 
 #include <generictracer/maps/protocol_cache.h>
 
@@ -42,7 +41,7 @@ enum {
 static __always_inline struct mssql_hdr mssql_parse_hdr(const unsigned char *data) {
     struct mssql_hdr hdr = {};
 
-    bpf_probe_read(&hdr, sizeof(hdr), data);
+    bpf_probe_read(&hdr, sizeof(hdr), (const void *)data);
 
     // Length and SPID are big-endian
     hdr.length = bpf_ntohs(hdr.length);
@@ -112,6 +111,10 @@ static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
                                                    u8 packet_type,
                                                    u8 direction,
                                                    enum large_buf_action action) {
+    if (mssql_buffer_size == 0) {
+        return 0;
+    }
+
     tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)mssql_large_buffers_mem();
     if (!large_buf) {
         bpf_dbg_printk("mssql_send_large_buffer: failed to reserve space for MSSQL large buffer");
