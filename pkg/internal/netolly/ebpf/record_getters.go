@@ -27,88 +27,94 @@ type RecordGettersConfig struct {
 //
 //nolint:cyclop
 func RecordGetters(cfg RecordGettersConfig) attributes.NamedGetters[*Record, attribute.KeyValue] {
-	return func(name attr.Name) (attributes.Getter[*Record, attribute.KeyValue], bool) {
-		var getter attributes.Getter[*Record, attribute.KeyValue]
-		switch name {
-		case attr.OBIIP:
-			getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.OBIIP), r.Attrs.OBIIP) }
-		case attr.Transport:
-			getter = func(r *Record) attribute.KeyValue {
-				return attribute.String(string(attr.Transport), transport.Protocol(r.Id.TransportProtocol).String())
-			}
-		case attr.NetworkType:
-			getter = func(r *Record) attribute.KeyValue {
-				return attribute.String(string(attr.NetworkType), transport.NetworkType(r.Id.EthProtocol).String())
-			}
-		case attr.NetworkProtocol:
-			getter = func(r *Record) attribute.KeyValue {
-				return attribute.String(string(attr.NetworkProtocol),
-					transport.ApplicationPortToString(serverPort(r, serverPortOrdinalGuess)))
-			}
-		case attr.SrcAddress:
-			getter = func(r *Record) attribute.KeyValue {
-				return attribute.String(string(attr.SrcAddress), r.Id.SrcIP().IP().String())
-			}
-		case attr.DstAddress:
-			getter = func(r *Record) attribute.KeyValue {
-				return attribute.String(string(attr.DstAddress), r.Id.DstIP().IP().String())
-			}
-		case attr.SrcPort:
-			getter = func(r *Record) attribute.KeyValue { return attribute.Int(string(attr.SrcPort), int(r.Id.SrcPort)) }
-		case attr.DstPort:
-			getter = func(r *Record) attribute.KeyValue { return attribute.Int(string(attr.DstPort), int(r.Id.DstPort)) }
-		case attr.SrcName:
-			getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.SrcName), r.Attrs.SrcName) }
-		case attr.DstName:
-			getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.DstName), r.Attrs.DstName) }
-		case attr.IfaceDirection:
-			getter = func(r *Record) attribute.KeyValue {
-				return attribute.String(string(attr.IfaceDirection), ifaceDirectionStr(r.Metrics.IfaceDirection))
-			}
-		case attr.Iface:
-			getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.Iface), r.Attrs.Interface) }
-		case attr.ClientPort:
-			guesser := cfg.clientPortGuesser()
-			getter = func(r *Record) attribute.KeyValue {
-				return attribute.Int(string(attr.ClientPort), int(clientPort(r, guesser)))
-			}
-		case attr.Direction:
-			guesser := cfg.clientPortGuesser()
-			getter = func(r *Record) attribute.KeyValue {
-				var direction string
-				switch r.Metrics.Initiator {
-				case InitiatorDst:
-					direction = DirectionResponse
-				case InitiatorSrc:
+	return recordGetters{cfg: cfg}.get
+}
+
+type recordGetters struct {
+	cfg RecordGettersConfig
+}
+
+func (r recordGetters) get(name attr.Name) (attributes.Getter[*Record, attribute.KeyValue], bool) {
+	var getter attributes.Getter[*Record, attribute.KeyValue]
+	switch name {
+	case attr.OBIIP:
+		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.OBIIP), r.Attrs.OBIIP) }
+	case attr.Transport:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.Transport), transport.Protocol(r.Id.TransportProtocol).String())
+		}
+	case attr.NetworkType:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.NetworkType), transport.NetworkType(r.Id.EthProtocol).String())
+		}
+	case attr.NetworkProtocol:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.NetworkProtocol),
+				transport.ApplicationPortToString(serverPort(r, serverPortOrdinalGuess)))
+		}
+	case attr.SrcAddress:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.SrcAddress), r.Id.SrcIP().IP().String())
+		}
+	case attr.DstAddress:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.DstAddress), r.Id.DstIP().IP().String())
+		}
+	case attr.SrcPort:
+		getter = func(r *Record) attribute.KeyValue { return attribute.Int(string(attr.SrcPort), int(r.Id.SrcPort)) }
+	case attr.DstPort:
+		getter = func(r *Record) attribute.KeyValue { return attribute.Int(string(attr.DstPort), int(r.Id.DstPort)) }
+	case attr.SrcName:
+		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.SrcName), r.Attrs.SrcName) }
+	case attr.DstName:
+		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.DstName), r.Attrs.DstName) }
+	case attr.IfaceDirection:
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.String(string(attr.IfaceDirection), ifaceDirectionStr(r.Metrics.IfaceDirection))
+		}
+	case attr.Iface:
+		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.Iface), r.Attrs.Interface) }
+	case attr.ClientPort:
+		guesser := r.cfg.clientPortGuesser()
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.Int(string(attr.ClientPort), int(clientPort(r, guesser)))
+		}
+	case attr.Direction:
+		guesser := r.cfg.clientPortGuesser()
+		getter = func(r *Record) attribute.KeyValue {
+			var direction string
+			switch r.Metrics.Initiator {
+			case InitiatorDst:
+				direction = DirectionResponse
+			case InitiatorSrc:
+				direction = DirectionRequest
+			default:
+				// guess client port
+				clientPort := guesser(r)
+				switch clientPort {
+				case 0:
+					direction = DirectionUnknown
+				case r.Id.SrcPort:
 					direction = DirectionRequest
 				default:
-					// guess client port
-					clientPort := guesser(r)
-					switch clientPort {
-					case 0:
-						direction = DirectionUnknown
-					case r.Id.SrcPort:
-						direction = DirectionRequest
-					default:
-						direction = DirectionResponse
-					}
+					direction = DirectionResponse
 				}
-				return attribute.String(string(attr.Direction), direction)
 			}
-		case attr.ServerPort:
-			guesser := cfg.serverPortGuesser()
-			getter = func(r *Record) attribute.KeyValue {
-				return attribute.Int(string(attr.ServerPort), int(serverPort(r, guesser)))
-			}
-		case attr.SrcZone:
-			getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.SrcZone), r.Attrs.SrcZone) }
-		case attr.DstZone:
-			getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.DstZone), r.Attrs.DstZone) }
-		default:
-			getter = func(r *Record) attribute.KeyValue { return attribute.String(string(name), r.Attrs.Metadata[name]) }
+			return attribute.String(string(attr.Direction), direction)
 		}
-		return getter, getter != nil
+	case attr.ServerPort:
+		guesser := r.cfg.serverPortGuesser()
+		getter = func(r *Record) attribute.KeyValue {
+			return attribute.Int(string(attr.ServerPort), int(serverPort(r, guesser)))
+		}
+	case attr.SrcZone:
+		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.SrcZone), r.Attrs.SrcZone) }
+	case attr.DstZone:
+		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.DstZone), r.Attrs.DstZone) }
+	default:
+		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(name), r.Attrs.Metadata[name]) }
 	}
+	return getter, getter != nil
 }
 
 func RecordStringGetters(
