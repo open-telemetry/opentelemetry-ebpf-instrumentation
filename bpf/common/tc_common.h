@@ -16,6 +16,23 @@ const char TP_TID_PREFIX[] = "Traceparent: 00-";
 const u32 TP_TID_PREFIX_SIZE = sizeof(TP_TID_PREFIX) - 1;
 const u32 INVALID_POS = 0xffffffff;
 
+// HTTP/2 constants for HPACK traceparent injection (RFC 7541 §6.2.2)
+enum {
+    k_h2_tp_hpack_size = 69, // 0x00 | 0x0b | "traceparent" | 0x37 | 55-byte value
+    k_h2_frame_header_len = 9,
+    k_h2_frame_headers = 0x01,
+    k_h2_frame_settings = 0x04,
+    k_h2_flag_end_headers = 0x04,
+    k_h2_preface_len = 24,
+    k_h2_max_frame_len = 0xFFFF,   // sanity cap for frame payload length
+    k_h2_max_scan_offset = 0x1FFF, // verifier bound for frame-scanning position (8191)
+    k_hpack_literal_no_index = 0x00,
+    k_hpack_name_len_traceparent = 0x0b, // 11 = strlen("traceparent")
+    k_hpack_value_len_tp = 0x37,         // 55 = strlen("00-<trace_id>-<span_id>-<flags>")
+    k_hpack_method_get = 0x82,           // HPACK static table index 2: :method GET
+    k_hpack_method_post = 0x83,          // HPACK static table index 3: :method POST
+};
+
 static __always_inline unsigned char *
 memchar(unsigned char *haystack, char needle, const unsigned char *end, u32 size) {
     for (u32 i = 0; i < size; ++i) {

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/bhpack"
@@ -171,7 +172,7 @@ func TestHTTP2Parsing(t *testing.T) {
 				}
 
 				if ff, ok := f.(*http2.HeadersFrame); ok {
-					method, path, contentType, _ := readMetaFrame(parseContext, 0, framer, ff)
+					method, path, contentType, _, _ := readMetaFrame(parseContext, 0, framer, ff)
 					assert.Equal(t, tt.method, method)
 					assert.Equal(t, tt.path, path)
 					assert.Equal(t, tt.contentType, contentType)
@@ -531,6 +532,90 @@ func TestHandleHeaderField(t *testing.T) {
 			assert.Equal(t, tt.expected, result, "Expected %v for %s:%s", tt.expected, tt.hf.Name, tt.hf.Value)
 		})
 	}
+}
+
+// TestHPACKTraceparentEncoding verifies that the HPACK encoding used by BPF
+// (literal header without indexing, no Huffman) is correctly decoded by Go's
+// HPACK decoder. This is the exact byte layout that make_h2_tp_hpack() produces.
+func TestHPACKTraceparentEncoding(t *testing.T) {
+	traceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	spanID := "bbbbbbbbbbbbbbbb"
+	flags := "01"
+	value := "00-" + traceID + "-" + spanID + "-" + flags
+
+	// Build the exact HPACK encoding our BPF code produces:
+	// 0x00 = literal without indexing, new name
+	// 0x0b = name length 11 (no Huffman)
+	// "traceparent" = 11 bytes
+	// 0x37 = value length 55 (no Huffman)
+	// "00-<32hex>-<16hex>-<2hex>" = 55 bytes
+	hpack := []byte{0x00, 0x0b}
+	hpack = append(hpack, []byte("traceparent")...)
+	hpack = append(hpack, 0x37)
+	hpack = append(hpack, []byte(value)...)
+
+	assert.Len(t, hpack, 69, "HPACK encoding should be exactly 69 bytes")
+
+	// Verify Go's HPACK decoder can parse it
+	dec := bhpack.NewDecoder(4096, nil)
+
+	var headers []bhpack.HeaderField
+	dec.SetEmitFunc(func(hf bhpack.HeaderField) {
+		headers = append(headers, hf)
+	})
+
+	_, err := dec.Write(hpack)
+	require.NoError(t, err)
+
+	assert.Len(t, headers, 1)
+	assert.Equal(t, "traceparent", headers[0].Name)
+	assert.Equal(t, value, headers[0].Value)
+}
+
+// TestHPACKTraceparentInHeadersFrame verifies that injecting the HPACK-encoded
+// traceparent at the end of an existing HEADERS frame payload produces valid
+// HPACK that decodes correctly alongside the original headers.
+func TestHPACKTraceparentInHeadersFrame(t *testing.T) {
+	// Build a minimal HEADERS frame with :method POST, :scheme http, :path /test
+	originalHPACK := []byte{
+		0x83,                                // :method POST (indexed)
+		0x86,                                // :scheme http (indexed)
+		0x00, 0x05, ':', 'p', 'a', 't', 'h', // :path (literal, new name)
+		0x05, '/', 't', 'e', 's', 't', // value: /test
+	}
+
+	// Our BPF injection appends this at end of HPACK payload
+	tpHPACK := []byte{0x00, 0x0b}
+	tpHPACK = append(tpHPACK, []byte("traceparent")...)
+	tpHPACK = append(tpHPACK, 0x37)
+	tpHPACK = append(tpHPACK, []byte("00-deadbeefdeadbeefdeadbeefdeadbeef-cafecafecafecafe-01")...)
+
+	combined := make([]byte, 0, len(originalHPACK)+len(tpHPACK))
+	combined = append(combined, originalHPACK...)
+	combined = append(combined, tpHPACK...)
+
+	dec := bhpack.NewDecoder(4096, nil)
+
+	var headers []bhpack.HeaderField
+	dec.SetEmitFunc(func(hf bhpack.HeaderField) {
+		headers = append(headers, hf)
+	})
+
+	_, err := dec.Write(combined)
+	require.NoError(t, err)
+
+	// Should have 4 headers: :method, :scheme, :path, traceparent
+	assert.Len(t, headers, 4)
+
+	headerMap := make(map[string]string)
+	for _, h := range headers {
+		headerMap[h.Name] = h.Value
+	}
+
+	assert.Equal(t, "POST", headerMap[":method"])
+	assert.Equal(t, "http", headerMap[":scheme"])
+	assert.Equal(t, "/test", headerMap[":path"])
+	assert.Equal(t, "00-deadbeefdeadbeefdeadbeefdeadbeef-cafecafecafecafe-01", headerMap["traceparent"])
 }
 
 func BenchmarkIsHTTP2(b *testing.B) {

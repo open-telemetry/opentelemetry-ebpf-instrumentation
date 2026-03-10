@@ -16,6 +16,9 @@ testoutput
 
 **/node_modules
 
+# Misc tools
+.claude/
+
 # Dependency directories (remove the comment below to include it)
 **/vendor/
 

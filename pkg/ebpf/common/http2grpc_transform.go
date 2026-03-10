@@ -6,6 +6,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"io"
 	"regexp"
@@ -164,16 +165,17 @@ func knownFrameKeys(fr *http2.Framer, hf *http2.HeadersFrame) bool {
 	return knownCount > 1
 }
 
-func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Framer, hf *http2.HeadersFrame) (string, string, string, bool) {
+func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Framer, hf *http2.HeadersFrame) (string, string, string, string, bool) {
 	h2c := getOrInitH2Conn(parseContext.h2c, connID)
 
 	ok := false
 	method := ""
 	path := ""
 	contentType := ""
+	traceparent := ""
 
 	if h2c == nil {
-		return method, path, contentType, ok
+		return method, path, contentType, traceparent, ok
 	}
 
 	h2c.hdec.SetEmitFunc(func(hf bhpack.HeaderField) {
@@ -190,6 +192,9 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 				protocolIsGRPC(parseContext.h2c, connID)
 			}
 			ok = true
+		case "traceparent":
+			traceparent = hf.Value
+			ok = true
 		}
 	})
 	// Lose reference to MetaHeadersFrame:
@@ -199,7 +204,7 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 	frag := hf.HeaderBlockFragment()
 	for {
 		if _, err := h2c.hdec.Write(frag); err != nil {
-			return method, path, contentType, ok
+			return method, path, contentType, traceparent, ok
 		}
 		if hf.HeadersEnded() {
 			break
@@ -215,7 +220,7 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 		frag = cf.HeaderBlockFragment()
 	}
 
-	return method, path, contentType, ok
+	return method, path, contentType, traceparent, ok
 }
 
 func http2grpcStatus(status int) int {
@@ -285,6 +290,37 @@ func readRetMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.F
 	}
 
 	return status, grpc, ok
+}
+
+// applyTraceparent parses a W3C traceparent header value
+// (e.g. "00-<trace_id>-<span_id>-<flags>") and overrides the
+// BPF-provided trace context on the event.
+func applyTraceparent(event *BPFHTTP2Info, tp string) {
+	// Format: ver(2)-trace_id(32)-span_id(16)-flags(2)
+	parts := strings.SplitN(tp, "-", 4)
+	if len(parts) != 4 || len(parts[1]) != 32 || len(parts[2]) != 16 {
+		return
+	}
+
+	traceID, err := hex.DecodeString(parts[1])
+	if err != nil || len(traceID) != 16 {
+		return
+	}
+
+	spanID, err := hex.DecodeString(parts[2])
+	if err != nil || len(spanID) != 8 {
+		return
+	}
+
+	copy(event.Tp.TraceId[:], traceID)
+	copy(event.Tp.ParentId[:], spanID)
+
+	if len(parts[3]) == 2 {
+		flags, err := hex.DecodeString(parts[3])
+		if err == nil {
+			event.Tp.Flags = flags[0]
+		}
+	}
 }
 
 func http2InfoToSpan(info *BPFHTTP2Info, method, path, peer, host string, status int, protocol Protocol) request.Span {
@@ -400,7 +436,10 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 
 		if ff, ok := f.(*http2.HeadersFrame); ok {
 			rok := false
-			method, path, contentType, ok := readMetaFrame(parseContext, connID, framer, ff)
+			method, path, contentType, tp, ok := readMetaFrame(parseContext, connID, framer, ff)
+			if tp != "" {
+				applyTraceparent(event, tp)
+			}
 			if pos := strings.Index(path, "?"); pos >= 0 {
 				path = path[:pos]
 			}

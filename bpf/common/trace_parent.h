@@ -8,6 +8,7 @@
 #include <common/runtime.h>
 #include <common/trace_helpers.h>
 
+#include <maps/active_server_trace.h>
 #include <maps/clone_map.h>
 #include <maps/cp_support_connect_info.h>
 #include <maps/fd_map.h>
@@ -192,7 +193,7 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
 
     tp_info_pid_t *proc_parent = find_parent_process_trace(t_key);
 
-    if (proc_parent) {
+    if (proc_parent && proc_parent->valid) {
         return proc_parent;
     }
 
@@ -200,7 +201,22 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
 
     if (conn_t_key) {
         bpf_dbg_printk("Found parent trace for connection through connection lookup");
-        return bpf_map_lookup_elem(&server_traces, &conn_t_key->t_key);
+        tp_info_pid_t *cp_parent = bpf_map_lookup_elem(&server_traces, &conn_t_key->t_key);
+        if (cp_parent && cp_parent->valid) {
+            return cp_parent;
+        }
+    }
+
+    // Fallback: look up by process ID (tgid) only. This handles the case
+    // where the outgoing sendmsg() happens on a different thread (e.g. an
+    // I/O thread in Python grpcio, Rust tonic, or Node.js) than the one
+    // that handled the incoming request.
+    const u32 tgid = (u32)(pid_tgid >> 32);
+    tp_info_pid_t *tgid_parent = bpf_map_lookup_elem(&active_server_trace, &tgid);
+    if (tgid_parent) {
+        bpf_dbg_printk("Found parent trace via process-level active_server_trace for tgid=%d",
+                       tgid);
+        return tgid_parent;
     }
 
     return 0;

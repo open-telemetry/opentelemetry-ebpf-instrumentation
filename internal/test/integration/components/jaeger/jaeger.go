@@ -81,9 +81,19 @@ func (t *Trace) FindByOperationName(operationName string, spanType string) []Spa
 }
 
 func (t *Trace) FindByOperationNameAndService(operationName, service string) []Span {
+	return t.FindByOperationNameServiceAndKind(operationName, service, "")
+}
+
+func (t *Trace) FindByOperationNameServiceAndKind(operationName, service, spanKind string) []Span {
 	var matches []Span
 	for _, s := range t.Spans {
 		if s.OperationName == operationName {
+			if spanKind != "" {
+				tag, _ := FindIn(s.Tags, "span.kind")
+				if tag.Value != spanKind {
+					continue
+				}
+			}
 			if p, ok := t.Processes[s.ProcessID]; ok {
 				if p.ServiceName == service {
 					matches = append(matches, s)

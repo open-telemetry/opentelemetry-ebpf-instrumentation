@@ -43,13 +43,21 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
                                                         tp_info_t *tp,
                                                         const u8 type) {
     u8 found_tp = 0;
-    tp_info_pid_t *existing_tp = bpf_map_lookup_elem(&incoming_trace_map, conn);
+
+    // incoming_trace_map is keyed by sorted connection info (written by
+    // sk_msg via sort_connection_info).  The caller may pass a fixed-up
+    // conn (e.g. after fixup_connection_info in HTTP/2), so we must sort
+    // before the lookup to get the same canonical key.
+    connection_info_t sorted_conn = *conn;
+    sort_connection_info(&sorted_conn);
+
+    tp_info_pid_t *existing_tp = bpf_map_lookup_elem(&incoming_trace_map, &sorted_conn);
     if (existing_tp) {
         found_tp = 1;
         bpf_dbg_printk("Found incoming (TCP/IP) tp for server request");
         __builtin_memcpy(tp->trace_id, existing_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, existing_tp->tp.span_id, sizeof(tp->parent_id));
-        bpf_map_delete_elem(&incoming_trace_map, conn);
+        bpf_map_delete_elem(&incoming_trace_map, &sorted_conn);
     } else {
         bpf_dbg_printk("Looking up tracemap for");
         dbg_print_http_connection_info(conn);
@@ -108,6 +116,12 @@ static __always_inline void server_or_client_trace(
                        conn_part.port);
 
         bpf_map_update_elem(&server_traces_aux, &conn_part, tp_p, BPF_ANY);
+
+        // Always update the process-level fallback so that cross-thread
+        // client lookups (e.g. gRPC I/O threads) find the latest server
+        // trace, even when the per-thread server_traces entry conflicts.
+        const u32 tgid = (u32)(id >> 32);
+        bpf_map_update_elem(&active_server_trace, &tgid, tp_p, BPF_ANY);
 
         tp_info_pid_t *existing = bpf_map_lookup_elem(&server_traces, &t_key);
         if (existing && (existing->req_type == tp_p->req_type) &&

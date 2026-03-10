@@ -9,6 +9,9 @@
 #include <common/iov_iter.h>
 #include <common/http_buf_size.h>
 #include <common/ringbuf.h>
+#include <common/trace_lifecycle.h>
+
+#include <maps/tp_info_mem.h>
 
 #include <generictracer/http2_grpc.h>
 #include <generictracer/k_tracer_tailcall.h>
@@ -61,6 +64,19 @@ static __always_inline void http2_grpc_start(
     http2_grpc_request_t *existing = bpf_map_lookup_elem(&ongoing_http2_grpc, s_key);
     if (existing) {
         bpf_dbg_printk("already found existing grpcstart, ignoring this exchange");
+        // Adopt sock_msg's span_id (backup kprobe runs after sock_msg).
+        if (existing->type == EVENT_HTTP_CLIENT) {
+            const egress_key_t sorted_e = {
+                .d_port = s_key->pid_conn.conn.d_port,
+                .s_port = s_key->pid_conn.conn.s_port,
+            };
+            tp_info_pid_t *injected = bpf_map_lookup_elem(&outgoing_trace_map, &sorted_e);
+            if (injected && injected->written) {
+                __builtin_memcpy(
+                    existing->tp.span_id, injected->tp.span_id, sizeof(existing->tp.span_id));
+                injected->written = 0;
+            }
+        }
         return;
     }
     http2_grpc_request_t *h2g_info = empty_http2_info();
@@ -94,6 +110,56 @@ static __always_inline void http2_grpc_start(
         fixup_connection_info(
             &h2g_info->conn_info, h2g_info->type == EVENT_HTTP_CLIENT, orig_dport);
         bpf_probe_read(h2g_info->data, k_kprobes_http2_buf_size, u_buf);
+
+        tp_info_pid_t *tp_p = tp_info_mem();
+        if (tp_p) {
+            tp_p->tp.ts = bpf_ktime_get_ns();
+            tp_p->tp.flags = 1;
+            tp_p->valid = 1;
+            tp_p->written = 0;
+            tp_p->pid = s_key->pid_conn.pid;
+            tp_p->req_type = meta->type;
+
+            urand_bytes(tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
+
+            // Adopt sock_msg's span_id before server_or_client_trace
+            // overwrites outgoing_trace_map.
+            if (meta->type == EVENT_HTTP_CLIENT) {
+                const egress_key_t sorted_e = {
+                    .d_port = s_key->pid_conn.conn.d_port,
+                    .s_port = s_key->pid_conn.conn.s_port,
+                };
+                tp_info_pid_t *injected = bpf_map_lookup_elem(&outgoing_trace_map, &sorted_e);
+                if (injected && injected->written) {
+                    __builtin_memcpy(
+                        tp_p->tp.span_id, injected->tp.span_id, sizeof(tp_p->tp.span_id));
+                    injected->written = 0;
+                }
+            }
+
+            u8 found_tp = 0;
+            if (meta->type == EVENT_HTTP_CLIENT) {
+                found_tp = find_trace_for_client_request(&s_key->pid_conn, orig_dport, &tp_p->tp);
+            } else {
+                // For server requests, look up incoming_trace_map (populated
+                // by sk_msg on the sender side) and fall back to black-box
+                // correlation.
+                found_tp =
+                    find_trace_for_server_request(&h2g_info->conn_info, &tp_p->tp, meta->type);
+            }
+
+            if (!found_tp) {
+                new_trace_id(&tp_p->tp);
+                __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+            }
+
+            h2g_info->tp = tp_p->tp;
+
+            const u32 type =
+                (meta->type == EVENT_HTTP_CLIENT) ? TRACE_TYPE_CLIENT : TRACE_TYPE_SERVER;
+            set_trace_info_for_connection(&h2g_info->conn_info, type, tp_p);
+            server_or_client_trace(meta->type, &h2g_info->conn_info, tp_p, ssl, orig_dport);
+        }
 
         bpf_map_update_elem(&ongoing_http2_grpc, s_key, h2g_info, BPF_ANY);
     }

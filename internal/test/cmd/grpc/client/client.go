@@ -85,7 +85,7 @@ func printFeature(client pb.RouteGuideClient, point *pb.Point, counter int) {
 	nCtx := metadata.NewOutgoingContext(ctx, md)
 	slog.Info("New ctx", "ctx", nCtx)
 
-	feature, err := client.GetFeature(ctx, point)
+	feature, err := client.GetFeature(nCtx, point)
 	if err != nil {
 		slog.Error("client.GetFeature failed", "error", err)
 		os.Exit(-1)
