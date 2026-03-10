@@ -213,7 +213,10 @@ func TestIsInspectorOpen_NonInspectorOnPort9229(t *testing.T) {
 				return
 			}
 			// Respond with something that is not a Node.js inspector response
-			conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nnot an inspector"))
+			_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nnot an inspector"))
+			if err != nil {
+				return
+			}
 			conn.Close()
 		}
 	}()
