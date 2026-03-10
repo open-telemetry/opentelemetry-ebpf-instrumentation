@@ -53,6 +53,30 @@ func main() {
 		fmt.Fprintf(w, "Student: %s, ID: %d", name, id)
 	})
 
+	http.HandleFunc("/update", func(w http.ResponseWriter, r *http.Request) {
+		if !mysqlInit {
+			db, err = sql.Open("mysql", "root:mysql@tcp(mysqlserver:3306)/sqltest")
+			if err != nil {
+				log.Fatal(err)
+			}
+			mysqlInit = true
+		}
+		err = db.Ping()
+		if err != nil {
+			log.Printf("%v\n", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		res, err := db.Exec("UPDATE students SET name=\"John Doe\" WHERE id=1")
+		if err != nil {
+			log.Printf("%v\n", err)
+			w.WriteHeader(500)
+			return
+		}
+		fmt.Fprintf(w, "Result %v", res)
+	})
+
 	http.HandleFunc("/mysqlerror", func(w http.ResponseWriter, r *http.Request) {
 		if !mysqlInit {
 			db, err = sql.Open("mysql", "root:mysql@tcp(mysqlserver:3306)/sqltest")

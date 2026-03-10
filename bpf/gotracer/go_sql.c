@@ -239,7 +239,7 @@ set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *que
 
 // Common SQL query return handler.
 // Works for both database/sql and pgx.
-static __always_inline int process_sql_return(void *goroutine_addr, void *err_ptr, u8 conn_type) {
+static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8 conn_type) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -257,7 +257,7 @@ static __always_inline int process_sql_return(void *goroutine_addr, void *err_pt
         trace->start_monotime_ns = invocation->start_monotime_ns;
         trace->end_monotime_ns = bpf_ktime_get_ns();
 
-        trace->status = (err_ptr != NULL);
+        trace->status = error;
         trace->tp = invocation->tp;
 
         u64 query_len = invocation->query_len;
@@ -343,13 +343,13 @@ int obi_uprobe_execDC(struct pt_regs *ctx) {
 
 SEC("uprobe/queryDC")
 int obi_uprobe_queryReturn(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/queryDC ===");
+    bpf_dbg_printk("=== uprobe/queryDC ret ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     // queryDC returns (*Rows, error)
-    void *err_ptr = GO_PARAM2(ctx);
-    return process_sql_return(goroutine_addr, err_ptr, SQL_CONN_TYPE_DATABASE_SQL);
+    void *resp_ptr = GO_PARAM1(ctx);
+    return process_sql_return(goroutine_addr, resp_ptr == 0, SQL_CONN_TYPE_DATABASE_SQL);
 }
 
 SEC("uprobe/pgx_Query_return")
@@ -360,7 +360,7 @@ int obi_uprobe_pgx_Query_return(struct pt_regs *ctx) {
 
     // pgx.Conn.Query returns (Rows, error)
     void *err_ptr = GO_PARAM3(ctx);
-    return process_sql_return(goroutine_addr, err_ptr, SQL_CONN_TYPE_PGX);
+    return process_sql_return(goroutine_addr, err_ptr != 0, SQL_CONN_TYPE_PGX);
 }
 
 SEC("uprobe/pq_network_return")
