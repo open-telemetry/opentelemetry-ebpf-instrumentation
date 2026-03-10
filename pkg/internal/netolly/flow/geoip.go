@@ -88,11 +88,11 @@ func GeoIPProvider(cfg *GeoIP, input, output *msg.Queue[[]*ebpf.Record]) swarm.I
 			log.Debug("starting GeoIP node")
 			for flows := range in {
 				for _, flow := range flows {
-					srcInfo, err := cachedLookup(flow.Id.SrcIP())
+					srcInfo, err := cachedLookup(&flow.Attrs.SrcAddr)
 					if err != nil {
 						failureLogFn("failed to perform geoip lookup for source", "err", err)
 					}
-					dstInfo, err := cachedLookup(flow.Id.DstIP())
+					dstInfo, err := cachedLookup(&flow.Attrs.DstAddr)
 					if err != nil {
 						failureLogFn("failed to perform geoip lookup for destination", "err", err)
 					}

@@ -48,10 +48,10 @@ func Decorate(agentIP net.IP, ifaceNamer InterfaceNamer, input *msg.Queue[[]*ebp
 				flow.Attrs.Interface = ifaceNamer(int(flow.Id.IfIndex))
 				flow.Attrs.OBIIP = ip
 				if flow.Attrs.DstName == "" {
-					flow.Attrs.DstName = flow.Id.DstIP().IP().String()
+					flow.Attrs.DstName = flow.Attrs.DstAddr.IP().String()
 				}
 				if flow.Attrs.SrcName == "" {
-					flow.Attrs.SrcName = flow.Id.SrcIP().IP().String()
+					flow.Attrs.SrcName = flow.Attrs.SrcAddr.IP().String()
 				}
 			}
 			output.Send(flows)

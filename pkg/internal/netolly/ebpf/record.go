@@ -48,6 +48,8 @@ type Record struct {
 }
 
 type RecordAttrs struct {
+	SrcAddr IPAddr
+	DstAddr IPAddr
 	// SrcName and DstName might be set from several sources along the processing/decoration pipeline:
 	// - K8s entity
 	// - Host name
@@ -73,6 +75,10 @@ func NewRecord(
 		NetFlowRecordT: NetFlowRecordT{
 			Id:      key,
 			Metrics: metrics,
+		},
+		Attrs: RecordAttrs{
+			SrcAddr: IPAddr(key.SrcIp.In6U.U6Addr8),
+			DstAddr: IPAddr(key.DstIp.In6U.U6Addr8),
 		},
 	}
 }

@@ -54,11 +54,11 @@ func (r recordGetters) get(name attr.Name) (attributes.Getter[*Record, attribute
 		}
 	case attr.SrcAddress:
 		getter = func(r *Record) attribute.KeyValue {
-			return attribute.String(string(attr.SrcAddress), r.Id.SrcIP().IP().String())
+			return attribute.String(string(attr.SrcAddress), r.Attrs.SrcAddr.IP().String())
 		}
 	case attr.DstAddress:
 		getter = func(r *Record) attribute.KeyValue {
-			return attribute.String(string(attr.DstAddress), r.Id.DstIP().IP().String())
+			return attribute.String(string(attr.DstAddress), r.Attrs.DstAddr.IP().String())
 		}
 	case attr.SrcPort:
 		getter = func(r *Record) attribute.KeyValue { return attribute.Int(string(attr.SrcPort), int(r.Id.SrcPort)) }

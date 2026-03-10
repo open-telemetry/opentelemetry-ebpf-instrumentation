@@ -40,8 +40,8 @@ func TestMetricAttributes(t *testing.T) {
 			},
 		},
 	}
-	in.Id.SrcIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
-	in.Id.DstIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
+	in.Attrs.SrcAddr = ebpf.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
+	in.Attrs.DstAddr = ebpf.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
 
 	mcfg := &otelcfg.MetricsConfig{
 		MetricsEndpoint:   "http://foo",
@@ -103,8 +103,8 @@ func TestMetricAttributes_Filter(t *testing.T) {
 			},
 		},
 	}
-	in.Id.SrcIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
-	in.Id.DstIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
+	in.Attrs.SrcAddr = ebpf.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
+	in.Attrs.DstAddr = ebpf.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
 
 	mcfg := &otelcfg.MetricsConfig{
 		MetricsEndpoint:   "http://foo",

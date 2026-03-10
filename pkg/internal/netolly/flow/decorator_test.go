@@ -35,14 +35,14 @@ func TestDecoration(t *testing.T) {
 	f1 := &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
 		Id: ebpf.NetFlowId{IfIndex: 1},
 	}, Attrs: ebpf.RecordAttrs{SrcName: "source"}}
-	f1.Id.SrcIp.In6U.U6Addr8 = srcIP
-	f1.Id.DstIp.In6U.U6Addr8 = dstIP
+	f1.Attrs.SrcAddr = ebpf.IPAddr(srcIP)
+	f1.Attrs.DstAddr = ebpf.IPAddr(dstIP)
 
 	f2 := &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
 		Id: ebpf.NetFlowId{IfIndex: 2},
 	}, Attrs: ebpf.RecordAttrs{DstName: "destination"}}
-	f2.Id.SrcIp.In6U.U6Addr8 = srcIP
-	f2.Id.DstIp.In6U.U6Addr8 = dstIP
+	f2.Attrs.SrcAddr = ebpf.IPAddr(srcIP)
+	f2.Attrs.DstAddr = ebpf.IPAddr(dstIP)
 
 	in.Send([]*ebpf.Record{f1, f2})
 
