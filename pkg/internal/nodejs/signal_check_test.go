@@ -1,12 +1,15 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build linux
+
 package nodejs
 
 import (
 	"debug/elf"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -149,6 +152,76 @@ func TestIsInspectorOpen_WithoutInspectFlag(t *testing.T) {
 	injector := newTestInjector(t)
 	if injector.isInspectorOpen(cmd.Process.Pid) {
 		t.Error("expected isInspectorOpen to return false when node is started without --inspect")
+	}
+}
+
+func TestFindExeBaseAddr(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("requires root to read /proc/<pid>/maps")
+	}
+
+	cmd := startNodeScript(t, `setTimeout(() => {}, 600000);`)
+	pid := cmd.Process.Pid
+
+	base, err := findExeBaseAddr(pid)
+	if err != nil {
+		t.Fatalf("findExeBaseAddr failed: %v", err)
+	}
+
+	ef := openNodeELF(t, pid)
+
+	if ef.Type == elf.ET_DYN {
+		// PIE binary: base should be non-zero (ASLR puts it somewhere in memory)
+		if base == 0 {
+			t.Error("expected non-zero base address for PIE binary")
+		}
+		t.Logf("PIE binary: base address = 0x%x", base)
+	} else {
+		// Non-PIE (ET_EXEC): base should match the ELF's lowest PT_LOAD vaddr
+		// (typically 0x400000 on x86-64)
+		if base == 0 {
+			t.Error("expected non-zero base address")
+		}
+		t.Logf("non-PIE binary: base address = 0x%x", base)
+	}
+}
+
+func TestFindExeBaseAddr_InvalidPid(t *testing.T) {
+	_, err := findExeBaseAddr(99999999)
+	if err == nil {
+		t.Error("expected error for invalid pid")
+	}
+}
+
+func TestIsInspectorOpen_NonInspectorOnPort9229(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("requires root for network namespace switching")
+	}
+
+	// Start a plain TCP server on port 9229 that is NOT a Node.js inspector.
+	// isInspectorOpen should return false because /json/version won't return valid JSON.
+	listener, err := net.Listen("tcp", "127.0.0.1:9229")
+	if err != nil {
+		t.Fatalf("failed to listen on 9229: %v", err)
+	}
+	t.Cleanup(func() { listener.Close() })
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			// Respond with something that is not a Node.js inspector response
+			conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nnot an inspector"))
+			conn.Close()
+		}
+	}()
+
+	injector := newTestInjector(t)
+	// Use our own pid since we're in the same netns
+	if injector.isInspectorOpen(os.Getpid()) {
+		t.Error("expected isInspectorOpen to return false for non-inspector service on port 9229")
 	}
 }
 

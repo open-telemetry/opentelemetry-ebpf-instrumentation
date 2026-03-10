@@ -75,6 +75,8 @@ func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
 
 // isInspectorOpen checks if the Node.js inspector port (9229) is already
 // accepting connections in the target process's network namespace.
+// It validates that the listener is actually a Node.js inspector by
+// requesting /json/version and checking for a valid response.
 func (i *NodeInjector) isInspectorOpen(pid int) bool {
 	open := false
 	err := withNetNS(pid, func() error {
@@ -82,7 +84,21 @@ func (i *NodeInjector) isInspectorOpen(pid int) bool {
 		if err != nil {
 			return err
 		}
-		conn.Close()
+		defer conn.Close()
+
+		// Validate this is actually a Node.js inspector, not some other
+		// service that happens to listen on port 9229.
+		resp, err := httpGet(conn, "/json/version")
+		if err != nil {
+			return err
+		}
+
+		// The Node.js inspector responds with a JSON object containing
+		// "Browser" and "Protocol-Version" fields.
+		if len(resp) == 0 || resp[0] != '{' {
+			return errors.New("not a Node.js inspector")
+		}
+
 		open = true
 		return nil
 	})

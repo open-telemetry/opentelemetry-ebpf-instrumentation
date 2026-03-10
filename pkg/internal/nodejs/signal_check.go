@@ -1,19 +1,23 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build linux
+
 package nodejs // import "go.opentelemetry.io/obi/pkg/internal/nodejs"
 
 import (
+	"bufio"
 	"debug/elf"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 )
 
 const (
 	sigusr1 = 10
-	// Offset of the signum field within the uv_signal_s struct (libuv 1.x, x86-64).
+	// Offset of the signum field within the uv_signal_s struct (libuv 1.x, 64-bit).
 	// This offset is stable across all libuv 1.x versions (used by Node.js 4.x through 22.x+).
 	// Layout: UV_HANDLE_FIELDS (0x60) + uv_signal_cb (0x08) = 0x68.
 	uvSignalSigNumOffset = 0x68
@@ -37,9 +41,25 @@ const (
 // Returns true if a custom handler is detected, false if safe to proceed.
 // Returns false on any error (fail-open: if we can't determine, attempt injection).
 func hasUserSIGUSR1Handler(pid int, elfFile *elf.File) bool {
-	treeAddr, err := findSymbolVAddr(elfFile, "uv__signal_tree")
+	if elfFile.Class != elf.ELFCLASS64 {
+		return false
+	}
+
+	symVAddr, err := findSymbolVAddr(elfFile, "uv__signal_tree")
 	if err != nil {
 		return false
+	}
+
+	// For PIE executables (ET_DYN), the symbol's virtual address is relative to the
+	// load base. We need to find the actual runtime address by reading the executable's
+	// base address from /proc/<pid>/maps.
+	runtimeAddr := symVAddr
+	if elfFile.Type == elf.ET_DYN {
+		base, err := findExeBaseAddr(pid)
+		if err != nil {
+			return false
+		}
+		runtimeAddr = base + symVAddr
 	}
 
 	memPath := fmt.Sprintf("/proc/%d/mem", pid)
@@ -49,12 +69,12 @@ func hasUserSIGUSR1Handler(pid int, elfFile *elf.File) bool {
 	}
 	defer mem.Close()
 
-	rootPtr, err := readPtr(mem, int64(treeAddr))
+	rootPtr, err := readPtr(mem, int64(runtimeAddr), elfFile.ByteOrder)
 	if err != nil || rootPtr == 0 {
 		return false
 	}
 
-	return walkTreeForSignal(mem, rootPtr, sigusr1)
+	return walkTreeForSignal(mem, rootPtr, sigusr1, elfFile.ByteOrder)
 }
 
 // findSymbolVAddr looks up a symbol's virtual address in the ELF symbol tables.
@@ -76,9 +96,49 @@ func findSymbolVAddr(f *elf.File, name string) (uint64, error) {
 	return 0, fmt.Errorf("symbol %q not found", name)
 }
 
+// findExeBaseAddr reads /proc/<pid>/maps to find the base virtual address
+// where the main executable is mapped. This is needed for PIE binaries where
+// ELF symbol addresses are relative to the load base.
+func findExeBaseAddr(pid int) (uint64, error) {
+	mapsPath := fmt.Sprintf("/proc/%d/maps", pid)
+	f, err := os.Open(mapsPath)
+	if err != nil {
+		return 0, fmt.Errorf("open maps: %w", err)
+	}
+	defer f.Close()
+
+	exeLink := fmt.Sprintf("/proc/%d/exe", pid)
+	exePath, err := os.Readlink(exeLink)
+	if err != nil {
+		return 0, fmt.Errorf("readlink exe: %w", err)
+	}
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Each line looks like: "addr1-addr2 perms offset dev inode pathname"
+		// We want the first mapping of the executable.
+		if !strings.HasSuffix(line, exePath) {
+			continue
+		}
+		dashIdx := strings.IndexByte(line, '-')
+		if dashIdx < 0 {
+			continue
+		}
+		var base uint64
+		_, err := fmt.Sscanf(line[:dashIdx], "%x", &base)
+		if err != nil {
+			continue
+		}
+		return base, nil
+	}
+
+	return 0, fmt.Errorf("executable mapping not found in /proc/%d/maps", pid)
+}
+
 // walkTreeForSignal performs an iterative traversal of the libuv signal RB-tree
 // looking for a node with the given signal number.
-func walkTreeForSignal(mem *os.File, rootPtr uint64, signum int) bool {
+func walkTreeForSignal(mem *os.File, rootPtr uint64, signum int, byteOrder binary.ByteOrder) bool {
 	stack := []uint64{rootPtr}
 	visited := make(map[uint64]struct{}, maxTreeNodes)
 
@@ -94,7 +154,7 @@ func walkTreeForSignal(mem *os.File, rootPtr uint64, signum int) bool {
 		}
 		visited[nodeAddr] = struct{}{}
 
-		nodeSigNum, err := readInt32(mem, int64(nodeAddr)+uvSignalSigNumOffset)
+		nodeSigNum, err := readInt32(mem, int64(nodeAddr)+uvSignalSigNumOffset, byteOrder)
 		if err != nil {
 			return false
 		}
@@ -108,11 +168,11 @@ func walkTreeForSignal(mem *os.File, rootPtr uint64, signum int) bool {
 			return true
 		}
 
-		left, err := readPtr(mem, int64(nodeAddr)+uvSignalTreeLeftOffset)
+		left, err := readPtr(mem, int64(nodeAddr)+uvSignalTreeLeftOffset, byteOrder)
 		if err != nil {
 			return false
 		}
-		right, err := readPtr(mem, int64(nodeAddr)+uvSignalTreeRightOffset)
+		right, err := readPtr(mem, int64(nodeAddr)+uvSignalTreeRightOffset, byteOrder)
 		if err != nil {
 			return false
 		}
@@ -128,20 +188,20 @@ func walkTreeForSignal(mem *os.File, rootPtr uint64, signum int) bool {
 	return false
 }
 
-func readPtr(f *os.File, offset int64) (uint64, error) {
+func readPtr(f *os.File, offset int64, byteOrder binary.ByteOrder) (uint64, error) {
 	var buf [8]byte
 	_, err := f.ReadAt(buf[:], offset)
 	if err != nil {
 		return 0, err
 	}
-	return binary.LittleEndian.Uint64(buf[:]), nil
+	return byteOrder.Uint64(buf[:]), nil
 }
 
-func readInt32(f *os.File, offset int64) (int32, error) {
+func readInt32(f *os.File, offset int64, byteOrder binary.ByteOrder) (int32, error) {
 	var buf [4]byte
 	_, err := f.ReadAt(buf[:], offset)
 	if err != nil {
 		return 0, err
 	}
-	return int32(binary.LittleEndian.Uint32(buf[:])), nil
+	return int32(byteOrder.Uint32(buf[:])), nil
 }
