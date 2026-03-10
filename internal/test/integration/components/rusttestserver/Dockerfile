@@ -1,4 +1,4 @@
-FROM rust:latest@sha256:51c04d7a2b38418ba23ecbfb373c40d3bd493dec1ddfae00ab5669527320195e AS rustbuilder
+FROM rust:1.85.0-bookworm@sha256:0ff31c9ffa641a62e48d543fb00b4960955ea375f40776f40f585b89e654cc5e AS rustbuilder
 
 # Set the working directory to /build
 WORKDIR /build
@@ -7,7 +7,7 @@ WORKDIR /build
 COPY internal/test/integration/components/rusttestserver .
 
 # Build
-RUN cargo build --release
+RUN cargo build --locked --release
 
 # The App Image
 FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421

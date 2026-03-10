@@ -52,3 +52,5 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/oats/redis
   - go.opentelemetry.io/obi/internal/test/oats/sql
   - go.opentelemetry.io/obi/internal/tools
+  - go.opentelemetry.io/obi/internal/tools/debug
+  - go.opentelemetry.io/obi/internal/tools/generator
