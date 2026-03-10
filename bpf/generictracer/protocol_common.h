@@ -6,10 +6,13 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/common.h>
+#include <common/event_defs.h>
 #include <common/iov_iter.h>
+#include <common/large_buffers.h>
+#include <common/ringbuf.h>
 #include <common/sock_port_ns.h>
 #include <common/http_types.h>
-#include <common/event_defs.h>
 
 #include <generictracer/maps/connection_meta_mem.h>
 #include <generictracer/maps/iovec_mem.h>
@@ -20,6 +23,44 @@
 
 #define PACKET_TYPE_REQUEST 1
 #define PACKET_TYPE_RESPONSE 2
+
+static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
+                                                 const void *u_buf,
+                                                 u32 available_bytes) {
+    const unsigned char *p = (const unsigned char *)u_buf;
+
+    const u32 niter = (available_bytes / k_large_buf_payload_max_size) +
+                      ((available_bytes % k_large_buf_payload_max_size) > 0);
+
+    u32 consumed_bytes = 0;
+
+    for (u32 b = 0; b < niter; b++) {
+        const u32 offset = b * k_large_buf_payload_max_size;
+
+        const u32 read_size = available_bytes > k_large_buf_payload_max_size
+                                  ? k_large_buf_payload_max_size
+                                  : available_bytes;
+
+        if (bpf_probe_read(large_buf->buf, read_size, p + offset) != 0) {
+            break;
+        }
+
+        large_buf->len = read_size;
+
+        const u32 payload_size = read_size > sizeof(void *) ? read_size : sizeof(void *);
+        const u32 total_size = sizeof(tcp_large_buffer_t) + payload_size;
+
+        if (bpf_ringbuf_output(&events, large_buf, total_size, get_flags()) != 0) {
+            break;
+        }
+
+        available_bytes -= read_size;
+        consumed_bytes += read_size;
+        large_buf->action = k_large_buf_action_append;
+    }
+
+    return consumed_bytes;
+}
 
 volatile const s32 capture_header_buffer = 0;
 
