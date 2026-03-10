@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -60,11 +61,11 @@ func TestMetricsExpiration(t *testing.T) {
 	// WHEN it receives metrics
 	metrics.Send([]*ebpf.Record{
 		{
-			Attrs:          ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
+			CommonAttrs:    pipe.CommonAttrs{SrcName: "foo", DstName: "bar"},
 			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}},
 		},
 		{
-			Attrs:          ebpf.RecordAttrs{SrcName: "baz", DstName: "bae"},
+			CommonAttrs:    pipe.CommonAttrs{SrcName: "baz", DstName: "bae"},
 			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}},
 		},
 	})
@@ -80,7 +81,7 @@ func TestMetricsExpiration(t *testing.T) {
 	now.Advance(2 * time.Minute)
 	metrics.Send([]*ebpf.Record{
 		{
-			Attrs:          ebpf.RecordAttrs{SrcName: "foo", DstName: "bar"},
+			CommonAttrs:    pipe.CommonAttrs{SrcName: "foo", DstName: "bar"},
 			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}},
 		},
 	})
@@ -100,7 +101,7 @@ func TestMetricsExpiration(t *testing.T) {
 	// AND WHEN the metrics labels that disappeared are received again
 	metrics.Send([]*ebpf.Record{
 		{
-			Attrs:          ebpf.RecordAttrs{SrcName: "baz", DstName: "bae"},
+			CommonAttrs:    pipe.CommonAttrs{SrcName: "baz", DstName: "bae"},
 			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}},
 		},
 	})

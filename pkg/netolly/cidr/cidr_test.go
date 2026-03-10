@@ -40,14 +40,14 @@ func TestCIDRDecorator(t *testing.T) {
 	})
 	decorated := testutil.ReadChannel(t, outCh, testTimeout)
 	require.Len(t, decorated, 4)
-	assert.Equal(t, "10.0.0.0/8", decorated[0].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "10.1.2.0/24", decorated[0].Attrs.Metadata["dst.cidr"])
-	assert.Equal(t, "2001:db8:3c4d:15::/64", decorated[1].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "2001::/16", decorated[1].Attrs.Metadata["dst.cidr"])
-	assert.Equal(t, "140.130.22.0/24", decorated[2].Attrs.Metadata["src.cidr"])
-	assert.Empty(t, decorated[2].Attrs.Metadata["dst.cidr"])
-	assert.Empty(t, decorated[3].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "10.1.2.0/24", decorated[3].Attrs.Metadata["dst.cidr"])
+	assert.Equal(t, "10.0.0.0/8", decorated[0].CommonAttrs.Metadata["src.cidr"])
+	assert.Equal(t, "10.1.2.0/24", decorated[0].CommonAttrs.Metadata["dst.cidr"])
+	assert.Equal(t, "2001:db8:3c4d:15::/64", decorated[1].CommonAttrs.Metadata["src.cidr"])
+	assert.Equal(t, "2001::/16", decorated[1].CommonAttrs.Metadata["dst.cidr"])
+	assert.Equal(t, "140.130.22.0/24", decorated[2].CommonAttrs.Metadata["src.cidr"])
+	assert.Empty(t, decorated[2].CommonAttrs.Metadata["dst.cidr"])
+	assert.Empty(t, decorated[3].CommonAttrs.Metadata["src.cidr"])
+	assert.Equal(t, "10.1.2.0/24", decorated[3].CommonAttrs.Metadata["dst.cidr"])
 }
 
 func TestCIDRDecorator_GroupAllUnknownTraffic(t *testing.T) {
@@ -73,19 +73,19 @@ func TestCIDRDecorator_GroupAllUnknownTraffic(t *testing.T) {
 	})
 	decorated := testutil.ReadChannel(t, outCh, testTimeout)
 	require.Len(t, decorated, 4)
-	assert.Equal(t, "10.0.0.0/8", decorated[0].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "10.1.2.0/24", decorated[0].Attrs.Metadata["dst.cidr"])
-	assert.Equal(t, "2001:db8:3c4d:15::/64", decorated[1].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "2001::/16", decorated[1].Attrs.Metadata["dst.cidr"])
-	assert.Equal(t, "140.130.22.0/24", decorated[2].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "0.0.0.0/0", decorated[2].Attrs.Metadata["dst.cidr"])
-	assert.Equal(t, "0.0.0.0/0", decorated[3].Attrs.Metadata["src.cidr"])
-	assert.Equal(t, "10.1.2.0/24", decorated[3].Attrs.Metadata["dst.cidr"])
+	assert.Equal(t, "10.0.0.0/8", decorated[0].CommonAttrs.Metadata["src.cidr"])
+	assert.Equal(t, "10.1.2.0/24", decorated[0].CommonAttrs.Metadata["dst.cidr"])
+	assert.Equal(t, "2001:db8:3c4d:15::/64", decorated[1].CommonAttrs.Metadata["src.cidr"])
+	assert.Equal(t, "2001::/16", decorated[1].CommonAttrs.Metadata["dst.cidr"])
+	assert.Equal(t, "140.130.22.0/24", decorated[2].CommonAttrs.Metadata["src.cidr"])
+	assert.Equal(t, "0.0.0.0/0", decorated[2].CommonAttrs.Metadata["dst.cidr"])
+	assert.Equal(t, "0.0.0.0/0", decorated[3].CommonAttrs.Metadata["src.cidr"])
+	assert.Equal(t, "10.1.2.0/24", decorated[3].CommonAttrs.Metadata["dst.cidr"])
 }
 
 func flow(srcIP, dstIP string) *ebpf.Record {
 	er := ebpf.Record{}
-	copy(er.Attrs.SrcAddr[:], net.ParseIP(srcIP).To16())
-	copy(er.Attrs.DstAddr[:], net.ParseIP(dstIP).To16())
+	copy(er.CommonAttrs.SrcAddr[:], net.ParseIP(srcIP).To16())
+	copy(er.CommonAttrs.DstAddr[:], net.ParseIP(dstIP).To16())
 	return &er
 }

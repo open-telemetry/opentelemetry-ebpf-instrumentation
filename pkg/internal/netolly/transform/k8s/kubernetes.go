@@ -113,14 +113,14 @@ func (n *decorator) decorateMightDrop(flows []*ebpf.Record) []*ebpf.Record {
 }
 
 func (n *decorator) transform(flow *ebpf.Record) bool {
-	if flow.Attrs.Metadata == nil {
-		flow.Attrs.Metadata = map[attr.Name]string{}
+	if flow.CommonAttrs.Metadata == nil {
+		flow.CommonAttrs.Metadata = map[attr.Name]string{}
 	}
 	if n.clusterName != "" {
-		flow.Attrs.Metadata[(attr.K8sClusterName)] = n.clusterName
+		flow.CommonAttrs.Metadata[(attr.K8sClusterName)] = n.clusterName
 	}
-	srcOk := n.decorate(flow, attrPrefixSrc, flow.Attrs.SrcAddr.IP().String())
-	dstOk := n.decorate(flow, attrPrefixDst, flow.Attrs.DstAddr.IP().String())
+	srcOk := n.decorate(flow, attrPrefixSrc, flow.CommonAttrs.SrcAddr.IP().String())
+	dstOk := n.decorate(flow, attrPrefixDst, flow.CommonAttrs.DstAddr.IP().String())
 	return srcOk && dstOk
 }
 
@@ -143,22 +143,22 @@ func (n *decorator) decorate(flow *ebpf.Record, prefix, ip string) bool {
 		ownerName, ownerKind = owner.Name, owner.Kind
 	}
 
-	flow.Attrs.Metadata[attr.Name(prefix+attrSuffixNs)] = meta.Namespace
-	flow.Attrs.Metadata[attr.Name(prefix+attrSuffixName)] = meta.Name
-	flow.Attrs.Metadata[attr.Name(prefix+attrSuffixType)] = meta.Kind
-	flow.Attrs.Metadata[attr.Name(prefix+attrSuffixOwnerName)] = ownerName
-	flow.Attrs.Metadata[attr.Name(prefix+attrSuffixOwnerType)] = ownerKind
+	flow.CommonAttrs.Metadata[attr.Name(prefix+attrSuffixNs)] = meta.Namespace
+	flow.CommonAttrs.Metadata[attr.Name(prefix+attrSuffixName)] = meta.Name
+	flow.CommonAttrs.Metadata[attr.Name(prefix+attrSuffixType)] = meta.Kind
+	flow.CommonAttrs.Metadata[attr.Name(prefix+attrSuffixOwnerName)] = ownerName
+	flow.CommonAttrs.Metadata[attr.Name(prefix+attrSuffixOwnerType)] = ownerKind
 
 	n.nodeLabels(flow, prefix, meta)
 
 	// decorate other names from metadata, if required
 	if prefix == attrPrefixDst {
-		if flow.Attrs.DstName == "" {
-			flow.Attrs.DstName = meta.Name
+		if flow.CommonAttrs.DstName == "" {
+			flow.CommonAttrs.DstName = meta.Name
 		}
 	} else {
-		if flow.Attrs.SrcName == "" {
-			flow.Attrs.SrcName = meta.Name
+		if flow.CommonAttrs.SrcName == "" {
+			flow.CommonAttrs.SrcName = meta.Name
 		}
 	}
 	return true
@@ -168,9 +168,9 @@ func (n *decorator) nodeLabels(flow *ebpf.Record, prefix string, meta *informer.
 	var nodeLabels map[string]string
 	// add any other ownership label (they might be several, e.g. replicaset and deployment)
 	if meta.Pod != nil && meta.Pod.HostIp != "" {
-		flow.Attrs.Metadata[attr.Name(prefix+attrSuffixHostIP)] = meta.Pod.HostIp
+		flow.CommonAttrs.Metadata[attr.Name(prefix+attrSuffixHostIP)] = meta.Pod.HostIp
 		if host := n.store.ObjectMetaByIP(meta.Pod.HostIp); host != nil {
-			flow.Attrs.Metadata[attr.Name(prefix+attrSuffixHostName)] = host.Meta.Name
+			flow.CommonAttrs.Metadata[attr.Name(prefix+attrSuffixHostName)] = host.Meta.Name
 			nodeLabels = host.Meta.Labels
 		}
 	} else if meta.Kind == "Node" {
@@ -181,9 +181,9 @@ func (n *decorator) nodeLabels(flow *ebpf.Record, prefix string, meta *informer.
 		// clusters this information is inferred from Node annotations
 		if zone, ok := nodeLabels[cloudZoneLabel]; ok {
 			if prefix == attrPrefixDst {
-				flow.Attrs.DstZone = zone
+				flow.CommonAttrs.DstZone = zone
 			} else {
-				flow.Attrs.SrcZone = zone
+				flow.CommonAttrs.SrcZone = zone
 			}
 		}
 	}

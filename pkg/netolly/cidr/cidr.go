@@ -89,13 +89,13 @@ func (g *ipGrouper) CIDR(ip net.IP) string {
 }
 
 func (g *ipGrouper) decorate(flow *ebpf.Record) {
-	if flow.Attrs.Metadata == nil {
-		flow.Attrs.Metadata = map[attr.Name]string{}
+	if flow.CommonAttrs.Metadata == nil {
+		flow.CommonAttrs.Metadata = map[attr.Name]string{}
 	}
-	if srcCIDR := g.CIDR(flow.Attrs.SrcAddr[:]); srcCIDR != "" {
-		flow.Attrs.Metadata[attr.SrcCIDR] = srcCIDR
+	if srcCIDR := g.CIDR(flow.CommonAttrs.SrcAddr[:]); srcCIDR != "" {
+		flow.CommonAttrs.Metadata[attr.SrcCIDR] = srcCIDR
 	}
-	if dstCIDR := g.CIDR(flow.Attrs.DstAddr[:]); dstCIDR != "" {
-		flow.Attrs.Metadata[attr.DstCIDR] = dstCIDR
+	if dstCIDR := g.CIDR(flow.CommonAttrs.DstAddr[:]); dstCIDR != "" {
+		flow.CommonAttrs.Metadata[attr.DstCIDR] = dstCIDR
 	}
 }

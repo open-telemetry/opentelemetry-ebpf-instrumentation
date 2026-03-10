@@ -43,26 +43,26 @@ func init() {
 		EthProtocol: 1, SrcPort: 123, DstPort: 456, IfIndex: 1,
 	}, Metrics: ebpf.NetFlowMetrics{
 		Packets: 2, Bytes: 456, Flags: 1, IfaceDirection: 1,
-	}}, Attrs: ebpf.RecordAttrs{Interface: "eth0"}}
+	}}, NetAttrs: ebpf.NetAttrs{Interface: "eth0"}}
 
 	oneIf2 = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{
 		EthProtocol: 1, SrcPort: 123, DstPort: 456, IfIndex: 2,
 	}, Metrics: ebpf.NetFlowMetrics{
 		Packets: 2, Bytes: 456, Flags: 1, IfaceDirection: 1,
-	}}, Attrs: ebpf.RecordAttrs{Interface: "123456789"}}
+	}}, NetAttrs: ebpf.NetAttrs{Interface: "123456789"}}
 
 	// twoIf1 and twoIf2 are another flow from 2 different interfaces
 	twoIf1 = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{
 		EthProtocol: 1, SrcPort: 333, DstPort: 456, IfIndex: 1,
 	}, Metrics: ebpf.NetFlowMetrics{
 		Packets: 2, Bytes: 456, Flags: 1, IfaceDirection: 0,
-	}}, Attrs: ebpf.RecordAttrs{Interface: "eth0"}}
+	}}, NetAttrs: ebpf.NetAttrs{Interface: "eth0"}}
 
 	twoIf2 = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{
 		EthProtocol: 1, SrcPort: 333, DstPort: 456, IfIndex: 2,
 	}, Metrics: ebpf.NetFlowMetrics{
 		Packets: 2, Bytes: 456, Flags: 1, IfaceDirection: 0,
-	}}, Attrs: ebpf.RecordAttrs{Interface: "123456789"}}
+	}}, NetAttrs: ebpf.NetAttrs{Interface: "123456789"}}
 }
 
 func TestDedupe(t *testing.T) {

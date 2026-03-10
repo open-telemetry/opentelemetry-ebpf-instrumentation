@@ -16,6 +16,7 @@ import (
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
@@ -62,8 +63,8 @@ func GeoIPProvider(cfg *GeoIP, input, output *msg.Queue[[]*ebpf.Record]) swarm.I
 
 		log := geoiplog()
 		in := input.Subscribe(msg.SubscriberName("flow.GeoIP"))
-		cache := expirable.NewLRU[ebpf.IPAddr, ipInfo](cfg.CacheLen, nil, cfg.CacheTTL)
-		cachedLookup := func(addr *ebpf.IPAddr) (ipInfo, error) {
+		cache := expirable.NewLRU[pipe.IPAddr, ipInfo](cfg.CacheLen, nil, cfg.CacheTTL)
+		cachedLookup := func(addr *pipe.IPAddr) (ipInfo, error) {
 			info, ok := cache.Get(*addr)
 			if ok {
 				return info, nil
@@ -88,21 +89,21 @@ func GeoIPProvider(cfg *GeoIP, input, output *msg.Queue[[]*ebpf.Record]) swarm.I
 			log.Debug("starting GeoIP node")
 			for flows := range in {
 				for _, flow := range flows {
-					srcInfo, err := cachedLookup(&flow.Attrs.SrcAddr)
+					srcInfo, err := cachedLookup(&flow.CommonAttrs.SrcAddr)
 					if err != nil {
 						failureLogFn("failed to perform geoip lookup for source", "err", err)
 					}
-					dstInfo, err := cachedLookup(&flow.Attrs.DstAddr)
+					dstInfo, err := cachedLookup(&flow.CommonAttrs.DstAddr)
 					if err != nil {
 						failureLogFn("failed to perform geoip lookup for destination", "err", err)
 					}
-					if flow.Attrs.Metadata == nil {
-						flow.Attrs.Metadata = map[attr.Name]string{}
+					if flow.CommonAttrs.Metadata == nil {
+						flow.CommonAttrs.Metadata = map[attr.Name]string{}
 					}
-					flow.Attrs.Metadata[attr.SrcCountry] = srcInfo.Country
-					flow.Attrs.Metadata[attr.DstCountry] = dstInfo.Country
-					flow.Attrs.Metadata[attr.SrcASN] = srcInfo.ASN
-					flow.Attrs.Metadata[attr.DstASN] = dstInfo.ASN
+					flow.CommonAttrs.Metadata[attr.SrcCountry] = srcInfo.Country
+					flow.CommonAttrs.Metadata[attr.DstCountry] = dstInfo.Country
+					flow.CommonAttrs.Metadata[attr.SrcASN] = srcInfo.ASN
+					flow.CommonAttrs.Metadata[attr.DstASN] = dstInfo.ASN
 				}
 				output.Send(flows)
 			}

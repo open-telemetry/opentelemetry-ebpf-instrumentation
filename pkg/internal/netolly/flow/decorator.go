@@ -45,13 +45,13 @@ func Decorate(agentIP net.IP, ifaceNamer InterfaceNamer, input *msg.Queue[[]*ebp
 		defer output.Close()
 		swarms.ForEachInput(ctx, in, nil, func(flows []*ebpf.Record) {
 			for _, flow := range flows {
-				flow.Attrs.Interface = ifaceNamer(int(flow.Id.IfIndex))
-				flow.Attrs.OBIIP = ip
-				if flow.Attrs.DstName == "" {
-					flow.Attrs.DstName = flow.Attrs.DstAddr.IP().String()
+				flow.NetAttrs.Interface = ifaceNamer(int(flow.Id.IfIndex))
+				flow.CommonAttrs.OBIIP = ip
+				if flow.CommonAttrs.DstName == "" {
+					flow.CommonAttrs.DstName = flow.CommonAttrs.DstAddr.IP().String()
 				}
-				if flow.Attrs.SrcName == "" {
-					flow.Attrs.SrcName = flow.Attrs.SrcAddr.IP().String()
+				if flow.CommonAttrs.SrcName == "" {
+					flow.CommonAttrs.SrcName = flow.CommonAttrs.SrcAddr.IP().String()
 				}
 			}
 			output.Send(flows)

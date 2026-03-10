@@ -16,6 +16,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -29,7 +30,7 @@ func TestMetricAttributes(t *testing.T) {
 				SrcPort: 12345,
 			},
 		},
-		Attrs: ebpf.RecordAttrs{
+		CommonAttrs: pipe.CommonAttrs{
 			SrcName: "srcname",
 			DstName: "dstname",
 			Metadata: map[attr.Name]string{
@@ -40,8 +41,8 @@ func TestMetricAttributes(t *testing.T) {
 			},
 		},
 	}
-	in.Attrs.SrcAddr = ebpf.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
-	in.Attrs.DstAddr = ebpf.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
+	in.CommonAttrs.SrcAddr = pipe.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
+	in.CommonAttrs.DstAddr = pipe.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
 
 	mcfg := &otelcfg.MetricsConfig{
 		MetricsEndpoint:   "http://foo",
@@ -92,7 +93,7 @@ func TestMetricAttributes_Filter(t *testing.T) {
 				SrcPort: 12345,
 			},
 		},
-		Attrs: ebpf.RecordAttrs{
+		CommonAttrs: pipe.CommonAttrs{
 			SrcName: "srcname",
 			DstName: "dstname",
 			Metadata: map[attr.Name]string{
@@ -103,8 +104,8 @@ func TestMetricAttributes_Filter(t *testing.T) {
 			},
 		},
 	}
-	in.Attrs.SrcAddr = ebpf.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
-	in.Attrs.DstAddr = ebpf.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
+	in.CommonAttrs.SrcAddr = pipe.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
+	in.CommonAttrs.DstAddr = pipe.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
 
 	mcfg := &otelcfg.MetricsConfig{
 		MetricsEndpoint:   "http://foo",

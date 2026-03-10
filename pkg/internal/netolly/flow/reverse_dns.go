@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/xdp"
 	"go.opentelemetry.io/obi/pkg/internal/rdns/store"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -65,7 +66,7 @@ func ReverseDNSProvider(cfg *ReverseDNS, input, output *msg.Queue[[]*ebpf.Record
 			return nil, err
 		}
 		// TODO: replace by a cache with fuzzy expiration time to avoid cache stampede
-		cache := expirable.NewLRU[ebpf.IPAddr, string](cfg.CacheLen, nil, cfg.CacheTTL)
+		cache := expirable.NewLRU[pipe.IPAddr, string](cfg.CacheLen, nil, cfg.CacheTTL)
 
 		log := rdlog()
 		in := input.Subscribe(msg.SubscriberName("flow.ReverseDNS"))
@@ -74,11 +75,11 @@ func ReverseDNSProvider(cfg *ReverseDNS, input, output *msg.Queue[[]*ebpf.Record
 			log.Debug("starting reverse DNS node")
 			for flows := range in {
 				for _, flow := range flows {
-					if flow.Attrs.SrcName == "" {
-						flow.Attrs.SrcName = optGetName(log, cache, flow.Attrs.SrcAddr)
+					if flow.CommonAttrs.SrcName == "" {
+						flow.CommonAttrs.SrcName = optGetName(log, cache, flow.CommonAttrs.SrcAddr)
 					}
-					if flow.Attrs.DstName == "" {
-						flow.Attrs.DstName = optGetName(log, cache, flow.Attrs.DstAddr)
+					if flow.CommonAttrs.DstName == "" {
+						flow.CommonAttrs.DstName = optGetName(log, cache, flow.CommonAttrs.DstAddr)
 					}
 				}
 				output.Send(flows)
@@ -103,7 +104,7 @@ func checkEBPFReverseDNS(ctx context.Context, cfg *ReverseDNS) error {
 	return nil
 }
 
-func optGetName(log *slog.Logger, cache *expirable.LRU[ebpf.IPAddr, string], ip ebpf.IPAddr) string {
+func optGetName(log *slog.Logger, cache *expirable.LRU[pipe.IPAddr, string], ip pipe.IPAddr) string {
 	if host, ok := cache.Get(ip); ok {
 		return host
 	}

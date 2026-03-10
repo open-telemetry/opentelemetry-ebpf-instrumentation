@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -34,15 +35,15 @@ func TestDecoration(t *testing.T) {
 	// When it receives flows
 	f1 := &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
 		Id: ebpf.NetFlowId{IfIndex: 1},
-	}, Attrs: ebpf.RecordAttrs{SrcName: "source"}}
-	f1.Attrs.SrcAddr = ebpf.IPAddr(srcIP)
-	f1.Attrs.DstAddr = ebpf.IPAddr(dstIP)
+	}, CommonAttrs: pipe.CommonAttrs{SrcName: "source"}}
+	f1.CommonAttrs.SrcAddr = pipe.IPAddr(srcIP)
+	f1.CommonAttrs.DstAddr = pipe.IPAddr(dstIP)
 
 	f2 := &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
 		Id: ebpf.NetFlowId{IfIndex: 2},
-	}, Attrs: ebpf.RecordAttrs{DstName: "destination"}}
-	f2.Attrs.SrcAddr = ebpf.IPAddr(srcIP)
-	f2.Attrs.DstAddr = ebpf.IPAddr(dstIP)
+	}, CommonAttrs: pipe.CommonAttrs{DstName: "destination"}}
+	f2.CommonAttrs.SrcAddr = pipe.IPAddr(srcIP)
+	f2.CommonAttrs.DstAddr = pipe.IPAddr(dstIP)
 
 	in.Send([]*ebpf.Record{f1, f2})
 
@@ -51,13 +52,13 @@ func TestDecoration(t *testing.T) {
 	decorated := testutil.ReadChannel(t, outCh, timeout)
 	require.Len(t, decorated, 2)
 
-	assert.Equal(t, "eth1", decorated[0].Attrs.Interface)
-	assert.Equal(t, "3.3.3.3", decorated[0].Attrs.OBIIP)
-	assert.Equal(t, "source", decorated[0].Attrs.SrcName)
-	assert.Equal(t, "4.3.2.1", decorated[0].Attrs.DstName)
+	assert.Equal(t, "eth1", decorated[0].NetAttrs.Interface)
+	assert.Equal(t, "3.3.3.3", decorated[0].CommonAttrs.OBIIP)
+	assert.Equal(t, "source", decorated[0].CommonAttrs.SrcName)
+	assert.Equal(t, "4.3.2.1", decorated[0].CommonAttrs.DstName)
 
-	assert.Equal(t, "eth2", decorated[1].Attrs.Interface)
-	assert.Equal(t, "3.3.3.3", decorated[1].Attrs.OBIIP)
-	assert.Equal(t, "1.2.3.4", decorated[1].Attrs.SrcName)
-	assert.Equal(t, "destination", decorated[1].Attrs.DstName)
+	assert.Equal(t, "eth2", decorated[1].NetAttrs.Interface)
+	assert.Equal(t, "3.3.3.3", decorated[1].CommonAttrs.OBIIP)
+	assert.Equal(t, "1.2.3.4", decorated[1].CommonAttrs.SrcName)
+	assert.Equal(t, "destination", decorated[1].CommonAttrs.DstName)
 }

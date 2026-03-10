@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -44,8 +45,8 @@ func TestReverseDNS(t *testing.T) {
 	f1 := &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
 		Id: ebpf.NetFlowId{IfIndex: 1},
 	}}
-	f1.Attrs.SrcAddr = ebpf.IPAddr(srcIP)
-	f1.Attrs.DstAddr = ebpf.IPAddr(dstIP)
+	f1.CommonAttrs.SrcAddr = pipe.IPAddr(srcIP)
+	f1.CommonAttrs.DstAddr = pipe.IPAddr(dstIP)
 
 	in.Send([]*ebpf.Record{f1})
 
@@ -53,8 +54,8 @@ func TestReverseDNS(t *testing.T) {
 	decorated := testutil.ReadChannel(t, outCh, timeout)
 	require.Len(t, decorated, 1)
 
-	assert.Contains(t, decorated[0].Attrs.SrcName, "github")
-	assert.Contains(t, decorated[0].Attrs.DstName, "local")
+	assert.Contains(t, decorated[0].CommonAttrs.SrcName, "github")
+	assert.Contains(t, decorated[0].CommonAttrs.DstName, "local")
 }
 
 func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
@@ -73,10 +74,10 @@ func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
 	// When it receives flows with source and destination names
 	f1 := &ebpf.Record{
 		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{IfIndex: 1}},
-		Attrs:          ebpf.RecordAttrs{SrcName: "src", DstName: "dst"},
+		CommonAttrs:    pipe.CommonAttrs{SrcName: "src", DstName: "dst"},
 	}
-	f1.Attrs.SrcAddr = ebpf.IPAddr(srcIP)
-	f1.Attrs.DstAddr = ebpf.IPAddr(dstIP)
+	f1.CommonAttrs.SrcAddr = pipe.IPAddr(srcIP)
+	f1.CommonAttrs.DstAddr = pipe.IPAddr(dstIP)
 
 	in.Send([]*ebpf.Record{f1})
 
@@ -84,8 +85,8 @@ func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
 	decorated := testutil.ReadChannel(t, outCh, timeout)
 	require.Len(t, decorated, 1)
 
-	assert.Contains(t, decorated[0].Attrs.SrcName, "src")
-	assert.Contains(t, decorated[0].Attrs.DstName, "dst")
+	assert.Contains(t, decorated[0].CommonAttrs.SrcName, "src")
+	assert.Contains(t, decorated[0].CommonAttrs.DstName, "dst")
 }
 
 func TestReverseDNS_Cache(t *testing.T) {
@@ -106,24 +107,24 @@ func TestReverseDNS_Cache(t *testing.T) {
 	// When it receives a flow with an unknown destination for the first time
 	f1 := &ebpf.Record{
 		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{IfIndex: 1}},
-		Attrs:          ebpf.RecordAttrs{SrcName: "src"},
+		CommonAttrs:    pipe.CommonAttrs{SrcName: "src"},
 	}
-	f1.Attrs.SrcAddr = ebpf.IPAddr(srcIP)
-	f1.Attrs.DstAddr = ebpf.IPAddr(dstIP)
+	f1.CommonAttrs.SrcAddr = pipe.IPAddr(srcIP)
+	f1.CommonAttrs.DstAddr = pipe.IPAddr(dstIP)
 
 	in.Send([]*ebpf.Record{f1})
 
 	// THEN it decorates it
 	decorated := testutil.ReadChannel(t, outCh, timeout)
 	require.Len(t, decorated, 1)
-	assert.Contains(t, decorated[0].Attrs.DstName, "amazon")
+	assert.Contains(t, decorated[0].CommonAttrs.DstName, "amazon")
 
 	// AND when it receives the same flow again
-	f1.Attrs.DstName = ""
+	f1.CommonAttrs.DstName = ""
 	in.Send([]*ebpf.Record{f1})
 
 	// THEN it decorates it from the cached copy (otherwise the fake netLookupAddr would crash)
 	decorated = testutil.ReadChannel(t, outCh, timeout)
 	require.Len(t, decorated, 1)
-	assert.Contains(t, decorated[0].Attrs.DstName, "amazon")
+	assert.Contains(t, decorated[0].CommonAttrs.DstName, "amazon")
 }
