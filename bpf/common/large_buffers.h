@@ -5,10 +5,10 @@
 
 #include <common/scratch_mem.h>
 
-volatile const u32 http_buffer_size = 0;
-volatile const u32 mysql_buffer_size = 0;
-volatile const u32 postgres_buffer_size = 0;
-volatile const u32 kafka_buffer_size = 0;
+volatile const u32 http_max_captured_bytes = 0;
+volatile const u32 mysql_max_captured_bytes = 0;
+volatile const u32 postgres_max_captured_bytes = 0;
+volatile const u32 kafka_max_captured_bytes = 0;
 
 enum {
     // This value represents a pessimistic guard for the maximum size

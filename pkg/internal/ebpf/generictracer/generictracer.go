@@ -197,10 +197,10 @@ func (p *Tracer) constants() map[string]any {
 		m["disable_black_box_cp"] = uint32(0)
 	}
 
-	m["http_buffer_size"] = p.cfg.EBPF.BufferSizes.HTTP
-	m["mysql_buffer_size"] = p.cfg.EBPF.BufferSizes.MySQL
-	m["kafka_buffer_size"] = p.cfg.EBPF.BufferSizes.Kafka
-	m["postgres_buffer_size"] = p.cfg.EBPF.BufferSizes.Postgres
+	m["http_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.HTTP
+	m["mysql_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.MySQL
+	m["kafka_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.Kafka
+	m["postgres_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.Postgres
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
 
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
