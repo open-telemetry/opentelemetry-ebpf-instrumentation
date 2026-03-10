@@ -6,6 +6,7 @@ package nodejs
 import (
 	"debug/elf"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,6 +106,49 @@ func TestHasUserSIGUSR1Handler_OtherSignalOnly(t *testing.T) {
 
 	if hasUserSIGUSR1Handler(cmd.Process.Pid, ef) {
 		t.Error("expected no SIGUSR1 handler (only SIGINT), but SIGUSR1 was detected")
+	}
+}
+
+func newTestInjector(t *testing.T) *NodeInjector {
+	t.Helper()
+	return &NodeInjector{
+		log: slog.With("component", "nodejs.Injector.test"),
+	}
+}
+
+func TestIsInspectorOpen_WithInspectFlag(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("requires root for network namespace switching")
+	}
+
+	cmd := exec.Command("node", "--inspect=9229", "-e", `setTimeout(() => {}, 600000);`)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start node: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	time.Sleep(1 * time.Second)
+
+	injector := newTestInjector(t)
+	if !injector.isInspectorOpen(cmd.Process.Pid) {
+		t.Error("expected isInspectorOpen to return true when node is started with --inspect")
+	}
+}
+
+func TestIsInspectorOpen_WithoutInspectFlag(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("requires root for network namespace switching")
+	}
+
+	cmd := startNodeScript(t, `setTimeout(() => {}, 600000);`)
+
+	injector := newTestInjector(t)
+	if injector.isInspectorOpen(cmd.Process.Pid) {
+		t.Error("expected isInspectorOpen to return false when node is started without --inspect")
 	}
 }
 

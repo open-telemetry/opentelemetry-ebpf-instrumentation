@@ -51,6 +51,13 @@ func (i *NodeInjector) NewExecutable(ie *ebpf.Instrumentable) {
 }
 
 func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
+	// If the inspector port is already open (e.g. --inspect flag), skip SIGUSR1
+	// and inject directly.
+	if i.isInspectorOpen(pid) {
+		i.log.Debug("Node.js inspector already open, injecting agent", "pid", pid)
+		return i.inject(pid)
+	}
+
 	if elfFile != nil && hasUserSIGUSR1Handler(pid, elfFile) {
 		i.log.Debug("Node.js process has a custom SIGUSR1 handler, skipping agent injection",
 			"pid", pid)
@@ -64,6 +71,25 @@ func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
 	}
 
 	return i.inject(pid)
+}
+
+// isInspectorOpen checks if the Node.js inspector port (9229) is already
+// accepting connections in the target process's network namespace.
+func (i *NodeInjector) isInspectorOpen(pid int) bool {
+	open := false
+	err := withNetNS(pid, func() error {
+		conn, err := connect("127.0.0.1", 9229)
+		if err != nil {
+			return err
+		}
+		conn.Close()
+		open = true
+		return nil
+	})
+	if err != nil {
+		return false
+	}
+	return open
 }
 
 //go:embed fdextractor.js
