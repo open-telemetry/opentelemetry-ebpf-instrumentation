@@ -11,20 +11,21 @@ volatile const u32 postgres_max_captured_bytes = 0;
 volatile const u32 kafka_max_captured_bytes = 0;
 
 enum {
-    // This value represents a pessimistic guard for the maximum size
-    // a large buffer event can take into the ring buffer.
-    // The actual size is "event size + payload". Since the payload
-    // is guaranteed to be a power of 2, we take the next power of 2
-    // of the maximum payload size as a guard.
-    k_large_buf_max_size = 1 << 15, // 32K
-    k_large_buf_max_size_mask = k_large_buf_max_size - 1,
-
-    // Maximum size for a large buffer payload.
+    // Maximum payload size per ring buffer chunk.
     k_large_buf_payload_max_size = 1 << 14, // 16K
-    k_large_buf_payload_max_size_mask = k_large_buf_payload_max_size - 1,
 
-    // Absolute maximum of bytes that we'll send, smaller chunks are sent one after another
-    k_large_buffer_read_limit = 1 << 16, // 64K
+    // Scratch memory size for a large buffer event: sizeof(tcp_large_buffer_t) + payload.
+    // Rounded up to the next power of 2 above k_large_buf_payload_max_size to account
+    // for the struct overhead.
+    k_large_buf_max_size = 1 << 15, // 32K
+
+    // Maximum valid value for each protocol's *_max_captured_bytes volatile variable.
+    // These must equal the lte= validation values in EBPFBufferSizes (pkg/config/ebpf_tracer.go),
+    // which enforces the same ceiling at configuration time.
+    k_large_buf_max_http_captured_bytes = 1 << 16,
+    k_large_buf_max_mysql_captured_bytes = 1 << 16,
+    k_large_buf_max_postgres_captured_bytes = 1 << 16,
+    k_large_buf_max_kafka_captured_bytes = 1 << 16,
 };
 
 SCRATCH_MEM_SIZED(http_large_buffers, k_large_buf_max_size);
