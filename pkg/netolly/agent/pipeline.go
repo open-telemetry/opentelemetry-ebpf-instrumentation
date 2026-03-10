@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/netolly/transform/k8s"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/geoip"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -72,7 +73,8 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		swarm.WithID("ReverseDNS"))
 
 	geoIPDecoratedFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "geoIPDecoratedFlows")
-	swi.Add(flow.GeoIPProvider(&f.cfg.NetworkFlows.GeoIP,
+	swi.Add(geoip.GeoIPProvider(&f.cfg.NetworkFlows.GeoIP,
+		func(r *ebpf.Record) *pipe.CommonAttrs { return &r.CommonAttrs },
 		dnsDecoratedFlows, geoIPDecoratedFlows), swarm.WithID("GeoIPDecorator"))
 
 	cidrDecoratedFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "cidrDecoratedFlows")

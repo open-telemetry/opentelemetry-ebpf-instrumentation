@@ -30,6 +30,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/internal/netolly/flow"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/geoip"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 )
 
@@ -140,7 +141,7 @@ type NetworkConfig struct {
 	// ListenInterfaces value is set to "poll".
 	ListenPollPeriod time.Duration `yaml:"listen_poll_period" env:"OTEL_EBPF_NETWORK_LISTEN_POLL_PERIOD" validate:"gte=0"`
 
-	GeoIP flow.GeoIP `yaml:"geo_ip"`
+	GeoIP geoip.GeoIP `yaml:"geo_ip"`
 
 	// ReverseDNS allows flows that haven't been previously decorated with any source/destination name
 	// to override the name with the network hostname of the source and destination IPs.
@@ -176,7 +177,7 @@ var DefaultNetworkConfig = NetworkConfig{
 		CacheLen: 256,
 		CacheTTL: time.Hour,
 	},
-	GeoIP: flow.GeoIP{
+	GeoIP: geoip.GeoIP{
 		CacheLen: 512,
 		CacheTTL: time.Hour,
 	},
