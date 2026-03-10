@@ -28,7 +28,4 @@ enum {
     k_large_buf_max_kafka_captured_bytes = 1 << 16,
 };
 
-SCRATCH_MEM_SIZED(http_large_buffers, k_large_buf_max_size);
-SCRATCH_MEM_SIZED(mysql_large_buffers, k_large_buf_max_size);
-SCRATCH_MEM_SIZED(postgres_large_buffers, k_large_buf_max_size);
-SCRATCH_MEM_SIZED(kafka_large_buffers, k_large_buf_max_size);
+SCRATCH_MEM_SIZED(tcp_large_buffers, k_large_buf_max_size);
