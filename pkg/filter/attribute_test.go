@@ -12,9 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
+	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -23,6 +25,11 @@ const timeout = 5 * time.Second
 // Helper to return a pointer to an int value for the numeric comparisons
 func intPtr(i int) *int {
 	return &i
+}
+
+func strGetters() attributes.NamedGetters[*ebpf.Record, string] {
+	cfg := ebpf.RecordGettersConfig{PortGuessPolicy: flowdef.PortGuessOrdinal}
+	return ebpf.RecordStringGetters(cfg)
 }
 
 func TestAttributeFilter(t *testing.T) {
@@ -35,7 +42,7 @@ func TestAttributeFilter(t *testing.T) {
 		"k8s.app.version":   MatchDefinition{Match: "*"},
 	}, nil, map[string][]attr.Name{
 		"k8s_app_meta": {"k8s.app.version"},
-	}, ebpf.RecordStringGetters, input, output)(t.Context())
+	}, strGetters(), input, output)(t.Context())
 	require.NoError(t, err)
 
 	out := output.Subscribe()
@@ -193,7 +200,7 @@ func TestAttributeFilter_NumericComparisons(t *testing.T) {
 	// Test multiple numeric comparisons: status code must be in [200, 400) range
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
 		"http.response.status_code": MatchDefinition{GreaterEquals: intPtr(200), LessThan: intPtr(400)},
-	}, nil, map[string][]attr.Name{}, ebpf.RecordStringGetters, input, output)(t.Context())
+	}, nil, map[string][]attr.Name{}, strGetters(), input, output)(t.Context())
 	require.NoError(t, err)
 
 	out := output.Subscribe()
@@ -271,7 +278,7 @@ func TestAttributeFilter_NumericEquality(t *testing.T) {
 
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
 		"http.response.status_code": MatchDefinition{Equals: intPtr(200)},
-	}, nil, map[string][]attr.Name{}, ebpf.RecordStringGetters, input, output)(t.Context())
+	}, nil, map[string][]attr.Name{}, strGetters(), input, output)(t.Context())
 	require.NoError(t, err)
 
 	out := output.Subscribe()
@@ -334,7 +341,7 @@ func TestAttributeFilter_NumericNotEquals(t *testing.T) {
 
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
 		"http.response.status_code": MatchDefinition{NotEquals: intPtr(500)},
-	}, nil, map[string][]attr.Name{}, ebpf.RecordStringGetters, input, output)(t.Context())
+	}, nil, map[string][]attr.Name{}, strGetters(), input, output)(t.Context())
 	require.NoError(t, err)
 
 	out := output.Subscribe()
@@ -398,7 +405,7 @@ func TestAttributeFilter_NumericAndGlob(t *testing.T) {
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
 		"http.response.status_code": MatchDefinition{GreaterEquals: intPtr(200), LessThan: intPtr(300)},
 		"http.request.method":       MatchDefinition{Match: "GET"},
-	}, nil, map[string][]attr.Name{}, ebpf.RecordStringGetters, input, output)(t.Context())
+	}, nil, map[string][]attr.Name{}, strGetters(), input, output)(t.Context())
 	require.NoError(t, err)
 
 	out := output.Subscribe()
@@ -476,7 +483,7 @@ func TestAttributeFilter_NumericGlobMixed(t *testing.T) {
 	filterFunc, err := ByAttribute[*ebpf.Record](AttributeFamilyConfig{
 		"http.response.status_code": MatchDefinition{GreaterEquals: intPtr(400)},
 		"http.request.method":       MatchDefinition{Match: "P*"},
-	}, nil, map[string][]attr.Name{}, ebpf.RecordStringGetters, input, output)(t.Context())
+	}, nil, map[string][]attr.Name{}, strGetters(), input, output)(t.Context())
 	require.NoError(t, err)
 
 	out := output.Subscribe()
@@ -583,7 +590,7 @@ func TestAttributeFilter_VerificationError(t *testing.T) {
 		t.Run(fmt.Sprintf("%v", tc), func(t *testing.T) {
 			input := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
 			output := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
-			_, err := ByAttribute[*ebpf.Record](tc, nil, map[string][]attr.Name{}, ebpf.RecordStringGetters, input, output)(t.Context())
+			_, err := ByAttribute[*ebpf.Record](tc, nil, map[string][]attr.Name{}, strGetters(), input, output)(t.Context())
 			assert.Error(t, err)
 		})
 	}

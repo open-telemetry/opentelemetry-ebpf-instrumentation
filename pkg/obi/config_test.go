@@ -32,6 +32,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/netolly/cidr"
+	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -650,6 +651,11 @@ func TestWillUseTC(t *testing.T) {
 	env = envMap{"OTEL_EBPF_BPF_CONTEXT_PROPAGATION": "disabled", "OTEL_EBPF_NETWORK_SOURCE": "tc", "OTEL_EBPF_NETWORK_METRICS": "true"}
 	cfg = loadConfig(t, env)
 	assert.True(t, cfg.willUseTC())
+}
+
+func TestConfig_NetworkGuessPortsFromEnv(t *testing.T) {
+	cfg := loadConfig(t, envMap{"OTEL_EBPF_NETWORK_GUESS_PORTS": "ordinal"})
+	assert.Equal(t, flowdef.PortGuessOrdinal, cfg.NetworkFlows.GuessPorts)
 }
 
 func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {

@@ -1263,6 +1263,15 @@
         "geo_ip": {
           "$ref": "#/$defs/GeoIP"
         },
+        "guess_ports": {
+          "type": "string",
+          "enum": [
+            "disable",
+            "ordinal"
+          ],
+          "description": "GuessPorts controls how OBI assigns server.port/client.port when the connection initiator is unknown. Accepted values are \"ordinal\" (assume highest port is client) and \"disable\" (default, do not guess and emit empty client/server port attributes for unknown-initiator flows).",
+          "x-env-var": "OTEL_EBPF_NETWORK_GUESS_PORTS"
+        },
         "interfaces": {
           "items": {
             "type": "string"
