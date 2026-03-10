@@ -69,9 +69,9 @@ packaging==26.0 \
     --hash=sha256:00243ae351a257117b6a241061796684b084ed1c516a08c48a3f7e147a9d80b4 \
     --hash=sha256:b36f1fef9334a5588b4166f8bcd26a14e521f2b55e6b9de3aaa80d3ff7a37529
     # via gunicorn
-psycopg==3.2.9 \
-    --hash=sha256:01a8dadccdaac2123c916208c96e06631641c0566b22005493f09663c7a8d3b6 \
-    --hash=sha256:2fbb46fcd17bc81f993f28c47f1ebea38d66ae97cc2dbc3cad73b37cefbff700
+psycopg==3.3.3 \
+    --hash=sha256:5e9a47458b3c1583326513b2556a2a9473a1001a56c9efe9e587245b43148dd9 \
+    --hash=sha256:f96525a72bcfade6584ab17e89de415ff360748c766f0106959144dcbb38c698
     # via -r requirements.in
 pydantic==2.12.5 \
     --hash=sha256:4d351024c75c0f085a9febbb665ce8c0c6ec5d30e903bdb6394b7ede26aebb49 \
