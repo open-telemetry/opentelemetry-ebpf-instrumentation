@@ -466,8 +466,8 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable generic HTTP header and payload extraction",
-          "x-env-var": "OTEL_EBPF_HTTP_GENERIC_PARSING_ENABLED"
+          "description": "Enable HTTP header and payload enrichment",
+          "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_ENABLED"
         },
         "policy": {
           "$ref": "#/$defs/HTTPParsingPolicy",
@@ -482,7 +482,7 @@
         }
       },
       "type": "object",
-      "description": "EnrichmentConfig configures generic HTTP header and payload extraction."
+      "description": "EnrichmentConfig configures HTTP header and payload extraction with policy-based rules."
     },
     "ExportModes": {
       "items": {
@@ -701,7 +701,7 @@
         },
         "enrichment": {
           "$ref": "#/$defs/EnrichmentConfig",
-          "description": "Enrichment HTTP header and payload extraction with policy-based rules"
+          "description": "Enrichment configures HTTP header and payload extraction with policy-based rules"
         },
         "graphql": {
           "$ref": "#/$defs/GraphQLConfig",
@@ -737,7 +737,7 @@
             "$ref": "#/$defs/GlobAttr"
           },
           "type": "array",
-          "description": "Patterns is a list of compiled glob matchers."
+          "description": "Patterns is a list of glob patterns to match the rule against"
         }
       },
       "type": "object",
@@ -754,21 +754,21 @@
         "default_action": {
           "$ref": "#/$defs/HTTPParsingAction",
           "description": "DefaultAction specifies what to do when no rule matches: \"include\" or \"exclude\"",
-          "x-env-var": "OTEL_EBPF_HTTP_PARSING_DEFAULT_ACTION"
+          "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_DEFAULT_ACTION"
         },
         "match_order": {
           "$ref": "#/$defs/HTTPParsingMatchOrder",
           "description": "MatchOrder controls how rules are evaluated: \"first_match_wins\"",
-          "x-env-var": "OTEL_EBPF_HTTP_PARSING_MATCH_ORDER"
+          "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_MATCH_ORDER"
         },
         "obfuscation_string": {
           "type": "string",
           "description": "ObfuscationString is the replacement string used when a rule's action is \"obfuscate\"",
-          "x-env-var": "OTEL_EBPF_HTTP_PARSING_OBFUSCATION_STRING"
+          "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING"
         }
       },
       "type": "object",
-      "description": "HTTPParsingPolicy defines the default action and match strategy for generic parsing rules."
+      "description": "HTTPParsingPolicy defines the default action and match strategy for http enrichment rules."
     },
     "HTTPParsingRule": {
       "properties": {

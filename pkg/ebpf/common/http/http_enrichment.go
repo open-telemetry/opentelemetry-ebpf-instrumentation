@@ -37,15 +37,22 @@ func EnrichHTTPSpan(
 }
 
 // processHeaders evaluates rules against each header and returns a map of
-// headers to include or obfuscate.
+// headers to include or obfuscate. The map is allocated lazily to avoid
+// allocations when no headers match (e.g. default_action: exclude with no matching rules).
 func processHeaders(
 	headers http.Header,
 	cfg config.EnrichmentConfig,
 	scope config.HTTPParsingScope,
 ) map[string]string {
-	result := make(map[string]string)
+	var result map[string]string
 	for name, values := range headers {
 		action := resolveHeaderAction(name, cfg.Rules, cfg.Policy, scope)
+		if action == config.HTTPParsingActionExclude {
+			continue
+		}
+		if result == nil {
+			result = make(map[string]string)
+		}
 		applyHeaderAction(action, name, values, result, cfg.Policy.ObfuscationString)
 	}
 	return result

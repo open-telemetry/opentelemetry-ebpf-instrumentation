@@ -37,7 +37,7 @@ type HTTPConfig struct {
 	SQLPP SQLPPConfig `yaml:"sqlpp"`
 	// OpenAI payload extraction
 	OpenAI OpenAIConfig `yaml:"openai"`
-	// Enrichment HTTP header and payload extraction with policy-based rules
+	// Enrichment configures HTTP header and payload extraction with policy-based rules
 	Enrichment EnrichmentConfig `yaml:"enrichment"`
 }
 
@@ -69,10 +69,10 @@ type OpenAIConfig struct {
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_OPENAI_ENABLED" validate:"boolean"`
 }
 
-// EnrichmentConfig configures generic HTTP header and payload extraction.
+// EnrichmentConfig configures HTTP header and payload extraction with policy-based rules.
 type EnrichmentConfig struct {
-	// Enable generic HTTP header and payload extraction
-	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_GENERIC_PARSING_ENABLED" validate:"boolean"`
+	// Enable HTTP header and payload enrichment
+	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_ENRICHMENT_ENABLED" validate:"boolean"`
 	// Policy controls the default behavior and matching strategy
 	Policy HTTPParsingPolicy `yaml:"policy"`
 	// Rules is an ordered list of include/exclude/obfuscate rules.
@@ -80,14 +80,14 @@ type EnrichmentConfig struct {
 	Rules []HTTPParsingRule `yaml:"rules"`
 }
 
-// HTTPParsingPolicy defines the default action and match strategy for generic parsing rules.
+// HTTPParsingPolicy defines the default action and match strategy for http enrichment rules.
 type HTTPParsingPolicy struct {
 	// DefaultAction specifies what to do when no rule matches: "include" or "exclude"
-	DefaultAction HTTPParsingAction `yaml:"default_action" env:"OTEL_EBPF_HTTP_PARSING_DEFAULT_ACTION"`
+	DefaultAction HTTPParsingAction `yaml:"default_action" env:"OTEL_EBPF_HTTP_ENRICHMENT_DEFAULT_ACTION"`
 	// MatchOrder controls how rules are evaluated: "first_match_wins"
-	MatchOrder HTTPParsingMatchOrder `yaml:"match_order" env:"OTEL_EBPF_HTTP_PARSING_MATCH_ORDER"`
+	MatchOrder HTTPParsingMatchOrder `yaml:"match_order" env:"OTEL_EBPF_HTTP_ENRICHMENT_MATCH_ORDER"`
 	// ObfuscationString is the replacement string used when a rule's action is "obfuscate"
-	ObfuscationString string `yaml:"obfuscation_string" env:"OTEL_EBPF_HTTP_PARSING_OBFUSCATION_STRING"`
+	ObfuscationString string `yaml:"obfuscation_string" env:"OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING"`
 }
 
 // HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header and payload extraction.
@@ -137,7 +137,7 @@ func (HTTPParsingRuleType) JSONSchema() *jsonschema.Schema {
 
 // HTTPParsingMatch defines matching criteria for an HTTP parsing rule.
 type HTTPParsingMatch struct {
-	// Patterns is a list of compiled glob matchers.
+	// Patterns is a list of glob patterns to match the rule against
 	Patterns []services.GlobAttr `yaml:"patterns"`
 	// CaseSensitive controls whether matching is case-sensitive.
 	CaseSensitive bool `yaml:"case_sensitive"`
