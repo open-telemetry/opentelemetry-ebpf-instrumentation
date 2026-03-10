@@ -113,36 +113,23 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
                                                  u8 direction,
                                                  enum protocol_type protocol_type,
                                                  enum large_buf_action action) {
-    int ret = 0;
+    const u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
 
     switch (protocol_type) {
     case k_protocol_type_mysql:
-        if (mysql_buffer_size > 0) {
-            const u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
-            ret = mysql_send_large_buffer(
-                req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
-        }
-        break;
+        return mysql_send_large_buffer(
+            req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
     case k_protocol_type_postgres:
-        if (postgres_buffer_size > 0) {
-            const u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
-            ret = postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
-        }
-        break;
+        return postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
     case k_protocol_type_kafka:
-        if (kafka_buffer_size > 0) {
-            ret = kafka_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
-        }
-        break;
+        return kafka_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
     case k_protocol_type_http:
-        break;
     case k_protocol_type_mqtt:
-        break;
     case k_protocol_type_unknown:
         break;
     }
 
-    return ret;
+    return 0;
 }
 
 static __always_inline void
