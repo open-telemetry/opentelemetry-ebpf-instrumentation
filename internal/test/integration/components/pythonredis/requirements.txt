@@ -159,9 +159,9 @@ pydantic-core==2.41.5 \
     --hash=sha256:f41eb9797986d6ebac5e8edff36d5cef9de40def462311b3eb3eeded1431e425 \
     --hash=sha256:f547144f2966e1e16ae626d8ce72b4cfa0caedc7fa28052001c94fb2fcaa1c52
     # via pydantic
-redis==7.2.1 \
-    --hash=sha256:49e231fbc8df2001436ae5252b3f0f3dc930430239bfeb6da4c7ee92b16e5d33 \
-    --hash=sha256:6163c1a47ee2d9d01221d8456bc1c75ab953cbda18cfbc15e7140e9ba16ca3a5
+redis==7.3.0 \
+    --hash=sha256:4d1b768aafcf41b01022410b3cc4f15a07d9b3d6fe0c66fc967da2c88e551034 \
+    --hash=sha256:9d4fcb002a12a5e3c3fbe005d59c48a2cc231f87fbb2f6b70c2d89bb64fec364
     # via -r requirements.in
 starlette==0.52.1 \
     --hash=sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74 \
