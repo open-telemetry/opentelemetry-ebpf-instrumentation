@@ -16,7 +16,6 @@
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
 #include <common/trace_parent.h>
-#include <common/tp_char_buf.h>
 
 #include <generictracer/maps/http_info_mem.h>
 
@@ -29,6 +28,7 @@
 #include <maps/active_ssl_connections.h>
 #include <maps/ongoing_http.h>
 #include <maps/tp_info_mem.h>
+#include <maps/tp_char_buf_mem.h>
 
 volatile const u32 high_request_volume;
 
@@ -154,7 +154,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
             return;
         }
 
-        unsigned char *buf = tp_char_buf();
+        unsigned char *buf = (unsigned char *)tp_char_buf_mem();
         if (buf) {
             const u16 buf_len = bytes_len & (TRACE_BUF_SIZE - 1);
             _Static_assert(TRACE_BUF_SIZE == 1024,

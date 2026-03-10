@@ -22,7 +22,6 @@
 #include <common/http_types.h>
 #include <common/ringbuf.h>
 #include <common/strings.h>
-#include <common/tp_char_buf.h>
 #include <common/tracing.h>
 
 #include <gotracer/go_common.h>
@@ -38,6 +37,7 @@
 
 #include <maps/go_ongoing_http.h>
 #include <maps/go_ongoing_http_client_requests.h>
+#include <maps/tp_char_buf_mem.h>
 
 #include <pid/pid_helpers.h>
 
@@ -421,7 +421,7 @@ int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
 
     server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
 
-    unsigned char *buf = tp_char_buf();
+    unsigned char *buf = (unsigned char *)tp_char_buf_mem();
     if (!buf) {
         return 0;
     }

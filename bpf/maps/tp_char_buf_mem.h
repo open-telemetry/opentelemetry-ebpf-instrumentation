@@ -6,10 +6,6 @@
 #include <bpfcore/utils.h>
 
 #include <common/http_types.h>
+#include <common/scratch_mem.h>
 
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, int);
-    __type(value, unsigned char[TRACE_BUF_SIZE]);
-    __uint(max_entries, 1);
-} tp_char_buf_mem SEC(".maps");
+SCRATCH_MEM_SIZED(tp_char_buf, TRACE_BUF_SIZE);

@@ -17,7 +17,6 @@
 #include <common/sockaddr.h>
 #include <common/ssl_connection.h>
 #include <common/ssl_helpers.h>
-#include <common/tp_char_buf.h>
 #include <common/tcp_info.h>
 
 #include <generictracer/dns.h>
@@ -1195,7 +1194,7 @@ int obi_handle_buf_with_args(void *ctx) {
                 // we'll see something like this:
                 // [before the injected header],[70 bytes for 'Traceparent...'],[the rest].
                 if (reading && is_traceparent(args->small_buf)) {
-                    unsigned char *buf = tp_char_buf();
+                    unsigned char *buf = (unsigned char *)tp_char_buf_mem();
                     if (buf) {
                         bpf_probe_read(buf, TP_SIZE, (unsigned char *)args->u_buf);
                         bpf_dbg_printk("Found traceparent buf=[%s]", buf);
