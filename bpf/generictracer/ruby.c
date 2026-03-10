@@ -8,16 +8,20 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <common/connection_info.h>
+#include <common/puma_task_id.h>
 #include <common/strings.h>
 
-#include <generictracer/maps/pid_tid_to_conn.h>
-#include <generictracer/maps/puma_tasks.h>
+#include <maps/puma_tasks.h>
 
-#include <generictracer/types/puma_task_id.h>
+#include <generictracer/maps/pid_tid_to_conn.h>
 
 #include <logger/bpf_dbg.h>
 
+#include <maps/server_traces.h>
+
 #include <pid/pid.h>
+
+#include <shared/obi_ctx.h>
 
 enum { k_comm_len = 12 };
 enum { k_rb_ary_embedded_ptr_pos = 0x10, k_rb_ary_heap_ptr_pos = 0x20 };
@@ -67,7 +71,7 @@ The approach we take to handle this is the follows:
    don't matter, since we would be throwing an exception on shift if this array was frozen.
 4. At the time of the "shift" probe, we take the item pointer and record it for the 
    current thread. 
-5. find_parent_trace in trace_common.h, looks up the puma metadata for the current pid:tgid pair. It
+5. find_parent_trace in trace_parent.h, looks up the puma metadata for the current pid:tgid pair. It
    would find the metadata recorded by the "rb_ary_shft" uprobe, i.e. the "puma srv tp NNN" worker, which
    is the client thread. We take the returned "array:item" pair from the client and look up in the map
    setup by "puma srv" thread on "rb_array_push" for the connection information of the original server
@@ -177,8 +181,21 @@ int obi_rb_ary_shift(struct pt_regs *ctx) {
         if (conn_part) {
             bpf_dbg_printk("stored item to id correlation, id = %llx, item %llx", id, item);
             bpf_map_update_elem(&puma_worker_tasks, &id, &task_id, BPF_ANY);
+
+            // Refresh traces_ctx_v1 for the worker thread. This handles the
+            // reactor path where "puma reactor" read the HTTP request (setting
+            // traces_ctx_v1 for itself) before handing off to this worker.
+            // In the direct path (worker reads HTTP), server_traces_aux won't
+            // have an entry yet, so this is a harmless no-op.
+            tp_info_pid_t *tp = bpf_map_lookup_elem(&server_traces_aux, conn_part);
+            if (tp && tp->valid) {
+                obi_ctx__set(id, &tp->tp);
+            } else {
+                obi_ctx__del(id);
+            }
         } else {
             bpf_dbg_printk("untracked item %llx, ignoring...", item);
+            obi_ctx__del(id);
         }
     }
 

@@ -9,7 +9,7 @@
 #include <common/iov_iter.h>
 #include <common/sock_port_ns.h>
 #include <common/http_types.h>
-#include <common/ringbuf.h>
+#include <common/event_defs.h>
 
 #include <generictracer/maps/connection_meta_mem.h>
 #include <generictracer/maps/iovec_mem.h>

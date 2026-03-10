@@ -8,7 +8,7 @@
 
 #include <common/connection_info.h>
 #include <common/protocol_defs.h>
-#include <common/ringbuf.h>
+#include <common/event_defs.h>
 
 #include <generictracer/k_tracer_defs.h>
 

@@ -11,13 +11,15 @@
 #include <common/connection_info.h>
 #include <common/iov_iter.h>
 #include <common/msg_buffer.h>
-#include <common/dns.h>
 #include <common/protocol_defs.h>
+#include <common/protocol_http2.h>
 #include <common/sock_port_ns.h>
 #include <common/sockaddr.h>
+#include <common/ssl_connection.h>
 #include <common/ssl_helpers.h>
 #include <common/tcp_info.h>
 
+#include <generictracer/dns.h>
 #include <generictracer/k_send_receive.h>
 #include <generictracer/k_tracer_defs.h>
 #include <generictracer/k_unix_sock.h>
@@ -32,6 +34,8 @@
 #include <generictracer/protocol_postgres.h>
 #include <generictracer/protocol_tcp.h>
 #include <generictracer/ssl_defs.h>
+
+#include <maps/ongoing_http2_connections.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -1190,7 +1194,7 @@ int obi_handle_buf_with_args(void *ctx) {
                 // we'll see something like this:
                 // [before the injected header],[70 bytes for 'Traceparent...'],[the rest].
                 if (reading && is_traceparent(args->small_buf)) {
-                    unsigned char *buf = tp_char_buf();
+                    unsigned char *buf = (unsigned char *)tp_char_buf_mem();
                     if (buf) {
                         bpf_probe_read(buf, TP_SIZE, (unsigned char *)args->u_buf);
                         bpf_dbg_printk("Found traceparent buf=[%s]", buf);

@@ -41,11 +41,6 @@
 
 #include <pid/pid_helpers.h>
 
-static __always_inline unsigned char *tp_char_buf() {
-    int zero = 0;
-    return bpf_map_lookup_elem(&tp_char_buf_mem, &zero);
-}
-
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;
     return bpf_map_lookup_elem(&temp_header_mem_store, &zero);
@@ -426,7 +421,7 @@ int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
 
     server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
 
-    unsigned char *buf = tp_char_buf();
+    unsigned char *buf = (unsigned char *)tp_char_buf_mem();
     if (!buf) {
         return 0;
     }

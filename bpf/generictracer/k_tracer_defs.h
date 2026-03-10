@@ -8,10 +8,10 @@
 
 #include <common/connection_info.h>
 #include <common/http_types.h>
-#include <common/ringbuf.h>
+#include <common/protocol_http.h>
+#include <common/event_defs.h>
 #include <common/send_args.h>
 #include <common/tc_common.h>
-#include <common/trace_common.h>
 
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>

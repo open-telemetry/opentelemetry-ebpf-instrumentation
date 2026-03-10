@@ -12,7 +12,8 @@
 #include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/ringbuf.h>
-#include <common/trace_common.h>
+#include <common/trace_helpers.h>
+#include <common/trace_parent.h>
 #include <common/trace_util.h>
 
 #include <generictracer/k_tracer_defs.h>

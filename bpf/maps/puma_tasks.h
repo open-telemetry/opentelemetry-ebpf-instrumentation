@@ -8,7 +8,7 @@
 
 #include <common/connection_info.h>
 #include <common/map_sizing.h>
-#include <generictracer/types/puma_task_id.h>
+#include <common/puma_task_id.h>
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
