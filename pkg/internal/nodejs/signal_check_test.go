@@ -19,12 +19,12 @@ func findNodeBinary(t *testing.T) string {
 	if err != nil {
 		t.Skip("node not found in PATH")
 	}
-	// Resolve symlinks to get the real binary path
-	real, err := filepath.EvalSymlinks(path)
+	// Resolve symlinks to get the real node binary path
+	nodePath, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		t.Fatalf("failed to resolve node path: %v", err)
 	}
-	return real
+	return nodePath
 }
 
 func startNodeScript(t *testing.T, script string) *exec.Cmd {
