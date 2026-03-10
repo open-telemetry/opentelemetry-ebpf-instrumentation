@@ -464,11 +464,19 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
                                                   u8 packet_type,
                                                   u8 direction,
                                                   enum large_buf_action action) {
-    if (http_buffer_size == 0) {
+    if (http_max_captured_bytes > k_large_buf_max_http_captured_bytes) {
+        bpf_dbg_printk("BUG: http_max_captured_bytes exceeds maximum allowed value.");
+    }
+
+    const u32 bytes_sent =
+        packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
+
+    if (http_max_captured_bytes == 0 || bytes_sent >= http_max_captured_bytes || bytes_len == 0) {
         return 0;
     }
 
-    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)http_large_buffers_mem();
+    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
+
     if (!large_buf) {
         bpf_dbg_printk("failed to reserve space for HTTP large buffer");
         return -1;
@@ -481,47 +489,24 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
     large_buf->action = action;
     large_buf->tp = req->tp;
 
-    req->has_large_buffers = true;
+    const u32 max_available_bytes = http_max_captured_bytes - bytes_sent;
+    const u32 available_bytes = bytes_len > max_available_bytes ? max_available_bytes : bytes_len;
 
-    u32 available_bytes = bytes_len;
-    // limit by the userspace requested size
-    if (available_bytes > http_buffer_size) {
-        available_bytes = http_buffer_size;
+    bpf_dbg_printk(
+        "http large buffers, total size=%u, effective size=%u", bytes_len, available_bytes);
+
+    const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
+
+    if (consumed_bytes > 0) {
+        req->has_large_buffers = true;
     }
-    // limit by the maximum bytes we can ever export
-    bpf_clamp_umax(available_bytes, k_large_buffer_read_limit);
 
-    bpf_dbg_printk("sending large buffer, total size=%d, packet_type=%d, direction %d",
-                   bytes_len,
-                   packet_type,
-                   direction);
+    bpf_dbg_printk("large buffer consumed %u bytes", consumed_bytes);
 
-    const uint32_t niter = (available_bytes / k_large_buf_payload_max_size) +
-                           ((available_bytes % k_large_buf_payload_max_size) > 0);
-
-    int b = 0;
-    for (; b < niter; b++) {
-        const u32 offset = b * k_large_buf_payload_max_size;
-        if (offset >= k_large_buffer_read_limit) {
-            break;
-        }
-        u32 read_size = available_bytes;
-        bpf_clamp_umax(read_size, k_large_buf_payload_max_size);
-        bpf_probe_read(large_buf->buf, read_size, (void *)(&u_buf[offset]));
-
-        // left here intentionally for debugging
-        // bpf_dbg_printk("sending large buffer, size=%d, action=%d", read_size, action);
-
-        large_buf->len = read_size;
-
-        u32 total_size = sizeof(tcp_large_buffer_t);
-        total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);
-
-        bpf_clamp_umax(total_size, k_large_buf_max_size);
-        bpf_ringbuf_output(&events, large_buf, total_size, get_flags());
-
-        available_bytes -= read_size;
-        large_buf->action = k_large_buf_action_append;
+    if (packet_type == PACKET_TYPE_REQUEST) {
+        req->lb_req_bytes += consumed_bytes;
+    } else {
+        req->lb_res_bytes += consumed_bytes;
     }
 
     return 0;

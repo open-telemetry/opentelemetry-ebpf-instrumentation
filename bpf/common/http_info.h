@@ -28,6 +28,8 @@ typedef struct http_info {
     u32 len;
     u32 resp_len;
     u32 task_tid;
+    u32 lb_req_bytes;
+    u32 lb_res_bytes;
     u16 status;
     unsigned char buf[FULL_BUF_SIZE];
     u8 has_large_buffers;
