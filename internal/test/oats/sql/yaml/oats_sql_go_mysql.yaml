@@ -5,6 +5,8 @@ docker-compose:
 input:
   - path: /mysqltest
   - path: /mysqlerror
+  - path: /update
+  - path: /updateerr
 interval: 500ms
 expected:
   traces:
@@ -14,6 +16,20 @@ expected:
           attributes:
             db.operation.name: SELECT
             db.collection.name: students
+            db.system.name: other_sql
+    - traceql: '{ name = "UPDATE students" && status = unset}'
+      spans:
+        - name: 'UPDATE students'
+          attributes:
+            db.operation.name: UPDATE
+            db.collection.name: students
+            db.system.name: other_sql
+    - traceql: '{ name = "UPDATE nonexistent_table" && status = error}'
+      spans:
+        - name: 'UPDATE nonexistent_table'
+          attributes:
+            db.operation.name: UPDATE
+            db.collection.name: nonexistent_table
             db.system.name: other_sql
     - traceql: '{ .db.operation.name = "SELECT" && status = error }'
       spans:

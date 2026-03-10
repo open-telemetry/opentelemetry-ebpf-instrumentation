@@ -77,6 +77,31 @@ func main() {
 		fmt.Fprintf(w, "Result %v", res)
 	})
 
+	http.HandleFunc("/updateerr", func(w http.ResponseWriter, r *http.Request) {
+		if !mysqlInit {
+			db, err = sql.Open("mysql", "root:mysql@tcp(mysqlserver:3306)/sqltest")
+			if err != nil {
+				log.Fatal(err)
+			}
+			mysqlInit = true
+		}
+		err = db.Ping()
+		if err != nil {
+			log.Printf("%v\n", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		res, err := db.Exec("UPDATE nonexistent_table SET name=\"John Doe\" WHERE id=1")
+		if err != nil {
+			log.Printf("Expected error %v\n", err)
+			w.WriteHeader(200)
+			w.Write([]byte("SQL error (expected)"))
+			return
+		}
+		fmt.Fprintf(w, "Result %v", res)
+	})
+
 	http.HandleFunc("/mysqlerror", func(w http.ResponseWriter, r *http.Request) {
 		if !mysqlInit {
 			db, err = sql.Open("mysql", "root:mysql@tcp(mysqlserver:3306)/sqltest")
