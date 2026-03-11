@@ -473,6 +473,17 @@ func TestSuite_JavaKafkaLargeBuffer(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonAsyncUvloop(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-uvloop.yml", path.Join(pathOutput, "test-suite-python-async-uvloop.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Python Async Uvloop Sequential", testPythonAsyncSequential)
+	t.Run("Python Async Uvloop Concurrent", testPythonAsyncConcurrent)
+	t.Run("Python Async To Thread", testPythonAsyncToThread)
+	t.Run("Python Async Nested", testPythonAsyncNested)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonRedis(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-redis.yml", path.Join(pathOutput, "test-suite-python-redis.log"))
 	require.NoError(t, err)

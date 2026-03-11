@@ -1,0 +1,5 @@
+fastapi==0.115.12
+uvicorn==0.41.0
+uvloop==0.22.1
+httpx==0.25.2
+requests==2.31.0
