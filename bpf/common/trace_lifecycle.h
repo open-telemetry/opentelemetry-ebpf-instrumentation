@@ -117,11 +117,14 @@ static __always_inline void server_or_client_trace(
 
         bpf_map_update_elem(&server_traces_aux, &conn_part, tp_p, BPF_ANY);
 
-        // Always update the process-level fallback so that cross-thread
-        // client lookups (e.g. gRPC I/O threads) find the latest server
-        // trace, even when the per-thread server_traces entry conflicts.
-        const u32 tgid = (u32)(id >> 32);
-        bpf_map_update_elem(&active_server_trace, &tgid, tp_p, BPF_ANY);
+        // Update process-level fallback for cross-thread client lookups
+        // (e.g. gRPC I/O threads). Only for HTTP requests to avoid
+        // contaminating TCP-based protocols (Kafka, MySQL, etc.) where
+        // TRACE_TYPE_SERVER == EVENT_HTTP_REQUEST coincidentally.
+        if (tp_p->req_type == EVENT_HTTP_REQUEST) {
+            const u32 tgid = (u32)(id >> 32);
+            bpf_map_update_elem(&active_server_trace, &tgid, tp_p, BPF_ANY);
+        }
 
         tp_info_pid_t *existing = bpf_map_lookup_elem(&server_traces, &t_key);
         if (existing && (existing->req_type == tp_p->req_type) &&

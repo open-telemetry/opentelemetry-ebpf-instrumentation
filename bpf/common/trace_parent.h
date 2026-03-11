@@ -207,18 +207,6 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
         }
     }
 
-    // Fallback: look up by process ID (tgid) only. This handles the case
-    // where the outgoing sendmsg() happens on a different thread (e.g. an
-    // I/O thread in Python grpcio, Rust tonic, or Node.js) than the one
-    // that handled the incoming request.
-    const u32 tgid = (u32)(pid_tgid >> 32);
-    tp_info_pid_t *tgid_parent = bpf_map_lookup_elem(&active_server_trace, &tgid);
-    if (tgid_parent) {
-        bpf_dbg_printk("Found parent trace via process-level active_server_trace for tgid=%d",
-                       tgid);
-        return tgid_parent;
-    }
-
     return 0;
 }
 

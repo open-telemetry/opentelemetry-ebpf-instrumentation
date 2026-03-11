@@ -140,6 +140,19 @@ static __always_inline void http2_grpc_start(
             u8 found_tp = 0;
             if (meta->type == EVENT_HTTP_CLIENT) {
                 found_tp = find_trace_for_client_request(&s_key->pid_conn, orig_dport, &tp_p->tp);
+                // Process-level fallback for cross-thread gRPC I/O.
+                if (!found_tp) {
+                    const u32 tgid = (u32)(bpf_get_current_pid_tgid() >> 32);
+                    tp_info_pid_t *tgid_parent = bpf_map_lookup_elem(&active_server_trace, &tgid);
+                    if (tgid_parent && tgid_parent->valid) {
+                        __builtin_memcpy(
+                            tp_p->tp.trace_id, tgid_parent->tp.trace_id, sizeof(tp_p->tp.trace_id));
+                        __builtin_memcpy(tp_p->tp.parent_id,
+                                         tgid_parent->tp.span_id,
+                                         sizeof(tp_p->tp.parent_id));
+                        found_tp = 1;
+                    }
+                }
             } else {
                 // For server requests, look up incoming_trace_map (populated
                 // by sk_msg on the sender side) and fall back to black-box
