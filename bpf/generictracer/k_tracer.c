@@ -476,10 +476,12 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                     bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
                     bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
 
+                    bpf_map_delete_elem(&msg_buffers, &e_key);
                     // Logically last for !ssl.
                     handle_buf_with_connection(
                         ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
                 }
+                bpf_map_delete_elem(&msg_buffers, &e_key);
             } else {
                 bpf_dbg_printk("identified SSL connection, ignoring...");
             }
@@ -506,7 +508,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
         return 0;
     }
 
-    bpf_dbg_printk("=== kprobe/tcp_rate_check_app_limited id=%d, sock=%llx ===", id, sk);
+    bpf_dbg_printk("=== kprobe/tcp_rate_check_app_limited(sendmsg) id=%d, sock=%llx ===", id, sk);
 
     send_args_t s_args = {};
 
@@ -517,8 +519,6 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
             .d_port = s_args.p_conn.conn.d_port,
             .s_port = s_args.p_conn.conn.s_port,
         };
-
-        sort_egress_key(&e_key);
 
         sort_connection_info(&s_args.p_conn.conn);
         s_args.p_conn.pid = pid_from_pid_tgid(id);
@@ -562,10 +562,12 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                     bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
                     bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
 
+                    bpf_map_delete_elem(&msg_buffers, &e_key);
                     // Logically last for !ssl.
                     handle_buf_with_connection(
                         ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
                 }
+                bpf_map_delete_elem(&msg_buffers, &e_key);
             }
         } else {
             tcp_send_ssl_check(id, (void *)(*ssl), &s_args.p_conn, orig_dport);
@@ -626,6 +628,8 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         const u16 orig_dport = info.conn.d_port;
         sort_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
+
+        dbg_print_http_connection_info(&info.conn);
 
         if (is_tcp_socket_never_connected(sk)) {
             cp_support_data_t *ct = bpf_map_lookup_elem(&cp_support_connect_info, &info);
@@ -935,6 +939,7 @@ done:
     return 0;
 }
 
+// backup path for the retprobe of recv msg not firing
 SEC("kprobe/tcp_cleanup_rbuf")
 int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
     const u64 id = bpf_get_current_pid_tgid();
@@ -943,7 +948,7 @@ int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
         return 0;
     }
 
-    bpf_dbg_printk("=== kprobe/tcp_cleanup_rbuf id=%d, copied_len=%d ===", id, copied);
+    bpf_dbg_printk("=== kprobe/tcp_cleanup_rbuf(recvmsg) id=%d, copied_len=%d ===", id, copied);
 
     if (g_bpf_debug) {
         connection_info_t conn = {};
