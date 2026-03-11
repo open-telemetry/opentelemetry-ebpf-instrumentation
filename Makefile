@@ -152,7 +152,7 @@ fmt: $(GOLANGCI_LINT)
 
 .PHONY: clang-tidy
 clang-tidy:
-	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" | xargs clang-tidy
+	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" ! -path "./tests/*" | xargs clang-tidy
 
 .PHONY: lint
 lint: LINT_EXTRA_ARGS =
