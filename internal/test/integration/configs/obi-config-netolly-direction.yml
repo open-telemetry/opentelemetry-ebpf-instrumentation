@@ -1,3 +1,5 @@
+network:
+  guess_ports: ordinal
 attributes:
   select:
     obi_network_flow_bytes:
