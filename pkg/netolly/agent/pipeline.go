@@ -24,6 +24,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
+func recordAttrs(r *ebpf.Record) *pipe.CommonAttrs { return &r.CommonAttrs }
+
 // mockable functions for testing
 var newMapTracer = func(f *Flows, out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
 	return f.mapTracer.TraceLoop(out)
@@ -67,22 +69,22 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 
 	kubeDecoratedFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "kubeDecoratedFlows")
 	swi.Add(k8s.MetadataDecoratorProvider(ctx, &f.cfg.Attributes.Kubernetes, f.ctxInfo.K8sInformer,
-		func(r *ebpf.Record) *pipe.CommonAttrs { return &r.CommonAttrs },
+		recordAttrs,
 		dedupedEBPFFlows, kubeDecoratedFlows), swarm.WithID("K8sMetadataDecorator"))
 
 	dnsDecoratedFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "dnsDecoratedFlows")
-	swi.Add(rdns.ReverseDNSProvider(&f.cfg.NetworkFlows.ReverseDNS, func(r *ebpf.Record) *pipe.CommonAttrs { return &r.CommonAttrs },
+	swi.Add(rdns.ReverseDNSProvider(&f.cfg.NetworkFlows.ReverseDNS, recordAttrs,
 		kubeDecoratedFlows, dnsDecoratedFlows),
 		swarm.WithID("ReverseDNS"))
 
 	geoIPDecoratedFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "geoIPDecoratedFlows")
 	swi.Add(geoip.GeoIPProvider(&f.cfg.NetworkFlows.GeoIP,
-		func(r *ebpf.Record) *pipe.CommonAttrs { return &r.CommonAttrs },
+		recordAttrs,
 		dnsDecoratedFlows, geoIPDecoratedFlows), swarm.WithID("GeoIPDecorator"))
 
 	cidrDecoratedFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "cidrDecoratedFlows")
 	swi.Add(cidr.DecoratorProvider(f.cfg.NetworkFlows.CIDRs,
-		func(r *ebpf.Record) *pipe.CommonAttrs { return &r.CommonAttrs },
+		recordAttrs,
 		geoIPDecoratedFlows, cidrDecoratedFlows),
 		swarm.WithID("CIDRDecorator"))
 
