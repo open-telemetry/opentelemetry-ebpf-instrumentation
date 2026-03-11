@@ -522,11 +522,13 @@
             "30s",
             "5m",
             "1ms"
-          ]
+          ],
+          "x-env-var": "OTEL_EBPF_GEOIP_CACHE_TTL"
         },
         "cache_len": {
           "type": "integer",
-          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN for backwards-compatibility"
+          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_GEOIP_CACHE_LEN"
         },
         "ipinfo": {
           "$ref": "#/$defs/IPInfoConfig"
@@ -536,7 +538,7 @@
         }
       },
       "type": "object",
-      "description": "GeoIP is currently experimental. It is kept disabled by default and will be hidden from the documentation. This means that it does not impact in the overall Beyla performance."
+      "description": "GeoIP is currently experimental. It is kept disabled by default and will be hidden from the documentation. This means that it does not impact in the overall OBI performance."
     },
     "GlobAttr": {
       "type": "string",
@@ -709,7 +711,8 @@
       "properties": {
         "path": {
           "type": "string",
-          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_IPINFO_PATH for backwards-compatibility"
+          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_IPINFO_PATH for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_GEOIP_IPINFO_PATH"
         }
       },
       "type": "object"
@@ -993,11 +996,13 @@
       "properties": {
         "asn_path": {
           "type": "string",
-          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_ASN_PATH for backwards-compatibility"
+          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_ASN_PATH for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_GEOIP_MAXMIND_ASN_PATH"
         },
         "country_path": {
           "type": "string",
-          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_COUNTRY_PATH for backwards-compatibility"
+          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_COUNTRY_PATH for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_GEOIP_MAXMIND_COUNTRY_PATH"
         }
       },
       "type": "object"
@@ -1636,16 +1641,18 @@
         "cache_expiry": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "CacheTTL only applies to the \"local\" and \"ebpf\" ReverseDNS type. It specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. It also accept OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL for for backwards-compatibility",
+          "description": "CacheTTL only applies to the \"local\" and \"ebpf\" ReverseDNS type. It specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL for for backwards-compatibility",
           "examples": [
             "30s",
             "5m",
             "1ms"
-          ]
+          ],
+          "x-env-var": "OTEL_EBPF_REVERSE_DNS_CACHE_TTL"
         },
         "cache_len": {
           "type": "integer",
-          "description": "CacheLen only applies to the \"local\" and \"ebpf\" ReverseDNS type. It specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 It also accept OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_LEN for for backwards-compatibility"
+          "description": "CacheLen only applies to the \"local\" and \"ebpf\" ReverseDNS type. It specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_LEN for for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_REVERSE_DNS_CACHE_LEN"
         },
         "type": {
           "type": "string",
@@ -1654,7 +1661,8 @@
             "local",
             "none"
           ],
-          "description": "Type of ReverseDNS. Values are \"none\" (default), \"local\" and \"ebpf\" It also accept OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE for for backwards-compatibility"
+          "description": "Type of ReverseDNS. Values are \"none\" (default), \"local\" and \"ebpf\" It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE for for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_REVERSE_DNS_TYPE"
         }
       },
       "type": "object",
