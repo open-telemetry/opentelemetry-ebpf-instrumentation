@@ -144,6 +144,40 @@ func FindIn(tags []Tag, key string) (Tag, bool) {
 	return Tag{}, false
 }
 
+// TagFirstStringValue extracts the first string value from a tag.
+// Handles both plain string values and array values (as returned by Jaeger
+// for OTLP StringSlice attributes).
+func TagFirstStringValue(tag Tag) (string, bool) {
+	switch v := tag.Value.(type) {
+	case string:
+		return v, true
+	case []any:
+		if len(v) > 0 {
+			if s, ok := v[0].(string); ok {
+				return s, true
+			}
+		}
+	}
+	return "", false
+}
+
+// TagStringValues extracts all string values from a tag.
+func TagStringValues(tag Tag) []string {
+	switch v := tag.Value.(type) {
+	case string:
+		return []string{v}
+	case []any:
+		result := make([]string, 0, len(v))
+		for _, elem := range v {
+			if s, ok := elem.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	}
+	return nil
+}
+
 type DiffResult []TagDiff
 
 func (mr DiffResult) String() string {
