@@ -28,9 +28,9 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/invopop/jsonschema"
 
-	"go.opentelemetry.io/obi/pkg/internal/netolly/flow"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/geoip"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 )
 
@@ -147,7 +147,7 @@ type NetworkConfig struct {
 	// to override the name with the network hostname of the source and destination IPs.
 	// This is an experimental feature and it is not guaranteed to work on most virtualized environments
 	// for external traffic.
-	ReverseDNS flow.ReverseDNS `yaml:"reverse_dns"`
+	ReverseDNS rdns.ReverseDNS `yaml:"reverse_dns"`
 	// Print the network flows in the Standard Output, if true
 	Print bool `yaml:"print_flows" env:"OTEL_EBPF_NETWORK_PRINT_FLOWS" validate:"boolean"`
 
@@ -172,8 +172,8 @@ var DefaultNetworkConfig = NetworkConfig{
 	GuessPorts:         flowdef.PortGuessDisable,
 	ListenInterfaces:   "watch",
 	ListenPollPeriod:   10 * time.Second,
-	ReverseDNS: flow.ReverseDNS{
-		Type:     flow.ReverseDNSNone,
+	ReverseDNS: rdns.ReverseDNS{
+		Type:     rdns.ReverseDNSNone,
 		CacheLen: 256,
 		CacheTTL: time.Hour,
 	},
