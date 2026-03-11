@@ -69,7 +69,10 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
     large_buf->conn_info = req->conn_info;
     large_buf->tp = req->tp;
 
-    const u32 max_available_bytes = postgres_max_captured_bytes - bytes_sent;
+    u32 max_available_bytes = postgres_max_captured_bytes - bytes_sent;
+
+    bpf_clamp_umax(max_available_bytes, k_large_buf_max_postgres_captured_bytes);
+
     const u32 available_bytes = bytes_len > max_available_bytes ? max_available_bytes : bytes_len;
 
     const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
