@@ -8,6 +8,7 @@ data:
     prometheus_export:
       port: 8999
     network:
+      guess_ports: ordinal
       protocols:
         - TCP
       cidrs:
