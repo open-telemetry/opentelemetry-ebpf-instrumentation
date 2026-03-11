@@ -282,6 +282,7 @@ func TestGenerateTraces(t *testing.T) {
 func TestGenerateTracesAttributes(t *testing.T) {
 	t.Run("test SQL trace generation, no statement", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
+		span.HostName = "postgresql"
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
@@ -299,11 +300,13 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
+		ensureTraceStrAttr(t, attrs, semconv.PeerServiceKey, "postgresql")
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
 	})
 
 	t.Run("test SQL server trace generation", func(t *testing.T) {
 		span := makeSQLServerRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
+		span.HostName = "postgresql"
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
@@ -320,6 +323,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
+		ensureTraceAttrNotExists(t, attrs, semconv.PeerServiceKey)
 	})
 
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
