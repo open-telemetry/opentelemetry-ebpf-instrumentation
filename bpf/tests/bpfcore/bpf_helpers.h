@@ -15,7 +15,7 @@
 #define NULL ((void *)0)
 #endif
 
-#define __uint(name, val) int (*name)[val]
+#define __uint(name, val) int(*name)[val]
 #define __type(name, val) typeof(val) *name
 #define __array(name, val) typeof(val) *name[]
 
