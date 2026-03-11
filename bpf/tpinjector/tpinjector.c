@@ -21,6 +21,7 @@
 #include <common/tc_common.h>
 #include <common/tp_info.h>
 #include <common/trace_helpers.h>
+#include <common/trace_parent.h>
 
 #include <maps/active_server_trace.h>
 #include <pid/pid.h>
@@ -268,28 +269,12 @@ static __always_inline connection_info_t sk_msg_extract_key_ip6(struct sk_msg_md
     return conn;
 }
 
-// Lightweight parent trace lookup for the sk_msg context.
-// Instead of inlining the full find_parent_trace chain (which blows the
-// BPF 512-byte stack limit), we only check active_server_trace[tgid].
-// This is correct because sk_msg fires on the sending thread which may
-// differ from the server-request thread; active_server_trace is the
-// process-level fallback written by server_or_client_trace().
 static __always_inline void init_tp_ctx_parent_tp(tailcall_ctx *t_ctx) {
     t_ctx->parent_tp.ts = bpf_ktime_get_ns();
     t_ctx->parent_tp.flags = 1;
-    t_ctx->has_parent_tp = 0;
 
-    const u64 id = bpf_get_current_pid_tgid();
-    const u32 tgid = (u32)(id >> 32);
-    tp_info_pid_t *server_tp = bpf_map_lookup_elem(&active_server_trace, &tgid);
-
-    if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
-        __builtin_memcpy(
-            t_ctx->parent_tp.trace_id, server_tp->tp.trace_id, sizeof(t_ctx->parent_tp.trace_id));
-        __builtin_memcpy(
-            t_ctx->parent_tp.parent_id, server_tp->tp.span_id, sizeof(t_ctx->parent_tp.parent_id));
-        t_ctx->has_parent_tp = 1;
-    }
+    t_ctx->has_parent_tp = find_parent_trace_for_client_request(
+        &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, &t_ctx->parent_tp);
 }
 
 static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info_pid_t *tp_p) {
@@ -1167,6 +1152,19 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     }
 
     init_tp_ctx_parent_tp(t_ctx);
+
+    // HTTP/2 has no existing Traceparent to scan; look up active_server_trace.
+    const u64 id = bpf_get_current_pid_tgid();
+    const u32 tgid = (u32)(id >> 32);
+    tp_info_pid_t *server_tp = bpf_map_lookup_elem(&active_server_trace, &tgid);
+
+    if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
+        __builtin_memcpy(
+            t_ctx->parent_tp.trace_id, server_tp->tp.trace_id, sizeof(t_ctx->parent_tp.trace_id));
+        __builtin_memcpy(
+            t_ctx->parent_tp.span_id, server_tp->tp.span_id, sizeof(t_ctx->parent_tp.span_id));
+        t_ctx->has_parent_tp = 1;
+    }
 
     tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
     if (tp_p && create_trace_info(t_ctx, tp_p)) {
