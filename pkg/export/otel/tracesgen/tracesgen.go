@@ -248,6 +248,11 @@ func addAttrsToMap(attrs []attribute.KeyValue, dst pcommon.Map) {
 			dst.PutDouble(string(attr.Key), v)
 		case bool:
 			dst.PutBool(string(attr.Key), v)
+		case []string:
+			s := dst.PutEmptySlice(string(attr.Key))
+			for _, val := range v {
+				s.AppendEmpty().SetStr(val)
+			}
 		}
 	}
 }
@@ -301,16 +306,16 @@ var (
 
 // httpHeaderAttributes converts extracted HTTP headers to OTel span attributes
 // following the semantic convention: http.request.header.<key> and http.response.header.<key>
-// where <key> is the lowercased header field name.
+// where <key> is the lowercased header field name. Values are string slices per the spec.
 func httpHeaderAttributes(span *request.Span) []attribute.KeyValue {
 	attrs := make([]attribute.KeyValue, 0, len(span.RequestHeaders)+len(span.ResponseHeaders))
-	for name, value := range span.RequestHeaders {
+	for name, values := range span.RequestHeaders {
 		key := "http.request.header." + strings.ToLower(name)
-		attrs = append(attrs, attribute.String(key, value))
+		attrs = append(attrs, attribute.StringSlice(key, values))
 	}
-	for name, value := range span.ResponseHeaders {
+	for name, values := range span.ResponseHeaders {
 		key := "http.response.header." + strings.ToLower(name)
-		attrs = append(attrs, attribute.String(key, value))
+		attrs = append(attrs, attribute.StringSlice(key, values))
 	}
 	return attrs
 }

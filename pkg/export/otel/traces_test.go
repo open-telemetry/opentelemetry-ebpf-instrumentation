@@ -972,12 +972,12 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			Path:   "/api/v1/users",
 			Route:  "/api/v1/users",
 			Status: 200,
-			RequestHeaders: map[string]string{
-				"Content-Type": "application/json",
-				"X-Request-Id": "abc-123",
+			RequestHeaders: map[string][]string{
+				"Content-Type": {"application/json"},
+				"X-Request-Id": {"abc-123"},
 			},
-			ResponseHeaders: map[string]string{
-				"X-Response-Id": "resp-456",
+			ResponseHeaders: map[string][]string{
+				"X-Response-Id": {"resp-456"},
 			},
 		}
 
@@ -988,9 +988,9 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 		attrs := spans.At(0).Attributes()
 
-		ensureTraceStrAttr(t, attrs, "http.request.header.content-type", "application/json")
-		ensureTraceStrAttr(t, attrs, "http.request.header.x-request-id", "abc-123")
-		ensureTraceStrAttr(t, attrs, "http.response.header.x-response-id", "resp-456")
+		ensureTraceStrSliceAttr(t, attrs, "http.request.header.content-type", []string{"application/json"})
+		ensureTraceStrSliceAttr(t, attrs, "http.request.header.x-request-id", []string{"abc-123"})
+		ensureTraceStrSliceAttr(t, attrs, "http.response.header.x-response-id", []string{"resp-456"})
 		ensureTraceAttrNotExists(t, attrs, "http.request.header.authorization")
 	})
 	t.Run("test HTTP client span with extracted headers", func(t *testing.T) {
@@ -999,11 +999,11 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			Method: "POST",
 			Path:   "/external/api",
 			Status: 201,
-			RequestHeaders: map[string]string{
-				"Authorization": "***",
+			RequestHeaders: map[string][]string{
+				"Authorization": {"***"},
 			},
-			ResponseHeaders: map[string]string{
-				"X-Ratelimit-Remaining": "42",
+			ResponseHeaders: map[string][]string{
+				"X-Ratelimit-Remaining": {"42"},
 			},
 		}
 
@@ -1014,8 +1014,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 		attrs := spans.At(0).Attributes()
 
-		ensureTraceStrAttr(t, attrs, "http.request.header.authorization", "***")
-		ensureTraceStrAttr(t, attrs, "http.response.header.x-ratelimit-remaining", "42")
+		ensureTraceStrSliceAttr(t, attrs, "http.request.header.authorization", []string{"***"})
+		ensureTraceStrSliceAttr(t, attrs, "http.response.header.x-ratelimit-remaining", []string{"42"})
 	})
 	t.Run("test HTTP span without headers has no header attributes", func(t *testing.T) {
 		span := request.Span{
@@ -1913,6 +1913,18 @@ func ensureTraceStrAttr(t *testing.T, attrs pcommon.Map, key attribute.Key, val 
 	v, ok := attrs.Get(string(key))
 	assert.True(t, ok)
 	assert.Equal(t, val, v.AsString())
+}
+
+func ensureTraceStrSliceAttr(t *testing.T, attrs pcommon.Map, key attribute.Key, vals []string) {
+	t.Helper()
+	v, ok := attrs.Get(string(key))
+	require.True(t, ok, "expected attribute %s", key)
+	slice := v.Slice()
+	got := make([]string, slice.Len())
+	for i := 0; i < slice.Len(); i++ {
+		got[i] = slice.At(i).Str()
+	}
+	assert.Equal(t, vals, got)
 }
 
 func ensureTraceAttrNotExists(t *testing.T, attrs pcommon.Map, key attribute.Key) {

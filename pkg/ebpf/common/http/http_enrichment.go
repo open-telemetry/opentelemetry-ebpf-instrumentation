@@ -43,15 +43,15 @@ func processHeaders(
 	headers http.Header,
 	cfg config.EnrichmentConfig,
 	scope config.HTTPParsingScope,
-) map[string]string {
-	var result map[string]string
+) map[string][]string {
+	var result map[string][]string
 	for name, values := range headers {
 		action := resolveHeaderAction(name, cfg.Rules, cfg.Policy, scope)
 		if action == config.HTTPParsingActionExclude {
 			continue
 		}
 		if result == nil {
-			result = make(map[string]string)
+			result = make(map[string][]string)
 		}
 		applyHeaderAction(action, name, values, result, cfg.Policy.ObfuscationString)
 	}
@@ -98,20 +98,19 @@ func scopeApplies(ruleScope config.HTTPParsingScope, headerSource config.HTTPPar
 }
 
 // applyHeaderAction adds the header to the map based on the resolved action.
+// For include, all values are appended. For obfuscate, a single obfuscation string is used.
 func applyHeaderAction(
 	action config.HTTPParsingAction,
 	name string,
 	values []string,
-	headers map[string]string,
+	headers map[string][]string,
 	obfuscationString string,
 ) {
 	switch action {
 	case config.HTTPParsingActionInclude:
-		if len(values) > 0 {
-			headers[name] = values[0]
-		}
+		headers[name] = append(headers[name], values...)
 	case config.HTTPParsingActionObfuscate:
-		headers[name] = obfuscationString
+		headers[name] = []string{obfuscationString}
 	case config.HTTPParsingActionExclude:
 		// do nothing
 	}
