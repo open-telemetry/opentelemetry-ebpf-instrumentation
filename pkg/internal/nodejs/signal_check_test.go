@@ -8,13 +8,13 @@ package nodejs
 import (
 	"debug/elf"
 	"fmt"
-	"log/slog"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
 func findNodeBinary(t *testing.T) string {
@@ -112,49 +112,6 @@ func TestHasUserSIGUSR1Handler_OtherSignalOnly(t *testing.T) {
 	}
 }
 
-func newTestInjector(t *testing.T) *NodeInjector {
-	t.Helper()
-	return &NodeInjector{
-		log: slog.With("component", "nodejs.Injector.test"),
-	}
-}
-
-func TestIsInspectorOpen_WithInspectFlag(t *testing.T) {
-	if os.Getuid() != 0 {
-		t.Skip("requires root for network namespace switching")
-	}
-
-	cmd := exec.Command("node", "--inspect=9229", "-e", `setTimeout(() => {}, 600000);`)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("failed to start node: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-	})
-	time.Sleep(1 * time.Second)
-
-	injector := newTestInjector(t)
-	if !injector.isInspectorOpen(cmd.Process.Pid) {
-		t.Error("expected isInspectorOpen to return true when node is started with --inspect")
-	}
-}
-
-func TestIsInspectorOpen_WithoutInspectFlag(t *testing.T) {
-	if os.Getuid() != 0 {
-		t.Skip("requires root for network namespace switching")
-	}
-
-	cmd := startNodeScript(t, `setTimeout(() => {}, 600000);`)
-
-	injector := newTestInjector(t)
-	if injector.isInspectorOpen(cmd.Process.Pid) {
-		t.Error("expected isInspectorOpen to return false when node is started without --inspect")
-	}
-}
-
 func TestFindExeBaseAddr(t *testing.T) {
 	if os.Getuid() != 0 {
 		t.Skip("requires root to read /proc/<pid>/maps")
@@ -193,42 +150,7 @@ func TestFindExeBaseAddr_InvalidPid(t *testing.T) {
 	}
 }
 
-func TestIsInspectorOpen_NonInspectorOnPort9229(t *testing.T) {
-	if os.Getuid() != 0 {
-		t.Skip("requires root for network namespace switching")
-	}
-
-	// Start a plain TCP server on port 9229 that is NOT a Node.js inspector.
-	// isInspectorOpen should return false because /json/version won't return valid JSON.
-	listener, err := net.Listen("tcp", "127.0.0.1:9229")
-	if err != nil {
-		t.Fatalf("failed to listen on 9229: %v", err)
-	}
-	t.Cleanup(func() { listener.Close() })
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			// Respond with something that is not a Node.js inspector response
-			_, err = conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nnot an inspector"))
-			if err != nil {
-				return
-			}
-			conn.Close()
-		}
-	}()
-
-	injector := newTestInjector(t)
-	// Use our own pid since we're in the same netns
-	if injector.isInspectorOpen(os.Getpid()) {
-		t.Error("expected isInspectorOpen to return false for non-inspector service on port 9229")
-	}
-}
-
-func TestFindSymbolVAddr(t *testing.T) {
+func TestFindExeSymbols_SignalTree(t *testing.T) {
 	nodePath := findNodeBinary(t)
 	f, err := elf.Open(nodePath)
 	if err != nil {
@@ -236,16 +158,20 @@ func TestFindSymbolVAddr(t *testing.T) {
 	}
 	defer f.Close()
 
-	addr, err := findSymbolVAddr(f, "uv__signal_tree")
+	syms, err := procs.FindExeSymbols(f, []string{"uv__signal_tree"}, elf.STT_OBJECT)
 	if err != nil {
-		t.Fatalf("expected to find uv__signal_tree symbol: %v", err)
+		t.Fatalf("FindExeSymbols failed: %v", err)
 	}
-	if addr == 0 {
+	sym, ok := syms["uv__signal_tree"]
+	if !ok {
+		t.Fatal("expected to find uv__signal_tree symbol")
+	}
+	if sym.Off == 0 {
 		t.Error("expected non-zero address for uv__signal_tree")
 	}
 }
 
-func TestFindSymbolVAddr_NotFound(t *testing.T) {
+func TestFindExeSymbols_NotFound(t *testing.T) {
 	nodePath := findNodeBinary(t)
 	f, err := elf.Open(nodePath)
 	if err != nil {
@@ -253,8 +179,11 @@ func TestFindSymbolVAddr_NotFound(t *testing.T) {
 	}
 	defer f.Close()
 
-	_, err = findSymbolVAddr(f, "nonexistent_symbol_xyz")
-	if err == nil {
-		t.Error("expected error for nonexistent symbol")
+	syms, err := procs.FindExeSymbols(f, []string{"nonexistent_symbol_xyz"}, elf.STT_OBJECT)
+	if err != nil {
+		t.Fatalf("FindExeSymbols failed: %v", err)
+	}
+	if _, ok := syms["nonexistent_symbol_xyz"]; ok {
+		t.Error("expected symbol not to be found")
 	}
 }

@@ -6,13 +6,13 @@
 package nodejs // import "go.opentelemetry.io/obi/pkg/internal/nodejs"
 
 import (
-	"bufio"
 	"debug/elf"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"os"
-	"strings"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
 const (
@@ -45,10 +45,15 @@ func hasUserSIGUSR1Handler(pid int, elfFile *elf.File) bool {
 		return false
 	}
 
-	symVAddr, err := findSymbolVAddr(elfFile, "uv__signal_tree")
+	syms, err := procs.FindExeSymbols(elfFile, []string{"uv__signal_tree"}, elf.STT_OBJECT)
 	if err != nil {
 		return false
 	}
+	sym, ok := syms["uv__signal_tree"]
+	if !ok {
+		return false
+	}
+	symVAddr := sym.Off
 
 	// For PIE executables (ET_DYN), the symbol's virtual address is relative to the
 	// load base. We need to find the actual runtime address by reading the executable's
@@ -77,60 +82,25 @@ func hasUserSIGUSR1Handler(pid int, elfFile *elf.File) bool {
 	return walkTreeForSignal(mem, rootPtr, sigusr1, elfFile.ByteOrder)
 }
 
-// findSymbolVAddr looks up a symbol's virtual address in the ELF symbol tables.
-func findSymbolVAddr(f *elf.File, name string) (uint64, error) {
-	for _, lookup := range []func() ([]elf.Symbol, error){f.Symbols, f.DynamicSymbols} {
-		syms, err := lookup()
-		if err != nil {
-			if errors.Is(err, elf.ErrNoSymbols) {
-				continue
-			}
-			return 0, err
-		}
-		for _, s := range syms {
-			if s.Name == name && s.Value != 0 {
-				return s.Value, nil
-			}
-		}
-	}
-	return 0, fmt.Errorf("symbol %q not found", name)
-}
-
 // findExeBaseAddr reads /proc/<pid>/maps to find the base virtual address
 // where the main executable is mapped. This is needed for PIE binaries where
 // ELF symbol addresses are relative to the load base.
 func findExeBaseAddr(pid int) (uint64, error) {
-	mapsPath := fmt.Sprintf("/proc/%d/maps", pid)
-	f, err := os.Open(mapsPath)
-	if err != nil {
-		return 0, fmt.Errorf("open maps: %w", err)
-	}
-	defer f.Close()
-
 	exeLink := fmt.Sprintf("/proc/%d/exe", pid)
 	exePath, err := os.Readlink(exeLink)
 	if err != nil {
 		return 0, fmt.Errorf("readlink exe: %w", err)
 	}
 
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		// Each line looks like: "addr1-addr2 perms offset dev inode pathname"
-		// We want the first mapping of the executable.
-		if !strings.HasSuffix(line, exePath) {
-			continue
+	maps, err := procs.FindLibMaps(app.PID(pid))
+	if err != nil {
+		return 0, fmt.Errorf("read proc maps: %w", err)
+	}
+
+	for _, m := range maps {
+		if m.Pathname == exePath {
+			return uint64(m.StartAddr), nil
 		}
-		dashIdx := strings.IndexByte(line, '-')
-		if dashIdx < 0 {
-			continue
-		}
-		var base uint64
-		_, err := fmt.Sscanf(line[:dashIdx], "%x", &base)
-		if err != nil {
-			continue
-		}
-		return base, nil
 	}
 
 	return 0, fmt.Errorf("executable mapping not found in /proc/%d/maps", pid)

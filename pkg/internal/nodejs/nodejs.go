@@ -6,9 +6,11 @@ package nodejs // import "go.opentelemetry.io/obi/pkg/internal/nodejs"
 import (
 	"debug/elf"
 	_ "embed"
-	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"syscall"
+	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/ebpf"
@@ -51,61 +53,58 @@ func (i *NodeInjector) NewExecutable(ie *ebpf.Instrumentable) {
 }
 
 func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
-	// If the inspector port is already open (e.g. --inspect flag), skip SIGUSR1
-	// and inject directly.
-	if i.isInspectorOpen(pid) {
-		i.log.Debug("Node.js inspector already open, injecting agent", "pid", pid)
-		return i.inject(pid)
+	return withNetNS(pid, func() error {
+		return i.injectFile(pid, elfFile)
+	})
+}
+
+// injectFile attempts to connect to the Node.js inspector and inject the
+// agent. It first tries to connect directly (in case the inspector is already
+// open, e.g. via --inspect flag), validating with /json/version. If that fails,
+// it checks for a custom SIGUSR1 handler and either sends SIGUSR1 to open the
+// inspector or bails out.
+func (i *NodeInjector) injectFile(pid int, elfFile *elf.File) error {
+	conn, err := connect("127.0.0.1", 9229)
+	if err == nil {
+		// Validate this is actually a Node.js inspector, not some other
+		// service that happens to listen on port 9229.
+		if i.isNodeInspector(conn) {
+			i.log.Debug("Node.js inspector already open, injecting directly", "pid", pid)
+			return i.injectViaConn(conn)
+		}
+		conn.Close()
 	}
 
 	if elfFile != nil && hasUserSIGUSR1Handler(pid, elfFile) {
-		i.log.Debug("Node.js process has a custom SIGUSR1 handler, skipping agent injection",
-			"pid", pid)
+		i.log.Warn("Node.js process has a custom SIGUSR1 handler, skipping agent injection. "+
+			"Node.js trace correlation will not work", "pid", pid)
 		return nil
 	}
 
-	err := syscall.Kill(pid, syscall.SIGUSR1)
-	if err != nil {
-		i.log.Error("error enabling node inspector", "err", err)
-		return errors.New("error enabling node inspector")
+	if err := syscall.Kill(pid, syscall.SIGUSR1); err != nil {
+		return fmt.Errorf("error enabling node inspector: %w", err)
 	}
 
-	return i.inject(pid)
+	conn, err = connectWait("127.0.0.1", 9229, 5*time.Second, 200*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("failed to connect to inspector after SIGUSR1: %w", err)
+	}
+
+	return i.injectViaConn(conn)
 }
 
-// isInspectorOpen checks if the Node.js inspector port (9229) is already
-// accepting connections in the target process's network namespace.
-// It validates that the listener is actually a Node.js inspector by
-// requesting /json/version and checking for a valid response.
-func (i *NodeInjector) isInspectorOpen(pid int) bool {
-	open := false
-	err := withNetNS(pid, func() error {
-		conn, err := connect("127.0.0.1", 9229)
-		if err != nil {
-			return err
-		}
-		defer conn.Close()
-
-		// Validate this is actually a Node.js inspector, not some other
-		// service that happens to listen on port 9229.
-		resp, err := httpGet(conn, "/json/version")
-		if err != nil {
-			return err
-		}
-
-		// The Node.js inspector responds with a JSON object containing
-		// "Browser" and "Protocol-Version" fields.
-		if len(resp) == 0 || resp[0] != '{' {
-			return errors.New("not a Node.js inspector")
-		}
-
-		open = true
-		return nil
-	})
+// isNodeInspector validates that a connection to port 9229 is actually a
+// Node.js inspector by requesting /json/version and checking for a valid
+// JSON response.
+func (i *NodeInjector) isNodeInspector(conn net.Conn) bool {
+	resp, err := httpGet(conn, "/json/version")
 	if err != nil {
 		return false
 	}
-	return open
+
+	// The Node.js inspector responds with a JSON object containing
+	// "Browser" and "Protocol-Version" fields.
+	return len(resp) > 0 && resp[0] == '{'
 }
 
 //go:embed fdextractor.js
