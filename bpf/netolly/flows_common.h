@@ -86,6 +86,10 @@ const u8 ip4in6[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
 volatile const u32 sampling = 0;
 volatile const u8 trace_messages = 0;
 
+// Port guessing policy constants
+enum { PORT_GUESSING_NONE = 0, PORT_GUESSING_ORDINAL = 1 };
+volatile const u8 port_guessing = PORT_GUESSING_NONE;
+
 // we can safely assume that the passed address is IPv6 as long as we encode IPv4
 // as IPv6 during the creation of the flow_id.
 static inline s32 compare_ipv6(flow_id *fid) {

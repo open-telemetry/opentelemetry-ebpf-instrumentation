@@ -256,7 +256,7 @@ int obi_socket__filter(struct __sk_buff *skb) {
                 bpf_map_update_elem(&flow_directions, &id, &new_flow.iface_direction, BPF_NOEXIST);
             }
             // fallback for lost or already started connections and UDP
-            else {
+            else if (port_guessing == PORT_GUESSING_ORDINAL) {
                 new_flow.iface_direction = INGRESS;
                 if (id.src_port > id.dst_port) {
                     new_flow.iface_direction = EGRESS;
