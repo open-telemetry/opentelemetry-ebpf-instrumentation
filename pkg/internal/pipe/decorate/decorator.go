@@ -19,31 +19,41 @@
 // This implementation is a derivation of the code in
 // https://github.com/netobserv/netobserv-ebpf-agent/tree/release-1.4
 
-package flow // import "go.opentelemetry.io/obi/pkg/internal/netolly/flow"
+package decorate // import "go.opentelemetry.io/obi/pkg/internal/pipe/decorate"
 
 import (
 	"context"
+	"net"
 
-	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
-type InterfaceNamer func(ifIndex int) string
-
-// Decorate the flows with extra metadata fields that are not directly fetched by eBPF
+// Decorate the items with extra metadata fields that are not directly fetched by eBPF
 // or by any previous pipeline stage (DNS, Kubernetes...):
-// - The interface name (corresponding to the interface index in the flow).
-func Decorate(ifaceNamer InterfaceNamer, input *msg.Queue[[]*ebpf.Record], output *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
-	in := input.Subscribe(msg.SubscriberName("flow.Decorate"))
-	return func(ctx context.Context) {
-		defer output.Close()
-		swarms.ForEachInput(ctx, in, nil, func(flows []*ebpf.Record) {
-			for _, flow := range flows {
-				flow.NetAttrs.Interface = ifaceNamer(int(flow.Id.IfIndex))
-			}
-			output.Send(flows)
-		})
+// - The IP address of the agent host.
+// - If there is no source or destination hostname, the source IP and destination
+func Decorate[T any](agentIP net.IP, attrs func(T) *pipe.CommonAttrs, input, output *msg.Queue[[]T]) swarm.InstanceFunc {
+	return func(_ context.Context) (swarm.RunFunc, error) {
+		ip := agentIP.String()
+		in := input.Subscribe(msg.SubscriberName("decorate.Decorate"))
+		return func(ctx context.Context) {
+			defer output.Close()
+			swarms.ForEachInput(ctx, in, nil, func(items []T) {
+				for _, item := range items {
+					a := attrs(item)
+					a.OBIIP = ip
+					if a.DstName == "" {
+						a.DstName = a.DstAddr.IP().String()
+					}
+					if a.SrcName == "" {
+						a.SrcName = a.SrcAddr.IP().String()
+					}
+				}
+				output.Send(items)
+			})
+		}, nil
 	}
 }

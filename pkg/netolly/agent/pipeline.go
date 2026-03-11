@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/netolly/flow"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/decorate"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/geoip"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/transform/k8s"
@@ -88,6 +89,12 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		geoIPDecoratedFlows, cidrDecoratedFlows),
 		swarm.WithID("CIDRDecorator"))
 
+	commonDecoratedFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "commonDecoratedFlows")
+	swi.Add(decorate.Decorate(f.agentIP,
+		recordAttrs,
+		cidrDecoratedFlows, commonDecoratedFlows),
+		swarm.WithID("CommonFlowDecorator"))
+
 	decoratedFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "decoratedFlows")
 	swi.Add(func(_ context.Context) (swarm.RunFunc, error) {
 		// If deduper is enabled, we know that interfaces are unset.
@@ -98,7 +105,7 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 				return ""
 			}
 		}
-		return flow.Decorate(f.agentIP, ifaceNamer, cidrDecoratedFlows, decoratedFlows), nil
+		return flow.Decorate(ifaceNamer, commonDecoratedFlows, decoratedFlows), nil
 	}, swarm.WithID("FlowDecorator"))
 
 	filteredFlows := f.ctxInfo.OverrideNetExportQueue
