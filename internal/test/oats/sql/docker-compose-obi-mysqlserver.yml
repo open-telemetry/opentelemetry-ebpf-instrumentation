@@ -1,0 +1,55 @@
+version: "3.9"
+services:
+  mysqlserver:
+    image: mysql:9.6@sha256:e5dc14f6e01c3e577e669337d2855c6d1561b30d8ef2c592e63e4e8a9a52650a
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql
+      MYSQL_DATABASE: sqltest
+    volumes:
+      - ../../integration/components/gomysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-hmysqlserver", "-uroot", "-pmysql"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+  testserver:
+    build:
+      context: ../../integration/components/gomysql
+      dockerfile: Dockerfile
+    image: gomysqlclient
+    depends_on:
+      mysqlserver:
+        condition: service_healthy
+    ports:
+      - "{{ .ApplicationPort }}:8080"
+  autoinstrumenter:
+    build:
+      context: ../../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/instrumenter-config-traces.yml
+    volumes:
+      - {{ .ConfigDir }}:/configs
+      - ./testoutput/run:/var/run/obi
+      - ../../../../testoutput:/coverage
+    cap_add:
+      - SYS_ADMIN
+    privileged: true
+    network_mode: "service:mysqlserver"
+    pid: "service:mysqlserver"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OPEN_PORT: "3306" # MySQL server port on the instrumented mysqlserver container
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
+    depends_on:
+      mysqlserver:
+        condition: service_healthy
+      testserver:
+        condition: service_started
