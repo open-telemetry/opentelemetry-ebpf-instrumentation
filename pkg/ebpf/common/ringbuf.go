@@ -70,6 +70,12 @@ type ringBufForwarder[T any] struct {
 	lastReadAt time.Time
 }
 
+// AlreadyForwarded is used in the case when a second tracer tries to set up the
+// shared ring buffer and so it blocks until the context is cancelled
+func (rbf *ringBufForwarder[T]) AlreadyForwarded(ctx context.Context) {
+	<-ctx.Done()
+}
+
 // SharedRingbuf returns a function that reads events from a shared input ring buffer,
 // accumulates them into an internal buffer, and forwards them to an output events channel.
 // If the shared ring buffer forwarder already exists, subsequent calls return a no-op
@@ -87,16 +93,10 @@ func SharedRingbuf[T any](
 	defer eventContext.RingBufLock.Unlock()
 
 	if eventContext.SharedRingBuffer != nil {
-		if existing, ok := eventContext.SharedRingBuffer.(*ringBufForwarder[T]); ok {
-			logger.Debug("reusing ringbuf forwarder")
-			return existing.alreadyForwarded
-		}
-		// A forwarder for a different event type already owns this ring buffer.
-		// Replacing it would create multiple concurrent readers, causing lost or
-		// duplicated events and data races. We just log a warning and continue.
-		logger.Warn("shared ring buffer already owned by another forwarder of a different type, skipping")
+		logger.Debug("reusing ringbuf forwarder")
+		sf := eventContext.SharedRingBuffer
 		return func(ctx context.Context, _ []io.Closer, _ *msg.Queue[[]T]) {
-			<-ctx.Done()
+			sf.AlreadyForwarded(ctx)
 		}
 	}
 
@@ -222,10 +222,6 @@ func (rbf *ringBufForwarder[T]) readAndForwardInner(ctx context.Context, eventsR
 		}
 		rbf.processAndForward(ctx, record, out)
 	}
-}
-
-func (rbf *ringBufForwarder[T]) alreadyForwarded(ctx context.Context, _ []io.Closer, _ *msg.Queue[[]T]) {
-	<-ctx.Done()
 }
 
 func (rbf *ringBufForwarder[T]) processAndForward(ctx context.Context, record ringbuf.Record, out *msg.Queue[[]T]) {

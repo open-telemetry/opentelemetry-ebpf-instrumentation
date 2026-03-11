@@ -300,7 +300,7 @@
       "properties": {
         "batch_length": {
           "type": "integer",
-          "description": "BatchLength allows specifying how many traces will be batched at the initial stage before being forwarded to the next stage Must be at least 1",
+          "description": "BatchLength allows specifying how many items (traces/metrics) will be batched at the initial stage before being forwarded to the next stage Must be at least 1",
           "x-env-var": "OTEL_EBPF_BPF_BATCH_LENGTH"
         },
         "batch_timeout": {
@@ -517,16 +517,16 @@
         "cache_expiry": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL for backwards-compatibility",
           "examples": [
             "30s",
             "5m",
             "1ms"
-          ]
+          ],
+          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL"
         },
         "cache_len": {
           "type": "integer",
-          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN for backwards-compatibility"
+          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN"
         },
         "ipinfo": {
           "$ref": "#/$defs/IPInfoConfig"
@@ -709,7 +709,7 @@
       "properties": {
         "path": {
           "type": "string",
-          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_IPINFO_PATH for backwards-compatibility"
+          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_IPINFO_PATH"
         }
       },
       "type": "object"
@@ -993,11 +993,11 @@
       "properties": {
         "asn_path": {
           "type": "string",
-          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_ASN_PATH for backwards-compatibility"
+          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_MAXMIND_ASN_PATH"
         },
         "country_path": {
           "type": "string",
-          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_COUNTRY_PATH for backwards-compatibility"
+          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_MAXMIND_COUNTRY_PATH"
         }
       },
       "type": "object"
