@@ -160,6 +160,15 @@ func (p *Tracer) SetupTailCalls() {
 			p.log.Error("error loading info tail call jump table", "error", err)
 		}
 	}
+
+	// Socket filter tail calls (separate PROG_ARRAY due to program type).
+	for i, prog := range []*ebpf.Program{
+		p.bpfObjects.ObiSocketDns, // 0
+	} {
+		if err := p.bpfObjects.SocketJumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {
+			p.log.Error("error loading socket filter tail call", "index", i, "error", err)
+		}
+	}
 }
 
 func (p *Tracer) constants() map[string]any {

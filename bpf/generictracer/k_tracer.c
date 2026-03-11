@@ -970,6 +970,18 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_recvmsg, int copied_len) {
     return return_recvmsg(ctx, 0, id, copied_len);
 }
 
+// k_tail_socket_dns
+SEC("socket/dns")
+int obi_socket_dns(struct __sk_buff *skb) {
+    socket_filter_ctx_t *ctx = socket_filter_ctx_mem();
+    if (!ctx) {
+        return 0;
+    }
+
+    handle_dns(skb, &ctx->conn, &ctx->tcp);
+    return 0;
+}
+
 // Fall-back in case we don't see kretprobe on tcp_recvmsg in high network volume situations
 SEC("socket/http_filter")
 int obi_socket__http_filter(struct __sk_buff *skb) {
@@ -979,9 +991,13 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
     const u8 success = read_sk_buff(skb, &tcp, &conn);
 
     if (is_dns(&conn)) {
-        if (handle_dns(skb, &conn, &tcp)) {
-            return 0;
+        socket_filter_ctx_t *sf_ctx = socket_filter_ctx_mem();
+        if (sf_ctx) {
+            sf_ctx->conn = conn;
+            sf_ctx->tcp = tcp;
+            bpf_tail_call(skb, &socket_jump_table, k_tail_socket_dns);
         }
+        // tail call failed, fall through
     }
 
     if (!success) {
