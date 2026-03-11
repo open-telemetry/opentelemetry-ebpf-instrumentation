@@ -1,7 +1,7 @@
 plugins {
     java
-    id("com.gradleup.shadow") version "8.3.10"
-    id("com.github.jk1.dependency-license-report") version "2.9"
+    id("com.gradleup.shadow") version "9.3.2"
+    id("com.github.jk1.dependency-license-report") version "3.1.1"
     id("me.champeau.jmh") version "0.7.3"
     id("com.diffplug.spotless")
 }
@@ -43,11 +43,11 @@ dependencies {
     implementation("net.bytebuddy:byte-buddy:1.18.7")
     implementation("net.bytebuddy:byte-buddy-agent:1.18.7")
 
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.14.3")
-    testImplementation("org.junit.platform:junit-platform-launcher:1.14.3")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:6.0.3")
+    testImplementation("org.junit.platform:junit-platform-launcher:6.0.3")
     testImplementation("org.awaitility:awaitility:4.3.0")
 
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.14.3")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:6.0.3")
 }
 
 tasks.register("prepareKotlinBuildScriptModel"){}
