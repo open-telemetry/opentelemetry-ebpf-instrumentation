@@ -11,7 +11,6 @@
 #include <common/http_buf_size.h>
 #include <common/http_info.h>
 #include <common/map_sizing.h>
-#include <common/msg_buffer.h>
 #include <common/protocol_defs.h>
 #include <common/tp_info.h>
 
