@@ -212,6 +212,9 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.MongoOneThirteenOne,
 		// database/sql stdlib
 		goexec.DriverConnCiPos,
+		// lib/pq driver
+		goexec.PqConnCfgPos,
+		goexec.PqConfigHostPos,
 		// mysql driver
 		goexec.MySQLConnCfgPos,
 		goexec.MySQLConfigAddrPos,
@@ -241,6 +244,10 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		{
 			symbol: "*github.com/go-sql-driver/mysql.mysqlConn",
 			field:  goexec.MySQLConnTypeOffset,
+		},
+		{
+			symbol: "*github.com/lib/pq.conn",
+			field:  goexec.PqConnTypeOffset,
 		},
 	} {
 		if offset, ok := offsets.ITypes[iType.symbol]; ok {

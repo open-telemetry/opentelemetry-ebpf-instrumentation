@@ -114,6 +114,10 @@ const (
 	MongoOneThirteenOne
 	// database/sql stdlib
 	DriverConnCiPos
+	// lib/pq driver
+	PqConnCfgPos
+	PqConfigHostPos
+	PqConnTypeOffset
 	// mysql driver
 	MySQLConnCfgPos
 	MySQLConfigAddrPos
@@ -443,6 +447,18 @@ var structMembers = map[string]structInfo{
 		lib: "go",
 		fields: map[string]GoOffset{
 			"ci": DriverConnCiPos,
+		},
+	},
+	"github.com/lib/pq.conn": {
+		lib: "github.com/lib/pq",
+		fields: map[string]GoOffset{
+			"cfg": PqConnCfgPos,
+		},
+	},
+	"github.com/lib/pq.Config": {
+		lib: "github.com/lib/pq",
+		fields: map[string]GoOffset{
+			"Host": PqConfigHostPos,
 		},
 	},
 	"github.com/go-sql-driver/mysql.mysqlConn": {

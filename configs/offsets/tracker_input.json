@@ -160,6 +160,14 @@
       "github.com/go-sql-driver/mysql.Config": ["Addr"]
     }
   },
+  "github.com/lib/pq": {
+    "inspect": "./configs/offsets/pq/inspect.go",
+    "versions": ">= v1.11.0",
+    "fields": {
+      "github.com/lib/pq.conn": ["cfg"],
+      "github.com/lib/pq.Config": ["Host"]
+    }
+  },
   "github.com/jackc/pgx/v5": {
     "inspect": "./configs/offsets/pgx/inspect.go",
     "versions": ">= v5.0.0",
