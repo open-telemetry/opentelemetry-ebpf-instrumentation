@@ -86,6 +86,14 @@
       "matchPackageNames": ["org.springframework.boot:spring-boot-starter-parent", "org.springframework.boot:spring-boot-dependencies", "org.springframework.boot:spring-boot-maven-plugin"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "Block kafka-clients major upgrades for javakafka test component",
+      "matchFileNames": ["internal/test/integration/components/javakafka/pom.xml"],
+      "matchManagers": ["maven"],
+      "matchPackageNames": ["org.apache.kafka:kafka-clients"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ],
   "labels": [
