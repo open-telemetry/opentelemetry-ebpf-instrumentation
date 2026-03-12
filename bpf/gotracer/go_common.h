@@ -17,7 +17,6 @@
 
 #include <bpfcore/utils.h>
 
-#include <common/common.h>
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
@@ -27,9 +26,9 @@
 
 #include <gotracer/go_offsets.h>
 
-#include <gotracer/maps/mongo.h>
-
 #include <logger/bpf_dbg.h>
+
+#include <pid/pid_helpers.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 

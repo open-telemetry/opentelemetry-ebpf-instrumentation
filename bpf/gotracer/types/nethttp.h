@@ -8,8 +8,6 @@
 #include <common/common.h>
 #include <common/tp_info.h>
 
-#include <gotracer/types/stream_key.h>
-
 #define HTTP2_ENCODED_HEADER_LEN                                                                   \
     66 // 1 + 1 + 8 + 1 + 55 = type byte + hpack_len_as_byte("traceparent") + strlen(hpack("traceparent")) + len_as_byte(55) + generated traceparent id
 

@@ -16,7 +16,6 @@
 //go:build obi_bpf_ignore
 
 #include <bpfcore/utils.h>
-#include <bpfcore/bpf_builtins.h>
 
 #include <common/globals.h>
 #include <common/http_types.h>
