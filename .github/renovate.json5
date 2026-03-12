@@ -94,6 +94,14 @@
       "matchPackageNames": ["org.apache.kafka:kafka-clients"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "Block Spring Boot major upgrades for javatestserver (requires manual evaluation)",
+      "matchFileNames": ["internal/test/integration/components/javatestserver/pom.xml"],
+      "matchManagers": ["maven"],
+      "matchPackageNames": ["org.springframework.boot:spring-boot-starter-parent", "org.springframework.boot:spring-boot-dependencies", "org.springframework.boot:spring-boot-maven-plugin"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ],
   "labels": [
