@@ -33,8 +33,9 @@ import (
 
 // Decorate the items with extra metadata fields that are not directly fetched by eBPF
 // or by any previous pipeline stage (DNS, Kubernetes...):
-// - The IP address of the agent host.
-// - If there is no source or destination hostname, the source IP and destination
+//   - The IP address of the agent host.
+//   - If there is no source or destination hostname, the source IP and destination
+//     names are filled with their respective IP string values.
 func Decorate[T any](agentIP net.IP, attrs func(T) *pipe.CommonAttrs, input, output *msg.Queue[[]T]) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {
 		ip := agentIP.String()
