@@ -110,6 +110,22 @@
       "matchPackageNames": ["org.junit.jupiter:junit-jupiter-api", "org.junit.jupiter:junit-jupiter-engine", "org.junit.platform:junit-platform-launcher"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "Block Spring Boot major upgrades for sync_async_tls (requires manual evaluation)",
+      "matchFileNames": ["internal/test/integration/components/java_tls/sync_async_tls/pom.xml"],
+      "matchManagers": ["maven"],
+      "matchPackageNames": ["org.springframework.boot:spring-boot-starter-parent", "org.springframework.boot:spring-boot-dependencies", "org.springframework.boot:spring-boot-maven-plugin"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Block Spring Boot major upgrades for netty_tls (requires manual evaluation)",
+      "matchFileNames": ["internal/test/integration/components/java_tls/netty_tls/pom.xml"],
+      "matchManagers": ["maven"],
+      "matchPackageNames": ["org.springframework.boot:spring-boot-starter-parent"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ],
   "labels": [
