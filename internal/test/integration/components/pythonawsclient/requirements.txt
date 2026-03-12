@@ -16,9 +16,9 @@ anyio==4.12.1 \
     --hash=sha256:41cfcc3a4c85d3f05c932da7c26d0201ac36f72abd4435ba90d0464a3ffed703 \
     --hash=sha256:d405828884fc140aa80a3c667b8beed277f1dfedec42ba031bd6ac3db606ab6c
     # via starlette
-boto3==1.42.65 \
-    --hash=sha256:c740af6bdaebcc1a00f3827a5729050bf6fc820ee148bf7d06f28db11c80e2a1 \
-    --hash=sha256:cc7f2e0aec6c68ee5b10232cf3e01326acf6100bc785a770385b61a0474b31f4
+boto3==1.42.66 \
+    --hash=sha256:3bec5300fb2429c3be8e8961fdb1f11e85195922c8a980022332c20af05616d5 \
+    --hash=sha256:7c6c60dc5500e8a2967a306372a5fdb4c7f9a5b8adc5eb9aa2ebb5081c51ff47
     # via -r requirements.in
 botocore==1.42.66 \
     --hash=sha256:39756a21142b646de552d798dde2105759b0b8fa0d881a34c26d15bd4c9448fa \
