@@ -174,7 +174,7 @@ jobs:
           # Supported platforms (full OBI eBPF support)
           - { goos: linux,   goarch: amd64  }
           - { goos: linux,   goarch: arm64  }
-          # Unsupported platforms (factory stubs — must compile, return errNotLinux at runtime)
+          # Unsupported platforms (factory stubs — must compile, return errUnsupportedPlatform at runtime)
           - { goos: linux,   goarch: ppc64le }
           - { goos: linux,   goarch: s390x   }
           - { goos: linux,   goarch: "386"   }
