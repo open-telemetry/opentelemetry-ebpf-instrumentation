@@ -19,8 +19,6 @@
 
 #include <bpfcore/utils.h>
 
-#include <pid/pid_helpers.h>
-
 #include <common/http_types.h>
 
 // TODO: enums

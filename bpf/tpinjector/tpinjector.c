@@ -27,6 +27,7 @@
 
 #include <maps/incoming_trace_map.h>
 #include <maps/msg_buffers.h>
+#include <maps/outgoing_trace_map.h>
 #include <maps/sock_dir.h>
 #include <maps/tp_info_mem.h>
 

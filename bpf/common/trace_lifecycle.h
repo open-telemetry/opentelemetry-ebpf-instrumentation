@@ -7,8 +7,8 @@
 
 #include <common/event_defs.h>
 #include <common/runtime.h>
-#include <common/trace_parent.h>
 
+#include <maps/incoming_trace_map.h>
 #include <maps/outgoing_trace_map.h>
 
 #include <shared/obi_ctx.h>

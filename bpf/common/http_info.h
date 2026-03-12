@@ -8,8 +8,6 @@
 #include <common/connection_info.h>
 #include <common/tp_info.h>
 
-#include <pid/pid_helpers.h>
-
 #define FULL_BUF_SIZE 256
 
 // Here we keep the information that is sent on the ring buffer

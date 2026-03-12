@@ -9,8 +9,6 @@
 #include <common/trace_util.h>
 
 #include <maps/trace_map.h>
-#include <maps/incoming_trace_map.h>
-#include <maps/outgoing_trace_map.h>
 
 #define NANOSECONDS_PER_EPOCH (15LL * 1000000000LL) // 15 seconds
 #define NANOSECONDS_PER_IMM_EPOCH (100000000LL)     // 100 ms

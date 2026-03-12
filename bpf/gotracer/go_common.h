@@ -28,6 +28,9 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <maps/incoming_trace_map.h>
+#include <maps/outgoing_trace_map.h>
+
 #include <pid/pid_helpers.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
