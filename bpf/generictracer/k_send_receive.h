@@ -10,7 +10,8 @@
 #include <common/protocol_defs.h>
 #include <common/event_defs.h>
 
-#include <generictracer/maps/active_recv_args.h>
+#include <generictracer/protocol_http.h>
+
 #include <generictracer/maps/active_send_args.h>
 #include <generictracer/maps/active_send_sock_args.h>
 

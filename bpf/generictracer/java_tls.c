@@ -10,13 +10,16 @@
 
 #include <common/connection_info.h>
 #include <common/protocol_defs.h>
-#include <common/runtime.h>
-#include <maps/java_tasks.h>
+#include <common/trace_key.h>
+#include <common/trace_parent.h>
 
 #include <generictracer/k_tracer_defs.h>
 #include <generictracer/maps/pid_tid_to_conn.h>
 
 #include <logger/bpf_dbg.h>
+
+#include <maps/active_ssl_connections.h>
+#include <maps/java_tasks.h>
 
 #include <pid/pid.h>
 

@@ -6,6 +6,8 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/map_sizing.h>
+
 #include <generictracer/k_tracer_defs.h>
 
 struct {

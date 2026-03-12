@@ -16,10 +16,13 @@
 #pragma once
 
 #include <bpfcore/vmlinux.h>
-
 #include <bpfcore/utils.h>
 
+#include <common/connection_info.h>
 #include <common/http_types.h>
+#include <common/tp_info.h>
+
+#include <pid/types/pid_info.h>
 
 // TODO: enums
 #define K_TCP_MAX_LEN 256

@@ -36,6 +36,7 @@
 
 #include <maps/go_ongoing_http.h>
 #include <maps/go_ongoing_http_client_requests.h>
+#include <maps/outgoing_trace_map.h>
 #include <maps/tp_char_buf_mem.h>
 
 #include <pid/pid_helpers.h>

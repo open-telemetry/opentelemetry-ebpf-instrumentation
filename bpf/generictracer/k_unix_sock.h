@@ -15,6 +15,8 @@
 #include <generictracer/protocol_http.h>
 #include <generictracer/protocol_tcp.h>
 
+#include <generictracer/maps/active_recv_args.h>
+
 #include <logger/bpf_dbg.h>
 
 #include <maps/active_unix_socks.h>

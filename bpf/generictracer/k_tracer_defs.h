@@ -11,7 +11,7 @@
 #include <common/protocol_http.h>
 
 #include <generictracer/k_tracer_tailcall.h>
-#include <generictracer/protocol_http.h>
+#include <generictracer/protocol_common.h>
 
 #include <generictracer/maps/protocol_cache.h>
 
