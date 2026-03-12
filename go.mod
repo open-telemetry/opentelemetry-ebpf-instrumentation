@@ -27,6 +27,7 @@ require (
 	github.com/invopop/jsonschema v0.13.0
 	github.com/klauspost/compress v1.18.4
 	github.com/lib/pq v1.10.9
+	github.com/mariomac/guara v0.0.0-20250408105519-1e4dbdfb7136
 	github.com/ory/dockertest/v3 v3.12.0
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/prometheus/client_golang v1.23.2

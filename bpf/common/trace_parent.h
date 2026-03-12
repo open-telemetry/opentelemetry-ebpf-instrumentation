@@ -5,7 +5,7 @@
 
 #include <bpfcore/utils.h>
 
-#include <common/python_state.h>
+#include <common/python_task.h>
 #include <common/runtime.h>
 #include <common/trace_helpers.h>
 
@@ -147,7 +147,7 @@ static __always_inline u64 resolve_python_current_task(const trace_key_t *t_key,
             (const python_context_task_t *)bpf_map_lookup_elem(&python_context_task,
                                                                &thread_state->current_context);
         if (context_task && context_task->task) {
-            const u64 resolved_task = resolve_python_context_task(context_task, NULL);
+            const u64 resolved_task = resolve_python_context_task(context_task);
             if (resolved_task && !task_id) {
                 task_id = resolved_task;
                 bpf_dbg_printk("find_python_parent: context fallback tid=%d ctx=%llx task=%llx",

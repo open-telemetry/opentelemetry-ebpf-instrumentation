@@ -7,10 +7,9 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
-#include <common/python_state.h>
-
 #include <logger/bpf_dbg.h>
 
+#include <maps/python_context_task.h>
 #include <maps/python_task_state.h>
 #include <maps/python_thread_state.h>
 
@@ -19,6 +18,17 @@
 #include <generictracer/maps/pid_tid_to_conn.h>
 
 #include <pid/pid.h>
+
+static __always_inline u64 python_next_task_version(u64 task) {
+    const python_task_state_t *task_state =
+        (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task);
+    if (!task_state || !task_state->version) {
+        return 1;
+    }
+
+    u64 version = task_state->version + 1;
+    return version ? version : 1;
+}
 
 static __always_inline void map_context_to_task(u64 context, u64 task) {
     python_context_task_t mapping = {
