@@ -34,10 +34,10 @@ func TestNewFactoryUnsupportedPlatform(t *testing.T) {
 	settings := receivertest.NewNopSettings(typ)
 
 	_, err = BuildTracesReceiver()(t.Context(), settings, defaultConfig(), consumertest.NewNop())
-	require.ErrorIs(t, err, errNotLinux)
+	require.ErrorIs(t, err, errUnsupportedPlatform)
 
 	_, err = BuildMetricsReceiver()(t.Context(), settings, defaultConfig(), consumertest.NewNop())
-	require.ErrorIs(t, err, errNotLinux)
+	require.ErrorIs(t, err, errUnsupportedPlatform)
 }
 
 func TestCreateProfilesReceiver(t *testing.T) {

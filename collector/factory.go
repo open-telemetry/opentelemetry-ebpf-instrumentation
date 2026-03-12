@@ -15,9 +15,9 @@ var (
 
 	errInvalidConfig = errors.New("invalid config")
 
-	// errNotLinux is returned by the receiver factory on platforms where OBI
+	// errUnsupportedPlatform is returned by the receiver factory on platforms where OBI
 	// is not supported (non-Linux or non-amd64/arm64).
-	errNotLinux = errors.New("OBI receiver is only supported on Linux amd64/arm64")
+	errUnsupportedPlatform = errors.New("OBI receiver is only supported on Linux amd64/arm64")
 )
 
 // NewFactory creates a factory for the receiver.

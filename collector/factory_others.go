@@ -28,7 +28,7 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 		_ component.Config,
 		_ consumer.Traces,
 	) (receiver.Traces, error) {
-		return nil, errNotLinux
+		return nil, errUnsupportedPlatform
 	}
 }
 
@@ -38,6 +38,6 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 		_ component.Config,
 		_ consumer.Metrics,
 	) (receiver.Metrics, error) {
-		return nil, errNotLinux
+		return nil, errUnsupportedPlatform
 	}
 }
