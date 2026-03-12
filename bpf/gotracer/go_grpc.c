@@ -17,6 +17,7 @@
 
 #include <bpfcore/utils.h>
 
+#include <common/common.h>
 #include <common/globals.h>
 #include <common/ringbuf.h>
 
