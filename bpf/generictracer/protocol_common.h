@@ -16,8 +16,6 @@
 #include <generictracer/maps/listening_ports.h>
 #include <generictracer/maps/protocol_args_mem.h>
 
-#include <logger/bpf_dbg.h>
-
 #define PACKET_TYPE_REQUEST 1
 #define PACKET_TYPE_RESPONSE 2
 

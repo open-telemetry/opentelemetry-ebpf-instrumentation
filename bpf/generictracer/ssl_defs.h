@@ -6,11 +6,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-#include <common/http_types.h>
-#include <common/pin_internal.h>
-#include <common/sockaddr.h>
 #include <common/ssl_args.h>
-#include <common/tcp_info.h>
 
 #include <generictracer/k_tracer_defs.h>
 

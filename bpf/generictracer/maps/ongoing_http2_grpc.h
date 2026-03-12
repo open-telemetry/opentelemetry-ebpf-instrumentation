@@ -6,7 +6,6 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-#include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/map_sizing.h>
 

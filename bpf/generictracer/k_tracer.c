@@ -12,11 +12,11 @@
 #include <common/iov_iter.h>
 #include <common/msg_buffer.h>
 #include <common/protocol_defs.h>
-#include <common/protocol_http2.h>
 #include <common/sock_port_ns.h>
 #include <common/sockaddr.h>
 #include <common/ssl_connection.h>
 #include <common/ssl_helpers.h>
+#include <common/tc_common.h>
 #include <common/tcp_info.h>
 
 #include <generictracer/dns.h>
