@@ -56,15 +56,7 @@ static __always_inline python_thread_state_t load_python_thread_state(u64 id) {
     return thread_state;
 }
 
-SEC("uprobe/_asyncio.so:task_step")
-int obi_uprobe_task_step(struct pt_regs *ctx) {
-    u64 id = bpf_get_current_pid_tgid();
-
-    if (!valid_pid(id)) {
-        return 0;
-    }
-
-    u64 task = (u64)PT_REGS_PARM2(ctx);
+static __always_inline int update_current_task(u64 id, u64 task) {
     if (!task) {
         return 0;
     }
@@ -74,6 +66,28 @@ int obi_uprobe_task_step(struct pt_regs *ctx) {
     thread_state.current_task = task;
     bpf_map_update_elem(&python_thread_state, &id, &thread_state, BPF_ANY);
     return 0;
+}
+
+SEC("uprobe/_asyncio.so:task_step_legacy")
+int obi_uprobe_task_step_legacy(struct pt_regs *ctx) {
+    u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    return update_current_task(id, (u64)PT_REGS_PARM1(ctx));
+}
+
+SEC("uprobe/_asyncio.so:task_step")
+int obi_uprobe_task_step(struct pt_regs *ctx) {
+    u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    return update_current_task(id, (u64)PT_REGS_PARM2(ctx));
 }
 
 SEC("uprobe/_asyncio.so:task_step_ret")
