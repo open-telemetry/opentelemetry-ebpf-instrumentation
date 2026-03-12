@@ -5,7 +5,6 @@
 #include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_helpers.h>
 
-#include <common/common.h>
 #include <common/iov_iter.h>
 #include <common/scratch_mem.h>
 
