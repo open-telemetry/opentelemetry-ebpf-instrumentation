@@ -4,6 +4,7 @@
 package otel
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -12,10 +13,13 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -29,7 +33,7 @@ func TestMetricAttributes(t *testing.T) {
 				SrcPort: 12345,
 			},
 		},
-		Attrs: ebpf.RecordAttrs{
+		CommonAttrs: pipe.CommonAttrs{
 			SrcName: "srcname",
 			DstName: "dstname",
 			Metadata: map[attr.Name]string{
@@ -40,8 +44,8 @@ func TestMetricAttributes(t *testing.T) {
 			},
 		},
 	}
-	in.Id.SrcIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
-	in.Id.DstIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
+	in.CommonAttrs.SrcAddr = pipe.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
+	in.CommonAttrs.DstAddr = pipe.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
 
 	mcfg := &otelcfg.MetricsConfig{
 		MetricsEndpoint:   "http://foo",
@@ -92,7 +96,7 @@ func TestMetricAttributes_Filter(t *testing.T) {
 				SrcPort: 12345,
 			},
 		},
-		Attrs: ebpf.RecordAttrs{
+		CommonAttrs: pipe.CommonAttrs{
 			SrcName: "srcname",
 			DstName: "dstname",
 			Metadata: map[attr.Name]string{
@@ -103,8 +107,8 @@ func TestMetricAttributes_Filter(t *testing.T) {
 			},
 		},
 	}
-	in.Id.SrcIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
-	in.Id.DstIp.In6U.U6Addr8 = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
+	in.CommonAttrs.SrcAddr = pipe.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 12, 34, 56, 78}
+	in.CommonAttrs.DstAddr = pipe.IPAddr{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 33, 22, 11, 1}
 
 	mcfg := &otelcfg.MetricsConfig{
 		MetricsEndpoint:   "http://foo",
@@ -149,6 +153,102 @@ func TestMetricAttributes_Filter(t *testing.T) {
 	} {
 		assert.False(t, reportedAttributes.HasValue(mustNotContain))
 	}
+}
+
+func TestMetricsConfig_Enabled(t *testing.T) {
+	endpointCfg := &otelcfg.MetricsConfig{MetricsEndpoint: "http://foo"}
+	noEndpointCfg := &otelcfg.MetricsConfig{}
+	networkFeatures := &perapp.MetricsConfig{Features: export.FeatureNetwork}
+	noFeatures := &perapp.MetricsConfig{}
+
+	for _, tt := range []struct {
+		name    string
+		cfg     NetMetricsConfig
+		enabled bool
+	}{
+		{
+			name:    "enabled with endpoint and network features",
+			cfg:     NetMetricsConfig{Metrics: endpointCfg, CommonCfg: networkFeatures},
+			enabled: true,
+		},
+		{
+			name:    "disabled with nil metrics",
+			cfg:     NetMetricsConfig{Metrics: nil, CommonCfg: networkFeatures},
+			enabled: false,
+		},
+		{
+			name:    "disabled with no endpoint",
+			cfg:     NetMetricsConfig{Metrics: noEndpointCfg, CommonCfg: networkFeatures},
+			enabled: false,
+		},
+		{
+			name:    "disabled with no network features",
+			cfg:     NetMetricsConfig{Metrics: endpointCfg, CommonCfg: noFeatures},
+			enabled: false,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.enabled, tt.cfg.Enabled())
+		})
+	}
+}
+
+func TestDo(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+	mcfg := &otelcfg.MetricsConfig{
+		MetricsEndpoint:   "http://foo",
+		Interval:          10 * time.Millisecond,
+		ReportersCacheLen: 100,
+		TTL:               5 * time.Minute,
+	}
+	input := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
+	me, err := newMetricsExporter(t.Context(), &global.ContextInfo{
+		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	}, &NetMetricsConfig{
+		SelectorCfg: &attributes.SelectorConfig{
+			SelectionCfg: map[attributes.Section]attributes.InclusionLists{
+				attributes.NetworkFlow.Section:      {Include: []string{"*"}},
+				attributes.NetworkInterZone.Section: {Include: []string{"*"}},
+			},
+		},
+		Metrics:   mcfg,
+		CommonCfg: &mpConfig,
+	}, input)
+	require.NoError(t, err)
+	require.NotNil(t, me.flowBytes)
+	require.NotNil(t, me.interZoneBytes)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go me.Do(ctx)
+
+	input.Send([]*ebpf.Record{
+		// cross-zone record: should be tracked by both flowBytes and interZoneBytes
+		{
+			CommonAttrs: pipe.CommonAttrs{
+				SrcName: "svc-a", DstName: "svc-b",
+				SrcZone: "us-east-1a", DstZone: "us-east-1b",
+			},
+			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 100}},
+		},
+		// same-zone record: should be tracked by flowBytes only
+		{
+			CommonAttrs: pipe.CommonAttrs{
+				SrcName: "svc-c", DstName: "svc-d",
+				SrcZone: "us-east-1a", DstZone: "us-east-1a",
+			},
+			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 200}},
+		},
+	})
+
+	assert.Eventually(t, func() bool {
+		return len(me.flowBytes.entries.All()) == 2
+	}, time.Second, 10*time.Millisecond,
+		"expected 2 flow entries (all records), got %d",
+		len(me.flowBytes.entries.All()))
+
+	assert.Equal(t, 1, len(me.interZoneBytes.entries.All()),
+		"expected 1 inter-zone entry (only cross-zone record)")
 }
 
 func TestGetFilteredNetworkResourceAttrs(t *testing.T) {

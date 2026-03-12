@@ -44,6 +44,27 @@ func TestTCPReqSQLParsing(t *testing.T) {
 	assert.Equal(t, request.EventTypeSQLClient, s.Type)
 }
 
+func TestReadTCPRequestIntoSpan_SQLServerTrafficIsServerSpan(t *testing.T) {
+	r := makeTCPReq("SELECT * FROM accounts", 3306)
+	r.Direction = directionRecv
+	r.IsServer = true
+	r.ProtocolType = ProtocolTypeMySQL
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.False(t, ignore, "server-side SQL traffic should produce spans")
+	assert.Equal(t, request.EventTypeSQLServer, span.Type)
+	assert.Equal(t, "SELECT", span.Method)
+	assert.Equal(t, "accounts", span.Path)
+}
+
 func TestTCPReqParsing(t *testing.T) {
 	sql := "Not a sql or any known protocol"
 	r := makeTCPReq(sql, 343534)

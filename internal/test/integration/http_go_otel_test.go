@@ -28,6 +28,15 @@ var (
 	buildGoOTelTestServerErr  error
 )
 
+func findHTTPGetTraces(tq jaeger.TracesQuery) []jaeger.Trace {
+	// Newer OTel semconv versions use http.request.method while older data may use http.method.
+	traces := tq.FindBySpan(jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"})
+	if len(traces) == 0 {
+		traces = tq.FindBySpan(jaeger.Tag{Key: "http.method", Type: "string", Value: "GET"})
+	}
+	return traces
+}
+
 func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []string) {
 	t.Helper()
 
@@ -136,7 +145,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := tq.FindBySpan(jaeger.Tag{Key: "http.method", Type: "string", Value: "GET"})
+		traces := findHTTPGetTraces(tq)
 		assert.LessOrEqual(ct, 1, len(traces))
 	}, testTimeout, 100*time.Millisecond)
 
@@ -214,7 +223,11 @@ func otelWaitForTestComponents(t *testing.T, url, subpath string) {
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
-		results, err := pq.Query(`http_server_duration_count{http_method="GET"}`)
+		results, err := pq.Query(`http_server_request_duration_seconds_count{http_request_method="GET"}`)
+		if err == nil && len(results) == 0 {
+			// Keep compatibility with older OTel metric naming.
+			results, err = pq.Query(`http_server_duration_count{http_method="GET"}`)
+		}
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 	}, 1*time.Minute, time.Second)
@@ -324,7 +337,7 @@ func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := tq.FindBySpan(jaeger.Tag{Key: "http.method", Type: "string", Value: "GET"})
+		traces := findHTTPGetTraces(tq)
 		assert.LessOrEqual(ct, 1, len(traces))
 	}, 1*time.Minute, time.Second)
 }

@@ -1,0 +1,44 @@
+routes:
+  patterns:
+    - /basic/:rnd
+    - /rolldice/:id
+  unmatched: path
+  ignored_patterns:
+    - /metrics
+  ignore_mode: traces
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+otel_traces_export:
+  endpoint: http://jaeger:4318
+attributes:
+  select:
+    "*":
+      include: ["*"]
+ebpf:
+  buffer_sizes:
+    http: 8192
+  payload_extraction:
+    http:
+      enrichment:
+        enabled: true
+        policy:
+          default_action: exclude
+          match_order: first_match_wins
+          obfuscation_string: "***"
+        rules:
+          - action: obfuscate
+            type: headers
+            scope: all
+            match:
+              patterns:
+                - "Authorization"
+              case_sensitive: false
+          - action: include
+            type: headers
+            scope: all
+            match:
+              patterns:
+                - "Content-Type"
+                - "X-Custom-*"
+                - "X-Dice-Roll"
+              case_sensitive: false

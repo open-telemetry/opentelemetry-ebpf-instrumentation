@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -51,7 +52,7 @@ func TestAttributeFilter(t *testing.T) {
 	// records not matching both the ip and src namespace will be dropped
 	input.Send([]*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "148.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "debug",
@@ -60,7 +61,7 @@ func TestAttributeFilter(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "128.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
@@ -69,7 +70,7 @@ func TestAttributeFilter(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "148.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
@@ -78,7 +79,7 @@ func TestAttributeFilter(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "148.133.2.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
@@ -87,7 +88,7 @@ func TestAttributeFilter(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "141.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralari",
@@ -100,7 +101,7 @@ func TestAttributeFilter(t *testing.T) {
 	// the whole batch will be dropped (won't go to the out channel)
 	input.Send([]*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "128.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
@@ -109,7 +110,7 @@ func TestAttributeFilter(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "141.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralari",
@@ -122,7 +123,7 @@ func TestAttributeFilter(t *testing.T) {
 	// no record will be dropped
 	input.Send([]*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "148.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
@@ -131,7 +132,7 @@ func TestAttributeFilter(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "148.133.2.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
@@ -144,7 +145,7 @@ func TestAttributeFilter(t *testing.T) {
 	filtered := testutil.ReadChannel(t, out, timeout)
 	assert.Equal(t, []*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "148.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
@@ -153,7 +154,7 @@ func TestAttributeFilter(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "148.133.2.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
@@ -166,7 +167,7 @@ func TestAttributeFilter(t *testing.T) {
 	filtered = testutil.ReadChannel(t, out, timeout)
 	assert.Equal(t, []*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "148.132.1.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "foo",
@@ -175,7 +176,7 @@ func TestAttributeFilter(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				OBIIP: "148.133.2.1",
 				Metadata: map[attr.Name]string{
 					"k8s.src.namespace": "tralar",
@@ -209,35 +210,35 @@ func TestAttributeFilter_NumericComparisons(t *testing.T) {
 	// Send batch with mixed status codes
 	input.Send([]*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200",
 				},
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "404", // >= 400, should be filtered out
 				},
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "199", // < 200, should be filtered out
 				},
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "304",
 				},
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "500", // >= 400, should be filtered out
 				},
@@ -249,14 +250,14 @@ func TestAttributeFilter_NumericComparisons(t *testing.T) {
 	filtered := testutil.ReadChannel(t, out, timeout)
 	assert.Equal(t, []*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200",
 				},
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "304",
 				},
@@ -286,21 +287,21 @@ func TestAttributeFilter_NumericEquality(t *testing.T) {
 
 	input.Send([]*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200",
 				},
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "201",
 				},
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200",
 				},
@@ -312,14 +313,14 @@ func TestAttributeFilter_NumericEquality(t *testing.T) {
 	filtered := testutil.ReadChannel(t, out, timeout)
 	assert.Equal(t, []*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200",
 				},
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200",
 				},
@@ -349,21 +350,21 @@ func TestAttributeFilter_NumericNotEquals(t *testing.T) {
 
 	input.Send([]*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200",
 				},
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "500",
 				},
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "404",
 				},
@@ -375,14 +376,14 @@ func TestAttributeFilter_NumericNotEquals(t *testing.T) {
 	filtered := testutil.ReadChannel(t, out, timeout)
 	assert.Equal(t, []*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200",
 				},
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "404",
 				},
@@ -413,7 +414,7 @@ func TestAttributeFilter_NumericAndGlob(t *testing.T) {
 
 	input.Send([]*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200",
 					attr.HTTPRequestMethod:      "GET",
@@ -421,7 +422,7 @@ func TestAttributeFilter_NumericAndGlob(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200",
 					attr.HTTPRequestMethod:      "POST", // Wrong method
@@ -429,7 +430,7 @@ func TestAttributeFilter_NumericAndGlob(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "404", // Wrong status
 					attr.HTTPRequestMethod:      "GET",
@@ -437,7 +438,7 @@ func TestAttributeFilter_NumericAndGlob(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "201",
 					attr.HTTPRequestMethod:      "GET",
@@ -450,7 +451,7 @@ func TestAttributeFilter_NumericAndGlob(t *testing.T) {
 	filtered := testutil.ReadChannel(t, out, timeout)
 	assert.Equal(t, []*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200",
 					attr.HTTPRequestMethod:      "GET",
@@ -458,7 +459,7 @@ func TestAttributeFilter_NumericAndGlob(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "201",
 					attr.HTTPRequestMethod:      "GET",
@@ -491,7 +492,7 @@ func TestAttributeFilter_NumericGlobMixed(t *testing.T) {
 
 	input.Send([]*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "404",
 					attr.HTTPRequestMethod:      "POST",
@@ -499,7 +500,7 @@ func TestAttributeFilter_NumericGlobMixed(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "500",
 					attr.HTTPRequestMethod:      "GET", // Doesn't match P*
@@ -507,7 +508,7 @@ func TestAttributeFilter_NumericGlobMixed(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "200", // < 400
 					attr.HTTPRequestMethod:      "POST",
@@ -515,7 +516,7 @@ func TestAttributeFilter_NumericGlobMixed(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "403",
 					attr.HTTPRequestMethod:      "PUT",
@@ -523,7 +524,7 @@ func TestAttributeFilter_NumericGlobMixed(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "422",
 					attr.HTTPRequestMethod:      "PATCH",
@@ -531,7 +532,7 @@ func TestAttributeFilter_NumericGlobMixed(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "401",
 					attr.HTTPRequestMethod:      "DELETE", // Doesn't match P*
@@ -544,7 +545,7 @@ func TestAttributeFilter_NumericGlobMixed(t *testing.T) {
 	filtered := testutil.ReadChannel(t, out, timeout)
 	assert.Equal(t, []*ebpf.Record{
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "404",
 					attr.HTTPRequestMethod:      "POST",
@@ -552,7 +553,7 @@ func TestAttributeFilter_NumericGlobMixed(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "403",
 					attr.HTTPRequestMethod:      "PUT",
@@ -560,7 +561,7 @@ func TestAttributeFilter_NumericGlobMixed(t *testing.T) {
 			},
 		},
 		{
-			Attrs: ebpf.RecordAttrs{
+			CommonAttrs: pipe.CommonAttrs{
 				Metadata: map[attr.Name]string{
 					attr.HTTPResponseStatusCode: "422",
 					attr.HTTPRequestMethod:      "PATCH",

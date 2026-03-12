@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package flow
+package geoip
 
 import (
 	"encoding/binary"
@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 )
 
 func TestMaxMindLookup(t *testing.T) {
@@ -65,7 +65,7 @@ func BenchmarkDBLookup(b *testing.B) {
 				ipnum := rand.Uint32N(addrSpace)
 				bytes := make([]byte, 16)
 				binary.LittleEndian.PutUint32(bytes[12:], ipnum)
-				ip := ebpf.IPAddr(bytes)
+				ip := pipe.IPAddr(bytes)
 				_, err := lookupFn(ip.IP())
 				if err != nil {
 					b.Fatal(err.Error())
@@ -77,7 +77,7 @@ func BenchmarkDBLookup(b *testing.B) {
 
 func BenchmarkDBLookupCached(b *testing.B) {
 	runBench := func(b *testing.B, cacheSize int, addrSpace uint32) {
-		cache := expirable.NewLRU[ebpf.IPAddr, ipInfo](cacheSize, nil, time.Hour)
+		cache := expirable.NewLRU[pipe.IPAddr, ipInfo](cacheSize, nil, time.Hour)
 		lookupFn, err := getLookupFn(&GeoIP{
 			IPInfo: IPInfoConfig{
 				Path: *fileFlag,
@@ -93,7 +93,7 @@ func BenchmarkDBLookupCached(b *testing.B) {
 			ipnum := rand.Uint32N(addrSpace)
 			bytes := make([]byte, 16)
 			binary.LittleEndian.PutUint32(bytes[12:], ipnum)
-			ip := ebpf.IPAddr(bytes)
+			ip := pipe.IPAddr(bytes)
 			_, ok := cache.Get(ip)
 			if !ok {
 				i, err := lookupFn(ip.IP())

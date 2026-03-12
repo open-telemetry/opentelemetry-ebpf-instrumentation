@@ -50,6 +50,7 @@ const (
 	EventTypeFailedConnect
 	EventTypeDNS
 	EventTypeCouchbaseClient
+	EventTypeSQLServer
 )
 
 const (
@@ -107,6 +108,8 @@ func (t EventType) String() string {
 		return "GRPCClient"
 	case EventTypeSQLClient:
 		return "SQLClient"
+	case EventTypeSQLServer:
+		return "SQLServer"
 	case EventTypeRedisClient:
 		return "RedisClient"
 	case EventTypeKafkaClient:
@@ -360,6 +363,12 @@ type Span struct {
 	AWS               *AWS           `json:"-"`
 	OpenAI            *OpenAI        `json:"-"`
 
+	// RequestHeaders stores extracted HTTP request headers based on enrichment rules.
+	// Keys are canonical header names, values are all header values (possibly obfuscated).
+	RequestHeaders map[string][]string `json:"requestHeaders,omitempty"`
+	// ResponseHeaders stores extracted HTTP response headers based on enrichment rules.
+	ResponseHeaders map[string][]string `json:"responseHeaders,omitempty"`
+
 	// OverrideTraceName is set under some conditions, like spanmetrics reaching the maximum
 	// cardinality for trace names.
 	OverrideTraceName string `json:"-"`
@@ -397,6 +406,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			attrs["graphqlOperationName"] = s.GraphQL.OperationName
 			attrs["graphqlOperationType"] = s.GraphQL.OperationType
 		}
+		addHeaderAttributes(attrs, s)
 		return attrs
 	case EventTypeHTTPClient:
 		attrs := SpanAttributes{
@@ -445,6 +455,7 @@ func spanAttributes(s *Span) SpanAttributes {
 				attrs["errorDescription"] = s.DBError.Description
 			}
 		}
+		addHeaderAttributes(attrs, s)
 		return attrs
 	case EventTypeGRPC:
 		return SpanAttributes{
@@ -461,7 +472,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
 		}
-	case EventTypeSQLClient:
+	case EventTypeSQLClient, EventTypeSQLServer:
 		var (
 			code              uint16
 			sqlState, message string
@@ -532,6 +543,15 @@ func spanAttributes(s *Span) SpanAttributes {
 	}
 
 	return SpanAttributes{}
+}
+
+func addHeaderAttributes(attrs SpanAttributes, s *Span) {
+	for name, values := range s.RequestHeaders {
+		attrs["http.request.header."+strings.ToLower(name)] = strings.Join(values, ", ")
+	}
+	for name, values := range s.ResponseHeaders {
+		attrs["http.response.header."+strings.ToLower(name)] = strings.Join(values, ", ")
+	}
 }
 
 func (s *Span) SQLErrorDescription() string {
@@ -654,7 +674,7 @@ func SpanStatusCode(span *Span) string {
 		return HTTPSpanStatusCode(span)
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return GrpcSpanStatusCode(span)
-	case EventTypeSQLClient, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient:
+	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient:
 		if span.Status != 0 {
 			return StatusCodeError
 		}
@@ -679,7 +699,7 @@ func SpanStatusMessage(span *Span) string {
 		if span.Status != 0 && span.DBError.Description != "" {
 			return span.DBError.Description
 		}
-	case EventTypeSQLClient:
+	case EventTypeSQLClient, EventTypeSQLServer:
 		if span.Status != 0 && span.SQLError != nil {
 			return span.SQLErrorDescription()
 		}
@@ -766,7 +786,7 @@ func (s *Span) ResponseBodyLength() int64 {
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer, EventTypeSQLServer:
 		return "SPAN_KIND_SERVER"
 	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient:
 		return "SPAN_KIND_CLIENT"
@@ -885,7 +905,7 @@ func (s *Span) TraceName() string {
 		return name
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return s.Path
-	case EventTypeSQLClient:
+	case EventTypeSQLClient, EventTypeSQLServer:
 		operation := s.Method
 		if operation == "" {
 			return "SQL"
@@ -1068,7 +1088,7 @@ func (s *Span) IsSelfReferenceSpan() bool {
 }
 
 func (s *Span) DBSystemName() attribute.KeyValue {
-	if s.Type == EventTypeSQLClient {
+	if s.Type == EventTypeSQLClient || s.Type == EventTypeSQLServer {
 		switch s.SubType {
 		case int(DBPostgres):
 			return semconv.DBSystemNamePostgreSQL

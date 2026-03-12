@@ -282,6 +282,7 @@ func TestGenerateTraces(t *testing.T) {
 func TestGenerateTracesAttributes(t *testing.T) {
 	t.Run("test SQL trace generation, no statement", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
+		span.HostName = "postgresql"
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
@@ -299,7 +300,30 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
+		ensureTraceStrAttr(t, attrs, semconv.PeerServiceKey, "postgresql")
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+	})
+
+	t.Run("test SQL server trace generation", func(t *testing.T) {
+		span := makeSQLServerRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
+		span.HostName = "postgresql"
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.Equal(t, ptrace.SpanKindServer, spans.At(0).Kind())
+
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 5, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
+		ensureTraceAttrNotExists(t, attrs, semconv.PeerServiceKey)
 	})
 
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
@@ -964,6 +988,76 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIProviderNameKey)
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOperationNameKey)
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+	})
+	t.Run("test HTTP server span with extracted headers", func(t *testing.T) {
+		span := request.Span{
+			Type:   request.EventTypeHTTP,
+			Method: "GET",
+			Path:   "/api/v1/users",
+			Route:  "/api/v1/users",
+			Status: 200,
+			RequestHeaders: map[string][]string{
+				"Content-Type": {"application/json"},
+				"X-Request-Id": {"abc-123"},
+			},
+			ResponseHeaders: map[string][]string{
+				"X-Response-Id": {"resp-456"},
+			},
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+
+		ensureTraceStrSliceAttr(t, attrs, "http.request.header.content-type", []string{"application/json"})
+		ensureTraceStrSliceAttr(t, attrs, "http.request.header.x-request-id", []string{"abc-123"})
+		ensureTraceStrSliceAttr(t, attrs, "http.response.header.x-response-id", []string{"resp-456"})
+		ensureTraceAttrNotExists(t, attrs, "http.request.header.authorization")
+	})
+	t.Run("test HTTP client span with extracted headers", func(t *testing.T) {
+		span := request.Span{
+			Type:   request.EventTypeHTTPClient,
+			Method: "POST",
+			Path:   "/external/api",
+			Status: 201,
+			RequestHeaders: map[string][]string{
+				"Authorization": {"***"},
+			},
+			ResponseHeaders: map[string][]string{
+				"X-Ratelimit-Remaining": {"42"},
+			},
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+
+		ensureTraceStrSliceAttr(t, attrs, "http.request.header.authorization", []string{"***"})
+		ensureTraceStrSliceAttr(t, attrs, "http.response.header.x-ratelimit-remaining", []string{"42"})
+	})
+	t.Run("test HTTP span without headers has no header attributes", func(t *testing.T) {
+		span := request.Span{
+			Type:   request.EventTypeHTTP,
+			Method: "GET",
+			Path:   "/health",
+			Status: 200,
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+
+		// No header attributes should be present
+		ensureTraceAttrNotExists(t, attrs, "http.request.header.content-type")
+		ensureTraceAttrNotExists(t, attrs, "http.response.header.content-type")
 	})
 }
 
@@ -1823,6 +1917,11 @@ func makeSQLRequestSpan(sql string) request.Span {
 	return request.Span{Type: request.EventTypeSQLClient, Method: method, Path: path, Statement: sql}
 }
 
+func makeSQLServerRequestSpan(sql string) request.Span {
+	method, path := sqlprune.SQLParseOperationAndTable(sql)
+	return request.Span{Type: request.EventTypeSQLServer, Method: method, Path: path, Statement: sql}
+}
+
 func makeSQLRequestErroredSpan(sql string) request.Span {
 	method, path := sqlprune.SQLParseOperationAndTable(sql)
 	return request.Span{
@@ -1843,6 +1942,18 @@ func ensureTraceStrAttr(t *testing.T, attrs pcommon.Map, key attribute.Key, val 
 	v, ok := attrs.Get(string(key))
 	assert.True(t, ok)
 	assert.Equal(t, val, v.AsString())
+}
+
+func ensureTraceStrSliceAttr(t *testing.T, attrs pcommon.Map, key attribute.Key, vals []string) {
+	t.Helper()
+	v, ok := attrs.Get(string(key))
+	require.True(t, ok, "expected attribute %s", key)
+	slice := v.Slice()
+	got := make([]string, slice.Len())
+	for i := 0; i < slice.Len(); i++ {
+		got[i] = slice.At(i).Str()
+	}
+	assert.Equal(t, vals, got)
 }
 
 func ensureTraceAttrNotExists(t *testing.T, attrs pcommon.Map, key attribute.Key) {

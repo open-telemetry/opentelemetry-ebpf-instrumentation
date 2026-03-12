@@ -1056,6 +1056,23 @@ func testHTTPTracesNestedCallsTooLong(t *testing.T) {
 
 func testHTTPTracesNestedSelfCalls(t *testing.T) {
 	var parentID string
+	selectMeaningfulChild := func(candidates []jaeger.Span) jaeger.Span {
+		// Prefer server spans when present to avoid selecting internal client calls.
+		fallback := jaeger.Span{}
+		for _, c := range candidates {
+			if c.OperationName == "CONNECT" {
+				continue
+			}
+			if fallback.OperationName == "" {
+				fallback = c
+			}
+			kind, ok := jaeger.FindIn(c.Tags, "span.kind")
+			if ok && kind.Type == "string" && kind.Value == "server" {
+				return c
+			}
+		}
+		return fallback
+	}
 
 	waitForTestComponentsRoute(t, "http://localhost:7773", "/smoke")
 
@@ -1107,16 +1124,7 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 		}
 
 		require.GreaterOrEqual(ct, len(children), 1)
-		child := jaeger.Span{}
-
-		for _, c := range children {
-			// This python app tries first to connect to IP V6, fails and then tries IPV4
-			if c.OperationName == "CONNECT" {
-				continue
-			}
-			child = c
-			break
-		}
+		child := selectMeaningfulChild(children)
 
 		assert.NotEmpty(ct, child.OperationName)
 
@@ -1141,16 +1149,7 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 		}
 
 		require.GreaterOrEqual(ct, len(children), 1)
-		child = jaeger.Span{}
-
-		for _, c := range children {
-			// This python app tries first to connect to IP V6, fails and then tries IPV4
-			if c.OperationName == "CONNECT" {
-				continue
-			}
-			child = c
-			break
-		}
+		child = selectMeaningfulChild(children)
 
 		assert.NotEmpty(ct, child.OperationName)
 
@@ -1175,16 +1174,7 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 		}
 
 		require.GreaterOrEqual(ct, len(children), 1)
-		child = jaeger.Span{}
-
-		for _, c := range children {
-			// This python app tries first to connect to IP V6, fails and then tries IPV4
-			if c.OperationName == "CONNECT" {
-				continue
-			}
-			child = c
-			break
-		}
+		child = selectMeaningfulChild(children)
 
 		assert.NotEmpty(ct, child.OperationName)
 

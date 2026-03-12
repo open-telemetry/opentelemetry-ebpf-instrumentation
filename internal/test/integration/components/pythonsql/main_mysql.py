@@ -72,6 +72,29 @@ async def root():
 
     return row
 
+@app.get("/bigquery")
+async def bigquery():
+    global conn
+    if conn is None:
+        conn = mysql.connector.connect(
+            database="sakila",
+            user="sakila",
+            password="p_ssW0rd",
+            host="sqlserver",
+            port="3306"
+        )
+
+    # Build a SELECT query that is exactly 5000 bytes.
+    ids = ", ".join(str(i) for i in range(1, 1000))
+    query = f"SELECT * FROM actor WHERE actor_id IN ({ids})"
+    query = query.ljust(5000)
+
+    cur = conn.cursor()
+    cur.execute(query)
+    rows = cur.fetchall()
+
+    return rows
+
 @app.get("/error")
 async def root():
     global conn

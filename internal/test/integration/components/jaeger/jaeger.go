@@ -6,6 +6,7 @@
 package jaeger // import "go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -142,6 +143,62 @@ func FindIn(tags []Tag, key string) (Tag, bool) {
 		}
 	}
 	return Tag{}, false
+}
+
+// tagParseStringSlice attempts to parse a JSON-encoded string array.
+// Jaeger 1.x serializes OTLP StringSlice attributes as a single string
+// containing the JSON array, e.g. `["value-one","value-two"]`.
+func tagParseStringSlice(s string) ([]string, bool) {
+	if len(s) < 2 || s[0] != '[' {
+		return nil, false
+	}
+	var parsed []string
+	if err := json.Unmarshal([]byte(s), &parsed); err != nil {
+		return nil, false
+	}
+	return parsed, true
+}
+
+// TagFirstStringValue extracts the first string value from a tag.
+// Handles plain strings, JSON-encoded string arrays (Jaeger 1.x),
+// and native array values.
+func TagFirstStringValue(tag Tag) (string, bool) {
+	switch v := tag.Value.(type) {
+	case string:
+		if vals, ok := tagParseStringSlice(v); ok && len(vals) > 0 {
+			return vals[0], true
+		}
+		return v, true
+	case []any:
+		if len(v) > 0 {
+			if s, ok := v[0].(string); ok {
+				return s, true
+			}
+		}
+	}
+	return "", false
+}
+
+// TagStringValues extracts all string values from a tag.
+// Handles plain strings, JSON-encoded string arrays (Jaeger 1.x),
+// and native array values.
+func TagStringValues(tag Tag) []string {
+	switch v := tag.Value.(type) {
+	case string:
+		if vals, ok := tagParseStringSlice(v); ok {
+			return vals
+		}
+		return []string{v}
+	case []any:
+		result := make([]string, 0, len(v))
+		for _, elem := range v {
+			if s, ok := elem.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	}
+	return nil
 }
 
 type DiffResult []TagDiff

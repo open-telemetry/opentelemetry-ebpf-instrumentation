@@ -35,14 +35,20 @@ func TestForwardRingbuf_CapacityFull(t *testing.T) {
 	forwardedMessages := forwardedMessagesQueue.Subscribe()
 	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 	fltr.AllowPID(1, 1, &svc.Attrs{UID: svc.UID{Name: "myService"}}, PIDTypeGo)
+	cfg := &config.EBPFTracer{BatchLength: 10}
 	go ForwardRingbuf(
-		&config.EBPFTracer{BatchLength: 10},
+		cfg,
 		nil, // the source ring buffer can be null
-		&fltr,
-		ReadBPFTraceAsSpan,
+		func(r *ringbuf.Record) (request.Span, bool, error) {
+			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &fltr)
+			if !ignore && err == nil && !s.IsValid() {
+				return s, true, nil
+			}
+			return s, ignore, err
+		},
+		fltr.Filter,
 		slog.With("test", "TestForwardRingbuf_CapacityFull"),
 		metrics,
-		nil,
 	)(t.Context(), forwardedMessagesQueue)
 
 	// WHEN it starts receiving trace events
@@ -87,14 +93,20 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 	forwardedMessages := forwardedMessagesQueue.Subscribe()
 	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 	fltr.AllowPID(1, 1, &svc.Attrs{UID: svc.UID{Name: "myService"}}, PIDTypeGo)
+	cfg := &config.EBPFTracer{BatchLength: 10, BatchTimeout: 20 * time.Millisecond}
 	go ForwardRingbuf(
-		&config.EBPFTracer{BatchLength: 10, BatchTimeout: 20 * time.Millisecond},
-		nil,   // the source ring buffer can be null
-		&fltr, // change fltr to a pointer
-		ReadBPFTraceAsSpan,
+		cfg,
+		nil, // the source ring buffer can be null
+		func(r *ringbuf.Record) (request.Span, bool, error) {
+			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &fltr)
+			if !ignore && err == nil && !s.IsValid() {
+				return s, true, nil
+			}
+			return s, ignore, err
+		},
+		fltr.Filter,
 		slog.With("test", "TestForwardRingbuf_Deadline"),
 		metrics,
-		nil,
 	)(t.Context(), forwardedMessagesQueue)
 
 	// WHEN it receives, after a timeout, less events than its internal buffer
@@ -127,14 +139,20 @@ func TestForwardRingbuf_Close(t *testing.T) {
 
 	metrics := &metricsReporter{}
 	closable := closableObject{}
+	cfg := &config.EBPFTracer{BatchLength: 10}
 	go ForwardRingbuf(
-		&config.EBPFTracer{BatchLength: 10},
+		cfg,
 		nil, // the source ring buffer can be null
-		(&IdentityPidsFilter{}),
-		ReadBPFTraceAsSpan,
+		func(r *ringbuf.Record) (request.Span, bool, error) {
+			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &IdentityPidsFilter{})
+			if !ignore && err == nil && !s.IsValid() {
+				return s, true, nil
+			}
+			return s, ignore, err
+		},
+		nil,
 		slog.With("test", "TestForwardRingbuf_Close"),
 		metrics,
-		nil,
 		&closable,
 	)(t.Context(), msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100)))
 

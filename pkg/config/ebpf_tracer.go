@@ -47,7 +47,7 @@ type EBPFTracer struct {
 	// TODO: see if there is a way to force eBPF to wakeup userspace on timeout
 	WakeupLen int `yaml:"wakeup_len" env:"OTEL_EBPF_BPF_WAKEUP_LEN" validate:"gte=0"`
 
-	// BatchLength allows specifying how many traces will be batched at the initial
+	// BatchLength allows specifying how many items (traces/metrics) will be batched at the initial
 	// stage before being forwarded to the next stage
 	// Must be at least 1
 	BatchLength int `yaml:"batch_length" env:"OTEL_EBPF_BPF_BATCH_LENGTH" validate:"gt=0"`

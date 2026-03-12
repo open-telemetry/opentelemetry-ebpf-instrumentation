@@ -60,11 +60,12 @@ var packagesToScan = []string{
 	"pkg/export/otel/perapp",
 	"pkg/export/prom",
 	"pkg/kube/kubeflags",
-	"pkg/internal/netolly/flow",
 	"pkg/transform",
 	"pkg/filter",
 	"pkg/appolly/services",
 	"pkg/appolly/meta",
+	"pkg/internal/pipe/geoip",
+	"pkg/internal/pipe/rdns",
 }
 
 // scanSourceFiles scans all Go source files in packagesToScan and extracts metadata.

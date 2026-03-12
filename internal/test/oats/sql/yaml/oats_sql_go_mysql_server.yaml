@@ -1,0 +1,16 @@
+docker-compose:
+  generator: generic
+  files:
+    - ../docker-compose-obi-mysqlserver.yml
+input:
+  - path: /mysqltest
+interval: 500ms
+expected:
+  traces:
+    - traceql: '{ kind=server && name="SELECT students" && .db.operation.name = "SELECT" && .db.system.name = "mysql" }'
+      spans:
+        - name: 'SELECT students'
+          attributes:
+            db.operation.name: SELECT
+            db.collection.name: students
+            db.system.name: mysql

@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package flow
+package rdns
 
 import (
 	"errors"
@@ -11,15 +11,23 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
+
+const timeout = 5 * time.Second
 
 var (
 	srcIP = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 140, 82, 121, 4}
 	dstIP = [16]uint8{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 127, 0, 0, 1}
 )
+
+type testRecord struct {
+	pipe.CommonAttrs
+}
+
+func attrsOf(r *testRecord) *pipe.CommonAttrs { return &r.CommonAttrs }
 
 func TestReverseDNS(t *testing.T) {
 	netLookupAddr = func(addr string) (names []string, err error) {
@@ -33,28 +41,27 @@ func TestReverseDNS(t *testing.T) {
 		}
 	}
 	// Given a Reverse DNS node
-	in := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
-	out := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
+	in := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
+	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	outCh := out.Subscribe()
-	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute}, in, out)(t.Context())
+	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute},
+		attrsOf, in, out)(t.Context())
 	require.NoError(t, err)
 	go reverseDNS(t.Context())
 
 	// When it receives flows without source nor destination name
-	f1 := &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
-		Id: ebpf.NetFlowId{IfIndex: 1},
-	}}
-	f1.Id.SrcIp.In6U.U6Addr8 = srcIP
-	f1.Id.DstIp.In6U.U6Addr8 = dstIP
+	f1 := &testRecord{}
+	f1.SrcAddr = pipe.IPAddr(srcIP)
+	f1.DstAddr = pipe.IPAddr(dstIP)
 
-	in.Send([]*ebpf.Record{f1})
+	in.Send([]*testRecord{f1})
 
 	// THEN it decorates them with the looked up source/destination names
 	decorated := testutil.ReadChannel(t, outCh, timeout)
 	require.Len(t, decorated, 1)
 
-	assert.Contains(t, decorated[0].Attrs.SrcName, "github")
-	assert.Contains(t, decorated[0].Attrs.DstName, "local")
+	assert.Contains(t, decorated[0].SrcName, "github")
+	assert.Contains(t, decorated[0].DstName, "local")
 }
 
 func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
@@ -63,29 +70,29 @@ func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
 		return nil, errors.New("boom")
 	}
 	// Given a Reverse DNS node
-	in := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
-	out := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
+	in := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
+	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	outCh := out.Subscribe()
-	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute}, in, out)(t.Context())
+	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute},
+		attrsOf, in, out)(t.Context())
 	require.NoError(t, err)
 	go reverseDNS(t.Context())
 
 	// When it receives flows with source and destination names
-	f1 := &ebpf.Record{
-		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{IfIndex: 1}},
-		Attrs:          ebpf.RecordAttrs{SrcName: "src", DstName: "dst"},
+	f1 := &testRecord{
+		CommonAttrs: pipe.CommonAttrs{SrcName: "src", DstName: "dst"},
 	}
-	f1.Id.SrcIp.In6U.U6Addr8 = srcIP
-	f1.Id.DstIp.In6U.U6Addr8 = dstIP
+	f1.SrcAddr = pipe.IPAddr(srcIP)
+	f1.DstAddr = pipe.IPAddr(dstIP)
 
-	in.Send([]*ebpf.Record{f1})
+	in.Send([]*testRecord{f1})
 
-	// THEN it does not cange the decoration
+	// THEN it does not change the decoration
 	decorated := testutil.ReadChannel(t, outCh, timeout)
 	require.Len(t, decorated, 1)
 
-	assert.Contains(t, decorated[0].Attrs.SrcName, "src")
-	assert.Contains(t, decorated[0].Attrs.DstName, "dst")
+	assert.Contains(t, decorated[0].SrcName, "src")
+	assert.Contains(t, decorated[0].DstName, "dst")
 }
 
 func TestReverseDNS_Cache(t *testing.T) {
@@ -96,34 +103,34 @@ func TestReverseDNS_Cache(t *testing.T) {
 		return []string{"amazon"}, nil
 	}
 	// Given a Reverse DNS node
-	in := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
-	out := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(10))
+	in := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
+	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	outCh := out.Subscribe()
-	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute}, in, out)(t.Context())
+	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute},
+		attrsOf, in, out)(t.Context())
 	require.NoError(t, err)
 	go reverseDNS(t.Context())
 
 	// When it receives a flow with an unknown destination for the first time
-	f1 := &ebpf.Record{
-		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{IfIndex: 1}},
-		Attrs:          ebpf.RecordAttrs{SrcName: "src"},
+	f1 := &testRecord{
+		CommonAttrs: pipe.CommonAttrs{SrcName: "src"},
 	}
-	f1.Id.SrcIp.In6U.U6Addr8 = srcIP
-	f1.Id.DstIp.In6U.U6Addr8 = dstIP
+	f1.SrcAddr = pipe.IPAddr(srcIP)
+	f1.DstAddr = pipe.IPAddr(dstIP)
 
-	in.Send([]*ebpf.Record{f1})
+	in.Send([]*testRecord{f1})
 
 	// THEN it decorates it
 	decorated := testutil.ReadChannel(t, outCh, timeout)
 	require.Len(t, decorated, 1)
-	assert.Contains(t, decorated[0].Attrs.DstName, "amazon")
+	assert.Contains(t, decorated[0].DstName, "amazon")
 
 	// AND when it receives the same flow again
-	f1.Attrs.DstName = ""
-	in.Send([]*ebpf.Record{f1})
+	f1.DstName = ""
+	in.Send([]*testRecord{f1})
 
 	// THEN it decorates it from the cached copy (otherwise the fake netLookupAddr would crash)
 	decorated = testutil.ReadChannel(t, outCh, timeout)
 	require.Len(t, decorated, 1)
-	assert.Contains(t, decorated[0].Attrs.DstName, "amazon")
+	assert.Contains(t, decorated[0].DstName, "amazon")
 }

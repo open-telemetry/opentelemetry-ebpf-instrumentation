@@ -304,7 +304,7 @@
       "properties": {
         "batch_length": {
           "type": "integer",
-          "description": "BatchLength allows specifying how many traces will be batched at the initial stage before being forwarded to the next stage Must be at least 1",
+          "description": "BatchLength allows specifying how many items (traces/metrics) will be batched at the initial stage before being forwarded to the next stage Must be at least 1",
           "x-env-var": "OTEL_EBPF_BPF_BATCH_LENGTH"
         },
         "batch_timeout": {
@@ -473,6 +473,28 @@
       },
       "type": "object"
     },
+    "EnrichmentConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable HTTP header and payload enrichment",
+          "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_ENABLED"
+        },
+        "policy": {
+          "$ref": "#/$defs/HTTPParsingPolicy",
+          "description": "Policy controls the default behavior and matching strategy"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/HTTPParsingRule"
+          },
+          "type": "array",
+          "description": "Rules is an ordered list of include/exclude/obfuscate rules. Rules are evaluated according to Policy.MatchOrder."
+        }
+      },
+      "type": "object",
+      "description": "EnrichmentConfig configures HTTP header and payload extraction with policy-based rules."
+    },
     "ExportModes": {
       "items": {
         "type": "string",
@@ -525,16 +547,18 @@
         "cache_expiry": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL for backwards-compatibility",
           "examples": [
             "30s",
             "5m",
             "1ms"
           ],
-          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL"
+          "x-env-var": "OTEL_EBPF_GEOIP_CACHE_TTL"
         },
         "cache_len": {
           "type": "integer",
-          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN"
+          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_GEOIP_CACHE_LEN"
         },
         "ipinfo": {
           "$ref": "#/$defs/IPInfoConfig"
@@ -544,7 +568,7 @@
         }
       },
       "type": "object",
-      "description": "GeoIP is currently experimental. It is kept disabled by default and will be hidden from the documentation. This means that it does not impact in the overall Beyla performance."
+      "description": "GeoIP is currently experimental. It is kept disabled by default and will be hidden from the documentation. This means that it does not impact in the overall OBI performance."
     },
     "GlobAttr": {
       "type": "string",
@@ -688,6 +712,10 @@
           "$ref": "#/$defs/ElasticsearchConfig",
           "description": "Elasticsearch payload extraction and parsing"
         },
+        "enrichment": {
+          "$ref": "#/$defs/EnrichmentConfig",
+          "description": "Enrichment configures HTTP header and payload extraction with policy-based rules"
+        },
         "graphql": {
           "$ref": "#/$defs/GraphQLConfig",
           "description": "GraphQL payload extraction and parsing"
@@ -703,6 +731,94 @@
       },
       "type": "object"
     },
+    "HTTPParsingAction": {
+      "type": "string",
+      "enum": [
+        "exclude",
+        "include",
+        "obfuscate"
+      ]
+    },
+    "HTTPParsingMatch": {
+      "properties": {
+        "case_sensitive": {
+          "type": "boolean",
+          "description": "CaseSensitive controls whether matching is case-sensitive."
+        },
+        "patterns": {
+          "items": {
+            "$ref": "#/$defs/GlobAttr"
+          },
+          "type": "array",
+          "description": "Patterns is a list of glob patterns to match the rule against"
+        }
+      },
+      "type": "object",
+      "description": "HTTPParsingMatch defines matching criteria for an HTTP parsing rule."
+    },
+    "HTTPParsingMatchOrder": {
+      "type": "string",
+      "enum": [
+        "first_match_wins"
+      ]
+    },
+    "HTTPParsingPolicy": {
+      "properties": {
+        "default_action": {
+          "$ref": "#/$defs/HTTPParsingAction",
+          "description": "DefaultAction specifies what to do when no rule matches: \"include\" or \"exclude\"",
+          "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_DEFAULT_ACTION"
+        },
+        "match_order": {
+          "$ref": "#/$defs/HTTPParsingMatchOrder",
+          "description": "MatchOrder controls how rules are evaluated: \"first_match_wins\"",
+          "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_MATCH_ORDER"
+        },
+        "obfuscation_string": {
+          "type": "string",
+          "description": "ObfuscationString is the replacement string used when a rule's action is \"obfuscate\"",
+          "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING"
+        }
+      },
+      "type": "object",
+      "description": "HTTPParsingPolicy defines the default action and match strategy for http enrichment rules."
+    },
+    "HTTPParsingRule": {
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/HTTPParsingAction",
+          "description": "Action of the rule: \"include\", \"exclude\", or \"obfuscate\""
+        },
+        "match": {
+          "$ref": "#/$defs/HTTPParsingMatch",
+          "description": "Match defines the matching criteria for this rule"
+        },
+        "scope": {
+          "$ref": "#/$defs/HTTPParsingScope",
+          "description": "Scope of the rule: \"request\", \"response\", or \"all\""
+        },
+        "type": {
+          "$ref": "#/$defs/HTTPParsingRuleType",
+          "description": "Type specifies what this rule matches against: \"headers\""
+        }
+      },
+      "type": "object",
+      "description": "HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header and payload extraction."
+    },
+    "HTTPParsingRuleType": {
+      "type": "string",
+      "enum": [
+        "headers"
+      ]
+    },
+    "HTTPParsingScope": {
+      "type": "string",
+      "enum": [
+        "all",
+        "request",
+        "response"
+      ]
+    },
     "HostIDConfig": {
       "properties": {
         "override": {
@@ -717,7 +833,8 @@
       "properties": {
         "path": {
           "type": "string",
-          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_IPINFO_PATH"
+          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_IPINFO_PATH for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_GEOIP_IPINFO_PATH"
         }
       },
       "type": "object"
@@ -1001,11 +1118,13 @@
       "properties": {
         "asn_path": {
           "type": "string",
-          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_MAXMIND_ASN_PATH"
+          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_ASN_PATH for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_GEOIP_MAXMIND_ASN_PATH"
         },
         "country_path": {
           "type": "string",
-          "x-env-var": "OTEL_EBPF_NETWORK_GEOIP_MAXMIND_COUNTRY_PATH"
+          "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_MAXMIND_COUNTRY_PATH for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_GEOIP_MAXMIND_COUNTRY_PATH"
         }
       },
       "type": "object"
@@ -1644,18 +1763,18 @@
         "cache_expiry": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "CacheTTL only applies to the \"local\" and \"ebpf\" ReverseDNS type. It specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again.",
+          "description": "CacheTTL only applies to the \"local\" and \"ebpf\" ReverseDNS type. It specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL for backwards-compatibility",
           "examples": [
             "30s",
             "5m",
             "1ms"
           ],
-          "x-env-var": "OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL"
+          "x-env-var": "OTEL_EBPF_REVERSE_DNS_CACHE_TTL"
         },
         "cache_len": {
           "type": "integer",
-          "description": "CacheLen only applies to the \"local\" and \"ebpf\" ReverseDNS type. It specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256",
-          "x-env-var": "OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_LEN"
+          "description": "CacheLen only applies to the \"local\" and \"ebpf\" ReverseDNS type. It specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_LEN for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_REVERSE_DNS_CACHE_LEN"
         },
         "type": {
           "type": "string",
@@ -1664,8 +1783,8 @@
             "local",
             "none"
           ],
-          "description": "Type of ReverseDNS. Values are \"none\" (default), \"local\" and \"ebpf\"",
-          "x-env-var": "OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE"
+          "description": "Type of ReverseDNS. Values are \"none\" (default), \"local\" and \"ebpf\" It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE for backwards-compatibility",
+          "x-env-var": "OTEL_EBPF_REVERSE_DNS_TYPE"
         }
       },
       "type": "object",
