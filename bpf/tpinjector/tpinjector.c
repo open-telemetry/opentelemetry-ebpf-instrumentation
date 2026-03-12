@@ -682,9 +682,8 @@ static __always_inline void handle_existing_tp_pid(struct sk_msg_md *msg,
         if (inject_flags & k_inject_http_headers) {
             write_http_traceparent(msg, tp_pid);
         }
-    } else {
-        clear_tp_info_pid(e_key);
-    }
+    } 
+    clear_tp_info_pid(e_key);
 }
 
 // Sock_msg program which detects packets where it should add space for
