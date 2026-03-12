@@ -205,6 +205,61 @@ func testPythonPostgres(t *testing.T) {
 	testPythonSQLError(t, comm, testCaseURL, db)
 }
 
+func testPythonSQLBigQuery(t *testing.T, comm, url, table, db string) {
+	t.Helper()
+
+	urlPath := "/bigquery"
+	ti.DoHTTPGet(t, url+urlPath, 200)
+
+	dbOperation := "SELECT " + table
+
+	params := neturl.Values{}
+	params.Add("service", comm)
+	params.Add("operation", dbOperation)
+	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
+
+	queryPrefix := "SELECT * FROM actor WHERE actor_id IN (1, 2, 3,"
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(fullURL)
+		require.NoError(ct, err)
+		assert.NotNil(ct, resp)
+		assert.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: "SELECT"})
+		assert.GreaterOrEqual(ct, len(traces), 1)
+
+		var found bool
+		for _, trace := range traces {
+			span := trace.Spans[0]
+			tag, ok := jaeger.FindIn(span.Tags, "db.query.text")
+			if !ok {
+				continue
+			}
+			queryText, _ := tag.Value.(string)
+			if !strings.HasPrefix(queryText, queryPrefix) {
+				continue
+			}
+			found = true
+
+			assert.Equal(ct, dbOperation, span.OperationName)
+			assert.Len(ct, queryText, 5000, "expected query of 5000 chars, got %d chars", len(queryText))
+
+			tag, ok = jaeger.FindIn(span.Tags, "db.system.name")
+			assert.True(ct, ok)
+			assert.Equal(ct, db, tag.Value)
+
+			tag, ok = jaeger.FindIn(span.Tags, "db.collection.name")
+			assert.True(ct, ok)
+			assert.Equal(ct, table, tag.Value)
+			break
+		}
+		assert.True(ct, found, "no trace found with large query text starting with %q", queryPrefix)
+	}, testTimeout, 100*time.Millisecond)
+}
+
 func testPythonMySQL(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
 	comm := "python3.14"
@@ -216,6 +271,7 @@ func testPythonMySQL(t *testing.T) {
 	assertHTTPRequests(t, comm, "/query")
 	testPythonSQLQuery(t, comm, testCaseURL, table, db)
 	testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db)
+	testPythonSQLBigQuery(t, comm, testCaseURL, table, db)
 	testPythonSQLError(t, comm, testCaseURL, db)
 }
 

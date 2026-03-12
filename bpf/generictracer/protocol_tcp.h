@@ -222,6 +222,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         tcp_req_t *req = empty_tcp_req();
         if (req) {
             req->is_server = is_server;
+            int original_bytes_len = bytes_len;
             bpf_clamp_umax(bytes_len, K_TCP_MAX_LEN);
             req->flags = EVENT_TCP_REQUEST;
             req->conn_info = pid_conn->conn;
@@ -232,7 +233,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             req->end_monotime_ns = 0;
             req->resp_len = 0;
             req->len = bytes_len;
-            req->req_len = req->len;
+            req->req_len = original_bytes_len;
             req->extra_id = extra_runtime_id();
             req->protocol_type = protocol_type;
             task_pid(&req->pid);
@@ -247,8 +248,13 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
             tcp_get_or_set_trace_info(req, pid_conn, ssl, orig_dport);
 
-            tcp_send_large_buffer(
-                req, pid_conn, u_buf, bytes_len, direction, protocol_type, k_large_buf_action_init);
+            tcp_send_large_buffer(req,
+                                  pid_conn,
+                                  u_buf,
+                                  original_bytes_len,
+                                  direction,
+                                  protocol_type,
+                                  k_large_buf_action_init);
 
             bpf_map_update_elem(&ongoing_tcp_req, pid_conn, req, BPF_ANY);
         }
