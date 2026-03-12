@@ -218,3 +218,14 @@ static __always_inline void populate_ephemeral_info(connection_info_part_t *part
 static __always_inline u8 is_empty_connection_info(const connection_info_t *conn) {
     return conn->s_port == 0 && conn->d_port == 0;
 }
+
+static __always_inline egress_key_t make_egress_key(const connection_info_t *conn) {
+    egress_key_t e_key = {
+        .d_port = conn->d_port,
+        .s_port = conn->s_port,
+    };
+
+    sort_egress_key(&e_key);
+
+    return e_key;
+}
