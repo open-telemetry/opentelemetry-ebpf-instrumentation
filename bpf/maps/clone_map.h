@@ -6,8 +6,9 @@
 #include <bpfcore/utils.h>
 
 #include <common/map_sizing.h>
+#include <common/pin_internal.h>
 
-#include <pid/pid.h>
+#include <pid/types/pid_key.h>
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);

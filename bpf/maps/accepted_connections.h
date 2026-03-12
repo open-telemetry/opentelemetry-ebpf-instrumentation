@@ -7,7 +7,6 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/connection_info.h>
-#include <common/fd_key.h>
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
 
