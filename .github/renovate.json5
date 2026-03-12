@@ -102,6 +102,14 @@
       "matchPackageNames": ["org.springframework.boot:spring-boot-starter-parent", "org.springframework.boot:spring-boot-dependencies", "org.springframework.boot:spring-boot-maven-plugin"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "Block JUnit major upgrades for the Java agent (JUnit 6 requires Java 17+)",
+      "matchFileNames": ["pkg/internal/java/agent/build.gradle.kts"],
+      "matchManagers": ["gradle"],
+      "matchPackageNames": ["org.junit.jupiter:junit-jupiter-api", "org.junit.jupiter:junit-jupiter-engine", "org.junit.platform:junit-platform-launcher"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ],
   "labels": [
