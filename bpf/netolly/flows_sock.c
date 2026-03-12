@@ -25,6 +25,7 @@
 #include <bpfcore/bpf_endian.h>
 
 #include <common/protocol_defs.h>
+#include <common/tc_act.h>
 
 #include <logger/bpf_dbg.h>
 

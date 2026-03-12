@@ -24,6 +24,8 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
 
+#include <common/tc_act.h>
+
 #include <logger/bpf_dbg.h>
 
 #include <netolly/flows_common.h>

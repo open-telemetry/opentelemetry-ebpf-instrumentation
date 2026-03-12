@@ -5,7 +5,6 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
-#include <bpfcore/bpf_endian.h>
 
 #include <netolly/flow.h>
 
