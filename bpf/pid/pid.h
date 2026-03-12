@@ -5,7 +5,6 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
-#include <bpfcore/bpf_core_read.h>
 
 #include <logger/bpf_dbg.h>
 
