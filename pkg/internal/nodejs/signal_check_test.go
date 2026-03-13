@@ -73,8 +73,9 @@ func TestHasUserSIGUSR1Handler_NoHandler(t *testing.T) {
 
 	ef := openNodeELF(t, cmd.Process.Pid)
 
-	if hasUserSIGUSR1Handler(cmd.Process.Pid, ef) {
-		t.Error("expected no SIGUSR1 handler, but one was detected")
+	result := hasUserSIGUSR1Handler(cmd.Process.Pid, ef)
+	if result != signalCheckNotFound {
+		t.Errorf("expected signalCheckNotFound, got %d", result)
 	}
 }
 
@@ -90,8 +91,9 @@ func TestHasUserSIGUSR1Handler_WithHandler(t *testing.T) {
 
 	ef := openNodeELF(t, cmd.Process.Pid)
 
-	if !hasUserSIGUSR1Handler(cmd.Process.Pid, ef) {
-		t.Error("expected SIGUSR1 handler to be detected, but it was not")
+	result := hasUserSIGUSR1Handler(cmd.Process.Pid, ef)
+	if result != signalCheckFound {
+		t.Errorf("expected signalCheckFound, got %d", result)
 	}
 }
 
@@ -107,8 +109,9 @@ func TestHasUserSIGUSR1Handler_OtherSignalOnly(t *testing.T) {
 
 	ef := openNodeELF(t, cmd.Process.Pid)
 
-	if hasUserSIGUSR1Handler(cmd.Process.Pid, ef) {
-		t.Error("expected no SIGUSR1 handler (only SIGINT), but SIGUSR1 was detected")
+	result := hasUserSIGUSR1Handler(cmd.Process.Pid, ef)
+	if result != signalCheckNotFound {
+		t.Errorf("expected signalCheckNotFound, got %d", result)
 	}
 }
 
