@@ -174,15 +174,16 @@ the copied context; after that, normal task-parent traversal takes over.
 
 ### Request ownership is captured at task creation time
 
-Task creation snapshots the current request connection from `pid_tid_to_conn`
-and stores it in `python_task_state`. This is important because once child tasks
-start interleaving on the same event-loop thread, thread-local connection state
-can no longer be treated as the source of truth.
+Task creation stores the request connection in `python_task_state` with a
+parent-first rule. If the parent task already owns a request connection, the
+child inherits that connection directly. Otherwise task creation falls back to
+the current thread-local connection from `pid_tid_to_conn`.
 
-There is one additional safeguard for concurrent `gather()` workloads: if the
-parent task already owns a different request connection than the thread-local
-connection observed during child creation, the parent connection wins. That
-keeps the child task in the same request lineage as its parent.
+This ordering matters because `python_task_state` is request-scoped, while
+`pid_tid_to_conn` is only thread-scoped. Once child tasks start interleaving on
+the same event-loop thread, the thread-local connection can already belong to a
+different in-flight request. Preferring the parent keeps child tasks in the
+same request lineage across concurrent `gather()` workloads.
 
 ### Task pointer reuse is versioned
 

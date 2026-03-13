@@ -196,39 +196,36 @@ int obi_uprobe_task_init(struct pt_regs *ctx) {
         .version = python_next_task_version(child_task),
     };
 
-    bpf_dbg_printk("task_init: parent_lookup tid=%d parent=%llx", id, parent_task);
-    bpf_dbg_printk("task_init: tid=%d child=%llx parent=%llx", id, child_task, parent_task);
+    bpf_dbg_printk(
+        "task_init: parent_lookup tid=%d child=%llx parent=%llx", id, child_task, parent_task);
 
-    // Read the current request connection from this thread now. After the child
-    // task starts switching contexts, this thread-local value may no longer
-    // belong to the same request.
-    ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
-    if (info) {
-        connection_info_part_t conn_part = {};
-        u32 host_pid = pid_from_pid_tgid(id);
-        populate_ephemeral_info(
-            &conn_part, &info->p_conn.conn, info->orig_dport, host_pid, FD_SERVER);
-        if (parent_task) {
-            const python_task_state_t *parent_state =
-                (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &parent_task);
-            if (parent_state && parent_state->conn.port &&
-                parent_state->conn.port != conn_part.port) {
-                // Under concurrent gather workloads, pid_tid_to_conn can point
-                // at a different in-flight request on the same thread. If the
-                // parent already has a different request connection, prefer the
-                // parent so the child stays in the same request lineage.
-                conn_part = parent_state->conn;
-                bpf_dbg_printk("task_init: prefer parent conn child=%llx parent=%llx port=%d",
-                               child_task,
-                               parent_task,
-                               conn_part.port);
-            }
-        }
-        task_state.conn = conn_part;
-        bpf_dbg_printk("task_init: stored state for task=%llx ver=%llx port=%d source=pid_tid",
+    const python_task_state_t *parent_state = NULL;
+    if (parent_task) {
+        parent_state =
+            (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &parent_task);
+    }
+
+    // Use the parent's connection when it exists. If there is no parent
+    // connection yet, fall back to pid_tid_to_conn for the current thread.
+    // pid_tid_to_conn is only thread-local and may already point to another
+    // request by the time the child task is initialized.
+    if (parent_state && parent_state->conn.port) {
+        task_state.conn = parent_state->conn;
+        bpf_dbg_printk("task_init: stored state (from parent) for task=%llx parent=%llx port=%d",
                        child_task,
-                       task_state.version,
-                       conn_part.port);
+                       parent_task,
+                       task_state.conn.port);
+    } else {
+        ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
+        if (info) {
+            connection_info_part_t conn_part = {};
+            u32 host_pid = pid_from_pid_tgid(id);
+            populate_ephemeral_info(
+                &conn_part, &info->p_conn.conn, info->orig_dport, host_pid, FD_SERVER);
+            task_state.conn = conn_part;
+            bpf_dbg_printk(
+                "task_init: stored state for task=%llx port=%d", child_task, conn_part.port);
+        }
     }
     bpf_map_update_elem(&python_task_state, &child_task, &task_state, BPF_ANY);
 

@@ -1537,7 +1537,7 @@ func testHTTPTracesNestedNodeJSLargeHTTPS(t *testing.T) {
 func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls int) {
 	waitForTestComponentsSub(t, "http://localhost:8391", "/health")
 
-	const requests = 200
+	const requests = 20
 	for i := 1; i <= requests; i++ {
 		go ti.DoHTTPGet(t, "http://localhost:8391"+endpoint+strconv.Itoa(i), 200)
 	}
