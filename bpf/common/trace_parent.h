@@ -162,10 +162,10 @@ static __always_inline u64 resolve_python_current_task(const trace_key_t *t_key,
     return task_id;
 }
 
-static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t *t_key) {
+static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t *t_key,
+                                                               u64 pid_tgid) {
     enum { k_max_depth = 4 };
 
-    const u64 pid_tgid = bpf_get_current_pid_tgid();
     u64 task_id = resolve_python_current_task(t_key, pid_tgid);
 
     if (!task_id) {
@@ -248,7 +248,7 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
                    t_key->p_key.ns,
                    t_key->extra_id);
 
-    tp_info_pid_t *python_parent = find_python_parent_trace(t_key);
+    tp_info_pid_t *python_parent = find_python_parent_trace(t_key, pid_tgid);
     if (python_parent) {
         return python_parent;
     }
