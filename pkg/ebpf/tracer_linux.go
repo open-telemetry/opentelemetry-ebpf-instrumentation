@@ -35,8 +35,9 @@ import (
 const PinInternal = ebpf.PinType(100)
 
 const (
-	MaxMapEntries uint32 = 1 << 24
-	MinMapEntries uint32 = 1
+	MaxMapEntries       uint32 = 1 << 24
+	MinMapEntries       uint32 = 64
+	MinResizableMapSize uint32 = 64
 )
 
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
@@ -185,6 +186,21 @@ func (pt *ProcessTracer) setupOtelBPFFSPath(bundles []*common.SpecBundle) string
 	return ""
 }
 
+// isResizableMapType returns true for map types where scaling MaxEntries
+// is meaningful. Excludes special map types whose MaxEntries has fixed
+// semantics (e.g. ProgramArray entries are tail-call slots, not data).
+func isResizableMapType(t ebpf.MapType) bool {
+	switch t {
+	case ebpf.ProgramArray, ebpf.PerfEventArray, ebpf.CGroupArray,
+		ebpf.ArrayOfMaps, ebpf.HashOfMaps,
+		ebpf.DevMap, ebpf.SockMap, ebpf.CPUMap, ebpf.XSKMap, ebpf.SockHash,
+		ebpf.DevMapHash, ebpf.ReusePortSockArray:
+		return false
+	default:
+		return true
+	}
+}
+
 func setupBPFMapSizes(spec *ebpf.CollectionSpec, cfg *obi.Config, otelBPFFSPath string) {
 	globalScale := cfg.EBPF.MapsConfig.GlobalScaleFactor
 	if globalScale == 0 {
@@ -192,9 +208,14 @@ func setupBPFMapSizes(spec *ebpf.CollectionSpec, cfg *obi.Config, otelBPFFSPath 
 	}
 
 	for name, mSpec := range spec.Maps {
-		// Skip .rodata, .bss, .data sections (they're created as Array with max_entries = 1),
-		// plus any intentionally single-entry maps (like scratch map)
-		if mSpec.MaxEntries == 1 {
+		// Skip special map types whose MaxEntries is not a data size
+		if !isResizableMapType(mSpec.Type) {
+			continue
+		}
+
+		// Skip small maps: covers .rodata/.bss/.data (MaxEntries == 1),
+		// scratch maps, and maps too small to benefit from scaling
+		if mSpec.MaxEntries < MinResizableMapSize {
 			continue
 		}
 
