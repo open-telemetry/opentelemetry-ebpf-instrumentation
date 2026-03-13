@@ -12,9 +12,7 @@ services:
   pythonasync:
     build:
       context: ../../..
-      dockerfile: internal/test/integration/components/pythonasync-uvloop/Dockerfile
-      args:
-        PYTHON_VERSION: ${PYTHON_VERSION:-3.14}
+      dockerfile: internal/test/integration/components/pythonasync-uvloop/Dockerfile-3.14
     image: hatest-pythonasync-uvloop
     ports:
       - "8391:8391"

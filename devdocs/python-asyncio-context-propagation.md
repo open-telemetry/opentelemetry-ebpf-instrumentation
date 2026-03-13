@@ -13,8 +13,6 @@ context propagation for `asyncio` workloads, including applications running on
 - [Probe Points](#probe-points)
 - [Parent Lookup](#parent-lookup)
 - [Implementation Details](#implementation-details)
-- [Testing](#testing)
-- [Known Limitations](#known-limitations)
 
 ## Current State
 
@@ -51,7 +49,7 @@ The implementation introduces three pieces of Python-specific state:
 
 2. **Per-task state** in `python_task_state`
    - stores the parent task pointer,
-   - stores the request connection that belongs to that task,
+   - stores an ephemeral partial connection key (`connection_info_part_t`) that identifies the server-side request owned by that task,
    - stores a monotonically increasing version for `TaskObj*` reuse protection.
 
 3. **Context-to-task state** in `python_context_task`
@@ -114,8 +112,9 @@ Responsibilities:
   event-loop task before execution moves to the worker thread.
 
 The Docker test environment can expose `context_new_from_vars` instead of
-`PyContext_CopyCurrent()` because of compiler optimization, so both symbols map
-to the same probe.
+`PyContext_CopyCurrent()` because the compiler applies Tail Recursion
+Optimization (TRO) to `PyContext_CopyCurrent`, inlining it into
+`context_new_from_vars`, so both symbols map to the same probe.
 
 ### `task_step`
 
@@ -221,4 +220,3 @@ correlation points are defined by CPython task/context behavior:
 
 `uvloop` changes how readiness and callback scheduling are driven, but not the
 logical contract OBI uses to reconstruct task lineage.
-

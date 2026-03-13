@@ -473,28 +473,28 @@ func TestSuite_JavaKafkaLargeBuffer(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
-func runPythonAsyncUvloopSuite(t *testing.T, pyVersion, logFile string) {
-	compose, err := docker.ComposeSuite("docker-compose-python-async-uvloop.yml", path.Join(pathOutput, logFile))
+func TestSuite_PythonAsyncUvloop_3_9(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-uvloop-3.9.yml", path.Join(pathOutput, "test-suite-python-async-uvloop-3_9.log"))
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, compose.Close())
-	})
-
-	compose.Env = append(compose.Env, "PYTHON_VERSION="+pyVersion)
 	require.NoError(t, compose.Up())
 
 	t.Run("Sequential", testPythonAsyncSequential)
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
 	t.Run("Nested", testPythonAsyncNested)
+	require.NoError(t, compose.Close())
 }
 
-func TestSuite_PythonAsyncUvloop39(t *testing.T) {
-	runPythonAsyncUvloopSuite(t, "3.9", "test-suite-python-async-uvloop-3_9.log")
-}
+func TestSuite_PythonAsyncUvloop_3_14(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-uvloop-3.14.yml", path.Join(pathOutput, "test-suite-python-async-uvloop-3_14.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
 
-func TestSuite_PythonAsyncUvloop314(t *testing.T) {
-	runPythonAsyncUvloopSuite(t, "3.14", "test-suite-python-async-uvloop-3_14.log")
+	t.Run("Sequential", testPythonAsyncSequential)
+	t.Run("Concurrent", testPythonAsyncConcurrent)
+	t.Run("To Thread", testPythonAsyncToThread)
+	t.Run("Nested", testPythonAsyncNested)
+	require.NoError(t, compose.Close())
 }
 
 func TestSuite_PythonRedis(t *testing.T) {

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	json "github.com/goccy/go-json"
-	"github.com/mariomac/guara/pkg/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1547,18 +1546,18 @@ func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls 
 		slug := strconv.Itoa(i)
 		urlPath := endpoint + slug
 		var trace jaeger.Trace
-		test.Eventually(t, testTimeout, func(t require.TestingT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp, err := http.Get(jaegerQueryURL + "?service=pythonasync-uvloop&operation=GET%20" + endpoint + slug)
-			require.NoError(t, err)
+			require.NoError(ct, err)
 			if resp == nil {
 				return
 			}
-			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Equal(ct, http.StatusOK, resp.StatusCode)
 			var tq jaeger.TracesQuery
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&tq))
+			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 			traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath})
 			require.GreaterOrEqualf(
-				t,
+				ct,
 				len(traces),
 				1,
 				"slug=%s urlPath=%s queryData=%d",
@@ -1575,7 +1574,7 @@ func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls 
 
 			res := trace.FindByOperationName("GET "+urlPath, "server")
 			require.GreaterOrEqualf(
-				t,
+				ct,
 				len(res),
 				1,
 				"slug=%s urlPath=%s traces=%d selectedTraceSpans=%d selectedClientSpans=%d",
@@ -1586,8 +1585,8 @@ func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls 
 				len(trace.FindByOperationName("GET /", "client")),
 			)
 			server := res[0]
-			require.NotEmpty(t, server.TraceID)
-			require.NotEmpty(t, server.SpanID)
+			require.NotEmpty(ct, server.TraceID)
+			require.NotEmpty(ct, server.SpanID)
 
 			sd := server.Diff(
 				jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
@@ -1596,18 +1595,18 @@ func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls 
 				jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8391)},
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 			)
-			assert.Empty(t, sd, sd.String())
+			assert.Empty(ct, sd, sd.String())
 
 			res = trace.FindByOperationName("GET /", "client")
-			require.GreaterOrEqual(t, len(res), expectedClientCalls)
+			require.GreaterOrEqual(ct, len(res), expectedClientCalls)
 			for _, client := range res {
-				require.NotEmpty(t, client.TraceID)
-				require.Equal(t, server.TraceID, client.TraceID)
-				require.NotEmpty(t, client.SpanID)
+				require.NotEmpty(ct, client.TraceID)
+				require.Equal(ct, server.TraceID, client.TraceID)
+				require.NotEmpty(ct, client.SpanID)
 
 				parent, ok := trace.ParentOf(&client)
-				require.True(t, ok)
-				require.Equal(t, server.TraceID, parent.TraceID)
+				require.True(ct, ok)
+				require.Equal(ct, server.TraceID, parent.TraceID)
 
 				sd = client.Diff(
 					jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
@@ -1615,16 +1614,16 @@ func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls 
 					jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},
 					jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
 				)
-				assert.Empty(t, sd, sd.String())
+				assert.Empty(ct, sd, sd.String())
 			}
 
 			res = trace.FindByOperationName("GET /", "server")
-			require.GreaterOrEqual(t, len(res), 1)
+			require.GreaterOrEqual(ct, len(res), 1)
 			for _, ts := range res {
-				require.Equal(t, server.TraceID, ts.TraceID)
+				require.Equal(ct, server.TraceID, ts.TraceID)
 				parent, ok := trace.ParentOf(&ts)
-				require.True(t, ok)
-				require.Equal(t, server.TraceID, parent.TraceID)
+				require.True(ct, ok)
+				require.Equal(ct, server.TraceID, parent.TraceID)
 
 				sd = ts.Diff(
 					jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
@@ -1633,9 +1632,9 @@ func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls 
 					jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},
 					jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 				)
-				assert.Empty(t, sd, sd.String())
+				assert.Empty(ct, sd, sd.String())
 			}
-		}, test.Interval(100*time.Millisecond))
+		}, testTimeout, 100*time.Millisecond)
 	}
 }
 

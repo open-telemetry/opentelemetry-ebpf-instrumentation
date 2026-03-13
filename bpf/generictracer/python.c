@@ -92,6 +92,7 @@ int obi_uprobe_task_step(struct pt_regs *ctx) {
 
 SEC("uprobe/_asyncio.so:task_step_ret")
 int obi_uprobe_task_step_ret(struct pt_regs *ctx) {
+    (void)ctx;
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -236,6 +237,7 @@ int obi_uprobe_task_init(struct pt_regs *ctx) {
 
 SEC("uprobe/_asyncio.so:_asyncio_Task___init___ret")
 int obi_uprobe_task_init_ret(struct pt_regs *ctx) {
+    (void)ctx;
     u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
