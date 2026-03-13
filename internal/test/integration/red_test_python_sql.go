@@ -115,6 +115,11 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 			"error.type":              "42P01",
 			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=NA sql_state=42P01 message=relation \"obi.nonexisting\" does not exist",
 		},
+		"microsoft.sql_server": {
+			"db.response.status_code": "208",
+			"error.type":              "16",
+			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=208 sql_state=16 message=Invalid object name 'obi.nonexisting'.",
+		},
 	}
 
 	params := neturl.Values{}
@@ -340,4 +345,18 @@ func testREDMetricsPythonSQLSSL(t *testing.T) {
 			testREDMetricsForPythonSQLSSL(t, testCaseURL, "python3.14", "integration-test")
 		})
 	}
+}
+
+func testPythonMSSQL(t *testing.T) {
+	testCaseURL := "http://localhost:8381"
+	comm := "python3.14"
+	table := "actor"
+	db := "microsoft.sql_server"
+
+	waitForSQLTestComponentsWithDB(t, testCaseURL, "/query", db)
+
+	assertHTTPRequests(t, comm, "/query")
+	testPythonSQLQuery(t, comm, testCaseURL, table, db)
+	testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db)
+	testPythonSQLError(t, comm, testCaseURL, db)
 }
