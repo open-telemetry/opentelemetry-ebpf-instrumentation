@@ -291,8 +291,6 @@ func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg
 		nil,
 		p.log,
 		nil,
-		p.log,
-		nil,
 		append(p.closers, &p.bpfObjects)...,
 	)(ctx, nil)
 

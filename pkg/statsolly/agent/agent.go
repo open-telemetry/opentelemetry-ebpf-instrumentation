@@ -75,7 +75,7 @@ type Stats struct {
 	// elements used to decorate stats with extra information
 	agentIP net.IP
 
-	// stats metrics
+	// stat metrics
 	rbTracer *stats.RingBufTracer
 
 	// focuses on TCP/UDP stack internals (kprobes/tracepoints)

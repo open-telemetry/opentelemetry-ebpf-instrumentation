@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -110,9 +111,9 @@ func fakeRecord(srcPort, dstPort uint16) *ebpf.Stat {
 		TCPRtt: &ebpf.TCPRtt{
 			SrttUs: 100,
 		},
-		Attrs: ebpf.StatAttrs{
-			SourcePort:      int(srcPort),
-			DestinationPort: int(dstPort),
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: int(srcPort),
+			DstPort: int(dstPort),
 		},
 	}
 }

@@ -28,7 +28,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
-// StatMetricsConfig extends MetricsConfig for Network Metrics
+// StatMetricsConfig extends MetricsConfig for Statistical Metrics
 type StatMetricsConfig struct {
 	Metrics     *otelcfg.MetricsConfig
 	CommonCfg   *perapp.MetricsConfig
@@ -37,7 +37,7 @@ type StatMetricsConfig struct {
 
 func (mc *StatMetricsConfig) Enabled() bool {
 	return mc.Metrics != nil && mc.Metrics.EndpointEnabled() &&
-		mc.CommonCfg.Features.AnyNetwork()
+		mc.CommonCfg.Features.StatMetrics()
 }
 
 func smlog() *slog.Logger {
@@ -45,7 +45,7 @@ func smlog() *slog.Logger {
 }
 
 // getFilteredStatsResourceAttrs returns resource attributes that can be filtered based on the attribute selector
-// for network metrics.
+// for statistical metrics.
 func getFilteredStatsResourceAttrs(hostID string, attrSelector attributes.Selection) []attribute.KeyValue {
 	baseAttrs := []attribute.KeyValue{
 		attribute.String(attr.VendorPrefix+string(attr.VendorVersionSuffix), buildinfo.Version),
@@ -107,7 +107,7 @@ func newStatMetricsExporter(
 	input *msg.Queue[[]*ebpf.Stat],
 ) (*statMetricsExporter, error) {
 	log := smlog()
-	log.Debug("instantiating stats metrics exporter provider")
+	log.Debug("instantiating stat metrics exporter provider")
 	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
 	if err != nil {
 		log.Error("can't instantiate metrics exporter", "error", err)

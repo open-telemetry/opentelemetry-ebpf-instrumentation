@@ -11,17 +11,21 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
 	msgh "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/decorate"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/geoip"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/transform/k8s"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/export"
-	stats "go.opentelemetry.io/obi/pkg/internal/statsolly/stats"
-	"go.opentelemetry.io/obi/pkg/internal/statsolly/transform/k8s"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
-	"go.opentelemetry.io/obi/pkg/statsolly/cidr"
 )
 
-// mockable functions for testing
+func statAttrs(s *ebpf.Stat) *pipe.CommonAttrs { return &s.CommonAttrs }
 
+// mockable functions for testing
 var newRingBufTracer = func(s *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
 	return s.rbTracer.TraceLoop(out)
 }
@@ -48,24 +52,23 @@ func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	// whether the node needs to be instantiated or just bypass their input/output channels.
 	kubeDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "kubeDecoratedStats")
 	swi.Add(k8s.MetadataDecoratorProvider(ctx, &s.cfg.Attributes.Kubernetes, s.ctxInfo.K8sInformer,
-		ebpfStats, kubeDecoratedStats), swarm.WithID("K8sMetadataDecorator"))
+		statAttrs, ebpfStats, kubeDecoratedStats), swarm.WithID("K8sMetadataDecorator"))
 
 	dnsDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "dnsDecoratedStats")
-	swi.Add(stats.ReverseDNSProvider(&s.cfg.Stats.ReverseDNS, kubeDecoratedStats, dnsDecoratedStats),
+	swi.Add(rdns.ReverseDNSProvider(&s.cfg.Stats.ReverseDNS, statAttrs, kubeDecoratedStats, dnsDecoratedStats),
 		swarm.WithID("ReverseDNS"))
 
 	geoIPDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "geoIPDecoratedStats")
-	swi.Add(stats.GeoIPProvider(&s.cfg.Stats.GeoIP,
+	swi.Add(geoip.GeoIPProvider(&s.cfg.Stats.GeoIP, statAttrs,
 		dnsDecoratedStats, geoIPDecoratedStats), swarm.WithID("GeoIPDecorator"))
 
 	cidrDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "cidrDecoratedStats")
-	swi.Add(cidr.DecoratorProvider(s.cfg.Stats.CIDRs, geoIPDecoratedStats, cidrDecoratedStats),
+	swi.Add(cidr.DecoratorProvider(s.cfg.Stats.CIDRs, statAttrs, geoIPDecoratedStats, cidrDecoratedStats),
 		swarm.WithID("CIDRDecorator"))
 
 	decoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "decoratedStats")
-	swi.Add(func(_ context.Context) (swarm.RunFunc, error) {
-		return stats.Decorate(s.agentIP, cidrDecoratedStats, decoratedStats), nil
-	}, swarm.WithID("StatsDecorator"))
+	swi.Add(decorate.Decorate(s.agentIP, statAttrs, cidrDecoratedStats, decoratedStats),
+		swarm.WithID("StatsDecorator"))
 
 	filteredStats := s.ctxInfo.OverrideStatsExportQueue
 	if filteredStats == nil {

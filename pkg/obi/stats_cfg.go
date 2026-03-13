@@ -6,8 +6,9 @@ package obi // import "go.opentelemetry.io/obi/pkg/obi"
 import (
 	"time"
 
-	"go.opentelemetry.io/obi/pkg/internal/statsolly/stats"
-	"go.opentelemetry.io/obi/pkg/statsolly/cidr"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/geoip"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
 )
 
 // TODO: see if there is a way to merge common fields with NetworkConfig
@@ -41,22 +42,22 @@ type StatsConfig struct {
 	// to override the name with the network hostname of the source and destination IPs.
 	// This is an experimental feature and it is not guaranteed to work on most virtualized environments
 	// for external traffic.
-	ReverseDNS stats.ReverseDNS `yaml:"reverse_dns"`
+	ReverseDNS rdns.ReverseDNS `yaml:"reverse_dns"`
 	// Print the stats in the Standard Output, if true
 	Print bool `yaml:"print_stats" env:"OTEL_EBPF_STATS_PRINT_STATS" validate:"boolean"`
 
-	GeoIP stats.GeoIP `yaml:"geo_ip"`
+	GeoIP geoip.GeoIP `yaml:"geo_ip"`
 }
 
 var DefaultStatsConfig = StatsConfig{
 	AgentIPIface: "external",
 	AgentIPType:  "any",
-	ReverseDNS: stats.ReverseDNS{
-		Type:     stats.ReverseDNSNone,
+	ReverseDNS: rdns.ReverseDNS{
+		Type:     rdns.ReverseDNSNone,
 		CacheLen: 256,
 		CacheTTL: time.Hour,
 	},
-	GeoIP: stats.GeoIP{
+	GeoIP: geoip.GeoIP{
 		CacheLen: 512,
 		CacheTTL: time.Hour,
 	},

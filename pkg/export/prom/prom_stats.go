@@ -22,7 +22,7 @@ import (
 
 // injectable function reference for testing
 
-// StatsPrometheusConfig for stats metrics just wraps the global prom.StatsPrometheusConfig as provided by the user
+// StatsPrometheusConfig for stat metrics just wraps the global prom.StatsPrometheusConfig as provided by the user
 type StatsPrometheusConfig struct {
 	Config      *PrometheusConfig
 	SelectorCfg *attributes.SelectorConfig
@@ -104,7 +104,7 @@ func newStatsReporter(
 		mr.tcpRtt = NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: attributes.StatTCPRtt.Prom,
 			Help: "measures the smoothed TCP RTT as calculated by the kernel in seconds",
-			// TODO define a default bucket for network metrics when we have enough metrics to have something standard
+			// TODO define a default bucket for stat metrics when we have enough metrics to have something standard
 			Buckets:                         []float64{0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0},
 			NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 			NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,

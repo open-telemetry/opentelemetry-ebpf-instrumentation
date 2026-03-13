@@ -137,17 +137,17 @@ func setupNetO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *obi.Con
 }
 
 func setupStatsO11y(ctx context.Context, ctxInfo *global.ContextInfo, cfg *obi.Config) error {
-	slog.Info("starting OBI in Stats metrics mode")
+	slog.Info("starting OBI in Stat metrics mode")
 	statsAgent, err := statsagent.StatsAgent(ctxInfo, cfg)
 	if err != nil {
-		slog.Debug("can't start stats metrics capture", "error", err)
-		return fmt.Errorf("can't start stats metrics capture: %w", err)
+		slog.Debug("can't start stat metrics capture", "error", err)
+		return fmt.Errorf("can't start stat metrics capture: %w", err)
 	}
 
 	err = statsAgent.Run(ctx)
 	if err != nil {
-		slog.Debug("can't run stats metrics capture", "error", err)
-		return fmt.Errorf("can't run statsa metrics capture: %w", err)
+		slog.Debug("can't run stat metrics capture", "error", err)
+		return fmt.Errorf("can't run stat metrics capture: %w", err)
 	}
 
 	return nil

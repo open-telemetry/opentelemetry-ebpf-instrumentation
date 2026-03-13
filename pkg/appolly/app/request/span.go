@@ -51,7 +51,6 @@ const (
 	EventTypeDNS
 	EventTypeCouchbaseClient
 	EventTypeSQLServer
-	EventTypeAppNetTCPRtt
 )
 
 const (

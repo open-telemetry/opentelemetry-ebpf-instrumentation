@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 )
 
@@ -27,9 +28,9 @@ func capturePrintStat(s *ebpf.Stat) string {
 	return string(out)
 }
 
-func ipv4Addr(ip string) ebpf.IPAddr {
+func ipv4Addr(ip string) pipe.IPAddr {
 	parsed := net.ParseIP(ip).To16()
-	var addr ebpf.IPAddr
+	var addr pipe.IPAddr
 	copy(addr[:], parsed)
 	return addr
 }
@@ -40,14 +41,14 @@ func TestPrintStat_TCPRtt(t *testing.T) {
 		TCPRtt: &ebpf.TCPRtt{
 			SrttUs: 42,
 		},
-		Attrs: ebpf.StatAttrs{
-			OBIIP:           "10.0.0.1",
-			SrcAddr:         ipv4Addr("192.168.1.1"),
-			DstAddr:         ipv4Addr("10.0.0.2"),
-			SrcName:         "src-svc",
-			DstName:         "dst-svc",
-			SourcePort:      1234,
-			DestinationPort: 8080,
+		CommonAttrs: pipe.CommonAttrs{
+			OBIIP:   "10.0.0.1",
+			SrcAddr: ipv4Addr("192.168.1.1"),
+			DstAddr: ipv4Addr("10.0.0.2"),
+			SrcName: "src-svc",
+			DstName: "dst-svc",
+			SrcPort: 1234,
+			DstPort: 8080,
 		},
 	}
 
@@ -73,7 +74,7 @@ func TestPrintStat_WithMetadata(t *testing.T) {
 	s := &ebpf.Stat{
 		Type:   ebpf.StatTypeTCPRtt,
 		TCPRtt: &ebpf.TCPRtt{SrttUs: 10},
-		Attrs: ebpf.StatAttrs{
+		CommonAttrs: pipe.CommonAttrs{
 			Metadata: map[attr.Name]string{
 				"k8s.namespace": "default",
 				"k8s.pod":       "my-pod",
@@ -92,7 +93,7 @@ func TestPrintStat_WithMetadata(t *testing.T) {
 
 func TestPrintStat_NoTCPRtt(t *testing.T) {
 	s := &ebpf.Stat{
-		Attrs: ebpf.StatAttrs{
+		CommonAttrs: pipe.CommonAttrs{
 			OBIIP:   "1.2.3.4",
 			SrcName: "a",
 			DstName: "b",
@@ -111,9 +112,9 @@ func TestPrintStat_NoTCPRtt(t *testing.T) {
 
 func TestPrintStat_ZeroIPAddrs(t *testing.T) {
 	s := &ebpf.Stat{
-		Attrs: ebpf.StatAttrs{
-			SrcAddr: ebpf.IPAddr{}, // zero
-			DstAddr: ebpf.IPAddr{}, // zero
+		CommonAttrs: pipe.CommonAttrs{
+			SrcAddr: pipe.IPAddr{}, // zero
+			DstAddr: pipe.IPAddr{}, // zero
 		},
 	}
 
@@ -127,11 +128,11 @@ func TestPrintStat_ZeroIPAddrs(t *testing.T) {
 
 func TestPrintStat_IPv6(t *testing.T) {
 	parsed := net.ParseIP("2001:db8::1")
-	var addr ebpf.IPAddr
+	var addr pipe.IPAddr
 	copy(addr[:], parsed.To16())
 
 	s := &ebpf.Stat{
-		Attrs: ebpf.StatAttrs{
+		CommonAttrs: pipe.CommonAttrs{
 			SrcAddr: addr,
 		},
 	}

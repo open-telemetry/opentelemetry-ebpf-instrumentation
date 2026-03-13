@@ -18,33 +18,33 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 	var getter attributes.Getter[*Stat, attribute.KeyValue]
 	switch name {
 	case attr.OBIIP:
-		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.OBIIP), s.Attrs.OBIIP) }
+		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.OBIIP), s.CommonAttrs.OBIIP) }
 	case attr.SrcAddress:
 		getter = func(s *Stat) attribute.KeyValue {
-			return attribute.String(string(attr.SrcAddress), s.Attrs.SrcAddr.String())
+			return attribute.String(string(attr.SrcAddress), s.CommonAttrs.SrcAddr.IP().String())
 		}
 	case attr.DstAddress:
 		getter = func(s *Stat) attribute.KeyValue {
-			return attribute.String(string(attr.DstAddress), s.Attrs.DstAddr.String())
+			return attribute.String(string(attr.DstAddress), s.CommonAttrs.DstAddr.IP().String())
 		}
 	case attr.SrcPort:
 		getter = func(s *Stat) attribute.KeyValue {
-			return attribute.Int(string(attr.SrcPort), s.Attrs.SourcePort)
+			return attribute.Int(string(attr.SrcPort), s.CommonAttrs.SrcPort)
 		}
 	case attr.DstPort:
 		getter = func(s *Stat) attribute.KeyValue {
-			return attribute.Int(string(attr.DstPort), s.Attrs.DestinationPort)
+			return attribute.Int(string(attr.DstPort), s.CommonAttrs.DstPort)
 		}
 	case attr.SrcName:
-		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.SrcName), s.Attrs.SrcName) }
+		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.SrcName), s.CommonAttrs.SrcName) }
 	case attr.DstName:
-		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.DstName), s.Attrs.DstName) }
+		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.DstName), s.CommonAttrs.DstName) }
 	case attr.SrcZone:
-		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.SrcZone), s.Attrs.SrcZone) }
+		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.SrcZone), s.CommonAttrs.SrcZone) }
 	case attr.DstZone:
-		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.DstZone), s.Attrs.DstZone) }
+		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.DstZone), s.CommonAttrs.DstZone) }
 	default:
-		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(name), s.Attrs.Metadata[name]) }
+		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(name), s.CommonAttrs.Metadata[name]) }
 	}
 	return getter, getter != nil
 }

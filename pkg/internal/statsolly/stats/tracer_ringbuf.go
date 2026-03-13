@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -37,11 +38,10 @@ func NewRingBufTracer(statsMap *ciliumebpf.Map, cfg *config.EBPFTracer) *RingBuf
 }
 
 func (m *RingBufTracer) TraceLoop(out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
-	forward := ebpfcommon.ForwardRingbuf[*ebpf.Stat](
+	forward := ebpfcommon.ForwardRingbuf(
 		m.cfg,
 		m.statsMap,
 		parseStat,
-		nil, // isValid: all stats are valid
 		nil, // filter: no batch-level filtering
 		rtlog(),
 		nil, // metrics
@@ -76,11 +76,11 @@ func readTCPRttIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 		return ebpf.Stat{}, err
 	}
 
-	var srcAddr, dstAddr ebpf.IPAddr
+	var srcAddr, dstAddr pipe.IPAddr
 	destinationPort := 0
 	if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
-		srcAddr = ebpf.IPAddr(event.Conn.S_addr)
-		dstAddr = ebpf.IPAddr(event.Conn.D_addr)
+		srcAddr = pipe.IPAddr(event.Conn.S_addr)
+		dstAddr = pipe.IPAddr(event.Conn.D_addr)
 		destinationPort = int(event.Conn.D_port)
 	}
 
@@ -90,11 +90,11 @@ func readTCPRttIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 		TCPRtt: &ebpf.TCPRtt{
 			SrttUs: event.SrttUs,
 		},
-		Attrs: ebpf.StatAttrs{
-			SrcAddr:         srcAddr,
-			DstAddr:         dstAddr,
-			SourcePort:      sourcePort,
-			DestinationPort: destinationPort,
+		CommonAttrs: pipe.CommonAttrs{
+			SrcAddr: srcAddr,
+			DstAddr: dstAddr,
+			SrcPort: sourcePort,
+			DstPort: destinationPort,
 		},
 	}, nil
 }

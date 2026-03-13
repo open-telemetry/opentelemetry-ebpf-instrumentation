@@ -107,7 +107,7 @@ func getDefinitions(
 		extraGroupAttributes[GroupNet],
 	)
 
-	// stats metrics attributes
+	// stat metrics attributes
 	statsAttributes := NewAttrReportGroup(
 		false,
 		nil,
@@ -150,7 +150,7 @@ func getDefinitions(
 		extraGroupAttributes[GroupNetKube],
 	)
 
-	// attributes to be reported exclusively for stats metrics when
+	// attributes to be reported exclusively for stat metrics when
 	// kubernetes metadata is enabled
 	statsKubeAttributes := NewAttrReportGroup(
 		!kubeEnabled,
