@@ -8,6 +8,7 @@ import (
 	"debug/dwarf"
 	"debug/elf"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path"
@@ -167,6 +168,38 @@ func TestReadMembers_UnsupportedLocationType(t *testing.T) {
 	assert.Equal(t, map[GoOffset]struct{}{
 		234567: {},
 	}, notFoundFields)
+}
+
+func TestOffsetsForLibVersions(t *testing.T) {
+	offsets := offsetsForLibVersions(FieldOffsets{}, map[string]string{
+		"google.golang.org/grpc": "1.77.1",
+		"golang.org/x/net":       "0.45.0",
+		"github.com/lib/pq":      "1.11.2",
+	}, slog.Default())
+
+	mustMatch(t, FieldOffsets{
+		GrpcOneSixZero:     uint64(1),
+		GrpcOneSixNine:     uint64(1),
+		GrpcOneSevenSeven:  uint64(1),
+		HTTP2ZeroFortyFive: uint64(1),
+		PqOneElevenZero:    uint64(1),
+	}, offsets)
+}
+
+func TestOffsetsForLibVersions_PreVersionFlags(t *testing.T) {
+	offsets := offsetsForLibVersions(FieldOffsets{}, map[string]string{
+		"google.golang.org/grpc": "1.59.9",
+		"golang.org/x/net":       "0.44.0",
+		"github.com/lib/pq":      "1.10.9",
+	}, slog.Default())
+
+	mustMatch(t, FieldOffsets{
+		GrpcOneSixZero:     uint64(0),
+		GrpcOneSixNine:     uint64(0),
+		GrpcOneSevenSeven:  uint64(0),
+		HTTP2ZeroFortyFive: uint64(0),
+		PqOneElevenZero:    uint64(0),
+	}, offsets)
 }
 
 type fakeDwarfReader struct {

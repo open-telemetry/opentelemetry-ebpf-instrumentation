@@ -96,6 +96,7 @@ typedef enum {
     // lib/pq driver
     _pq_conn_cfg_pos,
     _pq_config_host_pos,
+    _pq_one_eleven_zero,
     _pq_conn_type_off,
     // mysql driver
     _mysql_conn_cfg_pos,

@@ -215,6 +215,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		// lib/pq driver
 		goexec.PqConnCfgPos,
 		goexec.PqConfigHostPos,
+		goexec.PqOneElevenZero,
 		// mysql driver
 		goexec.MySQLConnCfgPos,
 		goexec.MySQLConfigAddrPos,

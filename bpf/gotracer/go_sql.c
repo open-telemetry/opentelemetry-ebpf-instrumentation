@@ -212,6 +212,12 @@ read_pq_hostname_from_pqconn(void *pq_conn_ptr, char *hostname, u64 max_len) {
     return hostname[0] != '\0';
 }
 
+static __always_inline bool supports_pq_conn_cfg_hostname() {
+    off_table_t *ot = get_offsets_table();
+
+    return go_offset_of(ot, (go_offset){.v = _pq_one_eleven_zero}) != 0;
+}
+
 // SQL hostname extraction with driver type routing.
 // Uses conn_type to determine which driver-specific extraction to use or
 // attempts to extract hostname by trying supported database drivers
@@ -236,10 +242,12 @@ static __always_inline void extract_sql_hostname(sql_request_trace_t *trace,
 
     void *pq_conn_ptr = get_pq_conn_ptr(driver_conn_ptr);
     if (pq_conn_ptr) {
-        if (read_pq_hostname_from_pqconn(
-                pq_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
-            bpf_dbg_printk("extracted lib/pq hostname from conn.cfg: %s", trace->hostname);
-            return;
+        if (supports_pq_conn_cfg_hostname()) {
+            if (read_pq_hostname_from_pqconn(
+                    pq_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
+                bpf_dbg_printk("extracted lib/pq hostname from conn.cfg: %s", trace->hostname);
+                return;
+            }
         }
 
         // lib/pq < v1.11 does not expose the selected host on conn, so keep the
