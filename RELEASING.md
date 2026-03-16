@@ -1,6 +1,6 @@
 # Release Process
 
-For the project's versioning and stability policy, including how OBI versions unstable and future stable surfaces, see [VERSIONING.md](./VERSIONING.md).
+For the project's versioning and stability policy, including how OBI versions unstable surfaces today and stable surfaces in the future, see [VERSIONING.md](./VERSIONING.md).
 
 ## Pre-Release
 
