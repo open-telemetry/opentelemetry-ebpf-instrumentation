@@ -642,9 +642,13 @@ release-checksums:
 	@echo "### Generating checksums"
 	@mkdir -p $(RELEASE_DIR)
 	@cd $(RELEASE_DIR) && \
-	files=$$(find . -maxdepth 1 -name 'obi-$(RELEASE_VERSION)-*.tar.gz' | sed 's|^\./||' | sort) && \
+	files=$$(find . -maxdepth 1 \( \
+		-name 'obi-$(RELEASE_VERSION)-*.tar.gz' -o \
+		-name 'obi-$(RELEASE_VERSION)-*.cyclonedx.json' -o \
+		-name 'obi-java-agent-$(RELEASE_VERSION).cyclonedx.json' \
+	\) | sed 's|^\./||' | sort) && \
 	if [ -z "$$files" ]; then \
-		echo "ERROR: No release archives found for obi-$(RELEASE_VERSION)-*.tar.gz in $(RELEASE_DIR)"; \
+		echo "ERROR: No release artifacts found for obi-$(RELEASE_VERSION) in $(RELEASE_DIR)"; \
 		exit 1; \
 	fi && \
 	if command -v sha256sum >/dev/null 2>&1; then \
