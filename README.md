@@ -5,7 +5,16 @@ It provides a lightweight and efficient way to collect telemetry data using eBPF
 
 **O**penTelemetry e-**B**PF **I**nstrumentation is commonly referred to as OBI.
 
-:construction: This project is currently work in progress.
+## Project Status
+
+OBI is currently in Development. Users should expect breaking changes between minor releases while the project remains in `v0`.
+
+If you are evaluating OBI for production use:
+
+- pin to a specific semver release tag instead of relying on `latest`
+- review release notes before upgrading between minor versions
+- expect configuration, behavior, supported environments, and emitted telemetry to change between `v0` minor releases
+- avoid assuming telemetry continuity for dashboards, alerts, or downstream processors before OBI declares those surfaces stable
 
 For the project's versioning and stability policy, see [VERSIONING.md](./VERSIONING.md).
 

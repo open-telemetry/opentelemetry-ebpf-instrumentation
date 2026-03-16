@@ -20,6 +20,16 @@ All current OBI user-facing surfaces are unstable by default, including:
 
 Adding this document does not change the project's maturity. It records the current shared understanding of the project.
 
+### What Development means
+
+While OBI remains in Development:
+
+- users should expect to review release notes before upgrading between minor releases
+- minor releases may include breaking changes to configuration, defaults, behavior, telemetry, supported environments, and other user-facing surfaces
+- users should pin to semver release tags and should not treat `latest` as a compatibility contract
+- dashboards, alerts, and downstream processors should not assume telemetry continuity across `v0` minor releases unless a surface is explicitly documented as stable
+- consumers of the Go module should expect build-time compatibility expectations to evolve until stable guarantees are explicitly declared
+
 ## Release scope
 
 The default policy is to keep the core OBI release line versioned together.
