@@ -338,7 +338,7 @@ jobs:
 
       - name: Install Syft
         id: syft
-        uses: anchore/sbom-action/download-syft@fbfd9c6c189226748411491745178e0c2017392d # v0.23.1
+        uses: anchore/sbom-action/download-syft@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
         with:
           run: download-syft
           syft-version: v1.42.2
