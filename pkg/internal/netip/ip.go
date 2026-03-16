@@ -64,12 +64,12 @@ func FetchAgentIP(agentIP string, agentIPIface string, agentIPType string) (net.
 	case IPIfaceExternal:
 		return fromExternal(agentIPType)
 	default:
-		if !strings.HasPrefix(string(agentIPIface), IPIfaceNamedPrefix) {
+		if !strings.HasPrefix(agentIPIface, IPIfaceNamedPrefix) {
 			return nil, fmt.Errorf(
 				"invalid IP interface %q. Valid values are: %s, %s or %s<iface_name>",
 				agentIPIface, IPIfaceLocal, IPIfaceExternal, IPIfaceNamedPrefix)
 		}
-		return fromInterface(string(agentIPIface[len(IPIfaceNamedPrefix):]), agentIPType)
+		return fromInterface(agentIPIface[len(IPIfaceNamedPrefix):], agentIPType)
 	}
 }
 
