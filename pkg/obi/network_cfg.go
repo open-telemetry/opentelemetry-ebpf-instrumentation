@@ -28,9 +28,9 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/invopop/jsonschema"
 
-	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/geoip"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
+	"go.opentelemetry.io/obi/pkg/netolly/cidr"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 )
 
