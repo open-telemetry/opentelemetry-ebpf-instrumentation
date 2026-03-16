@@ -241,6 +241,7 @@ var DefaultConfig = Config{
 		Kubernetes: transform.KubernetesDecorator{
 			Enable:                kubeflags.EnabledDefault,
 			InformersSyncTimeout:  30 * time.Second,
+			ReconnectTimeout:      5 * time.Second,
 			InformersResyncPeriod: 30 * time.Minute,
 			ResourceLabels:        kube.DefaultResourceLabels,
 		},

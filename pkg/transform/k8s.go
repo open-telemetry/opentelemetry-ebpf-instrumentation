@@ -46,6 +46,8 @@ type KubernetesDecorator struct {
 
 	InformersSyncTimeout time.Duration `yaml:"informers_sync_timeout" env:"OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT"`
 
+	ReconnectTimeout time.Duration `yaml:"reconnect_timeout" env:"OTEL_EBPF_KUBE_RECONNECT_TIMEOUT" validate:"gte=0"`
+
 	// InformersResyncPeriod defaults to 30m. Higher values will reduce the load on the Kube API.
 	InformersResyncPeriod time.Duration `yaml:"informers_resync_period" env:"OTEL_EBPF_KUBE_INFORMERS_RESYNC_PERIOD"`
 

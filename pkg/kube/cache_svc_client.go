@@ -16,9 +16,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
 
-// TODO: make configurable
-const defaultReconnectTime = 5 * time.Second
-
 func cslog() *slog.Logger {
 	return slog.With("component", "kube.CacheSvcClient")
 }
@@ -55,9 +52,7 @@ func (sc *cacheSvcClient) Start(ctx context.Context) {
 	sc.waitForSubscription = make(chan struct{})
 	sc.waitForSynchronization = make(chan struct{})
 	sc.ctx = ctx
-	if sc.reconnectTime == 0 {
-		sc.reconnectTime = defaultReconnectTime
-	}
+
 	// subscribe itself to each message from the cache, to keep track of the
 	// message timestamps for a more efficient reconnection
 	sc.BaseNotifier.Subscribe(sc)
