@@ -53,12 +53,12 @@ Each release includes:
 
 ```bash
 # Set your desired version (find latest at https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
-VERSION=1.0.0
+export VERSION=1.0.0
 
 # Determine your architecture
 # For Intel/AMD 64-bit: amd64
 # For ARM 64-bit: arm64
-ARCH=amd64  # Change to arm64 for ARM systems
+export ARCH=amd64  # Change to arm64 for ARM systems
 ```
 
 Download the archive and checksum manifest:
@@ -93,7 +93,8 @@ tar -xzf obi-v${VERSION}-linux-${ARCH}.tar.gz
 
 #### Optional: Download and Inspect SBOMs
 
-CycloneDX SBOM files are optional metadata for supply-chain review and automation. They are not required to install or run OBI.
+CycloneDX SBOM files are optional metadata for supply-chain review and automation.
+They are not required to install or run OBI.
 
 Download the SBOMs you want to inspect:
 
