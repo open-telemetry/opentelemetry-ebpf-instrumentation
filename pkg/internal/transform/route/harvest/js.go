@@ -351,11 +351,26 @@ func ScanJSFileLines(path string, fn func(line string) bool) error {
 	}
 	defer file.Close()
 
+	inBlockComment := false
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
-		if line == "" || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/*") {
+		if inBlockComment {
+			if strings.Contains(line, "*/") {
+				inBlockComment = false
+			}
+			continue
+		}
+
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+
+		if strings.HasPrefix(line, "/*") {
+			if !strings.Contains(line, "*/") {
+				inBlockComment = true
+			}
 			continue
 		}
 
@@ -576,10 +591,9 @@ var (
 	cwdForPID     = ebpfcommon.CWDForPID
 )
 
-// FindAppDir locates the root directory of a Node.js application by reading
-// its command line and working directory from /proc. This is used by both
-// the route harvester and the SIGUSR1 source scanner.
-func FindAppDir(pid app.PID) (string, error) {
+// FindNodeJSAppDir locates the root directory of a Node.js application by
+// reading its command line and working directory from /proc.
+func FindNodeJSAppDir(pid app.PID) (string, error) {
 	rootDir := rootDirForPID(pid)
 	_, args, err := cmdlineForPID(pid)
 	if err != nil {
@@ -604,14 +618,17 @@ func FindAppDir(pid app.PID) (string, error) {
 // file found (.js, .ts, .mjs, .cjs). The callback can return filepath.SkipAll
 // to stop the walk early.
 func WalkJSFiles(root string, fn func(path string) error) error {
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	return filepath.Walk(root, newJSFileWalker(root, fn))
+}
+
+func newJSFileWalker(root string, fn func(path string) error) filepath.WalkFunc {
+	return func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
 		if info.IsDir() {
 			name := info.Name()
-			// skip the nested root directory in the original /proc/<pid>/root
 			if name == "root" && path != root {
 				return filepath.SkipDir
 			}
@@ -627,11 +644,11 @@ func WalkJSFiles(root string, fn func(path string) error) error {
 		}
 
 		return nil
-	})
+	}
 }
 
 func ExtractNodejsRoutes(pid app.PID) (*RouteHarvesterResult, error) {
-	dir, err := FindAppDir(pid)
+	dir, err := FindNodeJSAppDir(pid)
 	if err != nil {
 		return nil, err
 	}

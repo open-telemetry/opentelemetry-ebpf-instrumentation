@@ -88,6 +88,22 @@ console.log("Starting server");
 	}
 }
 
+func TestSourceScan_MultiLineBlockComment(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "app.js", `
+const http = require('http');
+/*
+  We used to handle SIGUSR1 for config reload:
+  process.on("SIGUSR1", () => reloadConfig());
+  But this was removed in v2.0
+*/
+const server = http.createServer();
+`)
+	if dirHasSIGUSR1Reference(dir) {
+		t.Error("expected SIGUSR1 in multi-line block comment to be ignored")
+	}
+}
+
 func TestSourceScan_ArrayPattern(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "index.js", `
