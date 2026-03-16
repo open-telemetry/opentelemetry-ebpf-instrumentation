@@ -51,7 +51,7 @@ While OBI is in `v0`:
 
 - breaking changes are allowed in minor releases
 - patch releases are for backward-compatible fixes, security fixes, documentation, packaging corrections, and similar low-risk changes
-- pre-release tags such as `-rc.1` may be used for release candidates
+- pre-release tags such as `-rc1` may be used for release candidates
 
 For `v0` releases:
 
