@@ -59,23 +59,28 @@ VERSION=1.0.0
 # For Intel/AMD 64-bit: amd64
 # For ARM 64-bit: arm64
 ARCH=amd64  # Change to arm64 for ARM systems
+```
 
+Download the archive and checksum manifest:
+
+```bash
 # Download the archive for your architecture
 wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-v${VERSION}-linux-${ARCH}.tar.gz
 
 # Download checksums
 wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/SHA256SUMS
+```
 
-# Optional: download the CycloneDX SBOM for your archive
-wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-v${VERSION}-linux-${ARCH}.cyclonedx.json
+Verify the downloaded release assets:
 
-# Optional: download the CycloneDX SBOM for the embedded Java agent
-wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-java-agent-v${VERSION}.cyclonedx.json
-
-# Verify the downloaded release assets
+```bash
+# Verify the archive you downloaded
 sha256sum -c SHA256SUMS --ignore-missing
+```
 
-# Extract the archive
+Extract the archive:
+
+```bash
 tar -xzf obi-v${VERSION}-linux-${ARCH}.tar.gz
 
 # The archive contains:
@@ -84,6 +89,36 @@ tar -xzf obi-v${VERSION}-linux-${ARCH}.tar.gz
 # - LICENSE: Project license
 # - NOTICE: Legal notices
 # - NOTICES/: Third-party licenses and attributions
+```
+
+#### Optional: Download and Inspect SBOMs
+
+CycloneDX SBOM files are optional metadata for supply-chain review and automation. They are not required to install or run OBI.
+
+Download the SBOMs you want to inspect:
+
+```bash
+# SBOM for the binary archive you downloaded
+wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-v${VERSION}-linux-${ARCH}.cyclonedx.json
+
+# SBOM for the embedded Java agent and its Java dependencies
+wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-java-agent-v${VERSION}.cyclonedx.json
+
+# Optional: verify the downloaded SBOM files against SHA256SUMS too
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Inspect the SBOM contents with common tools:
+
+```bash
+# List component names and versions from the archive SBOM
+jq '.components[] | {name, version}' obi-v${VERSION}-linux-${ARCH}.cyclonedx.json
+
+# Scan the SBOM with Grype
+grype sbom:obi-v${VERSION}-linux-${ARCH}.cyclonedx.json
+
+# Inspect the Java agent dependency graph
+jq '.components[] | {name, version}' obi-java-agent-v${VERSION}.cyclonedx.json
 ```
 
 #### Install to System
