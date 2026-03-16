@@ -607,10 +607,6 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.Attributes.Kubernetes.InformersSyncTimeout == 0 {
-		return ConfigError("OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT duration must be greater than 0s")
-	}
-
 	if c.Enabled(FeatureNetO11y) && !c.OTELMetrics.EndpointEnabled() &&
 		!c.Prometheus.EndpointEnabled() && !c.NetworkFlows.Print {
 		return ConfigError("enabling network metrics requires to enable at least the OpenTelemetry" +
