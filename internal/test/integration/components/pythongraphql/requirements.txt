@@ -16,9 +16,9 @@ anyio==4.12.1 \
     --hash=sha256:41cfcc3a4c85d3f05c932da7c26d0201ac36f72abd4435ba90d0464a3ffed703 \
     --hash=sha256:d405828884fc140aa80a3c667b8beed277f1dfedec42ba031bd6ac3db606ab6c
     # via starlette
-ariadne==0.29.0 \
-    --hash=sha256:c6c79f459ed747b6698aeabb5eb2f35913791fec7d488f42344fe79d5edb469d \
-    --hash=sha256:f0f8b2797af24ed068df979dd12899fa6621cbcefc0eb2adb25b5b0d19eedc43
+ariadne==1.0.0 \
+    --hash=sha256:bc6915edfa24202caab5f7c86f9d0acd7a38b614295637a85ee4859cdfc108bf \
+    --hash=sha256:e98b8705c273cf7f04260c884a05d70f15a1795394942ba913eb874399a0c814
     # via -r requirements.in
 click==8.3.1 \
     --hash=sha256:12ff4785d337a1bb490bb7e9c2b1ee5da3112e94a8622f26a6c77f5d2fc6842a \
