@@ -41,12 +41,12 @@ OBI provides pre-built binaries for Linux (amd64 and arm64). Download the latest
 
 Each release includes:
 
-- `obi-<version>-linux-amd64.tar.gz` - Linux AMD64/x86_64 archive
-- `obi-<version>-linux-arm64.tar.gz` - Linux ARM64 archive
-- `obi-<version>-linux-amd64.cyclonedx.json` - CycloneDX SBOM for the AMD64 archive
-- `obi-<version>-linux-arm64.cyclonedx.json` - CycloneDX SBOM for the ARM64 archive
-- `obi-<version>-source-generated.cyclonedx.json` - CycloneDX SBOM for the source-generated archive
-- `obi-java-agent-<version>.cyclonedx.json` - CycloneDX SBOM for the embedded Java agent and its Java dependencies
+- `obi-v<version>-linux-amd64.tar.gz` - Linux AMD64/x86_64 archive
+- `obi-v<version>-linux-arm64.tar.gz` - Linux ARM64 archive
+- `obi-v<version>-linux-amd64.cyclonedx.json` - CycloneDX SBOM for the AMD64 archive
+- `obi-v<version>-linux-arm64.cyclonedx.json` - CycloneDX SBOM for the ARM64 archive
+- `obi-v<version>-source-generated.cyclonedx.json` - CycloneDX SBOM for the source-generated archive
+- `obi-java-agent-v<version>.cyclonedx.json` - CycloneDX SBOM for the embedded Java agent and its Java dependencies
 - `SHA256SUMS` - Checksums for verification of the release archives and SBOM assets
 
 #### Download and Verify
