@@ -1,8 +1,11 @@
+import org.cyclonedx.model.Component
+
 plugins {
     java
     id("com.gradleup.shadow") version "9.3.2"
     id("com.github.jk1.dependency-license-report") version "3.1.1"
     id("me.champeau.jmh") version "0.7.3"
+    id("org.cyclonedx.bom") version "3.2.2"
     id("com.diffplug.spotless")
 }
 
@@ -144,4 +147,13 @@ licenseReport {
         com.github.jk1.license.render.TextReportRenderer("THIRD_PARTY_LICENSES.txt"),
         com.github.jk1.license.render.CsvReportRenderer("THIRD_PARTY_LICENSES.csv"),
     )
+}
+
+tasks.cyclonedxDirectBom {
+    includeConfigs = listOf("runtimeClasspath")
+    skipConfigs = listOf("testCompileClasspath", "testRuntimeClasspath")
+    projectType.set(Component.Type.APPLICATION)
+    componentName.set("obi-java-agent")
+    componentVersion.set(providers.environmentVariable("OBI_JAVA_AGENT_SBOM_VERSION").orElse(version.toString()))
+    includeBuildSystem.set(true)
 }

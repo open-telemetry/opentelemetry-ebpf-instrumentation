@@ -360,6 +360,22 @@ java-docker-build:
 	mkdir -p $(JAVA_AGENT_EMBED_DIR)
 	$(OCI_BIN) build --output type=local,dest=$(JAVA_AGENT_EMBED_DIR) --target=export -f javaagent.Dockerfile .
 
+.PHONY: java-docker-sbom
+java-docker-sbom:
+	@echo "### Generating Java agent SBOM with Docker"
+	@mkdir -p $(RELEASE_DIR)
+	@$(OCI_BIN) run --rm \
+		$(if $(findstring podman,$(OCI_BIN)),  ,-u "$(DOCKER_USER)") \
+		-e HOME=/tmp \
+		-e GRADLE_USER_HOME=/tmp/.gradle \
+		-e OBI_JAVA_AGENT_SBOM_VERSION="$(RELEASE_VERSION)" \
+		-v "$(CURDIR):/src:z" \
+		-w /src/pkg/internal/java \
+		$(GRADLE_IMAGE) \
+		gradle :agent:cyclonedxDirectBom --no-daemon
+	@cp pkg/internal/java/agent/build/reports/cyclonedx-direct/bom.json \
+		$(RELEASE_DIR)/obi-java-agent-$(RELEASE_VERSION).cyclonedx.json
+
 .PHONY: java-test
 java-test:
 	@echo "### Testing Java agent"

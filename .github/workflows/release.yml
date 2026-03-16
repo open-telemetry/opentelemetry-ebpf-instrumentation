@@ -333,6 +333,9 @@ jobs:
       - name: Build source-generated release artifacts
         run: make release-source
 
+      - name: Generate Java agent SBOM
+        run: make java-docker-sbom
+
       - name: Install Syft
         id: syft
         uses: anchore/sbom-action/download-syft@fbfd9c6c189226748411491745178e0c2017392d # v0.23.1
@@ -346,6 +349,12 @@ jobs:
           SYFT_CMD: ${{ steps.syft.outputs.cmd }}
         run: |
           set -euo pipefail
+
+          embedded_java_agent="pkg/internal/java/embedded/obi-java-agent.jar"
+          if [ ! -f "${embedded_java_agent}" ]; then
+            echo "ERROR: expected embedded Java agent missing: ${embedded_java_agent}"
+            exit 1
+          fi
 
           archives=(
             "dist/obi-${RELEASE_VERSION}-linux-amd64.tar.gz"
@@ -361,11 +370,23 @@ jobs:
 
             sbom_path="dist/$(basename "${archive}" .tar.gz).cyclonedx.json"
             (
-              unpack_dir="$(mktemp -d)"
-              trap 'rm -rf "${unpack_dir}"' EXIT
+              stage_dir="$(mktemp -d)"
+              trap 'rm -rf "${stage_dir}"' EXIT
 
-              tar -xzf "${archive}" -C "${unpack_dir}"
-              "${SYFT_CMD}" "${unpack_dir}" -o "cyclonedx-json=${sbom_path}"
+              tar -xzf "${archive}" -C "${stage_dir}"
+
+              case "${archive}" in
+                *-linux-amd64.tar.gz|*-linux-arm64.tar.gz)
+                  # The Java agent is embedded inside the obi binary and is not
+                  # discoverable by Syft from the ELF alone. Stage the shipped
+                  # JAR beside the unpacked archive so the binary SBOM includes
+                  # the Java dependency graph that is actually distributed.
+                  mkdir -p "${stage_dir}/embedded-java-agent"
+                  cp "${embedded_java_agent}" "${stage_dir}/embedded-java-agent/obi-java-agent.jar"
+                  ;;
+              esac
+
+              "${SYFT_CMD}" "dir:${stage_dir}" -o "cyclonedx-json=${sbom_path}"
             )
           done
 
@@ -375,8 +396,8 @@ jobs:
 
           shopt -s nullglob
           sboms=(dist/*.cyclonedx.json)
-          if [ "${#sboms[@]}" -ne 3 ]; then
-            echo "ERROR: expected 3 SBOMs, found ${#sboms[@]}"
+          if [ "${#sboms[@]}" -ne 4 ]; then
+            echo "ERROR: expected 4 SBOMs, found ${#sboms[@]}"
             exit 1
           fi
 

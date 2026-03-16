@@ -109,7 +109,8 @@ When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-su
    - Archives contain: `obi`, LICENSE, NOTICE, and NOTICES/ directory
    - Builds a custom source archive from the exact tagged source snapshot plus generated artifacts (including bpf2go outputs)
    - Generates one CycloneDX SBOM per release archive
-   - Generates SHA256 checksums for all uploaded release archives
+   - Generates a dedicated CycloneDX SBOM for the embedded Java agent to capture its Java dependency graph
+   - Generates SHA256 checksums for all uploaded release archives and SBOM assets
    - Verifies archive contents, binary executability, and SBOM structure
 
 4. **Create Draft Release**: A draft release is automatically created with:
@@ -120,7 +121,9 @@ When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-su
      `obi-<version>-linux-amd64.cyclonedx.json`,
      `obi-<version>-linux-arm64.cyclonedx.json`,
      and `obi-<version>-source-generated.cyclonedx.json`
-   - Checksum file: `SHA256SUMS`
+   - Java agent CycloneDX SBOM:
+     `obi-java-agent-<version>.cyclonedx.json`
+   - Checksum file: `SHA256SUMS` covering the release archives and SBOM assets
 
    The draft release allows maintainers to review artifacts before publication.
 
@@ -131,9 +134,10 @@ Once the workflow completes successfully, a draft release is automatically creat
 1. Navigate to the [GitHub Releases page](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
 2. Locate the draft release for your version
 3. Review the artifacts:
-   - Download and verify checksums: `sha256sum -c SHA256SUMS`
+   - Download and verify checksums for the release artifacts you fetched: `sha256sum -c SHA256SUMS`
    - Extract archives and test binaries if needed
    - Open the published CycloneDX SBOMs with your preferred SBOM tooling if you want to inspect release dependencies
+   - Use the dedicated Java agent SBOM when you need the full Java dependency graph for the JAR embedded inside `obi`
    - Review auto-generated release notes for accuracy
 4. Edit release notes if necessary to add context, highlight important changes, or improve clarity
 5. Once satisfied with artifacts and release notes, click "Publish release" to make it immutable and publicly available
@@ -180,6 +184,7 @@ The `dist/` directory will contain:
 - `obi-<version>-linux-amd64.cyclonedx.json`
 - `obi-<version>-linux-arm64.cyclonedx.json`
 - `obi-<version>-source-generated.cyclonedx.json`
+- `obi-java-agent-<version>.cyclonedx.json`
 - `SHA256SUMS`
 
 ### Manual Release Trigger

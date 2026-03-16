@@ -46,7 +46,8 @@ Each release includes:
 - `obi-<version>-linux-amd64.cyclonedx.json` - CycloneDX SBOM for the AMD64 archive
 - `obi-<version>-linux-arm64.cyclonedx.json` - CycloneDX SBOM for the ARM64 archive
 - `obi-<version>-source-generated.cyclonedx.json` - CycloneDX SBOM for the source-generated archive
-- `SHA256SUMS` - Checksums for verification
+- `obi-java-agent-<version>.cyclonedx.json` - CycloneDX SBOM for the embedded Java agent and its Java dependencies
+- `SHA256SUMS` - Checksums for verification of the release archives and SBOM assets
 
 #### Download and Verify
 
@@ -68,7 +69,10 @@ wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releas
 # Optional: download the CycloneDX SBOM for your archive
 wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-v${VERSION}-linux-${ARCH}.cyclonedx.json
 
-# Verify the archive
+# Optional: download the CycloneDX SBOM for the embedded Java agent
+wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-java-agent-v${VERSION}.cyclonedx.json
+
+# Verify the downloaded release assets
 sha256sum -c SHA256SUMS --ignore-missing
 
 # Extract the archive
