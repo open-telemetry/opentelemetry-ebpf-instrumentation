@@ -356,8 +356,9 @@ jobs:
             echo "ERROR: expected embedded Java agent missing: ${embedded_java_agent}"
             exit 1
           fi
-          java_agent_contents="$(tr -d '\n' < "${embedded_java_agent}")"
-          if [ "${java_agent_contents}" = "${java_agent_placeholder}" ]; then
+          # Fail if the embedded Java agent is still exactly the placeholder artifact.
+          if [ "$(wc -c < "${embedded_java_agent}")" -eq "${#java_agent_placeholder}" ] && \
+             printf '%s' "${java_agent_placeholder}" | cmp -s - "${embedded_java_agent}"; then
             echo "ERROR: embedded Java agent is still the placeholder artifact: ${embedded_java_agent}"
             exit 1
           fi
