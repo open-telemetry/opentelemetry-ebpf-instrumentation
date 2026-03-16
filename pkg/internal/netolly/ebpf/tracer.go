@@ -193,6 +193,10 @@ func (m *FlowFetcher) Close() error {
 	return nil
 }
 
+func (m *FlowFetcher) DroppedFlowBytesMap() *ebpf.Map {
+	return m.objects.DroppedFlowBytes
+}
+
 func (m *FlowFetcher) closeObjects() []error {
 	var errs []error
 	if err := m.objects.ObiEgressFlowParse.Close(); err != nil {
@@ -205,6 +209,9 @@ func (m *FlowFetcher) closeObjects() []error {
 		errs = append(errs, err)
 	}
 	if err := m.objects.DirectFlows.Close(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := m.objects.DroppedFlowBytes.Close(); err != nil {
 		errs = append(errs, err)
 	}
 	m.objects = nil

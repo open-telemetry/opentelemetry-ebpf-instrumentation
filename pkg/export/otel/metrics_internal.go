@@ -42,6 +42,9 @@ type InternalMetricsReporter struct {
 	bpfMapMaxEntries                 instrument.Int64Gauge
 	bpfInternalMetricsScrapeInterval time.Duration
 	informerLag                      instrument.Float64Histogram
+	// used for calculating deltas from an absolute value
+	totalDroppedFlowBytes uint64
+	droppedFlowBytes      instrument.Int64Counter
 }
 
 func imlog() *slog.Logger {
@@ -172,6 +175,15 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		return nil, err
 	}
 
+	droppedFlowBytes, err := meter.Int64Counter(
+		attr.VendorPrefix+`.internal.dropped.flow.bytes.total`,
+		instrument.WithDescription("How many bytes have been internally dropped due to collisions in the internal eBPF cache"),
+		instrument.WithUnit("By"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &InternalMetricsReporter{
 		ctx:                              ctx,
 		tracerFlushes:                    tracerFlushes,
@@ -188,6 +200,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		bpfMapMaxEntries:                 bpfMapMaxEntries,
 		bpfInternalMetricsScrapeInterval: internalMetrics.BpfMetricScrapeInterval,
 		informerLag:                      informerLag,
+		droppedFlowBytes:                 droppedFlowBytes,
 	}, nil
 }
 
@@ -312,4 +325,10 @@ func (p *InternalMetricsReporter) BpfInternalMetricsScrapeInterval() time.Durati
 
 func (p *InternalMetricsReporter) InformerLag(seconds float64) {
 	p.informerLag.Record(p.ctx, seconds)
+}
+
+func (p *InternalMetricsReporter) DroppedFlowBytes(total uint64) {
+	delta := int64(total - p.totalDroppedFlowBytes)
+	p.totalDroppedFlowBytes = total
+	p.droppedFlowBytes.Add(p.ctx, delta)
 }

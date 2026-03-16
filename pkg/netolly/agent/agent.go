@@ -30,6 +30,8 @@ import (
 	"net"
 	"time"
 
+	cebpf "github.com/cilium/ebpf"
+
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tcmanager"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
@@ -117,6 +119,8 @@ type ebpfFlowFetcher interface {
 
 	LookupAndDeleteMap() map[ebpf.NetFlowId][]ebpf.NetFlowMetrics
 	ReadRingBuf() (ringbuf.Record, error)
+
+	DroppedFlowBytesMap() *cebpf.Map
 }
 
 // FlowsAgent instantiates a new agent, given a configuration.
@@ -206,7 +210,7 @@ func flowsAgent(
 		return iface
 	}
 
-	mapTracer := flow.NewMapTracer(fetcher, cfg.NetworkFlows.CacheActiveTimeout)
+	mapTracer := flow.NewMapTracer(ctxInfo, fetcher, cfg.NetworkFlows.CacheActiveTimeout)
 	rbTracer := flow.NewRingBufTracer(fetcher, mapTracer, cfg.NetworkFlows.CacheActiveTimeout)
 
 	return &Flows{

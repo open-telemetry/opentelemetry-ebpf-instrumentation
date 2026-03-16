@@ -3,10 +3,12 @@
 
 #pragma once
 
+#include "bpfcore/vmlinux_amd64.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
 #include <netolly/flow.h>
+#include <logger/bpf_dbg.h>
 
 #define DISCARD 1
 #define SUBMIT 0
@@ -53,6 +55,14 @@ struct {
     __type(key, flow_id);
     __type(value, flow_metrics);
 } aggregated_flows SEC(".maps");
+
+// Accounts ow many flow bytes have not reached the userspace due to an error
+// in the allocation/update of direct_flows or aggregatted_flows
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(value, u64);
+} dropped_flow_bytes SEC(".maps");
 
 // Key: the flow identifier. Value: the flow direction.
 struct {
@@ -194,4 +204,12 @@ static inline u8 get_connection_initiator(flow_id *id, u16 flags) {
     }
 
     return flow_initiator;
+}
+
+static __always_inline void increase_dropped_bytes(u64 packet_bytes) {
+    const u32 key = 0;
+    u64 *dropped = (u64 *)bpf_map_lookup_elem(&dropped_flow_bytes, &key);
+    if (dropped != NULL) {
+        *dropped += packet_bytes;
+    }
 }

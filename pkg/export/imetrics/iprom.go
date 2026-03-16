@@ -43,6 +43,10 @@ type PrometheusReporter struct {
 	bpfMapMaxEntries                 *prometheus.GaugeVec
 	bpfInternalMetricsScrapeInterval time.Duration
 	informerLag                      prometheus.Histogram
+
+	// used for calculating deltas from an absolute value
+	totalDroppedFlowBytes uint64
+	droppedFlowBytes      prometheus.Counter
 }
 
 func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.PrometheusManager, registry *prometheus.Registry) *PrometheusReporter {
@@ -123,6 +127,10 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			NativeHistogramMaxExemplars:     20,
 			NativeHistogramMinResetDuration: 10 * time.Minute,
 		}),
+		droppedFlowBytes: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: attr.VendorPrefix + "_internal_dropped_flow_bytes_total",
+			Help: "How many bytes have been internally dropped due to collisions in the internal eBPF cache",
+		}),
 	}
 	if registry != nil {
 		registry.MustRegister(pr.tracerFlushes,
@@ -138,7 +146,8 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			pr.bpfProbeLatencies,
 			pr.bpfMapEntries,
 			pr.bpfMapMaxEntries,
-			pr.informerLag)
+			pr.informerLag,
+			pr.droppedFlowBytes)
 	} else {
 		manager.Register(cfg.Prometheus.Port, cfg.Prometheus.Path,
 			pr.tracerFlushes,
@@ -232,4 +241,10 @@ func (p *PrometheusReporter) BpfInternalMetricsScrapeInterval() time.Duration {
 
 func (p *PrometheusReporter) InformerLag(seconds float64) {
 	p.informerLag.Observe(seconds)
+}
+
+func (p *PrometheusReporter) DroppedFlowBytes(total uint64) {
+	delta := float64(total - p.totalDroppedFlowBytes)
+	p.totalDroppedFlowBytes = total
+	p.droppedFlowBytes.Add(delta)
 }

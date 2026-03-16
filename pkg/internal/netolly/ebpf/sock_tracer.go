@@ -136,6 +136,10 @@ func printVerifierErrorInfo(err error) {
 	}
 }
 
+func (m *SockFlowFetcher) DroppedFlowBytesMap() *ebpf.Map {
+	return m.objects.DroppedFlowBytes
+}
+
 // Close any resources that are taken up by the socket filter, the filter itself and some maps.
 func (m *SockFlowFetcher) Close() error {
 	m.log.Debug("unregistering eBPF objects")
@@ -172,6 +176,9 @@ func (m *SockFlowFetcher) closeObjects() []error {
 		errs = append(errs, err)
 	}
 	if err := m.objects.DirectFlows.Close(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := m.objects.DroppedFlowBytes.Close(); err != nil {
 		errs = append(errs, err)
 	}
 	m.objects = nil
