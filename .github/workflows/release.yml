@@ -351,8 +351,14 @@ jobs:
           set -euo pipefail
 
           embedded_java_agent="pkg/internal/java/embedded/obi-java-agent.jar"
+          java_agent_placeholder="OBI_JAVA_AGENT_PLACEHOLDER"
           if [ ! -f "${embedded_java_agent}" ]; then
             echo "ERROR: expected embedded Java agent missing: ${embedded_java_agent}"
+            exit 1
+          fi
+          java_agent_contents="$(tr -d '\n' < "${embedded_java_agent}")"
+          if [ "${java_agent_contents}" = "${java_agent_placeholder}" ]; then
+            echo "ERROR: embedded Java agent is still the placeholder artifact: ${embedded_java_agent}"
             exit 1
           fi
 
@@ -391,21 +397,36 @@ jobs:
           done
 
       - name: Validate release SBOMs
+        env:
+          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
 
-          shopt -s nullglob
-          sboms=(dist/*.cyclonedx.json)
-          if [ "${#sboms[@]}" -ne 4 ]; then
-            echo "ERROR: expected 4 SBOMs, found ${#sboms[@]}"
-            exit 1
-          fi
+          sboms=(
+            "dist/obi-${RELEASE_VERSION}-linux-amd64.cyclonedx.json"
+            "dist/obi-${RELEASE_VERSION}-linux-arm64.cyclonedx.json"
+            "dist/obi-${RELEASE_VERSION}-source-generated.cyclonedx.json"
+            "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json"
+          )
 
           for sbom in "${sboms[@]}"; do
+            if [ ! -f "${sbom}" ]; then
+              echo "ERROR: expected SBOM missing: ${sbom}"
+              exit 1
+            fi
+
             jq -e '.bomFormat == "CycloneDX"' "${sbom}" >/dev/null
             jq -e '.specVersion != null' "${sbom}" >/dev/null
             jq -e '.metadata.component != null' "${sbom}" >/dev/null
           done
+
+          jq -e '[.components[] | select(.purl? and (.purl | startswith("pkg:maven/")))] | length > 0' \
+            "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json" >/dev/null
+
+      - name: Regenerate release checksums
+        env:
+          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
+        run: make release-checksums RELEASE_VERSION="${RELEASE_VERSION}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
