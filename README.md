@@ -7,6 +7,8 @@ It provides a lightweight and efficient way to collect telemetry data using eBPF
 
 :construction: This project is currently work in progress.
 
+For the project's versioning and stability policy, see [VERSIONING.md](./VERSIONING.md).
+
 ## How to start developing
 
 Requirements:

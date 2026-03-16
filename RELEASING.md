@@ -1,5 +1,7 @@
 # Release Process
 
+For the project's versioning and stability policy, including how OBI versions unstable and future stable surfaces, see [VERSIONING.md](./VERSIONING.md).
+
 ## Pre-Release
 
 First, decide which module sets will be released and update their versions in `versions.yaml`.
