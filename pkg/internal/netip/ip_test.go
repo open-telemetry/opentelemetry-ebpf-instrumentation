@@ -19,7 +19,7 @@
 // This implementation is a derivation of the code in
 // https://github.com/netobserv/netobserv-ebpf-agent/tree/release-1.4
 
-package agent
+package netip
 
 import (
 	"errors"
@@ -121,7 +121,7 @@ func TestAgentIP_Any(t *testing.T) {
 		},
 	} {
 		t.Run(tc.dsc, func(t *testing.T) {
-			ip, err := fetchAgentIP(&tc.cfg)
+			ip, err := FetchAgentIP(tc.cfg.AgentIP, string(tc.cfg.AgentIPIface), tc.cfg.AgentIPType)
 			require.NoError(t, err)
 			require.Truef(t, tc.expect.Equal(ip), "expected: %s. Got: %s", tc.expect, ip)
 		})
