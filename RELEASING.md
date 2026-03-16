@@ -108,13 +108,18 @@ When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-su
    - Runs `make release` to generate versioned tarballs for amd64 and arm64
    - Archives contain: `obi`, LICENSE, NOTICE, and NOTICES/ directory
    - Builds a custom source archive from the exact tagged source snapshot plus generated artifacts (including bpf2go outputs)
+   - Generates one CycloneDX SBOM per release archive
    - Generates SHA256 checksums for all uploaded release archives
-   - Verifies archive contents and binary executability
+   - Verifies archive contents, binary executability, and SBOM structure
 
 4. **Create Draft Release**: A draft release is automatically created with:
    - Auto-generated release notes from GitHub
    - Multi-architecture tarballs: `obi-<version>-linux-amd64.tar.gz` and `obi-<version>-linux-arm64.tar.gz`
    - Source+generated archive: `obi-<version>-source-generated.tar.gz`
+   - CycloneDX SBOMs for each archive:
+     `obi-<version>-linux-amd64.cyclonedx.json`,
+     `obi-<version>-linux-arm64.cyclonedx.json`,
+     and `obi-<version>-source-generated.cyclonedx.json`
    - Checksum file: `SHA256SUMS`
 
    The draft release allows maintainers to review artifacts before publication.
@@ -128,6 +133,7 @@ Once the workflow completes successfully, a draft release is automatically creat
 3. Review the artifacts:
    - Download and verify checksums: `sha256sum -c SHA256SUMS`
    - Extract archives and test binaries if needed
+   - Open the published CycloneDX SBOMs with your preferred SBOM tooling if you want to inspect release dependencies
    - Review auto-generated release notes for accuracy
 4. Edit release notes if necessary to add context, highlight important changes, or improve clarity
 5. Once satisfied with artifacts and release notes, click "Publish release" to make it immutable and publicly available
@@ -171,6 +177,9 @@ The `dist/` directory will contain:
 - `obi-<version>-linux-amd64.tar.gz`
 - `obi-<version>-linux-arm64.tar.gz`
 - `obi-<version>-source-generated.tar.gz`
+- `obi-<version>-linux-amd64.cyclonedx.json`
+- `obi-<version>-linux-arm64.cyclonedx.json`
+- `obi-<version>-source-generated.cyclonedx.json`
 - `SHA256SUMS`
 
 ### Manual Release Trigger

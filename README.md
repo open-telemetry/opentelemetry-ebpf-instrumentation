@@ -43,6 +43,9 @@ Each release includes:
 
 - `obi-<version>-linux-amd64.tar.gz` - Linux AMD64/x86_64 archive
 - `obi-<version>-linux-arm64.tar.gz` - Linux ARM64 archive
+- `obi-<version>-linux-amd64.cyclonedx.json` - CycloneDX SBOM for the AMD64 archive
+- `obi-<version>-linux-arm64.cyclonedx.json` - CycloneDX SBOM for the ARM64 archive
+- `obi-<version>-source-generated.cyclonedx.json` - CycloneDX SBOM for the source-generated archive
 - `SHA256SUMS` - Checksums for verification
 
 #### Download and Verify
@@ -61,6 +64,9 @@ wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releas
 
 # Download checksums
 wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/SHA256SUMS
+
+# Optional: download the CycloneDX SBOM for your archive
+wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-v${VERSION}-linux-${ARCH}.cyclonedx.json
 
 # Verify the archive
 sha256sum -c SHA256SUMS --ignore-missing
