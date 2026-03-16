@@ -19,7 +19,7 @@
 // This implementation is a derivation of the code in
 // https://github.com/netobserv/netobserv-ebpf-agent/tree/release-1.4
 
-package netip // import "go.opentelemetry.io/obi/pkg/internal/netip"
+package netip // import "go.opentelemetry.io/obi/pkg/netip"
 
 import (
 	"fmt"

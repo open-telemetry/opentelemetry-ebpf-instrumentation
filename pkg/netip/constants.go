@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package netip // import "go.opentelemetry.io/obi/pkg/internal/netip"
+package netip // import "go.opentelemetry.io/obi/pkg/netip"
 
 const (
 	IPTypeAny  = "any"
