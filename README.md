@@ -11,7 +11,7 @@ OBI is currently in Development. Users should expect breaking changes between mi
 
 If you are evaluating OBI for production use:
 
-- pin to a specific semver release tag instead of relying on `latest`
+- pin to a specific semver release tag instead of relying on `latest`, which is a moving, non-stable tag
 - review release notes before upgrading between minor versions
 - expect configuration, behavior, supported environments, and emitted telemetry to change between `v0` minor releases
 - avoid assuming telemetry continuity for dashboards, alerts, or downstream processors before OBI declares those surfaces stable
