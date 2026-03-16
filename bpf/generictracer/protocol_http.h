@@ -9,6 +9,7 @@
 #include <bpfcore/utils.h>
 
 #include <common/common.h>
+#include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/large_buffers.h>
 #include <common/ringbuf.h>
@@ -16,6 +17,7 @@
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
 #include <common/trace_parent.h>
+#include <common/tracked_connection.h>
 
 #include <generictracer/maps/http_info_mem.h>
 
@@ -24,8 +26,8 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <maps/accepted_connections.h>
 #include <maps/active_ssl_connections.h>
+#include <maps/connection_tracker.h>
 #include <maps/ongoing_http.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>
@@ -404,17 +406,19 @@ static __always_inline void process_http_request(
     const u64 start_time = bpf_ktime_get_ns();
     u64 req_time = start_time;
 
-    if (info->type == EVENT_HTTP_REQUEST) {
-        u64 *accept_time = bpf_map_lookup_elem(&accepted_connections, &info->conn_info);
-        if (accept_time) {
+    tracked_connection_t *t_conn = bpf_map_lookup_elem(&connection_tracker, &info->conn_info);
+    if (t_conn) {
+        if (t_conn->time) {
             bpf_d_printk("prev_start_time=%ld, actual_start_time=%ld [%s]",
                          start_time,
-                         *accept_time,
+                         t_conn->time,
                          __FUNCTION__);
-            req_time = *accept_time;
-            // delete just in case the connection is reused, so we don't produce wrong info
-            bpf_map_delete_elem(&accepted_connections, &info->conn_info);
+            req_time = t_conn->time;
         }
+        // set the time to zero in case the connection is reused, so we don't produce wrong info
+        // but keep the connection info around so that we can tell which connections are valid
+        // in the socket filter
+        t_conn->time = 0;
     }
 
     info->start_monotime_ns = start_time;

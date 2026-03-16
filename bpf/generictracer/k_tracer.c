@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+#include <common/backup_buffer.h>
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/iov_iter.h>
@@ -18,6 +19,7 @@
 #include <common/ssl_helpers.h>
 #include <common/tc_common.h>
 #include <common/tcp_info.h>
+#include <common/tracked_connection.h>
 
 #include <generictracer/dns.h>
 #include <generictracer/k_send_receive.h>
@@ -25,7 +27,9 @@
 #include <generictracer/k_unix_sock.h>
 #include <generictracer/maps/active_accept_args.h>
 #include <generictracer/maps/active_connect_args.h>
+#include <generictracer/maps/backup_buffer_mem.h>
 #include <generictracer/maps/listening_ports.h>
+#include <generictracer/maps/sock_filter_buffers.h>
 #include <generictracer/maps/tcp_connection_map.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/protocol_http.h>
@@ -39,12 +43,13 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <maps/accepted_connections.h>
+#include <maps/connection_tracker.h>
 #include <maps/fd_map.h>
+#include <maps/filter_ports.h>
 #include <maps/fd_to_connection.h>
 #include <maps/msg_buffers.h>
 #include <maps/sock_pids.h>
-
+#include <maps/unreadable_buffer_ports.h>
 #include <pid/pid.h>
 
 #include <shared/obi_ctx.h>
@@ -109,7 +114,11 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
     struct socket *sock = (struct socket *)args->addr;
     struct sock *sk = BPF_CORE_READ(sock, sk);
     struct sock_port_ns np = sock_port_ns_from_sk(sk);
+
+    bpf_dbg_printk("port=%d, ns=%d", np.port, np.netns);
+
     bpf_map_update_elem(&listening_ports, &np, &(bool){true}, BPF_ANY);
+    bpf_map_update_elem(&filter_ports, &np.port, &(bool){true}, BPF_ANY);
 
     ssl_pid_connection_info_t info = {};
 
@@ -134,9 +143,12 @@ int BPF_KRETPROBE(obi_kretprobe_sys_accept4, s32 fd) {
         // TODO: try to merge with store_accept_fd_info() above
         bpf_map_update_elem(&fd_to_connection, &key, &info.p_conn.conn, BPF_ANY);
 
-        const u64 accept_time = bpf_ktime_get_ns();
+        tracked_connection_t t_conn = {
+            .time = bpf_ktime_get_ns(),
+            .direction = TCP_RECV,
+        };
 
-        bpf_map_update_elem(&accepted_connections, &info.p_conn.conn, &accept_time, BPF_ANY);
+        bpf_map_update_elem(&connection_tracker, &info.p_conn.conn, &t_conn, BPF_ANY);
     } else {
         bpf_dbg_printk("Failed to parse accept socket info");
     }
@@ -330,6 +342,14 @@ int BPF_KRETPROBE(obi_kretprobe_sys_connect, int res) {
         bpf_map_update_elem(&pid_tid_to_conn, &id, &info, BPF_ANY); // Support SSL lookup
 
         setup_cp_support_conn_info(&info.p_conn, true);
+
+        tracked_connection_t t_conn = {
+            .time = bpf_ktime_get_ns(),
+            .direction = TCP_SEND,
+        };
+
+        bpf_map_update_elem(&connection_tracker, &info.p_conn.conn, &t_conn, BPF_ANY);
+
         if (args->failed) {
             cp_support_data_t *cp_data =
                 bpf_map_lookup_elem(&cp_support_connect_info, &info.p_conn);
@@ -465,6 +485,14 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                     if (!size) {
                         s_args.size = -1;
                         bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
+                        // At this point send_msg couldn't read the buffer, likely it's
+                        // kernel bvec. We inform the socket filter that it needs to capture
+                        // the buffer for us by storing into the backup buffers map, and
+                        // then the return probe on send_msg will finish the work.
+                        backup_buffer_t backup_buf = {0};
+                        bpf_map_update_elem(
+                            &sock_filter_buffers, &s_args.p_conn.conn, &backup_buf, BPF_ANY);
+
                         bpf_dbg_printk("can't find iovec ptr in msghdr, not tracking sendmsg");
                         return 0;
                     }
@@ -557,6 +585,12 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                     bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
 
                     bpf_map_delete_elem(&msg_buffers, &e_key);
+                    // We succeeded to call handle_buf with the message buffers setup by
+                    // the sock_msg program, so we delete the backup buffer that the sock
+                    // filter needs to collect.
+                    bpf_printk("deleting sock buf");
+                    //bpf_map_delete_elem(&sock_filter_buffers, &s_args.p_conn.conn);
+
                     // Logically last for !ssl.
                     handle_buf_with_connection(
                         ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
@@ -593,6 +627,22 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg, int sent_len) {
         if (sent_len <
             MIN_HTTP_SIZE) { // Sometimes app servers don't send close, but small responses back
             finish_possible_delayed_http_request(&s_args->p_conn);
+        }
+
+        backup_buffer_t *backup = bpf_map_lookup_elem(&sock_filter_buffers, &s_args->p_conn.conn);
+        if (backup) {
+            bpf_map_delete_elem(&active_send_args, &id);
+            bpf_printk("Deleting 1");
+            //bpf_map_delete_elem(&sock_filter_buffers, &s_args->p_conn.conn);
+
+            // Logically last, doesn't return it tail calls
+            handle_buf_with_connection(ctx,
+                                       &s_args->p_conn,
+                                       backup->buf,
+                                       s_args->size,
+                                       NO_SSL,
+                                       TCP_SEND,
+                                       s_args->orig_dport);
         }
     }
 
@@ -641,7 +691,20 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         bpf_map_delete_elem(&cp_support_connect_info, &info);
     }
 
-    force_sent_event(id, &sock_p);
+    bool *unreadable = 0;
+    if (success) {
+        if (info.conn.d_port) {
+            unreadable = bpf_map_lookup_elem(&unreadable_buffer_ports, &info.conn.d_port);
+        }
+
+        if (!unreadable && info.conn.s_port) {
+            unreadable = bpf_map_lookup_elem(&unreadable_buffer_ports, &info.conn.s_port);
+        }
+    }
+
+    if (!unreadable) {
+        force_sent_event(id, &sock_p);
+    }
 
     if (success) {
         //dbg_print_http_connection_info(&info.conn);
@@ -649,7 +712,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         terminate_http_request_if_needed(&info);
         bpf_map_delete_elem(&ongoing_tcp_req, &info);
         cleanup_tcp_trace_info_if_needed(&info);
-        bpf_map_delete_elem(&accepted_connections, &info.conn);
+        bpf_map_delete_elem(&connection_tracker, &info.conn);
     }
 
     bpf_map_delete_elem(&active_send_args, &id);
@@ -904,9 +967,38 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
 
     if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
         const u16 orig_dport = info.conn.d_port;
+        const u16 orig_sport = info.conn.s_port;
         d_print_http_connection_info(&info.conn);
         sort_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
+
+        if (buf == 0) {
+            // We couldn't find any buffer to do the work for the recvmsg.
+            // This typically means the application layer isn't using tcp_recvmsg
+            // but something like pipe splicing. We need to lookup to see if
+            // we have a buffer captured for us by the socket filter, but also
+            // mark the server ports as problematic, so that the socket filter
+            // can help us.
+
+            backup_buffer_t *backup = bpf_map_lookup_elem(&sock_filter_buffers, &info.conn);
+            if (backup) {
+                buf = backup->buf;
+                bpf_dbg_printk("found backup buf=%llx", buf);
+                // delete right away to avoid duplicate responses
+                bpf_printk("Deleting 2");
+
+                //bpf_map_delete_elem(&sock_filter_buffers, &info.conn);
+            } else {
+                bool unreadable = true;
+                // We have anunreadable connection, we mark both ports as unreadable.
+                // Tecnically we have information in tracked connection if this was connect or accept,
+                // however if OBI tracks both processes, we'll see connect and accept on the same pair
+                // and last one wins.
+                bpf_dbg_printk("setting unreadable buffer ports=%d,%d", orig_dport, orig_sport);
+                bpf_map_update_elem(&unreadable_buffer_ports, &orig_dport, &unreadable, BPF_ANY);
+                bpf_map_update_elem(&unreadable_buffer_ports, &orig_sport, &unreadable, BPF_ANY);
+            }
+        }
 
         cp_support_established(&info);
         setup_connection_to_pid_mapping(id, &info, orig_dport);
@@ -992,6 +1084,29 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
         return 0;
     }
 
+    // Save the original destination port before sorting. For incoming connections this is the
+    // local server port.
+    const u16 orig_dport = conn.d_port;
+
+    //d_print_http_connection_info(&conn);
+
+    sort_connection_info(&conn);
+
+    // Check if this is a connection we should be looking at.
+    // For outgoing connections, connect() populates connection_tracker before any data flows.
+    // For incoming connections, the socket filter fires before accept(), so connection_tracker
+    // won't have the entry yet. We fall back to checking filter_ports (listening port, no netns
+    // because we can't find it here in the socket filter).
+    //
+    // By definition we'll miss the first accept connection buffers.
+    tracked_connection_t *t_conn = bpf_map_lookup_elem(&connection_tracker, &conn);
+    if (!t_conn) {
+        bool *fp = bpf_map_lookup_elem(&filter_ports, &orig_dport);
+        if (!fp) {
+            return 0;
+        }
+    }
+
     // we don't want to read the whole buffer for every packed that passes our checks, we read only a bit and check if it's truly HTTP request/response.
     unsigned char buf[MIN_HTTP_SIZE] = {0};
     bpf_skb_load_bytes(skb, tcp.hdr_len, (void *)buf, sizeof(buf));
@@ -1013,8 +1128,6 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
             const u64 cookie = bpf_get_socket_cookie(skb);
             //bpf_dbg_printk("cookie=%llx, len=%d, buf=[%s]", cookie, len, buf);
             //dbg_print_http_connection_info(&conn);
-
-            sort_connection_info(&conn);
 
             // The code below is looking to see if we have recorded black-box trace info on
             // another interface. We do this for client calls, where essentially the original
@@ -1050,6 +1163,48 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
                 }
             }
         }
+    }
+
+    // We check here for problematic buffer captures
+    // There are two situatios:
+    //   1. The sendmsg couldn't capture the buffer, we need to do it for them.
+    //      This is the lookup by connection
+    //   2. We have problematic receive port recorded. These are receive buffers we
+    //      couldn't read, but since the socket filter runs before the receive probe
+    //      we rely on a prior port connection recorded by tcp_close which saw an
+    //      incomplete request.
+    unsigned char *capture_buf = 0;
+
+    backup_buffer_t *back_buf = bpf_map_lookup_elem(&sock_filter_buffers, &conn);
+    if (back_buf) { // Scenario 1.
+        // if we've seen this before, don't capture it again.
+        if (back_buf->tcp_seq == tcp.seq) {
+            return 0;
+        }
+        back_buf->tcp_seq = tcp.seq;
+        capture_buf = back_buf->buf;
+    } else { // Scenario 2.
+        bool *unreadable = bpf_map_lookup_elem(&unreadable_buffer_ports, &conn.d_port);
+        if (!unreadable) {
+            unreadable = bpf_map_lookup_elem(&unreadable_buffer_ports, &conn.s_port);
+        }
+
+        if (unreadable) {
+            backup_buffer_t *bbuf = backup_buf_memory();
+            if (bbuf) {
+                bbuf->tcp_seq = tcp.seq;
+                bpf_map_update_elem(&sock_filter_buffers, &conn, &bbuf, BPF_ANY);
+                back_buf = bpf_map_lookup_elem(&sock_filter_buffers, &conn);
+
+                capture_buf = back_buf->buf;
+            }
+        }
+    }
+
+    if (capture_buf) {
+        read_skb_bytes(skb, tcp.hdr_len, (void *)capture_buf, k_backup_buffer_len);
+
+        bpf_d_printk("captured fallback buffer %s", capture_buf);
     }
 
     return 0;
@@ -1260,5 +1415,6 @@ int BPF_KPROBE(obi_kprobe_inet_csk_listen_stop, struct sock *sk) {
 
     struct sock_port_ns np = sock_port_ns_from_sk(sk);
     bpf_map_delete_elem(&listening_ports, &np);
+    bpf_map_delete_elem(&filter_ports, &np.port);
     return 0;
 }

@@ -6,14 +6,13 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/backup_buffer.h>
 #include <common/connection_info.h>
 #include <common/map_sizing.h>
-#include <common/pin_internal.h>
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, connection_info_t); // connection info
-    __type(value, u64);             // time
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} accepted_connections SEC(".maps");
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __type(key, connection_info_t);
+    __type(value, backup_buffer_t);
+} sock_filter_buffers SEC(".maps");
