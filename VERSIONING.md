@@ -26,7 +26,7 @@ While OBI remains in Development:
 
 - users should expect to review release notes before upgrading between minor releases
 - minor releases may include breaking changes to configuration, defaults, behavior, telemetry, supported environments, and other user-facing surfaces
-- users should pin to semver release tags and should not treat `latest` as a compatibility contract
+- users should pin to semver release tags and should not treat `latest` as a stable or compatibility tag
 - dashboards, alerts, and downstream processors should not assume telemetry continuity across `v0` minor releases unless a surface is explicitly documented as stable
 - consumers of the Go module should expect build-time compatibility expectations to evolve until stable guarantees are explicitly declared
 
@@ -71,7 +71,7 @@ A major version bump is required for any breaking change to a stable surface. Th
 - CLI changes such as removing or renaming commands, subcommands, flags, flag values, environment variables, or configuration locations, or changing their meaning incompatibly
 - configuration changes such as removing or renaming fields, changing field types, changing serialized names, making validation stricter for previously valid configurations, or changing defaults in a way that changes behavior for existing valid configs
 - emitted telemetry changes such as renaming or removing stable spans, metrics, resource attributes, span attributes, metric names, metric units, or attribute keys in ways that break queries, alerts, dashboards, or downstream processors
-- binary and image contract changes such as removing a published stable binary, materially changing invocation or packaging expectations, or changing the functional contract of a stable image tag
+- binary and image contract changes such as materially changing invocation or packaging expectations, or changing the functional contract of a stable image tag
 - support matrix changes that drop support for a previously supported kernel, distro, architecture, container environment, language runtime, or instrumented library version, unless that support was explicitly documented as Development-only or otherwise outside the compatibility contract
 
 ### Minor version bumps
@@ -99,10 +99,11 @@ A patch version bump is allowed only for backward-compatible fixes that do not r
 
 #### Go module API
 
+OBI does not guarantee forward ABI compatibility for Go module consumers. Unless explicitly stated otherwise, compatibility guarantees for Go packages are source-level API guarantees, and consumers should expect to recompile against the version they use.
+
 Allowed in minor releases:
 
 - additive exported APIs
-- additive interface methods only where OTel Go compatibility guidance allows it
 - implementation fixes
 - internal refactors
 - new packages
@@ -110,6 +111,7 @@ Allowed in minor releases:
 Not allowed before a major release:
 
 - removing exported symbols
+- adding methods to exported interfaces
 - changing function signatures
 - changing type semantics incompatibly
 - moving packages incompatibly
@@ -174,7 +176,7 @@ Allowed in minor releases:
 - additive metadata
 - implementation changes that preserve invocation and packaging expectations
 
-Not allowed before a major release:
+Never allowed:
 
 - removing a published stable artifact
 - changing archive layout incompatibly
@@ -190,10 +192,10 @@ Allowed in minor releases:
 - additive labels or metadata
 - compatible startup improvements
 
-Not allowed before a major release:
+Never allowed:
 
 - changing entrypoint or command behavior incompatibly
-- removing stable tags
+- removing stable semver image tags; this does not apply to the moving `latest` tag, which is not stable and is not part of the compatibility contract
 - changing image contents in ways that break documented usage for the same contract
 
 #### Support matrix
@@ -226,8 +228,8 @@ The following areas require explicit care because users may otherwise assume str
 - support matrix changes: dropping an old kernel, distro, container runtime, language runtime, or library version may be a breaking change
 - auto-instrumentation defaults: changing default enabled instrumentation, attribute sets, or span or metric naming can be breaking from the user's point of view
 - generated configuration artifacts: changes to `docs/config-schema.json` and configuration validation are part of the public surface when configuration is stable
-- image tags: `latest` is not the compatibility contract; the semver release tag is
+- image tags: `latest` is a moving, non-stable tag and is not part of the compatibility contract; the semver release tag is
 
 ## Deprecation
 
-Once a surface is stable, deprecations MUST be documented before removal. Removing a deprecated stable surface requires a major version bump.
+Once a surface is stable, deprecations MUST be documented before removal. Publicly stable artifacts and stable image tags MUST NOT be removed once published.
