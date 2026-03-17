@@ -138,38 +138,28 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			Help: "How many network packets have been internally accounted",
 		}),
 	}
+	metrics := []prometheus.Collector{
+		pr.tracerFlushes,
+		pr.otelMetricExports,
+		pr.otelMetricExportErrs,
+		pr.otelTraceExports,
+		pr.otelTraceExportErrs,
+		pr.prometheusRequests,
+		pr.instrumentedProcesses,
+		pr.instrumentationErrors,
+		pr.avoidedServices,
+		pr.buildInfo,
+		pr.bpfProbeLatencies,
+		pr.bpfMapEntries,
+		pr.bpfMapMaxEntries,
+		pr.informerLag,
+		pr.bpfPacketCount,
+		pr.bpfIgnoredPacketCount,
+	}
 	if registry != nil {
-		registry.MustRegister(pr.tracerFlushes,
-			pr.otelMetricExports,
-			pr.otelMetricExportErrs,
-			pr.otelTraceExports,
-			pr.otelTraceExportErrs,
-			pr.prometheusRequests,
-			pr.instrumentedProcesses,
-			pr.instrumentationErrors,
-			pr.avoidedServices,
-			pr.buildInfo,
-			pr.bpfProbeLatencies,
-			pr.bpfMapEntries,
-			pr.bpfMapMaxEntries,
-			pr.informerLag,
-			pr.bpfPacketCount,
-			pr.bpfIgnoredPacketCount)
+		registry.MustRegister(metrics...)
 	} else {
-		manager.Register(cfg.Prometheus.Port, cfg.Prometheus.Path,
-			pr.tracerFlushes,
-			pr.otelMetricExports,
-			pr.otelMetricExportErrs,
-			pr.otelTraceExports,
-			pr.otelTraceExportErrs,
-			pr.prometheusRequests,
-			pr.instrumentedProcesses,
-			pr.instrumentationErrors,
-			pr.avoidedServices,
-			pr.buildInfo,
-			pr.bpfProbeLatencies,
-			pr.bpfMapEntries,
-			pr.bpfMapMaxEntries)
+		manager.Register(cfg.Prometheus.Port, cfg.Prometheus.Path, metrics...)
 	}
 
 	return pr
