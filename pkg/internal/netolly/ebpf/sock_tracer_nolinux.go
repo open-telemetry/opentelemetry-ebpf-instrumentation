@@ -26,7 +26,7 @@ func (s *SockFlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
 	panic("this is never going to be executed")
 }
 
-func (s *SockFlowFetcher) DroppedFlowBytesMap() *ebpf.Map {
+func (s *SockFlowFetcher) FlowPacketStatsMap() *ebpf.Map {
 	panic("this is never going to be executed")
 }
 

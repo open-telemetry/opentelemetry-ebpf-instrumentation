@@ -45,8 +45,10 @@ type PrometheusReporter struct {
 	informerLag                      prometheus.Histogram
 
 	// used for calculating deltas from an absolute value
-	totalDroppedFlowBytes uint64
-	droppedFlowBytes      prometheus.Counter
+	totalPackets          uint64
+	bpfPacketCount        prometheus.Counter
+	totalIgnoredPackets   uint64
+	bpfIgnoredPacketCount prometheus.Counter
 }
 
 func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.PrometheusManager, registry *prometheus.Registry) *PrometheusReporter {
@@ -127,9 +129,13 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			NativeHistogramMaxExemplars:     20,
 			NativeHistogramMinResetDuration: 10 * time.Minute,
 		}),
-		droppedFlowBytes: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: attr.VendorPrefix + "_internal_dropped_flow_bytes_total",
-			Help: "How many bytes have been internally dropped due to collisions in the internal eBPF cache",
+		bpfIgnoredPacketCount: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: attr.VendorPrefix + "_bpf_network_packet_ignore_total",
+			Help: "How many network packets have been internally ignored due to collisions in the internal eBPF cache",
+		}),
+		bpfPacketCount: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: attr.VendorPrefix + "_bpf_network_packet_total",
+			Help: "How many network packets have been internally accounted",
 		}),
 	}
 	if registry != nil {
@@ -147,7 +153,8 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			pr.bpfMapEntries,
 			pr.bpfMapMaxEntries,
 			pr.informerLag,
-			pr.droppedFlowBytes)
+			pr.bpfPacketCount,
+			pr.bpfIgnoredPacketCount)
 	} else {
 		manager.Register(cfg.Prometheus.Port, cfg.Prometheus.Path,
 			pr.tracerFlushes,
@@ -243,8 +250,8 @@ func (p *PrometheusReporter) InformerLag(seconds float64) {
 	p.informerLag.Observe(seconds)
 }
 
-func (p *PrometheusReporter) DroppedFlowBytes(total uint64) {
-	delta := float64(total - p.totalDroppedFlowBytes)
-	p.totalDroppedFlowBytes = total
-	p.droppedFlowBytes.Add(delta)
+func (p *PrometheusReporter) BPFPacketStats(count, ignored uint64) {
+	p.bpfPacketCount.Add(float64(count - p.totalPackets))
+	p.bpfIgnoredPacketCount.Add(float64(ignored - p.totalIgnoredPackets))
+	p.totalPackets, p.totalIgnoredPackets = count, ignored
 }

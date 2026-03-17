@@ -18,47 +18,48 @@
 
 package flow // import "go.opentelemetry.io/obi/pkg/internal/netolly/flow"
 
-import "github.com/cilium/ebpf"
+import (
+	"github.com/cilium/ebpf"
+
+	ebpf2 "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+)
 
 type InternalMetrics struct {
-	droppedFlowBytes *ebpf.Map
+	bpfPacketStats *ebpf.Map
 }
 
-func StartInternalMetrics(droppedFlowBytes *ebpf.Map) (InternalMetrics, error) {
+func StartInternalMetrics(bpfPacketStats *ebpf.Map) (InternalMetrics, error) {
 	possibleCPUs, err := ebpf.PossibleCPU()
 	if err != nil {
-		_ = droppedFlowBytes.Close()
+		_ = bpfPacketStats.Close()
 		return InternalMetrics{}, err
 	}
+
 	// initialize all the counters to 0
-	if err := droppedFlowBytes.Put(uint32(0), make([]uint64, possibleCPUs)); err != nil {
-		_ = droppedFlowBytes.Close()
+	if err := bpfPacketStats.Put(uint32(0), make([]ebpf2.NetPacketCount, possibleCPUs)); err != nil {
 		return InternalMetrics{}, err
 	}
 
 	return InternalMetrics{
-		droppedFlowBytes: droppedFlowBytes,
+		bpfPacketStats: bpfPacketStats,
 	}, nil
 }
 
-func (fm *InternalMetrics) Close() error {
-	return fm.droppedFlowBytes.Close()
-}
-
-func (fm *InternalMetrics) Count() (uint64, error) {
-	if fm.droppedFlowBytes == nil {
-		return 0, nil
+func (fm *InternalMetrics) Count() (ebpf2.NetPacketCount, error) {
+	if fm.bpfPacketStats == nil {
+		return ebpf2.NetPacketCount{}, nil
 	}
 
-	var perCPUCounts []uint64
-	if err := fm.droppedFlowBytes.Lookup(uint32(0), &perCPUCounts); err != nil {
-		return 0, err
+	var perCPUCounts []ebpf2.NetPacketCount
+	if err := fm.bpfPacketStats.Lookup(uint32(0), &perCPUCounts); err != nil {
+		return ebpf2.NetPacketCount{}, err
 	}
 
-	var total uint64
-	for _, count := range perCPUCounts {
-		total += count
+	var sum ebpf2.NetPacketCount
+	for _, pc := range perCPUCounts {
+		sum.Total += pc.Total
+		sum.Ignored += pc.Ignored
 	}
 
-	return total, nil
+	return sum, nil
 }

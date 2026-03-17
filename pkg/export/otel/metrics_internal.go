@@ -43,8 +43,10 @@ type InternalMetricsReporter struct {
 	bpfInternalMetricsScrapeInterval time.Duration
 	informerLag                      instrument.Float64Histogram
 	// used for calculating deltas from an absolute value
-	totalDroppedFlowBytes uint64
-	droppedFlowBytes      instrument.Int64Counter
+	totalPackets          uint64
+	bpfPacketCount        instrument.Int64Counter
+	totalIgnoredPackets   uint64
+	bpfIgnoredPacketCount instrument.Int64Counter
 }
 
 func imlog() *slog.Logger {
@@ -175,10 +177,19 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		return nil, err
 	}
 
-	droppedFlowBytes, err := meter.Int64Counter(
-		attr.VendorPrefix+`.internal.dropped.flow.bytes.total`,
-		instrument.WithDescription("How many bytes have been internally dropped due to collisions in the internal eBPF cache"),
-		instrument.WithUnit("By"),
+	bpfIgnoredPacketCount, err := meter.Int64Counter(
+		attr.VendorPrefix+".bpf.network.ignored.packets.total",
+		instrument.WithDescription("How many network packets have been internally ignored due to collisions in the internal eBPF cache"),
+		instrument.WithUnit("{packet}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	bpfPacketCount, err := meter.Int64Counter(
+		attr.VendorPrefix+".bpf.network.packets.total",
+		instrument.WithDescription("How many network packets have been internally accounted"),
+		instrument.WithUnit("{packet}"),
 	)
 	if err != nil {
 		return nil, err
@@ -200,7 +211,8 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		bpfMapMaxEntries:                 bpfMapMaxEntries,
 		bpfInternalMetricsScrapeInterval: internalMetrics.BpfMetricScrapeInterval,
 		informerLag:                      informerLag,
-		droppedFlowBytes:                 droppedFlowBytes,
+		bpfPacketCount:                   bpfPacketCount,
+		bpfIgnoredPacketCount:            bpfIgnoredPacketCount,
 	}, nil
 }
 
@@ -327,8 +339,8 @@ func (p *InternalMetricsReporter) InformerLag(seconds float64) {
 	p.informerLag.Record(p.ctx, seconds)
 }
 
-func (p *InternalMetricsReporter) DroppedFlowBytes(total uint64) {
-	delta := int64(total - p.totalDroppedFlowBytes)
-	p.totalDroppedFlowBytes = total
-	p.droppedFlowBytes.Add(p.ctx, delta)
+func (p *InternalMetricsReporter) BPFPacketStats(count, ignored uint64) {
+	p.bpfPacketCount.Add(p.ctx, int64(count-p.totalPackets))
+	p.bpfIgnoredPacketCount.Add(p.ctx, int64(ignored-p.totalIgnoredPackets))
+	p.totalPackets, p.totalIgnoredPackets = count, ignored
 }

@@ -55,7 +55,7 @@ type MapTracer struct {
 
 type mapFetcher interface {
 	LookupAndDeleteMap() map[ebpf.NetFlowId][]ebpf.NetFlowMetrics
-	DroppedFlowBytesMap() *cebpf.Map
+	FlowPacketStatsMap() *cebpf.Map
 }
 
 func NewMapTracer(ctxInfo *global.ContextInfo, fetcher mapFetcher, evictionTimeout time.Duration) *MapTracer {
@@ -77,7 +77,7 @@ func (m *MapTracer) Flush() {
 func (m *MapTracer) TraceLoop(out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
 	return func(ctx context.Context) {
 		mtlog := mtlog()
-		flowMetrics, err := StartInternalMetrics(m.mapFetcher.DroppedFlowBytesMap())
+		packetStats, err := StartInternalMetrics(m.mapFetcher.FlowPacketStatsMap())
 		if err != nil {
 			mtlog.Warn("Can't setup metric: "+attr.VendorPrefix+"_network_dropped_flow_bytes", "err", err)
 		}
@@ -94,10 +94,10 @@ func (m *MapTracer) TraceLoop(out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
 				mtlog.Debug("triggering flow eviction on timer")
 				m.Flush()
 
-				if count, err := flowMetrics.Count(); err != nil {
-					mtlog.Debug("Can't get value for metric: "+attr.VendorPrefix+"_network_dropped_flow_bytes", "err", err)
+				if count, err := packetStats.Count(); err != nil {
+					mtlog.Debug("Can't retrieve internal network packet stats", "err", err)
 				} else {
-					m.imetrics.DroppedFlowBytes(count)
+					m.imetrics.BPFPacketStats(count.Total, count.Ignored)
 				}
 			}
 		}

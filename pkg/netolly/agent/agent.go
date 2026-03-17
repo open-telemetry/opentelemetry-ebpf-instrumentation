@@ -120,7 +120,7 @@ type ebpfFlowFetcher interface {
 	LookupAndDeleteMap() map[ebpf.NetFlowId][]ebpf.NetFlowMetrics
 	ReadRingBuf() (ringbuf.Record, error)
 
-	DroppedFlowBytesMap() *cebpf.Map
+	FlowPacketStatsMap() *cebpf.Map
 }
 
 // FlowsAgent instantiates a new agent, given a configuration.

@@ -206,6 +206,14 @@ int obi_socket__filter(struct __sk_buff *skb) {
 
     const u64 current_time = bpf_ktime_get_ns();
 
+    const u32 key = 0;
+    packet_count safe = {0, 0};
+    packet_count *packet_stats = (packet_count *)bpf_map_lookup_elem(&flow_packet_stats, &key);
+    if (packet_stats == NULL) {
+        packet_stats = &safe;
+    }
+    packet_stats->total++;
+
     // TODO: we need to add spinlock here when we deprecate versions prior to 5.1, or provide
     // a spinlocked alternative version and use it selectively https://lwn.net/Articles/779120/
     flow_metrics *aggregate_flow = (flow_metrics *)bpf_map_lookup_elem(&aggregated_flows, &id);
@@ -228,7 +236,7 @@ int obi_socket__filter(struct __sk_buff *skb) {
             // which can't be deduplicated.
             // other possible values https://chromium.googlesource.com/chromiumos/docs/+/master/constants/errnos.md
             bpf_dbg_printk("error updating flow, ret=%d. Bytes=%d\n", ret, skb->len);
-            increase_dropped_bytes(skb->len);
+            packet_stats->ignored++;
         }
     } else {
         // Key does not exist in the map, and will need to create a new entry.
@@ -293,7 +301,7 @@ int obi_socket__filter(struct __sk_buff *skb) {
                         "couldn't reserve space in the ringbuf. Dropping flow. Bytes=%d\n",
                         skb->len);
                 }
-                increase_dropped_bytes(skb->len);
+                packet_stats->ignored++;
                 goto cleanup;
             }
             record->id = id;

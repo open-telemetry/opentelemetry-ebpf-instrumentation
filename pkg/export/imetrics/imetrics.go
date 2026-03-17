@@ -105,9 +105,9 @@ type Reporter interface {
 	BpfInternalMetricsScrapeInterval() time.Duration
 	// InformerLag shows the lag between a Kubernetes is updated until it's received and stored by OBI
 	InformerLag(seconds float64)
-	// DroppedFlowBytes sets the counter of how many bytes have been internally dropped due to collisions in the
-	// internal eBPF cache
-	DroppedFlowBytes(count uint64)
+	// BPFPacketStats sets the counters of how many packets have been internally accounted vs how many packets
+	// have been ignored due to internal BPF map collisions
+	BPFPacketStats(count, ignored uint64)
 }
 
 // NoopReporter is a metrics Reporter that just does nothing
@@ -130,4 +130,4 @@ func (n NoopReporter) BpfMapEntries(_, _, _ string, _ int)             {}
 func (n NoopReporter) BpfMapMaxEntries(_, _, _ string, _ int)          {}
 func (n NoopReporter) BpfInternalMetricsScrapeInterval() time.Duration { return 0 }
 func (n NoopReporter) InformerLag(_ float64)                           {}
-func (n NoopReporter) DroppedFlowBytes(_ uint64)                       {}
+func (n NoopReporter) BPFPacketStats(_, _ uint64)                      {}

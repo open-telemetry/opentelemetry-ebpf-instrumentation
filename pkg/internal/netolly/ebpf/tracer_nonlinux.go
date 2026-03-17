@@ -38,6 +38,6 @@ func (m *FlowFetcher) LookupAndDeleteMap() map[NetFlowId][]NetFlowMetrics {
 	return nil
 }
 
-func (m *FlowFetcher) DroppedFlowBytesMap() *ebpf.Map {
+func (m *FlowFetcher) FlowPacketStatsMap() *ebpf.Map {
 	panic("this is never going to be executed")
 }
