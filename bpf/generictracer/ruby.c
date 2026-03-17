@@ -36,6 +36,10 @@ static __always_inline u8 is_puma_reactor_comm(const char *comm) {
            comm[10] == 'o' && comm[11] == 'r';
 }
 
+static __always_inline u8 has_valid_puma_ssl_conn(const ssl_pid_connection_info_t *info) {
+    return info && !is_empty_connection_info(&info->p_conn.conn) && info->orig_dport != 0;
+}
+
 /**
 Code to track the worker thread handoff for Puma used in Ruby on Rails and other Ruby based projects.
 Puma architecture document: https://github.com/puma/puma/blob/main/docs/architecture.md
@@ -136,7 +140,9 @@ int obi_rb_obj_call_init_kw(struct pt_regs *ctx) {
         };
 
         bpf_map_update_elem(&puma_task_connections, &task_id, &conn_part, BPF_ANY);
-        bpf_map_update_elem(&puma_task_ssl_connections, &task_id, &ssl_info, BPF_ANY);
+        if (has_valid_puma_ssl_conn(&ssl_info)) {
+            bpf_map_update_elem(&puma_task_ssl_connections, &task_id, &ssl_info, BPF_ANY);
+        }
     }
 
     return 0;
@@ -217,7 +223,7 @@ int obi_rb_ary_shift(struct pt_regs *ctx) {
             if (is_worker) {
                 bpf_map_update_elem(&puma_worker_tasks, &id, &task_id, BPF_ANY);
 
-                if (ssl_conn) {
+                if (has_valid_puma_ssl_conn(ssl_conn)) {
                     // Seed worker-local connection info so the direct TLS path
                     // can recover the real accepted socket during SSL_read.
                     bpf_map_update_elem(&pid_tid_to_conn, &id, ssl_conn, BPF_ANY);
@@ -236,7 +242,7 @@ int obi_rb_ary_shift(struct pt_regs *ctx) {
                 } else {
                     obi_ctx__del(id);
                 }
-            } else if (is_reactor && ssl_conn) {
+            } else if (is_reactor && has_valid_puma_ssl_conn(ssl_conn)) {
                 ssl_pid_connection_info_t *existing = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
                 if (!existing) {
                     // Reactor can read TLS before its thread-local connection
