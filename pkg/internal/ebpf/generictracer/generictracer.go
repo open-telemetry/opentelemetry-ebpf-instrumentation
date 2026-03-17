@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -28,7 +27,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ifaces"
-	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -46,7 +44,6 @@ type Tracer struct {
 	egressFilters    map[ifaces.Interface]*netlink.BpfFilter
 	ingressFilters   map[ifaces.Interface]*netlink.BpfFilter
 	instrumentedLibs ebpfcommon.InstrumentedLibsT
-	pythonAsyncio    map[string]*ebpf.Program
 	libsMux          sync.Mutex
 	iters            []*ebpfcommon.Iter
 }
@@ -65,7 +62,6 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		egressFilters:    map[ifaces.Interface]*netlink.BpfFilter{},
 		ingressFilters:   map[ifaces.Interface]*netlink.BpfFilter{},
 		instrumentedLibs: make(ebpfcommon.InstrumentedLibsT),
-		pythonAsyncio:    map[string]*ebpf.Program{},
 		libsMux:          sync.Mutex{},
 		iters:            []*ebpfcommon.Iter{},
 	}
@@ -215,60 +211,7 @@ func (p *Tracer) constants() map[string]any {
 
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
 
-func pythonAsyncioModule(path string) string {
-	start := strings.Index(path, "python3.")
-	if start < 0 {
-		return ""
-	}
-
-	rest := path[start:]
-	end := strings.Index(rest, "/lib-dynload/_asyncio")
-	if end < 0 {
-		return ""
-	}
-
-	return rest[:end+len("/lib-dynload/_asyncio")]
-}
-
-func pythonAsyncioTaskStepStart(module string, legacyProbe, defaultProbe *ebpf.Program) *ebpf.Program {
-	// CPython changed _asyncio.task_step from task_step(task, exc) in 3.9-3.11
-	// to task_step(state, task, exc) in 3.12+, so the task pointer moves from
-	// PT_REGS_PARM1 to PT_REGS_PARM2.
-	if strings.HasPrefix(module, "python3.9/") ||
-		strings.HasPrefix(module, "python3.10/") ||
-		strings.HasPrefix(module, "python3.11/") {
-		return legacyProbe
-	}
-
-	return defaultProbe
-}
-
-func (p *Tracer) ProcessBinary(fileInfo *exec.FileInfo) {
-	if fileInfo == nil {
-		return
-	}
-
-	maps, err := procs.FindLibMaps(fileInfo.Pid)
-	if err != nil {
-		return
-	}
-
-	for _, m := range maps {
-		module := pythonAsyncioModule(m.Pathname)
-		if module == "" {
-			continue
-		}
-
-		p.libsMux.Lock()
-		p.pythonAsyncio[module] = pythonAsyncioTaskStepStart(
-			module,
-			p.bpfObjects.ObiUprobeTaskStepLegacy,
-			p.bpfObjects.ObiUprobeTaskStep,
-		)
-		p.libsMux.Unlock()
-		return
-	}
-}
+func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
 	p.closers = append(p.closers, c...)
@@ -276,21 +219,6 @@ func (p *Tracer) AddCloser(c ...io.Closer) {
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	return nil
-}
-
-func (p *Tracer) pythonAsyncioTaskProbes(taskStepStart *ebpf.Program) map[string][]*ebpfcommon.ProbeDesc {
-	return map[string][]*ebpfcommon.ProbeDesc{
-		"task_step": {{
-			Required: false,
-			Start:    taskStepStart,
-			End:      p.bpfObjects.ObiUprobeTaskStepRet,
-		}},
-		"_asyncio_Task___init__": {{
-			Required: false,
-			Start:    p.bpfObjects.ObiUprobeTaskInit,
-			End:      p.bpfObjects.ObiUprobeTaskInitRet,
-		}},
-	}
 }
 
 func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
@@ -503,15 +431,28 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				End:      p.bpfObjects.ObiUprobeCopyContext,
 			}},
 		},
+		"_asyncio": {
+			"_asyncio_Task___init__": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeTaskInit,
+				End:      p.bpfObjects.ObiUprobeTaskInitRet,
+			}},
+		},
+		"_asyncio[< 3.12]": {
+			"task_step": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeTaskStepLegacy,
+				End:      p.bpfObjects.ObiUprobeTaskStepRet,
+			}},
+		},
+		"_asyncio[>= 3.12]": {
+			"task_step": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeTaskStep,
+				End:      p.bpfObjects.ObiUprobeTaskStepRet,
+			}},
+		},
 	}
-
-	p.libsMux.Lock()
-	defer p.libsMux.Unlock()
-
-	for module, taskStepStart := range p.pythonAsyncio {
-		m[module] = p.pythonAsyncioTaskProbes(taskStepStart)
-	}
-
 	return m
 }
 
