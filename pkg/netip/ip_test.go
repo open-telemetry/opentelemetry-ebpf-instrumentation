@@ -19,7 +19,7 @@
 // This implementation is a derivation of the code in
 // https://github.com/netobserv/netobserv-ebpf-agent/tree/release-1.4
 
-package agent
+package netip
 
 import (
 	"errors"
@@ -29,8 +29,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-
-	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 var (
@@ -48,80 +46,91 @@ var (
 func TestAgentIP_Any(t *testing.T) {
 	mockIfaces()
 	type testCase struct {
-		dsc    string
-		cfg    obi.NetworkConfig
-		expect net.IP
+		dsc                                string
+		agentIP, agentIPIface, agentIPType string
+		expect                             net.IP
 	}
 
 	for _, tc := range []testCase{
 		{
-			dsc:    "hardcoding IPv4 address",
-			cfg:    obi.NetworkConfig{AgentIP: "192.168.1.13"},
-			expect: net.IPv4(192, 168, 1, 13),
+			dsc:     "hardcoding IPv4 address",
+			agentIP: "192.168.1.13",
+			expect:  net.IPv4(192, 168, 1, 13),
 		},
 		{
-			dsc:    "hardcoding IPv6 address",
-			cfg:    obi.NetworkConfig{AgentIP: "2002:0db9::7336"},
-			expect: net.ParseIP("2002:0db9::7336"),
+			dsc:     "hardcoding IPv6 address",
+			agentIP: "2002:0db9::7336",
+			expect:  net.ParseIP("2002:0db9::7336"),
 		},
 		{
-			dsc:    "any local address",
-			cfg:    obi.NetworkConfig{AgentIPIface: "local", AgentIPType: "any"},
-			expect: localIP4,
+			dsc:          "any local address",
+			agentIPIface: "local",
+			agentIPType:  "any",
+			expect:       localIP4,
 		},
 		{
-			dsc:    "local IPv4 address",
-			cfg:    obi.NetworkConfig{AgentIPIface: "local", AgentIPType: "ipv4"},
-			expect: localIP4,
+			dsc:          "local IPv4 address",
+			agentIPIface: "local",
+			agentIPType:  "ipv4",
+			expect:       localIP4,
 		},
 		{
-			dsc:    "local IPv6 address",
-			cfg:    obi.NetworkConfig{AgentIPIface: "local", AgentIPType: "ipv6"},
-			expect: localIP6,
+			dsc:          "local IPv6 address",
+			agentIPIface: "local",
+			agentIPType:  "ipv6",
+			expect:       localIP6,
 		},
 		{
-			dsc:    "any external address",
-			cfg:    obi.NetworkConfig{AgentIPIface: "external", AgentIPType: "any"},
-			expect: externalIP4,
+			dsc:          "any external address",
+			agentIPIface: "external",
+			agentIPType:  "any",
+			expect:       externalIP4,
 		},
 		{
-			dsc:    "external IPv4 address",
-			cfg:    obi.NetworkConfig{AgentIPIface: "external", AgentIPType: "ipv4"},
-			expect: externalIP4,
+			dsc:          "external IPv4 address",
+			agentIPIface: "external",
+			agentIPType:  "ipv4",
+			expect:       externalIP4,
 		},
 		{
-			dsc:    "external IPv6 address",
-			cfg:    obi.NetworkConfig{AgentIPIface: "external", AgentIPType: "ipv6"},
-			expect: externalIP6,
+			dsc:          "external IPv6 address",
+			agentIPIface: "external",
+			agentIPType:  "ipv6",
+			expect:       externalIP6,
 		},
 		{
-			dsc:    "any IP given an interface name",
-			cfg:    obi.NetworkConfig{AgentIPIface: obi.AgentTypeIface("name:" + testIFName), AgentIPType: "any"},
-			expect: testIfIP4,
+			dsc:          "any IP given an interface name",
+			agentIPIface: "name:" + testIFName,
+			agentIPType:  "any",
+			expect:       testIfIP4,
 		},
 		{
-			dsc:    "IPv4 address given an interface name",
-			cfg:    obi.NetworkConfig{AgentIPIface: obi.AgentTypeIface("name:" + testIFName), AgentIPType: "ipv4"},
-			expect: testIfIP4,
+			dsc:          "IPv4 address given an interface name",
+			agentIPIface: "name:" + testIFName,
+			agentIPType:  "ipv4",
+			expect:       testIfIP4,
 		},
 		{
-			dsc:    "IPv6 address given an interface name",
-			cfg:    obi.NetworkConfig{AgentIPIface: obi.AgentTypeIface("name:" + testIFName), AgentIPType: "ipv6"},
-			expect: testIfIP6,
+			dsc:          "IPv6 address given an interface name",
+			agentIPIface: "name:" + testIFName,
+			agentIPType:  "ipv6",
+			expect:       testIfIP6,
 		},
 		{
-			dsc:    "any IP given an IPV6-only interface name",
-			cfg:    obi.NetworkConfig{AgentIPIface: obi.AgentTypeIface("name:" + testIFName2), AgentIPType: "any"},
-			expect: testIf2IP6,
+			dsc:          "any IP given an IPV6-only interface name",
+			agentIPIface: "name:" + testIFName2,
+			agentIPType:  "any",
+			expect:       testIf2IP6,
 		},
 		{
-			dsc:    "IPv6 address given an IPV6-only interface name",
-			cfg:    obi.NetworkConfig{AgentIPIface: obi.AgentTypeIface("name:" + testIFName2), AgentIPType: "ipv6"},
-			expect: testIf2IP6,
+			dsc:          "IPv6 address given an IPV6-only interface name",
+			agentIPIface: "name:" + testIFName2,
+			agentIPType:  "ipv6",
+			expect:       testIf2IP6,
 		},
 	} {
 		t.Run(tc.dsc, func(t *testing.T) {
-			ip, err := fetchAgentIP(&tc.cfg)
+			ip, err := FetchAgentIP(tc.agentIP, tc.agentIPIface, tc.agentIPType)
 			require.NoError(t, err)
 			require.Truef(t, tc.expect.Equal(ip), "expected: %s. Got: %s", tc.expect, ip)
 		})

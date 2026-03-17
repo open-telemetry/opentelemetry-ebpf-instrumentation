@@ -5,12 +5,22 @@ package instrumenter // import "go.opentelemetry.io/obi/pkg/instrumenter"
 
 import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 // Option that override the instantiation of the instrumenter
 type Option func(info *global.ContextInfo)
+
+// WithDynamicPIDSelector passes the given dynamic PID selector into the App O11y pipeline. The caller
+// creates it with discover.NewDynamicPIDSelector(), passes it here, and then calls AddPIDs/RemovePIDs/GetPIDs
+// on it directly—no callback or reference to the instrumenter is needed.
+func WithDynamicPIDSelector(sel *discover.DynamicPIDSelector) Option {
+	return func(info *global.ContextInfo) {
+		info.AppO11y.DynamicPIDSelector = sel
+	}
+}
 
 // OverrideAppExportQueue allows to override the queue used to export the spans.
 // This is useful to run the instrumenter in vendored mode, and you want to provide your

@@ -671,7 +671,7 @@
             "type": "integer"
           },
           "type": "array",
-          "description": "PIDs allows selecting processes by PID. When non-empty, the process PID must be in this list (in addition to any path/port criteria).",
+          "description": "PIDs allows selecting processes by PID (static from config). When non-empty, the process PID must be in this list.",
           "x-env-var": "OTEL_EBPF_TARGET_PID"
         }
       },

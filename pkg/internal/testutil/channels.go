@@ -35,3 +35,13 @@ func ChannelEmpty[T any](t *testing.T, inCh <-chan T, timeout time.Duration) {
 		// ok, channel is empty!
 	}
 }
+
+// DrainUntilClosed reads from ch until it is closed. Use when a producer (e.g. a goroutine) closes
+// its output on exit and you need to wait for it to finish before leaving the test.
+func DrainUntilClosed[T any](ch <-chan T) {
+	for {
+		if _, ok := <-ch; !ok {
+			return
+		}
+	}
+}
