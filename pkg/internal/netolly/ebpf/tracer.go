@@ -29,7 +29,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
@@ -183,17 +182,7 @@ func (m *FlowFetcher) Close() error {
 		}
 		m.objects = nil
 	}
-
-	var errStrings []string
-	for _, err := range errs {
-		errStrings = append(errStrings, err.Error())
-	}
-
-	if len(errs) > 0 {
-		return errors.New(`errors: "` + strings.Join(errStrings, `", "`) + `"`)
-	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 func (m *FlowFetcher) FlowPacketStatsMap() *ebpf.Map {

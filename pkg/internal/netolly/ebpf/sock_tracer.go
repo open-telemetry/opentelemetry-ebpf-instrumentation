@@ -159,15 +159,7 @@ func (m *SockFlowFetcher) Close() error {
 		}
 		m.objects = nil
 	}
-	if len(errs) == 0 {
-		return nil
-	}
-
-	var errStrings []string
-	for _, err := range errs {
-		errStrings = append(errStrings, err.Error())
-	}
-	return errors.New(`errors: "` + strings.Join(errStrings, `", "`) + `"`)
+	return errors.Join(errs...)
 }
 
 func (m *SockFlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
