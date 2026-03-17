@@ -53,16 +53,6 @@ func NewStatsFetcher() (*StatsFetcher, error) {
 		MaxEntries: uint32(os.Getpagesize()),
 	}
 
-	// msg_buffer_mem map is unsupported due to pinning
-	const kMsgBufferSizeMax = 4096
-
-	spec.Maps["msg_buffer_mem"] = &ebpf.MapSpec{
-		Type:       ebpf.PerCPUArray,
-		KeySize:    4,
-		ValueSize:  uint32(kMsgBufferSizeMax),
-		MaxEntries: 1,
-	}
-
 	if err := spec.LoadAndAssign(&objects, nil); err != nil {
 		return nil, fmt.Errorf("loading and assigning BPF objects: %w", err)
 	}

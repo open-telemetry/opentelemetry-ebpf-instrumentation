@@ -80,7 +80,6 @@ type ebpFetcher interface {
 	StatsEventsMap() *ciliumebpf.Map
 }
 
-// StatsAgent instantiates a new agent, given a configuration.
 func StatsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Stats, error) {
 	alog := alog()
 	alog.Info("initializing Stats agent")

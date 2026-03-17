@@ -63,7 +63,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close_srtt, struct sock *sk) {
     se->srtt_us = srtt_us;
     se->conn = conn;
 
-    bpf_d_printk("s_port=%d, d_port=%d, srtt_us=%d", se->conn.s_port, se->conn.d_port, se->srtt_us);
+    bpf_d_printk("s_port=%d, d_port=%d, srtt_us=%u", se->conn.s_port, se->conn.d_port, se->srtt_us);
     bpf_ringbuf_submit(se, stats_events_flags());
 
     return 0;
