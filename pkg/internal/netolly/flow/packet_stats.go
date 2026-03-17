@@ -24,28 +24,28 @@ import (
 	ebpf2 "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 )
 
-type InternalMetrics struct {
+type PacketStats struct {
 	bpfPacketStats *ebpf.Map
 }
 
-func StartInternalMetrics(bpfPacketStats *ebpf.Map) (InternalMetrics, error) {
+func StartInternalMetrics(bpfPacketStats *ebpf.Map) (PacketStats, error) {
 	possibleCPUs, err := ebpf.PossibleCPU()
 	if err != nil {
 		_ = bpfPacketStats.Close()
-		return InternalMetrics{}, err
+		return PacketStats{}, err
 	}
 
 	// initialize all the counters to 0
 	if err := bpfPacketStats.Put(uint32(0), make([]ebpf2.NetPacketCount, possibleCPUs)); err != nil {
-		return InternalMetrics{}, err
+		return PacketStats{}, err
 	}
 
-	return InternalMetrics{
+	return PacketStats{
 		bpfPacketStats: bpfPacketStats,
 	}, nil
 }
 
-func (fm *InternalMetrics) Count() (ebpf2.NetPacketCount, error) {
+func (fm *PacketStats) Count() (ebpf2.NetPacketCount, error) {
 	if fm.bpfPacketStats == nil {
 		return ebpf2.NetPacketCount{}, nil
 	}

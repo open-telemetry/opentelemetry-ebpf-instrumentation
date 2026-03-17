@@ -65,8 +65,9 @@ typedef struct packet_count_t {
 // in the allocation/update of direct_flows or aggregatted_flows
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __uint(max_entries, 1);
+    __type(key, u32);
     __type(value, packet_count);
+    __uint(max_entries, 1);
 } flow_packet_stats SEC(".maps");
 
 // Key: the flow identifier. Value: the flow direction.

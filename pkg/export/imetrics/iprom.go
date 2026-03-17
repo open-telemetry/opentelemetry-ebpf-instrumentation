@@ -130,11 +130,11 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			NativeHistogramMinResetDuration: 10 * time.Minute,
 		}),
 		bpfIgnoredPacketCount: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: attr.VendorPrefix + "_bpf_network_packet_ignore_total",
+			Name: attr.VendorPrefix + "_bpf_network_ignored_packets_total",
 			Help: "How many network packets have been internally ignored due to collisions in the internal eBPF cache",
 		}),
 		bpfPacketCount: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: attr.VendorPrefix + "_bpf_network_packet_total",
+			Name: attr.VendorPrefix + "_bpf_network_packets_total",
 			Help: "How many network packets have been internally accounted",
 		}),
 	}
