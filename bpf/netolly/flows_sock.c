@@ -207,11 +207,7 @@ int obi_socket__filter(struct __sk_buff *skb) {
     const u64 current_time = bpf_ktime_get_ns();
 
     const u32 key = 0;
-    packet_count safe = {0, 0};
     packet_count *packet_stats = (packet_count *)bpf_map_lookup_elem(&flow_packet_stats, &key);
-    if (packet_stats == NULL) {
-        packet_stats = &safe;
-    }
     packet_stats->total++;
 
     // TODO: we need to add spinlock here when we deprecate versions prior to 5.1, or provide

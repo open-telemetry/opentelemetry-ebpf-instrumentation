@@ -31,18 +31,7 @@ type PacketStats struct {
 	bpfPacketStats *ebpf.Map
 }
 
-func StartInternalMetrics(bpfPacketStats *ebpf.Map) (PacketStats, error) {
-	possibleCPUs, err := ebpf.PossibleCPU()
-	if err != nil {
-		_ = bpfPacketStats.Close()
-		return PacketStats{}, err
-	}
-
-	// initialize all the counters to 0
-	if err := bpfPacketStats.Put(uint32(0), make([]ebpf2.NetPacketCount, possibleCPUs)); err != nil {
-		return PacketStats{}, err
-	}
-
+func NewPacketStats(bpfPacketStats *ebpf.Map) (PacketStats, error) {
 	return PacketStats{
 		bpfPacketStats: bpfPacketStats,
 	}, nil
@@ -55,6 +44,7 @@ func (fm *PacketStats) Count() (ebpf2.NetPacketCount, error) {
 
 	var perCPUCounts []ebpf2.NetPacketCount
 	if err := fm.bpfPacketStats.Lookup(uint32(0), &perCPUCounts); err != nil {
+		_ = fm.bpfPacketStats.Close()
 		return ebpf2.NetPacketCount{}, err
 	}
 

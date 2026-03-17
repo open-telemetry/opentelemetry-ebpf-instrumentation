@@ -77,7 +77,7 @@ func (m *MapTracer) Flush() {
 func (m *MapTracer) TraceLoop(out *msg.Queue[[]*ebpf.Record]) swarm.RunFunc {
 	return func(ctx context.Context) {
 		mtlog := mtlog()
-		packetStats, err := StartInternalMetrics(m.mapFetcher.FlowPacketStatsMap())
+		packetStats, err := NewPacketStats(m.mapFetcher.FlowPacketStatsMap())
 		if err != nil {
 			mtlog.Warn("Can't setup metric: "+attr.VendorPrefix+"_network_dropped_flow_bytes", "err", err)
 		}
