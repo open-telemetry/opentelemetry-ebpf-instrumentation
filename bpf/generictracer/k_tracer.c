@@ -923,6 +923,11 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
                     ctx, &info, buf, copied_len, NO_SSL, TCP_RECV, orig_dport);
             }
         } else {
+            // Server-side TLS often sees the decrypted HTTP request first in
+            // SSL_read on a different thread than accept(). Bind the active
+            // SSL* to the live socket here so SSL_read can recover the real
+            // connection instead of falling back to a fake SSL-pointer key.
+            tcp_send_ssl_check(id, (void *)(*ssl), &info, orig_dport);
             bpf_dbg_printk("identified SSL connection, ignoring: [%llx]...", *ssl);
         }
     }

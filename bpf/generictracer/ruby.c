@@ -23,11 +23,18 @@
 
 #include <shared/obi_ctx.h>
 
-enum { k_comm_len = 12 };
+enum { k_comm_len = 16 };
 enum { k_rb_ary_embedded_ptr_pos = 0x10, k_rb_ary_heap_ptr_pos = 0x20 };
 const char PUMA_WORKER[] = "puma srv tp";
 const char PUMA_SRV[] = "puma srv";
 const char PUMA_SRV_THREAD[] = "puma srv th";
+const char PUMA_REACTOR[] = "puma reactor";
+
+static __always_inline u8 is_puma_reactor_comm(const char *comm) {
+    return comm[0] == 'p' && comm[1] == 'u' && comm[2] == 'm' && comm[3] == 'a' && comm[4] == ' ' &&
+           comm[5] == 'r' && comm[6] == 'e' && comm[7] == 'a' && comm[8] == 'c' && comm[9] == 't' &&
+           comm[10] == 'o' && comm[11] == 'r';
+}
 
 /**
 Code to track the worker thread handoff for Puma used in Ruby on Rails and other Ruby based projects.
@@ -113,6 +120,13 @@ int obi_rb_obj_call_init_kw(struct pt_regs *ctx) {
 
         const u32 host_pid = pid_from_pid_tgid(id);
         connection_info_part_t conn_part = {};
+        ssl_pid_connection_info_t ssl_info = {};
+
+        // Copy the full SSL connection info to stack before updating the Puma
+        // handoff map. Updating directly from a map-value pointer is brittle,
+        // and the reactor lookup depends on this value being present.
+        bpf_probe_read(&ssl_info, sizeof(ssl_pid_connection_info_t), info);
+
         populate_ephemeral_info(
             &conn_part, &info->p_conn.conn, info->orig_dport, host_pid, FD_SERVER);
 
@@ -122,6 +136,7 @@ int obi_rb_obj_call_init_kw(struct pt_regs *ctx) {
         };
 
         bpf_map_update_elem(&puma_task_connections, &task_id, &conn_part, BPF_ANY);
+        bpf_map_update_elem(&puma_task_ssl_connections, &task_id, &ssl_info, BPF_ANY);
     }
 
     return 0;
@@ -132,6 +147,21 @@ int obi_rb_ary_shift(struct pt_regs *ctx) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
+        return 0;
+    }
+
+    char buf[k_comm_len];
+    if (bpf_get_current_comm(buf, k_comm_len)) {
+        bpf_dbg_printk("can't get current command");
+        return 0;
+    }
+
+    const u8 is_worker = !obi_bpf_memcmp(buf, PUMA_WORKER, sizeof(PUMA_WORKER) - 1);
+    const u8 is_reactor = is_puma_reactor_comm(buf);
+
+    // Puma helper threads also call rb_ary_shift. Only worker and reactor
+    // threads participate in request handoff.
+    if (!is_worker && !is_reactor) {
         return 0;
     }
 
@@ -180,20 +210,44 @@ int obi_rb_ary_shift(struct pt_regs *ctx) {
         connection_info_part_t *conn_part = bpf_map_lookup_elem(&puma_task_connections, &task_id);
         if (conn_part) {
             bpf_dbg_printk("stored item to id correlation, id = %llx, item %llx", id, item);
-            bpf_map_update_elem(&puma_worker_tasks, &id, &task_id, BPF_ANY);
 
-            // Refresh traces_ctx_v1 for the worker thread. This handles the
-            // reactor path where "puma reactor" read the HTTP request (setting
-            // traces_ctx_v1 for itself) before handing off to this worker.
-            // In the direct path (worker reads HTTP), server_traces_aux won't
-            // have an entry yet, so this is a harmless no-op.
-            tp_info_pid_t *tp = bpf_map_lookup_elem(&server_traces_aux, conn_part);
-            if (tp && tp->valid) {
-                obi_ctx__set(id, &tp->tp);
-            } else {
-                obi_ctx__del(id);
+            ssl_pid_connection_info_t *ssl_conn =
+                bpf_map_lookup_elem(&puma_task_ssl_connections, &task_id);
+
+            if (is_worker) {
+                bpf_map_update_elem(&puma_worker_tasks, &id, &task_id, BPF_ANY);
+
+                if (ssl_conn) {
+                    // Seed worker-local connection info so the direct TLS path
+                    // can recover the real accepted socket during SSL_read.
+                    bpf_map_update_elem(&pid_tid_to_conn, &id, ssl_conn, BPF_ANY);
+                } else {
+                    bpf_dbg_printk("missing puma SSL task state for item %llx", item);
+                }
+
+                // Refresh traces_ctx_v1 for the worker thread. This handles the
+                // reactor path where "puma reactor" read the HTTP request (setting
+                // traces_ctx_v1 for itself) before handing off to this worker.
+                // In the direct path (worker reads HTTP), server_traces_aux won't
+                // have an entry yet, so this is a harmless no-op.
+                tp_info_pid_t *tp = bpf_map_lookup_elem(&server_traces_aux, conn_part);
+                if (tp && tp->valid) {
+                    obi_ctx__set(id, &tp->tp);
+                } else {
+                    obi_ctx__del(id);
+                }
+            } else if (is_reactor && ssl_conn) {
+                ssl_pid_connection_info_t *existing = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
+                if (!existing) {
+                    // Reactor can read TLS before its thread-local connection
+                    // state is established. Seed it only as a fallback so we
+                    // don't overwrite a live accepted socket mapping.
+                    bpf_map_update_elem(&pid_tid_to_conn, &id, ssl_conn, BPF_ANY);
+                }
+            } else if (is_reactor) {
+                bpf_dbg_printk("reactor missing puma SSL task state for item %llx", item);
             }
-        } else {
+        } else if (is_worker) {
             bpf_dbg_printk("untracked item %llx, ignoring...", item);
             obi_ctx__del(id);
         }

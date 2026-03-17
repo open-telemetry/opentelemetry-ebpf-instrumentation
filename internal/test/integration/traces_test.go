@@ -947,26 +947,25 @@ func testNestedHTTPSTracesKProbes(t *testing.T) {
 		)
 		assert.Empty(ct, sd, sd.String())
 
-		// Disabled until we add PUMA reactor support, otherwise the test is flaky
-		// // Check the information of the rails parent span
-		// res = trace.FindByOperationName("GET /users", "server")
-		// require.Len(ct, res, 1)
-		// parent = res[0]
-		// require.NotEmpty(ct, parent.TraceID)
-		// require.Equal(ct, traceID, parent.TraceID)
-		// require.NotEmpty(ct, parent.SpanID)
-		// // check duration is at least 2us
-		// assert.Less(ct, (2 * time.Microsecond).Microseconds(), parent.Duration)
-		// // check span attributes
-		// sd = parent.Diff(
-		// 	jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
-		// 	jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(403)}, // something config missing in rails, but 403 is OK :)
-		// 	jaeger.Tag{Key: "url.path", Type: "string", Value: "/users"},
-		// 	jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(3043)},
-		// 	jaeger.Tag{Key: "http.route", Type: "string", Value: "/users"},
-		// 	jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
-		// )
-		// assert.Empty(ct, sd, sd.String())
+		// Check the information of the rails parent span
+		res = trace.FindByOperationName("GET /users", "server")
+		require.Len(ct, res, 1)
+		parent = res[0]
+		require.NotEmpty(ct, parent.TraceID)
+		require.Equal(ct, traceID, parent.TraceID)
+		require.NotEmpty(ct, parent.SpanID)
+		// check duration is at least 2us
+		assert.Less(ct, (2 * time.Microsecond).Microseconds(), parent.Duration)
+		// check span attributes
+		sd = parent.Diff(
+			jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+			jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(403)}, // something config missing in rails, but 403 is OK :)
+			jaeger.Tag{Key: "url.path", Type: "string", Value: "/users"},
+			jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(3043)},
+			jaeger.Tag{Key: "http.route", Type: "string", Value: "/users"},
+			jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		)
+		assert.Empty(ct, sd, sd.String())
 
 		// check client call (and ensure server port is correct/not swapped)
 		res = trace.FindByOperationName("GET /users", "client")
