@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <bpfcore/vmlinux.h>
+
 #include <maps/python_context_task.h>
 #include <maps/python_task_state.h>
 

@@ -261,7 +261,7 @@ var versionRe = regexp.MustCompile(`\d+(?:\.\d+)*`)
 
 // versionFromPath extracts the first recognizable version from a library path by scanning
 // each path component from right (most specific) to left (least specific). Dotted versions
-// (e.g. "3.11" from "python3.11/") are prioritised over plain numbers (e.g. "311" from
+// (e.g. "3.11" from "python3.11/") are prioritized over plain numbers (e.g. "311" from
 // "cpython-311")
 func versionFromPath(path string) (*version.Version, bool) {
 	components := strings.Split(path, string(filepath.Separator))

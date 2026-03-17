@@ -150,15 +150,17 @@ static __always_inline u64 resolve_python_current_task(const trace_key_t *t_key,
             const u64 resolved_task = resolve_python_context_task(context_task);
             if (resolved_task && !task_id) {
                 task_id = resolved_task;
-                bpf_dbg_printk("find_python_parent: context fallback tid=%d ctx=%llx task=%llx",
-                               t_key->p_key.tid,
-                               thread_state->current_context,
-                               task_id);
+                bpf_dbg_printk(
+                    "resolve_python_current_task: context fallback tid=%d ctx=%llx task=%llx",
+                    t_key->p_key.tid,
+                    thread_state->current_context,
+                    task_id);
             }
         }
     }
 
-    bpf_dbg_printk("find_py_parent: resolved tid=%d task=%llx", t_key->p_key.tid, task_id);
+    bpf_dbg_printk(
+        "resolve_python_current_task: resolved tid=%d task=%llx", t_key->p_key.tid, task_id);
     return task_id;
 }
 
@@ -169,7 +171,7 @@ static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t
     u64 task_id = resolve_python_current_task(t_key, pid_tgid);
 
     if (!task_id) {
-        bpf_dbg_printk("find_python_parent: no current task pid=%d tid=%d",
+        bpf_dbg_printk("find_python_parent_trace: no current task pid=%d tid=%d",
                        t_key->p_key.pid,
                        t_key->p_key.tid);
         return NULL;
@@ -181,7 +183,7 @@ static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t
         if (task_state && task_state->conn.port) {
             tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces_aux, &task_state->conn);
             if (server_tp) {
-                bpf_dbg_printk("find_python_parent: FOUND tid=%d task=%llx port=%d",
+                bpf_dbg_printk("find_python_parent_trace: FOUND tid=%d task=%llx port=%d",
                                t_key->p_key.tid,
                                task_id,
                                task_state->conn.port);
@@ -189,15 +191,11 @@ static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t
             }
         }
 
-        u64 parent_task = 0;
-        if (task_state) {
-            parent_task = task_state->parent;
-        }
-        if (!parent_task || parent_task == task_id) {
+        if (!task_state || task_state->parent == task_id) {
             break;
         }
 
-        task_id = parent_task;
+        task_id = task_state->parent;
     }
 
     return NULL;
