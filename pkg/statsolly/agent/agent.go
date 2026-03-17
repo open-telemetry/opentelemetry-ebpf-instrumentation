@@ -16,19 +16,10 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	stats "go.opentelemetry.io/obi/pkg/internal/statsolly/stats"
+	"go.opentelemetry.io/obi/pkg/netip"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
-)
-
-const (
-	ipTypeAny  = "any"
-	ipTypeIPV4 = "ipv4"
-	ipTypeIPV6 = "ipv6"
-
-	ipIfaceExternal    = "external"
-	ipIfaceLocal       = "local"
-	ipIfaceNamedPrefix = "name:"
 )
 
 func alog() *slog.Logger {
@@ -100,7 +91,8 @@ func StatsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Stats, error) {
 	)
 
 	alog.Debug("acquiring Agent IP")
-	agentIP, err := fetchAgentIP(&cfg.Stats)
+
+	agentIP, err := netip.FetchAgentIP(cfg.Stats.AgentIP, string(cfg.Stats.AgentIPIface), cfg.Stats.AgentIPType)
 	if err != nil {
 		return nil, fmt.Errorf("acquiring Agent IP: %w", err)
 	}
