@@ -60,7 +60,7 @@ typedef struct packet_count_t {
 } packet_count;
 
 // Accounts the proportion of packets not reaching the userspace due to an error
-// in the allocation/update of direct_flows or aggregatted_flows
+// in the allocation/update of direct_flows or aggregated_flows
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, u32);
