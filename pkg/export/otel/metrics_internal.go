@@ -44,8 +44,8 @@ type InternalMetricsReporter struct {
 	informerLag                      instrument.Float64Histogram
 	// used for calculating deltas from an absolute value
 	totalPackets          uint64
-	bpfPacketCount        instrument.Int64Counter
 	totalIgnoredPackets   uint64
+	bpfPacketCount        instrument.Int64Counter
 	bpfIgnoredPacketCount instrument.Int64Counter
 }
 

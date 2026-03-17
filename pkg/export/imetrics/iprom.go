@@ -46,8 +46,8 @@ type PrometheusReporter struct {
 
 	// used for calculating deltas from an absolute value
 	totalPackets          uint64
-	bpfPacketCount        prometheus.Counter
 	totalIgnoredPackets   uint64
+	bpfPacketCount        prometheus.Counter
 	bpfIgnoredPacketCount prometheus.Counter
 }
 

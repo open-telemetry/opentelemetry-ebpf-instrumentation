@@ -24,6 +24,9 @@ import (
 	ebpf2 "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 )
 
+// PacketStats provides access to the internal BPF accounting of how many
+// flow packets are accounted in the namespace and how many are ignored in the
+// BPF space due to internal map collisions
 type PacketStats struct {
 	bpfPacketStats *ebpf.Map
 }

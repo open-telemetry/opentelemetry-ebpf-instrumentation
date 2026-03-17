@@ -3,12 +3,10 @@
 
 #pragma once
 
-#include "bpfcore/vmlinux_amd64.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
 #include <netolly/flow.h>
-#include <logger/bpf_dbg.h>
 
 #define DISCARD 1
 #define SUBMIT 0
