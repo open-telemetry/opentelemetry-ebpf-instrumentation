@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "common/event_defs.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
@@ -403,7 +404,7 @@ static __always_inline void process_http_request(
 
     fixup_connection_info(&info->conn_info, info->type == EVENT_HTTP_CLIENT, orig_dport);
 
-    const u64 start_time = bpf_ktime_get_ns();
+    u64 start_time = bpf_ktime_get_ns();
     u64 req_time = start_time;
 
     tracked_connection_t *t_conn = bpf_map_lookup_elem(&connection_tracker, &info->conn_info);
@@ -414,6 +415,12 @@ static __always_inline void process_http_request(
                          t_conn->time,
                          __FUNCTION__);
             req_time = t_conn->time;
+            // Splitting client calls with in-queue and processing can be noisy in traces.
+            // We want to record the earlier time, but we don't want to split them, therefore
+            // we set both start_time and req_time to the same earlier value.
+            if (info->type == EVENT_HTTP_CLIENT) {
+                start_time = req_time;
+            }
         }
         // set the time to zero in case the connection is reused, so we don't produce wrong info
         // but keep the connection info around so that we can tell which connections are valid
