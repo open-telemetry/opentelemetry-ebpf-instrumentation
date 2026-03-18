@@ -987,6 +987,7 @@
         "informers_sync_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "InformersSyncTimeout is the timeout for waiting for informers to sync on startup.",
           "examples": [
             "30s",
             "5m",
@@ -1013,6 +1014,17 @@
           "$ref": "#/$defs/MetaSourceLabels",
           "description": "MetaSourceLabels allows OBI overriding the service name and namespace of an application from the given labels.  kept for backwards-compatibility with Beyla 1.9",
           "deprecated": true
+        },
+        "reconnect_timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "ReconnectTimeout is the time to wait before reconnecting to the Kubernetes API after a connection loss.",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_KUBE_RECONNECT_TIMEOUT"
         },
         "resource_labels": {
           "$ref": "#/$defs/ResourceLabels",

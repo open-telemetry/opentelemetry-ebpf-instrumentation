@@ -44,8 +44,10 @@ type KubernetesDecorator struct {
 	// KubeconfigPath is optional. If unset, it will look in the usual location.
 	KubeconfigPath string `yaml:"kubeconfig_path" env:"KUBECONFIG" validate:"omitempty,filepath"`
 
+	// InformersSyncTimeout is the timeout for waiting for informers to sync on startup.
 	InformersSyncTimeout time.Duration `yaml:"informers_sync_timeout" env:"OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT" validate:"gt=0"`
 
+	// ReconnectTimeout is the time to wait before reconnecting to the Kubernetes API after a connection loss.
 	ReconnectTimeout time.Duration `yaml:"reconnect_timeout" env:"OTEL_EBPF_KUBE_RECONNECT_TIMEOUT" validate:"gte=0"`
 
 	// InformersResyncPeriod defaults to 30m. Higher values will reduce the load on the Kube API.
