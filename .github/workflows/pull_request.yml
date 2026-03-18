@@ -216,14 +216,21 @@ jobs:
   bpf-verifier:
     name: BPF verifier (kernel ${{ matrix.kernel }})
     needs: generate-and-checks
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        kernel:
-          - "5.15.152"
-          - "6.10.6"
+        include:
+          - kernel: "5.15.152"
+            runner: ubuntu-latest
+            use_vm: true
+          - kernel: "6.10.6"
+            runner: ubuntu-latest
+            use_vm: true
+          - kernel: "host-arm64"
+            runner: ubuntu-24.04-arm
+            use_vm: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -231,6 +238,7 @@ jobs:
           persist-credentials: false
 
       - name: Free up disk space
+        if: matrix.use_vm
         run: |
           sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup
           sudo rm -rf /usr/local/lib/android /opt/hostedtoolcache/CodeQL
@@ -242,11 +250,13 @@ jobs:
           name: bpf-generated-${{ github.sha }}
 
       - name: Install QEMU
+        if: matrix.use_vm
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86
 
       - name: Run BPF verifier tests in VM (kernel ${{ matrix.kernel }})
+        if: matrix.use_vm
         env:
           KERNEL_VERSION: ${{ matrix.kernel }}
         run: |
@@ -255,3 +265,14 @@ jobs:
             ARCH=x86_64 \
             TARGET_TEST=run-bpf-verifier-vm \
             && [ -f testoutput/success ]
+
+      - name: Set up Go
+        if: ${{ !matrix.use_vm }}
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Run BPF verifier tests (host kernel)
+        if: ${{ !matrix.use_vm }}
+        run: sudo env PATH=$PATH PRIVILEGED_TESTS=true go test -v -count=1 ./pkg/internal/ebpf/verifier/...
