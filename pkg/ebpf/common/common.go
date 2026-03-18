@@ -6,6 +6,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -82,9 +83,19 @@ var IntegrityModeOverride = false
 
 var ActiveNamespaces = make(map[uint32]uint32)
 
+var tracingEnabledCache struct {
+	sync.Once
+	enabled bool
+}
+
 // ProbeDesc holds the information of the instrumentation points of a given
 // function/symbol
 type ProbeDesc struct {
+	// TracingAlternative, when is true, will cause that this program is not loaded
+	// in the systems that are capable to run programs of type BPF_PROG_TYPE_TRACING,
+	// Because the Tracer's Traces() method is already returning an alternative program
+	TracingAlternative bool
+
 	// Required, if true, will cancel the execution of the eBPF Tracer
 	// if the function has not been found in the executable
 	Required bool
@@ -523,4 +534,64 @@ func directionByPacketType(pt uint8, isClient bool) uint8 {
 		return directionRecv
 	}
 	return directionSend
+}
+
+// TracingEnabled returns whether Tracing programs are enabled in the running system
+// https://docs.ebpf.io/linux/concepts/trampolines/#bpf-trampolines
+func TracingEnabled() bool {
+	tracingEnabledCache.Do(func() {
+		tracingEnabledCache.enabled = kernelConfigFlagEnabled("CONFIG_BPF_TRAMPOLINE")
+	})
+
+	return tracingEnabledCache.enabled
+}
+
+func kernelConfigFlagEnabled(flag string) bool {
+	configPaths := []string{"/proc/config.gz"}
+	if release, err := os.ReadFile("/proc/sys/kernel/osrelease"); err == nil {
+		configPaths = append(configPaths, fmt.Sprintf("/boot/config-%s", strings.TrimSpace(string(release))))
+	}
+	configPaths = append(configPaths, "/boot/config")
+
+	for _, path := range configPaths {
+		enabled, found := kernelConfigFlagEnabledInFile(path, flag)
+		if found {
+			return enabled
+		}
+	}
+
+	return false
+}
+
+func kernelConfigFlagEnabledInFile(path, flag string) (enabled, found bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, false
+	}
+	defer f.Close()
+
+	var reader io.Reader = f
+	if strings.HasSuffix(path, ".gz") {
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			return false, false
+		}
+		defer gz.Close()
+		reader = gz
+	}
+
+	scanner := bufio.NewScanner(reader)
+	enabledLine := flag + "=y"
+	disabledLine := "# " + flag + " is not set"
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		switch line {
+		case enabledLine:
+			return true, true
+		case disabledLine:
+			return false, true
+		}
+	}
+
+	return false, false
 }

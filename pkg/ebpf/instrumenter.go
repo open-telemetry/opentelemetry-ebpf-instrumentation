@@ -93,7 +93,12 @@ func (i *instrumenter) instrumentProbes(exe *link.Executable, probes map[string]
 
 func (i *instrumenter) kprobes(p KprobesTracer) error {
 	log := ilog().With("probes", "kprobes")
+	tracingEnabled := ebpfcommon.TracingEnabled()
 	for kfunc, kprobes := range p.KProbes() {
+		if kprobes.TracingAlternative && tracingEnabled {
+			log.Debug("skipping kprobe because there is a tracing alternative", "function", kfunc)
+			continue
+		}
 		log.Debug("going to add kprobe to function", "function", kfunc, "probes", kprobes)
 
 		if err := i.kprobe(kfunc, kprobes); err != nil {
@@ -472,6 +477,10 @@ func (i *instrumenter) iters(p Tracer) error {
 }
 
 func (i *instrumenter) tracing(p Tracer) error {
+	if !ebpfcommon.TracingEnabled() {
+		slog.Debug("tracing is not enabled in this system, skipping tracing programs")
+		return nil
+	}
 	for _, tracing := range p.Tracing() {
 		slog.Debug("Attaching tracing program", "program", tracing.Program.String(), "attachAs", tracing.AttachAs)
 
