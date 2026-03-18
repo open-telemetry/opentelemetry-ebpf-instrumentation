@@ -3,7 +3,6 @@
 
 //go:build obi_bpf_ignore
 
-#include "common/send_args.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
@@ -704,7 +703,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         }
     }
 
-    force_sent_event(id, &sock_p, unreadable);
+    force_sent_event(id, &sock_p, &info, unreadable);
 
     if (success) {
         //dbg_print_http_connection_info(&info.conn);
@@ -1102,7 +1101,12 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
     if (!t_conn) {
         bool *fp = bpf_map_lookup_elem(&filter_ports, &orig_dport);
         if (!fp) {
-            return 0;
+            // We finally check if we've missed the accept, but we have asked for backup buffer
+            // in tcp_sendmsg
+            backup_buffer_t *back_buf = bpf_map_lookup_elem(&sock_filter_buffers, &conn);
+            if (!back_buf) {
+                return 0;
+            }
         }
     }
 

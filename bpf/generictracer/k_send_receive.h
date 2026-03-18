@@ -67,7 +67,8 @@ static __always_inline u8 should_ignore_unreadable(pid_connection_info_t *p_conn
     return !http_info_complete(info);
 }
 
-static __always_inline void force_sent_event(u64 id, u64 *sock_p, bool *unreadable) {
+static __always_inline void
+force_sent_event(u64 id, u64 *sock_p, pid_connection_info_t *p_conn, bool *unreadable) {
     send_args_t *s_args = (send_args_t *)bpf_map_lookup_elem(&active_send_args, &id);
     if (s_args) {
         if (should_ignore_unreadable(&s_args->p_conn, unreadable)) {
@@ -85,5 +86,14 @@ static __always_inline void force_sent_event(u64 id, u64 *sock_p, bool *unreadab
         }
         bpf_dbg_printk("Checking if we need to finish the request per socket");
         force_finish_possible_delayed_http_request(&s_args->p_conn);
+    }
+
+    if (!is_empty_connection_info(&p_conn->conn)) {
+        if (should_ignore_unreadable(p_conn, unreadable)) {
+            bpf_dbg_printk("ignoring force finish because of marked unreadable port");
+            return;
+        }
+        bpf_dbg_printk("Checking if we need to finish the request per connection info");
+        force_finish_possible_delayed_http_request(p_conn);
     }
 }
