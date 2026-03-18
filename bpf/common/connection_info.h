@@ -47,6 +47,14 @@ typedef struct http_partial_connection_info {
     u32 tcp_seq;
 } partial_connection_info_t;
 
+typedef struct nat_partial_connection_info {
+    u8 d_addr[IP_V6_ADDR_LEN];
+    u16 d_port;
+    u16 _pad;
+    u32 tcp_seq;
+    u32 tcp_ack;
+} nat_partial_connection_info_t;
+
 typedef struct http_pid_connection_info {
     connection_info_t conn;
     u32 pid;

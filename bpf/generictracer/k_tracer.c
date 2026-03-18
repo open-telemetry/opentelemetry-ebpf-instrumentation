@@ -27,6 +27,7 @@
 #include <generictracer/maps/active_connect_args.h>
 #include <generictracer/maps/listening_ports.h>
 #include <generictracer/maps/tcp_connection_map.h>
+#include <generictracer/maps/tcp_nat_trace_map.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/protocol_http.h>
 #include <generictracer/protocol_http2.h>
@@ -974,6 +975,43 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_recvmsg, int copied_len) {
     return return_recvmsg(ctx, 0, id, copied_len);
 }
 
+static __always_inline void populate_nat_partial_conn(nat_partial_connection_info_t *partial,
+                                                      const connection_info_t *conn,
+                                                      const protocol_info_t *tcp) {
+    __builtin_memcpy(partial->d_addr, conn->d_addr, sizeof(partial->d_addr));
+    partial->d_port = conn->d_port;
+    partial->tcp_seq = tcp->seq;
+    partial->tcp_ack = tcp->ack;
+}
+
+static __always_inline void
+bridge_nat_client_trace(connection_info_t *conn, const protocol_info_t *tcp, const u64 cookie) {
+    nat_partial_connection_info_t partial = {};
+    populate_nat_partial_conn(&partial, conn, tcp);
+
+    tp_info_pid_t *trace_info = trace_info_for_connection(conn, TRACE_TYPE_CLIENT);
+    if (trace_info) {
+        if (cookie && current_immediate_epoch(trace_info->tp.ts) ==
+                          current_immediate_epoch(bpf_ktime_get_ns())) {
+            tp_info_pid_t cached = {};
+            __builtin_memcpy(&cached, trace_info, sizeof(cached));
+            bpf_map_update_elem(&tcp_nat_trace_map, &partial, &cached, BPF_ANY);
+        }
+        return;
+    }
+
+    if (!cookie) {
+        tp_info_pid_t *nat_trace = bpf_map_lookup_elem(&tcp_nat_trace_map, &partial);
+        if (nat_trace && current_immediate_epoch(nat_trace->tp.ts) ==
+                             current_immediate_epoch(bpf_ktime_get_ns())) {
+            tp_info_pid_t cached = {};
+            __builtin_memcpy(&cached, nat_trace, sizeof(cached));
+            set_trace_info_for_connection(conn, TRACE_TYPE_CLIENT, &cached);
+            bpf_dbg_printk("Found NAT-translated client trace, setting it up for this connection");
+        }
+    }
+}
+
 // Fall-back in case we don't see kretprobe on tcp_recvmsg in high network volume situations
 SEC("socket/http_filter")
 int obi_socket__http_filter(struct __sk_buff *skb) {
@@ -997,6 +1035,13 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
         return 0;
     }
 
+    const u8 client_packet = client_call(&conn);
+    sort_connection_info(&conn);
+
+    if (client_packet) {
+        bridge_nat_client_trace(&conn, &tcp, bpf_get_socket_cookie(skb));
+    }
+
     // we don't want to read the whole buffer for every packed that passes our checks, we read only a bit and check if it's truly HTTP request/response.
     unsigned char buf[MIN_HTTP_SIZE] = {0};
     bpf_skb_load_bytes(skb, tcp.hdr_len, (void *)buf, sizeof(buf));
@@ -1018,8 +1063,6 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
             const u64 cookie = bpf_get_socket_cookie(skb);
             //bpf_dbg_printk("cookie=%llx, len=%d, buf=[%s]", cookie, len, buf);
             //dbg_print_http_connection_info(&conn);
-
-            sort_connection_info(&conn);
 
             // The code below is looking to see if we have recorded black-box trace info on
             // another interface. We do this for client calls, where essentially the original
