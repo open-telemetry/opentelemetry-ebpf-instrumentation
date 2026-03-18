@@ -98,20 +98,23 @@ var (
 	tr = &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			var d net.Dialer
+
 			host, port, err := net.SplitHostPort(addr)
 			if err == nil && host == "localhost" {
+				loopbackAddr := net.JoinHostPort("127.0.0.1", port)
 				if target, ok := loopbackTargetsByPort[port]; ok {
-					if resolved := resolveContainerAddr(target); resolved != "" {
-						addr = resolved
-					} else {
-						addr = net.JoinHostPort("127.0.0.1", port)
+					conn, loopbackErr := d.DialContext(ctx, network, loopbackAddr)
+					if loopbackErr == nil {
+						return conn, nil
 					}
-				} else {
-					addr = net.JoinHostPort("127.0.0.1", port)
+					if resolved := resolveContainerAddr(target); resolved != "" {
+						return d.DialContext(ctx, network, resolved)
+					}
 				}
+				addr = loopbackAddr
 			}
 
-			var d net.Dialer
 			return d.DialContext(ctx, network, addr)
 		},
 	}
@@ -143,24 +146,13 @@ func resolveContainerAddr(target loopbackTarget) string {
 		return ""
 	}
 
-	addr := net.JoinHostPort(ip, strconv.Itoa(target.containerPort))
-	return addr
+	return net.JoinHostPort(ip, strconv.Itoa(target.containerPort))
 }
 
 func nodeTestServerHTTPURL(tb testing.TB) string {
 	tb.Helper()
 
-	if addr := resolveContainerAddr(loopbackTarget{
-		containerName: nodeTestServerContainerName,
-		containerPort: nodeTestServerContainerPort,
-	}); addr != "" {
-		host, port, err := net.SplitHostPort(addr)
-		if err == nil {
-			return fmt.Sprintf("http://%s:%s", host, port)
-		}
-	}
-
-	return fmt.Sprintf("http://127.0.0.1:%d", nodeTestServerHostPort)
+	return fmt.Sprintf("http://localhost:%d", nodeTestServerHostPort)
 }
 
 func doHTTPPost(t *testing.T, path string, status int, jsonBody []byte) {

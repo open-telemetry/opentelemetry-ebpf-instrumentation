@@ -51,8 +51,7 @@ func resolveContainerAddr(target loopbackTarget) string {
 		return ""
 	}
 
-	addr := net.JoinHostPort(ip, strconv.Itoa(target.containerPort))
-	return addr
+	return net.JoinHostPort(ip, strconv.Itoa(target.containerPort))
 }
 
 // HTTP client for testing
@@ -60,20 +59,23 @@ var testHTTPClient = &http.Client{
 	Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			var d net.Dialer
+
 			host, port, err := net.SplitHostPort(addr)
 			if err == nil && host == "localhost" {
+				loopbackAddr := net.JoinHostPort("127.0.0.1", port)
 				if target, ok := loopbackTargetsByPort[port]; ok {
-					if resolved := resolveContainerAddr(target); resolved != "" {
-						addr = resolved
-					} else {
-						addr = net.JoinHostPort("127.0.0.1", port)
+					conn, loopbackErr := d.DialContext(ctx, network, loopbackAddr)
+					if loopbackErr == nil {
+						return conn, nil
 					}
-				} else {
-					addr = net.JoinHostPort("127.0.0.1", port)
+					if resolved := resolveContainerAddr(target); resolved != "" {
+						return d.DialContext(ctx, network, resolved)
+					}
 				}
+				addr = loopbackAddr
 			}
 
-			var d net.Dialer
 			return d.DialContext(ctx, network, addr)
 		},
 	},

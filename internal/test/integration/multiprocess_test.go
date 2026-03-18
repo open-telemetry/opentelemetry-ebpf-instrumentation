@@ -81,7 +81,9 @@ func TestMultiProcess(t *testing.T) {
 	// Doing it early to give time to generate the traces (in case the test failed)
 	// while doing another test in between for the same container
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get("http://localhost:18090/dont-instrument")
+		req, err := http.NewRequest(http.MethodGet, "http://localhost:18090/dont-instrument", nil)
+		require.NoError(ct, err)
+		resp, err := testHTTPClient.Do(req)
 		require.NoError(ct, err)
 		assert.Equal(ct, http.StatusOK, resp.StatusCode)
 	}, testTimeout, 100*time.Millisecond)
@@ -167,7 +169,9 @@ func TestMultiProcessAppCPTCPOnly(t *testing.T) {
 func checkReportedOnlyOnce(t *testing.T, baseURL, serviceName string) {
 	const path = "/check-only-once"
 	for i := 0; i < 3; i++ {
-		resp, err := http.Get(baseURL + path)
+		req, err := http.NewRequest(http.MethodGet, baseURL+path, nil)
+		require.NoError(t, err)
+		resp, err := testHTTPClient.Do(req)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 	}
