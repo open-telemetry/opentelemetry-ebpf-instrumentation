@@ -13,9 +13,13 @@ static __always_inline u64 resolve_python_context_task(const python_context_task
         return 0;
     }
 
+    if (!context_task->version) {
+        return context_task->task;
+    }
+
     const python_task_state_t *task_state =
         (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &context_task->task);
-    if (context_task->version && (!task_state || task_state->version != context_task->version)) {
+    if (!task_state || task_state->version != context_task->version) {
         return 0;
     }
 

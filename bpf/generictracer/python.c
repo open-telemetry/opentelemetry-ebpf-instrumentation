@@ -19,18 +19,8 @@
 
 #include <pid/pid.h>
 
+// Python task/context pointers use 0 to mean "no active state" in thread-local tracking.
 enum { k_python_state_none = 0 };
-
-static __always_inline u64 python_next_task_version(u64 task) {
-    const python_task_state_t *task_state =
-        (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task);
-    if (!task_state) {
-        return 1;
-    }
-
-    const u64 next_version = task_state->version + 1;
-    return next_version ? next_version : 1;
-}
 
 static __always_inline void map_context_to_task(u64 context, u64 task) {
     python_context_task_t mapping = {
@@ -47,15 +37,16 @@ static __always_inline void map_context_to_task(u64 context, u64 task) {
     bpf_map_update_elem(&python_context_task, &context, &mapping, BPF_ANY);
 }
 
-static __always_inline python_thread_state_t load_python_thread_state(u64 id) {
-    const python_thread_state_t *thread_state_ptr =
-        (const python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &id);
-    python_thread_state_t thread_state = {};
-    if (thread_state_ptr) {
-        thread_state = *thread_state_ptr;
+static __always_inline python_thread_state_t *get_or_create_python_thread_state(u64 id) {
+    python_thread_state_t *thread_state =
+        (python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &id);
+    if (thread_state) {
+        return thread_state;
     }
 
-    return thread_state;
+    python_thread_state_t initial_state = {};
+    bpf_map_update_elem(&python_thread_state, &id, &initial_state, BPF_ANY);
+    return (python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &id);
 }
 
 static __always_inline int update_current_task(u64 id, u64 task) {
@@ -64,9 +55,12 @@ static __always_inline int update_current_task(u64 id, u64 task) {
     }
 
     bpf_dbg_printk("task_step: tid=%d task=%llx", id, task);
-    python_thread_state_t thread_state = load_python_thread_state(id);
-    thread_state.current_task = task;
-    bpf_map_update_elem(&python_thread_state, &id, &thread_state, BPF_ANY);
+    python_thread_state_t *thread_state = get_or_create_python_thread_state(id);
+    if (!thread_state) {
+        return 0;
+    }
+
+    thread_state->current_task = task;
     return 0;
 }
 
@@ -104,15 +98,19 @@ int obi_uprobe_task_step_ret(struct pt_regs *ctx) {
     }
 
     bpf_dbg_printk("task_step_ret: clearing tid=%d", id);
-    python_thread_state_t thread_state = load_python_thread_state(id);
-    thread_state.current_task = k_python_state_none;
-    if (thread_state.current_context == k_python_state_none &&
-        thread_state.inflight_task == k_python_state_none) {
+    python_thread_state_t *thread_state =
+        (python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &id);
+    if (!thread_state) {
+        return 0;
+    }
+
+    thread_state->current_task = k_python_state_none;
+    if (thread_state->current_context == k_python_state_none &&
+        thread_state->inflight_task == k_python_state_none) {
         bpf_map_delete_elem(&python_thread_state, &id);
         return 0;
     }
 
-    bpf_map_update_elem(&python_thread_state, &id, &thread_state, BPF_ANY);
     return 0;
 }
 
@@ -129,11 +127,12 @@ int obi_uprobe_context_run(struct pt_regs *ctx) {
     }
     bpf_dbg_printk("context_run: tid=%d ctx=%llx", id, context);
 
-    // Read the full thread snapshot once so this probe can update the active
-    // context without dropping the task-init state stored on the same thread.
-    python_thread_state_t thread_state = load_python_thread_state(id);
-    thread_state.current_context = context;
-    bpf_map_update_elem(&python_thread_state, &id, &thread_state, BPF_ANY);
+    python_thread_state_t *thread_state = get_or_create_python_thread_state(id);
+    if (!thread_state) {
+        return 0;
+    }
+
+    thread_state->current_context = context;
 
     return 0;
 }
@@ -196,13 +195,20 @@ int obi_uprobe_task_init(struct pt_regs *ctx) {
 
     // Store child_task so copy_context can attribute the copied context before
     // task_step starts running on the new task.
-    python_thread_state_t thread_state = load_python_thread_state(id);
-    thread_state.inflight_task = child_task;
-    bpf_map_update_elem(&python_thread_state, &id, &thread_state, BPF_ANY);
-    const u64 parent_task = thread_state.current_task;
+    python_thread_state_t *thread_state = get_or_create_python_thread_state(id);
+    if (!thread_state) {
+        return 0;
+    }
+
+    thread_state->inflight_task = child_task;
+    const u64 parent_task = thread_state->current_task;
+    const python_task_state_t *existing_state =
+        (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &child_task);
+    // Task versions start at 1; version 0 means no task version.
+    const u64 next_version = existing_state ? existing_state->version + 1 : 1;
     python_task_state_t task_state = {
         .parent = parent_task,
-        .version = python_next_task_version(child_task),
+        .version = next_version ? next_version : 1,
     };
 
     bpf_dbg_printk(
@@ -250,14 +256,18 @@ int obi_uprobe_task_init_ret(struct pt_regs *ctx) {
         return 0;
     }
 
-    python_thread_state_t thread_state = load_python_thread_state(id);
-    thread_state.inflight_task = k_python_state_none;
-    if (thread_state.current_task == k_python_state_none &&
-        thread_state.current_context == k_python_state_none) {
+    python_thread_state_t *thread_state =
+        (python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &id);
+    if (!thread_state) {
+        return 0;
+    }
+
+    thread_state->inflight_task = k_python_state_none;
+    if (thread_state->current_task == k_python_state_none &&
+        thread_state->current_context == k_python_state_none) {
         bpf_map_delete_elem(&python_thread_state, &id);
         return 0;
     }
 
-    bpf_map_update_elem(&python_thread_state, &id, &thread_state, BPF_ANY);
     return 0;
 }

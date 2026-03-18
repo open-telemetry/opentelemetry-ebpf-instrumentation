@@ -132,36 +132,37 @@ static __always_inline tp_info_pid_t *find_parent_process_trace(trace_key_t *t_k
 }
 
 static __always_inline u64 resolve_python_current_task(const trace_key_t *t_key, u64 pid_tgid) {
-    u64 task_id = 0;
     const python_thread_state_t *thread_state =
         (const python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &pid_tgid);
 
-    if (thread_state && thread_state->current_task) {
-        task_id = thread_state->current_task;
+    if (!thread_state) {
+        return 0;
+    }
+
+    if (thread_state->current_task) {
+        bpf_dbg_printk("resolve_python_current_task: resolved tid=%d task=%llx",
+                       t_key->p_key.tid,
+                       thread_state->current_task);
+        return thread_state->current_task;
+    }
+
+    if (!thread_state->current_context) {
+        return 0;
     }
 
     // asyncio.to_thread can switch work onto a thread that inherited a context
     // but has not run task_step, so current_context is the only usable link.
-    if (thread_state && thread_state->current_context) {
-        const python_context_task_t *context_task =
-            (const python_context_task_t *)bpf_map_lookup_elem(&python_context_task,
-                                                               &thread_state->current_context);
-        if (context_task && context_task->task) {
-            const u64 resolved_task = resolve_python_context_task(context_task);
-            if (resolved_task && !task_id) {
-                task_id = resolved_task;
-                bpf_dbg_printk(
-                    "resolve_python_current_task: context fallback tid=%d ctx=%llx task=%llx",
-                    t_key->p_key.tid,
-                    thread_state->current_context,
-                    task_id);
-            }
-        }
+    const python_context_task_t *context_task = (const python_context_task_t *)bpf_map_lookup_elem(
+        &python_context_task, &thread_state->current_context);
+    const u64 task_id = resolve_python_context_task(context_task);
+    if (task_id) {
+        bpf_dbg_printk("resolve_python_current_task: context fallback tid=%d ctx=%llx task=%llx",
+                       t_key->p_key.tid,
+                       thread_state->current_context,
+                       task_id);
+        return task_id;
     }
-
-    bpf_dbg_printk(
-        "resolve_python_current_task: resolved tid=%d task=%llx", t_key->p_key.tid, task_id);
-    return task_id;
+    return 0;
 }
 
 static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t *t_key,
@@ -180,7 +181,14 @@ static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t
     for (u8 i = 0; i < k_max_depth; ++i) {
         const python_task_state_t *task_state =
             (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task_id);
-        if (task_state && task_state->conn.port) {
+        if (!task_state) {
+            bpf_dbg_printk("find_python_parent_trace: no task state for tid=%d task=%llx",
+                           t_key->p_key.tid,
+                           task_id);
+            break;
+        }
+
+        if (task_state->conn.port) {
             tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces_aux, &task_state->conn);
             if (server_tp) {
                 bpf_dbg_printk("find_python_parent_trace: FOUND tid=%d task=%llx port=%d",
@@ -191,7 +199,10 @@ static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t
             }
         }
 
-        if (!task_state || task_state->parent == task_id) {
+        if (!task_state->parent) {
+            bpf_dbg_printk("find_python_parent_trace: no parent for tid=%d task=%llx",
+                           t_key->p_key.tid,
+                           task_id);
             break;
         }
 
