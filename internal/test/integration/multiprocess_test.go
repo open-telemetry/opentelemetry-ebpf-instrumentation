@@ -70,8 +70,9 @@ func TestMultiProcess(t *testing.T) {
 	})
 
 	t.Run("Go RED metrics: node service", func(t *testing.T) {
-		waitForTestComponents(t, "http://localhost:3031")
-		testREDMetricsForNodeHTTPLibrary(t, "http://localhost:3031", "/bye", "nodejs-service", "multi-k")
+		nodeURL := nodeTestServerHTTPURL(t)
+		waitForTestComponents(t, nodeURL)
+		testREDMetricsForNodeHTTPLibrary(t, nodeURL, "/bye", "nodejs-service", "multi-k")
 		checkReportedNodeJSEvents(t, "/bye", "nodejs-service", "multi-k", 4)
 	})
 

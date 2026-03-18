@@ -9,8 +9,11 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -60,13 +63,104 @@ type TestCase struct {
 	Spans     []TestCaseSpan
 }
 
-var tr = &http.Transport{
-	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+const (
+	nodeTestServerContainerName = "integration-ntestserver-1"
+	nodeTestServerHostPort      = 33031
+	nodeTestServerContainerPort = 3030
+)
+
+type loopbackTarget struct {
+	containerName string
+	containerPort int
 }
-var testHTTPClient = &http.Client{Transport: tr}
+
+var (
+	loopbackTargetsByPort = map[string]loopbackTarget{
+		"33031": {containerName: nodeTestServerContainerName, containerPort: nodeTestServerContainerPort},
+		"3034":  {containerName: "integration-ntestserverssl-1", containerPort: 3033},
+		"3041":  {containerName: "integration-utestserver-1", containerPort: 3040},
+		"3044":  {containerName: "integration-utestserverssl-1", containerPort: 3043},
+		"38080": {containerName: "integration-testserver-unused-1", containerPort: 8080},
+		"7773":  {containerName: "integration-pytestserver-1", containerPort: 7773},
+		"8080":  {containerName: "integration-testserver-1", containerPort: 8080},
+		"8088":  {containerName: "integration-testserver-1", containerPort: 8088},
+		"8086":  {containerName: "integration-jtestserver-1", containerPort: 8085},
+		"8091":  {containerName: "integration-rtestserver-1", containerPort: 8090},
+		"8900":  {containerName: "integration-testserver1-1", containerPort: 8900},
+		"8999":  {containerName: "integration-obi-1", containerPort: 8999},
+		"9090":  {containerName: "prometheus", containerPort: 9090},
+		"8381":  {containerName: "integration-pytestserverssl-1", containerPort: 8380},
+		"8491":  {containerName: "integration-rtestserverssl-1", containerPort: 8490},
+		"18080": {containerName: "integration-testserver-duplicate-1", containerPort: 18080},
+		"18090": {containerName: "integration-testserver-duplicate-1", containerPort: 18090},
+		"16686": {containerName: "integration-jaeger-1", containerPort: 16686},
+	}
+	tr = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err == nil && host == "localhost" {
+				if target, ok := loopbackTargetsByPort[port]; ok {
+					if resolved := resolveContainerAddr(target); resolved != "" {
+						addr = resolved
+					} else {
+						addr = net.JoinHostPort("127.0.0.1", port)
+					}
+				} else {
+					addr = net.JoinHostPort("127.0.0.1", port)
+				}
+			}
+
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		},
+	}
+	testHTTPClient = &http.Client{Transport: tr}
+)
+
+func init() {
+	if base, ok := http.DefaultTransport.(*http.Transport); ok {
+		clone := base.Clone()
+		clone.DialContext = tr.DialContext
+		http.DefaultTransport = clone
+		http.DefaultClient.Transport = clone
+	}
+}
 
 func setHTTPClientDisableKeepAlives(disableKeepAlives bool) {
 	testHTTPClient.Transport.(*http.Transport).DisableKeepAlives = disableKeepAlives
+}
+
+func resolveContainerAddr(target loopbackTarget) string {
+	cmd := exec.Command("docker", "inspect", "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", target.containerName)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	ip := strings.TrimSpace(string(out))
+	if ip == "" {
+		return ""
+	}
+
+	addr := net.JoinHostPort(ip, strconv.Itoa(target.containerPort))
+	return addr
+}
+
+func nodeTestServerHTTPURL(tb testing.TB) string {
+	tb.Helper()
+
+	if addr := resolveContainerAddr(loopbackTarget{
+		containerName: nodeTestServerContainerName,
+		containerPort: nodeTestServerContainerPort,
+	}); addr != "" {
+		host, port, err := net.SplitHostPort(addr)
+		if err == nil {
+			return fmt.Sprintf("http://%s:%s", host, port)
+		}
+	}
+
+	return fmt.Sprintf("http://127.0.0.1:%d", nodeTestServerHostPort)
 }
 
 func doHTTPPost(t *testing.T, path string, status int, jsonBody []byte) {

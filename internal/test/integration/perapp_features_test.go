@@ -36,12 +36,12 @@ func TestPerAppFeatures(t *testing.T) {
 
 func testPerAppFeatures(t *testing.T, exportedSource string) {
 	t.Run("all the services have span metrics", func(t *testing.T) {
-		checkSpanMetric(t, 3*time.Minute, exportedSource, "node", 3031, "/testing-node")
-		checkSpanMetric(t, time.Minute, exportedSource, "ruby", 3041, "/testing-rails")
-		checkSpanMetric(t, time.Minute, exportedSource, "pytestserver", 7773, "/testing-python")
-		checkSpanMetric(t, time.Minute, exportedSource, "testserver", 8080, "/testing-go")
-		checkSpanMetric(t, time.Minute, exportedSource, "jtestserver", 8086, "/testing-java")
-		checkSpanMetric(t, time.Minute, exportedSource, "rtestserver", 8091, "/testing-rust")
+		checkSpanMetricURL(t, 3*time.Minute, exportedSource, "node", nodeTestServerHTTPURL(t)+"/testing-node", "/testing-node")
+		checkSpanMetric(t, exportedSource, "ruby", 3041, "/testing-rails")
+		checkSpanMetric(t, exportedSource, "pytestserver", 7773, "/testing-python")
+		checkSpanMetric(t, exportedSource, "testserver", 8080, "/testing-go")
+		checkSpanMetric(t, exportedSource, "jtestserver", 8086, "/testing-java")
+		checkSpanMetric(t, exportedSource, "rtestserver", 8091, "/testing-rust")
 	})
 	t.Run("node, rails and python have RED metrics", func(t *testing.T) {
 		hasREDMetrics(t, exportedSource, "node", "/testing-node")
@@ -57,16 +57,21 @@ func testPerAppFeatures(t *testing.T, exportedSource string) {
 
 var pq = promtest.Client{HostPort: prometheusHostPort}
 
-func checkSpanMetric(t *testing.T, timeout time.Duration, exportedSource, serviceName string, port int, path string) {
+func checkSpanMetric(t *testing.T, exportedSource, serviceName string, port int, path string) {
+	timeout := time.Minute
+	checkSpanMetricURL(t, timeout, exportedSource, serviceName, fmt.Sprintf("http://localhost:%d%s", port, path), path)
+}
+
+func checkSpanMetricURL(t *testing.T, timeout time.Duration, exportedSource, serviceName, url, spanPath string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		// first, verify that the test service endpoint is healthy
-		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://localhost:%d%s", port, path), nil)
+		req, err := http.NewRequest(http.MethodGet, url, nil)
 		require.NoError(ct, err)
 		_, err = testHTTPClient.Do(req)
 		require.NoError(ct, err)
 
 		results, err := pq.Query(`traces_spanmetrics_latency_sum{exported="` + exportedSource +
-			`",service_name="` + serviceName + `",span_name="GET ` + path + `"}`)
+			`",service_name="` + serviceName + `",span_name="GET ` + spanPath + `"}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 	}, timeout, time.Second)

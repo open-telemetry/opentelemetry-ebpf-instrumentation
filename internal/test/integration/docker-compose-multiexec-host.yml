@@ -102,7 +102,7 @@ services:
       - node
       - app.js
     ports:
-      - 3031:3030
+      - 33031:3030
 
   utestserver:
     image: ghcr.io/open-telemetry/obi-testimg:rails-0.1.0@sha256:7a72159a113b9044378c42f7ea27ab00673c6a0ebfe3ac205cc006f46606b36c

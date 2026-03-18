@@ -310,7 +310,7 @@ func testHTTPTracesKProbes(t *testing.T) {
 	traceID = createTraceID()
 	parentID = createParentID()
 	traceparent := createTraceparent(traceID, parentID)
-	doHTTPGetWithTraceparent(t, "http://localhost:3031/bye", 200, traceparent)
+	doHTTPGetWithTraceparent(t, nodeTestServerHTTPURL(t)+"/bye", 200, traceparent)
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -653,13 +653,15 @@ func testHTTP2GRPCTracesNestedCallsWithContextPropagation(t *testing.T) {
 func testNestedHTTPTracesKProbes(t *testing.T) {
 	var traceID string
 
-	waitForTestComponents(t, "http://localhost:3031")                 // nodejs
-	waitForTestComponents(t, "http://localhost:8080")                 // go
-	waitForTestComponents(t, "http://localhost:7773")                 // python
-	waitForRubyTestComponents(t, "http://localhost:3041")             // ruby
-	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting") // java
-	waitForTestComponents(t, "http://localhost:8091")                 // rust
-	waitForTestComponents(t, instrumentedServiceJSONRPCURL)           // go jsonrpc
+	// Node startup in this suite can be slow because the debugger-based
+	// instrumentation path races with container/network readiness.
+	waitForTestComponentsSubWithTime(t, nodeTestServerHTTPURL(t), "/smoke", 4) // nodejs
+	waitForTestComponents(t, "http://localhost:8080")                          // go
+	waitForTestComponents(t, "http://localhost:7773")                          // python
+	waitForRubyTestComponents(t, "http://localhost:3041")                      // ruby
+	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting")          // java
+	waitForTestComponents(t, "http://localhost:8091")                          // rust
+	waitForTestComponents(t, instrumentedServiceJSONRPCURL)                    // go jsonrpc
 
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be
@@ -1448,7 +1450,7 @@ func testHTTPTracesNestedNodeJSLargeHTTPS(t *testing.T) {
 	var parentID string
 
 	// Run a request, since we have a single app, we should see always all requests
-	ti.DoHTTPGet(t, "http://localhost:3031/api/test-apm", 200)
+	ti.DoHTTPGet(t, nodeTestServerHTTPURL(t)+"/api/test-apm", 200)
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
