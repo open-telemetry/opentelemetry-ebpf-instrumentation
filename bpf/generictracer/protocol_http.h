@@ -27,6 +27,7 @@
 #include <maps/accepted_connections.h>
 #include <maps/active_ssl_connections.h>
 #include <maps/ongoing_http.h>
+#include <generictracer/maps/tcp_nat_trace_map.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>
 
@@ -50,6 +51,27 @@ static __always_inline u32 trace_type_from_meta(http_connection_metadata_t *meta
     }
 
     return TRACE_TYPE_SERVER;
+}
+
+static __always_inline void cache_nat_http_client_trace(connection_info_t *conn,
+                                                        tp_info_pid_t *tp_p,
+                                                        void *u_buf,
+                                                        int bytes_len) {
+    if (bytes_len <= 0) {
+        return;
+    }
+
+    nat_http_partial_connection_info_t partial = {};
+
+    __builtin_memcpy(partial.d_addr, conn->d_addr, sizeof(partial.d_addr));
+    partial.d_port = conn->d_port;
+    partial.payload_len = 0;
+    bpf_probe_read(partial.payload_prefix, sizeof(partial.payload_prefix), u_buf);
+
+    tp_info_pid_t cached = {};
+    __builtin_memcpy(&cached, tp_p, sizeof(cached));
+    bpf_map_update_elem(&http_nat_trace_map, &partial, &cached, BPF_ANY);
+    bpf_dbg_printk("Cached HTTP NAT candidate trace from HTTP client path");
 }
 
 static __always_inline void
@@ -149,6 +171,9 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
             if (meta) {
                 const u32 type = trace_type_from_meta(meta);
                 set_trace_info_for_connection(conn, type, tp_p);
+                if (meta->type == EVENT_HTTP_CLIENT) {
+                    cache_nat_http_client_trace(conn, tp_p, u_buf, bytes_len);
+                }
                 server_or_client_trace(meta->type, conn, tp_p, ssl, orig_dport);
             }
             return;
@@ -193,6 +218,9 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
     if (meta) {
         const u32 type = trace_type_from_meta(meta);
         set_trace_info_for_connection(conn, type, tp_p);
+        if (meta->type == EVENT_HTTP_CLIENT) {
+            cache_nat_http_client_trace(conn, tp_p, u_buf, bytes_len);
+        }
         // TODO: If the user code setup traceparent manually, don't interfere and add
         // something else with TC L7. The main challenge is that with kprobes, the
         // sock_msg program has already punched a hole in the HTTP headers and has made

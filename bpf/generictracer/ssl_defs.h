@@ -20,6 +20,36 @@
 
 #include <logger/bpf_dbg.h>
 
+static __always_inline void
+restore_nat_http_client_trace(ssl_pid_connection_info_t *conn, void *buf, int bytes_len) {
+    if (bytes_len < MIN_HTTP_SIZE) {
+        return;
+    }
+
+    unsigned char prefix[NAT_HTTP_TRACE_PREFIX_LEN] = {};
+    bpf_probe_read(prefix, sizeof(prefix), buf);
+
+    if (!is_http_request_buf(prefix)) {
+        return;
+    }
+
+    nat_http_partial_connection_info_t partial = {};
+    __builtin_memcpy(partial.d_addr, conn->p_conn.conn.d_addr, sizeof(partial.d_addr));
+    partial.d_port = conn->p_conn.conn.d_port;
+    partial.payload_len = 0;
+    __builtin_memcpy(partial.payload_prefix, prefix, sizeof(partial.payload_prefix));
+
+    tp_info_pid_t *nat_trace = bpf_map_lookup_elem(&http_nat_trace_map, &partial);
+    if (nat_trace &&
+        current_immediate_epoch(nat_trace->tp.ts) == current_immediate_epoch(bpf_ktime_get_ns())) {
+        tp_info_pid_t cached = {};
+        __builtin_memcpy(&cached, nat_trace, sizeof(cached));
+        set_trace_info_for_connection(&conn->p_conn.conn, TRACE_TYPE_CLIENT, &cached);
+        bpf_map_delete_elem(&http_nat_trace_map, &partial);
+        bpf_dbg_printk("Restored HTTP NAT-translated client trace from SSL buffer");
+    }
+}
+
 static __always_inline void cleanup_ssl_trace_info(http_info_t *info, void *ssl) {
     if (info->type == EVENT_HTTP_REQUEST) {
         ssl_pid_connection_info_t *ssl_info = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
@@ -134,6 +164,10 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
         if (conn) {
             bpf_dbg_printk("SSL conn");
             dbg_print_http_connection_info(&conn->p_conn.conn);
+
+            if (direction == TCP_RECV) {
+                restore_nat_http_client_trace(conn, (void *)args->buf, bytes_len);
+            }
 
             // We should attempt to clean up the server trace immediately. The cleanup information
             // is keyed of the *ssl, so when it's delayed we might have different *ssl on the same

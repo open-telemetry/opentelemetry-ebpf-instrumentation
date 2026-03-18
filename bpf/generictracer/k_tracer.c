@@ -991,24 +991,63 @@ bridge_nat_client_trace(connection_info_t *conn, const protocol_info_t *tcp, con
 
     tp_info_pid_t *trace_info = trace_info_for_connection(conn, TRACE_TYPE_CLIENT);
     if (trace_info) {
-        if (cookie && current_immediate_epoch(trace_info->tp.ts) ==
-                          current_immediate_epoch(bpf_ktime_get_ns())) {
+        if (current_immediate_epoch(trace_info->tp.ts) ==
+            current_immediate_epoch(bpf_ktime_get_ns())) {
             tp_info_pid_t cached = {};
             __builtin_memcpy(&cached, trace_info, sizeof(cached));
             bpf_map_update_elem(&tcp_nat_trace_map, &partial, &cached, BPF_ANY);
+            bpf_dbg_printk("Cached NAT candidate trace for client request, cookie=%llx", cookie);
         }
         return;
     }
 
-    if (!cookie) {
-        tp_info_pid_t *nat_trace = bpf_map_lookup_elem(&tcp_nat_trace_map, &partial);
-        if (nat_trace && current_immediate_epoch(nat_trace->tp.ts) ==
-                             current_immediate_epoch(bpf_ktime_get_ns())) {
+    tp_info_pid_t *nat_trace = bpf_map_lookup_elem(&tcp_nat_trace_map, &partial);
+    if (nat_trace &&
+        current_immediate_epoch(nat_trace->tp.ts) == current_immediate_epoch(bpf_ktime_get_ns())) {
+        tp_info_pid_t cached = {};
+        __builtin_memcpy(&cached, nat_trace, sizeof(cached));
+        set_trace_info_for_connection(conn, TRACE_TYPE_CLIENT, &cached);
+        bpf_dbg_printk(
+            "Found NAT-translated client trace, setting it up for this connection, cookie=%llx",
+            cookie);
+    }
+}
+
+static __always_inline void
+populate_nat_http_partial_conn(nat_http_partial_connection_info_t *partial,
+                               const connection_info_t *conn,
+                               const unsigned char *buf) {
+    __builtin_memcpy(partial->d_addr, conn->d_addr, sizeof(partial->d_addr));
+    partial->d_port = conn->d_port;
+    partial->payload_len = 0;
+    __builtin_memcpy(partial->payload_prefix, buf, sizeof(partial->payload_prefix));
+}
+
+static __always_inline void bridge_nat_http_client_trace(connection_info_t *conn,
+                                                         const unsigned char *buf) {
+    nat_http_partial_connection_info_t partial = {};
+    populate_nat_http_partial_conn(&partial, conn, buf);
+
+    tp_info_pid_t *trace_info = trace_info_for_connection(conn, TRACE_TYPE_CLIENT);
+    if (trace_info) {
+        if (current_immediate_epoch(trace_info->tp.ts) ==
+            current_immediate_epoch(bpf_ktime_get_ns())) {
             tp_info_pid_t cached = {};
-            __builtin_memcpy(&cached, nat_trace, sizeof(cached));
-            set_trace_info_for_connection(conn, TRACE_TYPE_CLIENT, &cached);
-            bpf_dbg_printk("Found NAT-translated client trace, setting it up for this connection");
+            __builtin_memcpy(&cached, trace_info, sizeof(cached));
+            bpf_map_update_elem(&http_nat_trace_map, &partial, &cached, BPF_ANY);
+            bpf_dbg_printk("Cached HTTP NAT candidate trace for client request");
         }
+        return;
+    }
+
+    tp_info_pid_t *nat_trace = bpf_map_lookup_elem(&http_nat_trace_map, &partial);
+    if (nat_trace &&
+        current_immediate_epoch(nat_trace->tp.ts) == current_immediate_epoch(bpf_ktime_get_ns())) {
+        tp_info_pid_t cached = {};
+        __builtin_memcpy(&cached, nat_trace, sizeof(cached));
+        set_trace_info_for_connection(conn, TRACE_TYPE_CLIENT, &cached);
+        bpf_map_delete_elem(&http_nat_trace_map, &partial);
+        bpf_dbg_printk("Found HTTP NAT-translated client trace, setting it up for this connection");
     }
 }
 
@@ -1043,12 +1082,12 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
     }
 
     // we don't want to read the whole buffer for every packed that passes our checks, we read only a bit and check if it's truly HTTP request/response.
-    unsigned char buf[MIN_HTTP_SIZE] = {0};
+    unsigned char buf[NAT_HTTP_TRACE_PREFIX_LEN] = {0};
     bpf_skb_load_bytes(skb, tcp.hdr_len, (void *)buf, sizeof(buf));
     // technically the read should be reversed, but eBPF verifier complains on read with variable length
     u32 len = skb->len - tcp.hdr_len;
-    if (len > MIN_HTTP_SIZE) {
-        len = MIN_HTTP_SIZE;
+    if (len > NAT_HTTP_TRACE_PREFIX_LEN) {
+        len = NAT_HTTP_TRACE_PREFIX_LEN;
     }
 
     u8 packet_type = 0;
@@ -1063,6 +1102,8 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
             const u64 cookie = bpf_get_socket_cookie(skb);
             //bpf_dbg_printk("cookie=%llx, len=%d, buf=[%s]", cookie, len, buf);
             //dbg_print_http_connection_info(&conn);
+
+            bridge_nat_http_client_trace(&conn, buf);
 
             // The code below is looking to see if we have recorded black-box trace info on
             // another interface. We do this for client calls, where essentially the original

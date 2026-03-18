@@ -55,6 +55,15 @@ typedef struct nat_partial_connection_info {
     u32 tcp_ack;
 } nat_partial_connection_info_t;
 
+#define NAT_HTTP_TRACE_PREFIX_LEN 32
+
+typedef struct nat_http_partial_connection_info {
+    u8 d_addr[IP_V6_ADDR_LEN];
+    u16 d_port;
+    u16 payload_len;
+    u8 payload_prefix[NAT_HTTP_TRACE_PREFIX_LEN];
+} nat_http_partial_connection_info_t;
+
 typedef struct http_pid_connection_info {
     connection_info_t conn;
     u32 pid;
