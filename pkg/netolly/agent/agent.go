@@ -110,7 +110,7 @@ type Flows struct {
 type ebpfFlowFetcher interface {
 	io.Closer
 
-	LookupAndDeleteMap() map[ebpf.NetFlowId][]ebpf.NetFlowMetrics
+	LookupAndDeleteMap() map[ebpf.NetFlowId]*ebpf.NetFlowMetrics
 	ReadRingBuf() (ringbuf.Record, error)
 
 	FlowPacketStatsMap() *cebpf.Map

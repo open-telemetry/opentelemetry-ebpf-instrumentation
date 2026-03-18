@@ -45,7 +45,7 @@ func (fmd *flowMapDrainer[IT]) lookupAndDeleteMap() map[NetFlowId]*NetFlowMetric
 			fmd.log.Debug("couldn't delete flow entry", "flowId", id, "error", err)
 		}
 
-		perCpuAggregated := &NetFlowMetrics{}
+		perCPUAggregated := &NetFlowMetrics{}
 		for i := range metrics {
 			mt := &metrics[i]
 			// eBPF hashmap values are not zeroed when the entry is removed. That causes that we
@@ -54,10 +54,10 @@ func (fmd *flowMapDrainer[IT]) lookupAndDeleteMap() map[NetFlowId]*NetFlowMetric
 			if mt.StartMonoTimeNs <= fmd.lastReadNS || mt.EndMonoTimeNs <= fmd.lastReadNS {
 				continue
 			}
-			perCpuAggregated.Accumulate(mt)
+			perCPUAggregated.Accumulate(mt)
 			olderFlow = max(olderFlow, mt.EndMonoTimeNs)
 		}
-		if perCpuAggregated.EndMonoTimeNs == 0 {
+		if perCPUAggregated.EndMonoTimeNs == 0 {
 			// no recent flows were accounted, skip
 			continue
 		}
@@ -66,9 +66,9 @@ func (fmd *flowMapDrainer[IT]) lookupAndDeleteMap() map[NetFlowId]*NetFlowMetric
 		// (probably due to race conditions) so we need to re-join metrics again at userspace
 		// TODO: instrument how many times the keys are is repeated in the same eviction
 		if stored, ok := flows[id]; ok {
-			stored.Accumulate(perCpuAggregated)
+			stored.Accumulate(perCPUAggregated)
 		} else {
-			flows[id] = perCpuAggregated
+			flows[id] = perCPUAggregated
 		}
 		metrics = nil
 	}

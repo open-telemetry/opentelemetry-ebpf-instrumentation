@@ -28,6 +28,7 @@ import (
 	"time"
 
 	cebpf "github.com/cilium/ebpf"
+
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
@@ -124,7 +125,8 @@ func (m *MapTracer) evictionSynchronization(ctx context.Context, out *msg.Queue[
 }
 
 func (m *MapTracer) evictFlows(ctx context.Context, forwardFlows *msg.Queue[[]*ebpf.Record]) {
-	var forwardingFlows []*ebpf.Record
+	flowsMap := m.mapFetcher.LookupAndDeleteMap()
+	forwardingFlows := make([]*ebpf.Record, 0, len(flowsMap))
 	for flowKey, aggregatedMetrics := range m.mapFetcher.LookupAndDeleteMap() {
 		forwardingFlows = append(forwardingFlows, ebpf.NewRecord(flowKey, *aggregatedMetrics))
 	}

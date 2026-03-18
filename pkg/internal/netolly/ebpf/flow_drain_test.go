@@ -37,9 +37,9 @@ func TestLookupAndDelete(t *testing.T) {
 	flows := fmd.lookupAndDeleteMap()
 	assert.Equal(t,
 		map[NetFlowId]*NetFlowMetrics{
-			NetFlowId{IfIndex: 1}: {Packets: 6, StartMonoTimeNs: 101, EndMonoTimeNs: 103},
-			NetFlowId{IfIndex: 3}: {Packets: 35, StartMonoTimeNs: 101, EndMonoTimeNs: 125},
-			NetFlowId{IfIndex: 4}: {Packets: 22, StartMonoTimeNs: 101, EndMonoTimeNs: 110},
+			{IfIndex: 1}: {Packets: 6, StartMonoTimeNs: 101, EndMonoTimeNs: 103},
+			{IfIndex: 3}: {Packets: 35, StartMonoTimeNs: 101, EndMonoTimeNs: 125},
+			{IfIndex: 4}: {Packets: 22, StartMonoTimeNs: 101, EndMonoTimeNs: 110},
 		}, flows)
 	assert.EqualValues(t, 125, fmd.lastReadNS)
 }
