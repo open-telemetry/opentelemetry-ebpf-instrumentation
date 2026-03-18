@@ -1,0 +1,6 @@
+discovery:
+  instrument:
+    - namespace: proxy-test
+      name: testserver
+      open_ports: 8080
+      

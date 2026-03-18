@@ -1,0 +1,14 @@
+docker-compose:
+  generator: generic
+  files:
+    - ../docker-compose-proxy.yml
+input:
+  - path: "/smoke"
+
+interval: 500ms
+expected:
+  traces:
+    - traceql: '{ .http.route = "/smoke" && .server.port=8080}'
+      spans:
+        - name: "GET /smoke"
+          allow-duplicates: true
