@@ -20,7 +20,6 @@ var (
 	PingerManifest               = path.Join(testpath.Manifests, "/06-instrumented-client.template.yml")
 	GrpcPingerManifest           = path.Join(testpath.Manifests, "/06-instrumented-grpc-client.template.yml")
 	UninstrumentedPingerManifest = path.Join(testpath.Manifests, "/06-uninstrumented-client.template.yml")
-	UninstrumentedAppManifest    = path.Join(testpath.Manifests, "/05-uninstrumented-service.yml")
 	PingerManifestProm           = path.Join(testpath.Manifests, "/06-instrumented-client-prom.template.yml")
 	GrpcPingerManifestProm       = path.Join(testpath.Manifests, "/06-instrumented-grpc-client-prom.template.yml")
 )
