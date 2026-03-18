@@ -936,6 +936,20 @@ func testNestedHTTPSTracesKProbes(t *testing.T) {
 		require.NotEmpty(ct, parent.TraceID)
 		traceID = parent.TraceID
 		require.NotEmpty(ct, parent.SpanID)
+
+		// Re-query the exact trace by ID so we keep polling until Jaeger returns
+		// the full nested trace, not just the first partial snapshot.
+		resp, err = http.Get(jaegerQueryURL + "?service=python-service-ssl&traceID=" + traceID)
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		require.GreaterOrEqual(ct, len(tq.Data), 1)
+		trace = tq.Data[0]
+		require.NotEmpty(ct, trace.Spans)
+
 		// check duration is at least 2us
 		assert.Less(ct, (2 * time.Microsecond).Microseconds(), parent.Duration)
 		// check span attributes
