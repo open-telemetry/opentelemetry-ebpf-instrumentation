@@ -14,8 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonbpf "go.opentelemetry.io/obi/pkg/ebpf/common"
+	generictracerbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 	gotracerbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 	gpueventbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/gpuevent"
+	logenricherbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/logenricher"
 	loggerbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/logger"
 	tpinjectorbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/tpinjector"
 	watcherbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/watcher"
@@ -60,7 +62,7 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 // TestBPFVerifier loads every generated BPF collection into the kernel and checks that
 // the BPF verifier accepts all programs. Requires CAP_SYS_ADMIN / root.
 //
-// Run with: sudo env PRIVILEGED_TESTS=true go test ./pkg/internal/ebpf/verifier/...
+// Run with: sudo env PATH=$PATH PRIVILEGED_TESTS=true go test ./pkg/internal/ebpf/verifier/...
 func TestBPFVerifier(t *testing.T) {
 	if os.Getenv(privilegedEnv) == "" {
 		t.Skipf("Skipping this test because %v is not set", privilegedEnv)
@@ -76,25 +78,25 @@ func TestBPFVerifier(t *testing.T) {
 	loadAndVerify(t, "netolly/NetSk", netollybpf.LoadNetSk)
 
 	// generic tracer (uprobe-based HTTP/gRPC/...)
+	loadAndVerify(t, "generictracer/Bpf", generictracerbpf.LoadBpf)
+	// Go-specific tracer
 	loadAndVerify(t, "gotracer/Bpf", gotracerbpf.LoadBpf)
-	loadAndVerify(t, "gotracer/BpfDebug", gotracerbpf.LoadBpfDebug)
-	loadAndVerify(t, "gotracer/BpfTP", gotracerbpf.LoadBpfTP)
-	loadAndVerify(t, "gotracer/BpfTPDebug", gotracerbpf.LoadBpfTPDebug)
 
 	// tracepoint injector
 	loadAndVerify(t, "tpinjector/Bpf", tpinjectorbpf.LoadBpf)
-	loadAndVerify(t, "tpinjector/BpfDebug", tpinjectorbpf.LoadBpfDebug)
+	loadAndVerify(t, "tpinjector/BpfIter", tpinjectorbpf.LoadBpfIter)
 
 	// process watcher
 	loadAndVerify(t, "watcher/Bpf", watcherbpf.LoadBpf)
-	loadAndVerify(t, "watcher/BpfDebug", watcherbpf.LoadBpfDebug)
 
 	// GPU event tracer
 	loadAndVerify(t, "gpuevent/Bpf", gpueventbpf.LoadBpf)
-	loadAndVerify(t, "gpuevent/BpfDebug", gpueventbpf.LoadBpfDebug)
 
 	// BPF ring-buffer logger
-	loadAndVerify(t, "logger/BpfDebug", loggerbpf.LoadBpfDebug)
+	loadAndVerify(t, "logger/Bpf", loggerbpf.LoadBpf)
+
+	// log enricher
+	loadAndVerify(t, "logenricher/Bpf", logenricherbpf.LoadBpf)
 
 	// reverse DNS XDP program
 	loadAndVerify(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf)
