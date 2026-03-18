@@ -323,6 +323,11 @@ test-privileged: $(ENVTEST)
 	@echo "### Testing code with privileged tests enabled"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
+.PHONY: run-bpf-verifier-vm
+run-bpf-verifier-vm:
+	@echo "### Running BPF verifier tests"
+	PRIVILEGED_TESTS=true go test -v -count=1 ./pkg/internal/ebpf/verifier/...
+
 .PHONY: cov-exclude-generated
 cov-exclude-generated:
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/cover.all.txt > $(TEST_OUTPUT)/cover.txt
