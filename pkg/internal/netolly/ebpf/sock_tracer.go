@@ -32,6 +32,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
+	"github.com/gavv/monotime"
 	"golang.org/x/sys/unix"
 
 	convenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
@@ -47,16 +48,17 @@ import (
 // and to flows that are forwarded by the kernel via ringbuffer because could not be aggregated
 // in the map
 type SockFlowFetcher struct {
-	log           *slog.Logger
-	objects       *NetSkObjects
-	ringbufReader *ringbuf.Reader
-	cacheMaxSize  int
+	log            *slog.Logger
+	objects        *NetSkObjects
+	ringbufReader  *ringbuf.Reader
+	flowMapDrainer flowMapDrainer[*ebpf.MapIterator]
 }
 
 func NewSockFlowFetcher(
 	sampling, cacheMaxSize int,
 	portGuessPolicy flowdef.PortGuessPolicy,
 ) (*SockFlowFetcher, error) {
+	startTime := uint64(monotime.Now())
 	tlog := tlog()
 	if err := rlimit.RemoveMemlock(); err != nil {
 		tlog.Warn("can't remove mem lock. The agent could not be able to start eBPF programs",
@@ -125,7 +127,12 @@ func NewSockFlowFetcher(
 		log:           tlog,
 		objects:       &objects,
 		ringbufReader: flows,
-		cacheMaxSize:  cacheMaxSize,
+		flowMapDrainer: flowMapDrainer[*ebpf.MapIterator]{
+			flowMap:      objects.AggregatedFlows,
+			cacheMaxSize: cacheMaxSize,
+			log:          tlog,
+			lastReadNS:   startTime,
+		},
 	}, nil
 }
 
@@ -166,35 +173,8 @@ func (m *SockFlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
 	return m.ringbufReader.Read()
 }
 
-// LookupAndDeleteMap reads all the entries from the eBPF map and removes them from it.
-// It returns a map where the key
-// For synchronization purposes, we get/delete a whole snapshot of the flows map.
-// This way we avoid missing packets that could be updated on the
-// ebpf side while we process/aggregate them here
-// Changing this method invocation by BatchLookupAndDelete could improve performance
-// TODO: detect whether BatchLookupAndDelete is supported (Kernel>=5.6) and use it selectively
-// Supported Lookup/Delete operations by kernel: https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md
-// Race conditions here causes that some flows are lost in high-load scenarios
-func (m *SockFlowFetcher) LookupAndDeleteMap() map[NetFlowId][]NetFlowMetrics {
-	flowMap := m.objects.AggregatedFlows
-
-	iterator := flowMap.Iterate()
-	flows := make(map[NetFlowId][]NetFlowMetrics, m.cacheMaxSize)
-
-	id := NetFlowId{}
-	var metrics []NetFlowMetrics
-	// Changing Iterate+Delete by LookupAndDelete would prevent some possible race conditions
-	// TODO: detect whether LookupAndDelete is supported (Kernel>=4.20) and use it selectively
-	for iterator.Next(&id, &metrics) {
-		if err := flowMap.Delete(id); err != nil {
-			m.log.Debug("couldn't delete flow entry", "flowId", id, "error", err)
-		}
-		// We observed that eBFP PerCPU map might insert multiple times the same key in the map
-		// (probably due to race conditions) so we need to re-join metrics again at userspace
-		// TODO: instrument how many times the keys are is repeated in the same eviction
-		flows[id] = append(flows[id], metrics...)
-	}
-	return flows
+func (m *SockFlowFetcher) LookupAndDeleteMap() map[NetFlowId]*NetFlowMetrics {
+	return m.flowMapDrainer.lookupAndDeleteMap()
 }
 
 func isLittleEndian() bool {
