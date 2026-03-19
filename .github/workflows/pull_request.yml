@@ -225,12 +225,15 @@ jobs:
           - kernel: "5.15.152"
             runner: ubuntu-latest
             use_vm: true
+            arch: x86_64
           - kernel: "6.10.6"
             runner: ubuntu-latest
             use_vm: true
+            arch: x86_64
           - kernel: "arch: arm64"
             runner: ubuntu-24.04-arm
             use_vm: false
+            arch: aarch64
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -262,7 +265,7 @@ jobs:
         run: |
           sudo make -C internal/test/vm \
             KERNEL_VER=${KERNEL_VERSION} \
-            ARCH=x86_64 \
+            ARCH=${{ matrix.arch }} \
             TARGET_TEST=run-bpf-verifier-vm \
             && [ -f testoutput/success ]
 
