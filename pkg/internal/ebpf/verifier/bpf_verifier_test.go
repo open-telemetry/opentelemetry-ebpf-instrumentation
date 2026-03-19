@@ -52,7 +52,12 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 			}
 		}
 
-		coll, err := ebpf.NewCollection(spec)
+		coll, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{
+			Programs: ebpf.ProgramOptions{
+				// Increase log buffer so verifier rejections are not truncated.
+				LogSizeStart: 10 * 1024 * 1024,
+			},
+		})
 		require.NoError(t, err, "BPF verifier rejected program(s)")
 		coll.Close()
 	})
@@ -99,5 +104,4 @@ func TestBPFVerifier(t *testing.T) {
 
 	// reverse DNS XDP program
 	loadAndVerify(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf)
-
 }
