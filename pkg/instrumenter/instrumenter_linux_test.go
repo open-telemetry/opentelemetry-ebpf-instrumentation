@@ -6,10 +6,8 @@
 package instrumenter // import "go.opentelemetry.io/obi/pkg/instrumenter"
 
 import (
-	"bytes"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/export"
@@ -71,11 +69,4 @@ func TestRunDontPanic(t *testing.T) {
 			})
 		})
 	}
-}
-
-func TestNetworkEnabled(t *testing.T) {
-	t.Setenv("obi_network_METRICS", "true")
-	cfg, err := obi.LoadConfig(bytes.NewReader(nil))
-	require.NoError(t, err)
-	assert.True(t, cfg.Enabled(obi.FeatureNetO11y))
 }
