@@ -23,6 +23,7 @@ configs/           Example and default configuration files
 ```
 
 Generated files (never edit manually):
+
 - `*_bpfel.go`, `*_bpfeb.go` — Go bindings produced by `bpf2go` from eBPF C source
 - `*_bpfel.o`, `*_bpfeb.o` — Compiled eBPF bytecode
 - `bpf/bpfcore/vmlinux.h` — Auto-generated kernel type definitions
@@ -45,6 +46,7 @@ If the task is unclear or underspecified, ask for clarification before making ch
 Before proposing changes, ensure the repository generates required artifacts, passes validation, and compiles successfully.
 
 Preferred validation targets:
+
 - `make verify` for the main validation flow
 - `make build` when generation and compilation are also required
 - `make generate` or `make docker-generate` when any `.c` file in `bpf/` is added or modified
@@ -79,6 +81,7 @@ These rules apply to all code in the repository.
 - Do not introduce new implementations when equivalent functionality already exists in the repository. Search for and reuse existing utilities, helpers, or patterns. Extend or adapt existing code instead of duplicating functionality.
 
 Comments must be minimal:
+
 - Do not add comments that restate the code.
 - Prefer clearer code over explanatory comments.
 - Add comments only when they provide necessary context, explain non-obvious behavior, or document verifier, kernel, or ABI constraints.
