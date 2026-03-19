@@ -127,7 +127,7 @@ func (m *MapTracer) evictionSynchronization(ctx context.Context, out *msg.Queue[
 func (m *MapTracer) evictFlows(ctx context.Context, forwardFlows *msg.Queue[[]*ebpf.Record]) {
 	flowsMap := m.mapFetcher.LookupAndDeleteMap()
 	forwardingFlows := make([]*ebpf.Record, 0, len(flowsMap))
-	for flowKey, aggregatedMetrics := range m.mapFetcher.LookupAndDeleteMap() {
+	for flowKey, aggregatedMetrics := range flowsMap {
 		forwardingFlows = append(forwardingFlows, ebpf.NewRecord(flowKey, *aggregatedMetrics))
 	}
 	select {

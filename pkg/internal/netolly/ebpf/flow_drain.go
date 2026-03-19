@@ -34,7 +34,7 @@ type mapIterator interface {
 // Race conditions here causes that some flows are lost in high-load scenarios
 func (fmd *flowMapDrainer[IT]) lookupAndDeleteMap() map[NetFlowId]*NetFlowMetrics {
 	flows := make(map[NetFlowId]*NetFlowMetrics, fmd.cacheMaxSize)
-	olderFlow := uint64(0)
+	oldestFlow := uint64(0)
 
 	// Changing Iterate+Delete by LookupAndDelete would prevent some possible race conditions
 	// TODO: detect whether LookupAndDelete is supported (Kernel>=4.20) and use it selectively
@@ -55,7 +55,7 @@ func (fmd *flowMapDrainer[IT]) lookupAndDeleteMap() map[NetFlowId]*NetFlowMetric
 				continue
 			}
 			perCPUAggregated.Accumulate(mt)
-			olderFlow = max(olderFlow, mt.EndMonoTimeNs)
+			oldestFlow = max(oldestFlow, mt.EndMonoTimeNs)
 		}
 		if perCPUAggregated.EndMonoTimeNs == 0 {
 			// no recent flows were accounted, skip
@@ -72,6 +72,8 @@ func (fmd *flowMapDrainer[IT]) lookupAndDeleteMap() map[NetFlowId]*NetFlowMetric
 		}
 		metrics = nil
 	}
-	fmd.lastReadNS = olderFlow
+	if oldestFlow != 0 {
+		fmd.lastReadNS = oldestFlow
+	}
 	return flows
 }
