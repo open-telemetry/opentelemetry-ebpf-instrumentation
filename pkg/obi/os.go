@@ -7,6 +7,7 @@ package obi // import "go.opentelemetry.io/obi/pkg/obi"
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -15,18 +16,43 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/helpers"
 )
 
-// Minimum required Kernel version: 4.18
-const minKernMaj, minKernMin = 4, 18
+// Minimum required Kernel version: 5.8 (or 4.18 for RHEL-based distros)
+const (
+	minKernMaj, minKernMin         = 5, 8
+	minRHELKernMaj, minRHELKernMin = 4, 18
+)
 
 var kernelVersion = ebpfcommon.KernelVersion
+
+func isRHELBased() bool {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return false
+	}
+	content := strings.ToLower(string(data))
+	// matches ID="rhel" or ID_LIKE containing "rhel" (e.g. Rocky, AlmaLinux, CentOS set ID_LIKE="rhel ...")
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(line, "id=") || strings.HasPrefix(line, "id_like=") {
+			if strings.Contains(line, "rhel") || strings.Contains(line, "centos") ||
+				strings.Contains(line, "rocky") || strings.Contains(line, "alma") {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // CheckOSSupport returns an error if the running operating system does not support
 // the minimum required OBI features.
 func CheckOSSupport() error {
 	major, minor := kernelVersion()
-	if major < minKernMaj || (major == minKernMaj && minor < minKernMin) {
+	maj, min := minKernMaj, minKernMin
+	if isRHELBased() {
+		maj, min = minRHELKernMaj, minRHELKernMin
+	}
+	if major < maj || (major == maj && minor < min) {
 		return fmt.Errorf("kernel version %d.%d not supported. Minimum required version is %d.%d",
-			major, minor, minKernMaj, minKernMin)
+			major, minor, maj, min)
 	}
 	return nil
 }
