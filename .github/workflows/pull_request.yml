@@ -228,7 +228,7 @@ jobs:
           - kernel: "6.10.6"
             runner: ubuntu-latest
             use_vm: true
-          - kernel: "host-arm64"
+          - kernel: "arch: arm64"
             runner: ubuntu-24.04-arm
             use_vm: false
     steps:
@@ -272,6 +272,15 @@ jobs:
         with:
           go-version-file: "go.mod"
           cache: true
+
+      - name: Go build cache
+        if: ${{ !matrix.use_vm }}
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        with:
+          path: ~/.cache/go-build
+          key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: |
+            go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Run BPF verifier tests (host kernel)
         if: ${{ !matrix.use_vm }}
