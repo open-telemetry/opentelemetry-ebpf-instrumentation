@@ -10,9 +10,6 @@ import (
 )
 
 // TODO: make configurable
-// avoid false unused lint error in Mac
-//
-//nolint:unused
 const defaultReadBatchLen = 1024
 
 // flowMapDrainer reads, aggregates and removes all the flows in the eBPF flows map
@@ -27,8 +24,8 @@ type flowMapDrainer struct {
 }
 
 // avoid false unused lint error in Mac
-//
-//nolint:unused
+var _ = newFlowMapDrainer
+
 func newFlowMapDrainer(log *slog.Logger, flowMap *ebpf.Map, cacheMaxSize int, startTime uint64) flowMapDrainer {
 	return flowMapDrainer{
 		log:          log,
