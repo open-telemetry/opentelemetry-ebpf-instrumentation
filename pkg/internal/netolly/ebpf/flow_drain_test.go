@@ -6,33 +6,39 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
 )
 
+const testPossibleCPUs = 2
+
 func TestLookupAndDelete(t *testing.T) {
-	fmd := flowMapDrainer[*fakeMapIterator]{
+	flowMap := fakeBPFMap([]entry{{
+		k: NetFlowId{IfIndex: 1},
+		v: []NetFlowMetrics{{Packets: 1, StartMonoTimeNs: 101, EndMonoTimeNs: 101}, {Packets: 2, StartMonoTimeNs: 102, EndMonoTimeNs: 103}},
+	}, {
+		// repeated entry in map, will anyway try to aggregate,
+		k: NetFlowId{IfIndex: 1},
+		// will ignore the last flow because is too old
+		v: []NetFlowMetrics{{Packets: 3, StartMonoTimeNs: 101, EndMonoTimeNs: 102}, {Packets: 4, StartMonoTimeNs: 101, EndMonoTimeNs: 80}},
+	}, {
+		// this line is too old, will be ignored
+		k: NetFlowId{IfIndex: 2},
+		v: []NetFlowMetrics{{Packets: 5, StartMonoTimeNs: 10, EndMonoTimeNs: 130}, { /* zero metric */ }},
+	}, {
+		k: NetFlowId{IfIndex: 3},
+		v: []NetFlowMetrics{{ /* zero metric */ }, {Packets: 35, StartMonoTimeNs: 101, EndMonoTimeNs: 125}},
+	}, {
+		k: NetFlowId{IfIndex: 4},
+		v: []NetFlowMetrics{{Packets: 22, StartMonoTimeNs: 101, EndMonoTimeNs: 110}, { /* zero metric */ }},
+	}})
+	fmd := flowMapDrainer{
 		log:          slog.Default(),
 		cacheMaxSize: 50_000,
 		lastReadNS:   100,
-		flowMap: fakeBPFMap([]entry{{
-			k: NetFlowId{IfIndex: 1},
-			v: []NetFlowMetrics{{Packets: 1, StartMonoTimeNs: 101, EndMonoTimeNs: 101}, {Packets: 2, StartMonoTimeNs: 102, EndMonoTimeNs: 103}},
-		}, {
-			// repeated entry in map, will anyway try to aggregate,
-			k: NetFlowId{IfIndex: 1},
-			// will ignore the last flow because is too old
-			v: []NetFlowMetrics{{Packets: 3, StartMonoTimeNs: 101, EndMonoTimeNs: 102}, {Packets: 4, StartMonoTimeNs: 101, EndMonoTimeNs: 80}},
-		}, {
-			// this line is too old, will be ignored
-			k: NetFlowId{IfIndex: 2},
-			v: []NetFlowMetrics{{Packets: 5, StartMonoTimeNs: 10, EndMonoTimeNs: 130}},
-		}, {
-			k: NetFlowId{IfIndex: 3},
-			v: []NetFlowMetrics{{Packets: 35, StartMonoTimeNs: 101, EndMonoTimeNs: 125}},
-		}, {
-			k: NetFlowId{IfIndex: 4},
-			v: []NetFlowMetrics{{Packets: 22, StartMonoTimeNs: 101, EndMonoTimeNs: 110}},
-		}}),
+		possibleCPUs: testPossibleCPUs,
+		batchLen:     2,
+		flowMap:      &flowMap,
 	}
 	flows := fmd.lookupAndDeleteMap()
 	assert.Equal(t,
@@ -51,27 +57,21 @@ type entry struct {
 	v []NetFlowMetrics
 }
 
-func (f fakeBPFMap) Delete(_ any) error {
-	// won't care ATM
-	return nil
-}
-
-func (f fakeBPFMap) Iterate() *fakeMapIterator {
-	return &fakeMapIterator{srcMap: f}
-}
-
-type fakeMapIterator struct {
-	srcMap []entry
-}
-
-func (f *fakeMapIterator) Next(key any, val any) bool {
-	if len(f.srcMap) == 0 {
-		return false
+func (f *fakeBPFMap) BatchLookupAndDelete(_ *ebpf.MapBatchCursor, keysOut, valuesOut any, _ *ebpf.BatchOptions) (int, error) {
+	if len(*f) == 0 {
+		return 0, ebpf.ErrKeyNotExist
 	}
-	tsKey := key.(*NetFlowId)
-	tsVal := val.(*[]NetFlowMetrics)
-	*tsKey = f.srcMap[0].k
-	*tsVal = f.srcMap[0].v
-	f.srcMap = f.srcMap[1:]
-	return true
+	keys := keysOut.(*[]NetFlowId)
+	values := valuesOut.(*[]NetFlowMetrics)
+	k := 0
+	for len(*f) > 0 && k < len(*keys) {
+		(*keys)[k] = (*f)[0].k
+		copy((*values)[k*testPossibleCPUs:(k+1)*testPossibleCPUs], (*f)[0].v)
+		*f = (*f)[1:]
+		k++
+	}
+	if len(*f) == 0 {
+		return k, ebpf.ErrKeyNotExist
+	}
+	return k, nil
 }

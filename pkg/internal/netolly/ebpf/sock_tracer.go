@@ -51,7 +51,7 @@ type SockFlowFetcher struct {
 	log            *slog.Logger
 	objects        *NetSkObjects
 	ringbufReader  *ringbuf.Reader
-	flowMapDrainer flowMapDrainer[*ebpf.MapIterator]
+	flowMapDrainer flowMapDrainer
 }
 
 func NewSockFlowFetcher(
@@ -127,12 +127,8 @@ func NewSockFlowFetcher(
 		log:           tlog,
 		objects:       &objects,
 		ringbufReader: flows,
-		flowMapDrainer: flowMapDrainer[*ebpf.MapIterator]{
-			flowMap:      objects.AggregatedFlows,
-			cacheMaxSize: cacheMaxSize,
-			log:          tlog,
-			lastReadNS:   startTime,
-		},
+		flowMapDrainer: newFlowMapDrainer(
+			tlog, objects.AggregatedFlows, cacheMaxSize, startTime),
 	}, nil
 }
 

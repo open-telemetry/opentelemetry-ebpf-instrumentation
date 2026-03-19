@@ -69,7 +69,7 @@ type FlowFetcher struct {
 	tcManager      tcmanager.TCManager
 	enableIngress  bool
 	enableEgress   bool
-	flowMapDrainer flowMapDrainer[*ebpf.MapIterator]
+	flowMapDrainer flowMapDrainer
 }
 
 func NewFlowFetcher(
@@ -150,12 +150,8 @@ func NewFlowFetcher(
 		tcManager:     tcManager,
 		enableIngress: ingress,
 		enableEgress:  egress,
-		flowMapDrainer: flowMapDrainer[*ebpf.MapIterator]{
-			flowMap:      objects.AggregatedFlows,
-			cacheMaxSize: cacheMaxSize,
-			log:          tlog,
-			lastReadNS:   startTime,
-		},
+		flowMapDrainer: newFlowMapDrainer(
+			tlog, objects.AggregatedFlows, cacheMaxSize, startTime),
 	}
 
 	// errors are not critical for this tracer
