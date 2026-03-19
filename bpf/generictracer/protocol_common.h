@@ -27,6 +27,8 @@ static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
                                                  u32 available_bytes) {
     const unsigned char *p = (const unsigned char *)u_buf;
 
+    bpf_clamp_umax(available_bytes, k_large_buf_max_http_captured_bytes);
+
     const u32 niter = (available_bytes / k_large_buf_payload_max_size) +
                       ((available_bytes % k_large_buf_payload_max_size) > 0);
 
@@ -35,9 +37,10 @@ static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
     for (u32 b = 0; b < niter; b++) {
         const u32 offset = b * k_large_buf_payload_max_size;
 
-        const u32 read_size = available_bytes > k_large_buf_payload_max_size
-                                  ? k_large_buf_payload_max_size
-                                  : available_bytes;
+        u32 read_size = available_bytes > k_large_buf_payload_max_size
+                            ? k_large_buf_payload_max_size
+                            : available_bytes;
+        bpf_clamp_umax(read_size, k_large_buf_payload_max_size);
 
         if (bpf_probe_read(large_buf->buf, read_size, p + offset) != 0) {
             break;
@@ -45,8 +48,10 @@ static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
 
         large_buf->len = read_size;
 
-        const u32 payload_size = read_size > sizeof(void *) ? read_size : sizeof(void *);
-        const u32 total_size = sizeof(tcp_large_buffer_t) + payload_size;
+        u32 payload_size = read_size > sizeof(void *) ? read_size : sizeof(void *);
+        bpf_clamp_umax(payload_size, k_large_buf_payload_max_size);
+        u32 total_size = sizeof(tcp_large_buffer_t) + payload_size;
+        bpf_clamp_umax(total_size, k_large_buf_max_size);
 
         if (bpf_ringbuf_output(&events, large_buf, total_size, get_flags()) != 0) {
             break;
