@@ -159,7 +159,7 @@ static __always_inline void submit_dns_packet(struct xdp_md *ctx, const unsigned
         if (i >= data_len) {
             break;
         }
-        if ((const void *)(data + i + 1) > (const void *)end) {
+        if (data + i + 1 > end) {
             break;
         }
         buf[i] = data[i];
