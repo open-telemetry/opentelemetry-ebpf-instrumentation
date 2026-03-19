@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package harness
+package harness // import "go.opentelemetry.io/obi/internal/test/oats/harness"
 
 import (
 	"os"
