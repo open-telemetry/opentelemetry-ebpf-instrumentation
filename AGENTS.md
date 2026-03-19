@@ -6,6 +6,8 @@ This repository provides eBPF-based instrumentation for applications and integra
 
 Agents operating on this repository must produce small, correct, and reviewable changes that respect the existing architecture and development workflow.
 
+For an overview of the data pipeline and component relationships, see [devdocs/pipeline-map.md](devdocs/pipeline-map.md).
+
 ## Repository Layout
 
 ```
@@ -26,7 +28,7 @@ Generated files (never edit manually):
 
 - `*_bpfel.go`, `*_bpfeb.go` — Go bindings produced by `bpf2go` from eBPF C source
 - `*_bpfel.o`, `*_bpfeb.o` — Compiled eBPF bytecode
-- `bpf/bpfcore/vmlinux.h` — Auto-generated kernel type definitions
+- `bpf/bpfcore/` — Copied and auto-generated files; do not edit anything in this directory
 
 Do not assume boundaries can be changed without explicit instruction.
 
@@ -78,7 +80,7 @@ These rules apply to all code in the repository.
 - Prefer early returns when they improve readability and reduce indentation depth.
 - Use vertical spacing to separate logical blocks and improve readability. Do not compress unrelated logic into a dense block of code.
 - Do not use magic numbers. Name constants or derive sizes from existing types and objects when possible.
-- Do not introduce new implementations when equivalent functionality already exists in the repository. Search for and reuse existing utilities, helpers, or patterns. Extend or adapt existing code instead of duplicating functionality.
+- Do not introduce new implementations when equivalent functionality already exists in the repository or its dependencies. Search for and reuse existing utilities, helpers, or patterns — including those provided by external libraries already in use. Extend or adapt existing code instead of duplicating functionality.
 
 Comments must be minimal:
 
@@ -107,6 +109,7 @@ Comments must be minimal:
 - Use `SCRATCH_MEM`, `SCRATCH_MEM_TYPED`, and `SCRATCH_MEM_SIZED` for scratch memory patterns instead of introducing ad hoc temporary buffers (defined in `bpf/common/scratch_mem.h`).
 - For tail calls, prefer `bpf_tail_call_static(...)`. Define tail call program arrays in the eBPF C code unless there is a clear reason not to.
 - Use `bpf_probe_read_kernel` for kernel memory, `bpf_probe_read_user` for user memory, and default to `bpf_probe_read` only when writing genuinely generic code that must handle both cases.
+- OBI requires kernel 5.8 or higher with BTF enabled. RHEL-based distributions (RHEL8, CentOS 8, Rocky8, AlmaLinux8) are supported via kernel 4.18 with backported eBPF patches. Do not use helpers or features unavailable in the minimum supported kernel unless gated by a runtime check.
 - Respect verifier limitations and kernel compatibility.
 - Avoid patterns that increase verifier complexity or risk rejection.
 - Keep programs simple and predictable.
