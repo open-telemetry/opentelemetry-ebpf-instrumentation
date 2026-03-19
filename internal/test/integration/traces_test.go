@@ -1115,11 +1115,17 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 		children := trace.ChildrenOf(parentID)
 		require.GreaterOrEqual(ct, len(children), 1)
 
-		// We've created the in-queue and processing spans
-		for _, c := range children {
-			children = trace.ChildrenOf(c.SpanID)
-			if len(children) > 0 {
-				break
+		if len(children) > 1 {
+			first := children[0]
+			tag, ok := jaeger.FindIn(first.Tags, "span.kind")
+			if ok && tag.Value == "internal" {
+				// We've created the in-queue and processing spans
+				for _, c := range children {
+					children = trace.ChildrenOf(c.SpanID)
+					if len(children) > 0 {
+						break
+					}
+				}
 			}
 		}
 
@@ -1141,10 +1147,16 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 		children = trace.ChildrenOf(child.SpanID)
 		require.GreaterOrEqual(ct, len(children), 1)
 
-		for _, c := range children {
-			children = trace.ChildrenOf(c.SpanID)
-			if len(children) > 0 {
-				break
+		if len(children) > 1 {
+			first := children[0]
+			tag, ok := jaeger.FindIn(first.Tags, "span.kind")
+			if ok && tag.Value == "internal" {
+				for _, c := range children {
+					children = trace.ChildrenOf(c.SpanID)
+					if len(children) > 0 {
+						break
+					}
+				}
 			}
 		}
 
@@ -1166,10 +1178,16 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 		children = trace.ChildrenOf(child.SpanID)
 		require.GreaterOrEqual(ct, len(children), 1)
 
-		for _, c := range children {
-			children = trace.ChildrenOf(c.SpanID)
-			if len(children) > 0 {
-				break
+		if len(children) > 1 {
+			first := children[0]
+			tag, ok := jaeger.FindIn(first.Tags, "span.kind")
+			if ok && tag.Value == "internal" {
+				for _, c := range children {
+					children = trace.ChildrenOf(c.SpanID)
+					if len(children) > 0 {
+						break
+					}
+				}
 			}
 		}
 
