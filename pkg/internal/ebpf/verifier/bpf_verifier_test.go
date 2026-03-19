@@ -6,6 +6,7 @@
 package bpf_verifier_test
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -58,7 +59,13 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 				LogSizeStart: 10 * 1024 * 1024,
 			},
 		})
-		require.NoError(t, err, "BPF verifier rejected program(s)")
+		if err != nil {
+			var ve *ebpf.VerifierError
+			if errors.As(err, &ve) {
+				t.Fatalf("BPF verifier rejected program(s):\n%+v", ve)
+			}
+			require.NoError(t, err, "failed to load BPF collection")
+		}
 		coll.Close()
 	})
 }
@@ -78,12 +85,14 @@ func TestBPFVerifier(t *testing.T) {
 
 	// netolly: TC-based flow monitor
 	loadAndVerify(t, "netolly/Net", netollybpf.LoadNet)
+
 	// netolly: socket-filter-based flow monitor
 	loadAndVerify(t, "netolly/NetSk", netollybpf.LoadNetSk)
 
-	// generic tracer (uprobe-based HTTP/gRPC/...)
+	// generictracer (iter programs like ObiIterTcp are included in the main Bpf spec)
 	loadAndVerify(t, "generictracer/Bpf", generictracerbpf.LoadBpf)
-	// Go-specific tracer
+
+	// gotracer
 	loadAndVerify(t, "gotracer/Bpf", gotracerbpf.LoadBpf)
 
 	// tracepoint injector
@@ -96,7 +105,7 @@ func TestBPFVerifier(t *testing.T) {
 	// GPU event tracer
 	loadAndVerify(t, "gpuevent/Bpf", gpueventbpf.LoadBpf)
 
-	// BPF ring-buffer logger
+	// logger
 	loadAndVerify(t, "logger/Bpf", loggerbpf.LoadBpf)
 
 	// log enricher
