@@ -27,7 +27,6 @@
 #include <generictracer/k_unix_sock.h>
 #include <generictracer/maps/active_accept_args.h>
 #include <generictracer/maps/active_connect_args.h>
-#include <generictracer/maps/backup_buffer_mem.h>
 #include <generictracer/maps/listening_ports.h>
 #include <generictracer/maps/sock_filter_buffers.h>
 #include <generictracer/maps/tcp_connection_map.h>
@@ -53,6 +52,8 @@
 #include <pid/pid.h>
 
 #include <shared/obi_ctx.h>
+
+SCRATCH_MEM_TYPED(backup_buffer, backup_buffer_t)
 
 // Used by accept to grab the sock details
 SEC("kprobe/security_socket_accept")
@@ -651,6 +652,20 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg, int sent_len) {
     return 0;
 }
 
+static __always_inline bool is_port_unreadable(u16 port) {
+    if (port == 0) {
+        return false;
+    }
+
+    const bool *unreadable = bpf_map_lookup_elem(&unreadable_buffer_ports, &port);
+
+    return unreadable && *unreadable;
+}
+
+static __always_inline bool is_conn_unreadable(const connection_info_t *conn) {
+    return is_port_unreadable(conn->d_port) || is_port_unreadable(conn->s_port);
+}
+
 SEC("kprobe/tcp_close")
 int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
     (void)ctx;
@@ -692,15 +707,9 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         bpf_map_delete_elem(&cp_support_connect_info, &info);
     }
 
-    bool *unreadable = 0;
+    bool unreadable = false;
     if (success) {
-        if (info.conn.d_port) {
-            unreadable = bpf_map_lookup_elem(&unreadable_buffer_ports, &info.conn.d_port);
-        }
-
-        if (!unreadable && info.conn.s_port) {
-            unreadable = bpf_map_lookup_elem(&unreadable_buffer_ports, &info.conn.s_port);
-        }
+        unreadable = is_conn_unreadable(&info.conn);
     }
 
     force_sent_event(id, &sock_p, &info, unreadable);
@@ -903,6 +912,12 @@ done:
     return 0;
 }
 
+static __always_inline void mark_port_unreadable(u16 port) {
+    if (port > 0) {
+        bpf_map_update_elem(&unreadable_buffer_ports, &port, &(bool){true}, BPF_ANY);
+    }
+}
+
 static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 id, int copied_len) {
     recv_args_t *args = bpf_map_lookup_elem(&active_recv_args, &id);
 
@@ -966,12 +981,11 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
 
     if (parse_sock_info((struct sock *)sock_ptr, &info.conn)) {
         const u16 orig_dport = info.conn.d_port;
-        const u16 orig_sport = info.conn.s_port;
         d_print_http_connection_info(&info.conn);
         sort_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
 
-        if (buf == 0) {
+        if (!buf) {
             // We couldn't find any buffer to do the work for the recvmsg.
             // This typically means the application layer isn't using tcp_recvmsg
             // but something like pipe splicing. We need to lookup to see if
@@ -987,14 +1001,14 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
                 // they've already set it up, since sendmsg buffers are captured between the probe/retprobe.
                 bpf_map_delete_elem(&sock_filter_buffers, &info.conn);
             } else {
-                bool unreadable = true;
                 // We have anunreadable connection, we mark both ports as unreadable.
                 // Tecnically we have information in tracked connection if this was connect or accept,
                 // however if OBI tracks both processes, we'll see connect and accept on the same pair
                 // and last one wins.
-                bpf_dbg_printk("setting unreadable buffer ports=%d,%d", orig_dport, orig_sport);
-                bpf_map_update_elem(&unreadable_buffer_ports, &orig_dport, &unreadable, BPF_ANY);
-                bpf_map_update_elem(&unreadable_buffer_ports, &orig_sport, &unreadable, BPF_ANY);
+                bpf_dbg_printk(
+                    "setting unreadable buffer ports=%d,%d", info.conn.d_port, info.conn.s_port);
+                mark_port_unreadable(info.conn.d_port);
+                mark_port_unreadable(info.conn.s_port);
             }
         }
 
@@ -1057,6 +1071,20 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_recvmsg, int copied_len) {
     bpf_dbg_printk("=== kretprobe_tcp_recvmsg id=%d, copied_len=%d ===", id, copied_len);
 
     return return_recvmsg(ctx, 0, id, copied_len);
+}
+
+static __always_inline unsigned char *new_empty_capture_buffer(connection_info_t *conn,
+                                                               protocol_info_t *tcp) {
+    backup_buffer_t *bbuf = backup_buffer_mem();
+    if (bbuf) {
+        bbuf->tcp_seq = tcp->seq;
+        bpf_map_update_elem(&sock_filter_buffers, conn, bbuf, BPF_ANY);
+        backup_buffer_t *back_buf = bpf_map_lookup_elem(&sock_filter_buffers, conn);
+
+        return back_buf->buf;
+    }
+
+    return NULL;
 }
 
 // Fall-back in case we don't see kretprobe on tcp_recvmsg in high network volume situations
@@ -1169,7 +1197,7 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
     }
 
     // We check here for problematic buffer captures
-    // There are two situatios:
+    // There are two situations:
     //   1. The sendmsg couldn't capture the buffer, we need to do it for them.
     //      This is the lookup by connection
     //   2. We have problematic receive port recorded. These are receive buffers we
@@ -1187,20 +1215,11 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
         back_buf->tcp_seq = tcp.seq;
         capture_buf = back_buf->buf;
     } else { // Scenario 2.
-        bool *unreadable = bpf_map_lookup_elem(&unreadable_buffer_ports, &conn.d_port);
-        if (!unreadable) {
-            unreadable = bpf_map_lookup_elem(&unreadable_buffer_ports, &conn.s_port);
-        }
+        bool unreadable = is_conn_unreadable(&conn);
+        bpf_map_lookup_elem(&unreadable_buffer_ports, &conn.d_port);
 
         if (unreadable) {
-            backup_buffer_t *bbuf = backup_buf_memory();
-            if (bbuf) {
-                bbuf->tcp_seq = tcp.seq;
-                bpf_map_update_elem(&sock_filter_buffers, &conn, &bbuf, BPF_ANY);
-                back_buf = bpf_map_lookup_elem(&sock_filter_buffers, &conn);
-
-                capture_buf = back_buf->buf;
-            }
+            capture_buf = new_empty_capture_buffer(&conn, &tcp);
         }
     }
 

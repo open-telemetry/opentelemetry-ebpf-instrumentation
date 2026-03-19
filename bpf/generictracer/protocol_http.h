@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "common/event_defs.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
@@ -11,6 +10,7 @@
 
 #include <common/common.h>
 #include <common/connection_info.h>
+#include <common/event_defs.h>
 #include <common/http_types.h>
 #include <common/large_buffers.h>
 #include <common/ringbuf.h>

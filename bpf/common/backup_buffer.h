@@ -8,6 +8,6 @@
 enum { k_backup_buffer_len = 256 };
 
 typedef struct backup_buffer {
-    u8 buf[k_backup_buffer_len];
+    unsigned char buf[k_backup_buffer_len];
     u32 tcp_seq;
 } backup_buffer_t;

@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "logger/bpf_dbg.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
@@ -15,6 +14,8 @@
 
 #include <generictracer/maps/active_send_args.h>
 #include <generictracer/maps/active_send_sock_args.h>
+
+#include <logger/bpf_dbg.h>
 
 static __always_inline u8 same_direction(pid_connection_info_t *p_conn, u8 direction) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, p_conn);
@@ -54,8 +55,8 @@ static __always_inline void ensure_sent_event(u64 id, u64 *sock_p, u8 direction)
 // those in unreadable buffer ports, but they are setup on demand in tcp_cleanup_rbuf which is too
 // late for the first request. This code ensures we don't cause 499 on the first one, but a silently
 // missed event.
-static __always_inline u8 should_ignore_unreadable(pid_connection_info_t *p_conn,
-                                                   const bool *unreadable) {
+static __always_inline bool should_ignore_unreadable(pid_connection_info_t *p_conn,
+                                                     const bool unreadable) {
     if (!unreadable) {
         return false;
     }
@@ -68,7 +69,7 @@ static __always_inline u8 should_ignore_unreadable(pid_connection_info_t *p_conn
 }
 
 static __always_inline void
-force_sent_event(u64 id, u64 *sock_p, pid_connection_info_t *p_conn, bool *unreadable) {
+force_sent_event(u64 id, u64 *sock_p, pid_connection_info_t *p_conn, const bool unreadable) {
     send_args_t *s_args = (send_args_t *)bpf_map_lookup_elem(&active_send_args, &id);
     if (s_args) {
         if (should_ignore_unreadable(&s_args->p_conn, unreadable)) {
