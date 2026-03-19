@@ -24,7 +24,8 @@ type mapIterator interface {
 }
 
 // lookupAndDeleteMap reads all the entries from the eBPF map and removes them from it.
-// It returns a map where the key
+// It returns a map where the key is the network flow identifier (e.g. src/dst addresses)
+// and the value are the aggregated time and metrics for all the packets of this flow.
 // For synchronization purposes, we get/delete a whole snapshot of the flows map.
 // This way we avoid missing packets that could be updated on the
 // ebpf side while we process/aggregate them here
