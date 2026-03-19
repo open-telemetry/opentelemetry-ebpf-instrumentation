@@ -3,10 +3,13 @@ module go.opentelemetry.io/obi/internal/test/oats/redis
 go 1.25.8
 
 require (
-	github.com/grafana/oats v0.0.3
+	github.com/grafana/oats v0.6.1
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
+	go.opentelemetry.io/obi/internal/test/oats/harness v0.0.0
 )
+
+replace go.opentelemetry.io/obi/internal/test/oats/harness => ../harness
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect

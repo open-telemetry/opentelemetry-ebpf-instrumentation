@@ -1,49 +1,45 @@
+oats-schema-version: 2
 docker-compose:
-  generator: generic
   files:
-    - ../docker-compose-obi-gomysqlclient.yml
+  - ../docker-compose-obi-gomysqlclient.yml
 input:
-  - path: /mysqltest
-  - path: /mysqlerror
-  - path: /update
-  - path: /updateerr
+- path: /mysqltest
+- path: /mysqlerror
+- path: /update
+- path: /updateerr
 interval: 500ms
 expected:
   traces:
-    - traceql: '{ name = "SELECT students" }'
-      spans:
-        - name: 'SELECT students'
-          attributes:
-            db.operation.name: SELECT
-            db.collection.name: students
-            db.system.name: other_sql
-    - traceql: '{ name = "UPDATE students" && status = unset}'
-      spans:
-        - name: 'UPDATE students'
-          attributes:
-            db.operation.name: UPDATE
-            db.collection.name: students
-            db.system.name: other_sql
-    - traceql: '{ name = "UPDATE nonexistent_table" && status = error}'
-      spans:
-        - name: 'UPDATE nonexistent_table'
-          attributes:
-            db.operation.name: UPDATE
-            db.collection.name: nonexistent_table
-            db.system.name: other_sql
-    - traceql: '{ .db.operation.name = "SELECT" && status = error }'
-      spans:
-        - name: 'SELECT nonexistent_table'
-          attributes:
-            db.operation.name: SELECT
-            db.collection.name: nonexistent_table
-            db.system.name: other_sql
+  - traceql: '{ name = "SELECT students" }'
+    equals: SELECT students
+    attributes:
+      db.operation.name: SELECT
+      db.collection.name: students
+      db.system.name: other_sql
+  - traceql: '{ name = "UPDATE students" && status = unset}'
+    equals: UPDATE students
+    attributes:
+      db.operation.name: UPDATE
+      db.collection.name: students
+      db.system.name: other_sql
+  - traceql: '{ name = "UPDATE nonexistent_table" && status = error}'
+    equals: UPDATE nonexistent_table
+    attributes:
+      db.operation.name: UPDATE
+      db.collection.name: nonexistent_table
+      db.system.name: other_sql
+  - traceql: '{ .db.operation.name = "SELECT" && status = error }'
+    equals: SELECT nonexistent_table
+    attributes:
+      db.operation.name: SELECT
+      db.collection.name: nonexistent_table
+      db.system.name: other_sql
   metrics:
-    - promql: 'db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
-      value: "> 0"
-    - promql: 'db_client_operation_duration_seconds_bucket{le="0",db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
-      value: "== 0"
-    - promql: 'db_client_operation_duration_seconds_bucket{le="10",db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
-      value: "> 0"
-    - promql: 'db_client_operation_duration_seconds_count{db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}'
-      value: "> 0"
+  - promql: db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_bucket{le="0",db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}
+    value: == 0
+  - promql: db_client_operation_duration_seconds_bucket{le="10",db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_count{db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}
+    value: '> 0'

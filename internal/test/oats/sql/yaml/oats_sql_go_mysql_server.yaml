@@ -1,16 +1,15 @@
+oats-schema-version: 2
 docker-compose:
-  generator: generic
   files:
-    - ../docker-compose-obi-mysqlserver.yml
+  - ../docker-compose-obi-mysqlserver.yml
 input:
-  - path: /mysqltest
+- path: /mysqltest
 interval: 500ms
 expected:
   traces:
-    - traceql: '{ kind=server && name="SELECT students" && .db.operation.name = "SELECT" && .db.system.name = "mysql" }'
-      spans:
-        - name: 'SELECT students'
-          attributes:
-            db.operation.name: SELECT
-            db.collection.name: students
-            db.system.name: mysql
+  - traceql: '{ kind=server && name="SELECT students" && .db.operation.name = "SELECT" && .db.system.name = "mysql" }'
+    equals: SELECT students
+    attributes:
+      db.operation.name: SELECT
+      db.collection.name: students
+      db.system.name: mysql

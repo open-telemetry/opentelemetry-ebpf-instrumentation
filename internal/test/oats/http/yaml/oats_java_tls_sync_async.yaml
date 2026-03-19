@@ -1,20 +1,18 @@
+oats-schema-version: 2
 docker-compose:
-  generator: generic
   files:
-    - ../docker-compose-java-tls-sync-async.yml
+  - ../docker-compose-java-tls-sync-async.yml
 input:
-  - path: "/request"
+- path: /request
 interval: 500ms
 expected:
   traces:
-    - traceql: '{ .http.route = "/greeting" }'
-      spans:
-        - name: "GET /greeting"
-          attributes:
-            server.port: "8443"
-            url.path: "/greeting"
-    - traceql: '{ .url.full = "https://google.com/" }'
-      spans:
-        - name: "GET /"
-          attributes:
-            server.port: "443"
+  - traceql: '{ .http.route = "/greeting" }'
+    equals: GET /greeting
+    attributes:
+      server.port: '8443'
+      url.path: /greeting
+  - traceql: '{ .url.full = "https://google.com/" }'
+    equals: GET /
+    attributes:
+      server.port: '443'
