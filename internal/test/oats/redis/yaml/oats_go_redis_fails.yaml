@@ -7,6 +7,9 @@ input:
 interval: 500ms
 expected:
   traces:
+  # OATS needs improvements for us to be able to pull this off.
+  # It requires that a span name is unique, e.g. always expects the tempo response
+  # to return one result only.
   - traceql: '{ .db.system.name = "redis" && status = error }'
     equals: REDIS
   metrics:

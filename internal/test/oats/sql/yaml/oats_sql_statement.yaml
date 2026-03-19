@@ -7,6 +7,7 @@ input:
 interval: 500ms
 expected:
   traces:
+  # Successful UPDATE
   - traceql: '{ .db.operation.name = "UPDATE" && .db.system.name = "other_sql"}'
     equals: UPDATE students
     attributes:
