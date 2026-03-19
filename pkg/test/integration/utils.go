@@ -63,9 +63,14 @@ var testHTTPClient = &http.Client{
 
 			host, port, err := net.SplitHostPort(addr)
 			if err == nil && host == "localhost" {
-				loopbackAddr := net.JoinHostPort("127.0.0.1", port)
+				loopbackV4Addr := net.JoinHostPort("127.0.0.1", port)
+				loopbackV6Addr := net.JoinHostPort("::1", port)
 				if target, ok := loopbackTargetsByPort[port]; ok {
-					conn, loopbackErr := d.DialContext(ctx, network, loopbackAddr)
+					conn, loopbackErr := d.DialContext(ctx, network, loopbackV4Addr)
+					if loopbackErr == nil {
+						return conn, nil
+					}
+					conn, loopbackErr = d.DialContext(ctx, network, loopbackV6Addr)
 					if loopbackErr == nil {
 						return conn, nil
 					}
@@ -73,7 +78,7 @@ var testHTTPClient = &http.Client{
 						return d.DialContext(ctx, network, resolved)
 					}
 				}
-				addr = loopbackAddr
+				addr = loopbackV4Addr
 			}
 
 			return d.DialContext(ctx, network, addr)
