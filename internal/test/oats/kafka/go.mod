@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/oats/kafka
 
-go 1.25.7
+go 1.25.8
 
 require (
 	github.com/grafana/oats v0.0.3

@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/integration/components/gomongo
 
-go 1.25.7
+go 1.25.8
 
 require go.mongodb.org/mongo-driver v1.17.9
 
