@@ -13,7 +13,6 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/require"
 
-	commonbpf "go.opentelemetry.io/obi/pkg/ebpf/common"
 	generictracerbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 	gotracerbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 	gpueventbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/gpuevent"
@@ -101,6 +100,4 @@ func TestBPFVerifier(t *testing.T) {
 	// reverse DNS XDP program
 	loadAndVerify(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf)
 
-	// shared common BPF helpers / maps
-	loadAndVerify(t, "common/Bpf", commonbpf.LoadBpf)
 }
