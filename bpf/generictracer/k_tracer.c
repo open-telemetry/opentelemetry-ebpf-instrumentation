@@ -3,6 +3,7 @@
 
 //go:build obi_bpf_ignore
 
+#include "common/http_types.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
@@ -1087,7 +1088,79 @@ static __always_inline unsigned char *new_empty_capture_buffer(connection_info_t
     return NULL;
 }
 
-// Fall-back in case we don't see kretprobe on tcp_recvmsg in high network volume situations
+enum { k_tail_capture_sock_buf };
+
+int obi_socket_flt_buf(struct __sk_buff *skb);
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __uint(max_entries, 1);
+    __uint(key_size, sizeof(u32));
+    __array(values, int(void *));
+} sock_jump_table SEC(".maps") = {
+    .values =
+        {
+            [k_tail_capture_sock_buf] = (void *)&obi_socket_flt_buf,
+        },
+};
+
+typedef struct sock_tailcall_ctx {
+    connection_info_t conn;
+    protocol_info_t tcp;
+    egress_key_t e_key;
+    u8 niter;
+    bool has_parent_tp;
+    u8 pad[2];
+} sock_tailcall_ctx;
+
+SCRATCH_MEM(sock_tailcall_ctx);
+
+SEC("socket/http_filter")
+int obi_socket_flt_buf(struct __sk_buff *skb) {
+    (void)skb;
+
+    sock_tailcall_ctx *t_ctx = sock_tailcall_ctx_mem();
+
+    if (!t_ctx) {
+        return 0;
+    }
+
+    // We check here for problematic buffer captures
+    // There are two situations:
+    //   1. The sendmsg couldn't capture the buffer, we need to do it for them.
+    //      This is the lookup by connection
+    //   2. We have problematic receive port recorded. These are receive buffers we
+    //      couldn't read, but since the socket filter runs before the receive probe
+    //      we rely on a prior port connection recorded by tcp_close which saw an
+    //      incomplete request.
+    unsigned char *capture_buf = 0;
+
+    backup_buffer_t *back_buf = bpf_map_lookup_elem(&sock_filter_buffers, &t_ctx->conn);
+    if (back_buf) { // Scenario 1.
+        // if we've seen this before, don't capture it again.
+        if (back_buf->tcp_seq == t_ctx->tcp.seq) {
+            return 0;
+        }
+        back_buf->tcp_seq = t_ctx->tcp.seq;
+        capture_buf = back_buf->buf;
+    } else { // Scenario 2.
+        bool unreadable = is_conn_unreadable(&t_ctx->conn);
+        bpf_map_lookup_elem(&unreadable_buffer_ports, &t_ctx->conn.d_port);
+
+        if (unreadable) {
+            capture_buf = new_empty_capture_buffer(&t_ctx->conn, &t_ctx->tcp);
+        }
+    }
+
+    if (capture_buf) {
+        read_skb_bytes(skb, t_ctx->tcp.hdr_len, (void *)capture_buf, k_backup_buffer_len);
+
+        bpf_d_printk("captured fallback buffer %s", capture_buf);
+    }
+
+    return 0;
+}
+
 SEC("socket/http_filter")
 int obi_socket__http_filter(struct __sk_buff *skb) {
     protocol_info_t tcp = {};
@@ -1196,38 +1269,16 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
         }
     }
 
-    // We check here for problematic buffer captures
-    // There are two situations:
-    //   1. The sendmsg couldn't capture the buffer, we need to do it for them.
-    //      This is the lookup by connection
-    //   2. We have problematic receive port recorded. These are receive buffers we
-    //      couldn't read, but since the socket filter runs before the receive probe
-    //      we rely on a prior port connection recorded by tcp_close which saw an
-    //      incomplete request.
-    unsigned char *capture_buf = 0;
+    sock_tailcall_ctx *t_ctx = sock_tailcall_ctx_mem();
 
-    backup_buffer_t *back_buf = bpf_map_lookup_elem(&sock_filter_buffers, &conn);
-    if (back_buf) { // Scenario 1.
-        // if we've seen this before, don't capture it again.
-        if (back_buf->tcp_seq == tcp.seq) {
-            return 0;
-        }
-        back_buf->tcp_seq = tcp.seq;
-        capture_buf = back_buf->buf;
-    } else { // Scenario 2.
-        bool unreadable = is_conn_unreadable(&conn);
-        bpf_map_lookup_elem(&unreadable_buffer_ports, &conn.d_port);
-
-        if (unreadable) {
-            capture_buf = new_empty_capture_buffer(&conn, &tcp);
-        }
+    if (!t_ctx) {
+        return 0;
     }
 
-    if (capture_buf) {
-        read_skb_bytes(skb, tcp.hdr_len, (void *)capture_buf, k_backup_buffer_len);
+    t_ctx->conn = conn;
+    t_ctx->tcp = tcp;
 
-        bpf_d_printk("captured fallback buffer %s", capture_buf);
-    }
+    bpf_tail_call_static(skb, &sock_jump_table, k_tail_capture_sock_buf);
 
     return 0;
 }
