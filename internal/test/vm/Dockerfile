@@ -90,9 +90,6 @@ echo "Docker daemon is ready"
 # job timeout. Combined with 'panic' boot param and QEMU -no-reboot,
 # this causes QEMU to exit after the first stall.
 sysctl -w kernel.panic_on_rcu_stall=1 2>/dev/null || true
-# Increase per-socket option memory so larger socket filters still attach
-# on older kernels used by the VM integration jobs.
-sysctl -w net.core.optmem_max=262144 2>/dev/null || true
 
 # Verify runc version
 echo "=== Docker/runc versions in VM ==="
