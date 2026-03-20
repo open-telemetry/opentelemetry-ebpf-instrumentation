@@ -85,6 +85,26 @@ func TestCheckOSSupport_RHELBased(t *testing.T) {
 	}
 }
 
+func TestParseOSReleaseIsRHEL(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{name: "RHEL", content: "ID=\"rhel\"\n", want: true},
+		{name: "Rocky via ID_LIKE", content: "ID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\n", want: true},
+		{name: "AlmaLinux via ID_LIKE", content: "ID=\"almalinux\"\nID_LIKE=\"rhel centos fedora\"\n", want: true},
+		{name: "CentOS", content: "ID=\"centos\"\n", want: true},
+		{name: "Ubuntu", content: "ID=ubuntu\nID_LIKE=debian\n", want: false},
+		{name: "Debian", content: "ID=debian\n", want: false},
+		{name: "empty file", content: "", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, parseOSReleaseIsRHEL([]byte(tc.content)))
+		})
+	}
+}
+
 func TestOSCapabilitiesError_Empty(t *testing.T) {
 	var capErr osCapabilitiesError
 
