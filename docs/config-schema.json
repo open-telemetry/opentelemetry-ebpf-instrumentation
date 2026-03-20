@@ -353,6 +353,16 @@
           ],
           "x-env-var": "OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT"
         },
+        "force_bpf_map_reader": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "batch",
+            "legacy"
+          ],
+          "description": "ForceBPFMapReader forces the PerCPU HashMap operation of the Network Flows reader. The system will always try \"batch\", which is more efficient, but legacy systems like RHEL8-based will fallback to \"legacy\" (the slowest, more resource-consuming iterate&delete approach).",
+          "x-env-var": "OTEL_EBPF_FORCE_BPF_MAP_READER"
+        },
         "heuristic_sql_detect": {
           "type": "boolean",
           "description": "Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL",
