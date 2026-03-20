@@ -3,7 +3,6 @@
 
 //go:build obi_bpf_ignore
 
-#include "common/http_types.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
@@ -11,6 +10,7 @@
 #include <common/backup_buffer.h>
 #include <common/common.h>
 #include <common/connection_info.h>
+#include <common/http_types.h>
 #include <common/iov_iter.h>
 #include <common/msg_buffer.h>
 #include <common/protocol_defs.h>
@@ -1125,6 +1125,93 @@ int obi_socket_flt_buf(struct __sk_buff *skb) {
         return 0;
     }
 
+    // Save the original destination port before sorting. For incoming connections this is the
+    // local server port.
+    const u16 orig_dport = t_ctx->conn.d_port;
+
+    //d_print_http_connection_info(&conn);
+
+    sort_connection_info(&t_ctx->conn);
+
+    // Check if this is a connection we should be looking at.
+    // For outgoing connections, connect() populates connection_tracker before any data flows.
+    // For incoming connections, the socket filter fires before accept(), so connection_tracker
+    // won't have the entry yet. We fall back to checking filter_ports (listening port, no netns
+    // because we can't find it here in the socket filter).
+    //
+    // By definition we'll miss the first accept connection buffers.
+    tracked_connection_t *t_conn = bpf_map_lookup_elem(&connection_tracker, &t_ctx->conn);
+    if (!t_conn) {
+        bool *fp = bpf_map_lookup_elem(&filter_ports, &orig_dport);
+        if (!fp) {
+            // We finally check if we've missed the accept, but we have asked for backup buffer
+            // in tcp_sendmsg
+            backup_buffer_t *back_buf = bpf_map_lookup_elem(&sock_filter_buffers, &t_ctx->conn);
+            if (!back_buf) {
+                return 0;
+            }
+        }
+    }
+
+    // we don't want to read the whole buffer for every packed that passes our checks, we read only a bit and check if it's truly HTTP request/response.
+    unsigned char buf[MIN_HTTP_SIZE] = {0};
+    bpf_skb_load_bytes(skb, t_ctx->tcp.hdr_len, (void *)buf, sizeof(buf));
+    // technically the read should be reversed, but eBPF verifier complains on read with variable length
+    u32 len = skb->len - t_ctx->tcp.hdr_len;
+    if (len > MIN_HTTP_SIZE) {
+        len = MIN_HTTP_SIZE;
+    }
+
+    u8 packet_type = 0;
+    if (is_http(
+            buf,
+            len,
+            &packet_type)) { // we must check tcp_close second, a packet can be a close and a response
+        // this can be very verbose
+        //bpf_d_printk("http buf=[%s] [%s]", buf, __FUNCTION__);
+        //d_print_http_connection_info(&conn);
+        if (packet_type == PACKET_TYPE_REQUEST) {
+            const u64 cookie = bpf_get_socket_cookie(skb);
+            //bpf_dbg_printk("cookie=%llx, len=%d, buf=[%s]", cookie, len, buf);
+            //dbg_print_http_connection_info(&conn);
+
+            // The code below is looking to see if we have recorded black-box trace info on
+            // another interface. We do this for client calls, where essentially the original
+            // request may go out on one interface, but then get re-routed to another, which is
+            // common with some k8s environments.
+            partial_connection_info_t partial = {
+                .d_port = t_ctx->conn.d_port,
+                .s_port = t_ctx->conn.s_port,
+                .tcp_seq = t_ctx->tcp.seq,
+            };
+            __builtin_memcpy(partial.s_addr, t_ctx->conn.s_addr, sizeof(partial.s_addr));
+
+            tp_info_pid_t *trace_info = trace_info_for_connection(&t_ctx->conn, TRACE_TYPE_CLIENT);
+            if (trace_info) {
+                if (cookie) { // we have an actual socket associated
+                    bpf_map_update_elem(&tcp_connection_map, &partial, &t_ctx->conn, BPF_ANY);
+                }
+            } else if (!cookie) { // no actual socket for this skb, relayed to another interface
+                connection_info_t *prev_conn = bpf_map_lookup_elem(&tcp_connection_map, &partial);
+
+                if (prev_conn) {
+                    tp_info_pid_t *trace_info =
+                        trace_info_for_connection(prev_conn, TRACE_TYPE_CLIENT);
+                    if (trace_info) {
+                        if (current_immediate_epoch(trace_info->tp.ts) ==
+                            current_immediate_epoch(bpf_ktime_get_ns())) {
+                            //bpf_dbg_printk("Found trace info on another interface, setting it up for this connection");
+                            tp_info_pid_t other_info = {0};
+                            __builtin_memcpy(&other_info, trace_info, sizeof(tp_info_pid_t));
+                            set_trace_info_for_connection(
+                                &t_ctx->conn, TRACE_TYPE_CLIENT, &other_info);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // We check here for problematic buffer captures
     // There are two situations:
     //   1. The sendmsg couldn't capture the buffer, we need to do it for them.
@@ -1181,92 +1268,6 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
     // ignore empty packets, unless it's TCP FIN or TCP RST
     if (!tcp_close(&tcp) && tcp_empty(&tcp, skb)) {
         return 0;
-    }
-
-    // Save the original destination port before sorting. For incoming connections this is the
-    // local server port.
-    const u16 orig_dport = conn.d_port;
-
-    //d_print_http_connection_info(&conn);
-
-    sort_connection_info(&conn);
-
-    // Check if this is a connection we should be looking at.
-    // For outgoing connections, connect() populates connection_tracker before any data flows.
-    // For incoming connections, the socket filter fires before accept(), so connection_tracker
-    // won't have the entry yet. We fall back to checking filter_ports (listening port, no netns
-    // because we can't find it here in the socket filter).
-    //
-    // By definition we'll miss the first accept connection buffers.
-    tracked_connection_t *t_conn = bpf_map_lookup_elem(&connection_tracker, &conn);
-    if (!t_conn) {
-        bool *fp = bpf_map_lookup_elem(&filter_ports, &orig_dport);
-        if (!fp) {
-            // We finally check if we've missed the accept, but we have asked for backup buffer
-            // in tcp_sendmsg
-            backup_buffer_t *back_buf = bpf_map_lookup_elem(&sock_filter_buffers, &conn);
-            if (!back_buf) {
-                return 0;
-            }
-        }
-    }
-
-    // we don't want to read the whole buffer for every packed that passes our checks, we read only a bit and check if it's truly HTTP request/response.
-    unsigned char buf[MIN_HTTP_SIZE] = {0};
-    bpf_skb_load_bytes(skb, tcp.hdr_len, (void *)buf, sizeof(buf));
-    // technically the read should be reversed, but eBPF verifier complains on read with variable length
-    u32 len = skb->len - tcp.hdr_len;
-    if (len > MIN_HTTP_SIZE) {
-        len = MIN_HTTP_SIZE;
-    }
-
-    u8 packet_type = 0;
-    if (is_http(
-            buf,
-            len,
-            &packet_type)) { // we must check tcp_close second, a packet can be a close and a response
-        // this can be very verbose
-        //bpf_d_printk("http buf=[%s] [%s]", buf, __FUNCTION__);
-        //d_print_http_connection_info(&conn);
-        if (packet_type == PACKET_TYPE_REQUEST) {
-            const u64 cookie = bpf_get_socket_cookie(skb);
-            //bpf_dbg_printk("cookie=%llx, len=%d, buf=[%s]", cookie, len, buf);
-            //dbg_print_http_connection_info(&conn);
-
-            // The code below is looking to see if we have recorded black-box trace info on
-            // another interface. We do this for client calls, where essentially the original
-            // request may go out on one interface, but then get re-routed to another, which is
-            // common with some k8s environments.
-            partial_connection_info_t partial = {
-                .d_port = conn.d_port,
-                .s_port = conn.s_port,
-                .tcp_seq = tcp.seq,
-            };
-            __builtin_memcpy(partial.s_addr, conn.s_addr, sizeof(partial.s_addr));
-
-            tp_info_pid_t *trace_info = trace_info_for_connection(&conn, TRACE_TYPE_CLIENT);
-            if (trace_info) {
-                if (cookie) { // we have an actual socket associated
-                    bpf_map_update_elem(&tcp_connection_map, &partial, &conn, BPF_ANY);
-                }
-            } else if (!cookie) { // no actual socket for this skb, relayed to another interface
-                connection_info_t *prev_conn = bpf_map_lookup_elem(&tcp_connection_map, &partial);
-
-                if (prev_conn) {
-                    tp_info_pid_t *trace_info =
-                        trace_info_for_connection(prev_conn, TRACE_TYPE_CLIENT);
-                    if (trace_info) {
-                        if (current_immediate_epoch(trace_info->tp.ts) ==
-                            current_immediate_epoch(bpf_ktime_get_ns())) {
-                            //bpf_dbg_printk("Found trace info on another interface, setting it up for this connection");
-                            tp_info_pid_t other_info = {0};
-                            __builtin_memcpy(&other_info, trace_info, sizeof(tp_info_pid_t));
-                            set_trace_info_for_connection(&conn, TRACE_TYPE_CLIENT, &other_info);
-                        }
-                    }
-                }
-            }
-        }
     }
 
     sock_tailcall_ctx *t_ctx = sock_tailcall_ctx_mem();
