@@ -7,6 +7,7 @@ package bpf_verifier_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -77,55 +78,53 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 	})
 }
 
-// TestBPFVerifier loads every generated BPF collection into the kernel and checks that
-// the BPF verifier accepts all programs. Requires CAP_SYS_ADMIN / root.
-//
-// Run with: sudo env PATH=$PATH PRIVILEGED_TESTS=true go test ./pkg/internal/ebpf/verifier/...
-func TestBPFVerifier(t *testing.T) {
-	if os.Getenv(privilegedEnv) == "" {
-		t.Skipf("Skipping this test because %v is not set", privilegedEnv)
+// constOption represents one constant and its possible values to test.
+type constOption struct {
+	name   string
+	values []any
+}
+
+// forEachCombination generates generate every possible combination of options from all constant
+// options and calls fn for each combination. The test name encodes all constant values.
+// To get the next combination, it starts at the last index and increments it
+// Example: we have 2 values, we start with [0, 0], then [0, 1], [1, 0], [1, 1],
+// then [0, 0] stop.
+func forEachCombination(t *testing.T, prefix string, loadFn func() (*ebpf.CollectionSpec, error), opts []constOption) {
+	t.Helper()
+	indices := make([]int, len(opts))
+	for {
+		consts := make(map[string]any, len(opts))
+		nameParts := prefix
+		for i, opt := range opts {
+			consts[opt.name] = opt.values[indices[i]]
+			nameParts += fmt.Sprintf("/%s=%v", opt.name, opt.values[indices[i]])
+		}
+		loadAndVerify(t, nameParts, loadFn, consts)
+
+		// next combination
+		carry := true
+		for i := len(indices) - 1; i >= 0 && carry; i-- {
+			indices[i]++
+			if indices[i] < len(opts[i].values) {
+				carry = false // found a valid item
+			} else {
+				indices[i] = 0 // finished all values for this option so reset
+				// and move to the previous option
+			}
+		}
+		if carry {
+			break
+		}
 	}
-
-	if err := rlimit.RemoveMemlock(); err != nil {
-		t.Skipf("cannot remove memlock limit (insufficient privileges?): %v", err)
-	}
-
-	// netolly: TC-based flow monitor
-	loadAndVerify(t, "netolly/Net", netollybpf.LoadNet)
-
-	// netolly: socket-filter-based flow monitor
-	loadAndVerify(t, "netolly/NetSk", netollybpf.LoadNetSk)
-
-	// generictracer (iter programs like ObiIterTcp are included in the main Bpf spec)
-	loadAndVerify(t, "generictracer/Bpf", generictracerbpf.LoadBpf)
-
-	// gotracer
-	loadAndVerify(t, "gotracer/Bpf", gotracerbpf.LoadBpf)
-
-	// tracepoint injector
-	loadAndVerify(t, "tpinjector/Bpf", tpinjectorbpf.LoadBpf)
-	loadAndVerify(t, "tpinjector/BpfIter", tpinjectorbpf.LoadBpfIter)
-
-	// process watcher
-	loadAndVerify(t, "watcher/Bpf", watcherbpf.LoadBpf)
-
-	// GPU event tracer
-	loadAndVerify(t, "gpuevent/Bpf", gpueventbpf.LoadBpf)
-
-	// logger
-	loadAndVerify(t, "logger/Bpf", loggerbpf.LoadBpf)
-
-	// log enricher
-	loadAndVerify(t, "logenricher/Bpf", logenricherbpf.LoadBpf)
-
-	// reverse DNS XDP program
-	loadAndVerify(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf)
 }
 
 // TestBPFVerifierWithConstants verifies that BPF programs pass the kernel verifier
-// with non-default constant values. Different constant values cause the verifier to
-// evaluate different code paths (e.g. debug logging, traceparent parsing, header
-// propagation), which may trigger verifier rejections not caught by default-value tests.
+// across all combinations of constant values (also default ones).
+// Different constant values cause the verifier to evaluate different code paths
+// (e.g. debug logging, traceparent parsing, header propagation), which may trigger
+// verifier rejections not caught by default tests.
+// Requires CAP_SYS_ADMIN / root.
+// Run with: sudo env PATH=$PATH PRIVILEGED_TESTS=true go test ./pkg/internal/ebpf/verifier/...
 func TestBPFVerifierWithConstants(t *testing.T) {
 	if os.Getenv(privilegedEnv) == "" {
 		t.Skipf("Skipping this test because %v is not set", privilegedEnv)
@@ -136,112 +135,68 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	}
 
 	// netolly
-	loadAndVerify(t, "netolly/Net/debug", netollybpf.LoadNet, map[string]any{
-		"g_bpf_debug":    true,
-		"sampling":       uint32(100),
-		"trace_messages": uint8(1),
-		"port_guessing":  uint8(1),
-	})
-
-	loadAndVerify(t, "netolly/NetSk/debug", netollybpf.LoadNetSk, map[string]any{
-		"g_bpf_debug":    true,
-		"sampling":       uint32(100),
-		"trace_messages": uint8(1),
-		"port_guessing":  uint8(1),
-	})
+	netollyOpts := []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"sampling", []any{uint32(0), uint32(1), uint32(100)}},
+		{"trace_messages", []any{uint8(0), uint8(1)}},
+		{"port_guessing", []any{uint8(0), uint8(1)}},
+	}
+	forEachCombination(t, "netolly/Net", netollybpf.LoadNet, netollyOpts)
+	forEachCombination(t, "netolly/NetSk", netollybpf.LoadNetSk, netollyOpts)
 
 	// generictracer
-	loadAndVerify(t, "generictracer/Bpf/debug", generictracerbpf.LoadBpf, map[string]any{
-		"g_bpf_debug": true,
-	})
-
-	loadAndVerify(t, "generictracer/Bpf/traceparent", generictracerbpf.LoadBpf, map[string]any{
-		"g_bpf_traceparent_enabled": true,
-		"capture_header_buffer":     int32(1),
-	})
-
-	loadAndVerify(t, "generictracer/Bpf/all_features", generictracerbpf.LoadBpf, map[string]any{
-		"g_bpf_debug":                true,
-		"g_bpf_traceparent_enabled":  true,
-		"filter_pids":                int32(1),
-		"capture_header_buffer":      int32(1),
-		"high_request_volume":        uint32(1),
-		"disable_black_box_cp":       uint32(1),
-		"wakeup_data_bytes":          uint32(1024),
-		"max_transaction_time":       uint64(5000000000),
-		"http_max_captured_bytes":    uint32(256),
-		"mysql_max_captured_bytes":   uint32(256),
-		"kafka_max_captured_bytes":   uint32(256),
-		"postgres_max_captured_bytes": uint32(256),
+	forEachCombination(t, "generictracer/Bpf", generictracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true, false}},
+		{"filter_pids", []any{int32(0), int32(1)}},
+		{"capture_header_buffer", []any{int32(0), int32(1)}},
+		{"high_request_volume", []any{uint32(0), uint32(1)}},
+		{"disable_black_box_cp", []any{uint32(0), uint32(1)}},
 	})
 
 	// gotracer
-	loadAndVerify(t, "gotracer/Bpf/debug", gotracerbpf.LoadBpf, map[string]any{
-		"g_bpf_debug": true,
-	})
-
-	loadAndVerify(t, "gotracer/Bpf/all_features", gotracerbpf.LoadBpf, map[string]any{
-		"g_bpf_debug":               true,
-		"g_bpf_traceparent_enabled": true,
-		"g_bpf_header_propagation":  true,
-		"g_bpf_loop_enabled":        true,
-		"disable_black_box_cp":      uint32(1),
-		"wakeup_data_bytes":         uint32(1024),
-		"attr_type_invalid":         uint64(0),
-		"attr_type_bool":            uint64(1),
-		"attr_type_int64":           uint64(2),
-		"attr_type_float64":         uint64(3),
-		"attr_type_string":          uint64(4),
-		"attr_type_boolslice":       uint64(5),
-		"attr_type_int64slice":      uint64(6),
-		"attr_type_float64slice":    uint64(7),
-		"attr_type_stringslice":     uint64(8),
+	forEachCombination(t, "gotracer/Bpf", gotracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true, false}},
+		{"g_bpf_header_propagation", []any{true, false}},
+		{"g_bpf_loop_enabled", []any{true, false}},
+		{"disable_black_box_cp", []any{uint32(0), uint32(1)}},
 	})
 
 	// tpinjector
-	loadAndVerify(t, "tpinjector/Bpf/debug", tpinjectorbpf.LoadBpf, map[string]any{
-		"g_bpf_debug": true,
+	// inject_flags is a bitmask: bit 0 = HTTP headers, bit 1 = TCP options.
+	forEachCombination(t, "tpinjector/Bpf", tpinjectorbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"filter_pids", []any{int32(0), int32(1)}},
+		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 	})
-
-	loadAndVerify(t, "tpinjector/Bpf/all_features", tpinjectorbpf.LoadBpf, map[string]any{
-		"g_bpf_debug":          true,
-		"filter_pids":          int32(1),
-		"inject_flags":         uint32(3),
-		"max_transaction_time": uint64(5000000000),
-	})
-
-	loadAndVerify(t, "tpinjector/BpfIter/debug", tpinjectorbpf.LoadBpfIter, map[string]any{
-		"g_bpf_debug": true,
+	forEachCombination(t, "tpinjector/BpfIter", tpinjectorbpf.LoadBpfIter, []constOption{
+		{"g_bpf_debug", []any{true, false}},
 	})
 
 	// watcher
-	loadAndVerify(t, "watcher/Bpf/debug", watcherbpf.LoadBpf, map[string]any{
-		"g_bpf_debug": true,
+	forEachCombination(t, "watcher/Bpf", watcherbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
 	})
 
 	// gpuevent
-	loadAndVerify(t, "gpuevent/Bpf/debug", gpueventbpf.LoadBpf, map[string]any{
-		"g_bpf_debug": true,
-	})
-
-	loadAndVerify(t, "gpuevent/Bpf/filter_pids", gpueventbpf.LoadBpf, map[string]any{
-		"g_bpf_debug": true,
-		"filter_pids": int32(1),
+	forEachCombination(t, "gpuevent/Bpf", gpueventbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"filter_pids", []any{int32(0), int32(1)}},
 	})
 
 	// logger
-	loadAndVerify(t, "logger/Bpf/debug", loggerbpf.LoadBpf, map[string]any{
-		"g_bpf_debug": true,
+	forEachCombination(t, "logger/Bpf", loggerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
 	})
 
 	// logenricher
-	loadAndVerify(t, "logenricher/Bpf/debug", logenricherbpf.LoadBpf, map[string]any{
-		"g_bpf_debug": true,
+	forEachCombination(t, "logenricher/Bpf", logenricherbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
 	})
 
 	// rdns xdp
-	// Note: rdns/xdp already sets g_bpf_debug=true, so test with false
-	loadAndVerify(t, "rdns/xdp/Bpf/no_debug", rdnsxdpbpf.LoadBpf, map[string]any{
-		"g_bpf_debug": false,
+	forEachCombination(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
 	})
 }
