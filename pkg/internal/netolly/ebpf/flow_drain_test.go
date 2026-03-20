@@ -61,12 +61,12 @@ func (f *fakeBPFMap) BatchLookupAndDelete(_ *ebpf.MapBatchCursor, keysOut, value
 	if len(*f) == 0 {
 		return 0, ebpf.ErrKeyNotExist
 	}
-	keys := keysOut.(*[]NetFlowId)
-	values := valuesOut.(*[]NetFlowMetrics)
+	keys := keysOut.([]NetFlowId)
+	values := valuesOut.([]NetFlowMetrics)
 	k := 0
-	for len(*f) > 0 && k < len(*keys) {
-		(*keys)[k] = (*f)[0].k
-		copy((*values)[k*testPossibleCPUs:(k+1)*testPossibleCPUs], (*f)[0].v)
+	for len(*f) > 0 && k < len(keys) {
+		keys[k] = (*f)[0].k
+		copy(values[k*testPossibleCPUs:(k+1)*testPossibleCPUs], (*f)[0].v)
 		*f = (*f)[1:]
 		k++
 	}

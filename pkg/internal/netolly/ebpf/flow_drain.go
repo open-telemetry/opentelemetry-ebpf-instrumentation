@@ -51,7 +51,7 @@ func (fmd *flowMapDrainer) lookupAndDeleteMap() map[NetFlowId]*NetFlowMetrics {
 	values := make([]NetFlowMetrics, fmd.batchLen*fmd.possibleCPUs)
 	cursor := ebpf.MapBatchCursor{}
 	for {
-		n, err := fmd.flowMap.BatchLookupAndDelete(&cursor, &keys, &values, nil)
+		n, err := fmd.flowMap.BatchLookupAndDelete(&cursor, keys, values, nil)
 		oldestFlow = max(oldestFlow, fmd.aggregateBatch(n, keys, values, flows))
 		if err != nil {
 			if oldestFlow != 0 {
