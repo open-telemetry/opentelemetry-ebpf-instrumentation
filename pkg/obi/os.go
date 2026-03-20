@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/cilium/ebpf/btf"
 	"golang.org/x/sys/unix"
@@ -23,18 +24,10 @@ const (
 	minRHELKernMaj, minRHELKernMin = 4, 18
 )
 
-var (
-	kernelVersion = ebpfcommon.KernelVersion
-	readOSRelease = func() ([]byte, error) {
-		return os.ReadFile("/etc/os-release")
-	}
-)
+var kernelVersion = ebpfcommon.KernelVersion
 
-func isRHELBased() bool {
-	data, err := readOSRelease()
-	if err != nil {
-		return false
-	}
+// parseOSReleaseIsRHEL checks whether os-release content indicates an RHEL-based distro.
+func parseOSReleaseIsRHEL(data []byte) bool {
 	content := strings.ToLower(string(data))
 	// matches ID="rhel" or ID_LIKE containing "rhel" (e.g. Rocky, AlmaLinux, CentOS set ID_LIKE="rhel ...")
 	for _, line := range strings.Split(content, "\n") {
@@ -46,6 +39,20 @@ func isRHELBased() bool {
 		}
 	}
 	return false
+}
+
+var detectRHEL = sync.OnceValue(func() bool {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return false
+	}
+	return parseOSReleaseIsRHEL(data)
+})
+
+// isRHELBased is a var so tests can override it and
+// in production it delegates to detectRHEL (cached via sync.OnceValue).
+var isRHELBased = func() bool {
+	return detectRHEL()
 }
 
 // CheckOSSupport returns an error if the running operating system does not support
