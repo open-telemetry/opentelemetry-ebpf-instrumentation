@@ -14,6 +14,7 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/require"
 
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	generictracerbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 	gotracerbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 	gpueventbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/gpuevent"
@@ -30,11 +31,17 @@ const privilegedEnv = "PRIVILEGED_TESTS"
 // loadAndVerify loads a BPF collection spec into the kernel, triggering the BPF
 // verifier, then immediately closes it. Any verifier rejection surfaces as a test failure.
 // Pin types are stripped so the test works without a mounted BPF filesystem.
-func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpec, error)) {
+// An optional constants map can be provided to rewrite BPF constants before loading.
+func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpec, error), consts ...map[string]any) {
 	t.Helper()
 	t.Run(name, func(t *testing.T) {
 		spec, err := loadFn()
 		require.NoError(t, err, "failed to load collection spec")
+
+		if len(consts) > 0 && consts[0] != nil {
+			err = ebpfconvenience.RewriteConstants(spec, consts[0])
+			require.NoError(t, err, "failed to rewrite constants")
+		}
 
 		for _, m := range spec.Maps {
 			m.Pinning = ebpf.PinNone
@@ -113,4 +120,112 @@ func TestBPFVerifier(t *testing.T) {
 
 	// reverse DNS XDP program
 	loadAndVerify(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf)
+}
+
+// TestBPFVerifierWithConstants verifies that BPF programs pass the kernel verifier
+// with non-default constant values. Different constant values cause the verifier to
+// evaluate different code paths (e.g. debug logging, traceparent parsing, header
+// propagation), which may trigger verifier rejections not caught by default-value tests.
+func TestBPFVerifierWithConstants(t *testing.T) {
+	if os.Getenv(privilegedEnv) == "" {
+		t.Skipf("Skipping this test because %v is not set", privilegedEnv)
+	}
+
+	if err := rlimit.RemoveMemlock(); err != nil {
+		t.Skipf("cannot remove memlock limit (insufficient privileges?): %v", err)
+	}
+
+	// netolly
+	loadAndVerify(t, "netolly/Net/debug", netollybpf.LoadNet, map[string]any{
+		"g_bpf_debug":    true,
+		"sampling":       uint32(100),
+		"trace_messages": uint8(1),
+		"port_guessing":  uint8(1),
+	})
+
+	loadAndVerify(t, "netolly/NetSk/debug", netollybpf.LoadNetSk, map[string]any{
+		"g_bpf_debug":    true,
+		"sampling":       uint32(100),
+		"trace_messages": uint8(1),
+		"port_guessing":  uint8(1),
+	})
+
+	// generictracer
+	loadAndVerify(t, "generictracer/Bpf/debug", generictracerbpf.LoadBpf, map[string]any{
+		"g_bpf_debug": true,
+	})
+
+	loadAndVerify(t, "generictracer/Bpf/traceparent", generictracerbpf.LoadBpf, map[string]any{
+		"g_bpf_traceparent_enabled": true,
+		"capture_header_buffer":     int32(1),
+	})
+
+	loadAndVerify(t, "generictracer/Bpf/all_features", generictracerbpf.LoadBpf, map[string]any{
+		"g_bpf_debug":               true,
+		"g_bpf_traceparent_enabled": true,
+		"filter_pids":               int32(1),
+		"capture_header_buffer":     int32(1),
+		"high_request_volume":       uint32(1),
+		"disable_black_box_cp":      uint32(1),
+	})
+
+	// gotracer
+	loadAndVerify(t, "gotracer/Bpf/debug", gotracerbpf.LoadBpf, map[string]any{
+		"g_bpf_debug": true,
+	})
+
+	loadAndVerify(t, "gotracer/Bpf/all_features", gotracerbpf.LoadBpf, map[string]any{
+		"g_bpf_debug":               true,
+		"g_bpf_traceparent_enabled": true,
+		"g_bpf_header_propagation":  true,
+		"g_bpf_loop_enabled":        true,
+		"disable_black_box_cp":      uint32(1),
+	})
+
+	// tpinjector
+	loadAndVerify(t, "tpinjector/Bpf/debug", tpinjectorbpf.LoadBpf, map[string]any{
+		"g_bpf_debug": true,
+	})
+
+	loadAndVerify(t, "tpinjector/Bpf/all_features", tpinjectorbpf.LoadBpf, map[string]any{
+		"g_bpf_debug":          true,
+		"filter_pids":          int32(1),
+		"inject_flags":         uint32(3),
+		"max_transaction_time": uint64(5000000000),
+	})
+
+	loadAndVerify(t, "tpinjector/BpfIter/debug", tpinjectorbpf.LoadBpfIter, map[string]any{
+		"g_bpf_debug": true,
+	})
+
+	// watcher
+	loadAndVerify(t, "watcher/Bpf/debug", watcherbpf.LoadBpf, map[string]any{
+		"g_bpf_debug": true,
+	})
+
+	// gpuevent
+	loadAndVerify(t, "gpuevent/Bpf/debug", gpueventbpf.LoadBpf, map[string]any{
+		"g_bpf_debug": true,
+	})
+
+	loadAndVerify(t, "gpuevent/Bpf/filter_pids", gpueventbpf.LoadBpf, map[string]any{
+		"g_bpf_debug": true,
+		"filter_pids": int32(1),
+	})
+
+	// logger
+	loadAndVerify(t, "logger/Bpf/debug", loggerbpf.LoadBpf, map[string]any{
+		"g_bpf_debug": true,
+	})
+
+	// logenricher
+	loadAndVerify(t, "logenricher/Bpf/debug", logenricherbpf.LoadBpf, map[string]any{
+		"g_bpf_debug": true,
+	})
+
+	// rdns xdp
+	// Note: rdns/xdp already sets g_bpf_debug=true, so test with false
+	loadAndVerify(t, "rdns/xdp/Bpf/no_debug", rdnsxdpbpf.LoadBpf, map[string]any{
+		"g_bpf_debug": false,
+	})
 }
