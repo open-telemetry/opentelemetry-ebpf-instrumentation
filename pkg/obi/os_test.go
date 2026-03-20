@@ -29,6 +29,18 @@ var overrideKernelVersion = func(tc testCase) {
 	}
 }
 
+func mockOSRelease(content string) {
+	readOSRelease = func() ([]byte, error) {
+		return []byte(content), nil
+	}
+}
+
+func mockOSReleaseError() {
+	readOSRelease = func() ([]byte, error) {
+		return nil, fmt.Errorf("file not found")
+	}
+}
+
 func TestCheckOSSupport_Supported(t *testing.T) {
 	for _, tc := range []testCase{
 		{maj: 5, min: 8},
@@ -52,6 +64,57 @@ func TestCheckOSSupport_Unsupported(t *testing.T) {
 		t.Run(fmt.Sprintf("%d.%d", tc.maj, tc.min), func(t *testing.T) {
 			overrideKernelVersion(tc)
 			require.Error(t, CheckOSSupport())
+		})
+	}
+}
+
+func TestCheckOSSupport_RHELBased(t *testing.T) {
+	rhelRelease := `NAME="Red Hat Enterprise Linux"
+ID="rhel"
+ID_LIKE="fedora"
+VERSION_ID="8.6"
+`
+	rockyRelease := `NAME="Rocky Linux"
+ID="rocky"
+ID_LIKE="rhel centos fedora"
+VERSION_ID="9.1"
+`
+	almaRelease := `NAME="AlmaLinux"
+ID="almalinux"
+ID_LIKE="rhel centos fedora"
+VERSION_ID="9.2"
+`
+	ubuntuRelease := `NAME="Ubuntu"
+ID=ubuntu
+ID_LIKE=debian
+VERSION_ID="22.04"
+`
+	for _, tc := range []struct {
+		name      string
+		osRelease string
+		maj, min  int
+		wantErr   bool
+	}{
+		{name: "RHEL 4.18 supported", osRelease: rhelRelease, maj: 4, min: 18, wantErr: false},
+		{name: "RHEL 4.17 unsupported", osRelease: rhelRelease, maj: 4, min: 17, wantErr: true},
+		{name: "Rocky 4.18 supported", osRelease: rockyRelease, maj: 4, min: 18, wantErr: false},
+		{name: "AlmaLinux 4.18 supported", osRelease: almaRelease, maj: 4, min: 18, wantErr: false},
+		{name: "Ubuntu 4.18 unsupported", osRelease: ubuntuRelease, maj: 4, min: 18, wantErr: true},
+		{name: "Ubuntu 5.8 supported", osRelease: ubuntuRelease, maj: 5, min: 8, wantErr: false},
+		{name: "os-release missing falls back to 5.8", osRelease: "", maj: 4, min: 18, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			overrideKernelVersion(testCase{tc.maj, tc.min})
+			if tc.osRelease == "" {
+				mockOSReleaseError()
+			} else {
+				mockOSRelease(tc.osRelease)
+			}
+			if tc.wantErr {
+				require.Error(t, CheckOSSupport())
+			} else {
+				require.NoError(t, CheckOSSupport())
+			}
 		})
 	}
 }

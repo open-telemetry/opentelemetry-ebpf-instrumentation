@@ -23,10 +23,15 @@ const (
 	minRHELKernMaj, minRHELKernMin = 4, 18
 )
 
-var kernelVersion = ebpfcommon.KernelVersion
+var (
+	kernelVersion = ebpfcommon.KernelVersion
+	readOSRelease = func() ([]byte, error) {
+		return os.ReadFile("/etc/os-release")
+	}
+)
 
 func isRHELBased() bool {
-	data, err := os.ReadFile("/etc/os-release")
+	data, err := readOSRelease()
 	if err != nil {
 		return false
 	}
