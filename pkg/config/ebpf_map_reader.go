@@ -20,10 +20,13 @@ func (b *EBPFMapReader) UnmarshalText(text []byte) error {
 	switch strings.TrimSpace(strings.ToLower(string(text))) {
 	case "batch":
 		*b = MapReaderBatch
+		return nil
 	case "legacy":
 		*b = MapReaderLegacy
+		return nil
 	case "", "auto":
 		*b = MapReaderAuto
+		return nil
 	}
 	return fmt.Errorf("invalid EBPFMapReader value: %s", text)
 }
