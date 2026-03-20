@@ -1,5 +1,7 @@
 # OpenTelemetry eBPF Instrumentation
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/open-telemetry/opentelemetry-ebpf-instrumentation)
+
 This repository provides eBPF instrumentation based on the OpenTelemetry standard.
 It provides a lightweight and efficient way to collect telemetry data using eBPF for user-space applications.
 
