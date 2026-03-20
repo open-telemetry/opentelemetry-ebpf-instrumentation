@@ -14,6 +14,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 )
 
+// prevents "unused" linter error in mac
+var _ = chooseMapReader
+
 type FlowFetcher struct{}
 
 func NewFlowFetcher(
@@ -22,6 +25,7 @@ func NewFlowFetcher(
 	_ *tcmanager.InterfaceManager,
 	_ config.TCBackend,
 	_ flowdef.PortGuessPolicy,
+	_ config.EBPFMapReader,
 ) (*FlowFetcher, error) {
 	return nil, nil
 }

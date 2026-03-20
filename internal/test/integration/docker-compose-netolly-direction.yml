@@ -52,6 +52,8 @@ services:
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_HOSTNAME: "beyla"
+      # checks that the legacy map reader works also
+      OTEL_EBPF_FORCE_BPF_MAP_READER: "legacy"
 
   # OpenTelemetry Collector for Metrics. For Traces, we use directly Jaeger
   otelcol:

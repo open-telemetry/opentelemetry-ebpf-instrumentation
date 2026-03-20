@@ -35,6 +35,7 @@ import (
 	"github.com/gavv/monotime"
 	"golang.org/x/sys/unix"
 
+	"go.opentelemetry.io/obi/pkg/config"
 	convenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
@@ -48,15 +49,16 @@ import (
 // and to flows that are forwarded by the kernel via ringbuffer because could not be aggregated
 // in the map
 type SockFlowFetcher struct {
-	log            *slog.Logger
-	objects        *NetSkObjects
-	ringbufReader  *ringbuf.Reader
-	flowMapDrainer flowMapDrainer
+	log           *slog.Logger
+	objects       *NetSkObjects
+	ringbufReader *ringbuf.Reader
+	flowMapReader flowMapReader
 }
 
 func NewSockFlowFetcher(
 	sampling, cacheMaxSize int,
 	portGuessPolicy flowdef.PortGuessPolicy,
+	mapReaderImpl config.EBPFMapReader,
 ) (*SockFlowFetcher, error) {
 	startTime := uint64(monotime.Now())
 	tlog := tlog()
@@ -127,8 +129,7 @@ func NewSockFlowFetcher(
 		log:           tlog,
 		objects:       &objects,
 		ringbufReader: flows,
-		flowMapDrainer: newFlowMapDrainer(
-			tlog, objects.AggregatedFlows, cacheMaxSize, startTime),
+		flowMapReader: chooseMapReader(mapReaderImpl, objects.AggregatedFlows, cacheMaxSize, startTime),
 	}, nil
 }
 
@@ -170,7 +171,11 @@ func (m *SockFlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
 }
 
 func (m *SockFlowFetcher) LookupAndDeleteMap() map[NetFlowId]*NetFlowMetrics {
-	return m.flowMapDrainer.lookupAndDeleteMap()
+	flows, err := m.flowMapReader.lookupAndDeleteMap()
+	if err != nil {
+		m.log.Error("failed to read flows from eBPF map", "error", err)
+	}
+	return flows
 }
 
 func isLittleEndian() bool {

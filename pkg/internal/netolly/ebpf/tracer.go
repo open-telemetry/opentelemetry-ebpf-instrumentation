@@ -63,13 +63,13 @@ func tlog() *slog.Logger {
 // and to flows that are forwarded by the kernel via ringbuffer because could not be aggregated
 // in the map
 type FlowFetcher struct {
-	log            *slog.Logger
-	objects        *NetObjects
-	ringbufReader  *ringbuf.Reader
-	tcManager      tcmanager.TCManager
-	enableIngress  bool
-	enableEgress   bool
-	flowMapDrainer flowMapDrainer
+	log           *slog.Logger
+	objects       *NetObjects
+	ringbufReader *ringbuf.Reader
+	tcManager     tcmanager.TCManager
+	enableIngress bool
+	enableEgress  bool
+	flowMapReader flowMapReader
 }
 
 func NewFlowFetcher(
@@ -78,6 +78,7 @@ func NewFlowFetcher(
 	ifaceManager *tcmanager.InterfaceManager,
 	tcBackend config.TCBackend,
 	portGuessPolicy flowdef.PortGuessPolicy,
+	forceBPFMapReader config.EBPFMapReader,
 ) (*FlowFetcher, error) {
 	startTime := uint64(monotime.Now())
 	tlog := tlog()
@@ -150,8 +151,7 @@ func NewFlowFetcher(
 		tcManager:     tcManager,
 		enableIngress: ingress,
 		enableEgress:  egress,
-		flowMapDrainer: newFlowMapDrainer(
-			tlog, objects.AggregatedFlows, cacheMaxSize, startTime),
+		flowMapReader: chooseMapReader(forceBPFMapReader, objects.AggregatedFlows, cacheMaxSize, startTime),
 	}
 
 	// errors are not critical for this tracer
@@ -197,7 +197,11 @@ func (m *FlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
 }
 
 func (m *FlowFetcher) LookupAndDeleteMap() map[NetFlowId]*NetFlowMetrics {
-	return m.flowMapDrainer.lookupAndDeleteMap()
+	flows, err := m.flowMapReader.lookupAndDeleteMap()
+	if err != nil {
+		m.log.Error("failed to read flows from eBPF map", "error", err)
+	}
+	return flows
 }
 
 func (m *FlowFetcher) logTCErrors(errors chan error) {

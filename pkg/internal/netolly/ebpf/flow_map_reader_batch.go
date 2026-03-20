@@ -12,10 +12,10 @@ import (
 // TODO: make configurable
 const defaultReadBatchLen = 1024
 
-// flowMapDrainer reads, aggregates and removes all the flows in the eBPF flows map
-type flowMapDrainer struct {
+// flowMapBatchReader reads, aggregates and removes all the flows in the eBPF flows map
+type flowMapBatchReader struct {
 	log          *slog.Logger
-	flowMap      ebpfMap
+	flowMap      ebpfBatchMap
 	lastReadNS   uint64
 	cacheMaxSize int
 
@@ -23,28 +23,14 @@ type flowMapDrainer struct {
 	possibleCPUs int
 }
 
-// avoid false unused lint error in Mac
-var _ = newFlowMapDrainer
-
-func newFlowMapDrainer(log *slog.Logger, flowMap *ebpf.Map, cacheMaxSize int, startTime uint64) flowMapDrainer {
-	return flowMapDrainer{
-		log:          log,
-		flowMap:      flowMap,
-		cacheMaxSize: cacheMaxSize,
-		batchLen:     defaultReadBatchLen,
-		possibleCPUs: ebpf.MustPossibleCPU(),
-		lastReadNS:   startTime,
-	}
-}
-
-type ebpfMap interface {
+type ebpfBatchMap interface {
 	BatchLookupAndDelete(cursor *ebpf.MapBatchCursor, keysOut, valuesOut any, opts *ebpf.BatchOptions) (int, error)
 }
 
 // lookupAndDeleteMap reads all the entries from the eBPF map and removes them from it.
 // It returns a map where the key is the network flow identifier (e.g. src/dst addresses)
 // and the value is the aggregated time and metrics for all the packets of this flow.
-func (fmd *flowMapDrainer) lookupAndDeleteMap() map[NetFlowId]*NetFlowMetrics {
+func (fmd *flowMapBatchReader) lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetrics, error) {
 	flows := make(map[NetFlowId]*NetFlowMetrics, fmd.cacheMaxSize)
 	oldestFlow := uint64(0)
 	keys := make([]NetFlowId, fmd.batchLen)
@@ -57,16 +43,17 @@ func (fmd *flowMapDrainer) lookupAndDeleteMap() map[NetFlowId]*NetFlowMetrics {
 			if oldestFlow != 0 {
 				fmd.lastReadNS = oldestFlow
 			}
-			if !errors.Is(err, ebpf.ErrKeyNotExist) {
-				fmd.log.Error("failed to read flows from eBPF map", "error", err)
+			if errors.Is(err, ebpf.ErrKeyNotExist) {
+				// reaching the end of the map. We can stop reading
+				return flows, nil
 			}
-			// reaching the end of the map. We can stop reading
-			return flows
+			fmd.log.Error("failed to read flows from eBPF map", "error", err)
+			return flows, err
 		}
 	}
 }
 
-func (fmd *flowMapDrainer) aggregateBatch(n int, keys []NetFlowId, values []NetFlowMetrics, flows map[NetFlowId]*NetFlowMetrics) uint64 {
+func (fmd *flowMapBatchReader) aggregateBatch(n int, keys []NetFlowId, values []NetFlowMetrics, flows map[NetFlowId]*NetFlowMetrics) uint64 {
 	vi := 0
 	oldestFlow := uint64(0)
 	for ki := range n {
