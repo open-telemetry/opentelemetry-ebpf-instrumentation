@@ -7,12 +7,12 @@ This repository provides eBPF-based instrumentation for applications and integra
 Agents operating on this repository must produce small, correct, and reviewable changes that respect the existing architecture and development workflow.
 
 For an overview of the data pipeline and component relationships, start with [devdocs/pipeline-map.md](devdocs/pipeline-map.md).
-If DeepWiki MCP is configured in the agent environment, agents may also consult https://deepwiki.com/open-telemetry/opentelemetry-ebpf-instrumentation for additional architecture and codebase context.
+If DeepWiki MCP is configured in the agent environment, agents may also consult the [DeepWiki repository page](https://deepwiki.com/open-telemetry/opentelemetry-ebpf-instrumentation) for additional architecture and codebase context.
 
 When repository files do not fully answer a question, prefer these references:
 
-- eBPF reference documentation: https://docs.ebpf.io/linux/
-- OpenTelemetry documentation and specifications: https://opentelemetry.io/docs/
+- [eBPF reference documentation](https://docs.ebpf.io/linux/)
+- [OpenTelemetry documentation and specifications](https://opentelemetry.io/docs/)
 
 Prefer repository code and local documentation when there is any discrepancy with external references or summaries.
 
@@ -62,6 +62,8 @@ Preferred validation targets:
 - `make generate` or `make docker-generate` when any `.c` file in `bpf/` is added or modified
 
 Use `make lint`, `make test`, and `make compile` for targeted iteration when a full validation run is unnecessary.
+
+For Markdown-only changes, run `make lint-markdown`.
 
 C code must be formatted and linted before proposing changes. Run `make install-hooks` to install pre-commit hooks that enforce this automatically, or run `make clang-format` and `make clang-tidy` manually.
 

@@ -1,6 +1,6 @@
 # AI Tooling
 
-This document provides recommendations for contributors who use coding when working in this repository.
+This document provides recommendations for contributors who use coding agents when working in this repository.
 
 ## DeepWiki
 
@@ -8,7 +8,7 @@ DeepWiki is useful for fast architecture lookup, codebase orientation, and ident
 
 Repository page:
 
-- https://deepwiki.com/open-telemetry/opentelemetry-ebpf-instrumentation
+- [OpenTelemetry eBPF Instrumentation on DeepWiki](https://deepwiki.com/open-telemetry/opentelemetry-ebpf-instrumentation)
 
 MCP endpoint:
 
