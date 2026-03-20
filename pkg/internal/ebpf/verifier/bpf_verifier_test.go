@@ -161,12 +161,18 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	})
 
 	loadAndVerify(t, "generictracer/Bpf/all_features", generictracerbpf.LoadBpf, map[string]any{
-		"g_bpf_debug":               true,
-		"g_bpf_traceparent_enabled": true,
-		"filter_pids":               int32(1),
-		"capture_header_buffer":     int32(1),
-		"high_request_volume":       uint32(1),
-		"disable_black_box_cp":      uint32(1),
+		"g_bpf_debug":                true,
+		"g_bpf_traceparent_enabled":  true,
+		"filter_pids":                int32(1),
+		"capture_header_buffer":      int32(1),
+		"high_request_volume":        uint32(1),
+		"disable_black_box_cp":       uint32(1),
+		"wakeup_data_bytes":          uint32(1024),
+		"max_transaction_time":       uint64(5000000000),
+		"http_max_captured_bytes":    uint32(256),
+		"mysql_max_captured_bytes":   uint32(256),
+		"kafka_max_captured_bytes":   uint32(256),
+		"postgres_max_captured_bytes": uint32(256),
 	})
 
 	// gotracer
@@ -180,6 +186,16 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		"g_bpf_header_propagation":  true,
 		"g_bpf_loop_enabled":        true,
 		"disable_black_box_cp":      uint32(1),
+		"wakeup_data_bytes":         uint32(1024),
+		"attr_type_invalid":         uint64(0),
+		"attr_type_bool":            uint64(1),
+		"attr_type_int64":           uint64(2),
+		"attr_type_float64":         uint64(3),
+		"attr_type_string":          uint64(4),
+		"attr_type_boolslice":       uint64(5),
+		"attr_type_int64slice":      uint64(6),
+		"attr_type_float64slice":    uint64(7),
+		"attr_type_stringslice":     uint64(8),
 	})
 
 	// tpinjector
