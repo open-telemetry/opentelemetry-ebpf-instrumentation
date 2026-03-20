@@ -21,13 +21,15 @@ type flowMapReader interface {
 }
 
 func chooseMapReader(forcedType config.EBPFMapReader, flowMap *ebpf.Map, cacheMaxSize int, startTime uint64) flowMapReader {
+	batchLen := defaultReadBatchLen
+	possibleCPUs := ebpf.MustPossibleCPU()
 	batch := &flowMapBatchReader{
-		log:          dlog("batch"),
 		flowMap:      flowMap,
 		cacheMaxSize: cacheMaxSize,
-		batchLen:     defaultReadBatchLen,
-		possibleCPUs: ebpf.MustPossibleCPU(),
+		possibleCPUs: possibleCPUs,
 		lastReadNS:   startTime,
+		cachedKeys:   make([]NetFlowId, batchLen),
+		cachedValues: make([]NetFlowMetrics, batchLen*possibleCPUs),
 	}
 	legacy := &flowMapLegacyReader[*ebpf.MapIterator]{
 		log:          dlog("legacy"),

@@ -12,7 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testPossibleCPUs = 2
+const (
+	testBatchLen     = 2
+	testPossibleCPUs = 2
+)
 
 func TestLookupAndDelete(t *testing.T) {
 	expectedAggregation := map[NetFlowId]*NetFlowMetrics{
@@ -52,7 +55,7 @@ func TestAutoChoose_BatchSupported(t *testing.T) {
 		Return(4, ebpf.ErrKeyNotExist)
 
 	auto := flowMapReaderChooser[*mockedMapIterator]{
-		batch:  &flowMapBatchReader{log: slog.Default(), flowMap: legacyMap},
+		batch:  &flowMapBatchReader{flowMap: legacyMap},
 		legacy: &flowMapLegacyReader[*mockedMapIterator]{log: slog.Default(), flowMap: legacyMap},
 	}
 	_, err := auto.lookupAndDeleteMap()
@@ -77,7 +80,7 @@ func TestAutoChoose_BatchUnsupported(t *testing.T) {
 	iter.On("Next", mock.Anything, mock.Anything).Return(false)
 
 	auto := flowMapReaderChooser[*mockedMapIterator]{
-		batch:  &flowMapBatchReader{log: slog.Default(), flowMap: legacyMap},
+		batch:  &flowMapBatchReader{flowMap: legacyMap},
 		legacy: &flowMapLegacyReader[*mockedMapIterator]{log: slog.Default(), flowMap: legacyMap},
 	}
 	_, err := auto.lookupAndDeleteMap()
@@ -131,12 +134,12 @@ func legacyReader() *flowMapLegacyReader[*fakeMapIterator] {
 func batchReader() *flowMapBatchReader {
 	flows := inputFlows()
 	return &flowMapBatchReader{
-		log:          slog.Default(),
 		cacheMaxSize: 50_000,
 		lastReadNS:   100,
 		possibleCPUs: testPossibleCPUs,
-		batchLen:     2,
 		flowMap:      &flows,
+		cachedKeys:   make([]NetFlowId, testBatchLen),
+		cachedValues: make([]NetFlowMetrics, testBatchLen*testPossibleCPUs),
 	}
 }
 

@@ -22,10 +22,10 @@ func (b *EBPFMapReader) UnmarshalText(text []byte) error {
 		*b = MapReaderBatch
 	case "legacy":
 		*b = MapReaderLegacy
-	default:
+	case "", "auto":
 		*b = MapReaderAuto
 	}
-	return nil
+	return fmt.Errorf("invalid EBPFMapReader value: %s", text)
 }
 
 func (b EBPFMapReader) MarshalText() ([]byte, error) {
@@ -37,7 +37,7 @@ func (b EBPFMapReader) MarshalText() ([]byte, error) {
 	case MapReaderAuto:
 		return []byte("auto"), nil
 	}
-	return nil, fmt.Errorf("invalid TCBakend value: %d", b)
+	return nil, fmt.Errorf("invalid EBPFMapReader value: %d", b)
 }
 
 func (b EBPFMapReader) Valid() bool {

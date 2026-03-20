@@ -4,7 +4,6 @@
 package ebpf // import "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 import (
 	"errors"
-	"log/slog"
 
 	"github.com/cilium/ebpf"
 )
@@ -14,13 +13,16 @@ const defaultReadBatchLen = 1024
 
 // flowMapBatchReader reads, aggregates and removes all the flows in the eBPF flows map
 type flowMapBatchReader struct {
-	log          *slog.Logger
 	flowMap      ebpfBatchMap
 	lastReadNS   uint64
 	cacheMaxSize int
 
-	batchLen     int
 	possibleCPUs int
+
+	// given that lookupAndDeleteMap is not called concurrently, we can save some
+	// allocations by reusing the lookup slice
+	cachedKeys   []NetFlowId
+	cachedValues []NetFlowMetrics
 }
 
 type ebpfBatchMap interface {
@@ -33,12 +35,10 @@ type ebpfBatchMap interface {
 func (fmd *flowMapBatchReader) lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetrics, error) {
 	flows := make(map[NetFlowId]*NetFlowMetrics, fmd.cacheMaxSize)
 	oldestFlow := uint64(0)
-	keys := make([]NetFlowId, fmd.batchLen)
-	values := make([]NetFlowMetrics, fmd.batchLen*fmd.possibleCPUs)
 	cursor := ebpf.MapBatchCursor{}
 	for {
-		n, err := fmd.flowMap.BatchLookupAndDelete(&cursor, keys, values, nil)
-		oldestFlow = max(oldestFlow, fmd.aggregateBatch(n, keys, values, flows))
+		n, err := fmd.flowMap.BatchLookupAndDelete(&cursor, fmd.cachedKeys, fmd.cachedValues, nil)
+		oldestFlow = max(oldestFlow, fmd.aggregateBatch(n, fmd.cachedKeys, fmd.cachedValues, flows))
 		if err != nil {
 			if oldestFlow != 0 {
 				fmd.lastReadNS = oldestFlow
@@ -47,7 +47,6 @@ func (fmd *flowMapBatchReader) lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetri
 				// reaching the end of the map. We can stop reading
 				return flows, nil
 			}
-			fmd.log.Error("failed to read flows from eBPF map", "error", err)
 			return flows, err
 		}
 	}
