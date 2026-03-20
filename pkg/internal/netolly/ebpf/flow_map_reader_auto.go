@@ -75,6 +75,5 @@ func (ad *flowMapReaderChooser[IT]) lookupAndDeleteMap() (map[NetFlowId]*NetFlow
 		ad.batch, ad.legacy = nil, nil
 		return ad.working.lookupAndDeleteMap()
 	}
-	log.Error("can't read flows map", "error", err)
 	return flows, err
 }
