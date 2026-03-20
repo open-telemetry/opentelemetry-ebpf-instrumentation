@@ -25,13 +25,13 @@ type cacheSvcClient struct {
 	address string
 	log     *slog.Logger
 
-	lastEventTSEpoch       int64
-	ctx                    context.Context
-	syncTimeout            time.Duration
-	waitForSubscription    chan struct{}
-	waitForSynchronization chan struct{}
-	waitForSyncClosed      bool
-	reconnectDelay         time.Duration
+	lastEventTSEpoch         int64
+	ctx                      context.Context
+	syncTimeout              time.Duration
+	waitForSubscription      chan struct{}
+	waitForSynchronization   chan struct{}
+	waitForSyncClosed        bool
+	reconnectInitialInterval time.Duration
 }
 
 func (sc *cacheSvcClient) ID() string {
@@ -77,7 +77,7 @@ func (sc *cacheSvcClient) Start(ctx context.Context) {
 				err := sc.connect(ctx)
 				sc.log.Info("K8s cache service connection lost. Reconnecting...", "error", err)
 				// TODO: exponential backoff
-				time.Sleep(sc.reconnectDelay)
+				time.Sleep(sc.reconnectInitialInterval)
 			}
 		}
 	}()

@@ -47,8 +47,8 @@ type KubernetesDecorator struct {
 	// InformersSyncTimeout is the timeout for waiting for informers to sync on startup.
 	InformersSyncTimeout time.Duration `yaml:"informers_sync_timeout" env:"OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT" validate:"gt=0"`
 
-	// ReconnectDelay is the time to wait before reconnecting to the Kubernetes API after a connection loss.
-	ReconnectDelay time.Duration `yaml:"reconnect_delay" env:"OTEL_EBPF_KUBE_RECONNECT_DELAY" validate:"gte=0"`
+	// ReconnectInitialInterval is the time to wait before reconnecting to the Kubernetes API after a connection loss.
+	ReconnectInitialInterval time.Duration `yaml:"reconnect_initial_interval" env:"OTEL_EBPF_KUBE_RECONNECT_INITIAL_INTERVAL" validate:"gte=0"`
 
 	// InformersResyncPeriod defaults to 30m. Higher values will reduce the load on the Kube API.
 	InformersResyncPeriod time.Duration `yaml:"informers_resync_period" env:"OTEL_EBPF_KUBE_INFORMERS_RESYNC_PERIOD" validate:"gte=0"`
