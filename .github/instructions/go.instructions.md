@@ -2,11 +2,14 @@
 applyTo: "**/*.go"
 ---
 
+# Go Code Instructions
+
 When working on Go code in this repository, follow these rules strictly.
 
 Prioritize clarity, simplicity, and consistency with existing code over abstraction or cleverness.
 
 General rules:
+
 - Prefer simple, explicit logic over clever or compact code.
 - Keep functions small and focused. Split large functions when needed.
 - Prefer early returns when they improve readability and reduce indentation depth.
@@ -16,22 +19,26 @@ General rules:
 - Follow existing naming, structure, and patterns in the surrounding code.
 
 Comments:
+
 - Do not add comments that restate the code.
 - Prefer clearer code over explanatory comments.
 - Add comments only when they provide necessary context or explain non-obvious behavior.
 
 Abstractions:
+
 - Avoid unnecessary interfaces. Do not introduce interfaces unless required by an existing design boundary, multiple implementations, or tests.
 - Avoid over-abstraction. Prefer concrete types and straightforward code.
 - Do not introduce new layers, wrappers, or indirection without a clear need.
 - Do not introduce speculative abstractions.
 
 Structure:
+
 - Respect existing package boundaries and responsibilities.
 - Do not move code across packages without a clear reason.
 - Keep changes scoped to the relevant subsystem.
 
 Validation:
+
 - Ensure changes compile and pass existing tests.
 - Do not introduce changes that break linting or formatting rules.
 
