@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cilium/ebpf/btf"
 	"golang.org/x/sys/unix"
 
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
@@ -54,6 +55,11 @@ func CheckOSSupport() error {
 		return fmt.Errorf("kernel version %d.%d not supported. Minimum required version is %d.%d",
 			major, minor, maj, min)
 	}
+
+	if _, err := btf.LoadKernelSpec(); err != nil {
+		return fmt.Errorf("kernel does not support BTF (CONFIG_DEBUG_INFO_BTF): %w", err)
+	}
+
 	return nil
 }
 
