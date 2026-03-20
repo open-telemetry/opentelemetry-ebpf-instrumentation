@@ -31,7 +31,7 @@ type cacheSvcClient struct {
 	waitForSubscription    chan struct{}
 	waitForSynchronization chan struct{}
 	waitForSyncClosed      bool
-	reconnectTime          time.Duration
+	reconnectDelay         time.Duration
 }
 
 func (sc *cacheSvcClient) ID() string {
@@ -77,7 +77,7 @@ func (sc *cacheSvcClient) Start(ctx context.Context) {
 				err := sc.connect(ctx)
 				sc.log.Info("K8s cache service connection lost. Reconnecting...", "error", err)
 				// TODO: exponential backoff
-				time.Sleep(sc.reconnectTime)
+				time.Sleep(sc.reconnectDelay)
 			}
 		}
 	}()

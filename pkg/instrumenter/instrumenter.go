@@ -182,7 +182,7 @@ func BuildCommonContextInfo(
 		Enable:              config.Attributes.Kubernetes.Enable,
 		KubeConfigPath:      config.Attributes.Kubernetes.KubeconfigPath,
 		SyncTimeout:         config.Attributes.Kubernetes.InformersSyncTimeout,
-		ReconnectTimeout:    config.Attributes.Kubernetes.ReconnectTimeout,
+		ReconnectDelay:      config.Attributes.Kubernetes.ReconnectDelay,
 		ResyncPeriod:        config.Attributes.Kubernetes.InformersResyncPeriod,
 		DisabledInformers:   config.Attributes.Kubernetes.DisableInformers,
 		MetaCacheAddr:       config.Attributes.Kubernetes.MetaCacheAddress,

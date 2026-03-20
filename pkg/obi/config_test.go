@@ -250,7 +250,7 @@ discovery:
 				KubeconfigPath:        "/foo/bar",
 				Enable:                kubeflags.EnabledTrue,
 				InformersSyncTimeout:  30 * time.Second,
-				ReconnectTimeout:      5 * time.Second,
+				ReconnectDelay:        5 * time.Second,
 				InformersResyncPeriod: 30 * time.Minute,
 				ResourceLabels:        metaSources,
 			},
