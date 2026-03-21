@@ -35,6 +35,7 @@ Structure:
 
 - Respect existing package boundaries and responsibilities.
 - Do not move code across packages without a clear reason.
+- If avoiding duplication requires a small, relevant refactor to reuse an existing implementation, prefer that over adding a parallel code path.
 - Keep changes scoped to the relevant subsystem.
 
 Validation:
