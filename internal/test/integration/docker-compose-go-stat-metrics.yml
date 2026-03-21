@@ -90,7 +90,7 @@ services:
 
   # pumba is used to add a delay in the client in order to obtain a srtt different from 0
   pumba:
-    image: ghcr.io/alexei-led/pumba
+    image: ghcr.io/alexei-led/pumba@sha256:b1226a1db9a82fdb74eb39ae36ef25ac576910edb569ae94dad3b640340656e8
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
