@@ -77,7 +77,7 @@ services:
 
  # Prometheus
   prometheus:
-    image: quay.io/prometheus/prometheus:v2.55.1@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3
+    image: quay.io/prometheus/prometheus:v3.10.0@sha256:7571a304e67fbd794be02422b13627dc7de822152f74e99e2bef95d29eceecde
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config${PROM_CONFIG_SUFFIX}.yml
