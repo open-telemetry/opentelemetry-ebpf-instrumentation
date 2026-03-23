@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/cilium/ebpf"
@@ -22,9 +23,10 @@ import (
 )
 
 type StatsTCPRtt StatsTcpRttT
+type StatsTCPFailedConnection StatsTcpFailedConnectionT
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type tcp_rtt_t -target amd64,arm64 Stats ../../../../bpf/statsolly/k_tcp.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type tcp_rtt_t -type tcp_failed_connection_t -target amd64,arm64 Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
 
 type StatsFetcher struct {
 	log         *slog.Logger
@@ -59,13 +61,24 @@ func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
 		return nil, fmt.Errorf("loading stats eBPF spec: %w", err)
 	}
 
-	probes := map[string]ebpfcommon.ProbeDesc{
+	kps := map[string]ebpfcommon.ProbeDesc{
 		"tcp_close": {
 			Required: true,
 			Start:    objects.ObiKprobeTcpCloseSrtt,
 		},
 	}
-	closables, err := kprobes(tlog, probes)
+	kpClosables, err := kprobes(tlog, kps)
+	if err != nil {
+		return nil, err
+	}
+
+	tps := map[string]ebpfcommon.ProbeDesc{
+		"sock/inet_sock_set_state": { // TODO add names at the beginning of the file, like a list of consts
+			Required: true,
+			Start:    objects.ObiTracepointInetSockSetState,
+		},
+	}
+	tpClosables, err := tracepoints(tlog, tps)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +86,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
 	return &StatsFetcher{
 		log:         tlog,
 		statsEvents: objects.StatsEvents,
-		closables:   closables,
+		closables:   append(kpClosables, tpClosables...),
 	}, nil
 }
 
@@ -121,6 +134,29 @@ func kprobes(log *slog.Logger, probes map[string]ebpfcommon.ProbeDesc) ([]io.Clo
 			}
 			closables = append(closables, krp)
 		}
+	}
+	return closables, nil
+}
+
+func tracepoints(log *slog.Logger, probes map[string]ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+	var closables []io.Closer
+	for funcName, desc := range probes {
+		if desc.Start == nil {
+			continue
+		}
+		parts := strings.SplitN(funcName, "/", 2)
+		if len(parts) != 2 {
+			return closables, fmt.Errorf("invalid tracepoint %q: must be group/name", funcName)
+		}
+		tp, err := link.Tracepoint(parts[0], parts[1], desc.Start, nil)
+		if err != nil {
+			if desc.Required {
+				return closables, fmt.Errorf("tracepoint %s: %w", funcName, err)
+			}
+			log.Warn("tracepoint failed", "tracepoint", funcName, "error", err)
+			continue
+		}
+		closables = append(closables, tp)
 	}
 	return closables, nil
 }

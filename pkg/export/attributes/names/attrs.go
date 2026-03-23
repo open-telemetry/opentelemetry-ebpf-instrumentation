@@ -272,3 +272,8 @@ const (
 	GenAIRequestModel    = Name(semconv.GenAIRequestModelKey)
 	GenAIResponseModel   = Name(semconv.GenAIResponseModelKey)
 )
+
+// Stat metrics
+const (
+	TCPFailedConnectionReason = Name("reason")
+)

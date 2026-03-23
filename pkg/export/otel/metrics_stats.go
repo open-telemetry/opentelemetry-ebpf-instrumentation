@@ -72,11 +72,12 @@ func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, 
 }
 
 type statMetricsExporter struct {
-	tcpRtt         *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
-	interZoneBytes *Expirer[*ebpf.Stat, metric2.Int64Counter, float64]
-	clock          *expire.CachedClock
-	expireTTL      time.Duration
-	in             <-chan []*ebpf.Stat
+	tcpRtt               *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
+	tcpFailedConnections *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	interZoneBytes       *Expirer[*ebpf.Stat, metric2.Int64Counter, float64]
+	clock                *expire.CachedClock
+	expireTTL            time.Duration
+	in                   <-chan []*ebpf.Stat
 }
 
 func StatMetricsExporterProvider(
@@ -140,12 +141,26 @@ func newStatMetricsExporter(
 			return nil, err
 		}
 
+		tcpFailedConnections, err := ebpfEvents.Int64Counter(attributes.StatTCPFailedConnections.OTEL)
+		if err != nil {
+			log.Error("creating stats tcp failed connection counter", "error", err)
+			return nil, err
+		}
+
 		log.Debug("restricting attributes not in this list", "attributes", cfg.SelectorCfg.SelectionCfg)
+		// TODO check and add granular on metric X like in netolly
 		attrs := attributes.OpenTelemetryGetters(
 			ebpf.StatGetters,
 			attrProv.For(attributes.StatTCPRtt))
 
 		nme.tcpRtt = NewExpirer[*ebpf.Stat, metric2.Float64Histogram, float64](ctx, tcpRtt, attrs, clock.Time, cfg.Metrics.TTL)
+
+		// TODO pino check
+		attrs = attributes.OpenTelemetryGetters(
+			ebpf.StatGetters,
+			attrProv.For(attributes.StatTCPFailedConnections))
+
+		nme.tcpFailedConnections = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpFailedConnections, attrs, clock.Time, cfg.Metrics.TTL)
 	}
 
 	nme.in = input.Subscribe(msg.SubscriberName("otel.StatMetricsExporter"))
@@ -156,9 +171,13 @@ func (me *statMetricsExporter) Do(ctx context.Context) {
 	for i := range me.in {
 		me.clock.Update()
 		for _, v := range i {
-			if me.tcpRtt != nil {
+			if me.tcpRtt != nil && v.TCPRtt != nil {
 				tcpRtt, attrs := me.tcpRtt.ForRecord(v)
 				tcpRtt.Record(ctx, float64(v.TCPRtt.SrttUs)/1_000_000.0, metric2.WithAttributeSet(attrs))
+			}
+			if me.tcpFailedConnections != nil && v.TCPFailedConnection != nil {
+				tcpFailedConnections, attrs := me.tcpFailedConnections.ForRecord(v)
+				tcpFailedConnections.Add(ctx, 1, metric2.WithAttributeSet(attrs)) // TODO pino, is 1?
 			}
 		}
 	}

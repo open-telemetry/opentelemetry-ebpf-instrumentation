@@ -174,6 +174,7 @@ func (f Features) NetworkBytes() bool {
 	return f.any(FeatureNetwork)
 }
 
+// TODO add granularity on metric X
 func (f Features) StatMetrics() bool {
 	return f.any(FeatureStats)
 }
