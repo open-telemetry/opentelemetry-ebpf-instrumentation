@@ -173,6 +173,13 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		}
 	}
 
+	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.Anthropic.Enabled {
+		span, ok := ebpfhttp.OpenAISpan(&httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
 	if parseCtx != nil && parseCtx.payloadExtraction.HTTP.Enrichment.Enabled {
 		ebpfhttp.EnrichHTTPSpan(&httpSpan, req, resp, parseCtx.payloadExtraction.HTTP.Enrichment)
 	}

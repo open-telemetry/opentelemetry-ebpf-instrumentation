@@ -134,10 +134,10 @@ func TestOpenAISpan_Responses(t *testing.T) {
 	span, ok := OpenAISpan(base, req, resp)
 
 	require.True(t, ok)
-	require.NotNil(t, span.OpenAI)
+	require.NotNil(t, span.GenAI.OpenAI)
 	assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType)
 
-	ai := span.OpenAI
+	ai := span.GenAI.OpenAI
 	assert.Equal(t, "resp_09687a288637e2be006998ad7af05481a2bb0938f77da5a9db", ai.ID)
 	assert.Equal(t, "response", ai.OperationName)
 	assert.Equal(t, "gpt-5-mini-2025-08-07", ai.ResponseModel)
@@ -161,9 +161,9 @@ func TestOpenAISpan_ChatCompletions(t *testing.T) {
 	span, ok := OpenAISpan(base, req, resp)
 
 	require.True(t, ok)
-	require.NotNil(t, span.OpenAI)
+	require.NotNil(t, span.GenAI.OpenAI)
 
-	ai := span.OpenAI
+	ai := span.GenAI.OpenAI
 	assert.Equal(t, "chatcmpl-DBTg5Ms2mJhaAhZ56Wq8QSf2djw3S", ai.ID)
 	assert.Equal(t, "chat.completion", ai.OperationName)
 	assert.Equal(t, "gpt-4o-mini-2024-07-18", ai.ResponseModel)
@@ -188,9 +188,9 @@ func TestOpenAISpan_ErrorResponse(t *testing.T) {
 	span, ok := OpenAISpan(base, req, resp)
 
 	require.True(t, ok)
-	require.NotNil(t, span.OpenAI)
+	require.NotNil(t, span.GenAI.OpenAI)
 
-	ai := span.OpenAI
+	ai := span.GenAI.OpenAI
 	assert.Equal(t, "insufficient_quota", ai.Error.Type)
 	assert.NotEmpty(t, ai.Error.Message)
 }
@@ -234,9 +234,9 @@ func TestOpenAISpan_MalformedResponseBody(t *testing.T) {
 
 	// Still detected as OpenAI (headers present), span returned even if JSON is junk
 	assert.True(t, ok)
-	assert.NotNil(t, span.OpenAI)
+	assert.NotNil(t, span.GenAI.OpenAI)
 	// but no meaningful fields are populated
-	assert.Empty(t, span.OpenAI.ID)
+	assert.Empty(t, span.GenAI.OpenAI.ID)
 }
 
 func TestOpenAISpan_UsageTokenHelpers(t *testing.T) {
@@ -253,19 +253,19 @@ func TestOpenAISpan_UsageTokenHelpers(t *testing.T) {
 
 func TestOpenAISpan_GetOutput(t *testing.T) {
 	// output field populated (responses API)
-	ai := &request.OpenAI{Output: []byte(`[{"type":"message"}]`)}
+	ai := &request.VendorOpenAI{Output: []byte(`[{"type":"message"}]`)}
 	assert.JSONEq(t, `[{"type":"message"}]`, ai.GetOutput())
 
 	// items fallback
-	ai2 := &request.OpenAI{Items: []byte(`[{"item":1}]`)}
+	ai2 := &request.VendorOpenAI{Items: []byte(`[{"item":1}]`)}
 	assert.JSONEq(t, `[{"item":1}]`, ai2.GetOutput())
 
 	// data fallback
-	ai3 := &request.OpenAI{Data: []byte(`[{"id":"emb-1"}]`)}
+	ai3 := &request.VendorOpenAI{Data: []byte(`[{"id":"emb-1"}]`)}
 	assert.JSONEq(t, `[{"id":"emb-1"}]`, ai3.GetOutput())
 
 	// choices fallback (completions API)
-	ai4 := &request.OpenAI{Choices: []byte(`[{"index":0}]`)}
+	ai4 := &request.VendorOpenAI{Choices: []byte(`[{"index":0}]`)}
 	assert.JSONEq(t, `[{"index":0}]`, ai4.GetOutput())
 }
 

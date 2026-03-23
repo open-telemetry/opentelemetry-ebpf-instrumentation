@@ -443,8 +443,8 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, request.AWSSQSQueueURL(sqs.QueueURL))
 		}
 
-		if span.SubType == request.HTTPSubtypeOpenAI && span.OpenAI != nil {
-			ai := span.OpenAI
+		if span.SubType == request.HTTPSubtypeOpenAI && span.GenAI != nil && span.GenAI.OpenAI != nil {
+			ai := span.GenAI.OpenAI
 			attrs = append(attrs, semconv.GenAIProviderNameOpenAI)
 			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
 			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))

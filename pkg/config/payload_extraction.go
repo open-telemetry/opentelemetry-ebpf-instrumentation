@@ -37,6 +37,8 @@ type HTTPConfig struct {
 	SQLPP SQLPPConfig `yaml:"sqlpp"`
 	// OpenAI payload extraction
 	OpenAI OpenAIConfig `yaml:"openai"`
+	// Anthropic payload extraction
+	Anthropic AnthropicConfig `yaml:"anthropic"`
 	// Enrichment configures HTTP header and payload extraction with policy-based rules
 	Enrichment EnrichmentConfig `yaml:"enrichment"`
 }
@@ -67,6 +69,11 @@ type SQLPPConfig struct {
 type OpenAIConfig struct {
 	// Enable OpenAI payload extraction and parsing
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_OPENAI_ENABLED" validate:"boolean"`
+}
+
+type AnthropicConfig struct {
+	// Enable Anthropic payload extraction and parsing
+	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_ANTHROPIC_ENABLED" validate:"boolean"`
 }
 
 // EnrichmentConfig configures HTTP header and payload extraction with policy-based rules.

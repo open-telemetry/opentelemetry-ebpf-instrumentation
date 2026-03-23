@@ -705,19 +705,19 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, "otel.scope.name", "my-reporter")
 	})
 
-	makeOpenAISpan := func(ai *request.OpenAI) request.Span {
+	makeOpenAISpan := func(ai *request.VendorOpenAI) request.Span {
 		return request.Span{
 			Type:    request.EventTypeHTTPClient,
 			SubType: request.HTTPSubtypeOpenAI,
 			Method:  "POST",
 			Path:    "https://api.openai.com/v1/responses",
 			Status:  200,
-			OpenAI:  ai,
+			GenAI:   &request.GenAI{OpenAI: ai},
 		}
 	}
 
 	t.Run("OpenAI span - core attributes, no optional", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "resp_abc123",
 			OperationName: "response",
 			ResponseModel: "gpt-5-mini-2025-08-07",
@@ -748,7 +748,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI span - optional GenAIInput enabled", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "resp_abc123",
 			OperationName: "response",
 			ResponseModel: "gpt-5-mini-2025-08-07",
@@ -770,7 +770,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI span - optional GenAIOutput enabled", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "resp_abc123",
 			OperationName: "response",
 			ResponseModel: "gpt-5-mini-2025-08-07",
@@ -788,7 +788,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI span - optional GenAIInstructions enabled", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "resp_abc123",
 			OperationName: "response",
 			ResponseModel: "gpt-5-mini-2025-08-07",
@@ -808,7 +808,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI span - instructions not emitted when empty even if attr enabled", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "resp_abc123",
 			OperationName: "response",
 			ResponseModel: "gpt-5-mini-2025-08-07",
@@ -823,7 +823,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI span - all optional attributes enabled", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "resp_abc123",
 			OperationName: "response",
 			ResponseModel: "gpt-5-mini-2025-08-07",
@@ -852,7 +852,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI span - optional GenAIMetadata enabled", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "resp_abc123",
 			OperationName: "response",
 			ResponseModel: "gpt-5-mini-2025-08-07",
@@ -868,7 +868,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI span - GenAIMetadata not emitted when metadata is empty", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "resp_abc123",
 			OperationName: "response",
 			ResponseModel: "gpt-5-mini-2025-08-07",
@@ -884,7 +884,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI span - GenAIMetadata not emitted without attr selector", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "resp_abc123",
 			OperationName: "response",
 			ResponseModel: "gpt-5-mini-2025-08-07",
@@ -900,7 +900,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI span - error response", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			OperationName: "response",
 			Request:       request.OpenAIInput{Model: "gpt-5-mini"},
 			Error: request.OpenAIError{
@@ -918,7 +918,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI span - chat completions (prompt/completion token fields)", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "chatcmpl-DBTg5Ms2mJhaAhZ56Wq8QSf2djw3S",
 			OperationName: "chat.completion",
 			ResponseModel: "gpt-4o-mini-2024-07-18",
@@ -949,7 +949,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI span - temperature from request when response temperature is zero", func(t *testing.T) {
-		span := makeOpenAISpan(&request.OpenAI{
+		span := makeOpenAISpan(&request.VendorOpenAI{
 			OperationName: "response",
 			ResponseModel: "gpt-5-mini-2025-08-07",
 			Temperature:   0, // not set in response
@@ -974,7 +974,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			SubType: request.HTTPSubtypeOpenAI,
 			Method:  "POST",
 			Status:  200,
-			OpenAI:  nil, // explicitly nil
+			GenAI:   &request.GenAI{OpenAI: nil}, // explicitly nil
 		}
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
