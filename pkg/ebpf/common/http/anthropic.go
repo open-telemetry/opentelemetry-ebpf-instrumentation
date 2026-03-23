@@ -18,30 +18,30 @@ import (
 
 func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 
-	fmt.Printf("==== REQUEST ====\n")
-	for k, v := range req.Header {
-		fmt.Printf("%s: %s\n", k, v)
-	}
+	// fmt.Printf("==== REQUEST ====\n")
+	// for k, v := range req.Header {
+	// 	fmt.Printf("%s: %s\n", k, v)
+	// }
 
-	reqB1, err := io.ReadAll(req.Body)
-	if err != nil {
-		return *baseSpan, false
-	}
-	a := io.NopCloser(bytes.NewBuffer(reqB1))
+	// reqB1, err := io.ReadAll(req.Body)
+	// if err != nil {
+	// 	return *baseSpan, false
+	// }
+	// a := io.NopCloser(bytes.NewBuffer(reqB1))
 
-	fmt.Printf("%v\n", a)
+	// fmt.Printf("%v\n", a)
 
-	fmt.Printf("==== RESPONSE ====\n")
-	for k, v := range resp.Header {
-		fmt.Printf("%s: %s\n", k, v)
-	}
+	// fmt.Printf("==== RESPONSE ====\n")
+	// for k, v := range resp.Header {
+	// 	fmt.Printf("%s: %s\n", k, v)
+	// }
 
-	respB1, err := getResponseBody(resp)
-	if err != nil && len(respB1) == 0 {
-		return *baseSpan, false
-	}
+	// respB1, err := getResponseBody(resp)
+	// if err != nil && len(respB1) == 0 {
+	// 	return *baseSpan, false
+	// }
 
-	fmt.Printf("%s\n", string(respB1))
+	// fmt.Printf("%s\n", string(respB1))
 
 	// Check any of the well known response headers that Anthropic would use
 	isAnthropic := false
@@ -55,6 +55,19 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		if val := resp.Header.Get(header); val != "" {
 			isAnthropic = true
 			break
+		}
+	}
+
+	// we do this extra check because for errors they don't
+	// send the usual Anthropic headers
+	if !isAnthropic {
+		for _, v := range resp.Header {
+			for _, hv := range v {
+				if strings.Contains(hv, "api.anthropic.com") {
+					isAnthropic = true
+					break
+				}
+			}
 		}
 	}
 
@@ -93,9 +106,11 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 	}
 
 	baseSpan.SubType = request.HTTPSubtypeAnthropic
-	baseSpan.GenAI.Anthropic = &request.VendorAnthropic{
-		Input:  parsedRequest,
-		Output: parsedResponse,
+	baseSpan.GenAI = &request.GenAI{
+		Anthropic: &request.VendorAnthropic{
+			Input:  parsedRequest,
+			Output: parsedResponse,
+		},
 	}
 
 	return *baseSpan, true
@@ -192,6 +207,7 @@ func processEvent(eventType, data string, response *request.AnthropicResponse, c
 		response.Model = event.Message.Model
 		response.ID = event.Message.ID
 		response.Role = event.Message.Role
+		response.Type = event.Message.Type
 
 	case "content_block_delta":
 		var event ContentBlockDelta

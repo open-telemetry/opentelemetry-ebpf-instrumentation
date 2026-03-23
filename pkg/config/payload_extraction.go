@@ -23,6 +23,7 @@ func (p PayloadExtraction) Enabled() bool {
 		p.HTTP.AWS.Enabled ||
 		p.HTTP.SQLPP.Enabled ||
 		p.HTTP.OpenAI.Enabled ||
+		p.HTTP.Anthropic.Enabled ||
 		p.HTTP.Enrichment.Enabled
 }
 

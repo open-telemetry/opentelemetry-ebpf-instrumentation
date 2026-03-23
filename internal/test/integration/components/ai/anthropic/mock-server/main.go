@@ -45,7 +45,7 @@ data: {"type":"message_stop"}
 
 `
 
-const errorBody = `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`
+const errorBody = `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_011CZLkWqu2dABS8vFB9G6Lz"}`
 
 type messagesRequest struct {
 	Messages  json.RawMessage `json:"messages"`
@@ -77,6 +77,25 @@ func setResponseHeaders(h http.Header) {
 	h.Set("Server", "cloudflare")
 	h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 	h.Set("Connection", "keep-alive")
+}
+
+func setErrorResponseHeaders(h http.Header) {
+	h.Set("X-Should-Retry", "false")
+	h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+	h.Set("X-Envoy-Upstream-Service-Time", "7")
+	h.Set("Request-Id", "req_011CZLkWqu2dABS8vFB9G6Lz")
+	h.Set("Vary", "Accept-Encoding")
+	h.Set("Server-Timing", "x-originResponse;dur=9")
+	h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+	h.Set("Date", "Mon, 23 Mar 2026 21:50:35 GMT")
+	h.Set("Cf-Cache-Status", "DYNAMIC")
+	h.Set("Content-Type", "application/json")
+	h.Set("Connection", "keep-alive")
+	h.Set("Server", "cloudflare")
+	h.Set("Content-Encoding", "gzip")
+	h.Set("Set-Cookie", "_cfuvid=nTnkXk.dcxJEj9RUcl8JcGFxmia957_qPZLrtvXk2Qc-1774302634.9994936-1.0.1.1-o0yyvBwW9qJYIwiT9_GiweQSzlgE_LdIL4WYG4enwZQ; HttpOnly; SameSite=None; Secure; Path=/; Domain=api.anthropic.com")
+	h.Set("X-Robots-Tag", "none")
+	h.Set("Cf-Ray", "9e10a70cbee0b8d2-AMS")
 }
 
 func handleMessages(w http.ResponseWriter, r *http.Request) {
@@ -114,9 +133,17 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	if r.URL.Query().Has("error") {
 		h := w.Header()
-		h.Set("Content-Type", "application/json")
+		setErrorResponseHeaders(h)
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(errorBody))
+
+		gz := gzip.NewWriter(w)
+		if _, err := gz.Write([]byte(errorBody)); err != nil {
+			log.Printf("error writing gzip error body: %v", err)
+			return
+		}
+		if err := gz.Close(); err != nil {
+			log.Printf("error closing gzip writer for error: %v", err)
+		}
 		return
 	}
 
