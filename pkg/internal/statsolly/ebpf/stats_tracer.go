@@ -17,6 +17,7 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 
 	"go.opentelemetry.io/obi/pkg/config"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 )
 
@@ -58,17 +59,21 @@ func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
 		return nil, fmt.Errorf("loading stats eBPF spec: %w", err)
 	}
 
-	ktc, err := link.Kprobe("tcp_close", objects.ObiKprobeTcpCloseSrtt, nil)
+	probes := map[string]ebpfcommon.ProbeDesc{
+		"tcp_close": {
+			Required: true,
+			Start:    objects.ObiKprobeTcpCloseSrtt,
+		},
+	}
+	closables, err := kprobes(tlog, probes)
 	if err != nil {
-		tlog.Error("opening %s: %s", "tcp_close", err)
-		return nil, fmt.Errorf("opening kprobe: %w", err)
+		return nil, err
 	}
 
-	var closables []io.Closer
 	return &StatsFetcher{
 		log:         tlog,
 		statsEvents: objects.StatsEvents,
-		closables:   append(closables, ktc),
+		closables:   closables,
 	}, nil
 }
 
@@ -89,4 +94,33 @@ func (m *StatsFetcher) Close() error {
 // The caller (ForwardRingbuf) is responsible for creating and closing the reader.
 func (m *StatsFetcher) StatsEventsMap() *ebpf.Map {
 	return m.statsEvents
+}
+
+func kprobes(log *slog.Logger, probes map[string]ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+	var closables []io.Closer
+	for funcName, desc := range probes {
+		if desc.Start != nil {
+			kp, err := link.Kprobe(funcName, desc.Start, nil)
+			if err != nil {
+				if desc.Required {
+					return closables, fmt.Errorf("kprobe %s: %w", funcName, err)
+				}
+				log.Warn("kprobe failed", "function", funcName, "error", err)
+				continue
+			}
+			closables = append(closables, kp)
+		}
+		if desc.End != nil {
+			krp, err := link.Kretprobe(funcName, desc.End, nil)
+			if err != nil {
+				if desc.Required {
+					return closables, fmt.Errorf("kretprobe %s: %w", funcName, err)
+				}
+				log.Warn("kretprobe failed", "function", funcName, "error", err)
+				continue
+			}
+			closables = append(closables, krp)
+		}
+	}
+	return closables, nil
 }
