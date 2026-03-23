@@ -945,6 +945,20 @@ func (s *Span) TraceName() string {
 			}
 		}
 
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAnthropic && s.GenAI != nil && s.GenAI.Anthropic != nil {
+			name := s.GenAI.Anthropic.Output.Type
+			if name != "" {
+				switch {
+				case s.GenAI.Anthropic.Input.Model != "":
+					return name + " " + s.GenAI.Anthropic.Input.Model
+				case s.GenAI.Anthropic.Output.Model != "":
+					return name + " " + s.GenAI.Anthropic.Output.Model
+				default:
+					return name
+				}
+			}
+		}
+
 		name := s.Method
 		if s.Route != "" {
 			name += " " + s.Route
