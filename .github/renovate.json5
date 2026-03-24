@@ -73,6 +73,12 @@
       "schedule": ["before 6am on Thursday"]
     },
     {
+      "description": "Disable patch updates for test dependencies (only bump major/minor)",
+      "matchFileNames": ["internal/test/**"],
+      "matchUpdateTypes": ["patch", "digest"],
+      "enabled": false
+    },
+    {
       "description": "Disable Go 1.17 testserver updates",
       "matchFileNames": ["internal/test/integration/components/testserver_1.17"],
       "matchDatasources": ["docker"],
