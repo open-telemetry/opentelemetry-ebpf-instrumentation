@@ -42,7 +42,7 @@ func init() {
 	// oneIf1 and oneIf2 represent the same flow from 2 different interfaces
 	oneIf1 = &ebpf.Record{
 		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{
-			EthProtocol: 1, IfIndex: 1,
+			EthProtocol: 1, SrcPort: 123, DstPort: 456, IfIndex: 1,
 		}, Metrics: ebpf.NetFlowMetrics{
 			Packets: 2, Bytes: 456, Flags: 1, IfaceDirection: 1,
 		}},
@@ -52,7 +52,7 @@ func init() {
 
 	oneIf2 = &ebpf.Record{
 		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{
-			EthProtocol: 1, IfIndex: 2,
+			EthProtocol: 1, SrcPort: 123, DstPort: 456, IfIndex: 2,
 		}, Metrics: ebpf.NetFlowMetrics{
 			Packets: 2, Bytes: 456, Flags: 1, IfaceDirection: 1,
 		}},
@@ -63,7 +63,7 @@ func init() {
 	// twoIf1 and twoIf2 are another flow from 2 different interfaces
 	twoIf1 = &ebpf.Record{
 		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{
-			EthProtocol: 1, IfIndex: 1,
+			EthProtocol: 1, SrcPort: 333, DstPort: 456, IfIndex: 1,
 		}, Metrics: ebpf.NetFlowMetrics{
 			Packets: 2, Bytes: 456, Flags: 1, IfaceDirection: 0,
 		}},
@@ -73,7 +73,7 @@ func init() {
 
 	twoIf2 = &ebpf.Record{
 		NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{
-			EthProtocol: 1, IfIndex: 2,
+			EthProtocol: 1, SrcPort: 333, DstPort: 456, IfIndex: 2,
 		}, Metrics: ebpf.NetFlowMetrics{
 			Packets: 2, Bytes: 456, Flags: 1, IfaceDirection: 0,
 		}},
