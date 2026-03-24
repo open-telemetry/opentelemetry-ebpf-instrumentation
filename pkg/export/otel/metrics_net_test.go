@@ -27,13 +27,9 @@ import (
 func TestMetricAttributes(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 	in := &ebpf.Record{
-		NetFlowRecordT: ebpf.NetFlowRecordT{
-			Id: ebpf.NetFlowId{
-				DstPort: 3210,
-				SrcPort: 12345,
-			},
-		},
 		CommonAttrs: pipe.CommonAttrs{
+			DstPort: 3210,
+			SrcPort: 12345,
 			SrcName: "srcname",
 			DstName: "dstname",
 			Metadata: map[attr.Name]string{
@@ -90,13 +86,9 @@ func TestMetricAttributes(t *testing.T) {
 func TestMetricAttributes_Filter(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 	in := &ebpf.Record{
-		NetFlowRecordT: ebpf.NetFlowRecordT{
-			Id: ebpf.NetFlowId{
-				DstPort: 3210,
-				SrcPort: 12345,
-			},
-		},
 		CommonAttrs: pipe.CommonAttrs{
+			DstPort: 3210,
+			SrcPort: 12345,
 			SrcName: "srcname",
 			DstName: "dstname",
 			Metadata: map[attr.Name]string{

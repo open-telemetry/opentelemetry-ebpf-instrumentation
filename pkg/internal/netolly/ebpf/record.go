@@ -56,6 +56,8 @@ func NewRecord(
 			Metrics: metrics,
 		},
 		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: key.SrcPort,
+			DstPort: key.DstPort,
 			SrcAddr: pipe.IPAddr(key.SrcIp.In6U.U6Addr8),
 			DstAddr: pipe.IPAddr(key.DstIp.In6U.U6Addr8),
 		},

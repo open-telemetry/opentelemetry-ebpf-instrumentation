@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/flow/transport"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -109,9 +110,15 @@ func TestFilter(t *testing.T) {
 }
 
 func fakeRecord(protocol transport.Protocol, srcPort, dstPort uint16) *ebpf.Record {
-	return &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
-		Id: ebpf.NetFlowId{
-			SrcPort: srcPort, DstPort: dstPort, TransportProtocol: uint8(protocol),
+	return &ebpf.Record{
+		NetFlowRecordT: ebpf.NetFlowRecordT{
+			Id: ebpf.NetFlowId{
+				TransportProtocol: uint8(protocol),
+			},
 		},
-	}}
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: srcPort,
+			DstPort: dstPort,
+		},
+	}
 }

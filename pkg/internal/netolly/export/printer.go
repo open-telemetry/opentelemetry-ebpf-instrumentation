@@ -52,9 +52,9 @@ func printFlow(f *ebpf.Record) {
 	sb.WriteString(" dst.name=")
 	sb.WriteString(f.CommonAttrs.DstName)
 	sb.WriteString(" src.port=")
-	sb.WriteString(strconv.FormatUint(uint64(f.Id.SrcPort), 10))
+	sb.WriteString(strconv.FormatUint(uint64(f.CommonAttrs.SrcPort), 10))
 	sb.WriteString(" dst.port=")
-	sb.WriteString(strconv.FormatUint(uint64(f.Id.DstPort), 10))
+	sb.WriteString(strconv.FormatUint(uint64(f.CommonAttrs.DstPort), 10))
 
 	for k, v := range f.CommonAttrs.Metadata {
 		sb.WriteString(" ")
