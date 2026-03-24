@@ -37,11 +37,11 @@ type StatMetricsConfig struct {
 
 func (mc *StatMetricsConfig) Enabled() bool {
 	return mc.Metrics != nil && mc.Metrics.EndpointEnabled() &&
-		mc.CommonCfg.Features.StatMetrics()
+		(mc.CommonCfg.Features.StatMetrics())
 }
 
 func smlog() *slog.Logger {
-	return slog.With("component", "otel.StatsworkMetricsExporter")
+	return slog.With("component", "otel.StatMetricsExporter")
 }
 
 // getFilteredStatsResourceAttrs returns resource attributes that can be filtered based on the attribute selector
@@ -132,7 +132,8 @@ func newStatMetricsExporter(
 		clock:     clock,
 		expireTTL: cfg.Metrics.TTL,
 	}
-	if cfg.CommonCfg.Features.StatMetrics() {
+
+	if cfg.CommonCfg.Features.StatsTCPRtt() {
 		log := log.With("metricFamily", "StatsTCPRtt")
 
 		tcpRtt, err := ebpfEvents.Float64Histogram(attributes.StatTCPRtt.OTEL, metric2.WithUnit("s"))
@@ -141,22 +142,24 @@ func newStatMetricsExporter(
 			return nil, err
 		}
 
+		log.Debug("restricting attributes not in this list", "attributes", cfg.SelectorCfg.SelectionCfg)
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.StatGetters,
+			attrProv.For(attributes.StatTCPRtt))
+
+		nme.tcpRtt = NewExpirer[*ebpf.Stat, metric2.Float64Histogram, float64](ctx, tcpRtt, attrs, clock.Time, cfg.Metrics.TTL)
+	}
+
+	if cfg.CommonCfg.Features.StatsTCPFailedConnections() {
+		log := log.With("metricFamily", "StatsTCPFailedConnections")
+
 		tcpFailedConnections, err := ebpfEvents.Int64Counter(attributes.StatTCPFailedConnections.OTEL)
 		if err != nil {
 			log.Error("creating stats tcp failed connection counter", "error", err)
 			return nil, err
 		}
 
-		log.Debug("restricting attributes not in this list", "attributes", cfg.SelectorCfg.SelectionCfg)
-		// TODO check and add granular on metric X like in netolly
 		attrs := attributes.OpenTelemetryGetters(
-			ebpf.StatGetters,
-			attrProv.For(attributes.StatTCPRtt))
-
-		nme.tcpRtt = NewExpirer[*ebpf.Stat, metric2.Float64Histogram, float64](ctx, tcpRtt, attrs, clock.Time, cfg.Metrics.TTL)
-
-		// TODO pino check
-		attrs = attributes.OpenTelemetryGetters(
 			ebpf.StatGetters,
 			attrProv.For(attributes.StatTCPFailedConnections))
 
@@ -177,7 +180,7 @@ func (me *statMetricsExporter) Do(ctx context.Context) {
 			}
 			if me.tcpFailedConnections != nil && v.TCPFailedConnection != nil {
 				tcpFailedConnections, attrs := me.tcpFailedConnections.ForRecord(v)
-				tcpFailedConnections.Add(ctx, 1, metric2.WithAttributeSet(attrs)) // TODO pino, is 1?
+				tcpFailedConnections.Add(ctx, 1, metric2.WithAttributeSet(attrs))
 			}
 		}
 	}

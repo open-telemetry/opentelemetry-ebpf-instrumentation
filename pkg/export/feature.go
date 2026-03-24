@@ -23,7 +23,8 @@ const (
 	// zero value.
 	FeatureEmpty Features = 1 << iota
 	FeatureNetwork
-	FeatureStats
+	FeatureStatsTcpRtt
+	FeatureStatsTcpFailedConnections
 	FeatureNetworkInterZone
 	FeatureApplicationRED
 	FeatureSpanLegacy
@@ -38,18 +39,19 @@ const (
 // FeatureMapper stays public so any extension package can add and remove feature
 // definitions before loading them.
 var FeatureMapper = map[string]Features{
-	"stats":                     FeatureStats,
-	"network":                   FeatureNetwork,
-	"network_inter_zone":        FeatureNetworkInterZone,
-	"application":               FeatureApplicationRED,
-	"application_span":          FeatureSpanLegacy,
-	"application_span_otel":     FeatureSpanOTel,
-	"application_span_sizes":    FeatureSpanSizes,
-	"application_service_graph": FeatureGraph,
-	"application_host":          FeatureApplicationHost,
-	"ebpf":                      FeatureEBPF,
-	"all":                       FeatureAll,
-	"*":                         FeatureAll,
+	"stats_tcp_rtt":                FeatureStatsTcpRtt,
+	"stats_tcp_failed_connections": FeatureStatsTcpFailedConnections,
+	"network":                      FeatureNetwork,
+	"network_inter_zone":           FeatureNetworkInterZone,
+	"application":                  FeatureApplicationRED,
+	"application_span":             FeatureSpanLegacy,
+	"application_span_otel":        FeatureSpanOTel,
+	"application_span_sizes":       FeatureSpanSizes,
+	"application_service_graph":    FeatureGraph,
+	"application_host":             FeatureApplicationHost,
+	"ebpf":                         FeatureEBPF,
+	"all":                          FeatureAll,
+	"*":                            FeatureAll,
 }
 
 func (Features) JSONSchema() *jsonschema.Schema {
@@ -174,9 +176,16 @@ func (f Features) NetworkBytes() bool {
 	return f.any(FeatureNetwork)
 }
 
-// TODO add granularity on metric X
 func (f Features) StatMetrics() bool {
-	return f.any(FeatureStats)
+	return f.any(FeatureStatsTcpRtt | FeatureStatsTcpFailedConnections)
+}
+
+func (f Features) StatsTCPRtt() bool {
+	return f.any(FeatureStatsTcpRtt)
+}
+
+func (f Features) StatsTCPFailedConnections() bool {
+	return f.any(FeatureStatsTcpFailedConnections)
 }
 
 func (f Features) NetworkInterZone() bool {
