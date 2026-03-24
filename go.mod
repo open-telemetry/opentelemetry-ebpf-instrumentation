@@ -26,6 +26,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/invopop/jsonschema v0.13.0
 	github.com/klauspost/compress v1.18.4
+	github.com/lib/pq v1.10.9
 	github.com/ory/dockertest/v3 v3.12.0
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/prometheus/client_golang v1.23.2
