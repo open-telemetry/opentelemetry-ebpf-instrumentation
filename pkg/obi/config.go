@@ -631,10 +631,10 @@ func (c *Config) Validate() error {
 	}
 
 	if !c.Enabled(FeatureNetO11y) && !c.Enabled(FeatureAppO11y) && !c.Enabled(FeatureStatsO11y) {
-		return ConfigError("at least one of 'network', 'application' or 'stats' features must be enabled. " +
-			"Enable an OpenTelemetry or Prometheus metrics export, then enable any of the network*, application* or stats*" +
-			"features using the 'OTEL_EBPF_METRICS_FEATURES=network,application,stats' environment variable " +
-			"or 'meter_provider: { features: [network,application,stats] }' in the YAML configuration file. ")
+		return ConfigError("at least one feature must be enabled (network*, application* or stats* prefixed). " +
+			"Enable an OpenTelemetry or Prometheus metrics export and select features " +
+			"using the 'OTEL_EBPF_METRICS_FEATURES' environment variable (e.g. 'all' to enable everything) " +
+			"or 'meter_provider: { features: [...] }' in the YAML configuration file.")
 	}
 
 	if c.willUseTC() {

@@ -22,8 +22,19 @@ import (
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 )
 
-type StatsTCPRtt StatsTcpRttT
-type StatsTCPFailedConnection StatsTcpFailedConnectionT
+type (
+	StatsTCPRtt              StatsTcpRttT
+	StatsTCPFailedConnection StatsTcpFailedConnectionT
+)
+
+// Hook point names, grouped by attach type.
+const (
+	// Kprobes: kernel function names.
+	KprobeTCPClose = "tcp_close"
+
+	// Tracepoints: group/name.
+	TracepointInetSockSetState = "sock/inet_sock_set_state"
+)
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type tcp_rtt_t -type tcp_failed_connection_t -target amd64,arm64 Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
@@ -62,7 +73,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
 	}
 
 	kps := map[string]ebpfcommon.ProbeDesc{
-		"tcp_close": {
+		KprobeTCPClose: {
 			Required: true,
 			Start:    objects.ObiKprobeTcpCloseSrtt,
 		},
@@ -73,7 +84,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
 	}
 
 	tps := map[string]ebpfcommon.ProbeDesc{
-		"sock/inet_sock_set_state": { // TODO add names at the beginning of the file, like a list of consts
+		TracepointInetSockSetState: {
 			Required: true,
 			Start:    objects.ObiTracepointInetSockSetState,
 		},

@@ -74,7 +74,6 @@ func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, 
 type statMetricsExporter struct {
 	tcpRtt               *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
 	tcpFailedConnections *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
-	interZoneBytes       *Expirer[*ebpf.Stat, metric2.Int64Counter, float64]
 	clock                *expire.CachedClock
 	expireTTL            time.Duration
 	in                   <-chan []*ebpf.Stat
