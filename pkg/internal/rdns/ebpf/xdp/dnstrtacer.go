@@ -58,7 +58,7 @@ func newTracer() (*tracer, error) {
 	if err := convenience.LoadSpec(spec, &objects, map[string]any{
 		"g_bpf_debug": true,
 	}, sharedMaps, &mu, ""); err != nil {
-		return nil, fmt.Errorf("loading and assigning BPF objects: %w", err)
+		return nil, err
 	}
 
 	tracer := tracer{bpfObjects: &objects}

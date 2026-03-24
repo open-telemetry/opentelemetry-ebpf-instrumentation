@@ -50,7 +50,7 @@ func NewStatsFetcher() (*StatsFetcher, error) {
 	sharedMaps := map[string]*ebpf.Map{}
 	var mu sync.Mutex
 	if err := ebpfconvenience.LoadSpec(spec, &objects, nil, sharedMaps, &mu, ""); err != nil {
-		return nil, fmt.Errorf("loading and assigning BPF objects: %w", err)
+		return nil, fmt.Errorf("loading stats eBPF spec: %w", err)
 	}
 
 	ktc, err := link.Kprobe("tcp_close", objects.ObiKprobeTcpCloseSrtt, nil)

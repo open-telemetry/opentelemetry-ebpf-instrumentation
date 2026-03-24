@@ -115,7 +115,7 @@ func NewFlowFetcher(
 		constPortGuessing:  portGuessing,
 		"g_bpf_debug":      true,
 	}, sharedMaps, &mu, ""); err != nil {
-		return nil, fmt.Errorf("loading and assigning BPF objects: %w", err)
+		return nil, fmt.Errorf("loading netolly eBPF spec: %w", err)
 	}
 
 	// read events from igress+egress ringbuffer

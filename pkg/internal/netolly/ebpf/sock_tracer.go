@@ -97,7 +97,7 @@ func NewSockFlowFetcher(
 		"g_bpf_debug":      true,
 	}, sharedMaps, &mu, ""); err != nil {
 		printVerifierErrorInfo(err)
-		return nil, fmt.Errorf("loading and assigning BPF objects: %w", err)
+		return nil, err
 	}
 
 	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, int(htons(unix.ETH_P_ALL)))
