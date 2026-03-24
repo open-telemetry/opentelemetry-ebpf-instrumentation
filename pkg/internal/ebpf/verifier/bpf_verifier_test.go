@@ -137,7 +137,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// netolly
 	netollyOpts := []constOption{
 		{"g_bpf_debug", []any{true, false}},
-		{"sampling", []any{uint32(0), uint32(1), uint32(100)}},
+		{"sampling", []any{uint32(0), uint32(1), uint32(1000)}},
 		{"trace_messages", []any{uint8(0), uint8(1)}},
 		{"port_guessing", []any{uint8(0), uint8(1)}},
 	}
@@ -199,4 +199,13 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	forEachCombination(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
 	})
+
+	// TODO add statsolly after
+	// 1. change Stats to Bpf
+	// 2. add g_bpf_debug
+	// done in one PR with failed tcp connection
+	// statsolly
+	// forEachCombination(t, "statsolly/Stats", rdnsxdpbpf.LoadStats, []constOption{
+	// 	{"g_bpf_debug", []any{true, false}},
+	// })
 }
