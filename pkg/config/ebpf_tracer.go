@@ -158,7 +158,7 @@ func (e *EBPFTracer) CudaInstrumentationEnabled() bool {
 type EBPFBufferSizes struct {
 	HTTP     uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP" validate:"lte=65536"`
 	MySQL    uint32 `yaml:"mysql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL" validate:"lte=8192"`
-	MSSQL    uint32 `yaml:"mssql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL" validate:"lte=8192"`
+	MSSQL    uint32 `yaml:"mssql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL" validate:"lte=16384"`
 	Kafka    uint32 `yaml:"kafka" env:"OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA" validate:"lte=8192"`
 	Postgres uint32 `yaml:"postgres" env:"OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES" validate:"lte=8192"`
 }

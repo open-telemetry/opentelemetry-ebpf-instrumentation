@@ -5,6 +5,7 @@ package sqlprune // import "go.opentelemetry.io/obi/pkg/internal/sqlprune"
 
 import (
 	"encoding/binary"
+	"strconv"
 	"unicode/utf16"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -25,12 +26,12 @@ func parseMSSQLCommandID(buf []uint8) uint8 {
 
 func mssqlCommandIDToString(commandID uint8) string {
 	switch commandID {
-	case 1:
-		return "SQL Batch"
-	case 3:
+	case 0x01:
+		return "SQL_BATCH"
+	case 0x03:
 		return "RPC"
-	case 4:
-		return "Response"
+	case 0x04:
+		return "RESPONSE"
 	default:
 		return ""
 	}
@@ -73,6 +74,7 @@ func parseMSSQLError(buf []uint8) *request.SQLError {
 		if offset+1 > len(buf) {
 			return nil
 		}
+		state := buf[offset]
 		offset++
 
 		// Class (1 byte)
@@ -100,7 +102,8 @@ func parseMSSQLError(buf []uint8) *request.SQLError {
 		message := string(utf16.Decode(u16s))
 
 		sqlErr := &request.SQLError{
-			Message: message,
+			Message:  message,
+			SQLState: strconv.Itoa(int(state)),
 		}
 		// MSSQL error numbers are 4 bytes; only assign Code when it fits in 16 bits
 		if code <= 0xFFFF {

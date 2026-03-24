@@ -149,12 +149,15 @@ func handleMSSQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 	reqRaw := requestBuffer.UnsafeView()
 	respRaw := responseBuffer.UnsafeView()
 
-	pktType := reqRaw[0]
+	sqlCommand := sqlprune.SQLParseCommandID(request.DBMSSQL, reqRaw)
+	sqlError := sqlprune.SQLParseError(request.DBMSSQL, respRaw)
+	slog.Info("MSSQL request: " + string(reqRaw))
+	slog.Info("MSSQL response: " + string(respRaw))
 
-	switch pktType {
-	case kMSSQLBatch:
+	switch sqlCommand {
+	case "SQL_BATCH":
 		op, table, stmt = mssqlPreparedStatements(requestBuffer)
-	case kMSSQLRPC:
+	case "RPC":
 		procID, r, err := parseMSSQLRPC(requestBuffer)
 		if err == nil {
 			payload := r.Bytes()
@@ -193,9 +196,6 @@ func handleMSSQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 		slog.Debug("MSSQL operation and/or table are invalid", "stmt", stmt)
 		return span, errFallback
 	}
-
-	sqlCommand := sqlprune.SQLParseCommandID(request.DBMSSQL, reqRaw)
-	sqlError := sqlprune.SQLParseError(request.DBMSSQL, respRaw)
 
 	return TCPToSQLToSpan(event, op, table, stmt, request.DBMSSQL, sqlCommand, sqlError), nil
 }
@@ -307,12 +307,13 @@ func parseHandleFromPrepareResponse(b *largebuf.LargeBuffer) uint32 {
 		_ = r.Skip(metadataLen)
 		typ, _ := r.ReadU8()
 
-		if typ == 0x26 { // TI_INT4
+		switch typ {
+		case 0x26: // TI_INT4
 			if r.Remaining() >= 4 {
 				val, _ := r.ReadU32LE()
 				return val
 			}
-		} else if typ == 0x38 { // TI_INTN
+		case 0x38: // TI_INTN
 			length, _ := r.ReadU8()
 			if length == 4 && r.Remaining() >= 4 {
 				val, _ := r.ReadU32LE()

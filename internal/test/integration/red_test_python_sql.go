@@ -117,8 +117,8 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 		},
 		"microsoft.sql_server": {
 			"db.response.status_code": "208",
-			"error.type":              "16",
-			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=208 sql_state=16 message=Invalid object name 'obi.nonexisting'.",
+			"error.type":              "1",
+			"otel.status_description": "SQL Server errored for command 'COM_SQL_BATCH': error_code=208 sql_state=1 message=Invalid object name 'obi.nonexisting'.",
 		},
 	}
 

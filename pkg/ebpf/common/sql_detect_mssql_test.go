@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
@@ -167,7 +168,7 @@ func TestParseMSSQLRPC(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			procID, _, err := parseMSSQLRPC(largebuf.NewLargeBufferFrom(tt.buf))
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tt.wantProcID, procID)
 		})
 	}
