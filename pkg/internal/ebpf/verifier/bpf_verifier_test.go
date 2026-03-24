@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -94,12 +95,13 @@ func forEachCombination(t *testing.T, prefix string, loadFn func() (*ebpf.Collec
 	indices := make([]int, len(opts))
 	for {
 		consts := make(map[string]any, len(opts))
-		nameParts := prefix
+		var nameParts strings.Builder
+		nameParts.WriteString(prefix)
 		for i, opt := range opts {
 			consts[opt.name] = opt.values[indices[i]]
-			nameParts += fmt.Sprintf("/%s=%v", opt.name, opt.values[indices[i]])
+			fmt.Fprintf(&nameParts, "/%s=%v", opt.name, opt.values[indices[i]])
 		}
-		loadAndVerify(t, nameParts, loadFn, consts)
+		loadAndVerify(t, nameParts.String(), loadFn, consts)
 
 		// next combination
 		carry := true
