@@ -13,6 +13,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 
+	"go.opentelemetry.io/obi/pkg/config"
 	convenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
@@ -46,7 +47,7 @@ func (t *tracer) Close() error {
 // newTracer creates and initializes a new DNS response tracer.
 // It loads the BPF program, attaches it to network interfaces, and sets up the ring buffer.
 // Returns an error if any step fails.
-func newTracer() (*tracer, error) {
+func newTracer(ebpfCfg *config.EBPFTracer) (*tracer, error) {
 	objects := BpfObjects{}
 	spec, err := LoadBpf()
 	if err != nil {
@@ -56,7 +57,7 @@ func newTracer() (*tracer, error) {
 	sharedMaps := map[string]*ebpf.Map{}
 	var mu sync.Mutex
 	if err := convenience.LoadSpec(spec, &objects, map[string]any{
-		"g_bpf_debug": true,
+		"g_bpf_debug": ebpfCfg.BpfDebug,
 	}, sharedMaps, &mu, ""); err != nil {
 		return nil, err
 	}
