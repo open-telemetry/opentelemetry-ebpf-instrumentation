@@ -115,82 +115,28 @@ static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
         return 0;
     }
 
-    // Detect if we are in Request or Response phase
     bool is_request = (direction == req->direction);
+    u32 expected_len = 0;
 
-    if (is_request) {
-        // For requests, we currently don't handle fragmentation blocking
-        // because handle_unknown_tcp_connection ignores the return value for new requests.
-        // We just send what we have.
-    } else {
+    if (!is_request) {
         // Response Phase
-
-        // Use rbuf to store expected length for response.
-        // We can safely use offset 0 since we don't need to persist request state here.
         u32 *expected_len_ptr = (u32 *)req->rbuf;
-        u32 expected_len = *expected_len_ptr;
-
-        // Force append if we have already sent data
         if (req->resp_len > 0) {
             action = k_large_buf_action_append;
-        }
-
-        // If this is the start of the response (accumulator is 0), parse header
-        if (req->resp_len == 0 && bytes_len >= k_mssql_hdr_size) {
+        } else if (bytes_len >= k_mssql_hdr_size) {
             struct mssql_hdr hdr = mssql_parse_hdr(u_buf);
-            expected_len = hdr.length;
-            *expected_len_ptr = expected_len;
-            bpf_dbg_printk("mssql response: expected_len=%d", expected_len);
+            *expected_len_ptr = hdr.length;
+            bpf_dbg_printk("mssql response: expected_len=%d", hdr.length);
         }
-
-        tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)mssql_large_buffers_mem();
-        if (!large_buf) {
-            bpf_dbg_printk(
-                "mssql_send_large_buffer: failed to reserve space for MSSQL large buffer");
-            return 0;
-        }
-
-        large_buf->type = EVENT_TCP_LARGE_BUFFER;
-        large_buf->packet_type = packet_type;
-        large_buf->action = action;
-        large_buf->direction = direction;
-        large_buf->conn_info = req->conn_info;
-        large_buf->tp = req->tp;
-
-        large_buf->len = bytes_len;
-        if (large_buf->len >= mssql_buffer_size) {
-            large_buf->len = mssql_buffer_size;
-            bpf_dbg_printk("WARN: mssql_send_large_buffer: buffer is full, truncating data");
-        }
-
-        // Use a safer way to copy data and satisfy the verifier.
-        u32 copy_len = large_buf->len;
-        if (copy_len > k_large_buf_payload_max_size - 1) {
-            copy_len = k_large_buf_payload_max_size - 1;
-        }
-        bpf_probe_read(large_buf->buf, copy_len & k_large_buf_payload_max_size_mask, u_buf);
-
-        u32 total_size = sizeof(tcp_large_buffer_t);
-        total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);
-
-        req->has_large_buffers = true;
-        bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
-
-        // Update accumulated length
-        req->resp_len += bytes_len;
-
-        // Check if we need more data
-        if (expected_len > 0 && req->resp_len < expected_len) {
-            bpf_dbg_printk("mssql response: partial, acc=%d exp=%d", req->resp_len, expected_len);
-            return -1;
-        }
-
-        return 0;
+        expected_len = *expected_len_ptr;
     }
 
-    // Default fallback for Request phase (just send it)
     tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)mssql_large_buffers_mem();
     if (!large_buf) {
+        if (!is_request) {
+            bpf_dbg_printk(
+                "mssql_send_large_buffer: failed to reserve space for MSSQL large buffer");
+        }
         return 0;
     }
 
@@ -200,10 +146,10 @@ static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
     large_buf->direction = direction;
     large_buf->conn_info = req->conn_info;
     large_buf->tp = req->tp;
+    large_buf->len = bytes_len < mssql_buffer_size ? bytes_len : mssql_buffer_size;
 
-    large_buf->len = bytes_len;
-    if (large_buf->len >= mssql_buffer_size) {
-        large_buf->len = mssql_buffer_size;
+    if (!is_request && bytes_len >= mssql_buffer_size) {
+        bpf_dbg_printk("WARN: mssql_send_large_buffer: buffer is full, truncating data");
     }
 
     u32 copy_len = large_buf->len;
@@ -212,11 +158,19 @@ static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
     }
     bpf_probe_read(large_buf->buf, copy_len & k_large_buf_payload_max_size_mask, u_buf);
 
-    u32 total_size = sizeof(tcp_large_buffer_t);
-    total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);
+    u32 total_size = sizeof(tcp_large_buffer_t) +
+                     (large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *));
 
     req->has_large_buffers = true;
     bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
+
+    if (!is_request) {
+        req->resp_len += bytes_len;
+        if (expected_len > 0 && req->resp_len < expected_len) {
+            bpf_dbg_printk("mssql response: partial, acc=%d exp=%d", req->resp_len, expected_len);
+            return -1;
+        }
+    }
 
     return 0;
 }

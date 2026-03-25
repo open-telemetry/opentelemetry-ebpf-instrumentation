@@ -252,8 +252,9 @@ func TestSQLParseError(t *testing.T) {
 				'H', 0x00, 'e', 0x00, 'l', 0x00, 'l', 0x00, 'o', 0x00, // Message: "Hello" (UTF-16LE)
 			},
 			expected: &request.SQLError{
-				Code:    12345,
-				Message: "Hello",
+				Code:     12345,
+				Message:  "Hello",
+				SQLState: "1",
 			},
 		},
 		{
@@ -275,8 +276,9 @@ func TestSQLParseError(t *testing.T) {
 				'H', 0x00, 'e', 0x00, 'l', 0x00, 'l', 0x00, 'o', 0x00, // Message: "Hello" (UTF-16LE)
 			},
 			expected: &request.SQLError{
-				Code:    0, // Should be 0 because 65536 > 0xFFFF
-				Message: "Hello",
+				Code:     0, // Should be 0 because 65536 > 0xFFFF
+				Message:  "Hello",
+				SQLState: "1",
 			},
 		},
 		{
