@@ -16,6 +16,7 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
 
+	"go.opentelemetry.io/obi/pkg/config"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 )
 
@@ -34,7 +35,7 @@ func tlog() *slog.Logger {
 	return slog.With("component", "ebpf.StatFetcher")
 }
 
-func NewStatsFetcher() (*StatsFetcher, error) {
+func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
 	tlog := tlog()
 	if err := rlimit.RemoveMemlock(); err != nil {
 		tlog.Warn("can't remove mem lock. The agent could not be able to start eBPF programs",
@@ -49,7 +50,9 @@ func NewStatsFetcher() (*StatsFetcher, error) {
 
 	sharedMaps := map[string]*ebpf.Map{}
 	var mu sync.Mutex
-	if err := ebpfconvenience.LoadSpec(spec, &objects, nil, sharedMaps, &mu, ""); err != nil {
+	if err := ebpfconvenience.LoadSpec(spec, &objects, map[string]any{
+		"g_bpf_debug": cfg.BpfDebug,
+	}, sharedMaps, &mu, ""); err != nil {
 		return nil, fmt.Errorf("loading stats eBPF spec: %w", err)
 	}
 
