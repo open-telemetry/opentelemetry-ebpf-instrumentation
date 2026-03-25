@@ -64,9 +64,10 @@ services:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
     volumes:
       - ./configs/:/etc/otelcol-config
+      - ../../../testoutput/weaver:/otlp-output
     ports:
       - "4317" # OTLP over gRPC receiver
       - "4318:4318" # OTLP over HTTP receiver
@@ -74,6 +75,8 @@ services:
       - "8888" # metrics endpoint
     depends_on:
       prometheus:
+        condition: service_started
+      jaeger:
         condition: service_started
 
   # Prometheus

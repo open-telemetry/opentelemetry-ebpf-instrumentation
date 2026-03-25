@@ -498,6 +498,8 @@ func TestSuite_PythonAsyncUvloop_3_14(t *testing.T) {
 }
 
 func TestSuite_PythonRedis(t *testing.T) {
+	prepareWeaverOutput(t)
+
 	compose, err := docker.ComposeSuite("docker-compose-python-redis.yml", path.Join(pathOutput, "test-suite-python-redis.log"))
 	require.NoError(t, err)
 
@@ -505,6 +507,8 @@ func TestSuite_PythonRedis(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Python Redis metrics", testREDMetricsPythonRedisOnly)
 	require.NoError(t, compose.Close())
+
+	t.Run("Weaver semantic convention validation", runWeaverValidation)
 }
 
 func TestSuite_PythonMongo(t *testing.T) {
