@@ -2,5 +2,5 @@ fastapi==0.115.12
 uvicorn==0.39.0; python_version < "3.10"
 uvicorn==0.41.0; python_version >= "3.10"
 uvloop==0.22.1
-httpx==0.25.2
+httpx==0.28.1
 requests==2.32.4
