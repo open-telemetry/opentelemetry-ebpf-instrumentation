@@ -128,8 +128,7 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     case k_protocol_type_mqtt:
         break;
     case k_protocol_type_mssql:
-        mssql_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
-        break;
+        return mssql_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
     case k_protocol_type_unknown:
         break;
     }
@@ -275,7 +274,9 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                                existing->resp_len);
 
                 __builtin_memcpy(trace, existing, sizeof(tcp_req_t));
-                bpf_probe_read(trace->rbuf, bytes_len, u_buf);
+                if (existing->protocol_type != k_protocol_type_mssql) {
+                    bpf_probe_read(trace->rbuf, bytes_len, u_buf);
+                }
 
                 bpf_ringbuf_submit(trace, get_flags());
             } else {

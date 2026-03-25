@@ -151,8 +151,6 @@ func handleMSSQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 
 	sqlCommand := sqlprune.SQLParseCommandID(request.DBMSSQL, reqRaw)
 	sqlError := sqlprune.SQLParseError(request.DBMSSQL, respRaw)
-	slog.Info("MSSQL request: " + string(reqRaw))
-	slog.Info("MSSQL response: " + string(respRaw))
 
 	switch sqlCommand {
 	case "SQL_BATCH":

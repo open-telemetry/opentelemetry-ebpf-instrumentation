@@ -27,6 +27,7 @@ enum {
     k_large_buf_max_mysql_captured_bytes = 1 << 16,
     k_large_buf_max_postgres_captured_bytes = 1 << 16,
     k_large_buf_max_kafka_captured_bytes = 1 << 16,
+    k_large_buf_max_mssql_captured_bytes = 1 << 16,
 };
 
 SCRATCH_MEM_SIZED(tcp_large_buffers, k_large_buf_max_size);
