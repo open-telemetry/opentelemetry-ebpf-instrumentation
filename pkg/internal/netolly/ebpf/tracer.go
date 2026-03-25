@@ -76,9 +76,8 @@ func NewFlowFetcher(
 	sampling, cacheMaxSize int,
 	ingress, egress bool,
 	ifaceManager *tcmanager.InterfaceManager,
-	tcBackend config.TCBackend,
 	portGuessPolicy flowdef.PortGuessPolicy,
-	forceBPFMapReader config.EBPFMapReader,
+	cfg *config.EBPFTracer,
 ) (*FlowFetcher, error) {
 	startTime := uint64(monotime.Now())
 	tlog := tlog()
@@ -113,7 +112,7 @@ func NewFlowFetcher(
 		constSampling:      uint32(sampling),
 		constTraceMessages: uint8(traceMsgs),
 		constPortGuessing:  portGuessing,
-		"g_bpf_debug":      true,
+		"g_bpf_debug":      cfg.BpfDebug,
 	}, sharedMaps, &mu, ""); err != nil {
 		return nil, fmt.Errorf("loading netolly eBPF spec: %w", err)
 	}
@@ -124,7 +123,7 @@ func NewFlowFetcher(
 		return nil, fmt.Errorf("accessing to ringbuffer: %w", err)
 	}
 
-	tcManager := tcmanager.NewTCManager(tcBackend)
+	tcManager := tcmanager.NewTCManager(cfg.TCBackend)
 	tcManager.SetInterfaceManager(ifaceManager)
 
 	if egress {
@@ -142,7 +141,7 @@ func NewFlowFetcher(
 		tcManager:     tcManager,
 		enableIngress: ingress,
 		enableEgress:  egress,
-		flowMapReader: chooseMapReader(forceBPFMapReader, objects.AggregatedFlows, cacheMaxSize, startTime),
+		flowMapReader: chooseMapReader(cfg.ForceBPFMapReader, objects.AggregatedFlows, cacheMaxSize, startTime),
 	}
 
 	// errors are not critical for this tracer
