@@ -9,6 +9,7 @@ import (
 	"structs"
 
 	ciliumebpf "github.com/cilium/ebpf"
+
 	"go.opentelemetry.io/obi/pkg/config"
 )
 
@@ -28,7 +29,7 @@ type StatsTCPRtt struct {
 	}
 }
 
-func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
+func NewStatsFetcher(_ *config.EBPFTracer) (*StatsFetcher, error) {
 	return nil, nil
 }
 
