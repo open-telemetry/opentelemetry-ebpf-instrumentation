@@ -10,8 +10,7 @@
 // LICENSE file in the root directory of this source tree.
 #pragma once
 
-#include <pid/pid.h>
-#include <common/tp_info.h>
+#include <pid/types/pid_info.h>
 
 typedef struct cuda_kernel_launch {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer

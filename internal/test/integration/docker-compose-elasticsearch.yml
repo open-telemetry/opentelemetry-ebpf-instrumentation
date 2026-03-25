@@ -1,6 +1,6 @@
 services:
   elasticsearchserver:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.1@sha256:cb637acad8808664b7c57455a2b2ee87e30b3cab210f3ccc423ff6bcc305e0b9 
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.2@sha256:d2f73c2f05476fe0a528b429656f3de22f3f50db62d3d79ea2c87995f7f4c938 
     container_name: elasticsearch-server
     ports:
       - "9200:9200"
@@ -17,7 +17,7 @@ services:
           memory: 1G   
   
   opensearchserver:
-    image: opensearchproject/opensearch:3.5.0@sha256:919ff4e7d0d57dbc4bd0999ddf0e43e961bba844ec2a5b6734fc979eb4e32399
+    image: opensearchproject/opensearch:3.5.0@sha256:dbb01641baadae5104e18acd888bf05e8fdd9af3567fd30624a76ba3e5a31dec
     container_name: opensearch-server
     ports:
       - "9201:9200"
@@ -90,7 +90,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.147.0@sha256:e7c92c715f28ff142f3bcaccd4fc5603cf4c71276ef09954a38eb4038500a5a5
+    image: otel/opentelemetry-collector-contrib:0.148.0@sha256:8164eab2e6bca9c9b0837a8d2f118a6618489008a839db7f9d6510e66be3923c
     container_name: otel-col
     deploy:
       resources:

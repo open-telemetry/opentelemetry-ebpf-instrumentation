@@ -23,8 +23,6 @@
 
 #include <bpfcore/vmlinux.h>
 
-#include <common/tc_act.h>
-
 #define IP_MAX_LEN 16
 
 #define ETH_ALEN 6 /* Octets in one ethernet addr   */

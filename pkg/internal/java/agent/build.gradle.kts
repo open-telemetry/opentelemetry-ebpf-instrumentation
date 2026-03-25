@@ -1,7 +1,7 @@
 plugins {
     java
-    id("com.gradleup.shadow") version "8.3.10"
-    id("com.github.jk1.dependency-license-report") version "2.9"
+    id("com.gradleup.shadow") version "9.3.2"
+    id("com.github.jk1.dependency-license-report") version "3.1.1"
     id("me.champeau.jmh") version "0.7.3"
     id("com.diffplug.spotless")
 }

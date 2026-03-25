@@ -161,3 +161,130 @@ jobs:
           files: ./testoutput/cover-shard-${{ matrix.id }}.txt
           flags: unittests
           name: go-unittests-coverage-shard-${{ matrix.id }}-${{ github.run_number }}
+
+  collector-cross-compile:
+    name: "collector cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})"
+    needs: generate-and-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Supported platforms (full OBI eBPF support)
+          - { goos: linux,   goarch: amd64  }
+          - { goos: linux,   goarch: arm64  }
+          # Unsupported platforms (factory stubs — must compile, return errUnsupportedPlatform at runtime)
+          - { goos: linux,   goarch: ppc64le }
+          - { goos: linux,   goarch: s390x   }
+          - { goos: linux,   goarch: "386"   }
+          - { goos: windows, goarch: amd64  }
+          - { goos: windows, goarch: arm64  }
+          - { goos: darwin,  goarch: amd64  }
+          - { goos: darwin,  goarch: arm64  }
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Go build cache
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        with:
+          path: ~/.cache/go-build
+          key: go-build-cross-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: |
+            go-build-cross-${{ matrix.goos }}-${{ matrix.goarch }}-
+
+      - name: Download generated BPF files
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: bpf-generated-${{ github.sha }}
+
+      - name: Build collector package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build ./collector/...
+
+  bpf-verifier:
+    name: BPF verifier (kernel ${{ matrix.kernel }})
+    needs: generate-and-checks
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kernel: "5.15.152"
+            runner: ubuntu-latest
+            use_vm: true
+            arch: x86_64
+          - kernel: "6.10.6"
+            runner: ubuntu-latest
+            use_vm: true
+            arch: x86_64
+          - kernel: "arch: arm64"
+            runner: ubuntu-24.04-arm
+            use_vm: false
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Free up disk space
+        if: matrix.use_vm
+        run: |
+          sudo rm -rf /usr/lib/jvm /usr/share/dotnet /usr/share/swift /usr/local/.ghcup
+          sudo rm -rf /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+          docker system prune -af || true
+
+      - name: Download generated BPF files
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: bpf-generated-${{ github.sha }}
+
+      - name: Install QEMU
+        if: matrix.use_vm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86
+
+      - name: Run BPF verifier tests in VM (kernel ${{ matrix.kernel }})
+        if: matrix.use_vm
+        env:
+          KERNEL_VERSION: ${{ matrix.kernel }}
+        run: |
+          sudo make -C internal/test/vm \
+            KERNEL_VER=${KERNEL_VERSION} \
+            ARCH=${{ matrix.arch }} \
+            TARGET_TEST=run-bpf-verifier-vm \
+            && [ -f testoutput/success ]
+
+      - name: Set up Go
+        if: ${{ !matrix.use_vm }}
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Go build cache
+        if: ${{ !matrix.use_vm }}
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        with:
+          path: ~/.cache/go-build
+          key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: |
+            go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Run BPF verifier tests (host kernel)
+        if: ${{ !matrix.use_vm }}
+        run: sudo env PATH=$PATH PRIVILEGED_TESTS=true go test -v -count=1 ./pkg/internal/ebpf/verifier/...

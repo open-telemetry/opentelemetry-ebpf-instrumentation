@@ -4,7 +4,6 @@
 #pragma once
 
 #include <bpfcore/vmlinux.h>
-#include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_endian.h>
 #include <bpfcore/bpf_helpers.h>
 
@@ -17,7 +16,6 @@
 #include <common/trace_util.h>
 
 #include <generictracer/k_tracer_defs.h>
-#include <generictracer/protocol_tcp.h>
 
 #include <maps/sock_pids.h>
 

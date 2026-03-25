@@ -51,7 +51,9 @@ type Instrumenter struct {
 	// global data structures for all eBPF tracers
 	ebpfEventContext *ebpfcommon.EBPFEventContext
 
-	finishers []finisher
+	// dynamicPIDSelector is the runtime PID set; from WithDynamicPIDSelector or created in New. Finder preloads from config.
+	dynamicPIDSelector *discover.DynamicPIDSelector
+	finishers          []finisher
 }
 
 type finisher struct {
@@ -96,16 +98,26 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}
 
-	return &Instrumenter{
-		config:            config,
-		ctxInfo:           ctxInfo,
-		tracersWg:         &sync.WaitGroup{},
-		tracesInput:       tracesInput,
-		processEventInput: processEventsInput,
-		bp:                bp,
-		peGraphBuilder:    swi,
-		ebpfEventContext:  ebpfcommon.NewEBPFEventContext(),
-	}, nil
+	var sel *discover.DynamicPIDSelector
+	if v := ctxInfo.AppO11y.DynamicPIDSelector; v != nil {
+		if s, ok := v.(*discover.DynamicPIDSelector); ok {
+			sel = s
+		}
+		// If v is not a *DynamicPIDSelector, sel stays nil and we use static config target_pids.
+	}
+	// When sel is nil, finder gets nil: config target_pids are used as static criteria (FindingCriteria(cfg, false)).
+	instr := &Instrumenter{
+		config:             config,
+		ctxInfo:            ctxInfo,
+		tracersWg:          &sync.WaitGroup{},
+		tracesInput:        tracesInput,
+		processEventInput:  processEventsInput,
+		bp:                 bp,
+		peGraphBuilder:     swi,
+		ebpfEventContext:   ebpfcommon.NewEBPFEventContext(),
+		dynamicPIDSelector: sel,
+	}
+	return instr, nil
 }
 
 // FindAndInstrument searches in background for any new executable matching the
@@ -114,7 +126,10 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 // This is: when the context is cancelled, it has unloaded all the eBPF probes.
 func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 	finder := discover.NewProcessFinder(i.config, i.ctxInfo, i.tracesInput, i.ebpfEventContext)
-	processEvents, err := finder.Start(ctx)
+	opts := []discover.ProcessFinderStartOpt{
+		discover.WithDynamicPIDSelector(i.dynamicPIDSelector),
+	}
+	processEvents, err := finder.Start(ctx, opts...)
 	if err != nil {
 		return fmt.Errorf("couldn't start Process Finder: %w", err)
 	}
@@ -251,5 +266,5 @@ func refreshK8sInformerCache(ctx context.Context, ctxInfo *global.ContextInfo) e
 }
 
 func (i *Instrumenter) processEventsPipeline(ctx context.Context, graph *swarm.Runner) {
-	graph.Start(ctx, swarm.WithCancelTimeout(i.config.ShutdownTimeout)) // zurulao
+	graph.Start(ctx, swarm.WithCancelTimeout(i.config.ShutdownTimeout))
 }

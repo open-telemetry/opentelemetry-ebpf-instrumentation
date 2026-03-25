@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build linux
+//go:build linux && (amd64 || arm64)
 
 package collector // import "go.opentelemetry.io/obi/collector"
 
@@ -14,6 +14,7 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver"
 
 	"go.opentelemetry.io/obi/collector/internal"
@@ -62,4 +63,13 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 
 		return internal.NewController(rs.ID, cfg)
 	}
+}
+
+func defaultConfig() component.Config {
+	cfg := obi.DefaultConfig
+	// These are placeholders for the consumers; without these obi config will be invalid.
+	// The actual consumers are set when the receiver is created.
+	cfg.Traces.TracesConsumer = consumertest.NewNop()
+	cfg.OTELMetrics.MetricsConsumer = consumertest.NewNop()
+	return &cfg
 }

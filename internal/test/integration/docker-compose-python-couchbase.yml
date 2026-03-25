@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   couchbase:
-    image: couchbase:community-7.6.1@sha256:8a56bae76a05afd1486b972b3793afb38207f39c20f218b3959a06f065ff365f
+    image: couchbase:community-7.6.1@sha256:d7c02936ce46d83b765ea4a89250abff12dc6640ae9abb11eebbc581180e4b53
     ports:
       - "8091:8091"
       - "8093:8093"
@@ -21,7 +21,7 @@ services:
       retries: 10
 
   couchbase-init:
-    image: couchbase:community-7.6.1@sha256:8a56bae76a05afd1486b972b3793afb38207f39c20f218b3959a06f065ff365f
+    image: couchbase:community-7.6.1@sha256:d7c02936ce46d83b765ea4a89250abff12dc6640ae9abb11eebbc581180e4b53
     depends_on:
       couchbase:
         condition: service_healthy
@@ -116,7 +116,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.147.0@sha256:e7c92c715f28ff142f3bcaccd4fc5603cf4c71276ef09954a38eb4038500a5a5
+    image: otel/opentelemetry-collector-contrib:0.148.0@sha256:8164eab2e6bca9c9b0837a8d2f118a6618489008a839db7f9d6510e66be3923c
     container_name: otel-col
     deploy:
       resources:

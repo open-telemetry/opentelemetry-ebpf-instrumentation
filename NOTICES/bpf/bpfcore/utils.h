@@ -59,6 +59,12 @@
                  : "+r"(VAR)                                                                       \
                  : [max] "i"(UMAX))
 
+#define bpf_clamp_umin(VAR, UMIN)                                                                  \
+    asm volatile("if %0 >= %[min] goto +1\n"                                                       \
+                 "%0 = %[min]\n"                                                                   \
+                 : "+r"(VAR)                                                                       \
+                 : [min] "i"(UMIN))
+
 static __always_inline bool is_pow2(u32 n) {
     return n != 0UL && (n & (n - 1)) == 0UL;
 }

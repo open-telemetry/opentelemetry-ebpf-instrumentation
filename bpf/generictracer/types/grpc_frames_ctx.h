@@ -5,10 +5,7 @@
 
 #include <bpfcore/vmlinux.h>
 
-#include <common/connection_info.h>
 #include <common/http_types.h>
-
-#include <generictracer/types/http2_conn_info_data.h>
 
 typedef struct grpc_frames_ctx {
     http2_grpc_request_t prev_info;

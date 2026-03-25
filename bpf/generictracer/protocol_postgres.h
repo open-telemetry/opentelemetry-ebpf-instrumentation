@@ -12,7 +12,9 @@
 #include <common/connection_info.h>
 #include <common/large_buffers.h>
 #include <common/ringbuf.h>
+
 #include <generictracer/maps/protocol_cache.h>
+#include <generictracer/protocol_common.h>
 
 struct postgres_hdr {
     u32 message_len;
@@ -41,7 +43,19 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
                                                       u8 packet_type,
                                                       u8 direction,
                                                       enum large_buf_action action) {
-    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)postgres_large_buffers_mem();
+    if (postgres_max_captured_bytes > k_large_buf_max_postgres_captured_bytes) {
+        bpf_dbg_printk("BUG: postgres_max_captured_bytes exceeds maximum allowed value.");
+    }
+
+    const u32 bytes_sent =
+        packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
+
+    if (postgres_max_captured_bytes == 0 || bytes_sent >= postgres_max_captured_bytes ||
+        bytes_len == 0) {
+        return 0;
+    }
+
+    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
     if (!large_buf) {
         bpf_dbg_printk(
             "postgres_send_large_buffer: failed to reserve space for Postgres large buffer");
@@ -55,18 +69,24 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
     large_buf->conn_info = req->conn_info;
     large_buf->tp = req->tp;
 
-    large_buf->len = bytes_len;
-    if (large_buf->len >= postgres_buffer_size) {
-        large_buf->len = postgres_buffer_size;
-        bpf_dbg_printk("WARN: postgres_send_large_buffer: buffer is full, truncating data");
+    u32 max_available_bytes = postgres_max_captured_bytes - bytes_sent;
+
+    bpf_clamp_umax(max_available_bytes, k_large_buf_max_postgres_captured_bytes);
+
+    const u32 available_bytes = bytes_len > max_available_bytes ? max_available_bytes : bytes_len;
+
+    const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
+
+    if (packet_type == PACKET_TYPE_REQUEST) {
+        req->lb_req_bytes += consumed_bytes;
+    } else {
+        req->lb_res_bytes += consumed_bytes;
     }
-    bpf_probe_read(large_buf->buf, large_buf->len & k_large_buf_payload_max_size_mask, u_buf);
 
-    u32 total_size = sizeof(tcp_large_buffer_t);
-    total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);
+    if (consumed_bytes > 0) {
+        req->has_large_buffers = true;
+    }
 
-    req->has_large_buffers = true;
-    bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
     return 0;
 }
 

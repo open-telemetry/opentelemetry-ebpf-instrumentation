@@ -4,6 +4,7 @@
 //go:build obi_bpf_ignore
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
+#include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_endian.h>
 
 #include <logger/bpf_dbg.h>
@@ -134,9 +135,10 @@ static __always_inline __u32 validate_qsection(struct xdp_md *ctx, const unsigne
     return 0;
 }
 
-// Submits a DNS packet to the ring buffer for user space processing
+// Submits a DNS packet to the ring buffer for user space processing.
+// Uses a bounded loop with per-iteration packet bounds checks so the BPF verifier
+// can track each access, avoiding bpf_xdp_load_bytes which requires kernel 5.18+.
 static __always_inline void submit_dns_packet(struct xdp_md *ctx, const unsigned char *const data) {
-    const unsigned char *begin = ctx_xdp_data(ctx);
     const unsigned char *end = ctx_xdp_data_end(ctx);
 
     const __u32 data_len = (end - data) & 0xffff;
@@ -144,8 +146,6 @@ static __always_inline void submit_dns_packet(struct xdp_md *ctx, const unsigned
     if (data_len == 0 || data_len > RB_RECORD_LEN) {
         return;
     }
-
-    const __u32 data_offset = data - begin;
 
     unsigned char *buf = bpf_ringbuf_reserve(&ring_buffer, RB_RECORD_LEN, 0);
 
@@ -155,7 +155,15 @@ static __always_inline void submit_dns_packet(struct xdp_md *ctx, const unsigned
         return;
     }
 
-    bpf_xdp_load_bytes(ctx, data_offset, buf, data_len);
+    for (__u32 i = 0; i < RB_RECORD_LEN; i++) {
+        if (i >= data_len) {
+            break;
+        }
+        if (data + i + 1 > end) {
+            break;
+        }
+        buf[i] = data[i];
+    }
 
     bpf_ringbuf_submit(buf, 0);
 }

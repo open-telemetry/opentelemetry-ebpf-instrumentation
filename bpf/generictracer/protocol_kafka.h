@@ -287,41 +287,28 @@ static __always_inline int kafka_parse_fixup_response_header(const connection_in
     return -1;
 }
 
-// This is an alternative version of kafka_parse_fixup_response_header that fills the buffer
-// without reading header fields.
-// We are interested only in response, that's why the check on the size is done using
-// the minimum response header size.
-static __always_inline int kafka_read_fixup_response_buffer(const connection_info_t *conn_info,
-                                                            unsigned char *buf,
-                                                            u32 *buf_len,
-                                                            const unsigned char *data,
-                                                            u32 data_len,
-                                                            u8 direction) {
-    u8 offset = 0;
-
-    kafka_state_key_t state_key = {.conn = *conn_info, .direction = direction};
-    kafka_state_data_t *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
-    if (state_data != NULL && (state_data->message_size == data_len)) {
-        state_data->message_size = bpf_htonl(state_data->message_size);
-        bpf_probe_read(buf, k_kafka_hdr_message_size, (const void *)state_data);
-        offset += k_kafka_hdr_message_size;
-        bpf_map_delete_elem(&kafka_state, &state_key);
+static __always_inline s32 kafka_read_response_correlation_id(const kafka_state_data_t *state_data,
+                                                              const void *u_buf,
+                                                              u32 bytes_len) {
+    s32 correlation_id = 0;
+    if (state_data && state_data->message_size > 0 && (u32)state_data->message_size == bytes_len) {
+        if (bytes_len < k_kafka_hdr_correlation_id) {
+            return -1;
+        }
+        if (bpf_probe_read(&correlation_id, k_kafka_hdr_correlation_id, u_buf) != 0) {
+            return -1;
+        }
     } else {
-        if (data_len < k_kafka_min_response_message_size_value) {
-            bpf_dbg_printk("response data_len is too short: %d", data_len);
+        if (bytes_len < k_kafka_hdr_message_size + k_kafka_hdr_correlation_id) {
+            return -1;
+        }
+        if (bpf_probe_read(&correlation_id,
+                           k_kafka_hdr_correlation_id,
+                           (const u8 *)u_buf + k_kafka_hdr_message_size) != 0) {
             return -1;
         }
     }
-
-    *buf_len = data_len + offset;
-    if (*buf_len >= kafka_buffer_size) {
-        *buf_len = kafka_buffer_size;
-        bpf_dbg_printk("WARN: buffer is full, truncating data");
-    }
-
-    bpf_probe_read(buf + offset, *buf_len & k_large_buf_payload_max_size_mask, (const void *)data);
-
-    return *buf_len;
+    return bpf_ntohl(correlation_id);
 }
 
 // Emit a large buffer event for Kafka protocol.
@@ -333,69 +320,94 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
                                                    u32 bytes_len,
                                                    u8 direction,
                                                    enum large_buf_action action) {
+    if (kafka_max_captured_bytes > k_large_buf_max_kafka_captured_bytes) {
+        bpf_dbg_printk("BUG: kafka_max_captured_bytes exceeds maximum allowed value.");
+    }
+
+    if (kafka_max_captured_bytes == 0 || req->lb_res_bytes >= kafka_max_captured_bytes ||
+        bytes_len == 0) {
+        return 0;
+    }
 
     if (kafka_store_state_data(&pid_conn->conn, u_buf, bytes_len, direction) < 0) {
         bpf_dbg_printk("4 bytes packet, storing state data");
         return -1;
     }
 
-    // check if this event matches an ongoing request
-    kafka_correlation_data_t *correlation_data =
+    const kafka_correlation_data_t *correlation_data =
         bpf_map_lookup_elem(&kafka_ongoing_requests, &pid_conn->conn);
+
     if (!correlation_data) {
         bpf_dbg_printk("no ongoing request found for this response");
         return 0;
     }
 
-    struct kafka_response_hdr hdr = {};
-    if (kafka_parse_fixup_response_header(&pid_conn->conn, &hdr, u_buf, bytes_len, direction) !=
-        0) {
-        bpf_dbg_printk("failed to check kafka response header");
-        return 0;
-    }
+    const kafka_state_key_t state_key = {.conn = pid_conn->conn, .direction = direction};
+    const kafka_state_data_t *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
+    const s32 correlation_id = kafka_read_response_correlation_id(state_data, u_buf, bytes_len);
 
-    if (hdr.correlation_id != correlation_data->correlation_id) {
+    if (correlation_id != correlation_data->correlation_id) {
         bpf_dbg_printk("request correlation_id != response "
                        "correlation_id, %d != %d. Ignoring...",
                        correlation_data->correlation_id,
-                       hdr.correlation_id);
+                       correlation_id);
         return 0;
     }
 
     bpf_map_delete_elem(&kafka_ongoing_requests, &pid_conn->conn);
 
-    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)kafka_large_buffers_mem();
-    if (!large_buf) {
+    tcp_large_buffer_t *lb = (tcp_large_buffer_t *)tcp_large_buffers_mem();
+
+    if (!lb) {
         bpf_dbg_printk("failed to reserve space for Kafka large buffer");
         return 0;
     }
 
-    // If we are here it means that the packet is for sure a good response because
-    // we populated the hdr with message_size and correlation_id
-    // we checked also in the map of ongoing requests if there was a related
-    // ongoing request so we can hardcode the packet_type as response
-    // **NOTE**: we only send the response as a large buffer event in userspace
-    // because the topic_id and name are in the response.
-    large_buf->type = EVENT_TCP_LARGE_BUFFER;
-    large_buf->packet_type = PACKET_TYPE_RESPONSE;
+    lb->type = EVENT_TCP_LARGE_BUFFER;
+    lb->packet_type = PACKET_TYPE_RESPONSE;
+    lb->action = action;
+    lb->direction = direction;
+    lb->conn_info = pid_conn->conn;
+    lb->tp = req->tp;
 
-    large_buf->action = action;
-    large_buf->direction = direction;
-    large_buf->conn_info = pid_conn->conn;
-    large_buf->tp = req->tp;
+    u32 max_available_bytes = kafka_max_captured_bytes - req->lb_res_bytes;
+    u32 consumed_bytes = 0;
 
-    int written = kafka_read_fixup_response_buffer(
-        &pid_conn->conn, large_buf->buf, &large_buf->len, u_buf, bytes_len, direction);
-    if (written < 0) {
-        bpf_dbg_printk("failed to read buffer, not sending large buffer");
-        return 0;
+    if (state_data && state_data->message_size > 0 && (u32)state_data->message_size == bytes_len) {
+        bpf_map_delete_elem(&kafka_state, &state_key);
+
+        if (max_available_bytes < k_kafka_hdr_message_size) {
+            bpf_dbg_printk("kafka_send_large_buffer: not enough space for state data");
+            return 0;
+        }
+
+        const s32 message_size_be = bpf_htonl(state_data->message_size);
+
+        _Static_assert(k_kafka_hdr_message_size < sizeof(void *),
+                       "total_size needs to be adjusted");
+
+        __builtin_memcpy(lb->buf, &message_size_be, k_kafka_hdr_message_size);
+        lb->len = k_kafka_hdr_message_size;
+
+        const u32 total_size = sizeof(tcp_large_buffer_t) + sizeof(void *);
+        bpf_ringbuf_output(&events, lb, total_size, get_flags());
+
+        max_available_bytes -= k_kafka_hdr_message_size;
+        consumed_bytes += k_kafka_hdr_message_size;
+        lb->action = k_large_buf_action_append;
     }
 
-    u32 total_size = sizeof(tcp_large_buffer_t);
-    total_size += written > sizeof(void *) ? written : sizeof(void *);
+    bpf_clamp_umax(max_available_bytes, k_large_buf_max_kafka_captured_bytes);
 
-    req->has_large_buffers = true;
-    bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
+    const u32 available_bytes = bytes_len > max_available_bytes ? max_available_bytes : bytes_len;
+    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes);
+
+    req->lb_res_bytes += consumed_bytes;
+
+    if (consumed_bytes > 0) {
+        req->has_large_buffers = true;
+    }
+
     return 0;
 }
 

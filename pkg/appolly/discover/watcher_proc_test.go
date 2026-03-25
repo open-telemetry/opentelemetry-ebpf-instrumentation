@@ -202,7 +202,7 @@ func TestPortsFetchRequired(t *testing.T) {
 		stateMux:          sync.Mutex{},
 		bpfWatcherEnabled: false,
 		fetchPorts:        true,
-		findingCriteria:   FindingCriteria(cfg),
+		findingCriteria:   FindingCriteria(cfg, false),
 		output:            msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(1)),
 	}
 
@@ -300,7 +300,7 @@ func TestMinProcessAge(t *testing.T) {
 		stateMux:          sync.Mutex{},
 		bpfWatcherEnabled: false,
 		fetchPorts:        true,
-		findingCriteria:   FindingCriteria(cfg),
+		findingCriteria:   FindingCriteria(cfg, false),
 		output:            msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(1)),
 	}
 
@@ -327,4 +327,51 @@ func TestMinProcessAge(t *testing.T) {
 
 	assert.True(t, ok)
 	assert.False(t, acc.processTooNew(process))
+}
+
+// TestForgetPIDs_ReemitsExistingProcess verifies that when a PID was already seen by the watcher,
+// sending it on addedPIDsNotify (forget) causes the next poll to emit EventCreated again.
+// This supports the use case of adding an existing process to the dynamic PID selector.
+func TestForgetPIDs_ReemitsExistingProcess(t *testing.T) {
+	p1 := ProcessAttrs{pid: 1, openPorts: []uint32{3030}}
+	p2 := ProcessAttrs{pid: 2, openPorts: []uint32{123}}
+	addedCh := make(chan []app.PID, 1)
+	acc := pollAccounter{
+		interval: time.Hour,
+		cfg:      &obi.Config{},
+		pids:     map[app.PID]ProcessAttrs{},
+		pidPorts: map[pidPort]ProcessAttrs{},
+		listProcesses: func(bool) (map[app.PID]ProcessAttrs, error) {
+			return map[app.PID]ProcessAttrs{p1.pid: p1, p2.pid: p2}, nil
+		},
+		executableReady: func(app.PID) (string, bool) {
+			return "", true
+		},
+		loadBPFWatcher: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config, chan<- watcher.Event) error {
+			return nil
+		},
+		loadBPFLogger: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config) error {
+			return nil
+		},
+		addedPIDsNotify: addedCh,
+	}
+	procs, err := acc.listProcesses(false)
+	require.NoError(t, err)
+	events := acc.snapshot(procs)
+	require.Len(t, events, 2)
+	assert.Equal(t, EventCreated, sort(events)[0].Type)
+	assert.Equal(t, EventCreated, sort(events)[1].Type)
+	// Second snapshot: no new events (already seen)
+	events2 := acc.snapshot(procs)
+	assert.Empty(t, events2)
+	// Forget p1 only
+	acc.forgetPIDs([]app.PID{1})
+	// Next snapshot: p1 should appear as created again
+	events3 := acc.snapshot(procs)
+	require.Len(t, events3, 1)
+	assert.Equal(t, EventCreated, events3[0].Type)
+	assert.Equal(t, app.PID(1), events3[0].Obj.pid)
+	// p2 still not re-emitted
+	events4 := acc.snapshot(procs)
+	assert.Empty(t, events4)
 }

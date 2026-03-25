@@ -5,7 +5,7 @@
 
 #include <bpfcore/vmlinux.h>
 
-#include <pid/pid_helpers.h>
+#include <pid/types/pid_key.h>
 
 typedef struct trace_key {
     u64 extra_id;    // pids namespace for the process

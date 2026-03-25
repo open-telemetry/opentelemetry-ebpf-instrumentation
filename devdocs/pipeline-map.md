@@ -12,6 +12,7 @@ Check the in-code documentation for more information about each symbol.
 
 - [Application instrumentation pipeline](#application-instrumentation-pipeline)
 - [Network metrics pipeline](#network-metrics-pipeline)
+- [Stat metrics pipeline](#stat-metrics-pipeline)
 
 ## Application instrumentation pipeline
 
@@ -76,8 +77,27 @@ flowchart TD
     KIN(Kube informer):::optional --> KSTORE
     KSTORE(Kube Store):::optional --> K8S
     K8S(Kubernetes<br/>decorator):::optional --> RDNS
-    RDNS(Reverse DNS):::optional --> CIDRS
+    RDNS(Reverse DNS):::optional --> GeoIP
+    GeoIP(Geo IP Provider):::optional --> CIDRS
     CIDRS(CIDRs<br/>redecorator):::optional --> FLTR
     FLTR(Attributes<br/>filter):::optional --> OTEL(OpenTelemetry<br/>metrics<br/>export):::optional
     FLTR --> PROM(Prometheus<br/>metrics<br/>export):::optional
+    FLTR --> FlowPrinter(Flow Printer):::optional
+```
+
+## Stat metrics pipeline
+
+```mermaid
+flowchart TD
+    classDef optional stroke-dasharray: 3 3;
+    RT(eBPF<br/>Ringbuf Tracer) --> K8S
+    KIN(Kube informer):::optional --> KSTORE
+    KSTORE(Kube Store):::optional --> K8S
+    K8S(Kubernetes<br/>decorator):::optional --> RDNS
+    RDNS(Reverse DNS):::optional --> GeoIP
+    GeoIP(Geo IP Provider):::optional --> CIDRS
+    CIDRS(CIDRs<br/>redecorator):::optional --> FLTR
+    FLTR(Attributes<br/>filter):::optional --> OTEL(OpenTelemetry<br/>metrics<br/>export):::optional
+    FLTR --> PROM(Prometheus<br/>metrics<br/>export):::optional
+    FLTR --> StatPrinter(Stat Printer):::optional
 ```

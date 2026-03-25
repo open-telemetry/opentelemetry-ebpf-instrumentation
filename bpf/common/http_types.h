@@ -7,17 +7,9 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/connection_info.h>
-#include <common/egress_key.h>
 #include <common/http_buf_size.h>
 #include <common/http_info.h>
-#include <common/map_sizing.h>
-#include <common/msg_buffer.h>
-#include <common/protocol_defs.h>
 #include <common/tp_info.h>
-
-#include <logger/bpf_dbg.h>
-
-#include <pid/pid_helpers.h>
 
 #define MIN_HTTP_SIZE 12      // HTTP/1.1 CCC is the smallest valid request we can have
 #define MIN_HTTP_REQ_SIZE 9   // OPTIONS / is the largest

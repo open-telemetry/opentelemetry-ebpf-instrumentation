@@ -1,6 +1,6 @@
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.9.5@sha256:61e960bcbe5796d2987edc61fab297387f63d6f831754576cd107543d2cdc8bb
+    image: confluentinc/cp-zookeeper:7.9.6@sha256:d3294ad2b353ac5a155ad9abe37884f75c482f387af553679210303b7118a0d3
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -8,7 +8,7 @@ services:
       - "2181:2181"
 
   kafka:
-    image: confluentinc/cp-kafka:7.9.5@sha256:c4c6b755551da17fff056b9c8b39700f99020083bd2d69a171ece4784f33e640
+    image: confluentinc/cp-kafka:7.9.6@sha256:9e178783dba8cf44cd8b1d260f548a587a21235921957edd4ed7aa7d060b0852
     depends_on:
       - zookeeper
     environment:
@@ -39,7 +39,7 @@ services:
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
-      - {{ .ConfigDir }}:/configs
+      - ./configs:/configs
       - ./testoutput/run:/var/run/obi
       - ../../../../testoutput:/coverage
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
@@ -49,14 +49,14 @@ services:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
       #OTEL_EBPF_EXECUTABLE_PATH: "java"
-      OTEL_EBPF_OPEN_PORT: {{ .ApplicationPort }}
+      OTEL_EBPF_OPEN_PORT: 8080
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_METRICS_INTERVAL: "10ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "true"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://lgtm:4318"
     depends_on:
       testserver:
         condition: service_started

@@ -16,12 +16,13 @@
 #pragma once
 
 #include <bpfcore/vmlinux.h>
-
 #include <bpfcore/utils.h>
 
-#include <pid/pid_helpers.h>
-
+#include <common/connection_info.h>
 #include <common/http_types.h>
+#include <common/tp_info.h>
+
+#include <pid/types/pid_info.h>
 
 // TODO: enums
 #define K_TCP_MAX_LEN 256
@@ -144,6 +145,8 @@ typedef struct tcp_req {
     u64 extra_id;
     u32 req_len;
     u32 resp_len;
+    u32 lb_req_bytes;
+    u32 lb_res_bytes;
     u8 _pad2[4];
     unsigned char buf[K_TCP_MAX_LEN];
     unsigned char rbuf[K_TCP_RES_LEN];

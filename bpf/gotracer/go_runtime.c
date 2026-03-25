@@ -27,7 +27,6 @@
 #include <gotracer/maps/runtime.h>
 
 #include <gotracer/types/grpc.h>
-#include <gotracer/types/kafka.h>
 #include <gotracer/types/nethttp.h>
 
 #include <logger/bpf_dbg.h>

@@ -18,7 +18,6 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
-#include <bpfcore/bpf_builtins.h>
 
 #include <common/common.h>
 

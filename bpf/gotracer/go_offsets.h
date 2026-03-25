@@ -3,9 +3,9 @@
 
 #pragma once
 
-#include <bpfcore/utils.h>
-
-#include <pid/pid_helpers.h>
+#include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_helpers.h>
+#include <bpfcore/bpf_core_read.h>
 
 #define MAX_GO_PROGRAMS 10000 // Max 10,000 go programs tracked
 
@@ -93,6 +93,11 @@ typedef enum {
     _mongo_op_name_new,
     // database/sql stdlib
     _driverconn_ci_pos,
+    // lib/pq driver
+    _pq_conn_cfg_pos,
+    _pq_config_host_pos,
+    _pq_one_eleven_zero,
+    _pq_conn_type_off,
     // mysql driver
     _mysql_conn_cfg_pos,
     _mysql_config_addr_pos,

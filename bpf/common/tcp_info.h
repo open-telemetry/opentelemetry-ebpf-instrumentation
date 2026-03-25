@@ -4,7 +4,6 @@
 #pragma once
 
 #include <bpfcore/vmlinux.h>
-#include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_endian.h>
 #include <bpfcore/bpf_helpers.h>
 

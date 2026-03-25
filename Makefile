@@ -28,7 +28,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.9
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.11
 
 OCI_BIN ?= docker
 
@@ -152,7 +152,7 @@ fmt: $(GOLANGCI_LINT)
 
 .PHONY: clang-tidy
 clang-tidy:
-	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" | xargs clang-tidy
+	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" ! -path "./tests/*" | xargs clang-tidy
 
 .PHONY: lint
 lint: LINT_EXTRA_ARGS =
@@ -322,6 +322,11 @@ test: $(ENVTEST)
 test-privileged: $(ENVTEST)
 	@echo "### Testing code with privileged tests enabled"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+
+.PHONY: run-bpf-verifier-vm
+run-bpf-verifier-vm:
+	@echo "### Running BPF verifier tests"
+	PRIVILEGED_TESTS=true go test -v -count=1 ./pkg/internal/ebpf/verifier/...
 
 .PHONY: cov-exclude-generated
 cov-exclude-generated:

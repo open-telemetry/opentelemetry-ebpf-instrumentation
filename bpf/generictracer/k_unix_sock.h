@@ -8,7 +8,6 @@
 
 #include <common/iov_iter.h>
 #include <common/http_types.h>
-#include <common/tc_common.h>
 #include <common/tracing.h>
 
 #include <generictracer/k_send_receive.h>
@@ -16,9 +15,13 @@
 #include <generictracer/protocol_http.h>
 #include <generictracer/protocol_tcp.h>
 
+#include <generictracer/maps/active_recv_args.h>
+
 #include <logger/bpf_dbg.h>
 
 #include <maps/active_unix_socks.h>
+
+#include <pid/pid.h>
 
 static __always_inline struct unix_sock *unix_sock_from_socket(struct socket *sock) {
     struct sock *sk;

@@ -709,7 +709,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 
 			// Check the information of the java parent span
 			res = trace.FindByOperationName("GET /jtrace", "server")
-			require.Len(ct, res, 1)
+			require.Len(ct, res, 1, traceID)
 			parent = res[0]
 			require.NotEmpty(ct, parent.TraceID)
 			require.Equal(ct, traceID, parent.TraceID)
@@ -729,7 +729,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 
 			// Check the information of the nodejs parent span
 			res = trace.FindByOperationName("GET /traceme", "server")
-			require.Len(ct, res, 1)
+			require.Len(ct, res, 1, traceID)
 			parent = res[0]
 			require.NotEmpty(ct, parent.TraceID)
 			require.Equal(ct, traceID, parent.TraceID)
@@ -749,7 +749,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 
 			// Check the information of the go parent span
 			res = trace.FindByOperationName("GET /gotracemetoo", "server")
-			require.Len(ct, res, 1)
+			require.Len(ct, res, 1, traceID)
 			parent = res[0]
 			require.NotEmpty(ct, parent.TraceID)
 			traceID = parent.TraceID // we reset the traceID here
@@ -793,7 +793,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 
 			// Check the information of the python parent span
 			res = trace.FindByOperationName("GET /tracemetoo", "server")
-			require.Len(t, res, 1)
+			require.Len(t, res, 1, traceID)
 			parent = res[0]
 			require.NotEmpty(t, parent.TraceID)
 			require.Equal(t, traceID, parent.TraceID)
@@ -813,7 +813,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 
 			// Check the information of the rails parent span
 			res = trace.FindByOperationName("GET /users", "server")
-			require.Len(t, res, 1)
+			require.Len(t, res, 1, traceID)
 			parent = res[0]
 			require.NotEmpty(t, parent.TraceID)
 			require.Equal(t, traceID, parent.TraceID)
@@ -970,7 +970,7 @@ func testNestedHTTPSTracesKProbes(t *testing.T) {
 
 		// check client call (and ensure server port is correct/not swapped)
 		res = trace.FindByOperationName("GET /users", "client")
-		require.Len(ct, res, 1)
+		require.Len(ct, res, 1, traceID)
 		parent = res[0]
 		require.NotEmpty(ct, parent.TraceID)
 		require.Equal(ct, traceID, parent.TraceID)
@@ -1115,11 +1115,17 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 		children := trace.ChildrenOf(parentID)
 		require.GreaterOrEqual(ct, len(children), 1)
 
-		// We've created the in-queue and processing spans
-		for _, c := range children {
-			children = trace.ChildrenOf(c.SpanID)
-			if len(children) > 0 {
-				break
+		if len(children) > 1 {
+			first := children[0]
+			tag, ok := jaeger.FindIn(first.Tags, "span.kind")
+			if ok && tag.Value == "internal" {
+				// We've created the in-queue and processing spans
+				for _, c := range children {
+					children = trace.ChildrenOf(c.SpanID)
+					if len(children) > 0 {
+						break
+					}
+				}
 			}
 		}
 
@@ -1141,10 +1147,16 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 		children = trace.ChildrenOf(child.SpanID)
 		require.GreaterOrEqual(ct, len(children), 1)
 
-		for _, c := range children {
-			children = trace.ChildrenOf(c.SpanID)
-			if len(children) > 0 {
-				break
+		if len(children) > 1 {
+			first := children[0]
+			tag, ok := jaeger.FindIn(first.Tags, "span.kind")
+			if ok && tag.Value == "internal" {
+				for _, c := range children {
+					children = trace.ChildrenOf(c.SpanID)
+					if len(children) > 0 {
+						break
+					}
+				}
 			}
 		}
 
@@ -1166,10 +1178,16 @@ func testHTTPTracesNestedSelfCalls(t *testing.T) {
 		children = trace.ChildrenOf(child.SpanID)
 		require.GreaterOrEqual(ct, len(children), 1)
 
-		for _, c := range children {
-			children = trace.ChildrenOf(c.SpanID)
-			if len(children) > 0 {
-				break
+		if len(children) > 1 {
+			first := children[0]
+			tag, ok := jaeger.FindIn(first.Tags, "span.kind")
+			if ok && tag.Value == "internal" {
+				for _, c := range children {
+					children = trace.ChildrenOf(c.SpanID)
+					if len(children) > 0 {
+						break
+					}
+				}
 			}
 		}
 

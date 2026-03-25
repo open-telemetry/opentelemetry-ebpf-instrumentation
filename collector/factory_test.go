@@ -19,6 +19,27 @@ func TestNewFactory(t *testing.T) {
 	require.NotNil(t, f)
 }
 
+// TestNewFactoryUnsupportedPlatform verifies that on platforms where OBI is not
+// supported (non-Linux or non-amd64/arm64), the factory is present but returns
+// a clear error when a receiver is created — consistent with the journaldreceiver
+// pattern used in opentelemetry-collector-contrib.
+func TestNewFactoryUnsupportedPlatform(t *testing.T) {
+	supported := runtime.GOOS == "linux" && (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64")
+	if supported {
+		t.Skip("skipping unsupported-platform test on a supported platform")
+	}
+
+	typ, err := component.NewType("obi")
+	require.NoError(t, err)
+	settings := receivertest.NewNopSettings(typ)
+
+	_, err = BuildTracesReceiver()(t.Context(), settings, defaultConfig(), consumertest.NewNop())
+	require.ErrorIs(t, err, errUnsupportedPlatform)
+
+	_, err = BuildMetricsReceiver()(t.Context(), settings, defaultConfig(), consumertest.NewNop())
+	require.ErrorIs(t, err, errUnsupportedPlatform)
+}
+
 func TestCreateProfilesReceiver(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("skipping test on non-linux platform")

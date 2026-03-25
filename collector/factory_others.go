@@ -1,20 +1,26 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build !linux
+//go:build !(linux && (amd64 || arm64))
 
 package collector // import "go.opentelemetry.io/obi/collector"
 
 import (
 	"context"
-	"errors"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/receiver"
 )
 
-var errNotLinux = errors.New("OBI receiver is only supported on Linux")
+// unsupportedConfig is a no-op config used on non-supported platforms.
+type unsupportedConfig struct{}
+
+func (u *unsupportedConfig) Validate() error { return nil }
+
+func defaultConfig() component.Config {
+	return &unsupportedConfig{}
+}
 
 func BuildTracesReceiver() receiver.CreateTracesFunc {
 	return func(_ context.Context,
@@ -22,7 +28,7 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 		_ component.Config,
 		_ consumer.Traces,
 	) (receiver.Traces, error) {
-		return nil, errNotLinux
+		return nil, errUnsupportedPlatform
 	}
 }
 
@@ -32,6 +38,6 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 		_ component.Config,
 		_ consumer.Metrics,
 	) (receiver.Metrics, error) {
-		return nil, errNotLinux
+		return nil, errUnsupportedPlatform
 	}
 }

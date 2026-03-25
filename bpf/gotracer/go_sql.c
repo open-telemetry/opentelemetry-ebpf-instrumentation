@@ -28,8 +28,10 @@
 
 #include <maps/go_sql.h>
 
-// Validates that driverConn.ci points to a MySQL connection and returns the mysqlConn pointer.
-static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
+// Validates that driverConn.ci points to the expected database/sql driver
+// connection type and returns the concrete connection pointer.
+static __always_inline void *get_database_sql_conn_ptr(u64 driver_conn_ptr,
+                                                       go_offset conn_type_off) {
     if (driver_conn_ptr == 0) {
         return NULL;
     }
@@ -54,19 +56,19 @@ static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
         return NULL;
     }
 
-    const u64 mysql_type_addr = go_offset_of(ot, (go_offset){.v = _mysql_conn_type_off});
-    if (!mysql_type_addr) {
-        bpf_dbg_printk("can't read mysql.mysqlConn offset");
+    const u64 target_type_addr = go_offset_of(ot, conn_type_off);
+    if (!target_type_addr) {
+        bpf_dbg_printk("can't read database/sql driver type offset");
         return NULL;
     }
 
-    bpf_dbg_printk("validating mysql conn type %llx with %llx", mysql_type_addr, ci_type_ptr);
+    bpf_dbg_printk("validating sql conn type %llx with %llx", target_type_addr, ci_type_ptr);
 
-    void *mysql_conn_ptr = 0;
+    void *conn_ptr = 0;
 
-    if ((u64)ci_type_ptr == mysql_type_addr) {
-        res = bpf_probe_read(
-            &mysql_conn_ptr, sizeof(mysql_conn_ptr), (void *)(driver_conn_ptr + ci_offset + 8));
+    if ((u64)ci_type_ptr == target_type_addr) {
+        res =
+            bpf_probe_read(&conn_ptr, sizeof(conn_ptr), (void *)(driver_conn_ptr + ci_offset + 8));
     } else {
         // Type doesn't match - might be a wrapper (like otelsql.otConn)
         void *wrapper_ptr = NULL;
@@ -86,21 +88,30 @@ static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
         }
 
         bpf_dbg_printk("unwrap: inner_type_ptr=%llx", inner_type_ptr);
-        if ((u64)inner_type_ptr != mysql_type_addr) {
-            bpf_dbg_printk("inner type still doesn't match mysql.mysqlConn");
+        if ((u64)inner_type_ptr != target_type_addr) {
+            bpf_dbg_printk("inner type still doesn't match target driver type");
             return NULL;
         }
 
-        res =
-            bpf_probe_read(&mysql_conn_ptr, sizeof(mysql_conn_ptr), (void *)((u64)wrapper_ptr + 8));
+        res = bpf_probe_read(&conn_ptr, sizeof(conn_ptr), (void *)((u64)wrapper_ptr + 8));
     }
 
-    if (res != 0 || !mysql_conn_ptr) {
-        bpf_dbg_printk("can't read MySQL connection data pointer");
+    if (res != 0 || !conn_ptr) {
+        bpf_dbg_printk("can't read SQL connection data pointer");
         return NULL;
     }
 
-    return mysql_conn_ptr;
+    return conn_ptr;
+}
+
+// Validates that driverConn.ci points to a MySQL connection and returns the mysqlConn pointer.
+static __always_inline void *get_mysql_conn_ptr(u64 driver_conn_ptr) {
+    return get_database_sql_conn_ptr(driver_conn_ptr, (go_offset){.v = _mysql_conn_type_off});
+}
+
+// Validates that driverConn.ci points to a lib/pq connection and returns the pq conn pointer.
+static __always_inline void *get_pq_conn_ptr(u64 driver_conn_ptr) {
+    return get_database_sql_conn_ptr(driver_conn_ptr, (go_offset){.v = _pq_conn_type_off});
 }
 
 // Extracts MySQL server hostname from a validated mysqlConn pointer.
@@ -173,6 +184,40 @@ read_pgx_hostname_from_conn(void *pgx_conn_ptr, char *hostname, u64 max_len) {
     return 1;
 }
 
+// Extracts PostgreSQL server hostname from a lib/pq conn pointer.
+// Follows the pointer chain: conn -> cfg (Config) -> Host (string)
+static __always_inline bool
+read_pq_hostname_from_pqconn(void *pq_conn_ptr, char *hostname, u64 max_len) {
+    if (!pq_conn_ptr) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+
+    const u64 cfg_offset = go_offset_of(ot, (go_offset){.v = _pq_conn_cfg_pos});
+    if (!cfg_offset) {
+        bpf_dbg_printk("can't read pq.conn.cfg offset");
+        return 0;
+    }
+
+    if (!read_go_str("pq hostname",
+                     (void *)((u64)pq_conn_ptr + cfg_offset),
+                     go_offset_of(ot, (go_offset){.v = _pq_config_host_pos}),
+                     hostname,
+                     max_len)) {
+        bpf_dbg_printk("can't read pq.Config.Host");
+        return 0;
+    }
+
+    return hostname[0] != '\0';
+}
+
+static __always_inline bool supports_pq_conn_cfg_hostname() {
+    off_table_t *ot = get_offsets_table();
+
+    return go_offset_of(ot, (go_offset){.v = _pq_one_eleven_zero}) != 0;
+}
+
 // SQL hostname extraction with driver type routing.
 // Uses conn_type to determine which driver-specific extraction to use or
 // attempts to extract hostname by trying supported database drivers
@@ -181,18 +226,6 @@ static __always_inline void extract_sql_hostname(sql_request_trace_t *trace,
                                                  void *goroutine_addr,
                                                  u8 conn_type) {
     trace->hostname[0] = '\0';
-
-    if (goroutine_addr) {
-        go_addr_key_t g_key = {};
-        go_addr_key_from_id(&g_key, goroutine_addr);
-
-        char *pq_hostname = bpf_map_lookup_elem(&pq_hostnames, &g_key);
-        if (pq_hostname) {
-            __builtin_memcpy(trace->hostname, pq_hostname, sizeof(trace->hostname));
-            bpf_dbg_printk("extracted lib/pq hostname: %s", trace->hostname);
-            return;
-        }
-    }
 
     if (driver_conn_ptr == 0) {
         bpf_dbg_printk("sql hostname extraction skipped: driver_conn_ptr is null");
@@ -207,14 +240,38 @@ static __always_inline void extract_sql_hostname(sql_request_trace_t *trace,
         return;
     }
 
-    void *mysql_conn_ptr = get_mysql_conn_ptr(driver_conn_ptr);
-    if (!mysql_conn_ptr) {
+    void *pq_conn_ptr = get_pq_conn_ptr(driver_conn_ptr);
+    if (pq_conn_ptr) {
+        if (supports_pq_conn_cfg_hostname()) {
+            if (read_pq_hostname_from_pqconn(
+                    pq_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
+                bpf_dbg_printk("extracted lib/pq hostname from conn.cfg: %s", trace->hostname);
+                return;
+            }
+        }
+
+        // lib/pq < v1.11 does not expose the selected host on conn, so keep the
+        // legacy goroutine-keyed network() fallback only for confirmed lib/pq.
+        if (goroutine_addr) {
+            go_addr_key_t g_key = {};
+            go_addr_key_from_id(&g_key, goroutine_addr);
+
+            char *pq_hostname = bpf_map_lookup_elem(&pq_hostnames, &g_key);
+            if (pq_hostname) {
+                __builtin_memcpy(trace->hostname, pq_hostname, sizeof(trace->hostname));
+                bpf_dbg_printk("extracted legacy lib/pq hostname: %s", trace->hostname);
+            }
+        }
         return;
     }
 
-    if (read_mysql_hostname_from_mysqlconn(
-            mysql_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
-        bpf_dbg_printk("extracted MySQL hostname: %s", trace->hostname);
+    void *mysql_conn_ptr = get_mysql_conn_ptr(driver_conn_ptr);
+    if (mysql_conn_ptr) {
+        if (read_mysql_hostname_from_mysqlconn(
+                mysql_conn_ptr, (char *)trace->hostname, sizeof(trace->hostname))) {
+            bpf_dbg_printk("extracted MySQL hostname: %s", trace->hostname);
+        }
+        return;
     }
 }
 

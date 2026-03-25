@@ -4,8 +4,8 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_helpers.h>
+#include <bpfcore/compiler.h>
 
-#include <common/common.h>
 #include <common/iov_iter.h>
 #include <common/scratch_mem.h>
 
@@ -121,10 +121,11 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
             return 0;
         }
 
-        const u32 to_write = e->len & k_log_event_max_log_mask;
+        u32 to_write = e->len & k_log_event_max_log_mask;
         if (to_write == 0) {
             return 0;
         }
+        bpf_clamp_umin(to_write, 1);
         bpf_probe_write_user(iov.iov_base, zero, to_write);
     }
 

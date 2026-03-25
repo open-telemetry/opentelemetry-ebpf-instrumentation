@@ -6,7 +6,6 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
 
-#include <common/common.h>
 #include <common/connection_info.h>
 #include <common/egress_key.h>
 #include <common/event_defs.h>
@@ -28,8 +27,11 @@
 
 #include <maps/incoming_trace_map.h>
 #include <maps/msg_buffers.h>
+#include <maps/outgoing_trace_map.h>
 #include <maps/sock_dir.h>
 #include <maps/tp_info_mem.h>
+
+#include <pid/pid.h>
 
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
 
@@ -132,17 +134,6 @@ static __always_inline void print_tp(const char *msg, const tp_info_t *tp) {
     unsigned char tp_buf_str[TP_MAX_VAL_LENGTH];
     make_tp_string(tp_buf_str, tp);
     bpf_dbg_printk("%s: %s", msg, tp_buf_str);
-}
-
-static __always_inline egress_key_t make_key(const connection_info_t *conn) {
-    egress_key_t e_key = {
-        .d_port = conn->d_port,
-        .s_port = conn->s_port,
-    };
-
-    sort_egress_key(&e_key);
-
-    return e_key;
 }
 
 // This is setup here for Go and SSL tracking.
@@ -693,9 +684,8 @@ static __always_inline void handle_existing_tp_pid(struct sk_msg_md *msg,
         if (inject_flags & k_inject_http_headers) {
             write_http_traceparent(msg, tp_pid);
         }
-    } else {
-        clear_tp_info_pid(e_key);
     }
+    clear_tp_info_pid(e_key);
 }
 
 // Sock_msg program which detects packets where it should add space for
@@ -716,7 +706,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
 
     const u64 id = bpf_get_current_pid_tgid();
     const connection_info_t conn = get_connection_info(msg);
-    const egress_key_t e_key = make_key(&conn);
+    const egress_key_t e_key = make_egress_key(&conn);
 
     t_ctx->p_conn.conn = conn;
     t_ctx->p_conn.pid = pid_from_pid_tgid(id);

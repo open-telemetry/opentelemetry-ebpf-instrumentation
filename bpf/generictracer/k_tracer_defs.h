@@ -9,17 +9,11 @@
 #include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/protocol_http.h>
-#include <common/event_defs.h>
-#include <common/send_args.h>
-#include <common/tc_common.h>
 
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>
-#include <generictracer/protocol_http.h>
 
 #include <generictracer/maps/protocol_cache.h>
-
-#include <pid/pid.h>
 
 // Temporary tracking of tcp_recvmsg arguments
 typedef struct recv_args {

@@ -14,6 +14,9 @@
 #include <common/sql.h>
 
 #include <generictracer/maps/protocol_cache.h>
+#include <generictracer/protocol_common.h>
+
+#include <logger/bpf_dbg.h>
 
 // Every mysql command packet is prefixed by an header
 // https://mariadb.com/kb/en/0-packet/
@@ -50,6 +53,9 @@ enum {
     // Sanity checks
     k_mysql_payload_length_max = 1 << 13, // 8K
 };
+
+_Static_assert(sizeof(struct mysql_state_data) == k_mysql_hdr_without_command_size,
+               "size mismatch");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -104,38 +110,6 @@ static __always_inline int mysql_parse_fixup_header(const connection_info_t *con
     return -1;
 }
 
-// This is an alternative version of mysql_parse_fixup_header that fills the buffer
-// without reading header fields.
-static __always_inline int mysql_read_fixup_buffer(const connection_info_t *conn_info,
-                                                   unsigned char *buf,
-                                                   u32 *buf_len,
-                                                   const unsigned char *data,
-                                                   u32 data_len) {
-    u8 offset = 0;
-
-    struct mysql_state_data *state_data = bpf_map_lookup_elem(&mysql_state, conn_info);
-    if (state_data != NULL) {
-        bpf_probe_read(buf, k_mysql_hdr_without_command_size, (const void *)state_data);
-        offset += k_mysql_hdr_without_command_size;
-        bpf_map_delete_elem(&mysql_state, conn_info);
-    } else {
-        if (data_len < k_mysql_hdr_size) {
-            bpf_dbg_printk("mysql_read_fixup_buffer: data_len is too short: %d", data_len);
-            return -1;
-        }
-    }
-
-    *buf_len = data_len + offset;
-    if (*buf_len >= mysql_buffer_size) {
-        *buf_len = mysql_buffer_size;
-        bpf_dbg_printk("WARN: mysql_read_fixup_buffer: buffer is full, truncating data");
-    }
-
-    bpf_probe_read(buf + offset, *buf_len & k_large_buf_payload_max_size_mask, (const void *)data);
-
-    return *buf_len;
-}
-
 // Emit a large buffer event for MySQL protocol.
 // The return value is used to control the flow for this specific protocol.
 // -1: wait additional data; 0: continue, regardless of errors.
@@ -146,36 +120,86 @@ static __always_inline int mysql_send_large_buffer(tcp_req_t *req,
                                                    u8 packet_type,
                                                    u8 direction,
                                                    enum large_buf_action action) {
+    if (mysql_max_captured_bytes > k_large_buf_max_mysql_captured_bytes) {
+        bpf_dbg_printk("BUG: mysql_max_captured_bytes exceeds maximum allowed value.");
+    }
+
+    // these are the bytes already sent so far
+    const u32 bytes_sent =
+        packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
+
+    if (mysql_max_captured_bytes == 0 || bytes_sent >= mysql_max_captured_bytes || bytes_len == 0) {
+        return 0;
+    }
+
     if (mysql_store_state_data(&pid_conn->conn, u_buf, bytes_len) < 0) {
         bpf_dbg_printk("mysql_send_large_buffer: 4 bytes packet, storing state data");
         return -1;
     }
 
-    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)mysql_large_buffers_mem();
-    if (!large_buf) {
+    tcp_large_buffer_t *lb = (tcp_large_buffer_t *)tcp_large_buffers_mem();
+
+    if (!lb) {
         bpf_dbg_printk("mysql_send_large_buffer: failed to reserve space for MySQL large buffer");
         return 0;
     }
 
-    large_buf->type = EVENT_TCP_LARGE_BUFFER;
-    large_buf->packet_type = packet_type;
-    large_buf->action = action;
-    large_buf->direction = direction;
-    large_buf->conn_info = pid_conn->conn;
-    large_buf->tp = req->tp;
+    lb->type = EVENT_TCP_LARGE_BUFFER;
+    lb->packet_type = packet_type;
+    lb->action = action;
+    lb->direction = direction;
+    lb->conn_info = pid_conn->conn;
+    lb->tp = req->tp;
 
-    int written =
-        mysql_read_fixup_buffer(&pid_conn->conn, large_buf->buf, &large_buf->len, u_buf, bytes_len);
-    if (written < 0) {
-        bpf_dbg_printk("mysql_send_large_buffer: failed to read buffer, not sending large buffer");
-        return 0;
+    u32 max_available_bytes = mysql_max_captured_bytes - bytes_sent;
+
+    u32 consumed_bytes = 0;
+
+    const struct mysql_state_data *state_data = bpf_map_lookup_elem(&mysql_state, &pid_conn->conn);
+
+    // if there's state data present (i.e. the start of a mysql header), ship
+    // it first
+    if (state_data) {
+        bpf_map_delete_elem(&mysql_state, &pid_conn->conn);
+
+        if (max_available_bytes < k_mysql_hdr_without_command_size) {
+            bpf_dbg_printk("mysql_send_state_data_large_buffer: not enough space");
+            return 0;
+        }
+
+        max_available_bytes -= k_mysql_hdr_without_command_size;
+        consumed_bytes += k_mysql_hdr_without_command_size;
+
+        __builtin_memcpy(lb->buf, state_data, sizeof(*state_data));
+
+        lb->len = sizeof(*state_data);
+
+        _Static_assert(k_mysql_hdr_without_command_size < sizeof(void *),
+                       "total_size needs to be adjusted");
+
+        const u32 total_size = sizeof(tcp_large_buffer_t) + sizeof(void *);
+
+        bpf_ringbuf_output(&events, lb, total_size, get_flags());
+
+        lb->action = k_large_buf_action_append;
     }
 
-    u32 total_size = sizeof(tcp_large_buffer_t);
-    total_size += written > sizeof(void *) ? written : sizeof(void *);
+    bpf_clamp_umax(max_available_bytes, k_large_buf_max_mysql_captured_bytes);
 
-    req->has_large_buffers = true;
-    bpf_ringbuf_output(&events, large_buf, total_size & k_large_buf_max_size_mask, get_flags());
+    const u32 available_bytes = bytes_len > max_available_bytes ? max_available_bytes : bytes_len;
+
+    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes);
+
+    if (packet_type == PACKET_TYPE_REQUEST) {
+        req->lb_req_bytes += consumed_bytes;
+    } else {
+        req->lb_res_bytes += consumed_bytes;
+    }
+
+    if (consumed_bytes > 0) {
+        req->has_large_buffers = true;
+    }
+
     return 0;
 }
 

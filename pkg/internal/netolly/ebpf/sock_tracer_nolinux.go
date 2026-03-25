@@ -6,6 +6,9 @@
 package ebpf // import "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 
 import (
+	"github.com/cilium/ebpf"
+
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 )
@@ -16,7 +19,7 @@ func (s *SockFlowFetcher) Close() error {
 	panic("this is never going to be executed")
 }
 
-func (s *SockFlowFetcher) LookupAndDeleteMap() map[NetFlowId][]NetFlowMetrics {
+func (s *SockFlowFetcher) LookupAndDeleteMap() map[NetFlowId]*NetFlowMetrics {
 	panic("this is never going to be executed")
 }
 
@@ -24,8 +27,12 @@ func (s *SockFlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
 	panic("this is never going to be executed")
 }
 
+func (s *SockFlowFetcher) FlowPacketStatsMap() *ebpf.Map {
+	panic("this is never going to be executed")
+}
+
 func NewSockFlowFetcher(
-	_, _ int, _ flowdef.PortGuessPolicy,
+	_, _ int, _ flowdef.PortGuessPolicy, _ config.EBPFMapReader,
 ) (*SockFlowFetcher, error) {
 	// avoids linter complaining
 	return nil, nil

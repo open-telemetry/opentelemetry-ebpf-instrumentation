@@ -6,13 +6,12 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
-#include <common/http_types.h>
-#include <common/pin_internal.h>
-#include <common/sockaddr.h>
 #include <common/ssl_args.h>
-#include <common/tcp_info.h>
+#include <common/trace_key.h>
+#include <common/trace_lifecycle.h>
 
 #include <generictracer/k_tracer_defs.h>
+#include <generictracer/protocol_http.h>
 
 #include <generictracer/maps/pid_tid_to_conn.h>
 #include <generictracer/maps/ssl_to_pid_tid.h>

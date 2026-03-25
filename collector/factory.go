@@ -7,16 +7,17 @@ import (
 	"errors"
 
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver"
-
-	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 var (
 	typeStr = component.MustNewType("obi")
 
 	errInvalidConfig = errors.New("invalid config")
+
+	// errUnsupportedPlatform is returned by the receiver factory on platforms where OBI
+	// is not supported (non-Linux or non-amd64/arm64).
+	errUnsupportedPlatform = errors.New("OBI receiver is only supported on Linux amd64/arm64")
 )
 
 // NewFactory creates a factory for the receiver.
@@ -29,13 +30,4 @@ func NewFactory() receiver.Factory {
 		receiver.WithTraces(BuildTracesReceiver(), component.StabilityLevelAlpha),
 		receiver.WithMetrics(BuildMetricsReceiver(), component.StabilityLevelAlpha),
 	)
-}
-
-func defaultConfig() component.Config {
-	cfg := obi.DefaultConfig
-	// These are placeholders for the consumers, without these obi config will be invalid.
-	// The actual consumers are set when the receiver is created.
-	cfg.Traces.TracesConsumer = consumertest.NewNop()
-	cfg.OTELMetrics.MetricsConsumer = consumertest.NewNop()
-	return &cfg
 }

@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/tools/debug
 
-go 1.25.7
+go 1.25.8
 
 require github.com/go-delve/delve v1.26.1
 

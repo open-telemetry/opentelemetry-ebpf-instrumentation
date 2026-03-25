@@ -8,7 +8,7 @@
 #include <bpfcore/bpf_endian.h>
 #include <bpfcore/bpf_core_read.h>
 
-#include <common/http_types.h>
+#include <common/connection_info.h>
 #include <common/protocol_defs.h>
 
 typedef struct sock_args {

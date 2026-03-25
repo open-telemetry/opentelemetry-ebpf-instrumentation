@@ -11,7 +11,7 @@ services:
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
-      - {{ .ConfigDir }}:/configs
+      - ./configs:/configs
       - ./testoutput/run:/var/run/obi
       - ../../../../testoutput:/coverage
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
@@ -28,7 +28,7 @@ services:
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "true"
       OTEL_EBPF_JAVA_ROUTE_HARVEST_DELAY: "10s"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://lgtm:4318"
     depends_on:
       testserver:
         condition: service_started

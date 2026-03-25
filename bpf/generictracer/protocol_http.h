@@ -9,6 +9,8 @@
 #include <bpfcore/utils.h>
 
 #include <common/common.h>
+#include <common/connection_info.h>
+#include <common/event_defs.h>
 #include <common/http_types.h>
 #include <common/large_buffers.h>
 #include <common/ringbuf.h>
@@ -16,6 +18,7 @@
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
 #include <common/trace_parent.h>
+#include <common/tracked_connection.h>
 
 #include <generictracer/maps/http_info_mem.h>
 
@@ -24,8 +27,8 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <maps/accepted_connections.h>
 #include <maps/active_ssl_connections.h>
+#include <maps/connection_tracker.h>
 #include <maps/ongoing_http.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>
@@ -401,20 +404,28 @@ static __always_inline void process_http_request(
 
     fixup_connection_info(&info->conn_info, info->type == EVENT_HTTP_CLIENT, orig_dport);
 
-    const u64 start_time = bpf_ktime_get_ns();
+    u64 start_time = bpf_ktime_get_ns();
     u64 req_time = start_time;
 
-    if (info->type == EVENT_HTTP_REQUEST) {
-        u64 *accept_time = bpf_map_lookup_elem(&accepted_connections, &info->conn_info);
-        if (accept_time) {
+    tracked_connection_t *t_conn = bpf_map_lookup_elem(&connection_tracker, &info->conn_info);
+    if (t_conn) {
+        if (t_conn->time) {
             bpf_d_printk("prev_start_time=%ld, actual_start_time=%ld [%s]",
                          start_time,
-                         *accept_time,
+                         t_conn->time,
                          __FUNCTION__);
-            req_time = *accept_time;
-            // delete just in case the connection is reused, so we don't produce wrong info
-            bpf_map_delete_elem(&accepted_connections, &info->conn_info);
+            req_time = t_conn->time;
+            // Splitting client calls with in-queue and processing can be noisy in traces.
+            // We want to record the earlier time, but we don't want to split them, therefore
+            // we set both start_time and req_time to the same earlier value.
+            if (info->type == EVENT_HTTP_CLIENT) {
+                start_time = req_time;
+            }
         }
+        // set the time to zero in case the connection is reused, so we don't produce wrong info
+        // but keep the connection info around so that we can tell which connections are valid
+        // in the socket filter
+        t_conn->time = 0;
     }
 
     info->start_monotime_ns = start_time;
@@ -464,11 +475,19 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
                                                   u8 packet_type,
                                                   u8 direction,
                                                   enum large_buf_action action) {
-    if (http_buffer_size == 0) {
+    if (http_max_captured_bytes > k_large_buf_max_http_captured_bytes) {
+        bpf_dbg_printk("BUG: http_max_captured_bytes exceeds maximum allowed value.");
+    }
+
+    const u32 bytes_sent =
+        packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
+
+    if (http_max_captured_bytes == 0 || bytes_sent >= http_max_captured_bytes || bytes_len == 0) {
         return 0;
     }
 
-    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)http_large_buffers_mem();
+    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
+
     if (!large_buf) {
         bpf_dbg_printk("failed to reserve space for HTTP large buffer");
         return -1;
@@ -481,47 +500,22 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
     large_buf->action = action;
     large_buf->tp = req->tp;
 
-    req->has_large_buffers = true;
+    u32 max_available_bytes = http_max_captured_bytes - bytes_sent;
+    bpf_clamp_umax(max_available_bytes, k_large_buf_max_http_captured_bytes);
 
-    u32 available_bytes = bytes_len;
-    // limit by the userspace requested size
-    if (available_bytes > http_buffer_size) {
-        available_bytes = http_buffer_size;
+    const u32 available_bytes = bytes_len > max_available_bytes ? max_available_bytes : bytes_len;
+    const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
+
+    if (consumed_bytes > 0) {
+        req->has_large_buffers = true;
     }
-    // limit by the maximum bytes we can ever export
-    bpf_clamp_umax(available_bytes, k_large_buffer_read_limit);
 
-    bpf_dbg_printk("sending large buffer, total size=%d, packet_type=%d, direction %d",
-                   bytes_len,
-                   packet_type,
-                   direction);
+    bpf_dbg_printk("large buffer consumed %u bytes", consumed_bytes);
 
-    const uint32_t niter = (available_bytes / k_large_buf_payload_max_size) +
-                           ((available_bytes % k_large_buf_payload_max_size) > 0);
-
-    int b = 0;
-    for (; b < niter; b++) {
-        const u32 offset = b * k_large_buf_payload_max_size;
-        if (offset >= k_large_buffer_read_limit) {
-            break;
-        }
-        u32 read_size = available_bytes;
-        bpf_clamp_umax(read_size, k_large_buf_payload_max_size);
-        bpf_probe_read(large_buf->buf, read_size, (void *)(&u_buf[offset]));
-
-        // left here intentionally for debugging
-        // bpf_dbg_printk("sending large buffer, size=%d, action=%d", read_size, action);
-
-        large_buf->len = read_size;
-
-        u32 total_size = sizeof(tcp_large_buffer_t);
-        total_size += large_buf->len > sizeof(void *) ? large_buf->len : sizeof(void *);
-
-        bpf_clamp_umax(total_size, k_large_buf_max_size);
-        bpf_ringbuf_output(&events, large_buf, total_size, get_flags());
-
-        available_bytes -= read_size;
-        large_buf->action = k_large_buf_action_append;
+    if (packet_type == PACKET_TYPE_REQUEST) {
+        req->lb_req_bytes += consumed_bytes;
+    } else {
+        req->lb_res_bytes += consumed_bytes;
     }
 
     return 0;
