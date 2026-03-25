@@ -41,11 +41,11 @@ func (r recordGetters) get(name attr.Name) (attributes.Getter[*Record, attribute
 		getter = func(r *Record) attribute.KeyValue { return attribute.String(string(attr.OBIIP), r.CommonAttrs.OBIIP) }
 	case attr.Transport:
 		getter = func(r *Record) attribute.KeyValue {
-			return attribute.String(string(attr.Transport), transport.Protocol(r.Id.TransportProtocol).String())
+			return attribute.String(string(attr.Transport), transport.Protocol(r.NetAttrs.TransportProtocol).String())
 		}
 	case attr.NetworkType:
 		getter = func(r *Record) attribute.KeyValue {
-			return attribute.String(string(attr.NetworkType), transport.NetworkType(r.Id.EthProtocol).String())
+			return attribute.String(string(attr.NetworkType), transport.NetworkType(r.NetAttrs.EthProtocol).String())
 		}
 	case attr.NetworkProtocol:
 		getter = func(r *Record) attribute.KeyValue {

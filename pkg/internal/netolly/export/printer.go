@@ -34,7 +34,7 @@ func FlowPrinterProvider(enabled bool, input *msg.Queue[[]*ebpf.Record]) swarm.R
 func printFlow(f *ebpf.Record) {
 	sb := strings.Builder{}
 	sb.WriteString("transport=")
-	sb.WriteString(strconv.Itoa(int(f.Id.TransportProtocol)))
+	sb.WriteString(strconv.Itoa(int(f.NetAttrs.TransportProtocol)))
 	sb.WriteByte(' ')
 	sb.WriteString(attr.VendorPrefix)
 	sb.WriteString(".ip=")
