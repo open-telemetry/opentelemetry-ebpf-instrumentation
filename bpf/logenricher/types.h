@@ -78,17 +78,31 @@ static __always_inline void tty_dev_fill(struct tty_dev *dev, struct tty_struct 
 }
 
 static __always_inline bool tty_driver_is_pty(struct tty_struct *tty) {
+    int typ;
     if (bpf_core_enum_value_exists(enum tty_driver_type___new, TTY_DRIVER_TYPE_PTY)) {
-        int typ = bpf_core_enum_value(enum tty_driver_type___new, TTY_DRIVER_TYPE_PTY);
+        typ = bpf_core_enum_value(enum tty_driver_type___new, TTY_DRIVER_TYPE_PTY);
+    } else {
+        typ = k_tty_driver_type_pty;
+    }
+
+    if (bpf_core_field_exists(((struct tty_driver *)0)->type)) {
         return BPF_CORE_READ(tty, driver, type) == typ;
     }
-    return BPF_CORE_READ(tty, driver, type) == k_tty_driver_type_pty;
+
+    return false;
 }
 
 static __always_inline bool tty_driver_is_master(struct tty_struct *tty) {
+    int typ;
     if (bpf_core_enum_value_exists(enum tty_driver_subtype___new, PTY_TYPE_MASTER)) {
-        int typ = bpf_core_enum_value(enum tty_driver_subtype___new, PTY_TYPE_MASTER);
+        typ = bpf_core_enum_value(enum tty_driver_subtype___new, PTY_TYPE_MASTER);
+    } else {
+        typ = k_tty_driver_subtype_pty_master;
+    }
+
+    if (bpf_core_field_exists(((struct tty_driver *)0)->subtype)) {
         return BPF_CORE_READ(tty, driver, subtype) == typ;
     }
-    return BPF_CORE_READ(tty, driver, subtype) == k_tty_driver_subtype_pty_master;
+
+    return false;
 }
