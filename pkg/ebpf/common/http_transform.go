@@ -260,7 +260,7 @@ func httpSafeParseResponse(responseBuffer *largebuf.LargeBuffer, req *http.Reque
 		rd.Reset(&r)
 		return http.ReadResponse(rd, req)
 	}
-	return resp, nil
+	return resp, err
 }
 
 func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *largebuf.LargeBuffer) request.Span {
