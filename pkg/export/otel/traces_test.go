@@ -716,6 +716,17 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		}
 	}
 
+	makeAnthropicSpan := func(ai *request.VendorAnthropic) request.Span {
+		return request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeAnthropic,
+			Method:  "POST",
+			Path:    "https://api.anthropic.com/v1/messages",
+			Status:  200,
+			GenAI:   &request.GenAI{Anthropic: ai},
+		}
+	}
+
 	t.Run("OpenAI span - core attributes, no optional", func(t *testing.T) {
 		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "resp_abc123",
@@ -989,6 +1000,104 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOperationNameKey)
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
 	})
+
+	t.Run("Anthropic span", func(t *testing.T) {
+		span := makeAnthropicSpan(&request.VendorAnthropic{
+			Input: request.AnthropicRequest{
+				Model: "claude-sonnet-4-6",
+			},
+			Output: request.AnthropicResponse{
+				ID:    "msg_01QCj5VkxPS3NQUtrt5Npjcr",
+				Type:  "message",
+				Model: "claude-sonnet-4-6",
+				Usage: request.AnthropicUsage{
+					InputTokens:  15,
+					OutputTokens: 35,
+				},
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "anthropic")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "message")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseIDKey, "msg_01QCj5VkxPS3NQUtrt5Npjcr")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIRequestModelKey, "claude-sonnet-4-6")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseModelKey, "claude-sonnet-4-6")
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAISystemInstructionsKey)
+	})
+
+	t.Run("Anthropic span - optional attributes and error request id", func(t *testing.T) {
+		span := makeAnthropicSpan(&request.VendorAnthropic{
+			Input: request.AnthropicRequest{
+				Model:    "claude-sonnet-4-6",
+				Messages: []byte(`[{"role":"user","content":"Explain quantum computing in simple terms"}]`),
+				System:   "Be concise.",
+				Tools:    []byte(`[{"name":"calculator","description":"Performs arithmetic"}]`),
+			},
+			Output: request.AnthropicResponse{
+				Model:     "claude-sonnet-4-6",
+				Type:      "message",
+				Content:   []byte(`[{"type":"text","text":"Quantum computing uses superposition."}]`),
+				RequestID: "req_011CZLkWqu2dABS8vFB9G6Lz",
+				Usage: request.AnthropicUsage{
+					InputTokens:  17,
+					OutputTokens: 37,
+				},
+				Error: &request.AnthropicError{
+					Type:    "authentication_error",
+					Message: "invalid x-api-key",
+				},
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "anthropic")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseIDKey, "req_011CZLkWqu2dABS8vFB9G6Lz")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, `[{"role":"user","content":"Explain quantum computing in simple terms"}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOutputMessagesKey, `[{"type":"text","text":"Quantum computing uses superposition."}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, "Be concise.")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIToolDefinitionsKey, `[{"name":"calculator","description":"Performs arithmetic"}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "authentication_error")
+		ensureTraceStrAttr(t, spanAttrs, attribute.Key("error.message"), "invalid x-api-key")
+	})
+
+	t.Run("Anthropic span - nil Anthropic means no GenAI attrs", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeAnthropic,
+			Method:  "POST",
+			Status:  200,
+			GenAI:   &request.GenAI{Anthropic: nil},
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIProviderNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOperationNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+	})
+
 	t.Run("test HTTP server span with extracted headers", func(t *testing.T) {
 		span := request.Span{
 			Type:   request.EventTypeHTTP,

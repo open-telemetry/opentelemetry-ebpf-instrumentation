@@ -16,34 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
-func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
-
-	// fmt.Printf("==== REQUEST ====\n")
-	// for k, v := range req.Header {
-	// 	fmt.Printf("%s: %s\n", k, v)
-	// }
-
-	// reqB1, err := io.ReadAll(req.Body)
-	// if err != nil {
-	// 	return *baseSpan, false
-	// }
-	// a := io.NopCloser(bytes.NewBuffer(reqB1))
-
-	// fmt.Printf("%v\n", a)
-
-	// fmt.Printf("==== RESPONSE ====\n")
-	// for k, v := range resp.Header {
-	// 	fmt.Printf("%s: %s\n", k, v)
-	// }
-
-	// respB1, err := getResponseBody(resp)
-	// if err != nil && len(respB1) == 0 {
-	// 	return *baseSpan, false
-	// }
-
-	// fmt.Printf("%s\n", string(respB1))
-
-	// Check any of the well known response headers that Anthropic would use
+func isAnthropic(hdr http.Header) bool {
 	isAnthropic := false
 	for _, header := range []string{
 		"Anthropic-Organization-Id",
@@ -52,7 +25,7 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		"Anthropic-Ratelimit-Input-Tokens-Limit",
 		"Anthropic-Ratelimit-Requests-Limit",
 	} {
-		if val := resp.Header.Get(header); val != "" {
+		if val := hdr.Get(header); val != "" {
 			isAnthropic = true
 			break
 		}
@@ -61,7 +34,7 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 	// we do this extra check because for errors they don't
 	// send the usual Anthropic headers
 	if !isAnthropic {
-		for _, v := range resp.Header {
+		for _, v := range hdr {
 			for _, hv := range v {
 				if strings.Contains(hv, "api.anthropic.com") {
 					isAnthropic = true
@@ -70,6 +43,12 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 			}
 		}
 	}
+
+	return isAnthropic
+}
+
+func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
+	isAnthropic := isAnthropic(resp.Header)
 
 	if !isAnthropic {
 		return *baseSpan, false
