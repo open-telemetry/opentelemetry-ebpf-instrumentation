@@ -1,30 +1,23 @@
+oats-schema-version: 2
 docker-compose:
-  generator: generic
   files:
-    - ../docker-compose-obi-go-redis.yml
+  - ../docker-compose-obi-go-redis.yml
 input:
-  - path: '/fail'
-
+- path: /fail
 interval: 500ms
 expected:
-  # OATS needs improvements for us to be able to pull this off. 
-  # It requires that a span name is unique, e.g. always expects the tempo response
-  # to return one result only. 
   traces:
-    - traceql: '{ .db.system.name = "redis" }'
-      spans:
-        - name: 'REDIS'
-          allow-duplicates: true
-          status: '{Message: "", Code: 2}'
-            
+  # OATS needs improvements for us to be able to pull this off.
+  # It requires that a span name is unique, e.g. always expects the tempo response
+  # to return one result only.
+  - traceql: '{ .db.system.name = "redis" && status = error }'
+    equals: REDIS
   metrics:
-    - promql: 'db_client_operation_duration_seconds_sum{error_type!="", db_system_name="redis"}'
-      value: "> 0"
-    - promql: 'db_client_operation_duration_seconds_bucket{le="0", error_type!="", db_system_name="redis"}'
-      value: "== 0"
-    - promql: 'db_client_operation_duration_seconds_bucket{le="10", error_type!="", db_system_name="redis"}'
-      value: "> 0"
-    - promql: 'db_client_operation_duration_seconds_count{error_type!="", db_system_name="redis"}'
-      value: "> 0"
-
-
+  - promql: db_client_operation_duration_seconds_sum{error_type!="", db_system_name="redis"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_bucket{le="0", error_type!="", db_system_name="redis"}
+    value: == 0
+  - promql: db_client_operation_duration_seconds_bucket{le="10", error_type!="", db_system_name="redis"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_count{error_type!="", db_system_name="redis"}
+    value: '> 0'

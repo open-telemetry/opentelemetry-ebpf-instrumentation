@@ -21,7 +21,7 @@ services:
       mysqlserver:
         condition: service_healthy
     ports:
-      - "{{ .ApplicationPort }}:8080"
+      - "8080:8080"
   autoinstrumenter:
     build:
       context: ../../../..
@@ -29,7 +29,7 @@ services:
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
-      - {{ .ConfigDir }}:/configs
+      - ./configs:/configs
       - ./testoutput/run:/var/run/obi
       - ../../../../testoutput:/coverage
     cap_add:
@@ -47,7 +47,7 @@ services:
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "true"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://lgtm:4318"
     depends_on:
       mysqlserver:
         condition: service_healthy

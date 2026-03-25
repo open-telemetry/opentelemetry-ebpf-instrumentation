@@ -6,9 +6,12 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/pin_internal.h>
+
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 16);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } stats_events SEC(".maps");
 
 static __always_inline long stats_events_flags() {

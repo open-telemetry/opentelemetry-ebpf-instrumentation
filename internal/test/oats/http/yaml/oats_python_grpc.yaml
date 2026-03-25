@@ -1,12 +1,11 @@
+oats-schema-version: 2
 docker-compose:
-  generator: generic
   files:
-    - ../docker-compose-python-grpc.yml
+  - ../docker-compose-python-grpc.yml
 input:
-  - path: "/query"
-
+- path: /query
 interval: 500ms
 expected:
   metrics:
-    - promql: 'rpc_server_duration_seconds_count{rpc_method="/routeguide.RouteGuide/GetFeature"}'
-      value: "> 5"
+  - promql: rpc_server_duration_seconds_count{rpc_method="/routeguide.RouteGuide/GetFeature"}
+    value: '> 5'

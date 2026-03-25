@@ -28,7 +28,7 @@ cmd/               Go binary entry points (obi, k8s-cache, …)
 pkg/               Public Go packages
 pkg/internal/      Internal Go packages; ebpf/ subdirectory holds per-subsystem loaders
 internal/          Integration test infrastructure
-  test/integration/ Integration tests (build tag: //go:build integration)
+  test/integration/ Integration tests
 configs/           Example and default configuration files
 ```
 
@@ -67,10 +67,10 @@ For Markdown-only changes, run `make lint-markdown`.
 
 C code must be formatted and linted before proposing changes. Run `make install-hooks` to install pre-commit hooks that enforce this automatically, or run `make clang-format` and `make clang-tidy` manually.
 
-Integration tests live in `internal/test/integration/` and require the `integration` build tag:
+Integration tests live in `internal/test/integration/`:
 
 ```
-go test -v -tags integration -run <TestName> -timeout 10m ./internal/test/integration/
+go test -v -run <TestName> -timeout 10m ./internal/test/integration/
 ```
 
 Do not propose changes that fail local validation.

@@ -6,6 +6,7 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1531,4 +1532,124 @@ func testHTTPTracesNestedNodeJSLargeHTTPS(t *testing.T) {
 
 	// We must see two children
 	require.Len(t, children, 2)
+}
+
+func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls int) {
+	waitForTestComponentsSub(t, "http://localhost:8391", "/health")
+
+	const requests = 20
+	for i := 1; i <= requests; i++ {
+		go ti.DoHTTPGet(t, "http://localhost:8391"+endpoint+strconv.Itoa(i), 200)
+	}
+
+	for i := 1; i <= requests; i++ {
+		slug := strconv.Itoa(i)
+		urlPath := endpoint + slug
+		var trace jaeger.Trace
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			resp, err := http.Get(jaegerQueryURL + "?service=pythonasync-uvloop&operation=GET%20" + endpoint + slug)
+			require.NoError(ct, err)
+			if resp == nil {
+				return
+			}
+			require.Equal(ct, http.StatusOK, resp.StatusCode)
+			var tq jaeger.TracesQuery
+			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+			traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath})
+			require.GreaterOrEqualf(
+				ct,
+				len(traces),
+				1,
+				"slug=%s urlPath=%s queryData=%d",
+				slug,
+				urlPath,
+				len(tq.Data),
+			)
+			for i := range traces {
+				if len(traces[i].FindByOperationName("GET /", "client")) >= expectedClientCalls {
+					trace = traces[i]
+					break
+				}
+			}
+
+			res := trace.FindByOperationName("GET "+urlPath, "server")
+			require.GreaterOrEqualf(
+				ct,
+				len(res),
+				1,
+				"slug=%s urlPath=%s traces=%d selectedTraceSpans=%d selectedClientSpans=%d",
+				slug,
+				urlPath,
+				len(traces),
+				len(trace.Spans),
+				len(trace.FindByOperationName("GET /", "client")),
+			)
+			server := res[0]
+			require.NotEmpty(ct, server.TraceID)
+			require.NotEmpty(ct, server.SpanID)
+
+			sd := server.Diff(
+				jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+				jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+				jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath},
+				jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8391)},
+				jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+			)
+			assert.Empty(ct, sd, sd.String())
+
+			res = trace.FindByOperationName("GET /", "client")
+			require.GreaterOrEqual(ct, len(res), expectedClientCalls)
+			for _, client := range res {
+				require.NotEmpty(ct, client.TraceID)
+				require.Equal(ct, server.TraceID, client.TraceID)
+				require.NotEmpty(ct, client.SpanID)
+
+				parent, ok := trace.ParentOf(&client)
+				require.True(ct, ok)
+				require.Equal(ct, server.TraceID, parent.TraceID)
+
+				sd = client.Diff(
+					jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+					jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+					jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},
+					jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
+				)
+				assert.Empty(ct, sd, sd.String())
+			}
+
+			res = trace.FindByOperationName("GET /", "server")
+			require.GreaterOrEqual(ct, len(res), 1)
+			for _, ts := range res {
+				require.Equal(ct, server.TraceID, ts.TraceID)
+				parent, ok := trace.ParentOf(&ts)
+				require.True(ct, ok)
+				require.Equal(ct, server.TraceID, parent.TraceID)
+
+				sd = ts.Diff(
+					jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+					jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+					jaeger.Tag{Key: "url.path", Type: "string", Value: "/"},
+					jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},
+					jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+				)
+				assert.Empty(ct, sd, sd.String())
+			}
+		}, testTimeout, 100*time.Millisecond)
+	}
+}
+
+func testPythonAsyncSequential(t *testing.T) {
+	testPythonAsyncEndpoint(t, "/sequential/", 3)
+}
+
+func testPythonAsyncToThread(t *testing.T) {
+	testPythonAsyncEndpoint(t, "/to-thread/", 2)
+}
+
+func testPythonAsyncNested(t *testing.T) {
+	testPythonAsyncEndpoint(t, "/nested/", 2)
+}
+
+func testPythonAsyncConcurrent(t *testing.T) {
+	testPythonAsyncEndpoint(t, "/concurrent/", 3)
 }

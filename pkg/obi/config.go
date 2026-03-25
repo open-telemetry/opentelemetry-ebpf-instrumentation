@@ -240,10 +240,11 @@ var DefaultConfig = Config{
 			HostnameDNSResolution: true,
 		},
 		Kubernetes: transform.KubernetesDecorator{
-			Enable:                kubeflags.EnabledDefault,
-			InformersSyncTimeout:  30 * time.Second,
-			InformersResyncPeriod: 30 * time.Minute,
-			ResourceLabels:        kube.DefaultResourceLabels,
+			Enable:                   kubeflags.EnabledDefault,
+			InformersSyncTimeout:     30 * time.Second,
+			ReconnectInitialInterval: 5 * time.Second,
+			InformersResyncPeriod:    30 * time.Minute,
+			ResourceLabels:           kube.DefaultResourceLabels,
 		},
 		HostID:                         HostIDConfig{},
 		MetadataRetry:                  meta.DefaultRetryConfig,
@@ -607,10 +608,6 @@ func (c *Config) Validate() error {
 		if err := tcmanager.EnsureCiliumCompatibility(c.EBPF.TCBackend); err != nil {
 			return ConfigError("Cilium compatibility error: " + err.Error())
 		}
-	}
-
-	if c.Attributes.Kubernetes.InformersSyncTimeout == 0 {
-		return ConfigError("OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT duration must be greater than 0s")
 	}
 
 	if c.Enabled(FeatureNetO11y) && !c.OTELMetrics.EndpointEnabled() &&

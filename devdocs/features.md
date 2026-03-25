@@ -85,4 +85,4 @@ OBI has support for several asynchronous frameworks that allow it to propagate c
 | Node.js Async Hooks |  Node.js  |   Node.js >= 8.0 | Custom handling of SIGUSR1 signal might interfere | Stable
 | Ruby Puma Server    |   Ruby    |              N/A | Only works with Puma server                       | Stable
 | Java Thread pool    |   Java    |           JDK 8+ | N/A                                               | Stable
-| Python asyncio      |  Python   |    Python >= 3.7 | N/A                                               | In Progress
+| Python asyncio      |  Python   |    Python >= 3.9 | Only works with uvloop event loop                 | Stable

@@ -44,10 +44,10 @@ func TestClientForwardsLastTimestamp(t *testing.T) {
 
 	// GIVEN a K8s cache client
 	svc := cacheSvcClient{
-		address:       fmt.Sprintf("127.0.0.1:%d", fcs.port),
-		BaseNotifier:  meta.NewBaseNotifier(klog()),
-		syncTimeout:   timeout,
-		reconnectTime: 10 * time.Millisecond,
+		address:                  fmt.Sprintf("127.0.0.1:%d", fcs.port),
+		BaseNotifier:             meta.NewBaseNotifier(klog()),
+		syncTimeout:              timeout,
+		reconnectInitialInterval: 10 * time.Millisecond,
 	}
 
 	// WHEN it is subscribed to a cache service for the first time

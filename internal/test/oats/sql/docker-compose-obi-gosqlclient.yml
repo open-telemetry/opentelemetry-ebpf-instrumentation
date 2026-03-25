@@ -15,7 +15,7 @@ services:
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
-      - {{ .ConfigDir }}:/configs
+      - ./configs:/configs
       - ./testoutput/run:/var/run/obi
       - ../../../../testoutput:/coverage
     cap_add:
@@ -26,14 +26,14 @@ services:
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
-      OTEL_EBPF_OPEN_PORT: {{ .ApplicationPort }}
+      OTEL_EBPF_OPEN_PORT: 8080
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_EBPF_METRICS_INTERVAL: "10ms"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "true"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://lgtm:4318"
     depends_on:
       testserver:
         condition: service_started

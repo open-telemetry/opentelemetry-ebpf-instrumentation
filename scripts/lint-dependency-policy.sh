@@ -75,7 +75,7 @@ report_issue() {
   local line="$2"
   local message="$3"
 
-  printf '%s:%s: %s\n' "$file" "$line" "$message"
+  printf '%s:%s: %s\n' "$file" "$line" "$message" >&2
 }
 
 collect_files() {

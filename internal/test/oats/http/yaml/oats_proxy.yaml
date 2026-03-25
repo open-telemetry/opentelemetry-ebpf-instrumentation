@@ -1,14 +1,11 @@
+oats-schema-version: 2
 docker-compose:
-  generator: generic
   files:
-    - ../docker-compose-proxy.yml
+  - ../docker-compose-proxy.yml
 input:
-  - path: "/smoke"
-
+- path: /smoke
 interval: 500ms
 expected:
   traces:
-    - traceql: '{ .http.route = "/smoke" && .server.port=8080}'
-      spans:
-        - name: "GET /smoke"
-          allow-duplicates: true
+  - traceql: '{ .http.route = "/smoke" && .server.port=8080}'
+    equals: GET /smoke

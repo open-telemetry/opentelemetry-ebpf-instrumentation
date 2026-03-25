@@ -1,14 +1,13 @@
+oats-schema-version: 2
 docker-compose:
-  generator: generic
   files:
-    - ../docker-compose-java-tls-netty.yml
+  - ../docker-compose-java-tls-netty.yml
 input:
-  - path: "/api/request?url=https://httpbin.org/get"
+- path: /api/request?url=https://httpbin.org/get
 interval: 500ms
 expected:
   traces:
-    - traceql: '{ .url.full = "/get" }'
-      spans:
-        - name: "GET /get"
-          attributes:
-            server.port: "443"
+  - traceql: '{ .url.full = "/get" }'
+    equals: GET /get
+    attributes:
+      server.port: '443'

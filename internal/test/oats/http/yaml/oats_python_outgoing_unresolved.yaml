@@ -1,12 +1,11 @@
+oats-schema-version: 2
 docker-compose:
-  generator: generic
   files:
-    - ../docker-compose-python-unresolved.yml
+  - ../docker-compose-python-unresolved.yml
 input:
-  - path: "/without_name"
-
+- path: /without_name
 interval: 500ms
 expected:
   metrics:
-    - promql: 'traces_service_graph_request_client_seconds_count{client="testserver", server="outgoing"}'
-      value: "> 5"
+  - promql: traces_service_graph_request_client_seconds_count{client="testserver", server="outgoing"}
+    value: '> 5'
