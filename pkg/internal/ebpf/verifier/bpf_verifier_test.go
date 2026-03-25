@@ -16,6 +16,7 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/require"
 
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	generictracerbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 	gotracerbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
@@ -39,6 +40,12 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 	t.Run(name, func(t *testing.T) {
 		spec, err := loadFn()
 		require.NoError(t, err, "failed to load collection spec")
+
+		// On kernels < 5.17, replace obi_protocol_http (which uses bpf_loop)
+		// with obi_protocol_http_legacy, matching what the production loader does.
+		if spec.Programs["obi_protocol_http"] != nil {
+			ebpfcommon.FixupSpec(spec, false)
+		}
 
 		if len(consts) > 0 && consts[0] != nil {
 			err = ebpfconvenience.RewriteConstants(spec, consts[0])
