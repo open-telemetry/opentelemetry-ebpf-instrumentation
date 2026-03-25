@@ -221,7 +221,7 @@ func TestDo(t *testing.T) {
 				SrcName: "svc-a", DstName: "svc-b",
 				SrcZone: "us-east-1a", DstZone: "us-east-1b",
 			},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 100}},
+			Metrics: ebpf.NetFlowMetrics{Bytes: 100},
 		},
 		// same-zone record: should be tracked by flowBytes only
 		{
@@ -229,7 +229,7 @@ func TestDo(t *testing.T) {
 				SrcName: "svc-c", DstName: "svc-d",
 				SrcZone: "us-east-1a", DstZone: "us-east-1a",
 			},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 200}},
+			Metrics: ebpf.NetFlowMetrics{Bytes: 200},
 		},
 	})
 

@@ -57,10 +57,8 @@ func TestRecordGettersWithPortGuessMode_DisableUnknownInitiator(t *testing.T) {
 
 func TestRecordGettersWithPortGuessMode_DisableKnownInitiator(t *testing.T) {
 	record := &Record{
-		NetFlowRecordT: NetFlowRecordT{
-			Metrics: NetFlowMetrics{
-				Initiator: InitiatorSrc,
-			},
+		Metrics: NetFlowMetrics{
+			Initiator: InitiatorSrc,
 		},
 		CommonAttrs: pipe.CommonAttrs{
 			SrcPort: 45678,

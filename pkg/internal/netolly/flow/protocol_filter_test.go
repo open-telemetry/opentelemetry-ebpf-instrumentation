@@ -11,20 +11,19 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/flow/transport"
-	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 var (
-	tcp1  = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{TransportProtocol: uint8(transport.TCP)}}, CommonAttrs: pipe.CommonAttrs{SrcPort: 1}}
-	tcp2  = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{TransportProtocol: uint8(transport.TCP)}}, CommonAttrs: pipe.CommonAttrs{SrcPort: 2}}
-	tcp3  = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{TransportProtocol: uint8(transport.TCP)}}, CommonAttrs: pipe.CommonAttrs{SrcPort: 3}}
-	udp1  = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{TransportProtocol: uint8(transport.UDP)}}, CommonAttrs: pipe.CommonAttrs{SrcPort: 4}}
-	udp2  = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{TransportProtocol: uint8(transport.UDP)}}, CommonAttrs: pipe.CommonAttrs{SrcPort: 5}}
-	icmp1 = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{TransportProtocol: uint8(transport.ICMP)}}, CommonAttrs: pipe.CommonAttrs{SrcPort: 7}}
-	icmp2 = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{TransportProtocol: uint8(transport.ICMP)}}, CommonAttrs: pipe.CommonAttrs{SrcPort: 8}}
-	icmp3 = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{TransportProtocol: uint8(transport.ICMP)}}, CommonAttrs: pipe.CommonAttrs{SrcPort: 9}}
+	tcp1  = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.TCP), SrcPort: 1}, ebpf.NetFlowMetrics{})
+	tcp2  = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.TCP), SrcPort: 2}, ebpf.NetFlowMetrics{})
+	tcp3  = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.TCP), SrcPort: 3}, ebpf.NetFlowMetrics{})
+	udp1  = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.UDP), SrcPort: 4}, ebpf.NetFlowMetrics{})
+	udp2  = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.UDP), SrcPort: 5}, ebpf.NetFlowMetrics{})
+	icmp1 = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.ICMP), SrcPort: 7}, ebpf.NetFlowMetrics{})
+	icmp2 = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.ICMP), SrcPort: 8}, ebpf.NetFlowMetrics{})
+	icmp3 = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.ICMP), SrcPort: 9}, ebpf.NetFlowMetrics{})
 )
 
 func TestProtocolFilter_Allow(t *testing.T) {

@@ -28,12 +28,8 @@ func TestDecoration(t *testing.T) {
 	}, in, out)(t.Context())
 
 	// When it receives flows
-	f1 := &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
-		Id: ebpf.NetFlowId{IfIndex: 1},
-	}}
-	f2 := &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
-		Id: ebpf.NetFlowId{IfIndex: 2},
-	}}
+	f1 := ebpf.NewRecord(ebpf.NetFlowId{IfIndex: 1}, ebpf.NetFlowMetrics{})
+	f2 := ebpf.NewRecord(ebpf.NetFlowId{IfIndex: 2}, ebpf.NetFlowMetrics{})
 
 	in.Send([]*ebpf.Record{f1, f2})
 
