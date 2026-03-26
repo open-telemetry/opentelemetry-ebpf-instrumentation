@@ -178,16 +178,15 @@ lint-dependency-policy:
 	fi
 
 MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
-WORKDIR := "/go/src/go.opentelemetry.io/obi"
 .PHONY: lint-markdown
 lint-markdown:
 	@echo "### Linting markdown"
-	@docker run --rm -u $(DOCKER_USER) -v "$(CURDIR):$(WORKDIR)" -w "$(WORKDIR)" $(MARKDOWNIMAGE) -c $(WORKDIR)/.markdownlint.yaml $(WORKDIR)/**/*.md
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) "**/*.md"
 
 .PHONY: lint-markdown-fix
 lint-markdown-fix:
 	@echo "### Formatting markdown"
-	@docker run --rm -u $(DOCKER_USER) -v "$(CURDIR):$(WORKDIR)" -w "$(WORKDIR)" $(MARKDOWNIMAGE) -c $(WORKDIR)/.markdownlint.yaml --fix $(WORKDIR)/**/*.md
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --fix "**/*.md"
 
 .PHONY: update-offsets
 update-offsets: $(GO_OFFSETS_TRACKER)
