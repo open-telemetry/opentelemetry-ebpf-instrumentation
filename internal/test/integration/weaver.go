@@ -69,7 +69,7 @@ func runWeaverValidation(t *testing.T) {
 
 	// Signal weaver to stop accepting data and produce its report.
 	url := fmt.Sprintf("http://127.0.0.1:%d/stop", weaverAdminPort)
-	resp, err := http.Post(url, "", nil) //nolint:gosec,noctx
+	resp, err := http.Post(url, "", nil) //nolint:noctx
 	if err != nil {
 		t.Fatalf("failed to stop weaver (is it running?): %v", err)
 	}
@@ -116,7 +116,7 @@ func validateWeaverReport(t *testing.T, report *weaverReport, exitCode string) {
 	stats := &report.Statistics
 
 	// Weaver must have received telemetry data.
-	require.Greater(t, len(report.Samples), 0,
+	require.NotEmptyf(t, report.Samples,
 		"weaver received no samples — OTLP data did not reach weaver")
 
 	violations := stats.AdviceLevelCounts["violation"]
