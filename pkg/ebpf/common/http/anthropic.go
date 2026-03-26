@@ -107,6 +107,10 @@ type MessageStartEvent struct {
 		ID    string `json:"id"`
 		Type  string `json:"type"`
 		Role  string `json:"role"`
+		Usage struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
 	} `json:"message"`
 }
 
@@ -187,6 +191,8 @@ func processEvent(eventType, data string, response *request.AnthropicResponse, c
 		response.ID = event.Message.ID
 		response.Role = event.Message.Role
 		response.Type = event.Message.Type
+		response.Usage.InputTokens += event.Message.Usage.InputTokens
+		response.Usage.OutputTokens += event.Message.Usage.OutputTokens
 
 	case "content_block_delta":
 		var event ContentBlockDelta
@@ -204,8 +210,8 @@ func processEvent(eventType, data string, response *request.AnthropicResponse, c
 		}
 		response.StopReason = event.Delta.StopReason
 		response.StopSequence = event.Delta.StopSequence
-		response.Usage.InputTokens = event.Usage.InputTokens
-		response.Usage.OutputTokens = event.Usage.OutputTokens
+		response.Usage.InputTokens += event.Usage.InputTokens
+		response.Usage.OutputTokens += event.Usage.OutputTokens
 
 	case "ping", "content_block_start", "content_block_stop", "message_stop":
 		// These events don't need processing

@@ -143,5 +143,5 @@ async def error_messages():
     return resp.json()
 
 if __name__ == "__main__":
-    print(f"Server running: port={8080} process_id={os.getpid()}")
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    print(f"Server running: port={8081} process_id={os.getpid()}")
+    uvicorn.run(app, host="0.0.0.0", port=8081)

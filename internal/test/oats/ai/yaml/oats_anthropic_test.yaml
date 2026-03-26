@@ -1,0 +1,30 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-anthropic.yml
+input:
+- path: /system
+- path: /error
+- path: /stream
+interval: 500ms
+expected:
+  traces:
+  # Messages API call with system instructions
+  - traceql: '{ .gen_ai.provider.name = "anthropic" && .gen_ai.request.model = "claude-sonnet-4-6" && .gen_ai.response.id = "msg_01QCj5VkxPS3NQUtrt5Npjcr"}'
+    equals: message claude-sonnet-4-6
+    attributes:
+      gen_ai.operation.name: message
+      gen_ai.system_instructions: You are a helpful assistant that always responds in haiku format.
+      gen_ai.response.model: claude-sonnet-4-6
+  # Error returned by Anthropic
+  - traceql: '{ .error.type = "authentication_error" && .gen_ai.request.model = "claude-sonnet-4-6"}'
+    equals: error claude-sonnet-4-6
+    attributes:
+      gen_ai.provider.name: anthropic
+  # Stream
+  - traceql: '{ .gen_ai.provider.name = "anthropic" && .gen_ai.request.model = "claude-sonnet-4-6" && .gen_ai.response.id = "msg_017VX1VDFNbm2uGebyvLmHwv"}'
+    equals: message claude-sonnet-4-6
+    attributes:
+      gen_ai.operation.name: message
+      gen_ai.response.model: claude-sonnet-4-6
+      gen_ai.usage.output_tokens: 39
