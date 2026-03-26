@@ -254,6 +254,9 @@ static __always_inline void cleanup_http_info(pid_connection_info_t *pid_conn) {
     bpf_map_delete_elem(&ongoing_http, pid_conn);
 }
 
+static __always_inline void cleanup_http_request_data(pid_connection_info_t *pid_conn,
+                                                      http_info_t *info);
+
 static __always_inline void finish_http(http_info_t *info, pid_connection_info_t *pid_conn) {
     if (http_info_complete(info) && !info->submitted) {
         info->submitted = 1;
@@ -274,6 +277,7 @@ static __always_inline void finish_http(http_info_t *info, pid_connection_info_t
         // Don't delete requests that weren't delayed, we might be receiving still more packets, for
         // example SSL.
         if (info->delayed) {
+            cleanup_http_request_data(pid_conn, info);
             bpf_map_delete_elem(&ongoing_http, pid_conn);
         }
     }
@@ -308,15 +312,19 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
                                                          u8 direction) {
     if (packet_type == PACKET_TYPE_REQUEST) {
         http_info_t *old_info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
-        if (old_info && !old_info->submitted) {
-            const u8 req_type = request_type_by_direction(direction, packet_type);
-            if (!http_info_complete(old_info)) {
-                if (old_info->type == req_type && is_duplicate_info(old_info)) {
-                    return 0;
+        if (old_info) {
+            if (!old_info->submitted) {
+                const u8 req_type = request_type_by_direction(direction, packet_type);
+                if (!http_info_complete(old_info)) {
+                    if (old_info->type == req_type && is_duplicate_info(old_info)) {
+                        return 0;
+                    }
                 }
+                // this will delete ongoing_http for this connection info if there's full stale request
+                finish_http(old_info, pid_conn);
+            } else {
+                cleanup_http_request_data(pid_conn, old_info);
             }
-            // this will delete ongoing_http for this connection info if there's full stale request
-            finish_http(old_info, pid_conn);
         }
 
         bpf_map_update_elem(&ongoing_http, pid_conn, info, BPF_ANY);
@@ -448,7 +456,6 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
                                                  http_info_t *info,
                                                  int orig_len) {
     process_http_response(info, small_buf);
-    cleanup_http_request_data(pid_conn, info);
 
     if (high_request_volume) {
         finish_http(info, pid_conn);

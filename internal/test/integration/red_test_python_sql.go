@@ -191,6 +191,88 @@ func testPythonSQLError(t *testing.T, comm, url, db string) {
 	assertSQLOperationErrored(t, comm, "SELECT", "obi.nonexisting", db)
 }
 
+func testPythonSQLQueryAfterHeaders(t *testing.T, comm, url, table string) {
+	t.Helper()
+
+	urlPath := "/query_after_headers"
+	queryText := "SELECT * FROM " + table + " WHERE id = 2"
+	ti.DoHTTPGet(t, url+urlPath, 200)
+
+	httpParams := neturl.Values{}
+	httpParams.Add("service", comm)
+	httpParams.Add("operation", "GET "+urlPath)
+	httpURL := fmt.Sprintf("%s?%s", jaegerQueryURL, httpParams.Encode())
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(httpURL)
+		require.NoError(ct, err)
+		require.NotNil(ct, resp)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var httpQuery jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&httpQuery))
+
+		traces := httpQuery.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath})
+		require.GreaterOrEqual(ct, len(traces), 1)
+
+		var httpSpan jaeger.Span
+		var foundHTTP bool
+		for _, trace := range traces {
+			httpSpans := trace.FindByOperationName("GET "+urlPath, "")
+			if len(httpSpans) == 0 {
+				continue
+			}
+			httpSpan = httpSpans[0]
+			foundHTTP = true
+			break
+		}
+		require.True(ct, foundHTTP, "expected HTTP span for %s", urlPath)
+
+		var found bool
+		for _, trace := range traces {
+			sqlSpans := trace.FindByOperationName("SELECT "+table, "")
+			if len(sqlSpans) == 0 {
+				continue
+			}
+
+			for i := range sqlSpans {
+				sqlSpan := sqlSpans[i]
+				tag, ok := jaeger.FindIn(sqlSpan.Tags, "db.query.text")
+				if !ok || tag.Value != queryText {
+					continue
+				}
+
+				if sqlSpan.TraceID != httpSpan.TraceID {
+					continue
+				}
+
+				current := sqlSpan
+				for {
+					parent, ok := trace.ParentOf(&current)
+					if !ok {
+						break
+					}
+					if parent.SpanID == httpSpan.SpanID {
+						found = true
+						break
+					}
+					current = parent
+				}
+
+				if found {
+					break
+				}
+			}
+
+			if found {
+				break
+			}
+		}
+
+		assert.True(ct, found, "expected SQL span created after response headers to remain a child of the HTTP span")
+	}, testTimeout, 100*time.Millisecond)
+}
+
 func testPythonPostgres(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
 	comm := "python3.14"
@@ -203,6 +285,15 @@ func testPythonPostgres(t *testing.T) {
 	testPythonSQLQuery(t, comm, testCaseURL, table, db)
 	testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db)
 	testPythonSQLError(t, comm, testCaseURL, db)
+}
+
+func testPythonPostgresAfterHeaders(t *testing.T) {
+	testCaseURL := "http://localhost:8381"
+	comm := "python3.14"
+	table := "accounting.contacts"
+
+	waitForSQLTestComponentsWithDB(t, testCaseURL, "/query", "postgresql")
+	testPythonSQLQueryAfterHeaders(t, comm, testCaseURL, table)
 }
 
 func testPythonSQLBigQuery(t *testing.T, comm, url, table, db string) {
