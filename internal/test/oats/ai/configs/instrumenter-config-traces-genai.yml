@@ -15,10 +15,11 @@ ebpf:
   protocol_debug_print: true
   payload_extraction:
     http:
-      openai:
-        enabled: true
-      anthropic:
-        enabled: true
+      genai:
+        openai:
+          enabled: true
+        anthropic:
+          enabled: true
 trace_printer: text
 discovery:
   exclude_otel_instrumented_services: false

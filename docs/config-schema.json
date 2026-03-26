@@ -558,6 +558,19 @@
       "type": "array",
       "description": "List of metric features to enable."
     },
+    "GenAIConfig": {
+      "properties": {
+        "anthropic": {
+          "$ref": "#/$defs/AnthropicConfig",
+          "description": "Anthropic payload extraction and parsing"
+        },
+        "openai": {
+          "$ref": "#/$defs/OpenAIConfig",
+          "description": "OpenAI payload extraction and parsing"
+        }
+      },
+      "type": "object"
+    },
     "GeoIP": {
       "properties": {
         "cache_expiry": {
@@ -720,10 +733,6 @@
     },
     "HTTPConfig": {
       "properties": {
-        "anthropic": {
-          "$ref": "#/$defs/AnthropicConfig",
-          "description": "Anthropic payload extraction"
-        },
         "aws": {
           "$ref": "#/$defs/AWSConfig",
           "description": "AWS payload extraction and parsing"
@@ -736,13 +745,13 @@
           "$ref": "#/$defs/EnrichmentConfig",
           "description": "Enrichment configures HTTP header and payload extraction with policy-based rules"
         },
+        "genai": {
+          "$ref": "#/$defs/GenAIConfig",
+          "description": "GenAI payload extraction"
+        },
         "graphql": {
           "$ref": "#/$defs/GraphQLConfig",
           "description": "GraphQL payload extraction and parsing"
-        },
-        "openai": {
-          "$ref": "#/$defs/OpenAIConfig",
-          "description": "OpenAI payload extraction"
         },
         "sqlpp": {
           "$ref": "#/$defs/SQLPPConfig",

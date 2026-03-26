@@ -154,8 +154,13 @@ var DefaultConfig = Config{
 						"/query/service",
 					},
 				},
-				OpenAI: config.OpenAIConfig{
-					Enabled: false,
+				GenAI: config.GenAIConfig{
+					OpenAI: config.OpenAIConfig{
+						Enabled: false,
+					},
+					Anthropic: config.AnthropicConfig{
+						Enabled: false,
+					},
 				},
 				Enrichment: config.EnrichmentConfig{
 					Enabled: false,
