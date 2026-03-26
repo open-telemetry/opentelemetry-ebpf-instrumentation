@@ -17,6 +17,8 @@
 | AWS S3        |    All    |         All | CreateBucket, DeleteBucket, PutObject, DeleteObject, ListBuckets, ListObjects, GetObject |  Yes   |                 No |                                                                                                                             N/A
 | AWS SQS       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
 | SQL++         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
+| OpenAI        |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
+| Anthropic     |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
 
 ## Go Instrumentation
 
