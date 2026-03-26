@@ -5,6 +5,7 @@ package ebpfcommon
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -195,6 +196,38 @@ func TestAnthropicSpan_StreamingResponse(t *testing.T) {
 	assert.Equal(t, 17, span.GenAI.Anthropic.Output.Usage.InputTokens)
 	assert.Equal(t, 37, span.GenAI.Anthropic.Output.Usage.OutputTokens)
 	assert.Equal(t, "With elegant syntax and indentation true,\nPython turns complex problems into something you can do.", string(span.GenAI.Anthropic.Output.Content))
+}
+
+func TestParseAnthropicStream_AddsInputAndOutputTokensAcrossEvents(t *testing.T) {
+	stream := `event: message_start
+data: {"type":"message_start","message":{"model":"claude-sonnet-4-6","id":"msg_sum","type":"message","role":"assistant","usage":{"input_tokens":11,"output_tokens":2}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":3,"output_tokens":5}}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":7,"output_tokens":13}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+
+	resp, err := parseAnthropicStream(strings.NewReader(stream))
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, "msg_sum", resp.ID)
+	assert.Equal(t, "claude-sonnet-4-6", resp.Model)
+	assert.Equal(t, "message", resp.Type)
+	assert.Equal(t, "assistant", resp.Role)
+	assert.Equal(t, "end_turn", resp.StopReason)
+	assert.Equal(t, 21, resp.Usage.InputTokens)
+	assert.Equal(t, 20, resp.Usage.OutputTokens)
+	assert.Equal(t, "hello", string(resp.Content))
 }
 
 func TestAnthropicSpan_ErrorResponseDetectedFromHeaderValue(t *testing.T) {
