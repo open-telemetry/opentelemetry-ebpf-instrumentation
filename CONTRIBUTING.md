@@ -123,9 +123,11 @@ For people that are trying to find a good first issue to work on, here is a good
 * **Good first issues**: Browse issues labeled [`good first issue`](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) on GitHub. These are specifically curated for newcomers.
 * **Help wanted**: Check issues labeled [`help wanted`](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) for tasks where maintainers are actively looking for contributors.
 * **Fix TODOs and FIXMEs**: Search the codebase for `TODO` and `FIXME` comments. These mark known improvements and issues that the authors left for later — and are often small, self-contained tasks.
+
   ```sh
   grep -rn 'TODO\|FIXME' --include='*.go' --include='*.c' --include='*.h' .
   ```
+
 * **Improve documentation**: Look for outdated, incomplete, or missing documentation. Clear docs are a valuable contribution and a great way to learn the codebase.
 
 ## Contribution Guidelines
