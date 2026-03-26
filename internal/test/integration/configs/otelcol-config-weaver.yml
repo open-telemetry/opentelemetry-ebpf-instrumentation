@@ -20,17 +20,16 @@ exporters:
     endpoint: http://jaeger:4318
     tls:
       insecure: true
-  file/traces:
-    path: /otlp-output/traces.jsonl
-    format: json
-  file/metrics:
-    path: /otlp-output/metrics.jsonl
-    format: json
+  otlp/weaver:
+    endpoint: weaver:4317
+    tls:
+      insecure: true
+    compression: none
 service:
   pipelines:
     metrics:
       receivers: [otlp]
-      exporters: [prometheus, file/metrics]
+      exporters: [prometheus, otlp/weaver]
     traces:
       receivers: [otlp]
-      exporters: [otlphttp/jaeger, file/traces]
+      exporters: [otlphttp/jaeger, otlp/weaver]
