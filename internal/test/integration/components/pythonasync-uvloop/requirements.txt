@@ -3,4 +3,4 @@ uvicorn==0.42.0; python_version < "3.10"
 uvicorn==0.42.0; python_version >= "3.10"
 uvloop==0.22.1
 httpx==0.28.1
-requests==2.32.4
+requests==2.33.0
