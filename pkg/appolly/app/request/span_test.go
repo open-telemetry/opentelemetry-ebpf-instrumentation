@@ -17,7 +17,7 @@ import (
 )
 
 func TestSpanClientServer(t *testing.T) {
-	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer, EventTypeSQLServer} {
+	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer} {
 		span := &Span{
 			Type: st,
 		}
@@ -27,7 +27,7 @@ func TestSpanClientServer(t *testing.T) {
 	for _, st := range []EventType{
 		EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient,
 		EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient,
-		EventTypeMongoClient, EventTypeFailedConnect,
+		EventTypeMongoClient, EventTypeMemcachedClient, EventTypeFailedConnect,
 	} {
 		span := &Span{
 			Type: st,
@@ -38,20 +38,22 @@ func TestSpanClientServer(t *testing.T) {
 
 func TestEventTypeString(t *testing.T) {
 	typeStringMap := map[EventType]string{
-		EventTypeHTTP:        "HTTP",
-		EventTypeGRPC:        "GRPC",
-		EventTypeHTTPClient:  "HTTPClient",
-		EventTypeGRPCClient:  "GRPCClient",
-		EventTypeSQLClient:   "SQLClient",
-		EventTypeSQLServer:   "SQLServer",
-		EventTypeRedisClient: "RedisClient",
-		EventTypeKafkaClient: "KafkaClient",
-		EventTypeMQTTClient:  "MQTTClient",
-		EventTypeRedisServer: "RedisServer",
-		EventTypeKafkaServer: "KafkaServer",
-		EventTypeMQTTServer:  "MQTTServer",
-		EventTypeMongoClient: "MongoClient",
-		EventType(99):        "UNKNOWN (99)",
+		EventTypeHTTP:            "HTTP",
+		EventTypeGRPC:            "GRPC",
+		EventTypeHTTPClient:      "HTTPClient",
+		EventTypeGRPCClient:      "GRPCClient",
+		EventTypeSQLClient:       "SQLClient",
+		EventTypeSQLServer:       "SQLServer",
+		EventTypeRedisClient:     "RedisClient",
+		EventTypeMemcachedClient: "MemcachedClient",
+		EventTypeKafkaClient:     "KafkaClient",
+		EventTypeMQTTClient:      "MQTTClient",
+		EventTypeRedisServer:     "RedisServer",
+		EventTypeMemcachedServer: "MemcachedServer",
+		EventTypeKafkaServer:     "KafkaServer",
+		EventTypeMQTTServer:      "MQTTServer",
+		EventTypeMongoClient:     "MongoClient",
+		EventType(99):            "UNKNOWN (99)",
 	}
 
 	for ev, str := range typeStringMap {
@@ -66,11 +68,13 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeKafkaServer}:                           "SPAN_KIND_SERVER",
 		{Type: EventTypeMQTTServer}:                            "SPAN_KIND_SERVER",
 		{Type: EventTypeRedisServer}:                           "SPAN_KIND_SERVER",
+		{Type: EventTypeMemcachedServer}:                       "SPAN_KIND_SERVER",
 		{Type: EventTypeSQLServer}:                             "SPAN_KIND_SERVER",
 		{Type: EventTypeHTTPClient}:                            "SPAN_KIND_CLIENT",
 		{Type: EventTypeGRPCClient}:                            "SPAN_KIND_CLIENT",
 		{Type: EventTypeSQLClient}:                             "SPAN_KIND_CLIENT",
 		{Type: EventTypeRedisClient}:                           "SPAN_KIND_CLIENT",
+		{Type: EventTypeMemcachedClient}:                       "SPAN_KIND_CLIENT",
 		{Type: EventTypeMongoClient}:                           "SPAN_KIND_CLIENT",
 		{Type: EventTypeKafkaClient, Method: MessagingPublish}: "SPAN_KIND_PRODUCER",
 		{Type: EventTypeKafkaClient, Method: MessagingProcess}: "SPAN_KIND_CONSUMER",
@@ -93,6 +97,7 @@ func TestServiceGraphConnectionType(t *testing.T) {
 		// Database client spans should return "database"
 		{name: "SQL client", span: &Span{Type: EventTypeSQLClient}, expected: "database"},
 		{name: "Redis client", span: &Span{Type: EventTypeRedisClient}, expected: "database"},
+		{name: "Memcached client", span: &Span{Type: EventTypeMemcachedClient}, expected: "database"},
 		{name: "Mongo client", span: &Span{Type: EventTypeMongoClient}, expected: "database"},
 		{name: "Elasticsearch client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch}, expected: "database"},
 
@@ -105,6 +110,7 @@ func TestServiceGraphConnectionType(t *testing.T) {
 
 		// Server spans should return empty
 		{name: "Redis server", span: &Span{Type: EventTypeRedisServer}, expected: ""},
+		{name: "Memcached server", span: &Span{Type: EventTypeMemcachedServer}, expected: ""},
 		{name: "SQL server", span: &Span{Type: EventTypeSQLServer}, expected: ""},
 		{name: "Kafka server", span: &Span{Type: EventTypeKafkaServer}, expected: ""},
 		{name: "MQTT server", span: &Span{Type: EventTypeMQTTServer}, expected: ""},
@@ -147,6 +153,8 @@ func TestTraceName(t *testing.T) {
 		// Redis spans
 		{name: "Redis client", span: &Span{Type: EventTypeRedisClient, Method: "GET"}, expected: "GET"},
 		{name: "Redis empty", span: &Span{Type: EventTypeRedisClient}, expected: "REDIS"},
+		{name: "Memcached client", span: &Span{Type: EventTypeMemcachedClient, Method: "GET", Path: "cache-key"}, expected: "GET"},
+		{name: "Memcached empty", span: &Span{Type: EventTypeMemcachedClient}, expected: "MEMCACHED"},
 
 		// Kafka spans
 		{name: "Kafka client publish", span: &Span{Type: EventTypeKafkaClient, Method: MessagingPublish, Path: "orders"}, expected: "publish orders"},

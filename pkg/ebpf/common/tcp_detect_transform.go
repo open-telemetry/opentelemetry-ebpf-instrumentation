@@ -44,6 +44,12 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	requestBuffer, responseBuffer := getBuffers(parseCtx, event)
 
 	if cfg.ProtocolDebug {
+		slog.Debug("ReadTCPRequestIntoSpan: received TCP event",
+			"pid", event.Pid.UserPid,
+			"ns", event.Pid.Ns,
+			"protocol", event.ProtocolType,
+			"reqLen", event.Len,
+			"respLen", event.RespLen)
 		fmt.Printf("[>] %v\n", requestBuffer.UnsafeView())
 		fmt.Printf("[<] %v\n", responseBuffer.UnsafeView())
 	}
@@ -135,6 +141,15 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		}
 	}
 
+	// Request-only events are emitted on socket close.
+	// They might contain requests like memcached with noreply that we haven't seen the response for.
+	if responseBuffer.Len() == 0 {
+		if ops, ok := parseMemcachedExplicitNoreply(requestBuffer.UnsafeView()); ok {
+			emitMemcachedNoreplySpans(parseCtx, event, ops)
+			return request.Span{}, true, nil
+		}
+	}
+
 	switch {
 	case isRedis(requestBuffer) && isRedis(responseBuffer):
 		op, text, ok := parseRedisRequest(requestBuffer.UnsafeView())
@@ -161,6 +176,18 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			}
 			return TCPToRedisToSpan(event, op, text, status, db, redisErr), false, nil
 		}
+	case isMemcached(requestBuffer) && isMemcached(responseBuffer):
+		span, err := ProcessPossibleMemcachedEvent(parseCtx, event, requestBuffer, responseBuffer)
+		if errors.Is(err, errFallback) {
+			break
+		}
+		if errors.Is(err, errIgnore) {
+			return request.Span{}, true, nil
+		}
+		if err != nil {
+			return request.Span{}, true, fmt.Errorf("failed to handle Memcached event: %w", err)
+		}
+		return span, false, nil
 	case isMQTT(requestBuffer) || isMQTT(responseBuffer):
 		m, ignore, err := ProcessPossibleMQTTEvent(event, requestBuffer, responseBuffer)
 		if ignore && err == nil {

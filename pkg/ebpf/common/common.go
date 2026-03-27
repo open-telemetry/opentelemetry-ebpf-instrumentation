@@ -182,6 +182,7 @@ type EBPFParseContext struct {
 	kafkaTopicUUIDToName       *simplelru.LRU[kafkaparser.UUID, string]
 	payloadExtraction          config.PayloadExtraction
 	dnsEvents                  *expirable.LRU[dnsparser.DNSId, *request.Span]
+	emitSpans                  func([]request.Span)
 }
 
 // sharedForwarder is implemented by ringBufForwarder[T] so that
@@ -218,6 +219,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		mongoRequestCache          PendingMongoDBRequests
 		payloadExtraction          config.PayloadExtraction
 		dnsEvents                  *expirable.LRU[dnsparser.DNSId, *request.Span]
+		emitSpans                  func([]request.Span)
 	)
 
 	h2c, _ := lru.New[uint64, h2Connection](1024 * 10)
@@ -267,6 +269,18 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		dnsEvents = expirable.NewLRU(1024, dnsEventExpireHandler(spansChan, filter), cfg.DNSRequestTimeout)
 	}
 
+	if spansChan != nil {
+		emitSpans = func(spans []request.Span) {
+			if len(spans) == 0 {
+				return
+			}
+			if filter != nil {
+				spans = filter.Filter(spans)
+			}
+			spansChan.Send(spans)
+		}
+	}
+
 	return &EBPFParseContext{
 		protocolDebug:              protocolDebug,
 		h2c:                        h2c,
@@ -280,7 +294,16 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		kafkaTopicUUIDToName:       kafkaTopicUUIDToName,
 		payloadExtraction:          payloadExtraction,
 		dnsEvents:                  dnsEvents,
+		emitSpans:                  emitSpans,
 	}
+}
+
+func (ctx *EBPFParseContext) emitExtraSpans(spans ...request.Span) {
+	if ctx == nil || ctx.emitSpans == nil || len(spans) == 0 {
+		return
+	}
+
+	ctx.emitSpans(spans)
 }
 
 func NewEBPFEventContext() *EBPFEventContext {

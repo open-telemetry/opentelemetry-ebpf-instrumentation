@@ -582,13 +582,18 @@ oats-test-mongo: oats-prereq
 	mkdir -p internal/test/oats/mongo/$(TEST_OUTPUT)/run
 	cd internal/test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
+.PHONY: oats-test-memcached
+oats-test-memcached: oats-prereq
+	mkdir -p internal/test/oats/memcached/$(TEST_OUTPUT)/run
+	cd internal/test/oats/memcached && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+
 .PHONY: oats-test-ai
 oats-test-ai: oats-prereq
 	mkdir -p internal/test/oats/ai/$(TEST_OUTPUT)/run
 	cd internal/test/oats/ai && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
 
 .PHONY: oats-test
-oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-ai
+oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai
 	$(MAKE) itest-coverage-data
 
 .PHONY: oats-test-debug

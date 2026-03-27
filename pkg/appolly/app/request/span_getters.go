@@ -148,6 +148,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return DBSystemName(span.DBSystemName().Value.AsString())
 			case EventTypeRedisClient, EventTypeRedisServer:
 				return semconv.DBSystemNameRedis
+			case EventTypeMemcachedClient, EventTypeMemcachedServer:
+				return semconv.DBSystemNameMemcached
 			case EventTypeMongoClient:
 				return semconv.DBSystemNameMongoDB
 			case EventTypeCouchbaseClient:
@@ -169,6 +171,12 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if span.Type == EventTypeDNS && span.Status != int(dnsparser.RCodeSuccess) {
 				return ErrorType(dnsparser.RCode(span.Status).String())
 			} else if SpanStatusCode(span) == StatusCodeError {
+				switch span.Type {
+				case EventTypeMemcachedClient, EventTypeMemcachedServer:
+					if span.DBError.ErrorCode != "" {
+						return ErrorType(span.DBError.ErrorCode)
+					}
+				}
 				return ErrorType("error")
 			}
 			return ErrorType("")

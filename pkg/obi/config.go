@@ -227,6 +227,7 @@ var DefaultConfig = Config{
 			instrumentations.InstrumentationMQTT,
 			instrumentations.InstrumentationMongo,
 			instrumentations.InstrumentationCouchbase,
+			instrumentations.InstrumentationMemcached,
 			// no traces for DNS and GPU by default
 		},
 	},
