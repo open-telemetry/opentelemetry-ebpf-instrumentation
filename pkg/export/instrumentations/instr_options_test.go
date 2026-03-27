@@ -35,6 +35,7 @@ func TestInstrumentationSelection(t *testing.T) {
 	assert.False(t, is.KafkaEnabled())
 	assert.True(t, is.MQTTEnabled())
 	assert.True(t, is.MQEnabled())
+	assert.False(t, is.GenAIEnabled())
 }
 
 func TestInstrumentationSelection_All(t *testing.T) {
@@ -47,6 +48,8 @@ func TestInstrumentationSelection_All(t *testing.T) {
 	assert.True(t, is.KafkaEnabled())
 	assert.True(t, is.MQTTEnabled())
 	assert.True(t, is.MQEnabled())
+	assert.True(t, is.DNSEnabled())
+	assert.True(t, is.GenAIEnabled())
 }
 
 func TestInstrumentationSelection_None(t *testing.T) {

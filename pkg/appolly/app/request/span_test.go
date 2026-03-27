@@ -973,3 +973,237 @@ func TestHTTPSpanStatusCode_OpenAI(t *testing.T) {
 		})
 	}
 }
+
+// Test GenAIInputTokens
+func TestSpan_GenAIInputTokens(t *testing.T) {
+	t.Run("GenAI is nil", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 0, result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{
+					Usage: OpenAIUsage{
+						InputTokens: 100,
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 100, result)
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Output: AnthropicResponse{
+						Usage: AnthropicUsage{
+							InputTokens: 200,
+						},
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 200, result)
+	})
+}
+
+// Test GenAIOutputTokens
+func TestSpan_GenAIOutputTokens(t *testing.T) {
+	t.Run("GenAI is nil", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{
+					Usage: OpenAIUsage{
+						OutputTokens: 150,
+					},
+				},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 150, result)
+	})
+
+	t.Run("OpenAI present, no usage", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Output: AnthropicResponse{
+						Usage: AnthropicUsage{
+							OutputTokens: 250,
+						},
+					},
+				},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 250, result)
+	})
+
+	t.Run("Anthropic present no usage", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
+}
+
+// Test GenAIOperationName
+func TestSpan_GenAIOperationName(t *testing.T) {
+	t.Run("nil GenAI", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIOperationName()
+		assert.Equal(t, "", result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{
+					OperationName: "chat.completion",
+				},
+			},
+		}
+		result := span.GenAIOperationName()
+		assert.Equal(t, "chat.completion", result)
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Output: AnthropicResponse{
+						Type: "message",
+					},
+				},
+			},
+		}
+		result := span.GenAIOperationName()
+		assert.Equal(t, "message", result)
+	})
+}
+
+// Test GenAIProviderName
+func TestSpan_GenAIProviderName(t *testing.T) {
+	t.Run("nil GenAI", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "", result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "openai", result) // Assuming semconv.GenAIProviderNameOpenAI.Value.AsString() returns "openai"
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "anthropic", result) // Assuming semconv.GenAIProviderNameAnthropic.Value.AsString() returns "anthropic"
+	})
+}
+
+// Test GenAIRequestModel
+func TestSpan_GenAIRequestModel(t *testing.T) {
+	t.Run("nil GenAI", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIRequestModel()
+		assert.Equal(t, "", result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{
+					Request: OpenAIInput{
+						Model: "gpt-3.5-turbo",
+					},
+				},
+			},
+		}
+		result := span.GenAIRequestModel()
+		assert.Equal(t, "gpt-3.5-turbo", result)
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Input: AnthropicRequest{
+						Model: "claude-2",
+					},
+				},
+			},
+		}
+		result := span.GenAIRequestModel()
+		assert.Equal(t, "claude-2", result)
+	})
+}
+
+// Test GenAIResponseModel
+func TestSpan_GenAIResponseModel(t *testing.T) {
+	t.Run("nil GenAI", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "", result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{
+					ResponseModel: "gpt-3.5-turbo-0125",
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "gpt-3.5-turbo-0125", result)
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Output: AnthropicResponse{
+						Model: "claude-2.1",
+					},
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "claude-2.1", result)
+	})
+}

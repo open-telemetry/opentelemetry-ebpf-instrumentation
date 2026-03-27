@@ -111,6 +111,18 @@
           },
           "type": "array"
         },
+        "gen_ai_client_operation_duration_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "gen_ai_client_token_usage_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
         "request_size_histogram": {
           "items": {
             "type": "number"
@@ -1237,6 +1249,7 @@
               "*",
               "couchbase",
               "dns",
+              "genai",
               "gpu",
               "grpc",
               "http",
@@ -1571,6 +1584,7 @@
               "*",
               "couchbase",
               "dns",
+              "genai",
               "gpu",
               "grpc",
               "http",
@@ -2060,6 +2074,7 @@
               "*",
               "couchbase",
               "dns",
+              "genai",
               "gpu",
               "grpc",
               "http",

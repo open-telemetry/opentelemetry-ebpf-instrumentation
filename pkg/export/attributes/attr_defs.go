@@ -413,6 +413,42 @@ func getDefinitions(
 			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
+		GenAIClientInputTokenUsage.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.GenAIOperationName:  true,
+				attr.GenAIProviderName:   true,
+				attr.GenAITokenTypeInput: true,
+				attr.GenAIRequestModel:   true,
+				attr.GenAIResponseModel:  true,
+				attr.ServerPort:          true,
+				attr.ServerAddr:          true,
+			},
+		},
+		GenAIClientOutputTokenUsage.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.GenAIOperationName:   true,
+				attr.GenAIProviderName:    true,
+				attr.GenAITokenTypeOutput: true,
+				attr.GenAIRequestModel:    true,
+				attr.GenAIResponseModel:   true,
+				attr.ServerPort:           true,
+				attr.ServerAddr:           true,
+			},
+		},
+		GenAIClientOperationDuration.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.GenAIOperationName: true,
+				attr.GenAIProviderName:  true,
+				attr.GenAIRequestModel:  true,
+				attr.GenAIResponseModel: true,
+				attr.ErrorType:          true,
+				attr.ServerPort:         true,
+				attr.ServerAddr:         true,
+			},
+		},
 
 		// span and service graph metrics don't yet implement attribute selection,
 		// but their values can still be filtered, so we list them here just to

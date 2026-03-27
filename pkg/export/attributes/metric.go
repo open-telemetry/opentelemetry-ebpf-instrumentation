@@ -129,6 +129,21 @@ var (
 		Prom:    "obi_stat_tcp_rtt_seconds",
 		OTEL:    "obi.stat.tcp.rtt",
 	}
+	GenAIClientInputTokenUsage = Name{
+		Section: "gen_ai.client.token.usage.input",
+		Prom:    "gen_ai_client_token_usage",
+		OTEL:    "gen_ai.client.token.usage",
+	}
+	GenAIClientOutputTokenUsage = Name{
+		Section: "gen_ai.client.token.usage.output",
+		Prom:    "gen_ai_client_token_usage",
+		OTEL:    "gen_ai.client.token.usage",
+	}
+	GenAIClientOperationDuration = Name{
+		Section: "gen_ai.client.operation.duration",
+		Prom:    "gen_ai_client_operation_duration_seconds",
+		OTEL:    "gen_ai.client.operation.duration",
+	}
 )
 
 // normalizeMetric will facilitate the user-input in the attributes.enable section.

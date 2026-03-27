@@ -205,6 +205,9 @@ type metricsReporter struct {
 	attrCudaMemoryCopies       []attributes.Field[*request.Span, string]
 	attrSvcGraph               []attributes.Field[*request.Span, string]
 	attrDNSLookupDuration      []attributes.Field[*request.Span, string]
+	attrGenAIClientDuration    []attributes.Field[*request.Span, string]
+	attrGenAIInputTokenUsage   []attributes.Field[*request.Span, string]
+	attrGenAIOutputTokenUsage  []attributes.Field[*request.Span, string]
 
 	// trace span metrics
 	spanMetricsLatency           *Expirer[prometheus.Histogram]
@@ -230,6 +233,10 @@ type metricsReporter struct {
 
 	// dns related metrics
 	dnsLookupDuration *Expirer[prometheus.Histogram]
+
+	// genAI related metrics
+	genAIClientDuration *Expirer[prometheus.Histogram]
+	genAITokenUsage     *Expirer[prometheus.Histogram]
 
 	promConnect *connector.PrometheusManager
 
@@ -382,6 +389,19 @@ func newReporter(
 			attrsProvider.For(attributes.DNSLookupDuration))
 	}
 
+	var attrGenAIClientDuration []attributes.Field[*request.Span, string]
+	var attrGenAIInputTokenUsage []attributes.Field[*request.Span, string]
+	var attrGenAIOutputTokenUsage []attributes.Field[*request.Span, string]
+
+	if is.GenAIEnabled() {
+		attrGenAIClientDuration = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.GenAIClientOperationDuration))
+		attrGenAIInputTokenUsage = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.GenAIClientInputTokenUsage))
+		attrGenAIOutputTokenUsage = attributes.PrometheusGetters(attributeGetters,
+			attrsProvider.For(attributes.GenAIClientOutputTokenUsage))
+	}
+
 	kubeEnabled := ctxInfo.K8sInformer.IsKubeEnabled()
 	dockerEnabled := ctxInfo.DockerMetadata.IsEnabled(ctx)
 
@@ -431,6 +451,9 @@ func newReporter(
 		attrCudaKernelBlockSize:    attrCudaKernelBlockSize,
 		attrCudaMemoryCopies:       attrCudaMemoryCopies,
 		attrDNSLookupDuration:      attrDNSLookupDuration,
+		attrGenAIClientDuration:    attrGenAIClientDuration,
+		attrGenAIInputTokenUsage:   attrGenAIInputTokenUsage,
+		attrGenAIOutputTokenUsage:  attrGenAIOutputTokenUsage,
 		attrSvcGraph:               attrSvcGraph,
 		obiInfo: NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: attr.VendorPrefix + buildInfoSuffix,
@@ -689,6 +712,27 @@ func newReporter(
 				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
 			}, labelNames(attrDNSLookupDuration)).MetricVec, clock.Time, cfg.TTL)
 		}),
+		genAIClientDuration: optionalHistogramProvider(is.GenAIEnabled(), func() *Expirer[prometheus.Histogram] {
+			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+				Name:                            attributes.GenAIClientOperationDuration.Prom,
+				Help:                            "measures the time taken to perform a GenAI client request",
+				Buckets:                         cfg.Buckets.GenAIClientDurationHistogram,
+				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
+				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
+				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
+			}, labelNames(attrGenAIClientDuration)).MetricVec, clock.Time, cfg.TTL)
+		}),
+		// We make only one metric series, the input and output have the same name and attribute keys
+		genAITokenUsage: optionalHistogramProvider(is.GenAIEnabled(), func() *Expirer[prometheus.Histogram] {
+			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+				Name:                            attributes.GenAIClientInputTokenUsage.Prom,
+				Help:                            "number of input and output tokens used for a GenAI client request",
+				Buckets:                         cfg.Buckets.GenAITokenUsageHistogram,
+				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
+				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
+				NativeHistogramMinResetDuration: defaultHistogramMinResetDuration,
+			}, labelNames(attrGenAIInputTokenUsage)).MetricVec, clock.Time, cfg.TTL)
+		}),
 	}
 
 	// testing aid
@@ -735,6 +779,11 @@ func newReporter(
 
 		if is.DNSEnabled() {
 			registeredMetrics = append(registeredMetrics, mr.dnsLookupDuration)
+		}
+
+		if is.GenAIEnabled() {
+			registeredMetrics = append(registeredMetrics, mr.genAIClientDuration)
+			registeredMetrics = append(registeredMetrics, mr.genAITokenUsage)
 		}
 	}
 
@@ -895,6 +944,16 @@ func (r *metricsReporter) observe(span *request.Span) {
 				r.dbClientDuration.WithLabelValues(
 					labelValues(span, r.attrDBClientDuration)...,
 				).Metric.Observe(duration)
+			} else if r.is.GenAIEnabled() && (span.SubType == request.HTTPSubtypeAnthropic || span.SubType == request.HTTPSubtypeOpenAI) {
+				r.genAIClientDuration.WithLabelValues(
+					labelValues(span, r.attrGenAIClientDuration)...,
+				).Metric.Observe(duration)
+				r.genAITokenUsage.WithLabelValues(
+					labelValues(span, r.attrGenAIInputTokenUsage)...,
+				).Metric.Observe(float64(span.GenAIInputTokens()))
+				r.genAITokenUsage.WithLabelValues(
+					labelValues(span, r.attrGenAIOutputTokenUsage)...,
+				).Metric.Observe(float64(span.GenAIOutputTokens()))
 			} else if r.is.HTTPEnabled() {
 				r.httpClientDuration.WithLabelValues(
 					labelValues(span, r.attrHTTPClientDuration)...,

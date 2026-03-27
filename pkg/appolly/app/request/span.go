@@ -1165,3 +1165,87 @@ func (s *Span) HasOriginalHost() bool {
 	schemeHost := strings.Split(s.Statement, SchemeHostSeparator)
 	return len(schemeHost) > 1 && schemeHost[1] != ""
 }
+
+func (s *Span) GenAIInputTokens() int {
+	if s.GenAI == nil {
+		return 0
+	}
+
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.Usage.GetInputTokens()
+	}
+
+	if s.GenAI.Anthropic != nil {
+		return s.GenAI.Anthropic.Output.Usage.InputTokens
+	}
+
+	return 0
+}
+
+func (s *Span) GenAIOutputTokens() int {
+	if s.GenAI == nil {
+		return 0
+	}
+
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.Usage.GetOutputTokens()
+	}
+
+	if s.GenAI.Anthropic != nil {
+		return s.GenAI.Anthropic.Output.Usage.OutputTokens
+	}
+
+	return 0
+}
+
+func (s *Span) GenAIOperationName() string {
+	if s.GenAI == nil {
+		return ""
+	}
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.OperationName
+	}
+	if s.GenAI.Anthropic != nil {
+		return s.GenAI.Anthropic.Output.Type
+	}
+	return ""
+}
+
+func (s *Span) GenAIProviderName() string {
+	if s.GenAI == nil {
+		return ""
+	}
+	if s.GenAI.OpenAI != nil {
+		return semconv.GenAIProviderNameOpenAI.Value.AsString()
+	}
+	if s.GenAI.Anthropic != nil {
+		return semconv.GenAIProviderNameAnthropic.Value.AsString()
+	}
+	return ""
+}
+
+func (s *Span) GenAIRequestModel() string {
+	if s.GenAI == nil {
+		return ""
+	}
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.Request.Model
+	}
+	if s.GenAI.Anthropic != nil {
+		return s.GenAI.Anthropic.Input.Model
+	}
+	return ""
+}
+
+func (s *Span) GenAIResponseModel() string {
+	if s.GenAI == nil {
+		return ""
+	}
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.ResponseModel
+	}
+	if s.GenAI.Anthropic != nil {
+		return s.GenAI.Anthropic.Output.Model
+	}
+	return ""
+}

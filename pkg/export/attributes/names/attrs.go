@@ -234,3 +234,14 @@ const (
 const (
 	DNSQuestionName = Name(semconv.DNSQuestionNameKey)
 )
+
+// GenAI events
+
+const (
+	GenAIOperationName   = Name(semconv.GenAIOperationNameKey)
+	GenAIProviderName    = Name(semconv.GenAIProviderNameKey)
+	GenAITokenTypeInput  = Name(semconv.GenAITokenTypeKey)
+	GenAITokenTypeOutput = Name("gen_ai.token.type_output")
+	GenAIRequestModel    = Name(semconv.GenAIRequestModelKey)
+	GenAIResponseModel   = Name(semconv.GenAIResponseModelKey)
+)
