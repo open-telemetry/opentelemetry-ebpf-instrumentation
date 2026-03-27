@@ -188,10 +188,5 @@ func newGoTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metr
 }
 
 func newGenericTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) []ebpf.Tracer {
-	var tracers []ebpf.Tracer
-
-	// Add tracers based on configuration
-	tracers = append(tracers, generictracer.New(pidFilter, cfg, metrics))
-
-	return tracers
+	return []ebpf.Tracer{generictracer.New(pidFilter, cfg, metrics)}
 }
