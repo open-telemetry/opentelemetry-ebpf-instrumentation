@@ -2173,6 +2173,14 @@
       "description": "LogConfig enables the logging of the configuration on startup.",
       "x-env-var": "OTEL_EBPF_LOG_CONFIG"
     },
+    "log_format": {
+      "type": "string",
+      "enum": [
+        "json",
+        "text"
+      ],
+      "x-env-var": "OTEL_EBPF_LOG_FORMAT"
+    },
     "log_level": {
       "type": "string",
       "enum": [
