@@ -59,6 +59,8 @@ prometheus_export:
   buckets:
     request_size_histogram: [0, 10, 20, 22]
     response_size_histogram: [0, 10, 20, 22]
+    gen_ai_client_token_usage_histogram: [1, 2, 3, 4]
+    gen_ai_client_operation_duration_histogram: [5, 6, 7, 8]
 attributes:
   rename_unresolved_hosts: ""
   rename_unresolved_hosts_outgoing: ""
@@ -198,9 +200,11 @@ discovery:
 			Protocol:          otelcfg.ProtocolUnset,
 			ReportersCacheLen: ReporterLRUSize,
 			Buckets: export.Buckets{
-				DurationHistogram:     []float64{0, 1, 2},
-				RequestSizeHistogram:  export.DefaultBuckets.RequestSizeHistogram,
-				ResponseSizeHistogram: export.DefaultBuckets.ResponseSizeHistogram,
+				DurationHistogram:            []float64{0, 1, 2},
+				RequestSizeHistogram:         export.DefaultBuckets.RequestSizeHistogram,
+				ResponseSizeHistogram:        export.DefaultBuckets.ResponseSizeHistogram,
+				GenAITokenUsageHistogram:     export.DefaultBuckets.GenAITokenUsageHistogram,
+				GenAIClientDurationHistogram: export.DefaultBuckets.GenAIClientDurationHistogram,
 			},
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
@@ -235,9 +239,11 @@ discovery:
 			TTL:                         time.Second,
 			SpanMetricsServiceCacheSize: 10000,
 			Buckets: export.Buckets{
-				DurationHistogram:     export.DefaultBuckets.DurationHistogram,
-				RequestSizeHistogram:  []float64{0, 10, 20, 22},
-				ResponseSizeHistogram: []float64{0, 10, 20, 22},
+				DurationHistogram:            export.DefaultBuckets.DurationHistogram,
+				RequestSizeHistogram:         []float64{0, 10, 20, 22},
+				ResponseSizeHistogram:        []float64{0, 10, 20, 22},
+				GenAITokenUsageHistogram:     []float64{1, 2, 3, 4},
+				GenAIClientDurationHistogram: []float64{5, 6, 7, 8},
 			},
 		},
 		InternalMetrics: imetrics.InternalMetricsConfig{
