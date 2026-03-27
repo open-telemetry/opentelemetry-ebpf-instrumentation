@@ -18,6 +18,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
 
+const (
+	// const defined in bpf/common/globals.h as "volatile const"
+	gBpfDebug = "g_bpf_debug"
+)
+
 // tracer represents the main structure for DNS response tracking.
 type tracer struct {
 	bpfObjects *BpfObjects
@@ -57,7 +62,7 @@ func newTracer(ebpfCfg *config.EBPFTracer) (*tracer, error) {
 	sharedMaps := map[string]*ebpf.Map{}
 	var mu sync.Mutex
 	if err := convenience.LoadSpec(spec, &objects, map[string]any{
-		"g_bpf_debug": ebpfCfg.BpfDebug,
+		gBpfDebug: ebpfCfg.BpfDebug,
 	}, sharedMaps, &mu, ""); err != nil {
 		return nil, err
 	}
