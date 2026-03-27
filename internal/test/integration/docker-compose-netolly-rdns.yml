@@ -32,7 +32,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318 # otelcol exposing port in local node
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
-      OTEL_EBPF_HOSTNAME: "beyla"
+      OTEL_EBPF_HOSTNAME: "obi"
       OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE: "ebpf"
 
   # OpenTelemetry Collector for Metrics. For Traces, we use directly Jaeger
