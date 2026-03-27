@@ -364,11 +364,11 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			return semconv.GenAIProviderNameKey.String(s.GenAIProviderName())
 		}
 	case attr.GenAITokenTypeInput:
-		getter = func(s *Span) attribute.KeyValue {
+		getter = func(_ *Span) attribute.KeyValue {
 			return semconv.GenAITokenTypeKey.String("input")
 		}
 	case attr.GenAITokenTypeOutput:
-		getter = func(s *Span) attribute.KeyValue {
+		getter = func(_ *Span) attribute.KeyValue {
 			return semconv.GenAITokenTypeKey.String("output")
 		}
 	case attr.GenAIRequestModel:

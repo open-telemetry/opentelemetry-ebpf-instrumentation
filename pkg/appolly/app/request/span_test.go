@@ -1077,7 +1077,7 @@ func TestSpan_GenAIOperationName(t *testing.T) {
 	t.Run("nil GenAI", func(t *testing.T) {
 		span := &Span{GenAI: nil}
 		result := span.GenAIOperationName()
-		assert.Equal(t, "", result)
+		assert.Empty(t, result)
 	})
 
 	t.Run("OpenAI present", func(t *testing.T) {
@@ -1112,7 +1112,7 @@ func TestSpan_GenAIProviderName(t *testing.T) {
 	t.Run("nil GenAI", func(t *testing.T) {
 		span := &Span{GenAI: nil}
 		result := span.GenAIProviderName()
-		assert.Equal(t, "", result)
+		assert.Empty(t, result)
 	})
 
 	t.Run("OpenAI present", func(t *testing.T) {
@@ -1141,7 +1141,7 @@ func TestSpan_GenAIRequestModel(t *testing.T) {
 	t.Run("nil GenAI", func(t *testing.T) {
 		span := &Span{GenAI: nil}
 		result := span.GenAIRequestModel()
-		assert.Equal(t, "", result)
+		assert.Empty(t, result)
 	})
 
 	t.Run("OpenAI present", func(t *testing.T) {
@@ -1178,7 +1178,7 @@ func TestSpan_GenAIResponseModel(t *testing.T) {
 	t.Run("nil GenAI", func(t *testing.T) {
 		span := &Span{GenAI: nil}
 		result := span.GenAIResponseModel()
-		assert.Equal(t, "", result)
+		assert.Empty(t, result)
 	})
 
 	t.Run("OpenAI present", func(t *testing.T) {

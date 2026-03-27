@@ -940,11 +940,12 @@ func (r *metricsReporter) observe(span *request.Span) {
 			}
 		case request.EventTypeHTTPClient:
 			// HTTP client subtypes that are database calls get recorded as db client metrics
-			if r.is.DBEnabled() && (span.SubType == request.HTTPSubtypeSQLPP || span.SubType == request.HTTPSubtypeElasticsearch) {
+			switch {
+			case r.is.DBEnabled() && (span.SubType == request.HTTPSubtypeSQLPP || span.SubType == request.HTTPSubtypeElasticsearch):
 				r.dbClientDuration.WithLabelValues(
 					labelValues(span, r.attrDBClientDuration)...,
 				).Metric.Observe(duration)
-			} else if r.is.GenAIEnabled() && (span.SubType == request.HTTPSubtypeAnthropic || span.SubType == request.HTTPSubtypeOpenAI) {
+			case r.is.GenAIEnabled() && (span.SubType == request.HTTPSubtypeAnthropic || span.SubType == request.HTTPSubtypeOpenAI):
 				r.genAIClientDuration.WithLabelValues(
 					labelValues(span, r.attrGenAIClientDuration)...,
 				).Metric.Observe(duration)
@@ -954,16 +955,18 @@ func (r *metricsReporter) observe(span *request.Span) {
 				r.genAITokenUsage.WithLabelValues(
 					labelValues(span, r.attrGenAIOutputTokenUsage)...,
 				).Metric.Observe(float64(span.GenAIOutputTokens()))
-			} else if r.is.HTTPEnabled() {
-				r.httpClientDuration.WithLabelValues(
-					labelValues(span, r.attrHTTPClientDuration)...,
-				).Metric.Observe(duration)
-				r.httpClientRequestSize.WithLabelValues(
-					labelValues(span, r.attrHTTPClientRequestSize)...,
-				).Metric.Observe(float64(span.RequestBodyLength()))
-				r.httpClientResponseSize.WithLabelValues(
-					labelValues(span, r.attrHTTPClientResponseSize)...,
-				).Metric.Observe(float64(span.ResponseBodyLength()))
+			default:
+				if r.is.HTTPEnabled() {
+					r.httpClientDuration.WithLabelValues(
+						labelValues(span, r.attrHTTPClientDuration)...,
+					).Metric.Observe(duration)
+					r.httpClientRequestSize.WithLabelValues(
+						labelValues(span, r.attrHTTPClientRequestSize)...,
+					).Metric.Observe(float64(span.RequestBodyLength()))
+					r.httpClientResponseSize.WithLabelValues(
+						labelValues(span, r.attrHTTPClientResponseSize)...,
+					).Metric.Observe(float64(span.ResponseBodyLength()))
+				}
 			}
 		case request.EventTypeGRPC:
 			if r.is.GRPCEnabled() {
