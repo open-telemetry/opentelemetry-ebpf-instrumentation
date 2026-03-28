@@ -82,25 +82,26 @@ func runWeaverValidation(t *testing.T) {
 	}
 	exitCode := strings.TrimSpace(string(exitCodeOutput))
 
-	// Capture weaver's full output (report + diagnostics).
-	output, _ := exec.Command("docker", "logs", weaverContainer).CombinedOutput()
+	// Capture stdout (JSON report) and stderr (log lines) separately.
+	// Weaver writes the JSON report to stdout and diagnostic messages to stderr.
+	cmd := exec.Command("docker", "logs", weaverContainer)
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	_ = cmd.Run()
 
-	// Save raw output for later inspection.
+	// Save full output for later inspection.
 	reportPath := path.Join(pathOutput, weaverOutputFile)
-	_ = os.WriteFile(reportPath, output, 0o644)
+	_ = os.WriteFile(reportPath, []byte(stdout.String()), 0o644)
 	t.Logf("weaver report saved to %s", reportPath)
-
-	// The output contains log lines before the JSON. Extract the JSON object.
-	raw := string(output)
-	jsonStart := strings.Index(raw, "\n{")
-	if jsonStart == -1 {
-		t.Logf("weaver output (no JSON found):\n%s", raw)
-		t.Fatalf("could not find JSON report in weaver output")
+	if stderr.Len() > 0 {
+		t.Logf("weaver diagnostics:\n%s", stderr.String())
 	}
-	jsonStr := raw[jsonStart:]
-	// Trim any trailing non-JSON lines (e.g. "✔ Performed live check ...")
-	if end := strings.LastIndex(jsonStr, "}"); end != -1 {
-		jsonStr = jsonStr[:end+1]
+
+	// Parse the JSON report from stdout.
+	jsonStr := strings.TrimSpace(stdout.String())
+	if jsonStr == "" {
+		t.Fatalf("weaver produced no JSON output on stdout")
 	}
 
 	var report weaverReport
