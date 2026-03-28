@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 )
 
 const (
@@ -23,6 +24,15 @@ const (
 	weaverAdminPort  = 4320
 	weaverOutputFile = "weaver-report.json"
 )
+
+// SemconvVersion extracts the semantic conventions version from the semconv
+// package imported by OBI (e.g. "1.38.0" from SchemaURL
+// "https://opentelemetry.io/schemas/1.38.0"). This is the single source of
+// truth for the semconv version used in weaver validation.
+func SemconvVersion() string {
+	// semconv.SchemaURL is "https://opentelemetry.io/schemas/1.38.0"
+	return semconv.SchemaURL[strings.LastIndex(semconv.SchemaURL, "/")+1:]
+}
 
 // weaverReport is the top-level JSON structure emitted by weaver with --format json.
 type weaverReport struct {
@@ -76,11 +86,10 @@ func runWeaverValidation(t *testing.T) {
 	resp.Body.Close()
 
 	// Wait for the weaver container to finish processing and exit.
-	exitCodeOutput, err := exec.Command("docker", "wait", weaverContainer).Output()
+	_, err = exec.Command("docker", "wait", weaverContainer).Output()
 	if err != nil {
 		t.Fatalf("failed to wait for weaver container: %v", err)
 	}
-	exitCode := strings.TrimSpace(string(exitCodeOutput))
 
 	// Capture stdout (JSON report) and stderr (log lines) separately.
 	// Weaver writes the JSON report to stdout and diagnostic messages to stderr.
@@ -107,11 +116,11 @@ func runWeaverValidation(t *testing.T) {
 	var report weaverReport
 	require.NoError(t, json.Unmarshal([]byte(jsonStr), &report), "failed to parse weaver JSON report")
 
-	validateWeaverReport(t, &report, exitCode)
+	validateWeaverReport(t, &report)
 }
 
 // validateWeaverReport checks the parsed weaver report.
-func validateWeaverReport(t *testing.T, report *weaverReport, exitCode string) {
+func validateWeaverReport(t *testing.T, report *weaverReport) {
 	t.Helper()
 
 	stats := &report.Statistics
@@ -149,10 +158,8 @@ func validateWeaverReport(t *testing.T, report *weaverReport, exitCode string) {
 		}
 	}
 
-	if exitCode != "0" {
-		assert.Zero(t, violations,
-			"weaver found %d semantic convention violation(s)", violations)
-	}
+	assert.Zero(t, violations,
+		"weaver found %d semantic convention violation(s)", violations)
 }
 
 // collectAdviceInfo scans the weaver samples to build a map from advisory

@@ -88,6 +88,10 @@ services:
     command:
       - registry
       - live-check
+      # Semconv version is set via SEMCONV_VERSION env var from the test code
+      # (derived from go.opentelemetry.io/otel/semconv).
+      - --registry
+      - https://github.com/open-telemetry/semantic-conventions.git@v${SEMCONV_VERSION}[model]
       - --inactivity-timeout
       - "300"
       - --admin-port
