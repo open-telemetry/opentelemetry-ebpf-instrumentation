@@ -229,7 +229,7 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, configFile st
 				"OTEL_EBPF_BPF_DEBUG=TRUE",
 				"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",
 				"OTEL_EBPF_PROCESSES_INTERVAL=100ms",
-				"OTEL_EBPF_HOSTNAME=beyla",
+				"OTEL_EBPF_HOSTNAME=obi",
 			}, o.Env...),
 			StopSignal:   "SIGWINCH", // to support timeouts
 			ExposedPorts: map[docker.Port]struct{}{"8999/tcp": {}},

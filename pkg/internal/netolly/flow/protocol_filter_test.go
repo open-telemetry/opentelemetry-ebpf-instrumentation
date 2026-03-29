@@ -16,14 +16,14 @@ import (
 )
 
 var (
-	tcp1  = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{SrcPort: 1, TransportProtocol: uint8(transport.TCP)}}}
-	tcp2  = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{SrcPort: 2, TransportProtocol: uint8(transport.TCP)}}}
-	tcp3  = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{SrcPort: 3, TransportProtocol: uint8(transport.TCP)}}}
-	udp1  = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{SrcPort: 4, TransportProtocol: uint8(transport.UDP)}}}
-	udp2  = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{SrcPort: 5, TransportProtocol: uint8(transport.UDP)}}}
-	icmp1 = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{SrcPort: 7, TransportProtocol: uint8(transport.ICMP)}}}
-	icmp2 = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{SrcPort: 8, TransportProtocol: uint8(transport.ICMP)}}}
-	icmp3 = &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{Id: ebpf.NetFlowId{SrcPort: 9, TransportProtocol: uint8(transport.ICMP)}}}
+	tcp1  = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.TCP), SrcPort: 1}, ebpf.NetFlowMetrics{})
+	tcp2  = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.TCP), SrcPort: 2}, ebpf.NetFlowMetrics{})
+	tcp3  = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.TCP), SrcPort: 3}, ebpf.NetFlowMetrics{})
+	udp1  = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.UDP), SrcPort: 4}, ebpf.NetFlowMetrics{})
+	udp2  = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.UDP), SrcPort: 5}, ebpf.NetFlowMetrics{})
+	icmp1 = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.ICMP), SrcPort: 7}, ebpf.NetFlowMetrics{})
+	icmp2 = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.ICMP), SrcPort: 8}, ebpf.NetFlowMetrics{})
+	icmp3 = ebpf.NewRecord(ebpf.NetFlowId{TransportProtocol: uint8(transport.ICMP), SrcPort: 9}, ebpf.NetFlowMetrics{})
 )
 
 func TestProtocolFilter_Allow(t *testing.T) {

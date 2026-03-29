@@ -49,6 +49,13 @@ const (
 	LogLevelError LogLevel = "ERROR"
 )
 
+type LogFormat string
+
+const (
+	LogFormatText LogFormat = "text"
+	LogFormatJSON LogFormat = "json"
+)
+
 // CustomValidations is a map of tag:function for custom validations
 type CustomValidations map[string]validator.Func
 
@@ -111,6 +118,7 @@ var DefaultConfig = Config{
 	ChannelSendTimeout:      time.Minute,
 	ChannelSendTimeoutPanic: false,
 	LogLevel:                LogLevelInfo,
+	LogFormat:               LogFormatText,
 	ShutdownTimeout:         10 * time.Second,
 	EnforceSysCaps:          false,
 	EBPF: config.EBPFTracer{
@@ -154,8 +162,13 @@ var DefaultConfig = Config{
 						"/query/service",
 					},
 				},
-				OpenAI: config.OpenAIConfig{
-					Enabled: false,
+				GenAI: config.GenAIConfig{
+					OpenAI: config.OpenAIConfig{
+						Enabled: false,
+					},
+					Anthropic: config.AnthropicConfig{
+						Enabled: false,
+					},
 				},
 				Enrichment: config.EnrichmentConfig{
 					Enabled: false,
@@ -356,6 +369,8 @@ type Config struct {
 	Discovery services.DiscoveryConfig `yaml:"discovery"`
 
 	LogLevel LogLevel `yaml:"log_level" env:"OTEL_EBPF_LOG_LEVEL"`
+
+	LogFormat LogFormat `yaml:"log_format" env:"OTEL_EBPF_LOG_FORMAT"`
 
 	// Timeout for a graceful shutdown
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"OTEL_EBPF_SHUTDOWN_TIMEOUT"`

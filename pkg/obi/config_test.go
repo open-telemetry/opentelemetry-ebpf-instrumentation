@@ -40,6 +40,7 @@ type envMap map[string]string
 
 func TestConfig_Overrides(t *testing.T) {
 	userConfig := bytes.NewBufferString(`
+log_format: json
 trace_printer: json
 shutdown_timeout: 30s
 channel_buffer_len: 33
@@ -133,6 +134,7 @@ discovery:
 		ChannelSendTimeoutPanic: true,
 
 		LogLevel:        LogLevelInfo,
+		LogFormat:       LogFormatJSON,
 		ShutdownTimeout: 30 * time.Second,
 		EnforceSysCaps:  false,
 		TracePrinter:    "json",

@@ -197,16 +197,29 @@ static __always_inline void parse_dns_response(struct xdp_md *ctx,
 
         bpf_dbg_printk("Found possible DNS response: %x!\n", id);
         bpf_dbg_printk("flags[0]=%x\n", flags0);
-        bpf_dbg_printk("id=%x, qr=%u, opcode=%u, aa=%u, tc=%u, rd=%u, ra=%u\n",
-                       id,
-                       qr,
-                       opcode,
-                       aa,
-                       tc,
-                       rd,
-                       ra);
-        bpf_dbg_printk("flags[1]=%x\n", flags1);
-        bpf_dbg_printk("z=%u, rcode=%u, qdcount=%u, ancount=%u\n", z, rcode, ancount, qdcount);
+        if (bpf_core_enum_value_exists(enum bpf_func_id___x, BPF_FUNC_trace_vprintk___x)) {
+            bpf_dbg_printk("id=%x, qr=%u, opcode=%u, aa=%u, tc=%u, rd=%u, ra=%u\n",
+                           id,
+                           qr,
+                           opcode,
+                           aa,
+                           tc,
+                           rd,
+                           ra);
+            bpf_dbg_printk("flags[1]=%x, z=%u, rcode=%u, qdcount=%u, ancount=%u\n",
+                           flags1,
+                           z,
+                           rcode,
+                           qdcount,
+                           ancount);
+        } else {
+            bpf_dbg_printk("id=%x, qr=%u, opcode=%u\n", id, qr, opcode);
+            bpf_dbg_printk("aa=%u, tc=%u, rd=%u\n", aa, tc, rd);
+            bpf_dbg_printk("ra=%u\n", ra);
+            bpf_dbg_printk("flags[1]=%x\n", flags1);
+            bpf_dbg_printk("z=%u, rcode=%u\n", z, rcode);
+            bpf_dbg_printk("qdcount=%u, ancount=%u\n", qdcount, ancount);
+        }
     }
 
     // Parse question sections

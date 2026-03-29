@@ -150,7 +150,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
     k8s_deployment_name: chacha*
   - name: pod-label-only
     k8s_pod_labels:
-      instrument: "beyla"
+      instrument: "obi"
   - name: pod-multi-label-only
     k8s_pod_labels:
       instrument: "ebpf"
@@ -164,7 +164,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
       version: "v[0-9]*"
 `), &pipeConfig))
 
-	swi.Add(criteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue, FindingCriteria(&pipeConfig, false), nil))
+	swi.Add(criteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue, FindingCriteria(&pipeConfig), nil))
 
 	nodesRunner, err := swi.Instance(t.Context())
 	require.NoError(t, err)
@@ -196,7 +196,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 
 	t.Run("pod-label-only match", func(t *testing.T) {
 		newProcess(inputQueue, 42, []uint32{8080})
-		deployPod(fInformer, "labeltest", "container-42", "container-42-name", map[string]string{"instrument": "beyla"})
+		deployPod(fInformer, "labeltest", "container-42", "container-42-name", map[string]string{"instrument": "obi"})
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		testKubeMatch(t, matches[0], "pod-label-only", 42)

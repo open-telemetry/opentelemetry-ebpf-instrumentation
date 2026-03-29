@@ -17,6 +17,7 @@
 | AWS S3        |    All    |         All | CreateBucket, DeleteBucket, PutObject, DeleteObject, ListBuckets, ListObjects, GetObject |  Yes   |                 No |                                                                                                                             N/A
 | AWS SQS       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
 | SQL++         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
+| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                            Supported vendors: OpenAI, Anthropic
 
 ## Go Instrumentation
 

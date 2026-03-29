@@ -8,14 +8,18 @@ attributes:
       - gen_ai.system_instructions
       - gen_ai.output.messages
       - gen_ai.metadata
+      - gen_ai.tool.definitions      
 ebpf:
   buffer_sizes:
-    http: 8192
+    http: 65536
   protocol_debug_print: true
   payload_extraction:
     http:
-      openai:
-        enabled: true
+      genai:
+        openai:
+          enabled: true
+        anthropic:
+          enabled: true
 trace_printer: text
 discovery:
   exclude_otel_instrumented_services: false

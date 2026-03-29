@@ -36,6 +36,7 @@ struct {
 
 enum bpf_func_id___x {
     BPF_FUNC_snprintf___x = 42, /* avoid zero */
+    BPF_FUNC_trace_vprintk___x = 177,
 };
 
 #define bpf_dbg_printk(fmt, args...)                                                               \

@@ -51,7 +51,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otelcol:4318
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
-      OTEL_EBPF_HOSTNAME: "beyla"
+      OTEL_EBPF_HOSTNAME: "obi"
       OTEL_EBPF_FORCE_BPF_MAP_READER: "legacy"
 
   # OpenTelemetry Collector for Metrics. For Traces, we use directly Jaeger

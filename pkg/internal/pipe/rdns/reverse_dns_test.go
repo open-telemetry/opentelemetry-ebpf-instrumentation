@@ -80,7 +80,7 @@ func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
 
 	// When it receives flows with source and destination names
 	f1 := &testRecord{
-		CommonAttrs: pipe.CommonAttrs{SrcName: "src", DstName: "dst"},
+		CommonAttrs: pipe.CommonAttrs{DstName: "dst", SrcName: "src"},
 	}
 	f1.SrcAddr = pipe.IPAddr(srcIP)
 	f1.DstAddr = pipe.IPAddr(dstIP)

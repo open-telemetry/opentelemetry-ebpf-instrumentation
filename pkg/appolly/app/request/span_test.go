@@ -902,9 +902,11 @@ func TestHTTPSpanStatusCode_OpenAI(t *testing.T) {
 				Type:    EventTypeHTTPClient,
 				SubType: HTTPSubtypeOpenAI,
 				Status:  200,
-				OpenAI: &OpenAI{
-					OperationName: "response",
-					ResponseModel: "gpt-5-mini-2025-08-07",
+				GenAI: &GenAI{
+					OpenAI: &VendorOpenAI{
+						OperationName: "response",
+						ResponseModel: "gpt-5-mini-2025-08-07",
+					},
 				},
 			},
 			expected: StatusCodeUnset,
@@ -915,10 +917,12 @@ func TestHTTPSpanStatusCode_OpenAI(t *testing.T) {
 				Type:    EventTypeHTTPClient,
 				SubType: HTTPSubtypeOpenAI,
 				Status:  200,
-				OpenAI: &OpenAI{
-					Error: OpenAIError{
-						Type:    "insufficient_quota",
-						Message: "You exceeded your current quota.",
+				GenAI: &GenAI{
+					OpenAI: &VendorOpenAI{
+						Error: OpenAIError{
+							Type:    "insufficient_quota",
+							Message: "You exceeded your current quota.",
+						},
 					},
 				},
 			},
@@ -930,7 +934,7 @@ func TestHTTPSpanStatusCode_OpenAI(t *testing.T) {
 				Type:    EventTypeHTTPClient,
 				SubType: HTTPSubtypeOpenAI,
 				Status:  200,
-				OpenAI:  nil,
+				GenAI:   nil,
 			},
 			expected: StatusCodeUnset,
 		},
@@ -940,10 +944,12 @@ func TestHTTPSpanStatusCode_OpenAI(t *testing.T) {
 				Type:    EventTypeHTTPClient,
 				SubType: HTTPSubtypeOpenAI,
 				Status:  429,
-				OpenAI: &OpenAI{
-					Error: OpenAIError{
-						Type:    "insufficient_quota",
-						Message: "You exceeded your current quota.",
+				GenAI: &GenAI{
+					OpenAI: &VendorOpenAI{
+						Error: OpenAIError{
+							Type:    "insufficient_quota",
+							Message: "You exceeded your current quota.",
+						},
 					},
 				},
 			},
@@ -955,7 +961,7 @@ func TestHTTPSpanStatusCode_OpenAI(t *testing.T) {
 				Type:    EventTypeHTTPClient,
 				SubType: HTTPSubtypeOpenAI,
 				Status:  0,
-				OpenAI:  &OpenAI{},
+				GenAI:   &GenAI{OpenAI: &VendorOpenAI{}},
 			},
 			expected: StatusCodeError,
 		},

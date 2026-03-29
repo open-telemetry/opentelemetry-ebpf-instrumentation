@@ -29,6 +29,16 @@
       "title": "Agent Type Interface",
       "description": "Specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each flow. Accepted values are: external, local, or name:<interface name> (e.g. name:eth0)."
     },
+    "AnthropicConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Anthropic payload extraction and parsing",
+          "x-env-var": "OTEL_EBPF_HTTP_ANTHROPIC_ENABLED"
+        }
+      },
+      "type": "object"
+    },
     "AttributeFamilyConfig": {
       "additionalProperties": {
         "$ref": "#/$defs/MatchDefinition"
@@ -548,6 +558,19 @@
       "type": "array",
       "description": "List of metric features to enable."
     },
+    "GenAIConfig": {
+      "properties": {
+        "anthropic": {
+          "$ref": "#/$defs/AnthropicConfig",
+          "description": "Anthropic payload extraction and parsing"
+        },
+        "openai": {
+          "$ref": "#/$defs/OpenAIConfig",
+          "description": "OpenAI payload extraction and parsing"
+        }
+      },
+      "type": "object"
+    },
     "GeoIP": {
       "properties": {
         "cache_expiry": {
@@ -722,13 +745,13 @@
           "$ref": "#/$defs/EnrichmentConfig",
           "description": "Enrichment configures HTTP header and payload extraction with policy-based rules"
         },
+        "genai": {
+          "$ref": "#/$defs/GenAIConfig",
+          "description": "GenAI payload extraction"
+        },
         "graphql": {
           "$ref": "#/$defs/GraphQLConfig",
           "description": "GraphQL payload extraction and parsing"
-        },
-        "openai": {
-          "$ref": "#/$defs/OpenAIConfig",
-          "description": "OpenAI payload extraction"
         },
         "sqlpp": {
           "$ref": "#/$defs/SQLPPConfig",
@@ -2149,6 +2172,14 @@
       ],
       "description": "LogConfig enables the logging of the configuration on startup.",
       "x-env-var": "OTEL_EBPF_LOG_CONFIG"
+    },
+    "log_format": {
+      "type": "string",
+      "enum": [
+        "json",
+        "text"
+      ],
+      "x-env-var": "OTEL_EBPF_LOG_FORMAT"
     },
     "log_level": {
       "type": "string",

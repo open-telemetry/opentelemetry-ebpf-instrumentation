@@ -17,8 +17,84 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
+
+// TestMatchersMutuallyExclusive wires CriteriaMatcher + DynamicMatcher like ProcessFinder.Start.
+// Exactly one path subscribes to the input: dynamic selector set → only DynamicMatcher runs;
+// no selector → only CriteriaMatcher runs. Prevents duplicate output and wrong criteria source.
+func TestMatchersMutuallyExclusive(t *testing.T) {
+	pipeConfig := obi.Config{}
+	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
+  services:
+  - name: port-only
+    namespace: foo
+    open_ports: 80
+`), &pipeConfig))
+	cfgCriteria := FindingCriteria(&pipeConfig)
+
+	t.Run("dynamic_mode_static_is_noop_config_match_ignored", func(t *testing.T) {
+		sel := NewDynamicPIDSelector()
+		sel.AddPIDs(7)
+
+		inQ := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+		outQ := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+		outCh := outQ.Subscribe()
+
+		processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+			return &services.ProcessInfo{Pid: pp.pid, ExePath: "/any/bin", OpenPorts: pp.openPorts}, nil
+		}
+
+		swi := swarm.Instancer{}
+		swi.Add(criteriaMatcherProvider(&pipeConfig, inQ, outQ, cfgCriteria, sel), swarm.WithID("CriteriaMatcher"))
+		swi.Add(dynamicMatcherProvider(inQ, outQ, sel), swarm.WithID("DynamicMatcher"))
+		runner, err := swi.Instance(t.Context())
+		require.NoError(t, err)
+		runner.Start(t.Context())
+		time.Sleep(50 * time.Millisecond)
+		defer outQ.Close()
+
+		// Matches static port-only (80) but not dynamic PID set — would appear if CriteriaMatcher ran.
+		inQ.Send([]Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 99, openPorts: []uint32{80}}}})
+		testutil.ChannelEmpty(t, outCh, 300*time.Millisecond)
+
+		inQ.Send([]Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 7, openPorts: []uint32{}}}})
+		ms := testutil.ReadChannel(t, outCh, testTimeout)
+		require.Len(t, ms, 1)
+		assert.Equal(t, app.PID(7), ms[0].Obj.Process.Pid)
+
+		inQ.Close()
+		testutil.DrainUntilClosed(outCh)
+	})
+
+	t.Run("static_mode_dynamic_is_noop_single_output", func(t *testing.T) {
+		inQ := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+		outQ := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+		outCh := outQ.Subscribe()
+
+		processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+			return &services.ProcessInfo{Pid: pp.pid, ExePath: "/bin/app", OpenPorts: pp.openPorts}, nil
+		}
+
+		swi := swarm.Instancer{}
+		swi.Add(criteriaMatcherProvider(&pipeConfig, inQ, outQ, cfgCriteria, nil), swarm.WithID("CriteriaMatcher"))
+		swi.Add(dynamicMatcherProvider(inQ, outQ, nil), swarm.WithID("DynamicMatcher"))
+		runner, err := swi.Instance(t.Context())
+		require.NoError(t, err)
+		runner.Start(t.Context())
+		time.Sleep(50 * time.Millisecond)
+		defer outQ.Close()
+
+		inQ.Send([]Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 12, openPorts: []uint32{80}}}})
+		ms := testutil.ReadChannel(t, outCh, testTimeout)
+		require.Len(t, ms, 1)
+		assert.Equal(t, app.PID(12), ms[0].Obj.Process.Pid)
+
+		inQ.Close()
+		testutil.DrainUntilClosed(outCh)
+	})
+}
 
 func testMatch(t *testing.T, m Event[ProcessMatch], name string,
 	namespace string, proc services.ProcessInfo,
@@ -52,7 +128,7 @@ func TestCriteriaMatcher(t *testing.T) {
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 	filteredProcesses := filteredProcessesQu.Subscribe()
-	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig, false), nil)(t.Context())
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
 	require.NoError(t, err)
 	go matcherFunc(t.Context())
 	defer filteredProcessesQu.Close()
@@ -103,7 +179,7 @@ func TestCriteriaMatcherLanguage(t *testing.T) {
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 	filteredProcesses := filteredProcessesQu.Subscribe()
-	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig, false), nil)(t.Context())
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
 	require.NoError(t, err)
 	go matcherFunc(t.Context())
 	defer filteredProcessesQu.Close()
@@ -153,7 +229,7 @@ func TestCriteriaMatcher_Exclude(t *testing.T) {
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 	filteredProcesses := filteredProcessesQu.Subscribe()
-	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig, false), nil)(t.Context())
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
 	require.NoError(t, err)
 	go matcherFunc(t.Context())
 	defer filteredProcessesQu.Close()
@@ -194,7 +270,7 @@ func TestCriteriaMatcher_Exclude_Metadata(t *testing.T) {
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 	filteredProcesses := filteredProcessesQu.Subscribe()
-	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig, false), nil)(t.Context())
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
 	require.NoError(t, err)
 	go matcherFunc(t.Context())
 	defer filteredProcessesQu.Close()
@@ -242,7 +318,7 @@ func TestCriteriaMatcher_MustMatchAllAttributes(t *testing.T) {
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 	filteredProcesses := filteredProcessesQu.Subscribe()
-	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig, false), nil)(t.Context())
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
 	require.NoError(t, err)
 	go matcherFunc(t.Context())
 	defer filteredProcessesQu.Close()
@@ -297,7 +373,7 @@ func TestCriteriaMatcherMissingPort(t *testing.T) {
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 	filteredProcesses := filteredProcessesQu.Subscribe()
-	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig, false), nil)(t.Context())
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
 	require.NoError(t, err)
 	go matcherFunc(t.Context())
 	defer filteredProcessesQu.Close()
@@ -347,7 +423,7 @@ func TestCriteriaMatcherContainersOnly(t *testing.T) {
 		panic("pid not exposed by test")
 	}
 
-	// override the os.Getpid func to that Beyla is always reported
+	// override the os.Getpid func to that OBI is always reported
 	// with pid 1
 	osPidFunc = func() int {
 		return 1
@@ -356,7 +432,7 @@ func TestCriteriaMatcherContainersOnly(t *testing.T) {
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 	filteredProcesses := filteredProcessesQu.Subscribe()
-	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig, false), nil)(t.Context())
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
 	require.NoError(t, err)
 	go matcherFunc(t.Context())
 	defer filteredProcessesQu.Close()
@@ -495,7 +571,7 @@ func TestInstrumentation_CoexistingWithDeprecatedServices(t *testing.T) {
 			discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 			filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 			filteredProcesses := filteredProcessesQu.Subscribe()
-			matcherFunc, err := criteriaMatcherProvider(&tc.cfg, discoveredProcesses, filteredProcessesQu, FindingCriteria(&tc.cfg, false), nil)(t.Context())
+			matcherFunc, err := criteriaMatcherProvider(&tc.cfg, discoveredProcesses, filteredProcessesQu, FindingCriteria(&tc.cfg), nil)(t.Context())
 			require.NoError(t, err)
 			go matcherFunc(t.Context())
 			defer filteredProcessesQu.Close()
@@ -530,7 +606,7 @@ func TestCriteriaMatcher_TargetPIDs(t *testing.T) {
 		discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 		filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 		filteredProcesses := filteredProcessesQu.Subscribe()
-		matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig, false), nil)(t.Context())
+		matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
 		require.NoError(t, err)
 		go matcherFunc(t.Context())
 		defer filteredProcessesQu.Close()
@@ -561,7 +637,7 @@ func TestCriteriaMatcher_TargetPIDs(t *testing.T) {
 		discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 		filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
 		filteredProcesses := filteredProcessesQu.Subscribe()
-		matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig, false), nil)(t.Context())
+		matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
 		require.NoError(t, err)
 		go matcherFunc(t.Context())
 		defer filteredProcessesQu.Close()
@@ -588,10 +664,8 @@ func TestCriteriaMatcher_TargetPIDs(t *testing.T) {
 }
 
 func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {
-	pipeConfig := obi.Config{ServiceName: "dyn-svc", ServiceNamespace: "ns"}
 	dynamicSelector := NewDynamicPIDSelector()
 	dynamicSelector.AddPIDs(42)
-	configCriteria := FindingCriteria(&pipeConfig, true)
 
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
@@ -599,9 +673,10 @@ func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 		return &services.ProcessInfo{Pid: pp.pid, ExePath: "/any/exe", OpenPorts: pp.openPorts}, nil
 	}
-	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, configCriteria, dynamicSelector)(t.Context())
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector)(t.Context())
 	require.NoError(t, err)
-	go matcherFunc(t.Context())
+	go runFn(t.Context())
+	time.Sleep(50 * time.Millisecond)
 	defer filteredProcessesQu.Close()
 
 	discoveredProcesses.Send([]Event[ProcessAttrs]{
@@ -638,10 +713,8 @@ func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {
 }
 
 func TestCriteriaMatcher_DynamicTargetPIDs_RemoveNotification(t *testing.T) {
-	pipeConfig := obi.Config{ServiceName: "dyn-svc", ServiceNamespace: "ns"}
 	dynamicSelector := NewDynamicPIDSelector()
 	dynamicSelector.AddPIDs(42, 100)
-	configCriteria := FindingCriteria(&pipeConfig, true)
 
 	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
 	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
@@ -649,9 +722,10 @@ func TestCriteriaMatcher_DynamicTargetPIDs_RemoveNotification(t *testing.T) {
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 		return &services.ProcessInfo{Pid: pp.pid, ExePath: "/any/exe", OpenPorts: pp.openPorts}, nil
 	}
-	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, configCriteria, dynamicSelector)(t.Context())
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector)(t.Context())
 	require.NoError(t, err)
-	go matcherFunc(t.Context())
+	go runFn(t.Context())
+	time.Sleep(50 * time.Millisecond)
 	defer filteredProcessesQu.Close()
 
 	discoveredProcesses.Send([]Event[ProcessAttrs]{
@@ -702,7 +776,7 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 
 	filteredProcesses := filteredProcessesQu.Subscribe()
 
-	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig, false), nil)(t.Context())
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
 
 	require.NoError(t, err)
 

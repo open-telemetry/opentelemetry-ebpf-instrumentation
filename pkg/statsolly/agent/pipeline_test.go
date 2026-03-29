@@ -112,8 +112,8 @@ func fakeRecord(srcPort, dstPort uint16) *ebpf.Stat {
 			SrttUs: 100,
 		},
 		CommonAttrs: pipe.CommonAttrs{
-			SrcPort: int(srcPort),
-			DstPort: int(dstPort),
+			SrcPort: srcPort,
+			DstPort: dstPort,
 		},
 	}
 }
