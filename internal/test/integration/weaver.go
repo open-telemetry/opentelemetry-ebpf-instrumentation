@@ -25,6 +25,16 @@ const (
 	weaverOutputFile = "weaver-report.json"
 )
 
+// weaverIgnoredSignals lists signals whose violations are expected and should
+// not cause the test to fail. target_info is a Prometheus/OpenMetrics convention
+// (with Prometheus-style instance/job attributes) that is not part of the OTel
+// semantic conventions registry.
+// TODO: replace with custom override / filter once
+// https://github.com/open-telemetry/weaver/pull/1256 is merged.
+var weaverIgnoredSignals = map[string]struct{}{
+	"metric:target_info": {},
+}
+
 // SemconvVersion extracts the semantic conventions version from the semconv
 // package imported by OBI (e.g. "1.38.0" from SchemaURL
 // "https://opentelemetry.io/schemas/1.38.0"). This is the single source of
@@ -145,7 +155,9 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 	// Build message → {level, signals} lookup from the sample data.
 	adviceByMsg := collectAdviceInfo(report.Samples, stats.AdviceMessageCounts)
 
-	// Log all advisory messages grouped by level.
+	// Log all advisory messages grouped by level, and count actionable
+	// violations (excluding signals listed in weaverIgnoredSignals).
+	var actionableViolations int
 	t.Logf("  advisory details:")
 	for _, level := range []string{"violation", "improvement", "information"} {
 		for msg, count := range stats.AdviceMessageCounts {
@@ -154,12 +166,23 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 				continue
 			}
 			signals := sortedSignals(info.Signals)
-			t.Logf("    [%s] [%dx] %s (signals: %s)", level, count, msg, strings.Join(signals, ", "))
+			ignored := allSignalsIgnored(info.Signals)
+			suffix := ""
+			if ignored {
+				suffix = " [ignored]"
+			}
+			t.Logf("    [%s] [%dx] %s (signals: %s)%s", level, count, msg, strings.Join(signals, ", "), suffix)
+			if level == "violation" && !ignored {
+				actionableViolations += count
+			}
 		}
 	}
 
-	assert.Zero(t, violations,
-		"weaver found %d semantic convention violation(s)", violations)
+	t.Logf("  violations: %d total, %d actionable (after ignoring %v)",
+		violations, actionableViolations, sortedSignals(weaverIgnoredSignals))
+
+	assert.Zero(t, actionableViolations,
+		"weaver found %d actionable semantic convention violation(s)", actionableViolations)
 }
 
 // collectAdviceInfo scans the weaver samples to build a map from advisory
@@ -224,6 +247,19 @@ func extractAdviceInfo(data json.RawMessage, result map[string]*adviceInfo) {
 			extractAdviceInfo(item, result)
 		}
 	}
+}
+
+// allSignalsIgnored returns true if every signal in the set is in weaverIgnoredSignals.
+func allSignalsIgnored(signals map[string]struct{}) bool {
+	if len(signals) == 0 {
+		return false
+	}
+	for sig := range signals {
+		if _, ignored := weaverIgnoredSignals[sig]; !ignored {
+			return false
+		}
+	}
+	return true
 }
 
 func sortedSignals(set map[string]struct{}) []string {
