@@ -4,6 +4,7 @@
 package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,9 +23,9 @@ import (
 )
 
 const (
-	weaverContainer  = "weaver"
-	weaverAdminPort  = 4320
-	weaverOutputFile = "weaver-report.json"
+	weaverContainer = "weaver"
+	weaverAdminPort = 4320
+	weaverTimeout   = 2 * time.Minute
 )
 
 // weaverIgnoredSignals lists signals whose violations are expected and should
@@ -39,6 +41,12 @@ var weaverIgnoredSignals = map[string]struct{}{
 func SemconvVersion() string {
 	// semconv.SchemaURL is "https://opentelemetry.io/schemas/1.38.0"
 	return semconv.SchemaURL[strings.LastIndex(semconv.SchemaURL, "/")+1:]
+}
+
+func weaverReportPath(t *testing.T) string {
+	t.Helper()
+	name := strings.ReplaceAll(t.Name(), "/", "_")
+	return path.Join(pathOutput, fmt.Sprintf("weaver-report-%s.json", name))
 }
 
 // weaverReport is the top-level JSON structure emitted by weaver with --format json.
@@ -82,31 +90,40 @@ type adviceInfo struct {
 func runWeaverValidation(t *testing.T) {
 	t.Helper()
 
+	ctx, cancel := context.WithTimeout(context.Background(), weaverTimeout)
+	defer cancel()
+
 	// Signal weaver to stop accepting data and produce its report.
 	url := fmt.Sprintf("http://127.0.0.1:%d/stop", weaverAdminPort)
-	resp, err := http.Post(url, "", nil) //nolint:noctx
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("failed to stop weaver (is it running?): %v", err)
 	}
 	resp.Body.Close()
+	require.Less(t, resp.StatusCode, 300, "weaver /stop returned HTTP %d", resp.StatusCode)
 
 	// Wait for the weaver container to finish processing and exit.
-	_, err = exec.Command("docker", "wait", weaverContainer).Output()
+	_, err = exec.CommandContext(ctx, "docker", "wait", weaverContainer).Output()
 	if err != nil {
 		t.Fatalf("failed to wait for weaver container: %v", err)
 	}
 
 	// Capture stdout (JSON report) and stderr (log lines) separately.
 	// Weaver writes the JSON report to stdout and diagnostic messages to stderr.
-	cmd := exec.Command("docker", "logs", weaverContainer)
+	cmd := exec.CommandContext(ctx, "docker", "logs", weaverContainer)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	_ = cmd.Run()
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to capture weaver logs: %v; stderr: %s", err, stderr.String())
+	}
 
 	// Save full output for later inspection.
-	reportPath := path.Join(pathOutput, weaverOutputFile)
-	_ = os.WriteFile(reportPath, []byte(stdout.String()), 0o644)
+	reportPath := weaverReportPath(t)
+	require.NoError(t, os.WriteFile(reportPath, []byte(stdout.String()), 0o644),
+		"failed to write weaver report to %s", reportPath)
 	t.Logf("weaver report saved to %s", reportPath)
 	if stderr.Len() > 0 {
 		t.Logf("weaver diagnostics:\n%s", stderr.String())
@@ -147,7 +164,7 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 	t.Logf("  registry coverage: %.1f%%", stats.RegistryCoverage*100)
 
 	// Build message → {level, signals} lookup from the sample data.
-	adviceByMsg := collectAdviceInfo(report.Samples, stats.AdviceMessageCounts)
+	adviceByMsg := collectAdviceInfo(report.Samples)
 
 	// Log all advisory messages grouped by level, and count actionable
 	// violations (excluding signals listed in weaverIgnoredSignals).
@@ -156,7 +173,14 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 	for _, level := range []string{"violation", "improvement", "information"} {
 		for msg, count := range stats.AdviceMessageCounts {
 			info := adviceByMsg[msg]
-			if info == nil || info.Level != level {
+			if info == nil {
+				t.Logf("    [%s] [%dx] %s (signals: unknown)", level, count, msg)
+				if level == "violation" {
+					actionableViolations += count
+				}
+				continue
+			}
+			if info.Level != level {
 				continue
 			}
 			signals := sortedSignals(info.Signals)
@@ -179,10 +203,10 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 		"weaver found %d actionable semantic convention violation(s)", actionableViolations)
 }
 
-// collectAdviceInfo scans the weaver samples to build a map from advisory
-// message to its severity level and the set of signals that triggered it.
-func collectAdviceInfo(samples []json.RawMessage, knownMessages map[string]int) map[string]*adviceInfo {
-	result := make(map[string]*adviceInfo, len(knownMessages))
+// collectAdviceInfo scans all weaver samples to build a complete map from
+// advisory message to its severity level and the set of signals that triggered it.
+func collectAdviceInfo(samples []json.RawMessage) map[string]*adviceInfo {
+	result := make(map[string]*adviceInfo)
 
 	for _, raw := range samples {
 		var generic map[string]json.RawMessage
@@ -191,10 +215,6 @@ func collectAdviceInfo(samples []json.RawMessage, knownMessages map[string]int) 
 		}
 		for _, v := range generic {
 			extractAdviceInfo(v, result)
-		}
-		// Stop early once we've resolved all known messages.
-		if len(result) >= len(knownMessages) {
-			break
 		}
 	}
 
