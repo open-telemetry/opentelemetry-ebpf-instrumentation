@@ -35,10 +35,6 @@ var weaverIgnoredSignals = map[string]struct{}{
 	"metric:target_info": {},
 }
 
-// SemconvVersion extracts the semantic conventions version from the semconv
-// package imported by OBI (e.g. "1.38.0" from SchemaURL
-// "https://opentelemetry.io/schemas/1.38.0"). This is the single source of
-// truth for the semconv version used in weaver validation.
 func SemconvVersion() string {
 	// semconv.SchemaURL is "https://opentelemetry.io/schemas/1.38.0"
 	return semconv.SchemaURL[strings.LastIndex(semconv.SchemaURL, "/")+1:]
@@ -68,12 +64,10 @@ type weaverAdvice struct {
 	SignalName string `json:"signal_name"`
 }
 
-// weaverLiveCheckResult is embedded in every entity that weaver evaluates.
 type weaverLiveCheckResult struct {
 	AllAdvice []weaverAdvice `json:"all_advice"`
 }
 
-// adviceInfo aggregates metadata about a unique advisory message.
 type adviceInfo struct {
 	Level   string
 	Signals map[string]struct{} // set of "signal_type:signal_name"
@@ -129,7 +123,6 @@ func runWeaverValidation(t *testing.T) {
 	validateWeaverReport(t, &report)
 }
 
-// validateWeaverReport checks the parsed weaver report.
 func validateWeaverReport(t *testing.T, report *weaverReport) {
 	t.Helper()
 
