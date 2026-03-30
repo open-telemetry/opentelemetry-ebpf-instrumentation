@@ -32,7 +32,7 @@ Requirements:
 2. To run linter, unit tests: `make fmt verify`.
 3. To run integration tests, run either:
 
-```
+```bash
 make integration-test
 make integration-test-k8s
 make oats-test
@@ -172,6 +172,11 @@ docker pull otel/ebpf-instrument:${VERSION}
 # See https://opentelemetry.io/docs/zero-code/obi/setup/docker/ for more details
 docker run --privileged otel/ebpf-instrument:${VERSION}
 ```
+
+## Examples
+
+- [OTel Collector Receiver Example](./examples/otel-collector/README.md)
+- [NGINX Multi-Route And Proxy Example](./examples/nginx/README.md)
 
 ## Contributing
 
