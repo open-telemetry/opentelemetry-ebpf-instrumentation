@@ -177,6 +177,7 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 		case EventDeleted:
 			if fInfo, ok := t.currentPids[ev.Obj.Process.Pid]; ok {
 				delete(t.currentPids, ev.Obj.Process.Pid)
+				t.instrumentableCache.Remove(fInfo.Ino)
 				out = append(out, Event[ebpf.Instrumentable]{
 					Type: EventDeleted,
 					Obj:  ebpf.Instrumentable{FileInfo: fInfo},
