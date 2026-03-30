@@ -31,14 +31,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-const PinInternal = ebpf.PinType(100)
-
-const (
-	MaxMapEntries       = ebpfconvenience.MaxMapEntries
-	MinMapEntries       = ebpfconvenience.MinMapEntries
-	MinResizableMapSize = ebpfconvenience.MinResizableMapSize
-)
-
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
 
 type instrumenter struct {
