@@ -5,11 +5,16 @@ package discover
 
 import (
 	"iter"
+	"log/slog"
 	"testing"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
@@ -136,4 +141,45 @@ func TestMakeServiceAttrs_FeaturesMatchingMultipleCriteria(t *testing.T) {
 			assert.Equal(t, tc.expected, attrs.Features)
 		})
 	}
+}
+
+func TestFilterClassify_EventDeleted_EvictsInstrumentableCache(t *testing.T) {
+	instrumentableCache, _ := lru.New[uint64, instrumentedExecutable](100)
+
+	const testInode uint64 = 15
+	const testPID app.PID = 100
+
+	instrumentableCache.Add(testInode, instrumentedExecutable{
+		Type: svc.InstrumentableGeneric,
+	})
+
+	fInfo := &exec.FileInfo{
+		Pid:        testPID,
+		Ino:        testInode,
+		CmdExePath: "/usr/bin/version-b",
+	}
+
+	ty := typer{
+		cfg:                 &obi.Config{Routes: &transform.RoutesConfig{}},
+		log:                 slog.Default(),
+		currentPids:         map[app.PID]*exec.FileInfo{testPID: fInfo},
+		instrumentableCache: instrumentableCache,
+	}
+
+	deleteEvents := []Event[ProcessMatch]{
+		{
+			Type: EventDeleted,
+			Obj:  ProcessMatch{Process: &services.ProcessInfo{Pid: testPID}},
+		},
+	}
+
+	out := ty.FilterClassify(deleteEvents)
+
+	require.Len(t, out, 1)
+	assert.Equal(t, EventDeleted, out[0].Type)
+	assert.Equal(t, fInfo, out[0].Obj.FileInfo)
+
+	_, cacheHit := instrumentableCache.Get(testInode)
+	assert.False(t, cacheHit,
+		"instrumentableCache should not contain a stale entry for inode %d after the process owning it is deleted", testInode)
 }
