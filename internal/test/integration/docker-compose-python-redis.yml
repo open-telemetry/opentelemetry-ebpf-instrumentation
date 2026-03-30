@@ -83,7 +83,7 @@ services:
   # Weaver semantic convention validator — receives OTLP from the collector
   # and validates telemetry against the OpenTelemetry semantic conventions.
   weaver:
-    image: otel/weaver:v0.22.1
+    image: otel/weaver:v0.22.1@sha256:33ae522ae4b71c1c562563c1d81f46aa0f79f088a0873199143a1f11ac30e5c9
     container_name: weaver
     command:
       - registry
