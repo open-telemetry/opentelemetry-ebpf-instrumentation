@@ -28,6 +28,7 @@ import (
 	watcherbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/watcher"
 	netollybpf "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	rdnsxdpbpf "go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/xdp"
+	statsolly "go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 )
 
 const privilegedEnv = "PRIVILEGED_TESTS"
@@ -215,12 +216,8 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_bpf_debug", []any{true, false}},
 	})
 
-	// TODO add statsolly after
-	// 1. change Stats to Bpf
-	// 2. add g_bpf_debug
-	// done in one PR with failed tcp connection
 	// statsolly
-	// forEachCombination(t, "statsolly/Stats", rdnsxdpbpf.LoadStats, []constOption{
-	// 	{"g_bpf_debug", []any{true, false}},
-	// })
+	forEachCombination(t, "statsolly/Stats", statsolly.LoadStats, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+	})
 }
