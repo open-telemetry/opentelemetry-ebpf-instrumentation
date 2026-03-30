@@ -144,21 +144,26 @@ func TestSetupMapSizes_SkipsBelowMinResizableMapSize(t *testing.T) {
 
 func TestSetupMapSizes_SkipsPinnedMaps(t *testing.T) {
 	pinDir := t.TempDir()
-	// Create a file to simulate a pinned map
-	pinnedPath := filepath.Join(pinDir, "pinned_map")
-	if err := os.WriteFile(pinnedPath, []byte{}, 0o600); err != nil {
-		t.Fatal(err)
+	// Create files to simulate pinned maps on bpffs
+	for _, name := range []string{"pinned_map", "not_pinned_map"} {
+		if err := os.WriteFile(filepath.Join(pinDir, name), []byte{}, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	spec := makeSpec(map[string]*ebpf.MapSpec{
-		"pinned_map":   {Type: ebpf.Hash, MaxEntries: 1024},
-		"unpinned_map": {Type: ebpf.Hash, MaxEntries: 1024},
+		"pinned_map":     {Type: ebpf.Hash, MaxEntries: 1024, Pinning: ebpf.PinByName},
+		"not_pinned_map": {Type: ebpf.Hash, MaxEntries: 1024, Pinning: ebpf.PinNone},
+		"unpinned_map":   {Type: ebpf.Hash, MaxEntries: 1024},
 	})
 
 	SetupMapSizes(spec, 2, pinDir)
 
 	if spec.Maps["pinned_map"].MaxEntries != 1024 {
-		t.Errorf("pinned map should be skipped: got %d, want 1024", spec.Maps["pinned_map"].MaxEntries)
+		t.Errorf("PinByName map with file on disk should be skipped: got %d, want 1024", spec.Maps["pinned_map"].MaxEntries)
+	}
+	if spec.Maps["not_pinned_map"].MaxEntries == 1024 {
+		t.Error("PinNone map should be resized even if a file with same name exists on disk")
 	}
 	if spec.Maps["unpinned_map"].MaxEntries == 1024 {
 		t.Error("unpinned map should have been resized")

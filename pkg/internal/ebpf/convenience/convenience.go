@@ -141,7 +141,7 @@ func SetupMapSizes(spec *ebpf.CollectionSpec, globalScaleFactor int, bpffsPinPat
 			continue
 		}
 
-		if bpffsPinPath != "" {
+		if bpffsPinPath != "" && mSpec.Pinning == ebpf.PinByName {
 			mapPath := filepath.Join(bpffsPinPath, name)
 			if _, err := os.Stat(mapPath); err == nil {
 				continue
