@@ -166,16 +166,11 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	})
 
 	// gotracer
-	// g_bpf_loop_enabled=true requires bpf_loop (kernel >= 5.17).
-	bpfLoopValues := []any{false}
-	if ebpfcommon.SupportsEBPFLoops(slog.Default(), false) {
-		bpfLoopValues = []any{true, false}
-	}
 	forEachCombination(t, "gotracer/Bpf", gotracerbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"g_bpf_header_propagation", []any{true, false}},
-		{"g_bpf_loop_enabled", bpfLoopValues},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
 		{"disable_black_box_cp", []any{uint32(0), uint32(1)}},
 	})
 
