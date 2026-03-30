@@ -35,9 +35,10 @@ const (
 )
 
 type MapsConfig struct {
-	// GlobalScaleFactor scales ALL maps that we expose by this factor
-	// If GlobalScaleFactor > 0 --> NewSize = DefaultSize << GlobalScaleFactor // double it
-	// If GlobalScaleFactor < 0 --> NewSize = DefaultSize >> GlobalScaleFactor // halve it
+	// GlobalScaleFactor scales map sizes in powers of two:
+	//   > 0: grows size (2x per step)
+	//   < 0: shrinks size (1/2 per step)
+	//   = 0: no change
 	GlobalScaleFactor int `yaml:"global_scale_factor" validate:"gte=-3,lte=3"`
 }
 
