@@ -56,8 +56,10 @@ enum {
     k_dns_max_len = 512, // must be a power of 2
 };
 
-#define MAX_SPAN_NAME_LEN 64
-#define MAX_STATUS_DESCRIPTION_LEN 64
+enum : u64 {
+    k_max_span_name_len = 64,
+    k_max_status_description_len = 64,
+};
 
 // Trace of an HTTP call invocation. It is instantiated by the return uprobe and forwarded to the
 // user space through the events ringbuffer.
@@ -169,11 +171,11 @@ typedef struct tcp_large_buffer {
 } tcp_large_buffer_t;
 
 typedef struct span_name {
-    unsigned char buf[MAX_SPAN_NAME_LEN];
+    unsigned char buf[k_max_span_name_len];
 } span_name_t;
 
 typedef struct span_description {
-    unsigned char buf[MAX_STATUS_DESCRIPTION_LEN];
+    unsigned char buf[k_max_status_description_len];
 } span_description_t;
 
 typedef struct go_string {
