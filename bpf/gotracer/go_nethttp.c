@@ -15,8 +15,10 @@
 
 //go:build obi_bpf_ignore
 
+#include <bpfcore/vmlinux.h>
 #include <bpfcore/utils.h>
 
+#include <common/algorithm.h>
 #include <common/globals.h>
 #include <common/http_types.h>
 #include <common/ringbuf.h>
@@ -462,7 +464,7 @@ int obi_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
     const unsigned char *buf = (const unsigned char *)GO_PARAM1(ctx);
 
     unsigned char *temp = temp_header_mem();
-    const u32 safe_len = len > HTTP_HEADER_MAX_LEN ? HTTP_HEADER_MAX_LEN : len;
+    const u32 safe_len = min(HTTP_HEADER_MAX_LEN, len);
     if (!temp || bpf_probe_read_user(temp, safe_len, buf) != 0) {
         bpf_dbg_printk("failed to read buffer");
         return 0;
