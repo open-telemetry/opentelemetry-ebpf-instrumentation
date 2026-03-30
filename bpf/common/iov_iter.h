@@ -108,7 +108,7 @@ static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *bu
         }
 
         const u32 remaining = k_iovec_max_len > tot_len ? (k_iovec_max_len - tot_len) : 0;
-        u32 iov_size = min(min((u32)vec.iov_len, max_len), remaining);
+        u32 iov_size = (u32)min(min(vec.iov_len, max_len), (size_t)remaining);
         bpf_clamp_umax(tot_len, k_iovec_max_len);
         bpf_clamp_umax(iov_size, k_iovec_max_len);
 
