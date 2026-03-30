@@ -157,7 +157,7 @@ int obi_uprobe_findHandlerRet(struct pt_regs *ctx) {
         void *ptr = GO_PARAM3(ctx);
         if (ptr) {
             bpf_dbg_printk("reading pattern information with len: %d", len);
-            read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
+            read_go_str_n("pattern", ptr, len, invocation->pattern, k_pattern_max_len);
         }
     }
 
@@ -184,7 +184,7 @@ int obi_uprobe_muxSetMatch(struct pt_regs *ctx) {
         if (path) {
             bpf_dbg_printk("reading template from path: %llx", path);
             const u64 templ_off = go_offset_of(ot, (go_offset){.v = _mux_template_pos});
-            read_go_str("pattern", path, templ_off, invocation->pattern, PATTERN_MAX_LEN);
+            read_go_str("pattern", path, templ_off, invocation->pattern, k_pattern_max_len);
             bpf_dbg_printk("pattern=%s", invocation->pattern);
         }
     }
@@ -223,7 +223,7 @@ int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
 
                     if (ptr) {
                         bpf_dbg_printk("pre gin 1.7.0 fullPath from: %llx", ptr);
-                        read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
+                        read_go_str_n("pattern", ptr, len, invocation->pattern, k_pattern_max_len);
                         bpf_dbg_printk("pattern=%s", invocation->pattern);
                     }
                 } else {
@@ -232,7 +232,7 @@ int obi_uprobe_ginGetValueRet(struct pt_regs *ctx) {
 
                     if (ptr) {
                         bpf_dbg_printk("post gin 1.7.0 fullPath from: %llx", ptr);
-                        read_go_str_n("pattern", ptr, len, invocation->pattern, PATTERN_MAX_LEN);
+                        read_go_str_n("pattern", ptr, len, invocation->pattern, k_pattern_max_len);
                         bpf_dbg_printk("pattern=%s", invocation->pattern);
                     }
                 }
@@ -464,7 +464,7 @@ int obi_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
     const unsigned char *buf = (const unsigned char *)GO_PARAM1(ctx);
 
     unsigned char *temp = temp_header_mem();
-    const u32 safe_len = min(HTTP_HEADER_MAX_LEN, len);
+    const u32 safe_len = min(k_http_header_max_len, len);
     if (!temp || bpf_probe_read_user(temp, safe_len, buf) != 0) {
         bpf_dbg_printk("failed to read buffer");
         return 0;
@@ -817,7 +817,7 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
         goto done;
     }
 
-    unsigned char buf[TRACEPARENT_LEN];
+    unsigned char buf[k_traceparent_len];
 
     make_tp_string(buf, &func_inv->tp);
 
@@ -1375,7 +1375,7 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
                      (void *)rpc_request_addr,
                      go_offset_of(ot, (go_offset){.v = _jsonrpc_request_header_service_method_pos}),
                      invocation->method,
-                     METHOD_MAX_LEN)) {
+                     k_method_max_len)) {
         bpf_dbg_printk("Failed to read JSON-RPC method from: %llx", rpc_request_addr);
         return 0;
     }
