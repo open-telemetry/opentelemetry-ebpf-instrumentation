@@ -67,7 +67,7 @@ func (ld *languageDecorator) decorateEvent(ev *Event[ProcessAttrs]) {
 		if ld.isIgnoredPath(exePath) {
 			return
 		}
-		if ino, err := _findInodeForPID(ev.Obj.pid); err == nil {
+		if _, ino, err := _findInodeForPID(ev.Obj.pid); err == nil {
 			if t, ok := ld.typeCache.Get(ino); ok {
 				ev.Obj.detectedType = t
 				return

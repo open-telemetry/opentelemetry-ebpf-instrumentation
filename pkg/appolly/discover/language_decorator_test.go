@@ -108,12 +108,12 @@ func TestDecorateEventIgnoredPath(t *testing.T) {
 func TestDecorateEventCachesResult(t *testing.T) {
 	ld := newTestDecorator(nil)
 
-	_findInodeForPID = func(pid app.PID) (uint64, error) {
+	_findInodeForPID = func(pid app.PID) (uint64, uint64, error) {
 		if pid == 1 {
-			return 12345, nil
+			return 1, 12345, nil
 		}
 
-		return 0, nil
+		return 0, 0, nil
 	}
 
 	_executableReady = func(pid app.PID) (string, bool) {
@@ -146,12 +146,12 @@ func TestDecorateEventCachesResult(t *testing.T) {
 func TestDecorateEventFirstTime(t *testing.T) {
 	ld := newTestDecorator(nil)
 
-	_findInodeForPID = func(pid app.PID) (uint64, error) {
+	_findInodeForPID = func(pid app.PID) (uint64, uint64, error) {
 		if pid == 1 {
-			return 12345, nil
+			return 1, 12345, nil
 		}
 
-		return 0, nil
+		return 0, 0, nil
 	}
 
 	_executableReady = func(pid app.PID) (string, bool) {

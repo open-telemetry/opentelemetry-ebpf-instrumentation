@@ -144,17 +144,20 @@ func TestMakeServiceAttrs_FeaturesMatchingMultipleCriteria(t *testing.T) {
 }
 
 func TestFilterClassify_EventDeleted_EvictsInstrumentableCache(t *testing.T) {
-	instrumentableCache, _ := lru.New[uint64, instrumentedExecutable](100)
+	instrumentableCache, _ := lru.New[cacheKey, instrumentedExecutable](100)
 
+	const testDev uint64 = 42
 	const testInode uint64 = 15
 	const testPID app.PID = 100
 
-	instrumentableCache.Add(testInode, instrumentedExecutable{
+	key := cacheKey{Dev: testDev, Ino: testInode}
+	instrumentableCache.Add(key, instrumentedExecutable{
 		Type: svc.InstrumentableGeneric,
 	})
 
 	fInfo := &exec.FileInfo{
 		Pid:        testPID,
+		Dev:        testDev,
 		Ino:        testInode,
 		CmdExePath: "/usr/bin/version-b",
 	}
@@ -179,7 +182,7 @@ func TestFilterClassify_EventDeleted_EvictsInstrumentableCache(t *testing.T) {
 	assert.Equal(t, EventDeleted, out[0].Type)
 	assert.Equal(t, fInfo, out[0].Obj.FileInfo)
 
-	_, cacheHit := instrumentableCache.Get(testInode)
+	_, cacheHit := instrumentableCache.Get(key)
 	assert.False(t, cacheHit,
-		"instrumentableCache should not contain a stale entry for inode %d after the process owning it is deleted", testInode)
+		"instrumentableCache should not contain a stale entry for dev:ino %v after the process owning it is deleted", key)
 }

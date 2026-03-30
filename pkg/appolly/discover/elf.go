@@ -26,18 +26,18 @@ const (
 	serviceNamespaceKey = "service.namespace"
 )
 
-func FindINodeForPID(pid app.PID) (uint64, error) {
+func FindINodeForPID(pid app.PID) (dev uint64, ino uint64, err error) {
 	exePath := fmt.Sprintf("/proc/%d/exe", pid)
 	info, err := os.Stat(exePath)
 	if err == nil {
 		stat, ok := info.Sys().(*syscall.Stat_t)
 		if !ok {
-			return 0, fmt.Errorf("couldn't cast stat into syscall.Stat_t for %s", exePath)
+			return 0, 0, fmt.Errorf("couldn't cast stat into syscall.Stat_t for %s", exePath)
 		}
-		return stat.Ino, nil
+		return uint64(stat.Dev), stat.Ino, nil
 	}
 
-	return 0, err
+	return 0, 0, err
 }
 
 func findExecElf(p *services.ProcessInfo, svcID svc.Attrs) (*exec.FileInfo, error) {
@@ -60,10 +60,11 @@ func findExecElf(p *services.ProcessInfo, svcID svc.Attrs) (*exec.FileInfo, erro
 		return nil, fmt.Errorf("can't open ELF file in %s: %w", file.ProExeLinkPath, err)
 	}
 
-	ino, err := FindINodeForPID(p.Pid)
+	dev, ino, err := FindINodeForPID(p.Pid)
 	if err != nil {
 		return nil, err
 	}
+	file.Dev = dev
 	file.Ino = ino
 
 	envVars, err := procs.EnvVars(p.Pid)
