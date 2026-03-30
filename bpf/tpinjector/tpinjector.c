@@ -459,7 +459,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
 
     bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
 
-    const u16 copy_bytes = min(msg_buf.real_size, k_kprobes_http2_buf_size);
+    const u16 copy_bytes = max(msg_buf.real_size, k_kprobes_http2_buf_size);
 
     unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 
