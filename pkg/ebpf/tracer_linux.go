@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"os"
 	"path"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -35,9 +34,9 @@ import (
 const PinInternal = ebpf.PinType(100)
 
 const (
-	MaxMapEntries       uint32 = 1 << 24
-	MinMapEntries       uint32 = 64
-	MinResizableMapSize uint32 = 64
+	MaxMapEntries       = ebpfconvenience.MaxMapEntries
+	MinMapEntries       = ebpfconvenience.MinMapEntries
+	MinResizableMapSize = ebpfconvenience.MinResizableMapSize
 )
 
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
@@ -186,70 +185,8 @@ func (pt *ProcessTracer) setupOtelBPFFSPath(bundles []*common.SpecBundle) string
 	return ""
 }
 
-// isResizableMapType returns true for map types where scaling MaxEntries
-// is meaningful. Excludes special map types whose MaxEntries has fixed
-// semantics (e.g. ProgramArray entries are tail-call slots, not data).
-func isResizableMapType(t ebpf.MapType) bool {
-	switch t {
-	case ebpf.ProgramArray, ebpf.PerfEventArray, ebpf.CGroupArray,
-		ebpf.ArrayOfMaps, ebpf.HashOfMaps,
-		ebpf.DevMap, ebpf.SockMap, ebpf.CPUMap, ebpf.XSKMap, ebpf.SockHash,
-		ebpf.DevMapHash, ebpf.ReusePortSockArray:
-		return false
-	default:
-		return true
-	}
-}
-
 func setupBPFMapSizes(spec *ebpf.CollectionSpec, cfg *obi.Config, otelBPFFSPath string) {
-	globalScale := cfg.EBPF.MapsConfig.GlobalScaleFactor
-	if globalScale == 0 {
-		return
-	}
-
-	for name, mSpec := range spec.Maps {
-		// Skip special map types whose MaxEntries is not a data size
-		if !isResizableMapType(mSpec.Type) {
-			continue
-		}
-
-		// Skip small maps: covers .rodata/.bss/.data (MaxEntries == 1),
-		// scratch maps, and maps too small to benefit from scaling
-		if mSpec.MaxEntries < MinResizableMapSize {
-			continue
-		}
-
-		// If the map is already pinned on bpffs, we must not change MaxEntries
-		// because cilium/ebpf will reject the spec if it differs from the
-		// pinned map. Another tracer (or the utility tracer) already created it.
-		mapPath := filepath.Join(otelBPFFSPath, name)
-		if _, err := os.Stat(mapPath); err == nil {
-			continue
-		}
-
-		oldEntries := mSpec.MaxEntries
-		var newEntries uint32
-
-		if globalScale > 0 {
-			newEntries = oldEntries << uint32(globalScale)
-
-			// guard against overflow
-			if newEntries < oldEntries {
-				newEntries = MaxMapEntries
-			}
-		} else {
-			newEntries = oldEntries >> uint32(-globalScale)
-		}
-
-		if newEntries < MinMapEntries && oldEntries >= MinMapEntries {
-			newEntries = MinMapEntries
-		}
-		if newEntries > MaxMapEntries {
-			newEntries = MaxMapEntries
-		}
-
-		mSpec.MaxEntries = newEntries
-	}
+	ebpfconvenience.SetupMapSizes(spec, cfg.EBPF.MapsConfig.GlobalScaleFactor, otelBPFFSPath)
 }
 
 func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p Tracer, cfg *obi.Config) error {
