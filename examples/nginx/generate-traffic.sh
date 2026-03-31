@@ -78,12 +78,12 @@ route_specs() {
 EOF
 }
 
-request_route() {
-  local path="$1"
-  local expected_code="$2"
-  local http_code
+fetch_http_code() {
+  local output_var_name="$1"
+  local path="$2"
+  local curl_http_code
 
-  http_code="$(
+  if curl_http_code="$(
     curl \
       --silent \
       --show-error \
@@ -91,7 +91,21 @@ request_route() {
       --write-out '%{http_code}' \
       --max-time "$CURL_TIMEOUT" \
       "${BASE_URL}${path}"
-  )"
+  )"; then
+    printf -v "$output_var_name" '%s' "$curl_http_code"
+    return 0
+  fi
+
+  printf -v "$output_var_name" '%s' "${curl_http_code:-000}"
+  return 1
+}
+
+request_route() {
+  local path="$1"
+  local expected_code="$2"
+  local http_code=""
+
+  fetch_http_code http_code "$path" || true
 
   if [[ "$http_code" == "$expected_code" ]]; then
     return 0
@@ -124,7 +138,7 @@ worker_loop() {
   local expected_code="$3"
   local interval_ms="$4"
   local startup_delay_ms=0
-  local http_code
+  local http_code=""
 
   trap 'exit 0' INT TERM
 
@@ -134,15 +148,7 @@ worker_loop() {
   fi
 
   while true; do
-    http_code="$(
-      curl \
-        --silent \
-        --show-error \
-        --output /dev/null \
-        --write-out '%{http_code}' \
-        --max-time "$CURL_TIMEOUT" \
-        "${BASE_URL}${path}"
-    )"
+    fetch_http_code http_code "$path" || true
 
     if [[ "$http_code" == "$expected_code" ]]; then
       emit_event "$fifo_path" "ok" "$path" "$http_code" "$expected_code"
