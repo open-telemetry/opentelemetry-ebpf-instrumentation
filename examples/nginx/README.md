@@ -134,10 +134,15 @@ helm upgrade --install obi open-telemetry/opentelemetry-ebpf-instrumentation \
   -f examples/nginx/k8s/04-obi-values.yaml
 ```
 
-Port-forward the UIs:
+Port-forward the UIs. Use two separate terminal windows for this: each `kubectl port-forward` command keeps running in the foreground, so the second command will not start if you paste both into the same terminal.
 
 ```bash
+# Terminal 1
 kubectl -n obi-nginx-example port-forward svc/edge-nginx 8080:8080
+```
+
+```bash
+# Terminal 2
 kubectl -n obi-nginx-example port-forward svc/lgtm 3000:3000
 ```
 
