@@ -15,7 +15,10 @@
 
 #pragma once
 
+#include <bpfcore/vmlinux.h>
 #include <bpfcore/utils.h>
+
+#include <common/algorithm.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -32,7 +35,8 @@ read_go_byte_arr(char *name, void *base_ptr, u8 offset, void *field, u64 *size_p
         return 0;
     }
 
-    const u64 size = max_size < *size_ptr ? max_size : *size_ptr;
+    const u64 size = min(max_size, *size_ptr);
+
     if (bpf_probe_read(field, size, ptr)) {
         bpf_dbg_printk("can't read string for %s", name);
         return 0;

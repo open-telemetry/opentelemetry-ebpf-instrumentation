@@ -21,6 +21,6 @@ typedef struct produce_req {
 } produce_req_t;
 
 typedef struct topic {
-    char name[MAX_TOPIC_NAME_LEN];
+    char name[k_max_topic_name_len];
     tp_info_t tp;
 } topic_t;
