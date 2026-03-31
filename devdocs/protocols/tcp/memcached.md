@@ -185,5 +185,5 @@ mirroring the Redis behaviour.
 - **Payload not captured**: Value bytes are sized for frame boundary detection but are not
   included in span attributes.
 - **Request-only path is strict**: Non-`noreply` request-only traffic (e.g. a `get` with no
-  response) is not attributed as Memcached and is dropped..
+  response) is not attributed as Memcached and is dropped.
 - **Unsupported text commands**: `quit` and the newer meta commands are ignored.

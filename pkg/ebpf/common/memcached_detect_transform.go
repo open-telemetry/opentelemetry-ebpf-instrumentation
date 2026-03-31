@@ -74,6 +74,11 @@ func isMemcachedOp(buf []byte) bool {
 // It also emits extra spans for leading noreply operations recovered from combined requests.
 func ProcessPossibleMemcachedEvent(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, error) {
 	if parsed, ok := parseMemcachedRequests(requestBuffer.UnsafeView()); ok && !parsed.IsResponse && len(parsed.Ops) > 0 {
+		parsedResp, ok := parseMemcachedRequests(responseBuffer.UnsafeView())
+		if !ok || !parsedResp.IsResponse {
+			return request.Span{}, errFallback
+		}
+
 		// Leading noreply operations must be emitted before the final reply-backed command.
 		leading, replyOp, ok := memcachedReplyBackedOps(parsed.Ops)
 		if !ok {

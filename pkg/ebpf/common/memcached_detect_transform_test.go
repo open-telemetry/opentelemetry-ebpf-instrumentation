@@ -417,3 +417,12 @@ func TestProcessPossibleMemcachedEventReversedBuffersClientDirection(t *testing.
 	assert.Equal(t, "GET", span.Method)
 	assert.Equal(t, "session-key", span.Path)
 }
+
+func TestProcessPossibleMemcachedEventRequiresResponseBuffer(t *testing.T) {
+	event := makeTCPReq("get session-key\r\n", 11211)
+	requestBuffer := largebuf.NewLargeBufferFrom([]byte("get session-key\r\n"))
+	responseBuffer := largebuf.NewLargeBufferFrom([]byte("set other-key 0 300 1\r\nx\r\n"))
+
+	_, err := ProcessPossibleMemcachedEvent(NewEBPFParseContext(nil, nil, nil), &event, requestBuffer, responseBuffer)
+	require.ErrorIs(t, err, errFallback)
+}

@@ -734,8 +734,8 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
             }
         }
 
-        bpf_map_delete_elem(&ongoing_tcp_req, &info);
         cleanup_tcp_trace_info_if_needed(&info);
+        bpf_map_delete_elem(&ongoing_tcp_req, &info);
         bpf_map_delete_elem(&connection_tracker, &info.conn);
     }
 
