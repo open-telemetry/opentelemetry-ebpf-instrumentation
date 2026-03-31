@@ -3,8 +3,8 @@ kind: Kustomization
 
 resources:
   - 00-namespace.yaml
-  - 02-observability.yaml
-  - 03-nginx.yaml
+  - 01-observability.yaml
+  - 02-nginx.yaml
 
 generatorOptions:
   disableNameSuffixHash: true

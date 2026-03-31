@@ -131,7 +131,7 @@ helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm
 helm repo update
 helm upgrade --install obi open-telemetry/opentelemetry-ebpf-instrumentation \
   --namespace obi-nginx-example \
-  -f examples/nginx/k8s/04-obi-values.yaml
+  -f examples/nginx/k8s/03-obi-values.yaml
 ```
 
 Port-forward the UIs. Use two separate terminal windows for this: each `kubectl port-forward` command keeps running in the foreground, so the second command will not start if you paste both into the same terminal.
@@ -162,7 +162,7 @@ Then run:
 
 The Kubernetes manifests also start a dedicated `traffic-generator` pod automatically, so the manual command above is only needed if you want an extra one-shot sweep on demand.
 
-The Helm values in [`examples/nginx/k8s/04-obi-values.yaml`](./k8s/04-obi-values.yaml) configure OBI with Kubernetes-aware discovery and the same grouped route patterns used by the Docker Compose and dedicated-host variants.
+The Helm values in [`examples/nginx/k8s/03-obi-values.yaml`](./k8s/03-obi-values.yaml) configure OBI with Kubernetes-aware discovery and the same grouped route patterns used by the Docker Compose and dedicated-host variants.
 
 ## Dedicated Linux Host Or VM
 
