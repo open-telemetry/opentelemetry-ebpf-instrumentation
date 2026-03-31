@@ -1,5 +1,11 @@
 namespaceOverride: obi-nginx-example
 
+image:
+  registry: docker.io
+  repository: otel/ebpf-instrument
+  tag: v0.5.0
+  digest: sha256:8c7de125d3aea0e442d84ab0a89ff23ff4a7fbc8ccf0a0e8919bb9ecaf8a52ea
+
 preset: application
 privileged: true
 
