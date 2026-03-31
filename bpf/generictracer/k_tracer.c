@@ -719,23 +719,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         //dbg_print_http_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
         terminate_http_request_if_needed(&info);
-
-        tcp_req_t *existing_tcp = bpf_map_lookup_elem(&ongoing_tcp_req, &info);
-        if (existing_tcp && existing_tcp->end_monotime_ns == 0 &&
-            existing_tcp->protocol_type == k_protocol_type_unknown) {
-            tcp_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
-            if (trace) {
-                __builtin_memcpy(trace, existing_tcp, sizeof(tcp_req_t));
-                trace->end_monotime_ns = bpf_ktime_get_ns();
-                trace->resp_len = 0;
-
-                bpf_dbg_printk("Sending pending TCP trace on close: len=%d", trace->len);
-                bpf_ringbuf_submit(trace, get_flags());
-            }
-        }
-
-        cleanup_tcp_trace_info_if_needed(&info);
-        bpf_map_delete_elem(&ongoing_tcp_req, &info);
+        finish_ongoing_tcp_req(&info);
         bpf_map_delete_elem(&connection_tracker, &info.conn);
     }
 

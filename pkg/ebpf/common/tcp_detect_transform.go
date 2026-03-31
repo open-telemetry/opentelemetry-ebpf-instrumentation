@@ -144,7 +144,8 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 	// Request-only events are emitted on socket close.
 	// They might contain requests like memcached with noreply that we haven't seen the response for.
 	if responseBuffer.Len() == 0 {
-		if ops, ok := parseMemcachedExplicitNoreply(requestBuffer.UnsafeView()); ok {
+		requestReader := requestBuffer.NewReader()
+		if ops, ok := parseMemcachedExplicitNoreply(&requestReader); ok {
 			emitMemcachedNoreplySpans(parseCtx, event, ops)
 			return request.Span{}, true, nil
 		}

@@ -49,15 +49,10 @@ func isMemcached(buf *largebuf.LargeBuffer) bool {
 		return false
 	}
 
-	return isMemcachedOp(buf.UnsafeView())
-}
-
-func isMemcachedOp(buf []byte) bool {
-	line, ok := memcachedFirstLine(buf)
+	line, ok := memcachedFirstLineFromBuffer(buf)
 	if !ok {
 		return false
 	}
-
 	if isMemcachedNumericLine(line) {
 		return true
 	}
@@ -73,8 +68,10 @@ func isMemcachedOp(buf []byte) bool {
 // ProcessPossibleMemcachedEvent converts a confirmed memcached TCP exchange into a memcached span.
 // It also emits extra spans for leading noreply operations recovered from combined requests.
 func ProcessPossibleMemcachedEvent(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, error) {
-	if parsed, ok := parseMemcachedRequests(requestBuffer.UnsafeView()); ok && !parsed.IsResponse && len(parsed.Ops) > 0 {
-		parsedResp, ok := parseMemcachedRequests(responseBuffer.UnsafeView())
+	requestReader := requestBuffer.NewReader()
+	if parsed, ok := parseMemcachedRequests(&requestReader); ok && !parsed.IsResponse && len(parsed.Ops) > 0 {
+		responseReader := responseBuffer.NewReader()
+		parsedResp, ok := parseMemcachedRequests(&responseReader)
 		if !ok || !parsedResp.IsResponse {
 			return request.Span{}, errFallback
 		}
@@ -95,7 +92,8 @@ func ProcessPossibleMemcachedEvent(parseCtx *EBPFParseContext, event *TCPRequest
 		return request.Span{}, errFallback
 	}
 
-	parsed, ok := parseMemcachedRequests(responseBuffer.UnsafeView())
+	responseReader := responseBuffer.NewReader()
+	parsed, ok := parseMemcachedRequests(&responseReader)
 	if !ok || parsed.IsResponse || len(parsed.Ops) == 0 {
 		return request.Span{}, errFallback
 	}
@@ -116,8 +114,8 @@ func ProcessPossibleMemcachedEvent(parseCtx *EBPFParseContext, event *TCPRequest
 // parseMemcachedExplicitNoreply validates request-only memcached traffic flushed on close.
 // In the ASCII protocol, some commands accept a trailing "noreply" modifier, which tells
 // memcached not to send any response at all.
-func parseMemcachedExplicitNoreply(buf []byte) ([]memcachedRequestOp, bool) {
-	parsed, ok := parseMemcachedRequests(buf)
+func parseMemcachedExplicitNoreply(r *largebuf.LargeBufferReader) ([]memcachedRequestOp, bool) {
+	parsed, ok := parseMemcachedRequests(r)
 	if !ok || parsed.IsResponse || len(parsed.Ops) == 0 {
 		return nil, false
 	}
@@ -136,7 +134,7 @@ func memcachedStatus(buf *largebuf.LargeBuffer) (request.DBError, int) {
 		return request.DBError{}, 0
 	}
 
-	line, ok := memcachedFirstLine(buf.UnsafeView())
+	line, ok := memcachedFirstLineFromBuffer(buf)
 	if !ok || isMemcachedNumericLine(line) {
 		return request.DBError{}, 0
 	}
@@ -216,29 +214,27 @@ func emitMemcachedNoreplySpans(parseCtx *EBPFParseContext, trace *TCPRequestInfo
 	parseCtx.emitExtraSpans(spans...)
 }
 
-func parseMemcachedRequests(buf []byte) (memcachedParseResult, bool) {
-	if isMemcachedResponseBuffer(buf) {
+func parseMemcachedRequests(r *largebuf.LargeBufferReader) (memcachedParseResult, bool) {
+	if isMemcachedResponseReader(r) {
 		return memcachedParseResult{IsResponse: true}, true
 	}
 
 	ops := make([]memcachedRequestOp, 0, 1)
-	offset := 0
-	for offset < len(buf) {
+	for r.Remaining() > 0 {
 		// Walk the full buffer so a leading noreply command does not hide the later reply-backed command.
-		op, consumed, ok := parseMemcachedRequestOperation(buf[offset:])
+		op, ok := parseMemcachedRequestOperation(r)
 		if !ok {
 			return memcachedParseResult{}, false
 		}
 
 		ops = append(ops, op)
-		offset += consumed
 	}
 
 	return memcachedParseResult{Ops: ops, IsResponse: false}, true
 }
 
-func isMemcachedResponseBuffer(buf []byte) bool {
-	line, _, ok := memcachedReadLine(buf)
+func isMemcachedResponseReader(r *largebuf.LargeBufferReader) bool {
+	line, ok := memcachedFirstLineFromReader(r)
 	if !ok {
 		return false
 	}
@@ -250,37 +246,36 @@ func isMemcachedResponseBuffer(buf []byte) bool {
 	return len(token) > 0 && isMemcachedToken(token, memcachedResponses)
 }
 
-func parseMemcachedRequestOperation(buf []byte) (memcachedRequestOp, int, bool) {
-	line, lineConsumed, ok := memcachedReadLine(buf)
+func parseMemcachedRequestOperation(r *largebuf.LargeBufferReader) (memcachedRequestOp, bool) {
+	line, ok := memcachedReadLineFromReader(r)
 	if !ok {
-		return memcachedRequestOp{}, 0, false
+		return memcachedRequestOp{}, false
 	}
 
 	fields := bytes.Fields(line)
 	if len(fields) == 0 {
-		return memcachedRequestOp{}, 0, false
+		return memcachedRequestOp{}, false
 	}
 
 	token := fields[0]
 	if isMemcachedToken(token, memcachedResponses) || isMemcachedNumericLine(line) {
-		return memcachedRequestOp{}, 0, false
+		return memcachedRequestOp{}, false
 	}
 	if !isMemcachedToken(token, memcachedCommands) {
-		return memcachedRequestOp{}, 0, false
+		return memcachedRequestOp{}, false
 	}
 
 	op := memcachedNormalizeCommand(string(token))
 	noreply := memcachedFieldsHaveNoreply(fields)
 	if noreply && !memcachedCommandSupportsNoreply(op) {
-		return memcachedRequestOp{}, 0, false
+		return memcachedRequestOp{}, false
 	}
 	if !memcachedValidRequestFields(fields, op, noreply) {
-		return memcachedRequestOp{}, 0, false
+		return memcachedRequestOp{}, false
 	}
 
-	consumed, ok := memcachedRequestOperationSize(buf, op, fields, lineConsumed)
-	if !ok {
-		return memcachedRequestOp{}, 0, false
+	if memcachedCommandHasPayload(op) && !memcachedConsumeStoragePayload(r, fields, op) {
+		return memcachedRequestOp{}, false
 	}
 
 	opInfo := memcachedRequestOp{
@@ -291,7 +286,7 @@ func parseMemcachedRequestOperation(buf []byte) (memcachedRequestOp, int, bool) 
 		opInfo.Key = string(fields[keyField])
 	}
 
-	return opInfo, consumed, true
+	return opInfo, true
 }
 
 func memcachedNormalizeCommand(token string) string {
@@ -306,46 +301,40 @@ func memcachedNormalizeCommand(token string) string {
 	return op
 }
 
-func memcachedRequestOperationSize(buf []byte, op string, fields [][]byte, lineConsumed int) (int, bool) {
-	if !memcachedCommandHasPayload(op) {
-		return lineConsumed, true
-	}
-
-	payloadConsumed, ok := memcachedStoragePayloadSize(buf[lineConsumed:], fields, op)
-	if !ok {
-		return 0, false
-	}
-
-	return lineConsumed + payloadConsumed, true
-}
-
-// memcachedStoragePayloadSize validates and sizes the <bytes>\r\n payload block used by storage commands.
-func memcachedStoragePayloadSize(buf []byte, fields [][]byte, op string) (int, bool) {
+func memcachedConsumeStoragePayload(r *largebuf.LargeBufferReader, fields [][]byte, op string) bool {
 	bytesField, ok := memcachedCommandBytesField(fields, op)
 	if !ok {
-		return 0, false
+		return false
 	}
 
 	payloadLen := bytesField + len(memcachedDelimBytes)
-	if len(buf) < payloadLen {
-		return 0, false
+	payload, err := r.Peek(payloadLen)
+	if err != nil {
+		return false
 	}
-	if !bytes.Equal(buf[bytesField:payloadLen], memcachedDelimBytes) {
-		return 0, false
+	if !bytes.Equal(payload[bytesField:payloadLen], memcachedDelimBytes) {
+		return false
 	}
 
-	// Storage commands include a data block after the header line, so the parser
-	// must consume both parts before attempting the next operation in the buffer.
-	return payloadLen, true
+	return r.Skip(payloadLen) == nil
 }
 
-func memcachedReadLine(buf []byte) ([]byte, int, bool) {
-	line, ok := memcachedFirstLine(buf)
+func memcachedReadLineFromReader(r *largebuf.LargeBufferReader) ([]byte, bool) {
+	line, ok := memcachedFirstLineFromReader(r)
 	if !ok {
-		return nil, 0, false
+		return nil, false
 	}
 
-	return line, len(line) + len(memcachedDelimBytes), true
+	line, err := r.ReadN(len(line))
+	if err != nil {
+		return nil, false
+	}
+
+	if err := r.Skip(len(memcachedDelimBytes)); err != nil {
+		return nil, false
+	}
+
+	return line, true
 }
 
 func memcachedFieldsHaveNoreply(fields [][]byte) bool {
@@ -427,17 +416,41 @@ func memcachedReplyBackedOps(ops []memcachedRequestOp) ([]memcachedRequestOp, me
 	return ops[:len(ops)-1], last, true
 }
 
-func memcachedFirstLine(buf []byte) ([]byte, bool) {
-	if len(buf) < minMemcachedFrameLen {
+func memcachedFirstLineFromBuffer(buf *largebuf.LargeBuffer) ([]byte, bool) {
+	if buf.Len() < minMemcachedFrameLen {
 		return nil, false
 	}
 
-	idx := bytes.Index(buf, memcachedDelimBytes)
-	if idx <= 0 {
+	crPos := buf.IndexByteAt(0, '\r')
+	if crPos <= 0 || crPos+1 >= buf.Len() {
 		return nil, false
 	}
 
-	return buf[:idx], true
+	lf, err := buf.U8At(crPos + 1)
+	if err != nil || lf != '\n' {
+		return nil, false
+	}
+
+	line, err := buf.UnsafeViewAt(0, crPos)
+	return line, err == nil
+}
+
+func memcachedFirstLineFromReader(r *largebuf.LargeBufferReader) ([]byte, bool) {
+	if r.Remaining() < minMemcachedFrameLen {
+		return nil, false
+	}
+
+	crPos := r.IndexByte('\r')
+	if crPos <= 0 || crPos+1 >= r.Remaining() {
+		return nil, false
+	}
+
+	line, err := r.Peek(crPos + len(memcachedDelimBytes))
+	if err != nil || line[crPos+1] != '\n' {
+		return nil, false
+	}
+
+	return line[:crPos], true
 }
 
 func memcachedToken(line []byte) []byte {

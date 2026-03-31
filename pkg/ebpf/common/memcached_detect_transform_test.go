@@ -43,7 +43,6 @@ func TestIsMemcachedCommands(t *testing.T) {
 		"42\r\n",
 	} {
 		assert.True(t, isMemcached(largebuf.NewLargeBufferFrom([]byte(tc))), tc)
-		assert.True(t, isMemcachedOp([]byte(tc)), tc)
 	}
 
 	for _, tc := range []string{
@@ -55,7 +54,6 @@ func TestIsMemcachedCommands(t *testing.T) {
 		"unknown key\r\n",
 	} {
 		assert.False(t, isMemcached(largebuf.NewLargeBufferFrom([]byte(tc))), tc)
-		assert.False(t, isMemcachedOp([]byte(tc)), tc)
 	}
 }
 
@@ -85,7 +83,8 @@ func TestParseMemcachedRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parsed, ok := parseMemcachedRequests([]byte(tt.input))
+			reader := largebuf.NewLargeBufferFrom([]byte(tt.input)).NewReader()
+			parsed, ok := parseMemcachedRequests(&reader)
 			assert.Equal(t, tt.ok, ok)
 			if !ok {
 				return
@@ -105,7 +104,8 @@ func TestParseMemcachedRequest(t *testing.T) {
 }
 
 func TestParseMemcachedRequestsCoalescedNoreply(t *testing.T) {
-	parsed, ok := parseMemcachedRequests([]byte("set session 0 300 5 noreply\r\nvalue\r\nget session\r\n"))
+	reader := largebuf.NewLargeBufferFrom([]byte("set session 0 300 5 noreply\r\nvalue\r\nget session\r\n")).NewReader()
+	parsed, ok := parseMemcachedRequests(&reader)
 	require.True(t, ok)
 	require.False(t, parsed.IsResponse)
 	require.Len(t, parsed.Ops, 2)
@@ -115,7 +115,8 @@ func TestParseMemcachedRequestsCoalescedNoreply(t *testing.T) {
 }
 
 func TestParseMemcachedRequestsDeleteNoreply(t *testing.T) {
-	parsed, ok := parseMemcachedRequests([]byte("delete session noreply\r\n"))
+	reader := largebuf.NewLargeBufferFrom([]byte("delete session noreply\r\n")).NewReader()
+	parsed, ok := parseMemcachedRequests(&reader)
 	require.True(t, ok)
 	require.False(t, parsed.IsResponse)
 	require.Len(t, parsed.Ops, 1)
@@ -124,7 +125,8 @@ func TestParseMemcachedRequestsDeleteNoreply(t *testing.T) {
 }
 
 func TestParseMemcachedRequestsRejectIncompletePayload(t *testing.T) {
-	_, ok := parseMemcachedRequests([]byte("set session 0 300 5 noreply\r\nval"))
+	reader := largebuf.NewLargeBufferFrom([]byte("set session 0 300 5 noreply\r\nval")).NewReader()
+	_, ok := parseMemcachedRequests(&reader)
 	assert.False(t, ok)
 }
 
@@ -144,7 +146,8 @@ func TestParseMemcachedRequestsRejectInvalidArity(t *testing.T) {
 		"set key 0 notanumber 5\r\nvalue\r\n",
 		"set key 0 300 notanumber\r\nvalue\r\n",
 	} {
-		_, ok := parseMemcachedRequests([]byte(tc))
+		reader := largebuf.NewLargeBufferFrom([]byte(tc)).NewReader()
+		_, ok := parseMemcachedRequests(&reader)
 		assert.False(t, ok, tc)
 	}
 }
@@ -273,32 +276,6 @@ func TestMemcachedCommandBytesField(t *testing.T) {
 	}
 }
 
-func TestMemcachedStoragePayloadSize(t *testing.T) {
-	tests := []struct {
-		name   string
-		buf    string
-		line   string
-		op     string
-		want   int
-		wantOK bool
-	}{
-		{name: "set payload", buf: "value\r\n", line: "set session 0 300 5", op: "SET", want: 7, wantOK: true},
-		{name: "cas payload", buf: "value\r\n", line: "cas session 0 300 5 42", op: "CAS", want: 7, wantOK: true},
-		{name: "empty payload", buf: "\r\n", line: "set session 0 300 0", op: "SET", want: 2, wantOK: true},
-		{name: "truncated payload", buf: "val", line: "set session 0 300 5", op: "SET", wantOK: false},
-		{name: "missing delimiter", buf: "valueXX", line: "set session 0 300 5", op: "SET", wantOK: false},
-		{name: "invalid bytes field", buf: "value\r\n", line: "set session 0 300 nope", op: "SET", wantOK: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := memcachedStoragePayloadSize([]byte(tt.buf), bytes.Fields([]byte(tt.line)), tt.op)
-			assert.Equal(t, tt.wantOK, ok)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestParseMemcachedExplicitNoreply(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -345,7 +322,8 @@ func TestParseMemcachedExplicitNoreply(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ops, ok := parseMemcachedExplicitNoreply([]byte(tt.input))
+			reader := largebuf.NewLargeBufferFrom([]byte(tt.input)).NewReader()
+			ops, ok := parseMemcachedExplicitNoreply(&reader)
 			assert.Equal(t, tt.ok, ok)
 			assert.Equal(t, tt.expected, ops)
 		})
@@ -425,4 +403,108 @@ func TestProcessPossibleMemcachedEventRequiresResponseBuffer(t *testing.T) {
 
 	_, err := ProcessPossibleMemcachedEvent(NewEBPFParseContext(nil, nil, nil), &event, requestBuffer, responseBuffer)
 	require.ErrorIs(t, err, errFallback)
+}
+
+func TestParseMemcachedRequestsChunkedBuffer(t *testing.T) {
+	buf := largebuf.NewLargeBuffer()
+	buf.AppendChunk([]byte("set session 0 300 5 norep"))
+	buf.AppendChunk([]byte("ly\r\nvalue\r\nget "))
+	buf.AppendChunk([]byte("session\r\n"))
+
+	reader := buf.NewReader()
+	parsed, ok := parseMemcachedRequests(&reader)
+	require.True(t, ok)
+	require.False(t, parsed.IsResponse)
+	require.Len(t, parsed.Ops, 2)
+	assert.Equal(t, memcachedRequestOp{Op: "SET", Key: "session", Noreply: true}, parsed.Ops[0])
+	assert.Equal(t, memcachedRequestOp{Op: "GET", Key: "session", Noreply: false}, parsed.Ops[1])
+}
+
+func TestParseMemcachedRequestsChunkedZeroLengthPayload(t *testing.T) {
+	buf := largebuf.NewLargeBuffer()
+	buf.AppendChunk([]byte("set session 0 300 0\r\n"))
+	buf.AppendChunk([]byte("\r\nget session\r\n"))
+
+	reader := buf.NewReader()
+	parsed, ok := parseMemcachedRequests(&reader)
+	require.True(t, ok)
+	require.False(t, parsed.IsResponse)
+	require.Len(t, parsed.Ops, 2)
+	assert.Equal(t, memcachedRequestOp{Op: "SET", Key: "session", Noreply: false}, parsed.Ops[0])
+	assert.Equal(t, memcachedRequestOp{Op: "GET", Key: "session", Noreply: false}, parsed.Ops[1])
+}
+
+func TestParseMemcachedRequestsChunkedPayloadDelimiter(t *testing.T) {
+	buf := largebuf.NewLargeBuffer()
+	buf.AppendChunk([]byte("set session 0 300 5 noreply\r\nvalue\r"))
+	buf.AppendChunk([]byte("\nget session\r\n"))
+
+	reader := buf.NewReader()
+	parsed, ok := parseMemcachedRequests(&reader)
+	require.True(t, ok)
+	require.False(t, parsed.IsResponse)
+	require.Len(t, parsed.Ops, 2)
+	assert.Equal(t, memcachedRequestOp{Op: "SET", Key: "session", Noreply: true}, parsed.Ops[0])
+	assert.Equal(t, memcachedRequestOp{Op: "GET", Key: "session", Noreply: false}, parsed.Ops[1])
+}
+
+func TestParseMemcachedExplicitNoreplyChunkedBuffer(t *testing.T) {
+	buf := largebuf.NewLargeBuffer()
+	buf.AppendChunk([]byte("delete session no"))
+	buf.AppendChunk([]byte("reply\r\ntouch session 60 n"))
+	buf.AppendChunk([]byte("oreply\r\n"))
+
+	reader := buf.NewReader()
+	ops, ok := parseMemcachedExplicitNoreply(&reader)
+	require.True(t, ok)
+	assert.Equal(t, []memcachedRequestOp{
+		{Op: "DELETE", Key: "session", Noreply: true},
+		{Op: "TOUCH", Key: "session", Noreply: true},
+	}, ops)
+}
+
+func TestIsMemcachedChunkedBuffer(t *testing.T) {
+	requestBuffer := largebuf.NewLargeBuffer()
+	requestBuffer.AppendChunk([]byte("get session"))
+	requestBuffer.AppendChunk([]byte("-key\r\n"))
+
+	responseBuffer := largebuf.NewLargeBuffer()
+	responseBuffer.AppendChunk([]byte("VALUE session-key 0 5\r\nva"))
+	responseBuffer.AppendChunk([]byte("lue\r\nEND\r\n"))
+
+	assert.True(t, isMemcached(requestBuffer))
+	assert.True(t, isMemcached(responseBuffer))
+}
+
+func TestProcessPossibleMemcachedEventChunkedBuffers(t *testing.T) {
+	event := makeTCPReq("set session-key 0 300 5 noreply\r\nvalue\r\nget session-key\r\n", 11211)
+	requestBuffer := largebuf.NewLargeBuffer()
+	requestBuffer.AppendChunk([]byte("set session-key 0 300 5 norep"))
+	requestBuffer.AppendChunk([]byte("ly\r\nvalue\r\nget session-key\r\n"))
+
+	responseBuffer := largebuf.NewLargeBuffer()
+	responseBuffer.AppendChunk([]byte("VALUE session-key 0 5\r\nva"))
+	responseBuffer.AppendChunk([]byte("lue\r\nEND\r\n"))
+
+	span, err := ProcessPossibleMemcachedEvent(NewEBPFParseContext(nil, nil, nil), &event, requestBuffer, responseBuffer)
+	require.NoError(t, err)
+	assert.Equal(t, "GET", span.Method)
+	assert.Equal(t, "session-key", span.Path)
+}
+
+func TestProcessPossibleMemcachedEventChunkedReversedBuffers(t *testing.T) {
+	event := makeTCPReq("VALUE session-key 0 5\r\nvalue\r\nEND\r\n", 11211)
+	requestBuffer := largebuf.NewLargeBuffer()
+	requestBuffer.AppendChunk([]byte("VALUE session-key 0 5\r\nva"))
+	requestBuffer.AppendChunk([]byte("lue\r\nEND\r\n"))
+
+	responseBuffer := largebuf.NewLargeBuffer()
+	responseBuffer.AppendChunk([]byte("gat 60 session"))
+	responseBuffer.AppendChunk([]byte("-key\r\n"))
+
+	span, err := ProcessPossibleMemcachedEvent(NewEBPFParseContext(nil, nil, nil), &event, requestBuffer, responseBuffer)
+	require.NoError(t, err)
+	assert.Equal(t, request.EventTypeMemcachedServer, span.Type)
+	assert.Equal(t, "GAT", span.Method)
+	assert.Equal(t, "session-key", span.Path)
 }

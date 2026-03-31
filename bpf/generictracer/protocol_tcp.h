@@ -106,6 +106,29 @@ static __always_inline void cleanup_tcp_trace_info_if_needed(pid_connection_info
     }
 }
 
+static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_conn) {
+    tcp_req_t *existing_tcp = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
+    if (!existing_tcp) {
+        return;
+    }
+
+    if (existing_tcp->end_monotime_ns == 0 &&
+        existing_tcp->protocol_type == k_protocol_type_unknown) {
+        tcp_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
+        if (trace) {
+            *trace = *existing_tcp;
+            trace->end_monotime_ns = bpf_ktime_get_ns();
+            trace->resp_len = 0;
+
+            bpf_dbg_printk("Sending pending TCP trace on close: len=%d", trace->len);
+            bpf_ringbuf_submit(trace, get_flags());
+        }
+    }
+
+    cleanup_trace_info(existing_tcp, pid_conn);
+    bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
+}
+
 static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
                                                  pid_connection_info_t *pid_conn,
                                                  void *u_buf,
