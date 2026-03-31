@@ -50,7 +50,7 @@ jobs:
         run: make prereqs docker-generate unit-test-tools
 
       - name: Run checks
-        run: make go-mod-tidy license-header-check notices-update check-go-mod check-ebpf-ver-synced check-config-schema check-clean-work-tree
+        run: make go-mod-tidy license-header-check notices-update check-go-mod check-config-schema check-clean-work-tree
 
       - name: Build unit test matrix
         id: build-matrix

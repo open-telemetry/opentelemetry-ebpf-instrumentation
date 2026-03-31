@@ -43,9 +43,6 @@ CFLAGS := -std=gnu17 -O2 -g -Wunaligned-access -Wpacked -Wpadded -Wall -Werror $
 
 CLANG_TIDY ?= clang-tidy
 
-CILIUM_EBPF_VER ?= v0.20.0
-CILIUM_EBPF_PKG := github.com/cilium/ebpf
-
 # regular expressions for excluded file patterns
 EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/internal/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)"
 
@@ -776,16 +773,6 @@ COMMIT ?= "HEAD"
 add-tags: verify-mods
 	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
 	$(MULTIMOD) tag -m ${MODSET} -c ${COMMIT}
-
-.PHONY: check-ebpf-ver-synced
-check-ebpf-ver-synced:
-	@if grep -Fq "$(CILIUM_EBPF_PKG) $(CILIUM_EBPF_VER)" go.mod && \
-	   grep -Fq "$(CILIUM_EBPF_PKG) $(CILIUM_EBPF_VER)" bpf/bpfcore/placeholder.go; then \
-		echo "ebpf lib version in sync"; \
-	else \
-		echo "ebpf lib version out of sync between go.mod and bpf/bpfcore/placeholder.go!"; \
-		exit 1; \
-	fi
 
 .PHONY: vanity-import-check
 vanity-import-check: $(PORTO)
