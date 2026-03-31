@@ -15,7 +15,7 @@ import (
 )
 
 func newTestDecorator(ignoredPaths []string) *languageDecorator {
-	cache, _ := lru.New[uint64, svc.InstrumentableType](100)
+	cache, _ := lru.New[cacheKey, svc.InstrumentableType](100)
 	return &languageDecorator{
 		typeCache:    cache,
 		log:          slog.With("component", "LanguageDecorator"),
@@ -129,9 +129,8 @@ func TestDecorateEventCachesResult(t *testing.T) {
 		_executableReady = ExecutableReady
 	}()
 
-	// Pre-populate the cache with a known inode -> type mapping
-	testIno := uint64(12345)
-	ld.typeCache.Add(testIno, svc.InstrumentablePython)
+	// Pre-populate the cache with a known dev:inode -> type mapping
+	ld.typeCache.Add(cacheKey{Dev: 1, Ino: 12345}, svc.InstrumentablePython)
 
 	ev := Event[ProcessAttrs]{
 		Type: EventCreated,
@@ -184,6 +183,6 @@ func TestDecorateEventFirstTime(t *testing.T) {
 
 	assert.Equal(t, svc.InstrumentablePython, ev.Obj.detectedType)
 	// check that we cached the result
-	_, ok := ld.typeCache.Get(12345)
+	_, ok := ld.typeCache.Get(cacheKey{Dev: 1, Ino: 12345})
 	assert.True(t, ok)
 }
