@@ -25,7 +25,7 @@ import (
 )
 
 func main() {
-	lvl = slog.LevelVar{}
+	lvl := slog.LevelVar{}
 	lvl.Set(slog.LevelInfo)
 
 	configPath := flag.String("config", "", "path to the configuration file")
