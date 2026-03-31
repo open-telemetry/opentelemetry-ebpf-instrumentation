@@ -89,6 +89,11 @@ const (
 
 	ContainerName = Name(semconv.ContainerNameKey)
 	ContainerID   = Name(semconv.ContainerIDKey)
+
+	SrcServiceName      = Name("src.service.name")
+	DstServiceName      = Name("dst.service.name")
+	SrcServiceNamespace = Name("src.service.namespace")
+	DstServiceNamespace = Name("dst.service.namespace")
 )
 
 // OBI-specific network attributes
