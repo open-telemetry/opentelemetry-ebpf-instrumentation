@@ -101,6 +101,55 @@ func TestFeatureEmpty(t *testing.T) {
 	})
 }
 
+func TestResolveSpanMetricsConflict(t *testing.T) {
+	t.Run("only legacy no conflict", func(t *testing.T) {
+		f := FeatureSpanLegacy | FeatureNetwork
+		resolved := f.ResolveSpanMetricsConflict()
+		assert.False(t, resolved)
+		assert.True(t, f.has(FeatureSpanLegacy))
+	})
+	t.Run("only otel no conflict", func(t *testing.T) {
+		f := FeatureSpanOTel
+		resolved := f.ResolveSpanMetricsConflict()
+		assert.False(t, resolved)
+		assert.True(t, f.has(FeatureSpanOTel))
+	})
+	t.Run("both enabled removes legacy keeps otel", func(t *testing.T) {
+		f := FeatureSpanLegacy | FeatureSpanOTel | FeatureNetwork
+		resolved := f.ResolveSpanMetricsConflict()
+		assert.True(t, resolved)
+		assert.True(t, f.has(FeatureSpanOTel))
+		assert.True(t, f.has(FeatureNetwork))
+		assert.False(t, f.has(FeatureSpanLegacy))
+	})
+	t.Run("neither enabled", func(t *testing.T) {
+		f := FeatureNetwork
+		resolved := f.ResolveSpanMetricsConflict()
+		assert.False(t, resolved)
+		assert.True(t, f.has(FeatureNetwork))
+	})
+}
+
+func TestInvalidSpanMetricsConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		features Features
+		expected bool
+	}{
+		{"only legacy", FeatureSpanLegacy, false},
+		{"only otel", FeatureSpanOTel, false},
+		{"both legacy and otel", FeatureSpanLegacy | FeatureSpanOTel, true},
+		{"both via FeatureAll", FeatureAll, false},
+		{"both plus other features", FeatureSpanLegacy | FeatureSpanOTel | FeatureNetwork, true},
+		{"neither", FeatureNetwork, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.features.InvalidSpanMetricsConfig())
+		})
+	}
+}
+
 func TestFeatureUndefined(t *testing.T) {
 	t.Run("undefined YAML", func(t *testing.T) {
 		doc := struct {
