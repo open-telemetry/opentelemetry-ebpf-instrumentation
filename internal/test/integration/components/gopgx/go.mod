@@ -2,7 +2,7 @@ module go.opentelemetry.io/obi/internal/test/integration/components/gopgx
 
 go 1.25.8
 
-require github.com/jackc/pgx/v5 v5.8.0
+require github.com/jackc/pgx/v5 v5.9.1
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect

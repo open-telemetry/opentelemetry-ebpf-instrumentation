@@ -3,7 +3,7 @@ module go.opentelemetry.io/obi/internal/test/integration/components/gomysql-otel
 go 1.25.8
 
 require (
-	github.com/XSAM/otelsql v0.41.0
+	github.com/XSAM/otelsql v0.42.0
 	github.com/go-sql-driver/mysql v1.9.3
 	go.opentelemetry.io/otel v1.42.0
 )
