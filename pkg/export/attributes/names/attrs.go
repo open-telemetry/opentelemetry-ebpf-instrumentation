@@ -238,8 +238,12 @@ const (
 // GenAI events
 
 const (
-	GenAIOperationName   = Name(semconv.GenAIOperationNameKey)
-	GenAIProviderName    = Name(semconv.GenAIProviderNameKey)
+	GenAIOperationName = Name(semconv.GenAIOperationNameKey)
+	GenAIProviderName  = Name(semconv.GenAIProviderNameKey)
+	// With GenAI events, it's the first time we have a single event produce two separate metrics: input->tokens, output->tokens.
+	// All of our current metrics have one set of attributes and a value for that. These two attributes are internal and they
+	// map to semconv.GenAITokenTypeKey when they are generated in metrics. The span_getter.go code will generate
+	// semconv.GenAITokenTypeKey with "input" string and semconv.GenAITokenTypeKey with "output" string.
 	GenAITokenTypeInput  = Name(semconv.GenAITokenTypeKey)
 	GenAITokenTypeOutput = Name("gen_ai.token.type_output")
 	GenAIRequestModel    = Name(semconv.GenAIRequestModelKey)
