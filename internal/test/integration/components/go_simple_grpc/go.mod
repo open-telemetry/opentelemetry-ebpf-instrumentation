@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/integration/components/go_simple_grpc
 
-go 1.25.6
+go 1.26.1
 
 require google.golang.org/grpc v1.79.2
 

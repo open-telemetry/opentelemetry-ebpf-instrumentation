@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/oats/mongo
 
-go 1.25.8
+go 1.26.1
 
 require go.opentelemetry.io/obi/internal/test/oats/harness v0.0.0
 

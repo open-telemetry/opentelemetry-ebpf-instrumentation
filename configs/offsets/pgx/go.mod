@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/configs/offsets/pgx
 
-go 1.25.3
+go 1.26.1
 
 require github.com/jackc/pgx/v5 v5.8.0
 

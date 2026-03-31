@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/integration/components/goredis
 
-go 1.25.8
+go 1.26.1
 
 require github.com/redis/go-redis/v9 v9.5.5
 
