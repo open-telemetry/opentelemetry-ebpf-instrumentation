@@ -54,31 +54,46 @@ OBI provides pre-built binaries for Linux (amd64 and arm64). Download the latest
 
 Each release includes:
 
-- `obi-<version>-linux-amd64.tar.gz` - Linux AMD64/x86_64 archive
-- `obi-<version>-linux-arm64.tar.gz` - Linux ARM64 archive
-- `SHA256SUMS` - Checksums for verification
+- `obi-v<version>-linux-amd64.tar.gz` - Linux AMD64/x86_64 archive
+- `obi-v<version>-linux-arm64.tar.gz` - Linux ARM64 archive
+- `obi-v<version>-linux-amd64.cyclonedx.json` - CycloneDX SBOM for the AMD64 archive
+- `obi-v<version>-linux-arm64.cyclonedx.json` - CycloneDX SBOM for the ARM64 archive
+- `obi-v<version>-source-generated.cyclonedx.json` - CycloneDX SBOM for the source-generated archive
+- `obi-java-agent-v<version>.cyclonedx.json` - CycloneDX SBOM for the embedded Java agent and its Java dependencies
+- `SHA256SUMS` - Checksums for verification of the release archives and SBOM assets
 
 #### Download and Verify
 
 ```bash
 # Set your desired version (find latest at https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
-VERSION=1.0.0
+export VERSION=1.0.0
 
 # Determine your architecture
 # For Intel/AMD 64-bit: amd64
 # For ARM 64-bit: arm64
-ARCH=amd64  # Change to arm64 for ARM systems
+export ARCH=amd64  # Change to arm64 for ARM systems
+```
 
+Download the archive and checksum manifest:
+
+```bash
 # Download the archive for your architecture
 wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-v${VERSION}-linux-${ARCH}.tar.gz
 
 # Download checksums
 wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/SHA256SUMS
+```
 
-# Verify the archive
+Verify the downloaded release assets:
+
+```bash
+# Verify the archive you downloaded
 sha256sum -c SHA256SUMS --ignore-missing
+```
 
-# Extract the archive
+Extract the archive:
+
+```bash
 tar -xzf obi-v${VERSION}-linux-${ARCH}.tar.gz
 
 # The archive contains:
@@ -87,6 +102,37 @@ tar -xzf obi-v${VERSION}-linux-${ARCH}.tar.gz
 # - LICENSE: Project license
 # - NOTICE: Legal notices
 # - NOTICES/: Third-party licenses and attributions
+```
+
+#### Optional: Download and Inspect SBOMs
+
+CycloneDX SBOM files are optional metadata for supply-chain review and automation.
+They are not required to install or run OBI.
+
+Download the SBOMs you want to inspect:
+
+```bash
+# SBOM for the binary archive you downloaded
+wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-v${VERSION}-linux-${ARCH}.cyclonedx.json
+
+# SBOM for the embedded Java agent and its Java dependencies
+wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-java-agent-v${VERSION}.cyclonedx.json
+
+# Optional: verify the downloaded SBOM files against SHA256SUMS too
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Inspect the SBOM contents with common tools:
+
+```bash
+# List component names and versions from the archive SBOM
+jq '.components[] | {name, version}' obi-v${VERSION}-linux-${ARCH}.cyclonedx.json
+
+# Scan the SBOM with Grype
+grype sbom:obi-v${VERSION}-linux-${ARCH}.cyclonedx.json
+
+# Inspect the Java agent dependency graph
+jq '.components[] | {name, version}' obi-java-agent-v${VERSION}.cyclonedx.json
 ```
 
 #### Install to System

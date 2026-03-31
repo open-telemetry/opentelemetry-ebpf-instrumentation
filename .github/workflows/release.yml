@@ -333,6 +333,102 @@ jobs:
       - name: Build source-generated release artifacts
         run: make release-source
 
+      - name: Generate Java agent SBOM
+        run: make java-docker-sbom
+
+      - name: Install Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
+        with:
+          run: download-syft
+          syft-version: v1.42.2
+
+      - name: Generate release SBOMs
+        env:
+          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
+          SYFT_CMD: ${{ steps.syft.outputs.cmd }}
+        run: |
+          set -euo pipefail
+
+          embedded_java_agent="pkg/internal/java/embedded/obi-java-agent.jar"
+          java_agent_placeholder="OBI_JAVA_AGENT_PLACEHOLDER"
+          if [ ! -f "${embedded_java_agent}" ]; then
+            echo "ERROR: expected embedded Java agent missing: ${embedded_java_agent}"
+            exit 1
+          fi
+          # Fail if the embedded Java agent is still exactly the placeholder artifact.
+          if [ "$(wc -c < "${embedded_java_agent}")" -eq "${#java_agent_placeholder}" ] && \
+             printf '%s' "${java_agent_placeholder}" | cmp -s - "${embedded_java_agent}"; then
+            echo "ERROR: embedded Java agent is still the placeholder artifact: ${embedded_java_agent}"
+            exit 1
+          fi
+
+          archives=(
+            "dist/obi-${RELEASE_VERSION}-linux-amd64.tar.gz"
+            "dist/obi-${RELEASE_VERSION}-linux-arm64.tar.gz"
+            "dist/obi-${RELEASE_VERSION}-source-generated.tar.gz"
+          )
+
+          for archive in "${archives[@]}"; do
+            if [ ! -f "${archive}" ]; then
+              echo "ERROR: expected release archive missing: ${archive}"
+              exit 1
+            fi
+
+            sbom_path="dist/$(basename "${archive}" .tar.gz).cyclonedx.json"
+            (
+              stage_dir="$(mktemp -d)"
+              trap 'rm -rf "${stage_dir}"' EXIT
+
+              tar -xzf "${archive}" -C "${stage_dir}"
+
+              case "${archive}" in
+                *-linux-amd64.tar.gz|*-linux-arm64.tar.gz)
+                  # The Java agent is embedded inside the obi binary and is not
+                  # discoverable by Syft from the ELF alone. Stage the shipped
+                  # JAR beside the unpacked archive so the binary SBOM includes
+                  # the Java dependency graph that is actually distributed.
+                  mkdir -p "${stage_dir}/embedded-java-agent"
+                  cp "${embedded_java_agent}" "${stage_dir}/embedded-java-agent/obi-java-agent.jar"
+                  ;;
+              esac
+
+              "${SYFT_CMD}" "dir:${stage_dir}" -o "cyclonedx-json=${sbom_path}"
+            )
+          done
+
+      - name: Validate release SBOMs
+        env:
+          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          sboms=(
+            "dist/obi-${RELEASE_VERSION}-linux-amd64.cyclonedx.json"
+            "dist/obi-${RELEASE_VERSION}-linux-arm64.cyclonedx.json"
+            "dist/obi-${RELEASE_VERSION}-source-generated.cyclonedx.json"
+            "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json"
+          )
+
+          for sbom in "${sboms[@]}"; do
+            if [ ! -f "${sbom}" ]; then
+              echo "ERROR: expected SBOM missing: ${sbom}"
+              exit 1
+            fi
+
+            jq -e '.bomFormat == "CycloneDX"' "${sbom}" >/dev/null
+            jq -e '.specVersion != null' "${sbom}" >/dev/null
+            jq -e '.metadata.component != null' "${sbom}" >/dev/null
+          done
+
+          jq -e '[.components[] | select(.purl? and (.purl | startswith("pkg:maven/")))] | length > 0' \
+            "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json" >/dev/null
+
+      - name: Regenerate release checksums
+        env:
+          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
+        run: make release-checksums RELEASE_VERSION="${RELEASE_VERSION}"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
@@ -367,4 +463,5 @@ jobs:
             --draft \
             dist/obi-*-linux-*.tar.gz \
             dist/obi-*-source-generated.tar.gz \
+            dist/*.cyclonedx.json \
             dist/SHA256SUMS

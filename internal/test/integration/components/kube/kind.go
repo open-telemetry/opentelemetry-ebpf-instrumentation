@@ -223,9 +223,9 @@ func (k *Kind) exportAllTraces() env.Func {
 	}
 }
 
-// deleteLabeled sends a kill signal to all the Beyla instances before tearing down the
+// deleteLabeled sends a kill signal to all the OBI instances before tearing down the
 // kind cluster, in order to force them to write the coverage information
-// This method assumes that all the beyla pod instances are labeled as "teardown=delete"
+// This method assumes that all the OBI pod instances are labeled as "teardown=delete"
 func (k *Kind) deleteLabeled() env.Func {
 	return func(ctx context.Context, config *envconf.Config) (context.Context, error) {
 		kclient, err := kubernetes.NewForConfig(config.Client().RESTConfig())

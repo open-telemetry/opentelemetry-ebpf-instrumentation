@@ -45,7 +45,7 @@ func TestReverseDNS(t *testing.T) {
 	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	outCh := out.Subscribe()
 	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute},
-		attrsOf, in, out)(t.Context())
+		attrsOf, nil, in, out)(t.Context())
 	require.NoError(t, err)
 	go reverseDNS(t.Context())
 
@@ -74,7 +74,7 @@ func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
 	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	outCh := out.Subscribe()
 	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute},
-		attrsOf, in, out)(t.Context())
+		attrsOf, nil, in, out)(t.Context())
 	require.NoError(t, err)
 	go reverseDNS(t.Context())
 
@@ -107,7 +107,7 @@ func TestReverseDNS_Cache(t *testing.T) {
 	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	outCh := out.Subscribe()
 	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute},
-		attrsOf, in, out)(t.Context())
+		attrsOf, nil, in, out)(t.Context())
 	require.NoError(t, err)
 	go reverseDNS(t.Context())
 

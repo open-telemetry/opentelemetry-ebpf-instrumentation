@@ -21,6 +21,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/algorithm.h>
 #include <common/common.h>
 #include <common/http_types.h>
 #include <common/map_sizing.h>
@@ -92,8 +93,7 @@ static __always_inline otel_span_t *zero_initialised_span() {
 
 static __always_inline void
 read_span_name(unsigned char *buf, const u64 span_name_len, void *span_name_ptr) {
-    const u64 span_name_size =
-        MAX_SPAN_NAME_LEN < span_name_len ? MAX_SPAN_NAME_LEN : span_name_len;
+    const u64 span_name_size = min(k_max_span_name_len, span_name_len);
     bpf_probe_read(buf, span_name_size, span_name_ptr);
 }
 
@@ -313,8 +313,7 @@ int obi_uprobe_SetStatus(struct pt_regs *ctx) {
 
     // Getting span description
     const u64 description_len = (u64)GO_PARAM4(ctx);
-    const u64 description_size =
-        MAX_STATUS_DESCRIPTION_LEN < description_len ? MAX_STATUS_DESCRIPTION_LEN : description_len;
+    const u64 description_size = min(k_max_status_description_len, description_len);
     bpf_probe_read(span->span_description.buf, description_size, description_ptr);
 
     span->status = (u32)status_code;

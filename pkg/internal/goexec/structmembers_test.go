@@ -162,7 +162,7 @@ func TestReadMembers_UnsupportedLocationType(t *testing.T) {
 		"supported_loc":   123456,
 		"unsupported_loc": 234567,
 	}, notFoundFields, FieldOffsets{}))
-	// And this field will be kept in the "expectedFields" map, so Beyla will
+	// And this field will be kept in the "expectedFields" map, so OBI will
 	// later know that it didn't manage to get that information from dwarf
 	// and will try to look for it in the precompiled offsets DB
 	assert.Equal(t, map[GoOffset]struct{}{

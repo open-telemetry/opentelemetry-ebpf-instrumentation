@@ -13,6 +13,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,9 +27,34 @@ import (
 func main() {
 	lvl := slog.LevelVar{}
 	lvl.Set(slog.LevelInfo)
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: &lvl,
-	})))
+
+	configPath := flag.String("config", "", "path to the configuration file")
+	flag.Parse()
+
+	if cfg := os.Getenv("OTEL_EBPF_CONFIG_PATH"); cfg != "" {
+		configPath = &cfg
+	}
+	config := loadConfig(configPath)
+	if err := lvl.UnmarshalText([]byte(config.LogLevel)); err != nil {
+		slog.Error("unknown log level specified, choices are [DEBUG, INFO, WARN, ERROR]", "error", err)
+		os.Exit(-1)
+	}
+
+	var logHandler slog.Handler
+	switch obi.LogFormat(strings.ToLower(string(config.LogFormat))) {
+	default:
+		slog.Warn("unknown log format specified, defaulting to text", "format", config.LogFormat)
+		fallthrough
+	case obi.LogFormatText:
+		logHandler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: &lvl,
+		})
+	case obi.LogFormatJSON:
+		logHandler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: &lvl,
+		})
+	}
+	slog.SetDefault(slog.New(logHandler))
 
 	slog.Info("OpenTelemetry eBPF Instrumentation", "Version", buildinfo.Version, "Revision", buildinfo.Revision, "OpenTelemetry SDK Version", otelsdk.Version())
 
@@ -37,21 +63,8 @@ func main() {
 		os.Exit(-1)
 	}
 
-	configPath := flag.String("config", "", "path to the configuration file")
-	flag.Parse()
-
-	if cfg := os.Getenv("OTEL_EBPF_CONFIG_PATH"); cfg != "" {
-		configPath = &cfg
-	}
-
-	config := loadConfig(configPath)
 	if err := config.Validate(); err != nil {
 		slog.Error("wrong configuration", "error", err)
-		os.Exit(-1)
-	}
-
-	if err := lvl.UnmarshalText([]byte(config.LogLevel)); err != nil {
-		slog.Error("unknown log level specified, choices are [DEBUG, INFO, WARN, ERROR]", "error", err)
 		os.Exit(-1)
 	}
 

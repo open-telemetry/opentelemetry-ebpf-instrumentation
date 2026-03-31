@@ -178,16 +178,15 @@ lint-dependency-policy:
 	fi
 
 MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
-WORKDIR := "/go/src/go.opentelemetry.io/obi"
 .PHONY: lint-markdown
 lint-markdown:
 	@echo "### Linting markdown"
-	@docker run --rm -u $(DOCKER_USER) -v "$(CURDIR):$(WORKDIR)" -w "$(WORKDIR)" $(MARKDOWNIMAGE) -c $(WORKDIR)/.markdownlint.yaml $(WORKDIR)/**/*.md
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) "**/*.md"
 
 .PHONY: lint-markdown-fix
 lint-markdown-fix:
 	@echo "### Formatting markdown"
-	@docker run --rm -u $(DOCKER_USER) -v "$(CURDIR):$(WORKDIR)" -w "$(WORKDIR)" $(MARKDOWNIMAGE) -c $(WORKDIR)/.markdownlint.yaml --fix $(WORKDIR)/**/*.md
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --fix "**/*.md"
 
 .PHONY: update-offsets
 update-offsets: $(GO_OFFSETS_TRACKER)
@@ -364,6 +363,22 @@ java-docker-build:
 	@echo "### Building Java agent with Docker"
 	mkdir -p $(JAVA_AGENT_EMBED_DIR)
 	$(OCI_BIN) build --output type=local,dest=$(JAVA_AGENT_EMBED_DIR) --target=export -f javaagent.Dockerfile .
+
+.PHONY: java-docker-sbom
+java-docker-sbom:
+	@echo "### Generating Java agent SBOM with Docker"
+	@mkdir -p $(RELEASE_DIR)
+	@$(OCI_BIN) run --rm \
+		$(if $(findstring podman,$(OCI_BIN)),  ,-u "$(DOCKER_USER)") \
+		-e HOME=/tmp \
+		-e GRADLE_USER_HOME=/tmp/.gradle \
+		-e OBI_JAVA_AGENT_SBOM_VERSION="$(RELEASE_VERSION)" \
+		-v "$(CURDIR):/src:z" \
+		-w /src/pkg/internal/java \
+		$(GRADLE_IMAGE) \
+		gradle :agent:cyclonedxDirectBom --no-daemon
+	@cp pkg/internal/java/agent/build/reports/cyclonedx-direct/bom.json \
+		$(RELEASE_DIR)/obi-java-agent-$(RELEASE_VERSION).cyclonedx.json
 
 .PHONY: java-test
 java-test:
@@ -631,9 +646,13 @@ release-checksums:
 	@echo "### Generating checksums"
 	@mkdir -p $(RELEASE_DIR)
 	@cd $(RELEASE_DIR) && \
-	files=$$(find . -maxdepth 1 -name 'obi-$(RELEASE_VERSION)-*.tar.gz' | sed 's|^\./||' | sort) && \
+	files=$$(find . -maxdepth 1 \( \
+		-name 'obi-$(RELEASE_VERSION)-*.tar.gz' -o \
+		-name 'obi-$(RELEASE_VERSION)-*.cyclonedx.json' -o \
+		-name 'obi-java-agent-$(RELEASE_VERSION).cyclonedx.json' \
+	\) | sed 's|^\./||' | sort) && \
 	if [ -z "$$files" ]; then \
-		echo "ERROR: No release archives found for obi-$(RELEASE_VERSION)-*.tar.gz in $(RELEASE_DIR)"; \
+		echo "ERROR: No release artifacts found for obi-$(RELEASE_VERSION) in $(RELEASE_DIR)"; \
 		exit 1; \
 	fi && \
 	if command -v sha256sum >/dev/null 2>&1; then \

@@ -6,6 +6,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
 
+#include <common/algorithm.h>
 #include <common/connection_info.h>
 #include <common/egress_key.h>
 #include <common/event_defs.h>
@@ -452,14 +453,13 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
 
     msg_buffer_t msg_buf = {
         .pos = 0,
-        .real_size = msg->size > k_msg_buffer_size_max ? k_msg_buffer_size_max : msg->size,
+        .real_size = min(msg->size, k_msg_buffer_size_max),
         .cpu_id = bpf_get_smp_processor_id(),
     };
 
     bpf_probe_read_kernel(msg_buf.fallback_buf, k_kprobes_http2_buf_size, msg->data);
 
-    const u16 copy_bytes =
-        msg_buf.real_size > k_kprobes_http2_buf_size ? msg_buf.real_size : k_kprobes_http2_buf_size;
+    const u16 copy_bytes = max(msg_buf.real_size, k_kprobes_http2_buf_size);
 
     unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
 

@@ -672,7 +672,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 	t.Run("test env var resource attributes", func(t *testing.T) {
 		defer otelcfg.RestoreEnvAfterExecution()()
-		t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=productions,source.upstream=beyla")
+		t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=productions,source.upstream=obi")
 		span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Route: "/test", Status: 200}
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
@@ -682,7 +682,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		rs := traces.ResourceSpans().At(0)
 		attrs := rs.Resource().Attributes()
 		ensureTraceStrAttr(t, attrs, attribute.Key("deployment.environment"), "productions")
-		ensureTraceStrAttr(t, attrs, attribute.Key("source.upstream"), "beyla")
+		ensureTraceStrAttr(t, attrs, attribute.Key("source.upstream"), "obi")
 	})
 	t.Run("override resource attributes", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Route: "/test", Status: 200}

@@ -145,7 +145,7 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 
 	serviceInstance, ok := jaeger.FindIn(process.Tags, "service.instance.id")
 	require.Truef(t, ok, "service.instance.id not found in tags: %v", process.Tags)
-	assert.Regexp(t, `^beyla:\d+$$`, serviceInstance.Value)
+	assert.Regexp(t, `^obi:\d+$$`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
@@ -215,7 +215,7 @@ func testGRPCTracesForServiceName(t *testing.T, svcName string) {
 
 	serviceInstance, ok := jaeger.FindIn(process.Tags, "service.instance.id")
 	require.Truef(t, ok, "service.instance.id not found in tags: %v", process.Tags)
-	assert.Regexp(t, `^beyla:\d+$$`, serviceInstance.Value)
+	assert.Regexp(t, `^obi:\d+$$`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
@@ -358,7 +358,7 @@ func testHTTPTracesKProbes(t *testing.T) {
 
 	serviceInstance, ok := jaeger.FindIn(process.Tags, "service.instance.id")
 	require.Truef(t, ok, "service.instance.id not found in tags: %v", process.Tags)
-	assert.Regexp(t, `^beyla:\d+$$`, serviceInstance.Value)
+	assert.Regexp(t, `^obi:\d+$$`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},

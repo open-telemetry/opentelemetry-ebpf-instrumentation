@@ -423,7 +423,7 @@ func TestCriteriaMatcherContainersOnly(t *testing.T) {
 		panic("pid not exposed by test")
 	}
 
-	// override the os.Getpid func to that Beyla is always reported
+	// override the os.Getpid func to that OBI is always reported
 	// with pid 1
 	osPidFunc = func() int {
 		return 1

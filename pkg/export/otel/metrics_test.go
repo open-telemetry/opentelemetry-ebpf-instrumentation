@@ -333,7 +333,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 
-	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=production,source=upstream.beyla")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=production,source=upstream.obi")
 
 	ctx := t.Context()
 
@@ -356,7 +356,7 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	assert.Len(t, res, 1)
 	attributes := res[0].ResourceAttributes
 	assert.Equal(t, "production", attributes["deployment.environment"])
-	assert.Equal(t, "upstream.beyla", attributes["source"])
+	assert.Equal(t, "upstream.obi", attributes["source"])
 }
 
 func TestMetricsDiscarded(t *testing.T) {

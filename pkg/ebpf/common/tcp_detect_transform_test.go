@@ -186,7 +186,7 @@ func TestReadTCPRequestIntoSpan_Overflow(t *testing.T) {
 
 func TestRedisDetection(t *testing.T) {
 	for _, s := range []string{
-		`*2|$3|GET|$5|beyla|`,
+		`*2|$3|GET|$5|obi|`,
 		`*2|$7|HGETALL|$16|users_sessions`,
 		`*8|$4|name|$4|John|`,
 		`+OK|`,
