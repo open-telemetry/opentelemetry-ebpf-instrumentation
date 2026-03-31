@@ -147,6 +147,12 @@ jobs:
           restore-keys: |
             go-build-oats-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Generate files
+        run: make prereqs docker-generate
+
+      - name: Verify OBI compiles
+        run: docker build -f internal/test/integration/components/obi/Dockerfile .
+
       - name: Run oats tests
         env:
           MATRIX_BASENAME: ${{ matrix.basename }}
