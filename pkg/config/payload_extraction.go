@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/invopop/jsonschema"
+	"github.com/ohler55/ojg/jp"
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -89,31 +90,97 @@ type AnthropicConfig struct {
 type EnrichmentConfig struct {
 	// Enable HTTP header and payload enrichment
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_ENRICHMENT_ENABLED" validate:"boolean"`
-	// Policy controls the default behavior and matching strategy
+	// Policy controls the default behavior
 	Policy HTTPParsingPolicy `yaml:"policy"`
 	// Rules is an ordered list of include/exclude/obfuscate rules.
-	// Rules are evaluated according to Policy.MatchOrder.
 	Rules []HTTPParsingRule `yaml:"rules"`
 }
 
-// HTTPParsingPolicy defines the default action and match strategy for http enrichment rules.
+// Validate checks the enrichment config for cross-field consistency errors.
+// Required fields (action, type, scope) are enforced by validate:"required" tags.
+func (c EnrichmentConfig) Validate() error {
+	for i, rule := range c.Rules {
+		switch rule.Type {
+		case HTTPParsingRuleTypeHeaders:
+			if err := validateHeaderRule(i, rule); err != nil {
+				return err
+			}
+		case HTTPParsingRuleTypeBody:
+			if err := validateBodyRule(i, rule); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateHeaderRule(i int, rule HTTPParsingRule) error {
+	if len(rule.Match.ObfuscationJSONPaths) > 0 {
+		return fmt.Errorf("rule %d: header rules cannot use obfuscation_json_paths", i)
+	}
+	if len(rule.Match.Patterns) == 0 {
+		return fmt.Errorf("rule %d: header rules require at least one pattern", i)
+	}
+	return nil
+}
+
+func validateBodyRule(i int, rule HTTPParsingRule) error {
+	if len(rule.Match.Patterns) > 0 {
+		return fmt.Errorf("rule %d: body rules cannot use patterns", i)
+	}
+	if rule.Match.CaseSensitive {
+		return fmt.Errorf("rule %d: body rules cannot use case_sensitive", i)
+	}
+	if rule.Action == HTTPParsingActionObfuscate && len(rule.Match.ObfuscationJSONPaths) == 0 {
+		return fmt.Errorf("rule %d: action \"obfuscate\" on body rule requires obfuscation_json_paths", i)
+	}
+	if rule.Action != HTTPParsingActionObfuscate && len(rule.Match.ObfuscationJSONPaths) > 0 {
+		return fmt.Errorf("rule %d: obfuscation_json_paths can only be used with action \"obfuscate\"", i)
+	}
+	return nil
+}
+
+// HTTPParsingPolicy defines the default action for http enrichment rules.
 type HTTPParsingPolicy struct {
-	// DefaultAction specifies what to do when no rule matches: "include" or "exclude"
-	DefaultAction HTTPParsingAction `yaml:"default_action" env:"OTEL_EBPF_HTTP_ENRICHMENT_DEFAULT_ACTION"`
-	// MatchOrder controls how rules are evaluated: "first_match_wins"
-	MatchOrder HTTPParsingMatchOrder `yaml:"match_order" env:"OTEL_EBPF_HTTP_ENRICHMENT_MATCH_ORDER"`
+	// DefaultAction specifies what to do when no rule matches, per type.
+	DefaultAction HTTPParsingDefaultAction `yaml:"default_action"`
 	// ObfuscationString is the replacement string used when a rule's action is "obfuscate"
 	ObfuscationString string `yaml:"obfuscation_string" env:"OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING"`
+}
+
+// HTTPParsingDefaultAction specifies the default action per rule type.
+// It can be unmarshaled from either a plain string (backward compat, applies to headers only,
+// body defaults to exclude) or a map with "headers" and "body" keys.
+type HTTPParsingDefaultAction struct {
+	Headers HTTPParsingAction `yaml:"headers"`
+	Body    HTTPParsingAction `yaml:"body"`
+}
+
+func (d *HTTPParsingDefaultAction) UnmarshalYAML(value *yaml.Node) error {
+	// Map format: {headers: include, body: exclude}
+	if value.Kind == yaml.MappingNode {
+		type plain HTTPParsingDefaultAction
+		return value.Decode((*plain)(d))
+	}
+
+	// Backward compat: plain string applies to headers, body defaults to exclude
+	var action HTTPParsingAction
+	if err := value.Decode(&action); err != nil {
+		return err
+	}
+	d.Headers = action
+	d.Body = HTTPParsingActionExclude
+	return nil
 }
 
 // HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header and payload extraction.
 type HTTPParsingRule struct {
 	// Action of the rule: "include", "exclude", or "obfuscate"
-	Action HTTPParsingAction `yaml:"action"`
-	// Type specifies what this rule matches against: "headers"
-	Type HTTPParsingRuleType `yaml:"type"`
+	Action HTTPParsingAction `yaml:"action" validate:"required"`
+	// Type specifies what this rule matches against: "headers" or "body"
+	Type HTTPParsingRuleType `yaml:"type" validate:"required"`
 	// Scope of the rule: "request", "response", or "all"
-	Scope HTTPParsingScope `yaml:"scope"`
+	Scope HTTPParsingScope `yaml:"scope" validate:"required"`
 	// Match defines the matching criteria for this rule
 	Match HTTPParsingMatch `yaml:"match"`
 }
@@ -123,22 +190,27 @@ type HTTPParsingRuleType uint8
 
 const (
 	HTTPParsingRuleTypeHeaders HTTPParsingRuleType = iota + 1
+	HTTPParsingRuleTypeBody
 )
 
 func (t *HTTPParsingRuleType) UnmarshalText(text []byte) error {
 	switch strings.TrimSpace(string(text)) {
 	case "headers":
 		*t = HTTPParsingRuleTypeHeaders
-		return nil
+	case "body":
+		*t = HTTPParsingRuleTypeBody
 	default:
-		return fmt.Errorf("invalid parsing rule type: %q (valid: headers)", string(text))
+		return fmt.Errorf("invalid parsing rule type: %q (valid: headers, body)", string(text))
 	}
+	return nil
 }
 
 func (t HTTPParsingRuleType) MarshalText() ([]byte, error) {
 	switch t {
 	case HTTPParsingRuleTypeHeaders:
 		return []byte("headers"), nil
+	case HTTPParsingRuleTypeBody:
+		return []byte("body"), nil
 	default:
 		return nil, fmt.Errorf("unknown parsing rule type: %d", t)
 	}
@@ -147,29 +219,83 @@ func (t HTTPParsingRuleType) MarshalText() ([]byte, error) {
 func (HTTPParsingRuleType) JSONSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type: "string",
-		Enum: []any{"headers"},
+		Enum: []any{"headers", "body"},
 	}
 }
 
+// JSONPathExpr holds a JSONPath expression string and its compiled form.
+type JSONPathExpr struct {
+	str  string
+	expr jp.Expr
+}
+
+// NewJSONPathExpr creates a JSONPathExpr from a string, compiling it immediately.
+func NewJSONPathExpr(path string) (JSONPathExpr, error) {
+	expr, err := jp.ParseString(path)
+	if err != nil {
+		return JSONPathExpr{}, fmt.Errorf("invalid JSONPath expression %q: %w", path, err)
+	}
+	return JSONPathExpr{str: path, expr: expr}, nil
+}
+
+func (j *JSONPathExpr) UnmarshalText(text []byte) error {
+	expr, err := jp.ParseString(string(text))
+	if err != nil {
+		return fmt.Errorf("invalid JSONPath expression %q: %w", string(text), err)
+	}
+	j.str = string(text)
+	j.expr = expr
+	return nil
+}
+
+func (j JSONPathExpr) MarshalText() ([]byte, error) {
+	return []byte(j.str), nil
+}
+
+// Expr returns the compiled JSONPath expression.
+func (j *JSONPathExpr) Expr() jp.Expr {
+	return j.expr
+}
+
+// String returns the original JSONPath string.
+func (j *JSONPathExpr) String() string {
+	return j.str
+}
+
 // HTTPParsingMatch defines matching criteria for an HTTP parsing rule.
+// Header rules use Patterns and CaseSensitive. Body rules use ObfuscationJSONPaths.
+// RoutePatterns and Methods are shared across both types.
 type HTTPParsingMatch struct {
-	// Patterns is a list of glob patterns to match the rule against
+	// Patterns is a list of glob patterns to match header names against (headers only)
 	Patterns []services.GlobAttr `yaml:"patterns"`
-	// CaseSensitive controls whether matching is case-sensitive.
+	// CaseSensitive controls whether header matching is case-sensitive (headers only)
 	CaseSensitive bool `yaml:"case_sensitive"`
+	// ObfuscationJSONPaths is a list of JSONPath expressions for fields to obfuscate (body only)
+	ObfuscationJSONPaths []JSONPathExpr `yaml:"obfuscation_json_paths"`
+	// RoutePatterns is a list of glob patterns to match the request path against (shared)
+	RoutePatterns []services.GlobAttr `yaml:"route_patterns"`
+	// Methods is a list of HTTP methods this rule applies to (shared). Empty means all methods.
+	Methods []HTTPMethod `yaml:"methods"`
 }
 
 // UnmarshalYAML deserializes the match config and compiles glob patterns.
+// JSONPathExpr fields are compiled automatically by their own UnmarshalYAML.
 func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 	var raw struct {
-		Patterns      []string `yaml:"patterns"`
-		CaseSensitive bool     `yaml:"case_sensitive"`
+		Patterns             []string     `yaml:"patterns"`
+		CaseSensitive        bool         `yaml:"case_sensitive"`
+		ObfuscationJSONPaths []string     `yaml:"obfuscation_json_paths"`
+		RoutePatterns        []string     `yaml:"route_patterns"`
+		Methods              []HTTPMethod `yaml:"methods"`
 	}
 	if err := value.Decode(&raw); err != nil {
 		return err
 	}
 
 	m.CaseSensitive = raw.CaseSensitive
+	m.Methods = raw.Methods
+
+	// Compile header name patterns
 	m.Patterns = make([]services.GlobAttr, 0, len(raw.Patterns))
 	for _, pattern := range raw.Patterns {
 		compilePattern := pattern
@@ -178,6 +304,23 @@ func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 		}
 		m.Patterns = append(m.Patterns, services.NewGlob(compilePattern))
 	}
+
+	// Compile route patterns
+	m.RoutePatterns = make([]services.GlobAttr, 0, len(raw.RoutePatterns))
+	for _, pattern := range raw.RoutePatterns {
+		m.RoutePatterns = append(m.RoutePatterns, services.NewGlob(pattern))
+	}
+
+	// Compile JSONPath expressions
+	m.ObfuscationJSONPaths = make([]JSONPathExpr, 0, len(raw.ObfuscationJSONPaths))
+	for _, path := range raw.ObfuscationJSONPaths {
+		jpExpr, err := NewJSONPathExpr(path)
+		if err != nil {
+			return err
+		}
+		m.ObfuscationJSONPaths = append(m.ObfuscationJSONPaths, jpExpr)
+	}
+
 	return nil
 }
 
@@ -267,35 +410,46 @@ func (HTTPParsingScope) JSONSchema() *jsonschema.Schema {
 	}
 }
 
-// HTTPParsingMatchOrder controls how rules are evaluated.
-type HTTPParsingMatchOrder uint8
+// HTTPMethod represents a validated HTTP method.
+type HTTPMethod string
 
 const (
-	HTTPParsingMatchOrderFirstMatchWins HTTPParsingMatchOrder = iota + 1
+	HTTPMethodGET     HTTPMethod = "GET"
+	HTTPMethodPOST    HTTPMethod = "POST"
+	HTTPMethodPUT     HTTPMethod = "PUT"
+	HTTPMethodDELETE  HTTPMethod = "DELETE"
+	HTTPMethodPATCH   HTTPMethod = "PATCH"
+	HTTPMethodHEAD    HTTPMethod = "HEAD"
+	HTTPMethodOPTIONS HTTPMethod = "OPTIONS"
 )
 
-func (m *HTTPParsingMatchOrder) UnmarshalText(text []byte) error {
-	switch strings.TrimSpace(string(text)) {
-	case "first_match_wins":
-		*m = HTTPParsingMatchOrderFirstMatchWins
-	default:
-		return fmt.Errorf("invalid parsing match order: %q (valid: first_match_wins)", string(text))
+var validHTTPMethods = map[HTTPMethod]struct{}{
+	HTTPMethodGET:     {},
+	HTTPMethodPOST:    {},
+	HTTPMethodPUT:     {},
+	HTTPMethodDELETE:  {},
+	HTTPMethodPATCH:   {},
+	HTTPMethodHEAD:    {},
+	HTTPMethodOPTIONS: {},
+}
+
+func (m *HTTPMethod) UnmarshalText(text []byte) error {
+	upper := HTTPMethod(strings.ToUpper(strings.TrimSpace(string(text))))
+	if _, ok := validHTTPMethods[upper]; !ok {
+		return fmt.Errorf("invalid HTTP method: %q (valid: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS)", string(text))
 	}
+	*m = upper
 	return nil
 }
 
-func (m HTTPParsingMatchOrder) MarshalText() ([]byte, error) {
-	switch m {
-	case HTTPParsingMatchOrderFirstMatchWins:
-		return []byte("first_match_wins"), nil
-	default:
-		return nil, fmt.Errorf("unknown parsing match order: %d", m)
+func (HTTPMethod) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type: "string",
+		Enum: []any{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"},
 	}
 }
 
-func (HTTPParsingMatchOrder) JSONSchema() *jsonschema.Schema {
-	return &jsonschema.Schema{
-		Type: "string",
-		Enum: []any{"first_match_wins"},
-	}
+// Matches returns true if the method matches the given string (case-insensitive).
+func (m HTTPMethod) Matches(method string) bool {
+	return strings.EqualFold(string(m), method)
 }

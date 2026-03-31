@@ -28,6 +28,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
+	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
@@ -181,6 +182,7 @@ type EBPFParseContext struct {
 	postgresPortals            *simplelru.LRU[postgresPortalsKey, string]
 	kafkaTopicUUIDToName       *simplelru.LRU[kafkaparser.UUID, string]
 	payloadExtraction          config.PayloadExtraction
+	httpEnricher               *ebpfhttp.HTTPEnricher
 	dnsEvents                  *expirable.LRU[dnsparser.DNSId, *request.Span]
 }
 
@@ -267,6 +269,11 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		dnsEvents = expirable.NewLRU(1024, dnsEventExpireHandler(spansChan, filter), cfg.DNSRequestTimeout)
 	}
 
+	var httpEnricher *ebpfhttp.HTTPEnricher
+	if payloadExtraction.HTTP.Enrichment.Enabled {
+		httpEnricher = ebpfhttp.NewHTTPEnricher(payloadExtraction.HTTP.Enrichment)
+	}
+
 	return &EBPFParseContext{
 		protocolDebug:              protocolDebug,
 		h2c:                        h2c,
@@ -279,6 +286,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		postgresPortals:            postgresPortals,
 		kafkaTopicUUIDToName:       kafkaTopicUUIDToName,
 		payloadExtraction:          payloadExtraction,
+		httpEnricher:               httpEnricher,
 		dnsEvents:                  dnsEvents,
 	}
 }

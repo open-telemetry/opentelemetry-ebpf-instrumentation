@@ -180,8 +180,8 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		}
 	}
 
-	if parseCtx != nil && parseCtx.payloadExtraction.HTTP.Enrichment.Enabled {
-		ebpfhttp.EnrichHTTPSpan(&httpSpan, req, resp, parseCtx.payloadExtraction.HTTP.Enrichment)
+	if parseCtx != nil && parseCtx.httpEnricher != nil {
+		parseCtx.httpEnricher.Enrich(&httpSpan, req, resp)
 	}
 
 	return httpSpan
