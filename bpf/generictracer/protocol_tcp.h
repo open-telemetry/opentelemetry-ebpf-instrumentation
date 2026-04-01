@@ -114,15 +114,11 @@ static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_co
 
     if (existing_tcp->end_monotime_ns == 0 &&
         existing_tcp->protocol_type == k_protocol_type_unknown) {
-        tcp_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
-        if (trace) {
-            *trace = *existing_tcp;
-            trace->end_monotime_ns = bpf_ktime_get_ns();
-            trace->resp_len = 0;
+        existing_tcp->end_monotime_ns = bpf_ktime_get_ns();
+        existing_tcp->resp_len = 0;
 
-            bpf_dbg_printk("Sending pending TCP trace on close: len=%d", trace->len);
-            bpf_ringbuf_submit(trace, get_flags());
-        }
+        bpf_dbg_printk("Sending pending TCP trace on close: len=%d", existing_tcp->len);
+        bpf_ringbuf_output(&events, existing_tcp, sizeof(*existing_tcp), get_flags());
     }
 
     cleanup_trace_info(existing_tcp, pid_conn);

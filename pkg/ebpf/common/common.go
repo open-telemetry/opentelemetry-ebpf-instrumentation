@@ -225,6 +225,18 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	h2c, _ := lru.New[uint64, h2Connection](1024 * 10)
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](1024, nil, 5*time.Minute)
 
+	if spansChan != nil {
+		emitSpans = func(spans []request.Span) {
+			if len(spans) == 0 {
+				return
+			}
+			if filter != nil {
+				spans = filter.Filter(spans)
+			}
+			spansChan.SendCtx(context.Background(), spans)
+		}
+	}
+
 	if cfg != nil {
 		protocolDebug = cfg.ProtocolDebug
 
@@ -266,19 +278,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 
 		payloadExtraction = cfg.PayloadExtraction
 
-		dnsEvents = expirable.NewLRU(1024, dnsEventExpireHandler(spansChan, filter), cfg.DNSRequestTimeout)
-	}
-
-	if spansChan != nil {
-		emitSpans = func(spans []request.Span) {
-			if len(spans) == 0 {
-				return
-			}
-			if filter != nil {
-				spans = filter.Filter(spans)
-			}
-			spansChan.Send(spans)
-		}
+		dnsEvents = expirable.NewLRU(1024, dnsEventExpireHandler(emitSpans), cfg.DNSRequestTimeout)
 	}
 
 	return &EBPFParseContext{
