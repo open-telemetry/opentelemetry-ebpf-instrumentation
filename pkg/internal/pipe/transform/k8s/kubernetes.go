@@ -142,13 +142,17 @@ func (n *decorator) decorate(a *pipe.CommonAttrs, prefix, ip string) bool {
 	a.Metadata[attr.Name(prefix+attrSuffixOwnerName)] = ownerName
 	a.Metadata[attr.Name(prefix+attrSuffixOwnerType)] = ownerKind
 
-	serviceName, serviceNamespace, _ := n.store.ServiceNameNamespaceForIP(ip)
-	if prefix == attrPrefixSrc {
-		a.Metadata[attr.SrcServiceName] = serviceName
-		a.Metadata[attr.SrcServiceNamespace] = serviceNamespace
-	} else {
-		a.Metadata[attr.DstServiceName] = serviceName
-		a.Metadata[attr.DstServiceNamespace] = serviceNamespace
+	// Only resolve service name/namespace for Pods. Nodes and other non-pod
+	// objects don't represent services and would incorrectly use the object name.
+	if meta.Pod != nil {
+		serviceName, serviceNamespace, _ := n.store.ServiceNameNamespaceForIP(ip)
+		if prefix == attrPrefixSrc {
+			a.Metadata[attr.SrcServiceName] = serviceName
+			a.Metadata[attr.SrcServiceNamespace] = serviceNamespace
+		} else {
+			a.Metadata[attr.DstServiceName] = serviceName
+			a.Metadata[attr.DstServiceNamespace] = serviceNamespace
+		}
 	}
 
 	n.nodeLabels(a, prefix, meta)
