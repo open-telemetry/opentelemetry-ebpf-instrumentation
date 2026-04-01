@@ -1,0 +1,53 @@
+#!/usr/bin/env bpftrace
+// Week 4 - Day 7: bpftrace 对比版
+// 运行: sudo bpftrace compare_bpftrace.bt
+// 对比 Day 6 的 C 版本 bio_latency
+
+// === VFS Read 延迟直方图 ===
+// 功能: 与 Day 6 的 bio_latency.bpf.c 完全相同
+
+kprobe:vfs_read
+{
+    @start[tid] = nsecs;
+}
+
+kretprobe:vfs_read
+/@start[tid]/
+{
+    $duration_us = (nsecs - @start[tid]) / 1000;
+    @latency_us = hist($duration_us);
+    delete(@start[tid]);
+}
+
+// 每 5 秒打印一次统计
+interval:s:5
+{
+    printf("\n=== VFS Read Latency (us) ===\n");
+    print(@latency_us);
+    clear(@latency_us);
+}
+
+// Ctrl+C 时清理
+END
+{
+    clear(@start);
+    clear(@latency_us);
+}
+
+/*
+=== 对比总结 ===
+
+                bpftrace         C + cilium/ebpf
+行数             ~15 行           ~80 行
+编写速度         5 分钟            30+ 分钟
+灵活性           一般              非常高
+自定义导出       不支持            Prometheus/OTEL
+PID 过滤         简单支持          完全自定义
+协议检测         不方便            可以做
+生产环境使用     临时诊断          长期运行
+
+结论:
+  - 快速诊断: 用 bpftrace
+  - 生产系统: 用 C + Go (OBI 的方式)
+  - 学习原理: 先用 bpftrace 理解，再用 C 实现
+*/
