@@ -44,7 +44,7 @@ type memcachedParseResult struct {
 	IsResponse bool
 }
 
-func isMemcached(buf *largebuf.LargeBuffer) bool {
+func isMemcachedBuf(buf *largebuf.LargeBuffer) bool {
 	if buf.Len() < minMemcachedFrameLen {
 		return false
 	}
@@ -63,6 +63,24 @@ func isMemcached(buf *largebuf.LargeBuffer) bool {
 	}
 
 	return isMemcachedToken(token, memcachedCommands) || isMemcachedToken(token, memcachedResponses)
+}
+
+func isMemcached(req, resp *largebuf.LargeBuffer) bool {
+	if !isMemcachedBuf(req) || !isMemcachedBuf(resp) {
+		return false
+	}
+	requestReader := req.NewReader()
+	if parsed, ok := parseMemcachedRequests(&requestReader); ok && !parsed.IsResponse && len(parsed.Ops) > 0 {
+		responseReader := resp.NewReader()
+		parsedResp, ok := parseMemcachedRequests(&responseReader)
+		return ok && parsedResp.IsResponse
+	}
+	if resp.Len() == 0 {
+		return false
+	}
+	responseReader := resp.NewReader()
+	parsed, ok := parseMemcachedRequests(&responseReader)
+	return ok && !parsed.IsResponse && len(parsed.Ops) > 0
 }
 
 // ProcessPossibleMemcachedEvent converts a confirmed memcached TCP exchange into a memcached span.

@@ -42,7 +42,7 @@ func TestIsMemcachedCommands(t *testing.T) {
 		"TOUCHED\r\n",
 		"42\r\n",
 	} {
-		assert.True(t, isMemcached(largebuf.NewLargeBufferFrom([]byte(tc))), tc)
+		assert.True(t, isMemcachedBuf(largebuf.NewLargeBufferFrom([]byte(tc))), tc)
 	}
 
 	for _, tc := range []string{
@@ -53,7 +53,7 @@ func TestIsMemcachedCommands(t *testing.T) {
 		string([]byte{0x80, 0x00, 0x00, 0x00}),
 		"unknown key\r\n",
 	} {
-		assert.False(t, isMemcached(largebuf.NewLargeBufferFrom([]byte(tc))), tc)
+		assert.False(t, isMemcachedBuf(largebuf.NewLargeBufferFrom([]byte(tc))), tc)
 	}
 }
 
@@ -472,8 +472,24 @@ func TestIsMemcachedChunkedBuffer(t *testing.T) {
 	responseBuffer.AppendChunk([]byte("VALUE session-key 0 5\r\nva"))
 	responseBuffer.AppendChunk([]byte("lue\r\nEND\r\n"))
 
-	assert.True(t, isMemcached(requestBuffer))
-	assert.True(t, isMemcached(responseBuffer))
+	assert.True(t, isMemcached(requestBuffer, responseBuffer))
+}
+
+func TestIsMemcached(t *testing.T) {
+	req := largebuf.NewLargeBufferFrom([]byte("get session-key\r\n"))
+	resp := largebuf.NewLargeBufferFrom([]byte("VALUE session-key 0 5\r\nvalue\r\nEND\r\n"))
+	assert.True(t, isMemcached(req, resp), "valid request+response pair")
+
+	assert.True(t, isMemcached(resp, req), "reversed pair")
+
+	req2 := largebuf.NewLargeBufferFrom([]byte("set key 0 300 5\r\nvalue\r\n"))
+	assert.False(t, isMemcached(req, req2), "request+request, no response")
+
+	notMemcached := largebuf.NewLargeBufferFrom([]byte("GET / HTTP/1.1\r\n"))
+	assert.False(t, isMemcached(req, notMemcached), "request+non-memcached")
+	assert.False(t, isMemcached(notMemcached, resp), "non-memcached+response")
+
+	assert.False(t, isMemcached(req, largebuf.NewLargeBuffer()), "empty response buffer")
 }
 
 func TestProcessPossibleMemcachedEventChunkedBuffers(t *testing.T) {

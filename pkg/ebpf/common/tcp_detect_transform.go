@@ -177,11 +177,8 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			}
 			return TCPToRedisToSpan(event, op, text, status, db, redisErr), false, nil
 		}
-	case isMemcached(requestBuffer) && isMemcached(responseBuffer):
+	case isMemcached(requestBuffer, responseBuffer):
 		span, err := ProcessPossibleMemcachedEvent(parseCtx, event, requestBuffer, responseBuffer)
-		if errors.Is(err, errFallback) {
-			break
-		}
 		if errors.Is(err, errIgnore) {
 			return request.Span{}, true, nil
 		}
