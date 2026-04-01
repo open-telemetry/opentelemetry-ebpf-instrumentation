@@ -45,8 +45,8 @@ static __always_inline void urand_bytes(unsigned char *buf, u32 size) {
 
 static __always_inline void decode_hex(unsigned char *dst, const unsigned char *src, u32 src_len) {
     for (u32 i = 1, j = 0; i < src_len; i += 2) {
-        unsigned char p = src[i - 1];
-        unsigned char q = src[i];
+        unsigned char p = *src++;
+        unsigned char q = *src++;
 
         unsigned char a = reverse_hex[p & 0xff];
         unsigned char b = reverse_hex[q & 0xff];
