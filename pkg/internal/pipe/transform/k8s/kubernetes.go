@@ -147,11 +147,11 @@ func (n *decorator) decorate(a *pipe.CommonAttrs, prefix, ip string) bool {
 	if meta.Pod != nil {
 		serviceName, serviceNamespace, _ := n.store.ServiceNameNamespaceForIP(ip)
 		if prefix == attrPrefixSrc {
-			a.Metadata[attr.SrcServiceName] = serviceName
-			a.Metadata[attr.SrcServiceNamespace] = serviceNamespace
+			a.Metadata[attr.ServiceName] = serviceName
+			a.Metadata[attr.ServiceNamespace] = serviceNamespace
 		} else {
-			a.Metadata[attr.DstServiceName] = serviceName
-			a.Metadata[attr.DstServiceNamespace] = serviceNamespace
+			a.Metadata[attr.ServicePeerName] = serviceName
+			a.Metadata[attr.ServicePeerNamespace] = serviceNamespace
 		}
 	}
 

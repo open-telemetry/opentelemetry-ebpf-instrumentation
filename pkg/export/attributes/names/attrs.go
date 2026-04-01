@@ -89,11 +89,6 @@ const (
 
 	ContainerName = Name(semconv.ContainerNameKey)
 	ContainerID   = Name(semconv.ContainerIDKey)
-
-	SrcServiceName      = Name("src.service.name")
-	DstServiceName      = Name("dst.service.name")
-	SrcServiceNamespace = Name("src.service.namespace")
-	DstServiceNamespace = Name("dst.service.namespace")
 )
 
 // OBI-specific network attributes
@@ -184,6 +179,12 @@ const (
 	// attributes, which can't be enabled/disabled by the users
 	ServiceName      = Name(semconv.ServiceNameKey)
 	ServiceNamespace = Name(semconv.ServiceNamespaceKey)
+
+	// TODO: replace by semconv.ServicePeerNameKey and semconv.ServicePeerNamespaceKey
+	// when we update to OTEL semconv library 1.40 or with {server|client}.service.{name|namespace}
+	// if this is issue is approved https://github.com/open-telemetry/semantic-conventions/issues/3472
+	ServicePeerName      = Name("service.peer.name")
+	ServicePeerNamespace = Name("service.peer.namespace")
 
 	HostID      = Name(semconv.HostIDKey)
 	HostImageID = Name(semconv.HostImageIDKey)
