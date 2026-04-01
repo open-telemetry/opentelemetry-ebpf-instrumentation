@@ -18,10 +18,10 @@ Package documentation can be found on
 Installation can be done with a normal `go get`:
 
 ```
-$ go get github.com/hashicorp/go-version
+go get github.com/hashicorp/go-version
 ```
 
-#### Version Parsing and Comparison
+### Version Parsing and Comparison
 
 ```go
 v1, err := version.NewVersion("1.2")
