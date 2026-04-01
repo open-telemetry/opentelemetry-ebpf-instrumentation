@@ -1555,6 +1555,11 @@
           "type": "boolean",
           "x-env-var": "OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"
         },
+        "exemplar_filter": {
+          "type": "string",
+          "description": "ExemplarFilter controls when exemplars are attached to metrics. Accepted values: \"always_on\", \"always_off\", \"trace_based\". Defaults to \"always_off\": do not attach exemplars. This mimics the OTEL_METRICS_EXEMPLAR_FILTER specification.",
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_EXEMPLAR_FILTER"
+        },
         "extra_resource_attributes": {
           "items": {
             "type": "string"
