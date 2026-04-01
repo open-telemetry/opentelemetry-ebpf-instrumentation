@@ -942,12 +942,10 @@ func exemplarFilter(filter string) func(*request.Span) bool {
 
 // traceExemplar returns prometheus labels with trace and span IDs for exemplar reporting.
 func traceExemplar(span *request.Span) prometheus.Labels {
-	l := prometheus.Labels{
+	return prometheus.Labels{
 		"traceID": span.TraceID.String(),
 		"spanID":  span.SpanID.String(),
 	}
-	fmt.Println(l)
-	return l
 }
 
 // observeHistogram observes a value into a histogram, attaching an exemplar when applicable.
