@@ -662,7 +662,7 @@ func TestExemplarFilter(t *testing.T) {
 		{
 			name:                  "default trace based",
 			filterConfig:          "",
-			expectFilterSampled:   true,
+			expectFilterSampled:   false,
 			expectFilterUnsampled: false,
 		},
 		{

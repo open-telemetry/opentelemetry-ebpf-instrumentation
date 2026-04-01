@@ -143,8 +143,8 @@ type PrometheusConfig struct {
 
 	// ExemplarFilter controls when exemplars are attached to metrics.
 	// Accepted values: "always_on", "always_off", "trace_based".
-	// Defaults to "trace_based": only attach exemplars for sampled traces.
-	// This mirrors the OTEL_METRICS_EXEMPLAR_FILTER specification.
+	// Defaults to "always_off": do not attach exemplars.
+	// This mimics the OTEL_METRICS_EXEMPLAR_FILTER specification.
 	ExemplarFilter string `yaml:"exemplar_filter" env:"OTEL_EBPF_PROMETHEUS_EXEMPLAR_FILTER"`
 
 	// Registry is only used for embedding OBI within third-party collectors.
@@ -923,8 +923,12 @@ func (r *metricsReporter) otelSpanFiltered(span *request.Span) bool {
 func exemplarFilter(filter string) func(*request.Span) bool {
 	switch filter {
 	default:
-		mlog().Warn("invalid Prometheus' exemplar_filter value. Defaulting to trace_based", "filter", filter)
+		mlog().Warn("invalid Prometheus' exemplar_filter value. Defaulting to always_off", "filter", filter)
 		fallthrough
+	case "always_off":
+		return func(*request.Span) bool {
+			return false
+		}
 	case "trace_based":
 		return func(span *request.Span) bool {
 			return span.TraceFlags&ebpfcommon.TPFlagSampled != 0 && span.TraceID.IsValid()
@@ -933,19 +937,17 @@ func exemplarFilter(filter string) func(*request.Span) bool {
 		return func(span *request.Span) bool {
 			return span.TraceID.IsValid()
 		}
-	case "always_off":
-		return func(*request.Span) bool {
-			return false
-		}
 	}
 }
 
 // traceExemplar returns prometheus labels with trace and span IDs for exemplar reporting.
 func traceExemplar(span *request.Span) prometheus.Labels {
-	return prometheus.Labels{
+	l := prometheus.Labels{
 		"traceID": span.TraceID.String(),
 		"spanID":  span.SpanID.String(),
 	}
+	fmt.Println(l)
+	return l
 }
 
 // observeHistogram observes a value into a histogram, attaching an exemplar when applicable.

@@ -208,6 +208,7 @@ func TestSuite_PrometheusScrape(t *testing.T) {
 
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
+	t.Run("Exemplars exist", testExemplarsExist)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 	t.Run("Testing OBI Build Info metric", testPrometheusOBIBuildInfo)
 	t.Run("Testing for no OBI self metrics", testPrometheusNoOBIEvents)
