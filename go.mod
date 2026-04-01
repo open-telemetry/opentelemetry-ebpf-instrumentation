@@ -5,6 +5,7 @@ go 1.25.8
 require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
 	github.com/andybalholm/brotli v1.2.0
+	github.com/caarlos0/env/v11 v11.4.0
 	github.com/caarlos0/env/v9 v9.0.0
 	github.com/cilium/ebpf v0.20.0
 	github.com/containers/common v0.64.2
@@ -29,11 +30,13 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/ory/dockertest/v3 v3.12.0
 	github.com/oschwald/maxminddb-golang v1.13.1
+	github.com/oschwald/maxminddb-golang/v2 v2.1.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.67.5
 	github.com/prometheus/procfs v0.20.1
 	github.com/shirou/gopsutil/v3 v3.24.5
+	github.com/shirou/gopsutil/v4 v4.26.3
 	github.com/stretchr/testify v1.11.1
 	github.com/tklauser/go-sysconf v0.3.16
 	github.com/vektah/gqlparser/v2 v2.5.32
