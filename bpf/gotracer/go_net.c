@@ -134,18 +134,7 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
     get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn);
 
     if (already_handled_request(&net_args.p_conn.conn, &g_key)) {
-        return 0;
-    }
-
-    egress_key_t e_key = {
-        .d_port = net_args.p_conn.conn.d_port,
-        .s_port = net_args.p_conn.conn.s_port,
-    };
-
-    sort_egress_key(&e_key);
-
-    void *r = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
-    if (r) {
+        bpf_printk("bail 0");
         return 0;
     }
 
@@ -172,6 +161,7 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
     void *buf = (void *)net_ptr->byte_ptr;
 
     u64 len = (u64)GO_PARAM1(ctx);
+    bpf_dbg_printk("buf=%llx, len=%d === ", buf, len);
     if (buf && len > 0) {
         //dbg_print_http_connection_info(&net_ptr->p_conn.conn);
 
@@ -221,18 +211,6 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
         }
 
         p_conn.pid = pid_from_pid_tgid(id);
-
-        egress_key_t e_key = {
-            .d_port = p_conn.conn.d_port,
-            .s_port = p_conn.conn.s_port,
-        };
-
-        sort_egress_key(&e_key);
-
-        void *r = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
-        if (r) {
-            return 0;
-        }
 
         u16 orig_dport = p_conn.conn.d_port;
         sort_connection_info(&p_conn.conn);
