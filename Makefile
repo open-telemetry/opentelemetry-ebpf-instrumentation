@@ -43,7 +43,7 @@ CFLAGS := -std=gnu17 -O2 -g -Wunaligned-access -Wpacked -Wpadded -Wall -Werror $
 
 CLANG_TIDY ?= clang-tidy
 
-CILIUM_EBPF_VER ?= v0.20.0
+CILIUM_EBPF_VER ?= v0.21.0
 CILIUM_EBPF_PKG := github.com/cilium/ebpf
 
 # regular expressions for excluded file patterns
