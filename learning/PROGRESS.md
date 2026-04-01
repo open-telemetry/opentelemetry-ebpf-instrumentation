@@ -1,7 +1,7 @@
 # eBPF 学习进度追踪
 
 > 开始日期: 2026-03-31
-> 最后更新: 2026-03-31 (Week1 Day1 完成)
+> 最后更新: 2026-04-01 (Week2 Day6 完成)
 
 ## 进度总览
 
@@ -51,8 +51,8 @@
 | 2 | Program Types | `day2/program_types_study.c` | `已完成` | 2026-03-31 | 10种类型:kprobe/kretprobe/uprobe/uretprobe/tc/xdp/socket/iter/sk_msg/sockops; uprobe通过ELF符号表找函数偏移量,内核用(文件inode+偏移)绑定,运行时基地址+偏移算实际地址; ASLR不影响 |
 | 3 | Verifier 规则 | `day3/verifier_rules.c` | `已完成` | 2026-03-31 | 7条规则:必须return/无死循环/栈512字节/边界检查/指针只比data_end/Map查NULL/helper类型正确; OBI用scratch_mem Map绕栈限制; __uint是宏把Map配置编码进BTF |
 | 4 | 环境搭建 | `day4/setup_env.sh` | `已完成` | 2026-04-01 | 7个工具:clang编译/llvm后端/libbpf-dev提供eBPF API头文件/linux-headers提供内核结构体/bpftool调试/Go用户态/bpf2go代码生成; CO-RE使编译运行内核可不同,靠BTF运行时修正偏移 |
-| 5 | Hello World (C) | `day5/hello_openat.bpf.c` | `未开始` | - | |
-| 6 | Hello World (Go) | `day6/main.go` | `未开始` | - | |
+| 5 | Hello World (C) | `day5/hello_openat.bpf.c` | `已完成` | 2026-04-01 | 最小kprobe程序:SEC+ctx+helper+return+LICENSE; pt_regs是CPU寄存器快照用于读函数参数; BPF_KPROBE宏自动提取参数; 实际编译运行成功,捕获到sys_openat事件 |
+| 6 | Hello World (Go) | `day6/main.go` | `已完成` | 2026-04-01 | bpf2go自动生成Go绑定(.o嵌入binary); 4步:RemoveMemlock→加载→Kprobe附加→等信号; 手动加载vs bpf2go:后者类型安全+单文件部署; OBI用bpf2go模式 |
 | 7 | bpftool 调试 | `day7/bpftool_debug.sh` | `未开始` | - | |
 
 路径前缀: `exercises/week2-hello-ebpf/`
