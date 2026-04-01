@@ -132,5 +132,13 @@ func testREDMetricsPythonMQTTSubscribe(t *testing.T) {
 }
 
 func waitForMQTTTestComponents(t *testing.T, url string, subpath string) {
-	waitForTestComponentsSubWithTime(t, url, subpath, 2)
+	t.Helper()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		req, err := http.NewRequest(http.MethodGet, url+subpath, nil)
+		require.NoError(ct, err)
+		r, err := testHTTPClient.Do(req)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, r.StatusCode)
+	}, time.Minute, time.Second)
 }
