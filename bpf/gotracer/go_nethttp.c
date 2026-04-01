@@ -24,11 +24,13 @@
 #include <common/ringbuf.h>
 #include <common/strings.h>
 #include <common/tracing.h>
+#include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 
+#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/nethttp.h>
 
 #include <gotracer/types/nethttp.h>
@@ -551,6 +553,8 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
     }
 
+    store_go_handled_info(info, &g_key);
+
     // Server connections have opposite order, source port is the server port
     swap_connection_info_order(&trace->conn);
     trace->tp = invocation->tp;
@@ -740,6 +744,8 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
     } else {
         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
     }
+
+    store_go_handled_info(info, &g_key);
 
     trace->tp = invocation->tp;
 

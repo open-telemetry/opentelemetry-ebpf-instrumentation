@@ -22,6 +22,7 @@
 
 #include <gotracer/go_common.h>
 
+#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/kafka.h>
 
 #include <gotracer/types/kafka.h>
@@ -201,6 +202,8 @@ int obi_uprobe_protocol_roundtrip_ret(struct pt_regs *ctx) {
                     }
                 }
 
+                store_go_handled_info(&trace->conn, &g_key);
+
                 __builtin_memcpy(trace->topic, topic_ptr->name, k_max_topic_name_len);
                 __builtin_memcpy(&trace->tp, &(topic_ptr->tp), sizeof(tp_info_t));
                 task_pid(&trace->pid);
@@ -294,6 +297,8 @@ int obi_uprobe_reader_read_ret(struct pt_regs *ctx) {
     bpf_dbg_printk("Found req_ptr: %llx", req_ptr);
 
     if (req_ptr) {
+        store_go_handled_info(&req_ptr->conn, &g_key);
+
         if (req_ptr->start_monotime_ns) {
             kafka_go_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(kafka_go_req_t), 0);
             if (trace) {

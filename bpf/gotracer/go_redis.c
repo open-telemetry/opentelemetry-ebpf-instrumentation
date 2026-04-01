@@ -21,6 +21,7 @@
 
 #include <gotracer/go_common.h>
 
+#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/redis.h>
 
 #include <logger/bpf_dbg.h>
@@ -61,6 +62,8 @@ int obi_uprobe_redis_process_ret(struct pt_regs *ctx) {
 
     redis_client_req_t *req = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
     if (req) {
+        store_go_handled_info(&req->conn, &g_key);
+
         redis_client_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(redis_client_req_t), 0);
         if (trace) {
             bpf_dbg_printk("Sending redis client go trace");

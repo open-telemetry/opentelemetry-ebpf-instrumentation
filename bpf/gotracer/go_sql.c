@@ -23,6 +23,8 @@
 
 #include <common/ringbuf.h>
 
+#include <gotracer/maps/handled_by_go.h>
+
 #include <gotracer/go_common.h>
 #include <gotracer/go_str.h>
 
@@ -306,6 +308,8 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
         return 0;
     }
     bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
+
+    store_go_handled_info(&invocation->conn, &g_key);
 
     sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
     if (trace) {

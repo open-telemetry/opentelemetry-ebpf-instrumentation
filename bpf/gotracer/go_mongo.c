@@ -24,6 +24,7 @@
 #include <gotracer/go_str.h>
 
 #include <gotracer/maps/mongo.h>
+#include <gotracer/maps/handled_by_go.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -204,6 +205,8 @@ int obi_uprobe_mongo_op_execute_ret(struct pt_regs *ctx) {
         } else {
             req->err = 0;
         }
+
+        store_go_handled_info(&req->conn, &g_key);
 
         mongo_go_client_req_t *trace =
             bpf_ringbuf_reserve(&events, sizeof(mongo_go_client_req_t), 0);

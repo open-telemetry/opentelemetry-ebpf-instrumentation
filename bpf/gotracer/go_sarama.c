@@ -21,6 +21,7 @@
 
 #include <gotracer/go_common.h>
 
+#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/kafka.h>
 
 #include <gotracer/types/kafka.h>
@@ -152,6 +153,7 @@ int obi_uprobe_sarama_response_promise_handle(struct pt_regs *ctx) {
 
             if (req) {
                 req->end_monotime_ns = bpf_ktime_get_ns();
+                store_go_handled_info(&req->conn, &k_key);
 
                 kafka_client_req_t *trace =
                     bpf_ringbuf_reserve(&events, sizeof(kafka_client_req_t), 0);

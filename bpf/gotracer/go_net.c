@@ -15,17 +15,54 @@
 
 //go:build obi_bpf_ignore
 
+#include "common/connection_info.h"
+#include "common/go_addr_key.h"
+#include "common/http_types.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
 #include <common/common.h>
+#include <common/lw_thread.h>
 
 #include <gotracer/go_common.h>
-
+#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/mongo.h>
 
+#include <generictracer/k_tracer_defs.h>
+
 #include <logger/bpf_dbg.h>
+
+#include <maps/outgoing_trace_map.h>
+
+#include <shared/obi_ctx.h>
+
+typedef struct net_args {
+    u64 byte_ptr;
+    pid_connection_info_t p_conn;
+} net_args_t;
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, go_addr_key_t); // goroutine
+    __type(value, net_args_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} ongoing_fd_reads SEC(".maps");
+
+static __always_inline bool already_handled_request(connection_info_t *conn,
+                                                    go_addr_key_t *goaddr) {
+    go_addr_key_t *g = bpf_map_lookup_elem(&handled_by_go_conn, conn);
+    if (g) {
+        return true;
+    }
+    bool *found = bpf_map_lookup_elem(&handled_by_go, goaddr);
+    if (found) {
+        return true;
+    }
+
+    return false;
+}
 
 SEC("uprobe/netFdRead")
 int obi_uprobe_netFdRead(struct pt_regs *ctx) {
@@ -85,6 +122,130 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
         }
         //dbg_print_http_connection_info(conn);
         return 0;
+    }
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    void *fd_ptr = GO_PARAM1(ctx);
+    void *byte_addr = GO_PARAM2(ctx);
+    net_args_t net_args = {
+        .byte_ptr = (u64)byte_addr,
+    };
+    get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn);
+
+    if (already_handled_request(&net_args.p_conn.conn, &g_key)) {
+        return 0;
+    }
+
+    egress_key_t e_key = {
+        .d_port = net_args.p_conn.conn.d_port,
+        .s_port = net_args.p_conn.conn.s_port,
+    };
+
+    sort_egress_key(&e_key);
+
+    void *r = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
+    if (r) {
+        return 0;
+    }
+
+    net_args.p_conn.pid = pid_from_pid_tgid(id);
+
+    bpf_map_update_elem(&ongoing_fd_reads, &g_key, &net_args, BPF_ANY);
+
+    return 0;
+}
+
+SEC("uprobe/netFdReadRet")
+int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("=== uprobe/proc netFD read returns goroutine %lx === ", goroutine_addr);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    net_args_t *net_ptr = bpf_map_lookup_elem(&ongoing_fd_reads, &g_key);
+    if (!net_ptr || !net_ptr->byte_ptr) {
+        return 0;
+    }
+
+    void *buf = (void *)net_ptr->byte_ptr;
+
+    u64 len = (u64)GO_PARAM1(ctx);
+    if (buf && len > 0) {
+        //dbg_print_http_connection_info(&net_ptr->p_conn.conn);
+
+        u16 orig_dport = net_ptr->p_conn.conn.d_port;
+        sort_connection_info(&net_ptr->p_conn.conn);
+
+        //dbg_print_http_connection_info(&net_ptr->p_conn.conn);
+
+        handle_light_weight_thread_buf(ctx,
+                                       (lw_thread_t)goroutine_addr,
+                                       (protocol_selector_t){.http = 1, .http2 = 0, .tcp = 1},
+                                       &net_ptr->p_conn,
+                                       buf,
+                                       len,
+                                       NO_SSL,
+                                       TCP_RECV,
+                                       orig_dport);
+    }
+
+    bpf_map_delete_elem(&ongoing_fd_reads, &g_key);
+
+    return 0;
+}
+
+SEC("uprobe/netFdWrite")
+int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
+    const u64 id = bpf_get_current_pid_tgid();
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("=== uprobe/proc netFD write goroutine %lx === ", goroutine_addr);
+
+    void *fd_ptr = GO_PARAM1(ctx);
+    u8 *buf = GO_PARAM2(ctx);
+    u64 len = (u64)GO_PARAM3(ctx);
+    if (buf && len > 0) {
+        pid_connection_info_t p_conn = {0};
+
+        if (!get_conn_info_from_fd(fd_ptr, &p_conn.conn)) {
+            return 0;
+        }
+
+        go_addr_key_t g_key = {};
+        go_addr_key_from_id(&g_key, goroutine_addr);
+
+        if (already_handled_request(&p_conn.conn, &g_key)) {
+            return 0;
+        }
+
+        p_conn.pid = pid_from_pid_tgid(id);
+
+        egress_key_t e_key = {
+            .d_port = p_conn.conn.d_port,
+            .s_port = p_conn.conn.s_port,
+        };
+
+        sort_egress_key(&e_key);
+
+        void *r = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
+        if (r) {
+            return 0;
+        }
+
+        u16 orig_dport = p_conn.conn.d_port;
+        sort_connection_info(&p_conn.conn);
+
+        handle_light_weight_thread_buf(ctx,
+                                       (lw_thread_t)goroutine_addr,
+                                       (protocol_selector_t){.http = 1, .http2 = 0, .tcp = 1},
+                                       &p_conn,
+                                       buf,
+                                       len,
+                                       NO_SSL,
+                                       TCP_SEND,
+                                       orig_dport);
     }
 
     return 0;

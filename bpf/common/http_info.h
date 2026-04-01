@@ -33,5 +33,6 @@ typedef struct http_info {
     u8 has_large_buffers;
     u8 direction;
     u8 submitted;
-    u8 _pad[3];
+    u8 no_pid_filter;
+    u8 _pad[2];
 } http_info_t;

@@ -26,3 +26,6 @@
 #include "go_sarama.c"
 #include "go_sdk.c"
 #include "go_mongo.c"
+#include "generictracer/protocol_handler.c"
+
+char __license[] SEC("license") = "Dual MIT/GPL";

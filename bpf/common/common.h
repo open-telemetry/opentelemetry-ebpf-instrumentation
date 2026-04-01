@@ -149,7 +149,8 @@ typedef struct tcp_req {
     u32 resp_len;
     u32 lb_req_bytes;
     u32 lb_res_bytes;
-    u8 _pad2[4];
+    u8 no_pid_filter;
+    u8 _pad2[3];
     unsigned char buf[k_tcp_max_len];
     unsigned char rbuf[k_tcp_res_len];
     // we need this to filter traces from unsolicited processes that share the executable

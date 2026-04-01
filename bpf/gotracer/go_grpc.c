@@ -20,12 +20,14 @@
 #include <common/common.h>
 #include <common/globals.h>
 #include <common/ringbuf.h>
+#include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 
 #include <gotracer/maps/grpc.h>
+#include <gotracer/maps/handled_by_go.h>
 
 #include <gotracer/types/grpc.h>
 #include <gotracer/types/stream_key.h>
@@ -260,6 +262,8 @@ int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
     }
 
+    store_go_handled_info(&trace->conn, &g_key);
+
     // Server connections have port order reversed from what we want
     swap_connection_info_order(&trace->conn);
     trace->tp = invocation->tp;
@@ -437,6 +441,8 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
     } else {
         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
     }
+
+    store_go_handled_info(info, &g_key);
 
     trace->tp = invocation->tp;
 

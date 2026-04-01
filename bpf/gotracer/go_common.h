@@ -33,8 +33,6 @@
 
 #include <pid/pid_helpers.h>
 
-char __license[] SEC("license") = "Dual MIT/GPL";
-
 enum { W3C_KEY_LENGTH = 11, W3C_VAL_LENGTH = 55 };
 
 static unsigned char tp_encoded[] = {
@@ -133,10 +131,6 @@ typedef struct grpc_header_field {
     u64 val_len;
     u64 sensitive;
 } grpc_header_field_t;
-
-static __always_inline u8 valid_trace(const unsigned char *trace_id) {
-    return *((u64 *)trace_id) != 0 || *((u64 *)(trace_id + 8)) != 0;
-}
 
 static __always_inline void go_addr_key_from_id(go_addr_key_t *current, void *addr) {
     const u64 pid_tid = bpf_get_current_pid_tgid();
