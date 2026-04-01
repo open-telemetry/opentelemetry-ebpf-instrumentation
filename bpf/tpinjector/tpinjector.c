@@ -568,7 +568,7 @@ make_tp_string_skb(unsigned char *buf, const tp_info_t *tp, const unsigned char 
     *buf++ = '-';
 
     *buf++ = '0';
-    *buf++ = (tp->flags == 0) ? '0' : '1';
+    *buf++ = '0' + (tp->flags & k_flag_sampled);
     *buf++ = '\r';
     *buf++ = '\n';
 
