@@ -333,6 +333,7 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 	}
 
 	for _, p := range pt.Programs {
+		p.ProcessBinary(ie.FileInfo)
 		p.RegisterOffsets(ie.FileInfo, ie.Offsets)
 
 		// Go style Uprobes

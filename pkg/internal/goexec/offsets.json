@@ -1306,6 +1306,52 @@
         ]
       }
     },
+    "runtime.hchan": {
+      "dataqsiz": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.26.3"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "1.17.0"
+          }
+        ]
+      },
+      "recvx": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.26.3"
+        },
+        "offsets": [
+          {
+            "offset": 48,
+            "since": "1.17.0"
+          },
+          {
+            "offset": 56,
+            "since": "1.23.0"
+          }
+        ]
+      },
+      "sendx": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.26.3"
+        },
+        "offsets": [
+          {
+            "offset": 40,
+            "since": "1.17.0"
+          },
+          {
+            "offset": 48,
+            "since": "1.23.0"
+          }
+        ]
+      }
+    },
     "runtime.moduledata": {
       "etext": {
         "versions": {

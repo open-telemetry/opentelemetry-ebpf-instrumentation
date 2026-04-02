@@ -48,6 +48,8 @@ type Tracer struct {
 	closers                 []io.Closer
 	disabledRouteHarvesting bool
 	supportsBPFLoop         bool
+	channelLinkOffsetsByIno map[uint64]bool
+	currentBinaryIno        uint64
 }
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
@@ -69,6 +71,7 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		metrics:                 metrics,
 		disabledRouteHarvesting: disabledRouteHarvesting,
 		supportsBPFLoop:         ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
+		channelLinkOffsetsByIno: map[uint64]bool{},
 	}
 }
 
@@ -184,6 +187,20 @@ func (p *Tracer) SetupTailCalls() {
 }
 
 func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
+	channelLinkEnabled := false
+	if offsets != nil {
+		_, haveDataqsiz := offsets.Field[goexec.HchanDataqsizPos].(uint64)
+		_, haveSendx := offsets.Field[goexec.HchanSendxPos].(uint64)
+		_, haveRecvx := offsets.Field[goexec.HchanRecvxPos].(uint64)
+		channelLinkEnabled = haveDataqsiz && haveSendx && haveRecvx
+	}
+
+	p.channelLinkOffsetsByIno[fileInfo.Ino()] = channelLinkEnabled
+	if !channelLinkEnabled {
+		p.log.Debug("disabling Go channel link probes for binary with missing runtime.hchan offsets",
+			"pid", fileInfo.Pid(), "ino", fileInfo.Ino(), "cmd", fileInfo.CmdExePath())
+	}
+
 	offTable := BpfOffTableT{}
 	// Set the field offsets and the logLevel for the Go BPF program in a map
 	for _, field := range []goexec.GoOffset{
@@ -258,6 +275,10 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.GrpcClientStreamStream,
 		// go manual spans
 		goexec.GoTracerDelegatePos,
+		// go runtime channels
+		goexec.HchanDataqsizPos,
+		goexec.HchanSendxPos,
+		goexec.HchanRecvxPos,
 		// go jsonrpc
 		goexec.GoJsonrpcRequestHeaderServiceMethodPos,
 		// go mongodb
@@ -316,7 +337,14 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	}
 }
 
-func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
+func (p *Tracer) ProcessBinary(fileInfo *exec.FileInfo) {
+	if fileInfo == nil {
+		p.currentBinaryIno = 0
+		return
+	}
+
+	p.currentBinaryIno = fileInfo.Ino()
+}
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
 	p.closers = append(p.closers, c...)
@@ -328,18 +356,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"runtime.newproc1": {{
 			Start: p.bpfObjects.ObiUprobeRuntimeNewproc1,
 			End:   p.bpfObjects.ObiUprobeRuntimeNewproc1Return,
-		}},
-		"runtime.chansend1": {{
-			Start: p.bpfObjects.ObiUprobeRuntimeChansend1,
-			End:   p.bpfObjects.ObiUprobeRuntimeChansend1Return,
-		}},
-		"runtime.chanrecv1": {{
-			Start: p.bpfObjects.ObiUprobeRuntimeChanrecv1,
-			End:   p.bpfObjects.ObiUprobeRuntimeChanrecv1Return,
-		}},
-		"runtime.chanrecv2": {{
-			Start: p.bpfObjects.ObiUprobeRuntimeChanrecv2,
-			End:   p.bpfObjects.ObiUprobeRuntimeChanrecv2Return,
 		}},
 		"runtime.casgstatus": {{
 			Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus,
@@ -675,6 +691,25 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"go.mongodb.org/mongo-driver/v2/mongo.(*Collection).Distinct": {{
 			Start: p.bpfObjects.ObiUprobeMongoOpDistinct,
 		}},
+	}
+
+	channelLinkEnabled := true
+	if p.currentBinaryIno != 0 {
+		channelLinkEnabled = p.channelLinkOffsetsByIno[p.currentBinaryIno]
+	}
+	if channelLinkEnabled {
+		m["runtime.chansend1"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRuntimeChansend1,
+			End:   p.bpfObjects.ObiUprobeRuntimeChansend1Return,
+		}}
+		m["runtime.chanrecv1"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRuntimeChanrecv1,
+			End:   p.bpfObjects.ObiUprobeRuntimeChanrecv1Return,
+		}}
+		m["runtime.chanrecv2"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRuntimeChanrecv2,
+			End:   p.bpfObjects.ObiUprobeRuntimeChanrecv2Return,
+		}}
 	}
 
 	// HTTP Header extraction

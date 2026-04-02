@@ -28,6 +28,7 @@
 
 #include <common/event_defs.h>
 #include <common/ringbuf.h>
+#include <common/trace_helpers.h>
 
 #include <gotracer/types/grpc.h>
 #include <gotracer/types/nethttp.h>
@@ -120,22 +121,18 @@ done:
     return 0;
 }
 
-// These offsets come from the Go runtime's internal runtime.hchan layout
-// (see src/runtime/chan.go). For 64-bit Go builds, the fields we currently
-// need are:
-//
-//   dataqsiz @ 0x8
-//   sendx    @ 0x30
-//   recvx    @ 0x38
-//
-// This is a runtime ABI assumption, not a language-level guarantee. If we
-// need broader Go-version coverage, these should move into the existing Go
-// offset discovery pipeline instead of remaining hardcoded here.
-enum channel_offsets : u8 {
-    k_hchan_dataqsiz_off = 0x8,
-    k_hchan_sendx_off = 0x30,
-    k_hchan_recvx_off = 0x38,
-};
+static __always_inline bool
+read_hchan_offsets(off_table_t *ot, u64 *dataqsiz, u64 *sendx, u64 *recvx) {
+    if (!ot || !dataqsiz || !sendx || !recvx) {
+        return false;
+    }
+
+    *dataqsiz = go_offset_of(ot, (go_offset){.v = _hchan_dataqsiz_pos});
+    *sendx = go_offset_of(ot, (go_offset){.v = _hchan_sendx_pos});
+    *recvx = go_offset_of(ot, (go_offset){.v = _hchan_recvx_pos});
+
+    return *dataqsiz != (u64)-1 && *sendx != (u64)-1 && *recvx != (u64)-1;
+}
 
 static __always_inline bool current_otel_handoff(struct pt_regs *ctx, chan_handoff_t *handoff) {
     if (!handoff) {
@@ -258,6 +255,10 @@ static __always_inline int channel_send_start(struct pt_regs *ctx) {
 }
 
 static __always_inline int channel_send_return(struct pt_regs *ctx) {
+    off_table_t *ot = get_offsets_table();
+    u64 hchan_dataqsiz_off = 0;
+    u64 hchan_sendx_off = 0;
+    u64 hchan_recvx_off = 0;
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
@@ -267,10 +268,15 @@ static __always_inline int channel_send_return(struct pt_regs *ctx) {
         return 0;
     }
 
+    if (!read_hchan_offsets(ot, &hchan_dataqsiz_off, &hchan_sendx_off, &hchan_recvx_off)) {
+        bpf_map_delete_elem(&chansend_invocations, &g_key);
+        return 0;
+    }
+
     chan_handoff_t sender = {0};
     if (current_otel_handoff(ctx, &sender)) {
         u64 dataqsiz = 0;
-        read_channel_u64((void *)invocation->chan_ptr, k_hchan_dataqsiz_off, &dataqsiz);
+        read_channel_u64((void *)invocation->chan_ptr, hchan_dataqsiz_off, &dataqsiz);
 
         if (dataqsiz == 0) {
             chan_handoff_t *receiver =
@@ -284,7 +290,7 @@ static __always_inline int channel_send_return(struct pt_regs *ctx) {
             }
         } else {
             u64 sendx = 0;
-            read_channel_u64((void *)invocation->chan_ptr, k_hchan_sendx_off, &sendx);
+            read_channel_u64((void *)invocation->chan_ptr, hchan_sendx_off, &sendx);
 
             chan_handoff_key_t key = {
                 .chan_ptr = invocation->chan_ptr,
@@ -299,6 +305,10 @@ static __always_inline int channel_send_return(struct pt_regs *ctx) {
 }
 
 static __always_inline int channel_recv_start(struct pt_regs *ctx) {
+    off_table_t *ot = get_offsets_table();
+    u64 hchan_dataqsiz_off = 0;
+    u64 hchan_sendx_off = 0;
+    u64 hchan_recvx_off = 0;
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
@@ -311,8 +321,12 @@ static __always_inline int channel_recv_start(struct pt_regs *ctx) {
     }
     bpf_map_update_elem(&chanrecv_invocations, &g_key, &invocation, BPF_ANY);
 
+    if (!read_hchan_offsets(ot, &hchan_dataqsiz_off, &hchan_sendx_off, &hchan_recvx_off)) {
+        return 0;
+    }
+
     u64 dataqsiz = 0;
-    read_channel_u64((void *)invocation.chan_ptr, k_hchan_dataqsiz_off, &dataqsiz);
+    read_channel_u64((void *)invocation.chan_ptr, hchan_dataqsiz_off, &dataqsiz);
     if (dataqsiz == 0 && invocation.has_tp) {
         bpf_map_update_elem(&direct_channel_receivers, &invocation.chan_ptr, &receiver, BPF_ANY);
     }
@@ -321,12 +335,21 @@ static __always_inline int channel_recv_start(struct pt_regs *ctx) {
 }
 
 static __always_inline int channel_recv_return(struct pt_regs *ctx) {
+    off_table_t *ot = get_offsets_table();
+    u64 hchan_dataqsiz_off = 0;
+    u64 hchan_sendx_off = 0;
+    u64 hchan_recvx_off = 0;
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     chan_func_invocation_t *invocation = bpf_map_lookup_elem(&chanrecv_invocations, &g_key);
     if (!invocation) {
+        return 0;
+    }
+
+    if (!read_hchan_offsets(ot, &hchan_dataqsiz_off, &hchan_sendx_off, &hchan_recvx_off)) {
+        bpf_map_delete_elem(&chanrecv_invocations, &g_key);
         return 0;
     }
 
@@ -338,7 +361,7 @@ static __always_inline int channel_recv_return(struct pt_regs *ctx) {
     }
 
     u64 dataqsiz = 0;
-    read_channel_u64((void *)invocation->chan_ptr, k_hchan_dataqsiz_off, &dataqsiz);
+    read_channel_u64((void *)invocation->chan_ptr, hchan_dataqsiz_off, &dataqsiz);
 
     if (dataqsiz == 0) {
         bpf_map_delete_elem(&direct_channel_receivers, &invocation->chan_ptr);
@@ -352,7 +375,7 @@ static __always_inline int channel_recv_return(struct pt_regs *ctx) {
         }
     } else {
         u64 recvx = 0;
-        read_channel_u64((void *)invocation->chan_ptr, k_hchan_recvx_off, &recvx);
+        read_channel_u64((void *)invocation->chan_ptr, hchan_recvx_off, &recvx);
 
         chan_handoff_key_t key = {
             .chan_ptr = invocation->chan_ptr,

@@ -27,7 +27,8 @@
       "database/sql.driverConn": ["ci"],
       "net/textproto.Reader": ["R"],
       "bufio.Reader": ["buf", "w"],
-      "runtime.moduledata": ["pcHeader", "pclntable", "minpc", "maxpc", "text", "etext"]
+      "runtime.moduledata": ["pcHeader", "pclntable", "minpc", "maxpc", "text", "etext"],
+      "runtime.hchan": ["dataqsiz", "sendx", "recvx"]
     }
   },
   "golang.org/x/net": {
