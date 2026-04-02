@@ -113,6 +113,15 @@ jobs:
             echo "run_java=true" >> "$GITHUB_OUTPUT"
           fi
 
+          if printf '%s\n' "$changed_files" | grep -Eq '^internal/test/integration/components/.+/requirements\.in$'; then
+            echo "run_python=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "python_requirements_in<<EOF"
+              printf '%s\n' "$changed_files" | grep -E '^internal/test/integration/components/.+/requirements\.in$'
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Go
         if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_go == 'true'
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
@@ -128,12 +137,18 @@ jobs:
         if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_java == 'true'
         run: make java-notices-update
 
+      - name: Update Python requirements locks
+        if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_python == 'true'
+        env:
+          PYTHON_REQUIREMENTS_INS: ${{ steps.detect.outputs.python_requirements_in }}
+        run: make python-requirements-update
+
       - id: create-patch
         if: steps.guard.outputs.should_run == 'true'
         name: Create patch file
         run: |
-          git add -N --ignore-removal -- NOTICES ':(glob)**/go.mod' ':(glob)**/go.sum'
-          git diff -- NOTICES ':(glob)**/go.mod' ':(glob)**/go.sum' > patch
+          git add -N --ignore-removal -- NOTICES ':(glob)**/go.mod' ':(glob)**/go.sum' ':(glob)internal/test/integration/components/**/requirements.txt' ':(glob)internal/test/integration/components/**/requirements-*.txt'
+          git diff -- NOTICES ':(glob)**/go.mod' ':(glob)**/go.sum' ':(glob)internal/test/integration/components/**/requirements.txt' ':(glob)internal/test/integration/components/**/requirements-*.txt' > patch
           if [ -s patch ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           fi
@@ -181,13 +196,12 @@ jobs:
         run: |
           git apply --check "$PATCH_PATH"
           git apply --numstat "$PATCH_PATH" | while IFS=$'\t' read -r added deleted path; do
-            case "$path" in
-              NOTICES/*|go.mod|go.sum|*/go.mod|*/go.sum) ;;
-              *)
-                echo "unexpected patch path: $path"
-                exit 1
-                ;;
-            esac
+            if printf '%s\n' "$path" | grep -Eq '^(NOTICES/.*|(.+/)?go\.(mod|sum)|internal/test/integration/components/.+/requirements(\-[^/]+)?\.txt)$'; then
+              continue
+            fi
+
+            echo "unexpected patch path: $path"
+            exit 1
           done
 
       - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
@@ -206,7 +220,7 @@ jobs:
           git config user.email 197425009+otelbot@users.noreply.github.com
 
           git apply "$PATCH_PATH"
-          git add --all -- NOTICES ':(glob)**/go.mod' ':(glob)**/go.sum'
+          git add --all -- NOTICES ':(glob)**/go.mod' ':(glob)**/go.sum' ':(glob)internal/test/integration/components/**/requirements.txt' ':(glob)internal/test/integration/components/**/requirements-*.txt'
           git commit -m "Run Renovate post-process"
           auth_header="$(printf 'x-access-token:%s' "$GH_APP_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" \
