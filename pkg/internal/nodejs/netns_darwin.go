@@ -3,6 +3,8 @@
 
 package nodejs // import "go.opentelemetry.io/obi/pkg/internal/nodejs"
 
-func withNetNS(_ int, fn func() error) error {
-	return fn()
+import "go.opentelemetry.io/obi/pkg/internal/netns"
+
+func withNetNS(hostPid int, fn func() error) error {
+	return netns.WithNetNS(hostPid, fn)
 }
