@@ -14,7 +14,7 @@ permissions:
 jobs:
   generate:
     name: Generate cleanup patch
-    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation' && github.actor == 'renovate[bot]'
     runs-on: ubuntu-latest
     outputs:
       patch-exists: ${{ steps.create-patch.outputs.exists }}
@@ -77,7 +77,7 @@ jobs:
 
   apply:
     name: Apply cleanup patch
-    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation' && github.actor == 'renovate[bot]'
     needs: generate
     permissions:
       contents: write
