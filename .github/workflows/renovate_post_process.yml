@@ -1,31 +1,83 @@
 name: Renovate post-process
 on:
-  pull_request_target:
-    branches:
-      - "main"
+  issue_comment:
     types:
-      - opened
-      - reopened
-      - synchronize
+      - created
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.event.issue.number }}
   cancel-in-progress: true
 
 permissions:
   contents: read
+  issues: read
   pull-requests: read
 
 jobs:
+  inspect:
+    name: Inspect command and PR
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation' && github.event.issue.pull_request
+    outputs:
+      enabled: ${{ steps.inspect.outputs.enabled }}
+      pr_number: ${{ steps.inspect.outputs.pr_number }}
+      head_ref: ${{ steps.inspect.outputs.head_ref }}
+      head_sha: ${{ steps.inspect.outputs.head_sha }}
+      base_sha: ${{ steps.inspect.outputs.base_sha }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
+        run: |
+          command="$(printf '%s\n' "$COMMENT_BODY" | sed -n '1p' | tr -d '\r')"
+          case "$AUTHOR_ASSOCIATION" in
+            OWNER|MEMBER|COLLABORATOR) ;;
+            *)
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          if [ "$command" != "/renovate-post-process" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          pr_json="$(gh api "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+
+          pr_author="$(printf '%s' "$pr_json" | jq -r '.user.login')"
+          head_repo="$(printf '%s' "$pr_json" | jq -r '.head.repo.full_name')"
+          head_ref="$(printf '%s' "$pr_json" | jq -r '.head.ref')"
+          head_sha="$(printf '%s' "$pr_json" | jq -r '.head.sha')"
+          base_sha="$(printf '%s' "$pr_json" | jq -r '.base.sha')"
+
+          if [ "$pr_author" != "renovate[bot]" ] || [ "$head_repo" != "$GITHUB_REPOSITORY" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          case "$head_ref" in
+            renovate/*) ;;
+            *)
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+
   generate:
     name: Generate cleanup patch
-    if: >
-      github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation' &&
-      github.event.pull_request.user.login == 'renovate[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.event.pull_request.head.ref, 'renovate/')
+    needs: inspect
+    if: needs.inspect.outputs.enabled == 'true'
     outputs:
-      should_run: ${{ steps.guard.outputs.should_run }}
       patch_exists: ${{ steps.create-patch.outputs.exists }}
     runs-on: ubuntu-latest
     steps:
@@ -33,7 +85,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ needs.inspect.outputs.head_sha }}
 
       - id: guard
         name: Skip post-process follow-up commits
@@ -49,8 +101,8 @@ jobs:
         if: steps.guard.outputs.should_run == 'true'
         name: Detect dependency manifest changes
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ needs.inspect.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.inspect.outputs.head_sha }}
         run: |
           changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
 
@@ -99,7 +151,9 @@ jobs:
 
   apply:
     name: Apply cleanup patch
-    needs: generate
+    needs:
+      - inspect
+      - generate
     if: needs.generate.outputs.patch_exists == 'true'
     permissions:
       contents: write
@@ -115,11 +169,11 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ needs.inspect.outputs.head_ref }}
 
       - name: Verify branch tip
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ needs.inspect.outputs.head_sha }}
         run: |
           current_sha="$(git rev-parse HEAD)"
           test "$current_sha" = "$EXPECTED_SHA"
@@ -149,7 +203,7 @@ jobs:
         env:
           GH_APP_TOKEN: ${{ steps.generate-token.outputs.token }}
           PATCH_PATH: artifact/patch
-          TARGET_REF: ${{ github.event.pull_request.head.ref }}
+          TARGET_REF: ${{ needs.inspect.outputs.head_ref }}
         run: |
           git config user.name otelbot
           git config user.email 197425009+otelbot@users.noreply.github.com
