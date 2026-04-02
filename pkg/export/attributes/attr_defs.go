@@ -306,6 +306,7 @@ func getDefinitions(
 		map[attr.Name]Default{
 			attr.MessagingSystem:      true,
 			attr.MessagingDestination: true,
+			attr.MessagingOpName:      true,
 			attr.ServerAddr:           true,
 		},
 		extraGroupAttributes[GroupMessaging],

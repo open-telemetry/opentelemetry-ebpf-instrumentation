@@ -80,9 +80,9 @@ var (
 		OTEL:    "db.client.operation.duration",
 	}
 	MessagingPublishDuration = Name{
-		Section: "messaging.publish.duration",
-		Prom:    "messaging_publish_duration_seconds",
-		OTEL:    "messaging.publish.duration",
+		Section: "messaging.client.operation.duration",
+		Prom:    "messaging_client_operation_duration_seconds",
+		OTEL:    "messaging.client.operation.duration",
 	}
 	MessagingProcessDuration = Name{
 		Section: "messaging.process.duration",
