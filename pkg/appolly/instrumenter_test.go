@@ -458,7 +458,7 @@ func TestGRPCPipeline(t *testing.T) {
 
 	assert.Equal(t, collector.MetricRecord{
 		Name: "rpc.server.duration",
-		Unit: "s",
+		Unit: "ms",
 		Attributes: map[string]string{
 			string(semconv.ServiceNameKey):       "grpc-svc",
 			string(semconv.ServiceNamespaceKey):  "",
@@ -479,7 +479,7 @@ func TestGRPCPipeline(t *testing.T) {
 			string(semconv.OSTypeKey):               "linux",
 		},
 		Type:     pmetric.MetricTypeHistogram,
-		FloatVal: 2 / float64(time.Second),
+		FloatVal: 2 / float64(time.Millisecond),
 		Count:    1,
 	}, event)
 
