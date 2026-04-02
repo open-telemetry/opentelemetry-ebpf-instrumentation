@@ -26,12 +26,13 @@ jobs:
 
       - id: detect
         name: Detect dependency manifest changes
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          before="${{ github.event.before }}"
-          if [ "$before" = "0000000000000000000000000000000000000000" ]; then
+          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
             changed_files="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA")"
           else
-            changed_files="$(git diff --name-only "$before" "$GITHUB_SHA")"
+            changed_files="$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")"
           fi
 
           printf '%s\n' "$changed_files"
@@ -108,13 +109,15 @@ jobs:
         if: needs.generate.outputs.patch-exists == 'true'
         env:
           GH_APP_TOKEN: ${{ steps.generate-token.outputs.token }}
+          PATCH_PATH: ${{ runner.temp }}/patch
+          TARGET_REF: ${{ github.ref_name }}
         run: |
           git config user.name otelbot
           git config user.email 197425009+otelbot@users.noreply.github.com
 
-          git apply "${{ runner.temp }}/patch"
+          git apply "$PATCH_PATH"
           git add --all -- NOTICES ':(glob)**/go.mod' ':(glob)**/go.sum'
           git commit -m "Run Renovate post-process"
           auth_header="$(printf 'x-access-token:%s' "$GH_APP_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" \
-            push origin "HEAD:${{ github.ref_name }}"
+            push origin "HEAD:$TARGET_REF"
