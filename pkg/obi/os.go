@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cilium/ebpf/btf"
 	"golang.org/x/sys/unix"
 
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
@@ -62,6 +61,39 @@ var isRHELBased = func() bool {
 	return detectRHEL()
 }
 
+// hasBTF checks whether the kernel exposes BTF information by looking for the
+// vmlinux BTF file in the canonical sysfs location and fallback paths (mirroring
+// libbpf's btf__load_vmlinux_btf).
+var hasBTF = func() bool {
+	// canonical sysfs location
+	if _, err := os.Stat("/sys/kernel/btf/vmlinux"); err == nil {
+		return true
+	}
+
+	var uname unix.Utsname
+	if err := unix.Uname(&uname); err != nil {
+		return false
+	}
+	release := unix.ByteSliceToString(uname.Release[:])
+
+	// fallback locations from libbpf
+	for _, pattern := range []string{
+		"/boot/vmlinux-%s",
+		"/lib/modules/%[1]s/vmlinux-%[1]s",
+		"/lib/modules/%s/build/vmlinux",
+		"/usr/lib/modules/%s/kernel/vmlinux",
+		"/usr/lib/debug/boot/vmlinux-%s",
+		"/usr/lib/debug/boot/vmlinux-%s.debug",
+		"/usr/lib/debug/lib/modules/%s/vmlinux",
+	} {
+		path := fmt.Sprintf(pattern, release)
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // CheckOSSupport returns an error if the running operating system does not support
 // the minimum required OBI features.
 func CheckOSSupport() error {
@@ -75,8 +107,8 @@ func CheckOSSupport() error {
 			major, minor, maj, min)
 	}
 
-	if _, err := btf.LoadKernelSpec(); err != nil {
-		return fmt.Errorf("kernel does not support BTF (CONFIG_DEBUG_INFO_BTF): %w", err)
+	if !hasBTF() {
+		return fmt.Errorf("kernel does not support BTF (CONFIG_DEBUG_INFO_BTF): no vmlinux BTF found")
 	}
 
 	return nil

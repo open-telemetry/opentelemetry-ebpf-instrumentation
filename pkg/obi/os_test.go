@@ -31,6 +31,7 @@ var overrideKernelVersion = func(tc testCase) {
 
 func TestCheckOSSupport_Supported(t *testing.T) {
 	isRHELBased = func() bool { return false }
+	hasBTF = func() bool { return true }
 	for _, tc := range []testCase{
 		{maj: 5, min: 8},
 		{maj: 6, min: 0},
@@ -45,6 +46,7 @@ func TestCheckOSSupport_Supported(t *testing.T) {
 
 func TestCheckOSSupport_Unsupported(t *testing.T) {
 	isRHELBased = func() bool { return false }
+	hasBTF = func() bool { return true }
 	for _, tc := range []testCase{
 		{maj: 0, min: 0},
 		{maj: 3, min: 11},
@@ -60,6 +62,7 @@ func TestCheckOSSupport_Unsupported(t *testing.T) {
 }
 
 func TestCheckOSSupport_RHELBased(t *testing.T) {
+	hasBTF = func() bool { return true }
 	for _, tc := range []struct {
 		name     string
 		isRHEL   bool
