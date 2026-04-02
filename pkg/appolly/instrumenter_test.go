@@ -925,6 +925,7 @@ func matchInfoEvent(t *testing.T, name string, event collector.TraceRecord) {
 			string(attr.ServerPort):             "8080",
 			string(attr.HTTPRequestBodySize):    "0",
 			string(attr.HTTPResponseBodySize):   "0",
+			string(attr.HTTPURLScheme):          "http",
 			"span_id":                           event.Attributes["span_id"],
 			"parent_span_id":                    "",
 		},
