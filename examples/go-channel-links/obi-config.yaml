@@ -1,0 +1,10 @@
+otel_metrics_export:
+  endpoint: http://lgtm:4318
+otel_traces_export:
+  endpoint: http://lgtm:4318
+discovery:
+  instrument:
+    - namespace: channel-links-example
+      name: channel-links-app
+      containers_only: true
+      exe_path: /channel-links-app

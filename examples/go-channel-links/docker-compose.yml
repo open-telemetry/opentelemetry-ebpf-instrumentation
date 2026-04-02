@@ -1,0 +1,52 @@
+services:
+  channel-links-app:
+    build:
+      context: ../..
+      dockerfile: examples/go-channel-links/app/Dockerfile
+    container_name: channel-links-app
+    ports:
+      - "8080:8080"
+
+  traffic-generator:
+    image: curlimages/curl:8.16.0@sha256:5a91ea0c9c3ee27b4abe657b68cf6bf0676afa13b236b3bda34283cb3924d4f6
+    platform: linux/amd64
+    container_name: channel-links-traffic-generator
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          curl -fsS --max-time 5 http://channel-links-app:8080/receive >/dev/null &
+          recv_pid=$$!
+          sleep 1
+          curl -fsS http://channel-links-app:8080/dispatch >/dev/null || true
+          wait "$$recv_pid" || true
+          sleep 2
+        done
+    depends_on:
+      - channel-links-app
+
+  obi:
+    image: ${OBI_IMAGE:-obi-go-channel-links:local}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: obi-go-channel-links-example
+    command:
+      - --config=/config/obi-config.yaml
+    pid: host
+    privileged: true
+    volumes:
+      - ./obi-config.yaml:/config/obi-config.yaml:ro
+    depends_on:
+      - channel-links-app
+      - traffic-generator
+      - lgtm
+
+  lgtm:
+    image: grafana/otel-lgtm:0.22.1@sha256:52a197a4aad6203af126c148c6194472b48f88d5481f246f5d3657023b30ac9f
+    container_name: lgtm-go-channel-links-example
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
