@@ -120,6 +120,17 @@ done:
     return 0;
 }
 
+// These offsets come from the Go runtime's internal runtime.hchan layout
+// (see src/runtime/chan.go). For 64-bit Go builds, the fields we currently
+// need are:
+//
+//   dataqsiz @ 0x8
+//   sendx    @ 0x30
+//   recvx    @ 0x38
+//
+// This is a runtime ABI assumption, not a language-level guarantee. If we
+// need broader Go-version coverage, these should move into the existing Go
+// offset discovery pipeline instead of remaining hardcoded here.
 enum channel_offsets : u8 {
     k_hchan_dataqsiz_off = 0x8,
     k_hchan_sendx_off = 0x30,
