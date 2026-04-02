@@ -1,14 +1,21 @@
+# https://docs.github.com/en/code-security/concepts/supply-chain-security/about-the-dependabot-yml-file
 version: 2
 updates:
   - package-ecosystem: "gomod"
-    directory: "/"              
+    directory: "/"
     schedule:
       interval: "weekly"
     commit-message:
       prefix: "chore"
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     commit-message:
       prefix: "chore"
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
