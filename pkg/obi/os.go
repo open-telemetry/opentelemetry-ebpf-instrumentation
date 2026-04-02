@@ -31,11 +31,18 @@ func parseOSReleaseIsRHEL(data []byte) bool {
 	content := strings.ToLower(string(data))
 	// matches ID="rhel" or ID_LIKE containing "rhel" (e.g. Rocky, AlmaLinux, CentOS set ID_LIKE="rhel ...")
 	for _, line := range strings.Split(content, "\n") {
-		if strings.HasPrefix(line, "id=") || strings.HasPrefix(line, "id_like=") {
-			if strings.Contains(line, "rhel") || strings.Contains(line, "centos") ||
-				strings.Contains(line, "rocky") || strings.Contains(line, "alma") {
-				return true
-			}
+		var val string
+		if strings.HasPrefix(line, "id_like=") {
+			val = line[len("id_like="):]
+		} else if strings.HasPrefix(line, "id=") {
+			val = line[len("id="):]
+		} else {
+			continue
+		}
+		val = strings.Trim(val, "\"'")
+		if strings.Contains(val, "rhel") || strings.Contains(val, "centos") ||
+			strings.Contains(val, "rocky") || strings.Contains(val, "alma") {
+			return true
 		}
 	}
 	return false
