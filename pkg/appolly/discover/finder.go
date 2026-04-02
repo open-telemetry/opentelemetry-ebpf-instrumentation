@@ -157,7 +157,7 @@ func (pf *ProcessFinder) Done() <-chan error {
 // discovery pipeline
 
 // the common tracer group should get loaded for any tracer group, only once
-func newCommonTracersGroup(cfg *obi.Config) []ebpf.Tracer {
+func newCommonTracersGroup(cfg *obi.Config, metrics imetrics.Reporter, pidFilter ebpfcommon.ServiceFilter) []ebpf.Tracer {
 	var tracers []ebpf.Tracer
 
 	// Add tracers based on configuration
@@ -175,6 +175,11 @@ func newCommonTracersGroup(cfg *obi.Config) []ebpf.Tracer {
 		}
 	}
 
+	// Enables GPU tracer
+	if cfg.EBPF.CudaInstrumentationEnabled() {
+		tracers = append(tracers, gpuevent.New(pidFilter, cfg, metrics))
+	}
+
 	return tracers
 }
 
@@ -183,15 +188,5 @@ func newGoTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metr
 }
 
 func newGenericTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) []ebpf.Tracer {
-	var tracers []ebpf.Tracer
-
-	// Add tracers based on configuration
-	tracers = append(tracers, generictracer.New(pidFilter, cfg, metrics))
-
-	// Enables GPU tracer
-	if cfg.EBPF.CudaInstrumentationEnabled() {
-		tracers = append(tracers, gpuevent.New(pidFilter, cfg, metrics))
-	}
-
-	return tracers
+	return []ebpf.Tracer{generictracer.New(pidFilter, cfg, metrics)}
 }

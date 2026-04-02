@@ -117,7 +117,7 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
 
             bpf_dbg_printk("correlation_id=%d", correlation_id);
 
-            bpf_probe_read(req.buf, KAFKA_MAX_LEN, buf_ptr);
+            bpf_probe_read(req.buf, k_kafka_max_len, buf_ptr);
             go_addr_key_t k_key = {};
             go_addr_key_from_id(&k_key, (void *)(uintptr_t)correlation_id);
             bpf_map_update_elem(&kafka_requests, &k_key, &req, BPF_ANY);

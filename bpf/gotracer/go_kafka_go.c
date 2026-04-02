@@ -68,13 +68,13 @@ int obi_uprobe_writer_produce(struct pt_regs *ctx) {
 
         if (topic_len == 0) {
             topic_ptr = 0;
-            topic_len = MAX_TOPIC_NAME_LEN - 1;
+            topic_len = k_max_topic_name_len - 1;
             bpf_probe_read_user(&topic_ptr,
                                 sizeof(void *),
                                 w_ptr +
                                     go_offset_of(ot, (go_offset){.v = _kafka_go_writer_topic_pos}));
         }
-        bpf_clamp_umax(topic_len, MAX_TOPIC_NAME_LEN - 1);
+        bpf_clamp_umax(topic_len, k_max_topic_name_len - 1);
 
         bpf_dbg_printk("topic_ptr=%llx", topic_ptr);
         go_addr_key_t p_key = {};
@@ -201,7 +201,7 @@ int obi_uprobe_protocol_roundtrip_ret(struct pt_regs *ctx) {
                     }
                 }
 
-                __builtin_memcpy(trace->topic, topic_ptr->name, MAX_TOPIC_NAME_LEN);
+                __builtin_memcpy(trace->topic, topic_ptr->name, k_max_topic_name_len);
                 __builtin_memcpy(&trace->tp, &(topic_ptr->tp), sizeof(tp_info_t));
                 task_pid(&trace->pid);
                 bpf_ringbuf_submit(trace, get_flags());

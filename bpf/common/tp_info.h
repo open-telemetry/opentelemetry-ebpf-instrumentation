@@ -8,6 +8,11 @@
 #define TRACE_ID_SIZE_BYTES 16
 #define SPAN_ID_SIZE_BYTES 8
 
+// Values from https://www.w3.org/TR/trace-context/
+enum tp_flags : u8 {
+    k_flag_sampled = 1,
+};
+
 typedef struct tp_info {
     unsigned char trace_id[TRACE_ID_SIZE_BYTES];
     unsigned char span_id[SPAN_ID_SIZE_BYTES];

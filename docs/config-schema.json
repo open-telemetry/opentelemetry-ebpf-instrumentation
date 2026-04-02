@@ -111,6 +111,18 @@
           },
           "type": "array"
         },
+        "gen_ai_client_operation_duration_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "gen_ai_client_token_usage_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
         "request_size_histogram": {
           "items": {
             "type": "number"
@@ -410,6 +422,10 @@
         "log_enricher": {
           "$ref": "#/$defs/LogEnricherConfig",
           "description": "Log trace-context enricher config"
+        },
+        "maps_config": {
+          "$ref": "#/$defs/MapsConfig",
+          "description": "eBPF map configurations"
         },
         "max_transaction_time": {
           "type": "string",
@@ -1122,6 +1138,15 @@
       },
       "type": "object"
     },
+    "MapsConfig": {
+      "properties": {
+        "global_scale_factor": {
+          "type": "integer",
+          "description": "GlobalScaleFactor scales map sizes in powers of two:   > 0: grows size (2x per step)   < 0: shrinks size (1/2 per step)   = 0: no change"
+        }
+      },
+      "type": "object"
+    },
     "MatchDefinition": {
       "properties": {
         "equals": {
@@ -1237,10 +1262,12 @@
               "*",
               "couchbase",
               "dns",
+              "genai",
               "gpu",
               "grpc",
               "http",
               "kafka",
+              "memcached",
               "mongo",
               "mqtt",
               "redis",
@@ -1542,6 +1569,11 @@
           "type": "boolean",
           "x-env-var": "OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"
         },
+        "exemplar_filter": {
+          "type": "string",
+          "description": "ExemplarFilter controls when exemplars are attached to metrics. Accepted values: \"always_on\", \"always_off\", \"trace_based\". Defaults to \"always_off\": do not attach exemplars. This mimics the OTEL_METRICS_EXEMPLAR_FILTER specification.",
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_EXEMPLAR_FILTER"
+        },
         "extra_resource_attributes": {
           "items": {
             "type": "string"
@@ -1571,10 +1603,12 @@
               "*",
               "couchbase",
               "dns",
+              "genai",
               "gpu",
               "grpc",
               "http",
               "kafka",
+              "memcached",
               "mongo",
               "mqtt",
               "redis",
@@ -2060,10 +2094,12 @@
               "*",
               "couchbase",
               "dns",
+              "genai",
               "gpu",
               "grpc",
               "http",
               "kafka",
+              "memcached",
               "mongo",
               "mqtt",
               "redis",
@@ -2172,6 +2208,14 @@
       ],
       "description": "LogConfig enables the logging of the configuration on startup.",
       "x-env-var": "OTEL_EBPF_LOG_CONFIG"
+    },
+    "log_format": {
+      "type": "string",
+      "enum": [
+        "json",
+        "text"
+      ],
+      "x-env-var": "OTEL_EBPF_LOG_FORMAT"
     },
     "log_level": {
       "type": "string",

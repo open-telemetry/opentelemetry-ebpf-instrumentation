@@ -30,6 +30,8 @@ var overrideKernelVersion = func(tc testCase) {
 }
 
 func TestCheckOSSupport_Supported(t *testing.T) {
+	isRHELBased = func() bool { return false }
+	hasBTF = func() bool { return true }
 	for _, tc := range []testCase{
 		{maj: 5, min: 8},
 		{maj: 6, min: 0},
@@ -37,21 +39,83 @@ func TestCheckOSSupport_Supported(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%d.%d", tc.maj, tc.min), func(t *testing.T) {
 			overrideKernelVersion(tc)
-			require.NoError(t, CheckOSSupport())
+			require.NoError(t, checkOSSupport())
 		})
 	}
 }
 
 func TestCheckOSSupport_Unsupported(t *testing.T) {
+	isRHELBased = func() bool { return false }
+	hasBTF = func() bool { return true }
 	for _, tc := range []testCase{
 		{maj: 0, min: 0},
 		{maj: 3, min: 11},
 		{maj: 4, min: 0},
 		{maj: 4, min: 17},
+		{maj: 5, min: 7},
 	} {
 		t.Run(fmt.Sprintf("%d.%d", tc.maj, tc.min), func(t *testing.T) {
 			overrideKernelVersion(tc)
-			require.Error(t, CheckOSSupport())
+			require.Error(t, checkOSSupport())
+		})
+	}
+}
+
+func TestCheckOSSupport_RHELBased(t *testing.T) {
+	hasBTF = func() bool { return true }
+	for _, tc := range []struct {
+		name     string
+		isRHEL   bool
+		maj, min int
+		wantErr  bool
+	}{
+		{name: "RHEL 4.18 supported", isRHEL: true, maj: 4, min: 18, wantErr: false},
+		{name: "RHEL 4.17 unsupported", isRHEL: true, maj: 4, min: 17, wantErr: true},
+		{name: "RHEL 5.8 supported", isRHEL: true, maj: 5, min: 8, wantErr: false},
+		{name: "non-RHEL 4.18 unsupported", isRHEL: false, maj: 4, min: 18, wantErr: true},
+		{name: "non-RHEL 5.8 supported", isRHEL: false, maj: 5, min: 8, wantErr: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			overrideKernelVersion(testCase{tc.maj, tc.min})
+			rhel := tc.isRHEL
+			isRHELBased = func() bool { return rhel }
+			if tc.wantErr {
+				require.Error(t, checkOSSupport())
+			} else {
+				require.NoError(t, checkOSSupport())
+			}
+		})
+	}
+}
+
+func TestCheckOSSupport_NoBTF(t *testing.T) {
+	overrideKernelVersion(testCase{6, 0})
+	isRHELBased = func() bool { return false }
+	hasBTF = func() bool { return false }
+	err := checkOSSupport()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "BTF")
+}
+
+func TestParseOSReleaseIsRHEL(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{name: "RHEL", content: "ID=\"rhel\"\n", want: true},
+		{name: "Rocky via ID_LIKE", content: "ID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\n", want: true},
+		{name: "AlmaLinux via ID_LIKE", content: "ID=\"almalinux\"\nID_LIKE=\"rhel centos fedora\"\n", want: true},
+		{name: "CentOS", content: "ID=\"centos\"\n", want: true},
+		{name: "RHEL unquoted", content: "ID=rhel\n", want: true},
+		{name: "RHEL single-quoted", content: "ID='rhel'\n", want: true},
+		{name: "Rocky via ID_LIKE single-quoted", content: "ID='rocky'\nID_LIKE='rhel centos fedora'\n", want: true},
+		{name: "Ubuntu", content: "ID=ubuntu\nID_LIKE=debian\n", want: false},
+		{name: "Debian", content: "ID=debian\n", want: false},
+		{name: "empty file", content: "", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, parseOSReleaseIsRHEL([]byte(tc.content)))
 		})
 	}
 }

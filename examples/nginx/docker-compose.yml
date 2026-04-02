@@ -1,0 +1,65 @@
+services:
+  edge-nginx:
+    image: nginx:1.29.7-alpine@sha256:e7257f1ef28ba17cf7c248cb8ccf6f0c6e0228ab9c315c152f9c203cd34cf6d1
+    container_name: edge-nginx
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./docker/edge/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./k8s/shared:/etc/nginx/shared:ro
+    depends_on:
+      - recommendations-v1
+      - recommendations-v2
+
+  recommendations-v1:
+    image: nginx:1.29.7-alpine@sha256:e7257f1ef28ba17cf7c248cb8ccf6f0c6e0228ab9c315c152f9c203cd34cf6d1
+    container_name: recommendations-v1
+    volumes:
+      - ./docker/recommendations-v1/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./k8s/shared:/etc/nginx/shared:ro
+
+  recommendations-v2:
+    image: nginx:1.29.7-alpine@sha256:e7257f1ef28ba17cf7c248cb8ccf6f0c6e0228ab9c315c152f9c203cd34cf6d1
+    container_name: recommendations-v2
+    volumes:
+      - ./docker/recommendations-v2/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./k8s/shared:/etc/nginx/shared:ro
+    depends_on:
+      - recommendations-v1
+
+  traffic-generator:
+    build:
+      context: .
+      dockerfile: traffic-runner/Dockerfile
+    container_name: nginx-traffic-generator
+    command:
+      - --base-url
+      - http://edge-nginx:8080
+      - --progress-seconds
+      - "15"
+    depends_on:
+      - edge-nginx
+
+  obi:
+    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.6.0@sha256:56e4e7f692eff290a50f6502195df44e4b9d30c11a430f09bf1f9481e792c2b6}
+    container_name: obi-nginx-example
+    command:
+      - --config=/config/obi-config.yaml
+    pid: host
+    privileged: true
+    volumes:
+      - ./docker/obi-config.yaml:/config/obi-config.yaml:ro
+    depends_on:
+      - edge-nginx
+      - recommendations-v1
+      - recommendations-v2
+      - traffic-generator
+      - lgtm
+
+  lgtm:
+    image: grafana/otel-lgtm:0.22.1@sha256:52a197a4aad6203af126c148c6194472b48f88d5481f246f5d3657023b30ac9f
+    container_name: lgtm-nginx-example
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"

@@ -18,14 +18,18 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -206,7 +210,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_server_duration_seconds",
 				"rpc_client_duration_seconds",
 				"db_client_operation_duration_seconds",
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 				"gpu_cuda_kernel_launch_calls_total",
 				"gpu_cuda_graph_launch_calls_total",
@@ -228,7 +232,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_server_duration_seconds",
 				"rpc_client_duration_seconds",
 				"db_client_operation_duration_seconds",
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 				"gpu_cuda_kernel_launch_calls_total",
 				"gpu_cuda_graph_launch_calls_total",
@@ -245,7 +249,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
 				"db_client_operation_duration_seconds",
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
 		},
@@ -261,7 +265,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"http_client_request_duration_seconds",
 				"rpc_server_duration_seconds",
 				"rpc_client_duration_seconds",
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
 		},
@@ -276,7 +280,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"http_client_request_duration_seconds",
 				"rpc_server_duration_seconds",
 				"rpc_client_duration_seconds",
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
 		},
@@ -284,7 +288,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			name:  "kafka only",
 			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationKafka},
 			expected: []string{
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
 			unexpected: []string{
@@ -299,7 +303,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			name:  "mqtt only",
 			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationMQTT},
 			expected: []string{
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
 			unexpected: []string{
@@ -320,7 +324,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_server_duration_seconds",
 				"rpc_client_duration_seconds",
 				"db_client_operation_duration_seconds",
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
 		},
@@ -335,7 +339,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"http_client_request_duration_seconds",
 				"rpc_server_duration_seconds",
 				"rpc_client_duration_seconds",
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
 		},
@@ -345,7 +349,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			expected: []string{
 				"rpc_server_duration_seconds",
 				"rpc_client_duration_seconds",
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
 			unexpected: []string{
@@ -365,7 +369,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"http_client_request_duration_seconds",
 				"rpc_server_duration_seconds",
 				"rpc_client_duration_seconds",
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
 		},
@@ -636,6 +640,117 @@ func TestProcessPIDEvents(t *testing.T) {
 	deleted, uid = mr.disassociatePIDFromService(4)
 	assert.True(t, deleted)
 	assert.Equal(t, svcB.UID, uid)
+}
+
+func TestExemplarFilter(t *testing.T) {
+	sampledSpan := &request.Span{
+		TraceID:    trace.TraceID{0x1},
+		TraceFlags: ebpfcommon.TPFlagSampled,
+	}
+	unsampledSpan := &request.Span{
+		TraceID:    trace.TraceID{0x2},
+		TraceFlags: 0x00,
+	}
+	noTraceSpan := &request.Span{}
+
+	testCases := []struct {
+		name                  string
+		filterConfig          string
+		expectFilterSampled   bool
+		expectFilterUnsampled bool
+	}{
+		{
+			name:                  "default trace based",
+			filterConfig:          "",
+			expectFilterSampled:   false,
+			expectFilterUnsampled: false,
+		},
+		{
+			name:                  "trace based explicit",
+			filterConfig:          "trace_based",
+			expectFilterSampled:   true,
+			expectFilterUnsampled: false,
+		},
+		{
+			name:                  "always on",
+			filterConfig:          "always_on",
+			expectFilterSampled:   true,
+			expectFilterUnsampled: true,
+		},
+		{
+			name:                  "always off",
+			filterConfig:          "always_off",
+			expectFilterSampled:   false,
+			expectFilterUnsampled: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := exemplarFilter(tc.filterConfig)
+			assert.Equal(t, tc.expectFilterSampled, filter(sampledSpan))
+			assert.Equal(t, tc.expectFilterUnsampled, filter(unsampledSpan))
+			assert.False(t, filter(noTraceSpan))
+		})
+	}
+}
+
+func TestObserveHistogramAddsExemplarWhenEnabled(t *testing.T) {
+	histogram := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "test_histogram",
+		Help:    "test",
+		Buckets: []float64{1, 2, 4},
+	})
+	reporter := metricsReporter{
+		shouldAddExemplar: exemplarFilter("always_on"),
+	}
+	span := &request.Span{
+		TraceID: trace.TraceID{0x1},
+		SpanID:  trace.SpanID{0x2},
+	}
+
+	reporter.observeHistogram(histogram, 1.5, span)
+
+	var metric dto.Metric
+	require.NoError(t, histogram.Write(&metric))
+	require.NotNil(t, metric.Histogram)
+	require.Len(t, metric.Histogram.Bucket, 3)
+	require.NotNil(t, metric.Histogram.Bucket[1].Exemplar)
+	assert.InEpsilon(t, 1.5, *metric.Histogram.Bucket[1].Exemplar.Value, 1e-10)
+	assert.Equal(t, span.TraceID.String(), exemplarLabelValue(metric.Histogram.Bucket[1].Exemplar, "traceID"))
+	assert.Equal(t, span.SpanID.String(), exemplarLabelValue(metric.Histogram.Bucket[1].Exemplar, "spanID"))
+}
+
+func TestAddCounterSkipsExemplarWhenFiltered(t *testing.T) {
+	counter := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "test_counter",
+		Help: "test",
+	})
+	reporter := metricsReporter{
+		shouldAddExemplar: exemplarFilter("trace_based"),
+	}
+	span := &request.Span{
+		TraceID:    trace.TraceID{0x1},
+		TraceFlags: 0x00,
+	}
+
+	reporter.addCounter(counter, 2, span)
+
+	var metric dto.Metric
+	require.NoError(t, counter.Write(&metric))
+	require.NotNil(t, metric.Counter)
+	assert.InEpsilon(t, 2, *metric.Counter.Value, 1e-10)
+	assert.Nil(t, metric.Counter.Exemplar)
+}
+
+func exemplarLabelValue(exemplar *dto.Exemplar, name string) string {
+	for _, label := range exemplar.Label {
+		if label.GetName() == name {
+			return label.GetValue()
+		}
+	}
+
+	return ""
 }
 
 var mmux = sync.Mutex{}

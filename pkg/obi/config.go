@@ -49,6 +49,13 @@ const (
 	LogLevelError LogLevel = "ERROR"
 )
 
+type LogFormat string
+
+const (
+	LogFormatText LogFormat = "text"
+	LogFormatJSON LogFormat = "json"
+)
+
 // CustomValidations is a map of tag:function for custom validations
 type CustomValidations map[string]validator.Func
 
@@ -58,7 +65,7 @@ const (
 
 const ReporterLRUSize = 256
 
-// Features that can be enabled in OBI (can be at the same time): App O11y and/or Net O11y
+// Features that can be enabled in OBI (can be at the same time): App O11y and/or Net O11y and/or Stats O11y
 type Feature uint
 
 const (
@@ -111,6 +118,7 @@ var DefaultConfig = Config{
 	ChannelSendTimeout:      time.Minute,
 	ChannelSendTimeoutPanic: false,
 	LogLevel:                LogLevelInfo,
+	LogFormat:               LogFormatText,
 	ShutdownTimeout:         10 * time.Second,
 	EnforceSysCaps:          false,
 	EBPF: config.EBPFTracer{
@@ -219,6 +227,7 @@ var DefaultConfig = Config{
 			instrumentations.InstrumentationMQTT,
 			instrumentations.InstrumentationMongo,
 			instrumentations.InstrumentationCouchbase,
+			instrumentations.InstrumentationMemcached,
 			// no traces for DNS and GPU by default
 		},
 	},
@@ -361,6 +370,8 @@ type Config struct {
 	Discovery services.DiscoveryConfig `yaml:"discovery"`
 
 	LogLevel LogLevel `yaml:"log_level" env:"OTEL_EBPF_LOG_LEVEL"`
+
+	LogFormat LogFormat `yaml:"log_format" env:"OTEL_EBPF_LOG_FORMAT"`
 
 	// Timeout for a graceful shutdown
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"OTEL_EBPF_SHUTDOWN_TIMEOUT"`
@@ -642,10 +653,14 @@ func (c *Config) Validate() error {
 			" otel_metrics_export, otel_traces_export or prometheus_export")
 	}
 
-	if c.Enabled(FeatureAppO11y) &&
-		((c.Prometheus.EndpointEnabled() || c.OTELMetrics.EndpointEnabled()) && c.Metrics.Features.InvalidSpanMetricsConfig()) {
-		return ConfigError("you can only enable one format of span metrics," +
-			" application_span or application_span_otel")
+	if c.Enabled(FeatureAppO11y) && (c.Prometheus.EndpointEnabled() || c.OTELMetrics.EndpointEnabled()) {
+		if c.Metrics.Features.InvalidSpanMetricsConfig() {
+			return ConfigError("you can only enable one format of span metrics," +
+				" application_span or application_span_otel")
+		}
+		if c.Metrics.Features.ResolveSpanMetricsConflict() {
+			slog.Warn("application_span and application_span_otel cannot be used together, application_span_otel is selected automatically")
+		}
 	}
 
 	if len(c.Routes.WildcardChar) > 1 {

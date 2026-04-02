@@ -47,7 +47,7 @@ func TestFilter_SameNS(t *testing.T) {
 	pf.AllowPID(789, 33, &svc.Attrs{}, PIDTypeGo)
 
 	// with the same namespace, it filters by user PID, as it is the PID
-	// that is seen by Beyla's process discovery
+	// that is seen by OBI's process discovery
 	assert.Equal(t, []request.Span{
 		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
@@ -65,7 +65,7 @@ func TestFilter_DifferentNS(t *testing.T) {
 	pf.AllowPID(666, 22, &svc.Attrs{}, PIDTypeGo)
 
 	// with the same namespace, it filters by user PID, as it is the PID
-	// that is seen by Beyla's process discovery
+	// that is seen by OBI's process discovery
 	assert.Equal(t, []request.Span{}, resetTraceContext(pf.Filter(spanSet)))
 }
 
@@ -79,7 +79,7 @@ func TestFilter_Block(t *testing.T) {
 	pf.BlockPID(123, 33)
 
 	// with the same namespace, it filters by user PID, as it is the PID
-	// that is seen by Beyla's process discovery
+	// that is seen by OBI's process discovery
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, []request.Span{
 			{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
@@ -97,7 +97,7 @@ func TestFilter_NewNSLater(t *testing.T) {
 	pf.AllowPID(789, 33, &svc.Attrs{}, PIDTypeGo)
 
 	// with the same namespace, it filters by user PID, as it is the PID
-	// that is seen by Beyla's process discovery
+	// that is seen by OBI's process discovery
 	assert.Equal(t, []request.Span{
 		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},
@@ -298,7 +298,7 @@ func TestFilter_Cleanup(t *testing.T) {
 	pf.AllowPID(789, 33, &svc.Attrs{}, PIDTypeGo)
 
 	// with the same namespace, it filters by user PID, as it is the PID
-	// that is seen by Beyla's process discovery
+	// that is seen by OBI's process discovery
 	assert.Equal(t, []request.Span{
 		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
 		{Pid: request.PidInfo{UserPID: 456, HostPID: 666, Namespace: 33}},

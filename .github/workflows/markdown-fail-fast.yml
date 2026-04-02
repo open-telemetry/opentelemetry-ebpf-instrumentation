@@ -42,10 +42,10 @@ jobs:
             echo "Running in pull_request context"
             echo "Base SHA: $BASE_SHA"
             echo "Head SHA: $HEAD_SHA"
-            CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep '\.md$' || true)
+            CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -v '^NOTICES' | grep '\.md$' || true)
           elif [[ "$EVENT_NAME" == "push" ]]; then
             echo "Running in push context"
-            CHANGED=$(git diff --name-only HEAD~1 HEAD | grep '\.md$' || true)
+            CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -v '^NOTICES' | grep '\.md$' || true)
           else
             echo "Unsupported event type: $EVENT_NAME"
             exit 1
@@ -66,6 +66,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Run linter
-        uses: docker://avtodev/markdown-lint:v1@sha256:6aeedc2f49138ce7a1cd0adffc1b1c0321b841dc2102408967d9301c031949ee
+        uses: docker://davidanson/markdownlint-cli2:v0.22.0@sha256:ea33f1f6a0f062f88a3dddfc49f6d6b5621648a93a0ff49a58bf8ac5a15330b9
         with:
           args: ${{needs.changedfiles.outputs.md}}

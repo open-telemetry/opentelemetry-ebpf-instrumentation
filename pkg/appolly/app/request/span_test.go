@@ -17,7 +17,7 @@ import (
 )
 
 func TestSpanClientServer(t *testing.T) {
-	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer, EventTypeSQLServer} {
+	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer} {
 		span := &Span{
 			Type: st,
 		}
@@ -27,7 +27,7 @@ func TestSpanClientServer(t *testing.T) {
 	for _, st := range []EventType{
 		EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient,
 		EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient,
-		EventTypeMongoClient, EventTypeFailedConnect,
+		EventTypeMongoClient, EventTypeMemcachedClient, EventTypeFailedConnect,
 	} {
 		span := &Span{
 			Type: st,
@@ -38,20 +38,22 @@ func TestSpanClientServer(t *testing.T) {
 
 func TestEventTypeString(t *testing.T) {
 	typeStringMap := map[EventType]string{
-		EventTypeHTTP:        "HTTP",
-		EventTypeGRPC:        "GRPC",
-		EventTypeHTTPClient:  "HTTPClient",
-		EventTypeGRPCClient:  "GRPCClient",
-		EventTypeSQLClient:   "SQLClient",
-		EventTypeSQLServer:   "SQLServer",
-		EventTypeRedisClient: "RedisClient",
-		EventTypeKafkaClient: "KafkaClient",
-		EventTypeMQTTClient:  "MQTTClient",
-		EventTypeRedisServer: "RedisServer",
-		EventTypeKafkaServer: "KafkaServer",
-		EventTypeMQTTServer:  "MQTTServer",
-		EventTypeMongoClient: "MongoClient",
-		EventType(99):        "UNKNOWN (99)",
+		EventTypeHTTP:            "HTTP",
+		EventTypeGRPC:            "GRPC",
+		EventTypeHTTPClient:      "HTTPClient",
+		EventTypeGRPCClient:      "GRPCClient",
+		EventTypeSQLClient:       "SQLClient",
+		EventTypeSQLServer:       "SQLServer",
+		EventTypeRedisClient:     "RedisClient",
+		EventTypeMemcachedClient: "MemcachedClient",
+		EventTypeKafkaClient:     "KafkaClient",
+		EventTypeMQTTClient:      "MQTTClient",
+		EventTypeRedisServer:     "RedisServer",
+		EventTypeMemcachedServer: "MemcachedServer",
+		EventTypeKafkaServer:     "KafkaServer",
+		EventTypeMQTTServer:      "MQTTServer",
+		EventTypeMongoClient:     "MongoClient",
+		EventType(99):            "UNKNOWN (99)",
 	}
 
 	for ev, str := range typeStringMap {
@@ -66,11 +68,13 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeKafkaServer}:                           "SPAN_KIND_SERVER",
 		{Type: EventTypeMQTTServer}:                            "SPAN_KIND_SERVER",
 		{Type: EventTypeRedisServer}:                           "SPAN_KIND_SERVER",
+		{Type: EventTypeMemcachedServer}:                       "SPAN_KIND_SERVER",
 		{Type: EventTypeSQLServer}:                             "SPAN_KIND_SERVER",
 		{Type: EventTypeHTTPClient}:                            "SPAN_KIND_CLIENT",
 		{Type: EventTypeGRPCClient}:                            "SPAN_KIND_CLIENT",
 		{Type: EventTypeSQLClient}:                             "SPAN_KIND_CLIENT",
 		{Type: EventTypeRedisClient}:                           "SPAN_KIND_CLIENT",
+		{Type: EventTypeMemcachedClient}:                       "SPAN_KIND_CLIENT",
 		{Type: EventTypeMongoClient}:                           "SPAN_KIND_CLIENT",
 		{Type: EventTypeKafkaClient, Method: MessagingPublish}: "SPAN_KIND_PRODUCER",
 		{Type: EventTypeKafkaClient, Method: MessagingProcess}: "SPAN_KIND_CONSUMER",
@@ -93,6 +97,7 @@ func TestServiceGraphConnectionType(t *testing.T) {
 		// Database client spans should return "database"
 		{name: "SQL client", span: &Span{Type: EventTypeSQLClient}, expected: "database"},
 		{name: "Redis client", span: &Span{Type: EventTypeRedisClient}, expected: "database"},
+		{name: "Memcached client", span: &Span{Type: EventTypeMemcachedClient}, expected: "database"},
 		{name: "Mongo client", span: &Span{Type: EventTypeMongoClient}, expected: "database"},
 		{name: "Elasticsearch client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch}, expected: "database"},
 
@@ -105,6 +110,7 @@ func TestServiceGraphConnectionType(t *testing.T) {
 
 		// Server spans should return empty
 		{name: "Redis server", span: &Span{Type: EventTypeRedisServer}, expected: ""},
+		{name: "Memcached server", span: &Span{Type: EventTypeMemcachedServer}, expected: ""},
 		{name: "SQL server", span: &Span{Type: EventTypeSQLServer}, expected: ""},
 		{name: "Kafka server", span: &Span{Type: EventTypeKafkaServer}, expected: ""},
 		{name: "MQTT server", span: &Span{Type: EventTypeMQTTServer}, expected: ""},
@@ -147,6 +153,8 @@ func TestTraceName(t *testing.T) {
 		// Redis spans
 		{name: "Redis client", span: &Span{Type: EventTypeRedisClient, Method: "GET"}, expected: "GET"},
 		{name: "Redis empty", span: &Span{Type: EventTypeRedisClient}, expected: "REDIS"},
+		{name: "Memcached client", span: &Span{Type: EventTypeMemcachedClient, Method: "GET", Path: "cache-key"}, expected: "GET"},
+		{name: "Memcached empty", span: &Span{Type: EventTypeMemcachedClient}, expected: "MEMCACHED"},
 
 		// Kafka spans
 		{name: "Kafka client publish", span: &Span{Type: EventTypeKafkaClient, Method: MessagingPublish, Path: "orders"}, expected: "publish orders"},
@@ -972,4 +980,238 @@ func TestHTTPSpanStatusCode_OpenAI(t *testing.T) {
 			assert.Equal(t, tt.expected, HTTPSpanStatusCode(tt.span))
 		})
 	}
+}
+
+// Test GenAIInputTokens
+func TestSpan_GenAIInputTokens(t *testing.T) {
+	t.Run("GenAI is nil", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 0, result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{
+					Usage: OpenAIUsage{
+						InputTokens: 100,
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 100, result)
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Output: AnthropicResponse{
+						Usage: AnthropicUsage{
+							InputTokens: 200,
+						},
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 200, result)
+	})
+}
+
+// Test GenAIOutputTokens
+func TestSpan_GenAIOutputTokens(t *testing.T) {
+	t.Run("GenAI is nil", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{
+					Usage: OpenAIUsage{
+						OutputTokens: 150,
+					},
+				},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 150, result)
+	})
+
+	t.Run("OpenAI present, no usage", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Output: AnthropicResponse{
+						Usage: AnthropicUsage{
+							OutputTokens: 250,
+						},
+					},
+				},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 250, result)
+	})
+
+	t.Run("Anthropic present no usage", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
+}
+
+// Test GenAIOperationName
+func TestSpan_GenAIOperationName(t *testing.T) {
+	t.Run("nil GenAI", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIOperationName()
+		assert.Empty(t, result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{
+					OperationName: "chat.completion",
+				},
+			},
+		}
+		result := span.GenAIOperationName()
+		assert.Equal(t, "chat.completion", result)
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Output: AnthropicResponse{
+						Type: "message",
+					},
+				},
+			},
+		}
+		result := span.GenAIOperationName()
+		assert.Equal(t, "message", result)
+	})
+}
+
+// Test GenAIProviderName
+func TestSpan_GenAIProviderName(t *testing.T) {
+	t.Run("nil GenAI", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIProviderName()
+		assert.Empty(t, result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "openai", result) // Assuming semconv.GenAIProviderNameOpenAI.Value.AsString() returns "openai"
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "anthropic", result) // Assuming semconv.GenAIProviderNameAnthropic.Value.AsString() returns "anthropic"
+	})
+}
+
+// Test GenAIRequestModel
+func TestSpan_GenAIRequestModel(t *testing.T) {
+	t.Run("nil GenAI", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIRequestModel()
+		assert.Empty(t, result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{
+					Request: OpenAIInput{
+						Model: "gpt-3.5-turbo",
+					},
+				},
+			},
+		}
+		result := span.GenAIRequestModel()
+		assert.Equal(t, "gpt-3.5-turbo", result)
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Input: AnthropicRequest{
+						Model: "claude-2",
+					},
+				},
+			},
+		}
+		result := span.GenAIRequestModel()
+		assert.Equal(t, "claude-2", result)
+	})
+}
+
+// Test GenAIResponseModel
+func TestSpan_GenAIResponseModel(t *testing.T) {
+	t.Run("nil GenAI", func(t *testing.T) {
+		span := &Span{GenAI: nil}
+		result := span.GenAIResponseModel()
+		assert.Empty(t, result)
+	})
+
+	t.Run("OpenAI present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAI: &VendorOpenAI{
+					ResponseModel: "gpt-3.5-turbo-0125",
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "gpt-3.5-turbo-0125", result)
+	})
+
+	t.Run("Anthropic present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Output: AnthropicResponse{
+						Model: "claude-2.1",
+					},
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "claude-2.1", result)
+	})
 }

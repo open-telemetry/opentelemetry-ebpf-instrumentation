@@ -100,8 +100,7 @@ read_skb_bytes(const void *skb, u32 offset, unsigned char *buf, const u32 len) {
         return;
     }
 
-    int remaining_to_copy =
-        (remainder < (BUF_COPY_BLOCK_SIZE - 1)) ? remainder : (BUF_COPY_BLOCK_SIZE - 1);
+    int remaining_to_copy = min(remainder, (BUF_COPY_BLOCK_SIZE - 1));
     int space_in_buffer = (len < (b * BUF_COPY_BLOCK_SIZE)) ? 0 : len - (b * BUF_COPY_BLOCK_SIZE);
 
     if (remaining_to_copy <= space_in_buffer) {

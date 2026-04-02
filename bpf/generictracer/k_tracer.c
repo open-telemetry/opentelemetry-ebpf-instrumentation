@@ -719,8 +719,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         //dbg_print_http_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
         terminate_http_request_if_needed(&info);
-        bpf_map_delete_elem(&ongoing_tcp_req, &info);
-        cleanup_tcp_trace_info_if_needed(&info);
+        finish_ongoing_tcp_req(&info);
         bpf_map_delete_elem(&connection_tracker, &info.conn);
     }
 
