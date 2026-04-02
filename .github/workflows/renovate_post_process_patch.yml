@@ -26,9 +26,13 @@ jobs:
         name: Detect dependency manifest changes
         env:
           BEFORE_SHA: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
-            changed_files="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA")"
+            git fetch --no-tags origin "$DEFAULT_BRANCH"
+            base_ref="origin/$DEFAULT_BRANCH"
+            base_sha="$(git merge-base "$base_ref" "$GITHUB_SHA")"
+            changed_files="$(git diff --name-only "$base_sha" "$GITHUB_SHA")"
           else
             changed_files="$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")"
           fi
