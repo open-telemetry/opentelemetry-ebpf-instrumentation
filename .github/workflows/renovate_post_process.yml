@@ -22,7 +22,6 @@ jobs:
       pr_number: ${{ steps.inspect.outputs.pr_number }}
       head_ref: ${{ steps.inspect.outputs.head_ref }}
       head_sha: ${{ steps.inspect.outputs.head_sha }}
-      base_sha: ${{ steps.inspect.outputs.base_sha }}
     runs-on: ubuntu-latest
     steps:
       - id: inspect
@@ -52,7 +51,6 @@ jobs:
           head_repo="$(printf '%s' "$pr_json" | jq -r '.head.repo.full_name')"
           head_ref="$(printf '%s' "$pr_json" | jq -r '.head.ref')"
           head_sha="$(printf '%s' "$pr_json" | jq -r '.head.sha')"
-          base_sha="$(printf '%s' "$pr_json" | jq -r '.base.sha')"
 
           if [ "$pr_author" != "renovate[bot]" ] || [ "$head_repo" != "$GITHUB_REPOSITORY" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -71,7 +69,6 @@ jobs:
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
-          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
 
   generate:
     name: Generate cleanup patch
@@ -101,10 +98,10 @@ jobs:
         if: steps.guard.outputs.should_run == 'true'
         name: Detect dependency manifest changes
         env:
-          BASE_SHA: ${{ needs.inspect.outputs.base_sha }}
-          HEAD_SHA: ${{ needs.inspect.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.inspect.outputs.pr_number }}
         run: |
-          changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          changed_files="$(gh api --paginate "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename')"
 
           printf '%s\n' "$changed_files"
 
