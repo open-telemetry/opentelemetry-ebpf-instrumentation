@@ -34,4 +34,7 @@ typedef struct grpc_framer_func_invocation {
     u64 framer_ptr;
     tp_info_t tp;
     s64 offset;
+    u16 s_port;
+    u16 d_port;
+    u32 stream_id;
 } grpc_framer_func_invocation_t;

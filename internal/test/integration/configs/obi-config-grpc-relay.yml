@@ -1,0 +1,20 @@
+routes:
+  unmatched: path
+otel_traces_export:
+  endpoint: http://jaeger:4318
+discovery:
+  services:
+    - name: go-entry
+      open_ports: 8080
+    - name: python-relay
+      open_ports: 50051
+    - name: go-grpc-to-http
+      open_ports: 50060
+    - name: go-http-to-grpc
+      open_ports: 8081
+    - name: nodejs-relay
+      open_ports: 50053
+    - name: java-relay
+      open_ports: 50055
+    - name: go-terminal
+      open_ports: 50054

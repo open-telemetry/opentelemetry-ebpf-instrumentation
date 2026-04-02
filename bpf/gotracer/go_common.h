@@ -236,7 +236,6 @@ static __always_inline void
 server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
     // May get overridden when decoding existing traceparent, but otherwise we set sample ON
     tp->flags = k_flag_sampled;
-    tp->ts = bpf_ktime_get_ns();
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
     if (found_tp) {
@@ -281,6 +280,7 @@ server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
     }
 
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
+    tp->ts = bpf_ktime_get_ns();
     bpf_map_update_elem(&go_trace_map, &g_key, tp, BPF_ANY);
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];

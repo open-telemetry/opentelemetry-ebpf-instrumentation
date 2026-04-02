@@ -9,6 +9,7 @@
 #include <common/algorithm.h>
 #include <common/connection_info.h>
 #include <common/egress_key.h>
+#include <common/h2_defs.h>
 #include <common/event_defs.h>
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
@@ -21,9 +22,12 @@
 #include <common/ssl_connection.h>
 #include <common/tc_common.h>
 #include <common/tp_info.h>
+#include <common/trace_helpers.h>
 #include <common/trace_parent.h>
 #include <common/trace_util.h>
 #include <common/tracing.h>
+
+#include <pid/pid.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -33,8 +37,7 @@
 #include <maps/sock_dir.h>
 #include <maps/tp_info_mem.h>
 
-#include <pid/pid.h>
-
+#include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
@@ -53,15 +56,27 @@ volatile const u32 inject_flags =
 // Better than experimental options (253-254) which must not be shipped as defaults
 enum { k_tcp_option_kind_otel = 25 };
 
-enum { k_tail_write_msg_traceparent, k_tail_find_existing_tp, k_tail_create_tp };
+enum {
+    k_tail_write_msg_traceparent,
+    k_tail_find_existing_tp,
+    k_tail_create_tp,
+    k_tail_write_h2_traceparent,
+    k_tail_create_h2_tp,
+    k_tail_find_existing_h2_tp,
+    k_tail_detect_h2,
+};
 
 int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg);
 int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg);
 int obi_packet_extender_create_tp(struct sk_msg_md *msg);
+int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg);
+int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg);
+int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg);
+int obi_packet_extender_detect_h2(struct sk_msg_md *msg);
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 3);
+    __uint(max_entries, 7);
     __uint(key_size, sizeof(u32));
     __array(values, int(void *));
 } extender_jump_table SEC(".maps") = {
@@ -70,6 +85,10 @@ struct {
             [k_tail_write_msg_traceparent] = (void *)&obi_packet_extender_write_msg_tp,
             [k_tail_find_existing_tp] = (void *)&obi_packet_extender_find_existing_tp,
             [k_tail_create_tp] = (void *)&obi_packet_extender_create_tp,
+            [k_tail_write_h2_traceparent] = (void *)&obi_packet_extender_write_h2_tp,
+            [k_tail_create_h2_tp] = (void *)&obi_packet_extender_create_h2_tp,
+            [k_tail_find_existing_h2_tp] = (void *)&obi_packet_extender_find_existing_h2_tp,
+            [k_tail_detect_h2] = (void *)&obi_packet_extender_detect_h2,
         },
 };
 
@@ -77,13 +96,35 @@ typedef struct tailcall_ctx {
     pid_connection_info_t p_conn;
     tp_info_t parent_tp;
     egress_key_t e_key;
+    u32 h2_frame_offset;
+    u32 h2_payload_len;
+    u32 h2_hpack_offset;
+    u32 h2_hpack_len;
     u8 niter;
     bool has_parent_tp;
-    u8 pad[2];
+    u8 _pad[6];
 } tailcall_ctx;
 
 SCRATCH_MEM(tailcall_ctx);
-SCRATCH_MEM_SIZED(tp_str_buf, 64)
+SCRATCH_MEM_SIZED(tp_str_buf, 64);
+
+static __always_inline bool is_h2_socket(struct sk_msg_md *msg) {
+    struct bpf_sock *sk = msg->sk;
+    if (!sk) {
+        return false;
+    }
+    const u8 *flag = bpf_sk_storage_get(&sk_h2_conn_flag, sk, NULL, 0);
+    return flag && *flag;
+}
+
+static __always_inline void mark_h2_socket(struct sk_msg_md *msg) {
+    struct bpf_sock *sk = msg->sk;
+    if (!sk) {
+        return;
+    }
+    const u8 val = 1;
+    bpf_sk_storage_get(&sk_h2_conn_flag, sk, (void *)&val, BPF_SK_STORAGE_GET_F_CREATE);
+}
 
 #ifndef ENOMSG
 #define ENOMSG 42
@@ -435,21 +476,13 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
 // the kprobe on tcp_sendmsg does, but it's complicated, no tail calls from
 // sock_msg programs and inlining will eventually hit us with the instruction
 // limit when we eventually add HTTP2/gRPC support.
-static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
-                                            u64 id,
-                                            const connection_info_t *conn,
-                                            const egress_key_t *e_key) {
-    bpf_dbg_printk("id=%d, size=%d", id, msg->size);
-
-    pid_connection_info_t p_conn = {};
-    __builtin_memcpy(&p_conn.conn, conn, sizeof(connection_info_t));
-
-    dbg_print_http_connection_info(&p_conn.conn);
-    sort_connection_info(&p_conn.conn);
-    p_conn.pid = pid_from_pid_tgid(id);
-
-    if (msg->size == 0 || is_ssl_connection(&p_conn)) {
-        return 0;
+// Populates msg_buffers / msg_buffer_mem for the kprobe on tcp_sendmsg,
+// which runs after sk_msg. Bails on size=0, SSL, or allocation failure.
+static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
+                                             const pid_connection_info_t *p_conn,
+                                             const egress_key_t *e_key) {
+    if (msg->size == 0 || is_ssl_connection(p_conn)) {
+        return false;
     }
 
     msg_buffer_t msg_buf = {
@@ -466,7 +499,7 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
 
     if (!msg_ptr) {
         bpf_d_printk("failed to reserve msg_buffer space [%s]", __FUNCTION__);
-        return 0;
+        return false;
     }
 
     msg_ptr[0] = 0;
@@ -481,6 +514,26 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
 
     if (bpf_map_update_elem(&msg_buffers, e_key, &msg_buf, BPF_ANY)) {
         // fail if we can't setup a msg buffer
+        return false;
+    }
+
+    return true;
+}
+
+static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
+                                            u64 id,
+                                            const connection_info_t *conn,
+                                            const egress_key_t *e_key) {
+    bpf_dbg_printk("id=%d, size=%d", id, msg->size);
+
+    pid_connection_info_t p_conn = {};
+    bpf_memcpy(&p_conn.conn, conn, sizeof(connection_info_t));
+
+    dbg_print_http_connection_info(&p_conn.conn);
+    sort_connection_info(&p_conn.conn);
+    p_conn.pid = pid_from_pid_tgid(id);
+
+    if (!fill_msg_buffers(msg, &p_conn, e_key)) {
         return 0;
     }
 
@@ -489,6 +542,12 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
     // looks like HTTP, not something that's passing HTTP in the body.
     if (already_tracked(&p_conn)) {
         bpf_dbg_printk("already extended before, ignoring this packet...");
+        return 0;
+    }
+
+    unsigned char **msg_ptr = bpf_map_lookup_elem(&msg_buffer_mem, &(u32){0});
+
+    if (!msg_ptr) {
         return 0;
     }
 
@@ -576,6 +635,55 @@ make_tp_string_skb(unsigned char *buf, const tp_info_t *tp, const unsigned char 
     bpf_dbg_printk("tp_string=%s", tp_string);
 }
 
+// Writes HPACK-encoded traceparent into the packet at buf.
+// Uses check_pkt_access + byte-by-byte writes (same pattern as make_tp_string_skb)
+// so the BPF verifier can track range on variable-offset packet pointers.
+static __always_inline void
+make_h2_tp_hpack(unsigned char *buf, const tp_info_t *tp, const unsigned char *end) {
+    buf = check_pkt_access(buf, k_h2_tp_hpack_size, end);
+
+    if (!buf) {
+        return;
+    }
+
+    *buf++ = 0x00; // literal without indexing
+    *buf++ = 0x0b; // name length = 11
+
+    *buf++ = 't';
+    *buf++ = 'r';
+    *buf++ = 'a';
+    *buf++ = 'c';
+    *buf++ = 'e';
+    *buf++ = 'p';
+    *buf++ = 'a';
+    *buf++ = 'r';
+    *buf++ = 'e';
+    *buf++ = 'n';
+    *buf++ = 't';
+
+    *buf++ = 0x37; // value length = 55
+
+    // Version
+    *buf++ = '0';
+    *buf++ = '0';
+    *buf++ = '-';
+
+    // Trace ID
+    encode_hex(buf, tp->trace_id, TRACE_ID_SIZE_BYTES);
+    buf += TRACE_ID_CHAR_LEN;
+
+    *buf++ = '-';
+
+    // Span ID
+    encode_hex(buf, tp->span_id, SPAN_ID_SIZE_BYTES);
+    buf += SPAN_ID_CHAR_LEN;
+
+    *buf++ = '-';
+
+    *buf++ = '0';
+    *buf++ = '0' + (tp->flags & k_flag_sampled);
+}
+
 static __always_inline bool
 extend_and_write_tp(struct sk_msg_md *msg, u32 offset, const tp_info_t *tp) {
     const long err = bpf_msg_push_data(msg, offset, TP_SIZE, 0);
@@ -660,9 +768,37 @@ static __always_inline void write_http_traceparent(struct sk_msg_md *msg, tp_inf
     bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
 }
 
+// Checks d..d+k_h2_preface_check_len for the H2 preface prefix "PRI ".
+static __always_inline bool is_http2_preface(const unsigned char *d, const unsigned char *end) {
+    return d && (void *)d + k_h2_preface_check_len <= (void *)end && d[0] == 'P' && d[1] == 'R' &&
+           d[2] == 'I' && d[3] == ' ';
+}
+
+// Mirror of write_http_traceparent for HTTP/2: confirm plaintext H2, then
+// tail-call into the detect_h2 chain. Skips SSL sockets (ciphertext payload).
+static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
+                                                   const pid_connection_info_t *p_conn) {
+    if (msg->size < k_h2_frame_header_len) {
+        return;
+    }
+    if (is_h2_socket(msg) || already_tracked_plain_http2(p_conn)) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
+        return;
+    }
+    if (msg->size < k_h2_preface_check_len) {
+        return;
+    }
+    if (bpf_msg_pull_data(msg, 0, k_h2_preface_check_len, 0) != 0) {
+        return;
+    }
+    if (is_http2_preface(msg->data, msg->data_end)) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
+    }
+}
+
 static __always_inline void handle_existing_tp_pid(struct sk_msg_md *msg,
                                                    u64 id,
-                                                   const connection_info_t *conn,
+                                                   const pid_connection_info_t *p_conn,
                                                    const egress_key_t *e_key,
                                                    tp_info_pid_t *tp_pid) {
     if (inject_flags & k_inject_tcp_options) {
@@ -678,14 +814,19 @@ static __always_inline void handle_existing_tp_pid(struct sk_msg_md *msg,
 
     // check if this really is a HTTP request whose headers we can also extend
     // (it could be an SSL packet instead, or just rubbish, for instance)
-    const bool is_http = protocol_detector(msg, id, conn, e_key);
+    const bool is_http = protocol_detector(msg, id, &p_conn->conn, e_key);
 
     if (is_http) {
         // here we'll leave it for protocol_http clean it up
         if (inject_flags & k_inject_http_headers) {
             write_http_traceparent(msg, tp_pid);
+        } else {
+            clear_tp_info_pid(e_key);
         }
+        return;
     }
+
+    wrap_http2_traceparent(msg, p_conn);
     clear_tp_info_pid(e_key);
 }
 
@@ -710,61 +851,54 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     const egress_key_t e_key = make_egress_key(&conn);
 
     t_ctx->p_conn.conn = conn;
+    sort_connection_info(&t_ctx->p_conn.conn);
     t_ctx->p_conn.pid = pid_from_pid_tgid(id);
     t_ctx->e_key = e_key;
     t_ctx->niter = 0;
 
+    // Plaintext H2: per-stream HPACK. Go bails — uprobe already injected.
+    if (is_h2_socket(msg)) {
+        if (!valid_pid(id)) {
+            return SK_PASS;
+        }
+        bpf_msg_pull_data(msg, 0, msg->size, 0);
+        fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
+        return SK_PASS;
+    }
+
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
 
-    // Higher-level uprobes have already set the tp_pid for us (either Go, or SSL)
+    // Uprobe-provided tp (Go net/http, SSL). Run before size guard: small
+    // H2 frames may be below MIN_HTTP_SIZE but tp is already valid.
     if (tp_pid) {
-        handle_existing_tp_pid(msg, id, &conn, &e_key, tp_pid);
+        handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid);
         return SK_PASS;
     }
-
-    // At this stage, there were no previously TP information setup - it's the first
-    // time we are seeing this packet - so we need to detect whether this is the start
-    // of a new request and perform any injection if so.
-    // Valid PID only works for kprobes since Go programs don't add their
-    // PIDs to the PID map (we instrument the binaries), handled in the
-    // previous check
-    if (!valid_pid(id)) {
-        return SK_PASS;
-    }
-
-    bpf_dbg_printk("MSG=%llx:%d ->", conn.s_ip[3], conn.s_port);
-    bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
-    bpf_dbg_printk("MSG SIZE=%u", msg->size);
 
     if (msg->size <= MIN_HTTP_SIZE) {
-        // not enough data to detect anything, bail
         return SK_PASS;
     }
 
-    bpf_msg_pull_data(msg, 0, msg->size, 0);
+    // Path 2: kprobe-instrumented processes — detect HTTP/1.1.
+    if (valid_pid(id)) {
+        bpf_dbg_printk("MSG=%llx:%d ->", conn.s_ip[3], conn.s_port);
+        bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
+        bpf_dbg_printk("MSG SIZE=%u", msg->size);
 
-    // TODO: execute the protocol handlers here with tail calls, don't
-    // rely on tcp_sendmsg to do it and record these message buffers.
-
-    const u8 is_http = protocol_detector(msg, id, &conn, &e_key);
-
-    // at this point, we can't handle anything other than HTTP, as we need to be able
-    // to tell whether this is the start of a new request
-    if (!is_http) {
-        return SK_PASS;
+        bpf_msg_pull_data(msg, 0, msg->size, 0);
+        const bool is_http = protocol_detector(msg, id, &conn, &e_key);
+        if (is_http) {
+            bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
+            init_tp_ctx_parent_tp(t_ctx);
+            bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
+            return SK_PASS;
+        }
     }
 
-    // at this point we've found the start of a new HTTP request
-
-    bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
-    bpf_dbg_printk("buf=[%s]", msg->data);
-    bpf_dbg_printk("ptr=%llx, end=%llx", ctx_msg_data(msg), ctx_msg_data_end(msg));
-    bpf_dbg_printk("BUF=[%s]", ctx_msg_data(msg));
-
-    init_tp_ctx_parent_tp(t_ctx);
-
-    bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
-
+    // H2 detect runs regardless of valid_pid: Go procs aren't in the PID map
+    // (binary uprobes), and sk_msg tgid may not match for forked workers.
+    wrap_http2_traceparent(msg, &t_ctx->p_conn);
     return SK_PASS;
 }
 
@@ -970,6 +1104,392 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_msg_traceparent);
         bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
     }
+
+    return SK_PASS;
+}
+
+// k_tail_detect_h2
+// Scans for an HTTP/2 HEADERS frame in the message. If found, tail-calls
+// the injection chain (find_existing → create → write). It first
+// consolidates the message with bpf_msg_pull_data and then scans frames
+// through direct msg->data reads.
+SEC("sk_msg")
+int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+
+    // Cache msg->size: repeated ctx reads confuse the verifier in sk_msg.
+    const u32 msg_size = msg->size;
+
+    u32 pos = 0;
+
+    // Mark socket on preface detection regardless of whether a frame follows
+    // in the same sendmsg. Go gRPC sends the 24-byte preface alone, then
+    // HEADERS in a separate write — gating the mark on preface+frame means
+    // the HEADERS write sees is_h2_socket=false and bypasses detect_h2.
+    if (msg_size >= k_h2_preface_check_len) {
+        if (bpf_msg_pull_data(msg, 0, k_h2_preface_check_len, 0) == 0) {
+            if (is_http2_preface(msg->data, msg->data_end)) {
+                mark_h2_socket(msg);
+                if (msg_size >= k_h2_preface_len + k_h2_frame_header_len) {
+                    pos = k_h2_preface_len;
+                } else {
+                    return SK_PASS;
+                }
+            }
+        }
+    }
+
+    if (msg_size < k_h2_frame_header_len) {
+        return SK_PASS;
+    }
+
+    // Scan up to 4 frames for HEADERS+END_HEADERS. Per-iter 9-byte pull keeps
+    // verifier access constant-offset (loop-growing offsets are rejected).
+    for (u8 i = 0; i < k_h2_max_frame_scan; i++) {
+        if (pos + k_h2_frame_header_len > msg_size) {
+            return SK_PASS;
+        }
+
+        if (bpf_msg_pull_data(msg, pos, pos + k_h2_frame_header_len, 0) != 0) {
+            return SK_PASS;
+        }
+
+        unsigned char *d = msg->data;
+        if (!d || (void *)d + k_h2_frame_header_len > msg->data_end) {
+            return SK_PASS;
+        }
+
+        const u32 len = ((u32)d[0] << 16) | ((u32)d[1] << 8) | (u32)d[2];
+        const u8 ftype = d[3];
+        const u8 flags = d[4];
+
+        if (len > k_h2_max_frame_len) {
+            return SK_PASS;
+        }
+
+        if (ftype == k_h2_frame_headers && (flags & k_h2_flag_end_headers) && len > 0) {
+            // RFC 7540 §6.2: PADDED/PRIORITY shrink HPACK window inside payload.
+            u32 hpack_prefix = 0;
+            u32 pad_length = 0;
+            u32 stream_id =
+                (((u32)(d[5] & 0x7f) << 24) | ((u32)d[6] << 16) | ((u32)d[7] << 8) | (u32)d[8]);
+            if (flags & k_h2_flag_padded) {
+                if (pos + k_h2_frame_header_len + 1 > msg_size) {
+                    return SK_PASS;
+                }
+                if (bpf_msg_pull_data(msg, pos, pos + k_h2_frame_header_len + 1, 0) != 0) {
+                    return SK_PASS;
+                }
+                d = msg->data;
+                if (!d || (void *)d + k_h2_frame_header_len + 1 > msg->data_end) {
+                    return SK_PASS;
+                }
+                pad_length = d[k_h2_frame_header_len];
+                hpack_prefix += 1;
+            }
+            if (flags & k_h2_flag_priority) {
+                hpack_prefix += k_h2_priority_prefix_len;
+            }
+            if (hpack_prefix + pad_length >= len) {
+                return SK_PASS;
+            }
+
+            t_ctx->e_key.stream_id = stream_id;
+            t_ctx->h2_frame_offset = pos;
+            t_ctx->h2_payload_len = len;
+            t_ctx->h2_hpack_offset = pos + k_h2_frame_header_len + hpack_prefix;
+            t_ctx->h2_hpack_len = len - hpack_prefix - pad_length;
+
+            // Go retprobe already wrote HPACK (written=1): skip re-injection.
+            // TCP options aren't viable for H2 — one option per segment vs
+            // many streams, so propagation is HPACK-only.
+            tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key);
+            if (go_tp && go_tp->valid && go_tp->written) {
+                return SK_PASS;
+            }
+
+            bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_h2_tp);
+            return SK_PASS;
+        }
+
+        pos += k_h2_frame_header_len + len;
+    }
+
+    return SK_PASS;
+}
+
+// Scan HPACK payload for an existing traceparent header set by an
+// instrumented application. Handles both plaintext (0x0b "traceparent")
+// and huffman (0x88 <8 bytes>) name encodings.
+// Returns the message-relative offset of the span_id hex string (> 0)
+// if found, 0 otherwise.
+//
+// Similar to parse_hpack_traceparent (protocol_http2.h) but operates on
+// sk_msg packet data via bpf_msg_pull_data and returns a wire offset for
+// in-place overwrite. The different memory access model prevents reuse.
+static __always_inline u32 find_existing_h2_traceparent(struct sk_msg_md *msg,
+                                                        const u32 hpack_start,
+                                                        const u32 hpack_len,
+                                                        tp_info_t *tp) {
+    // Outer loop uses huffman size (smaller); plaintext branch checks +3 bytes.
+    // pull_len uses plaintext size to cover a plaintext entry at last scan pos.
+    enum { k_min_entry_huffman = k_h2_tp_hpack_huffman_size };
+    enum { k_min_entry_plain = k_h2_tp_hpack_size };
+
+    if (hpack_len < k_min_entry_huffman) {
+        return 0;
+    }
+
+    const u32 pull_len = hpack_len < (k_h2_max_hpack_scan + k_min_entry_plain)
+                             ? hpack_len
+                             : (k_h2_max_hpack_scan + k_min_entry_plain);
+    const long pull_err = bpf_msg_pull_data(msg, hpack_start, hpack_start + pull_len, 0);
+    if (pull_err != 0) {
+        return 0;
+    }
+
+    const unsigned char *data = msg->data;
+    const unsigned char *end = msg->data_end;
+
+    if (!data) {
+        return 0;
+    }
+
+    for (u32 i = 0; i < k_h2_max_hpack_scan; i++) {
+        if (i + k_min_entry_huffman > hpack_len) {
+            break;
+        }
+
+        const unsigned char *p = data + i;
+
+        if ((void *)(p + k_min_entry_huffman) > (void *)end) {
+            break;
+        }
+
+        // HPACK literal-no-index prefix (0x00). Offsets already include it.
+        if (*p != k_hpack_literal_no_index) {
+            continue;
+        }
+
+        const u8 name_len_byte = p[1];
+
+        // Plaintext name: [0x00][0x0b]["traceparent"][0x37][value]
+        if (name_len_byte == k_hpack_tp_name_len) {
+            if (bpf_memcmp(p + k_hpack_tp_name_offset, k_hpack_tp_name, k_hpack_tp_name_len) != 0) {
+                continue;
+            }
+            if (p[k_hpack_tp_name_offset + k_hpack_tp_name_len] != k_hpack_value_len_tp) {
+                continue;
+            }
+            if ((void *)(p + k_min_entry_plain) > (void *)end) {
+                continue;
+            }
+            const unsigned char *val = p + k_hpack_tp_val_offset;
+            if (val[k_tp_val_dash1] != '-' || val[k_tp_val_dash2] != '-' ||
+                val[k_tp_val_dash3] != '-') {
+                continue;
+            }
+            decode_hex(tp->trace_id, &val[k_tp_val_trace_id_start], TRACE_ID_CHAR_LEN);
+            decode_hex(tp->parent_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
+            tp->flags = 1;
+            bpf_dbg_printk("h2: found existing traceparent (plaintext)");
+            return hpack_start + i + k_hpack_tp_val_offset + k_tp_val_span_id_start;
+        }
+
+        // Huffman name: [0x00][0x88][8 huffman bytes][0x37][value]
+        if (name_len_byte == (k_hpack_tp_name_huffman_len | 0x80)) {
+            if (bpf_memcmp(p + k_hpack_tp_name_offset,
+                           k_hpack_tp_huffman,
+                           k_hpack_tp_name_huffman_len) != 0) {
+                continue;
+            }
+            if (p[k_hpack_tp_name_offset + k_hpack_tp_name_huffman_len] != k_hpack_value_len_tp) {
+                continue;
+            }
+            const unsigned char *val = p + k_hpack_tp_val_offset_huffman;
+            if (val[k_tp_val_dash1] != '-' || val[k_tp_val_dash2] != '-' ||
+                val[k_tp_val_dash3] != '-') {
+                continue;
+            }
+            decode_hex(tp->trace_id, &val[k_tp_val_trace_id_start], TRACE_ID_CHAR_LEN);
+            decode_hex(tp->parent_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
+            tp->flags = 1;
+            bpf_dbg_printk("h2: found existing traceparent (huffman)");
+            return hpack_start + i + k_hpack_tp_val_offset_huffman + k_tp_val_span_id_start;
+        }
+    }
+
+    return 0;
+}
+
+// k_tail_find_existing_h2_tp
+// Scan HPACK for existing traceparent. Adopt if found, else tail-call create.
+// Separate tail call: 192-byte scan + find_parent_trace exceeds 512-byte stack.
+SEC("sk_msg")
+int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
+    bpf_dbg_printk("=== sk_msg find existing h2 tp ===");
+
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+
+    const u32 hpack_start = t_ctx->h2_hpack_offset;
+    const u32 hpack_len = t_ctx->h2_hpack_len;
+
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
+    if (!tp_p) {
+        return SK_PASS;
+    }
+
+    const u32 span_id_offset = find_existing_h2_traceparent(msg, hpack_start, hpack_len, &tp_p->tp);
+    if (span_id_offset) {
+        // Adopt only in instrumented contexts to avoid churning maps for
+        // uninstrumented W3C-using apps.
+        const u64 id = bpf_get_current_pid_tgid();
+        if (!get_tp_info_pid(&t_ctx->e_key) && !valid_pid(id) &&
+            !already_tracked_plain_http2(&t_ctx->p_conn)) {
+            return SK_PASS;
+        }
+        __builtin_memcpy(tp_p->tp.span_id, tp_p->tp.parent_id, sizeof(tp_p->tp.span_id));
+        tp_p->tp.ts = bpf_ktime_get_ns();
+        tp_p->valid = 1;
+        tp_p->written = 1;
+        tp_p->pid = t_ctx->p_conn.pid;
+        tp_p->req_type = EVENT_HTTP_CLIENT;
+        set_tp_info_pid(&t_ctx->e_key, tp_p);
+        return SK_PASS;
+    }
+
+    // No existing traceparent — proceed to create trace context.
+    bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
+    return SK_PASS;
+}
+
+// k_tail_create_h2_tp
+// Creates trace context for an HTTP/2 HEADERS frame.
+SEC("sk_msg")
+int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
+    bpf_dbg_printk("=== sk_msg create h2 tp ===");
+
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
+    if (!tp_p) {
+        return SK_PASS;
+    }
+
+    tp_info_pid_t *existing = get_tp_info_pid(&t_ctx->e_key);
+
+    if (existing && existing->valid && valid_trace(existing->tp.trace_id)) {
+        bpf_memcpy(tp_p, existing, sizeof(*tp_p));
+        // Uprobe already wrote HPACK traceparent (find_existing missed it due
+        // to scan-window limit). Skip HPACK re-injection to avoid receiver
+        // parsing a different span_id than the emitted CLIENT span.
+        if (existing->written) {
+            return SK_PASS;
+        }
+    } else {
+        // No existing tp: derive one locally. Go gRPC handles injection in
+        // grpcFramerWriteHeaders via bpf_probe_write_user.
+        init_tp_ctx_parent_tp(t_ctx);
+        if (!create_trace_info(t_ctx, tp_p)) {
+            return SK_PASS;
+        }
+        if (!t_ctx->has_parent_tp) {
+            return SK_PASS;
+        }
+    }
+
+    tp_p->written = 1;
+    set_tp_info_pid(&t_ctx->e_key, tp_p);
+
+    if (inject_flags & k_inject_http_headers) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_h2_traceparent);
+    }
+    return SK_PASS;
+}
+
+// k_tail_write_h2_traceparent
+// Injects HPACK-encoded traceparent into an HTTP/2 HEADERS frame.
+// The tailcall_ctx must have h2_frame_offset and h2_payload_len set.
+//
+// Uses targeted bpf_msg_pull_data calls so that writes use constant offsets
+// from msg->data, which the BPF verifier can track for sk_msg programs.
+SEC("sk_msg")
+int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
+    bpf_dbg_printk("=== sk_msg h2 tp ===");
+
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
+    if (!tp_p) {
+        return SK_PASS;
+    }
+
+    const u32 frame_offset = t_ctx->h2_frame_offset;
+    const u32 payload_len = t_ctx->h2_payload_len;
+
+    // Stay within default SETTINGS_MAX_FRAME_SIZE (peer may reject oversized).
+    if (payload_len + k_h2_tp_hpack_size > k_h2_default_max_frame_size) {
+        return SK_PASS;
+    }
+
+    const u32 inject_offset = t_ctx->h2_hpack_offset + t_ctx->h2_hpack_len;
+
+    bpf_msg_pull_data(msg, 0, msg->size, 0);
+    if (bpf_msg_push_data(msg, inject_offset, k_h2_tp_hpack_size, 0) != 0) {
+        return SK_PASS;
+    }
+
+    // Single targeted pull covering frame header + pushed HPACK data.
+    // This gives constant-offset access: msg->data[0] = frame_offset byte.
+    // The HPACK write is at offset (inject_offset - frame_offset) from msg->data.
+    // The frame header update is at offset 0 from msg->data.
+    const u32 pull_end = inject_offset + k_h2_tp_hpack_size;
+    if (bpf_msg_pull_data(msg, frame_offset, pull_end, 0) != 0) {
+        return SK_PASS;
+    }
+
+    unsigned char *data = msg->data;
+    const unsigned char *end = msg->data_end;
+
+    // Bounds check with constant: frame header is 3 bytes minimum.
+    if (!data || (void *)data + 3 > (void *)end) {
+        return SK_PASS;
+    }
+
+    // Update frame header length at constant offset 0.
+    const u32 new_len = payload_len + k_h2_tp_hpack_size;
+    data[0] = (new_len >> 16) & 0xFF;
+    data[1] = (new_len >> 8) & 0xFF;
+    data[2] = new_len & 0xFF;
+
+    // Write HPACK traceparent at the end of the original HPACK payload.
+    // Second targeted pull for the HPACK write region only.
+    if (bpf_msg_pull_data(msg, inject_offset, inject_offset + k_h2_tp_hpack_size, 0) != 0) {
+        return SK_PASS;
+    }
+    data = msg->data;
+    end = msg->data_end;
+    if (!data || (void *)data + k_h2_tp_hpack_size > (void *)end) {
+        return SK_PASS;
+    }
+    make_h2_tp_hpack(data, &tp_p->tp, end);
+
+    // Final consolidation.
+    bpf_msg_pull_data(msg, 0, msg->size, 0);
+
+    print_tp("h2: written TP to HPACK", &tp_p->tp);
 
     return SK_PASS;
 }

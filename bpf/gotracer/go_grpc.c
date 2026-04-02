@@ -22,6 +22,9 @@
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
 
+#include <maps/grpc_pending_egress_trace.h>
+#include <maps/outgoing_trace_map.h>
+
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
@@ -572,11 +575,21 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
                         bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
                         bpf_map_update_elem(
                             &cached_grpc_client_connections, &t_ptr, &conn, BPF_ANY);
+
+                        if (conn_ptr_key) {
+                            u64 ck = (u64)conn_ptr_key;
+                            bpf_map_update_elem(&grpc_conn_ptr_to_conn, &ck, &conn, BPF_ANY);
+                        }
                     }
                 }
             }
         } else {
             bpf_map_update_elem(&ongoing_client_connections, &g_key, cached_conn, BPF_ANY);
+
+            if (conn_ptr_key) {
+                u64 ck = (u64)conn_ptr_key;
+                bpf_map_update_elem(&grpc_conn_ptr_to_conn, &ck, cached_conn, BPF_ANY);
+            }
         }
 
         if (g_bpf_header_propagation) {
@@ -592,6 +605,26 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
                 wrapper.s_key.conn_ptr = (u64)conn_ptr_key;
 
                 bpf_map_update_elem(&transport_new_client_invocations, &g_key, &wrapper, BPF_ANY);
+
+                // Race-free: NewStream ENTRY runs before WriteHeaders control-buffer enqueue.
+                u64 ck = (u64)conn_ptr_key;
+                connection_info_t *conn_for_egress =
+                    bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &ck);
+                if (conn_for_egress && valid_trace(invocation->tp.trace_id)) {
+                    tp_info_pid_t tp_pending = {0};
+                    tp_pending.tp = invocation->tp;
+                    tp_pending.valid = 1;
+                    tp_pending.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
+                    tp_pending.req_type = EVENT_HTTP_CLIENT;
+                    egress_key_t pending_e_key = {
+                        .d_port = conn_for_egress->d_port,
+                        .s_port = conn_for_egress->s_port,
+                        .stream_id = 0,
+                    };
+                    sort_egress_key(&pending_e_key);
+                    bpf_map_update_elem(
+                        &grpc_pending_egress_trace, &pending_e_key, &tp_pending, BPF_ANY);
+                }
             } else {
                 bpf_dbg_printk(
                     "Couldn't find invocation metadata for goroutine=%lx, conn_ptr_key=%llx",
@@ -724,8 +757,46 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
 
     grpc_client_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_streams, &key);
 
+    // NewStream_Returns/WriteHeaders race fallback: pending map populated at
+    // NewStream ENTRY, always ready here.
+    grpc_client_func_invocation_t pending_invocation = {0};
+    u64 conn_key = (u64)conn_ptr;
+    connection_info_t *conn_info = bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &conn_key);
+    if (!invocation && conn_info) {
+        egress_key_t pending_key = {
+            .d_port = conn_info->d_port,
+            .s_port = conn_info->s_port,
+            .stream_id = 0,
+        };
+        sort_egress_key(&pending_key);
+        tp_info_pid_t *pending = bpf_map_lookup_elem(&grpc_pending_egress_trace, &pending_key);
+        if (pending && pending->valid && valid_trace(pending->tp.trace_id)) {
+            pending_invocation.tp = pending->tp;
+            invocation = &pending_invocation;
+        }
+    }
+
     if (invocation) {
         bpf_dbg_printk("Found invocation info: %llx", invocation);
+
+        // Publish per-stream trace for sk_msg adoption.
+        if (conn_info && valid_trace(invocation->tp.trace_id)) {
+            tp_info_pid_t tp_p = {0};
+            tp_p.tp = invocation->tp;
+            tp_p.valid = 1;
+            tp_p.written = 1;
+            tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
+            tp_p.req_type = EVENT_HTTP_CLIENT;
+
+            egress_key_t e_key = {
+                .d_port = conn_info->d_port,
+                .s_port = conn_info->s_port,
+                .stream_id = (u32)stream_id,
+            };
+            sort_egress_key(&e_key);
+            bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
+        }
+
         void *goroutine_addr = GOROUTINE_PTR(ctx);
         go_addr_key_t g_key = {};
         go_addr_key_from_id(&g_key, goroutine_addr);
@@ -747,6 +818,9 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
                 .tp = invocation->tp,
                 .framer_ptr = (u64)framer,
                 .offset = offset,
+                .s_port = conn_info ? conn_info->s_port : 0,
+                .d_port = conn_info ? conn_info->d_port : 0,
+                .stream_id = (u32)stream_id,
             };
 
             bpf_map_update_elem(&grpc_framer_invocation_map, &g_key, &f_info, BPF_ANY);
