@@ -380,6 +380,7 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 			`service_name="` + svcName + `",` +
 			`server_port="` + serverPort + `",` +
 			`http_route="/basic/:rnd",` +
+			`url_scheme="http",` +
 			`url_path="` + path + `"}`)
 		require.NoError(ct, err)
 		// check duration_count has 3 calls and all the arguments
@@ -400,6 +401,7 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
 			`http_route="/basic/:rnd",` +
+			`url_scheme="http",` +
 			`url_path="` + path + `"`
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
 		checkServerPromQueryResult(ct, pq, query, 3)
@@ -411,6 +413,7 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
 			`http_route="/basic/:rnd",` +
+			`url_scheme="http",` +
 			`url_path="` + path + `"`
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
 		checkServerPromQueryResult(ct, pq, query, 3)
