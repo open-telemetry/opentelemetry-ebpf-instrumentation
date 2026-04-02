@@ -95,7 +95,7 @@
     {
       "groupName": "Python",
       "matchManagers": ["pip-compile"],
-      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "matchUpdateTypes": ["minor", "major"],
       "schedule": ["before 6am on Thursday"]
     },
     {
