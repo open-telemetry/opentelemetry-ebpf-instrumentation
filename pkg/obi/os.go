@@ -47,15 +47,14 @@ func parseOSReleaseIsRHEL(data []byte) bool {
 	return false
 }
 
-// We define isRHELBased as var so tests can override it and
-// in production, sync.OnceValue ensures the file is read at most once.
-var isRHELBased = sync.OnceValue(func() bool {
+// isRHELBased is a var so tests can override it.
+var isRHELBased = func() bool {
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
 		return false
 	}
 	return parseOSReleaseIsRHEL(data)
-})
+}
 
 // hasBTF checks whether the kernel exposes BTF information by looking for the
 // vmlinux BTF file in the canonical sysfs location and fallback paths (mirroring
@@ -75,7 +74,7 @@ var hasBTF = func() bool {
 	// fallback locations from libbpf
 	for _, pattern := range []string{
 		"/boot/vmlinux-%s",
-		"/lib/modules/%[1]s/vmlinux-%[1]s",
+		"/lib/modules/%s/vmlinux-%[1]s",
 		"/lib/modules/%s/build/vmlinux",
 		"/usr/lib/modules/%s/kernel/vmlinux",
 		"/usr/lib/debug/boot/vmlinux-%s",
@@ -90,9 +89,9 @@ var hasBTF = func() bool {
 	return false
 }
 
-// CheckOSSupport returns an error if the running operating system does not support
-// the minimum required OBI features.
-func CheckOSSupport() error {
+// checkOSSupport contains the actual logic
+// tests call this directly.
+func checkOSSupport() error {
 	major, minor := kernelVersion()
 	maj, min := minKernMaj, minKernMin
 	if isRHELBased() {
@@ -109,6 +108,11 @@ func CheckOSSupport() error {
 
 	return nil
 }
+
+// CheckOSSupport returns an error if the running operating system does not support
+// the minimum required OBI features.
+// The result is cached after the first call.
+var CheckOSSupport = sync.OnceValue(checkOSSupport)
 
 type osCapabilitiesError uint64
 

@@ -39,7 +39,7 @@ func TestCheckOSSupport_Supported(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%d.%d", tc.maj, tc.min), func(t *testing.T) {
 			overrideKernelVersion(tc)
-			require.NoError(t, CheckOSSupport())
+			require.NoError(t, checkOSSupport())
 		})
 	}
 }
@@ -56,7 +56,7 @@ func TestCheckOSSupport_Unsupported(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%d.%d", tc.maj, tc.min), func(t *testing.T) {
 			overrideKernelVersion(tc)
-			require.Error(t, CheckOSSupport())
+			require.Error(t, checkOSSupport())
 		})
 	}
 }
@@ -80,12 +80,21 @@ func TestCheckOSSupport_RHELBased(t *testing.T) {
 			rhel := tc.isRHEL
 			isRHELBased = func() bool { return rhel }
 			if tc.wantErr {
-				require.Error(t, CheckOSSupport())
+				require.Error(t, checkOSSupport())
 			} else {
-				require.NoError(t, CheckOSSupport())
+				require.NoError(t, checkOSSupport())
 			}
 		})
 	}
+}
+
+func TestCheckOSSupport_NoBTF(t *testing.T) {
+	overrideKernelVersion(testCase{6, 0})
+	isRHELBased = func() bool { return false }
+	hasBTF = func() bool { return false }
+	err := checkOSSupport()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "BTF")
 }
 
 func TestParseOSReleaseIsRHEL(t *testing.T) {
