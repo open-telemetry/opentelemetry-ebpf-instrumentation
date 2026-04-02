@@ -70,6 +70,45 @@ Go's context refresh has two complementary mechanisms:
 
 **Why setting context at uprobe entry is safe**: At the moment the uprobe fires (e.g. `ServeHTTP`), the goroutine is guaranteed to be running on the current OS thread — `bpf_get_current_pid_tgid()` returns the correct `pid_tgid`. The `traces_ctx_v1` map uses `BPF_ANY` semantics, so the write is idempotent: the subsequent `casgstatus` transition will overwrite the entry with the same trace/span IDs. If the goroutine migrates to a different OS thread later, `casgstatus` handles the update for the new `pid_tgid`, and the `default` branch deletes the stale entry for the old one.
 
+OBI also hooks the runtime channel wrappers `runtime.chansend1`, `runtime.chanrecv1`, and `runtime.chanrecv2` to detect work handed between goroutines through a `chan`.
+
+When a send and receive are matched, the Go runtime probe reads the active OBI trace context on the sending goroutine and the receiving goroutine and emits a dedicated channel-link event. User-space keeps that link temporarily and attaches it when the normal OBI span event for either side is decoded. The resulting OTLP spans contain ordinary span links.
+
+Example:
+
+```go
+package main
+
+import (
+	"net/http"
+)
+
+type job struct {
+	id int
+}
+
+var work = make(chan job)
+
+func main() {
+	http.HandleFunc("/receive", func(rw http.ResponseWriter, _ *http.Request) {
+		item := <-work
+		_, _ = rw.Write([]byte("received job"))
+		_ = item
+	})
+
+	http.HandleFunc("/dispatch", func(rw http.ResponseWriter, _ *http.Request) {
+		work <- job{id: 1}
+		_, _ = rw.Write([]byte("dispatched job"))
+	})
+
+	_ = http.ListenAndServe(":8080", nil)
+}
+```
+
+In this example, the `/receive` and `/dispatch` handlers run in separate goroutines and produce separate OBI HTTP server spans. OBI observes the `chan` handoff, emits a channel-link event in eBPF space, and the exported `/receive` and `/dispatch` spans carry reciprocal span links so the relationship is visible downstream even though the two requests are separate traces.
+
+Current limitation: this channel-linking path covers the direct runtime send/receive wrappers above. `select`-based receive paths use different runtime internals and are not covered by these probes.
+
 ### Node.js — `async_hooks` before callback + `uv_fs_access` uprobe
 
 The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Before each async callback executes, the hook calls `fs.accessSync('/dev/null/obi-ctx/<incomingFd>')`. This triggers the `obi_uv_fs_access` uprobe in BPF, which:
