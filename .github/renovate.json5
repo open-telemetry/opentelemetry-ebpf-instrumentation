@@ -26,7 +26,7 @@
     {
       "groupName": "Go",
       "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "matchUpdateTypes": ["patch", "digest", "minor"],
       "schedule": ["before 6am on Monday"],
       "postUpgradeTasks": {
         "commands": [
@@ -35,6 +35,20 @@
         ],
         "executionMode": "branch"
       }
+    },
+    {
+      "description": "Block Go language major upgrades in go.mod files (these require coordinated manual changes)",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["golang", "toolchain"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Block golang Docker image major upgrades (these require coordinated manual changes)",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["golang"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     },
     {
       "groupName": "Docker",
