@@ -17,44 +17,59 @@ permissions:
   contents: read
 
 jobs:
-  apply:
-    name: Apply cleanup patch
+  probe:
+    name: Probe cleanup patch artifact
     if: >
       github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       startsWith(github.event.workflow_run.head_branch, 'renovate/') &&
       github.event.workflow_run.actor.login == 'renovate[bot]'
+    outputs:
+      patch_exists: ${{ steps.probe.outputs.exists }}
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check patch artifact
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          artifact_id="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "renovate-post-process-patch") | .id' | head -n1)"
+          if [ -n "$artifact_id" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  apply:
+    name: Apply cleanup patch
+    needs: probe
+    if: needs.probe.outputs.patch_exists == 'true'
     permissions:
       actions: read
       contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Download patch artifact
-        id: download
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           artifact_id="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "renovate-post-process-patch") | .id' | head -n1)"
-          if [ -z "$artifact_id" ]; then
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > artifact.zip
           unzip -q artifact.zip -d artifact
-          echo "exists=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
-        if: steps.download.outputs.exists == 'true'
         id: generate-token
         with:
           app-id: ${{ vars.OTELBOT_APP_ID }}
           private-key: ${{ secrets.OTELBOT_PRIVATE_KEY }}
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: steps.download.outputs.exists == 'true'
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -62,7 +77,6 @@ jobs:
           token: ${{ steps.generate-token.outputs.token }}
 
       - name: Verify branch tip
-        if: steps.download.outputs.exists == 'true'
         env:
           EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
@@ -70,7 +84,6 @@ jobs:
           test "$current_sha" = "$EXPECTED_SHA"
 
       - name: Apply patch and push
-        if: steps.download.outputs.exists == 'true'
         env:
           GH_APP_TOKEN: ${{ steps.generate-token.outputs.token }}
           PATCH_PATH: artifact/patch
