@@ -17,6 +17,14 @@
   ],
   "prConcurrentLimit": 10,
   "prHourlyLimit": 3,
+  "pip-compile": {
+    "managerFilePatterns": [
+      "/^internal\\/test\\/integration\\/components\\/.*\\/requirements(-[^/]+)?\\.txt$/"
+    ]
+  },
+  "pip_requirements": {
+    "enabled": false
+  },
   "allowedCommands": [
     "make go-mod-tidy",
     "make go-notices-update",
@@ -83,6 +91,12 @@
     {
       "groupName": "Rust",
       "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "schedule": ["before 6am on Thursday"]
+    },
+    {
+      "groupName": "Python",
+      "matchManagers": ["pip-compile"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
       "schedule": ["before 6am on Thursday"]
     },
