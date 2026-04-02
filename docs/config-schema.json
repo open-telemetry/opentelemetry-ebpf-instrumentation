@@ -183,10 +183,32 @@
     },
     "Definitions": {
       "items": {
-        "type": "string"
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "A CIDR range (e.g. \"10.0.0.0/8\"). The CIDR string is used as the attribute value."
+          },
+          {
+            "properties": {
+              "cidr": {
+                "type": "string",
+                "description": "A CIDR range (e.g. \"10.0.0.0/8\")."
+              },
+              "name": {
+                "type": "string",
+                "description": "A human-readable name for this CIDR. Used as the attribute value instead of the CIDR string."
+              }
+            },
+            "type": "object",
+            "required": [
+              "cidr"
+            ],
+            "description": "A named CIDR entry."
+          }
+        ]
       },
       "type": "array",
-      "description": "Definitions contains a list of CIDRs to be set as the \"src.cidr\" and \"dst.cidr\" attribute as a function of the source and destination IP addresses."
+      "description": "A list of CIDRs to be set as the \"src.cidr\" and \"dst.cidr\" attribute as a function of the source and destination IP addresses. Each entry can be a plain CIDR string or an object with \"cidr\" and \"name\" fields."
     },
     "DiscoveryConfig": {
       "properties": {

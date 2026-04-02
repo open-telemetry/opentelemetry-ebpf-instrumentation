@@ -619,6 +619,14 @@ func (c *Config) Validate() error {
 		return ConfigError(err.Error())
 	}
 
+	if err := c.NetworkFlows.CIDRs.Validate(); err != nil {
+		return ConfigError("network " + err.Error())
+	}
+
+	if err := c.Stats.CIDRs.Validate(); err != nil {
+		return ConfigError("stats " + err.Error())
+	}
+
 	if !c.Enabled(FeatureNetO11y) && !c.Enabled(FeatureAppO11y) && !c.Enabled(FeatureStatsO11y) {
 		return ConfigError("at least one of 'network', 'application' or 'stats' features must be enabled. " +
 			"Enable an OpenTelemetry or Prometheus metrics export, then enable any of the network*, application* or stats*" +
