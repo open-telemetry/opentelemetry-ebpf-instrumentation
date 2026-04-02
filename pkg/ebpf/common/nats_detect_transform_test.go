@@ -135,10 +135,10 @@ func TestParseNATSFrame(t *testing.T) {
 			frame:     []byte(fmt.Sprintf("HMSG updates.orders subA _INBOX.reply %d %d extra\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
 			expectErr: true,
 		},
-			{
-				name:        "CONNECT with client name",
-				frame:       []byte(`CONNECT {"verbose":false,"name":"my-service","lang":"go"}` + "\r\n"),
-				expectedID:  "my-service",
+		{
+			name:        "CONNECT with client name",
+			frame:       []byte(`CONNECT {"verbose":false,"name":"my-service","lang":"go"}` + "\r\n"),
+			expectedID:  "my-service",
 			isNATSFrame: true,
 		},
 		{
