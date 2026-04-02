@@ -66,12 +66,12 @@ var (
 	}
 	RPCServerDuration = Name{
 		Section: "rpc.server.duration",
-		Prom:    "rpc_server_duration_seconds",
+		Prom:    "rpc_server_duration_milliseconds",
 		OTEL:    "rpc.server.duration",
 	}
 	RPCClientDuration = Name{
 		Section: "rpc.client.duration",
-		Prom:    "rpc_client_duration_seconds",
+		Prom:    "rpc_client_duration_milliseconds",
 		OTEL:    "rpc.client.duration",
 	}
 	DBClientDuration = Name{

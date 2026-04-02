@@ -502,7 +502,7 @@ func newReporter(
 		grpcDuration: optionalHistogramProvider(is.GRPCEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.RPCServerDuration.Prom,
-				Help:                            "duration of RCP service calls from the server side, in seconds",
+				Help:                            "duration of RPC service calls from the server side, in milliseconds",
 				Buckets:                         cfg.Buckets.DurationHistogram,
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
@@ -512,7 +512,7 @@ func newReporter(
 		grpcClientDuration: optionalHistogramProvider(is.GRPCEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.RPCClientDuration.Prom,
-				Help:                            "duration of GRPC service calls from the client side, in seconds",
+				Help:                            "duration of GRPC service calls from the client side, in milliseconds",
 				Buckets:                         cfg.Buckets.DurationHistogram,
 				NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
 				NativeHistogramMaxBucketNumber:  defaultHistogramMaxBucketNumber,
@@ -986,6 +986,7 @@ func (r *metricsReporter) observe(span *request.Span) {
 		r.tracesHostInfo.WithLabelValues(r.nodeMeta.HostID).Metric.Set(1.0)
 	}
 	duration := t.End.Sub(t.RequestStart).Seconds()
+	durationMs := float64(t.End.Sub(t.RequestStart).Nanoseconds()) / 1e6
 
 	if r.otelMetricsObserved(span) {
 		switch span.Type {
@@ -1013,11 +1014,11 @@ func (r *metricsReporter) observe(span *request.Span) {
 			}
 		case request.EventTypeGRPC:
 			if r.is.GRPCEnabled() {
-				r.observeHistogram(r.grpcDuration.WithLabelValues(labelValues(span, r.attrGRPCDuration)...).Metric, duration, span)
+				r.observeHistogram(r.grpcDuration.WithLabelValues(labelValues(span, r.attrGRPCDuration)...).Metric, durationMs, span)
 			}
 		case request.EventTypeGRPCClient:
 			if r.is.GRPCEnabled() {
-				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
+				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, durationMs, span)
 			}
 		case request.EventTypeRedisClient, request.EventTypeSQLClient, request.EventTypeRedisServer, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
 			if r.is.DBEnabled() {
