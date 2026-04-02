@@ -47,19 +47,15 @@ func parseOSReleaseIsRHEL(data []byte) bool {
 	return false
 }
 
-var detectRHEL = sync.OnceValue(func() bool {
+// We define isRHELBased as var so tests can override it and
+// in production, sync.OnceValue ensures the file is read at most once.
+var isRHELBased = sync.OnceValue(func() bool {
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
 		return false
 	}
 	return parseOSReleaseIsRHEL(data)
 })
-
-// isRHELBased is a var so tests can override it and
-// in production it delegates to detectRHEL (cached via sync.OnceValue).
-var isRHELBased = func() bool {
-	return detectRHEL()
-}
 
 // hasBTF checks whether the kernel exposes BTF information by looking for the
 // vmlinux BTF file in the canonical sysfs location and fallback paths (mirroring
