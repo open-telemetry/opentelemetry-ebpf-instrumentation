@@ -17,24 +17,12 @@
   ],
   "prConcurrentLimit": 10,
   "prHourlyLimit": 3,
-  "allowedCommands": [
-    "make go-mod-tidy",
-    "make go-notices-update",
-    "make java-notices-update"
-  ],
   "packageRules": [
     {
       "groupName": "Go",
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
-      "schedule": ["before 6am on Monday"],
-      "postUpgradeTasks": {
-        "commands": [
-          "make go-mod-tidy",
-          "make go-notices-update"
-        ],
-        "executionMode": "branch"
-      }
+      "schedule": ["before 6am on Monday"]
     },
     {
       "groupName": "Docker",
@@ -52,13 +40,7 @@
       "groupName": "Java",
       "matchManagers": ["gradle", "maven"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
-      "schedule": ["before 6am on Thursday"],
-      "postUpgradeTasks": {
-        "commands": [
-          "make java-notices-update"
-        ],
-        "executionMode": "branch"
-      }
+      "schedule": ["before 6am on Thursday"]
     },
     {
       "groupName": "NPM",
