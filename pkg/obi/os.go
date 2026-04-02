@@ -6,6 +6,7 @@
 package obi // import "go.opentelemetry.io/obi/pkg/obi"
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -31,11 +32,12 @@ func parseOSReleaseIsRHEL(data []byte) bool {
 	// matches ID="rhel" or ID_LIKE containing "rhel" (e.g. Rocky, AlmaLinux, CentOS set ID_LIKE="rhel ...")
 	for _, line := range strings.Split(content, "\n") {
 		var val string
-		if strings.HasPrefix(line, "id_like=") {
+		switch {
+		case strings.HasPrefix(line, "id_like="):
 			val = line[len("id_like="):]
-		} else if strings.HasPrefix(line, "id=") {
+		case strings.HasPrefix(line, "id="):
 			val = line[len("id="):]
-		} else {
+		default:
 			continue
 		}
 		val = strings.Trim(val, "\"'")
@@ -93,17 +95,17 @@ var hasBTF = func() bool {
 // tests call this directly.
 func checkOSSupport() error {
 	major, minor := kernelVersion()
-	maj, min := minKernMaj, minKernMin
+	maj, mnr := minKernMaj, minKernMin
 	if isRHELBased() {
-		maj, min = minRHELKernMaj, minRHELKernMin
+		maj, mnr = minRHELKernMaj, minRHELKernMin
 	}
-	if major < maj || (major == maj && minor < min) {
+	if major < maj || (major == maj && minor < mnr) {
 		return fmt.Errorf("kernel version %d.%d not supported. Minimum required version is %d.%d",
-			major, minor, maj, min)
+			major, minor, maj, mnr)
 	}
 
 	if !hasBTF() {
-		return fmt.Errorf("kernel does not support BTF (CONFIG_DEBUG_INFO_BTF): no vmlinux BTF found")
+		return errors.New("kernel does not support BTF (CONFIG_DEBUG_INFO_BTF): no vmlinux BTF found")
 	}
 
 	return nil
