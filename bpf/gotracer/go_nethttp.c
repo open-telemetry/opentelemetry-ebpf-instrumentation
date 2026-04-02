@@ -43,6 +43,8 @@
 
 #include <pid/pid_helpers.h>
 
+#include <shared/obi_ctx.h>
+
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;
     return bpf_map_lookup_elem(&temp_header_mem_store, &zero);
@@ -134,6 +136,8 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
     if (bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update map element");
     }
+
+    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
 
 done:
     return 0;
@@ -358,6 +362,7 @@ static __always_inline void handle_traceparent_header(server_http_func_invocatio
         server_http_func_invocation_t minimal_inv = {0};
         update_traceparent(&minimal_inv, traceparent_start);
         bpf_map_update_elem(&ongoing_http_server_requests, g_key, &minimal_inv, BPF_ANY);
+        obi_ctx__set(bpf_get_current_pid_tgid(), &minimal_inv.tp);
     }
 }
 
@@ -573,6 +578,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
 done:
     bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
     bpf_map_delete_elem(&go_trace_map, &g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
     return 0;
 }
 
@@ -964,6 +970,7 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
             __builtin_memcpy(&inv.tp, tp, sizeof(tp_info_t));
             bpf_dbg_printk("Found traceparent in HTTP2 headers");
             bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &inv, BPF_ANY);
+            obi_ctx__set(bpf_get_current_pid_tgid(), &inv.tp);
             bpf_map_delete_elem(&http2_server_requests_tp, &sc_key);
         }
     }

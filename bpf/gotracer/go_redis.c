@@ -25,6 +25,8 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <shared/obi_ctx.h>
+
 static __always_inline void setup_request(void *goroutine_addr) {
     redis_client_req_t req = {
         .type = EVENT_GO_REDIS,
@@ -47,6 +49,13 @@ int obi_uprobe_redis_process(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     setup_request(goroutine_addr);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+    redis_client_req_t *req = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
+    if (req) {
+        obi_ctx__set(bpf_get_current_pid_tgid(), &req->tp);
+    }
 
     return 0;
 }
@@ -72,6 +81,7 @@ int obi_uprobe_redis_process_ret(struct pt_regs *ctx) {
     }
 
     bpf_map_delete_elem(&ongoing_redis_requests, &g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }
