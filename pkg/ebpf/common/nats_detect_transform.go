@@ -37,9 +37,17 @@ func ProcessPossibleNATSEvent(event *TCPRequestInfo, pkt *largebuf.LargeBuffer, 
 	reqInfo, reqIgnore, reqErr := ProcessNATSEvent(pkt)
 	respInfo, respIgnore, respErr := ProcessNATSEvent(rpkt)
 
+	isPublish := func(info *NATSInfo) bool {
+		return info != nil && info.Operation == request.MessagingPublish
+	}
+
 	// Both buffers have span-worthy frames (e.g. HPUB + HMSG on same connection).
 	if reqErr == nil && !reqIgnore && reqInfo != nil &&
 		respErr == nil && !respIgnore && respInfo != nil {
+		if isPublish(respInfo) && !isPublish(reqInfo) {
+			return respInfo, reqInfo, false, nil
+		}
+
 		return reqInfo, respInfo, false, nil
 	}
 
@@ -128,7 +136,7 @@ func parseNATSFrame(reader *largebuf.LargeBufferReader) (natsFrame, error) {
 
 		return natsFrame{clientID: meta.Name, valid: true}, nil
 	case "SUB":
-		if len(fields) != 3 && len(fields) != 4 {
+		if !(len(fields) == 3 || len(fields) == 4) {
 			return natsFrame{}, errors.New("invalid SUB control line")
 		}
 		if err := validateNATSSID(fields[len(fields)-1]); err != nil {
@@ -136,7 +144,7 @@ func parseNATSFrame(reader *largebuf.LargeBufferReader) (natsFrame, error) {
 		}
 		return natsFrame{valid: true}, nil
 	case "UNSUB":
-		if len(fields) != 2 && len(fields) != 3 {
+		if !(len(fields) == 2 || len(fields) == 3) {
 			return natsFrame{}, errors.New("invalid UNSUB control line")
 		}
 		if err := validateNATSSID(fields[1]); err != nil {
@@ -161,7 +169,7 @@ func parseNATSFrame(reader *largebuf.LargeBufferReader) (natsFrame, error) {
 			valid: true,
 		}, nil
 	case "MSG":
-		if len(fields) != 4 && len(fields) != 5 {
+		if !(len(fields) == 4 || len(fields) == 5) {
 			return natsFrame{}, errors.New("invalid MSG control line")
 		}
 		if err := validateNATSSID(fields[2]); err != nil {
@@ -191,7 +199,7 @@ func parseNATSFrame(reader *largebuf.LargeBufferReader) (natsFrame, error) {
 			valid: true,
 		}, nil
 	case "HMSG":
-		if len(fields) != 5 && len(fields) != 6 {
+		if !(len(fields) == 5 || len(fields) == 6) {
 			return natsFrame{}, errors.New("invalid HMSG control line")
 		}
 		if err := validateNATSSID(fields[2]); err != nil {
@@ -221,7 +229,7 @@ func parseNATSFrame(reader *largebuf.LargeBufferReader) (natsFrame, error) {
 }
 
 func parseNATSPayloadFields(fields [][]byte) (string, int, error) {
-	if len(fields) != 3 && len(fields) != 4 {
+	if !(len(fields) == 3 || len(fields) == 4) {
 		return "", 0, errors.New("invalid NATS payload control line")
 	}
 
@@ -234,7 +242,7 @@ func parseNATSPayloadFields(fields [][]byte) (string, int, error) {
 }
 
 func parseNATSHeaderPayloadFields(fields [][]byte) (string, int, error) {
-	if len(fields) != 4 && len(fields) != 5 {
+	if !(len(fields) == 4 || len(fields) == 5) {
 		return "", 0, errors.New("invalid NATS header payload control line")
 	}
 
@@ -311,13 +319,8 @@ func natsJSONPayload(line, command []byte) ([]byte, error) {
 }
 
 func validateNATSSID(field []byte) error {
-	if len(field) == 0 {
+	if !isASCII(string(field)) {
 		return errors.New("invalid NATS sid")
-	}
-	for _, b := range field {
-		if (b < '0' || b > '9') && (b < 'a' || b > 'z') && (b < 'A' || b > 'Z') {
-			return errors.New("invalid NATS sid")
-		}
 	}
 	return nil
 }

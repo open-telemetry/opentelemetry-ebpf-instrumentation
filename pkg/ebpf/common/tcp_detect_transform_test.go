@@ -368,6 +368,50 @@ func TestReadTCPRequestIntoSpan_NATSCoalescedPublishAndProcessEmitsDistinctServe
 	assert.False(t, extra[0].SpanID.IsValid())
 }
 
+func TestReadTCPRequestIntoSpan_NATSReversedCoalescedPublishAndProcessPreservesRoles(t *testing.T) {
+	header := "NATS/1.0\r\nX-Test: python\r\n\r\n"
+	payload := "python-nats-1"
+	hdrLen := len(header)
+	totalLen := hdrLen + len(payload)
+
+	requestFrame := fmt.Sprintf("HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)
+	responseFrame := fmt.Sprintf("HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)
+
+	r := makeTCPReq(requestFrame, 4222)
+	r.RespLen = uint32(len(responseFrame))
+	copy(r.Rbuf[:], responseFrame)
+	r.ConnInfo.S_port = 38436
+	r.ConnInfo.D_port = 4222
+	r.Tp.TraceId = [16]uint8{1, 2, 3, 4}
+	r.Tp.SpanId = [8]uint8{5, 6, 7, 8}
+	r.Tp.ParentId = [8]uint8{9, 10, 11, 12}
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
+	queue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	out := queue.Subscribe(msg.SubscriberName("nats-reversed"))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	ctx := NewEBPFParseContext(&cfg, queue, &fltr)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+
+	assert.Equal(t, request.EventTypeNATSClient, span.Type)
+	assert.Equal(t, request.MessagingPublish, span.Method)
+	assert.Equal(t, "updates.orders", span.Path)
+	assert.Equal(t, 4222, span.HostPort)
+
+	extra := testutil.ReadChannel(t, out, time.Second)
+	require.Len(t, extra, 1)
+	assert.Equal(t, request.EventTypeNATSServer, extra[0].Type)
+	assert.Equal(t, request.MessagingProcess, extra[0].Method)
+	assert.Equal(t, "updates.orders", extra[0].Path)
+	assert.Equal(t, 4222, extra[0].HostPort)
+}
+
 func TestTCPReqMQTTHeuristicFailure(t *testing.T) {
 	// This packet passes isMQTT() heuristic (valid PUBLISH header) but fails full parsing
 	// because the topic length (0x00, 0xFF = 255) exceeds the available data.

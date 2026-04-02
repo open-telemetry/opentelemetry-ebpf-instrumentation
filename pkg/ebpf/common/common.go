@@ -223,6 +223,33 @@ var MisclassifiedEvents = make(chan MisclassifiedEvent)
 
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
 
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '.' || c == '_' || c == ' ' || c == '-' {
+			continue
+		}
+		return false
+	}
+
+	return true
+}
+
+func isASCIIDecimal(field []byte) bool {
+	if len(field) == 0 {
+		return false
+	}
+
+	for _, b := range field {
+		if b < '0' || b > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
 func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.Span], filter ServiceFilter) *EBPFParseContext {
 	var (
 		err                        error

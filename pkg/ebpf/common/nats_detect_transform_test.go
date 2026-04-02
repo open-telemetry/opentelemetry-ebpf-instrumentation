@@ -319,6 +319,32 @@ func TestProcessPossibleNATSEvent(t *testing.T) {
 		assert.Equal(t, originalDirection, event.Direction) // no reversal
 	})
 
+	t.Run("reversed coalesced publish and process keeps publish as primary span", func(t *testing.T) {
+		event := makeTCPReq("", 4222)
+		originalDirection := event.Direction
+
+		header := "NATS/1.0\r\nX-Test: python\r\n\r\n"
+		payload := "python-nats-1"
+		hdrLen := len(header)
+		totalLen := hdrLen + len(payload)
+
+		requestBuf := largebuf.NewLargeBufferFrom(
+			[]byte(fmt.Sprintf("HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+		)
+		responseBuf := largebuf.NewLargeBufferFrom(
+			[]byte(fmt.Sprintf("HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+		)
+
+		info, extraInfo, ignore, err := ProcessPossibleNATSEvent(&event, requestBuf, responseBuf)
+		require.NoError(t, err)
+		assert.False(t, ignore)
+		require.NotNil(t, info)
+		require.NotNil(t, extraInfo)
+		assert.Equal(t, request.MessagingPublish, info.Operation)
+		assert.Equal(t, request.MessagingProcess, extraInfo.Operation)
+		assert.Equal(t, originalDirection, event.Direction)
+	})
+
 	t.Run("control-only in both directions - valid NATS, no span", func(t *testing.T) {
 		event := makeTCPReq("", 4222)
 		requestBuf := largebuf.NewLargeBufferFrom([]byte("PING\r\n"))
