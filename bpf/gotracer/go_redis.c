@@ -109,19 +109,21 @@ int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
 
         bpf_map_update_elem(&redis_writes, &g_key, &bw_ptr, BPF_ANY);
 
-        if (cn_ptr) {
-            void *tcp_conn_ptr = cn_ptr + 8;
-            bpf_dbg_printk("tcp_conn_ptr=%llx", tcp_conn_ptr);
-            if (tcp_conn_ptr) {
-                void *conn_ptr = 0;
+        if (bw_ptr) {
+            void *conn_ptr = 0;
+            bpf_probe_read(
+                &conn_ptr,
+                sizeof(conn_ptr),
+                (void *)(bw_ptr + go_offset_of(ot, (go_offset){.v = _io_writer_wr_pos}) + 8));
+            bpf_dbg_printk("tcp_conn_ptr=%llx", conn_ptr);
+            if (conn_ptr) {
                 bpf_probe_read(
-                    &conn_ptr, sizeof(conn_ptr), (void *)(tcp_conn_ptr + 8)); // find conn
+                    &conn_ptr,
+                    sizeof(conn_ptr),
+                    (void *)(conn_ptr + go_offset_of(ot, (go_offset){.v = _net_conn_pos})));
                 bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
-                if (conn_ptr) {
-                    const u8 ok = get_conn_info(conn_ptr, &req->conn);
-                    if (!ok) {
-                        __builtin_memset(&req->conn, 0, sizeof(connection_info_t));
-                    }
+                if (conn_ptr && !get_conn_info(conn_ptr, &req->conn)) {
+                    __builtin_memset(&req->conn, 0, sizeof(connection_info_t));
                 }
             }
         }

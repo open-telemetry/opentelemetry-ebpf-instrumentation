@@ -50,6 +50,18 @@
             "since": "1.17.0"
           }
         ]
+      },
+      "wr": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.26.1"
+        },
+        "offsets": [
+          {
+            "offset": 48,
+            "since": "1.17.0"
+          }
+        ]
       }
     },
     "context.valueCtx": {
