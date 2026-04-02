@@ -268,7 +268,15 @@ int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
                            sizeof(tls_state),
                            (void *)(c_ptr + go_offset_of(ot, (go_offset){.v = _c_tls_pos})));
             conn_conn_ptr = unwrap_tls_conn_info(conn_conn_ptr, tls_state);
-            //bpf_dbg_printk("conn_conn_ptr=%llx, tls_state=%llx, c_tls_pos=%d, c_tls_ptr=%llx", conn_conn_ptr, tls_state, c_tls_pos, c_ptr + c_tls_pos);
+
+            // Store TLS state in the server invocation so serve_http_returns
+            // can populate the scheme field on the trace event.
+            server_http_func_invocation_t *inv =
+                bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+            if (inv) {
+                inv->is_tls = tls_state ? 1 : 0;
+            }
+
             if (conn_conn_ptr) {
                 void *conn_ptr = 0;
                 bpf_probe_read(
@@ -528,7 +536,11 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->host[0] = '\0';
-    trace->scheme[0] = '\0';
+    if (invocation->is_tls) {
+        __builtin_memcpy(trace->scheme, "https", 6);
+    } else {
+        __builtin_memcpy(trace->scheme, "http", 5);
+    }
     trace->pattern[0] = '\0';
 
     goroutine_metadata *g_metadata = bpf_map_lookup_elem(&ongoing_goroutines, &g_key);

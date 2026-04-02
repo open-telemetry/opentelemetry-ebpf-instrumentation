@@ -688,6 +688,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `",` +
 			`http_route="/basic/*",` +
+			`url_scheme="http",` +
 			`url_path="` + path + `"`
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
 		checkServerPromQueryResult(ct, pq, query, 3)
@@ -699,6 +700,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `",` +
 			`http_route="/basic/*",` +
+			`url_scheme="http",` +
 			`url_path="` + path + `"`
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
 		checkServerPromQueryResult(ct, pq, query, 3)
