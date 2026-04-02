@@ -96,9 +96,49 @@ func TestParseNATSFrame(t *testing.T) {
 			isNATSFrame:  true,
 		},
 		{
-			name:        "CONNECT with client name",
-			frame:       []byte(`CONNECT {"verbose":false,"name":"my-service","lang":"go"}` + "\r\n"),
-			expectedID:  "my-service",
+			name:      "SUB with too few fields",
+			frame:     []byte("SUB updates.orders\r\n"),
+			expectErr: true,
+		},
+		{
+			name:      "SUB with too many fields",
+			frame:     []byte("SUB updates.orders queue subA extra\r\n"),
+			expectErr: true,
+		},
+		{
+			name:      "UNSUB with too few fields",
+			frame:     []byte("UNSUB\r\n"),
+			expectErr: true,
+		},
+		{
+			name:      "UNSUB with too many fields",
+			frame:     []byte("UNSUB subA 1 extra\r\n"),
+			expectErr: true,
+		},
+		{
+			name:      "MSG with too few fields",
+			frame:     []byte("MSG updates.orders subA\r\n"),
+			expectErr: true,
+		},
+		{
+			name:      "MSG with too many fields",
+			frame:     []byte("MSG updates.orders subA _INBOX.reply 5 extra\r\nhello\r\n"),
+			expectErr: true,
+		},
+		{
+			name:      "HMSG with too few fields",
+			frame:     []byte(fmt.Sprintf("HMSG updates.orders subA %d\r\n%s%s\r\n", hdrLen, header, payload)),
+			expectErr: true,
+		},
+		{
+			name:      "HMSG with too many fields",
+			frame:     []byte(fmt.Sprintf("HMSG updates.orders subA _INBOX.reply %d %d extra\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+			expectErr: true,
+		},
+			{
+				name:        "CONNECT with client name",
+				frame:       []byte(`CONNECT {"verbose":false,"name":"my-service","lang":"go"}` + "\r\n"),
+				expectedID:  "my-service",
 			isNATSFrame: true,
 		},
 		{

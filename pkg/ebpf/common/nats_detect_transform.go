@@ -136,7 +136,7 @@ func parseNATSFrame(reader *largebuf.LargeBufferReader) (natsFrame, error) {
 
 		return natsFrame{clientID: meta.Name, valid: true}, nil
 	case "SUB":
-		if !(len(fields) == 3 || len(fields) == 4) {
+		if len(fields) != 3 && len(fields) != 4 {
 			return natsFrame{}, errors.New("invalid SUB control line")
 		}
 		if err := validateNATSSID(fields[len(fields)-1]); err != nil {
@@ -144,7 +144,7 @@ func parseNATSFrame(reader *largebuf.LargeBufferReader) (natsFrame, error) {
 		}
 		return natsFrame{valid: true}, nil
 	case "UNSUB":
-		if !(len(fields) == 2 || len(fields) == 3) {
+		if len(fields) != 2 && len(fields) != 3 {
 			return natsFrame{}, errors.New("invalid UNSUB control line")
 		}
 		if err := validateNATSSID(fields[1]); err != nil {
@@ -169,7 +169,7 @@ func parseNATSFrame(reader *largebuf.LargeBufferReader) (natsFrame, error) {
 			valid: true,
 		}, nil
 	case "MSG":
-		if !(len(fields) == 4 || len(fields) == 5) {
+		if len(fields) != 4 && len(fields) != 5 {
 			return natsFrame{}, errors.New("invalid MSG control line")
 		}
 		if err := validateNATSSID(fields[2]); err != nil {
@@ -199,7 +199,7 @@ func parseNATSFrame(reader *largebuf.LargeBufferReader) (natsFrame, error) {
 			valid: true,
 		}, nil
 	case "HMSG":
-		if !(len(fields) == 5 || len(fields) == 6) {
+		if len(fields) != 5 && len(fields) != 6 {
 			return natsFrame{}, errors.New("invalid HMSG control line")
 		}
 		if err := validateNATSSID(fields[2]); err != nil {
@@ -229,7 +229,7 @@ func parseNATSFrame(reader *largebuf.LargeBufferReader) (natsFrame, error) {
 }
 
 func parseNATSPayloadFields(fields [][]byte) (string, int, error) {
-	if !(len(fields) == 3 || len(fields) == 4) {
+	if len(fields) != 3 && len(fields) != 4 {
 		return "", 0, errors.New("invalid NATS payload control line")
 	}
 
@@ -242,7 +242,7 @@ func parseNATSPayloadFields(fields [][]byte) (string, int, error) {
 }
 
 func parseNATSHeaderPayloadFields(fields [][]byte) (string, int, error) {
-	if !(len(fields) == 4 || len(fields) == 5) {
+	if len(fields) != 4 && len(fields) != 5 {
 		return "", 0, errors.New("invalid NATS header payload control line")
 	}
 
