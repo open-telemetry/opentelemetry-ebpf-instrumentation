@@ -106,6 +106,25 @@ static __always_inline void cleanup_tcp_trace_info_if_needed(pid_connection_info
     }
 }
 
+static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_conn) {
+    tcp_req_t *existing_tcp = bpf_map_lookup_elem(&ongoing_tcp_req, pid_conn);
+    if (!existing_tcp) {
+        return;
+    }
+
+    if (existing_tcp->end_monotime_ns == 0 &&
+        existing_tcp->protocol_type == k_protocol_type_unknown) {
+        existing_tcp->end_monotime_ns = bpf_ktime_get_ns();
+        existing_tcp->resp_len = 0;
+
+        bpf_dbg_printk("Sending pending TCP trace on close: len=%d", existing_tcp->len);
+        bpf_ringbuf_output(&events, existing_tcp, sizeof(*existing_tcp), get_flags());
+    }
+
+    cleanup_trace_info(existing_tcp, pid_conn);
+    bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
+}
+
 static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
                                                  pid_connection_info_t *pid_conn,
                                                  void *u_buf,
@@ -210,7 +229,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         if (req) {
             req->is_server = is_server;
             int original_bytes_len = bytes_len;
-            bpf_clamp_umax(bytes_len, K_TCP_MAX_LEN);
+            bpf_clamp_umax(bytes_len, k_tcp_max_len);
             req->flags = EVENT_TCP_REQUEST;
             req->conn_info = pid_conn->conn;
             fixup_connection_info(&req->conn_info, direction, orig_dport);
@@ -259,7 +278,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         }
 
         if (existing->end_monotime_ns == 0) {
-            bpf_clamp_umax(bytes_len, K_TCP_RES_LEN);
+            bpf_clamp_umax(bytes_len, k_tcp_res_len);
             existing->end_monotime_ns = bpf_ktime_get_ns();
             existing->resp_len = bytes_len;
             existing->is_server = is_server;
@@ -278,15 +297,15 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             }
             cleanup_trace_info(existing, pid_conn);
         }
-    } else if (existing->len > 0 && existing->len < (K_TCP_MAX_LEN / 2)) {
+    } else if (existing->len > 0 && existing->len < (k_tcp_max_len / 2)) {
         // Attempt to append one more packet. I couldn't convince the verifier
-        // to use a variable (K_TCP_MAX_LEN-existing->len). If needed we may need
+        // to use a variable (k_tcp_max_len-existing->len). If needed we may need
         // to try harder. Mainly needed for userspace detection of missed gRPC, where
         // the protocol may sent a RST frame after we've done creating the event, so
         // the next event has an RST frame prepended.
         u32 off = existing->len;
-        bpf_clamp_umax(off, (K_TCP_MAX_LEN / 2));
-        bpf_probe_read(existing->buf + off, (K_TCP_MAX_LEN / 2), u_buf);
+        bpf_clamp_umax(off, (k_tcp_max_len / 2));
+        bpf_probe_read(existing->buf + off, (k_tcp_max_len / 2), u_buf);
         existing->len += bytes_len;
         existing->req_len = existing->len;
         existing->protocol_type = protocol_type;

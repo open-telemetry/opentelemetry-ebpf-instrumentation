@@ -1,0 +1,57 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-obi-python-memcached.yml
+input:
+- path: /memcached
+- path: /memcached-error
+- path: /memcached-noreply
+interval: 500ms
+expected:
+  traces:
+  - traceql: '{ .db.operation.name = "SET" && .db.system.name = "memcached" }'
+    equals: SET
+    attributes:
+      db.operation.name: SET
+      db.system.name: memcached
+      db.query.text: session-key
+      server.port: '11211'
+  - traceql: '{ .db.operation.name = "GET" && .db.system.name = "memcached" }'
+    equals: GET
+    attributes:
+      db.operation.name: GET
+      db.system.name: memcached
+      db.query.text: session-key
+      server.port: '11211'
+  - traceql: '{ .db.operation.name = "DELETE" && .db.system.name = "memcached" }'
+    equals: DELETE
+    attributes:
+      db.operation.name: DELETE
+      db.system.name: memcached
+      db.query.text: session-key
+      server.port: '11211'
+  - traceql: '{ .db.system.name = "memcached" && status = error }'
+    equals: INCR
+    attributes:
+      db.operation.name: INCR
+      db.system.name: memcached
+      db.query.text: error-key
+      db.response.status_code: CLIENT_ERROR
+  - traceql: '{ .db.operation.name = "TOUCH" && .db.system.name = "memcached" }'
+    equals: TOUCH
+    attributes:
+      db.operation.name: TOUCH
+      db.system.name: memcached
+      db.query.text: touch-key
+      server.port: '11211'
+  metrics:
+  - promql: db_client_operation_duration_seconds_count{db_operation_name="SET", db_system_name="memcached"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_count{db_operation_name="GET", db_system_name="memcached"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_count{db_operation_name="DELETE", db_system_name="memcached"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_count{db_operation_name="INCR", error_type="CLIENT_ERROR", db_system_name="memcached"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_count{db_operation_name="TOUCH", db_system_name="memcached"}
+    value: '> 0'

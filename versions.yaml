@@ -48,6 +48,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/wrapper
   - go.opentelemetry.io/obi/internal/test/oats/http
   - go.opentelemetry.io/obi/internal/test/oats/kafka
+  - go.opentelemetry.io/obi/internal/test/oats/memcached
   - go.opentelemetry.io/obi/internal/test/oats/mongo
   - go.opentelemetry.io/obi/internal/test/oats/redis
   - go.opentelemetry.io/obi/internal/test/oats/sql

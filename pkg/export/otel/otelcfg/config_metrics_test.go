@@ -215,7 +215,7 @@ func TestMetricsInterval(t *testing.T) {
 		assert.Equal(t, 60*time.Second, cfg.GetInterval())
 	})
 	cfg.Interval = 5 * time.Second
-	t.Run("Beyla interval takes precedence over OTEL", func(t *testing.T) {
+	t.Run("OBI interval takes precedence over OTEL", func(t *testing.T) {
 		assert.Equal(t, 5*time.Second, cfg.GetInterval())
 	})
 }

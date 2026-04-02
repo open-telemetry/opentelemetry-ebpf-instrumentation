@@ -28,3 +28,10 @@ expected:
       gen_ai.operation.name: message
       gen_ai.response.model: claude-sonnet-4-6
       gen_ai.usage.output_tokens: 39
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="message", gen_ai_provider_name="anthropic", gen_ai_token_type="input", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
+    value: '> 0'
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="message", gen_ai_provider_name="anthropic", gen_ai_token_type="output", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="message", gen_ai_provider_name="anthropic", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
+    value: '> 0'

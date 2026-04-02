@@ -36,20 +36,20 @@ func TestCRLFMatching(t *testing.T) {
 }
 
 func TestRedisParsing(t *testing.T) {
-	proper := []byte("*2\r\n$3\r\nGET\r\n$5\r\nbeyla")
+	proper := []byte("*2\r\n$3\r\nGET\r\n$5\r\nobi")
 
 	op, text, ok := parseRedisRequest(proper)
 	assert.True(t, ok)
 	assert.Equal(t, "GET", op)
-	assert.Equal(t, "GET beyla", text)
+	assert.Equal(t, "GET obi", text)
 
-	weird := []byte("*2\r\nGET\r\nbeyla")
+	weird := []byte("*2\r\nGET\r\nobi")
 	op, text, ok = parseRedisRequest(weird)
 	assert.True(t, ok)
 	assert.Empty(t, op)
 	assert.Empty(t, text)
 
-	unknown := []byte("2\r\nGET\r\nbeyla")
+	unknown := []byte("2\r\nGET\r\nobi")
 	op, text, ok = parseRedisRequest(unknown)
 	assert.True(t, ok)
 	assert.Empty(t, op)

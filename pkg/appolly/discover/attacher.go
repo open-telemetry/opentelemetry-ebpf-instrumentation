@@ -227,7 +227,7 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 
 	tracer := ebpf.NewProcessTracer(tracerType, programs, ta.Cfg, ta.Metrics)
 
-	if err := tracer.Init(ta.EbpfEventContext); err != nil {
+	if err := tracer.Init(ta.EbpfEventContext, ta.Cfg); err != nil {
 		ta.log.Error("couldn't trace process. Stopping process tracer", "error", err)
 		ta.Metrics.InstrumentationError(ie.FileInfo.ExecutableName(), imetrics.InstrumentationErrorInspectionFailed)
 		return false
@@ -268,7 +268,7 @@ func (ta *traceAttacher) withCommonTracersGroup(tracers []ebpf.Tracer) []ebpf.Tr
 	}
 
 	ta.commonTracersLoaded = true
-	tracers = append(tracers, newCommonTracersGroup(ta.Cfg)...)
+	tracers = append(tracers, newCommonTracersGroup(ta.Cfg, ta.Metrics, ta.EbpfEventContext.CommonPIDsFilter)...)
 
 	return tracers
 }

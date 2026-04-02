@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include "common/tp_info.h"
 #include <bpfcore/utils.h>
 
 #include <common/go_addr_key.h>
@@ -228,7 +229,7 @@ static __always_inline void tp_clone(tp_info_t *dest, tp_info_t *src) {
 static __always_inline void
 server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
     // May get overridden when decoding existing traceparent, but otherwise we set sample ON
-    tp->flags = 1;
+    tp->flags = k_flag_sampled;
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
     if (found_tp) {
@@ -309,7 +310,7 @@ static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *t
     u8 found_trace_id = 0;
 
     // May get overridden when decoding existing traceparent or finding a server span, but otherwise we set sample ON
-    tp_i->flags = 1;
+    tp_i->flags = k_flag_sampled;
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);

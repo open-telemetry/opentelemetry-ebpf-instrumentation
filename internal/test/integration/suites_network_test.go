@@ -237,7 +237,7 @@ func callAndCheckMetrics(t *testing.T, req *http.Request, pq promtest.Client, pr
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, r.StatusCode)
 
-	// wait for fetching aggregated flows in beyla about this call
+	// wait for fetching aggregated flows in OBI about this call
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`obi_network_flow_bytes_total{src_port="7000", dst_port="8080"} or obi_network_flow_bytes_total{src_port="8080", dst_port="7000"}`)
 		require.NoError(ct, err)

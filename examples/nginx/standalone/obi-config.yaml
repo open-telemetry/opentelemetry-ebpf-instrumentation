@@ -1,0 +1,25 @@
+routes:
+  patterns:
+    - /users/:user_id/home
+    - /campaigns/:campaign_id/redirect
+    - /support/articles/:article_id
+    - /checkout/sessions/:session_id
+    - /api/users/:user_id/recommendations/v1/:experience
+    - /api/users/:user_id/recommendations/v2/:experience
+    - /api/users/:user_id/recommendations/rollout/:experience
+  unmatched: path
+otel_metrics_export:
+  endpoint: ${OTLP_ENDPOINT:-http://127.0.0.1:4318}
+otel_traces_export:
+  endpoint: ${OTLP_ENDPOINT:-http://127.0.0.1:4318}
+discovery:
+  instrument:
+    - namespace: nginx-example
+      name: edge-nginx
+      open_ports: 8080
+    - namespace: nginx-example
+      name: recommendations-v1
+      open_ports: 8081
+    - namespace: nginx-example
+      name: recommendations-v2
+      open_ports: 8082

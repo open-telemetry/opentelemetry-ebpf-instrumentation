@@ -59,7 +59,7 @@ type SockFlowFetcher struct {
 func NewSockFlowFetcher(
 	sampling, cacheMaxSize int,
 	portGuessPolicy flowdef.PortGuessPolicy,
-	mapReaderImpl config.EBPFMapReader,
+	cfg *config.EBPFTracer,
 ) (*SockFlowFetcher, error) {
 	startTime := uint64(monotime.Now())
 	tlog := tlog()
@@ -79,6 +79,8 @@ func NewSockFlowFetcher(
 	spec.Maps[flowDirectionsMap].MaxEntries = uint32(cacheMaxSize)
 	spec.Maps[connInitiatorsMap].MaxEntries = uint32(cacheMaxSize)
 
+	convenience.SetupMapSizes(spec, cfg.MapsConfig.GlobalScaleFactor, "")
+
 	traceMsgs := 0
 	if tlog.Enabled(context.TODO(), slog.LevelDebug) {
 		traceMsgs = 1
@@ -94,7 +96,7 @@ func NewSockFlowFetcher(
 		constSampling:      uint32(sampling),
 		constTraceMessages: uint8(traceMsgs),
 		constPortGuessing:  portGuessing,
-		"g_bpf_debug":      true,
+		gBpfDebug:          cfg.BpfDebug,
 	}, sharedMaps, &mu, ""); err != nil {
 		printVerifierErrorInfo(err)
 		return nil, err
@@ -119,7 +121,7 @@ func NewSockFlowFetcher(
 		log:           tlog,
 		objects:       &objects,
 		ringbufReader: flows,
-		flowMapReader: chooseMapReader(mapReaderImpl, objects.AggregatedFlows, cacheMaxSize, startTime),
+		flowMapReader: chooseMapReader(cfg.ForceBPFMapReader, objects.AggregatedFlows, cacheMaxSize, startTime),
 	}, nil
 }
 

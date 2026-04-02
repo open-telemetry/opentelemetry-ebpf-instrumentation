@@ -14,3 +14,4 @@ This directory contains documentation that is not useful for our users but might
 - [Dependency Integrity Policy](dependency-integrity-policy.md): required dependency pinning and verification rules for Dockerfiles.
 - [Statistical Metrics](statsolly.md): it explains how to add a new statitiscal metric to OBI.
 - [Python asyncio and uvloop Context Propagation](python-asyncio-context-propagation.md): architecture and implementation of Python async context propagation for `asyncio` workloads, including applications running on `uvloop`.
+- [Trace-Profile Correlation](trace-profile-correlation.md): standard communication channel for correlating profiles to OBI traces.

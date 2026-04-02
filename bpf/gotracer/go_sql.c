@@ -434,7 +434,7 @@ int obi_uprobe_pq_network_return(struct pt_regs *ctx) {
 
     bpf_dbg_printk("address_ptr=%llx, address_len=%d", address_ptr, address_len);
 
-    char address[SQL_HOSTNAME_MAX_LEN] = {0};
+    char address[k_sql_hostname_max_len] = {0};
     if (read_go_str_n("pq address", address_ptr, address_len, address, sizeof(address))) {
         bpf_dbg_printk("address=%s", address);
         bpf_map_update_elem(&pq_hostnames, &g_key, address, BPF_ANY);

@@ -6,6 +6,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/algorithm.h>
 #include <common/common.h>
 #include <common/event_defs.h>
 #include <common/iov_iter.h>
@@ -37,9 +38,7 @@ static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
     for (u32 b = 0; b < niter; b++) {
         const u32 offset = b * k_large_buf_payload_max_size;
 
-        u32 read_size = available_bytes > k_large_buf_payload_max_size
-                            ? k_large_buf_payload_max_size
-                            : available_bytes;
+        u32 read_size = min(available_bytes, k_large_buf_payload_max_size);
         bpf_clamp_umax(read_size, k_large_buf_payload_max_size);
 
         if (bpf_probe_read(large_buf->buf, read_size, p + offset) != 0) {
@@ -48,7 +47,7 @@ static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
 
         large_buf->len = read_size;
 
-        u32 payload_size = read_size > sizeof(void *) ? read_size : sizeof(void *);
+        u32 payload_size = max(read_size, sizeof(void *));
         bpf_clamp_umax(payload_size, k_large_buf_payload_max_size);
         u32 total_size = sizeof(tcp_large_buffer_t) + payload_size;
         bpf_clamp_umax(total_size, k_large_buf_max_size);

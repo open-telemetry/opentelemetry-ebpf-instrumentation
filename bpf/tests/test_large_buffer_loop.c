@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include <common/algorithm.h>
+
 #include <generictracer/protocol_common.h>
 
 typedef struct {
@@ -75,7 +77,7 @@ static loop_result_t run_emit_chunks(uint32_t available_bytes,
 static loop_result_t simulate_with_protocol_max(uint32_t bytes_len,
                                                 uint32_t max_captured,
                                                 enum large_buf_action initial_action) {
-    const uint32_t available = bytes_len < max_captured ? bytes_len : max_captured;
+    const uint32_t available = min(bytes_len, max_captured);
     return run_emit_chunks(available, initial_action);
 }
 
