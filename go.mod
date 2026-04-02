@@ -5,6 +5,7 @@ go 1.25.8
 require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
 	github.com/andybalholm/brotli v1.2.0
+	github.com/caarlos0/env/v11 v11.4.0
 	github.com/caarlos0/env/v9 v9.0.0
 	github.com/cilium/ebpf v0.20.0
 	github.com/containers/common v0.64.2
