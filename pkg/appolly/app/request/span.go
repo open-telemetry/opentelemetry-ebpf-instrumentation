@@ -224,6 +224,12 @@ type MessagingInfo struct {
 	Partition int   `json:"partition"`
 }
 
+type SpanLink struct {
+	TraceID    trace.TraceID `json:"traceID"`
+	SpanID     trace.SpanID  `json:"spanID"`
+	TraceFlags uint8         `json:"traceFlags,string"`
+}
+
 type GraphQL struct {
 	Document      string `json:"document"`
 	OperationName string `json:"operationName"`
@@ -1045,6 +1051,7 @@ type Span struct {
 	AWS               *AWS           `json:"-"`
 	GenAI             *GenAI         `json:"-"`
 	JSONRPC           *JSONRPC       `json:"-"`
+	Links             []SpanLink     `json:"links,omitempty"`
 
 	// RequestHeaders stores extracted HTTP request headers based on enrichment rules.
 	// Keys are canonical header names, values are all header values (possibly obfuscated).

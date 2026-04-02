@@ -51,16 +51,6 @@ struct {
     __uint(pinning, OBI_PIN_INTERNAL);
 } span_names SEC(".maps");
 
-// this is a large value data structure, increase
-// concurrent_custom_spans carefully.
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, go_addr_key_t); // span pointer
-    __type(value, otel_span_t);
-    __uint(max_entries, MAX_CONCURRENT_CUSTOM_SPANS);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} active_spans SEC(".maps");
-
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, int);
@@ -234,25 +224,30 @@ int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
         read_attrs_from_opts(span, (void *)span_info->opts_ptr, span_info->opts_len);
     }
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
     tp_info_t *tp = tp_info_from_parent_go(&g_key, &span->parent_go);
-    if (tp) {
-        __builtin_memcpy(&span->prev_tp, tp, sizeof(tp_info_t));
-        tp_from_parent(&span->tp, tp);
-        span->tp.flags = tp->flags;
-        urand_bytes(span->tp.span_id, SPAN_ID_SIZE_BYTES);
-        encode_hex(tp_buf, span->tp.parent_id, SPAN_ID_SIZE_BYTES);
+    if (!tp) {
+        bpf_map_delete_elem(&span_names, &g_key);
+        return 0;
+    }
 
-        if (span->parent_go) {
-            go_addr_key_t gp_key = {};
-            go_addr_key_from_id(&gp_key, (void *)span->parent_go);
-            update_tp_parent_go(&gp_key, &span->tp);
+    __builtin_memcpy(&span->prev_tp, tp, sizeof(tp_info_t));
+    tp_from_parent(&span->tp, tp);
+    span->tp.flags = tp->flags;
+    urand_bytes(span->tp.span_id, SPAN_ID_SIZE_BYTES);
 
-            // reusing gp_key to save stack space
-            go_addr_key_from_id(&gp_key, span_ptr);
+    if (span->parent_go) {
+        go_addr_key_t gp_key = {};
+        go_addr_key_from_id(&gp_key, (void *)span->parent_go);
+        update_tp_parent_go(&gp_key, &span->tp);
 
-            bpf_map_update_elem(&active_spans, &gp_key, span, BPF_ANY);
-        }
+        // reusing gp_key to save stack space
+        go_addr_key_from_id(&gp_key, span_ptr);
+
+        bpf_map_update_elem(&active_spans, &gp_key, span, BPF_ANY);
+    } else {
+        go_addr_key_t s_key = {};
+        go_addr_key_from_id(&s_key, span_ptr);
+        bpf_map_update_elem(&active_spans, &s_key, span, BPF_ANY);
     }
 
     bpf_map_delete_elem(&span_names, &g_key);
@@ -261,9 +256,10 @@ int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
 
 SEC("uprobe/nonRecordingSpan_End")
 int obi_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
+    void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
     void *span_ptr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk("=== uprobe/nonRecordingSpan_End ===");
-    bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", (void *)GOROUTINE_PTR(ctx), span_ptr);
+    bpf_dbg_printk("goroutine_addr=%lx, span_ptr=%lx", goroutine_addr, span_ptr);
 
     go_addr_key_t s_key = {};
     go_addr_key_from_id(&s_key, span_ptr);

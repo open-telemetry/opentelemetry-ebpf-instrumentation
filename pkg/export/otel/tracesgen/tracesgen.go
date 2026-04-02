@@ -174,6 +174,19 @@ func GenerateTracesWithAttributes(
 		if span.ParentSpanID.IsValid() {
 			s.SetParentSpanID(pcommon.SpanID(span.ParentSpanID))
 		}
+		if len(span.Links) > 0 {
+			otelLinks := s.Links()
+			otelLinks.EnsureCapacity(len(span.Links))
+			for _, link := range span.Links {
+				if !link.TraceID.IsValid() || !link.SpanID.IsValid() {
+					continue
+				}
+				otelLink := otelLinks.AppendEmpty()
+				otelLink.SetTraceID(pcommon.TraceID(link.TraceID))
+				otelLink.SetSpanID(pcommon.SpanID(link.SpanID))
+				otelLink.SetFlags(uint32(link.TraceFlags))
+			}
+		}
 
 		// Set span attributes
 		m := AttrsToMap(attrs)

@@ -35,7 +35,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -73,6 +73,7 @@ const (
 	EventTypeGoMongo        = 14 // EVENT_GO_MONGO - Go MongoDB spans
 	EventTypeFailedConnect  = 15 // EVENT_FAILED_CONNECT - Failed Connections
 	EventTypeDNS            = 16 // EVENT_DNS_REQUEST - DNS events
+	EventTypeGoChannelLink  = 17 // EVENT_GO_CHANNEL_LINK - Go channel handoff span links
 )
 
 // Kernel-side classification
@@ -201,6 +202,7 @@ type EBPFParseContext struct {
 	payloadExtraction          config.PayloadExtraction
 	httpEnricher               *ebpfhttp.HTTPEnricher
 	dnsEvents                  *expirable.LRU[dnsparser.DNSId, *request.Span]
+	pendingSpanLinks           *pendingSpanLinks
 	emitSpans                  func([]request.Span)
 }
 
@@ -372,7 +374,17 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		httpEnricher:               httpEnricher,
 		dnsEvents:                  dnsEvents,
 		emitSpans:                  emitSpans,
+		pendingSpanLinks:           newPendingSpanLinks(),
 	}
+}
+
+func finalizeParsedSpan(parseCtx *EBPFParseContext, span request.Span, ignore bool, err error) (request.Span, bool, error) {
+	if err != nil || ignore || parseCtx == nil {
+		return span, ignore, err
+	}
+
+	parseCtx.consumePendingSpanLinks(&span)
+	return span, false, nil
 }
 
 func (ctx *EBPFParseContext) emitExtraSpans(spans ...request.Span) {
@@ -401,29 +413,41 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 
 	switch eventType {
 	case EventTypeSQL:
-		return ReadSQLRequestTraceAsSpan(record)
+		span, ignore, err := ReadSQLRequestTraceAsSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeKHTTP:
-		return ReadHTTPInfoIntoSpan(parseCtx, record, filter)
+		span, ignore, err := ReadHTTPInfoIntoSpan(parseCtx, record, filter)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeKHTTP2:
-		return ReadHTTP2InfoIntoSpan(parseCtx, record, filter)
+		span, ignore, err := ReadHTTP2InfoIntoSpan(parseCtx, record, filter)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeTCP:
-		return ReadTCPRequestIntoSpan(parseCtx, cfg, record, filter)
+		span, ignore, err := ReadTCPRequestIntoSpan(parseCtx, cfg, record, filter)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoSarama:
-		return ReadGoSaramaRequestIntoSpan(record)
+		span, ignore, err := ReadGoSaramaRequestIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoRedis:
-		return ReadGoRedisRequestIntoSpan(record)
+		span, ignore, err := ReadGoRedisRequestIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoMongo:
-		return ReadGoMongoRequestIntoSpan(record)
+		span, ignore, err := ReadGoMongoRequestIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoKafkaGo:
-		return ReadGoKafkaGoRequestIntoSpan(record)
+		span, ignore, err := ReadGoKafkaGoRequestIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeTCPLargeBuffer:
 		return appendTCPLargeBuffer(parseCtx, record)
 	case EventOTelSDKGo:
-		return ReadGoOTelEventIntoSpan(record)
+		span, ignore, err := ReadGoOTelEventIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeFailedConnect:
-		return ReadFailedConnectIntoSpan(record, filter)
+		span, ignore, err := ReadFailedConnectIntoSpan(record, filter)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeDNS:
 		return readDNSEventIntoSpan(parseCtx, record)
+	case EventTypeGoChannelLink:
+		return readGoChannelLinkEvent(parseCtx, record)
 	}
 
 	event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)
@@ -431,7 +455,7 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return request.Span{}, true, err
 	}
 
-	return HTTPRequestTraceToSpan(event), false, nil
+	return finalizeParsedSpan(parseCtx, HTTPRequestTraceToSpan(event), false, nil)
 }
 
 func ReinterpretCast[T any](b []byte) (*T, error) {

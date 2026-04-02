@@ -173,6 +173,44 @@ func TestGenerateTraces(t *testing.T) {
 		assert.NotEqual(t, spans.At(1).SpanID().String(), spans.At(2).SpanID().String())
 	})
 
+	t.Run("test with span links", func(t *testing.T) {
+		start := time.Now()
+		traceID, _ := trace.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
+		spanID, _ := trace.SpanIDFromHex("89cbc1f60aab3b04")
+		linkTraceID, _ := trace.TraceIDFromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		linkSpanID, _ := trace.SpanIDFromHex("bbbbbbbbbbbbbbbb")
+		span := &request.Span{
+			Type:         request.EventTypeManualSpan,
+			RequestStart: start.UnixNano(),
+			Start:        start.UnixNano(),
+			End:          start.Add(time.Second).UnixNano(),
+			Method:       "work",
+			TraceID:      traceID,
+			SpanID:       spanID,
+			Service:      svc.Attrs{UID: svc.UID{Name: "links"}},
+			Links: []request.SpanLink{{
+				TraceID:    linkTraceID,
+				SpanID:     linkSpanID,
+				TraceFlags: 1,
+			}},
+		}
+
+		traces := tracesgen.GenerateTracesWithAttributes(
+			cache,
+			&span.Service,
+			[]attribute.KeyValue{},
+			hostID,
+			groupFromSpanAndAttributes(span, []attribute.KeyValue{}),
+			reporterName,
+		)
+
+		otelSpan := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
+		require.Equal(t, 1, otelSpan.Links().Len())
+		assert.Equal(t, pcommon.TraceID(linkTraceID), otelSpan.Links().At(0).TraceID())
+		assert.Equal(t, pcommon.SpanID(linkSpanID), otelSpan.Links().At(0).SpanID())
+		assert.Equal(t, uint32(1), otelSpan.Links().At(0).Flags())
+	})
+
 	t.Run("test with subtraces - generated ids", func(t *testing.T) {
 		start := time.Now()
 		span := &request.Span{

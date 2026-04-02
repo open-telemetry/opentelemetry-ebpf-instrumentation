@@ -18,6 +18,7 @@
 #include <bpfcore/utils.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/common.h>
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
@@ -84,6 +85,14 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } go_trace_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, go_addr_key_t); // span pointer
+    __type(value, otel_span_t);
+    __uint(max_entries, MAX_CONCURRENT_CUSTOM_SPANS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} active_spans SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
