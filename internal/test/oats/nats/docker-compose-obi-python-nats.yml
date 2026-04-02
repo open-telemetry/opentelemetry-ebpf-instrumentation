@@ -1,0 +1,45 @@
+services:
+  nats:
+    image: docker.io/nats:2.11.4-alpine@sha256:b8d6a01568a7837d5186f948a3ebfae1bdf5a602268273b50704655982596b22
+    ports:
+      - "4222:4222"
+  testserver:
+    build:
+      context: ../../integration/components/pythonnats
+      dockerfile: Dockerfile
+    image: pythonnats
+    ports:
+      - "8080:8080"
+    environment:
+      NATS_URL: nats://nats:4222
+      NATS_SUBJECT: updates.orders
+    depends_on:
+      nats:
+        condition: service_started
+  autoinstrumenter:
+    build:
+      context: ../../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/instrumenter-config-traces.yml
+    volumes:
+      - ./configs:/configs
+      - ./testoutput/run:/var/run/obi
+      - ../../../../testoutput:/coverage
+    privileged: true
+    network_mode: "service:testserver"
+    pid: "service:testserver"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OPEN_PORT: 8080
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://lgtm:4318"
+    depends_on:
+      testserver:
+        condition: service_started

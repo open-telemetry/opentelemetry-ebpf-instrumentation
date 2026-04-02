@@ -193,11 +193,13 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.MessagingSystem:
 		getter = func(span *Span) attribute.KeyValue {
-			if span.Type == EventTypeKafkaClient || span.Type == EventTypeKafkaServer {
+			switch span.Type {
+			case EventTypeKafkaClient, EventTypeKafkaServer:
 				return semconv.MessagingSystemKafka
-			}
-			if span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer {
+			case EventTypeMQTTClient, EventTypeMQTTServer:
 				return semconv.MessagingSystemKey.String("mqtt")
+			case EventTypeNATSClient, EventTypeNATSServer:
+				return semconv.MessagingSystemKey.String("nats")
 			}
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				return semconv.MessagingSystemAWSSQS
@@ -210,6 +212,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return semconv.MessagingDestinationName(span.Path)
 			}
 			if span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer {
+				return semconv.MessagingDestinationName(span.Path)
+			}
+			if span.Type == EventTypeNATSClient || span.Type == EventTypeNATSServer {
 				return semconv.MessagingDestinationName(span.Path)
 			}
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
@@ -231,6 +236,12 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.MessagingOpType:
 		getter = func(span *Span) attribute.KeyValue {
+			switch span.Type {
+			case EventTypeKafkaClient, EventTypeKafkaServer,
+				EventTypeMQTTClient, EventTypeMQTTServer,
+				EventTypeNATSClient, EventTypeNATSServer:
+				return MessagingOperationType(span.Method)
+			}
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				return MessagingOperationType(span.AWS.SQS.OperationType)
 			}

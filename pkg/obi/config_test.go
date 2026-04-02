@@ -231,6 +231,7 @@ discovery:
 				instrumentations.InstrumentationRedis,
 				instrumentations.InstrumentationKafka,
 				instrumentations.InstrumentationMQTT,
+				instrumentations.InstrumentationNATS,
 				instrumentations.InstrumentationMongo,
 				instrumentations.InstrumentationCouchbase,
 				instrumentations.InstrumentationMemcached,

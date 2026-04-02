@@ -486,3 +486,30 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 		})
 	}
 }
+
+func TestSpanOTELGetters_MessagingAttributes_NATS(t *testing.T) {
+	span := &Span{
+		Type:   EventTypeNATSClient,
+		Path:   "updates.orders",
+		Method: MessagingPublish,
+	}
+
+	systemGetter, ok := spanOTELGetters(attr.MessagingSystem)
+	require.True(t, ok, "getter should be found for MessagingSystem")
+	systemKV := systemGetter(span)
+	assert.Equal(t, string(attr.MessagingSystem), string(systemKV.Key))
+	assert.Equal(t, "nats", systemKV.Value.AsString())
+
+	destinationGetter, ok := spanOTELGetters(attr.MessagingDestination)
+	require.True(t, ok, "getter should be found for MessagingDestination")
+	destinationKV := destinationGetter(span)
+	assert.Equal(t, string(attr.MessagingDestination), string(destinationKV.Key))
+	assert.Equal(t, "updates.orders", destinationKV.Value.AsString())
+
+	opTypeGetter, ok := spanOTELGetters(attr.MessagingOpType)
+	require.True(t, ok, "getter should be found for MessagingOpType")
+	assert.Equal(t, MessagingPublish, opTypeGetter(span).Value.AsString())
+
+	span.Method = MessagingProcess
+	assert.Equal(t, MessagingProcess, opTypeGetter(span).Value.AsString())
+}
