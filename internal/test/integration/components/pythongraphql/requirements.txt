@@ -167,6 +167,7 @@ starlette==0.52.1 \
     --hash=sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74 \
     --hash=sha256:834edd1b0a23167694292e94f597773bc3f89f362be6effee198165a35d62933
     # via
+    #   -r requirements.in
     #   ariadne
     #   fastapi
 typing-extensions==4.15.0 \

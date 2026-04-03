@@ -17,6 +17,12 @@
   ],
   "prConcurrentLimit": 10,
   "prHourlyLimit": 3,
+  "pip-compile": {
+    "managerFilePatterns": [
+      "/^internal\\/test\\/integration\\/components\\/.*\\/requirements(-[^/]+)?\\.txt$/",
+      "/^\\.github\\/.*-requirements\\.txt$/"
+    ]
+  },
   "packageRules": [
     {
       "groupName": "Go",
@@ -67,6 +73,18 @@
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
       "schedule": ["before 6am on Thursday"]
+    },
+    {
+      "groupName": "Python",
+      "matchManagers": ["pip-compile"],
+      "matchUpdateTypes": ["minor", "major"],
+      "schedule": ["before 6am on Thursday"]
+    },
+    {
+      "description": "Disable raw pip_requirements handling for integration component requirements files",
+      "matchManagers": ["pip_requirements"],
+      "matchFileNames": ["internal/test/integration/components/**"],
+      "enabled": false
     },
     {
       "description": "Disable patch updates for test dependencies (only bump major/minor)",
