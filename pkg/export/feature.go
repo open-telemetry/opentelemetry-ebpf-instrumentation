@@ -23,8 +23,8 @@ const (
 	// zero value.
 	FeatureEmpty Features = 1 << iota
 	FeatureNetwork
-	FeatureStatsTcpRtt
-	FeatureStatsTcpFailedConnections
+	FeatureStatsTCPRtt
+	FeatureStatsTCPFailedConnections
 	FeatureNetworkInterZone
 	FeatureApplicationRED
 	FeatureSpanLegacy
@@ -39,8 +39,8 @@ const (
 // FeatureMapper stays public so any extension package can add and remove feature
 // definitions before loading them.
 var FeatureMapper = map[string]Features{
-	"stats_tcp_rtt":                FeatureStatsTcpRtt,
-	"stats_tcp_failed_connections": FeatureStatsTcpFailedConnections,
+	"stats_tcp_rtt":                FeatureStatsTCPRtt,
+	"stats_tcp_failed_connections": FeatureStatsTCPFailedConnections,
 	"network":                      FeatureNetwork,
 	"network_inter_zone":           FeatureNetworkInterZone,
 	"application":                  FeatureApplicationRED,
@@ -177,15 +177,15 @@ func (f Features) NetworkBytes() bool {
 }
 
 func (f Features) StatMetrics() bool {
-	return f.any(FeatureStatsTcpRtt | FeatureStatsTcpFailedConnections)
+	return f.any(FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections)
 }
 
 func (f Features) StatsTCPRtt() bool {
-	return f.any(FeatureStatsTcpRtt)
+	return f.any(FeatureStatsTCPRtt)
 }
 
 func (f Features) StatsTCPFailedConnections() bool {
-	return f.any(FeatureStatsTcpFailedConnections)
+	return f.any(FeatureStatsTCPFailedConnections)
 }
 
 func (f Features) NetworkInterZone() bool {

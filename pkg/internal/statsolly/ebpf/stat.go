@@ -17,7 +17,7 @@ const (
 type TCPFailReasonType string
 
 const (
-	Unknown           TCPFailReasonType = "unkown"
+	Unknown           TCPFailReasonType = "unknown"
 	ConnectionRefused TCPFailReasonType = "refused"
 	ConnectionReset   TCPFailReasonType = "reset"
 	TimedOut          TCPFailReasonType = "timed-out"

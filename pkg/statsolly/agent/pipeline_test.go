@@ -46,7 +46,7 @@ func TestFilter(t *testing.T) {
 				Port: promPort,
 				TTL:  time.Hour,
 			},
-			Metrics: perapp.MetricsConfig{Features: export.FeatureStatsTcpRtt},
+			Metrics: perapp.MetricsConfig{Features: export.FeatureStatsTCPRtt},
 			Attributes: obi.Attributes{Select: attributes.Selection{
 				attributes.StatTCPRtt.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port"},

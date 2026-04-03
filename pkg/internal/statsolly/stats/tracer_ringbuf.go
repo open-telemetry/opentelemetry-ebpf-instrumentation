@@ -108,7 +108,7 @@ func readTCPFailedConnectionsIntoStat(record *ringbuf.Record) (ebpf.Stat, error)
 	}
 
 	var srcAddr, dstAddr pipe.IPAddr
-	var destinationPort uint16 = 0
+	var destinationPort uint16
 	if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
 		srcAddr = pipe.IPAddr(event.Conn.S_addr)
 		dstAddr = pipe.IPAddr(event.Conn.D_addr)
