@@ -186,6 +186,12 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 			return request.Span{}, true, fmt.Errorf("failed to handle Memcached event: %w", err)
 		}
 		return span, false, nil
+	// must come before MQTT: the MQTT heuristic can match the HTTP/2 connection preface,
+	// silently dropping packets that should be re-routed as HTTP/2
+	case isHTTP2(requestBuffer, int(event.Len)) || isHTTP2(responseBuffer, int(event.RespLen)):
+		evCopy := *event
+		MisclassifiedEvents <- MisclassifiedEvent{EventType: EventTypeKHTTP2, TCPInfo: &evCopy}
+		return request.Span{}, true, nil // ignore for now, next event will be parsed
 	case isMQTT(requestBuffer) || isMQTT(responseBuffer):
 		m, ignore, err := ProcessPossibleMQTTEvent(event, requestBuffer, responseBuffer)
 		if ignore && err == nil {
@@ -197,21 +203,13 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 		// MQTT heuristic matched but full parsing failed - ignore the packet
 		slog.Debug("MQTT heuristic detection failed, ignoring", "error", err)
 	default:
-		// Kafka and gRPC can look very similar in terms of bytes. We can mistake one for another.
-		// We try gRPC first because it's more reliable in detecting false gRPC sequences.
-		if isHTTP2(requestBuffer, int(event.Len)) || isHTTP2(responseBuffer, int(event.RespLen)) {
-			evCopy := *event
-			MisclassifiedEvents <- MisclassifiedEvent{EventType: EventTypeKHTTP2, TCPInfo: &evCopy}
-			return request.Span{}, true, nil // ignore for now, next event will be parsed
-		} else {
-			// we should not arrive here, leave it for completeness
-			k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
-			if ignore && err == nil {
-				return request.Span{}, true, nil // parsed kafka event, but we don't want to create a span for it
-			}
-			if err == nil {
-				return TCPToKafkaToSpan(event, k), false, nil
-			}
+		// Kafka can arrive here for packets the kernel couldn't classify (e.g. OBI attached mid-connection).
+		k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
+		if ignore && err == nil {
+			return request.Span{}, true, nil // parsed kafka event, but we don't want to create a span for it
+		}
+		if err == nil {
+			return TCPToKafkaToSpan(event, k), false, nil
 		}
 	}
 
