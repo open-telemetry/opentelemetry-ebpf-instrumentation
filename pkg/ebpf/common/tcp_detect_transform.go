@@ -122,7 +122,7 @@ func dispatchMQTT(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf
 
 func handleError(span request.Span, err error, name string) (request.Span, bool, bool, error) {
 	if errors.Is(err, errFallback) {
-		slog.Debug(name + ": falling back to generic handler")
+		slog.Debug("falling back to generic handler", "protocol", name)
 		return request.Span{}, false, false, nil
 	}
 
