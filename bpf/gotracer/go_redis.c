@@ -115,16 +115,9 @@ int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
                 &conn_ptr,
                 sizeof(conn_ptr),
                 (void *)(bw_ptr + go_offset_of(ot, (go_offset){.v = _io_writer_wr_pos}) + 8));
-            bpf_dbg_printk("tcp_conn_ptr=%llx", conn_ptr);
-            if (conn_ptr) {
-                bpf_probe_read(
-                    &conn_ptr,
-                    sizeof(conn_ptr),
-                    (void *)(conn_ptr + go_offset_of(ot, (go_offset){.v = _net_conn_pos})));
-                bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
-                if (conn_ptr && !get_conn_info(conn_ptr, &req->conn)) {
-                    __builtin_memset(&req->conn, 0, sizeof(connection_info_t));
-                }
+            bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
+            if (conn_ptr && !get_conn_info(conn_ptr, &req->conn)) {
+                __builtin_memset(&req->conn, 0, sizeof(connection_info_t));
             }
         }
     }
