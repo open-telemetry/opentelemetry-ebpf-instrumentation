@@ -16,7 +16,7 @@ OBI can enrich JSON log lines with `trace_id` and `span_id` fields, linking logs
 
 ## Overview
 
-The logenricher hooks write paths (`tty_write`, `pipe_write`, `ksys_write`, `do_writev`) to intercept log output. When a write occurs it:
+The logenricher hooks into write paths (`tty_write`, `pipe_write`, `ksys_write`, `do_writev`) to intercept log output. When a write occurs it:
 
 1. Looks up `traces_ctx_v1[pid_tgid]` to get the active trace/span context for the calling thread.
 2. Reads the user buffer via `bpf_probe_read_user`, packages the log line together with the trace context into a `log_event_t`, and submits it to the `log_events` ring buffer.

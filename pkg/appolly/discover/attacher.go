@@ -45,12 +45,13 @@ type traceAttacher struct {
 	processInstances maps.MultiCounter[uint64]
 
 	// keeps a copy of all the tracers for a given executable path
-	existingTracers  map[uint64]*ebpf.ProcessTracer
-	nodeInjector     *nodejs.NodeInjector
-	javaInjector     *javaagent.JavaInjector
-	reusableTracer   *ebpf.ProcessTracer
-	reusableGoTracer *ebpf.ProcessTracer
-	commonTracers    []ebpf.Tracer
+	existingTracers     map[uint64]*ebpf.ProcessTracer
+	nodeInjector        *nodejs.NodeInjector
+	javaInjector        *javaagent.JavaInjector
+	reusableTracer      *ebpf.ProcessTracer
+	reusableGoTracer    *ebpf.ProcessTracer
+	commonTracers       []ebpf.Tracer
+	commonTracersLoaded bool
 
 	// Usually, only ebpf.Tracer implementations will send spans data to the read decorator.
 	// But on each new process, we will send a "process alive" span type to the read decorator, whose
@@ -263,10 +264,11 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 }
 
 func (ta *traceAttacher) withCommonTracersGroup(tracers []ebpf.Tracer) []ebpf.Tracer {
-	if ta.commonTracers != nil {
+	if ta.commonTracersLoaded {
 		return tracers
 	}
 
+	ta.commonTracersLoaded = true
 	ta.commonTracers = newCommonTracersGroup(ta.Cfg, ta.Metrics, ta.EbpfEventContext.CommonPIDsFilter)
 
 	return append(tracers, ta.commonTracers...)

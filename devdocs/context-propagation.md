@@ -26,6 +26,8 @@ This document explains how OpenTelemetry context propagation works in the eBPF i
 - [The sock_dir sockmap](#the-sock_dir-sockmap)
 - [Summary](#summary)
 
+For trace-log correlation (log enricher / `traces_ctx_v1` map), see [trace-log-correlation.md](trace-log-correlation.md).
+
 ## Overview
 
 Context propagation allows distributed tracing by injecting trace context (trace ID, span ID) into outgoing requests. The eBPF instrumentation supports two injection methods:
