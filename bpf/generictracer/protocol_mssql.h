@@ -125,7 +125,7 @@ static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
             expected_len = hdr.length;
             bpf_dbg_printk("mssql response: expected_len=%d", hdr.length);
 
-            // Copy the first part of the response for userspace parsing
+            // Copy the first response packet, which contains the TDS header and error token for userspace parsing
             bpf_probe_read(req->rbuf, k_tcp_res_len, u_buf);
         }
     }
