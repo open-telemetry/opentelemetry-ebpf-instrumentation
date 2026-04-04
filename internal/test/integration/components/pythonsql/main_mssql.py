@@ -42,8 +42,8 @@ async def argquery():
 async def prepquery():
     c = get_conn()
     cur = c.cursor()
-    # Explicitly using sp_prepexec to test server-side prepared statements
-    # This matches kMSSQLProcIDPrepExec (13) in the Go code
+    # Parameterized query intended to exercise prepared statement handling
+    # Uses the same pattern as /argquery
     sql = "SELECT * FROM actor WHERE actor_id = %d"
     cur.execute(sql, (1,))
     row = cur.fetchone()
