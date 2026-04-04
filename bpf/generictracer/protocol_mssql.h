@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "logger/bpf_dbg.h"
+#include <logger/bpf_dbg.h>
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_endian.h>
 #include <bpfcore/bpf_helpers.h>
@@ -112,68 +112,62 @@ static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
                                                    u8 packet_type,
                                                    u8 direction,
                                                    enum large_buf_action action) {
-    bool is_request = (direction == req->direction);
     u32 expected_len = 0;
 
-    if (!is_request) {
+    if (packet_type == PACKET_TYPE_RESPONSE) {
         // Response Phase
-        // We use _pad2 to store the expected length of the response
-        u32 *expected_len_ptr = (u32 *)req->_pad2;
         if (req->resp_len > 0) {
-            action = k_large_buf_action_append;
+            // The first part of the response (including the header) is already in req->rbuf
+            struct mssql_hdr hdr = mssql_parse_hdr(req->rbuf);
+            expected_len = hdr.length;
         } else if (bytes_len >= k_mssql_hdr_size) {
             struct mssql_hdr hdr = mssql_parse_hdr(u_buf);
-            *expected_len_ptr = hdr.length;
+            expected_len = hdr.length;
             bpf_dbg_printk("mssql response: expected_len=%d", hdr.length);
 
             // Copy the first part of the response for userspace parsing
-            bpf_probe_read(req->rbuf, K_TCP_RES_LEN, u_buf);
+            bpf_probe_read(req->rbuf, k_tcp_res_len, u_buf);
         }
-        expected_len = *expected_len_ptr;
     }
 
-    if (mssql_max_captured_bytes > 0) {
-        // these are the bytes already sent so far
-        const u32 bytes_sent = is_request ? req->lb_req_bytes : req->lb_res_bytes;
+    // these are the bytes already sent so far
+    u32 *bytes_sent_ptr =
+        (packet_type == PACKET_TYPE_REQUEST) ? &req->lb_req_bytes : &req->lb_res_bytes;
+    const u32 bytes_sent = *bytes_sent_ptr;
 
-        if (bytes_sent < mssql_max_captured_bytes && bytes_len > 0) {
-            tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
-            if (!large_buf) {
-                if (!is_request) {
-                    bpf_dbg_printk(
-                        "mssql_send_large_buffer: failed to reserve space for MSSQL large buffer");
-                }
-            } else {
-                large_buf->type = EVENT_TCP_LARGE_BUFFER;
-                large_buf->packet_type = packet_type;
-                large_buf->action = action;
-                large_buf->direction = direction;
-                large_buf->conn_info = req->conn_info;
-                large_buf->tp = req->tp;
-
-                u32 max_available_bytes = mssql_max_captured_bytes - bytes_sent;
-                bpf_clamp_umax(max_available_bytes, k_large_buf_max_mssql_captured_bytes);
-
-                u32 available_bytes = bytes_len;
-                if (available_bytes > max_available_bytes) {
-                    available_bytes = max_available_bytes;
-                }
-                const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
-
-                if (consumed_bytes > 0) {
-                    req->has_large_buffers = true;
-                }
-
-                if (is_request) {
-                    req->lb_req_bytes += consumed_bytes;
-                } else {
-                    req->lb_res_bytes += consumed_bytes;
-                }
+    if (mssql_max_captured_bytes > 0 && bytes_sent < mssql_max_captured_bytes && bytes_len > 0) {
+        tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
+        if (!large_buf) {
+            if (packet_type == PACKET_TYPE_RESPONSE) {
+                bpf_dbg_printk(
+                    "mssql_send_large_buffer: failed to reserve space for MSSQL large buffer");
             }
+        } else {
+            large_buf->type = EVENT_TCP_LARGE_BUFFER;
+            large_buf->packet_type = packet_type;
+            large_buf->action = action;
+            if (packet_type == PACKET_TYPE_RESPONSE && req->resp_len > 0) {
+                large_buf->action = k_large_buf_action_append;
+            }
+            large_buf->direction = direction;
+            large_buf->conn_info = req->conn_info;
+            large_buf->tp = req->tp;
+
+            u32 max_available_bytes = mssql_max_captured_bytes - bytes_sent;
+            bpf_clamp_umax(max_available_bytes, k_large_buf_max_mssql_captured_bytes);
+
+            u32 available_bytes = min(bytes_len, max_available_bytes);
+            const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
+
+            if (consumed_bytes > 0) {
+                req->has_large_buffers = true;
+            }
+
+            *bytes_sent_ptr += consumed_bytes;
         }
     }
 
-    if (!is_request) {
+    if (packet_type == PACKET_TYPE_RESPONSE) {
         req->resp_len += bytes_len;
         if (expected_len > 0 && req->resp_len < expected_len) {
             bpf_dbg_printk("mssql response: partial, acc=%d exp=%d", req->resp_len, expected_len);

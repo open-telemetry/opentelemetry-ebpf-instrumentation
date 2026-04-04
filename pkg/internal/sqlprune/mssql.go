@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	MSSQLHdrSize  = 8
-	MSSQLErrToken = 0xAA
+	MSSQLHdrSize      = 8
+	MSSQLErrToken     = 0xAA
+	MSSQLPktResponse  = 0x04
 )
 
 func parseMSSQLCommandID(buf []uint8) uint8 {
@@ -43,7 +44,7 @@ func parseMSSQLError(buf []uint8) *request.SQLError {
 	}
 
 	// Check if it is a response packet
-	if buf[0] != 4 {
+	if buf[0] != MSSQLPktResponse {
 		return nil
 	}
 

@@ -6,6 +6,7 @@
 | gRPC          |    All    |        1.0+ | All                                                                                      |  Yes   |                 No |                                      Can't get method for long living connections before OBI started, will mark method with `*`
 | MySQL         |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
 | PostgreSQL    |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
+| MSSQL         |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
 | Redis         |    All    |         All | All                                                                                      |  Yes   |                 No |             For already started connections, can't infer the number of the database, and won't add the `db.namespace` attribute
 | MongoDB       |    All    |        5.0+ | insert, update, find, delete, findAndModify, aggregate, count, distinct, mapReduce       |  Yes   |                 No |                                                                                              no support for compressed payloads
 | Couchbase     |    All    |         All | All                                                                                      |  Yes   |                 No | Bucket unknown if SELECT_BUCKET occurred before OBI started; Collection unknown if GET_COLLECTION_ID occurred before OBI started
@@ -61,8 +62,9 @@ Large payloads are streamed to userspace across multiple ring-buffer events and 
 | `OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL`  | MySQL      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA`  | Kafka      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES` | PostgreSQL | 65535 | 0 (disabled) |
+| `OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL`  | MSSQL      | 65535   | 0 (disabled) |
 
-Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres}`.
+Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres,mssql}`.
 
 ## GPU Instrumentation
 
