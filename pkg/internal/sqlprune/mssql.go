@@ -60,8 +60,7 @@ func parseMSSQLError(buf []uint8) *request.SQLError {
 		if offset+2 > len(buf) {
 			return nil
 		}
-		// Length of the error token stream
-		// length := binary.LittleEndian.Uint16(buf[offset : offset+2])
+		// Skip the 2-byte length of the error token stream
 		offset += 2
 
 		// Number (4 bytes)
