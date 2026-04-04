@@ -293,6 +293,10 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                                existing->resp_len);
 
                 __builtin_memcpy(trace, existing, sizeof(tcp_req_t));
+                /*
+                 * MSSQL responses are emitted through the large-buffer path,
+                 * so skip the direct response read here to avoid duplicating it.
+                 */
                 if (existing->protocol_type != k_protocol_type_mssql) {
                     bpf_probe_read(trace->rbuf, bytes_len, u_buf);
                 }
