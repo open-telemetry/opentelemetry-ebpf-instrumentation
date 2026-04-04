@@ -15,13 +15,16 @@
 
 #pragma once
 
+#include <bpfcore/vmlinux.h>
 #include <bpfcore/utils.h>
+
+#include <common/algorithm.h>
 
 #include <logger/bpf_dbg.h>
 
 static __always_inline int
 read_go_str_n(char *name, void *base_ptr, u64 len, void *field, u64 max_size) {
-    const u64 size = max_size < len ? max_size : len;
+    const u64 size = min(max_size, len);
     if (bpf_probe_read(field, size, base_ptr)) {
         bpf_dbg_printk("can't read string for %s", name);
         return 0;
@@ -49,7 +52,7 @@ read_go_str(char *name, void *base_ptr, u8 offset, void *field, u64 max_size) {
         return 0;
     }
 
-    const u64 size = max_size < len ? max_size : len;
+    const u64 size = min(max_size, len);
     if (bpf_probe_read(field, size, ptr)) {
         bpf_dbg_printk("can't read string for %s", name);
         return 0;

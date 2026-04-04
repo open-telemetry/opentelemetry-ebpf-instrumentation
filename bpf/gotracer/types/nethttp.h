@@ -18,10 +18,10 @@ static const char traceparent[] = "traceparent: ";
 typedef struct http_client_data {
     s64 content_length;
     pid_info pid;
-    unsigned char path[PATH_MAX_LEN];
-    unsigned char host[HOST_MAX_LEN];
-    unsigned char scheme[SCHEME_MAX_LEN];
-    unsigned char method[METHOD_MAX_LEN];
+    unsigned char path[k_path_max_len];
+    unsigned char host[k_host_max_len];
+    unsigned char scheme[k_scheme_max_len];
+    unsigned char method[k_method_max_len];
     u8 _pad[3];
 } http_client_data_t;
 
@@ -32,9 +32,9 @@ typedef struct server_http_func_invocation {
     u64 status;
     u64 rpc_request_addr; // pointer to the jsonrpc Request
     tp_info_t tp;
-    u8 method[METHOD_MAX_LEN];
-    u8 path[PATH_MAX_LEN];
-    u8 pattern[PATTERN_MAX_LEN];
+    u8 method[k_method_max_len];
+    u8 path[k_path_max_len];
+    u8 pattern[k_pattern_max_len];
     u8 _pad[5];
 } server_http_func_invocation_t;
 

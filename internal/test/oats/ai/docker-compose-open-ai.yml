@@ -25,7 +25,7 @@ services:
       context: ../../../..
       dockerfile: ./internal/test/integration/components/obi/Dockerfile
     command:
-      - --config=/configs/instrumenter-config-traces-openai.yml
+      - --config=/configs/instrumenter-config-traces-genai.yml
     volumes:
       - ./configs:/configs
       - ./testoutput/run:/var/run/obi

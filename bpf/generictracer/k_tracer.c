@@ -720,8 +720,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         //dbg_print_http_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
         terminate_http_request_if_needed(&info);
-        bpf_map_delete_elem(&ongoing_tcp_req, &info);
-        cleanup_tcp_trace_info_if_needed(&info);
+        finish_ongoing_tcp_req(&info);
         bpf_map_delete_elem(&connection_tracker, &info.conn);
     }
 
@@ -1093,6 +1092,10 @@ enum { k_tail_capture_sock_buf };
 
 int obi_socket_flt_buf(struct __sk_buff *skb);
 
+enum { k_tail_socket_filter_dns = 0 };
+
+int obi_socket__http_dns_filter(struct __sk_buff *skb);
+
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
     __uint(max_entries, 1);
@@ -1102,6 +1105,18 @@ struct {
     .values =
         {
             [k_tail_capture_sock_buf] = (void *)&obi_socket_flt_buf,
+        },
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __uint(max_entries, 1);
+    __uint(key_size, sizeof(u32));
+    __array(values, int(void *));
+} jump_table_skb SEC(".maps") = {
+    .values =
+        {
+            [k_tail_socket_filter_dns] = (void *)&obi_socket__http_dns_filter,
         },
 };
 
@@ -1248,7 +1263,6 @@ int obi_socket_flt_buf(struct __sk_buff *skb) {
 
     return 0;
 }
-
 SEC("socket/http_filter")
 int obi_socket__http_filter(struct __sk_buff *skb) {
     protocol_info_t tcp = {};
@@ -1257,9 +1271,8 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
     const u8 success = read_sk_buff(skb, &tcp, &conn);
 
     if (is_dns(&conn)) {
-        if (handle_dns(skb, &conn, &tcp)) {
-            return 0;
-        }
+        bpf_tail_call_static(skb, &jump_table_skb, k_tail_socket_filter_dns);
+        return 0;
     }
 
     if (!success) {
@@ -1285,9 +1298,20 @@ int obi_socket__http_filter(struct __sk_buff *skb) {
     return 0;
 }
 
+// k_tail_socket_filter_dns
+SEC("socket/http_dns_filter")
+int obi_socket__http_dns_filter(struct __sk_buff *skb) {
+    protocol_info_t tcp = {};
+    connection_info_t conn = {};
+
+    read_sk_buff(skb, &tcp, &conn);
+    handle_dns(skb, &conn, &tcp);
+    return 0;
+}
+
 /*
     The tracking of the clones is complicated by the fact that in container environments
-    the tid returned by the sys_clone call is the namespaced tid, not the host tid which 
+    the tid returned by the sys_clone call is the namespaced tid, not the host tid which
     bpf sees normally. To mitigate this we work exclusively with namespaces. Only the clone_map
     and server_traces are keyed off the namespace:pid.
 */

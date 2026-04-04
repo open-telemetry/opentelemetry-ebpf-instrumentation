@@ -27,13 +27,9 @@ import (
 func TestMetricAttributes(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 	in := &ebpf.Record{
-		NetFlowRecordT: ebpf.NetFlowRecordT{
-			Id: ebpf.NetFlowId{
-				DstPort: 3210,
-				SrcPort: 12345,
-			},
-		},
 		CommonAttrs: pipe.CommonAttrs{
+			DstPort: 3210,
+			SrcPort: 12345,
 			SrcName: "srcname",
 			DstName: "dstname",
 			Metadata: map[attr.Name]string{
@@ -90,13 +86,9 @@ func TestMetricAttributes(t *testing.T) {
 func TestMetricAttributes_Filter(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 	in := &ebpf.Record{
-		NetFlowRecordT: ebpf.NetFlowRecordT{
-			Id: ebpf.NetFlowId{
-				DstPort: 3210,
-				SrcPort: 12345,
-			},
-		},
 		CommonAttrs: pipe.CommonAttrs{
+			DstPort: 3210,
+			SrcPort: 12345,
 			SrcName: "srcname",
 			DstName: "dstname",
 			Metadata: map[attr.Name]string{
@@ -229,7 +221,7 @@ func TestDo(t *testing.T) {
 				SrcName: "svc-a", DstName: "svc-b",
 				SrcZone: "us-east-1a", DstZone: "us-east-1b",
 			},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 100}},
+			Metrics: ebpf.NetFlowMetrics{Bytes: 100},
 		},
 		// same-zone record: should be tracked by flowBytes only
 		{
@@ -237,7 +229,7 @@ func TestDo(t *testing.T) {
 				SrcName: "svc-c", DstName: "svc-d",
 				SrcZone: "us-east-1a", DstZone: "us-east-1a",
 			},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 200}},
+			Metrics: ebpf.NetFlowMetrics{Bytes: 200},
 		},
 	})
 

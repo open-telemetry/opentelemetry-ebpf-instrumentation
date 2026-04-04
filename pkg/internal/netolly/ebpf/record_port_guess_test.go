@@ -10,16 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 )
 
 func TestRecordGettersWithPortGuessMode_OrdinalUnknownInitiator(t *testing.T) {
 	record := &Record{
-		NetFlowRecordT: NetFlowRecordT{
-			Id: NetFlowId{
-				SrcPort: 45678,
-				DstPort: 8080,
-			},
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: 45678,
+			DstPort: 8080,
 		},
 	}
 
@@ -36,11 +35,9 @@ func TestRecordGettersWithPortGuessMode_OrdinalUnknownInitiator(t *testing.T) {
 
 func TestRecordGettersWithPortGuessMode_DisableUnknownInitiator(t *testing.T) {
 	record := &Record{
-		NetFlowRecordT: NetFlowRecordT{
-			Id: NetFlowId{
-				SrcPort: 45678,
-				DstPort: 8080,
-			},
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: 45678,
+			DstPort: 8080,
 		},
 	}
 
@@ -60,14 +57,12 @@ func TestRecordGettersWithPortGuessMode_DisableUnknownInitiator(t *testing.T) {
 
 func TestRecordGettersWithPortGuessMode_DisableKnownInitiator(t *testing.T) {
 	record := &Record{
-		NetFlowRecordT: NetFlowRecordT{
-			Id: NetFlowId{
-				SrcPort: 45678,
-				DstPort: 8080,
-			},
-			Metrics: NetFlowMetrics{
-				Initiator: InitiatorSrc,
-			},
+		Metrics: NetFlowMetrics{
+			Initiator: InitiatorSrc,
+		},
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: 45678,
+			DstPort: 8080,
 		},
 	}
 

@@ -104,8 +104,8 @@ func isBpfProgLinked(name string) (bool, error) {
 }
 
 type Progs struct {
-	Ingress *ebpf.Program `ebpf:"beyla_ingress"`
-	Egress  *ebpf.Program `ebpf:"beyla_egress"`
+	Ingress *ebpf.Program `ebpf:"obi_ingress"`
+	Egress  *ebpf.Program `ebpf:"obi_egress"`
 }
 
 func loadProgs(t *testing.T) Progs {
@@ -167,8 +167,8 @@ func TestTCXManagerAddRemove(t *testing.T) {
 		assert.False(t, loaded)
 	}
 
-	test("beyla_ingress", progs.Ingress, AttachmentIngress)
-	test("beyla_egress", progs.Egress, AttachmentEgress)
+	test("obi_ingress", progs.Ingress, AttachmentIngress)
+	test("obi_egress", progs.Egress, AttachmentEgress)
 }
 
 func TestNetlinkManagerNetlinkAttachType(t *testing.T) {
@@ -264,8 +264,8 @@ func TestNetlinkManagerAddRemove(t *testing.T) {
 		assert.False(t, loaded)
 	}
 
-	test("beyla_ingress", progs.Ingress, AttachmentIngress)
-	test("beyla_egress", progs.Egress, AttachmentEgress)
+	test("obi_ingress", progs.Ingress, AttachmentIngress)
+	test("obi_egress", progs.Egress, AttachmentEgress)
 
 	netManager.Shutdown()
 }
@@ -277,12 +277,12 @@ func TestNetlinkManagerAddRemove(t *testing.T) {
 char __license[] SEC("license") = "Dual MIT/GPL";
 
 SEC("tc_ingress")
-int beyla_ingress(struct __sk_buff *skb) {
+int obi_ingress(struct __sk_buff *skb) {
     return 0;
 }
 
 SEC("tc_egress")
-int beyla_egress(struct __sk_buff *skb) {
+int obi_egress(struct __sk_buff *skb) {
     return 0;
 }
 

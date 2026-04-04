@@ -27,3 +27,21 @@ MD033: false
 # fenced-code-language
 MD040: false
 
+# first-line-heading
+MD041: false
+
+# required-fences
+MD047: false
+
+# link-fragments
+MD051: false
+
+# table-pipe-style
+MD055: false
+
+# table-column-count
+MD056: false
+
+# link-image-reference-definitions
+MD060: false
+

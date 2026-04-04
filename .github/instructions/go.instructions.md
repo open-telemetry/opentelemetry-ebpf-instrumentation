@@ -16,6 +16,7 @@ General rules:
 - Use vertical spacing to separate logical blocks when it improves readability.
 - Do not use magic numbers. Name constants or derive values from existing types and objects.
 - Reuse existing utilities, helpers, and patterns instead of introducing duplicate implementations.
+- Avoid unnecessary allocations, unnecessary conversions, and unnecessary `unsafe` usage.
 - Follow existing naming, structure, and patterns in the surrounding code.
 
 Comments:
@@ -43,4 +44,4 @@ Validation:
 - Ensure changes compile and pass existing tests.
 - Do not introduce changes that break linting or formatting rules.
 
-When reviewing Go changes, flag unnecessary abstractions, duplicated logic, violations of existing patterns, and changes that increase complexity without clear benefit.
+When reviewing Go changes, flag unnecessary abstractions, duplicated logic, awkward mechanical conditionals, violations of existing patterns, branch-heavy code without targeted tests, and changes that increase complexity without clear benefit.

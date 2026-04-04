@@ -15,7 +15,7 @@ import (
 )
 
 func newTestDecorator(ignoredPaths []string) *languageDecorator {
-	cache, _ := lru.New[uint64, svc.InstrumentableType](100)
+	cache, _ := lru.New[cacheKey, svc.InstrumentableType](100)
 	return &languageDecorator{
 		typeCache:    cache,
 		log:          slog.With("component", "LanguageDecorator"),
@@ -108,12 +108,12 @@ func TestDecorateEventIgnoredPath(t *testing.T) {
 func TestDecorateEventCachesResult(t *testing.T) {
 	ld := newTestDecorator(nil)
 
-	_findInodeForPID = func(pid app.PID) (uint64, error) {
+	_findInodeForPID = func(pid app.PID) (uint64, uint64, error) {
 		if pid == 1 {
-			return 12345, nil
+			return 1, 12345, nil
 		}
 
-		return 0, nil
+		return 0, 0, nil
 	}
 
 	_executableReady = func(pid app.PID) (string, bool) {
@@ -129,9 +129,8 @@ func TestDecorateEventCachesResult(t *testing.T) {
 		_executableReady = ExecutableReady
 	}()
 
-	// Pre-populate the cache with a known inode -> type mapping
-	testIno := uint64(12345)
-	ld.typeCache.Add(testIno, svc.InstrumentablePython)
+	// Pre-populate the cache with a known dev:inode -> type mapping
+	ld.typeCache.Add(cacheKey{Dev: 1, Ino: 12345}, svc.InstrumentablePython)
 
 	ev := Event[ProcessAttrs]{
 		Type: EventCreated,
@@ -146,12 +145,12 @@ func TestDecorateEventCachesResult(t *testing.T) {
 func TestDecorateEventFirstTime(t *testing.T) {
 	ld := newTestDecorator(nil)
 
-	_findInodeForPID = func(pid app.PID) (uint64, error) {
+	_findInodeForPID = func(pid app.PID) (uint64, uint64, error) {
 		if pid == 1 {
-			return 12345, nil
+			return 1, 12345, nil
 		}
 
-		return 0, nil
+		return 0, 0, nil
 	}
 
 	_executableReady = func(pid app.PID) (string, bool) {
@@ -184,6 +183,6 @@ func TestDecorateEventFirstTime(t *testing.T) {
 
 	assert.Equal(t, svc.InstrumentablePython, ev.Obj.detectedType)
 	// check that we cached the result
-	_, ok := ld.typeCache.Get(12345)
+	_, ok := ld.typeCache.Get(cacheKey{Dev: 1, Ino: 12345})
 	assert.True(t, ok)
 }

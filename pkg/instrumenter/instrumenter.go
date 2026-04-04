@@ -49,7 +49,9 @@ func RunWithContextInfo(
 		opt(ctxInfo)
 	}
 
-	app := cfg.Enabled(obi.FeatureAppO11y)
+	// Enable App O11y when config enables it or when the caller passed a dynamic PID selector
+	// (allows an "empty" instrumenter that only instruments PIDs added via the selector).
+	app := cfg.Enabled(obi.FeatureAppO11y) || ctxInfo.AppO11y.DynamicPIDSelector != nil
 	net := cfg.Enabled(obi.FeatureNetO11y)
 	stats := cfg.Enabled(obi.FeatureStatsO11y)
 
@@ -208,15 +210,16 @@ func BuildCommonContextInfo(
 	}
 
 	ctxInfo.K8sInformer = kube.NewMetadataProvider(kube.MetadataConfig{
-		Enable:              config.Attributes.Kubernetes.Enable,
-		KubeConfigPath:      config.Attributes.Kubernetes.KubeconfigPath,
-		SyncTimeout:         config.Attributes.Kubernetes.InformersSyncTimeout,
-		ResyncPeriod:        config.Attributes.Kubernetes.InformersResyncPeriod,
-		DisabledInformers:   config.Attributes.Kubernetes.DisableInformers,
-		MetaCacheAddr:       config.Attributes.Kubernetes.MetaCacheAddress,
-		ResourceLabels:      resourceLabels,
-		RestrictLocalNode:   config.Attributes.Kubernetes.MetaRestrictLocalNode,
-		ServiceNameTemplate: templ,
+		Enable:                   config.Attributes.Kubernetes.Enable,
+		KubeConfigPath:           config.Attributes.Kubernetes.KubeconfigPath,
+		SyncTimeout:              config.Attributes.Kubernetes.InformersSyncTimeout,
+		ReconnectInitialInterval: config.Attributes.Kubernetes.ReconnectInitialInterval,
+		ResyncPeriod:             config.Attributes.Kubernetes.InformersResyncPeriod,
+		DisabledInformers:        config.Attributes.Kubernetes.DisableInformers,
+		MetaCacheAddr:            config.Attributes.Kubernetes.MetaCacheAddress,
+		ResourceLabels:           resourceLabels,
+		RestrictLocalNode:        config.Attributes.Kubernetes.MetaRestrictLocalNode,
+		ServiceNameTemplate:      templ,
 	}, ctxInfo.Metrics)
 
 	ctxInfo.NodeMeta = meta.NewNodeMeta(

@@ -40,6 +40,7 @@ type envMap map[string]string
 
 func TestConfig_Overrides(t *testing.T) {
 	userConfig := bytes.NewBufferString(`
+log_format: json
 trace_printer: json
 shutdown_timeout: 30s
 channel_buffer_len: 33
@@ -59,6 +60,8 @@ prometheus_export:
   buckets:
     request_size_histogram: [0, 10, 20, 22]
     response_size_histogram: [0, 10, 20, 22]
+    gen_ai_client_token_usage_histogram: [1, 2, 3, 4]
+    gen_ai_client_operation_duration_histogram: [5, 6, 7, 8]
 attributes:
   rename_unresolved_hosts: ""
   rename_unresolved_hosts_outgoing: ""
@@ -133,6 +136,7 @@ discovery:
 		ChannelSendTimeoutPanic: true,
 
 		LogLevel:        LogLevelInfo,
+		LogFormat:       LogFormatJSON,
 		ShutdownTimeout: 30 * time.Second,
 		EnforceSysCaps:  false,
 		TracePrinter:    "json",
@@ -199,9 +203,11 @@ discovery:
 			Protocol:          otelcfg.ProtocolUnset,
 			ReportersCacheLen: ReporterLRUSize,
 			Buckets: export.Buckets{
-				DurationHistogram:     []float64{0, 1, 2},
-				RequestSizeHistogram:  export.DefaultBuckets.RequestSizeHistogram,
-				ResponseSizeHistogram: export.DefaultBuckets.ResponseSizeHistogram,
+				DurationHistogram:            []float64{0, 1, 2},
+				RequestSizeHistogram:         export.DefaultBuckets.RequestSizeHistogram,
+				ResponseSizeHistogram:        export.DefaultBuckets.ResponseSizeHistogram,
+				GenAITokenUsageHistogram:     export.DefaultBuckets.GenAITokenUsageHistogram,
+				GenAIClientDurationHistogram: export.DefaultBuckets.GenAIClientDurationHistogram,
 			},
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
@@ -225,6 +231,7 @@ discovery:
 				instrumentations.InstrumentationMQTT,
 				instrumentations.InstrumentationMongo,
 				instrumentations.InstrumentationCouchbase,
+				instrumentations.InstrumentationMemcached,
 				// no traces for DNS and GPU by default
 			},
 		},
@@ -236,9 +243,11 @@ discovery:
 			TTL:                         time.Second,
 			SpanMetricsServiceCacheSize: 10000,
 			Buckets: export.Buckets{
-				DurationHistogram:     export.DefaultBuckets.DurationHistogram,
-				RequestSizeHistogram:  []float64{0, 10, 20, 22},
-				ResponseSizeHistogram: []float64{0, 10, 20, 22},
+				DurationHistogram:            export.DefaultBuckets.DurationHistogram,
+				RequestSizeHistogram:         []float64{0, 10, 20, 22},
+				ResponseSizeHistogram:        []float64{0, 10, 20, 22},
+				GenAITokenUsageHistogram:     []float64{1, 2, 3, 4},
+				GenAIClientDurationHistogram: []float64{5, 6, 7, 8},
 			},
 		},
 		InternalMetrics: imetrics.InternalMetricsConfig{
@@ -254,11 +263,12 @@ discovery:
 				HostnameDNSResolution: true,
 			},
 			Kubernetes: transform.KubernetesDecorator{
-				KubeconfigPath:        "/foo/bar",
-				Enable:                kubeflags.EnabledTrue,
-				InformersSyncTimeout:  30 * time.Second,
-				InformersResyncPeriod: 30 * time.Minute,
-				ResourceLabels:        metaSources,
+				KubeconfigPath:           "/foo/bar",
+				Enable:                   kubeflags.EnabledTrue,
+				InformersSyncTimeout:     30 * time.Second,
+				ReconnectInitialInterval: 5 * time.Second,
+				InformersResyncPeriod:    30 * time.Minute,
+				ResourceLabels:           metaSources,
 			},
 			HostID: HostIDConfig{
 				Override: "the-host-id",

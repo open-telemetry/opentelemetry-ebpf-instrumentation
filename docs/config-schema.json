@@ -29,6 +29,16 @@
       "title": "Agent Type Interface",
       "description": "Specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each flow. Accepted values are: external, local, or name:<interface name> (e.g. name:eth0)."
     },
+    "AnthropicConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Anthropic payload extraction and parsing",
+          "x-env-var": "OTEL_EBPF_HTTP_ANTHROPIC_ENABLED"
+        }
+      },
+      "type": "object"
+    },
     "AttributeFamilyConfig": {
       "additionalProperties": {
         "$ref": "#/$defs/MatchDefinition"
@@ -96,6 +106,18 @@
     "Buckets": {
       "properties": {
         "duration_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "gen_ai_client_operation_duration_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "gen_ai_client_token_usage_histogram": {
           "items": {
             "type": "number"
           },
@@ -405,6 +427,10 @@
           "$ref": "#/$defs/LogEnricherConfig",
           "description": "Log trace-context enricher config"
         },
+        "maps_config": {
+          "$ref": "#/$defs/MapsConfig",
+          "description": "eBPF map configurations"
+        },
         "max_transaction_time": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -555,6 +581,19 @@
       },
       "type": "array",
       "description": "List of metric features to enable."
+    },
+    "GenAIConfig": {
+      "properties": {
+        "anthropic": {
+          "$ref": "#/$defs/AnthropicConfig",
+          "description": "Anthropic payload extraction and parsing"
+        },
+        "openai": {
+          "$ref": "#/$defs/OpenAIConfig",
+          "description": "OpenAI payload extraction and parsing"
+        }
+      },
+      "type": "object"
     },
     "GeoIP": {
       "properties": {
@@ -730,13 +769,13 @@
           "$ref": "#/$defs/EnrichmentConfig",
           "description": "Enrichment configures HTTP header and payload extraction with policy-based rules"
         },
+        "genai": {
+          "$ref": "#/$defs/GenAIConfig",
+          "description": "GenAI payload extraction"
+        },
         "graphql": {
           "$ref": "#/$defs/GraphQLConfig",
           "description": "GraphQL payload extraction and parsing"
-        },
-        "openai": {
-          "$ref": "#/$defs/OpenAIConfig",
-          "description": "OpenAI payload extraction"
         },
         "sqlpp": {
           "$ref": "#/$defs/SQLPPConfig",
@@ -1009,6 +1048,7 @@
         "informers_sync_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "InformersSyncTimeout is the timeout for waiting for informers to sync on startup.",
           "examples": [
             "30s",
             "5m",
@@ -1035,6 +1075,17 @@
           "$ref": "#/$defs/MetaSourceLabels",
           "description": "MetaSourceLabels allows OBI overriding the service name and namespace of an application from the given labels.  kept for backwards-compatibility with Beyla 1.9",
           "deprecated": true
+        },
+        "reconnect_initial_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "ReconnectInitialInterval is the time to wait before reconnecting to the Kubernetes API after a connection loss.",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_KUBE_RECONNECT_INITIAL_INTERVAL"
         },
         "resource_labels": {
           "$ref": "#/$defs/ResourceLabels",
@@ -1091,6 +1142,15 @@
         "service": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
           "description": "Service should also be contained in 'services' in the Discovery section"
+        }
+      },
+      "type": "object"
+    },
+    "MapsConfig": {
+      "properties": {
+        "global_scale_factor": {
+          "type": "integer",
+          "description": "GlobalScaleFactor scales map sizes in powers of two:   > 0: grows size (2x per step)   < 0: shrinks size (1/2 per step)   = 0: no change"
         }
       },
       "type": "object"
@@ -1210,10 +1270,12 @@
               "*",
               "couchbase",
               "dns",
+              "genai",
               "gpu",
               "grpc",
               "http",
               "kafka",
+              "memcached",
               "mongo",
               "mqtt",
               "redis",
@@ -1515,6 +1577,11 @@
           "type": "boolean",
           "x-env-var": "OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"
         },
+        "exemplar_filter": {
+          "type": "string",
+          "description": "ExemplarFilter controls when exemplars are attached to metrics. Accepted values: \"always_on\", \"always_off\", \"trace_based\". Defaults to \"always_off\": do not attach exemplars. This mimics the OTEL_METRICS_EXEMPLAR_FILTER specification.",
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_EXEMPLAR_FILTER"
+        },
         "extra_resource_attributes": {
           "items": {
             "type": "string"
@@ -1544,10 +1611,12 @@
               "*",
               "couchbase",
               "dns",
+              "genai",
               "gpu",
               "grpc",
               "http",
               "kafka",
+              "memcached",
               "mongo",
               "mqtt",
               "redis",
@@ -2033,10 +2102,12 @@
               "*",
               "couchbase",
               "dns",
+              "genai",
               "gpu",
               "grpc",
               "http",
               "kafka",
+              "memcached",
               "mongo",
               "mqtt",
               "redis",
@@ -2145,6 +2216,14 @@
       ],
       "description": "LogConfig enables the logging of the configuration on startup.",
       "x-env-var": "OTEL_EBPF_LOG_CONFIG"
+    },
+    "log_format": {
+      "type": "string",
+      "enum": [
+        "json",
+        "text"
+      ],
+      "x-env-var": "OTEL_EBPF_LOG_FORMAT"
     },
     "log_level": {
       "type": "string",

@@ -1,0 +1,227 @@
+name: Renovate post-process
+on:
+  issue_comment:
+    types:
+      - created
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  inspect:
+    name: Inspect command and PR
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation' && github.event.issue.pull_request
+    outputs:
+      enabled: ${{ steps.inspect.outputs.enabled }}
+      pr_number: ${{ steps.inspect.outputs.pr_number }}
+      head_ref: ${{ steps.inspect.outputs.head_ref }}
+      head_sha: ${{ steps.inspect.outputs.head_sha }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
+        run: |
+          command="$(printf '%s\n' "$COMMENT_BODY" | sed -n '1p' | tr -d '\r')"
+          case "$AUTHOR_ASSOCIATION" in
+            OWNER|MEMBER|COLLABORATOR) ;;
+            *)
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          if [ "$command" != "/renovate-post-process" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          pr_json="$(gh api "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+
+          pr_author="$(printf '%s' "$pr_json" | jq -r '.user.login')"
+          head_repo="$(printf '%s' "$pr_json" | jq -r '.head.repo.full_name')"
+          head_ref="$(printf '%s' "$pr_json" | jq -r '.head.ref')"
+          head_sha="$(printf '%s' "$pr_json" | jq -r '.head.sha')"
+
+          if [ "$pr_author" != "renovate[bot]" ] || [ "$head_repo" != "$GITHUB_REPOSITORY" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          case "$head_ref" in
+            renovate/*) ;;
+            *)
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+  generate:
+    name: Generate cleanup patch
+    needs: inspect
+    if: needs.inspect.outputs.enabled == 'true'
+    outputs:
+      patch_exists: ${{ steps.create-patch.outputs.exists }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.inspect.outputs.head_sha }}
+
+      - id: guard
+        name: Skip post-process follow-up commits
+        run: |
+          commit_subject="$(git log -1 --format=%s)"
+          if [ "$commit_subject" = "Run Renovate post-process" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: detect
+        if: steps.guard.outputs.should_run == 'true'
+        name: Detect dependency manifest changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.inspect.outputs.pr_number }}
+        run: |
+          changed_files="$(gh api --paginate "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename')"
+
+          printf '%s\n' "$changed_files"
+
+          if printf '%s\n' "$changed_files" | grep -Eq '(^|/)go\.(mod|sum)$'; then
+            echo "run_go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          if printf '%s\n' "$changed_files" | grep -Eq '(^|/)(pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|gradle\.properties)$'; then
+            echo "run_java=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          if printf '%s\n' "$changed_files" | grep -Eq '^internal/test/integration/components/.+/requirements\.in$'; then
+            echo "run_python=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "python_requirements_in<<EOF"
+              printf '%s\n' "$changed_files" | grep -E '^internal/test/integration/components/.+/requirements\.in$'
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Go
+        if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_go == 'true'
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Update Go dependency artifacts
+        if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_go == 'true'
+        run: make go-mod-tidy go-notices-update
+
+      - name: Update Java dependency notices
+        if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_java == 'true'
+        run: make java-notices-update
+
+      - name: Update Python requirements locks
+        if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_python == 'true'
+        env:
+          PYTHON_REQUIREMENTS_INS: ${{ steps.detect.outputs.python_requirements_in }}
+        run: make python-requirements-update
+
+      - id: create-patch
+        if: steps.guard.outputs.should_run == 'true'
+        name: Create patch file
+        run: |
+          git add -N --ignore-removal -- NOTICES ':(glob)**/go.mod' ':(glob)**/go.sum' ':(glob)internal/test/integration/components/**/requirements.txt' ':(glob)internal/test/integration/components/**/requirements-*.txt'
+          git diff -- NOTICES ':(glob)**/go.mod' ':(glob)**/go.sum' ':(glob)internal/test/integration/components/**/requirements.txt' ':(glob)internal/test/integration/components/**/requirements-*.txt' > patch
+          if [ -s patch ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload patch file
+        if: steps.create-patch.outputs.exists == 'true'
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: renovate-post-process-patch
+          path: patch
+          retention-days: 1
+
+  apply:
+    name: Apply cleanup patch
+    needs:
+      - inspect
+      - generate
+    if: needs.generate.outputs.patch_exists == 'true'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download patch artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: renovate-post-process-patch
+          path: artifact
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.inspect.outputs.head_ref }}
+
+      - name: Verify branch tip
+        env:
+          EXPECTED_SHA: ${{ needs.inspect.outputs.head_sha }}
+        run: |
+          current_sha="$(git rev-parse HEAD)"
+          test "$current_sha" = "$EXPECTED_SHA"
+
+      - name: Validate patch scope
+        env:
+          PATCH_PATH: artifact/patch
+        run: |
+          git apply --check "$PATCH_PATH"
+          git apply --numstat "$PATCH_PATH" | while IFS=$'\t' read -r added deleted path; do
+            if printf '%s\n' "$path" | grep -Eq '^(NOTICES/.*|(.+/)?go\.(mod|sum)|internal/test/integration/components/.+/requirements(\-[^/]+)?\.txt)$'; then
+              continue
+            fi
+
+            echo "unexpected patch path: $path"
+            exit 1
+          done
+
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        id: generate-token
+        with:
+          app-id: ${{ vars.OTELBOT_APP_ID }}
+          private-key: ${{ secrets.OTELBOT_PRIVATE_KEY }}
+
+      - name: Apply patch and push
+        env:
+          GH_APP_TOKEN: ${{ steps.generate-token.outputs.token }}
+          PATCH_PATH: artifact/patch
+          TARGET_REF: ${{ needs.inspect.outputs.head_ref }}
+        run: |
+          git config user.name otelbot
+          git config user.email 197425009+otelbot@users.noreply.github.com
+
+          git apply "$PATCH_PATH"
+          git add --all -- NOTICES ':(glob)**/go.mod' ':(glob)**/go.sum' ':(glob)internal/test/integration/components/**/requirements.txt' ':(glob)internal/test/integration/components/**/requirements-*.txt'
+          git commit -m "Run Renovate post-process"
+          auth_header="$(printf 'x-access-token:%s' "$GH_APP_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" \
+            push origin "HEAD:$TARGET_REF"

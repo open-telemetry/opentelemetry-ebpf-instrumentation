@@ -1,0 +1,11 @@
+FROM python:3.9@sha256:da5aee29682d12a6649f51c8d6f15b87deb3e6c524b923c41d0cb3304d07c913
+EXPOSE 8391
+
+WORKDIR /app
+
+COPY internal/test/integration/components/pythonasync-uvloop/requirements-3.9.txt .
+RUN pip install --require-hashes -r requirements-3.9.txt
+
+COPY internal/test/integration/components/pythonasync-uvloop .
+
+CMD ["python", "async_context_test.py"]

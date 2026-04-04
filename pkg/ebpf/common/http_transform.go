@@ -50,6 +50,7 @@ func httpInfoToSpanLegacy(info *HTTPInfo) request.Span {
 		Type:           request.EventType(info.Type),
 		Method:         info.Method,
 		Path:           removeQuery(info.URL),
+		FullPath:       info.URL,
 		Peer:           info.Peer,
 		PeerPort:       int(info.ConnInfo.S_port),
 		Host:           info.Host,
@@ -107,10 +108,12 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		headerHost, _ = httpHostFromBuf(event.Buf[:])
 	}
 
+	// FullPath matches net/url.URL.String() (full URL or request-target), not RequestURI().
 	httpSpan := request.Span{
 		Type:           reqType,
 		Method:         req.Method,
 		Path:           removeQuery(req.URL.String()),
+		FullPath:       req.URL.String(),
 		Peer:           peer,
 		PeerPort:       int(event.ConnInfo.S_port),
 		Host:           host,
@@ -166,8 +169,15 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		}
 	}
 
-	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.OpenAI.Enabled {
+	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.OpenAI.Enabled {
 		span, ok := ebpfhttp.OpenAISpan(&httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
+	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Anthropic.Enabled {
+		span, ok := ebpfhttp.AnthropicSpan(&httpSpan, req, resp)
 		if ok {
 			return span
 		}
@@ -260,7 +270,7 @@ func httpSafeParseResponse(responseBuffer *largebuf.LargeBuffer, req *http.Reque
 		rd.Reset(&r)
 		return http.ReadResponse(rd, req)
 	}
-	return resp, nil
+	return resp, err
 }
 
 func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *largebuf.LargeBuffer) request.Span {

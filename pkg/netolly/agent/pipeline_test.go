@@ -109,9 +109,8 @@ func TestFilter(t *testing.T) {
 }
 
 func fakeRecord(protocol transport.Protocol, srcPort, dstPort uint16) *ebpf.Record {
-	return &ebpf.Record{NetFlowRecordT: ebpf.NetFlowRecordT{
-		Id: ebpf.NetFlowId{
-			SrcPort: srcPort, DstPort: dstPort, TransportProtocol: uint8(protocol),
-		},
-	}}
+	return ebpf.NewRecord(
+		ebpf.NetFlowId{TransportProtocol: uint8(protocol), SrcPort: srcPort, DstPort: dstPort},
+		ebpf.NetFlowMetrics{},
+	)
 }

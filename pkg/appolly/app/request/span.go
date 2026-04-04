@@ -50,6 +50,8 @@ const (
 	EventTypeFailedConnect
 	EventTypeDNS
 	EventTypeCouchbaseClient
+	EventTypeMemcachedClient
+	EventTypeMemcachedServer
 	EventTypeSQLServer
 )
 
@@ -91,6 +93,7 @@ const (
 	HTTPSubtypeAWSSQS        = 4 // http + aws sqs
 	HTTPSubtypeSQLPP         = 5 // http + sql++ (couchbase, etc.)
 	HTTPSubtypeOpenAI        = 6 // http + OpenAI
+	HTTPSubtypeAnthropic     = 7 // http + Anthropic
 )
 
 //nolint:cyclop
@@ -140,6 +143,10 @@ func (t EventType) String() string {
 		return "DNS"
 	case EventTypeCouchbaseClient:
 		return "CouchbaseClient"
+	case EventTypeMemcachedClient:
+		return "MemcachedClient"
+	case EventTypeMemcachedServer:
+		return "MemcachedServer"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}
@@ -231,6 +238,11 @@ type AWSSQS struct {
 	MessageID     string  `json:"messageId"`
 }
 
+type GenAI struct {
+	OpenAI    *VendorOpenAI
+	Anthropic *VendorAnthropic
+}
+
 type OpenAIUsage struct {
 	InputTokens      int `json:"input_tokens"`
 	OutputTokens     int `json:"output_tokens"`
@@ -260,7 +272,7 @@ type OpenAIError struct {
 	Type    string `json:"type"`
 }
 
-type OpenAI struct {
+type VendorOpenAI struct {
 	OperationName    string          `json:"object"`
 	ResponseModel    string          `json:"model"`
 	Error            OpenAIError     `json:"error"`
@@ -277,7 +289,7 @@ type OpenAI struct {
 	Data             json.RawMessage `json:"data"`
 }
 
-func (ai *OpenAI) GetOutput() string {
+func (ai *VendorOpenAI) GetOutput() string {
 	if len(ai.Output) > 0 {
 		return string(ai.Output)
 	}
@@ -319,6 +331,45 @@ func (air *OpenAIInput) GetInput() string {
 	return string(air.Messages)
 }
 
+type VendorAnthropic struct {
+	Input  AnthropicRequest
+	Output AnthropicResponse
+}
+
+type AnthropicRequest struct {
+	MaxTokens int             `json:"max_tokens"`
+	Messages  json.RawMessage `json:"messages"`
+	Model     string          `json:"model"`
+	Stream    bool            `json:"stream"`
+	System    string          `json:"system"`
+	Tools     json.RawMessage `json:"tools"`
+}
+
+type AnthropicResponse struct {
+	Model        string          `json:"model"`
+	ID           string          `json:"id"`
+	Type         string          `json:"type"`
+	Role         string          `json:"role"`
+	Content      json.RawMessage `json:"content"`
+	StopReason   string          `json:"stop_reason"`
+	StopSequence *string         `json:"stop_sequence"`
+	Usage        AnthropicUsage  `json:"usage"`
+	Error        *AnthropicError `json:"error,omitempty"`
+	RequestID    string          `json:"request_id"`
+}
+
+type AnthropicUsage struct {
+	InputTokens  int    `json:"input_tokens"`
+	OutputTokens int    `json:"output_tokens"`
+	ServiceTier  string `json:"service_tier"`
+	InferenceGeo string `json:"inference_geo"`
+}
+
+type AnthropicError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
 // Span contains the information being submitted by the following nodes in the graph.
 // It enables comfortable handling of data from Go.
 // REMINDER: any attribute here must be also added to the functions SpanOTELGetters
@@ -329,6 +380,7 @@ type Span struct {
 	Flags             uint8          `json:"-"`
 	Method            string         `json:"-"`
 	Path              string         `json:"-"`
+	FullPath          string         `json:"-"`
 	Route             string         `json:"-"`
 	Peer              string         `json:"peer"`
 	PeerPort          int            `json:"peerPort,string"`
@@ -361,7 +413,7 @@ type Span struct {
 	GraphQL           *GraphQL       `json:"-"`
 	Elasticsearch     *Elasticsearch `json:"-"`
 	AWS               *AWS           `json:"-"`
-	OpenAI            *OpenAI        `json:"-"`
+	GenAI             *GenAI         `json:"-"`
 
 	// RequestHeaders stores extracted HTTP request headers based on enrichment rules.
 	// Keys are canonical header names, values are all header values (possibly obfuscated).
@@ -651,7 +703,7 @@ func (s *Span) IsValid() bool {
 
 func (s *Span) IsClientSpan() bool {
 	switch s.Type {
-	case EventTypeGRPCClient, EventTypeDNS, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient:
+	case EventTypeGRPCClient, EventTypeDNS, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient:
 		return true
 	}
 
@@ -674,7 +726,7 @@ func SpanStatusCode(span *Span) string {
 		return HTTPSpanStatusCode(span)
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return GrpcSpanStatusCode(span)
-	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient:
+	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer:
 		if span.Status != 0 {
 			return StatusCodeError
 		}
@@ -695,7 +747,7 @@ func SpanStatusCode(span *Span) string {
 
 func SpanStatusMessage(span *Span) string {
 	switch span.Type {
-	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient:
+	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer:
 		if span.Status != 0 && span.DBError.Description != "" {
 			return span.DBError.Description
 		}
@@ -724,8 +776,11 @@ func HTTPSpanStatusCode(span *Span) string {
 			// this is possibly not needed, because in my experiments they
 			// respond with 429, but just to be correct according to the OTel
 			// GenAI spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/openai/
-			if span.SubType == HTTPSubtypeOpenAI && span.OpenAI != nil {
-				if span.OpenAI.Error.Type != "" {
+			if span.GenAI != nil {
+				if span.GenAI.OpenAI != nil && span.GenAI.OpenAI.Error.Type != "" {
+					return StatusCodeError
+				}
+				if span.GenAI.Anthropic != nil && span.GenAI.Anthropic.Output.Error != nil && span.GenAI.Anthropic.Output.Error.Type != "" {
 					return StatusCodeError
 				}
 			}
@@ -786,9 +841,9 @@ func (s *Span) ResponseBodyLength() int64 {
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer, EventTypeSQLServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer:
 		return "SPAN_KIND_SERVER"
-	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient:
+	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient:
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient, EventTypeMQTTClient:
 		switch s.Method {
@@ -805,7 +860,7 @@ func (s *Span) ServiceGraphKind() string {
 // See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector
 func (s *Span) ServiceGraphConnectionType() string {
 	switch s.Type {
-	case EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeCouchbaseClient:
+	case EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient:
 		return "database"
 	case EventTypeKafkaClient, EventTypeMQTTClient:
 		return "messaging_system"
@@ -884,14 +939,28 @@ func (s *Span) TraceName() string {
 			}
 		}
 
-		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAI && s.OpenAI != nil {
-			name := s.OpenAI.OperationName
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAI && s.GenAI != nil && s.GenAI.OpenAI != nil {
+			name := s.GenAI.OpenAI.OperationName
 			if name != "" {
 				switch {
-				case s.OpenAI.Request.Model != "":
-					return name + " " + s.OpenAI.Request.Model
-				case s.OpenAI.ResponseModel != "":
-					return name + " " + s.OpenAI.ResponseModel
+				case s.GenAI.OpenAI.Request.Model != "":
+					return name + " " + s.GenAI.OpenAI.Request.Model
+				case s.GenAI.OpenAI.ResponseModel != "":
+					return name + " " + s.GenAI.OpenAI.ResponseModel
+				default:
+					return name
+				}
+			}
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAnthropic && s.GenAI != nil && s.GenAI.Anthropic != nil {
+			name := s.GenAI.Anthropic.Output.Type
+			if name != "" {
+				switch {
+				case s.GenAI.Anthropic.Input.Model != "":
+					return name + " " + s.GenAI.Anthropic.Input.Model
+				case s.GenAI.Anthropic.Output.Model != "":
+					return name + " " + s.GenAI.Anthropic.Output.Model
 				default:
 					return name
 				}
@@ -918,6 +987,11 @@ func (s *Span) TraceName() string {
 	case EventTypeRedisClient, EventTypeRedisServer:
 		if s.Method == "" {
 			return "REDIS"
+		}
+		return s.Method
+	case EventTypeMemcachedClient, EventTypeMemcachedServer:
+		if s.Method == "" {
+			return "MEMCACHED"
 		}
 		return s.Method
 	case EventTypeKafkaClient, EventTypeKafkaServer, EventTypeMQTTClient, EventTypeMQTTServer:
@@ -1105,4 +1179,88 @@ func (s *Span) DBSystemName() attribute.KeyValue {
 func (s *Span) HasOriginalHost() bool {
 	schemeHost := strings.Split(s.Statement, SchemeHostSeparator)
 	return len(schemeHost) > 1 && schemeHost[1] != ""
+}
+
+func (s *Span) GenAIInputTokens() int {
+	if s.GenAI == nil {
+		return 0
+	}
+
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.Usage.GetInputTokens()
+	}
+
+	if s.GenAI.Anthropic != nil {
+		return s.GenAI.Anthropic.Output.Usage.InputTokens
+	}
+
+	return 0
+}
+
+func (s *Span) GenAIOutputTokens() int {
+	if s.GenAI == nil {
+		return 0
+	}
+
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.Usage.GetOutputTokens()
+	}
+
+	if s.GenAI.Anthropic != nil {
+		return s.GenAI.Anthropic.Output.Usage.OutputTokens
+	}
+
+	return 0
+}
+
+func (s *Span) GenAIOperationName() string {
+	if s.GenAI == nil {
+		return ""
+	}
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.OperationName
+	}
+	if s.GenAI.Anthropic != nil {
+		return s.GenAI.Anthropic.Output.Type
+	}
+	return ""
+}
+
+func (s *Span) GenAIProviderName() string {
+	if s.GenAI == nil {
+		return ""
+	}
+	if s.GenAI.OpenAI != nil {
+		return semconv.GenAIProviderNameOpenAI.Value.AsString()
+	}
+	if s.GenAI.Anthropic != nil {
+		return semconv.GenAIProviderNameAnthropic.Value.AsString()
+	}
+	return ""
+}
+
+func (s *Span) GenAIRequestModel() string {
+	if s.GenAI == nil {
+		return ""
+	}
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.Request.Model
+	}
+	if s.GenAI.Anthropic != nil {
+		return s.GenAI.Anthropic.Input.Model
+	}
+	return ""
+}
+
+func (s *Span) GenAIResponseModel() string {
+	if s.GenAI == nil {
+		return ""
+	}
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.ResponseModel
+	}
+	if s.GenAI.Anthropic != nil {
+		return s.GenAI.Anthropic.Output.Model
+	}
+	return ""
 }

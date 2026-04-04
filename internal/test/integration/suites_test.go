@@ -208,6 +208,7 @@ func TestSuite_PrometheusScrape(t *testing.T) {
 
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
+	t.Run("Exemplars exist", testExemplarsExist)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 	t.Run("Testing OBI Build Info metric", testPrometheusOBIBuildInfo)
 	t.Run("Testing for no OBI self metrics", testPrometheusNoOBIEvents)
@@ -483,13 +484,39 @@ func TestSuite_JavaKafkaLargeBuffer(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonAsyncUvloop_3_9(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-uvloop-3.9.yml", path.Join(pathOutput, "test-suite-python-async-uvloop-3_9.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+
+	t.Run("Sequential", testPythonAsyncSequential)
+	t.Run("Concurrent", testPythonAsyncConcurrent)
+	t.Run("To Thread", testPythonAsyncToThread)
+	t.Run("Nested", testPythonAsyncNested)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonAsyncUvloop_3_14(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-async-uvloop-3.14.yml", path.Join(pathOutput, "test-suite-python-async-uvloop-3_14.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+
+	t.Run("Sequential", testPythonAsyncSequential)
+	t.Run("Concurrent", testPythonAsyncConcurrent)
+	t.Run("To Thread", testPythonAsyncToThread)
+	t.Run("Nested", testPythonAsyncNested)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonRedis(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-redis.yml", path.Join(pathOutput, "test-suite-python-redis.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python Redis metrics", testREDMetricsPythonRedisOnly)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 

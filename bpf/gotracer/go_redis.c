@@ -160,7 +160,7 @@ int obi_uprobe_redis_with_writer_ret(struct pt_regs *ctx) {
                 bpf_dbg_printk("buf=%llx, buf=[%s], len=%ld", buf, buf, len);
 
                 if (len > 0) {
-                    bpf_probe_read(&req->buf, REDIS_MAX_LEN, buf);
+                    bpf_probe_read(&req->buf, k_redis_max_len, buf);
                 }
             }
         }

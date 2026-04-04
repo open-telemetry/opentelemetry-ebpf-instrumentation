@@ -1,3 +1,4 @@
+log_format: json
 network:
   guess_ports: ordinal
 attributes:

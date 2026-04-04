@@ -17,24 +17,32 @@
   ],
   "prConcurrentLimit": 10,
   "prHourlyLimit": 3,
-  "allowedCommands": [
-    "make go-mod-tidy",
-    "make go-notices-update",
-    "make java-notices-update"
-  ],
+  "pip-compile": {
+    "managerFilePatterns": [
+      "/^internal\\/test\\/integration\\/components\\/.*\\/requirements(-[^/]+)?\\.txt$/",
+      "/^\\.github\\/.*-requirements\\.txt$/"
+    ]
+  },
   "packageRules": [
     {
       "groupName": "Go",
       "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
-      "schedule": ["before 6am on Monday"],
-      "postUpgradeTasks": {
-        "commands": [
-          "make go-mod-tidy",
-          "make go-notices-update"
-        ],
-        "executionMode": "branch"
-      }
+      "matchUpdateTypes": ["patch", "digest", "minor"],
+      "schedule": ["before 6am on Monday"]
+    },
+    {
+      "description": "Block Go language major upgrades in go.mod files (these require coordinated manual changes)",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["golang", "toolchain"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Block golang Docker image major upgrades (these require coordinated manual changes)",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["golang"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     },
     {
       "groupName": "Docker",
@@ -52,13 +60,7 @@
       "groupName": "Java",
       "matchManagers": ["gradle", "maven"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
-      "schedule": ["before 6am on Thursday"],
-      "postUpgradeTasks": {
-        "commands": [
-          "make java-notices-update"
-        ],
-        "executionMode": "branch"
-      }
+      "schedule": ["before 6am on Thursday"]
     },
     {
       "groupName": "NPM",
@@ -71,6 +73,18 @@
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
       "schedule": ["before 6am on Thursday"]
+    },
+    {
+      "groupName": "Python",
+      "matchManagers": ["pip-compile"],
+      "matchUpdateTypes": ["minor", "major"],
+      "schedule": ["before 6am on Thursday"]
+    },
+    {
+      "description": "Disable raw pip_requirements handling for integration component requirements files",
+      "matchManagers": ["pip_requirements"],
+      "matchFileNames": ["internal/test/integration/components/**"],
+      "enabled": false
     },
     {
       "description": "Disable patch updates for test dependencies (only bump major/minor)",

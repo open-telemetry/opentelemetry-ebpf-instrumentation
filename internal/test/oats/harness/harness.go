@@ -4,14 +4,21 @@
 package harness // import "go.opentelemetry.io/obi/internal/test/oats/harness"
 
 import (
+	"context"
+	"fmt"
 	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/grafana/oats/model"
-	"github.com/grafana/oats/yaml"
+	"github.com/grafana/oats/testhelpers/remote"
+	oatsyaml "github.com/grafana/oats/yaml"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/format"
 )
 
 const suiteName = "Yaml Suite"
@@ -30,13 +37,13 @@ func RegisterSuite() bool {
 			})
 		}
 
-		yaml.VerboseLogging = true
+		oatsyaml.VerboseLogging = true
 		settings := testCaseSettings()
 
 		for i := range cases {
 			c := cases[i]
 			ginkgo.It(c.Name, func() {
-				yaml.RunTestCase(&c, settings)
+				runTestCase(&c, settings)
 			})
 		}
 	})
@@ -48,9 +55,40 @@ func readTestCases() ([]model.TestCase, string) {
 		return nil, ""
 	}
 
-	cases, err := yaml.ReadTestCases([]string{base}, true)
+	cases, err := oatsyaml.ReadTestCases([]string{base}, true)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred())
 	return cases, base
+}
+
+func runTestCase(c *model.TestCase, settings model.Settings) {
+	format.MaxLength = 100000
+	if settings.ManualDebug {
+		oatsyaml.RunTestCase(c, settings)
+		return
+	}
+
+	c.OutputDir = oatsyaml.PrepareBuildDir(c.Name)
+	c.ValidateAndSetVariables(gomega.Default)
+
+	logFile := filepath.Join(c.OutputDir, fmt.Sprintf("output-%s.log", c.Name))
+	endpoint, err := startEndpoint(c, settings, logFile)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "expected no error creating an observability endpoint")
+	err = endpoint.Start(context.Background())
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "expected no error starting an observability endpoint")
+
+	defer func() {
+		stopErr := endpoint.Stop(context.Background())
+		gomega.Expect(stopErr).ToNot(gomega.HaveOccurred(), "expected no error stopping the local observability endpoint")
+	}()
+
+	runner := oatsyaml.NewRunner(c, settings)
+	setRunnerEndpoint(runner, endpoint)
+	runner.ExecuteChecks()
+}
+
+func setRunnerEndpoint(runner *oatsyaml.Runner, endpoint *remote.Endpoint) {
+	field := reflect.ValueOf(runner).Elem().FieldByName("endpoint")
+	reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Set(reflect.ValueOf(endpoint))
 }
 
 func testCaseSettings() model.Settings {

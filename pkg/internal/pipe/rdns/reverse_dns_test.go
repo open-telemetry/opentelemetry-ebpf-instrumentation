@@ -45,7 +45,7 @@ func TestReverseDNS(t *testing.T) {
 	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	outCh := out.Subscribe()
 	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute},
-		attrsOf, in, out)(t.Context())
+		attrsOf, nil, in, out)(t.Context())
 	require.NoError(t, err)
 	go reverseDNS(t.Context())
 
@@ -74,13 +74,13 @@ func TestReverseDNS_AlreadyProvidedNames(t *testing.T) {
 	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	outCh := out.Subscribe()
 	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute},
-		attrsOf, in, out)(t.Context())
+		attrsOf, nil, in, out)(t.Context())
 	require.NoError(t, err)
 	go reverseDNS(t.Context())
 
 	// When it receives flows with source and destination names
 	f1 := &testRecord{
-		CommonAttrs: pipe.CommonAttrs{SrcName: "src", DstName: "dst"},
+		CommonAttrs: pipe.CommonAttrs{DstName: "dst", SrcName: "src"},
 	}
 	f1.SrcAddr = pipe.IPAddr(srcIP)
 	f1.DstAddr = pipe.IPAddr(dstIP)
@@ -107,7 +107,7 @@ func TestReverseDNS_Cache(t *testing.T) {
 	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	outCh := out.Subscribe()
 	reverseDNS, err := ReverseDNSProvider(&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute},
-		attrsOf, in, out)(t.Context())
+		attrsOf, nil, in, out)(t.Context())
 	require.NoError(t, err)
 	go reverseDNS(t.Context())
 

@@ -26,15 +26,16 @@ func runMQTTTestCase(t *testing.T, testCase TestCase) {
 		comm    = testCase.Comm
 	)
 
-	// Make an HTTP request to trigger MQTT publish/subscribe
-	req, err := http.NewRequest(http.MethodGet, url+"/"+urlPath, nil)
-	require.NoError(t, err, "failed to create HTTP request")
-	resp, err := testHTTPClient.Do(req)
-	require.NoError(t, err, "failed to execute HTTP request")
-	require.Equal(t, http.StatusOK, resp.StatusCode, "unexpected status code")
-
-	// Ensure we see the expected spans in Jaeger
+	// Re-trigger the MQTT operation on each poll iteration. The first attempt
+	// may arrive before OBI's kprobes are attached, so retrying ensures at
+	// least one operation is captured after instrumentation is active.
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		req, err := http.NewRequest(http.MethodGet, url+"/"+urlPath, nil)
+		require.NoError(ct, err, "failed to create HTTP request")
+		resp, err := testHTTPClient.Do(req)
+		require.NoError(ct, err, "failed to execute HTTP request")
+		require.Equal(ct, http.StatusOK, resp.StatusCode, "unexpected status code")
+
 		for _, span := range testCase.Spans {
 			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&limit=1000")
 			require.NoError(ct, err, "failed to query jaeger for %s", comm)
@@ -51,7 +52,7 @@ func runMQTTTestCase(t *testing.T, testCase TestCase) {
 			traces := tq.FindBySpan(tags...)
 			assert.LessOrEqual(ct, 1, len(traces), "span %s with tags %v not found in traces %v", span.Name, tags, tq.Data)
 		}
-	}, 2*testTimeout, 100*time.Millisecond)
+	}, 2*testTimeout, time.Second)
 }
 
 func testREDMetricsPythonMQTT(t *testing.T) {

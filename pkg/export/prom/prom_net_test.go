@@ -61,12 +61,12 @@ func TestMetricsExpiration(t *testing.T) {
 	// WHEN it receives metrics
 	metrics.Send([]*ebpf.Record{
 		{
-			CommonAttrs:    pipe.CommonAttrs{SrcName: "foo", DstName: "bar"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}},
+			CommonAttrs: pipe.CommonAttrs{DstName: "bar", SrcName: "foo"},
+			Metrics:     ebpf.NetFlowMetrics{Bytes: 123},
 		},
 		{
-			CommonAttrs:    pipe.CommonAttrs{SrcName: "baz", DstName: "bae"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}},
+			CommonAttrs: pipe.CommonAttrs{DstName: "bae", SrcName: "baz"},
+			Metrics:     ebpf.NetFlowMetrics{Bytes: 456},
 		},
 	})
 
@@ -81,8 +81,8 @@ func TestMetricsExpiration(t *testing.T) {
 	now.Advance(2 * time.Minute)
 	metrics.Send([]*ebpf.Record{
 		{
-			CommonAttrs:    pipe.CommonAttrs{SrcName: "foo", DstName: "bar"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 123}},
+			CommonAttrs: pipe.CommonAttrs{DstName: "bar", SrcName: "foo"},
+			Metrics:     ebpf.NetFlowMetrics{Bytes: 123},
 		},
 	})
 	now.Advance(2 * time.Minute)
@@ -101,8 +101,8 @@ func TestMetricsExpiration(t *testing.T) {
 	// AND WHEN the metrics labels that disappeared are received again
 	metrics.Send([]*ebpf.Record{
 		{
-			CommonAttrs:    pipe.CommonAttrs{SrcName: "baz", DstName: "bae"},
-			NetFlowRecordT: ebpf.NetFlowRecordT{Metrics: ebpf.NetFlowMetrics{Bytes: 456}},
+			CommonAttrs: pipe.CommonAttrs{DstName: "bae", SrcName: "baz"},
+			Metrics:     ebpf.NetFlowMetrics{Bytes: 456},
 		},
 	})
 	now.Advance(2 * time.Minute)

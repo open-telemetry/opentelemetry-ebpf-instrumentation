@@ -45,7 +45,7 @@ services:
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
-      OTEL_EBPF_HOSTNAME: "beyla"
+      OTEL_EBPF_HOSTNAME: "obi"
       OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_TRACES_INSTRUMENTATIONS: "redis"
@@ -57,14 +57,14 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.148.0@sha256:8164eab2e6bca9c9b0837a8d2f118a6618489008a839db7f9d6510e66be3923c
+    image: otel/opentelemetry-collector-contrib:0.149.0@sha256:0fba96233274f6d665ac8831ad99dfe6479a9a20459f6e2719c0d20945773b46
     container_name: otel-col
     deploy:
       resources:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
@@ -75,10 +75,44 @@ services:
     depends_on:
       prometheus:
         condition: service_started
+      jaeger:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  # Weaver semantic convention validator — receives OTLP from the collector
+  # and validates telemetry against the OpenTelemetry semantic conventions.
+  weaver:
+    image: otel/weaver:v0.22.1@sha256:33ae522ae4b71c1c562563c1d81f46aa0f79f088a0873199143a1f11ac30e5c9
+    container_name: weaver
+    command:
+      - registry
+      - live-check
+      # Semconv version is set via SEMCONV_VERSION env var from the test code
+      # (derived from go.opentelemetry.io/otel/semconv).
+      - --registry
+      - https://github.com/open-telemetry/semantic-conventions.git@v${SEMCONV_VERSION}[model]
+      - --inactivity-timeout
+      - "300"
+      - --admin-port
+      - "4320"
+      - --format
+      - json
+      - --diagnostic-format
+      - json
+      - --no-stream
+    ports:
+      - "4320:4320" # admin port (for /stop from test host)
+    healthcheck:
+      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4317/ 2>&1 | grep -qv refused"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
 
   # Prometheus
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.10.0@sha256:7571a304e67fbd794be02422b13627dc7de822152f74e99e2bef95d29eceecde
+    image: quay.io/prometheus/prometheus:v3.11.0@sha256:131bf4c9d8a0337782ea8b753249f4903afac01379f3cced87ceaf8ca82ab9f3
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config.yml
