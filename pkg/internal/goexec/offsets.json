@@ -288,7 +288,7 @@
       "Host": {
         "versions": {
           "oldest": "1.11.0",
-          "newest": "1.12.2"
+          "newest": "1.12.3"
         },
         "offsets": [
           {
@@ -302,7 +302,7 @@
       "cfg": {
         "versions": {
           "oldest": "1.11.0",
-          "newest": "1.12.2"
+          "newest": "1.12.3"
         },
         "offsets": [
           {
@@ -480,7 +480,7 @@
       "delegate": {
         "versions": {
           "oldest": "1.10.0",
-          "newest": "1.42.0"
+          "newest": "1.43.0"
         },
         "offsets": [
           {
