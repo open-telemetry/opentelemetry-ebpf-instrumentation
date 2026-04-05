@@ -17,6 +17,12 @@
   ],
   "prConcurrentLimit": 10,
   "prHourlyLimit": 3,
+  "pip-compile": {
+    "managerFilePatterns": [
+      "/^internal\\/test\\/integration\\/components\\/.*\\/requirements(-[^/]+)?\\.txt$/",
+      "/^\\.github\\/.*-requirements\\.txt$/"
+    ]
+  },
   "allowedCommands": [
     "make go-mod-tidy",
     "make go-notices-update",
@@ -26,7 +32,7 @@
     {
       "groupName": "Go",
       "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "matchUpdateTypes": ["patch", "digest", "minor"],
       "schedule": ["before 6am on Monday"],
       "postUpgradeTasks": {
         "commands": [
@@ -35,6 +41,20 @@
         ],
         "executionMode": "branch"
       }
+    },
+    {
+      "description": "Block Go language major upgrades in go.mod files (these require coordinated manual changes)",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["golang", "toolchain"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Block golang Docker image major upgrades (these require coordinated manual changes)",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["golang"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     },
     {
       "groupName": "Docker",
@@ -71,6 +91,18 @@
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
       "schedule": ["before 6am on Thursday"]
+    },
+    {
+      "groupName": "Python",
+      "matchManagers": ["pip-compile"],
+      "matchUpdateTypes": ["minor", "major"],
+      "schedule": ["before 6am on Thursday"]
+    },
+    {
+      "description": "Disable raw pip_requirements handling for integration component requirements files",
+      "matchManagers": ["pip_requirements"],
+      "matchFileNames": ["internal/test/integration/components/**"],
+      "enabled": false
     },
     {
       "description": "Disable patch updates for test dependencies (only bump major/minor)",

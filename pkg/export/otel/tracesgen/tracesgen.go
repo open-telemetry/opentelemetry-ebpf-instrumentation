@@ -392,9 +392,13 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 
 		host := request.HTTPClientHost(span)
 		scheme := request.HTTPScheme(span)
-		url := span.Path
+		urlPath := span.Path
+		if span.FullPath != "" {
+			urlPath = span.FullPath
+		}
+		url := urlPath
 		if span.HasOriginalHost() {
-			url = request.URLFull(scheme, host, span.Path)
+			url = request.URLFull(scheme, host, urlPath)
 		}
 
 		attrs = []attribute.KeyValue{

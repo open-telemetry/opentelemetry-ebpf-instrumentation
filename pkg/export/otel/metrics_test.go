@@ -154,20 +154,20 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"http.client.request.duration",
 				"rpc.server.duration",
 				"rpc.client.duration",
-				"db.client.operation.duration", // SQL client SELECT
-				"db.client.operation.duration", // REDIS client SET
-				"db.client.operation.duration", // Redis server GET (TODO is this a bug?)
-				"db.client.operation.duration", // MongoDB client find
-				"messaging.publish.duration",   // Kafka client
-				"messaging.publish.duration",   // MQTT client
-				"messaging.process.duration",   // MQTT server (ordering within aggregated metrics)
-				"messaging.process.duration",   // Kafka server
-				"gpu.cuda.kernel.launch.calls", // Cuda events
-				"gpu.cuda.graph.launch.calls",  // Cuda events
-				"gpu.cuda.kernel.grid.size",    // Cuda events
-				"gpu.cuda.kernel.block.size",   // Cuda events
-				"gpu.cuda.memory.allocations",  // Cuda events
-				"gpu.cuda.memory.copies",       // Cuda events
+				"db.client.operation.duration",        // SQL client SELECT
+				"db.client.operation.duration",        // REDIS client SET
+				"db.client.operation.duration",        // Redis server GET (TODO is this a bug?)
+				"db.client.operation.duration",        // MongoDB client find
+				"messaging.client.operation.duration", // Kafka client
+				"messaging.client.operation.duration", // MQTT client
+				"messaging.process.duration",          // MQTT server (ordering within aggregated metrics)
+				"messaging.process.duration",          // Kafka server
+				"gpu.cuda.kernel.launch.calls",        // Cuda events
+				"gpu.cuda.graph.launch.calls",         // Cuda events
+				"gpu.cuda.kernel.grid.size",           // Cuda events
+				"gpu.cuda.kernel.block.size",          // Cuda events
+				"gpu.cuda.memory.allocations",         // Cuda events
+				"gpu.cuda.memory.copies",              // Cuda events
 			},
 		},
 		{
@@ -218,7 +218,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationKafka},
 			extraColl: 0,
 			expected: []string{
-				"messaging.publish.duration",
+				"messaging.client.operation.duration",
 				"messaging.process.duration",
 			},
 		},
@@ -227,7 +227,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationMQTT},
 			extraColl: 0,
 			expected: []string{
-				"messaging.publish.duration",
+				"messaging.client.operation.duration",
 				"messaging.process.duration",
 			},
 		},
@@ -254,7 +254,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			expected: []string{
 				"rpc.server.duration",
 				"rpc.client.duration",
-				"messaging.publish.duration",
+				"messaging.client.operation.duration",
 				"messaging.process.duration",
 			},
 		},
