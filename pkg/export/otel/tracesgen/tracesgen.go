@@ -310,10 +310,10 @@ var (
 // following the semantic convention: http.request.header.<key> and http.response.header.<key>
 // where <key> is the lowercased header field name. Values are string slices per the spec.
 func jsonRPCAttributes(span *request.Span) []attribute.KeyValue {
-	if span.SubType != request.HTTPSubtypeJsonRPC || span.JsonRPC == nil {
+	if span.SubType != request.HTTPSubtypeJSONRPC || span.JSONRPC == nil {
 		return nil
 	}
-	rpc := span.JsonRPC
+	rpc := span.JSONRPC
 	attrs := []attribute.KeyValue{
 		semconv.RPCSystemJSONRPC,
 		semconv.RPCMethod(rpc.Method),

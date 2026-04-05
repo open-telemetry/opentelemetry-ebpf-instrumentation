@@ -18,7 +18,7 @@ import (
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 )
 
-func testPythonJsonRPCServer(t *testing.T) {
+func testPythonJSONRPCServer(t *testing.T) {
 	const (
 		comm    = "python3.14"
 		address = "http://localhost:8381/rpc"

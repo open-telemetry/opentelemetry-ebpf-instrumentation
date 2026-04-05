@@ -183,8 +183,8 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		}
 	}
 
-	if parseCtx != nil && parseCtx.payloadExtraction.HTTP.JsonRPC.Enabled {
-		span, ok := ebpfhttp.JsonRPCSpan(&httpSpan, req, resp)
+	if parseCtx != nil && parseCtx.payloadExtraction.HTTP.JSONRPC.Enabled {
+		span, ok := ebpfhttp.JSONRPCSpan(&httpSpan, req, resp)
 		if ok {
 			return span
 		}

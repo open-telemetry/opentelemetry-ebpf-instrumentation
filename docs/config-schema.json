@@ -770,7 +770,7 @@
           "description": "GraphQL payload extraction and parsing"
         },
         "jsonrpc": {
-          "$ref": "#/$defs/JsonRPCConfig",
+          "$ref": "#/$defs/JSONRPCConfig",
           "description": "JSON-RPC payload extraction and parsing"
         },
         "sqlpp": {
@@ -974,6 +974,16 @@
       "type": "object",
       "description": "InternalMetricsConfig options for the different metrics exporters"
     },
+    "JSONRPCConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable JSON-RPC payload extraction and parsing",
+          "x-env-var": "OTEL_EBPF_HTTP_JSONRPC_ENABLED"
+        }
+      },
+      "type": "object"
+    },
     "JavaConfig": {
       "properties": {
         "attach_timeout": {
@@ -997,16 +1007,6 @@
         "enabled": {
           "type": "boolean",
           "x-env-var": "OTEL_EBPF_JAVAAGENT_ENABLED"
-        }
-      },
-      "type": "object"
-    },
-    "JsonRPCConfig": {
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable JSON-RPC payload extraction and parsing",
-          "x-env-var": "OTEL_EBPF_HTTP_JSONRPC_ENABLED"
         }
       },
       "type": "object"

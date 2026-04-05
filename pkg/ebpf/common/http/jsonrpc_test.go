@@ -16,7 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
-func newJsonRPCRequest(t *testing.T, contentType, body string) *http.Request {
+func newJSONRPCRequest(t *testing.T, contentType, body string) *http.Request {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewBufferString(body))
 	if contentType != "" {
@@ -25,80 +25,80 @@ func newJsonRPCRequest(t *testing.T, contentType, body string) *http.Request {
 	return req
 }
 
-func newJsonRPCResponse(body string) *http.Response {
+func newJSONRPCResponse(body string) *http.Response {
 	return &http.Response{
-		StatusCode: 200,
+		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(bytes.NewBufferString(body)),
 	}
 }
 
-func TestJsonRPCSpan_DetectionViaBody(t *testing.T) {
+func TestJSONRPCSpan_DetectionViaBody(t *testing.T) {
 	reqBody := `{"jsonrpc":"2.0","method":"tools/call","id":1}`
 	respBody := `{"jsonrpc":"2.0","result":{"ok":true},"id":1}`
 
 	span := request.Span{}
-	req := newJsonRPCRequest(t, "application/json", reqBody)
-	resp := newJsonRPCResponse(respBody)
+	req := newJSONRPCRequest(t, "application/json", reqBody)
+	resp := newJSONRPCResponse(respBody)
 
-	result, ok := JsonRPCSpan(&span, req, resp)
+	result, ok := JSONRPCSpan(&span, req, resp)
 	require.True(t, ok)
-	assert.Equal(t, request.HTTPSubtypeJsonRPC, result.SubType)
-	require.NotNil(t, result.JsonRPC)
-	assert.Equal(t, "tools/call", result.JsonRPC.Method)
-	assert.Equal(t, "2.0", result.JsonRPC.Version)
-	assert.Equal(t, "1", result.JsonRPC.RequestID)
-	assert.Equal(t, 0, result.JsonRPC.ErrorCode)
-	assert.Equal(t, "", result.JsonRPC.ErrorMessage)
+	assert.Equal(t, request.HTTPSubtypeJSONRPC, result.SubType)
+	require.NotNil(t, result.JSONRPC)
+	assert.Equal(t, "tools/call", result.JSONRPC.Method)
+	assert.Equal(t, "2.0", result.JSONRPC.Version)
+	assert.Equal(t, "1", result.JSONRPC.RequestID)
+	assert.Equal(t, 0, result.JSONRPC.ErrorCode)
+	assert.Empty(t, result.JSONRPC.ErrorMessage)
 }
 
-func TestJsonRPCSpan_DetectionViaHeader(t *testing.T) {
+func TestJSONRPCSpan_DetectionViaHeader(t *testing.T) {
 	// Body has jsonrpc field but we also check that header-only detection works
 	// when Content-Type is application/json-rpc
 	reqBody := `{"jsonrpc":"2.0","method":"initialize","id":"req-1"}`
 	respBody := `{"jsonrpc":"2.0","result":{},"id":"req-1"}`
 
 	span := request.Span{}
-	req := newJsonRPCRequest(t, "application/json-rpc", reqBody)
-	resp := newJsonRPCResponse(respBody)
+	req := newJSONRPCRequest(t, "application/json-rpc", reqBody)
+	resp := newJSONRPCResponse(respBody)
 
-	result, ok := JsonRPCSpan(&span, req, resp)
+	result, ok := JSONRPCSpan(&span, req, resp)
 	require.True(t, ok)
-	assert.Equal(t, request.HTTPSubtypeJsonRPC, result.SubType)
-	assert.Equal(t, "initialize", result.JsonRPC.Method)
-	assert.Equal(t, `"req-1"`, result.JsonRPC.RequestID)
+	assert.Equal(t, request.HTTPSubtypeJSONRPC, result.SubType)
+	assert.Equal(t, "initialize", result.JSONRPC.Method)
+	assert.Equal(t, `"req-1"`, result.JSONRPC.RequestID)
 }
 
-func TestJsonRPCSpan_StringID(t *testing.T) {
+func TestJSONRPCSpan_StringID(t *testing.T) {
 	reqBody := `{"jsonrpc":"2.0","method":"resources/read","id":"abc-123"}`
 	respBody := `{"jsonrpc":"2.0","result":{},"id":"abc-123"}`
 
 	span := request.Span{}
-	result, ok := JsonRPCSpan(&span, newJsonRPCRequest(t, "", reqBody), newJsonRPCResponse(respBody))
+	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", reqBody), newJSONRPCResponse(respBody))
 	require.True(t, ok)
-	assert.Equal(t, `"abc-123"`, result.JsonRPC.RequestID)
+	assert.Equal(t, `"abc-123"`, result.JSONRPC.RequestID)
 }
 
-func TestJsonRPCSpan_Notification(t *testing.T) {
+func TestJSONRPCSpan_Notification(t *testing.T) {
 	// Notifications have no "id" field
 	reqBody := `{"jsonrpc":"2.0","method":"notifications/cancelled"}`
 
 	span := request.Span{}
-	result, ok := JsonRPCSpan(&span, newJsonRPCRequest(t, "", reqBody), newJsonRPCResponse(""))
+	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", reqBody), newJSONRPCResponse(""))
 	require.True(t, ok)
-	assert.Equal(t, "notifications/cancelled", result.JsonRPC.Method)
-	assert.Equal(t, "", result.JsonRPC.RequestID)
+	assert.Equal(t, "notifications/cancelled", result.JSONRPC.Method)
+	assert.Empty(t, result.JSONRPC.RequestID)
 }
 
-func TestJsonRPCSpan_NullID(t *testing.T) {
+func TestJSONRPCSpan_NullID(t *testing.T) {
 	reqBody := `{"jsonrpc":"2.0","method":"test","id":null}`
 
 	span := request.Span{}
-	result, ok := JsonRPCSpan(&span, newJsonRPCRequest(t, "", reqBody), newJsonRPCResponse(""))
+	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", reqBody), newJSONRPCResponse(""))
 	require.True(t, ok)
-	assert.Equal(t, "", result.JsonRPC.RequestID)
+	assert.Empty(t, result.JSONRPC.RequestID)
 }
 
-func TestJsonRPCSpan_BatchRequest(t *testing.T) {
+func TestJSONRPCSpan_BatchRequest(t *testing.T) {
 	reqBody := `[
 		{"jsonrpc":"2.0","method":"tools/list","id":1},
 		{"jsonrpc":"2.0","method":"tools/call","id":2},
@@ -111,35 +111,35 @@ func TestJsonRPCSpan_BatchRequest(t *testing.T) {
 	]`
 
 	span := request.Span{}
-	result, ok := JsonRPCSpan(&span, newJsonRPCRequest(t, "", reqBody), newJsonRPCResponse(respBody))
+	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", reqBody), newJSONRPCResponse(respBody))
 	require.True(t, ok)
-	assert.Equal(t, "tools/list", result.JsonRPC.Method) // first item in batch
-	assert.Equal(t, "1", result.JsonRPC.RequestID)
+	assert.Equal(t, "tools/list", result.JSONRPC.Method) // first item in batch
+	assert.Equal(t, "1", result.JSONRPC.RequestID)
 }
 
-func TestJsonRPCSpan_ErrorResponse(t *testing.T) {
+func TestJSONRPCSpan_ErrorResponse(t *testing.T) {
 	reqBody := `{"jsonrpc":"2.0","method":"tools/call","id":1}`
 	respBody := `{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"},"id":1}`
 
 	span := request.Span{}
-	result, ok := JsonRPCSpan(&span, newJsonRPCRequest(t, "", reqBody), newJsonRPCResponse(respBody))
+	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", reqBody), newJSONRPCResponse(respBody))
 	require.True(t, ok)
-	assert.Equal(t, -32601, result.JsonRPC.ErrorCode)
-	assert.Equal(t, "Method not found", result.JsonRPC.ErrorMessage)
+	assert.Equal(t, -32601, result.JSONRPC.ErrorCode)
+	assert.Equal(t, "Method not found", result.JSONRPC.ErrorMessage)
 }
 
-func TestJsonRPCSpan_ParseError(t *testing.T) {
+func TestJSONRPCSpan_ParseError(t *testing.T) {
 	reqBody := `{"jsonrpc":"2.0","method":"test","id":1}`
 	respBody := `{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null}`
 
 	span := request.Span{}
-	result, ok := JsonRPCSpan(&span, newJsonRPCRequest(t, "", reqBody), newJsonRPCResponse(respBody))
+	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", reqBody), newJSONRPCResponse(respBody))
 	require.True(t, ok)
-	assert.Equal(t, -32700, result.JsonRPC.ErrorCode)
-	assert.Equal(t, "Parse error", result.JsonRPC.ErrorMessage)
+	assert.Equal(t, -32700, result.JSONRPC.ErrorCode)
+	assert.Equal(t, "Parse error", result.JSONRPC.ErrorMessage)
 }
 
-func TestJsonRPCSpan_NotJsonRPC(t *testing.T) {
+func TestJSONRPCSpan_NotJSONRPC(t *testing.T) {
 	tests := []struct {
 		name string
 		body string
@@ -156,47 +156,47 @@ func TestJsonRPCSpan_NotJsonRPC(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			span := request.Span{}
-			_, ok := JsonRPCSpan(&span, newJsonRPCRequest(t, "", tt.body), newJsonRPCResponse(""))
+			_, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", tt.body), newJSONRPCResponse(""))
 			assert.False(t, ok)
 		})
 	}
 }
 
-func TestJsonRPCSpan_NotPost(t *testing.T) {
+func TestJSONRPCSpan_NotPost(t *testing.T) {
 	span := request.Span{}
 	req := httptest.NewRequest(http.MethodGet, "/rpc", nil)
-	resp := newJsonRPCResponse("")
+	resp := newJSONRPCResponse("")
 
-	_, ok := JsonRPCSpan(&span, req, resp)
+	_, ok := JSONRPCSpan(&span, req, resp)
 	assert.False(t, ok)
 }
 
-func TestJsonRPCSpan_HeaderDetectionWithMissingVersion(t *testing.T) {
+func TestJSONRPCSpan_HeaderDetectionWithMissingVersion(t *testing.T) {
 	// When Content-Type is application/json-rpc, we should still detect
 	// even if the jsonrpc version field doesn't match "2.0"
 	reqBody := `{"method":"test","id":1}`
 
 	span := request.Span{}
-	result, ok := JsonRPCSpan(&span, newJsonRPCRequest(t, "application/json-rpc", reqBody), newJsonRPCResponse(""))
+	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "application/json-rpc", reqBody), newJSONRPCResponse(""))
 	require.True(t, ok)
-	assert.Equal(t, "test", result.JsonRPC.Method)
+	assert.Equal(t, "test", result.JSONRPC.Method)
 }
 
-func TestJsonRPCSpan_EmptyBatch(t *testing.T) {
+func TestJSONRPCSpan_EmptyBatch(t *testing.T) {
 	span := request.Span{}
-	_, ok := JsonRPCSpan(&span, newJsonRPCRequest(t, "", "[]"), newJsonRPCResponse(""))
+	_, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", "[]"), newJSONRPCResponse(""))
 	assert.False(t, ok)
 }
 
-func TestJsonRPCSpan_BodyRestoredAfterRead(t *testing.T) {
+func TestJSONRPCSpan_BodyRestoredAfterRead(t *testing.T) {
 	reqBody := `{"jsonrpc":"2.0","method":"test","id":1}`
 	respBody := `{"jsonrpc":"2.0","result":{},"id":1}`
 
 	span := request.Span{}
-	req := newJsonRPCRequest(t, "", reqBody)
-	resp := newJsonRPCResponse(respBody)
+	req := newJSONRPCRequest(t, "", reqBody)
+	resp := newJSONRPCResponse(respBody)
 
-	_, _ = JsonRPCSpan(&span, req, resp)
+	_, _ = JSONRPCSpan(&span, req, resp)
 
 	// Verify request body can still be read
 	body, err := io.ReadAll(req.Body)

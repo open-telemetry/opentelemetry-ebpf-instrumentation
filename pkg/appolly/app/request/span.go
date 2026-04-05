@@ -93,7 +93,7 @@ const (
 	HTTPSubtypeSQLPP         = 5 // http + sql++ (couchbase, etc.)
 	HTTPSubtypeOpenAI        = 6 // http + OpenAI
 	HTTPSubtypeAnthropic     = 7 // http + Anthropic
-	HTTPSubtypeJsonRPC       = 8 // http + JSON-RPC
+	HTTPSubtypeJSONRPC       = 8 // http + JSON-RPC
 )
 
 //nolint:cyclop
@@ -370,7 +370,7 @@ type AnthropicError struct {
 	Message string `json:"message"`
 }
 
-type JsonRPC struct {
+type JSONRPC struct {
 	Method       string `json:"method"`
 	Version      string `json:"version"`
 	RequestID    string `json:"requestId"`
@@ -422,7 +422,7 @@ type Span struct {
 	Elasticsearch     *Elasticsearch `json:"-"`
 	AWS               *AWS           `json:"-"`
 	GenAI             *GenAI         `json:"-"`
-	JsonRPC           *JsonRPC       `json:"-"`
+	JSONRPC           *JSONRPC       `json:"-"`
 
 	// RequestHeaders stores extracted HTTP request headers based on enrichment rules.
 	// Keys are canonical header names, values are all header values (possibly obfuscated).
@@ -774,8 +774,8 @@ func SpanStatusMessage(span *Span) string {
 		// handled below
 	}
 	// JSON-RPC spans can be either server (EventTypeHTTP) or client (EventTypeHTTPClient)
-	if span.SubType == HTTPSubtypeJsonRPC && span.JsonRPC != nil && span.JsonRPC.ErrorMessage != "" {
-		return span.JsonRPC.ErrorMessage
+	if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
+		return span.JSONRPC.ErrorMessage
 	}
 	return ""
 }
@@ -786,8 +786,8 @@ func HTTPSpanStatusCode(span *Span) string {
 		return StatusCodeError
 	}
 
-	// JSON-RPC errors are signalled in the response body, not via HTTP status code.
-	if span.SubType == HTTPSubtypeJsonRPC && span.JsonRPC != nil && span.JsonRPC.ErrorCode != 0 {
+	// JSON-RPC errors are signaled in the response body, not via HTTP status code.
+	if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorCode != 0 {
 		return StatusCodeError
 	}
 

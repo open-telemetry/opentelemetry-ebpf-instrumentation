@@ -72,8 +72,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(s *Span) attribute.KeyValue { return ServerPort(s.HostPort) }
 	case attr.RPCMethod:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.SubType == HTTPSubtypeJsonRPC && s.JsonRPC != nil {
-				return semconv.RPCMethod(s.JsonRPC.Method)
+			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
+				return semconv.RPCMethod(s.JSONRPC.Method)
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
 				return semconv.RPCMethod(s.AWS.S3.Method)
@@ -82,7 +82,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.RPCSystem:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.SubType == HTTPSubtypeJsonRPC {
+			if s.SubType == HTTPSubtypeJSONRPC {
 				return semconv.RPCSystemJSONRPC
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 {
@@ -400,24 +400,24 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(s *Span) attribute.KeyValue {
 			return semconv.GenAIResponseModelKey.String(s.GenAIResponseModel())
 		}
-	case attr.JsonRPCProtocolVersion:
+	case attr.JSONRPCProtocolVersion:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.SubType == HTTPSubtypeJsonRPC && s.JsonRPC != nil {
-				return attribute.String(string(attr.JsonRPCProtocolVersion), s.JsonRPC.Version)
+			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
+				return attribute.String(string(attr.JSONRPCProtocolVersion), s.JSONRPC.Version)
 			}
-			return attribute.String(string(attr.JsonRPCProtocolVersion), "")
+			return attribute.String(string(attr.JSONRPCProtocolVersion), "")
 		}
-	case attr.JsonRPCRequestID:
+	case attr.JSONRPCRequestID:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.SubType == HTTPSubtypeJsonRPC && s.JsonRPC != nil {
-				return attribute.String(string(attr.JsonRPCRequestID), s.JsonRPC.RequestID)
+			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
+				return attribute.String(string(attr.JSONRPCRequestID), s.JSONRPC.RequestID)
 			}
-			return attribute.String(string(attr.JsonRPCRequestID), "")
+			return attribute.String(string(attr.JSONRPCRequestID), "")
 		}
 	case attr.RPCResponseStatusCode:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.SubType == HTTPSubtypeJsonRPC && s.JsonRPC != nil && s.JsonRPC.ErrorCode != 0 {
-				return attribute.String(string(attr.RPCResponseStatusCode), strconv.Itoa(s.JsonRPC.ErrorCode))
+			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil && s.JSONRPC.ErrorCode != 0 {
+				return attribute.String(string(attr.RPCResponseStatusCode), strconv.Itoa(s.JSONRPC.ErrorCode))
 			}
 			return attribute.String(string(attr.RPCResponseStatusCode), "")
 		}
