@@ -18,6 +18,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/utils.h>
 
+#include <bpfcore/bpf_builtins.h>
 #include <common/algorithm.h>
 #include <common/globals.h>
 #include <common/http_types.h>
@@ -537,9 +538,9 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->host[0] = '\0';
     if (invocation->is_tls) {
-        __builtin_memcpy(trace->scheme, "https", 6);
+        bpf_memcpy(trace->scheme, "https", 6);
     } else {
-        __builtin_memcpy(trace->scheme, "http", 5);
+        bpf_memcpy(trace->scheme, "http", 5);
     }
     trace->pattern[0] = '\0';
 
