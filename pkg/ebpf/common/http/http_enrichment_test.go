@@ -1115,7 +1115,7 @@ func TestConfigValidation(t *testing.T) {
 
 // --- Benchmarks ---
 
-func BenchmarkEnrichHTTPSpan_HeadersOnly(b *testing.B) {
+func BenchmarkHTTPEnricher_HeadersOnly(b *testing.B) {
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
@@ -1163,7 +1163,7 @@ func BenchmarkEnrichHTTPSpan_HeadersOnly(b *testing.B) {
 	}
 }
 
-func BenchmarkEnrichHTTPSpan_BodyInclude_SmallJSON(b *testing.B) {
+func BenchmarkHTTPEnricher_BodyInclude_SmallJSON(b *testing.B) {
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
@@ -1200,7 +1200,7 @@ func BenchmarkEnrichHTTPSpan_BodyInclude_SmallJSON(b *testing.B) {
 	}
 }
 
-func BenchmarkEnrichHTTPSpan_BodyObfuscate_SmallJSON(b *testing.B) {
+func BenchmarkHTTPEnricher_BodyObfuscate_SmallJSON(b *testing.B) {
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
@@ -1239,7 +1239,7 @@ func BenchmarkEnrichHTTPSpan_BodyObfuscate_SmallJSON(b *testing.B) {
 	}
 }
 
-func BenchmarkEnrichHTTPSpan_BodyObfuscate_LargeJSON(b *testing.B) {
+func BenchmarkHTTPEnricher_BodyObfuscate_LargeJSON(b *testing.B) {
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
@@ -1283,7 +1283,7 @@ func BenchmarkEnrichHTTPSpan_BodyObfuscate_LargeJSON(b *testing.B) {
 	}
 }
 
-func BenchmarkEnrichHTTPSpan_BodyExcludedByDefault(b *testing.B) {
+func BenchmarkHTTPEnricher_BodyExcludedByDefault(b *testing.B) {
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{
@@ -1312,7 +1312,7 @@ func BenchmarkEnrichHTTPSpan_BodyExcludedByDefault(b *testing.B) {
 	}
 }
 
-func BenchmarkEnrichHTTPSpan_HeadersAndBody(b *testing.B) {
+func BenchmarkHTTPEnricher_HeadersAndBody(b *testing.B) {
 	cfg := config.EnrichmentConfig{
 		Enabled: true,
 		Policy: config.HTTPParsingPolicy{

@@ -150,8 +150,8 @@ type HTTPParsingPolicy struct {
 
 // HTTPParsingDefaultAction specifies the default action per rule type.
 type HTTPParsingDefaultAction struct {
-	Headers HTTPParsingAction `yaml:"headers"`
-	Body    HTTPParsingAction `yaml:"body"`
+	Headers HTTPParsingAction `yaml:"headers" validate:"required"`
+	Body    HTTPParsingAction `yaml:"body" validate:"required"`
 }
 
 // HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header and payload extraction.
@@ -233,6 +233,14 @@ func (j JSONPathExpr) MarshalText() ([]byte, error) {
 	return []byte(j.str), nil
 }
 
+func (JSONPathExpr) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:        "string",
+		Description: "A JSONPath expression string.",
+		Examples:    []any{"$.password", "$.user.name", "$.items[0].id"},
+	}
+}
+
 // Expr returns the compiled JSONPath expression.
 func (j *JSONPathExpr) Expr() jp.Expr {
 	return j.expr
@@ -259,8 +267,8 @@ type HTTPParsingMatch struct {
 	Methods []HTTPMethod `yaml:"methods"`
 }
 
-// UnmarshalYAML deserializes the match config and compiles glob patterns.
-// JSONPathExpr fields are compiled automatically by their own UnmarshalYAML.
+// UnmarshalYAML deserializes the match config and compiles glob patterns
+// and JSONPath expressions from their raw string values.
 func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 	var raw struct {
 		Patterns             []string     `yaml:"patterns"`

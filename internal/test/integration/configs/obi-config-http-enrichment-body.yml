@@ -44,7 +44,7 @@ ebpf:
               obfuscation_json_paths:
                 - "$.password"
                 - "$.secret"
-          # Exclude body on health endpoint
+          # Exclude body on smoke endpoint
           - action: exclude
             type: body
             scope: all

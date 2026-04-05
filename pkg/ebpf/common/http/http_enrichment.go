@@ -192,10 +192,11 @@ func (e *HTTPEnricher) processBody(
 
 	// Read and re-wrap body
 	bodyBytes, err := io.ReadAll(body)
-	resetBody(io.NopCloser(bytes.NewBuffer(bodyBytes)))
+	_ = body.Close()
 	if err != nil || len(bodyBytes) == 0 {
 		return ""
 	}
+	resetBody(io.NopCloser(bytes.NewBuffer(bodyBytes)))
 
 	if effectiveAction == config.HTTPParsingActionInclude {
 		if !json.Valid(bodyBytes) {

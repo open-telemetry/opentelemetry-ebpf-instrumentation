@@ -1005,9 +1005,13 @@
       "description": "InternalMetricsConfig options for the different metrics exporters"
     },
     "JSONPathExpr": {
-      "properties": {},
-      "type": "object",
-      "description": "JSONPathExpr holds a JSONPath expression string and its compiled form."
+      "type": "string",
+      "description": "A JSONPath expression string.",
+      "examples": [
+        "$.password",
+        "$.user.name",
+        "$.items[0].id"
+      ]
     },
     "JavaConfig": {
       "properties": {
