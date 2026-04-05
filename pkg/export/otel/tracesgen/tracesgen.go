@@ -309,6 +309,25 @@ var (
 // httpHeaderAttributes converts extracted HTTP headers to OTel span attributes
 // following the semantic convention: http.request.header.<key> and http.response.header.<key>
 // where <key> is the lowercased header field name. Values are string slices per the spec.
+func jsonRPCAttributes(span *request.Span) []attribute.KeyValue {
+	if span.SubType != request.HTTPSubtypeJsonRPC || span.JsonRPC == nil {
+		return nil
+	}
+	rpc := span.JsonRPC
+	attrs := []attribute.KeyValue{
+		semconv.RPCSystemJSONRPC,
+		semconv.RPCMethod(rpc.Method),
+		attribute.String("jsonrpc.protocol.version", rpc.Version),
+	}
+	if rpc.RequestID != "" {
+		attrs = append(attrs, attribute.String("jsonrpc.request.id", rpc.RequestID))
+	}
+	if rpc.ErrorCode != 0 {
+		attrs = append(attrs, attribute.String("rpc.response.status_code", strconv.Itoa(rpc.ErrorCode)))
+	}
+	return attrs
+}
+
 func httpHeaderAttributes(span *request.Span) []attribute.KeyValue {
 	attrs := make([]attribute.KeyValue, 0, len(span.RequestHeaders)+len(span.ResponseHeaders))
 	for name, values := range span.RequestHeaders {
@@ -350,6 +369,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, semconv.GraphQLOperationName(span.GraphQL.OperationName))
 			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
 		}
+		attrs = append(attrs, jsonRPCAttributes(span)...)
 		attrs = append(attrs, httpHeaderAttributes(span)...)
 	case request.EventTypeGRPC:
 		attrs = []attribute.KeyValue{
@@ -531,6 +551,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 		}
 
+		attrs = append(attrs, jsonRPCAttributes(span)...)
 		attrs = append(attrs, httpHeaderAttributes(span)...)
 	case request.EventTypeGRPCClient:
 		attrs = []attribute.KeyValue{

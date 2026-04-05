@@ -23,6 +23,7 @@ func (p PayloadExtraction) Enabled() bool {
 		p.HTTP.AWS.Enabled ||
 		p.HTTP.SQLPP.Enabled ||
 		p.HTTP.GenAI.Enabled() ||
+		p.HTTP.JsonRPC.Enabled ||
 		p.HTTP.Enrichment.Enabled
 }
 
@@ -37,6 +38,8 @@ type HTTPConfig struct {
 	SQLPP SQLPPConfig `yaml:"sqlpp"`
 	// GenAI payload extraction
 	GenAI GenAIConfig `yaml:"genai"`
+	// JSON-RPC payload extraction and parsing
+	JsonRPC JsonRPCConfig `yaml:"jsonrpc"`
 	// Enrichment configures HTTP header and payload extraction with policy-based rules
 	Enrichment EnrichmentConfig `yaml:"enrichment"`
 }
@@ -83,6 +86,11 @@ type OpenAIConfig struct {
 type AnthropicConfig struct {
 	// Enable Anthropic payload extraction and parsing
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_ANTHROPIC_ENABLED" validate:"boolean"`
+}
+
+type JsonRPCConfig struct {
+	// Enable JSON-RPC payload extraction and parsing
+	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_JSONRPC_ENABLED" validate:"boolean"`
 }
 
 // EnrichmentConfig configures HTTP header and payload extraction with policy-based rules.

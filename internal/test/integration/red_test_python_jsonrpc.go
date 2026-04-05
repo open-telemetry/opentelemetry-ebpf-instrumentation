@@ -1,0 +1,71 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package integration // import "go.opentelemetry.io/obi/internal/test/integration"
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	neturl "net/url"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
+)
+
+func testPythonJsonRPCServer(t *testing.T) {
+	const (
+		comm    = "python3.14"
+		address = "http://localhost:8381/rpc"
+	)
+
+	rpcRequest := `{"jsonrpc":"2.0","method":"tools/list","id":1}`
+
+	var tq jaeger.TracesQuery
+	params := neturl.Values{}
+	params.Add("service", comm)
+	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Post(address, "application/json", bytes.NewBufferString(rpcRequest))
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		resp, err = http.Get(fullJaegerURL)
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+
+		// Find traces with JSON-RPC system attribute
+		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.system", Type: "string", Value: "jsonrpc"})
+		require.GreaterOrEqual(ct, len(traces), 1)
+
+		lastTrace := traces[len(traces)-1]
+		require.GreaterOrEqual(ct, len(lastTrace.Spans), 1)
+		span := lastTrace.Spans[0]
+
+		// Validate rpc.method
+		tag, found := jaeger.FindIn(span.Tags, "rpc.method")
+		assert.True(ct, found, "rpc.method tag not found")
+		assert.Equal(ct, "tools/list", tag.Value)
+
+		// Validate jsonrpc.protocol.version
+		tag, found = jaeger.FindIn(span.Tags, "jsonrpc.protocol.version")
+		assert.True(ct, found, "jsonrpc.protocol.version tag not found")
+		assert.Equal(ct, "2.0", tag.Value)
+
+		// Validate jsonrpc.request.id is present
+		tag, found = jaeger.FindIn(span.Tags, "jsonrpc.request.id")
+		assert.True(ct, found, "jsonrpc.request.id tag not found")
+		assert.Equal(ct, "1", tag.Value)
+	}, testTimeout, 100*time.Millisecond)
+}
