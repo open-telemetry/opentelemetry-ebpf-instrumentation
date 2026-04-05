@@ -9,9 +9,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/net/http2"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/bhpack"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
+
+func TestHTTP2InfoToSpanSetsFullPath(t *testing.T) {
+	var info BPFHTTP2Info
+	info.Type = uint8(request.EventTypeHTTP)
+	span := http2InfoToSpan(&info, "GET", "/users", "/users?x=1", "peer", "host", 200, HTTP2)
+	assert.Equal(t, "/users", span.Path)
+	assert.Equal(t, "/users?x=1", span.FullPath)
+}
 
 var isHTTP2TestCases = []struct {
 	name          string

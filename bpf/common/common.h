@@ -24,28 +24,28 @@
 
 #include <pid/types/pid_info.h>
 
-// TODO: enums
-#define K_TCP_MAX_LEN 256
-#define K_TCP_RES_LEN 128
-
-#define PATH_MAX_LEN 100
-#define PATTERN_MAX_LEN 96
-#define METHOD_MAX_LEN 7 // Longest method: OPTIONS
-#define REMOTE_ADDR_MAX_LEN                                                                        \
-    50 // We need 48: 39(ip v6 max) + 1(: separator) + 7(port length max value 65535) + 1(null terminator)
-#define HOST_LEN 64 // can be a fully qualified DNS name
-#define TRACEPARENT_LEN 55
-#define SQL_MAX_LEN 500
-#define SQL_HOSTNAME_MAX_LEN 96
-#define KAFKA_MAX_LEN 256
-#define REDIS_MAX_LEN 256
-#define MONGO_MAX_LEN 256
-#define MAX_TOPIC_NAME_LEN 64
-#define HOST_MAX_LEN 100
-#define SCHEME_MAX_LEN 10
-#define HTTP_BODY_MAX_LEN 64
-#define HTTP_HEADER_MAX_LEN 100
-#define HTTP_CONTENT_TYPE_MAX_LEN 16
+enum : u32 {
+    k_tcp_max_len = 256,
+    k_tcp_res_len = 128,
+    k_path_max_len = 100,
+    k_pattern_max_len = 96,
+    k_method_max_len = 7, // Longest method: OPTIONS
+    k_remote_addr_max_len =
+        50, // We need 48: 39(ip v6 max) + 1(: separator) + 7(port length max value 65535) + 1(null terminator)
+    k_host_len = 64, // can be a fully qualified DNS name
+    k_traceparent_len = 55,
+    k_sql_max_len = 500,
+    k_sql_hostname_max_len = 96,
+    k_kafka_max_len = 256,
+    k_redis_max_len = 256,
+    k_mongo_max_len = 256,
+    k_max_topic_name_len = 64,
+    k_host_max_len = 100,
+    k_scheme_max_len = 10,
+    k_http_body_max_len = 64,
+    k_http_header_max_len = 100,
+    k_http_content_type_max_len = 16,
+};
 
 enum large_buf_action : u8 {
     k_large_buf_action_init = 0,
@@ -56,8 +56,10 @@ enum {
     k_dns_max_len = 512, // must be a power of 2
 };
 
-#define MAX_SPAN_NAME_LEN 64
-#define MAX_STATUS_DESCRIPTION_LEN 64
+enum : u64 {
+    k_max_span_name_len = 64,
+    k_max_status_description_len = 64,
+};
 
 // Trace of an HTTP call invocation. It is instantiated by the return uprobe and forwarded to the
 // user space through the events ringbuffer.
@@ -65,17 +67,17 @@ typedef struct http_request_trace {
     u8 type; // Must be first
     u8 _pad0[1];
     u16 status;
-    unsigned char method[METHOD_MAX_LEN];
-    unsigned char scheme[SCHEME_MAX_LEN];
+    unsigned char method[k_method_max_len];
+    unsigned char scheme[k_scheme_max_len];
     u8 _pad1[11];
     u64 go_start_monotime_ns;
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     s64 content_length;
     s64 response_length;
-    unsigned char path[PATH_MAX_LEN];
-    unsigned char pattern[PATTERN_MAX_LEN];
-    unsigned char host[HOST_MAX_LEN];
+    unsigned char path[k_path_max_len];
+    unsigned char pattern[k_pattern_max_len];
+    unsigned char host[k_host_max_len];
     tp_info_t tp;
     connection_info_t conn;
     pid_info pid;
@@ -90,8 +92,8 @@ typedef struct sql_request_trace {
     u64 end_monotime_ns;
     tp_info_t tp;
     connection_info_t conn;
-    unsigned char sql[SQL_MAX_LEN];
-    unsigned char hostname[SQL_HOSTNAME_MAX_LEN];
+    unsigned char sql[k_sql_max_len];
+    unsigned char hostname[k_sql_hostname_max_len];
 } sql_request_trace_t;
 
 typedef struct kafka_client_req {
@@ -99,7 +101,7 @@ typedef struct kafka_client_req {
     u8 _pad[7];
     u64 start_monotime_ns;
     u64 end_monotime_ns;
-    unsigned char buf[KAFKA_MAX_LEN];
+    unsigned char buf[k_kafka_max_len];
     connection_info_t conn;
     pid_info pid;
 } kafka_client_req_t;
@@ -114,7 +116,7 @@ typedef struct kafka_go_req {
     tp_info_t tp;
     u64 start_monotime_ns;
     u64 end_monotime_ns;
-    unsigned char topic[MAX_TOPIC_NAME_LEN];
+    unsigned char topic[k_max_topic_name_len];
 } kafka_go_req_t;
 
 typedef struct redis_client_req {
@@ -124,7 +126,7 @@ typedef struct redis_client_req {
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     pid_info pid;
-    unsigned char buf[REDIS_MAX_LEN];
+    unsigned char buf[k_redis_max_len];
     connection_info_t conn;
     tp_info_t tp;
 } redis_client_req_t;
@@ -148,8 +150,8 @@ typedef struct tcp_req {
     u32 lb_req_bytes;
     u32 lb_res_bytes;
     u8 _pad2[4];
-    unsigned char buf[K_TCP_MAX_LEN];
-    unsigned char rbuf[K_TCP_RES_LEN];
+    unsigned char buf[k_tcp_max_len];
+    unsigned char rbuf[k_tcp_res_len];
     // we need this to filter traces from unsolicited processes that share the executable
     // with other instrumented processes
     pid_info pid;
@@ -169,11 +171,11 @@ typedef struct tcp_large_buffer {
 } tcp_large_buffer_t;
 
 typedef struct span_name {
-    unsigned char buf[MAX_SPAN_NAME_LEN];
+    unsigned char buf[k_max_span_name_len];
 } span_name_t;
 
 typedef struct span_description {
-    unsigned char buf[MAX_STATUS_DESCRIPTION_LEN];
+    unsigned char buf[k_max_status_description_len];
 } span_description_t;
 
 typedef struct go_string {

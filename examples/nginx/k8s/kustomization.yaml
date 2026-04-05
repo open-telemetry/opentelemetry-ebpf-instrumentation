@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 00-namespace.yaml
+  - 01-observability.yaml
+  - 02-nginx.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: nginx-shared-config
+    namespace: obi-nginx-example
+    files:
+      - edge-server.conf=shared/edge-server.conf
+      - recommendations-v1-server.conf=shared/recommendations-v1-server.conf
+      - recommendations-v2-server.conf=shared/recommendations-v2-server.conf
+  - name: edge-nginx-config
+    namespace: obi-nginx-example
+    files:
+      - nginx.conf=config/edge-nginx.conf
+  - name: recommendations-v1-config
+    namespace: obi-nginx-example
+    files:
+      - nginx.conf=config/recommendations-v1.conf
+  - name: recommendations-v2-config
+    namespace: obi-nginx-example
+    files:
+      - nginx.conf=config/recommendations-v2.conf

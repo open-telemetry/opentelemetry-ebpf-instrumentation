@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,6 +25,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 func TestTCPReqSQLParsing(t *testing.T) {
@@ -428,6 +431,139 @@ func TestReadTCPRequestIntoSpan_CouchbaseFlexibleFraming(t *testing.T) {
 	assert.Equal(t, "1", span.DBError.ErrorCode, "DBError.ErrorCode should be 1 (KeyNotFound)")
 	assert.NotEmpty(t, span.DBError.Description, "DBError.Description should be set for KeyNotFound")
 	assert.Equal(t, "KeyNotFound", span.DBError.Description, "DBError.Description should indicate KeyNotFound")
+}
+
+func TestReadTCPRequestIntoSpan_MemcachedCoalescedNoreplySetThenGet(t *testing.T) {
+	requestBuffer := "set session-key 0 300 5 noreply\r\nvalue\r\nget session-key\r\n"
+	responseBuffer := "VALUE session-key 0 5\r\nvalue\r\nEND\r\n"
+
+	tri := makeTCPReq(requestBuffer, 11211)
+	tri.RespLen = uint32(len(responseBuffer))
+	copy(tri.Rbuf[:], responseBuffer)
+
+	cfg := config.EBPFTracer{}
+	queue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	out := queue.Subscribe(msg.SubscriberName("memcached"))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	ctx := NewEBPFParseContext(&cfg, queue, &fltr)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, tri))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+
+	assert.Equal(t, request.EventTypeMemcachedClient, span.Type)
+	assert.Equal(t, "GET", span.Method)
+	assert.Equal(t, "session-key", span.Path)
+
+	extra := testutil.ReadChannel(t, out, time.Second)
+	require.Len(t, extra, 1)
+	assert.Equal(t, "SET", extra[0].Method)
+	assert.Equal(t, "session-key", extra[0].Path)
+	assert.Equal(t, extra[0].Start, extra[0].End)
+}
+
+func TestReadTCPRequestIntoSpan_MemcachedCoalescedNoreplySetThenIncrError(t *testing.T) {
+	requestBuffer := "set error-key 0 300 12 noreply\r\nnot-a-number\r\nincr error-key 1\r\n"
+	responseBuffer := "CLIENT_ERROR cannot increment or decrement non-numeric value\r\n"
+
+	tri := makeTCPReq(requestBuffer, 11211)
+	tri.RespLen = uint32(len(responseBuffer))
+	copy(tri.Rbuf[:], responseBuffer)
+
+	cfg := config.EBPFTracer{}
+	queue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	out := queue.Subscribe(msg.SubscriberName("memcached"))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	ctx := NewEBPFParseContext(&cfg, queue, &fltr)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, tri))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+
+	assert.Equal(t, "INCR", span.Method)
+	assert.Equal(t, "error-key", span.Path)
+	assert.Equal(t, 1, span.Status)
+	assert.Equal(t, request.DBError{
+		ErrorCode:   "CLIENT_ERROR",
+		Description: "CLIENT_ERROR cannot increment or decrement non-numeric value",
+	}, span.DBError)
+
+	extra := testutil.ReadChannel(t, out, time.Second)
+	require.Len(t, extra, 1)
+	assert.Equal(t, "SET", extra[0].Method)
+	assert.Equal(t, "error-key", extra[0].Path)
+}
+
+func TestReadTCPRequestIntoSpan_MemcachedRequestOnlyDeleteNoreply(t *testing.T) {
+	tri := makeTCPReq("delete session-key noreply\r\n", 11211)
+
+	cfg := config.EBPFTracer{}
+	queue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	out := queue.Subscribe(msg.SubscriberName("memcached"))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	ctx := NewEBPFParseContext(&cfg, queue, &fltr)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, tri))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.Equal(t, request.Span{}, span)
+	assert.True(t, ignore)
+
+	extra := testutil.ReadChannel(t, out, time.Second)
+	require.Len(t, extra, 1)
+	assert.Equal(t, "DELETE", extra[0].Method)
+	assert.Equal(t, "session-key", extra[0].Path)
+}
+
+func TestReadTCPRequestIntoSpan_MemcachedRequestOnlyTouchNoreply(t *testing.T) {
+	tri := makeTCPReq("touch session-key 60 noreply\r\n", 11211)
+
+	cfg := config.EBPFTracer{}
+	queue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	out := queue.Subscribe(msg.SubscriberName("memcached"))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	ctx := NewEBPFParseContext(&cfg, queue, &fltr)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, tri))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.Equal(t, request.Span{}, span)
+	assert.True(t, ignore)
+
+	extra := testutil.ReadChannel(t, out, time.Second)
+	require.Len(t, extra, 1)
+	assert.Equal(t, "TOUCH", extra[0].Method)
+	assert.Equal(t, "session-key", extra[0].Path)
+}
+
+func TestReadTCPRequestIntoSpan_MemcachedRequestOnlyWithoutNoreplyIgnored(t *testing.T) {
+	tri := makeTCPReq("set session-key 0 300 5\r\nvalue\r\n", 11211)
+
+	cfg := config.EBPFTracer{}
+	queue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	out := queue.Subscribe(msg.SubscriberName("memcached"))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	ctx := NewEBPFParseContext(&cfg, queue, &fltr)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, tri))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.Equal(t, request.Span{}, span)
+	assert.True(t, ignore)
+
+	testutil.ChannelEmpty(t, out, 100*time.Millisecond)
 }
 
 func makeTCPReq(buf string, peerPort uint32) TCPRequestInfo {

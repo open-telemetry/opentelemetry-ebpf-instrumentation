@@ -532,6 +532,66 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
 		assert.Equal(t, "KEY_NOT_FOUND", spans.At(0).Status().Message())
 	})
+	t.Run("test Memcached trace generation", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeMemcachedClient, Method: "GET", Path: "session-key", Status: 0}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.NotEmpty(t, spans.At(0).SpanID().String())
+		assert.NotEmpty(t, spans.At(0).TraceID().String())
+		assert.Equal(t, "GET", spans.At(0).Name())
+
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 5, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "memcached")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBCollectionName))
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+		assert.Equal(t, ptrace.StatusCodeUnset, spans.At(0).Status().Code())
+	})
+	t.Run("test Memcached trace generation with db.query.text", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeMemcachedClient, Method: "GET", Path: "session-key", Status: 0}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}, "db.query.text": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 6, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), "session-key")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "memcached")
+	})
+	t.Run("test Memcached trace generation with error", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeMemcachedServer, Method: "GET", Path: "session-key", Status: 1, DBError: request.DBError{ErrorCode: "SERVER_ERROR", Description: "SERVER_ERROR out of memory"}}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.NotEmpty(t, spans.At(0).SpanID().String())
+		assert.NotEmpty(t, spans.At(0).TraceID().String())
+		assert.Equal(t, "GET", spans.At(0).Name())
+
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 5, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "memcached")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "SERVER_ERROR")
+		ensureTraceAttrNotExists(t, attrs, semconv.PeerServiceKey)
+		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
+		assert.Equal(t, "SERVER_ERROR out of memory", spans.At(0).Status().Message())
+	})
 	t.Run("test SQL++ trace generation", func(t *testing.T) {
 		span := request.Span{
 			Type:        request.EventTypeHTTPClient,
@@ -1150,6 +1210,56 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrSliceAttr(t, attrs, "http.request.header.authorization", []string{"***"})
 		ensureTraceStrSliceAttr(t, attrs, "http.response.header.x-ratelimit-remaining", []string{"42"})
 	})
+	t.Run("test HTTP client url.full prefers FullPath with original host", func(t *testing.T) {
+		span := request.Span{
+			Type:      request.EventTypeHTTPClient,
+			Method:    "GET",
+			Path:      "/external/api",
+			FullPath:  "/external/api?foo=bar",
+			Status:    200,
+			Host:      "api.example.com",
+			HostPort:  443,
+			Statement: "https;api.example.com",
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
+	})
+	t.Run("test HTTP client url.full falls back to Path when FullPath is empty", func(t *testing.T) {
+		span := request.Span{
+			Type:      request.EventTypeHTTPClient,
+			Method:    "GET",
+			Path:      "/external/api",
+			Status:    200,
+			Host:      "api.example.com",
+			HostPort:  443,
+			Statement: "https;api.example.com",
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api")
+	})
+	t.Run("test HTTP client url.full uses FullPath as-is without original host", func(t *testing.T) {
+		span := request.Span{
+			Type:     request.EventTypeHTTPClient,
+			Method:   "GET",
+			Path:     "/external/api",
+			FullPath: "https://upstream.example.com/external/api?foo=bar",
+			Status:   200,
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api?foo=bar")
+	})
 	t.Run("test HTTP span without headers has no header attributes", func(t *testing.T) {
 		span := request.Span{
 			Type:   request.EventTypeHTTP,
@@ -1442,7 +1552,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "all instrumentations",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
-			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "insert mycollection", "GET couchbase-collection"},
+			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
 		},
 		{
 			name:     "http only",
@@ -1499,6 +1609,11 @@ func TestTracesInstrumentations(t *testing.T) {
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationCouchbase},
 			expected: []string{"GET couchbase-collection"},
 		},
+		{
+			name:     "memcached",
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationMemcached},
+			expected: []string{"GET", "DELETE"},
+		},
 	}
 
 	spans := []request.Span{
@@ -1515,6 +1630,8 @@ func TestTracesInstrumentations(t *testing.T) {
 		{Type: request.EventTypeMQTTServer, Method: "process", Path: "sensors/#", Statement: "mqtt-server"},
 		{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase"},
 		{Type: request.EventTypeCouchbaseClient, Method: "GET", Path: "couchbase-collection", DBNamespace: "mybucket.myscope"},
+		{Type: request.EventTypeMemcachedClient, Method: "GET", Path: "session-key"},
+		{Type: request.EventTypeMemcachedServer, Method: "DELETE", Path: "session-key"},
 	}
 
 	for _, tt := range tests {

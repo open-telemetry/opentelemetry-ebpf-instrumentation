@@ -110,14 +110,22 @@ When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-su
    - Runs `make release` to generate versioned tarballs for amd64 and arm64
    - Archives contain: `obi`, LICENSE, NOTICE, and NOTICES/ directory
    - Builds a custom source archive from the exact tagged source snapshot plus generated artifacts (including bpf2go outputs)
-   - Generates SHA256 checksums for all uploaded release archives
-   - Verifies archive contents and binary executability
+   - Generates one CycloneDX SBOM per release archive
+   - Generates a dedicated CycloneDX SBOM for the embedded Java agent to capture its Java dependency graph
+   - Generates SHA256 checksums for all uploaded release archives and SBOM assets
+   - Verifies archive contents, binary executability, and SBOM structure
 
 4. **Create Draft Release**: A draft release is automatically created with:
    - Auto-generated release notes from GitHub
-   - Multi-architecture tarballs: `obi-<version>-linux-amd64.tar.gz` and `obi-<version>-linux-arm64.tar.gz`
-   - Source+generated archive: `obi-<version>-source-generated.tar.gz`
-   - Checksum file: `SHA256SUMS`
+   - Multi-architecture tarballs: `obi-v<version>-linux-amd64.tar.gz` and `obi-v<version>-linux-arm64.tar.gz`
+   - Source+generated archive: `obi-v<version>-source-generated.tar.gz`
+   - CycloneDX SBOMs for each archive:
+     `obi-v<version>-linux-amd64.cyclonedx.json`,
+     `obi-v<version>-linux-arm64.cyclonedx.json`,
+     and `obi-v<version>-source-generated.cyclonedx.json`
+   - Java agent CycloneDX SBOM:
+     `obi-java-agent-v<version>.cyclonedx.json`
+   - Checksum file: `SHA256SUMS` covering the release archives and SBOM assets
 
    The draft release allows maintainers to review artifacts before publication.
 
@@ -128,8 +136,10 @@ Once the workflow completes successfully, a draft release is automatically creat
 1. Navigate to the [GitHub Releases page](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
 2. Locate the draft release for your version
 3. Review the artifacts:
-   - Download and verify checksums: `sha256sum -c SHA256SUMS`
+   - Download and verify checksums for the release artifacts you fetched: `sha256sum -c SHA256SUMS`
    - Extract archives and test binaries if needed
+   - Open the published CycloneDX SBOMs with your preferred SBOM tooling if you want to inspect release dependencies
+   - Use the dedicated Java agent SBOM when you need the full Java dependency graph for the JAR embedded inside `obi`
    - Review auto-generated release notes for accuracy
 4. Edit release notes if necessary to add context, highlight important changes, or improve clarity
 5. Once satisfied with artifacts and release notes, click "Publish release" to make it immutable and publicly available
@@ -139,14 +149,14 @@ Once the workflow completes successfully, a draft release is automatically creat
 
 ### Archive Contents
 
-Each release archive (`obi-<version>-linux-<arch>.tar.gz`) contains:
+Each release archive (`obi-v<version>-linux-<arch>.tar.gz`) contains:
 
 - `obi`: Main OBI binary
 - `LICENSE`: Apache 2.0 license file
 - `NOTICE`: Legal notices
 - `NOTICES/`: Directory with third-party licenses and attributions
 
-The release also includes a custom source archive, `obi-<version>-source-generated.tar.gz`, which contains:
+The release also includes a custom source archive, `obi-v<version>-source-generated.tar.gz`, which contains:
 
 - Source files from the exact tagged revision
 - Generated artifacts produced by the release generation pipeline (including bpf2go-generated `.go` and `.o` outputs and the Java agent JAR `obi-java-agent.jar`)
@@ -166,13 +176,17 @@ This will:
 1. Build artifacts for both amd64 and arm64 architectures
 2. Build a source+generated archive from the current release version ref
 3. Verify archive contents
-4. Generate a single `SHA256SUMS` file for all `obi-<version>-*.tar.gz` release archives
+4. Generate a single `SHA256SUMS` file for all `obi-v<version>-*.tar.gz` release archives and SBOM assets
 
 The `dist/` directory will contain:
 
-- `obi-<version>-linux-amd64.tar.gz`
-- `obi-<version>-linux-arm64.tar.gz`
-- `obi-<version>-source-generated.tar.gz`
+- `obi-v<version>-linux-amd64.tar.gz`
+- `obi-v<version>-linux-arm64.tar.gz`
+- `obi-v<version>-source-generated.tar.gz`
+- `obi-v<version>-linux-amd64.cyclonedx.json`
+- `obi-v<version>-linux-arm64.cyclonedx.json`
+- `obi-v<version>-source-generated.cyclonedx.json`
+- `obi-java-agent-v<version>.cyclonedx.json`
 - `SHA256SUMS`
 
 ### Manual Release Trigger

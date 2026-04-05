@@ -8,6 +8,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
+#include <common/algorithm.h>
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/event_defs.h>
@@ -503,7 +504,7 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
     u32 max_available_bytes = http_max_captured_bytes - bytes_sent;
     bpf_clamp_umax(max_available_bytes, k_large_buf_max_http_captured_bytes);
 
-    const u32 available_bytes = bytes_len > max_available_bytes ? max_available_bytes : bytes_len;
+    const u32 available_bytes = min(bytes_len, max_available_bytes);
     const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
 
     if (consumed_bytes > 0) {

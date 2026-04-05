@@ -37,7 +37,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, u32);
-    __type(value, unsigned char[HTTP_HEADER_MAX_LEN]);
+    __type(value, unsigned char[k_http_header_max_len]);
     __uint(max_entries, 1);
 } temp_header_mem_store SEC(".maps");
 

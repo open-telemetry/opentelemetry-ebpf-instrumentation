@@ -14,7 +14,7 @@
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // goroutine key
-    __type(value, char[SQL_HOSTNAME_MAX_LEN]);
+    __type(value, char[k_sql_hostname_max_len]);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } pq_hostnames SEC(".maps");
