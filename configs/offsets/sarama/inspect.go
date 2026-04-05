@@ -40,25 +40,35 @@ func init() {
 	flag.BoolVar(&oldest, "oldest", true, "Kafka consumer consume initial offset from oldest")
 	flag.BoolVar(&verbose, "verbose", false, "Sarama logging")
 	flag.Parse()
+}
 
-	if len(brokers) == 0 {
-		panic("no Kafka bootstrap brokers defined, please set the -brokers flag")
-	}
-
-	if len(topics) == 0 {
-		panic("no topics given to be consumed, please set the -topics flag")
-	}
-
-	if len(destinationTopic) == 0 {
-		panic("no destination topics given to be consumed, please set the -destination-topics flag")
-	}
-
-	if len(group) == 0 {
-		panic("no Kafka consumer group defined, please set the -group flag")
+func validateFlags() error {
+	switch {
+	case len(brokers) == 0:
+		return errors.New("no Kafka bootstrap brokers defined, please set the -brokers flag")
+	case len(topics) == 0:
+		return errors.New("no topics given to be consumed, please set the -topics flag")
+	case len(destinationTopic) == 0:
+		return errors.New("no destination topics given to be consumed, please set the -destination-topics flag")
+	case len(group) == 0:
+		return errors.New("no Kafka consumer group defined, please set the -group flag")
+	default:
+		return nil
 	}
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Printf("consumer stopped: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	if err := validateFlags(); err != nil {
+		return err
+	}
+
 	keepRunning := true
 	log.Println("Starting a new Sarama consumer")
 
@@ -68,7 +78,7 @@ func main() {
 
 	version, err := sarama.ParseKafkaVersion(version)
 	if err != nil {
-		log.Panicf("Error parsing Kafka version: %v", err)
+		return fmt.Errorf("parse Kafka version: %w", err)
 	}
 
 	/**
@@ -109,14 +119,21 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	client, err := sarama.NewConsumerGroup(strings.Split(brokers, ","), group, config)
 	if err != nil {
-		log.Panicf("Error creating consumer group client: %v", err)
+		return fmt.Errorf("create consumer group client: %w", err)
 	}
+	defer func() {
+		if closeErr := client.Close(); closeErr != nil {
+			log.Printf("error closing client: %v", closeErr)
+		}
+	}()
 
 	consumptionIsPaused := false
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
+	consumeErr := make(chan error, 1)
 	go func() {
 		defer wg.Done()
 		for {
@@ -127,7 +144,12 @@ func main() {
 				if errors.Is(err, sarama.ErrClosedConsumerGroup) {
 					return
 				}
-				log.Panicf("Error from consumer: %v", err)
+				select {
+				case consumeErr <- fmt.Errorf("consume messages: %w", err):
+				default:
+				}
+				cancel()
+				return
 			}
 			// check if context was cancelled, signaling that the consumer should stop
 			if ctx.Err() != nil {
@@ -151,6 +173,9 @@ func main() {
 		case <-ctx.Done():
 			log.Println("terminating: context cancelled")
 			keepRunning = false
+		case err := <-consumeErr:
+			log.Printf("terminating: %v", err)
+			keepRunning = false
 		case <-sigterm:
 			log.Println("terminating: via signal")
 			keepRunning = false
@@ -163,8 +188,11 @@ func main() {
 
 	producerProvider.clear()
 
-	if err = client.Close(); err != nil {
-		log.Panicf("Error closing client: %v", err)
+	select {
+	case err := <-consumeErr:
+		return err
+	default:
+		return nil
 	}
 }
 

@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,6 +22,12 @@ type User struct {
 // This example demonstrates how to create an HTTP server with Gorilla mux
 // using a path prefix /api/v1 and a route /users/{id} where id is a URL parameter.
 func main() {
+	if err := run(); err != nil {
+		log.Printf("server stopped: %v", err)
+	}
+}
+
+func run() error {
 	// Create a new router
 	r := mux.NewRouter()
 
@@ -49,5 +56,9 @@ func main() {
 	port := ":8090"
 	log.Printf("Starting server on %s", port)
 	log.Printf("Try: http://localhost%s/api/v1/users/123", port)
-	log.Fatal(http.ListenAndServe(port, r))
+	if err := http.ListenAndServe(port, r); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+
+	return nil
 }

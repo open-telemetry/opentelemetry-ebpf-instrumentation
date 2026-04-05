@@ -28,12 +28,14 @@ func HTTPHandler(log *slog.Logger, echoPort int) http.HandlerFunc {
 
 		err := client.Set(ctx, "obi", "rocks", 0).Err()
 		if err != nil {
-			panic(err)
+			http.Error(rw, "redis set error: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		val, err := client.Get(ctx, "obi").Result()
 		if err != nil {
-			panic(err)
+			http.Error(rw, "redis get error: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		status := 200
@@ -66,5 +68,7 @@ func main() {
 	address := fmt.Sprintf(":%d", 8080)
 	log.Info("starting HTTP server", "address", address)
 	err := http.ListenAndServe(address, HTTPHandler(log, 8080))
-	log.Error("HTTP server has unexpectedly stopped", err)
+	if err != nil {
+		log.Error("HTTP server has unexpectedly stopped", "error", err)
+	}
 }

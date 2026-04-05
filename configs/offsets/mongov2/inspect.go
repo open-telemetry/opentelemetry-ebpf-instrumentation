@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -23,16 +24,18 @@ type Item struct {
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Printf("server stopped: %v", err)
+	}
+}
+
+func run() error {
 	// Connect to MongoDB
 	client, err := mongo.Connect(options.Client().ApplyURI("mongodb://localhost:27017"))
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer client.Disconnect(context.Background())
-
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	db := client.Database("testdb")
 	coll := db.Collection("items")
@@ -91,5 +94,9 @@ func main() {
 	})
 
 	fmt.Println("Server running on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	if err := http.ListenAndServe(":8080", nil); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+
+	return nil
 }

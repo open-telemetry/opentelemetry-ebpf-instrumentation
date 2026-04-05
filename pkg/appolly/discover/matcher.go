@@ -45,18 +45,26 @@ func criteriaMatcherProvider(
 		return swarm.DirectInstance(emptyFunc)
 	}
 
-	m := &Matcher{
-		Log:                 slog.With("component", "discover.CriteriaMatcher"),
-		Criteria:            configCriteria,
-		ExcludeCriteria:     ExcludingCriteria(cfg),
-		LogEnricherCriteria: LogEnricherFindingCriteria(cfg),
-		ProcessHistory:      map[app.PID]ProcessMatch{},
-		Input:               input.Subscribe(msg.SubscriberName("discover.CriteriaMatcher")),
-		Output:              output,
-		Namespace:           instrumenterNamespace,
-		HasHostPidAccess:    hasHostPidAccess(),
+	return func(_ context.Context) (swarm.RunFunc, error) {
+		logEnricherCriteria, err := LogEnricherFindingCriteria(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("build log enricher criteria: %w", err)
+		}
+
+		m := &Matcher{
+			Log:                 slog.With("component", "discover.CriteriaMatcher"),
+			Criteria:            configCriteria,
+			ExcludeCriteria:     ExcludingCriteria(cfg),
+			LogEnricherCriteria: logEnricherCriteria,
+			ProcessHistory:      map[app.PID]ProcessMatch{},
+			Input:               input.Subscribe(msg.SubscriberName("discover.CriteriaMatcher")),
+			Output:              output,
+			Namespace:           instrumenterNamespace,
+			HasHostPidAccess:    hasHostPidAccess(),
+		}
+
+		return m.Run, nil
 	}
-	return swarm.DirectInstance(m.Run)
 }
 
 // Matcher is the component that matches the processes against the discovery criteria.
@@ -332,7 +340,7 @@ func (m *Matcher) matchByAttributes(actual *ProcessAttrs, required services.Sele
 	return true
 }
 
-func NormalizeGlobCriteria(finderCriteria services.GlobDefinitionCriteria) []services.Selector {
+func NormalizeGlobCriteria(finderCriteria services.GlobDefinitionCriteria) ([]services.Selector, error) {
 	// normalize criteria that only define metadata (e.g. k8s)
 	// but do neither define executable name nor port: configure them to match
 	// any executable in the matched k8s entities
@@ -342,15 +350,15 @@ func NormalizeGlobCriteria(finderCriteria services.GlobDefinitionCriteria) []ser
 		if !fc.Path.IsSet() && fc.OpenPorts.Len() == 0 && (len(fc.Metadata) > 0 || len(fc.PodLabels) > 0 || len(fc.PodAnnotations) > 0) {
 			// match any executable path
 			if err := fc.Path.UnmarshalText([]byte("*")); err != nil {
-				panic("bug! " + err.Error())
+				return nil, fmt.Errorf("normalize glob criteria: %w", err)
 			}
 		}
 		criteria = append(criteria, fc)
 	}
-	return criteria
+	return criteria, nil
 }
 
-func normalizeRegexCriteria(finderCriteria services.RegexDefinitionCriteria) []services.Selector {
+func normalizeRegexCriteria(finderCriteria services.RegexDefinitionCriteria) ([]services.Selector, error) {
 	// normalize criteria that only define metadata (e.g. k8s)
 	// but do neither define executable name nor port: configure them to match
 	// any executable in the matched k8s entities
@@ -360,30 +368,34 @@ func normalizeRegexCriteria(finderCriteria services.RegexDefinitionCriteria) []s
 		if !fc.Path.IsSet() && fc.OpenPorts.Len() == 0 && (len(fc.Metadata) > 0 || len(fc.PodLabels) > 0 || len(fc.PodAnnotations) > 0) {
 			// match any executable path
 			if err := fc.Path.UnmarshalText([]byte(".")); err != nil {
-				panic("bug! " + err.Error())
+				return nil, fmt.Errorf("normalize regex criteria: %w", err)
 			}
 		}
 		criteria = append(criteria, fc)
 	}
-	return criteria
+	return criteria, nil
 }
 
-func LogEnricherFindingCriteria(cfg *obi.Config) []services.Selector {
+func LogEnricherFindingCriteria(cfg *obi.Config) ([]services.Selector, error) {
 	var selectors []services.Selector
 
 	if !cfg.EBPF.LogEnricher.Enabled() {
-		return selectors
+		return selectors, nil
 	}
 
 	for _, svcs := range cfg.EBPF.LogEnricher.Services {
-		selectors = append(selectors, NormalizeGlobCriteria(svcs.Service)...)
+		criteria, err := NormalizeGlobCriteria(svcs.Service)
+		if err != nil {
+			return nil, err
+		}
+		selectors = append(selectors, criteria...)
 	}
 
-	return selectors
+	return selectors, nil
 }
 
 // FindingCriteria returns discovery criteria from config.
-func FindingCriteria(cfg *obi.Config) []services.Selector {
+func FindingCriteria(cfg *obi.Config) ([]services.Selector, error) {
 	logDeprecationAndConflicts(cfg)
 
 	if cfg.TargetPIDs.Len() > 0 {
@@ -398,7 +410,7 @@ func FindingCriteria(cfg *obi.Config) []services.Selector {
 				Namespace: cfg.ServiceNamespace,
 				PIDs:      pids,
 			},
-		}
+		}, nil
 	}
 
 	if OnlyDefinesDeprecatedServiceSelection(cfg) {
@@ -446,7 +458,7 @@ func FindingCriteria(cfg *obi.Config) []services.Selector {
 				OpenPorts: cfg.Port,
 				Languages: cfg.AutoTargetLanguage,
 			},
-		}
+		}, nil
 	}
 
 	return []services.Selector{
@@ -456,7 +468,7 @@ func FindingCriteria(cfg *obi.Config) []services.Selector {
 			Path:      cfg.Exec,
 			OpenPorts: cfg.Port,
 		},
-	}
+	}, nil
 }
 
 func ExcludingCriteria(cfg *obi.Config) []services.Selector {

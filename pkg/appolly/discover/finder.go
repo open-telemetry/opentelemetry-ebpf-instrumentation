@@ -78,7 +78,10 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 
 	tracerEvents := msgh.QueueFromConfig[Event[*ebpf.Instrumentable]](pf.cfg, "tracerEvents")
 
-	configCriteria := FindingCriteria(pf.cfg)
+	configCriteria, err := FindingCriteria(pf.cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build discovery criteria: %w", err)
+	}
 
 	swi := swarm.Instancer{}
 	processEvents := msgh.QueueFromConfig[[]Event[ProcessAttrs]](pf.cfg, "processEvents")
