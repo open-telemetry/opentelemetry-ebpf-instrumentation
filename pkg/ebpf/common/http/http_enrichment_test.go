@@ -583,8 +583,8 @@ func TestBodyExtraction_IncludeRawJSON(t *testing.T) {
 
 	ok := NewHTTPEnricher(cfg).Enrich(span, req, resp)
 	require.True(t, ok)
-	assert.Equal(t, `{"name":"Alice","email":"alice@example.com"}`, span.RequestBodyContent)
-	assert.Equal(t, `{"id":1,"status":"created"}`, span.ResponseBodyContent)
+	assert.JSONEq(t, `{"name":"Alice","email":"alice@example.com"}`, span.RequestBodyContent)
+	assert.JSONEq(t, `{"id":1,"status":"created"}`, span.ResponseBodyContent)
 }
 
 func TestBodyExtraction_ObfuscateJSONPaths(t *testing.T) {
@@ -810,7 +810,7 @@ func TestBodyExtraction_RouteFiltering(t *testing.T) {
 	req1, resp1 := makeReqRespWithBody(`{"key":"value"}`, "")
 	ok := NewHTTPEnricher(cfg).Enrich(span1, req1, resp1)
 	require.True(t, ok)
-	assert.Equal(t, `{"key":"value"}`, span1.RequestBodyContent)
+	assert.JSONEq(t, `{"key":"value"}`, span1.RequestBodyContent)
 
 	// Non-matching route
 	span2 := &request.Span{Method: "POST", Path: "/api/v2/users"}
@@ -847,7 +847,7 @@ func TestBodyExtraction_MethodFiltering(t *testing.T) {
 	req1, resp1 := makeReqRespWithBody(`{"key":"value"}`, "")
 	ok := NewHTTPEnricher(cfg).Enrich(span1, req1, resp1)
 	require.True(t, ok)
-	assert.Equal(t, `{"key":"value"}`, span1.RequestBodyContent)
+	assert.JSONEq(t, `{"key":"value"}`, span1.RequestBodyContent)
 
 	// GET does not match
 	span2 := &request.Span{Method: "GET", Path: "/api/data"}
@@ -881,7 +881,7 @@ func TestBodyExtraction_ScopeRequestOnly(t *testing.T) {
 
 	ok := NewHTTPEnricher(cfg).Enrich(span, req, resp)
 	require.True(t, ok)
-	assert.Equal(t, `{"request":"data"}`, span.RequestBodyContent)
+	assert.JSONEq(t, `{"request":"data"}`, span.RequestBodyContent)
 	assert.Empty(t, span.ResponseBodyContent)
 }
 
@@ -950,7 +950,7 @@ func TestBodyExtraction_ExcludeRuleOnRoute(t *testing.T) {
 	req2, resp2 := makeReqRespWithBody(`{"key":"value"}`, "")
 	ok = NewHTTPEnricher(cfg).Enrich(span2, req2, resp2)
 	require.True(t, ok)
-	assert.Equal(t, `{"key":"value"}`, span2.RequestBodyContent)
+	assert.JSONEq(t, `{"key":"value"}`, span2.RequestBodyContent)
 }
 
 func TestBodyExtraction_ContentTypeVariants(t *testing.T) {
@@ -999,7 +999,7 @@ func TestBodyExtraction_ContentTypeVariants(t *testing.T) {
 			ok := NewHTTPEnricher(cfg).Enrich(span, req, resp)
 			if tt.shouldMatch {
 				require.True(t, ok)
-				assert.Equal(t, `{"key":"value"}`, span.RequestBodyContent)
+				assert.JSONEq(t, `{"key":"value"}`, span.RequestBodyContent)
 			} else {
 				assert.Empty(t, span.RequestBodyContent)
 			}

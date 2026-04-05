@@ -173,15 +173,16 @@ func (e *HTTPEnricher) processBody(
 
 	// Determine effective action
 	var effectiveAction config.HTTPParsingAction
-	if !matched {
+	switch {
+	case !matched:
 		effectiveAction = e.policy.DefaultAction.Body
-	} else if hasExclude {
+	case hasExclude:
 		effectiveAction = config.HTTPParsingActionExclude
-	} else if len(allJSONPaths) > 0 {
+	case len(allJSONPaths) > 0:
 		effectiveAction = config.HTTPParsingActionObfuscate
-	} else if hasInclude {
+	case hasInclude:
 		effectiveAction = config.HTTPParsingActionInclude
-	} else {
+	default:
 		effectiveAction = config.HTTPParsingActionExclude
 	}
 
