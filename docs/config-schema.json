@@ -790,7 +790,7 @@
         }
       },
       "type": "object",
-      "description": "HTTPParsingDefaultAction specifies the default action per rule type. It can be unmarshaled from either a plain string (backward compat, applies to headers only, body defaults to exclude) or a map with \"headers\" and \"body\" keys."
+      "description": "HTTPParsingDefaultAction specifies the default action per rule type."
     },
     "HTTPParsingMatch": {
       "properties": {

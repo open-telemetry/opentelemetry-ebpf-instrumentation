@@ -149,28 +149,9 @@ type HTTPParsingPolicy struct {
 }
 
 // HTTPParsingDefaultAction specifies the default action per rule type.
-// It can be unmarshaled from either a plain string (backward compat, applies to headers only,
-// body defaults to exclude) or a map with "headers" and "body" keys.
 type HTTPParsingDefaultAction struct {
 	Headers HTTPParsingAction `yaml:"headers"`
 	Body    HTTPParsingAction `yaml:"body"`
-}
-
-func (d *HTTPParsingDefaultAction) UnmarshalYAML(value *yaml.Node) error {
-	// Map format: {headers: include, body: exclude}
-	if value.Kind == yaml.MappingNode {
-		type plain HTTPParsingDefaultAction
-		return value.Decode((*plain)(d))
-	}
-
-	// Backward compat: plain string applies to headers, body defaults to exclude
-	var action HTTPParsingAction
-	if err := value.Decode(&action); err != nil {
-		return err
-	}
-	d.Headers = action
-	d.Body = HTTPParsingActionExclude
-	return nil
 }
 
 // HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header and payload extraction.
