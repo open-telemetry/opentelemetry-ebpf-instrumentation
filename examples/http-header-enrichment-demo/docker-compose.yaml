@@ -1,0 +1,67 @@
+services:
+  frontend:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    command: ["/app/frontend"]
+    environment:
+      BACKEND_URL: "http://backend:8081"
+    ports:
+      - "8080:8080"
+
+  backend:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    command: ["/app/backend"]
+
+  loadgen:
+    image: curlimages/curl:8.18.0@sha256:d94d07ba9e7d6de898b6d96c1a072f6f8266c687af78a74f380087a0addf5d17
+    depends_on:
+      - frontend
+    command:
+      - /bin/sh
+      - -c
+      - |
+        i=0
+        while true; do
+          i=$$((i+1))
+          tenant="tenant-$$((i % 3 + 1))"
+          segment="gold"
+          if [ $$((i % 2)) -eq 0 ]; then segment="free"; fi
+          curl -sS "http://frontend:8080/checkout" \
+            -H "x-tenant-id: $$tenant" \
+            -H "x-user-segment: $$segment" \
+            -H "authorization: Bearer demo-secret-token-$$i" \
+            -H "x-request-id: req-$$i" > /dev/null || true
+          sleep 0.2
+        done
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+
+  obi:
+    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.7.0}
+    privileged: true
+    pid: "host"
+    environment:
+      OTEL_EBPF_CONFIG_PATH: "/configs/${OBI_CONFIG_FILE:-obi-config-v0.7.0.yml}"
+      OTEL_EBPF_OPEN_PORT: "8080"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: "500ms"
+      OTEL_EBPF_LOG_LEVEL: "${OBI_LOG_LEVEL:-INFO}"
+      # Required for Go applications: header enrichment uses the generic HTTP tracer path.
+      OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS: "${OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS:-true}"
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://jaeger:4317"
+      OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "grpc"
+    volumes:
+      - ./configs:/configs:ro
+      - /sys/kernel/security:/sys/kernel/security
+    depends_on:
+      - frontend
+      - backend
+      - jaeger
