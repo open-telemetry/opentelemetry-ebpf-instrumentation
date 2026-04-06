@@ -170,7 +170,7 @@ func (g *DocGenerator) Generate() string {
 	// Type Definitions appendix
 	g.writeTypeDefinitions(&b)
 
-	return b.String()
+	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
 // writeObjectSection writes a markdown section for an object-typed property.
@@ -181,7 +181,7 @@ func (g *DocGenerator) writeObjectSection(b *strings.Builder, name string, schem
 	fmt.Fprintf(b, "%s `%s`\n\n", hashes, name)
 
 	if resolved.Description != "" {
-		b.WriteString(resolved.Description + "\n\n")
+		b.WriteString(wrapBareURLs(resolved.Description) + "\n\n")
 	}
 	if resolved.Deprecated {
 		b.WriteString("**Deprecated.**\n\n")
@@ -285,7 +285,7 @@ func (g *DocGenerator) writeTypeDef(b *strings.Builder, name string, s *Schema) 
 
 	if s.Description != "" {
 		desc := strings.ReplaceAll(s.Description, "\n", " ")
-		b.WriteString(desc + "\n\n")
+		b.WriteString(wrapBareURLs(desc) + "\n\n")
 	}
 
 	typeStr := schemaTypeStr(s)
@@ -798,5 +798,39 @@ func (g *DocGenerator) descString(original, resolved *Schema) string {
 	}
 	desc = strings.ReplaceAll(desc, "\n", " ")
 	desc = strings.ReplaceAll(desc, "|", "\\|") // escape pipes for markdown tables
+	// Wrap bare URLs in angle brackets to satisfy MD034
+	desc = wrapBareURLs(desc)
 	return desc
+}
+
+// urlPrefixes lists the URL schemes to detect as bare URLs.
+var urlPrefixes = []string{"https://", "http://"}
+
+// wrapBareURLs wraps bare URLs in angle brackets for markdown lint compliance (MD034).
+func wrapBareURLs(s string) string {
+	for _, prefix := range urlPrefixes {
+		for {
+			idx := strings.Index(s, prefix)
+			if idx < 0 {
+				break
+			}
+			// Skip if already wrapped in angle brackets
+			if idx > 0 && s[idx-1] == '<' {
+				s = s[:idx] + s[idx:idx+len(prefix)] + s[idx+len(prefix):]
+				// Move past this occurrence to avoid infinite loop
+				break
+			}
+			// Find end of URL (space, closing paren, or end of string)
+			end := len(s)
+			for i := idx; i < len(s); i++ {
+				if s[i] == ' ' || s[i] == ')' || s[i] == '>' {
+					end = i
+					break
+				}
+			}
+			url := s[idx:end]
+			s = s[:idx] + "<" + url + ">" + s[end:]
+		}
+	}
+	return s
 }

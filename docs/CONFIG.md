@@ -432,7 +432,7 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `otel_traces_export.backoff_initial_interval` | `duration` | `OTEL_EBPF_BACKOFF_INITIAL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Configuration options for BackOffConfig of the traces exporter. See https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go BackOffInitialInterval the time to wait after the first failure before retrying. |
+| `otel_traces_export.backoff_initial_interval` | `duration` | `OTEL_EBPF_BACKOFF_INITIAL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Configuration options for BackOffConfig of the traces exporter. See <https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go> BackOffInitialInterval the time to wait after the first failure before retrying. |
 | `otel_traces_export.backoff_max_elapsed_time` | `duration` | `OTEL_EBPF_BACKOFF_MAX_ELAPSED_TIME` | `0s` | `30s`, `5m`, `1ms`, etc |  | Is the maximum amount of time (including retries) spent trying to send a request/batch. |
 | `otel_traces_export.backoff_max_interval` | `duration` | `OTEL_EBPF_BACKOFF_MAX_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Is the upper bound on backoff interval. |
 | `otel_traces_export.batch_timeout` | `duration` | `OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT` | `15s` | `30s`, `5m`, `1ms`, etc |  |  |
@@ -446,7 +446,7 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 
 ### `otel_traces_export.sampler`
 
-Sampler standard configuration https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler We don't support, yet, the jaeger and xray samplers.
+Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers.
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
@@ -580,7 +580,7 @@ Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' i
 | `namespace` | `string` |  | Will define a namespace for the matching service. If unset, it will be left empty.  Namespace should be set in the instrumentation target via kube metadata or standard env vars.  To be kept undocumented until we remove it. |
 | `open_ports` | [`IntEnum`](#intenum) |  | Allows defining a group of ports that this service could open. It accepts a comma-separated list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089) |
 | `routes` | [`CustomRoutesConfig`](#customroutesconfig) |  |  |
-| `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler We don't support, yet, the jaeger and xray samplers. |
+| `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers. |
 | `target_pids` | `integer`[] |  | Allows selecting processes by PID (static from config). When non-empty, the process PID must be in this list. |
 
 ### HTTPParsingRule
@@ -638,7 +638,7 @@ RegexSelector that specify a given instrumented service. Each instance has to de
 | `namespace` | `string` |  | Will define a namespace for the matching service. If unset, it will be left empty.  Namespace should be set in the instrumentation target via kube metadata or standard env vars.  To be kept undocumented until we remove it. |
 | `open_ports` | [`IntEnum`](#intenum) |  | Allows defining a group of ports that this service could open. It accepts a comma-separated list of port numbers (e.g. 80) and port ranges (e.g. 8080-8089) |
 | `routes` | [`CustomRoutesConfig`](#customroutesconfig) |  |  |
-| `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler We don't support, yet, the jaeger and xray samplers. |
+| `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers. |
 | `target_pids` | `integer`[] |  | Allows selecting processes by PID. When non-empty, the process PID must be in this list (in addition to any path/port criteria). |
 
 ### CustomRoutesConfig
@@ -659,7 +659,7 @@ HTTPParsingMatch defines matching criteria for an HTTP parsing rule.
 
 ### SamplerConfig
 
-Sampler standard configuration https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler We don't support, yet, the jaeger and xray samplers.
+Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers.
 
 | Field | Type | Values | Description |
 |---|---|---|---|
@@ -673,4 +673,3 @@ SvcMetricsConfig is equivalent to MetricsConfig, but avoids defining environment
 | Field | Type | Values | Description |
 |---|---|---|---|
 | `features` | `string`[] | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats` | Of metrics that can be exported. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes |
-
