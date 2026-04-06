@@ -18,13 +18,28 @@ import (
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 )
 
+// jsonRPCCall sends a JSON-RPC 2.0 request over HTTP and returns the response.
+func jsonRPCCall(url, method string, id int, params any) (*http.Response, error) {
+	req := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  method,
+		"id":      id,
+	}
+	if params != nil {
+		req["params"] = params
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	return http.Post(url, "application/json", bytes.NewReader(body)) //nolint:noctx
+}
+
 func testPythonJSONRPCServer(t *testing.T) {
 	const (
 		comm    = "python3.14"
 		address = "http://localhost:8381/rpc"
 	)
-
-	rpcRequest := `{"jsonrpc":"2.0","method":"tools/list","id":1}`
 
 	var tq jaeger.TracesQuery
 	params := neturl.Values{}
@@ -32,11 +47,11 @@ func testPythonJSONRPCServer(t *testing.T) {
 	fullJaegerURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Post(address, "application/json", bytes.NewBufferString(rpcRequest))
+		resp, err := jsonRPCCall(address, "tools/list", 1, nil)
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL)
+		resp, err = http.Get(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
