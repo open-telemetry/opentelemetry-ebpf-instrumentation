@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/tools
 
-go 1.25.8
+go 1.26.0
 
 require (
 	github.com/cilium/ebpf v0.21.0
@@ -11,7 +11,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	go.opentelemetry.io/build-tools/multimod v0.29.0
 	gotest.tools/gotestsum v1.13.0
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260331052815-773c064a8064
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260405152528-6210f847b2c1
 	sigs.k8s.io/kind v0.31.0
 )
 
@@ -249,7 +249,7 @@ require (
 	golang.org/x/term v0.41.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	golang.org/x/tools v0.43.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	honnef.co/go/tools v0.7.0 // indirect
