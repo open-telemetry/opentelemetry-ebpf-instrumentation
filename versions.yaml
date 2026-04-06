@@ -21,6 +21,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/configs/offsets/redis
   - go.opentelemetry.io/obi/configs/offsets/sarama
   - go.opentelemetry.io/obi/configs/offsets/shopify
+  - go.opentelemetry.io/obi/examples/http-header-enrichment-demo/app
   - go.opentelemetry.io/obi/internal/test/benchmarks/goshorturl
   - go.opentelemetry.io/obi/internal/test/benchmarks/goshorturl/memsql
   - go.opentelemetry.io/obi/internal/test/integration/components/go-stat-metrics-client
