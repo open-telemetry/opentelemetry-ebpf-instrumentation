@@ -3,7 +3,7 @@ module go.opentelemetry.io/obi/internal/tools
 go 1.26.0
 
 require (
-	github.com/cilium/ebpf v0.21.0
+	github.com/cilium/ebpf v0.20.0
 	github.com/golangci/golangci-lint/v2 v2.11.4
 	github.com/google/go-licenses/v2 v2.0.1
 	github.com/grafana/go-offsets-tracker v0.1.7
