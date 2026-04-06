@@ -259,7 +259,7 @@ func TestGenerate(t *testing.T) {
 	}
 
 	gen := &DocGenerator{root: schema, referencedTypes: make(map[string]bool)}
-	output := gen.Generate()
+	output := gen.Generate("config-schema.json")
 
 	assert.Contains(t, output, "# OBI Configuration Reference")
 	assert.Contains(t, output, "## Top-Level Properties")
@@ -281,7 +281,7 @@ func TestGenerateFromRealSchema(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &schema))
 
 	gen := &DocGenerator{root: &schema, referencedTypes: make(map[string]bool)}
-	output := gen.Generate()
+	output := gen.Generate("config-schema.json")
 
 	// Basic structural checks
 	assert.Contains(t, output, "# OBI Configuration Reference")
@@ -373,8 +373,8 @@ func TestDefaultString(t *testing.T) {
 	g := newTestGenerator(nil)
 
 	t.Run("nil", func(t *testing.T) {
-		assert.Equal(t, "", g.defaultString(nil))
-		assert.Equal(t, "", g.defaultString(&Schema{}))
+		assert.Empty(t, g.defaultString(nil))
+		assert.Empty(t, g.defaultString(&Schema{}))
 	})
 
 	t.Run("string", func(t *testing.T) {

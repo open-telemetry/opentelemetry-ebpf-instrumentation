@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -109,7 +110,14 @@ func main() {
 	}
 
 	gen := &DocGenerator{root: &schema, referencedTypes: make(map[string]bool)}
-	output := gen.Generate()
+
+	schemaLink := *schemaFile
+	if *outputFile != "" {
+		if rel, err := filepath.Rel(filepath.Dir(*outputFile), *schemaFile); err == nil {
+			schemaLink = rel
+		}
+	}
+	output := gen.Generate(schemaLink)
 
 	if *outputFile != "" {
 		if err := os.WriteFile(*outputFile, []byte(output), 0o644); err != nil {
@@ -122,14 +130,15 @@ func main() {
 	}
 }
 
-// Generate produces the full markdown document.
-func (g *DocGenerator) Generate() string {
+// Generate produces the full markdown document. schemaLink is the relative
+// path from the output file to the schema file, used for the source link.
+func (g *DocGenerator) Generate(schemaLink string) string {
 	var b strings.Builder
 
 	b.WriteString("# OBI Configuration Reference\n\n")
 	b.WriteString("Complete configuration reference for OpenTelemetry eBPF Instrumentation (OBI).\n")
 	b.WriteString("Configuration is provided via YAML file and/or environment variables.\n\n")
-	b.WriteString("Generated from [`docs/config-schema.json`](config-schema.json).\n\n")
+	fmt.Fprintf(&b, "Generated from [`%s`](%s).\n\n", schemaLink, schemaLink)
 	b.WriteString("---\n\n")
 
 	// Collect top-level simple properties and object properties

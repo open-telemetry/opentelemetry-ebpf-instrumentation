@@ -3,7 +3,7 @@
 Complete configuration reference for OpenTelemetry eBPF Instrumentation (OBI).
 Configuration is provided via YAML file and/or environment variables.
 
-Generated from [`docs/config-schema.json`](config-schema.json).
+Generated from [`config-schema.json`](config-schema.json).
 
 ---
 
