@@ -607,3 +607,53 @@ func TestCallJSONSchemaMethod(t *testing.T) {
 		assert.Nil(t, schema)
 	})
 }
+
+func TestStripNamePrefix(t *testing.T) {
+	tests := []struct {
+		name     string
+		desc     string
+		propKey  string
+		goName   string
+		expected string
+	}{
+		{"strips Go field name", "Exec allows selecting the executable", "executable_path", "Exec", "Allows selecting the executable"},
+		{"strips property key", "AutoTargetExe selects the executable", "AutoTargetExe", "", "Selects the executable"},
+		{"no match leaves unchanged", "Sets the log level", "log_level", "", "Sets the log level"},
+		{"prefers Go name over key", "Exec does something", "exec_path", "Exec", "Does something"},
+		{"empty desc", "", "field", "Field", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, stripNamePrefix(tc.desc, tc.propKey, tc.goName))
+		})
+	}
+}
+
+func TestProcessFieldAnnotations(t *testing.T) {
+	g := NewSchemaGenerator()
+	g.noYaml["Config"] = map[string]bool{"AutoTargetExe": true}
+	g.goFieldNames["Config"] = map[string]string{"executable_path": "Exec"}
+
+	schema := &jsonschema.Schema{
+		Properties: jsonschema.NewProperties(),
+	}
+	schema.Properties.Set("AutoTargetExe", &jsonschema.Schema{
+		Description: "AutoTargetExe selects the executable",
+	})
+	schema.Properties.Set("executable_path", &jsonschema.Schema{
+		Description: "Exec allows selecting the executable",
+	})
+
+	g.processFieldAnnotations(schema)
+
+	// Check no-yaml annotation
+	prop, _ := schema.Properties.Get("AutoTargetExe")
+	assert.Equal(t, true, prop.Extras["x-no-yaml"])
+	assert.Equal(t, "Selects the executable", prop.Description)
+
+	// Check description stripping via Go field name
+	prop2, _ := schema.Properties.Get("executable_path")
+	assert.Nil(t, prop2.Extras)
+	assert.Equal(t, "Allows selecting the executable", prop2.Description)
+}
