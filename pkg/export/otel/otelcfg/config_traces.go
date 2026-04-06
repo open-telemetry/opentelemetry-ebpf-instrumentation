@@ -33,7 +33,7 @@ type TracesConfig struct {
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
 	Instrumentations []instrumentations.Instrumentation `yaml:"instrumentations" env:"OTEL_EBPF_TRACES_INSTRUMENTATIONS" envSeparator:"," jsonschema:"uniqueItems=true"`
 
-	// InsecureSkipVerify is not standard, so we don't follow the same naming convention
+	// InsecureSkipVerify enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention)
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify" env:"OTEL_EBPF_INSECURE_SKIP_VERIFY"`
 
 	SamplerConfig services.SamplerConfig `yaml:"sampler"`
@@ -47,9 +47,9 @@ type TracesConfig struct {
 	// See https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go
 	// BackOffInitialInterval the time to wait after the first failure before retrying.
 	BackOffInitialInterval time.Duration `yaml:"backoff_initial_interval" env:"OTEL_EBPF_BACKOFF_INITIAL_INTERVAL"`
-	// BackOffMaxInterval is the upper bound on backoff interval.
+	// BackOffMaxInterval specifies the upper bound on backoff interval.
 	BackOffMaxInterval time.Duration `yaml:"backoff_max_interval" env:"OTEL_EBPF_BACKOFF_MAX_INTERVAL"`
-	// BackOffMaxElapsedTime is the maximum amount of time (including retries) spent trying to send a request/batch.
+	// BackOffMaxElapsedTime specifies the maximum amount of time (including retries) spent trying to send a request/batch.
 	BackOffMaxElapsedTime time.Duration `yaml:"backoff_max_elapsed_time" env:"OTEL_EBPF_BACKOFF_MAX_ELAPSED_TIME"`
 	ReportersCacheLen     int           `yaml:"reporters_cache_len" env:"OTEL_EBPF_TRACES_REPORT_CACHE_LEN"`
 

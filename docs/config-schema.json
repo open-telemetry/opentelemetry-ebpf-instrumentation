@@ -277,7 +277,7 @@
         },
         "default_exclude_instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
-          "description": "By default prevents self-instrumentation of OBI as well as related observability tools It must be set to an empty string or a different value if self-instrumentation is desired.",
+          "description": "Defines the default exclusion patterns that prevent self-instrumentation of OBI as well as related observability tools. It must be set to an empty string or a different value if self-instrumentation is desired.",
           "default": [
             {
               "cmd_args": {},
@@ -323,7 +323,7 @@
         },
         "default_exclude_services": {
           "$ref": "#/$defs/RegexDefinitionCriteria",
-          "description": "By default prevents self-instrumentation of OBI as well as related observability tools It must be set to an empty string or a different value if self-instrumentation is desired.  Use DefaultExcludeInstrument instead",
+          "description": "Defines the default exclusion patterns that prevent self-instrumentation of OBI as well as related observability tools. It must be set to an empty string or a different value if self-instrumentation is desired.  Use DefaultExcludeInstrument instead",
           "default": [
             {
               "cmd_args": {},
@@ -676,7 +676,7 @@
         },
         "track_request_headers": {
           "type": "boolean",
-          "description": "If enabled, the kprobes based HTTP request tracking will start tracking the request headers to process any 'Traceparent' fields.",
+          "description": "Enables the kprobes based HTTP request tracking to start tracking the request headers to process any 'Traceparent' fields.",
           "default": false,
           "x-env-var": "OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS"
         },
@@ -729,7 +729,7 @@
             "$ref": "#/$defs/HTTPParsingRule"
           },
           "type": "array",
-          "description": "Is an ordered list of include/exclude/obfuscate rules. Rules are evaluated according to Policy.MatchOrder."
+          "description": "Defines an ordered list of include/exclude/obfuscate rules. Rules are evaluated according to Policy.MatchOrder."
         }
       },
       "type": "object",
@@ -1007,7 +1007,7 @@
             "$ref": "#/$defs/GlobAttr"
           },
           "type": "array",
-          "description": "Is a list of glob patterns to match the rule against"
+          "description": "Specifies a list of glob patterns to match the rule against"
         }
       },
       "type": "object",
@@ -1035,7 +1035,7 @@
         },
         "obfuscation_string": {
           "type": "string",
-          "description": "Is the replacement string used when a rule's action is \"obfuscate\"",
+          "description": "Specifies the replacement string used when a rule's action is \"obfuscate\"",
           "default": "***",
           "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING"
         }
@@ -1047,7 +1047,7 @@
       "properties": {
         "action": {
           "$ref": "#/$defs/HTTPParsingAction",
-          "description": "Of the rule: \"include\", \"exclude\", or \"obfuscate\""
+          "description": "Specifies what to do when the rule matches: \"include\", \"exclude\", or \"obfuscate\""
         },
         "match": {
           "$ref": "#/$defs/HTTPParsingMatch",
@@ -1055,7 +1055,7 @@
         },
         "scope": {
           "$ref": "#/$defs/HTTPParsingScope",
-          "description": "Of the rule: \"request\", \"response\", or \"all\""
+          "description": "Specifies which direction the rule applies to: \"request\", \"response\", or \"all\""
         },
         "type": {
           "$ref": "#/$defs/HTTPParsingRuleType",
@@ -1122,7 +1122,7 @@
       "properties": {
         "dns": {
           "type": "boolean",
-          "description": "Is true if OBI uses the DNS to resolve the local hostname or false if it uses the local hostname.",
+          "description": "Controls whether OBI uses the DNS to resolve the local hostname. If false, the local hostname is used as-is.",
           "default": true,
           "x-env-var": "OTEL_EBPF_HOSTNAME_DNS_RESOLUTION"
         },
@@ -1265,7 +1265,7 @@
         "informers_sync_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Is the timeout for waiting for informers to sync on startup.",
+          "description": "Specifies the timeout for waiting for informers to sync on startup.",
           "default": "30s",
           "examples": [
             "30s",
@@ -1276,12 +1276,12 @@
         },
         "kubeconfig_path": {
           "type": "string",
-          "description": "Is optional. If unset, it will look in the usual location.",
+          "description": "Specifies the path to the kubeconfig file. If unset, it will look in the usual location.",
           "x-env-var": "KUBECONFIG"
         },
         "meta_cache_address": {
           "type": "string",
-          "description": "Is the host:port address of the obi-k8s-cache service instance",
+          "description": "Specifies the host:port address of the obi-k8s-cache service instance",
           "x-env-var": "OTEL_EBPF_KUBE_META_CACHE_ADDRESS"
         },
         "meta_restrict_local_node": {
@@ -1298,7 +1298,7 @@
         "reconnect_initial_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Is the time to wait before reconnecting to the Kubernetes API after a connection loss.",
+          "description": "Specifies the time to wait before reconnecting to the Kubernetes API after a connection loss.",
           "default": "5s",
           "examples": [
             "30s",
@@ -1356,7 +1356,7 @@
             "$ref": "#/$defs/LogEnricherServiceConfig"
           },
           "type": "array",
-          "description": "To enable log enrichment for"
+          "description": "Specifies the services to enable log enrichment for"
         }
       },
       "type": "object"
@@ -1475,7 +1475,7 @@
         },
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Of metrics that can be exported. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead.",
+          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead.",
           "default": 16,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
@@ -1491,7 +1491,7 @@
         },
         "insecure_skip_verify": {
           "type": "boolean",
-          "description": "Is not standard, so we don't follow the same naming convention",
+          "description": "Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention)",
           "default": false,
           "x-env-var": "OTEL_EBPF_INSECURE_SKIP_VERIFY"
         },
@@ -1557,7 +1557,7 @@
         "ttl": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Is the time since a metric was updated for the last time until it is removed from the metrics set.",
+          "description": "Specifies the time since a metric was updated for the last time until it is removed from the metrics set.",
           "default": "5m",
           "examples": [
             "30s",
@@ -1601,7 +1601,7 @@
             ]
           },
           "type": "array",
-          "description": "For name resolving. Accepted values: dns, k8s, rdns",
+          "description": "Specifies the backends used for name resolving. Accepted values: dns, k8s, rdns",
           "default": [
             "k8s"
           ],
@@ -1762,7 +1762,7 @@
         },
         "print_flows": {
           "type": "boolean",
-          "description": "The network flows in the Standard Output, if true",
+          "description": "Enables printing the network flows to the Standard Output",
           "default": false,
           "x-env-var": "OTEL_EBPF_NETWORK_PRINT_FLOWS"
         },
@@ -1864,7 +1864,7 @@
         },
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Features of metrics that can be exported. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead.",
+          "description": "Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead.",
           "default": 0,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_PROMETHEUS_FEATURES"
@@ -1912,7 +1912,7 @@
         "ttl": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Is the time since a metric was updated for the last time until it is removed from the metrics set.",
+          "description": "Specifies the time since a metric was updated for the last time until it is removed from the metrics set.",
           "default": "5m",
           "examples": [
             "30s",
@@ -2081,7 +2081,7 @@
         "max_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Is the upper bound on the wait duration between consecutive retry attempts.",
+          "description": "Specifies the upper bound on the wait duration between consecutive retry attempts.",
           "default": "5s",
           "examples": [
             "30s",
@@ -2093,7 +2093,7 @@
         "start_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Is the initial wait duration between the first and second retry attempt.",
+          "description": "Specifies the initial wait duration between the first and second retry attempt.",
           "default": "500ms",
           "examples": [
             "30s",
@@ -2105,7 +2105,7 @@
         "timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Is the maximum total time allowed for all retry attempts before giving up.",
+          "description": "Specifies the maximum total time allowed for all retry attempts before giving up.",
           "default": "30s",
           "examples": [
             "30s",
@@ -2145,7 +2145,7 @@
             "local",
             "none"
           ],
-          "description": "Of ReverseDNS. Values are \"none\" (default), \"local\" and \"ebpf\" It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE for backwards-compatibility",
+          "description": "Specifies the ReverseDNS method. Values are \"none\" (default), \"local\" and \"ebpf\" It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE for backwards-compatibility",
           "default": "none",
           "x-env-var": "OTEL_EBPF_REVERSE_DNS_TYPE"
         }
@@ -2199,7 +2199,7 @@
             "type": "string"
           },
           "type": "array",
-          "description": "Of the paths that will match to a route"
+          "description": "Defines the URL path patterns that will match to a route"
         },
         "unmatched": {
           "type": "string",
@@ -2309,7 +2309,7 @@
         },
         "print_stats": {
           "type": "boolean",
-          "description": "The stats in the Standard Output, if true",
+          "description": "Enables printing the stats to the Standard Output",
           "default": false,
           "x-env-var": "OTEL_EBPF_STATS_PRINT_STATS"
         },
@@ -2325,7 +2325,7 @@
       "properties": {
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Of metrics that can be exported. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes"
+          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes"
         }
       },
       "type": "object",
@@ -2348,7 +2348,7 @@
         "backoff_max_elapsed_time": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Is the maximum amount of time (including retries) spent trying to send a request/batch.",
+          "description": "Specifies the maximum amount of time (including retries) spent trying to send a request/batch.",
           "default": "0s",
           "examples": [
             "30s",
@@ -2360,7 +2360,7 @@
         "backoff_max_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Is the upper bound on backoff interval.",
+          "description": "Specifies the upper bound on backoff interval.",
           "default": "0s",
           "examples": [
             "30s",
@@ -2387,7 +2387,7 @@
         },
         "insecure_skip_verify": {
           "type": "boolean",
-          "description": "Is not standard, so we don't follow the same naming convention",
+          "description": "Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention)",
           "default": false,
           "x-env-var": "OTEL_EBPF_INSECURE_SKIP_VERIFY"
         },
@@ -2556,7 +2556,7 @@
     },
     "metrics": {
       "$ref": "#/$defs/MetricsConfig",
-      "description": "Is a placeholder for the progressive support of the OTEL declarative configuration."
+      "description": "Configures the progressive support of the OTEL declarative configuration."
     },
     "name_resolver": {
       "$ref": "#/$defs/NameResolverConfig"
@@ -2589,11 +2589,11 @@
     },
     "routes": {
       "$ref": "#/$defs/RoutesConfig",
-      "description": "Is an optional node. If not set, data will be directly forwarded to exporters."
+      "description": "Configures URL path grouping. If not set, data will be directly forwarded to exporters."
     },
     "service_name": {
       "type": "string",
-      "description": "Is taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility) Using env and envDefault is a trick to get the value either from one of either variables.  Service name should be set in the instrumentation target (env vars, kube metadata...) as this is a reminiscence of past times when we only supported one executable per instance.",
+      "description": "Specifies the name of the instrumented service, taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility). Using env and envDefault is a trick to get the value either from one of either variables.  Service name should be set in the instrumentation target (env vars, kube metadata...) as this is a reminiscence of past times when we only supported one executable per instance.",
       "deprecated": true,
       "x-env-var": "OTEL_SERVICE_NAME"
     },

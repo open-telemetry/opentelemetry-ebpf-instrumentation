@@ -91,7 +91,7 @@ type EnrichmentConfig struct {
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_ENRICHMENT_ENABLED" validate:"boolean"`
 	// Policy controls the default behavior and matching strategy
 	Policy HTTPParsingPolicy `yaml:"policy"`
-	// Rules is an ordered list of include/exclude/obfuscate rules.
+	// Rules defines an ordered list of include/exclude/obfuscate rules.
 	// Rules are evaluated according to Policy.MatchOrder.
 	Rules []HTTPParsingRule `yaml:"rules"`
 }
@@ -102,17 +102,17 @@ type HTTPParsingPolicy struct {
 	DefaultAction HTTPParsingAction `yaml:"default_action" env:"OTEL_EBPF_HTTP_ENRICHMENT_DEFAULT_ACTION"`
 	// MatchOrder controls how rules are evaluated: "first_match_wins"
 	MatchOrder HTTPParsingMatchOrder `yaml:"match_order" env:"OTEL_EBPF_HTTP_ENRICHMENT_MATCH_ORDER"`
-	// ObfuscationString is the replacement string used when a rule's action is "obfuscate"
+	// ObfuscationString specifies the replacement string used when a rule's action is "obfuscate"
 	ObfuscationString string `yaml:"obfuscation_string" env:"OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING"`
 }
 
 // HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header and payload extraction.
 type HTTPParsingRule struct {
-	// Action of the rule: "include", "exclude", or "obfuscate"
+	// Action specifies what to do when the rule matches: "include", "exclude", or "obfuscate"
 	Action HTTPParsingAction `yaml:"action"`
 	// Type specifies what this rule matches against: "headers"
 	Type HTTPParsingRuleType `yaml:"type"`
-	// Scope of the rule: "request", "response", or "all"
+	// Scope specifies which direction the rule applies to: "request", "response", or "all"
 	Scope HTTPParsingScope `yaml:"scope"`
 	// Match defines the matching criteria for this rule
 	Match HTTPParsingMatch `yaml:"match"`
@@ -153,7 +153,7 @@ func (HTTPParsingRuleType) JSONSchema() *jsonschema.Schema {
 
 // HTTPParsingMatch defines matching criteria for an HTTP parsing rule.
 type HTTPParsingMatch struct {
-	// Patterns is a list of glob patterns to match the rule against
+	// Patterns specifies a list of glob patterns to match the rule against
 	Patterns []services.GlobAttr `yaml:"patterns"`
 	// CaseSensitive controls whether matching is case-sensitive.
 	CaseSensitive bool `yaml:"case_sensitive"`
