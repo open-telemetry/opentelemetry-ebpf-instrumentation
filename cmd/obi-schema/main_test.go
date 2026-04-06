@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -656,4 +657,57 @@ func TestProcessFieldAnnotations(t *testing.T) {
 	prop2, _ := schema.Properties.Get("executable_path")
 	assert.Nil(t, prop2.Extras)
 	assert.Equal(t, "Allows selecting the executable", prop2.Description)
+}
+
+func TestFormatValue(t *testing.T) {
+	t.Run("TextMarshaler types use text representation", func(t *testing.T) {
+		// config.TCBackendAuto implements encoding.TextMarshaler
+		val := reflect.ValueOf(config.TCBackendAuto)
+		result := formatValue(val)
+		assert.Equal(t, "auto", result)
+	})
+
+	t.Run("time.Duration formats as string", func(t *testing.T) {
+		val := reflect.ValueOf(5 * time.Minute)
+		result := formatValue(val)
+		assert.Equal(t, "5m", result)
+	})
+
+	t.Run("plain string", func(t *testing.T) {
+		val := reflect.ValueOf("hello")
+		result := formatValue(val)
+		assert.Equal(t, "hello", result)
+	})
+
+	t.Run("bool", func(t *testing.T) {
+		val := reflect.ValueOf(true)
+		result := formatValue(val)
+		assert.Equal(t, true, result)
+	})
+
+	t.Run("integer", func(t *testing.T) {
+		val := reflect.ValueOf(42)
+		result := formatValue(val)
+		assert.Equal(t, int64(42), result)
+	})
+
+	t.Run("nil pointer", func(t *testing.T) {
+		var p *string
+		val := reflect.ValueOf(p)
+		result := formatValue(val)
+		assert.Nil(t, result)
+	})
+}
+
+func TestIsZeroDefault(t *testing.T) {
+	assert.True(t, isZeroDefault(nil))
+	assert.True(t, isZeroDefault(""))
+	assert.True(t, isZeroDefault([]any{}))
+	assert.True(t, isZeroDefault(map[string]any{}))
+
+	// These should NOT be considered zero — they're meaningful defaults
+	assert.False(t, isZeroDefault(false))
+	assert.False(t, isZeroDefault(int64(0)))
+	assert.False(t, isZeroDefault("hello"))
+	assert.False(t, isZeroDefault([]any{"a"}))
 }

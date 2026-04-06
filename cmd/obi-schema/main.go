@@ -10,6 +10,7 @@ package main
 
 import (
 	"bytes"
+	"encoding"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -844,13 +845,16 @@ func applyDefaults(schema *jsonschema.Schema, defaults map[string]any, root *jso
 			}
 		}
 
-		// If the value is a nested map and the schema has properties, recurse
+		// If the value is a nested map, recurse into its properties if the
+		// schema has them; otherwise skip (complex defaults don't display well).
 		if nestedMap, isMap := val.(map[string]any); isMap {
-			applyDefaults(resolved, nestedMap, root)
+			if resolved.Properties != nil && resolved.Properties.Len() > 0 {
+				applyDefaults(resolved, nestedMap, root)
+			}
 			continue
 		}
 
-		// Set default for leaf values, skip zero values
+		// Skip zero/empty values
 		if isZeroDefault(val) {
 			continue
 		}
@@ -913,6 +917,9 @@ func structToMap(v reflect.Value, tagName string) map[string]any {
 	return result
 }
 
+// textMarshalerType is the reflect.Type for encoding.TextMarshaler.
+var textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
+
 // formatValue converts a reflect.Value to a schema-friendly representation.
 func formatValue(v reflect.Value) any {
 	for v.Kind() == reflect.Pointer {
@@ -926,6 +933,20 @@ func formatValue(v reflect.Value) any {
 	if v.Type() == reflect.TypeFor[time.Duration]() {
 		d := time.Duration(v.Int())
 		return formatDuration(d)
+	}
+
+	// Handle types implementing encoding.TextMarshaler (e.g. enum types like
+	// TCBackend, HTTPParsingAction) — use their text representation instead
+	// of the underlying numeric value.
+	if v.Type().Implements(textMarshalerType) {
+		if text, err := v.Interface().(encoding.TextMarshaler).MarshalText(); err == nil && len(text) > 0 {
+			return string(text)
+		}
+	}
+	if reflect.PointerTo(v.Type()).Implements(textMarshalerType) && v.CanAddr() {
+		if text, err := v.Addr().Interface().(encoding.TextMarshaler).MarshalText(); err == nil && len(text) > 0 {
+			return string(text)
+		}
 	}
 
 	switch v.Kind() {
@@ -981,18 +1002,12 @@ func formatDuration(d time.Duration) string {
 }
 
 // isZeroDefault returns true for values that shouldn't be shown as defaults.
+// We keep false, 0, and other scalar zero values since they can be meaningful
+// (e.g. "disabled by default"). Only nil and empty collections are skipped.
 func isZeroDefault(v any) bool {
 	switch val := v.(type) {
 	case nil:
 		return true
-	case bool:
-		return !val
-	case int64:
-		return val == 0
-	case uint64:
-		return val == 0
-	case float64:
-		return val == 0
 	case string:
 		return val == ""
 	case []any:

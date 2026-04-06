@@ -347,3 +347,61 @@ func TestWriteTypeDefinitions(t *testing.T) {
 	assert.Contains(t, output, "**Known keys:** `key1`, `key2`")
 	assert.Contains(t, output, "**Value type:** `string`")
 }
+
+func TestWrapBareURLs(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"no urls", "hello world", "hello world"},
+		{"single url", "see https://example.com for details", "see <https://example.com> for details"},
+		{"already wrapped", "see <https://example.com> ok", "see <https://example.com> ok"},
+		{"multiple urls", "see https://a.com and https://b.com here", "see <https://a.com> and <https://b.com> here"},
+		{"url at end", "see https://example.com", "see <https://example.com>"},
+		{"mixed wrapped and bare", "see <https://a.com> and https://b.com here", "see <https://a.com> and <https://b.com> here"},
+		{"http url", "see http://example.com here", "see <http://example.com> here"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, wrapBareURLs(tc.input))
+		})
+	}
+}
+
+func TestDefaultString(t *testing.T) {
+	g := newTestGenerator(nil)
+
+	t.Run("nil", func(t *testing.T) {
+		assert.Equal(t, "", g.defaultString(nil))
+		assert.Equal(t, "", g.defaultString(&Schema{}))
+	})
+
+	t.Run("string", func(t *testing.T) {
+		assert.Equal(t, "`hello`", g.defaultString(&Schema{Default: "hello"}))
+	})
+
+	t.Run("integer", func(t *testing.T) {
+		assert.Equal(t, "`42`", g.defaultString(&Schema{Default: float64(42)}))
+	})
+
+	t.Run("bool", func(t *testing.T) {
+		assert.Equal(t, "`true`", g.defaultString(&Schema{Default: true}))
+	})
+
+	t.Run("scalar array", func(t *testing.T) {
+		assert.Equal(t, "`a`, `b`", g.defaultString(&Schema{Default: []any{"a", "b"}}))
+	})
+
+	t.Run("complex array uses json", func(t *testing.T) {
+		result := g.defaultString(&Schema{Default: []any{map[string]any{"k": "v"}}})
+		assert.Contains(t, result, `"k"`)
+		assert.Contains(t, result, `"v"`)
+	})
+
+	t.Run("map uses json", func(t *testing.T) {
+		result := g.defaultString(&Schema{Default: map[string]any{"key": "val"}})
+		assert.Contains(t, result, `"key"`)
+		assert.Contains(t, result, `"val"`)
+	})
+}

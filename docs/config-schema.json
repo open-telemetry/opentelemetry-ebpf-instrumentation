@@ -7,6 +7,7 @@
         "enabled": {
           "type": "boolean",
           "description": "Enable AWS services (S3, SQS, etc.) payload extraction and parsing",
+          "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_AWS_ENABLED"
         }
       },
@@ -34,6 +35,7 @@
         "enabled": {
           "type": "boolean",
           "description": "Enable Anthropic payload extraction and parsing",
+          "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_ANTHROPIC_ENABLED"
         }
       },
@@ -270,6 +272,7 @@
         "bpf_pid_filter_off": {
           "type": "boolean",
           "description": "Debugging only option. Make sure the kernel side doesn't filter any PIDs, force user space filtering.",
+          "default": false,
           "x-env-var": "OTEL_EBPF_BPF_PID_FILTER_OFF"
         },
         "default_exclude_instrument": {
@@ -397,6 +400,7 @@
         "exclude_otel_instrumented_services_span_metrics": {
           "type": "boolean",
           "description": "Disables generation of span metrics of services which are already instrumented",
+          "default": false,
           "x-env-var": "OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES_SPAN_METRICS"
         },
         "exclude_services": {
@@ -468,6 +472,7 @@
         "skip_go_specific_tracers": {
           "type": "boolean",
           "description": "This can be enabled to use generic HTTP tracers only, no Go-specifics will be used:",
+          "default": false,
           "x-env-var": "OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS"
         }
       },
@@ -478,18 +483,22 @@
       "properties": {
         "http": {
           "type": "integer",
+          "default": 0,
           "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_HTTP"
         },
         "kafka": {
           "type": "integer",
+          "default": 0,
           "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA"
         },
         "mysql": {
           "type": "integer",
+          "default": 0,
           "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL"
         },
         "postgres": {
           "type": "integer",
+          "default": 0,
           "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES"
         }
       },
@@ -519,6 +528,7 @@
         "bpf_debug": {
           "type": "boolean",
           "description": "Enables logging of eBPF program events",
+          "default": false,
           "x-env-var": "OTEL_EBPF_BPF_DEBUG"
         },
         "bpf_fs_path": {
@@ -534,6 +544,7 @@
         "context_propagation": {
           "$ref": "#/$defs/ContextPropagationMode",
           "description": "Enables distributed context propagation. Can be a combination of: headers, tcp (e.g., \"headers,tcp\" or \"all\")",
+          "default": "disabled",
           "x-env-var": "OTEL_EBPF_BPF_CONTEXT_PROPAGATION"
         },
         "couchbase_db_cache_size": {
@@ -544,6 +555,7 @@
         "disable_black_box_cp": {
           "type": "boolean",
           "description": "Disables OBI black-box context propagation. Used for testing purposes only.",
+          "default": false,
           "x-env-var": "OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP"
         },
         "dns_request_timeout": {
@@ -566,16 +578,19 @@
             "legacy"
           ],
           "description": "Forces the PerCPU HashMap operation of the Network Flows reader. The system will always try \"batch\", which is more efficient, but legacy systems like RHEL8-based will fallback to \"legacy\" (the slowest, more resource-consuming iterate&delete approach).",
+          "default": "auto",
           "x-env-var": "OTEL_EBPF_FORCE_BPF_MAP_READER"
         },
         "heuristic_sql_detect": {
           "type": "boolean",
           "description": "Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL",
+          "default": false,
           "x-env-var": "OTEL_EBPF_HEURISTIC_SQL_DETECT"
         },
         "high_request_volume": {
           "type": "boolean",
           "description": "Optimizes for getting requests information immediately when request response is seen",
+          "default": false,
           "x-env-var": "OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME"
         },
         "http_request_timeout": {
@@ -593,7 +608,7 @@
         "instrument_cuda": {
           "type": "integer",
           "description": "Enables GPU instrumentation for CUDA kernel launches and allocations",
-          "default": 1,
+          "default": "auto",
           "x-env-var": "OTEL_EBPF_INSTRUMENT_CUDA"
         },
         "kafka_topic_uuid_cache_size": {
@@ -637,6 +652,7 @@
         "override_bpfloop_enabled": {
           "type": "boolean",
           "description": "Skips checking the kernel version for bpf_loop functionality. Some modified kernels have this backported prior to version 5.17.",
+          "default": false,
           "x-env-var": "OTEL_EBPF_OVERRIDE_BPF_LOOP_ENABLED"
         },
         "payload_extraction": {
@@ -652,6 +668,7 @@
         "protocol_debug_print": {
           "type": "boolean",
           "description": "Enables debug printing of the protocol data",
+          "default": false,
           "x-env-var": "OTEL_EBPF_PROTOCOL_DEBUG_PRINT"
         },
         "redis_db_cache": {
@@ -660,6 +677,7 @@
         "track_request_headers": {
           "type": "boolean",
           "description": "If enabled, the kprobes based HTTP request tracking will start tracking the request headers to process any 'Traceparent' fields.",
+          "default": false,
           "x-env-var": "OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS"
         },
         "traffic_control_backend": {
@@ -670,7 +688,7 @@
             "tcx"
           ],
           "description": "Select the TC attachment backend: accepted values are 'tc' (netlink), and 'tcx'",
-          "default": 3,
+          "default": "auto",
           "x-env-var": "OTEL_EBPF_BPF_TC_BACKEND"
         },
         "wakeup_len": {
@@ -688,6 +706,7 @@
         "enabled": {
           "type": "boolean",
           "description": "Enable Elasticsearch payload extraction and parsing",
+          "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_ELASTICSEARCH_ENABLED"
         }
       },
@@ -698,6 +717,7 @@
         "enabled": {
           "type": "boolean",
           "description": "Enable HTTP header and payload enrichment",
+          "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_ENABLED"
         },
         "policy": {
@@ -933,6 +953,7 @@
         "enabled": {
           "type": "boolean",
           "description": "Enable GraphQL payload extraction and parsing",
+          "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_GRAPHQL_ENABLED"
         }
       },
@@ -1003,13 +1024,13 @@
         "default_action": {
           "$ref": "#/$defs/HTTPParsingAction",
           "description": "Specifies what to do when no rule matches: \"include\" or \"exclude\"",
-          "default": 2,
+          "default": "exclude",
           "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_DEFAULT_ACTION"
         },
         "match_order": {
           "$ref": "#/$defs/HTTPParsingMatchOrder",
           "description": "Controls how rules are evaluated: \"first_match_wins\"",
-          "default": 1,
+          "default": "first_match_wins",
           "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_MATCH_ORDER"
         },
         "obfuscation_string": {
@@ -1182,10 +1203,12 @@
         },
         "debug": {
           "type": "boolean",
+          "default": false,
           "x-env-var": "OTEL_EBPF_JAVAAGENT_DEBUG"
         },
         "debug_instrumentation": {
           "type": "boolean",
+          "default": false,
           "x-env-var": "OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION"
         },
         "enabled": {
@@ -1214,6 +1237,7 @@
         "drop_external": {
           "type": "boolean",
           "description": "Will drop, in NetO11y component, any flow where the source or destination IPs are not matched to any kubernetes entity, assuming they are cluster-external",
+          "default": false,
           "x-env-var": "OTEL_EBPF_NETWORK_DROP_EXTERNAL"
         },
         "enable": {
@@ -1263,6 +1287,7 @@
         "meta_restrict_local_node": {
           "type": "boolean",
           "description": "Will download only the metadata from the Pods that are located in the same node as the OBI instance. It will also restrict the Node information to the local node.",
+          "default": false,
           "x-env-var": "OTEL_EBPF_KUBE_META_RESTRICT_LOCAL_NODE"
         },
         "meta_source_labels": {
@@ -1349,7 +1374,8 @@
       "properties": {
         "global_scale_factor": {
           "type": "integer",
-          "description": "Scales map sizes in powers of two:   > 0: grows size (2x per step)   < 0: shrinks size (1/2 per step)   = 0: no change"
+          "description": "Scales map sizes in powers of two:   > 0: grows size (2x per step)   < 0: shrinks size (1/2 per step)   = 0: no change",
+          "default": 0
         }
       },
       "type": "object"
@@ -1428,6 +1454,7 @@
         },
         "allow_service_graph_self_references": {
           "type": "boolean",
+          "default": false,
           "x-env-var": "OTEL_EBPF_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"
         },
         "buckets": {
@@ -1465,6 +1492,7 @@
         "insecure_skip_verify": {
           "type": "boolean",
           "description": "Is not standard, so we don't follow the same naming convention",
+          "default": false,
           "x-env-var": "OTEL_EBPF_INSECURE_SKIP_VERIFY"
         },
         "instrumentations": {
@@ -1666,6 +1694,7 @@
         "enable": {
           "type": "boolean",
           "description": "Network metrics. Default value is false (disabled)  add \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove",
+          "default": false,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_NETWORK_METRICS"
         },
@@ -1734,6 +1763,7 @@
         "print_flows": {
           "type": "boolean",
           "description": "The network flows in the Standard Output, if true",
+          "default": false,
           "x-env-var": "OTEL_EBPF_NETWORK_PRINT_FLOWS"
         },
         "protocols": {
@@ -1751,6 +1781,7 @@
         "sampling": {
           "type": "integer",
           "description": "Holds the rate at which packets should be sampled and sent to the target collector. E.g. if set to 100, one out of 100 packets, on average, will be sent to the target collector.",
+          "default": 0,
           "x-env-var": "OTEL_EBPF_NETWORK_SAMPLING"
         },
         "source": {
@@ -1781,6 +1812,7 @@
         "enabled": {
           "type": "boolean",
           "description": "Enable OpenAI payload extraction and parsing",
+          "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_OPENAI_ENABLED"
         }
       },
@@ -1798,6 +1830,7 @@
       "properties": {
         "allow_service_graph_self_references": {
           "type": "boolean",
+          "default": false,
           "x-env-var": "OTEL_EBPF_PROMETHEUS_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"
         },
         "buckets": {
@@ -1805,6 +1838,7 @@
         },
         "disable_build_info": {
           "type": "boolean",
+          "default": false,
           "x-env-var": "OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"
         },
         "exemplar_filter": {
@@ -1831,6 +1865,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Features of metrics that can be exported. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead.",
+          "default": 0,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_PROMETHEUS_FEATURES"
         },
@@ -1867,6 +1902,7 @@
         },
         "port": {
           "type": "integer",
+          "default": 0,
           "x-env-var": "OTEL_EBPF_PROMETHEUS_PORT"
         },
         "service_cache_size": {
@@ -1893,6 +1929,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
+          "default": false,
           "x-env-var": "OTEL_EBPF_BPF_REDIS_DB_CACHE_ENABLED"
         },
         "max_size": {
@@ -2191,6 +2228,7 @@
         "enabled": {
           "type": "boolean",
           "description": "Enable SQL++ payload extraction and parsing",
+          "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_SQLPP_ENABLED"
         },
         "endpoint_patterns": {
@@ -2272,6 +2310,7 @@
         "print_stats": {
           "type": "boolean",
           "description": "The stats in the Standard Output, if true",
+          "default": false,
           "x-env-var": "OTEL_EBPF_STATS_PRINT_STATS"
         },
         "reverse_dns": {
@@ -2349,6 +2388,7 @@
         "insecure_skip_verify": {
           "type": "boolean",
           "description": "Is not standard, so we don't follow the same naming convention",
+          "default": false,
           "x-env-var": "OTEL_EBPF_INSECURE_SKIP_VERIFY"
         },
         "instrumentations": {
@@ -2454,6 +2494,7 @@
     },
     "channel_send_timeout_panic": {
       "type": "boolean",
+      "default": false,
       "x-env-var": "OTEL_EBPF_CHANNEL_SEND_TIMEOUT_PANIC"
     },
     "discovery": {
@@ -2466,6 +2507,7 @@
     "enforce_sys_caps": {
       "type": "boolean",
       "description": "Check for required system capabilities and bail if they are not present. If set to 'false', OBI will still print a list of missing capabilities, but the execution will continue",
+      "default": false,
       "x-env-var": "OTEL_EBPF_ENFORCE_SYS_CAPS"
     },
     "executable_path": {
@@ -2539,6 +2581,7 @@
     },
     "profile_port": {
       "type": "integer",
+      "default": 0,
       "x-env-var": "OTEL_EBPF_PROFILE_PORT"
     },
     "prometheus_export": {

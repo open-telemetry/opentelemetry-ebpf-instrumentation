@@ -770,11 +770,33 @@ func (g *DocGenerator) defaultString(s *Schema) string {
 	case bool:
 		return fmt.Sprintf("`%t`", v)
 	case []any:
-		var vals []string
+		// For arrays of scalars, show inline. For arrays containing
+		// objects/maps, use compact JSON to keep it readable.
+		allScalar := true
 		for _, e := range v {
-			vals = append(vals, fmt.Sprintf("`%v`", e))
+			switch e.(type) {
+			case map[string]any, []any:
+				allScalar = false
+			}
 		}
-		return strings.Join(vals, ", ")
+		if allScalar {
+			var vals []string
+			for _, e := range v {
+				vals = append(vals, fmt.Sprintf("`%v`", e))
+			}
+			return strings.Join(vals, ", ")
+		}
+		data, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return "`" + string(data) + "`"
+	case map[string]any:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return "`" + string(data) + "`"
 	default:
 		return fmt.Sprintf("`%v`", v)
 	}
@@ -807,30 +829,46 @@ func (g *DocGenerator) descString(original, resolved *Schema) string {
 var urlPrefixes = []string{"https://", "http://"}
 
 // wrapBareURLs wraps bare URLs in angle brackets for markdown lint compliance (MD034).
+// It scans left-to-right, handling multiple URLs and already-wrapped URLs.
 func wrapBareURLs(s string) string {
-	for _, prefix := range urlPrefixes {
-		for {
-			idx := strings.Index(s, prefix)
+	pos := 0
+	for pos < len(s) {
+		nextIdx := -1
+		nextPrefixLen := 0
+
+		for _, prefix := range urlPrefixes {
+			idx := strings.Index(s[pos:], prefix)
 			if idx < 0 {
-				break
+				continue
 			}
-			// Skip if already wrapped in angle brackets
-			if idx > 0 && s[idx-1] == '<' {
-				s = s[:idx] + s[idx:idx+len(prefix)] + s[idx+len(prefix):]
-				// Move past this occurrence to avoid infinite loop
-				break
+
+			idx += pos
+			if nextIdx == -1 || idx < nextIdx {
+				nextIdx = idx
+				nextPrefixLen = len(prefix)
 			}
-			// Find end of URL (space, closing paren, or end of string)
-			end := len(s)
-			for i := idx; i < len(s); i++ {
-				if s[i] == ' ' || s[i] == ')' || s[i] == '>' {
-					end = i
-					break
-				}
-			}
-			url := s[idx:end]
-			s = s[:idx] + "<" + url + ">" + s[end:]
 		}
+
+		if nextIdx < 0 {
+			break
+		}
+
+		if nextIdx > 0 && s[nextIdx-1] == '<' {
+			pos = nextIdx + nextPrefixLen
+			continue
+		}
+
+		end := len(s)
+		for i := nextIdx; i < len(s); i++ {
+			if s[i] == ' ' || s[i] == ')' || s[i] == '>' {
+				end = i
+				break
+			}
+		}
+
+		url := s[nextIdx:end]
+		s = s[:nextIdx] + "<" + url + ">" + s[end:]
+		pos = nextIdx + len(url) + 2
 	}
 	return s
 }
