@@ -118,6 +118,6 @@ Confirm the Docker engine allows privileged containers and that
 
 - Confirm `ebpf.track_request_headers: true` is set in the active config.
 - The demo apps are Go, so `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS=true` must be
-	set. This is the default in `docker-compose.yaml`. If you overrode it,
-	restore it.
+  set. This is the default in `docker-compose.yaml`. If you overrode it,
+  restore it.
 - Send fresh traffic after any config change and OBI restart.
