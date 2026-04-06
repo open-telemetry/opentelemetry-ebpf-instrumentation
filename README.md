@@ -179,7 +179,7 @@ OBI is also available as container images:
 
 ```bash
 # Set your desired version.
-export VERSION=1.0.0
+export VERSION=v0.7.0
 
 # (Optional) Verify the signature of the container image
 cosign verify --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' otel/ebpf-instrument:${VERSION}
