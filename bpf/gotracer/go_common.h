@@ -361,7 +361,9 @@ static __always_inline void read_ip_and_port(u8 *dst_ip, u16 *dst_port, void *sr
     }
 }
 
-static __always_inline u8 get_conn_info_from_fd(void *fd_ptr, connection_info_t *info) {
+static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
+                                                connection_info_t *info,
+                                                const bool mark_handled) {
     if (fd_ptr) {
         void *laddr_ptr = 0;
         void *raddr_ptr = 0;
@@ -394,7 +396,9 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr, connection_info_t 
             // sorted when we make server requests or when we populate the trace_map for
             // black box context propagation.
 
-            store_go_handled_connection_info(info);
+            if (mark_handled) {
+                store_go_handled_connection_info(info);
+            }
 
             return 1;
         }
@@ -416,7 +420,7 @@ static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info)
 
         bpf_dbg_printk("Found fd, fd_ptr=%llx", fd_ptr);
 
-        return get_conn_info_from_fd(fd_ptr, info);
+        return get_conn_info_from_fd(fd_ptr, info, true);
     }
 
     return 0;

@@ -100,7 +100,8 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
             if (t->conn.d_port == 0 && t->conn.s_port == 0) {
                 void *fd_ptr = GO_PARAM1(ctx);
                 get_conn_info_from_fd(fd_ptr,
-                                      &t->conn); // ok to not check the result, we leave it as 0
+                                      &t->conn,
+                                      false); // ok to not check the result, we leave it as 0
                 cleanup_duplicate_generic_event_by_connection(&t->conn);
             }
         }
@@ -113,7 +114,8 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
     if (sql_conn) {
         void *fd_ptr = GO_PARAM1(ctx);
         get_conn_info_from_fd(fd_ptr,
-                              &sql_conn->conn); // ok to not check the result, we leave it as 0
+                              &sql_conn->conn,
+                              false); // ok to not check the result, we leave it as 0
         cleanup_duplicate_generic_event_by_connection(&sql_conn->conn);
         return 0;
     }
@@ -123,7 +125,8 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
     if (mongo_conn) {
         void *fd_ptr = GO_PARAM1(ctx);
         get_conn_info_from_fd(fd_ptr,
-                              &mongo_conn->conn); // ok to not check the result, we leave it as 0
+                              &mongo_conn->conn,
+                              false); // ok to not check the result, we leave it as 0
 
         cleanup_duplicate_generic_event_by_connection(&mongo_conn->conn);
         return 0;
@@ -138,7 +141,8 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
                            goroutine_addr);
 
             void *fd_ptr = GO_PARAM1(ctx);
-            get_conn_info_from_fd(fd_ptr, conn); // ok to not check the result, we leave it as 0
+            get_conn_info_from_fd(
+                fd_ptr, conn, false); // ok to not check the result, we leave it as 0
             cleanup_duplicate_generic_event_by_connection(conn);
         }
         //dbg_print_http_connection_info(conn);
@@ -152,7 +156,7 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
     net_args_t net_args = {
         .byte_ptr = (u64)byte_addr,
     };
-    get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn);
+    get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn, false);
     net_args.p_conn.pid = pid_from_pid_tgid(id);
 
     if (already_handled_request(&net_args.p_conn.conn, &g_key)) {
@@ -219,7 +223,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
     if (buf && len > 0) {
         pid_connection_info_t p_conn = {0};
 
-        if (!get_conn_info_from_fd(fd_ptr, &p_conn.conn)) {
+        if (!get_conn_info_from_fd(fd_ptr, &p_conn.conn, false)) {
             return 0;
         }
 
