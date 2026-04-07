@@ -306,9 +306,7 @@ var (
 	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
 
-// httpHeaderAttributes converts extracted HTTP headers to OTel span attributes
-// following the semantic convention: http.request.header.<key> and http.response.header.<key>
-// where <key> is the lowercased header field name. Values are string slices per the spec.
+// jsonRPCAttributes returns JSON-RPC span attributes following the OTEL RPC semantic conventions.
 func jsonRPCAttributes(span *request.Span) []attribute.KeyValue {
 	if span.SubType != request.HTTPSubtypeJSONRPC || span.JSONRPC == nil {
 		return nil
@@ -328,6 +326,9 @@ func jsonRPCAttributes(span *request.Span) []attribute.KeyValue {
 	return attrs
 }
 
+// httpHeaderAttributes converts extracted HTTP headers to OTel span attributes
+// following the semantic convention: http.request.header.<key> and http.response.header.<key>
+// where <key> is the lowercased header field name. Values are string slices per the spec.
 func httpHeaderAttributes(span *request.Span) []attribute.KeyValue {
 	attrs := make([]attribute.KeyValue, 0, len(span.RequestHeaders)+len(span.ResponseHeaders))
 	for name, values := range span.RequestHeaders {

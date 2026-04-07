@@ -65,7 +65,7 @@ func TestJSONRPCSpan_DetectionViaHeader(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, request.HTTPSubtypeJSONRPC, result.SubType)
 	assert.Equal(t, "initialize", result.JSONRPC.Method)
-	assert.Equal(t, `"req-1"`, result.JSONRPC.RequestID)
+	assert.Equal(t, "req-1", result.JSONRPC.RequestID)
 }
 
 func TestJSONRPCSpan_StringID(t *testing.T) {
@@ -75,7 +75,7 @@ func TestJSONRPCSpan_StringID(t *testing.T) {
 	span := request.Span{}
 	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", reqBody), newJSONRPCResponse(respBody))
 	require.True(t, ok)
-	assert.Equal(t, `"abc-123"`, result.JSONRPC.RequestID)
+	assert.Equal(t, "abc-123", result.JSONRPC.RequestID)
 }
 
 func TestJSONRPCSpan_Notification(t *testing.T) {
@@ -172,14 +172,24 @@ func TestJSONRPCSpan_NotPost(t *testing.T) {
 }
 
 func TestJSONRPCSpan_HeaderDetectionWithMissingVersion(t *testing.T) {
-	// When Content-Type is application/json-rpc, we should still detect
-	// even if the jsonrpc version field doesn't match "2.0"
+	// When Content-Type is application/json-rpc and jsonrpc field is missing,
+	// we should still detect and default version to "2.0"
 	reqBody := `{"method":"test","id":1}`
 
 	span := request.Span{}
 	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "application/json-rpc", reqBody), newJSONRPCResponse(""))
 	require.True(t, ok)
 	assert.Equal(t, "test", result.JSONRPC.Method)
+	assert.Equal(t, "2.0", result.JSONRPC.Version)
+}
+
+func TestJSONRPCSpan_RejectsNon2_0Version(t *testing.T) {
+	// Explicit non-2.0 version should be rejected even with header detection
+	reqBody := `{"jsonrpc":"1.0","method":"test","id":1}`
+
+	span := request.Span{}
+	_, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "application/json-rpc", reqBody), newJSONRPCResponse(""))
+	assert.False(t, ok)
 }
 
 func TestJSONRPCSpan_EmptyBatch(t *testing.T) {
