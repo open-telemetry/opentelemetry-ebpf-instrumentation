@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "bpfcore/vmlinux_amd64.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
@@ -38,4 +39,8 @@ static __always_inline void store_go_handled_connection_info(const connection_in
 
 static __always_inline void store_go_handled_goroutine(const go_addr_key_t *goaddr) {
     bpf_map_update_elem(&handled_by_go, goaddr, &(bool){true}, BPF_ANY);
+}
+
+static __always_inline void remove_go_handled_goroutine(const go_addr_key_t *goaddr) {
+    bpf_map_delete_elem(&handled_by_go, goaddr);
 }

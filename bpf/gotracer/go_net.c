@@ -101,7 +101,7 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
                 void *fd_ptr = GO_PARAM1(ctx);
                 get_conn_info_from_fd(fd_ptr,
                                       &t->conn,
-                                      false); // ok to not check the result, we leave it as 0
+                                      true); // ok to not check the result, we leave it as 0
                 cleanup_duplicate_generic_event_by_connection(&t->conn);
             }
         }
@@ -115,7 +115,7 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
         void *fd_ptr = GO_PARAM1(ctx);
         get_conn_info_from_fd(fd_ptr,
                               &sql_conn->conn,
-                              false); // ok to not check the result, we leave it as 0
+                              true); // ok to not check the result, we leave it as 0
         cleanup_duplicate_generic_event_by_connection(&sql_conn->conn);
         return 0;
     }
@@ -126,7 +126,7 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
         void *fd_ptr = GO_PARAM1(ctx);
         get_conn_info_from_fd(fd_ptr,
                               &mongo_conn->conn,
-                              false); // ok to not check the result, we leave it as 0
+                              true); // ok to not check the result, we leave it as 0
 
         cleanup_duplicate_generic_event_by_connection(&mongo_conn->conn);
         return 0;
@@ -142,7 +142,7 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
 
             void *fd_ptr = GO_PARAM1(ctx);
             get_conn_info_from_fd(
-                fd_ptr, conn, false); // ok to not check the result, we leave it as 0
+                fd_ptr, conn, true); // ok to not check the result, we leave it as 0
             cleanup_duplicate_generic_event_by_connection(conn);
         }
         //dbg_print_http_connection_info(conn);
