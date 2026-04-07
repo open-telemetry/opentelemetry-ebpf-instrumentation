@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -12,17 +11,19 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-func ensureTopics(ctx context.Context, client *kgo.Client, topics ...string) {
+func ensureTopics(ctx context.Context, client *kgo.Client, topics ...string) error {
 	adm := kadm.NewClient(client)
 	resp, err := adm.CreateTopics(ctx, 1, 1, nil, topics...)
 	if err != nil {
-		log.Fatalf("failed to create topics: %v", err)
+		return fmt.Errorf("create topics: %w", err)
 	}
 	for _, t := range resp.Sorted() {
 		if t.Err != nil && !errors.Is(t.Err, kerr.TopicAlreadyExists) {
-			log.Fatalf("topic %s: %v", t.Topic, t.Err)
+			return fmt.Errorf("topic %s: %w", t.Topic, t.Err)
 		}
 	}
+
+	return nil
 }
 
 func producerHandler(client *kgo.Client) fiber.Handler {

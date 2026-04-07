@@ -20,6 +20,8 @@ var (
 	brokers = flag.String("brokers", os.Getenv("KAFKA_PEERS"), "The Kafka brokers to connect to, as a comma separated list")
 )
 
+const kafkaRetryDelay = 3 * time.Second
+
 func main() {
 	flag.Parse()
 
@@ -40,17 +42,7 @@ func main() {
 	app.Use(recover.New())
 	app.Use(logger.New())
 
-	client, err := kgo.NewClient(
-		kgo.SeedBrokers(*brokers),
-		kgo.ConsumeTopics("my-topic"), // only needed for the consumer
-		kgo.DefaultProduceTopic("my-topic"),
-	)
-
-	if err != nil {
-		log.Fatalf("Failed to create the kafka client: %v", err)
-	}
-
-	ensureTopics(context.Background(), client, "my-topic")
+	client := newKafkaClient(*brokers)
 
 	app.Get("/produce", producerHandlerWithTopic(client, "my-topic"))
 	app.Get("/produce/orders", producerHandlerWithTopic(client, "orders"))
@@ -66,6 +58,28 @@ func main() {
 	log.Println("Starting server on " + *addr)
 	if err := app.Listen(*addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
+	}
+}
+
+func newKafkaClient(brokers string) *kgo.Client {
+	for {
+		client, err := kgo.NewClient(
+			kgo.SeedBrokers(brokers),
+			kgo.ConsumeTopics("my-topic"), // only needed for the consumer
+			kgo.DefaultProduceTopic("my-topic"),
+		)
+		if err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), kafkaRetryDelay)
+			err = ensureTopics(ctx, client, "my-topic")
+			cancel()
+			if err == nil {
+				return client
+			}
+			client.Close()
+		}
+
+		log.Printf("Kafka is not ready yet, retrying in %s: %v", kafkaRetryDelay, err)
+		time.Sleep(kafkaRetryDelay)
 	}
 }
 
