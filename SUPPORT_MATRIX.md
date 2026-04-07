@@ -44,7 +44,8 @@ repository automation today:
 |:-----|:------------------------------------|
 | Release artifacts | Linux `amd64` and Linux `arm64` archives and container images |
 | Cross-compilation | Full OBI support path compiled for Linux `amd64` and Linux `arm64` |
-| BPF verifier coverage | Kernel `5.15.152` (`x86_64`), kernel `6.10.6` (`x86_64`), and `arm64` runner coverage |
+| BPF verifier coverage (`x86_64`) | Kernel `5.15.152` (`x86_64`) and kernel `6.10.6` (`x86_64`) |
+| BPF verifier coverage (`arm64`) | `arm64` runner coverage |
 | VM integration tests | Kernel `5.15.152` (`x86_64`) and kernel `6.10.6` (`x86_64`) |
 
 This document should only claim support beyond these validation points when there is an explicit maintainer decision
@@ -89,7 +90,7 @@ OBI currently documents the following Go library compatibility baselines:
 | `github.com/redis/go-redis/v9` | `>= v9.0.0` |
 | `github.com/segmentio/kafka-go` | `>= v0.4.11` |
 | `github.com/IBM/sarama` | `>= 1.37` |
-| `go.mongodb.org/mongo-driver` | `>= v1.10.1`, `>= v2.0.1` |
+| `go.mongodb.org/mongo-driver` | `v1: >= v1.10.1; v2: >= v2.0.1` |
 
 ## Explicitly Out Of Scope
 
