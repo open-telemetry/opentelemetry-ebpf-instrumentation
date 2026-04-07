@@ -19,6 +19,7 @@ If you are evaluating OBI for production use:
 - avoid assuming telemetry continuity for dashboards, alerts, or downstream processors before OBI declares those surfaces stable
 
 For the project's versioning and stability policy, see [VERSIONING.md](./VERSIONING.md).
+For the environments and artifact platforms OBI currently documents as supported, see [SUPPORT_MATRIX.md](./SUPPORT_MATRIX.md).
 
 ## How to start developing
 
