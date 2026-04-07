@@ -26,17 +26,6 @@ func isGemini(req *http.Request, respHeader http.Header) bool {
 		}
 	}
 
-	if req != nil {
-		for _, header := range []string{
-			"X-Goog-Api-Key",
-			"X-Goog-Api-Client",
-		} {
-			if val := req.Header.Get(header); val != "" {
-				return true
-			}
-		}
-	}
-
 	if val := respHeader.Get("X-Gemini-Service-Tier"); val != "" {
 		return true
 	}

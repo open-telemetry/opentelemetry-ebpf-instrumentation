@@ -247,7 +247,7 @@ type AWSSQS struct {
 type GenAI struct {
 	OpenAI       *VendorOpenAI
 	Anthropic    *VendorAnthropic
-	Gemini    *VendorGemini
+	Gemini       *VendorGemini
 }
 
 type OpenAIUsage struct {
@@ -875,9 +875,9 @@ func HTTPSpanStatusCode(span *Span) string {
 				if span.GenAI.Anthropic != nil && span.GenAI.Anthropic.Output.Error != nil && span.GenAI.Anthropic.Output.Error.Type != "" {
 					return StatusCodeError
 				}
-			if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
-				return StatusCodeError
-			}
+				if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
+					return StatusCodeError
+				}
 			}
 
 			return StatusCodeUnset
