@@ -34,14 +34,16 @@ SCRATCH_MEM_TYPED(req_client, redis_client_req_t);
 static __always_inline void setup_request(void *goroutine_addr) {
     redis_client_req_t *req = req_client_mem();
 
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
+    if (req) {
+        go_addr_key_t g_key = {};
+        go_addr_key_from_id(&g_key, goroutine_addr);
 
-    store_go_handled_goroutine(&g_key);
+        store_go_handled_goroutine(&g_key);
 
-    client_trace_parent(goroutine_addr, &req->tp);
+        client_trace_parent(goroutine_addr, &req->tp);
 
-    bpf_map_update_elem(&ongoing_redis_requests, &g_key, req, BPF_ANY);
+        bpf_map_update_elem(&ongoing_redis_requests, &g_key, req, BPF_ANY);
+    }
 }
 
 // github.com/redis/go-redis/v9.(*baseClient)._process
