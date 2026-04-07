@@ -11,9 +11,8 @@ ebpf:
       enrichment:
         enabled: true
         policy:
-          default_action: exclude           # Don't include headers by default
-          match_order: first_match_wins     # Evaluate rules in order, use first match
-          obfuscation_string: "***"         # Masking string for obfuscate actions
+          default_action: exclude # Don't include headers by default
+          obfuscation_string: "***" # Masking string for obfuscate actions
         rules:
           - action: include
             type: headers
