@@ -327,6 +327,23 @@ func TestSuite_Rails(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_RailsNginxSupportFloor(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-ruby.yml", path.Join(pathOutput, "test-suite-ruby-nginx-floor.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_OPEN_PORT=3040,443`,
+		`OTEL_EBPF_EXECUTABLE_PATH=`,
+		`TEST_SERVICE_PORTS=3041:3040`,
+		`NGINX_IMAGE=`+nginxReverseProxySupportFloorImage,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
+	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_RailsNginxSQL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby-nginx-sql.yml", path.Join(pathOutput, "test-suite-ruby-nginx-sql.log"))
 	require.NoError(t, err)

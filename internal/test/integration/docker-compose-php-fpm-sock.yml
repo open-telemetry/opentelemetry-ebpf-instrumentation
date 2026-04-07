@@ -3,6 +3,8 @@ services:
     build:
       context: ../../..
       dockerfile: ./internal/test/integration/components/php/unix_sock_sql/docker/Dockerfile_nginx
+      args:
+        NGINX_BASE_IMAGE: ${NGINX_BASE_IMAGE:-nginx:1.29.1@sha256:0236ee02dcbce00b9bd83e0f5fbc51069e7e1161bd59d99885b3ae1734f3392e}
     container_name: hatest-nginx
     ports:
       - 8080:80
