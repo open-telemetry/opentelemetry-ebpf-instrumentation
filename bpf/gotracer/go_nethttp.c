@@ -15,6 +15,7 @@
 
 //go:build obi_bpf_ignore
 
+#include "common/connection_info.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/utils.h>
 
@@ -64,6 +65,8 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
     void *req = GO_PARAM4(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     off_table_t *ot = get_offsets_table();
 
@@ -255,6 +258,8 @@ int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
 
@@ -553,8 +558,6 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
     }
 
-    store_go_handled_info(info, &g_key);
-
     // Server connections have opposite order, source port is the server port
     swap_connection_info_order(&trace->conn);
     trace->tp = invocation->tp;
@@ -593,6 +596,8 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     void *req = GO_PARAM2(ctx);
     off_table_t *ot = get_offsets_table();
@@ -745,8 +750,6 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
     }
 
-    store_go_handled_info(info, &g_key);
-
     trace->tp = invocation->tp;
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
@@ -787,6 +790,13 @@ done:
 // Context propagation through HTTP headers
 SEC("uprobe/header_writeSubset")
 int obi_uprobe_writeSubset(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+
+    go_addr_key_t gw_key = {};
+    go_addr_key_from_id(&gw_key, goroutine_addr);
+
+    store_go_handled_goroutine(&gw_key);
+
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -796,7 +806,7 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
     void *header_addr = GO_PARAM1(ctx);
     void *io_writer_addr = GO_PARAM3(ctx);
 
-    bpf_dbg_printk("goroutine_addr=%lx, header_addr=%llx", GOROUTINE_PTR(ctx), header_addr);
+    bpf_dbg_printk("goroutine_addr=%lx, header_addr=%llx", goroutine_addr, header_addr);
 
     // we don't want to run this code when we header or the buffer is nil
     if (!header_addr || !io_writer_addr) {
@@ -875,12 +885,14 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
                 .d_port = info->d_port,
                 .s_port = info->s_port,
             };
+            //dbg_print_http_connection_info(info);
             bpf_map_delete_elem(&outgoing_trace_map, &e_key);
             bpf_dbg_printk(
                 "wrote traceparent using bpf_probe_write_user, removing outgoing trace map,"
                 "s_port=%d, d_port=%d",
                 e_key.s_port,
                 e_key.d_port);
+            store_go_handled_connection_info(info);
         }
     }
 
@@ -899,6 +911,8 @@ int obi_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx, status=%d", goroutine_addr, status);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     server_http_func_invocation_t *invocation =
         bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
@@ -942,6 +956,8 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     if (sc) {
         void *conn_ptr = 0;

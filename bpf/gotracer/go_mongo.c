@@ -69,6 +69,8 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     client_trace_parent(goroutine_addr, &req.tp);
 
     bpf_d_printk("op=%s, [%s]", req.op, __FUNCTION__);
@@ -146,6 +148,8 @@ int obi_uprobe_mongo_op_execute(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     mongo_go_client_req_t *req = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
 
     if (!req) {
@@ -205,8 +209,6 @@ int obi_uprobe_mongo_op_execute_ret(struct pt_regs *ctx) {
         } else {
             req->err = 0;
         }
-
-        store_go_handled_info(&req->conn, &g_key);
 
         mongo_go_client_req_t *trace =
             bpf_ringbuf_reserve(&events, sizeof(mongo_go_client_req_t), 0);

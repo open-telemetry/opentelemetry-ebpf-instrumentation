@@ -290,6 +290,8 @@ set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *que
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     // Write event
     if (bpf_map_update_elem(&ongoing_sql_queries, &g_key, &invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update map element");
@@ -308,8 +310,6 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
         return 0;
     }
     bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
-
-    store_go_handled_info(&invocation->conn, &g_key);
 
     sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
     if (trace) {

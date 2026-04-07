@@ -50,6 +50,8 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     void *stream_ptr = GO_PARAM4(ctx);
     void *stream_stream_ptr = stream_ptr;
     off_table_t *ot = get_offsets_table();
@@ -135,6 +137,8 @@ int obi_uprobe_http2Server_operateHeaders(struct pt_regs *ctx) {
     bpf_dbg_printk("tr=%llx, goroutine_addr=%lx, new=%d", tr, goroutine_addr, new_offset_version);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     grpc_transports_t t = {
         .type = TRANSPORT_HTTP2,
@@ -262,8 +266,6 @@ int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
     }
 
-    store_go_handled_info(&trace->conn, &g_key);
-
     // Server connections have port order reversed from what we want
     swap_connection_info_order(&trace->conn);
     trace->tp = invocation->tp;
@@ -330,6 +332,8 @@ static __always_inline void clientConnStart(
     off_table_t *ot = get_offsets_table();
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     if (ctx_ptr) {
         void *val_ptr = 0;
@@ -442,8 +446,6 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
         __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
     }
 
-    store_go_handled_info(info, &g_key);
-
     trace->tp = invocation->tp;
 
     trace->status =
@@ -519,6 +521,8 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
     off_table_t *ot = get_offsets_table();
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     const u64 grpc_t_conn_pos = go_offset_of(ot, (go_offset){.v = _grpc_t_scheme_pos});
     bpf_dbg_printk(

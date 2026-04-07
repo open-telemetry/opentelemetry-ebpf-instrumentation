@@ -34,6 +34,8 @@ static __always_inline void setup_request(void *goroutine_addr) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     client_trace_parent(goroutine_addr, &req.tp);
 
     bpf_map_update_elem(&ongoing_redis_requests, &g_key, &req, BPF_ANY);
@@ -62,8 +64,6 @@ int obi_uprobe_redis_process_ret(struct pt_regs *ctx) {
 
     redis_client_req_t *req = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
     if (req) {
-        store_go_handled_info(&req->conn, &g_key);
-
         redis_client_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(redis_client_req_t), 0);
         if (trace) {
             bpf_dbg_printk("Sending redis client go trace");
@@ -94,6 +94,8 @@ int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     redis_client_req_t *req = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
 

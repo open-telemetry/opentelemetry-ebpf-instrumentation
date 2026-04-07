@@ -27,6 +27,8 @@
 
 #include <gotracer/go_offsets.h>
 
+#include <gotracer/maps/handled_by_go.h>
+
 #include <logger/bpf_dbg.h>
 
 #include <maps/incoming_trace_map.h>
@@ -391,6 +393,8 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr, connection_info_t 
             // in Go we keep the original connection info order, since we only need it
             // sorted when we make server requests or when we populate the trace_map for
             // black box context propagation.
+
+            store_go_handled_connection_info(info);
 
             return 1;
         }
