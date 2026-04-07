@@ -1,27 +1,25 @@
-# PR Review Instructions
+# Copilot Instructions
 
-When reviewing pull requests in this repository, prioritize signs of contributor ownership and repository-specific understanding.
-
-Use AGENTS.md and CONTRIBUTING.md as the source of truth for expected code quality, structure, and contribution behavior.
-
-Flag pull requests when you see one or more of these patterns:
-
-- The PR description is generic, plan-like, or tool-generated in tone, and does not explain why this approach fits this repository.
-- The change duplicates existing utilities, helpers, abstractions, or patterns instead of reusing them.
-- The PR scope is broader than necessary for the stated problem.
-- The change introduces unrelated cleanup, comments, abstractions, or refactors.
-- The code does not follow existing repository structure or subsystem boundaries.
-- Validation appears incomplete for the files being changed.
-- Follow-up revisions appear to apply reviewer feedback mechanically without integrating it coherently into the surrounding code.
-
-When you flag these issues:
-
-- Be direct and explicit.
-- Ask for repository-specific rationale.
-- Ask why existing code was not reused when applicable.
-- Ask for a smaller and more focused change when scope is too large.
-- Ask for confirmation of local validation steps.
-
-Prefer asking concrete questions over making vague suggestions.
-
-Do not object merely because AI may have been used. Object when the PR shows weak ownership, weak understanding, duplication, unnecessary abstraction, or poor integration with the existing codebase.
+- Read `AGENTS.md` and `CONTRIBUTING.md` before suggesting code, reviewing a PR, or answering repository-specific questions. Treat them as the source of truth.
+- Start with `devdocs/pipeline-map.md` when you need architecture or data-flow context.
+- Prefer repository code and local documentation over external references when they disagree.
+- This repository provides eBPF-based instrumentation for applications and integrates with OpenTelemetry.
+- Keep changes small, correct, and reviewable.
+- Do not include unrelated cleanup, formatting changes, drive-by refactors, or broad rewrites.
+- Follow existing package, subsystem, and repository boundaries unless the prompt explicitly asks to change them.
+- Reuse existing helpers, utilities, abstractions, and patterns before introducing new ones.
+- Do not edit generated files manually: `*_bpfel.go`, `*_bpfeb.go`, `*_bpfel.o`, `*_bpfeb.o`, or anything under `bpf/bpfcore/`.
+- Prefer simple, explicit, readable code over clever or compact code.
+- Keep functions small and focused, and use early returns when they improve readability.
+- Avoid unnecessary interfaces, wrappers, layers, and hidden coupling.
+- Keep comments minimal and only add context that the code itself cannot convey.
+- Do not assume AI-generated code, plans, issue reports, or PR descriptions are correct. Check them against the repository before accepting them.
+- Contributors are responsible for understanding and being able to explain every line they submit, including AI-assisted changes.
+- When a change introduces a new helper, utility, abstraction, or pattern, check whether equivalent functionality already exists and prefer reuse.
+- Refactors are acceptable only when they are directly relevant to the problem being solved.
+- In reviews, prioritize signs of contributor ownership and repository-specific understanding over generic style commentary.
+- In reviews, flag PR descriptions that sound generic, plan-like, or tool-generated and do not explain why the approach fits this repository.
+- In reviews, flag duplicated implementations, oversized scope, unrelated cleanup, unnecessary abstractions, and changes that do not follow existing repository structure.
+- In reviews, flag follow-up patches that appear to apply feedback mechanically without integrating it coherently into the surrounding code.
+- In reviews, ask concrete questions about rationale, reuse of existing code, scope, validation, and why this approach is appropriate for this codebase.
+- Do not object merely because AI may have been used. Object when the change shows weak ownership, weak understanding, duplication, unnecessary abstraction, poor integration, or missing validation.

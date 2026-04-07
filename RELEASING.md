@@ -136,16 +136,30 @@ Once the workflow completes successfully, a draft release is automatically creat
 1. Navigate to the [GitHub Releases page](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
 2. Locate the draft release for your version
 3. Review the artifacts:
-   - Download and verify checksums for the release artifacts you fetched: `sha256sum -c SHA256SUMS`
+   - Download and verify checksums for the release artifacts you fetched: `sha256sum -c --ignore-missing SHA256SUMS`
+   - Confirm checksum verification reports `OK` for every downloaded asset that was checked before publication
    - Extract archives and test binaries if needed
    - Open the published CycloneDX SBOMs with your preferred SBOM tooling if you want to inspect release dependencies
    - Use the dedicated Java agent SBOM when you need the full Java dependency graph for the JAR embedded inside `obi`
+   - Verify signed container images from both registries before publication:
+     `cosign verify --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' otel/ebpf-instrument:<tag>`
+   - Verify the matching GHCR image as well:
+     `cosign verify --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument:<tag>`
    - Review auto-generated release notes for accuracy
 4. Edit release notes if necessary to add context, highlight important changes, or improve clarity
 5. Once satisfied with artifacts and release notes, click "Publish release" to make it immutable and publicly available
 
 > [!IMPORTANT]
 > Once published, GitHub releases are immutable. Artifacts and checksums cannot be modified or replaced. Review carefully before publishing.
+
+### User Documentation To Keep In Sync
+
+When release artifact names, verification commands, or installation steps change,
+update the user-facing docs in both places before or alongside the release:
+
+- Repository quick-start guide: [README.md](README.md)
+- OpenTelemetry [docs for standalone installs](https://opentelemetry.io/docs/zero-code/obi/setup/standalone/)
+- OpenTelemetry [docs for container installs](https://opentelemetry.io/docs/zero-code/obi/setup/docker/)
 
 ### Archive Contents
 

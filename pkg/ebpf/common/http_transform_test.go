@@ -77,6 +77,48 @@ func TestHTTPRequestResponseToSpanSetsSchemeFromSSLFlag(t *testing.T) {
 	}
 }
 
+func TestHTTPRequestResponseToSpanSetsFullPath(t *testing.T) {
+	t.Run("URL.String includes path and query", func(t *testing.T) {
+		req := &http.Request{
+			Method: http.MethodGet,
+			URL:    &url.URL{Path: "/test", RawQuery: "id=1"},
+			Host:   "example.com",
+			Body:   io.NopCloser(strings.NewReader("")),
+		}
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader([]byte{})),
+		}
+		event := &BPFHTTPInfo{
+			Type: uint8(request.EventTypeHTTPClient),
+		}
+		span := httpRequestResponseToSpan(nil, event, req, resp)
+
+		assert.Equal(t, "/test", span.Path)
+		assert.Equal(t, "/test?id=1", span.FullPath)
+	})
+
+	t.Run("URL.String for scheme and host only", func(t *testing.T) {
+		req := &http.Request{
+			Method: http.MethodGet,
+			URL:    &url.URL{Scheme: "https", Host: "api.example.com"},
+			Host:   "api.example.com",
+			Body:   io.NopCloser(strings.NewReader("")),
+		}
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader([]byte{})),
+		}
+		event := &BPFHTTPInfo{
+			Type: uint8(request.EventTypeHTTPClient),
+		}
+		span := httpRequestResponseToSpan(nil, event, req, resp)
+
+		assert.Equal(t, "https://api.example.com", span.Path)
+		assert.Equal(t, "https://api.example.com", span.FullPath)
+	})
+}
+
 func TestHostInfo(t *testing.T) {
 	event := BPFHTTPInfo{
 		ConnInfo: BpfConnectionInfoT{
@@ -154,6 +196,7 @@ func TestToRequestTrace(t *testing.T) {
 		Host:         "8.8.8.8",
 		Peer:         "192.168.0.1",
 		Path:         "/hello",
+		FullPath:     "/hello",
 		Method:       "GET",
 		Status:       200,
 		Type:         request.EventTypeHTTP,
@@ -192,6 +235,7 @@ func TestToRequestTraceNoConnection(t *testing.T) {
 		Host:         "localhost",
 		Peer:         "",
 		Path:         "/hello",
+		FullPath:     "/hello",
 		Method:       "GET",
 		Type:         request.EventTypeHTTP,
 		Start:        123456,
@@ -231,6 +275,7 @@ func TestToRequestTrace_BadHost(t *testing.T) {
 		Host:         "",
 		Peer:         "",
 		Path:         "/hello",
+		FullPath:     "/hello",
 		Method:       "GET",
 		Status:       200,
 		Type:         request.EventTypeHTTP,

@@ -13,7 +13,7 @@
       "net/http.Response": ["StatusCode", "ContentLength"],
       "net.TCPAddr": ["IP", "Port"],
       "context.valueCtx": ["val"],
-      "bufio.Writer": ["buf", "n"],
+      "bufio.Writer": ["buf", "n", "wr"],
       "net.TCPConn": ["conn"],
       "net.conn": ["fd"],
       "net.netFD": ["laddr", "raddr"],

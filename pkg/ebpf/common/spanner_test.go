@@ -64,6 +64,7 @@ func assertMatches(
 ) {
 	assert.Equal(t, method, span.Method)
 	assert.Equal(t, path, span.Path)
+	assert.Equal(t, path, span.FullPath)
 	assert.Equal(t, status, span.Status)
 	assert.Equal(t, contentLength, span.ContentLength)
 	assert.Equal(t, responseLength, span.ResponseLength)

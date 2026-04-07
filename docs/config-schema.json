@@ -423,6 +423,10 @@
           "$ref": "#/$defs/LogEnricherConfig",
           "description": "Log trace-context enricher config"
         },
+        "maps_config": {
+          "$ref": "#/$defs/MapsConfig",
+          "description": "eBPF map configurations"
+        },
         "max_transaction_time": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -1130,6 +1134,15 @@
         "service": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
           "description": "Service should also be contained in 'services' in the Discovery section"
+        }
+      },
+      "type": "object"
+    },
+    "MapsConfig": {
+      "properties": {
+        "global_scale_factor": {
+          "type": "integer",
+          "description": "GlobalScaleFactor scales map sizes in powers of two:   > 0: grows size (2x per step)   < 0: shrinks size (1/2 per step)   = 0: no change"
         }
       },
       "type": "object"

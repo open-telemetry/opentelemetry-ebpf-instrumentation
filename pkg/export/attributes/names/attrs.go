@@ -31,6 +31,7 @@ func (an Name) Prom() string {
 const (
 	HTTPRequestMethod      = Name(semconv.HTTPRequestMethodKey)
 	HTTPResponseStatusCode = Name(semconv.HTTPResponseStatusCodeKey)
+	HTTPURLScheme          = Name(semconv.URLSchemeKey)
 	HTTPUrlPath            = Name(semconv.URLPathKey)
 	HTTPUrlFull            = Name(semconv.URLFullKey)
 	ClientAddr             = Name(semconv.ClientAddressKey)
@@ -179,6 +180,12 @@ const (
 	// attributes, which can't be enabled/disabled by the users
 	ServiceName      = Name(semconv.ServiceNameKey)
 	ServiceNamespace = Name(semconv.ServiceNamespaceKey)
+
+	// TODO: replace by semconv.ServicePeerNameKey and semconv.ServicePeerNamespaceKey
+	// when we update to OTEL semconv library 1.40 or with {server|client}.service.{name|namespace}
+	// if this is issue is approved https://github.com/open-telemetry/semantic-conventions/issues/3472
+	ServicePeerName      = Name("service.peer.name")
+	ServicePeerNamespace = Name("service.peer.namespace")
 
 	HostID      = Name(semconv.HostIDKey)
 	HostImageID = Name(semconv.HostImageIDKey)

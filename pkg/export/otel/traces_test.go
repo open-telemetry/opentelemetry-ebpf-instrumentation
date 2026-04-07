@@ -1210,6 +1210,56 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrSliceAttr(t, attrs, "http.request.header.authorization", []string{"***"})
 		ensureTraceStrSliceAttr(t, attrs, "http.response.header.x-ratelimit-remaining", []string{"42"})
 	})
+	t.Run("test HTTP client url.full prefers FullPath with original host", func(t *testing.T) {
+		span := request.Span{
+			Type:      request.EventTypeHTTPClient,
+			Method:    "GET",
+			Path:      "/external/api",
+			FullPath:  "/external/api?foo=bar",
+			Status:    200,
+			Host:      "api.example.com",
+			HostPort:  443,
+			Statement: "https;api.example.com",
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
+	})
+	t.Run("test HTTP client url.full falls back to Path when FullPath is empty", func(t *testing.T) {
+		span := request.Span{
+			Type:      request.EventTypeHTTPClient,
+			Method:    "GET",
+			Path:      "/external/api",
+			Status:    200,
+			Host:      "api.example.com",
+			HostPort:  443,
+			Statement: "https;api.example.com",
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api")
+	})
+	t.Run("test HTTP client url.full uses FullPath as-is without original host", func(t *testing.T) {
+		span := request.Span{
+			Type:     request.EventTypeHTTPClient,
+			Method:   "GET",
+			Path:     "/external/api",
+			FullPath: "https://upstream.example.com/external/api?foo=bar",
+			Status:   200,
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api?foo=bar")
+	})
 	t.Run("test HTTP span without headers has no header attributes", func(t *testing.T) {
 		span := request.Span{
 			Type:   request.EventTypeHTTP,

@@ -379,6 +379,7 @@ type Span struct {
 	Flags             uint8          `json:"-"`
 	Method            string         `json:"-"`
 	Path              string         `json:"-"`
+	FullPath          string         `json:"-"`
 	Route             string         `json:"-"`
 	Peer              string         `json:"peer"`
 	PeerPort          int            `json:"peerPort,string"`

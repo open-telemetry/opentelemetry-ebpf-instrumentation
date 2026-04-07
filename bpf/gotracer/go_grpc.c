@@ -36,6 +36,8 @@
 
 #include <pid/pid_helpers.h>
 
+#include <shared/obi_ctx.h>
+
 #define TRANSPORT_HTTP2 1
 #define TRANSPORT_HANDLER 2
 
@@ -113,6 +115,8 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
     if (bpf_map_update_elem(&ongoing_grpc_server_requests, &g_key, &invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update grpc map element");
     }
+
+    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
 
     return 0;
 }
@@ -277,6 +281,7 @@ done:
     bpf_map_delete_elem(&ongoing_grpc_server_requests, &g_key);
     bpf_map_delete_elem(&ongoing_grpc_request_status, &g_key);
     bpf_map_delete_elem(&go_trace_map, &g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }
@@ -354,6 +359,8 @@ static __always_inline void clientConnStart(
     if (bpf_map_update_elem(&ongoing_grpc_client_requests, &g_key, &invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update grpc client map element");
     }
+
+    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
 }
 
 SEC("uprobe/ClientConn_Invoke")
@@ -458,6 +465,7 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
 
 done:
     bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
     return 0;
 }
 
@@ -485,6 +493,7 @@ int obi_uprobe_ClientConn_Close(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }
