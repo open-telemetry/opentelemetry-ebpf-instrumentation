@@ -58,16 +58,18 @@ OBI supports two different compatibility categories for application observabilit
 - Network-level protocol instrumentation, which is language-agnostic.
 - Library-level instrumentation for selected runtimes and libraries.
 
-### Language Runtime Baselines
+### Runtime And Server Baselines
 
-The following runtime baselines are currently documented or enforced in the repository:
+The following runtime and server baselines are currently documented or enforced in the repository:
 
-| Runtime | Baseline |
-|:--------|:---------|
+| Runtime or server | Baseline |
+|:------------------|:---------|
 | Go applications | Go `1.17+` for library-level instrumentation |
 | Java applications | JDK `8+` |
 | Node.js async-hooks context propagation | Node.js `8.0+` |
 | Python asyncio context propagation | Python `3.9+` with `uvloop` |
+| Ruby applications | Ruby `3.0.2+` when served by Puma `5.0+` |
+| nginx | HTTP server and reverse-proxy tracing validated on nginx `1.27.5` and `1.29.7` |
 
 Additional language families may be instrumented through network-level tracing, but are not listed here unless the
 repository documents a concrete runtime or library compatibility baseline.
