@@ -223,6 +223,85 @@ func TestDefinition_Label(t *testing.T) {
 	assert.Equal(t, "10.0.0.0/8", Definition{CIDR: "10.0.0.0/8"}.Label())
 }
 
+func TestEnvironmentVariableHandling(t *testing.T) {
+	// Test that the environment variable handling of OTEL_EBPF_NETWORK_CIDRS still works
+	// by verifying that comma-separated CIDR strings are correctly parsed.
+	// This test ensures backward compatibility with the old behavior.
+	// Note: UnmarshalText accepts any string and doesn't validate - validation is done
+	// separately via the Validate() method which is called during config validation.
+
+	tests := []struct {
+		name     string
+		envValue string
+		expected Definitions
+	}{
+		{
+			name:     "Single CIDR",
+			envValue: "10.0.0.0/8",
+			expected: Definitions{{CIDR: "10.0.0.0/8"}},
+		},
+		{
+			name:     "Multiple CIDRs comma-separated",
+			envValue: "10.0.0.0/8,192.168.0.0/16,2001::/16",
+			expected: Definitions{
+				{CIDR: "10.0.0.0/8"},
+				{CIDR: "192.168.0.0/16"},
+				{CIDR: "2001::/16"},
+			},
+		},
+		{
+			name:     "CIDRs with spaces around commas",
+			envValue: "10.0.0.0/8 , 192.168.0.0/16 , 2001::/16",
+			expected: Definitions{
+				{CIDR: "10.0.0.0/8"},
+				{CIDR: "192.168.0.0/16"},
+				{CIDR: "2001::/16"},
+			},
+		},
+		{
+			name:     "Empty environment variable",
+			envValue: "",
+			expected: nil,
+		},
+		{
+			name:     "Whitespace only",
+			envValue: "   ",
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var d Definitions
+			err := d.UnmarshalText([]byte(tt.envValue))
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, d)
+
+			// Verify that valid definitions validate correctly
+			if len(d) > 0 {
+				require.NoError(t, d.Validate())
+			}
+		})
+	}
+
+	// Test that invalid CIDRs are caught during validation (not during unmarshaling)
+	t.Run("Invalid CIDR format caught during validation", func(t *testing.T) {
+		var d Definitions
+		require.NoError(t, d.UnmarshalText([]byte("not-a-cidr")))
+		err := d.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not-a-cidr")
+	})
+
+	t.Run("Mix of valid and invalid CIDRs caught during validation", func(t *testing.T) {
+		var d Definitions
+		require.NoError(t, d.UnmarshalText([]byte("10.0.0.0/8,invalid-cidr")))
+		err := d.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid-cidr")
+	})
+}
+
 func flow(srcIP, dstIP string) *testRecord {
 	r := &testRecord{}
 	copy(r.SrcAddr[:], net.ParseIP(srcIP).To16())
