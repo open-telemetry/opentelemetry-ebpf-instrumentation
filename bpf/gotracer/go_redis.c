@@ -35,6 +35,9 @@ static __always_inline void setup_request(void *goroutine_addr) {
     redis_client_req_t *req = req_client_mem();
 
     if (req) {
+        req->type = EVENT_GO_REDIS;
+        req->start_monotime_ns = bpf_ktime_get_ns();
+
         go_addr_key_t g_key = {};
         go_addr_key_from_id(&g_key, goroutine_addr);
 
