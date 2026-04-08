@@ -162,17 +162,17 @@ var DefaultConfig = Config{
 						"/query/service",
 					},
 				},
-			GenAI: config.GenAIConfig{
-				OpenAI: config.OpenAIConfig{
-					Enabled: false,
+				GenAI: config.GenAIConfig{
+					OpenAI: config.OpenAIConfig{
+						Enabled: false,
+					},
+					Anthropic: config.AnthropicConfig{
+						Enabled: false,
+					},
+					Gemini: config.GeminiConfig{
+						Enabled: false,
+					},
 				},
-				Anthropic: config.AnthropicConfig{
-					Enabled: false,
-				},
-				Gemini: config.GeminiConfig{
-					Enabled: false,
-				},
-			},
 				Enrichment: config.EnrichmentConfig{
 					Enabled: false,
 					Policy: config.HTTPParsingPolicy{

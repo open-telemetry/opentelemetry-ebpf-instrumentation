@@ -107,6 +107,7 @@ func handleGenerateContent(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("X-Goog-Api-Client", "genai-go/1.0.0")
+	h.Set("X-Gemini-Service-Tier", "default")
 
 	if strings.Contains(r.URL.Path, "gemini-nonexistent") {
 		w.WriteHeader(http.StatusNotFound)
