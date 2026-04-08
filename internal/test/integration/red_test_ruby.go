@@ -138,7 +138,7 @@ func assertRubyPumaSupportVersion(t *testing.T, compose *docker.Compose, expecte
 		"-e",
 		`require "bundler/setup"; require "puma"; puts RUBY_VERSION; puts Puma::Const::PUMA_VERSION`,
 	)
-	require.NoError(t, err)
+	require.NoError(t, err, "bundle exec ruby output:\n%s", output)
 
 	var versionLines []string
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
@@ -149,7 +149,7 @@ func assertRubyPumaSupportVersion(t *testing.T, compose *docker.Compose, expecte
 		versionLines = append(versionLines, trimmed)
 	}
 
-	require.Len(t, versionLines, 2)
+	require.Lenf(t, versionLines, 2, "unexpected ruby/puma version output: raw output=%q, collected lines=%v", output, versionLines)
 	assert.Equal(t, expectedRuby, versionLines[0])
 	assert.Equal(t, expectedPuma, versionLines[1])
 }

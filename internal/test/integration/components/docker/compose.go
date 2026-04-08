@@ -87,6 +87,12 @@ func (c *Compose) ExecOutput(service string, args ...string) (string, error) {
 	cmd.Env = c.Env
 
 	output, err := cmd.CombinedOutput()
+
+	if c.Logger != nil && len(output) > 0 {
+		if _, writeErr := c.Logger.Write(output); writeErr != nil {
+			err = errors.Join(err, writeErr)
+		}
+	}
 	return strings.TrimSpace(string(output)), err
 }
 
