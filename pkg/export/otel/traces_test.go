@@ -1207,9 +1207,9 @@ func TestGenerateTracesAttributes(t *testing.T) {
 				SystemInstruct: &request.GeminiContent{Parts: []byte(`[{"text":"Be concise."}]`), Role: "system"},
 				Tools:          []byte(`[{"functionDeclarations":[{"name":"get_weather"}]}]`),
 				GenerationConfig: &request.GeminiGenCfg{
-					Temperature:    0.7,
-					TopP:           0.9,
-					TopK:           40,
+					Temperature:     0.7,
+					TopP:            0.9,
+					TopK:            40,
 					MaxOutputTokens: 256,
 				},
 			},
