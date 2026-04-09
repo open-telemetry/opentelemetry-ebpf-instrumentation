@@ -87,6 +87,8 @@ func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, event *TCPReques
 		return dispatchMySQL(parseCtx, event, requestBuffer, responseBuffer)
 	case ProtocolTypePostgres:
 		return dispatchPostgres(parseCtx, event, requestBuffer, responseBuffer)
+	case ProtocolTypeMSSQL:
+		return dispatchMSSQL(parseCtx, event, requestBuffer, responseBuffer)
 	}
 
 	return request.Span{}, false, false, nil
@@ -145,6 +147,11 @@ func dispatchMySQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuf
 func dispatchPostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
 	span, err := handlePostgres(parseCtx, event, requestBuffer, responseBuffer)
 	return handleError(span, err, "Postgres")
+}
+
+func dispatchMSSQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
+	span, err := handleMSSQL(parseCtx, event, requestBuffer, responseBuffer)
+	return handleError(span, err, "MSSQL")
 }
 
 // detectGenericProtocol runs deterministic protocol detection for unclassified events:
