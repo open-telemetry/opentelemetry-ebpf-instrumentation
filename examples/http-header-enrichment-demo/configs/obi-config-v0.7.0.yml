@@ -1,0 +1,29 @@
+open_port: 8080
+service_name: http-header-demo
+log_level: info
+
+ebpf:
+  track_request_headers: true
+  buffer_sizes:
+    http: 8192
+  payload_extraction:
+    http:
+      enrichment:
+        enabled: true
+        policy:
+          default_action: exclude # Don't include headers by default
+          obfuscation_string: "***" # Masking string for obfuscate actions
+        rules:
+          - action: include
+            type: headers
+            scope: all
+            match:
+              patterns: ["x-tenant-id", "x-user-segment"]
+              case_sensitive: false
+          # Obfuscate authorization header (show key, mask value)
+          - action: obfuscate
+            type: headers
+            scope: all
+            match:
+              patterns: ["authorization"]
+              case_sensitive: false

@@ -73,5 +73,5 @@ func main() {
 	address := fmt.Sprintf(":%d", 8080)
 	log.Info("starting HTTP server", "address", address)
 	err := http.ListenAndServe(address, HTTPHandler(log, 8080))
-	log.Error("HTTP server has unexpectedly stopped", err)
+	log.Error("HTTP server has unexpectedly stopped", "error", err)
 }
