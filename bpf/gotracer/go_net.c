@@ -44,16 +44,23 @@
 
 #include <shared/obi_ctx.h>
 
-static __always_inline bool already_handled_request_sorted(const connection_info_t *conn,
-                                                           const go_addr_key_t *goaddr) {
-    if (conn) {
-        bool *found = bpf_map_lookup_elem(&handled_by_go_conn, conn);
+static __always_inline bool already_handled_request_goroutine(const go_addr_key_t *goaddr) {
+    if (goaddr) {
+        const bool *found = bpf_map_lookup_elem(&handled_by_go, goaddr);
         if (found) {
             return true;
         }
     }
-    if (goaddr) {
-        bool found = bpf_map_lookup_elem(&handled_by_go, goaddr);
+    return false;
+}
+
+static __always_inline bool already_handled_request_sorted(const connection_info_t *conn,
+                                                           const go_addr_key_t *goaddr) {
+    if (already_handled_request_goroutine(goaddr)) {
+        return true;
+    }
+    if (conn) {
+        const bool *found = bpf_map_lookup_elem(&handled_by_go_conn, conn);
         if (found) {
             return true;
         }
@@ -227,6 +234,13 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/proc netFD write goroutine %lx === ", goroutine_addr);
 
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    if (already_handled_request_goroutine(&g_key)) {
+        return 0;
+    }
+
     void *fd_ptr = GO_PARAM1(ctx);
     u8 *buf = GO_PARAM2(ctx);
     u64 len = (u64)GO_PARAM3(ctx);
@@ -237,8 +251,6 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
             return 0;
         }
 
-        go_addr_key_t g_key = {};
-        go_addr_key_from_id(&g_key, goroutine_addr);
         p_conn.pid = pid_from_pid_tgid(id);
 
         u16 orig_dport = p_conn.conn.d_port;
