@@ -90,10 +90,17 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 		p.log.Info("Kernel in lockdown mode or missing CAP_SYS_ADMIN.")
 	}
 
+	if p.cfg.TrackRequestHeaders ||
+		p.cfg.ContextPropagation.IsEnabled() {
+		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.OverrideBPFLoopEnabled))
+	}
+
 	spec, err := LoadBpf()
 	if err != nil {
 		return nil, err
 	}
+
+	ebpfcommon.FixupSpec(spec, p.cfg.OverrideBPFLoopEnabled)
 
 	return []*ebpfcommon.SpecBundle{{
 		Spec:      spec,
