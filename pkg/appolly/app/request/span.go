@@ -91,9 +91,9 @@ const (
 	HTTPSubtypeAWSS3         = 3 // http + aws s3
 	HTTPSubtypeAWSSQS        = 4 // http + aws sqs
 	HTTPSubtypeSQLPP         = 5 // http + sql++ (couchbase, etc.)
-	HTTPSubtypeOpenAI        = 6  // http + OpenAI
-	HTTPSubtypeAnthropic     = 7  // http + Anthropic
-	HTTPSubtypeGemini        = 8  // http + Google AI Studio (Gemini)
+	HTTPSubtypeOpenAI        = 6 // http + OpenAI
+	HTTPSubtypeAnthropic     = 7 // http + Anthropic
+	HTTPSubtypeGemini        = 8 // http + Google AI Studio (Gemini)
 )
 
 func IsGenAISubtype(subtype int) bool {
@@ -245,9 +245,9 @@ type AWSSQS struct {
 }
 
 type GenAI struct {
-	OpenAI       *VendorOpenAI
-	Anthropic    *VendorAnthropic
-	Gemini       *VendorGemini
+	OpenAI    *VendorOpenAI
+	Anthropic *VendorAnthropic
+	Gemini    *VendorGemini
 }
 
 type OpenAIUsage struct {
@@ -418,8 +418,8 @@ type GeminiResponse struct {
 }
 
 type GeminiCandidate struct {
-	Content       *GeminiContent `json:"content"`
-	FinishReason  string         `json:"finishReason"`
+	Content       *GeminiContent  `json:"content"`
+	FinishReason  string          `json:"finishReason"`
 	SafetyRatings json.RawMessage `json:"safetyRatings,omitempty"`
 }
 
