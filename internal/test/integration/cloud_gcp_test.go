@@ -39,6 +39,7 @@ func TestCloudResourceMetadata_GCP(t *testing.T) {
 			"OTEL_EBPF_OPEN_PORT=8080",
 			"GCE_METADATA_HOST=mock-imds",
 		},
+		Logs: createLogOutput(t, "cloud-meta-gcp"),
 	}
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"

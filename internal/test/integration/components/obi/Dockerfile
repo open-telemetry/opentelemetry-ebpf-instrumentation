@@ -17,7 +17,6 @@ COPY pkg/ pkg/
 COPY go.mod go.mod
 COPY go.sum go.sum
 COPY Makefile Makefile
-COPY internal/test/integration/components/obi/ebpf_instrument_wrapper_minimal.sh /ebpf_instrument_wrapper_minimal.sh
 
 # Build
 RUN make compile-for-coverage
@@ -26,10 +25,5 @@ RUN make compile-for-coverage
 FROM ubuntu@sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9
 
 COPY --from=builder /src/bin/obi /obi
-# Wrap the executable in a script that waits for the processes to end
-# in order to avoid issues when tearing down the container on kernels 6.14+.
-# https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/781
-COPY --from=builder /ebpf_instrument_wrapper_minimal.sh /ebpf_instrument_wrapper_minimal.sh
-RUN chmod +x /ebpf_instrument_wrapper_minimal.sh
 
-ENTRYPOINT [ "/ebpf_instrument_wrapper_minimal.sh" ]
+ENTRYPOINT [ "/obi" ]

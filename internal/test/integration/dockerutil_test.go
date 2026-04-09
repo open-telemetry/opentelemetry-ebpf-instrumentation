@@ -217,6 +217,7 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, configFile st
 			Image: "hatest-obi",
 			Env: append([]string{
 				"GOCOVERDIR=/coverage",
+				`OTEL_EBPF_SHUTDOWN_TIMEOUT=2s`,
 				"OTEL_EBPF_TRACE_PRINTER=text",
 				"OTEL_EBPF_METRICS_FEATURES=application,application_span",
 				"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span",
@@ -231,7 +232,6 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, configFile st
 				"OTEL_EBPF_PROCESSES_INTERVAL=100ms",
 				"OTEL_EBPF_HOSTNAME=obi",
 			}, o.Env...),
-			StopSignal:   "SIGWINCH", // to support timeouts
 			ExposedPorts: map[docker.Port]struct{}{"8999/tcp": {}},
 			Mounts:       mounts,
 		},
@@ -257,7 +257,9 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, configFile st
 				t.Logf("could not stream logs: %v", err)
 			}
 		}
-
+		if err := dockerPool.Client.StopContainer(container.ID, 4); err != nil {
+			t.Logf("could not stop test server container after timeout: %v. Will force removal (you will loose coverage data)", err)
+		}
 		if err := dockerPool.Client.RemoveContainer(
 			docker.RemoveContainerOptions{ID: container.ID, Force: true, RemoveVolumes: true},
 		); err != nil {

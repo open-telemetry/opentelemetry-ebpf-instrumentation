@@ -155,9 +155,15 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 }
 
 func (i *Instrumenter) WaitUntilFinished() error {
+	shutDownTimeout := time.After(i.config.ShutdownTimeout)
 	for _, f := range i.finishers {
-		if err := <-f.done; err != nil {
-			return fmt.Errorf("node %q couldn't finish: %w", f.name, err)
+		select {
+		case <-shutDownTimeout:
+			return fmt.Errorf("timed out waiting for finisher %s to finish", f.name)
+		case err := <-f.done:
+			if err != nil {
+				return fmt.Errorf("node %q couldn't finish: %w", f.name, err)
+			}
 		}
 	}
 	return nil
