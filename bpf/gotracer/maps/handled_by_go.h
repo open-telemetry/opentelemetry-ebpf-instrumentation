@@ -14,16 +14,16 @@
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, connection_info_t); // key: the connection info
-    __type(value, bool);            // value: true
+    __type(key, connection_info_t);
+    __type(value, bool); // placeholder, we check if it exists
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } handled_by_go_conn SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: goroutine
-    __type(value, bool);        // value: true
+    __type(key, go_addr_key_t);
+    __type(value, bool); // placeholder, we check if it exists
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } handled_by_go SEC(".maps");

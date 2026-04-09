@@ -3,13 +3,13 @@
 
 #pragma once
 
-#include "common/lw_thread.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/connection_info.h>
 #include <common/http_buf_size.h>
 #include <common/http_info.h>
+#include <common/lw_thread.h>
 #include <common/tp_info.h>
 
 #define MIN_HTTP_SIZE 12      // HTTP/1.1 CCC is the smallest valid request we can have

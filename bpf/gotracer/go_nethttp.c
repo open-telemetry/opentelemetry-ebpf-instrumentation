@@ -15,12 +15,12 @@
 
 //go:build obi_bpf_ignore
 
-#include "common/connection_info.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/utils.h>
 
 #include <bpfcore/bpf_builtins.h>
 #include <common/algorithm.h>
+#include <common/connection_info.h>
 #include <common/globals.h>
 #include <common/http_types.h>
 #include <common/ringbuf.h>
