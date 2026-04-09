@@ -18,6 +18,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/utils.h>
 
+#include <bpfcore/bpf_builtins.h>
 #include <common/algorithm.h>
 #include <common/globals.h>
 #include <common/http_types.h>
@@ -42,6 +43,8 @@
 #include <maps/tp_char_buf_mem.h>
 
 #include <pid/pid_helpers.h>
+
+#include <shared/obi_ctx.h>
 
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;
@@ -134,6 +137,8 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
     if (bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update map element");
     }
+
+    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
 
 done:
     return 0;
@@ -268,7 +273,15 @@ int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
                            sizeof(tls_state),
                            (void *)(c_ptr + go_offset_of(ot, (go_offset){.v = _c_tls_pos})));
             conn_conn_ptr = unwrap_tls_conn_info(conn_conn_ptr, tls_state);
-            //bpf_dbg_printk("conn_conn_ptr=%llx, tls_state=%llx, c_tls_pos=%d, c_tls_ptr=%llx", conn_conn_ptr, tls_state, c_tls_pos, c_ptr + c_tls_pos);
+
+            // Store TLS state in the server invocation so serve_http_returns
+            // can populate the scheme field on the trace event.
+            server_http_func_invocation_t *inv =
+                bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+            if (inv) {
+                inv->is_tls = tls_state ? 1 : 0;
+            }
+
             if (conn_conn_ptr) {
                 void *conn_ptr = 0;
                 bpf_probe_read(
@@ -358,6 +371,7 @@ static __always_inline void handle_traceparent_header(server_http_func_invocatio
         server_http_func_invocation_t minimal_inv = {0};
         update_traceparent(&minimal_inv, traceparent_start);
         bpf_map_update_elem(&ongoing_http_server_requests, g_key, &minimal_inv, BPF_ANY);
+        obi_ctx__set(bpf_get_current_pid_tgid(), &minimal_inv.tp);
     }
 }
 
@@ -528,7 +542,11 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->host[0] = '\0';
-    trace->scheme[0] = '\0';
+    if (invocation->is_tls) {
+        bpf_memcpy(trace->scheme, "https", 6);
+    } else {
+        bpf_memcpy(trace->scheme, "http", 5);
+    }
     trace->pattern[0] = '\0';
 
     goroutine_metadata *g_metadata = bpf_map_lookup_elem(&ongoing_goroutines, &g_key);
@@ -573,6 +591,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
 done:
     bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
     bpf_map_delete_elem(&go_trace_map, &g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
     return 0;
 }
 
@@ -964,6 +983,7 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
             __builtin_memcpy(&inv.tp, tp, sizeof(tp_info_t));
             bpf_dbg_printk("Found traceparent in HTTP2 headers");
             bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &inv, BPF_ANY);
+            obi_ctx__set(bpf_get_current_pid_tgid(), &inv.tp);
             bpf_map_delete_elem(&http2_server_requests_tp, &sc_key);
         }
     }
