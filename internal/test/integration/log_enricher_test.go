@@ -14,9 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -88,7 +87,7 @@ var logEnricherTestTraceparents = [5]struct{ traceID, parentID string }{
 }
 
 func containerLogs(t require.TestingT, cl *client.Client, containerID string) []string {
-	reader, err := cl.ContainerLogs(context.TODO(), containerID, container.LogsOptions{
+	reader, err := cl.ContainerLogs(context.TODO(), containerID, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 	})
@@ -112,10 +111,10 @@ func containerLogs(t require.TestingT, cl *client.Client, containerID string) []
 }
 
 func testContainerID(t require.TestingT, cl *client.Client, image string) string {
-	containers, err := cl.ContainerList(context.TODO(), container.ListOptions{All: true})
+	result, err := cl.ContainerList(context.TODO(), client.ContainerListOptions{All: true})
 	require.NoError(t, err)
 
-	for _, c := range containers {
+	for _, c := range result.Items {
 		if c.Image == image {
 			return c.ID
 		}
