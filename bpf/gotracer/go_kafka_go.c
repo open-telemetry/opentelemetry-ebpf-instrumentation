@@ -28,6 +28,8 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <shared/obi_ctx.h>
+
 // Code for the produce messages path
 SEC("uprobe/writer_write_messages")
 int obi_uprobe_writer_write_messages(struct pt_regs *ctx) {
@@ -47,6 +49,8 @@ int obi_uprobe_writer_write_messages(struct pt_regs *ctx) {
 
     bpf_map_update_elem(&produce_traceparents, &p_key, &tp, BPF_ANY);
     bpf_map_update_elem(&produce_traceparents_by_goroutine, &g_key, &tp, BPF_ANY);
+
+    obi_ctx__set(bpf_get_current_pid_tgid(), &tp);
 
     return 0;
 }

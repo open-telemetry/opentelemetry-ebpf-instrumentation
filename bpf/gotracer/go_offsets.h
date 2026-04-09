@@ -29,6 +29,7 @@ typedef enum {
     _req_header_ptr_pos,
     _io_writer_buf_ptr_pos,
     _io_writer_n_pos,
+    _io_writer_wr_pos,
     _cc_next_stream_id_pos,
     _cc_next_stream_id_vendored_pos,
     _cc_framer_pos,

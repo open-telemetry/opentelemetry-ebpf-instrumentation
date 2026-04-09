@@ -46,6 +46,11 @@ the [internal/test/integration](./internal/test/integration) and [internal/test/
 
 Below are quick reference instructions for getting OBI up and running with binary downloads or container images. For comprehensive setup, configuration, and troubleshooting guidance, refer to the [OpenTelemetry zero-code instrumentation documentation](https://opentelemetry.io/docs/zero-code/), which is the authoritative source of truth.
 
+For release artifact verification and installation details, see:
+
+- [Run OBI as a standalone process](https://opentelemetry.io/docs/zero-code/obi/setup/standalone/)
+- [Run OBI as a Docker container](https://opentelemetry.io/docs/zero-code/obi/setup/docker/)
+
 ## Installation
 
 ### Binary Download
@@ -91,6 +96,16 @@ Verify the downloaded release assets:
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
+Successful verification prints an `OK` result for each file you downloaded:
+
+```text
+obi-v${VERSION}-linux-${ARCH}.tar.gz: OK
+```
+
+If verification fails, `sha256sum` reports `FAILED` instead. Re-download the
+affected files and make sure you are verifying assets from the same release
+version before proceeding.
+
 Extract the archive:
 
 ```bash
@@ -108,6 +123,11 @@ tar -xzf obi-v${VERSION}-linux-${ARCH}.tar.gz
 
 CycloneDX SBOM files are optional metadata for supply-chain review and automation.
 They are not required to install or run OBI.
+
+The release SBOMs describe the contents of the published archives and embedded
+components in [CycloneDX JSON format](https://cyclonedx.org/). They can be
+consumed by dependency analysis and vulnerability scanning tools without
+extracting or executing the binaries.
 
 Download the SBOMs you want to inspect:
 
@@ -159,19 +179,30 @@ OBI is also available as container images:
 
 ```bash
 # Set your desired version.
-export VERSION=1.0.0
+export VERSION=v0.7.0
 
 # (Optional) Verify the signature of the container image
 cosign verify --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' otel/ebpf-instrument:${VERSION}
 
+# (Optional) Verify the same release from GHCR
+cosign verify --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument:${VERSION}
+
 # Pull the image
 docker pull otel/ebpf-instrument:${VERSION}
+
+# Or pull the same image from GHCR
+docker pull ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument:${VERSION}
 
 # Run OBI in a container
 # Note: OBI requires elevated privileges (--privileged) to instrument processes
 # See https://opentelemetry.io/docs/zero-code/obi/setup/docker/ for more details
 docker run --privileged otel/ebpf-instrument:${VERSION}
 ```
+
+Successful `cosign verify` output states that the claims were validated and
+returns the signed image digest. If verification fails, confirm that the image
+tag exists in the registry you queried and that you are using the GitHub OIDC
+issuer and identity regexp shown above.
 
 ## Examples
 
