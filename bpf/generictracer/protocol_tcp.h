@@ -241,8 +241,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             req->end_monotime_ns = 0;
             req->resp_len = 0;
             req->len = bytes_len;
-            req->no_pid_filter =
-                (lw_thread != k_lw_thread_none); // generic events generated from Go
+            req->event_source = event_source(lw_thread); // generic events generated from Go
             req->req_len = original_bytes_len;
             req->extra_id = extra_runtime_id();
             req->protocol_type = protocol_type;

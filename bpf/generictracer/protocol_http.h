@@ -34,6 +34,7 @@
 #include <maps/ongoing_http.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>
+#include <sys/cdefs.h>
 
 volatile const u32 high_request_volume;
 
@@ -439,9 +440,9 @@ static __always_inline void process_http_request(http_info_t *info,
     info->status = 0;
     info->submitted = 0;
     info->len = len;
-    info->no_pid_filter = (lw_thread != k_lw_thread_none); // generic events generated from Go
-    info->extra_id = extra_runtime_id(); // required for deleting the trace information
-    info->task_tid = get_task_tid();     // required for deleting the trace information
+    info->event_source = event_source(lw_thread); // generic events generated from Go
+    info->extra_id = extra_runtime_id();          // required for deleting the trace information
+    info->task_tid = get_task_tid();              // required for deleting the trace information
 }
 
 static __always_inline void process_http_response(http_info_t *info, const unsigned char *buf) {

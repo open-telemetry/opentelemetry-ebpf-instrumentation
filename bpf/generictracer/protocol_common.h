@@ -9,8 +9,10 @@
 #include <common/algorithm.h>
 #include <common/common.h>
 #include <common/event_defs.h>
+#include <common/event_source.h>
 #include <common/iov_iter.h>
 #include <common/large_buffers.h>
+#include <common/lw_thread.h>
 #include <common/ringbuf.h>
 #include <common/sock_port_ns.h>
 #include <common/http_types.h>
@@ -149,4 +151,12 @@ static __always_inline int read_msghdr_buf(struct msghdr *msg, unsigned char *bu
     get_iovec_ctx(&ctx, iov_iter);
 
     return read_iovec_ctx(&ctx, buf, max_len);
+}
+
+static __always_inline enum event_source_type event_source(lw_thread_t lw_thread) {
+    if (lw_thread != k_lw_thread_none) {
+        return k_event_source_lw_thread;
+    }
+
+    return k_event_source_kprobes;
 }

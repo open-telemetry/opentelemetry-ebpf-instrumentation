@@ -44,37 +44,43 @@
 
 #include <shared/obi_ctx.h>
 
-static __always_inline bool already_handled_request(const connection_info_t *conn,
-                                                    const go_addr_key_t *goaddr) {
-    connection_info_t sorted_conn = *conn;
-    sort_connection_info(&sorted_conn);
-    bool *found = bpf_map_lookup_elem(&handled_by_go_conn, &sorted_conn);
-    if (found) {
-        return true;
+static __always_inline bool already_handled_request_sorted(const connection_info_t *conn,
+                                                           const go_addr_key_t *goaddr) {
+    if (conn) {
+        bool *found = bpf_map_lookup_elem(&handled_by_go_conn, conn);
+        if (found) {
+            return true;
+        }
     }
-    found = bpf_map_lookup_elem(&handled_by_go, goaddr);
-    if (found) {
-        return true;
+    if (goaddr) {
+        bool found = bpf_map_lookup_elem(&handled_by_go, goaddr);
+        if (found) {
+            return true;
+        }
     }
-
     return false;
 }
 
 static __always_inline void
-cleanup_duplicate_generic_events(const pid_connection_info_t *pid_conn) {
-    pid_connection_info_t sorted_conn = *pid_conn;
-    sort_connection_info(&sorted_conn.conn);
-    bpf_map_delete_elem(&ongoing_http, &sorted_conn);
-    bpf_map_delete_elem(&ongoing_tcp_req, &sorted_conn);
-    bpf_map_delete_elem(&ongoing_http2_connections, &sorted_conn);
+cleanup_duplicate_generic_events_sorted(const pid_connection_info_t *pid_conn) {
+    if (!pid_conn) {
+        return;
+    }
+    bpf_map_delete_elem(&ongoing_http, pid_conn);
+    bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
+    bpf_map_delete_elem(&ongoing_http2_connections, pid_conn);
 }
 
 static __always_inline void
 cleanup_duplicate_generic_event_by_connection(const connection_info_t *conn) {
+    if (!conn) {
+        return;
+    }
     const u64 id = bpf_get_current_pid_tgid();
     pid_connection_info_t p_conn = {.conn = *conn, .pid = pid_from_pid_tgid(id)};
+    sort_connection_info(&p_conn.conn);
 
-    cleanup_duplicate_generic_events(&p_conn);
+    cleanup_duplicate_generic_events_sorted(&p_conn);
 }
 
 SEC("uprobe/netFdRead")
@@ -84,18 +90,6 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-
-    const u64 id = bpf_get_current_pid_tgid();
-
-    void *fd_ptr = GO_PARAM1(ctx);
-    void *byte_addr = GO_PARAM2(ctx);
-    net_args_t net_args = {
-        .byte_ptr = (u64)byte_addr,
-    };
-    get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn, false);
-    net_args.p_conn.pid = pid_from_pid_tgid(id);
-
-    dbg_print_http_connection_info(&net_args.p_conn.conn);
 
     // lookup a grpc connection
     // Sets up the connection info to be grabbed and mapped over the transport to operateHeaders
@@ -157,20 +151,24 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
         return 0;
     }
 
-    // const u64 id = bpf_get_current_pid_tgid();
+    const u64 id = bpf_get_current_pid_tgid();
 
-    // void *fd_ptr = GO_PARAM1(ctx);
-    // void *byte_addr = GO_PARAM2(ctx);
-    // net_args_t net_args = {
-    //     .byte_ptr = (u64)byte_addr,
-    // };
-    // get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn, false);
-    // net_args.p_conn.pid = pid_from_pid_tgid(id);
+    void *fd_ptr = GO_PARAM1(ctx);
+    void *byte_addr = GO_PARAM2(ctx);
+    net_args_t net_args = {
+        .byte_ptr = (u64)byte_addr,
+    };
+    get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn, false);
+    net_args.p_conn.pid = pid_from_pid_tgid(id);
 
-    // dbg_print_http_connection_info(&net_args.p_conn.conn);
+    dbg_print_http_connection_info(&net_args.p_conn.conn);
 
-    if (already_handled_request(&net_args.p_conn.conn, &g_key)) {
-        cleanup_duplicate_generic_events(&net_args.p_conn);
+    pid_connection_info_t p_conn = net_args.p_conn;
+
+    sort_connection_info(&p_conn.conn);
+
+    if (already_handled_request_sorted(&p_conn.conn, &g_key)) {
+        cleanup_duplicate_generic_events_sorted(&p_conn);
         return 0;
     }
 
@@ -243,15 +241,15 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
         go_addr_key_from_id(&g_key, goroutine_addr);
         p_conn.pid = pid_from_pid_tgid(id);
 
-        dbg_print_http_connection_info(&p_conn.conn);
-
-        if (already_handled_request(&p_conn.conn, &g_key)) {
-            cleanup_duplicate_generic_events(&p_conn);
-            return 0;
-        }
-
         u16 orig_dport = p_conn.conn.d_port;
         sort_connection_info(&p_conn.conn);
+
+        dbg_print_http_connection_info(&p_conn.conn);
+
+        if (already_handled_request_sorted(&p_conn.conn, &g_key)) {
+            cleanup_duplicate_generic_events_sorted(&p_conn);
+            return 0;
+        }
 
         // doesn't return
         handle_light_weight_thread_buf(ctx,
