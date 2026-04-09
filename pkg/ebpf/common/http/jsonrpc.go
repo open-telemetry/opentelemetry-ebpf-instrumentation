@@ -67,7 +67,7 @@ func JSONRPCSpan(baseSpan *request.Span, req *http.Request, resp *http.Response)
 	}
 
 	if len(rpcReq.ID) > 0 && string(rpcReq.ID) != "null" {
-		result.RequestID = rpcReq.idString()
+		result.RequestID = rawIDString(rpcReq.ID)
 	}
 
 	// Parse response for error information
@@ -84,13 +84,13 @@ func JSONRPCSpan(baseSpan *request.Span, req *http.Request, resp *http.Response)
 	return *baseSpan, true
 }
 
-// idString returns the ID as a plain string, stripping JSON quotes from string IDs.
-func (r *jsonRPCRequest) idString() string {
+// rawIDString returns a json.RawMessage ID as a plain string, stripping JSON quotes from string IDs.
+func rawIDString(id json.RawMessage) string {
 	var s string
-	if json.Unmarshal(r.ID, &s) == nil {
+	if json.Unmarshal(id, &s) == nil {
 		return s
 	}
-	return string(r.ID)
+	return string(id)
 }
 
 // parseJSONRPCRequest tries to parse the body as a JSON-RPC request.
@@ -149,15 +149,42 @@ func isValidJSONRPCVersion(version string, headerDetected bool) bool {
 
 func parseJSONRPCResponse(data []byte, result *request.JSONRPC) {
 	data = bytes.TrimSpace(data)
-	if len(data) == 0 || data[0] != '{' {
+	if len(data) == 0 {
 		return
 	}
 
-	var resp jsonRPCResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return
+	switch data[0] {
+	case '{':
+		var resp jsonRPCResponse
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return
+		}
+		applyRPCError(resp, result)
+	case '[':
+		var batch []jsonRPCResponse
+		if err := json.Unmarshal(data, &batch); err != nil {
+			return
+		}
+		if resp, ok := matchResponse(batch, result.RequestID); ok {
+			applyRPCError(resp, result)
+		}
 	}
+}
 
+// matchResponse finds the response matching the given request ID.
+func matchResponse(batch []jsonRPCResponse, requestID string) (jsonRPCResponse, bool) {
+	if requestID == "" {
+		return jsonRPCResponse{}, false
+	}
+	for _, resp := range batch {
+		if rawIDString(resp.ID) == requestID {
+			return resp, true
+		}
+	}
+	return jsonRPCResponse{}, false
+}
+
+func applyRPCError(resp jsonRPCResponse, result *request.JSONRPC) {
 	if resp.Error != nil {
 		result.ErrorCode = resp.Error.Code
 		result.ErrorMessage = resp.Error.Message

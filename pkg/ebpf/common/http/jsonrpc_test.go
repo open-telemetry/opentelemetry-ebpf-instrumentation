@@ -117,6 +117,24 @@ func TestJSONRPCSpan_BatchRequest(t *testing.T) {
 	assert.Equal(t, "1", result.JSONRPC.RequestID)
 }
 
+func TestJSONRPCSpan_BatchErrorResponse(t *testing.T) {
+	reqBody := `[
+		{"jsonrpc":"2.0","method":"tools/list","id":1},
+		{"jsonrpc":"2.0","method":"tools/call","id":2}
+	]`
+	respBody := `[
+		{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"},"id":1},
+		{"jsonrpc":"2.0","result":{},"id":2}
+	]`
+
+	span := request.Span{}
+	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", reqBody), newJSONRPCResponse(respBody))
+	require.True(t, ok)
+	assert.Equal(t, "tools/list", result.JSONRPC.Method)
+	assert.Equal(t, -32601, result.JSONRPC.ErrorCode)
+	assert.Equal(t, "Method not found", result.JSONRPC.ErrorMessage)
+}
+
 func TestJSONRPCSpan_ErrorResponse(t *testing.T) {
 	reqBody := `{"jsonrpc":"2.0","method":"tools/call","id":1}`
 	respBody := `{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"},"id":1}`
