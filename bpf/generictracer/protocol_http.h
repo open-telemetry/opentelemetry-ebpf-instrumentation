@@ -34,7 +34,6 @@
 #include <maps/ongoing_http.h>
 #include <maps/tp_info_mem.h>
 #include <maps/tp_char_buf_mem.h>
-#include <sys/cdefs.h>
 
 volatile const u32 high_request_volume;
 
