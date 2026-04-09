@@ -68,17 +68,16 @@ func testPythonJSONRPCServer(t *testing.T) {
 		require.GreaterOrEqual(ct, len(lastTrace.Spans), 1)
 		span := lastTrace.Spans[0]
 
-		// Validate rpc.method
+		assert.Equal(ct, "tools/list", span.OperationName)
+
 		tag, found := jaeger.FindIn(span.Tags, "rpc.method")
 		assert.True(ct, found, "rpc.method tag not found")
 		assert.Equal(ct, "tools/list", tag.Value)
 
-		// Validate jsonrpc.protocol.version
 		tag, found = jaeger.FindIn(span.Tags, "jsonrpc.protocol.version")
 		assert.True(ct, found, "jsonrpc.protocol.version tag not found")
 		assert.Equal(ct, "2.0", tag.Value)
 
-		// Validate jsonrpc.request.id is present
 		tag, found = jaeger.FindIn(span.Tags, "jsonrpc.request.id")
 		assert.True(ct, found, "jsonrpc.request.id tag not found")
 		assert.Equal(ct, "1", tag.Value)

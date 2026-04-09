@@ -987,6 +987,13 @@ func (s *Span) TraceName() string {
 			}
 		}
 
+		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
+			if s.JSONRPC.Method != "" {
+				return s.JSONRPC.Method
+			}
+			return "jsonrpc"
+		}
+
 		name := s.Method
 		if s.Route != "" {
 			name += " " + s.Route

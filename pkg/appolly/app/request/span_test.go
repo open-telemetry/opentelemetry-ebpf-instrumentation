@@ -168,6 +168,11 @@ func TestTraceName(t *testing.T) {
 		{name: "MQTT server", span: &Span{Type: EventTypeMQTTServer, Method: MessagingProcess, Path: "home/lights"}, expected: "process home/lights"},
 		{name: "MQTT no topic", span: &Span{Type: EventTypeMQTTClient, Method: MessagingPublish}, expected: "publish"},
 
+		// JSON-RPC spans
+		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},
+		{name: "JSON-RPC no method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Version: "2.0"}}, expected: "jsonrpc"},
+		{name: "JSON-RPC client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "getUser", Version: "2.0"}}, expected: "getUser"},
+
 		// Other spans
 		{name: "Mongo client", span: &Span{Type: EventTypeMongoClient, Method: "find", Path: "users"}, expected: "find users"},
 		{name: "Failed connect", span: &Span{Type: EventTypeFailedConnect}, expected: "CONNECT"},
