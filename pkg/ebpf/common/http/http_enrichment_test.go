@@ -765,7 +765,7 @@ func TestBodyExtraction_MergeMultipleRules(t *testing.T) {
 				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
 					ObfuscationJSONPaths: []config.JSONPathExpr{jp("$.ssn")},
-					RoutePatterns:        []services.GlobAttr{services.NewGlob("/api/users*")},
+					URLPathPatterns:      []services.GlobAttr{services.NewGlob("/api/users*")},
 				},
 			},
 		},
@@ -799,7 +799,7 @@ func TestBodyExtraction_RouteFiltering(t *testing.T) {
 				Type:   config.HTTPParsingRuleTypeBody,
 				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
-					RoutePatterns: []services.GlobAttr{services.NewGlob("/api/v1/*")},
+					URLPathPatterns: []services.GlobAttr{services.NewGlob("/api/v1/*")},
 				},
 			},
 		},
@@ -932,7 +932,7 @@ func TestBodyExtraction_ExcludeRuleOnRoute(t *testing.T) {
 				Type:   config.HTTPParsingRuleTypeBody,
 				Scope:  config.HTTPParsingScopeAll,
 				Match: config.HTTPParsingMatch{
-					RoutePatterns: []services.GlobAttr{services.NewGlob("/health")},
+					URLPathPatterns: []services.GlobAttr{services.NewGlob("/health")},
 				},
 			},
 		},

@@ -25,7 +25,6 @@ ebpf:
           default_action:
             headers: exclude
             body: exclude
-          match_order: first_match_wins
           obfuscation_string: "***"
         rules:
           - action: obfuscate

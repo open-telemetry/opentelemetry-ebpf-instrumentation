@@ -835,16 +835,16 @@
           "type": "array",
           "description": "Patterns is a list of glob patterns to match header names against (headers only)"
         },
-        "route_patterns": {
+        "url_path_patterns": {
           "items": {
             "$ref": "#/$defs/GlobAttr"
           },
           "type": "array",
-          "description": "RoutePatterns is a list of glob patterns to match the request path against (shared)"
+          "description": "URLPathPatterns is a list of glob patterns to match the request path against (shared)"
         }
       },
       "type": "object",
-      "description": "HTTPParsingMatch defines matching criteria for an HTTP parsing rule. Header rules use Patterns and CaseSensitive. Body rules use ObfuscationJSONPaths. RoutePatterns and Methods are shared across both types."
+      "description": "HTTPParsingMatch defines matching criteria for an HTTP parsing rule. Header rules use Patterns and CaseSensitive. Body rules use ObfuscationJSONPaths. URLPathPatterns and Methods are shared across both types."
     },
     "HTTPParsingPolicy": {
       "properties": {

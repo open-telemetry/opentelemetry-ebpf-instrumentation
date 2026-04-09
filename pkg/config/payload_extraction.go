@@ -253,7 +253,7 @@ func (j *JSONPathExpr) String() string {
 
 // HTTPParsingMatch defines matching criteria for an HTTP parsing rule.
 // Header rules use Patterns and CaseSensitive. Body rules use ObfuscationJSONPaths.
-// RoutePatterns and Methods are shared across both types.
+// URLPathPatterns and Methods are shared across both types.
 type HTTPParsingMatch struct {
 	// Patterns is a list of glob patterns to match header names against (headers only)
 	Patterns []services.GlobAttr `yaml:"patterns"`
@@ -261,8 +261,8 @@ type HTTPParsingMatch struct {
 	CaseSensitive bool `yaml:"case_sensitive"`
 	// ObfuscationJSONPaths is a list of JSONPath expressions for fields to obfuscate (body only)
 	ObfuscationJSONPaths []JSONPathExpr `yaml:"obfuscation_json_paths"`
-	// RoutePatterns is a list of glob patterns to match the request path against (shared)
-	RoutePatterns []services.GlobAttr `yaml:"route_patterns"`
+	// URLPathPatterns is a list of glob patterns to match the request path against (shared)
+	URLPathPatterns []services.GlobAttr `yaml:"url_path_patterns"`
 	// Methods is a list of HTTP methods this rule applies to (shared). Empty means all methods.
 	Methods []HTTPMethod `yaml:"methods"`
 }
@@ -274,7 +274,7 @@ func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 		Patterns             []string     `yaml:"patterns"`
 		CaseSensitive        bool         `yaml:"case_sensitive"`
 		ObfuscationJSONPaths []string     `yaml:"obfuscation_json_paths"`
-		RoutePatterns        []string     `yaml:"route_patterns"`
+		URLPathPatterns      []string     `yaml:"url_path_patterns"`
 		Methods              []HTTPMethod `yaml:"methods"`
 	}
 	if err := value.Decode(&raw); err != nil {
@@ -295,9 +295,9 @@ func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	// Compile route patterns
-	m.RoutePatterns = make([]services.GlobAttr, 0, len(raw.RoutePatterns))
-	for _, pattern := range raw.RoutePatterns {
-		m.RoutePatterns = append(m.RoutePatterns, services.NewGlob(pattern))
+	m.URLPathPatterns = make([]services.GlobAttr, 0, len(raw.URLPathPatterns))
+	for _, pattern := range raw.URLPathPatterns {
+		m.URLPathPatterns = append(m.URLPathPatterns, services.NewGlob(pattern))
 	}
 
 	// Compile JSONPath expressions
@@ -434,11 +434,6 @@ func (m *HTTPMethod) UnmarshalText(text []byte) error {
 func (HTTPMethod) JSONSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type: "string",
-		Enum: []any{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"},
+		Enum: []any{HTTPMethodGET, HTTPMethodPOST, HTTPMethodPUT, HTTPMethodDELETE, HTTPMethodPATCH, HTTPMethodHEAD, HTTPMethodOPTIONS},
 	}
-}
-
-// Matches returns true if the method matches the given string (case-insensitive).
-func (m HTTPMethod) Matches(method string) bool {
-	return strings.EqualFold(string(m), method)
 }

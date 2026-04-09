@@ -44,12 +44,12 @@ ebpf:
               obfuscation_json_paths:
                 - "$.password"
                 - "$.secret"
-          # Exclude body on smoke endpoint
+          # Exclude body on /smoke endpoint
           - action: exclude
             type: body
             scope: all
             match:
-              route_patterns:
+              url_path_patterns:
                 - "/smoke"
           # Include body on specific route without obfuscation
           - action: include
@@ -57,5 +57,5 @@ ebpf:
             scope: request
             match:
               methods: ["POST"]
-              route_patterns:
+              url_path_patterns:
                 - "/rolldice/*"

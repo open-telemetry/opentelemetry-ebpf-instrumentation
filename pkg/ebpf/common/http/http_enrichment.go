@@ -56,10 +56,8 @@ func (e *HTTPEnricher) Enrich(
 	reqHeaders := e.processHeaders(req.Header, config.HTTPParsingScopeRequest, baseSpan)
 	respHeaders := e.processHeaders(resp.Header, config.HTTPParsingScopeResponse, baseSpan)
 
-	reqBody := e.processBody(req.Header, req.Body, func(body io.ReadCloser) { req.Body = body },
-		config.HTTPParsingScopeRequest, baseSpan)
-	respBody := e.processBody(resp.Header, resp.Body, func(body io.ReadCloser) { resp.Body = body },
-		config.HTTPParsingScopeResponse, baseSpan)
+	reqBody := e.processBody(req.Header, readRequestBody(req), config.HTTPParsingScopeRequest, baseSpan)
+	respBody := e.processBody(resp.Header, readResponseBody(resp), config.HTTPParsingScopeResponse, baseSpan)
 
 	hasContent := len(reqHeaders) > 0 || len(respHeaders) > 0 || reqBody != "" || respBody != ""
 	if !hasContent {
@@ -131,20 +129,41 @@ func (e *HTTPEnricher) resolveHeaderAction(
 	return e.policy.DefaultAction.Headers
 }
 
+// readRequestBody returns a function that reads and resets the request body.
+func readRequestBody(req *http.Request) func() ([]byte, error) {
+	return func() ([]byte, error) {
+		if req.Body == nil {
+			return nil, nil
+		}
+		bodyBytes, err := io.ReadAll(req.Body)
+		_ = req.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		return bodyBytes, nil
+	}
+}
+
+// readResponseBody returns a function that reads, decompresses, and resets the response body.
+func readResponseBody(resp *http.Response) func() ([]byte, error) {
+	return func() ([]byte, error) {
+		if resp.Body == nil {
+			return nil, nil
+		}
+		return getResponseBody(resp)
+	}
+}
+
 // processBody evaluates body rules and returns the body content string (possibly obfuscated).
 // All matching body rules are merged (unlike headers which use first-match-wins).
 // Rule precedence: exclude > obfuscate > include. If any matching rule excludes, the body is excluded.
 func (e *HTTPEnricher) processBody(
 	headers http.Header,
-	body io.ReadCloser,
-	resetBody func(io.ReadCloser),
+	readBody func() ([]byte, error),
 	scope config.HTTPParsingScope,
 	span *request.Span,
 ) string {
-	if body == nil {
-		return ""
-	}
-
 	if !isJSONContentType(headers.Get("Content-Type")) {
 		return ""
 	}
@@ -190,13 +209,11 @@ func (e *HTTPEnricher) processBody(
 		return ""
 	}
 
-	// Read and re-wrap body
-	bodyBytes, err := io.ReadAll(body)
-	_ = body.Close()
+	// Read body (handles decompression for responses)
+	bodyBytes, err := readBody()
 	if err != nil || len(bodyBytes) == 0 {
 		return ""
 	}
-	resetBody(io.NopCloser(bytes.NewBuffer(bodyBytes)))
 
 	if effectiveAction == config.HTTPParsingActionInclude {
 		if !json.Valid(bodyBytes) {
@@ -224,7 +241,7 @@ func (e *HTTPEnricher) processBody(
 // ruleApplies returns true if the rule matches the given scope, path, and method.
 func ruleApplies(rule config.HTTPParsingRule, scope config.HTTPParsingScope, span *request.Span) bool {
 	return scopeApplies(rule.Scope, scope) &&
-		routeMatches(rule.Match.RoutePatterns, span.Path) &&
+		urlPathMatches(rule.Match.URLPathPatterns, span.Path) &&
 		methodMatches(rule.Match.Methods, span.Method)
 }
 
@@ -263,14 +280,14 @@ func isJSONContentType(contentType string) bool {
 	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }
 
-// routeMatches returns true if the request path matches any of the route patterns.
-// If no patterns are specified, all routes match.
-func routeMatches(routePatterns []services.GlobAttr, path string) bool {
-	if len(routePatterns) == 0 {
+// urlPathMatches returns true if the request path matches any of the URL path patterns.
+// If no patterns are specified, all paths match.
+func urlPathMatches(patterns []services.GlobAttr, path string) bool {
+	if len(patterns) == 0 {
 		return true
 	}
-	for i := range routePatterns {
-		if routePatterns[i].MatchString(path) {
+	for i := range patterns {
+		if patterns[i].MatchString(path) {
 			return true
 		}
 	}
@@ -283,8 +300,9 @@ func methodMatches(methods []config.HTTPMethod, method string) bool {
 	if len(methods) == 0 {
 		return true
 	}
+	upper := config.HTTPMethod(strings.ToUpper(method))
 	for _, m := range methods {
-		if m.Matches(method) {
+		if m == upper {
 			return true
 		}
 	}
