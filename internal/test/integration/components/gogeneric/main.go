@@ -66,8 +66,9 @@ func main() {
 
 func newKafkaClient(brokers string) *kgo.Client {
 	for {
+		b := strings.Split(brokers, ",")
 		client, err := kgo.NewClient(
-			kgo.SeedBrokers(brokers),
+			kgo.SeedBrokers(b...),
 			kgo.ConsumeTopics("my-topic"), // only needed for the consumer
 			kgo.DefaultProduceTopic("my-topic"),
 		)

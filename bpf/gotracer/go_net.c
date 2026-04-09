@@ -15,7 +15,6 @@
 
 //go:build obi_bpf_ignore
 
-#include "pid/pid_helpers.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
@@ -29,6 +28,7 @@
 #include <gotracer/go_common.h>
 #include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/mongo.h>
+#include <gotracer/maps/ongoing_fd_reads.h>
 
 #include <generictracer/k_tracer_defs.h>
 
@@ -36,30 +36,23 @@
 
 #include <maps/outgoing_trace_map.h>
 #include <maps/ongoing_tcp_req.h>
+#include <maps/ongoing_http2_connections.h>
+
+#include <gotracer/types/net_args.h>
+
+#include <pid/pid_helpers.h>
 
 #include <shared/obi_ctx.h>
 
-typedef struct net_args {
-    u64 byte_ptr;
-    pid_connection_info_t p_conn;
-} net_args_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, go_addr_key_t); // goroutine
-    __type(value, net_args_t);
-    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} ongoing_fd_reads SEC(".maps");
-
 static __always_inline bool already_handled_request(const connection_info_t *conn,
                                                     const go_addr_key_t *goaddr) {
-    egress_key_t e_key = make_egress_key(conn);
-    go_addr_key_t *g = bpf_map_lookup_elem(&handled_by_go_conn, &e_key);
-    if (g) {
+    connection_info_t sorted_conn = *conn;
+    sort_connection_info(&sorted_conn);
+    bool *found = bpf_map_lookup_elem(&handled_by_go_conn, &sorted_conn);
+    if (found) {
         return true;
     }
-    bool *found = bpf_map_lookup_elem(&handled_by_go, goaddr);
+    found = bpf_map_lookup_elem(&handled_by_go, goaddr);
     if (found) {
         return true;
     }
@@ -69,8 +62,11 @@ static __always_inline bool already_handled_request(const connection_info_t *con
 
 static __always_inline void
 cleanup_duplicate_generic_events(const pid_connection_info_t *pid_conn) {
-    bpf_map_delete_elem(&ongoing_http, pid_conn);
-    bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
+    pid_connection_info_t sorted_conn = *pid_conn;
+    sort_connection_info(&sorted_conn.conn);
+    bpf_map_delete_elem(&ongoing_http, &sorted_conn);
+    bpf_map_delete_elem(&ongoing_tcp_req, &sorted_conn);
+    bpf_map_delete_elem(&ongoing_http2_connections, &sorted_conn);
 }
 
 static __always_inline void
@@ -88,6 +84,18 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    void *fd_ptr = GO_PARAM1(ctx);
+    void *byte_addr = GO_PARAM2(ctx);
+    net_args_t net_args = {
+        .byte_ptr = (u64)byte_addr,
+    };
+    get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn, false);
+    net_args.p_conn.pid = pid_from_pid_tgid(id);
+
+    dbg_print_http_connection_info(&net_args.p_conn.conn);
 
     // lookup a grpc connection
     // Sets up the connection info to be grabbed and mapped over the transport to operateHeaders
@@ -149,15 +157,17 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
         return 0;
     }
 
-    const u64 id = bpf_get_current_pid_tgid();
+    // const u64 id = bpf_get_current_pid_tgid();
 
-    void *fd_ptr = GO_PARAM1(ctx);
-    void *byte_addr = GO_PARAM2(ctx);
-    net_args_t net_args = {
-        .byte_ptr = (u64)byte_addr,
-    };
-    get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn, false);
-    net_args.p_conn.pid = pid_from_pid_tgid(id);
+    // void *fd_ptr = GO_PARAM1(ctx);
+    // void *byte_addr = GO_PARAM2(ctx);
+    // net_args_t net_args = {
+    //     .byte_ptr = (u64)byte_addr,
+    // };
+    // get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn, false);
+    // net_args.p_conn.pid = pid_from_pid_tgid(id);
+
+    // dbg_print_http_connection_info(&net_args.p_conn.conn);
 
     if (already_handled_request(&net_args.p_conn.conn, &g_key)) {
         cleanup_duplicate_generic_events(&net_args.p_conn);
@@ -187,13 +197,15 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
     u64 len = (u64)GO_PARAM1(ctx);
     bpf_dbg_printk("buf=%llx, len=%d === ", buf, len);
     if (buf && len > 0) {
-        //dbg_print_http_connection_info(&net_ptr->p_conn.conn);
+        dbg_print_http_connection_info(&net_ptr->p_conn.conn);
 
         u16 orig_dport = net_ptr->p_conn.conn.d_port;
         sort_connection_info(&net_ptr->p_conn.conn);
 
-        //dbg_print_http_connection_info(&net_ptr->p_conn.conn);
+        dbg_print_http_connection_info(&net_ptr->p_conn.conn);
 
+        bpf_map_delete_elem(&ongoing_fd_reads, &g_key);
+        // doesn't return
         handle_light_weight_thread_buf(ctx,
                                        (lw_thread_t)goroutine_addr,
                                        (protocol_selector_t){.http = 1, .http2 = 0, .tcp = 1},
@@ -231,7 +243,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
         go_addr_key_from_id(&g_key, goroutine_addr);
         p_conn.pid = pid_from_pid_tgid(id);
 
-        //dbg_print_http_connection_info(&p_conn.conn);
+        dbg_print_http_connection_info(&p_conn.conn);
 
         if (already_handled_request(&p_conn.conn, &g_key)) {
             cleanup_duplicate_generic_events(&p_conn);
@@ -241,6 +253,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
         u16 orig_dport = p_conn.conn.d_port;
         sort_connection_info(&p_conn.conn);
 
+        // doesn't return
         handle_light_weight_thread_buf(ctx,
                                        (lw_thread_t)goroutine_addr,
                                        (protocol_selector_t){.http = 1, .http2 = 0, .tcp = 1},

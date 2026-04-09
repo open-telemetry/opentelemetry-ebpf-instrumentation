@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "common/lw_thread.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
@@ -11,6 +10,7 @@
 #include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/large_buffers.h>
+#include <common/lw_thread.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
@@ -241,7 +241,8 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             req->end_monotime_ns = 0;
             req->resp_len = 0;
             req->len = bytes_len;
-            req->no_pid_filter = (lw_thread != lw_thread_none); // generic events generated from Go
+            req->no_pid_filter =
+                (lw_thread != k_lw_thread_none); // generic events generated from Go
             req->req_len = original_bytes_len;
             req->extra_id = extra_runtime_id();
             req->protocol_type = protocol_type;

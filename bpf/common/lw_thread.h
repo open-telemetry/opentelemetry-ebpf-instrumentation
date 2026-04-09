@@ -7,4 +7,4 @@
 
 typedef u64 lw_thread_t;
 
-enum : lw_thread_t { lw_thread_none = 0 };
+enum : lw_thread_t { k_lw_thread_none = 0 };

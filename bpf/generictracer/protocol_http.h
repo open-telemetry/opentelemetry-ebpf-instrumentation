@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "common/lw_thread.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
@@ -15,6 +14,7 @@
 #include <common/event_defs.h>
 #include <common/http_types.h>
 #include <common/large_buffers.h>
+#include <common/lw_thread.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
 #include <common/trace_helpers.h>
@@ -439,7 +439,7 @@ static __always_inline void process_http_request(http_info_t *info,
     info->status = 0;
     info->submitted = 0;
     info->len = len;
-    info->no_pid_filter = (lw_thread != lw_thread_none); // generic events generated from Go
+    info->no_pid_filter = (lw_thread != k_lw_thread_none); // generic events generated from Go
     info->extra_id = extra_runtime_id(); // required for deleting the trace information
     info->task_tid = get_task_tid();     // required for deleting the trace information
 }
@@ -470,7 +470,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     cleanup_http_request_data(pid_conn, info);
 
     // Generic Go events cannot be delayed for now since we don't probe on net_close
-    if (high_request_volume || (lw_thread != lw_thread_none)) {
+    if (high_request_volume || (lw_thread != k_lw_thread_none)) {
         finish_http(info, pid_conn);
     } else {
         bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);

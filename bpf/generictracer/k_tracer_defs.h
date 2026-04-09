@@ -58,7 +58,7 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
     args->protocols = protocols;
     args->protocol_type = protocol_type_for_conn_info(info);
 
-    __builtin_memcpy(&args->pid_conn, info, sizeof(pid_connection_info_t));
+    args->pid_conn = *info;
     bpf_probe_read(args->small_buf, MIN_HTTP2_SIZE, (void *)args->u_buf);
 
     return args;
@@ -72,7 +72,7 @@ static __always_inline void handle_buf_with_connection(void *ctx,
                                                        u8 direction,
                                                        u16 orig_dport) {
     call_protocol_args_t *args = make_protocol_args(pid_conn,
-                                                    lw_thread_none,
+                                                    k_lw_thread_none,
                                                     k_protocol_selector_all,
                                                     u_buf,
                                                     bytes_len,
