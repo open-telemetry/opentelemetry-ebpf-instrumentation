@@ -80,7 +80,7 @@ OBI currently documents the following protocol-level instrumentation support:
 OBI supports two different compatibility categories for application observability:
 
 - Network-level protocol instrumentation, which is language-agnostic.
-- Library-level instrumentation for selected runtimes and libraries.
+- Runtime, server, library, and statistical instrumentation for selected environments and features.
 
 ### Runtime And Server Baselines
 
@@ -117,6 +117,14 @@ OBI currently documents the following Go library compatibility baselines:
 | `github.com/segmentio/kafka-go` | `>= v0.4.11` |
 | `github.com/IBM/sarama` | `>= 1.37` |
 | `go.mongodb.org/mongo-driver` | `v1: >= v1.10.1; v2: >= v2.0.1` |
+
+### Statistical Metrics
+
+OBI currently documents the following statistical instrumentation support:
+
+| Metric | Scope | Notes |
+|:-------|:------|:------|
+| TCP RTT | Node-wide statistical metric collection | Calculated from the kernel TCP `srtt_us` field |
 
 ## Context Propagation Frameworks
 
