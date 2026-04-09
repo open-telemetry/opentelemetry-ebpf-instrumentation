@@ -129,6 +129,7 @@ func TestBasicPipeline(t *testing.T) {
 			string(attr.ClientAddr):             "1.1.1.1",
 			string(semconv.ServiceNameKey):      "foo-svc",
 			string(semconv.ServiceNamespaceKey): "ns",
+			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
 			string(attr.ServerAddr):             event.Attributes["server.address"],
 		},
@@ -343,6 +344,7 @@ func TestRouteConsolidation(t *testing.T) {
 			string(attr.HTTPRequestMethod):      "GET",
 			string(attr.HTTPResponseStatusCode): "200",
 			string(semconv.HTTPRouteKey):        "/user/{id}",
+			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
 			string(attr.ServerAddr):             events["/user/{id}"].Attributes["server.address"],
 		},
@@ -370,6 +372,7 @@ func TestRouteConsolidation(t *testing.T) {
 			string(attr.HTTPRequestMethod):      "GET",
 			string(attr.HTTPResponseStatusCode): "200",
 			string(semconv.HTTPRouteKey):        "/products/{id}/push",
+			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
 			string(attr.ServerAddr):             events["/products/{id}/push"].Attributes["server.address"],
 		},
@@ -397,6 +400,7 @@ func TestRouteConsolidation(t *testing.T) {
 			string(attr.HTTPRequestMethod):      "GET",
 			string(attr.HTTPResponseStatusCode): "200",
 			string(semconv.HTTPRouteKey):        "/**",
+			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
 			string(attr.ServerAddr):             events["/**"].Attributes["server.address"],
 		},
@@ -570,6 +574,7 @@ func TestBasicPipelineInfo(t *testing.T) {
 			string(attr.ClientAddr):             "1.1.1.1",
 			string(semconv.ServiceNameKey):      "comm",
 			string(semconv.ServiceNamespaceKey): "",
+			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
 			string(attr.ServerAddr):             event.Attributes["server.address"],
 		},
@@ -672,6 +677,7 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 			string(attr.HTTPRequestMethod):      "GET",
 			string(attr.HTTPResponseStatusCode): "201",
 			string(attr.HTTPUrlPath):            "/user/1234",
+			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
 			string(attr.ServerAddr):             events["/user/1234"]["server.address"],
 		},
@@ -682,6 +688,7 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 			string(attr.HTTPRequestMethod):      "GET",
 			string(attr.HTTPResponseStatusCode): "203",
 			string(attr.HTTPUrlPath):            "/user/4321",
+			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
 			string(attr.ServerAddr):             events["/user/1234"]["server.address"],
 		},
@@ -704,6 +711,7 @@ func newRequest(serviceName string, path string, status int) []request.Span {
 		RequestStart: 1,
 		End:          3,
 		Service:      svc.Attrs{Features: export.FeatureApplicationRED, HostName: "the-host", UID: svc.UID{Namespace: "ns", Name: serviceName}, SDKLanguage: svc.InstrumentableGolang},
+		Statement:    "http;1.1.1.1",
 	}}
 }
 
@@ -764,6 +772,7 @@ func matchTraceEvent(t require.TestingT, name string, event collector.TraceRecor
 			string(attr.ServerPort):             "8080",
 			string(attr.HTTPRequestBodySize):    "0",
 			string(attr.HTTPResponseBodySize):   "0",
+			string(attr.HTTPURLScheme):          "http",
 			"span_id":                           event.Attributes["span_id"],
 			"parent_span_id":                    event.Attributes["parent_span_id"],
 		},
@@ -895,6 +904,7 @@ func newHTTPInfo(method, path, peer string, status int) []request.Span {
 		RequestStart: 2,
 		End:          3,
 		Service:      svc.Attrs{Features: export.FeatureApplicationRED, HostName: "the-host", UID: svc.UID{Name: "comm"}, SDKLanguage: svc.InstrumentableGolang},
+		Statement:    "http;1.1.1.1",
 	}}
 }
 
@@ -915,6 +925,7 @@ func matchInfoEvent(t *testing.T, name string, event collector.TraceRecord) {
 			string(attr.ServerPort):             "8080",
 			string(attr.HTTPRequestBodySize):    "0",
 			string(attr.HTTPResponseBodySize):   "0",
+			string(attr.HTTPURLScheme):          "http",
 			"span_id":                           event.Attributes["span_id"],
 			"parent_span_id":                    "",
 		},
