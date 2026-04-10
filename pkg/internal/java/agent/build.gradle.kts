@@ -2,10 +2,10 @@ import org.cyclonedx.model.Component
 
 plugins {
     java
-    id("com.gradleup.shadow") version "9.3.2"
-    id("com.github.jk1.dependency-license-report") version "3.1.1"
+    id("com.gradleup.shadow") version "9.4.1"
+    id("com.github.jk1.dependency-license-report") version "3.1.2"
     id("me.champeau.jmh") version "0.7.3"
-    id("org.cyclonedx.bom") version "3.2.2"
+    id("org.cyclonedx.bom") version "3.2.4"
     id("com.diffplug.spotless")
 }
 
@@ -43,8 +43,8 @@ repositories {
 }
 
 dependencies {
-    implementation("net.bytebuddy:byte-buddy:1.18.7")
-    implementation("net.bytebuddy:byte-buddy-agent:1.18.7")
+    implementation("net.bytebuddy:byte-buddy:1.18.8-jdk5")
+    implementation("net.bytebuddy:byte-buddy-agent:1.18.8-jdk5")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.14.3")
     testImplementation("org.junit.platform:junit-platform-launcher:1.14.3")
