@@ -22,6 +22,8 @@ import (
 )
 
 func TestMultiProcess(t *testing.T) {
+	require.Fail(t, "forcing test to fail")
+
 	compose, err := docker.ComposeSuite("docker-compose-multiexec.yml", path.Join(pathOutput, "test-suite-multiexec.log"))
 	require.NoError(t, err)
 
