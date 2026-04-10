@@ -259,6 +259,11 @@ static __always_inline tp_info_pid_t *find_go_parent_trace(const lw_thread_t lw_
 
         tp_info_t *p_inv = bpf_map_lookup_elem(&go_trace_map, &p_key);
         if (p_inv) {
+            // Using backup scratch memory to avoid upstream users of the
+            // trace parent info to use tp_info_mem and get the same pointer.
+            // Typically this is not a problem because for other languages we
+            // pull map info, but Go tracer doesn't store the full tp_info_pid_t,
+            // only the pidless tp_info_t.
             tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_backup_mem();
             if (!tp_p) {
                 return NULL;
@@ -268,6 +273,7 @@ static __always_inline tp_info_pid_t *find_go_parent_trace(const lw_thread_t lw_
             tp_p->valid = 1;
             tp_p->written = 0;
             tp_p->pid = pid;
+            // if we found it in the go_trace_map, it's always a server request
             tp_p->req_type = EVENT_HTTP_REQUEST;
 
             return tp_p;
