@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
 # CI Supervisor: evaluate failed workflow runs and rerun flaky failures.
 # Called by .github/workflows/supervisor_rerun-flaky.yml
 #
