@@ -5,9 +5,13 @@
 
 #include <bpfcore/utils.h>
 
+#include <common/event_defs.h>
+#include <common/lw_thread.h>
 #include <common/python_task.h>
 #include <common/runtime.h>
 #include <common/trace_helpers.h>
+
+#include <gotracer/go_common.h>
 
 #include <maps/clone_map.h>
 #include <maps/cp_support_connect_info.h>
@@ -19,6 +23,7 @@
 #include <maps/puma_tasks.h>
 #include <maps/python_thread_state.h>
 #include <maps/server_traces.h>
+#include <maps/tp_info_mem.h>
 
 static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
     task_tid(&t_key->p_key);
@@ -242,8 +247,39 @@ static __always_inline tp_info_pid_t *find_parent_java_trace(trace_key_t *t_key)
     return NULL;
 }
 
+static __always_inline tp_info_pid_t *find_go_parent_trace(const lw_thread_t lw_thread,
+                                                           const u32 pid) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id_and_pid(&g_key, (void *)lw_thread, pid);
+
+    u64 parent_id = find_parent_goroutine(&g_key);
+    if (parent_id) {
+        go_addr_key_t p_key = {};
+        go_addr_key_from_id_and_pid(&p_key, (void *)parent_id, pid);
+
+        tp_info_t *p_inv = bpf_map_lookup_elem(&go_trace_map, &p_key);
+        if (p_inv) {
+            tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_backup_mem();
+            if (!tp_p) {
+                return NULL;
+            }
+
+            tp_p->tp = *p_inv;
+            tp_p->valid = 1;
+            tp_p->written = 0;
+            tp_p->pid = pid;
+            tp_p->req_type = EVENT_HTTP_REQUEST;
+
+            return tp_p;
+        }
+    }
+
+    return NULL;
+}
+
 static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_info_t *p_conn,
                                                         u64 pid_tgid,
+                                                        lw_thread_t lw_thread,
                                                         trace_key_t *t_key,
                                                         u16 orig_dport) {
     tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
@@ -256,6 +292,15 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
                    t_key->p_key.pid,
                    t_key->p_key.ns,
                    t_key->extra_id);
+
+    if (lw_thread != k_lw_thread_none) {
+        bpf_dbg_printk(
+            "Looking up parent trace for pid=%d, lw_thread=%llx", t_key->p_key.pid, lw_thread);
+        tp_info_pid_t *go_parent = find_go_parent_trace(lw_thread, t_key->p_key.pid);
+        if (go_parent) {
+            return go_parent;
+        }
+    }
 
     tp_info_pid_t *python_parent = find_python_parent_trace(t_key, pid_tgid);
     if (python_parent) {
@@ -299,8 +344,9 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
                                          u16 orig_dport,
                                          trace_key_t *t_key,
                                          u64 pid_tgid,
+                                         lw_thread_t lw_thread,
                                          tp_info_t *tp) {
-    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, t_key, orig_dport);
+    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, lw_thread, t_key, orig_dport);
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");
@@ -323,13 +369,15 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 
 static __always_inline u8 find_trace_for_client_request(const pid_connection_info_t *p_conn,
                                                         u16 orig_dport,
+                                                        lw_thread_t lw_thread,
                                                         tp_info_t *tp) {
 
     trace_key_t t_key = {0};
     trace_key_from_pid_tid(&t_key);
     const u64 pid_tgid = bpf_get_current_pid_tgid();
 
-    return find_trace_for_client_request_with_t_key(p_conn, orig_dport, &t_key, pid_tgid, tp);
+    return find_trace_for_client_request_with_t_key(
+        p_conn, orig_dport, &t_key, pid_tgid, lw_thread, tp);
 }
 
 static __always_inline u8
@@ -337,8 +385,9 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
                                                 u16 orig_dport,
                                                 trace_key_t *t_key,
                                                 u64 pid_tgid,
+                                                lw_thread_t lw_thread,
                                                 tp_info_t *tp) {
-    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, t_key, orig_dport);
+    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, lw_thread, t_key, orig_dport);
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");
@@ -360,6 +409,7 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
 
 static __always_inline u8 find_parent_trace_for_client_request(const pid_connection_info_t *p_conn,
                                                                u16 orig_dport,
+                                                               lw_thread_t lw_thread,
                                                                tp_info_t *tp) {
 
     trace_key_t t_key = {0};
@@ -367,5 +417,5 @@ static __always_inline u8 find_parent_trace_for_client_request(const pid_connect
     const u64 pid_tgid = bpf_get_current_pid_tgid();
 
     return find_parent_trace_for_client_request_with_t_key(
-        p_conn, orig_dport, &t_key, pid_tgid, tp);
+        p_conn, orig_dport, &t_key, pid_tgid, lw_thread, tp);
 }

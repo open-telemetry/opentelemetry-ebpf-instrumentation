@@ -61,6 +61,7 @@ static __always_inline void
 http_get_or_create_trace_info(http_connection_metadata_t *meta,
                               u32 pid,
                               connection_info_t *conn,
+                              lw_thread_t lw_thread,
                               void *u_buf,
                               int bytes_len,
                               u8 ssl,
@@ -109,7 +110,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         if (meta->type == EVENT_HTTP_CLIENT) {
             pid_connection_info_t p_conn = {.pid = pid};
             __builtin_memcpy(&p_conn.conn, conn, sizeof(connection_info_t));
-            found_tp = find_trace_for_client_request(&p_conn, orig_dport, &tp_p->tp);
+            found_tp = find_trace_for_client_request(&p_conn, orig_dport, lw_thread, &tp_p->tp);
         } else {
             //bpf_dbg_printk("Looking up existing trace for connection");
             //dbg_print_http_connection_info(conn);
@@ -154,7 +155,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
             if (meta) {
                 const u32 type = trace_type_from_meta(meta);
                 set_trace_info_for_connection(conn, type, tp_p);
-                server_or_client_trace(meta->type, conn, tp_p, ssl, orig_dport);
+                server_or_client_trace(meta->type, conn, lw_thread, tp_p, ssl, orig_dport);
             }
             return;
         }
@@ -203,7 +204,7 @@ http_get_or_create_trace_info(http_connection_metadata_t *meta,
         // sock_msg program has already punched a hole in the HTTP headers and has made
         // the HTTP header invalid. We need to add more smarts there or pull the
         // sock msg information here and mark it so that we don't override the span_id.
-        server_or_client_trace(meta->type, conn, tp_p, ssl, orig_dport);
+        server_or_client_trace(meta->type, conn, lw_thread, tp_p, ssl, orig_dport);
     }
 }
 
@@ -598,6 +599,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     http_get_or_create_trace_info(meta,
                                   args->pid_conn.pid,
                                   &args->pid_conn.conn,
+                                  args->lw_thread,
                                   (void *)args->u_buf,
                                   args->bytes_len,
                                   args->ssl,

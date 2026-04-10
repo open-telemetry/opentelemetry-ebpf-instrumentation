@@ -134,12 +134,17 @@ typedef struct grpc_header_field {
     u64 sensitive;
 } grpc_header_field_t;
 
+static __always_inline void
+go_addr_key_from_id_and_pid(go_addr_key_t *current, void *addr, const u32 pid) {
+    current->addr = (u64)addr;
+    current->pid = pid;
+}
+
 static __always_inline void go_addr_key_from_id(go_addr_key_t *current, void *addr) {
     const u64 pid_tid = bpf_get_current_pid_tgid();
     const u32 pid = pid_from_pid_tgid(pid_tid);
 
-    current->addr = (u64)addr;
-    current->pid = pid;
+    go_addr_key_from_id_and_pid(current, addr, pid);
 }
 
 static __always_inline u64 find_parent_goroutine(go_addr_key_t *current) {
@@ -170,7 +175,9 @@ static __always_inline u64 find_parent_goroutine(go_addr_key_t *current) {
         }
 
         attempts++;
-    } while (attempts < 3); // Up to 3 levels of goroutine nesting allowed
+        // We loop far back because some clients, e.g. Kafka Franz-Go really nest the
+        // client calls.
+    } while (attempts < 6); // Up to 6 levels of goroutine nesting allowed
 
     return 0;
 }
