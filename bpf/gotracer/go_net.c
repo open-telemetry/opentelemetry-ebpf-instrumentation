@@ -290,6 +290,8 @@ int obi_uprobe_netFdClose(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    remove_go_handled_goroutine(&g_key);
+
     void *fd_ptr = GO_PARAM1(ctx);
 
     if (!fd_ptr) {
@@ -307,7 +309,6 @@ int obi_uprobe_netFdClose(struct pt_regs *ctx) {
     dbg_print_http_connection_info(&conn);
 
     remove_go_handled_connection(&conn);
-    remove_go_handled_goroutine(&g_key);
 
     return 0;
 }

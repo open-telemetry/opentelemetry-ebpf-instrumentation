@@ -47,5 +47,5 @@ static __always_inline void remove_go_handled_goroutine(const go_addr_key_t *goa
 }
 
 static __always_inline void remove_go_handled_connection(connection_info_t *sorted_conn) {
-    bpf_map_delete_elem(&handled_by_go_conn, &sorted_conn);
+    bpf_map_delete_elem(&handled_by_go_conn, sorted_conn);
 }
