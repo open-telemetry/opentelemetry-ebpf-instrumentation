@@ -49,7 +49,13 @@ CILIUM_EBPF_VER ?= v0.20.0
 CILIUM_EBPF_PKG := github.com/cilium/ebpf
 
 # regular expressions for excluded file patterns
-EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/obi/internal/test/)|(/obi/configs/)|(.pb.go)|(/pkg/export/otel/metric/)"
+EXCLUDE_COVERAGE_FILES := "(_bpfel.go)|(.pb.go)|$\
+(/cmd/generate-port-lookup/)|$\
+(/cmd/obi-schema/)|$\
+(/obi/configs/)|$\
+(/obi/examples/)|$\
+(/obi/internal/test/)|$\
+(/pkg/export/otel/metric/)"
 
 .DEFAULT_GOAL := all
 
