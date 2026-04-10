@@ -17,15 +17,20 @@ MAX_ATTEMPTS=2
 
 # --- Resolve the associated PR ---
 RUN_DATA=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}" \
-  --jq '{pr: .pull_requests[0].number, sha: .head_sha}')
+  --jq '{pr: .pull_requests[0].number, head_branch: .head_branch, head_owner: .head_repository.owner.login}')
 PR_NUMBER=$(echo "$RUN_DATA" | jq -r '.pr // empty')
-HEAD_SHA=$(echo "$RUN_DATA" | jq -r '.sha // empty')
 
-# Fallback for fork PRs: pull_requests array is often empty
-if [ -z "$PR_NUMBER" ] && [ -n "$HEAD_SHA" ]; then
-  echo "pull_requests empty — falling back to commits/${HEAD_SHA}/pulls lookup"
-  PR_NUMBER=$(gh api "repos/${REPO}/commits/${HEAD_SHA}/pulls" \
-    --jq '[.[] | select(.state == "open")] | .[0].number // empty' || true)
+# Fallback for fork PRs: pull_requests array is often empty.
+# The commits/{sha}/pulls endpoint doesn't work for fork commits (the SHA
+# doesn't exist in the base repo). Instead, query by head={owner}:{branch}.
+if [ -z "$PR_NUMBER" ]; then
+  HEAD_BRANCH=$(echo "$RUN_DATA" | jq -r '.head_branch // empty')
+  HEAD_OWNER=$(echo "$RUN_DATA" | jq -r '.head_owner // empty')
+  if [ -n "$HEAD_OWNER" ] && [ -n "$HEAD_BRANCH" ]; then
+    echo "pull_requests empty — falling back to pulls?head=${HEAD_OWNER}:${HEAD_BRANCH} lookup"
+    PR_NUMBER=$(gh api "repos/${REPO}/pulls?state=open&head=${HEAD_OWNER}:${HEAD_BRANCH}&per_page=1" \
+      --jq '.[0].number // empty' || true)
+  fi
 fi
 
 if [ -z "$PR_NUMBER" ]; then
