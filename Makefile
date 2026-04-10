@@ -49,7 +49,7 @@ CILIUM_EBPF_VER ?= v0.20.0
 CILIUM_EBPF_PKG := github.com/cilium/ebpf
 
 # regular expressions for excluded file patterns
-EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/internal/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)"
+EXCLUDE_COVERAGE_FILES="(_bpfel.go)|(/obi/internal/test/)|(/obi/configs/)|(.pb.go)|(/pkg/export/otel/metric/)"
 
 .DEFAULT_GOAL := all
 
@@ -505,7 +505,7 @@ run-unit-test-shard: $(GOTESTSUM) $(ENVTEST)
 	$(GOTESTSUM) \
 		--jsonfile=$(TEST_OUTPUT)/unit-test-shard-$(SHARD_ID).log \
 		-- -short -race -a -coverpkg=./... \
-		-coverprofile $(TEST_OUTPUT)/cover-shard-$(SHARD_ID).all.txt \
+		-coverprofile $(TEST_OUTPUT)/cover.all.txt \
 		$(UNIT_TEST_PACKAGES)
 
 .PHONY: integration-test-matrix-json
@@ -551,7 +551,7 @@ itest-coverage-data:
 	go tool covdata merge -i=$(TEST_OUTPUT) -o $(TEST_OUTPUT)/merge
 	go tool covdata textfmt -i=$(TEST_OUTPUT)/merge -o $(TEST_OUTPUT)/itest-covdata.raw.txt
 	# replace the unexpected /src/cmd/obi/main.go file by the module path
-	sed 's/^\/src\/cmd\//github.com\/open-telemetry\/opentelemetry-ebpf-instrumentation\/cmd\//' $(TEST_OUTPUT)/itest-covdata.raw.txt > $(TEST_OUTPUT)/itest-covdata.all.txt
+	sed 's/^\/src\/cmd\//go.opentelemetry.io\/obi\/cmd\//' $(TEST_OUTPUT)/itest-covdata.raw.txt > $(TEST_OUTPUT)/itest-covdata.all.txt
 	# exclude generated files from coverage data
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt || true
 
