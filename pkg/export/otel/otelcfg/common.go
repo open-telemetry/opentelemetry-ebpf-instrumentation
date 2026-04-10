@@ -246,12 +246,13 @@ func NewReporterPool[K uidGetter, T any](
 	clock expire.Clock,
 	callback simplelru.EvictCallback[svc.UID, T],
 	itemConstructor func(id K) (T, error),
-) (ReporterPool[K, T], error) {
+) ReporterPool[K, T] {
 	pool, err := simplelru.NewLRU[svc.UID, *expirable[T]](cacheLen, func(key svc.UID, value *expirable[T]) {
 		callback(key, value.value)
 	})
 	if err != nil {
-		return ReporterPool[K, T]{}, fmt.Errorf("create reporter pool: %w", err)
+		// should never happen: bug!
+		panic(err)
 	}
 	return ReporterPool[K, T]{
 		pool:            pool,
@@ -259,7 +260,7 @@ func NewReporterPool[K uidGetter, T any](
 		ttl:             ttl,
 		clock:           clock,
 		lastExpiration:  clock(),
-	}, nil
+	}
 }
 
 var emptyUID = svc.UID{}

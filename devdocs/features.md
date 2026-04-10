@@ -64,12 +64,6 @@ Large payloads are streamed to userspace across multiple ring-buffer events and 
 
 Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres}`.
 
-## Startup And Shutdown Behavior
-
-OBI prefers explicit error returns during startup and controlled shutdown over abrupt process termination.
-Initialization failures should be propagated to the caller so cleanup, exporter flushing, and other deferred shutdown
-logic can still run when applicable.
-
 ## GPU Instrumentation
 
 Specifically for instrumenting GPU execution primitives, like NVIDIA CUDA kernel launches and memory copies. This
