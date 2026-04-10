@@ -146,19 +146,14 @@ jobs:
         env:
           MATRIX_ID: ${{ matrix.id }}
           MATRIX_PACKAGES: ${{ matrix.packages }}
-        run: make run-unit-test-shard SHARD_ID="${MATRIX_ID}" UNIT_TEST_PACKAGES="${MATRIX_PACKAGES}"
-
-      - name: Exclude generated files from coverage
-        run: grep -vE "(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/internal/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)" testoutput/cover-shard-"${MATRIX_ID}".all.txt > testoutput/cover-shard-"${MATRIX_ID}".txt
-        env:
-          MATRIX_ID: ${{ matrix.id }}
+        run: make run-unit-test-shard cov-exclude-generated SHARD_ID="${MATRIX_ID}" UNIT_TEST_PACKAGES="${MATRIX_PACKAGES}"
 
       - name: Report coverage
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
-          files: ./testoutput/cover-shard-${{ matrix.id }}.txt
+          files: ./testoutput/cover.txt
           flags: unittests
           name: go-unittests-coverage-shard-${{ matrix.id }}-${{ github.run_number }}
 

@@ -513,14 +513,14 @@
         },
         "policy": {
           "$ref": "#/$defs/HTTPParsingPolicy",
-          "description": "Policy controls the default behavior and matching strategy"
+          "description": "Policy controls the default behavior"
         },
         "rules": {
           "items": {
             "$ref": "#/$defs/HTTPParsingRule"
           },
           "type": "array",
-          "description": "Rules is an ordered list of include/exclude/obfuscate rules. Rules are evaluated according to Policy.MatchOrder."
+          "description": "Rules is an ordered list of include/exclude/obfuscate rules."
         }
       },
       "type": "object",
@@ -776,6 +776,18 @@
       },
       "type": "object"
     },
+    "HTTPMethod": {
+      "type": "string",
+      "enum": [
+        "DELETE",
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "PATCH",
+        "POST",
+        "PUT"
+      ]
+    },
     "HTTPParsingAction": {
       "type": "string",
       "enum": [
@@ -784,40 +796,61 @@
         "obfuscate"
       ]
     },
+    "HTTPParsingDefaultAction": {
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/HTTPParsingAction"
+        },
+        "headers": {
+          "$ref": "#/$defs/HTTPParsingAction"
+        }
+      },
+      "type": "object",
+      "description": "HTTPParsingDefaultAction specifies the default action per rule type."
+    },
     "HTTPParsingMatch": {
       "properties": {
         "case_sensitive": {
           "type": "boolean",
-          "description": "CaseSensitive controls whether matching is case-sensitive."
+          "description": "CaseSensitive controls whether header matching is case-sensitive (headers only)"
+        },
+        "methods": {
+          "items": {
+            "$ref": "#/$defs/HTTPMethod"
+          },
+          "type": "array",
+          "description": "Methods is a list of HTTP methods this rule applies to (shared). Empty means all methods."
+        },
+        "obfuscation_json_paths": {
+          "items": {
+            "$ref": "#/$defs/JSONPathExpr"
+          },
+          "type": "array",
+          "description": "ObfuscationJSONPaths is a list of JSONPath expressions for fields to obfuscate (body only)"
         },
         "patterns": {
           "items": {
             "$ref": "#/$defs/GlobAttr"
           },
           "type": "array",
-          "description": "Patterns is a list of glob patterns to match the rule against"
+          "description": "Patterns is a list of glob patterns to match header names against (headers only)"
+        },
+        "url_path_patterns": {
+          "items": {
+            "$ref": "#/$defs/GlobAttr"
+          },
+          "type": "array",
+          "description": "URLPathPatterns is a list of glob patterns to match the request path against (shared)"
         }
       },
       "type": "object",
-      "description": "HTTPParsingMatch defines matching criteria for an HTTP parsing rule."
-    },
-    "HTTPParsingMatchOrder": {
-      "type": "string",
-      "enum": [
-        "first_match_wins"
-      ]
+      "description": "HTTPParsingMatch defines matching criteria for an HTTP parsing rule. Header rules use Patterns and CaseSensitive. Body rules use ObfuscationJSONPaths. URLPathPatterns and Methods are shared across both types."
     },
     "HTTPParsingPolicy": {
       "properties": {
         "default_action": {
-          "$ref": "#/$defs/HTTPParsingAction",
-          "description": "DefaultAction specifies what to do when no rule matches: \"include\" or \"exclude\"",
-          "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_DEFAULT_ACTION"
-        },
-        "match_order": {
-          "$ref": "#/$defs/HTTPParsingMatchOrder",
-          "description": "MatchOrder controls how rules are evaluated: \"first_match_wins\"",
-          "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_MATCH_ORDER"
+          "$ref": "#/$defs/HTTPParsingDefaultAction",
+          "description": "DefaultAction specifies what to do when no rule matches, per type."
         },
         "obfuscation_string": {
           "type": "string",
@@ -826,7 +859,7 @@
         }
       },
       "type": "object",
-      "description": "HTTPParsingPolicy defines the default action and match strategy for http enrichment rules."
+      "description": "HTTPParsingPolicy defines the default action for http enrichment rules."
     },
     "HTTPParsingRule": {
       "properties": {
@@ -844,7 +877,7 @@
         },
         "type": {
           "$ref": "#/$defs/HTTPParsingRuleType",
-          "description": "Type specifies what this rule matches against: \"headers\""
+          "description": "Type specifies what this rule matches against: \"headers\" or \"body\""
         }
       },
       "type": "object",
@@ -853,6 +886,7 @@
     "HTTPParsingRuleType": {
       "type": "string",
       "enum": [
+        "body",
         "headers"
       ]
     },
@@ -969,6 +1003,15 @@
       },
       "type": "object",
       "description": "InternalMetricsConfig options for the different metrics exporters"
+    },
+    "JSONPathExpr": {
+      "type": "string",
+      "description": "A JSONPath expression string.",
+      "examples": [
+        "$.password",
+        "$.user.name",
+        "$.items[0].id"
+      ]
     },
     "JavaConfig": {
       "properties": {

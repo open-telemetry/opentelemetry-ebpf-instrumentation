@@ -22,6 +22,7 @@
 
 #include <gotracer/go_common.h>
 
+#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/kafka.h>
 
 #include <gotracer/types/kafka.h>
@@ -47,6 +48,8 @@ int obi_uprobe_writer_write_messages(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     bpf_map_update_elem(&produce_traceparents, &p_key, &tp, BPF_ANY);
     bpf_map_update_elem(&produce_traceparents_by_goroutine, &g_key, &tp, BPF_ANY);
 
@@ -62,6 +65,8 @@ int obi_uprobe_writer_produce(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%llx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     void *w_ptr = (void *)GO_PARAM1(ctx);
     void *topic_ptr = (void *)GO_PARAM2(ctx);
@@ -113,6 +118,8 @@ int obi_uprobe_client_roundTrip(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     topic_t *topic_ptr = bpf_map_lookup_elem(&ongoing_produce_topics, &g_key);
 
     if (topic_ptr) {
@@ -143,6 +150,8 @@ int obi_uprobe_protocol_roundtrip(struct pt_regs *ctx) {
         "goroutine_addr=%lx, rw_ptr=%llx, msg_ptr=%llx", goroutine_addr, rw_ptr, msg_ptr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     if (rw_ptr) {
         go_addr_key_t m_key = {};
@@ -233,6 +242,8 @@ int obi_uprobe_reader_read(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     if (r_ptr) {
         kafka_go_req_t r = {
             .type = EVENT_GO_KAFKA_SEG,
@@ -276,6 +287,8 @@ int obi_uprobe_reader_send_message(struct pt_regs *ctx) {
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     kafka_go_req_t *req_ptr = (kafka_go_req_t *)bpf_map_lookup_elem(&fetch_requests, &g_key);
     bpf_dbg_printk("Found req_ptr: %llx", req_ptr);

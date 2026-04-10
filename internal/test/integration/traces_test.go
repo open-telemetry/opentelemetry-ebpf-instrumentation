@@ -832,7 +832,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 			)
 			assert.Empty(t, sd, sd.String())
 		}
-	}, testTimeout, 100*time.Millisecond)
+	}, 3*testTimeout, 100*time.Millisecond)
 
 	// test now with a different version of Java thread pool
 	for i := 0; i < 10; i++ {

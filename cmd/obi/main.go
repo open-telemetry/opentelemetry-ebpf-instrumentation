@@ -15,7 +15,6 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
@@ -96,11 +95,7 @@ func main() {
 		slog.Error("OpenTelemetry eBPF Instrumentation ran with errors", "error", err)
 		os.Exit(-1)
 	}
-
-	if gc := os.Getenv("GOCOVERDIR"); gc != "" {
-		slog.Info("Waiting 1s to collect coverage data...")
-		time.Sleep(time.Second)
-	}
+	slog.Info("OpenTelemetry eBPF Instrumentation successfully exiting")
 }
 
 func loadConfig(configPath *string) *obi.Config {

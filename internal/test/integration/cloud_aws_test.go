@@ -40,6 +40,7 @@ func TestCloudResourceMetadata_AWS(t *testing.T) {
 			// Configure AWS SDK to use custom endpoint for EC2 metadata
 			"AWS_EC2_METADATA_SERVICE_ENDPOINT=http://mock-imds:80",
 		},
+		Logs: createLogOutput(t, "cloud-meta-aws"),
 	}
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
