@@ -106,14 +106,11 @@ $(TOOLS)/setup-envtest: PACKAGE=sigs.k8s.io/controller-runtime/tools/setup-envte
 KIND ?= $(TOOLS)/kind
 $(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
 
-GOLICENSES = $(TOOLS)/go-licenses
-$(TOOLS)/go-licenses: PACKAGE=github.com/google/go-licenses/v2
-
 MULTIMOD = $(TOOLS)/multimod
 $(TOOLS)/multimod: PACKAGE=go.opentelemetry.io/build-tools/multimod
 
 .PHONY: tools
-tools: $(BPF2GO) $(GO_OFFSETS_TRACKER) $(ENVTEST) $(KIND) $(GOLICENSES)
+tools: $(BPF2GO) $(GO_OFFSETS_TRACKER) $(ENVTEST) $(KIND)
 
 ### Development Tools (end) #################################################
 
@@ -717,8 +714,8 @@ java-notices-update:
 	@cp pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.csv $(NOTICES_DIR)/java/agent/
 
 .PHONY: go-notices-update
-go-notices-update: $(GOLICENSES)
-	@GOOS=$(GOOS) GOARCH=amd64 $(GOLICENSES) save ./... --save_path=$(NOTICES_DIR) --force
+go-notices-update:
+	@GOOS=$(GOOS) GOARCH=amd64 go tool $(TOOLS_MODFILE) go-licenses save ./... --save_path=$(NOTICES_DIR) --force
 
 PYTHON_REQUIREMENTS_INS ?= $(shell find ./internal/test/integration/components -type f -name 'requirements.in' | sort)
 PYTHON_REQUIREMENTS_DIRS := $(sort $(dir $(PYTHON_REQUIREMENTS_INS)))
