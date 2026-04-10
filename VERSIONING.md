@@ -4,8 +4,6 @@ This document defines the versioning and stability policy for OpenTelemetry eBPF
 
 OBI follows [Semantic Versioning 2.0.0](https://semver.org/) and Go semantic import versioning.
 
-The current documented environment and artifact support matrix lives in [SUPPORT_MATRIX.md](./SUPPORT_MATRIX.md).
-
 ## Current status
 
 OBI is currently in Development.
