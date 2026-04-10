@@ -165,7 +165,11 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
     net_args_t net_args = {
         .byte_ptr = (u64)byte_addr,
     };
-    get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn, false);
+
+    if (!get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn, false)) {
+        return 0;
+    }
+
     net_args.p_conn.pid = pid_from_pid_tgid(id);
 
     dbg_print_http_connection_info(&net_args.p_conn.conn);
