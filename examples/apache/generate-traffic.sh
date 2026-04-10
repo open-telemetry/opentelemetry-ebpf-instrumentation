@@ -315,7 +315,8 @@ run_continuous() {
 
 main() {
   parse_args "$@"
-  trap cleanup EXIT INT TERM
+  trap 'cleanup' EXIT
+  trap 'log_info "received interrupt, shutting down"; exit 0' INT TERM
 
   if (( ONE_SHOT == 1 )); then
     run_one_shot

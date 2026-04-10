@@ -12,12 +12,7 @@ find_apache_bin() {
     return 0
   fi
 
-  if command -v apache2 >/dev/null 2>&1; then
-    printf '%s\n' "$(command -v apache2)"
-    return 0
-  fi
-
-  printf 'could not find an Apache binary; expected `httpd` or `apache2`\n' >&2
+  printf 'could not find `httpd`; install Apache HTTP Server and ensure `httpd` is on PATH\n' >&2
   return 1
 }
 

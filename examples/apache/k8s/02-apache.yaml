@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: httpd
-          image: httpd:2.4.65-alpine
+          image: httpd:2.4.65-alpine@sha256:07b2fabb7029a0b8aeb2e0fd02651c28fe22c21c5b5a59d6ff5b022791fcd89e
           ports:
             - containerPort: 8080
           readinessProbe:
@@ -93,7 +93,7 @@ spec:
     spec:
       containers:
         - name: httpd
-          image: httpd:2.4.65-alpine
+          image: httpd:2.4.65-alpine@sha256:07b2fabb7029a0b8aeb2e0fd02651c28fe22c21c5b5a59d6ff5b022791fcd89e
           ports:
             - containerPort: 8081
           readinessProbe:
@@ -158,7 +158,7 @@ spec:
     spec:
       containers:
         - name: httpd
-          image: httpd:2.4.65-alpine
+          image: httpd:2.4.65-alpine@sha256:07b2fabb7029a0b8aeb2e0fd02651c28fe22c21c5b5a59d6ff5b022791fcd89e
           ports:
             - containerPort: 8082
           readinessProbe:
@@ -213,7 +213,7 @@ spec:
     spec:
       initContainers:
         - name: wait-for-apache
-          image: curlimages/curl:8.13.0
+          image: curlimages/curl:8.13.0@sha256:d43bdb28bae0be0998f3be83199bfb2b81e0a30b034b6d7586ce7e05de34c3fd
           command:
             - sh
             - -ec

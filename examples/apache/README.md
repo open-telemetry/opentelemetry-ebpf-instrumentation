@@ -33,7 +33,7 @@ That gives us these flows:
 - single proxy hop: client -> `edge-apache` -> `recommendations-v1`
 - chained proxy hop: client -> `edge-apache` -> `recommendations-v2` -> `recommendations-v1`
 
-The Apache route logic lives in shared vhost files under [`examples/apache/shared`](./shared). Docker Compose, Kubernetes, and the dedicated-host flow each use thin wrapper configs that only define local ports, upstream names, and mount paths.
+The Apache route logic lives in shared vhost files under [`examples/apache/shared`](./shared). Docker Compose and the dedicated-host flow use those files directly. The Kubernetes manifests use mirrored copies under [`examples/apache/k8s/shared`](./k8s/shared) so the config stays within the kustomize tree while preserving the same route behavior.
 
 ## Routes To Exercise
 
@@ -164,7 +164,7 @@ The manifests also start a dedicated `traffic-generator` pod automatically, so t
 
 This mode is meant for an EC2 instance or a local Linux machine where Apache and OBI run directly on the host.
 
-1. Install Apache HTTP Server, `obi`, and a recent Docker engine.
+1. Install Apache HTTP Server with `httpd` available on `PATH`, `obi`, and a recent Docker engine.
 2. Make sure `obi` runs with sufficient privileges to attach to Apache processes. The example commands below use `sudo`.
 3. Start the three host Apache instances:
 
