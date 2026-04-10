@@ -27,6 +27,7 @@ jobs:
       github.event.workflow_run.conclusion == 'timed_out'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       actions: write
       pull-requests: write
     timeout-minutes: 5
