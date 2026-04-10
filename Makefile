@@ -103,9 +103,6 @@ $(TOOLS)/setup-envtest: PACKAGE=sigs.k8s.io/controller-runtime/tools/setup-envte
 KIND ?= $(TOOLS)/kind
 $(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
 
-MULTIMOD = $(TOOLS)/multimod
-$(TOOLS)/multimod: PACKAGE=go.opentelemetry.io/build-tools/multimod
-
 .PHONY: tools
 tools: $(BPF2GO) $(ENVTEST) $(KIND)
 
@@ -798,19 +795,19 @@ check-go-mod: go-mod-tidy
 	fi
 
 .PHONY: verify-mods
-verify-mods: $(MULTIMOD)
-	$(MULTIMOD) verify
+verify-mods:
+	go tool $(TOOLS_MODFILE) multimod verify
 
 .PHONY: prerelease
 prerelease: verify-mods
 	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
-	$(MULTIMOD) prerelease -m ${MODSET}
+	go tool $(TOOLS_MODFILE) multimod prerelease -m ${MODSET}
 
 COMMIT ?= "HEAD"
 .PHONY: add-tags
 add-tags: verify-mods
 	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
-	$(MULTIMOD) tag -m ${MODSET} -c ${COMMIT}
+	go tool $(TOOLS_MODFILE) multimod tag -m ${MODSET} -c ${COMMIT}
 
 .PHONY: check-ebpf-ver-synced
 check-ebpf-ver-synced:

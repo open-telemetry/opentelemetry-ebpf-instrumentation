@@ -4,7 +4,6 @@ go 1.25.8
 
 require (
 	github.com/cilium/ebpf v0.21.0
-	go.opentelemetry.io/build-tools/multimod v0.29.0
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260331052815-773c064a8064
 	sigs.k8s.io/kind v0.31.0
 )
@@ -235,6 +234,7 @@ require (
 	go.augendre.info/fatcontext v0.9.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/build-tools v0.29.0 // indirect
+	go.opentelemetry.io/build-tools/multimod v0.29.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
@@ -265,5 +265,6 @@ tool (
 	github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker
 	github.com/jcchavezs/porto/cmd/porto
 	github.com/onsi/ginkgo/v2/ginkgo
+	go.opentelemetry.io/build-tools/multimod
 	gotest.tools/gotestsum
 )
