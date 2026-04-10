@@ -20,6 +20,7 @@
 #include <gotracer/go_common.h>
 
 #include <gotracer/maps/grpc.h>
+#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/kafka.h>
 #include <gotracer/maps/mongo.h>
 #include <gotracer/maps/nethttp.h>
@@ -101,6 +102,23 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
 
 done:
     bpf_map_delete_elem(&newproc1, &c_key);
+
+    return 0;
+}
+
+SEC("uprobe/runtime_goexit1")
+int obi_uprobe_proc_goexit1(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/proc goexit1 === ");
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
+
+    u64 pid_tid = bpf_get_current_pid_tgid();
+    u32 pid = pid_from_pid_tgid(pid_tid);
+
+    go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
+
+    remove_go_handled_goroutine(&g_key);
 
     return 0;
 }
@@ -237,6 +255,8 @@ int obi_uprobe_runtime_casgstatus(struct pt_regs *ctx) {
     // sql
     sql_func_invocation_t *sql;
 
+    obi_ctx_info_t obi_info = {};
+
     const u32 newval = (u32)(uintptr_t)GO_PARAM3(ctx);
     switch (newval) {
     case g_running:
@@ -244,42 +264,42 @@ int obi_uprobe_runtime_casgstatus(struct pt_regs *ctx) {
         // grpc
         grpc_server_inv = bpf_map_lookup_elem(&ongoing_grpc_server_requests, &g_key);
         if (grpc_server_inv) {
-            obi_ctx__set(g_pid_tgid, &grpc_server_inv->tp);
+            obi_ctx__set_(g_pid_tgid, &grpc_server_inv->tp, &obi_info);
             return 0;
         }
         grpc_client_inv = bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
         if (grpc_client_inv) {
-            obi_ctx__set(g_pid_tgid, &grpc_client_inv->tp);
+            obi_ctx__set_(g_pid_tgid, &grpc_client_inv->tp, &obi_info);
             return 0;
         }
         // http
         http_server_inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
         if (http_server_inv) {
-            obi_ctx__set(g_pid_tgid, &http_server_inv->tp);
+            obi_ctx__set_(g_pid_tgid, &http_server_inv->tp, &obi_info);
             return 0;
         }
         // kafka_go
         kafka_go_tp = bpf_map_lookup_elem(&produce_traceparents_by_goroutine, &g_key);
         if (kafka_go_tp) {
-            obi_ctx__set(g_pid_tgid, kafka_go_tp);
+            obi_ctx__set_(g_pid_tgid, kafka_go_tp, &obi_info);
             return 0;
         }
         // mongo
         mongo = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
         if (mongo) {
-            obi_ctx__set(g_pid_tgid, &mongo->tp);
+            obi_ctx__set_(g_pid_tgid, &mongo->tp, &obi_info);
             return 0;
         }
         // redis
         redis = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
         if (redis) {
-            obi_ctx__set(g_pid_tgid, &redis->tp);
+            obi_ctx__set_(g_pid_tgid, &redis->tp, &obi_info);
             return 0;
         }
         // sql
         sql = bpf_map_lookup_elem(&ongoing_sql_queries, &g_key);
         if (sql) {
-            obi_ctx__set(g_pid_tgid, &sql->tp);
+            obi_ctx__set_(g_pid_tgid, &sql->tp, &obi_info);
             return 0;
         }
 

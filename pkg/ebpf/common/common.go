@@ -84,6 +84,11 @@ const (
 	ProtocolTypeMQTT // placeholder for future kernel-space detection
 )
 
+const (
+	GenericEventSourceTypeKProbes  uint8 = 0
+	GenericEventSourceTypeLWThread uint8 = 1
+)
+
 var IntegrityModeOverride = false
 
 // ProbeDesc holds the information of the instrumentation points of a given

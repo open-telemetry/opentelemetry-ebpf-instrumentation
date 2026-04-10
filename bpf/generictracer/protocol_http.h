@@ -14,6 +14,7 @@
 #include <common/event_defs.h>
 #include <common/http_types.h>
 #include <common/large_buffers.h>
+#include <common/lw_thread.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
 #include <common/trace_helpers.h>
@@ -388,8 +389,12 @@ static __always_inline void terminate_http_request_if_needed(pid_connection_info
     cleanup_http_request_data(pid_conn, info);
 }
 
-static __always_inline void process_http_request(
-    http_info_t *info, int len, http_connection_metadata_t *meta, int direction, u16 orig_dport) {
+static __always_inline void process_http_request(http_info_t *info,
+                                                 int len,
+                                                 http_connection_metadata_t *meta,
+                                                 int direction,
+                                                 u16 orig_dport,
+                                                 lw_thread_t lw_thread) {
     // Set pid and type early as best effort in case the request times out or dies.
     if (meta) {
         info->pid = meta->pid;
@@ -434,8 +439,9 @@ static __always_inline void process_http_request(
     info->status = 0;
     info->submitted = 0;
     info->len = len;
-    info->extra_id = extra_runtime_id(); // required for deleting the trace information
-    info->task_tid = get_task_tid();     // required for deleting the trace information
+    info->event_source = event_source(lw_thread); // generic events generated from Go
+    info->extra_id = extra_runtime_id();          // required for deleting the trace information
+    info->task_tid = get_task_tid();              // required for deleting the trace information
 }
 
 static __always_inline void process_http_response(http_info_t *info, const unsigned char *buf) {
@@ -458,11 +464,13 @@ static __always_inline void process_http_response(http_info_t *info, const unsig
 static __always_inline void handle_http_response(unsigned char *small_buf,
                                                  pid_connection_info_t *pid_conn,
                                                  http_info_t *info,
-                                                 int orig_len) {
+                                                 int orig_len,
+                                                 lw_thread_t lw_thread) {
     process_http_response(info, small_buf);
     cleanup_http_request_data(pid_conn, info);
 
-    if (high_request_volume) {
+    // Generic Go events cannot be delayed for now since we don't probe on net_close
+    if (high_request_volume || (lw_thread != k_lw_thread_none)) {
         finish_http(info, pid_conn);
     } else {
         bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);
@@ -554,7 +562,8 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
     // we copy some small part of the buffer to the info trace event, so that we can process an event even with
     // incomplete trace info in user space.
     bpf_probe_read(info->buf, FULL_BUF_SIZE, (void *)args->u_buf);
-    process_http_request(info, args->bytes_len, meta, args->direction, args->orig_dport);
+    process_http_request(
+        info, args->bytes_len, meta, args->direction, args->orig_dport, args->lw_thread);
 
     return 0;
 }
@@ -679,7 +688,8 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
                                args->packet_type,
                                args->direction,
                                k_large_buf_action_init);
-        handle_http_response(args->small_buf, &args->pid_conn, info, args->bytes_len);
+        handle_http_response(
+            args->small_buf, &args->pid_conn, info, args->bytes_len, args->lw_thread);
     } else if (still_reading(info)) {
         // print here
         http_send_large_buffer(info,

@@ -8,6 +8,7 @@
 
 #include <common/connection_info.h>
 #include <common/http_types.h>
+#include <common/lw_thread.h>
 #include <common/protocol_http.h>
 
 #include <generictracer/k_tracer_tailcall.h>
@@ -36,6 +37,8 @@ protocol_type_for_conn_info(const pid_connection_info_t *info) {
 }
 
 static __always_inline call_protocol_args_t *make_protocol_args(const pid_connection_info_t *info,
+                                                                const lw_thread_t lw_thread,
+                                                                const protocol_selector_t protocols,
                                                                 void *u_buf,
                                                                 int bytes_len,
                                                                 u8 ssl,
@@ -51,7 +54,12 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
     args->direction = direction;
     args->orig_dport = orig_dport;
     args->u_buf = (u64)u_buf;
+    args->lw_thread = lw_thread;
+    args->protocols = protocols;
     args->protocol_type = protocol_type_for_conn_info(info);
+
+    args->pid_conn = *info;
+    bpf_probe_read(args->small_buf, MIN_HTTP2_SIZE, (void *)args->u_buf);
 
     return args;
 }
@@ -63,14 +71,36 @@ static __always_inline void handle_buf_with_connection(void *ctx,
                                                        u8 ssl,
                                                        u8 direction,
                                                        u16 orig_dport) {
-    call_protocol_args_t *args =
-        make_protocol_args(pid_conn, u_buf, bytes_len, ssl, direction, orig_dport);
+    call_protocol_args_t *args = make_protocol_args(pid_conn,
+                                                    k_lw_thread_none,
+                                                    k_protocol_selector_all,
+                                                    u_buf,
+                                                    bytes_len,
+                                                    ssl,
+                                                    direction,
+                                                    orig_dport);
     if (!args) {
         return;
     }
 
-    __builtin_memcpy(&args->pid_conn, pid_conn, sizeof(pid_connection_info_t));
-    bpf_probe_read(args->small_buf, MIN_HTTP2_SIZE, (void *)args->u_buf);
+    bpf_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);
+}
+
+static __always_inline void handle_light_weight_thread_buf(void *ctx,
+                                                           const lw_thread_t lw_thread,
+                                                           protocol_selector_t protocols,
+                                                           pid_connection_info_t *pid_conn,
+                                                           void *u_buf,
+                                                           int bytes_len,
+                                                           u8 ssl,
+                                                           u8 direction,
+                                                           u16 orig_dport) {
+    call_protocol_args_t *args = make_protocol_args(
+        pid_conn, lw_thread, protocols, u_buf, bytes_len, ssl, direction, orig_dport);
+    if (!args) {
+        return;
+    }
+
     bpf_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);
 }
 
