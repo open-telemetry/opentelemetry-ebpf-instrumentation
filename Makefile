@@ -81,7 +81,7 @@ __check_defined = \
 
 # Tools module where tool versions are defined.
 TOOLS_MOD_DIR := ./internal/tools
-TOOLS_MODFILE := -modfile=./internal/tools/go.mod
+TOOLS_MODFILE := -modfile=$(CURDIR)/internal/tools/go.mod
 
 # Tools directory for built tool binaries.
 TOOLS = $(CURDIR)/.tools
@@ -98,9 +98,6 @@ $(TOOLS)/bpf2go: PACKAGE=github.com/cilium/ebpf/cmd/bpf2go
 GO_OFFSETS_TRACKER ?= $(TOOLS)/go-offsets-tracker
 $(TOOLS)/go-offsets-tracker: PACKAGE=github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker
 
-GINKGO ?= $(TOOLS)/ginkgo
-$(TOOLS)/ginkgo: PACKAGE=github.com/onsi/ginkgo/v2/ginkgo
-
 # Required for k8s-cache unit tests
 ENVTEST_K8S_VERSION ?= 1.30.0
 ENVTEST ?= $(TOOLS)/setup-envtest
@@ -116,7 +113,7 @@ MULTIMOD = $(TOOLS)/multimod
 $(TOOLS)/multimod: PACKAGE=go.opentelemetry.io/build-tools/multimod
 
 .PHONY: tools
-tools: $(BPF2GO) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES)
+tools: $(BPF2GO) $(GO_OFFSETS_TRACKER) $(ENVTEST) $(KIND) $(GOLICENSES)
 
 ### Development Tools (end) #################################################
 
@@ -547,43 +544,43 @@ itest-coverage-data:
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt || true
 
 .PHONY: oats-prereq
-oats-prereq: $(GINKGO) docker-generate
+oats-prereq: docker-generate
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: oats-test-sql
 oats-test-sql: oats-prereq
 	mkdir -p internal/test/oats/sql/$(TEST_OUTPUT)/run
-	cd internal/test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-redis
 oats-test-redis: oats-prereq
 	mkdir -p internal/test/oats/redis/$(TEST_OUTPUT)/run
-	cd internal/test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-kafka
 oats-test-kafka: oats-prereq
 	mkdir -p internal/test/oats/kafka/$(TEST_OUTPUT)/run
-	cd internal/test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-http
 oats-test-http: oats-prereq
 	mkdir -p internal/test/oats/http/$(TEST_OUTPUT)/run
-	cd internal/test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-mongo
 oats-test-mongo: oats-prereq
 	mkdir -p internal/test/oats/mongo/$(TEST_OUTPUT)/run
-	cd internal/test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-memcached
 oats-test-memcached: oats-prereq
 	mkdir -p internal/test/oats/memcached/$(TEST_OUTPUT)/run
-	cd internal/test/oats/memcached && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/memcached && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-ai
 oats-test-ai: oats-prereq
 	mkdir -p internal/test/oats/ai/$(TEST_OUTPUT)/run
-	cd internal/test/oats/ai && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/ai && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test
 oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai
@@ -591,7 +588,7 @@ oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-te
 
 .PHONY: oats-test-debug
 oats-test-debug: oats-prereq
-	cd internal/test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h $(GINKGO) -v -r
+	cd internal/test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: license-header-check
 license-header-check:

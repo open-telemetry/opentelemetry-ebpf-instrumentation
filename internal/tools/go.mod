@@ -6,7 +6,6 @@ require (
 	github.com/cilium/ebpf v0.21.0
 	github.com/google/go-licenses/v2 v2.0.1
 	github.com/grafana/go-offsets-tracker v0.1.7
-	github.com/onsi/ginkgo/v2 v2.28.1
 	go.opentelemetry.io/build-tools/multimod v0.29.0
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260331052815-773c064a8064
 	sigs.k8s.io/kind v0.31.0
@@ -171,6 +170,7 @@ require (
 	github.com/nishanths/exhaustive v0.12.0 // indirect
 	github.com/nishanths/predeclared v0.2.2 // indirect
 	github.com/nunnatsa/ginkgolinter v0.23.0 // indirect
+	github.com/onsi/ginkgo/v2 v2.28.1 // indirect
 	github.com/otiai10/copy v1.14.0 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
@@ -262,5 +262,6 @@ require (
 tool (
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	github.com/jcchavezs/porto/cmd/porto
+	github.com/onsi/ginkgo/v2/ginkgo
 	gotest.tools/gotestsum
 )
