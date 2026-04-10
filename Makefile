@@ -81,6 +81,7 @@ __check_defined = \
 
 # Tools module where tool versions are defined.
 TOOLS_MOD_DIR := ./internal/tools
+TOOLS_MODFILE := -modfile=./internal/tools/go.mod
 
 # Tools directory for built tool binaries.
 TOOLS = $(CURDIR)/.tools
@@ -93,9 +94,6 @@ $(TOOLS)/%: $(TOOLS_MOD_DIR)/go.mod | $(TOOLS)
 
 BPF2GO ?= $(TOOLS)/bpf2go
 $(TOOLS)/bpf2go: PACKAGE=github.com/cilium/ebpf/cmd/bpf2go
-
-GOLANGCI_LINT = $(TOOLS)/golangci-lint
-$(TOOLS)/golangci-lint: PACKAGE=github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
 GO_OFFSETS_TRACKER ?= $(TOOLS)/go-offsets-tracker
 $(TOOLS)/go-offsets-tracker: PACKAGE=github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker
@@ -120,11 +118,8 @@ $(TOOLS)/gotestsum: PACKAGE=gotest.tools/gotestsum
 MULTIMOD = $(TOOLS)/multimod
 $(TOOLS)/multimod: PACKAGE=go.opentelemetry.io/build-tools/multimod
 
-PORTO = $(TOOLS)/porto
-$(TOOLS)/porto: PACKAGE=github.com/jcchavezs/porto/cmd/porto
-
 .PHONY: tools
-tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM) $(PORTO)
+tools: $(BPF2GO) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM)
 
 ### Development Tools (end) #################################################
 
@@ -148,9 +143,9 @@ prereqs: install-hooks
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: fmt
-fmt: $(GOLANGCI_LINT)
+fmt:
 	@echo "### Formatting code and fixing imports"
-	$(GOLANGCI_LINT) fmt
+	go tool $(TOOLS_MODFILE) golangci-lint fmt
 
 .PHONY: clang-tidy
 clang-tidy:
@@ -165,9 +160,9 @@ lint-fix: LINT_EXTRA_ARGS = --fix
 lint-fix: lint-run
 
 .PHONY: lint-run
-lint-run: $(GOLANGCI_LINT) vanity-import-check lint-dependency-policy
+lint-run: vanity-import-check lint-dependency-policy
 	@echo "### Linting code"
-	$(GOLANGCI_LINT) run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
 .PHONY: lint-dependency-policy
 lint-dependency-policy:
@@ -841,12 +836,12 @@ check-ebpf-ver-synced:
 	fi
 
 .PHONY: vanity-import-check
-vanity-import-check: $(PORTO)
-	$(PORTO) --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
+vanity-import-check:
+	go tool $(TOOLS_MODFILE) porto --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
 
 .PHONY: vanity-import-fix
 vanity-import-fix: $(PORTO)
-	$(PORTO) --include-internal --skip-dirs "^NOTICES$$" -w .
+	go tool $(TOOLS_MODFILE) porto --include-internal --skip-dirs "^NOTICES$$" -w .
 
 .PHONY: regenerate-port-lookup
 regenerate-port-lookup:

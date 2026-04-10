@@ -4,10 +4,8 @@ go 1.25.8
 
 require (
 	github.com/cilium/ebpf v0.21.0
-	github.com/golangci/golangci-lint/v2 v2.11.4
 	github.com/google/go-licenses/v2 v2.0.1
 	github.com/grafana/go-offsets-tracker v0.1.7
-	github.com/jcchavezs/porto v0.7.0
 	github.com/onsi/ginkgo/v2 v2.28.1
 	go.opentelemetry.io/build-tools/multimod v0.29.0
 	gotest.tools/gotestsum v1.13.0
@@ -111,6 +109,7 @@ require (
 	github.com/golangci/dupl v0.0.0-20250308024227-f665c8d69b32 // indirect
 	github.com/golangci/go-printf-func-name v0.1.1 // indirect
 	github.com/golangci/gofmt v0.0.0-20250106114630-d62b90e6713d // indirect
+	github.com/golangci/golangci-lint/v2 v2.11.4 // indirect
 	github.com/golangci/golines v0.15.0 // indirect
 	github.com/golangci/misspell v0.8.0 // indirect
 	github.com/golangci/plugin-module-register v0.1.2 // indirect
@@ -134,6 +133,7 @@ require (
 	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
+	github.com/jcchavezs/porto v0.7.0 // indirect
 	github.com/jgautheron/goconst v1.8.2 // indirect
 	github.com/jingyugao/rowserrcheck v1.1.1 // indirect
 	github.com/jjti/go-spancheck v0.6.5 // indirect
@@ -257,4 +257,9 @@ require (
 	mvdan.cc/gofumpt v0.9.2 // indirect
 	mvdan.cc/unparam v0.0.0-20251027182757-5beb8c8f8f15 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
+)
+
+tool (
+	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+	github.com/jcchavezs/porto/cmd/porto
 )
