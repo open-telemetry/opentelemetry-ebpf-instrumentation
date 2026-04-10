@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 00-namespace.yaml
+  - 01-observability.yaml
+  - 02-apache.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: apache-shared-config
+    namespace: obi-apache-example
+    files:
+      - edge-vhost.conf=shared/edge-vhost.conf
+      - recommendations-v1-vhost.conf=shared/recommendations-v1-vhost.conf
+      - recommendations-v2-vhost.conf=shared/recommendations-v2-vhost.conf
+  - name: edge-apache-config
+    namespace: obi-apache-example
+    files:
+      - httpd.conf=config/edge-httpd.conf
+  - name: recommendations-v1-config
+    namespace: obi-apache-example
+    files:
+      - httpd.conf=config/recommendations-v1-httpd.conf
+  - name: recommendations-v2-config
+    namespace: obi-apache-example
+    files:
+      - httpd.conf=config/recommendations-v2-httpd.conf
+  - name: apache-htdocs
+    namespace: obi-apache-example
+    files:
+      - edge-users-42-home.txt=htdocs/edge-users-42-home.txt
+      - recommendations-v1-rollout-personalized-homepage.txt=htdocs/recommendations-v1-rollout-personalized-homepage.txt
+      - recommendations-v1-v1-homepage-hero.txt=htdocs/recommendations-v1-v1-homepage-hero.txt

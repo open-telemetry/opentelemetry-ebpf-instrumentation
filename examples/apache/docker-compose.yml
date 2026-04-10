@@ -1,7 +1,7 @@
 services:
   edge-apache:
     image: httpd:2.4.65-alpine
-    container_name: edge-apache-hostnet
+    container_name: edge-apache
     network_mode: host
     volumes:
       - ./docker/edge/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
@@ -13,7 +13,7 @@ services:
 
   recommendations-v1:
     image: httpd:2.4.65-alpine
-    container_name: recommendations-v1-apache-hostnet
+    container_name: recommendations-v1-apache
     network_mode: host
     volumes:
       - ./docker/recommendations-v1/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
@@ -22,7 +22,7 @@ services:
 
   recommendations-v2:
     image: httpd:2.4.65-alpine
-    container_name: recommendations-v2-apache-hostnet
+    container_name: recommendations-v2-apache
     network_mode: host
     volumes:
       - ./docker/recommendations-v2/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
@@ -35,7 +35,7 @@ services:
     build:
       context: .
       dockerfile: traffic-runner/Dockerfile
-    container_name: apache-traffic-generator-hostnet
+    container_name: apache-traffic-generator
     network_mode: host
     command:
       - --base-url
@@ -47,7 +47,7 @@ services:
 
   obi:
     image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.7.1@sha256:2a4df79f8af2d33090963b928bff4b38b691cb692fd75f02842d68b1359a4757}
-    container_name: obi-apache-example-hostnet
+    container_name: obi-apache-example
     command:
       - --config=/config/obi-config.yaml
     network_mode: host
@@ -64,5 +64,5 @@ services:
 
   lgtm:
     image: grafana/otel-lgtm:0.23.0@sha256:dde2dcd51e955e27e1ab454e6ba8e6f8c958e7d22dca1d4ab0be87fa64198051
-    container_name: lgtm-apache-example-hostnet
+    container_name: lgtm-apache-example
     network_mode: host
