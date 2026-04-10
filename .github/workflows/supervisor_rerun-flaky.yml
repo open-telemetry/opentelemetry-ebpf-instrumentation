@@ -10,10 +10,6 @@ on: # zizmor: ignore[dangerous-triggers] checks out only scripts/rerun-flaky.sh 
       - "PR OATS test"
       - "Test Docker build"
       - "Pull request integration tests on VM"
-      - "Clang Format Check"
-      - "Clang Tidy Check"
-      - "Lint (Darwin)"
-      - "Markdown"
       - "Java Agent CI"
     types: [completed]
 

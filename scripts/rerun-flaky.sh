@@ -77,35 +77,6 @@ while IFS=$'\t' read -r job_name job_conclusion job_started job_completed; do
       REASON="Lint job failed in '${WORKFLOW_NAME}' -- static analysis/style failure, re-run will not help"
     fi
   fi
-  if [ "$WORKFLOW_NAME" = "Clang Format Check" ]; then
-    job_verdict="unrecoverable (format failure)"
-    if [ "$VERDICT" != "skip" ]; then
-      VERDICT="skip"
-      REASON="Clang format check failed -- formatting problem, re-run will not help"
-    fi
-  fi
-  if [ "$WORKFLOW_NAME" = "Clang Tidy Check" ]; then
-    job_verdict="unrecoverable (static analysis failure)"
-    if [ "$VERDICT" != "skip" ]; then
-      VERDICT="skip"
-      REASON="Clang tidy check failed -- static analysis problem, re-run will not help"
-    fi
-  fi
-  if [ "$WORKFLOW_NAME" = "Markdown" ]; then
-    job_verdict="unrecoverable (markdown lint failure)"
-    if [ "$VERDICT" != "skip" ]; then
-      VERDICT="skip"
-      REASON="Markdown lint failed -- formatting problem, re-run will not help"
-    fi
-  fi
-  if [ "$WORKFLOW_NAME" = "Lint (Darwin)" ]; then
-    job_verdict="unrecoverable (lint failure)"
-    if [ "$VERDICT" != "skip" ]; then
-      VERDICT="skip"
-      REASON="macOS lint failed -- lint problem, re-run will not help"
-    fi
-  fi
-
   JOBS_TABLE="${JOBS_TABLE}| ${job_name} | ${job_conclusion} | ${duration} | ${job_verdict} |\n"
 done < <(echo "$RUN_JSON" | jq -r '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | [.name, .conclusion, .startedAt, .completedAt] | @tsv')
 
