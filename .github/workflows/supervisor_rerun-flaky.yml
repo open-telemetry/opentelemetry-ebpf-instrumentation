@@ -1,0 +1,47 @@
+name: "CI Supervisor: Rerun flaky failures"
+
+on: # zizmor: ignore[dangerous-triggers] checks out only scripts/rerun-flaky.sh from default branch (explicit ref); GITHUB_TOKEN used for all ops
+  workflow_run:
+    workflows:
+      - "Pull request checks"
+      - "Pull request integration tests"
+      - "Pull request integration tests ARM"
+      - "Pull request K8s integration tests"
+      - "PR OATS test"
+      - "Test Docker build"
+      - "Pull request integration tests on VM"
+      - "Java Agent CI"
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: "supervisor-${{ github.event.workflow_run.id }}"
+  cancel-in-progress: false
+
+jobs:
+  evaluate-and-rerun:
+    name: Evaluate failed checks
+    if: >
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event.workflow_run.conclusion == 'timed_out'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: write
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: scripts/rerun-flaky.sh
+          sparse-checkout-cone-mode: false
+      - name: Evaluate and rerun flaky failures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          REPO: ${{ github.repository }}
+        run: bash scripts/rerun-flaky.sh
