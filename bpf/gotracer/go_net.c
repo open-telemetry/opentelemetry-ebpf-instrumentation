@@ -281,3 +281,33 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
 
     return 0;
 }
+
+SEC("uprobe/netFdClose")
+int obi_uprobe_netFdClose(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("=== uprobe/proc netFD close goroutine %lx === ", goroutine_addr);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    void *fd_ptr = GO_PARAM1(ctx);
+
+    if (!fd_ptr) {
+        return 0;
+    }
+
+    connection_info_t conn = {0};
+
+    if (!get_conn_info_from_fd(fd_ptr, &conn, false)) {
+        return 0;
+    }
+
+    sort_connection_info(&conn);
+
+    dbg_print_http_connection_info(&conn);
+
+    remove_go_handled_connection(&conn);
+    remove_go_handled_goroutine(&g_key);
+
+    return 0;
+}

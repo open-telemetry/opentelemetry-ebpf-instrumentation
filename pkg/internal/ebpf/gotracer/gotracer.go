@@ -401,6 +401,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net.(*netFD).Write": {{
 			Start: p.bpfObjects.ObiUprobeNetFdWrite,
 		}},
+		"net.(*netFD).Close": {{
+			Start: p.bpfObjects.ObiUprobeNetFdClose,
+		}},
 		"net/http.(*persistConn).roundTrip": {{ // http client
 			Start: p.bpfObjects.ObiUprobePersistConnRoundTrip,
 		}},
