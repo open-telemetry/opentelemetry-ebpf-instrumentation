@@ -112,14 +112,11 @@ $(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
 GOLICENSES = $(TOOLS)/go-licenses
 $(TOOLS)/go-licenses: PACKAGE=github.com/google/go-licenses/v2
 
-GOTESTSUM = $(TOOLS)/gotestsum
-$(TOOLS)/gotestsum: PACKAGE=gotest.tools/gotestsum
-
 MULTIMOD = $(TOOLS)/multimod
 $(TOOLS)/multimod: PACKAGE=go.opentelemetry.io/build-tools/multimod
 
 .PHONY: tools
-tools: $(BPF2GO) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM)
+tools: $(BPF2GO) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES)
 
 ### Development Tools (end) #################################################
 
@@ -470,8 +467,7 @@ run-integration-test-vm:
 			-test.run="^($(TEST_PATTERN))\$$"; \
 	else \
 		echo "Pre-compiled tests not found, compiling in VM"; \
-		$(MAKE) $(GOTESTSUM); \
-		$(GOTESTSUM) \
+		go tool $(TOOLS_MODFILE) gotestsum \
 			--rerun-fails=2 --rerun-fails-max-failures=2 \
 			-ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
 			-p $$TEST_PARALLEL \
@@ -487,17 +483,17 @@ run-integration-test-arm:
 	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
 
 .PHONY: unit-test-tools
-unit-test-tools: $(GOTESTSUM) $(ENVTEST)
+unit-test-tools: $(ENVTEST)
 
 .PHONY: unit-test-matrix-json
-unit-test-matrix-json: $(GOTESTSUM)
-	@go list ./... | $(GOTESTSUM) tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
+unit-test-matrix-json:
+	@go list ./... | go tool $(TOOLS_MODFILE) gotestsum tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
 
 .PHONY: run-unit-test-shard
-run-unit-test-shard: $(GOTESTSUM) $(ENVTEST)
+run-unit-test-shard: $(ENVTEST)
 	@echo "### Running unit test shard $(SHARD_ID)"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(GOTESTSUM) \
+	go tool $(TOOLS_MODFILE) gotestsum \
 		--jsonfile=$(TEST_OUTPUT)/unit-test-shard-$(SHARD_ID).log \
 		-- -short -race -a -coverpkg=./... \
 		-coverprofile $(TEST_OUTPUT)/cover-shard-$(SHARD_ID).all.txt \

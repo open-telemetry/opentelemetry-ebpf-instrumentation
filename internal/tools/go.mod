@@ -8,7 +8,6 @@ require (
 	github.com/grafana/go-offsets-tracker v0.1.7
 	github.com/onsi/ginkgo/v2 v2.28.1
 	go.opentelemetry.io/build-tools/multimod v0.29.0
-	gotest.tools/gotestsum v1.13.0
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260331052815-773c064a8064
 	sigs.k8s.io/kind v0.31.0
 )
@@ -252,6 +251,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	gotest.tools/gotestsum v1.13.0 // indirect
 	honnef.co/go/tools v0.7.0 // indirect
 	k8s.io/klog/v2 v2.90.1 // indirect
 	mvdan.cc/gofumpt v0.9.2 // indirect
@@ -262,4 +262,5 @@ require (
 tool (
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	github.com/jcchavezs/porto/cmd/porto
+	gotest.tools/gotestsum
 )
