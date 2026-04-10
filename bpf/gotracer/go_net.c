@@ -26,7 +26,6 @@
 #include <common/lw_thread.h>
 
 #include <gotracer/go_common.h>
-#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/mongo.h>
 #include <gotracer/maps/ongoing_fd_reads.h>
 
@@ -44,21 +43,7 @@
 
 #include <shared/obi_ctx.h>
 
-static __always_inline bool already_handled_request_goroutine(const go_addr_key_t *goaddr) {
-    if (goaddr) {
-        const bool *found = bpf_map_lookup_elem(&handled_by_go, goaddr);
-        if (found) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static __always_inline bool already_handled_request_sorted(const connection_info_t *conn,
-                                                           const go_addr_key_t *goaddr) {
-    if (already_handled_request_goroutine(goaddr)) {
-        return true;
-    }
+static __always_inline bool already_handled_request_sorted(const connection_info_t *conn) {
     if (conn) {
         const bool *found = bpf_map_lookup_elem(&handled_by_go_conn, conn);
         if (found) {
@@ -178,7 +163,7 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
 
     sort_connection_info(&p_conn.conn);
 
-    if (already_handled_request_sorted(&p_conn.conn, &g_key)) {
+    if (already_handled_request_sorted(&p_conn.conn)) {
         cleanup_duplicate_generic_events_sorted(&p_conn);
         return 0;
     }
@@ -241,10 +226,6 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    if (already_handled_request_goroutine(&g_key)) {
-        return 0;
-    }
-
     void *fd_ptr = GO_PARAM1(ctx);
     u8 *buf = GO_PARAM2(ctx);
     u64 len = (u64)GO_PARAM3(ctx);
@@ -262,7 +243,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
 
         dbg_print_http_connection_info(&p_conn.conn);
 
-        if (already_handled_request_sorted(&p_conn.conn, &g_key)) {
+        if (already_handled_request_sorted(&p_conn.conn)) {
             cleanup_duplicate_generic_events_sorted(&p_conn);
             return 0;
         }
@@ -284,13 +265,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
 
 SEC("uprobe/netFdClose")
 int obi_uprobe_netFdClose(struct pt_regs *ctx) {
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("=== uprobe/proc netFD close goroutine %lx === ", goroutine_addr);
-
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
-
-    remove_go_handled_goroutine(&g_key);
+    bpf_dbg_printk("=== uprobe/proc netFD close goroutine %lx === ", GOROUTINE_PTR(ctx));
 
     void *fd_ptr = GO_PARAM1(ctx);
 

@@ -27,7 +27,6 @@
 #include <gotracer/go_str.h>
 
 #include <gotracer/maps/grpc.h>
-#include <gotracer/maps/handled_by_go.h>
 
 #include <gotracer/types/grpc.h>
 #include <gotracer/types/stream_key.h>
@@ -51,8 +50,6 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-
-    store_go_handled_goroutine(&g_key);
 
     void *stream_ptr = GO_PARAM4(ctx);
     void *stream_stream_ptr = stream_ptr;
@@ -141,8 +138,6 @@ int obi_uprobe_http2Server_operateHeaders(struct pt_regs *ctx) {
     bpf_dbg_printk("tr=%llx, goroutine_addr=%lx, new=%d", tr, goroutine_addr, new_offset_version);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-
-    store_go_handled_goroutine(&g_key);
 
     grpc_transports_t t = {
         .type = TRANSPORT_HTTP2,
@@ -338,8 +333,6 @@ static __always_inline void clientConnStart(
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    store_go_handled_goroutine(&g_key);
-
     if (ctx_ptr) {
         void *val_ptr = 0;
         // Read the embedded val object ptr from ctx if there's one
@@ -530,8 +523,6 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
     off_table_t *ot = get_offsets_table();
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-
-    store_go_handled_goroutine(&g_key);
 
     const u64 grpc_t_conn_pos = go_offset_of(ot, (go_offset){.v = _grpc_t_scheme_pos});
     bpf_dbg_printk(

@@ -24,7 +24,6 @@
 #include <gotracer/go_str.h>
 
 #include <gotracer/maps/mongo.h>
-#include <gotracer/maps/handled_by_go.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -70,8 +69,6 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-
-    store_go_handled_goroutine(&g_key);
 
     client_trace_parent(goroutine_addr, &req.tp);
 
@@ -151,8 +148,6 @@ int obi_uprobe_mongo_op_execute(struct pt_regs *ctx) {
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-
-    store_go_handled_goroutine(&g_key);
 
     mongo_go_client_req_t *req = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
 

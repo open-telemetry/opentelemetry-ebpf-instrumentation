@@ -320,9 +320,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeRuntimeNewproc1,
 			End:   p.bpfObjects.ObiUprobeRuntimeNewproc1Return,
 		}},
-		"runtime.goexit1": {{
-			Start: p.bpfObjects.ObiUprobeProcGoexit1,
-		}},
 		"runtime.casgstatus": {{
 			Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus,
 		}},
