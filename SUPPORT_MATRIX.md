@@ -55,9 +55,13 @@ to do so.
 
 OBI currently documents the following protocol-level instrumentation support:
 
+This section describes language-agnostic protocol instrumentation. Some context propagation support is only available
+through language-specific library instrumentation documented later in this file.
+
 | Protocol | Versions | Methods or operations | Secure | Context propagation | Limitations |
 |:---------|:---------|:----------------------|:------:|:-------------------:|:------------|
-| HTTP | `1.0/1.1/2.0` | All | Yes | Yes | None documented |
+| HTTP | `1.0/1.1` | All | Yes | Yes | None documented |
+| HTTP | `2.0` | All | Yes | No | Context propagation for HTTP/2 is only through Go library instrumentation |
 | gRPC | `1.0+` | All | Yes | No | Long-lived connections started before OBI may use `*` for method names |
 | MySQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | PostgreSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
