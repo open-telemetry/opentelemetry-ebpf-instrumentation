@@ -4,7 +4,6 @@ go 1.25.8
 
 require (
 	github.com/cilium/ebpf v0.21.0
-	github.com/grafana/go-offsets-tracker v0.1.7
 	go.opentelemetry.io/build-tools/multimod v0.29.0
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260331052815-773c064a8064
 	sigs.k8s.io/kind v0.31.0
@@ -123,6 +122,7 @@ require (
 	github.com/gostaticanalysis/comment v1.5.0 // indirect
 	github.com/gostaticanalysis/forcetypeassert v0.2.0 // indirect
 	github.com/gostaticanalysis/nilerr v0.1.2 // indirect
+	github.com/grafana/go-offsets-tracker v0.1.7 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-immutable-radix/v2 v2.1.0 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
@@ -262,6 +262,7 @@ require (
 tool (
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	github.com/google/go-licenses/v2
+	github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker
 	github.com/jcchavezs/porto/cmd/porto
 	github.com/onsi/ginkgo/v2/ginkgo
 	gotest.tools/gotestsum

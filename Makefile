@@ -95,9 +95,6 @@ $(TOOLS)/%: $(TOOLS_MOD_DIR)/go.mod | $(TOOLS)
 BPF2GO ?= $(TOOLS)/bpf2go
 $(TOOLS)/bpf2go: PACKAGE=github.com/cilium/ebpf/cmd/bpf2go
 
-GO_OFFSETS_TRACKER ?= $(TOOLS)/go-offsets-tracker
-$(TOOLS)/go-offsets-tracker: PACKAGE=github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker
-
 # Required for k8s-cache unit tests
 ENVTEST_K8S_VERSION ?= 1.30.0
 ENVTEST ?= $(TOOLS)/setup-envtest
@@ -110,7 +107,7 @@ MULTIMOD = $(TOOLS)/multimod
 $(TOOLS)/multimod: PACKAGE=go.opentelemetry.io/build-tools/multimod
 
 .PHONY: tools
-tools: $(BPF2GO) $(GO_OFFSETS_TRACKER) $(ENVTEST) $(KIND)
+tools: $(BPF2GO) $(ENVTEST) $(KIND)
 
 ### Development Tools (end) #################################################
 
@@ -177,9 +174,9 @@ lint-markdown-fix:
 	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --fix "{*.md,!(NOTICES)/**/*.md}"
 
 .PHONY: update-offsets
-update-offsets: $(GO_OFFSETS_TRACKER)
+update-offsets:
 	@echo "### Updating pkg/internal/goexec/offsets.json"
-	$(GO_OFFSETS_TRACKER) -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
+	go tool $(TOOLS_MODFILE) go-offsets-tracker -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
 
 ### eBPF Code Generation ###########################################################
 #
