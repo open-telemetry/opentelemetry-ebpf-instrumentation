@@ -158,9 +158,6 @@ jobs:
       - name: Generate files
         run: make prereqs docker-generate
 
-      - name: Install gotestsum
-        run: make tools
-
       - name: Check disk usage before tests
         run: df -h
 
@@ -181,7 +178,7 @@ jobs:
 
           mkdir -p /home/runner/reports
 
-          ./.tools/gotestsum \
+          go tool -modfile=./internal/tools/go.mod gotestsum \
               --rerun-fails=2 --rerun-fails-max-failures=2 --rerun-fails-abort-on-data-race \
               --packages="./internal/test/integration" -ftestname \
               --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-	"strings"
 	"time"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
@@ -326,18 +325,20 @@ func jsonRPCAttributes(span *request.Span) []attribute.KeyValue {
 	return attrs
 }
 
-// httpHeaderAttributes converts extracted HTTP headers to OTel span attributes
-// following the semantic convention: http.request.header.<key> and http.response.header.<key>
-// where <key> is the lowercased header field name. Values are string slices per the spec.
-func httpHeaderAttributes(span *request.Span) []attribute.KeyValue {
+// httpEnrichmentAttributes converts extracted HTTP headers and body content to OTel span attributes.
+func httpEnrichmentAttributes(span *request.Span) []attribute.KeyValue {
 	attrs := make([]attribute.KeyValue, 0, len(span.RequestHeaders)+len(span.ResponseHeaders))
 	for name, values := range span.RequestHeaders {
-		key := "http.request.header." + strings.ToLower(name)
-		attrs = append(attrs, attribute.StringSlice(key, values))
+		attrs = append(attrs, attribute.StringSlice(attr.HTTPRequestHeaderKey(name), values))
 	}
 	for name, values := range span.ResponseHeaders {
-		key := "http.response.header." + strings.ToLower(name)
-		attrs = append(attrs, attribute.StringSlice(key, values))
+		attrs = append(attrs, attribute.StringSlice(attr.HTTPResponseHeaderKey(name), values))
+	}
+	if span.RequestBodyContent != "" {
+		attrs = append(attrs, attribute.String(string(attr.HTTPRequestBodyContent), span.RequestBodyContent))
+	}
+	if span.ResponseBodyContent != "" {
+		attrs = append(attrs, attribute.String(string(attr.HTTPResponseBodyContent), span.ResponseBodyContent))
 	}
 	return attrs
 }
@@ -371,7 +372,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
 		}
 		attrs = append(attrs, jsonRPCAttributes(span)...)
-		attrs = append(attrs, httpHeaderAttributes(span)...)
+		attrs = append(attrs, httpEnrichmentAttributes(span)...)
 	case request.EventTypeGRPC:
 		attrs = []attribute.KeyValue{
 			semconv.RPCMethod(span.Path),
@@ -551,9 +552,8 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 				attrs = append(attrs, semconv.ErrorMessage(ai.Output.Error.Message))
 			}
 		}
-
 		attrs = append(attrs, jsonRPCAttributes(span)...)
-		attrs = append(attrs, httpHeaderAttributes(span)...)
+		attrs = append(attrs, httpEnrichmentAttributes(span)...)
 	case request.EventTypeGRPCClient:
 		attrs = []attribute.KeyValue{
 			semconv.RPCMethod(span.Path),

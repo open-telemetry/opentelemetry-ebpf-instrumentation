@@ -108,3 +108,4 @@ internal/test/integration/components/java_tls/jdk8/target
 
 # Ignore the generated OpenTelemetry Collector configuration files for development.
 examples/otel-collector/otelcol-dev/*
+internal/test/benchmarks/goshorturl/shorturl

@@ -195,3 +195,20 @@ func TestPHPFMUnixSock(t *testing.T) {
 
 	require.NoError(t, compose.Close())
 }
+
+func TestPHPFMUnixSockNginxSupportFloor(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-php-fpm-sock.yml", path.Join(pathOutput, "test-suite-php-fpm-sock-nginx-floor.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(
+		compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=`,
+		`OTEL_EBPF_OPEN_PORT=`,
+		`NGINX_BASE_IMAGE=`+nginxServerTracingSupportFloorImage,
+	)
+	require.NoError(t, compose.Up())
+
+	t.Run("PHP-FM traces", testTracesPHPFPM)
+
+	require.NoError(t, compose.Close())
+}

@@ -6,7 +6,9 @@ package docker // import "go.opentelemetry.io/obi/internal/test/integration/comp
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,22 +82,42 @@ func (c *Compose) command(args ...string) error {
 	return cmd.Run()
 }
 
+func (c *Compose) ExecOutput(service string, args ...string) (string, error) {
+	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "exec", "-T", service}
+	cmdArgs = append(cmdArgs, args...)
+	cmd := exec.Command("docker", cmdArgs...)
+	cmd.Env = c.Env
+
+	output, err := cmd.CombinedOutput()
+
+	if c.Logger != nil && len(output) > 0 {
+		if _, writeErr := c.Logger.Write(output); writeErr != nil {
+			err = errors.Join(err, writeErr)
+		}
+	}
+	return strings.TrimSpace(string(output)), err
+}
+
 func (c *Compose) Close() error {
-	var errs []string
+	var errs []error
 	if err := c.Logs(); err != nil {
-		errs = append(errs, err.Error())
+		errs = append(errs, fmt.Errorf("flushing logs: %w", err))
 	}
 	if err := c.Stop(); err != nil {
-		errs = append(errs, err.Error())
+		// we just warn, as the container will be force-removed later
+		slog.Warn("stopping docker compose. Will force remove", "error", err)
 	}
+	if err := c.command("wait", "obi"); err != nil {
+		slog.Warn("waiting for obi to stop. Will force remove", "error", err)
+	}
+
 	if err := c.Remove(); err != nil {
-		errs = append(errs, err.Error())
+		errs = append(errs, fmt.Errorf("removing container: %w", err))
 	}
+
 	if err := c.Logger.Close(); err != nil {
-		errs = append(errs, err.Error())
+		errs = append(errs, fmt.Errorf("closing logger: %w", err))
 	}
-	if len(errs) == 0 {
-		return nil
-	}
-	return errors.New(strings.Join(errs, " / "))
+
+	return errors.Join(errs...)
 }
