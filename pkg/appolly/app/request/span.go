@@ -770,12 +770,13 @@ func SpanStatusMessage(span *Span) string {
 		if span.SubType == HTTPSubtypeSQLPP && span.Status != 0 && span.DBError.Description != "" {
 			return span.DBError.Description
 		}
+		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
+			return span.JSONRPC.ErrorMessage
+		}
 	case EventTypeHTTP:
-		// handled below
-	}
-	// JSON-RPC spans can be either server (EventTypeHTTP) or client (EventTypeHTTPClient)
-	if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
-		return span.JSONRPC.ErrorMessage
+		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
+			return span.JSONRPC.ErrorMessage
+		}
 	}
 	return ""
 }

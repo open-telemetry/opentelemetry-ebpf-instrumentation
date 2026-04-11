@@ -82,4 +82,50 @@ func testPythonJSONRPCServer(t *testing.T) {
 		assert.True(ct, found, "jsonrpc.request.id tag not found")
 		assert.Equal(ct, "1", tag.Value)
 	}, testTimeout, 100*time.Millisecond)
+
+	// Test JSON-RPC error span: call a non-existent method to trigger a -32601 error
+	var tqErr jaeger.TracesQuery
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := jsonRPCCall(address, "nonexistent/method", 99, nil)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tqErr))
+
+		// Find traces with the error method
+		traces := tqErr.FindBySpan(
+			jaeger.Tag{Key: "rpc.system", Type: "string", Value: "jsonrpc"},
+			jaeger.Tag{Key: "rpc.method", Type: "string", Value: "nonexistent/method"},
+		)
+		require.GreaterOrEqual(ct, len(traces), 1)
+
+		lastTrace := traces[len(traces)-1]
+		require.GreaterOrEqual(ct, len(lastTrace.Spans), 1)
+		span := lastTrace.Spans[0]
+
+		// Span name should be the JSON-RPC method
+		assert.Equal(ct, "nonexistent/method", span.OperationName)
+
+		// Span status should be error
+		tag, found := jaeger.FindIn(span.Tags, "otel.status_code")
+		assert.True(ct, found, "otel.status_code tag not found")
+		assert.Equal(ct, "ERROR", tag.Value)
+
+		// Error message should be present
+		tag, found = jaeger.FindIn(span.Tags, "otel.status_description")
+		assert.True(ct, found, "otel.status_description tag not found")
+		assert.NotEmpty(ct, tag.Value)
+
+		// rpc.response.status_code should contain the JSON-RPC error code
+		tag, found = jaeger.FindIn(span.Tags, "rpc.response.status_code")
+		assert.True(ct, found, "rpc.response.status_code tag not found")
+		assert.Equal(ct, "-32601", tag.Value)
+	}, testTimeout, 100*time.Millisecond)
 }
