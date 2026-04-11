@@ -23,10 +23,14 @@
 
 #include <common/ringbuf.h>
 
+#include <gotracer/maps/handled_by_go.h>
+
 #include <gotracer/go_common.h>
 #include <gotracer/go_str.h>
 
 #include <maps/go_sql.h>
+
+#include <shared/obi_ctx.h>
 
 // Validates that driverConn.ci points to the expected database/sql driver
 // connection type and returns the concrete connection pointer.
@@ -288,10 +292,14 @@ set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *que
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     // Write event
     if (bpf_map_update_elem(&ongoing_sql_queries, &g_key, &invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update map element");
     }
+
+    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
 }
 
 // Common SQL query return handler.
@@ -306,6 +314,7 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
         return 0;
     }
     bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
 
     sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
     if (trace) {

@@ -27,13 +27,13 @@
 
 #include <gotracer/go_offsets.h>
 
+#include <gotracer/maps/handled_by_go.h>
+
 #include <logger/bpf_dbg.h>
 
 #include <maps/incoming_trace_map.h>
 
 #include <pid/pid_helpers.h>
-
-char __license[] SEC("license") = "Dual MIT/GPL";
 
 enum { W3C_KEY_LENGTH = 11, W3C_VAL_LENGTH = 55 };
 
@@ -133,10 +133,6 @@ typedef struct grpc_header_field {
     u64 val_len;
     u64 sensitive;
 } grpc_header_field_t;
-
-static __always_inline u8 valid_trace(const unsigned char *trace_id) {
-    return *((u64 *)trace_id) != 0 || *((u64 *)(trace_id + 8)) != 0;
-}
 
 static __always_inline void go_addr_key_from_id(go_addr_key_t *current, void *addr) {
     const u64 pid_tid = bpf_get_current_pid_tgid();
@@ -365,7 +361,9 @@ static __always_inline void read_ip_and_port(u8 *dst_ip, u16 *dst_port, void *sr
     }
 }
 
-static __always_inline u8 get_conn_info_from_fd(void *fd_ptr, connection_info_t *info) {
+static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
+                                                connection_info_t *info,
+                                                const bool mark_handled) {
     if (fd_ptr) {
         void *laddr_ptr = 0;
         void *raddr_ptr = 0;
@@ -398,6 +396,10 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr, connection_info_t 
             // sorted when we make server requests or when we populate the trace_map for
             // black box context propagation.
 
+            if (mark_handled) {
+                store_go_handled_connection_info(info);
+            }
+
             return 1;
         }
     }
@@ -418,7 +420,7 @@ static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info)
 
         bpf_dbg_printk("Found fd, fd_ptr=%llx", fd_ptr);
 
-        return get_conn_info_from_fd(fd_ptr, info);
+        return get_conn_info_from_fd(fd_ptr, info, true);
     }
 
     return 0;

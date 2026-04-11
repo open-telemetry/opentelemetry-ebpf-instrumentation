@@ -22,8 +22,9 @@ ebpf:
       enrichment:
         enabled: true
         policy:
-          default_action: exclude
-          match_order: first_match_wins
+          default_action:
+            headers: exclude
+            body: exclude
           obfuscation_string: "***"
         rules:
           - action: obfuscate

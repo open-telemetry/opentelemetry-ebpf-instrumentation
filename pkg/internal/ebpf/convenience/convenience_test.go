@@ -5,8 +5,6 @@ package ebpfconvenience
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -47,7 +45,7 @@ func TestSetupMapSizes_ScaleUp(t *testing.T) {
 		"my_hash": {Type: ebpf.Hash, MaxEntries: 1024},
 	})
 
-	SetupMapSizes(spec, 2, "")
+	SetupMapSizes(spec, 2)
 
 	got := spec.Maps["my_hash"].MaxEntries
 	want := uint32(1024 << 2)
@@ -61,7 +59,7 @@ func TestSetupMapSizes_ScaleDown(t *testing.T) {
 		"my_hash": {Type: ebpf.Hash, MaxEntries: 1024},
 	})
 
-	SetupMapSizes(spec, -2, "")
+	SetupMapSizes(spec, -2)
 
 	got := spec.Maps["my_hash"].MaxEntries
 	want := uint32(1024 >> 2)
@@ -75,7 +73,7 @@ func TestSetupMapSizes_ZeroFactorNoOp(t *testing.T) {
 		"my_hash": {Type: ebpf.Hash, MaxEntries: 512},
 	})
 
-	SetupMapSizes(spec, 0, "")
+	SetupMapSizes(spec, 0)
 
 	got := spec.Maps["my_hash"].MaxEntries
 	if got != 512 {
@@ -88,7 +86,7 @@ func TestSetupMapSizes_ClampToMax(t *testing.T) {
 		"big": {Type: ebpf.Hash, MaxEntries: MaxMapEntries},
 	})
 
-	SetupMapSizes(spec, 1, "")
+	SetupMapSizes(spec, 1)
 
 	got := spec.Maps["big"].MaxEntries
 	if got != MaxMapEntries {
@@ -102,7 +100,7 @@ func TestSetupMapSizes_ClampToMin(t *testing.T) {
 	})
 
 	// Shift right by 2 → 128 >> 2 = 32, which is below MinMapEntries (64)
-	SetupMapSizes(spec, -2, "")
+	SetupMapSizes(spec, -2)
 
 	got := spec.Maps["small"].MaxEntries
 	if got != MinMapEntries {
@@ -117,7 +115,7 @@ func TestSetupMapSizes_SkipsNonResizableTypes(t *testing.T) {
 		"normal":     {Type: ebpf.Hash, MaxEntries: 256},
 	})
 
-	SetupMapSizes(spec, 2, "")
+	SetupMapSizes(spec, 2)
 
 	if spec.Maps["prog_array"].MaxEntries != 256 {
 		t.Errorf("ProgramArray should not be resized: got %d", spec.Maps["prog_array"].MaxEntries)
@@ -135,7 +133,7 @@ func TestSetupMapSizes_SkipsBelowMinResizableMapSize(t *testing.T) {
 		"tiny": {Type: ebpf.Hash, MaxEntries: 32},
 	})
 
-	SetupMapSizes(spec, 3, "")
+	SetupMapSizes(spec, 3)
 
 	if spec.Maps["tiny"].MaxEntries != 32 {
 		t.Errorf("maps below MinResizableMapSize should not be resized: got %d", spec.Maps["tiny"].MaxEntries)
@@ -143,27 +141,15 @@ func TestSetupMapSizes_SkipsBelowMinResizableMapSize(t *testing.T) {
 }
 
 func TestSetupMapSizes_SkipsPinnedMaps(t *testing.T) {
-	pinDir := t.TempDir()
-	// Create files to simulate pinned maps on bpffs
-	for _, name := range []string{"pinned_map", "not_pinned_map"} {
-		if err := os.WriteFile(filepath.Join(pinDir, name), []byte{}, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	spec := makeSpec(map[string]*ebpf.MapSpec{
-		"pinned_map":     {Type: ebpf.Hash, MaxEntries: 1024, Pinning: ebpf.PinByName},
-		"not_pinned_map": {Type: ebpf.Hash, MaxEntries: 1024, Pinning: ebpf.PinNone},
-		"unpinned_map":   {Type: ebpf.Hash, MaxEntries: 1024},
+		"pinned_map":   {Type: ebpf.Hash, MaxEntries: 1024, Pinning: ebpf.PinByName},
+		"unpinned_map": {Type: ebpf.Hash, MaxEntries: 1024},
 	})
 
-	SetupMapSizes(spec, 2, pinDir)
+	SetupMapSizes(spec, 2)
 
 	if spec.Maps["pinned_map"].MaxEntries != 1024 {
-		t.Errorf("PinByName map with file on disk should be skipped: got %d, want 1024", spec.Maps["pinned_map"].MaxEntries)
-	}
-	if spec.Maps["not_pinned_map"].MaxEntries == 1024 {
-		t.Error("PinNone map should be resized even if a file with same name exists on disk")
+		t.Errorf("PinByName map should always be skipped: got %d, want 1024", spec.Maps["pinned_map"].MaxEntries)
 	}
 	if spec.Maps["unpinned_map"].MaxEntries == 1024 {
 		t.Error("unpinned map should have been resized")
@@ -176,7 +162,7 @@ func TestSetupMapSizes_OverflowClampsToMax(t *testing.T) {
 		"huge": {Type: ebpf.Hash, MaxEntries: 1 << 30},
 	})
 
-	SetupMapSizes(spec, 4, "")
+	SetupMapSizes(spec, 4)
 
 	got := spec.Maps["huge"].MaxEntries
 	if got != MaxMapEntries {

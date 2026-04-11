@@ -172,8 +172,10 @@ discovery:
 					},
 					Enrichment: config.EnrichmentConfig{
 						Policy: config.HTTPParsingPolicy{
-							DefaultAction:     config.HTTPParsingActionExclude,
-							MatchOrder:        config.HTTPParsingMatchOrderFirstMatchWins,
+							DefaultAction: config.HTTPParsingDefaultAction{
+								Headers: config.HTTPParsingActionExclude,
+								Body:    config.HTTPParsingActionExclude,
+							},
 							ObfuscationString: "***",
 						},
 						Rules: []config.HTTPParsingRule{},

@@ -9,6 +9,7 @@
 #include <common/connection_info.h>
 #include <common/http_buf_size.h>
 #include <common/http_info.h>
+#include <common/lw_thread.h>
 #include <common/tp_info.h>
 
 #define MIN_HTTP_SIZE 12      // HTTP/1.1 CCC is the smallest valid request we can have
@@ -31,6 +32,15 @@
 // Preface PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n https://datatracker.ietf.org/doc/html/rfc7540#section-3.5
 #define MIN_HTTP2_SIZE 24
 
+typedef struct protocol_selector {
+    u8 http : 1;
+    u8 http2 : 1;
+    u8 tcp : 1;
+    u8 _pad : 5;
+} protocol_selector_t;
+
+#define k_protocol_selector_all ((protocol_selector_t){.http = 1, .http2 = 1, .tcp = 1})
+
 typedef struct call_protocol_args {
     pid_connection_info_t pid_conn;
     enum protocol_type protocol_type;
@@ -38,12 +48,14 @@ typedef struct call_protocol_args {
     u8 direction;
     u8 packet_type;
     unsigned char small_buf[MIN_HTTP2_SIZE];
-    u8 pad[4];
+    protocol_selector_t protocols;
+    u8 pad[3];
     int bytes_len;
     u16 orig_dport;
     u16 _pad2;
     u64 u_buf;
     u64 self_ref_parent_id;
+    lw_thread_t lw_thread;
 } call_protocol_args_t;
 
 // Here we keep information on the packets passing through the socket filter

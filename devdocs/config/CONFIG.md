@@ -226,17 +226,16 @@ EnrichmentConfig configures HTTP header and payload extraction with policy-based
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.enrichment.enabled` | `boolean` | `OTEL_EBPF_HTTP_ENRICHMENT_ENABLED` | `false` |  |  | Enable HTTP header and payload enrichment |
-| `ebpf.payload_extraction.http.enrichment.rules` | [`HTTPParsingRule`](#httpparsingrule)[] |  |  |  |  | Defines an ordered list of include/exclude/obfuscate rules. Rules are evaluated according to Policy.MatchOrder. |
+| `ebpf.payload_extraction.http.enrichment.rules` | [`HTTPParsingRule`](#httpparsingrule)[] |  |  |  |  | Is an ordered list of include/exclude/obfuscate rules. |
 
 #### `ebpf.payload_extraction.http.enrichment.policy`
 
-HTTPParsingPolicy defines the default action and match strategy for http enrichment rules.
+HTTPParsingPolicy defines the default action for http enrichment rules.
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.enrichment.policy.default_action` | `string` | `OTEL_EBPF_HTTP_ENRICHMENT_DEFAULT_ACTION` | `exclude` | `exclude`, `include`, `obfuscate` |  | Specifies what to do when no rule matches: "include" or "exclude" |
-| `ebpf.payload_extraction.http.enrichment.policy.match_order` | `string` | `OTEL_EBPF_HTTP_ENRICHMENT_MATCH_ORDER` | `first_match_wins` | `first_match_wins` |  | Controls how rules are evaluated: "first_match_wins" |
-| `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `string` | `OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING` | `***` |  |  | Specifies the replacement string used when a rule's action is "obfuscate" |
+| `ebpf.payload_extraction.http.enrichment.policy.default_action` | [`HTTPParsingDefaultAction`](#httpparsingdefaultaction) |  |  |  |  | Specifies what to do when no rule matches, per type. |
+| `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `string` | `OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING` | `***` |  |  | Is the replacement string used when a rule's action is "obfuscate" |
 
 #### `ebpf.payload_extraction.http.genai`
 
@@ -583,16 +582,25 @@ Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' i
 | `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers. |
 | `target_pids` | `integer`[] |  | Allows selecting processes by PID (static from config). When non-empty, the process PID must be in this list. |
 
+### HTTPParsingDefaultAction
+
+HTTPParsingDefaultAction specifies the default action per rule type.
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `body` | `string` | `exclude`, `include`, `obfuscate` |  |
+| `headers` | `string` | `exclude`, `include`, `obfuscate` |  |
+
 ### HTTPParsingRule
 
 HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header and payload extraction.
 
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `action` | `string` | `exclude`, `include`, `obfuscate` | Specifies what to do when the rule matches: "include", "exclude", or "obfuscate" |
+| `action` | `string` | `exclude`, `include`, `obfuscate` | Of the rule: "include", "exclude", or "obfuscate" |
 | `match` | [`HTTPParsingMatch`](#httpparsingmatch) |  | Defines the matching criteria for this rule |
-| `scope` | `string` | `all`, `request`, `response` | Specifies which direction the rule applies to: "request", "response", or "all" |
-| `type` | `string` | `headers` | Specifies what this rule matches against: "headers" |
+| `scope` | `string` | `all`, `request`, `response` | Of the rule: "request", "response", or "all" |
+| `type` | `string` | `body`, `headers` | Specifies what this rule matches against: "headers" or "body" |
 
 ### IntEnum
 
@@ -650,12 +658,15 @@ RegexSelector that specify a given instrumented service. Each instance has to de
 
 ### HTTPParsingMatch
 
-HTTPParsingMatch defines matching criteria for an HTTP parsing rule.
+HTTPParsingMatch defines matching criteria for an HTTP parsing rule. Header rules use Patterns and CaseSensitive. Body rules use ObfuscationJSONPaths. URLPathPatterns and Methods are shared across both types.
 
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `case_sensitive` | `boolean` |  | Controls whether matching is case-sensitive. |
-| `patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Specifies a list of glob patterns to match the rule against |
+| `case_sensitive` | `boolean` |  | Controls whether header matching is case-sensitive (headers only) |
+| `methods` | `string`[] | `DELETE`, `GET`, `HEAD`, `OPTIONS`, `PATCH`, `POST`, `PUT` | Is a list of HTTP methods this rule applies to (shared). Empty means all methods. |
+| `obfuscation_json_paths` | `string`[] | `$.password`, `$.user.name`, `$.items[0].id`, etc | Is a list of JSONPath expressions for fields to obfuscate (body only) |
+| `patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match header names against (headers only) |
+| `url_path_patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match the request path against (shared) |
 
 ### SamplerConfig
 
