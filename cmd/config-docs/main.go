@@ -4,8 +4,8 @@
 // config-docs generates a Markdown configuration reference from the OBI JSON schema.
 // Usage:
 //
-//	go run ./cmd/config-docs -schema docs/config-schema.json > docs/CONFIG.md
-//	go run ./cmd/config-docs -schema docs/config-schema.json -output docs/CONFIG.md
+//	go run ./cmd/config-docs -schema devdocs/config/config-schema.json > devdocs/config/CONFIG.md
+//	go run ./cmd/config-docs -schema devdocs/config/config-schema.json -output devdocs/config/CONFIG.md
 package main
 
 import (
@@ -93,7 +93,7 @@ type DocGenerator struct {
 }
 
 func main() {
-	schemaFile := flag.String("schema", "docs/config-schema.json", "Path to the JSON schema file")
+	schemaFile := flag.String("schema", "devdocs/config/config-schema.json", "Path to the JSON schema file")
 	outputFile := flag.String("output", "", "Output file path (default: stdout)")
 	flag.Parse()
 

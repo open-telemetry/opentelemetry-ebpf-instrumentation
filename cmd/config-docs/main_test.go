@@ -272,7 +272,7 @@ func TestGenerate(t *testing.T) {
 }
 
 func TestGenerateFromRealSchema(t *testing.T) {
-	data, err := os.ReadFile("../../docs/config-schema.json")
+	data, err := os.ReadFile("../../devdocs/config/config-schema.json")
 	if err != nil {
 		t.Skip("config-schema.json not found, skipping integration test")
 	}

@@ -853,8 +853,8 @@ regenerate-port-lookup:
 	go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go
 	$(MAKE) fmt
 
-CONFIG_SCHEMA_FILE ?= docs/config-schema.json
-CONFIG_DOCS_FILE ?= docs/CONFIG.md
+CONFIG_SCHEMA_FILE ?= devdocs/config/config-schema.json
+CONFIG_DOCS_FILE ?= devdocs/config/CONFIG.md
 
 .PHONY: generate-config-schema
 generate-config-schema:
