@@ -1318,7 +1318,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		assert.Equal(t, "subtract", topSpan.Name())
 		assert.Equal(t, ptrace.StatusCodeUnset, status.Code())
-		assert.Equal(t, "", status.Message())
+		assert.Empty(t, status.Message())
 
 		ensureTraceStrAttr(t, attrs, "rpc.system", "jsonrpc")
 		ensureTraceStrAttr(t, attrs, "rpc.method", "subtract")
