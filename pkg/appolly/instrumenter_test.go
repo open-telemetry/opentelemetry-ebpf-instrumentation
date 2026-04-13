@@ -166,7 +166,8 @@ func TestTracerPipeline(t *testing.T) {
 	gb := newGraphBuilder(&obi.Config{
 		Traces: otelcfg.TracesConfig{
 			BatchTimeout:      10 * time.Millisecond,
-			MaxQueueSize:      10,
+			BatchMaxSize:      10,
+			QueueSize:         40,
 			TracesEndpoint:    tc.ServerEndpoint,
 			ReportersCacheLen: 16,
 			Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
@@ -211,7 +212,8 @@ func TestMergedMetricsTracePipeline(t *testing.T) {
 	}
 	tCfg := otelcfg.TracesConfig{
 		BatchTimeout:      10 * time.Millisecond,
-		MaxQueueSize:      10,
+		BatchMaxSize:      10,
+		QueueSize:         40,
 		TracesEndpoint:    tc.ServerEndpoint,
 		ReportersCacheLen: 16,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
