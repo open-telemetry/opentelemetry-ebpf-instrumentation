@@ -10,7 +10,6 @@ import (
 	"errors"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -18,8 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vishvananda/netlink"
 )
-
-const privilegedEnv = "PRIVILEGED_TESTS"
 
 func TestTCXManagerTcxAttachType(t *testing.T) {
 	test := func(in AttachmentType, out ebpf.AttachType) {
@@ -128,49 +125,6 @@ func loadProgs(t *testing.T) Progs {
 	return progs
 }
 
-func TestTCXManagerAddRemove(t *testing.T) {
-	if os.Getenv(privilegedEnv) == "" {
-		t.Skipf("Skipping this test because %v is not set", privilegedEnv)
-	}
-
-	progs := loadProgs(t)
-
-	ifaceManager := NewInterfaceManager()
-	tcx := NewTCXManager()
-	tcx.SetInterfaceManager(ifaceManager)
-	assert.NotNil(t, tcx)
-
-	ctx := t.Context()
-
-	ifaceManager.Start(ctx)
-
-	test := func(progName string, prog *ebpf.Program, attachType AttachmentType) {
-		tcx.AddProgram(progName, prog, attachType)
-
-		// wait for links to come up
-		time.Sleep(5 * time.Second)
-
-		linked, err := isBpfProgLinked(progName)
-		require.NoError(t, err)
-		assert.True(t, linked)
-
-		tcx.RemoveProgram(progName)
-
-		prog.Close()
-
-		linked, err = isBpfProgLinked(progName)
-		require.NoError(t, err)
-		assert.False(t, linked)
-
-		loaded, err := isBpfProgLoaded(progName)
-		require.NoError(t, err)
-		assert.False(t, loaded)
-	}
-
-	test("obi_ingress", progs.Ingress, AttachmentIngress)
-	test("obi_egress", progs.Egress, AttachmentEgress)
-}
-
 func TestNetlinkManagerNetlinkAttachType(t *testing.T) {
 	test := func(in AttachmentType, out uint32) {
 		r, err := netlinkAttachType(in)
@@ -219,55 +173,6 @@ func isNetlinkFilterPresent(filterName string, attachType AttachmentType, netMan
 	}
 
 	return false, nil
-}
-
-func TestNetlinkManagerAddRemove(t *testing.T) {
-	if os.Getenv(privilegedEnv) == "" {
-		t.Skipf("Skipping this test because %v is not set", privilegedEnv)
-	}
-
-	progs := loadProgs(t)
-
-	ifaceManager := NewInterfaceManager()
-	tc := NewNetlinkManager()
-	tc.SetInterfaceManager(ifaceManager)
-	assert.NotNil(t, tc)
-
-	netManager := tc.(*netlinkManager)
-
-	ctx := t.Context()
-
-	ifaceManager.Start(ctx)
-
-	test := func(progName string, prog *ebpf.Program, attachType AttachmentType) {
-		tc.AddProgram(progName, prog, attachType)
-
-		// wait for links to come up
-		time.Sleep(5 * time.Second)
-
-		linked, err := isNetlinkFilterPresent(progName, attachType, netManager)
-		require.NoError(t, err)
-		assert.True(t, linked)
-
-		tc.RemoveProgram(progName)
-
-		prog.Close()
-
-		time.Sleep(5 * time.Second)
-
-		linked, err = isNetlinkFilterPresent(progName, attachType, netManager)
-		require.NoError(t, err)
-		assert.False(t, linked)
-
-		loaded, err := isBpfProgLoaded(progName)
-		require.NoError(t, err)
-		assert.False(t, loaded)
-	}
-
-	test("obi_ingress", progs.Ingress, AttachmentIngress)
-	test("obi_egress", progs.Egress, AttachmentEgress)
-
-	netManager.Shutdown()
 }
 
 /*

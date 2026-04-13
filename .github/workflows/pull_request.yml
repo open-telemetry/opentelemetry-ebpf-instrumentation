@@ -282,4 +282,17 @@ jobs:
 
       - name: Run BPF verifier tests (host kernel)
         if: ${{ !matrix.use_vm }}
-        run: sudo env PATH=$PATH PRIVILEGED_TESTS=true go test -v -count=1 ./pkg/internal/ebpf/verifier/...
+        run: sudo env PATH=$PATH go test -v -count=1 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/... coverprofile $(TEST_OUTPUT)/cover.all.txt
+
+      - name: Cleanup BPF verifier tests coverage (host kernel)
+        if: ${{ !matrix.use_vm }}
+        run: make cov-exclude-generated
+
+      - name: Report BPF verifier tests coverage
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          files: ./testoutput/cover.txt
+          flags: unittests
+          name: go-bpf-verifier-unittests-coverage-shard-${{ matrix.runner }}-${{ matrix-arch }}
