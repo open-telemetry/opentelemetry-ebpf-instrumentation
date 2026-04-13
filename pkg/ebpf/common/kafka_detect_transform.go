@@ -89,14 +89,16 @@ func processProduceRequest(hdr kafkaparser.KafkaRequestHeader, kafkaTopicUUIDToN
 	}
 	firstTopic := produceReq.Topics[0]
 	topicName := firstTopic.Name
-	if firstTopic.UUID != nil && kafkaTopicUUIDToName != nil {
-		var found bool
-		topicName, found = kafkaTopicUUIDToName.Get(*firstTopic.UUID)
-		if !found {
+	if firstTopic.UUID != nil {
+		if kafkaTopicUUIDToName != nil {
+			var found bool
+			topicName, found = kafkaTopicUUIDToName.Get(*firstTopic.UUID)
+			if !found {
+				topicName = "*"
+			}
+		} else {
 			topicName = "*"
 		}
-	} else {
-		topicName = "*"
 	}
 	var partitionInfo *PartitionInfo
 	if firstTopic.Partition != nil {
