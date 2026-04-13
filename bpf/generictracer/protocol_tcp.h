@@ -269,13 +269,11 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         }
     } else if (existing->direction != direction) {
         existing->is_server = is_server;
-        if (tcp_send_large_buffer(existing,
-                                  pid_conn,
-                                  u_buf,
-                                  bytes_len,
-                                  direction,
-                                  protocol_type,
-                                  k_large_buf_action_init) < 0) {
+        const enum large_buf_action response_action =
+            (existing->lb_res_bytes > 0) ? k_large_buf_action_append : k_large_buf_action_init;
+        if (tcp_send_large_buffer(
+                existing, pid_conn, u_buf, bytes_len, direction, protocol_type, response_action) <
+            0) {
             bpf_dbg_printk("waiting additional response data");
             return;
         }
