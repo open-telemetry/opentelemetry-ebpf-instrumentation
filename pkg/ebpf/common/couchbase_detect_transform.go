@@ -4,10 +4,13 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
@@ -25,8 +28,86 @@ type CouchbaseInfo struct {
 	Bucket     string
 	Scope      string
 	Collection string
+	Statement  string
 	Status     couchbasekv.Status
 	IsError    bool
+}
+
+// buildCouchbaseStatement builds a Redis-style db.query.text for a KV request
+// packet: "OP key [EXTRAS...] [value]". Returns "" if the key is empty.
+//
+// Value is appended only when non-empty, valid UTF-8, and not snappy-compressed.
+// Extras are rendered per-opcode: SET-family shows TTL (if non-zero, flags are
+// always skipped); INCR/DECR shows DELTA always and TTL if non-zero (INITIAL is
+// skipped); TOUCH/GAT shows TTL.
+func buildCouchbaseStatement(pkt couchbasekv.Packet) string {
+	op := pkt.Header().Opcode()
+	key := pkt.KeyString()
+	if key == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString(op.String())
+	b.WriteByte(' ')
+	b.WriteString(key)
+
+	extras := pkt.Extras()
+
+	switch op {
+	case couchbasekv.OpcodeSet, couchbasekv.OpcodeAdd, couchbasekv.OpcodeReplace,
+		couchbasekv.OpcodeSetQ, couchbasekv.OpcodeAddQ, couchbasekv.OpcodeReplaceQ:
+		if len(extras) >= 8 {
+			if ttl := binary.BigEndian.Uint32(extras[4:8]); ttl != 0 {
+				fmt.Fprintf(&b, " TTL=%d", ttl)
+			}
+		}
+		if val := couchbaseValueForStatement(pkt); val != "" {
+			b.WriteByte(' ')
+			b.WriteString(val)
+		}
+	case couchbasekv.OpcodeAppend, couchbasekv.OpcodePrepend,
+		couchbasekv.OpcodeAppendQ, couchbasekv.OpcodePrependQ:
+		if val := couchbaseValueForStatement(pkt); val != "" {
+			b.WriteByte(' ')
+			b.WriteString(val)
+		}
+	case couchbasekv.OpcodeIncrement, couchbasekv.OpcodeDecrement,
+		couchbasekv.OpcodeIncrementQ, couchbasekv.OpcodeDecrementQ:
+		if len(extras) >= 20 {
+			delta := binary.BigEndian.Uint64(extras[0:8])
+			ttl := binary.BigEndian.Uint32(extras[16:20])
+			fmt.Fprintf(&b, " DELTA=%d", delta)
+			if ttl != 0 {
+				fmt.Fprintf(&b, " TTL=%d", ttl)
+			}
+		}
+	case couchbasekv.OpcodeTouch, couchbasekv.OpcodeGAT, couchbasekv.OpcodeGATQ:
+		if len(extras) >= 4 {
+			ttl := binary.BigEndian.Uint32(extras[0:4])
+			fmt.Fprintf(&b, " TTL=%d", ttl)
+		}
+	}
+
+	return b.String()
+}
+
+// couchbaseValueForStatement returns the packet's value rendered for inclusion
+// in a db.query.text statement, or "" if it should be omitted.
+// Values are omitted when snappy-compressed or not valid UTF-8. Truncated
+// values are returned as-is without a marker.
+func couchbaseValueForStatement(pkt couchbasekv.Packet) string {
+	if pkt.Header().DataType().HasSnappy() {
+		return ""
+	}
+	val := pkt.Value()
+	if len(val) == 0 {
+		return ""
+	}
+	if !utf8.Valid(val) {
+		return ""
+	}
+	return string(val)
 }
 
 // ProcessPossibleCouchbaseEvent attempts to parse the event as a Couchbase memcached binary protocol event.
@@ -152,6 +233,7 @@ func processCouchbaseEvent(connInfo BpfConnectionInfoT, requestBuf []byte, respo
 		info := &CouchbaseInfo{
 			Operation: reqPacket.Header().Opcode().String(),
 			Key:       reqPacket.KeyString(),
+			Statement: buildCouchbaseStatement(reqPacket),
 		}
 
 		// Get bucket info from cache
@@ -233,5 +315,6 @@ func TCPToCouchbaseToSpan(trace *TCPRequestInfo, data *CouchbaseInfo) request.Sp
 		},
 		DBError:     dbError,
 		DBNamespace: dbNamespace,
+		Statement:   data.Statement,
 	}
 }

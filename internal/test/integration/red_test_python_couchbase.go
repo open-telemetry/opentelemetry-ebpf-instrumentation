@@ -127,8 +127,45 @@ func testREDMetricsPythonCouchbaseOnly(t *testing.T) {
 		t.Run(testCase.Route, func(t *testing.T) {
 			waitForCouchbaseTestComponents(t, testCase.Route, "/"+testCase.Subpath)
 			testREDMetricsForPythonCouchbaseLibrary(t, testCase)
+			// Verify db.query.text is emitted for KV operations. Only GET and
+			// DELETE are checked — their format is deterministic ("OP key") and
+			// doesn't depend on the Python SDK's JSON serialization of the
+			// document body. SET/REPLACE would embed a JSON value whose exact
+			// bytes vary by SDK version.
+			assertCouchbaseDBQueryText(t, testCase.Comm, "GET test-scope.test-collection", "GET user::1")
+			assertCouchbaseDBQueryText(t, testCase.Comm, "DELETE test-scope.test-collection", "DELETE user::1")
 		})
 	}
+}
+
+// assertCouchbaseDBQueryText fetches traces from Jaeger for the given
+// operation name and verifies at least one span has db.query.text == want.
+func assertCouchbaseDBQueryText(t *testing.T, comm, operation, want string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(operation))
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		var found bool
+		for _, tr := range tq.Data {
+			for _, sp := range tr.Spans {
+				tag, ok := jaeger.FindIn(sp.Tags, "db.query.text")
+				if !ok {
+					continue
+				}
+				if tag.Value == want {
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		assert.True(ct, found, "no span with db.query.text=%q found for operation %q", want, operation)
+	}, testTimeout, time.Second)
 }
 
 func testREDMetricsPythonCouchbaseError(t *testing.T) {

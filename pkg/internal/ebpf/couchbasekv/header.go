@@ -45,6 +45,10 @@ func (h Header) KeyLen() uint16 {
 
 func (h Header) ExtrasLen() uint8 { return h[4] }
 
+// DataType returns the data type bitfield describing the value format
+// (raw/JSON/snappy/xattr). Only meaningful on value-carrying packets.
+func (h Header) DataType() DataType { return DataType(h[5]) }
+
 // Status returns bytes 6-7 as status code of the response; returns 0 for requests.
 func (h Header) Status() Status {
 	if h.IsResponse() {
@@ -149,6 +153,18 @@ func ParsePackets(segment []byte) iter.Seq2[Packet, error] {
 
 func (p Packet) Header() Header {
 	return Header(p[:HeaderLen])
+}
+
+// Extras returns the extras bytes (view into original buffer).
+// The interpretation is opcode-specific (e.g. SET: 4B flags + 4B TTL;
+// INCR/DECR: 8B delta + 8B initial + 4B TTL; TOUCH/GAT: 4B TTL).
+func (p Packet) Extras() []byte {
+	start := p.framingExtrasEnd()
+	end := p.extrasEnd()
+	if start >= end {
+		return nil
+	}
+	return p[start:end]
 }
 
 // Key returns the key bytes (view into original buffer).
