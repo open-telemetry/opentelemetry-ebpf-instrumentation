@@ -14,6 +14,7 @@ import (
 const (
 	maxFlakyTestsShown     = 20
 	maxRecentFailuresShown = 30
+	maxSnippetDisplay      = 600
 )
 
 func writeReport(w io.Writer, results []TestResult, repo string) error {
@@ -44,6 +45,7 @@ func writeReport(w io.Writer, results []TestResult, repo string) error {
 
 	writeWorkflowTable(p, workflows)
 	flakyTests := writeFlakyTestsTable(p, tests)
+	writeErrorSummaryTable(p, flakyTests)
 	writeFingerprintTable(p, fingerprints)
 	writeRecentFailuresTable(p, results, repo)
 	writeLegend(p)
@@ -90,10 +92,13 @@ func writeFlakyTestsTable(p func(string, ...any), tests map[string]*testStats) [
 
 	p("## Top Flaky Tests")
 	p("")
-	p("Tests with failures or flaky passes, sorted by unreliability.")
+	p("Tests that failed or required retries to pass, sorted by failure rate.")
 	p("")
-	p("| Workflow | Test | Runs | Failed | Flaky | Fail %% | Primary error |")
-	p("|---------|------|------|--------|-------|--------|--------------|")
+	p("- **Failures**: test failed and never passed (broken)")
+	p("- **Retries**: test failed initially but passed on rerun (flaky)")
+	p("")
+	p("| Workflow | Test | Runs | Failures | Retries | Failure rate | Primary error |")
+	p("|---------|------|------|----------|---------|-------------|--------------|")
 
 	limit := maxFlakyTestsShown
 	if len(flaky) < limit {
@@ -107,6 +112,52 @@ func writeFlakyTestsTable(p func(string, ...any), tests map[string]*testStats) [
 	}
 	p("")
 	return flaky
+}
+
+func writeErrorSummaryTable(p func(string, ...any), flaky []*testStats) {
+	if len(flaky) == 0 {
+		return
+	}
+
+	// Aggregate flaky tests by primary error fingerprint.
+	type errorGroup struct {
+		fingerprint string
+		tests       []string
+		totalFails  int
+	}
+	groups := map[string]*errorGroup{}
+	for _, ts := range flaky {
+		fp := primaryFingerprint(ts.fingerprints)
+		g, ok := groups[fp]
+		if !ok {
+			g = &errorGroup{fingerprint: fp}
+			groups[fp] = g
+		}
+		g.tests = append(g.tests, ts.name)
+		g.totalFails += ts.failed + ts.flakyPassed
+	}
+
+	var sorted []*errorGroup
+	for _, g := range groups {
+		sort.Strings(g.tests)
+		sorted = append(sorted, g)
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].totalFails > sorted[j].totalFails
+	})
+
+	p("## Failures by Error Type")
+	p("")
+	p("| Error | Total failures | Affected tests |")
+	p("|-------|---------------|----------------|")
+	for _, g := range sorted {
+		testList := strings.Join(g.tests, ", ")
+		if len(testList) > 150 {
+			testList = testList[:147] + "..."
+		}
+		p("| %s | %d | %d (%s) |", g.fingerprint, g.totalFails, len(g.tests), testList)
+	}
+	p("")
 }
 
 func writeFingerprintTable(p func(string, ...any), fingerprints []fingerprintStats) {
@@ -127,8 +178,8 @@ func writeFingerprintTable(p func(string, ...any), fingerprints []fingerprintSta
 			testList = testList[:97] + "..."
 		}
 		example := fp.example
-		if len(example) > 200 {
-			example = example[:197] + "..."
+		if len(example) > maxSnippetDisplay {
+			example = example[:maxSnippetDisplay-3] + "..."
 		}
 		example = strings.ReplaceAll(example, "|", "\\|")
 		example = strings.ReplaceAll(example, "\n", " ")
@@ -144,12 +195,7 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 		if r.Outcome != "failed" && r.Outcome != "flaky-passed" {
 			continue
 		}
-		date := r.CreatedAt
-		if len(date) >= 10 {
-			date = date[:10]
-		}
 		failures = append(failures, failureEvent{
-			date:        date,
 			runID:       r.RunID,
 			workflow:    r.Workflow,
 			test:        r.Test,
@@ -170,8 +216,8 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 
 	p("## Recent Failures")
 	p("")
-	p("| Date | Run | Workflow | Test | Fingerprint | Error |")
-	p("|------|-----|---------|------|-------------|-------|")
+	p("| Run | Workflow | Test | Fingerprint | Error |")
+	p("|-----|---------|------|-------------|-------|")
 
 	limit := maxRecentFailuresShown
 	if len(failures) < limit {
@@ -179,8 +225,8 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 	}
 	for _, rf := range failures[:limit] {
 		snippet := rf.snippet
-		if len(snippet) > 200 {
-			snippet = snippet[:197] + "..."
+		if len(snippet) > maxSnippetDisplay {
+			snippet = snippet[:maxSnippetDisplay-3] + "..."
 		}
 		snippet = strings.ReplaceAll(snippet, "|", "\\|")
 		snippet = strings.ReplaceAll(snippet, "\n", " ")
@@ -188,29 +234,30 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 		if fp == "" {
 			fp = "unknown"
 		}
-		p("| %s | [%s](https://github.com/%s/actions/runs/%s) | %s | `%s` | `%s` | %s |",
-			rf.date, rf.runID, repo, rf.runID, rf.workflow, rf.test, fp, snippet)
+		p("| [%s](https://github.com/%s/actions/runs/%s) | %s | `%s` | `%s` | %s |",
+			rf.runID, repo, rf.runID, rf.workflow, rf.test, fp, snippet)
 	}
 	p("")
 }
 
 func writeLegend(p func(string, ...any)) {
+	// Sorted alphabetically by pattern name.
 	p("## Fingerprint Legend")
 	p("")
 	p("| Pattern | Description |")
 	p("|---------|-------------|")
-	p("| `port-conflict` | Docker port already allocated or address in use — container startup collision |")
-	p("| `data-race` | Go race detector found a data race (`-race` flag) |")
-	p("| `timeout` | Test or context deadline exceeded |")
-	p("| `disk-full` | Runner ran out of disk space |")
-	p("| `connection-refused` | Service not reachable — likely not yet started or crashed |")
-	p("| `docker-error` | Docker daemon error — image pull, OCI runtime, or daemon connectivity |")
-	p("| `panic` | Unrecovered Go panic |")
-	p("| `oom-killed` | Process killed by signal — typically out of memory |")
 	p("| `cancelled` | Run cancelled or interrupted — typically a job-level timeout |")
+	p("| `connection-refused` | Service not reachable — likely not yet started or crashed |")
+	p("| `data-race` | Go race detector found a data race (`-race` flag) |")
+	p("| `disk-full` | Runner ran out of disk space |")
+	p("| `docker-error` | Docker daemon error — image pull, OCI runtime, or daemon connectivity |")
 	p("| `exit-error` | Non-zero exit code with no more specific pattern matched |")
-	p("| `unknown-XXXXXXXX` | Unrecognized error — hash groups identical unknown failures together |")
+	p("| `oom-killed` | Process killed by signal — typically out of memory |")
+	p("| `panic` | Unrecovered Go panic |")
+	p("| `port-conflict` | Docker port already allocated or address in use — container startup collision |")
+	p("| `timeout` | Test or context deadline exceeded |")
 	p("| `unknown` | No error output captured |")
+	p("| `unknown-XXXXXXXX` | Unrecognized error — hash groups identical unknown failures together |")
 	p("")
 }
 
@@ -227,7 +274,6 @@ type testStats struct {
 }
 
 type failureEvent struct {
-	date        string
 	runID       string
 	workflow    string
 	test        string
@@ -425,9 +471,6 @@ func primaryWorkflow(wfs map[string]int) string {
 			best = wf
 			bestCount = count
 		}
-	}
-	if len(wfs) > 1 {
-		return best + fmt.Sprintf(" (+%d)", len(wfs)-1)
 	}
 	return best
 }
