@@ -1700,7 +1700,6 @@ func testGoGenericHTTPTraces(t *testing.T) {
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "producer"},
 			)
 			assert.Empty(ct, sd, sd.String())
-
 		}, testTimeout, 100*time.Millisecond)
 	})
 
@@ -1736,7 +1735,6 @@ func testGoGenericHTTPTraces(t *testing.T) {
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
 			)
 			assert.Empty(ct, sd, sd.String())
-
 		}, testTimeout, 100*time.Millisecond)
 	})
 
@@ -1772,7 +1770,6 @@ func testGoGenericHTTPTraces(t *testing.T) {
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
 			)
 			assert.Empty(ct, sd, sd.String())
-
 		}, testTimeout, 100*time.Millisecond)
 	})
 }
