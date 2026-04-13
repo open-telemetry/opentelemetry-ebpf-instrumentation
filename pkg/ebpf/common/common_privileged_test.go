@@ -28,6 +28,10 @@ func TestLockdownParsing_Privileged(t *testing.T) {
 	os.Remove(noFile.Name())
 
 	// Setup for testing file that doesn't exist
+	oldLockDown := lockdownPath
+	t.Cleanup(func() {
+		lockdownPath = oldLockDown
+	})
 	lockdownPath = notPath
 	assert.Equal(t, KernelLockdownNone, KernelLockdownMode())
 

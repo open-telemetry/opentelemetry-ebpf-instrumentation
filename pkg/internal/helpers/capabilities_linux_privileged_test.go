@@ -65,5 +65,10 @@ func TestGetSetCurrentProcCaps(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
+	resetProcCapabilities()
+	if errResetCaps != nil {
+		_, _ = fmt.Fprintln(os.Stderr, errResetCaps.Error())
+		os.Exit(1)
+	}
 	os.Exit(m.Run())
 }

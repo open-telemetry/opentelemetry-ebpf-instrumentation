@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build privileged_tests
+//go:build linux && privileged_tests
 
 package tcmanager
 
@@ -29,20 +29,21 @@ func TestTCXManagerAddRemove(t *testing.T) {
 	test := func(progName string, prog *ebpf.Program, attachType AttachmentType) {
 		tcx.AddProgram(progName, prog, attachType)
 
-		// wait for links to come up
-		time.Sleep(5 * time.Second)
-
-		linked, err := isBpfProgLinked(progName)
-		require.NoError(t, err)
-		assert.True(t, linked)
+		assert.Eventually(t, func() bool {
+			linked, err := isBpfProgLinked(progName)
+			require.NoError(t, err)
+			return linked
+		}, 5*time.Second, 100*time.Millisecond)
 
 		tcx.RemoveProgram(progName)
 
 		prog.Close()
 
-		linked, err = isBpfProgLinked(progName)
-		require.NoError(t, err)
-		assert.False(t, linked)
+		assert.Eventually(t, func() bool {
+			linked, err := isBpfProgLinked(progName)
+			require.NoError(t, err)
+			return !linked
+		}, 5*time.Second, 100*time.Millisecond)
 
 		loaded, err := isBpfProgLoaded(progName)
 		require.NoError(t, err)
@@ -71,21 +72,20 @@ func TestNetlinkManagerAddRemove(t *testing.T) {
 		tc.AddProgram(progName, prog, attachType)
 
 		// wait for links to come up
-		time.Sleep(5 * time.Second)
-
-		linked, err := isNetlinkFilterPresent(progName, attachType, netManager)
-		require.NoError(t, err)
-		assert.True(t, linked)
-
+		assert.Eventually(t, func() bool {
+			linked, err := isNetlinkFilterPresent(progName, attachType, netManager)
+			require.NoError(t, err)
+			return linked
+		}, 5*time.Second, 100*time.Millisecond)
 		tc.RemoveProgram(progName)
 
 		prog.Close()
 
-		time.Sleep(5 * time.Second)
-
-		linked, err = isNetlinkFilterPresent(progName, attachType, netManager)
-		require.NoError(t, err)
-		assert.False(t, linked)
+		assert.Eventually(t, func() bool {
+			linked, err := isNetlinkFilterPresent(progName, attachType, netManager)
+			require.NoError(t, err)
+			return !linked
+		}, 5*time.Second, 100*time.Millisecond)
 
 		loaded, err := isBpfProgLoaded(progName)
 		require.NoError(t, err)

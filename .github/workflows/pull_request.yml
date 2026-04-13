@@ -282,7 +282,7 @@ jobs:
 
       - name: Run BPF verifier tests (host kernel)
         if: ${{ !matrix.use_vm }}
-        run: sudo env PATH=$PATH go test -v -count=1 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/... coverprofile $(TEST_OUTPUT)/cover.all.txt
+        run: sudo env PATH=$PATH go test -v -count=1 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
       - name: Cleanup BPF verifier tests coverage (host kernel)
         if: ${{ !matrix.use_vm }}
