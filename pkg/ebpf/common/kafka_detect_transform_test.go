@@ -262,3 +262,39 @@ func TestProcessKafkaRequestProduceV13WithTopicCache(t *testing.T) {
 		},
 	}, info)
 }
+
+// fetchRequest is a valid Kafka Fetch v11 request captured from a real client.
+var fetchRequest = []byte{
+	0, 0, 0, 94, 0, 1, 0, 11, 0, 0, 0, 224, 0, 6, 115, 97, 114, 97, 109, 97,
+	255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 6, 64, 0, 0, 0, 0, 0, 0, 0,
+	255, 255, 255, 255, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110,
+	116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0,
+}
+
+// TestProcessPossibleKafkaEvent_ReversedCapture verifies that when the Kafka
+// request bytes arrive in the response buffer (reversed capture), only the
+// direction flag is flipped and the connection addresses (S/D) are unchanged.
+func TestProcessPossibleKafkaEvent_ReversedCapture(t *testing.T) {
+	cache, _ := simplelru.NewLRU[kafkaparser.UUID, string](1000, nil)
+
+	event := &TCPRequestInfo{
+		Direction: directionSend,
+	}
+	// S=client, D=server — must survive the direction flip unchanged.
+	event.ConnInfo.S_port = 54321
+	event.ConnInfo.D_port = 9092
+
+	// Pass the request bytes in rpkt (response buffer) to simulate reversed capture.
+	pkt := largebuf.NewLargeBufferFrom(nil)
+	rpkt := largebuf.NewLargeBufferFrom(fetchRequest)
+
+	info, _, err := ProcessPossibleKafkaEvent(event, pkt, rpkt, cache)
+	require.NoError(t, err)
+	require.NotNil(t, info)
+
+	// Direction must flip, addresses must not change.
+	assert.Equal(t, uint8(directionRecv), event.Direction, "direction should flip to recv")
+	assert.Equal(t, uint16(54321), event.ConnInfo.S_port, "S_port must not change")
+	assert.Equal(t, uint16(9092), event.ConnInfo.D_port, "D_port must not change")
+}

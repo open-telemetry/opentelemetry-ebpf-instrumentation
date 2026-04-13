@@ -54,7 +54,16 @@ func ProcessPossibleKafkaEvent(event *TCPRequestInfo, pkt *largebuf.LargeBuffer,
 		// must be reversed and that's how we captured it.
 		k, ok, err = ProcessKafkaEvent(rpkt, pkt, kafkaTopicUUIDToName)
 		if err == nil {
-			reverseTCPEvent(event)
+			// Only flip the direction flag — do NOT swap S/D addresses.
+			// conn_info is normalized so that D is the server endpoint (server port
+			// in D_port) and S is the client. Swapping addresses would break HostPort.
+			// The direction flip is enough to produce the correct EventTypeKafkaClient
+			// in TCPToKafkaToSpan.
+			if event.Direction == directionRecv {
+				event.Direction = directionSend
+			} else {
+				event.Direction = directionRecv
+			}
 		}
 	}
 	return k, ok, err
