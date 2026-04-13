@@ -146,9 +146,6 @@ static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
             large_buf->type = EVENT_TCP_LARGE_BUFFER;
             large_buf->packet_type = packet_type;
             large_buf->action = action;
-            if (packet_type == PACKET_TYPE_RESPONSE && req->resp_len > 0) {
-                large_buf->action = k_large_buf_action_append;
-            }
             large_buf->direction = direction;
             large_buf->conn_info = req->conn_info;
             large_buf->tp = req->tp;
