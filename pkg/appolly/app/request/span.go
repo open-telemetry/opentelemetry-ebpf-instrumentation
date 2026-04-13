@@ -94,7 +94,14 @@ const (
 	HTTPSubtypeSQLPP         = 5 // http + sql++ (couchbase, etc.)
 	HTTPSubtypeOpenAI        = 6 // http + OpenAI
 	HTTPSubtypeAnthropic     = 7 // http + Anthropic
+	HTTPSubtypeGemini        = 8 // http + Google AI Studio (Gemini)
 )
+
+func IsGenAISubtype(subtype int) bool {
+	return subtype == HTTPSubtypeOpenAI ||
+		subtype == HTTPSubtypeAnthropic ||
+		subtype == HTTPSubtypeGemini
+}
 
 //nolint:cyclop
 func (t EventType) String() string {
@@ -241,6 +248,7 @@ type AWSSQS struct {
 type GenAI struct {
 	OpenAI    *VendorOpenAI
 	Anthropic *VendorAnthropic
+	Gemini    *VendorGemini
 }
 
 type OpenAIUsage struct {
@@ -368,6 +376,92 @@ type AnthropicUsage struct {
 type AnthropicError struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
+}
+
+// Google AI Studio (Gemini) types
+
+type VendorGemini struct {
+	Input  GeminiRequest
+	Output GeminiResponse
+	Model  string
+}
+
+type GeminiRequest struct {
+	Contents          json.RawMessage `json:"contents"`
+	SystemInstruction *GeminiContent  `json:"systemInstruction,omitempty"`
+	Tools             json.RawMessage `json:"tools,omitempty"`
+	GenerationConfig  *GeminiGenCfg   `json:"generationConfig,omitempty"`
+}
+
+type GeminiContent struct {
+	Parts json.RawMessage `json:"parts"`
+	Role  string          `json:"role"`
+}
+
+type GeminiGenCfg struct {
+	Temperature      float64  `json:"temperature"`
+	TopP             float64  `json:"topP"`
+	TopK             int      `json:"topK"`
+	MaxOutputTokens  int      `json:"maxOutputTokens"`
+	FrequencyPenalty float64  `json:"frequencyPenalty"`
+	PresencePenalty  float64  `json:"presencePenalty"`
+	StopSequences    []string `json:"stopSequences,omitempty"`
+	Seed             *int     `json:"seed,omitempty"`
+	CandidateCount   int      `json:"candidateCount"`
+}
+
+type GeminiResponse struct {
+	Candidates    []GeminiCandidate `json:"candidates"`
+	UsageMetadata GeminiUsage       `json:"usageMetadata"`
+	ModelVersion  string            `json:"modelVersion"`
+	ResponseID    string            `json:"responseId"`
+	Error         *GeminiError      `json:"error,omitempty"`
+}
+
+type GeminiCandidate struct {
+	Content       *GeminiContent  `json:"content"`
+	FinishReason  string          `json:"finishReason"`
+	SafetyRatings json.RawMessage `json:"safetyRatings,omitempty"`
+}
+
+type GeminiUsage struct {
+	PromptTokenCount     int `json:"promptTokenCount"`
+	CandidatesTokenCount int `json:"candidatesTokenCount"`
+	TotalTokenCount      int `json:"totalTokenCount"`
+}
+
+type GeminiError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Status  string `json:"status"`
+}
+
+func (g *VendorGemini) GetFinishReasons() []string {
+	var reasons []string
+	for _, c := range g.Output.Candidates {
+		if c.FinishReason != "" {
+			reasons = append(reasons, c.FinishReason)
+		}
+	}
+	return reasons
+}
+
+func (g *VendorGemini) GetOutput() string {
+	if len(g.Output.Candidates) > 0 && g.Output.Candidates[0].Content != nil {
+		return string(g.Output.Candidates[0].Content.Parts)
+	}
+	return ""
+}
+
+func (g *VendorGemini) GetInput() string {
+	return string(g.Input.Contents)
+}
+
+func (g *VendorGemini) GetSystemInstruction() string {
+	if g.Input.SystemInstruction != nil {
+		return string(g.Input.SystemInstruction.Parts)
+	}
+	return ""
 }
 
 // Span contains the information being submitted by the following nodes in the graph.
@@ -788,6 +882,9 @@ func HTTPSpanStatusCode(span *Span) string {
 				if span.GenAI.Anthropic != nil && span.GenAI.Anthropic.Output.Error != nil && span.GenAI.Anthropic.Output.Error.Type != "" {
 					return StatusCodeError
 				}
+				if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
+					return StatusCodeError
+				}
 			}
 
 			return StatusCodeUnset
@@ -970,6 +1067,14 @@ func (s *Span) TraceName() string {
 					return name
 				}
 			}
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeGemini && s.GenAI != nil && s.GenAI.Gemini != nil {
+			model := s.GenAI.Gemini.Model
+			if model != "" {
+				return "generate_content " + model
+			}
+			return "generate_content"
 		}
 
 		name := s.Method
@@ -1197,6 +1302,10 @@ func (s *Span) GenAIInputTokens() int {
 		return s.GenAI.Anthropic.Output.Usage.InputTokens
 	}
 
+	if s.GenAI.Gemini != nil {
+		return s.GenAI.Gemini.Output.UsageMetadata.PromptTokenCount
+	}
+
 	return 0
 }
 
@@ -1213,6 +1322,10 @@ func (s *Span) GenAIOutputTokens() int {
 		return s.GenAI.Anthropic.Output.Usage.OutputTokens
 	}
 
+	if s.GenAI.Gemini != nil {
+		return s.GenAI.Gemini.Output.UsageMetadata.CandidatesTokenCount
+	}
+
 	return 0
 }
 
@@ -1225,6 +1338,9 @@ func (s *Span) GenAIOperationName() string {
 	}
 	if s.GenAI.Anthropic != nil {
 		return s.GenAI.Anthropic.Output.Type
+	}
+	if s.GenAI.Gemini != nil {
+		return "generate_content"
 	}
 	return ""
 }
@@ -1239,6 +1355,9 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Anthropic != nil {
 		return semconv.GenAIProviderNameAnthropic.Value.AsString()
 	}
+	if s.GenAI.Gemini != nil {
+		return semconv.GenAIProviderNameGCPGemini.Value.AsString()
+	}
 	return ""
 }
 
@@ -1252,6 +1371,9 @@ func (s *Span) GenAIRequestModel() string {
 	if s.GenAI.Anthropic != nil {
 		return s.GenAI.Anthropic.Input.Model
 	}
+	if s.GenAI.Gemini != nil {
+		return s.GenAI.Gemini.Model
+	}
 	return ""
 }
 
@@ -1264,6 +1386,12 @@ func (s *Span) GenAIResponseModel() string {
 	}
 	if s.GenAI.Anthropic != nil {
 		return s.GenAI.Anthropic.Output.Model
+	}
+	if s.GenAI.Gemini != nil {
+		if s.GenAI.Gemini.Output.ModelVersion != "" {
+			return s.GenAI.Gemini.Output.ModelVersion
+		}
+		return s.GenAI.Gemini.Model
 	}
 	return ""
 }

@@ -87,6 +87,7 @@ __check_defined = \
 
 # Tools module where tool versions are defined.
 TOOLS_MOD_DIR := ./internal/tools
+TOOLS_MODFILE := -modfile=$(CURDIR)/internal/tools/go.mod
 
 # Tools directory for built tool binaries.
 TOOLS = $(CURDIR)/.tools
@@ -100,15 +101,6 @@ $(TOOLS)/%: $(TOOLS_MOD_DIR)/go.mod | $(TOOLS)
 BPF2GO ?= $(TOOLS)/bpf2go
 $(TOOLS)/bpf2go: PACKAGE=github.com/cilium/ebpf/cmd/bpf2go
 
-GOLANGCI_LINT = $(TOOLS)/golangci-lint
-$(TOOLS)/golangci-lint: PACKAGE=github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-
-GO_OFFSETS_TRACKER ?= $(TOOLS)/go-offsets-tracker
-$(TOOLS)/go-offsets-tracker: PACKAGE=github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker
-
-GINKGO ?= $(TOOLS)/ginkgo
-$(TOOLS)/ginkgo: PACKAGE=github.com/onsi/ginkgo/v2/ginkgo
-
 # Required for k8s-cache unit tests
 ENVTEST_K8S_VERSION ?= 1.30.0
 ENVTEST ?= $(TOOLS)/setup-envtest
@@ -117,20 +109,8 @@ $(TOOLS)/setup-envtest: PACKAGE=sigs.k8s.io/controller-runtime/tools/setup-envte
 KIND ?= $(TOOLS)/kind
 $(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
 
-GOLICENSES = $(TOOLS)/go-licenses
-$(TOOLS)/go-licenses: PACKAGE=github.com/google/go-licenses/v2
-
-GOTESTSUM = $(TOOLS)/gotestsum
-$(TOOLS)/gotestsum: PACKAGE=gotest.tools/gotestsum
-
-MULTIMOD = $(TOOLS)/multimod
-$(TOOLS)/multimod: PACKAGE=go.opentelemetry.io/build-tools/multimod
-
-PORTO = $(TOOLS)/porto
-$(TOOLS)/porto: PACKAGE=github.com/jcchavezs/porto/cmd/porto
-
 .PHONY: tools
-tools: $(BPF2GO) $(GOLANGCI_LINT) $(GO_OFFSETS_TRACKER) $(GINKGO) $(ENVTEST) $(KIND) $(GOLICENSES) $(GOTESTSUM) $(PORTO)
+tools: $(BPF2GO) $(ENVTEST) $(KIND)
 
 ### Development Tools (end) #################################################
 
@@ -154,9 +134,9 @@ prereqs: install-hooks
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: fmt
-fmt: $(GOLANGCI_LINT)
+fmt:
 	@echo "### Formatting code and fixing imports"
-	$(GOLANGCI_LINT) fmt
+	go tool $(TOOLS_MODFILE) golangci-lint fmt
 
 .PHONY: clang-tidy
 clang-tidy:
@@ -171,9 +151,9 @@ lint-fix: LINT_EXTRA_ARGS = --fix
 lint-fix: lint-run
 
 .PHONY: lint-run
-lint-run: $(GOLANGCI_LINT) vanity-import-check lint-dependency-policy
+lint-run: vanity-import-check lint-dependency-policy
 	@echo "### Linting code"
-	$(GOLANGCI_LINT) run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
 .PHONY: lint-dependency-policy
 lint-dependency-policy:
@@ -197,9 +177,9 @@ lint-markdown-fix:
 	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --fix "{*.md,!(NOTICES)/**/*.md}"
 
 .PHONY: update-offsets
-update-offsets: $(GO_OFFSETS_TRACKER)
+update-offsets:
 	@echo "### Updating pkg/internal/goexec/offsets.json"
-	$(GO_OFFSETS_TRACKER) -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
+	go tool $(TOOLS_MODFILE) go-offsets-tracker -i configs/offsets/tracker_input.json pkg/internal/goexec/offsets.json
 
 ### eBPF Code Generation ###########################################################
 #
@@ -481,8 +461,7 @@ run-integration-test-vm:
 			-test.run="^($(TEST_PATTERN))\$$"; \
 	else \
 		echo "Pre-compiled tests not found, compiling in VM"; \
-		$(MAKE) $(GOTESTSUM); \
-		$(GOTESTSUM) \
+		go tool $(TOOLS_MODFILE) gotestsum \
 			--rerun-fails=2 --rerun-fails-max-failures=2 \
 			-ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
 			-p $$TEST_PARALLEL \
@@ -498,17 +477,17 @@ run-integration-test-arm:
 	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
 
 .PHONY: unit-test-tools
-unit-test-tools: $(GOTESTSUM) $(ENVTEST)
+unit-test-tools: $(ENVTEST)
 
 .PHONY: unit-test-matrix-json
-unit-test-matrix-json: $(GOTESTSUM)
-	@go list ./... | $(GOTESTSUM) tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
+unit-test-matrix-json:
+	@go list ./... | go tool $(TOOLS_MODFILE) gotestsum tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
 
 .PHONY: run-unit-test-shard
-run-unit-test-shard: $(GOTESTSUM) $(ENVTEST)
+run-unit-test-shard: $(ENVTEST)
 	@echo "### Running unit test shard $(SHARD_ID)"
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(GOTESTSUM) \
+	go tool $(TOOLS_MODFILE) gotestsum \
 		--jsonfile=$(TEST_OUTPUT)/unit-test-shard-$(SHARD_ID).log \
 		-- -short -race -a -coverpkg=./... \
 		-coverprofile $(TEST_OUTPUT)/cover.all.txt \
@@ -562,43 +541,43 @@ itest-coverage-data:
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt || true
 
 .PHONY: oats-prereq
-oats-prereq: $(GINKGO) docker-generate
+oats-prereq: docker-generate
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: oats-test-sql
 oats-test-sql: oats-prereq
 	mkdir -p internal/test/oats/sql/$(TEST_OUTPUT)/run
-	cd internal/test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-redis
 oats-test-redis: oats-prereq
 	mkdir -p internal/test/oats/redis/$(TEST_OUTPUT)/run
-	cd internal/test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-kafka
 oats-test-kafka: oats-prereq
 	mkdir -p internal/test/oats/kafka/$(TEST_OUTPUT)/run
-	cd internal/test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-http
 oats-test-http: oats-prereq
 	mkdir -p internal/test/oats/http/$(TEST_OUTPUT)/run
-	cd internal/test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-mongo
 oats-test-mongo: oats-prereq
 	mkdir -p internal/test/oats/mongo/$(TEST_OUTPUT)/run
-	cd internal/test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-memcached
 oats-test-memcached: oats-prereq
 	mkdir -p internal/test/oats/memcached/$(TEST_OUTPUT)/run
-	cd internal/test/oats/memcached && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/memcached && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-ai
 oats-test-ai: oats-prereq
 	mkdir -p internal/test/oats/ai/$(TEST_OUTPUT)/run
-	cd internal/test/oats/ai && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/ai && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test
 oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai
@@ -606,7 +585,7 @@ oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-te
 
 .PHONY: oats-test-debug
 oats-test-debug: oats-prereq
-	cd internal/test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h $(GINKGO) -v -r
+	cd internal/test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: license-header-check
 license-header-check:
@@ -735,8 +714,8 @@ java-notices-update:
 	@cp pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.csv $(NOTICES_DIR)/java/agent/
 
 .PHONY: go-notices-update
-go-notices-update: $(GOLICENSES)
-	@GOOS=$(GOOS) GOARCH=amd64 $(GOLICENSES) save ./... --save_path=$(NOTICES_DIR) --force
+go-notices-update:
+	@GOOS=$(GOOS) GOARCH=amd64 go tool $(TOOLS_MODFILE) go-licenses save ./... --save_path=$(NOTICES_DIR) --force
 
 PYTHON_REQUIREMENTS_INS ?= $(shell find ./internal/test/integration/components -type f -name 'requirements.in' | sort)
 PYTHON_REQUIREMENTS_DIRS := $(sort $(dir $(PYTHON_REQUIREMENTS_INS)))
@@ -822,19 +801,19 @@ check-go-mod: go-mod-tidy
 	fi
 
 .PHONY: verify-mods
-verify-mods: $(MULTIMOD)
-	$(MULTIMOD) verify
+verify-mods:
+	go tool $(TOOLS_MODFILE) multimod verify
 
 .PHONY: prerelease
 prerelease: verify-mods
 	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
-	$(MULTIMOD) prerelease -m ${MODSET}
+	go tool $(TOOLS_MODFILE) multimod prerelease -m ${MODSET}
 
 COMMIT ?= "HEAD"
 .PHONY: add-tags
 add-tags: verify-mods
 	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
-	$(MULTIMOD) tag -m ${MODSET} -c ${COMMIT}
+	go tool $(TOOLS_MODFILE) multimod tag -m ${MODSET} -c ${COMMIT}
 
 .PHONY: check-ebpf-ver-synced
 check-ebpf-ver-synced:
@@ -847,12 +826,12 @@ check-ebpf-ver-synced:
 	fi
 
 .PHONY: vanity-import-check
-vanity-import-check: $(PORTO)
-	$(PORTO) --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
+vanity-import-check:
+	go tool $(TOOLS_MODFILE) porto --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
 
 .PHONY: vanity-import-fix
 vanity-import-fix: $(PORTO)
-	$(PORTO) --include-internal --skip-dirs "^NOTICES$$" -w .
+	go tool $(TOOLS_MODFILE) porto --include-internal --skip-dirs "^NOTICES$$" -w .
 
 .PHONY: regenerate-port-lookup
 regenerate-port-lookup:
