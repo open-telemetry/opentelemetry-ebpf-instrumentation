@@ -14,27 +14,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
-func isGemini(req *http.Request, respHeader http.Header) bool {
-	if req != nil {
-		host := req.Host
-		if host == "" && req.URL != nil {
-			host = req.URL.Host
-		}
-		if strings.Contains(host, "generativelanguage.googleapis.com") ||
-			strings.Contains(host, "aiplatform.googleapis.com") {
-			return true
-		}
-	}
-
-	if val := respHeader.Get("X-Gemini-Service-Tier"); val != "" {
-		return true
-	}
-
-	return false
+func isGemini(respHeader http.Header) bool {
+	return respHeader.Get("X-Gemini-Service-Tier") != ""
 }
 
 func GeminiSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
-	if !isGemini(req, resp.Header) {
+	if !isGemini(resp.Header) {
 		return *baseSpan, false
 	}
 

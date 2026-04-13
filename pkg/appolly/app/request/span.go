@@ -386,10 +386,10 @@ type VendorGemini struct {
 }
 
 type GeminiRequest struct {
-	Contents         json.RawMessage `json:"contents"`
-	SystemInstruct   *GeminiContent  `json:"systemInstruction,omitempty"`
-	Tools            json.RawMessage `json:"tools,omitempty"`
-	GenerationConfig *GeminiGenCfg   `json:"generationConfig,omitempty"`
+	Contents          json.RawMessage `json:"contents"`
+	SystemInstruction *GeminiContent  `json:"systemInstruction,omitempty"`
+	Tools             json.RawMessage `json:"tools,omitempty"`
+	GenerationConfig  *GeminiGenCfg   `json:"generationConfig,omitempty"`
 }
 
 type GeminiContent struct {
@@ -457,8 +457,8 @@ func (g *VendorGemini) GetInput() string {
 }
 
 func (g *VendorGemini) GetSystemInstruction() string {
-	if g.Input.SystemInstruct != nil {
-		return string(g.Input.SystemInstruct.Parts)
+	if g.Input.SystemInstruction != nil {
+		return string(g.Input.SystemInstruction.Parts)
 	}
 	return ""
 }

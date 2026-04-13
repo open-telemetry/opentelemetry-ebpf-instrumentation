@@ -1204,7 +1204,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			Model: "gemini-2.0-flash",
 			Input: request.GeminiRequest{
 				Contents:       []byte(`[{"parts":[{"text":"Explain eBPF"}],"role":"user"}]`),
-				SystemInstruct: &request.GeminiContent{Parts: []byte(`[{"text":"Be concise."}]`), Role: "system"},
+				SystemInstruction: &request.GeminiContent{Parts: []byte(`[{"text":"Be concise."}]`), Role: "system"},
 				Tools:          []byte(`[{"functionDeclarations":[{"name":"get_weather"}]}]`),
 				GenerationConfig: &request.GeminiGenCfg{
 					Temperature:     0.7,
