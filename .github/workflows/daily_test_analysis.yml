@@ -45,5 +45,6 @@ jobs:
 
       - name: Generate test analysis report
         env:
+          GH_TOKEN: ${{ github.token }}
           LOOKBACK_DAYS: ${{ inputs.lookback_days || '5' }}
         run: bash scripts/ci-analysis/collect.sh >> "$GITHUB_STEP_SUMMARY"

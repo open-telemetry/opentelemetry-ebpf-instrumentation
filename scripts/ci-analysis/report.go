@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	maxFlakyTestsShown    = 20
+	maxFlakyTestsShown     = 20
 	maxRecentFailuresShown = 30
 )
 
@@ -42,10 +42,10 @@ func writeReport(w io.Writer, results []TestResult, repo string) error {
 	p("**Runs analyzed:** %d | **Tests tracked:** %d", len(runIDs), len(tests))
 	p("")
 
-	writeWorkflowTable(w, p, workflows)
-	flakyTests := writeFlakyTestsTable(w, p, tests)
-	writeFingerprintTable(w, p, fingerprints)
-	writeRecentFailuresTable(w, p, results, repo)
+	writeWorkflowTable(p, workflows)
+	flakyTests := writeFlakyTestsTable(p, tests)
+	writeFingerprintTable(p, fingerprints)
+	writeRecentFailuresTable(p, results, repo)
 
 	flakyCount := len(flakyTests)
 	p("---")
@@ -55,7 +55,7 @@ func writeReport(w io.Writer, results []TestResult, repo string) error {
 	return nil
 }
 
-func writeWorkflowTable(w io.Writer, p func(string, ...any), workflows []workflowStats) {
+func writeWorkflowTable(p func(string, ...any), workflows []workflowStats) {
 	p("## CI Reliability (main branch)")
 	p("")
 	p("| Workflow | Runs | Passed | Failed | Pass rate |")
@@ -77,7 +77,7 @@ func writeWorkflowTable(w io.Writer, p func(string, ...any), workflows []workflo
 	p("")
 }
 
-func writeFlakyTestsTable(w io.Writer, p func(string, ...any), tests map[string]*testStats) []*testStats {
+func writeFlakyTestsTable(p func(string, ...any), tests map[string]*testStats) []*testStats {
 	flaky := filterFlakyTests(tests)
 	if len(flaky) == 0 {
 		p("## Flaky Tests")
@@ -107,7 +107,7 @@ func writeFlakyTestsTable(w io.Writer, p func(string, ...any), tests map[string]
 	return flaky
 }
 
-func writeFingerprintTable(w io.Writer, p func(string, ...any), fingerprints []fingerprintStats) {
+func writeFingerprintTable(p func(string, ...any), fingerprints []fingerprintStats) {
 	if len(fingerprints) == 0 {
 		return
 	}
@@ -135,7 +135,7 @@ func writeFingerprintTable(w io.Writer, p func(string, ...any), fingerprints []f
 	p("")
 }
 
-func writeRecentFailuresTable(w io.Writer, p func(string, ...any), results []TestResult, repo string) {
+func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo string) {
 	var failures []failureEvent
 	for _, r := range results {
 		if r.Outcome != "failed" && r.Outcome != "flaky-passed" {

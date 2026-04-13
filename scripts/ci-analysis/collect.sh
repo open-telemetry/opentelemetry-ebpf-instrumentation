@@ -64,7 +64,7 @@ for WORKFLOW_NAME in "${ALL_WORKFLOWS[@]}"; do
   # 100 runs per page is enough for a 5-day window per workflow.
   RUNS=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&event=push&status=completed&created=%3E%3D${SINCE}&per_page=100" \
     --jq ".workflow_runs[] | select(.name == \"${WORKFLOW_NAME}\") | {id: .id, name: .name, conclusion: .conclusion, created_at: .created_at, head_sha: .head_sha, run_attempt: .run_attempt}" \
-    2>/dev/null || echo "")
+    2>&1) || { echo "  API error: $RUNS" >&2; RUNS=""; }
 
   if [ -z "$RUNS" ]; then
     echo "  No runs found" >&2
