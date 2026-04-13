@@ -40,16 +40,7 @@ type TracesConfig struct {
 
 	// BatchMaxSize is the maximum number of spans that the batcher will accumulate
 	// before flushing a batch to the sending queue.
-	// It also accepts OTEL_EBPF_OTLP_TRACES_MAX_QUEUE_SIZE for backwards compatibility:
-	// that env var was historically the batch max size despite its misleading name.
-	BatchMaxSize int `yaml:"batch_max_size" env:"OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE,expand" envDefault:"${OTEL_EBPF_OTLP_TRACES_MAX_QUEUE_SIZE}"`
-
-	// DeprecatedMaxQueueSize accepts the legacy `max_queue_size` YAML key for
-	// backwards compatibility. It is copied into BatchMaxSize by
-	// NormalizeQueueConfig with a deprecation warning. Do not read this field
-	// directly; use BatchMaxSize. The env var equivalent is handled
-	// transparently via the envDefault expansion on BatchMaxSize above.
-	DeprecatedMaxQueueSize int `yaml:"max_queue_size" env:"-"`
+	BatchMaxSize int `yaml:"batch_max_size" env:"OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE"`
 
 	// QueueSize is the maximum number of spans that the sending queue will hold
 	// before applying back-pressure. It must be >= BatchMaxSize, otherwise the
@@ -84,11 +75,6 @@ type TracesConfig struct {
 }
 
 func (m *TracesConfig) NormalizeQueueConfig() error {
-	if m.BatchMaxSize == 0 && m.DeprecatedMaxQueueSize > 0 {
-		tlog().Warn("traces.max_queue_size is deprecated, use traces.batch_max_size instead",
-			"value", m.DeprecatedMaxQueueSize)
-		m.BatchMaxSize = m.DeprecatedMaxQueueSize
-	}
 	if m.QueueSize == 0 && m.BatchMaxSize > 0 {
 		// Queue capacity must be at least 2x max batch size to prevent "element size too large"
 		// errors and permanent data loss. We use a 4x multiplier to provide headroom for
@@ -108,8 +94,7 @@ func (m *TracesConfig) NormalizeQueueConfig() error {
 
 func (m TracesConfig) MarshalYAML() (any, error) {
 	omit := map[string]struct{}{
-		"endpoint":       {},
-		"max_queue_size": {},
+		"endpoint": {},
 	}
 	return omitFieldsForYAML(m, omit), nil
 }

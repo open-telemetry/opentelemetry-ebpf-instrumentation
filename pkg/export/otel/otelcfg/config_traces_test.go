@@ -11,7 +11,6 @@ import (
 	"github.com/caarlos0/env/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
@@ -322,25 +321,11 @@ func TestTracesConfig_Disabled(t *testing.T) {
 }
 
 func TestNormalizeQueueConfig(t *testing.T) {
-	t.Run("legacy max_queue_size copied to BatchMaxSize and QueueSize defaulted", func(t *testing.T) {
-		cfg := &TracesConfig{DeprecatedMaxQueueSize: 100}
-		require.NoError(t, cfg.NormalizeQueueConfig())
-		assert.Equal(t, 100, cfg.BatchMaxSize)
-		assert.Equal(t, 400, cfg.QueueSize)
-	})
-
 	t.Run("BatchMaxSize set, QueueSize defaults to 4x", func(t *testing.T) {
 		cfg := &TracesConfig{BatchMaxSize: 50}
 		require.NoError(t, cfg.NormalizeQueueConfig())
 		assert.Equal(t, 50, cfg.BatchMaxSize)
 		assert.Equal(t, 200, cfg.QueueSize)
-	})
-
-	t.Run("BatchMaxSize takes precedence over deprecated field", func(t *testing.T) {
-		cfg := &TracesConfig{BatchMaxSize: 10, DeprecatedMaxQueueSize: 999}
-		require.NoError(t, cfg.NormalizeQueueConfig())
-		assert.Equal(t, 10, cfg.BatchMaxSize)
-		assert.Equal(t, 40, cfg.QueueSize)
 	})
 
 	t.Run("explicit QueueSize is respected", func(t *testing.T) {
@@ -363,35 +348,8 @@ func TestNormalizeQueueConfig(t *testing.T) {
 	})
 }
 
-func TestNormalizeQueueConfig_LegacyYAML(t *testing.T) {
-	yamlBytes := []byte("max_queue_size: 250\n")
-	var cfg TracesConfig
-	require.NoError(t, yaml.Unmarshal(yamlBytes, &cfg))
-	assert.Equal(t, 250, cfg.DeprecatedMaxQueueSize)
-	assert.Equal(t, 0, cfg.BatchMaxSize)
-
-	require.NoError(t, cfg.NormalizeQueueConfig())
-	assert.Equal(t, 250, cfg.BatchMaxSize)
-	assert.Equal(t, 1000, cfg.QueueSize)
-}
-
-func TestNormalizeQueueConfig_LegacyEnvVar(t *testing.T) {
+func TestNormalizeQueueConfig_EnvVar(t *testing.T) {
 	defer RestoreEnvAfterExecution()()
-	t.Setenv("OTEL_EBPF_OTLP_TRACES_MAX_QUEUE_SIZE", "300")
-
-	var cfg TracesConfig
-	require.NoError(t, env.Parse(&cfg))
-	// The legacy env var is wired into BatchMaxSize via envDefault expansion.
-	assert.Equal(t, 300, cfg.BatchMaxSize)
-
-	require.NoError(t, cfg.NormalizeQueueConfig())
-	assert.Equal(t, 300, cfg.BatchMaxSize)
-	assert.Equal(t, 1200, cfg.QueueSize)
-}
-
-func TestNormalizeQueueConfig_NewEnvVarOverridesLegacy(t *testing.T) {
-	defer RestoreEnvAfterExecution()()
-	t.Setenv("OTEL_EBPF_OTLP_TRACES_MAX_QUEUE_SIZE", "300")
 	t.Setenv("OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE", "75")
 	t.Setenv("OTEL_EBPF_OTLP_TRACES_QUEUE_SIZE", "600")
 

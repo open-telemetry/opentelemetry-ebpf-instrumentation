@@ -2176,7 +2176,7 @@
         },
         "batch_max_size": {
           "type": "integer",
-          "description": "BatchMaxSize is the maximum number of spans that the batcher will accumulate before flushing a batch to the sending queue. It also accepts OTEL_EBPF_OTLP_TRACES_MAX_QUEUE_SIZE for backwards compatibility: that env var was historically the batch max size despite its misleading name.",
+          "description": "BatchMaxSize is the maximum number of spans that the batcher will accumulate before flushing a batch to the sending queue.",
           "x-env-var": "OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE"
         },
         "batch_timeout": {
@@ -2223,11 +2223,6 @@
           "uniqueItems": true,
           "description": "Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...",
           "x-env-var": "OTEL_EBPF_TRACES_INSTRUMENTATIONS"
-        },
-        "max_queue_size": {
-          "type": "integer",
-          "description": "DeprecatedMaxQueueSize accepts the legacy `max_queue_size` YAML key for backwards compatibility. It is copied into BatchMaxSize by NormalizeQueueConfig with a deprecation warning. Do not read this field directly; use BatchMaxSize. The env var equivalent is handled transparently via the envDefault expansion on BatchMaxSize above.",
-          "x-env-var": "-"
         },
         "otel_sdk_log_level": {
           "type": "string",
