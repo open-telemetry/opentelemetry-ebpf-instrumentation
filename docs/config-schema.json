@@ -2174,9 +2174,15 @@
           ],
           "x-env-var": "OTEL_EBPF_BACKOFF_MAX_INTERVAL"
         },
+        "batch_max_size": {
+          "type": "integer",
+          "description": "BatchMaxSize is the maximum number of spans that the batcher will accumulate before flushing a batch to the sending queue. It also accepts OTEL_EBPF_OTLP_TRACES_MAX_QUEUE_SIZE for backwards compatibility: that env var was historically the batch max size despite its misleading name.",
+          "x-env-var": "OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE"
+        },
         "batch_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "BatchTimeout is the time after which a batch will be sent regardless of its size.",
           "examples": [
             "30s",
             "5m",
@@ -2220,8 +2226,8 @@
         },
         "max_queue_size": {
           "type": "integer",
-          "description": "Configuration options below this line will remain undocumented at the moment, but can be useful for performance-tuning of some customers.",
-          "x-env-var": "OTEL_EBPF_OTLP_TRACES_MAX_QUEUE_SIZE"
+          "description": "DeprecatedMaxQueueSize accepts the legacy `max_queue_size` YAML key for backwards compatibility. It is copied into BatchMaxSize by NormalizeQueueConfig with a deprecation warning. Do not read this field directly; use BatchMaxSize. The env var equivalent is handled transparently via the envDefault expansion on BatchMaxSize above.",
+          "x-env-var": "-"
         },
         "otel_sdk_log_level": {
           "type": "string",
@@ -2238,6 +2244,11 @@
             "http/protobuf"
           ],
           "x-env-var": "OTEL_EXPORTER_OTLP_PROTOCOL"
+        },
+        "queue_size": {
+          "type": "integer",
+          "description": "QueueSize is the maximum number of spans that the sending queue will hold before applying back-pressure. It must be >= BatchMaxSize, otherwise the memory queue rejects every batch with \"element size too large\" and drops spans permanently. If left at 0 it defaults to 4 * BatchMaxSize.",
+          "x-env-var": "OTEL_EBPF_OTLP_TRACES_QUEUE_SIZE"
         },
         "reporters_cache_len": {
           "type": "integer",
