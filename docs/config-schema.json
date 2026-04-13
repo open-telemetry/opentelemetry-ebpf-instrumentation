@@ -2242,7 +2242,7 @@
         },
         "queue_size": {
           "type": "integer",
-          "description": "QueueSize is the maximum number of spans that the sending queue will hold before applying back-pressure. It must be >= BatchMaxSize, otherwise the memory queue rejects every batch with \"element size too large\" and drops spans permanently. If left at 0 it defaults to 4 * BatchMaxSize.",
+          "description": "QueueSize is the maximum number of spans that the sending queue will hold before applying back-pressure. It must be >= 2 * BatchMaxSize, otherwise the memory queue rejects every batch with \"element size too large\" and drops spans permanently. If left at 0 it defaults to 4 * BatchMaxSize.",
           "x-env-var": "OTEL_EBPF_OTLP_TRACES_QUEUE_SIZE"
         },
         "reporters_cache_len": {

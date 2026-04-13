@@ -43,7 +43,7 @@ type TracesConfig struct {
 	BatchMaxSize int `yaml:"batch_max_size" env:"OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE"`
 
 	// QueueSize is the maximum number of spans that the sending queue will hold
-	// before applying back-pressure. It must be >= BatchMaxSize, otherwise the
+	// before applying back-pressure. It must be >= 2 * BatchMaxSize, otherwise the
 	// memory queue rejects every batch with "element size too large" and drops
 	// spans permanently. If left at 0 it defaults to 4 * BatchMaxSize.
 	QueueSize int `yaml:"queue_size" env:"OTEL_EBPF_OTLP_TRACES_QUEUE_SIZE"`
@@ -84,8 +84,8 @@ func (m *TracesConfig) NormalizeQueueConfig() error {
 		tlog().Info("traces.queue_size not set, defaulting to 4 * batch_max_size",
 			"queue_size", m.QueueSize, "batch_max_size", m.BatchMaxSize)
 	}
-	if m.BatchMaxSize > 0 && m.QueueSize < m.BatchMaxSize {
-		return fmt.Errorf("traces.queue_size (%d) must be >= traces.batch_max_size (%d): "+
+	if m.BatchMaxSize > 0 && m.QueueSize < 2*m.BatchMaxSize {
+		return fmt.Errorf("traces.queue_size (%d) must be >= 2 * traces.batch_max_size (%d): "+
 			"otherwise the sending queue rejects every batch with \"element size too large\"",
 			m.QueueSize, m.BatchMaxSize)
 	}

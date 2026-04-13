@@ -334,7 +334,7 @@ func TestNormalizeQueueConfig(t *testing.T) {
 		assert.Equal(t, 500, cfg.QueueSize)
 	})
 
-	t.Run("error when QueueSize < BatchMaxSize", func(t *testing.T) {
+	t.Run("error when QueueSize < 2*BatchMaxSize", func(t *testing.T) {
 		cfg := &TracesConfig{BatchMaxSize: 100, QueueSize: 10}
 		err := cfg.NormalizeQueueConfig()
 		require.Error(t, err)

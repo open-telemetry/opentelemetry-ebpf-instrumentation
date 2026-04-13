@@ -301,7 +301,7 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 
 func getQueueConfig(cfg otelcfg.TracesConfig) configoptional.Optional[exporterhelper.QueueBatchConfig] {
 	// enable batching only if the queue config is enabled
-	if cfg.BatchMaxSize <= 0 && cfg.BatchTimeout <= 0 {
+	if cfg.BatchMaxSize <= 0 && cfg.BatchTimeout <= 0 && cfg.QueueSize <= 0 {
 		return configoptional.None[exporterhelper.QueueBatchConfig]()
 	}
 
