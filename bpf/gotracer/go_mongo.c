@@ -24,8 +24,11 @@
 #include <gotracer/go_str.h>
 
 #include <gotracer/maps/mongo.h>
+#include <gotracer/maps/handled_by_go.h>
 
 #include <logger/bpf_dbg.h>
+
+#include <shared/obi_ctx.h>
 
 #define MONGO_OP_DEF(name, str)                                                                    \
     static const char name[] = str;                                                                \
@@ -68,11 +71,15 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     client_trace_parent(goroutine_addr, &req.tp);
 
     bpf_d_printk("op=%s, [%s]", req.op, __FUNCTION__);
 
     bpf_map_update_elem(&ongoing_mongo_requests, &g_key, &req, BPF_ANY);
+
+    obi_ctx__set(bpf_get_current_pid_tgid(), &req.tp);
 
     return 0;
 }
@@ -145,6 +152,8 @@ int obi_uprobe_mongo_op_execute(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     mongo_go_client_req_t *req = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
 
     if (!req) {
@@ -183,6 +192,8 @@ int obi_uprobe_mongo_op_execute(struct pt_regs *ctx) {
 
     bpf_map_update_elem(&ongoing_mongo_requests, &g_key, req, BPF_ANY);
 
+    obi_ctx__set(bpf_get_current_pid_tgid(), &req->tp);
+
     return 0;
 }
 
@@ -217,6 +228,7 @@ int obi_uprobe_mongo_op_execute_ret(struct pt_regs *ctx) {
     }
 
     bpf_map_delete_elem(&ongoing_mongo_requests, &g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }

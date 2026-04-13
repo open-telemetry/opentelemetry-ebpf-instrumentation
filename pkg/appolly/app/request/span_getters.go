@@ -57,6 +57,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(s *Span) attribute.KeyValue { return semconv.HTTPRoute(s.Route) }
 	case attr.HTTPUrlPath:
 		getter = func(s *Span) attribute.KeyValue { return HTTPUrlPath(s.Path) }
+	case attr.HTTPURLScheme:
+		getter = func(s *Span) attribute.KeyValue { return HTTPUrlScheme(HTTPScheme(s)) }
 	case attr.ClientAddr:
 		getter = func(s *Span) attribute.KeyValue { return ClientAddr(PeerAsClient(s)) }
 	case attr.ServerAddr:
@@ -209,10 +211,15 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.MessagingOpName:
 		getter = func(span *Span) attribute.KeyValue {
-			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
+			switch {
+			case span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil:
 				return MessagingOperationName(span.AWS.SQS.OperationName)
+			case span.Type == EventTypeKafkaClient || span.Type == EventTypeKafkaServer ||
+				span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer:
+				return MessagingOperationName(span.Method)
+			default:
+				return MessagingOperationName("")
 			}
-			return MessagingOperationName("")
 		}
 	case attr.MessagingOpType:
 		getter = func(span *Span) attribute.KeyValue {

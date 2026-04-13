@@ -1,0 +1,5 @@
+# Baseline config — no header enrichment.
+# Use this to compare traces before and after enabling enrichment in v0.7.0.
+open_port: 8080
+service_name: http-header-demo
+log_level: info

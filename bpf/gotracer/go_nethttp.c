@@ -18,17 +18,21 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/utils.h>
 
+#include <bpfcore/bpf_builtins.h>
 #include <common/algorithm.h>
+#include <common/connection_info.h>
 #include <common/globals.h>
 #include <common/http_types.h>
 #include <common/ringbuf.h>
 #include <common/strings.h>
 #include <common/tracing.h>
+#include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 
+#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/nethttp.h>
 
 #include <gotracer/types/nethttp.h>
@@ -42,6 +46,8 @@
 #include <maps/tp_char_buf_mem.h>
 
 #include <pid/pid_helpers.h>
+
+#include <shared/obi_ctx.h>
 
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;
@@ -62,6 +68,8 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
     void *req = GO_PARAM4(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     off_table_t *ot = get_offsets_table();
 
@@ -134,6 +142,8 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
     if (bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update map element");
     }
+
+    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
 
 done:
     return 0;
@@ -254,6 +264,8 @@ int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
 
     // Populate connection info if: no entry exists yet, OR the entry was created by connServe
@@ -268,7 +280,15 @@ int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
                            sizeof(tls_state),
                            (void *)(c_ptr + go_offset_of(ot, (go_offset){.v = _c_tls_pos})));
             conn_conn_ptr = unwrap_tls_conn_info(conn_conn_ptr, tls_state);
-            //bpf_dbg_printk("conn_conn_ptr=%llx, tls_state=%llx, c_tls_pos=%d, c_tls_ptr=%llx", conn_conn_ptr, tls_state, c_tls_pos, c_ptr + c_tls_pos);
+
+            // Store TLS state in the server invocation so serve_http_returns
+            // can populate the scheme field on the trace event.
+            server_http_func_invocation_t *inv =
+                bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+            if (inv) {
+                inv->is_tls = tls_state ? 1 : 0;
+            }
+
             if (conn_conn_ptr) {
                 void *conn_ptr = 0;
                 bpf_probe_read(
@@ -358,6 +378,7 @@ static __always_inline void handle_traceparent_header(server_http_func_invocatio
         server_http_func_invocation_t minimal_inv = {0};
         update_traceparent(&minimal_inv, traceparent_start);
         bpf_map_update_elem(&ongoing_http_server_requests, g_key, &minimal_inv, BPF_ANY);
+        obi_ctx__set(bpf_get_current_pid_tgid(), &minimal_inv.tp);
     }
 }
 
@@ -528,7 +549,11 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->host[0] = '\0';
-    trace->scheme[0] = '\0';
+    if (invocation->is_tls) {
+        bpf_memcpy(trace->scheme, "https", 6);
+    } else {
+        bpf_memcpy(trace->scheme, "http", 5);
+    }
     trace->pattern[0] = '\0';
 
     goroutine_metadata *g_metadata = bpf_map_lookup_elem(&ongoing_goroutines, &g_key);
@@ -573,6 +598,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
 done:
     bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
     bpf_map_delete_elem(&go_trace_map, &g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
     return 0;
 }
 
@@ -589,6 +615,8 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     void *req = GO_PARAM2(ctx);
     off_table_t *ot = get_offsets_table();
@@ -781,6 +809,13 @@ done:
 // Context propagation through HTTP headers
 SEC("uprobe/header_writeSubset")
 int obi_uprobe_writeSubset(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+
+    go_addr_key_t gw_key = {};
+    go_addr_key_from_id(&gw_key, goroutine_addr);
+
+    store_go_handled_goroutine(&gw_key);
+
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -790,7 +825,7 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
     void *header_addr = GO_PARAM1(ctx);
     void *io_writer_addr = GO_PARAM3(ctx);
 
-    bpf_dbg_printk("goroutine_addr=%lx, header_addr=%llx", GOROUTINE_PTR(ctx), header_addr);
+    bpf_dbg_printk("goroutine_addr=%lx, header_addr=%llx", goroutine_addr, header_addr);
 
     // we don't want to run this code when we header or the buffer is nil
     if (!header_addr || !io_writer_addr) {
@@ -869,12 +904,14 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
                 .d_port = info->d_port,
                 .s_port = info->s_port,
             };
+            //dbg_print_http_connection_info(info);
             bpf_map_delete_elem(&outgoing_trace_map, &e_key);
             bpf_dbg_printk(
                 "wrote traceparent using bpf_probe_write_user, removing outgoing trace map,"
                 "s_port=%d, d_port=%d",
                 e_key.s_port,
                 e_key.d_port);
+            store_go_handled_connection_info(info);
         }
     }
 
@@ -893,6 +930,8 @@ int obi_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx, status=%d", goroutine_addr, status);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     server_http_func_invocation_t *invocation =
         bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
@@ -937,6 +976,8 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     if (sc) {
         void *conn_ptr = 0;
         bpf_probe_read(
@@ -964,6 +1005,7 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
             __builtin_memcpy(&inv.tp, tp, sizeof(tp_info_t));
             bpf_dbg_printk("Found traceparent in HTTP2 headers");
             bpf_map_update_elem(&ongoing_http_server_requests, &g_key, &inv, BPF_ANY);
+            obi_ctx__set(bpf_get_current_pid_tgid(), &inv.tp);
             bpf_map_delete_elem(&http2_server_requests_tp, &sc_key);
         }
     }

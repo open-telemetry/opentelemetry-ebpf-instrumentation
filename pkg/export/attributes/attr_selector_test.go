@@ -226,6 +226,7 @@ func TestExtraGroupAttributes(t *testing.T) {
 		"server.address",
 		"server.port",
 		"service.name",
+		"url.scheme",
 		"service.namespace",
 		"k8s.app.version",
 	}, p.For(HTTPServerRequestSize))

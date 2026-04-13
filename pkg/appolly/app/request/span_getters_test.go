@@ -322,3 +322,88 @@ func TestSpanOTELGetters_K8SServerCluster(t *testing.T) {
 		})
 	}
 }
+
+func TestSpanOTELGetters_MessagingOpName(t *testing.T) {
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		{
+			name:     "kafka client publish",
+			span:     &Span{Type: EventTypeKafkaClient, Method: MessagingPublish},
+			expected: "publish",
+		},
+		{
+			name:     "kafka server process",
+			span:     &Span{Type: EventTypeKafkaServer, Method: MessagingProcess},
+			expected: "process",
+		},
+		{
+			name:     "mqtt client publish",
+			span:     &Span{Type: EventTypeMQTTClient, Method: MessagingPublish},
+			expected: "publish",
+		},
+		{
+			name:     "mqtt server process",
+			span:     &Span{Type: EventTypeMQTTServer, Method: MessagingProcess},
+			expected: "process",
+		},
+		{
+			name:     "http span returns empty",
+			span:     &Span{Type: EventTypeHTTP, Method: "GET"},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getter, ok := spanOTELGetters(attr.MessagingOpName)
+			require.True(t, ok, "getter should be found for MessagingOpName")
+
+			kv := getter(tt.span)
+			assert.Equal(t, string(attr.MessagingOpName), string(kv.Key))
+			assert.Equal(t, tt.expected, kv.Value.AsString())
+		})
+	}
+}
+
+func TestSpanOTELGetters_HTTPURLScheme(t *testing.T) {
+	tests := []struct {
+		name           string
+		span           *Span
+		expectedScheme string
+	}{
+		{
+			name:           "http scheme from statement",
+			span:           &Span{Statement: "http" + SchemeHostSeparator + "example.com"},
+			expectedScheme: "http",
+		},
+		{
+			name:           "https scheme from statement",
+			span:           &Span{Statement: "https" + SchemeHostSeparator + "api.example.com"},
+			expectedScheme: "https",
+		},
+		{
+			name:           "empty statement",
+			span:           &Span{Statement: ""},
+			expectedScheme: "",
+		},
+		{
+			name:           "statement without separator",
+			span:           &Span{Statement: "no-scheme-here"},
+			expectedScheme: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getter, ok := spanOTELGetters(attr.HTTPURLScheme)
+			require.True(t, ok, "getter should be found for HTTPURLScheme")
+
+			kv := getter(tt.span)
+			assert.Equal(t, string(attr.HTTPURLScheme), string(kv.Key))
+			assert.Equal(t, tt.expectedScheme, kv.Value.AsString())
+		})
+	}
+}

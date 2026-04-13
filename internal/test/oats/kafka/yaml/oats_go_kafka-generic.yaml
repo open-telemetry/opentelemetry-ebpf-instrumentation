@@ -1,0 +1,21 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-obi-go-kafka-generic.yml
+input:
+- path: /produce
+interval: 500ms
+expected:
+  traces:
+  - traceql: '{ .messaging.operation.type = "publish" && .messaging.destination.name="my-topic"}'
+    equals: publish my-topic
+    attributes:
+      messaging.destination.name: my-topic
+      messaging.operation.type: publish
+      messaging.system: kafka
+      server.port: '9093'
+  - traceql: '{ .http.route = "/produce" }'
+    equals: GET /produce
+    attributes:
+      server.port: '8080'
+      url.path: /produce

@@ -21,6 +21,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 type EventType uint8
@@ -473,6 +474,7 @@ type Span struct {
 	Flags             uint8          `json:"-"`
 	Method            string         `json:"-"`
 	Path              string         `json:"-"`
+	FullPath          string         `json:"-"`
 	Route             string         `json:"-"`
 	Peer              string         `json:"peer"`
 	PeerPort          int            `json:"peerPort,string"`
@@ -512,6 +514,11 @@ type Span struct {
 	RequestHeaders map[string][]string `json:"requestHeaders,omitempty"`
 	// ResponseHeaders stores extracted HTTP response headers based on enrichment rules.
 	ResponseHeaders map[string][]string `json:"responseHeaders,omitempty"`
+
+	// RequestBodyContent stores the extracted HTTP request body (JSON string, possibly with obfuscated fields).
+	RequestBodyContent string `json:"requestBodyContent,omitempty"`
+	// ResponseBodyContent stores the extracted HTTP response body (JSON string, possibly with obfuscated fields).
+	ResponseBodyContent string `json:"responseBodyContent,omitempty"`
 
 	// OverrideTraceName is set under some conditions, like spanmetrics reaching the maximum
 	// cardinality for trace names.
@@ -691,10 +698,10 @@ func spanAttributes(s *Span) SpanAttributes {
 
 func addHeaderAttributes(attrs SpanAttributes, s *Span) {
 	for name, values := range s.RequestHeaders {
-		attrs["http.request.header."+strings.ToLower(name)] = strings.Join(values, ", ")
+		attrs[attr.HTTPRequestHeaderKey(name)] = strings.Join(values, ", ")
 	}
 	for name, values := range s.ResponseHeaders {
-		attrs["http.response.header."+strings.ToLower(name)] = strings.Join(values, ", ")
+		attrs[attr.HTTPResponseHeaderKey(name)] = strings.Join(values, ", ")
 	}
 }
 

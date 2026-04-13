@@ -1,0 +1,61 @@
+routes:
+  patterns:
+    - /basic/:rnd
+    - /rolldice/:id
+  unmatched: path
+  ignored_patterns:
+    - /metrics
+  ignore_mode: traces
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+otel_traces_export:
+  endpoint: http://jaeger:4318
+attributes:
+  select:
+    "*":
+      include: ["*"]
+ebpf:
+  buffer_sizes:
+    http: 8192
+  payload_extraction:
+    http:
+      enrichment:
+        enabled: true
+        policy:
+          default_action:
+            headers: exclude
+            body: exclude
+          obfuscation_string: "***"
+        rules:
+          # Include request headers for context
+          - action: include
+            type: headers
+            scope: all
+            match:
+              patterns:
+                - "Content-Type"
+              case_sensitive: false
+          # Obfuscate sensitive fields in request body on all POST routes
+          - action: obfuscate
+            type: body
+            scope: request
+            match:
+              methods: ["POST"]
+              obfuscation_json_paths:
+                - "$.password"
+                - "$.secret"
+          # Exclude body on /smoke endpoint
+          - action: exclude
+            type: body
+            scope: all
+            match:
+              url_path_patterns:
+                - "/smoke"
+          # Include body on specific route without obfuscation
+          - action: include
+            type: body
+            scope: request
+            match:
+              methods: ["POST"]
+              url_path_patterns:
+                - "/rolldice/*"

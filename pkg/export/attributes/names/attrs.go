@@ -31,6 +31,7 @@ func (an Name) Prom() string {
 const (
 	HTTPRequestMethod      = Name(semconv.HTTPRequestMethodKey)
 	HTTPResponseStatusCode = Name(semconv.HTTPResponseStatusCodeKey)
+	HTTPURLScheme          = Name(semconv.URLSchemeKey)
 	HTTPUrlPath            = Name(semconv.URLPathKey)
 	HTTPUrlFull            = Name(semconv.URLFullKey)
 	ClientAddr             = Name(semconv.ClientAddressKey)
@@ -89,7 +90,23 @@ const (
 
 	ContainerName = Name(semconv.ContainerNameKey)
 	ContainerID   = Name(semconv.ContainerIDKey)
+
+	// HTTP enrichment attribute prefixes and keys
+	HTTPRequestHeaderPrefix  = "http.request.header."
+	HTTPResponseHeaderPrefix = "http.response.header."
+	HTTPRequestBodyContent   = Name("http.request.body.content")
+	HTTPResponseBodyContent  = Name("http.response.body.content")
 )
+
+// HTTPRequestHeaderKey returns the attribute key for a request header (lowercased).
+func HTTPRequestHeaderKey(name string) string {
+	return HTTPRequestHeaderPrefix + strings.ToLower(name)
+}
+
+// HTTPResponseHeaderKey returns the attribute key for a response header (lowercased).
+func HTTPResponseHeaderKey(name string) string {
+	return HTTPResponseHeaderPrefix + strings.ToLower(name)
+}
 
 // OBI-specific network attributes
 // obi.-prefixed attributes are a var instead of a constant to allow overriding the prefix
@@ -179,6 +196,12 @@ const (
 	// attributes, which can't be enabled/disabled by the users
 	ServiceName      = Name(semconv.ServiceNameKey)
 	ServiceNamespace = Name(semconv.ServiceNamespaceKey)
+
+	// TODO: replace by semconv.ServicePeerNameKey and semconv.ServicePeerNamespaceKey
+	// when we update to OTEL semconv library 1.40 or with {server|client}.service.{name|namespace}
+	// if this is issue is approved https://github.com/open-telemetry/semantic-conventions/issues/3472
+	ServicePeerName      = Name("service.peer.name")
+	ServicePeerNamespace = Name("service.peer.namespace")
 
 	HostID      = Name(semconv.HostIDKey)
 	HostImageID = Name(semconv.HostImageIDKey)

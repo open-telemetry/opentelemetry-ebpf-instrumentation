@@ -6,6 +6,7 @@
 #include <bpfcore/vmlinux.h>
 
 #include <common/connection_info.h>
+#include <common/event_source.h>
 #include <common/tp_info.h>
 
 #define FULL_BUF_SIZE 256
@@ -33,5 +34,6 @@ typedef struct http_info {
     u8 has_large_buffers;
     u8 direction;
     u8 submitted;
-    u8 _pad[3];
+    enum event_source_type event_source;
+    u8 _pad[2];
 } http_info_t;

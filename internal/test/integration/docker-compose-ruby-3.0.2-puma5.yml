@@ -1,0 +1,100 @@
+services:
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/rubytestserver/testapi/Dockerfile_ruby302_puma5
+    image: hatest-ruby302-puma5
+    ports:
+      - "${TEST_SERVICE_PORTS}"
+    environment:
+      OTEL_SERVICE_NAME: "my-ruby-app"
+      OTEL_RESOURCE_ATTRIBUTES: "data-center=ca,deployment-zone=to"
+    depends_on:
+      otelcol:
+        condition: service_started
+
+  nginx:
+    image: nginx:latest@sha256:dec7a90bd0973b076832dc56933fe876bc014929e14b4ec49923951405370112
+    container_name: nginx_server
+    ports:
+      - "8443:443"
+    volumes:
+      - ./components/rubytestserver/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./components/rubytestserver/nginx/cert.pem:/etc/nginx/cert.pem:ro
+      - ./components/rubytestserver/nginx/key.pem:/etc/nginx/key.pem:ro
+    depends_on:
+      - testserver
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-ruby.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-ruby:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    network_mode: "host"
+    pid: "host"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "obi"
+    depends_on:
+      testserver:
+        condition: service_started
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.149.0@sha256:0fba96233274f6d665ac8831ad99dfe6479a9a20459f6e2719c0d20945773b46
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "9464"
+      - "8888"
+    depends_on:
+      prometheus:
+        condition: service_started
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.11.0@sha256:131bf4c9d8a0337782ea8b753249f4903afac01379f3cced87ceaf8ca82ab9f3
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e
+    ports:
+      - "16686:16686"
+      - "4417:4317"
+      - "4418:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=debug

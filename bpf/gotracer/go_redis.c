@@ -18,24 +18,35 @@
 #include <bpfcore/utils.h>
 
 #include <common/ringbuf.h>
+#include <common/scratch_mem.h>
 
 #include <gotracer/go_common.h>
 
+#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/redis.h>
 
 #include <logger/bpf_dbg.h>
 
+#include <shared/obi_ctx.h>
+
+SCRATCH_MEM_TYPED(req_client, redis_client_req_t);
+
 static __always_inline void setup_request(void *goroutine_addr) {
-    redis_client_req_t req = {
-        .type = EVENT_GO_REDIS,
-        .start_monotime_ns = bpf_ktime_get_ns(),
-    };
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
+    redis_client_req_t *req = req_client_mem();
 
-    client_trace_parent(goroutine_addr, &req.tp);
+    if (req) {
+        req->type = EVENT_GO_REDIS;
+        req->start_monotime_ns = bpf_ktime_get_ns();
 
-    bpf_map_update_elem(&ongoing_redis_requests, &g_key, &req, BPF_ANY);
+        go_addr_key_t g_key = {};
+        go_addr_key_from_id(&g_key, goroutine_addr);
+
+        store_go_handled_goroutine(&g_key);
+
+        client_trace_parent(goroutine_addr, &req->tp);
+
+        bpf_map_update_elem(&ongoing_redis_requests, &g_key, req, BPF_ANY);
+    }
 }
 
 // github.com/redis/go-redis/v9.(*baseClient)._process
@@ -47,6 +58,13 @@ int obi_uprobe_redis_process(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     setup_request(goroutine_addr);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+    redis_client_req_t *req = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
+    if (req) {
+        obi_ctx__set(bpf_get_current_pid_tgid(), &req->tp);
+    }
 
     return 0;
 }
@@ -72,6 +90,7 @@ int obi_uprobe_redis_process_ret(struct pt_regs *ctx) {
     }
 
     bpf_map_delete_elem(&ongoing_redis_requests, &g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }
@@ -92,6 +111,8 @@ int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    store_go_handled_goroutine(&g_key);
+
     redis_client_req_t *req = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
 
     if (!req) {
@@ -109,20 +130,15 @@ int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
 
         bpf_map_update_elem(&redis_writes, &g_key, &bw_ptr, BPF_ANY);
 
-        if (cn_ptr) {
-            void *tcp_conn_ptr = cn_ptr + 8;
-            bpf_dbg_printk("tcp_conn_ptr=%llx", tcp_conn_ptr);
-            if (tcp_conn_ptr) {
-                void *conn_ptr = 0;
-                bpf_probe_read(
-                    &conn_ptr, sizeof(conn_ptr), (void *)(tcp_conn_ptr + 8)); // find conn
-                bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
-                if (conn_ptr) {
-                    const u8 ok = get_conn_info(conn_ptr, &req->conn);
-                    if (!ok) {
-                        __builtin_memset(&req->conn, 0, sizeof(connection_info_t));
-                    }
-                }
+        if (bw_ptr) {
+            void *conn_ptr = 0;
+            bpf_probe_read(
+                &conn_ptr,
+                sizeof(conn_ptr),
+                (void *)(bw_ptr + go_offset_of(ot, (go_offset){.v = _io_writer_wr_pos}) + 8));
+            bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
+            if (conn_ptr && !get_conn_info(conn_ptr, &req->conn)) {
+                __builtin_memset(&req->conn, 0, sizeof(connection_info_t));
             }
         }
     }
