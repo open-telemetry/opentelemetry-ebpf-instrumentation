@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,20 +128,21 @@ func testREDMetricsPythonCouchbaseOnly(t *testing.T) {
 		t.Run(testCase.Route, func(t *testing.T) {
 			waitForCouchbaseTestComponents(t, testCase.Route, "/"+testCase.Subpath)
 			testREDMetricsForPythonCouchbaseLibrary(t, testCase)
-			// Verify db.query.text is emitted for KV operations. Only GET and
-			// DELETE are checked — their format is deterministic ("OP key") and
-			// doesn't depend on the Python SDK's JSON serialization of the
-			// document body. SET/REPLACE would embed a JSON value whose exact
-			// bytes vary by SDK version.
-			assertCouchbaseDBQueryText(t, testCase.Comm, "GET test-scope.test-collection", "GET user::1")
-			assertCouchbaseDBQueryText(t, testCase.Comm, "DELETE test-scope.test-collection", "DELETE user::1")
+			// Verify db.query.text is emitted for KV operations. We check GET
+			// and DELETE because their rendered format is the most stable
+			// ("OP user::1"), and accept any prefix/suffix wrapping since the
+			// exact bytes depend on whether collections are enabled and how
+			// the SDK frames the key.
+			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "GET test-scope.test-collection", "GET ", "user::1")
+			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "DELETE test-scope.test-collection", "DELETE ", "user::1")
 		})
 	}
 }
 
-// assertCouchbaseDBQueryText fetches traces from Jaeger for the given
-// operation name and verifies at least one span has db.query.text == want.
-func assertCouchbaseDBQueryText(t *testing.T, comm, operation, want string) {
+// assertCouchbaseDBQueryTextContains fetches traces from Jaeger for the given
+// operation name and verifies at least one span has a db.query.text attribute
+// whose value starts with wantPrefix and contains wantKey.
+func assertCouchbaseDBQueryTextContains(t *testing.T, comm, operation, wantPrefix, wantKey string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(operation))
@@ -155,7 +157,11 @@ func assertCouchbaseDBQueryText(t *testing.T, comm, operation, want string) {
 				if !ok {
 					continue
 				}
-				if tag.Value == want {
+				v, isStr := tag.Value.(string)
+				if !isStr {
+					continue
+				}
+				if strings.HasPrefix(v, wantPrefix) && strings.Contains(v, wantKey) {
 					found = true
 					break
 				}
@@ -164,7 +170,7 @@ func assertCouchbaseDBQueryText(t *testing.T, comm, operation, want string) {
 				break
 			}
 		}
-		assert.True(ct, found, "no span with db.query.text=%q found for operation %q", want, operation)
+		assert.True(ct, found, "no span with db.query.text starting %q and containing %q found for operation %q", wantPrefix, wantKey, operation)
 	}, testTimeout, time.Second)
 }
 

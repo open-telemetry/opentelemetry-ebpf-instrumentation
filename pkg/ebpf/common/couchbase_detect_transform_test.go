@@ -903,13 +903,14 @@ func TestBuildCouchbaseStatement(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		opcode   couchbasekv.Opcode
-		key      string
-		value    []byte
-		extras   []byte
-		dataType couchbasekv.DataType
-		expected string
+		name               string
+		opcode             couchbasekv.Opcode
+		key                string
+		value              []byte
+		extras             []byte
+		dataType           couchbasekv.DataType
+		collectionsEnabled bool
+		expected           string
 	}{
 		{
 			name:     "GET key-only",
@@ -917,6 +918,32 @@ func TestBuildCouchbaseStatement(t *testing.T) {
 			key:      "user::42",
 			dataType: couchbasekv.DataTypeRaw,
 			expected: "GET user::42",
+		},
+		{
+			name:               "GET with single-byte collection ID prefix stripped",
+			opcode:             couchbasekv.OpcodeGet,
+			key:                "\x09user::42",
+			dataType:           couchbasekv.DataTypeRaw,
+			collectionsEnabled: true,
+			expected:           "GET user::42",
+		},
+		{
+			name:               "SET with multi-byte LEB128 collection ID prefix stripped",
+			opcode:             couchbasekv.OpcodeSet,
+			key:                "\xe5\x8e\x26user::42", // LEB128 for 624485
+			value:              []byte("hi"),
+			extras:             setExtras(0, 0),
+			dataType:           couchbasekv.DataTypeRaw,
+			collectionsEnabled: true,
+			expected:           "SET user::42 hi",
+		},
+		{
+			name:               "collections enabled but no prefix (single printable byte key)",
+			opcode:             couchbasekv.OpcodeGet,
+			key:                "u",
+			dataType:           couchbasekv.DataTypeRaw,
+			collectionsEnabled: true,
+			expected:           "", // after stripping leading 'u' (0x75, MSB=0), nothing remains
 		},
 		{
 			name:     "DELETE key-only",
@@ -1033,7 +1060,7 @@ func TestBuildCouchbaseStatement(t *testing.T) {
 			raw := makeCouchbaseRequestPacketWithDataType(tt.opcode, tt.key, tt.value, tt.extras, tt.dataType)
 			pkt, err := couchbasekv.ParsePacket(raw)
 			require.NoError(t, err)
-			got := buildCouchbaseStatement(pkt)
+			got := buildCouchbaseStatement(pkt, tt.collectionsEnabled)
 			assert.Equal(t, tt.expected, got)
 		})
 	}

@@ -36,21 +36,28 @@ type CouchbaseInfo struct {
 // buildCouchbaseStatement builds a Redis-style db.query.text for a KV request
 // packet: "OP key [EXTRAS...] [value]". Returns "" if the key is empty.
 //
+// When collectionsEnabled is true, the key field is expected to carry a
+// LEB128-encoded collection ID prefix (negotiated via HELLO and resolved via
+// GET_COLLECTION_ID) and the prefix is stripped from the rendered key.
+//
 // Value is appended only when non-empty, valid UTF-8, and not snappy-compressed.
 // Extras are rendered per-opcode: SET-family shows TTL (if non-zero, flags are
 // always skipped); INCR/DECR shows DELTA always and TTL if non-zero (INITIAL is
 // skipped); TOUCH/GAT shows TTL.
-func buildCouchbaseStatement(pkt couchbasekv.Packet) string {
+func buildCouchbaseStatement(pkt couchbasekv.Packet, collectionsEnabled bool) string {
 	op := pkt.Header().Opcode()
-	key := pkt.KeyString()
-	if key == "" {
+	keyBytes := pkt.Key()
+	if collectionsEnabled {
+		keyBytes = stripLEB128Prefix(keyBytes)
+	}
+	if len(keyBytes) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString(op.String())
 	b.WriteByte(' ')
-	b.WriteString(key)
+	b.Write(keyBytes)
 
 	extras := pkt.Extras()
 
@@ -90,6 +97,24 @@ func buildCouchbaseStatement(pkt couchbasekv.Packet) string {
 	}
 
 	return b.String()
+}
+
+// stripLEB128Prefix consumes the leading LEB128-encoded unsigned varint
+// (Couchbase collection ID) from the key bytes and returns the remainder.
+// A valid uint32 LEB128 varint is at most 5 bytes; if no terminator is found
+// within that window, the original slice is returned unchanged.
+func stripLEB128Prefix(key []byte) []byte {
+	const maxLen = 5
+	limit := len(key)
+	if limit > maxLen {
+		limit = maxLen
+	}
+	for i := 0; i < limit; i++ {
+		if key[i]&0x80 == 0 {
+			return key[i+1:]
+		}
+	}
+	return key
 }
 
 // couchbaseValueForStatement returns the packet's value rendered for inclusion
@@ -233,17 +258,23 @@ func processCouchbaseEvent(connInfo BpfConnectionInfoT, requestBuf []byte, respo
 		info := &CouchbaseInfo{
 			Operation: reqPacket.Header().Opcode().String(),
 			Key:       reqPacket.KeyString(),
-			Statement: buildCouchbaseStatement(reqPacket),
 		}
 
 		// Get bucket info from cache
+		collectionsEnabled := false
 		if bucketCache != nil {
 			if bucketInfo, found := bucketCache.Get(connInfo); found {
 				info.Bucket = bucketInfo.Bucket
 				info.Scope = bucketInfo.Scope
 				info.Collection = bucketInfo.Collection
+				// Presence of a resolved Scope/Collection implies the client
+				// has negotiated collections on this connection, so KV packets
+				// carry a LEB128-encoded collection ID prefix on the key.
+				collectionsEnabled = bucketInfo.Scope != "" || bucketInfo.Collection != ""
 			}
 		}
+
+		info.Statement = buildCouchbaseStatement(reqPacket, collectionsEnabled)
 
 		if hasResp && respPacket.IsResponse() {
 			info.Status = respPacket.Header().Status()
