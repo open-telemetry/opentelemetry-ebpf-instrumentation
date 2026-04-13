@@ -132,6 +132,16 @@ static __always_inline void server_or_client_trace(const u8 type,
             "Saving thread server span for ns=%x, extra_id=%llx", t_key.p_key.ns, t_key.extra_id);
         bpf_map_update_elem(&server_traces, &t_key, tp_p, BPF_ANY);
         obi_ctx__set(id, &tp_p->tp);
+
+        // If we have lightweight passed on (e.g. goroutine), store the traceparent information on it
+        if (lw_thread != k_lw_thread_none) {
+            bpf_d_printk("saving tp for lightweight thread=%llx", lw_thread);
+
+            go_addr_key_t g_key = {};
+            go_addr_key_from_id_and_pid(&g_key, (void *)lw_thread, host_pid);
+
+            bpf_map_update_elem(&go_trace_map, &g_key, &tp_p->tp, BPF_ANY);
+        }
     } else {
         // Setup a pid, so that we can find it in TC.
         // We need the PID id to be able to query ongoing_http and update
@@ -153,15 +163,5 @@ static __always_inline void server_or_client_trace(const u8 type,
             bpf_map_update_elem(&outgoing_trace_map, &e_key, tp_p, BPF_ANY);
             obi_ctx__set(id, &tp_p->tp);
         }
-    }
-
-    // If we have lightweight passed on (e.g. goroutine), store the traceparent information on it
-    if (lw_thread != k_lw_thread_none) {
-        bpf_d_printk("saving tp for lightweight thread=%llx", lw_thread);
-
-        go_addr_key_t g_key = {};
-        go_addr_key_from_id_and_pid(&g_key, (void *)lw_thread, host_pid);
-
-        bpf_map_update_elem(&go_trace_map, &g_key, &tp_p->tp, BPF_ANY);
     }
 }

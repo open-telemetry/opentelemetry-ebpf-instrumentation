@@ -473,6 +473,11 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     // Generic Go events cannot be delayed for now since we don't probe on net_close
     if (high_request_volume || (lw_thread != k_lw_thread_none)) {
         finish_http(info, pid_conn);
+        // If we are terminating because of a light weight thread, e.g. Go we must clean
+        // the server information we have encoded in the Go structs.
+        if (lw_thread != k_lw_thread_none) {
+            delete_go_trace_info(lw_thread, pid_conn->pid);
+        }
     } else {
         bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);
         info->delayed = 1;

@@ -65,6 +65,14 @@ func TestSuiteNestedTraces(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuiteGoGeneric(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-go-generic.yml", path.Join(pathOutput, "test-suite-go-generic.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Generic Go HTTP/TCP traces (all spans nested)", testGoGenericHTTPTraces)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuiteClientPromScrape(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-client.yml", path.Join(pathOutput, "test-suite-client-promscrape.log"))
 	require.NoError(t, err)

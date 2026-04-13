@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
 #include <common/event_defs.h>
@@ -10,6 +12,8 @@
 #include <common/python_task.h>
 #include <common/runtime.h>
 #include <common/trace_helpers.h>
+
+#include <pid/pid_helpers.h>
 
 #include <gotracer/go_common.h>
 
@@ -247,6 +251,16 @@ static __always_inline tp_info_pid_t *find_parent_java_trace(trace_key_t *t_key)
     return NULL;
 }
 
+// Helper to clean-up Go trace information when we use Go generic support, e.g. the Go fiber framework.
+static __always_inline void delete_go_trace_info(const lw_thread_t lw_thread, const u32 pid) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id_and_pid(&g_key, (void *)lw_thread, pid);
+
+    bpf_map_delete_elem(&go_trace_map, &g_key);
+}
+
+// Only used for Go generic support, e.g Go fiber, when we handle the requests using the
+// generic protocol parsers.
 static __always_inline tp_info_pid_t *find_go_parent_trace(const lw_thread_t lw_thread,
                                                            const u32 pid) {
     go_addr_key_t g_key = {};
@@ -300,9 +314,9 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
                    t_key->extra_id);
 
     if (lw_thread != k_lw_thread_none) {
-        bpf_dbg_printk(
-            "Looking up parent trace for pid=%d, lw_thread=%llx", t_key->p_key.pid, lw_thread);
-        tp_info_pid_t *go_parent = find_go_parent_trace(lw_thread, t_key->p_key.pid);
+        const u32 host_pid = pid_from_pid_tgid(pid_tgid);
+        bpf_dbg_printk("Looking up parent trace for pid=%d, lw_thread=%llx", host_pid, lw_thread);
+        tp_info_pid_t *go_parent = find_go_parent_trace(lw_thread, host_pid);
         if (go_parent) {
             return go_parent;
         }

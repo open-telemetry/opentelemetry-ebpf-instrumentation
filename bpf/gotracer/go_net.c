@@ -78,7 +78,8 @@ cleanup_duplicate_generic_event_by_connection(const connection_info_t *conn) {
 SEC("uprobe/netFdRead")
 int obi_uprobe_netFdRead(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("=== uprobe/netFdRead goroutine_addr=%lx === ", goroutine_addr);
+    bpf_dbg_printk(
+        "=== uprobe/netFdRead goroutine_addr=%lx, fd=%llx === ", goroutine_addr, GO_PARAM1(ctx));
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
@@ -128,6 +129,7 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
 
     // lookup active HTTP connection
     connection_info_t *conn = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    bpf_dbg_printk("conn=%llx", conn);
     if (conn) {
         if (conn->d_port == 0 && conn->s_port == 0) {
             bpf_dbg_printk("Found existing server connection, parsing FD information for socket "
@@ -138,9 +140,12 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
             get_conn_info_from_fd(
                 fd_ptr, conn, true); // ok to not check the result, we leave it as 0
             cleanup_duplicate_generic_event_by_connection(conn);
+
+            return 0;
         }
         //dbg_print_http_connection_info(conn);
-        return 0;
+        // We cannot return here, HTTP servers are typically wrapping unknown protocols
+        // on the same goroutine.
     }
 
     const u64 id = bpf_get_current_pid_tgid();
@@ -221,7 +226,9 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
     const u64 id = bpf_get_current_pid_tgid();
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("=== uprobe/proc netFD write goroutine %lx === ", goroutine_addr);
+    bpf_dbg_printk("=== uprobe/proc netFD write goroutine=%lx, fd_ptr=%llx === ",
+                   goroutine_addr,
+                   GO_PARAM1(ctx));
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
