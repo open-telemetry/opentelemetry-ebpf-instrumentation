@@ -127,6 +127,7 @@ func TestWriteReport(t *testing.T) {
 	require.Contains(t, report, "TestFailed")
 	require.Contains(t, report, "TestFlaky")
 	require.Contains(t, report, "port-conflict")
+	require.Contains(t, report, "## Fingerprint Legend")
 
 	// TestPassed should not appear as a flaky test row
 	for _, line := range strings.Split(report, "\n") {
@@ -134,6 +135,21 @@ func TestWriteReport(t *testing.T) {
 			t.Errorf("TestPassed should not appear as a flaky test row")
 		}
 	}
+}
+
+func TestFingerprintUnknownHashing(t *testing.T) {
+	// Two different unknown errors should get different fingerprints.
+	fp1 := fingerprintFromTestOutput("some weird error A")
+	fp2 := fingerprintFromTestOutput("some weird error B")
+	require.Contains(t, fp1, "unknown-")
+	require.Contains(t, fp2, "unknown-")
+	require.NotEqual(t, fp1, fp2)
+
+	// Same error should get the same fingerprint.
+	require.Equal(t, fp1, fingerprintFromTestOutput("some weird error A"))
+
+	// Empty snippet stays plain "unknown".
+	require.Equal(t, "unknown", fingerprintFromTestOutput(""))
 }
 
 func TestClassifyOutcome(t *testing.T) {

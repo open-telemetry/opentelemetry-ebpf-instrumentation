@@ -46,6 +46,7 @@ func writeReport(w io.Writer, results []TestResult, repo string) error {
 	flakyTests := writeFlakyTestsTable(p, tests)
 	writeFingerprintTable(p, fingerprints)
 	writeRecentFailuresTable(p, results, repo)
+	writeLegend(p)
 
 	flakyCount := len(flakyTests)
 	p("---")
@@ -91,8 +92,8 @@ func writeFlakyTestsTable(p func(string, ...any), tests map[string]*testStats) [
 	p("")
 	p("Tests with failures or flaky passes, sorted by unreliability.")
 	p("")
-	p("| Test | Runs | Failed | Flaky | Fail %% | Primary error |")
-	p("|------|------|--------|-------|--------|--------------|")
+	p("| Workflow | Test | Runs | Failed | Flaky | Fail %% | Primary error |")
+	p("|---------|------|------|--------|-------|--------|--------------|")
 
 	limit := maxFlakyTestsShown
 	if len(flaky) < limit {
@@ -100,8 +101,9 @@ func writeFlakyTestsTable(p func(string, ...any), tests map[string]*testStats) [
 	}
 	for _, ts := range flaky[:limit] {
 		failPct := float64(ts.failed+ts.flakyPassed) / float64(ts.totalRuns) * 100
-		p("| `%s` | %d | %d | %d | %.0f%% | %s |",
-			ts.name, ts.totalRuns, ts.failed, ts.flakyPassed, failPct, primaryFingerprint(ts.fingerprints))
+		wf := primaryWorkflow(ts.workflowFailures)
+		p("| %s | `%s` | %d | %d | %d | %.0f%% | %s |",
+			wf, ts.name, ts.totalRuns, ts.failed, ts.flakyPassed, failPct, primaryFingerprint(ts.fingerprints))
 	}
 	p("")
 	return flaky
@@ -121,14 +123,15 @@ func writeFingerprintTable(p func(string, ...any), fingerprints []fingerprintSta
 	for _, fp := range fingerprints {
 		testNames := sortedKeys(fp.affectedTests)
 		testList := strings.Join(testNames, ", ")
-		if len(testList) > 80 {
-			testList = testList[:77] + "..."
+		if len(testList) > 100 {
+			testList = testList[:97] + "..."
 		}
 		example := fp.example
-		if len(example) > 100 {
-			example = example[:97] + "..."
+		if len(example) > 200 {
+			example = example[:197] + "..."
 		}
 		example = strings.ReplaceAll(example, "|", "\\|")
+		example = strings.ReplaceAll(example, "\n", " ")
 		p("| `%s` | %d | %d (%s) | %s |",
 			fp.fingerprint, fp.occurrences, len(fp.affectedTests), testList, example)
 	}
@@ -149,7 +152,6 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 			date:        date,
 			runID:       r.RunID,
 			workflow:    r.Workflow,
-			shard:       r.Shard,
 			test:        r.Test,
 			fingerprint: r.ErrorFingerprint,
 			snippet:     r.ErrorSnippet,
@@ -160,13 +162,16 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 	}
 
 	sort.Slice(failures, func(i, j int) bool {
-		return failures[i].date > failures[j].date
+		if failures[i].fingerprint != failures[j].fingerprint {
+			return failures[i].fingerprint < failures[j].fingerprint
+		}
+		return failures[i].test < failures[j].test
 	})
 
 	p("## Recent Failures")
 	p("")
-	p("| Date | Run | Workflow | Shard | Test | Fingerprint | Error |")
-	p("|------|-----|---------|-------|------|-------------|-------|")
+	p("| Date | Run | Workflow | Test | Fingerprint | Error |")
+	p("|------|-----|---------|------|-------------|-------|")
 
 	limit := maxRecentFailuresShown
 	if len(failures) < limit {
@@ -174,8 +179,8 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 	}
 	for _, rf := range failures[:limit] {
 		snippet := rf.snippet
-		if len(snippet) > 80 {
-			snippet = snippet[:77] + "..."
+		if len(snippet) > 200 {
+			snippet = snippet[:197] + "..."
 		}
 		snippet = strings.ReplaceAll(snippet, "|", "\\|")
 		snippet = strings.ReplaceAll(snippet, "\n", " ")
@@ -183,9 +188,29 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 		if fp == "" {
 			fp = "unknown"
 		}
-		p("| %s | [%s](https://github.com/%s/actions/runs/%s) | %s | %s | `%s` | `%s` | %s |",
-			rf.date, rf.runID, repo, rf.runID, rf.workflow, rf.shard, rf.test, fp, snippet)
+		p("| %s | [%s](https://github.com/%s/actions/runs/%s) | %s | `%s` | `%s` | %s |",
+			rf.date, rf.runID, repo, rf.runID, rf.workflow, rf.test, fp, snippet)
 	}
+	p("")
+}
+
+func writeLegend(p func(string, ...any)) {
+	p("## Fingerprint Legend")
+	p("")
+	p("| Pattern | Description |")
+	p("|---------|-------------|")
+	p("| `port-conflict` | Docker port already allocated or address in use — container startup collision |")
+	p("| `data-race` | Go race detector found a data race (`-race` flag) |")
+	p("| `timeout` | Test or context deadline exceeded |")
+	p("| `disk-full` | Runner ran out of disk space |")
+	p("| `connection-refused` | Service not reachable — likely not yet started or crashed |")
+	p("| `docker-error` | Docker daemon error — image pull, OCI runtime, or daemon connectivity |")
+	p("| `panic` | Unrecovered Go panic |")
+	p("| `oom-killed` | Process killed by signal — typically out of memory |")
+	p("| `cancelled` | Run cancelled or interrupted — typically a job-level timeout |")
+	p("| `exit-error` | Non-zero exit code with no more specific pattern matched |")
+	p("| `unknown-XXXXXXXX` | Unrecognized error — hash groups identical unknown failures together |")
+	p("| `unknown` | No error output captured |")
 	p("")
 }
 
@@ -205,7 +230,6 @@ type failureEvent struct {
 	date        string
 	runID       string
 	workflow    string
-	shard       string
 	test        string
 	fingerprint string
 	snippet     string
@@ -388,6 +412,24 @@ func primaryFingerprint(fps map[string]int) string {
 		}
 	}
 	return "`" + best + "`"
+}
+
+func primaryWorkflow(wfs map[string]int) string {
+	if len(wfs) == 0 {
+		return ""
+	}
+	var best string
+	bestCount := 0
+	for wf, count := range wfs {
+		if count > bestCount {
+			best = wf
+			bestCount = count
+		}
+	}
+	if len(wfs) > 1 {
+		return best + fmt.Sprintf(" (+%d)", len(wfs)-1)
+	}
+	return best
 }
 
 func sortedKeys(m map[string]bool) []string {

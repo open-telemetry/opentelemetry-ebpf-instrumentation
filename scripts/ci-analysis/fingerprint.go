@@ -5,6 +5,8 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -40,6 +42,7 @@ var errorPatterns = []struct {
 	{regexp.MustCompile(`(?i)OCI runtime create failed`), "docker-error"},
 	{regexp.MustCompile(`(?i)panic:`), "panic"},
 	{regexp.MustCompile(`(?i)signal: killed`), "oom-killed"},
+	{regexp.MustCompile(`(?i)received signal: interrupt`), "cancelled"},
 	{regexp.MustCompile(`(?i)exit status \d+`), "exit-error"},
 }
 
@@ -60,6 +63,13 @@ func fingerprintFromTestOutput(snippet string) string {
 	for _, ep := range errorPatterns {
 		if ep.regex.MatchString(snippet) {
 			return ep.fingerprint
+		}
+	}
+	// Hash the first non-empty line to group identical unknown errors.
+	for _, line := range strings.Split(snippet, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			h := sha256.Sum256([]byte(t))
+			return fmt.Sprintf("unknown-%x", h[:4])
 		}
 	}
 	return "unknown"

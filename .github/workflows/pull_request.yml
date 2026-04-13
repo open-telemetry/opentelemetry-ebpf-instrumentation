@@ -148,6 +148,14 @@ jobs:
           MATRIX_PACKAGES: ${{ matrix.packages }}
         run: make run-unit-test-shard cov-exclude-generated SHARD_ID="${MATRIX_ID}" UNIT_TEST_PACKAGES="${MATRIX_PACKAGES}"
 
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: unit-test-report-${{ matrix.id }}-${{ github.run_number }}
+          path: testoutput/unit-test-shard-*.log
+          retention-days: 5
+
       - name: Report coverage
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         env:

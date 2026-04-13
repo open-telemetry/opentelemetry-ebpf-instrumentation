@@ -47,8 +47,7 @@ GOTESTSUM_WORKFLOWS=(
 )
 
 # Workflows tracked at job level only (no gotestsum JSON artifacts).
-# OATS uses Ginkgo, so test-level parsing is not supported yet, but
-# we include it so the workflow reliability table is complete.
+# OATS uses Ginkgo, so test-level parsing is not supported yet.
 JOB_ONLY_WORKFLOWS=(
   "PR OATS test"
 )
@@ -61,10 +60,17 @@ FIRST_META=true
 for WORKFLOW_NAME in "${ALL_WORKFLOWS[@]}"; do
   echo "Querying workflow: $WORKFLOW_NAME" >&2
 
+  # Query completed and cancelled runs (timeouts surface as cancelled).
   # 100 runs per page is enough for a 5-day window per workflow.
-  RUNS=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&event=push&status=completed&created=%3E%3D${SINCE}&per_page=100" \
-    --jq ".workflow_runs[] | select(.name == \"${WORKFLOW_NAME}\") | {id: .id, name: .name, conclusion: .conclusion, created_at: .created_at, head_sha: .head_sha, run_attempt: .run_attempt}" \
-    2>&1) || { echo "  API error: $RUNS" >&2; RUNS=""; }
+  RUNS=""
+  for STATUS in completed cancelled; do
+    BATCH=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&event=push&status=${STATUS}&created=%3E%3D${SINCE}&per_page=100" \
+      --jq ".workflow_runs[] | select(.name == \"${WORKFLOW_NAME}\") | {id: .id, name: .name, conclusion: .conclusion, created_at: .created_at, head_sha: .head_sha, run_attempt: .run_attempt}" \
+      2>&1) || { echo "  API error ($STATUS): $BATCH" >&2; BATCH=""; }
+    if [ -n "$BATCH" ]; then
+      RUNS="${RUNS}${RUNS:+$'\n'}${BATCH}"
+    fi
+  done
 
   if [ -z "$RUNS" ]; then
     echo "  No runs found" >&2
@@ -117,7 +123,7 @@ METAEOF
     echo "    Downloaded $REPORT_COUNT report files" >&2
 
     # For failed runs, also download Docker log artifacts
-    if [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "timed_out" ]; then
+    if [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "timed_out" ] || [ "$CONCLUSION" = "cancelled" ]; then
       RUN_LOGS_DIR="$LOGS_DIR/$RUN_ID"
       mkdir -p "$RUN_LOGS_DIR"
       for pattern in "go-integration-test-logs-*" "go-k8s-integration-test-logs-*" "go-integration-test-arm-logs-*" "vm-integration-test-logs-*" "oats-test-logs-*"; do
