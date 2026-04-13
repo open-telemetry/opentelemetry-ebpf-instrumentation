@@ -314,13 +314,13 @@ func jsonRPCAttributes(span *request.Span) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		semconv.RPCSystemJSONRPC,
 		semconv.RPCMethod(rpc.Method),
-		attribute.String("jsonrpc.protocol.version", rpc.Version),
+		attribute.String(string(attr.JSONRPCProtocolVersion), rpc.Version),
 	}
 	if rpc.RequestID != "" {
-		attrs = append(attrs, attribute.String("jsonrpc.request.id", rpc.RequestID))
+		attrs = append(attrs, attribute.String(string(attr.JSONRPCRequestID), rpc.RequestID))
 	}
 	if rpc.ErrorCode != 0 {
-		attrs = append(attrs, attribute.String("rpc.response.status_code", strconv.Itoa(rpc.ErrorCode)))
+		attrs = append(attrs, attribute.String(string(attr.RPCResponseStatusCode), strconv.Itoa(rpc.ErrorCode)))
 	}
 	return attrs
 }
