@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 
+	"github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -85,12 +86,49 @@ func (p *BPFLogger) Run(ctx context.Context) {
 	)(ctx, nil)
 }
 
-func (p *BPFLogger) processLogEvent(record *ringbuf.Record) (request.Span, bool, error) {
+func logDebugEvent(log *slog.Logger, record *ringbuf.Record) {
 	event, err := ebpfcommon.ReinterpretCast[BPFLogInfo](record.RawSample)
-
 	if err == nil {
-		p.log.Debug(unix.ByteSliceToString(event.Log[:]), "pid", event.Pid, "comm", unix.ByteSliceToString(event.Comm[:]))
+		log.Debug(unix.ByteSliceToString(event.Log[:]),
+			"pid", event.Pid,
+			"comm", unix.ByteSliceToString(event.Comm[:]))
+	}
+}
+
+func (p *BPFLogger) processLogEvent(record *ringbuf.Record) (request.Span, bool, error) {
+	logDebugEvent(p.log, record)
+	return request.Span{}, true, nil
+}
+
+// RunDebugEventsReader can be used by any subsystem that loads BPF programs including
+// bpf_dbg.h but doesn't go through the main appolly pipeline (e.g. statsolly, netolly).
+func RunDebugEventsReader(ctx context.Context, debugEventsMap *ebpf.Map, log *slog.Logger) {
+	if debugEventsMap == nil {
+		return
 	}
 
-	return request.Span{}, true, nil
+	reader, err := ringbuf.NewReader(debugEventsMap)
+	if err != nil {
+		log.Error("failed to create debug events reader", "error", err)
+		return
+	}
+
+	go func() {
+		<-ctx.Done()
+		reader.Close()
+	}()
+
+	go func() {
+		for {
+			record, err := reader.Read()
+			if err != nil {
+				if errors.Is(err, ringbuf.ErrClosed) {
+					return
+				}
+				log.Error("reading debug event", "error", err)
+				continue
+			}
+			logDebugEvent(log, &record)
+		}
+	}()
 }
