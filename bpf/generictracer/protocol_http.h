@@ -473,12 +473,9 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
         unsigned char *buf = (unsigned char *)tp_char_buf_mem();
         if (buf) {
             const u16 buf_len = args->bytes_len & (TRACE_BUF_SIZE - 1);
-            // _Static_assert(TRACE_BUF_SIZE == 1024,
-            //                "Please fix the __bpf_memzero statements below this line");
-            // __bpf_memzero(buf, 512);
-            // __bpf_memzero(buf + 512, 512);
 
             bpf_probe_read(buf, buf_len, (void *)args->u_buf);
+            // null terminate to make proper string
             buf[buf_len] = '\0';
 
             unsigned char *res = tp_loop_fn(buf, buf_len);
@@ -555,7 +552,6 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     http_connection_metadata_t *meta =
         connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
 
-    // === Inlined from http_get_or_create_trace_info, first half ===
     egress_key_t e_key = {
         .d_port = args->pid_conn.conn.d_port,
         .s_port = args->pid_conn.conn.s_port,
