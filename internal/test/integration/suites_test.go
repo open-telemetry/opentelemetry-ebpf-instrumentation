@@ -621,6 +621,7 @@ func TestSuite_PythonJsonRPC(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python JSON-RPC server span", testPythonJSONRPCServer)
+	t.Run("Python JSON-RPC RPC metrics", testPythonJSONRPCMetrics)
 	require.NoError(t, compose.Close())
 }
 

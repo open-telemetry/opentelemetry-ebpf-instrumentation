@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
-	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
@@ -42,8 +42,14 @@ func JSONRPCSpan(baseSpan *request.Span, req *http.Request, resp *http.Response)
 		return *baseSpan, false
 	}
 
-	// Fast path: check Content-Type header
-	detected := strings.Contains(req.Header.Get("Content-Type"), jsonRPCContentType)
+	// Fast path: check Content-Type header. Media types are case-insensitive
+	// and may include parameters (e.g. "; charset=utf-8"), so parse with mime.
+	detected := false
+	if ct := req.Header.Get("Content-Type"); ct != "" {
+		if mediaType, _, err := mime.ParseMediaType(ct); err == nil {
+			detected = mediaType == jsonRPCContentType
+		}
+	}
 
 	reqB, err := io.ReadAll(req.Body)
 	if err != nil {

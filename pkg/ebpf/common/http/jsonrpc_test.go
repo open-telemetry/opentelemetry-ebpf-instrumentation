@@ -68,6 +68,27 @@ func TestJSONRPCSpan_DetectionViaHeader(t *testing.T) {
 	assert.Equal(t, "req-1", result.JSONRPC.RequestID)
 }
 
+func TestJSONRPCSpan_DetectionViaHeaderCaseInsensitive(t *testing.T) {
+	// Media types are case-insensitive and may include parameters.
+	// Body omits jsonrpc field — only header detection should succeed.
+	reqBody := `{"method":"test","id":1}`
+
+	cases := []string{
+		"Application/JSON-RPC",
+		"application/json-rpc; charset=utf-8",
+		"APPLICATION/JSON-RPC; charset=UTF-8",
+	}
+	for _, ct := range cases {
+		t.Run(ct, func(t *testing.T) {
+			span := request.Span{}
+			result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, ct, reqBody), newJSONRPCResponse(""))
+			require.True(t, ok)
+			assert.Equal(t, "test", result.JSONRPC.Method)
+			assert.Equal(t, "2.0", result.JSONRPC.Version)
+		})
+	}
+}
+
 func TestJSONRPCSpan_StringID(t *testing.T) {
 	reqBody := `{"jsonrpc":"2.0","method":"resources/read","id":"abc-123"}`
 	respBody := `{"jsonrpc":"2.0","result":{},"id":"abc-123"}`

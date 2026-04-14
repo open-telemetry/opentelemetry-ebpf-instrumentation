@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 // jsonRPCCall sends a JSON-RPC 2.0 request over HTTP and returns the response.
@@ -127,5 +128,28 @@ func testPythonJSONRPCServer(t *testing.T) {
 		tag, found = jaeger.FindIn(span.Tags, "rpc.response.status_code")
 		assert.True(ct, found, "rpc.response.status_code tag not found")
 		assert.Equal(ct, "-32601", tag.Value)
+	}, testTimeout, 100*time.Millisecond)
+}
+
+func testPythonJSONRPCMetrics(t *testing.T) {
+	const address = "http://localhost:8381/rpc"
+
+	// Send a few requests so Prometheus can scrape metrics
+	for range 4 {
+		_, _ = jsonRPCCall(address, "tools/list", 1, nil)
+	}
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	var results []promtest.Result
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		var err error
+		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
+			`rpc_method="tools/list",` +
+			`rpc_system="jsonrpc",` +
+			`service_namespace="integration-test"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 	}, testTimeout, 100*time.Millisecond)
 }
