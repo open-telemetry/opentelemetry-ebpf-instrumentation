@@ -129,6 +129,7 @@ OBI currently documents the following statistical instrumentation support:
 | Metric | Scope | Notes |
 |:-------|:------|:------|
 | TCP RTT | Node-wide statistical metric collection | Calculated from the kernel TCP `srtt_us` field |
+| TCP Failed Connections | Node-wide statistical metric collection | Counts the TCP failed connections between 2 endpoints |
 
 ## Context Propagation Frameworks
 
