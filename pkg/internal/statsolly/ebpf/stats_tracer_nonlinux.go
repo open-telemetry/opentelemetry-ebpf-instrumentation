@@ -29,7 +29,7 @@ type StatsTCPRtt struct {
 	}
 }
 
-type StatsTcpFailedConnectionT struct {
+type StatsTCPFailedConnection struct {
 	_      structs.HostLayout
 	Flags  uint8
 	Reason uint8

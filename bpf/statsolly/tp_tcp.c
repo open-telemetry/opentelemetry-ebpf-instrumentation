@@ -56,15 +56,18 @@ const tcp_failed_connection_t *unused_tcp_failed_connection __attribute__((unuse
 
 SEC("tracepoint/sock/inet_sock_set_state")
 int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_state *args) {
-    if (args->protocol != IPPROTO_TCP)
+    if (args->protocol != IPPROTO_TCP) {
         return 0;
+    }
 
-    if (args->newstate != TCP_CLOSE)
+    if (args->newstate != TCP_CLOSE) {
         return 0;
+    }
 
     // These are normal completions, not failures
-    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT)
+    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT) {
         return 0;
+    }
 
     struct sock *sk = (struct sock *)args->skaddr;
 

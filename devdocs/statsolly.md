@@ -46,7 +46,6 @@ We decided to create a component separate from **Appolly** and **Netolly**, focu
 
 The user can then filter the metrics in userspace using appropriate filters or even the collector.
 
-
 # Current metrics
 
 Below is a table of the currently supported stat metrics:
@@ -54,4 +53,4 @@ Below is a table of the currently supported stat metrics:
 | Metric name | Hook Point | Description
 |:------------- |:--------------|:--------------|
 | obi_stat_tcp_rtt_seconds | kprobe/tcp_close | measures the smoothed TCP RTT as calculated by the kernel in seconds |
-| obi_stat_tcp_failed_connections | tracepoint/sock/inet_sock_set_state | counts the TCP failed connections between 2 endpoints | 
+| obi_stat_tcp_failed_connections | tracepoint/sock/inet_sock_set_state | counts the TCP failed connections between 2 endpoints |
