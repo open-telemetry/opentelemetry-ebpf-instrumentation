@@ -147,6 +147,11 @@ func assertCouchbaseDBQueryTextContains(t *testing.T, comm, operation, wantPrefi
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(operation))
 		require.NoError(ct, err)
+		if err != nil || resp == nil {
+			return
+		}
+		defer resp.Body.Close()
+
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))

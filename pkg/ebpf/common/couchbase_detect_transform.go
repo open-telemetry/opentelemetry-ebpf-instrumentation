@@ -47,7 +47,7 @@ func buildCouchbaseStatement(pkt couchbasekv.Packet, collectionsEnabled bool) st
 	} else if len(keyBytes) > 0 && keyBytes[0] == 0x00 {
 		keyBytes = keyBytes[1:]
 	}
-	if len(keyBytes) == 0 {
+	if len(keyBytes) == 0 || !utf8.Valid(keyBytes) {
 		return ""
 	}
 
