@@ -133,7 +133,7 @@ func forEachCombination(t *testing.T, prefix string, loadFn func() (*ebpf.Collec
 // (e.g. debug logging, traceparent parsing, header propagation), which may trigger
 // verifier rejections not caught by default tests.
 // Requires CAP_SYS_ADMIN / root.
-// Run with: sudo env PATH=$PATH go test -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
+// Run with: go test -exec=sudo -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
 func TestBPFVerifierWithConstants(t *testing.T) {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		t.Skipf("cannot remove memlock limit (insufficient privileges?): %v", err)
