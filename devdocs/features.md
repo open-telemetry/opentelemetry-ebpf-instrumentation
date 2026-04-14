@@ -1,8 +1,12 @@
 # Supported Protocols
 
+This section describes language-agnostic protocol instrumentation. Some context propagation support is only available
+through language-specific library instrumentation documented later in this file.
+
 | Protocol      | Languages |    Versions | Methods                                                                                  | Secure | Propagates Context |                                                                                                                     Limitations
 |:--------------|:---------:|------------:|------------------------------------------------------------------------------------------|:------:|-------------------:|--------------------------------------------------------------------------------------------------------------------------------:
-| HTTP          |    All    | 1.0/1.1/2.0 | All                                                                                      |  Yes   |                Yes |                                                                                                                             N/A
+| HTTP          |    All    |     1.0/1.1 | All                                                                                      |  Yes   |                Yes |                                                                                                                             N/A
+| HTTP          |    All    |         2.0 | All                                                                                      |  Yes   |                 No |                                                                    Context propagation for HTTP/2 is only through Go library instrumentation
 | gRPC          |    All    |        1.0+ | All                                                                                      |  Yes   |                 No |                                      Can't get method for long living connections before OBI started, will mark method with `*`
 | MySQL         |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
 | PostgreSQL    |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
@@ -19,7 +23,7 @@
 | AWS S3        |    All    |         All | CreateBucket, DeleteBucket, PutObject, DeleteObject, ListBuckets, ListObjects, GetObject |  Yes   |                 No |                                                                                                                             N/A
 | AWS SQS       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
 | SQL++         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
-| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                            Supported vendors: OpenAI, Anthropic
+| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                            Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini)
 
 ## Go Instrumentation
 

@@ -1134,6 +1134,22 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 		result := span.GenAIInputTokens()
 		assert.Equal(t, 200, result)
 	})
+
+	t.Run("Gemini present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{
+					Output: GeminiResponse{
+						UsageMetadata: GeminiUsage{
+							PromptTokenCount: 300,
+						},
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 300, result)
+	})
 }
 
 // Test GenAIOutputTokens
@@ -1193,6 +1209,32 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 		result := span.GenAIOutputTokens()
 		assert.Equal(t, 0, result)
 	})
+
+	t.Run("Gemini present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{
+					Output: GeminiResponse{
+						UsageMetadata: GeminiUsage{
+							CandidatesTokenCount: 400,
+						},
+					},
+				},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 400, result)
+	})
+
+	t.Run("Gemini present no usage", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
 }
 
 // Test GenAIOperationName
@@ -1228,6 +1270,16 @@ func TestSpan_GenAIOperationName(t *testing.T) {
 		result := span.GenAIOperationName()
 		assert.Equal(t, "message", result)
 	})
+
+	t.Run("Gemini present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{},
+			},
+		}
+		result := span.GenAIOperationName()
+		assert.Equal(t, "generate_content", result)
+	})
 }
 
 // Test GenAIProviderName
@@ -1256,6 +1308,16 @@ func TestSpan_GenAIProviderName(t *testing.T) {
 		}
 		result := span.GenAIProviderName()
 		assert.Equal(t, "anthropic", result) // Assuming semconv.GenAIProviderNameAnthropic.Value.AsString() returns "anthropic"
+	})
+
+	t.Run("Gemini present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "gcp.gemini", result)
 	})
 }
 
@@ -1294,6 +1356,18 @@ func TestSpan_GenAIRequestModel(t *testing.T) {
 		result := span.GenAIRequestModel()
 		assert.Equal(t, "claude-2", result)
 	})
+
+	t.Run("Gemini present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{
+					Model: "gemini-2.0-flash",
+				},
+			},
+		}
+		result := span.GenAIRequestModel()
+		assert.Equal(t, "gemini-2.0-flash", result)
+	})
 }
 
 // Test GenAIResponseModel
@@ -1328,5 +1402,32 @@ func TestSpan_GenAIResponseModel(t *testing.T) {
 		}
 		result := span.GenAIResponseModel()
 		assert.Equal(t, "claude-2.1", result)
+	})
+
+	t.Run("Gemini present with model version", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{
+					Model: "gemini-2.0-flash",
+					Output: GeminiResponse{
+						ModelVersion: "gemini-2.0-flash-001",
+					},
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "gemini-2.0-flash-001", result)
+	})
+
+	t.Run("Gemini present without model version", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{
+					Model: "gemini-2.0-flash",
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "gemini-2.0-flash", result)
 	})
 }

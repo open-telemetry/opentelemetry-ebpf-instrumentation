@@ -926,7 +926,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				// JSON-RPC client calls over HTTP get recorded as RPC client metrics
 				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
 				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-			} else if mr.is.GenAIEnabled() && (span.SubType == request.HTTPSubtypeAnthropic || span.SubType == request.HTTPSubtypeOpenAI) {
+			} else if mr.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType) {
 				genAIClientDuration, attrs := r.genAIClientDuration.ForRecord(span)
 				genAIClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				genAIInputTokenUsage, attrs := r.genAIInputTokenUsage.ForRecord(span)

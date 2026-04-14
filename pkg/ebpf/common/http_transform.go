@@ -183,6 +183,13 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		}
 	}
 
+	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Gemini.Enabled {
+		span, ok := ebpfhttp.GeminiSpan(&httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
 	if parseCtx != nil && parseCtx.payloadExtraction.HTTP.JSONRPC.Enabled {
 		span, ok := ebpfhttp.JSONRPCSpan(&httpSpan, req, resp)
 		if ok {

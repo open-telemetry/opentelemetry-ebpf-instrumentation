@@ -1158,6 +1158,126 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
 	})
 
+	makeGeminiSpan := func(ai *request.VendorGemini) request.Span {
+		return request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeGemini,
+			Method:  "POST",
+			Path:    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+			Status:  200,
+			GenAI:   &request.GenAI{Gemini: ai},
+		}
+	}
+
+	t.Run("Gemini span", func(t *testing.T) {
+		span := makeGeminiSpan(&request.VendorGemini{
+			Model: "gemini-2.0-flash",
+			Output: request.GeminiResponse{
+				ResponseID:   "resp_abc123def456",
+				ModelVersion: "gemini-2.0-flash",
+				UsageMetadata: request.GeminiUsage{
+					PromptTokenCount:     12,
+					CandidatesTokenCount: 45,
+				},
+				Candidates: []request.GeminiCandidate{
+					{FinishReason: "STOP"},
+				},
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "gcp.gemini")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "generate_content")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseIDKey, "resp_abc123def456")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIRequestModelKey, "gemini-2.0-flash")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseModelKey, "gemini-2.0-flash")
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAISystemInstructionsKey)
+	})
+
+	t.Run("Gemini span - optional attributes and error", func(t *testing.T) {
+		span := makeGeminiSpan(&request.VendorGemini{
+			Model: "gemini-2.0-flash",
+			Input: request.GeminiRequest{
+				Contents:          []byte(`[{"parts":[{"text":"Explain eBPF"}],"role":"user"}]`),
+				SystemInstruction: &request.GeminiContent{Parts: []byte(`[{"text":"Be concise."}]`), Role: "system"},
+				Tools:             []byte(`[{"functionDeclarations":[{"name":"get_weather"}]}]`),
+				GenerationConfig: &request.GeminiGenCfg{
+					Temperature:     0.7,
+					TopP:            0.9,
+					TopK:            40,
+					MaxOutputTokens: 256,
+				},
+			},
+			Output: request.GeminiResponse{
+				ResponseID:   "resp_sys789",
+				ModelVersion: "gemini-2.0-flash",
+				Candidates: []request.GeminiCandidate{
+					{
+						Content:      &request.GeminiContent{Parts: []byte(`[{"text":"eBPF runs sandboxed programs in the kernel."}]`), Role: "model"},
+						FinishReason: "STOP",
+					},
+				},
+				UsageMetadata: request.GeminiUsage{
+					PromptTokenCount:     28,
+					CandidatesTokenCount: 8,
+				},
+				Error: &request.GeminiError{
+					Code:    404,
+					Message: "model not found",
+					Status:  "NOT_FOUND",
+				},
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "gcp.gemini")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "generate_content")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseIDKey, "resp_sys789")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, `[{"parts":[{"text":"Explain eBPF"}],"role":"user"}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOutputMessagesKey, `[{"text":"eBPF runs sandboxed programs in the kernel."}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, `[{"text":"Be concise."}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIToolDefinitionsKey, `[{"functionDeclarations":[{"name":"get_weather"}]}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "NOT_FOUND")
+		ensureTraceStrAttr(t, spanAttrs, attribute.Key("error.message"), "model not found")
+	})
+
+	t.Run("Gemini span - nil Gemini means no GenAI attrs", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeGemini,
+			Method:  "POST",
+			Status:  200,
+			GenAI:   &request.GenAI{Gemini: nil},
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIProviderNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOperationNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+	})
+
 	t.Run("test HTTP server span with extracted headers", func(t *testing.T) {
 		span := request.Span{
 			Type:   request.EventTypeHTTP,

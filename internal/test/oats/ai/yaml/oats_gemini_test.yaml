@@ -1,0 +1,37 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-gemini.yml
+input:
+- path: /generate
+- path: /system
+- path: /error
+interval: 500ms
+expected:
+  traces:
+  # Basic generateContent call
+  - traceql: '{ .gen_ai.provider.name = "gcp.gemini" && .gen_ai.request.model = "gemini-2.0-flash" && .gen_ai.usage.output_tokens = 45 }'
+    equals: generate_content gemini-2.0-flash
+    attributes:
+      gen_ai.operation.name: generate_content
+      gen_ai.response.model: gemini-2.0-flash
+      gen_ai.usage.input_tokens: 12
+  # generateContent with system instruction and tools
+  - traceql: '{ .gen_ai.provider.name = "gcp.gemini" && .gen_ai.request.model = "gemini-2.0-flash" && .gen_ai.usage.output_tokens = 8 }'
+    equals: generate_content gemini-2.0-flash
+    attributes:
+      gen_ai.operation.name: generate_content
+      gen_ai.response.model: gemini-2.0-flash
+      gen_ai.usage.input_tokens: 28
+  # Error case (nonexistent model)
+  - traceql: '{ .error.type = "NOT_FOUND" && .gen_ai.request.model = "gemini-nonexistent" }'
+    equals: generate_content gemini-nonexistent
+    attributes:
+      gen_ai.provider.name: gcp.gemini
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="generate_content",gen_ai_provider_name="gcp.gemini",gen_ai_token_type="input",gen_ai_request_model="gemini-2.0-flash",gen_ai_response_model="gemini-2.0-flash"}
+    value: '> 0'
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="generate_content",gen_ai_provider_name="gcp.gemini",gen_ai_token_type="output",gen_ai_request_model="gemini-2.0-flash",gen_ai_response_model="gemini-2.0-flash"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="generate_content",gen_ai_provider_name="gcp.gemini",gen_ai_request_model="gemini-2.0-flash",gen_ai_response_model="gemini-2.0-flash"}
+    value: '> 0'

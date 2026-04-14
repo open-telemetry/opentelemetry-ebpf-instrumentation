@@ -119,7 +119,7 @@ discovery:
 	nc := DefaultNetworkConfig
 	nc.Enable = true
 	nc.AgentIP = "1.2.3.4"
-	nc.CIDRs = cidr.Definitions{"10.244.0.0/16"}
+	nc.CIDRs = cidr.Definitions{{CIDR: "10.244.0.0/16"}}
 
 	sc := DefaultStatsConfig
 
