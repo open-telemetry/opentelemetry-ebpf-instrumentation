@@ -221,6 +221,8 @@ func testREDMetricsPythonCouchbaseDefaultCollection(t *testing.T) {
 			testREDMetricsForPythonCouchbaseLibrary(t, testCase)
 			// Verify db.query.text for default collection (no GET_COLLECTION_ID
 			// negotiation — tests the Bucket-based heuristic for LEB128 stripping).
+			// Uses user::2 (not user::1) to avoid matching named-collection spans
+			// from testREDMetricsPythonCouchbaseOnly which run in the same compose.
 			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "GET", "GET ", "user::2")
 			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "DELETE", "DELETE ", "user::2")
 		})

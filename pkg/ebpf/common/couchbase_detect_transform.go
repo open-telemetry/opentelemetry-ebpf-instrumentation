@@ -6,7 +6,6 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -39,6 +38,14 @@ type CouchbaseInfo struct {
 // When collectionsEnabled is true, the key field is expected to carry a
 // LEB128-encoded collection ID prefix (negotiated via HELLO and resolved via
 // GET_COLLECTION_ID) and the prefix is stripped from the rendered key.
+// Even when collectionsEnabled is false, a leading null byte is stripped as a
+// best-effort fallback: it indicates the default collection (ID 0) on a
+// connection where we missed the HELLO/SELECT_BUCKET handshake (e.g. a
+// long-lived connection that was already established when OBI started).
+// Non-default collection IDs (1+) overlap with printable ASCII and cannot be
+// reliably distinguished from real key bytes without protocol state.
+//
+// Document IDs are expected to be valid UTF-8/ASCII.
 //
 // Value is appended only when non-empty, valid UTF-8, and not snappy-compressed.
 // Extras are rendered per-opcode: SET-family shows TTL (if non-zero, flags are
@@ -49,6 +56,10 @@ func buildCouchbaseStatement(pkt couchbasekv.Packet, collectionsEnabled bool) st
 	keyBytes := pkt.Key()
 	if collectionsEnabled {
 		keyBytes = stripLEB128Prefix(keyBytes)
+	} else if len(keyBytes) > 0 && keyBytes[0] == 0x00 {
+		// Best-effort: strip default collection ID prefix (LEB128 for 0) on
+		// connections where we missed the HELLO negotiation.
+		keyBytes = keyBytes[1:]
 	}
 	if len(keyBytes) == 0 {
 		return ""
@@ -81,7 +92,7 @@ func buildCouchbaseStatement(pkt couchbasekv.Packet, collectionsEnabled bool) st
 func appendMutationExtras(b *strings.Builder, pkt couchbasekv.Packet) {
 	if extras := pkt.Extras(); len(extras) >= 8 {
 		if ttl := binary.BigEndian.Uint32(extras[4:8]); ttl != 0 {
-			fmt.Fprintf(b, " TTL=%d", ttl)
+			appendUint32Tag(b, "TTL", ttl)
 		}
 	}
 	appendValue(b, pkt)
@@ -96,9 +107,10 @@ func appendCounterExtras(b *strings.Builder, pkt couchbasekv.Packet) {
 	}
 	delta := binary.BigEndian.Uint64(extras[0:8])
 	ttl := binary.BigEndian.Uint32(extras[16:20])
-	fmt.Fprintf(b, " DELTA=%d", delta)
+	b.WriteString(" DELTA=")
+	b.WriteString(strconv.FormatUint(delta, 10))
 	if ttl != 0 {
-		fmt.Fprintf(b, " TTL=%d", ttl)
+		appendUint32Tag(b, "TTL", ttl)
 	}
 }
 
@@ -107,8 +119,15 @@ func appendCounterExtras(b *strings.Builder, pkt couchbasekv.Packet) {
 func appendTouchExtras(b *strings.Builder, pkt couchbasekv.Packet) {
 	if extras := pkt.Extras(); len(extras) >= 4 {
 		ttl := binary.BigEndian.Uint32(extras[0:4])
-		fmt.Fprintf(b, " TTL=%d", ttl)
+		appendUint32Tag(b, "TTL", ttl)
 	}
+}
+
+func appendUint32Tag(b *strings.Builder, name string, val uint32) {
+	b.WriteByte(' ')
+	b.WriteString(name)
+	b.WriteByte('=')
+	b.WriteString(strconv.FormatUint(uint64(val), 10))
 }
 
 // appendValue appends the packet's value to b when it is non-empty, valid
@@ -293,6 +312,12 @@ func processCouchbaseEvent(connInfo BpfConnectionInfoT, requestBuf []byte, respo
 				// via HELLO before SELECT_BUCKET, so all KV packets carry a
 				// LEB128-encoded collection ID prefix on the key — even when
 				// using the default collection (collection ID 0).
+				//
+				// Limitation: if OBI starts monitoring a connection that was
+				// already established (missed HELLO/SELECT_BUCKET), the cache
+				// will be empty and we won't strip the prefix here. The
+				// null-byte fallback in buildCouchbaseStatement partially
+				// covers this for the default collection (ID 0).
 				collectionsEnabled = bucketInfo.Bucket != ""
 			}
 		}

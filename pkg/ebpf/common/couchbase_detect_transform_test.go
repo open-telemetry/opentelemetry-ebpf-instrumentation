@@ -938,12 +938,28 @@ func TestBuildCouchbaseStatement(t *testing.T) {
 			expected:           "SET user::42 hi",
 		},
 		{
+			// Documents the trade-off: on collection-enabled connections, the
+			// first byte is always consumed as a LEB128 varint. A single-byte
+			// key whose only byte has MSB=0 (any printable ASCII char) is
+			// destroyed. In practice this does not happen — collection-enabled
+			// connections always prefix a real LEB128 collection ID before the
+			// user key, so the remaining bytes are the full user key.
 			name:               "collections enabled but no prefix (single printable byte key)",
 			opcode:             couchbasekv.OpcodeGet,
 			key:                "u",
 			dataType:           couchbasekv.DataTypeRaw,
 			collectionsEnabled: true,
-			expected:           "", // after stripping leading 'u' (0x75, MSB=0), nothing remains
+			expected:           "",
+		},
+		{
+			// Null-byte fallback: even without collectionsEnabled, a leading
+			// 0x00 (default collection ID) is stripped best-effort for
+			// mid-stream connections where we missed HELLO/SELECT_BUCKET.
+			name:     "null-byte default collection prefix stripped without collectionsEnabled",
+			opcode:   couchbasekv.OpcodeGet,
+			key:      "\x00user::42",
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "GET user::42",
 		},
 		{
 			name:     "DELETE key-only",
