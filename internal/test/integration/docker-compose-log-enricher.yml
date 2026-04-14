@@ -54,6 +54,16 @@ services:
       PORT: "3040"
       RAILS_MAX_THREADS: "2"
 
+  testserverdotnet:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/dotnetserver/Dockerfile
+    image: hatest-testserver-logenricher-dotnet
+    networks:
+      - shared
+    ports:
+      - "8386:5266"
+
   obi:
     build:
       context: ../../..
@@ -98,6 +108,8 @@ services:
       testserverjava:
         condition: service_started
       testserverruby:
+        condition: service_started
+      testserverdotnet:
         condition: service_started
 
 networks:

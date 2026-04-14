@@ -73,6 +73,13 @@ var (
 		containerImage: "hatest-testserver-logenricher-ruby",
 		message:        "this is a json log from ruby via write",
 	}
+	logEnricherDotNetConstants = testServerConstants{
+		url:            "http://localhost:8386",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/json_logger",
+		containerImage: "hatest-testserver-logenricher-dotnet",
+		message:        "this is a json log from dotnet",
+	}
 )
 
 // logEnricherTestTraceparents are fixed W3C traceparents used by log enricher tests.
@@ -319,6 +326,68 @@ func testLogEnricherRuby(t *testing.T, constants testServerConstants) {
 				continue
 			}
 			if fields["message"] != constants.message {
+				continue
+			}
+			if tid, ok := fields["trace_id"]; ok {
+				lastSpanID[tid] = fields["span_id"]
+			}
+		}
+
+		// Every injected trace_id must appear with a non-empty span_id.
+		for _, tp := range logEnricherTestTraceparents {
+			spanID, found := lastSpanID[tp.traceID]
+			assert.True(ct, found, "no enriched log line found for trace_id %s", tp.traceID)
+			if found {
+				assert.NotEmpty(ct, spanID, "span_id missing for trace_id %s", tp.traceID)
+			}
+		}
+	}, testTimeout, 500*time.Millisecond)
+}
+
+// testLogEnricherDotNet sends concurrent requests with distinct traceparent
+// headers and verifies each enriched log line contains the correct trace_id.
+// ASP.NET Core (Kestrel) dispatches requests on a thread pool, so concurrent
+// requests may run on different threads simultaneously — this exercises whether
+// the logenricher correctly correlates the TID at write time with the trace
+// context established when the HTTP request was received.
+func testLogEnricherDotNet(t *testing.T) {
+	waitForTestComponentsNoMetrics(t, logEnricherDotNetConstants.url+logEnricherDotNetConstants.smokeEndpoint)
+
+	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer cl.Close()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		var wg sync.WaitGroup
+		for _, tp := range logEnricherTestTraceparents {
+			wg.Add(1)
+			go func(tp struct{ traceID, parentID string }) {
+				defer wg.Done()
+				req, err := http.NewRequest(http.MethodGet,
+					logEnricherDotNetConstants.url+logEnricherDotNetConstants.logEndpoint, nil)
+				if err != nil {
+					return
+				}
+				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return
+				}
+				resp.Body.Close()
+			}(tp)
+		}
+		wg.Wait()
+
+		containerID := testContainerID(ct, cl, logEnricherDotNetConstants.containerImage)
+		require.NotEmpty(ct, containerID, "could not find test container ID")
+		logs := containerLogs(ct, cl, containerID)
+		require.NotEmpty(ct, logs)
+
+		// Collect the last occurrence of each injected trace_id.
+		lastSpanID := make(map[string]string, len(logEnricherTestTraceparents))
+		for _, line := range logs {
+			var fields map[string]string
+			if json.Unmarshal([]byte(line), &fields) != nil {
 				continue
 			}
 			if tid, ok := fields["trace_id"]; ok {
