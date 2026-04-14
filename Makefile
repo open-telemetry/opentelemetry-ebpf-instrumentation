@@ -307,8 +307,11 @@ test: $(ENVTEST)
 
 .PHONY: test-privileged
 test-privileged: $(ENVTEST)
-	@echo "### Testing code with privileged tests enabled"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -tags=privileged_tests -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	@echo "### Testing only privileged-tagged tests"
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	go test -short -race -tags=privileged_tests -a \
+	$$(grep -rl '//go:build.*privileged_tests' . --include='*.go' | xargs -I{} dirname {} | sort -u | tr '\n' ' ') \
+	-coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: run-bpf-verifier-vm
 run-bpf-verifier-vm:
