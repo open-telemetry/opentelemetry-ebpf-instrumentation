@@ -143,6 +143,37 @@ extensions:
                 - /sbin/*
                 - /usr/sbin/*
 
+        # Example (commented): per-workload refinement on include rules.
+        # The `refine` block overrides global defaults for workloads matched by this rule.
+        # Use this to disable signals, add per-service HTTP routes, or tighten filters
+        # for a specific workload without duplicating the whole config.
+        #
+        # - action: include
+        #   name: shopping-cart
+        #   description: Include shopping cart services with trace-only export and custom HTTP routes.
+        #   match:
+        #     kubernetes:
+        #       namespace_glob:
+        #         - shopping-*
+        #   refine:
+        #     # Disable metrics for this workload; emit traces only.
+        #     exports:
+        #       traces: true
+        #       metrics: false
+        #     http:
+        #       # Per-workload HTTP route patterns (override global patterns for this service).
+        #       routes:
+        #         unmatched: wildcard
+        #         patterns:
+        #           - /cart/{id}
+        #           - /cart/{id}/items
+        #       # Per-workload HTTP filters (replace global filters for this service).
+        #       filters:
+        #         traces:
+        #           url.path:
+        #             not_match: "/health*"
+        #         metrics: {}
+
     instrumentation:
       # HTTP protocol instrumentation and HTTP-specific enrichment/parsing.
       http:
@@ -399,7 +430,10 @@ extensions:
       # Runtime configuration for metadata enrichers.
       enrichers:
         kubernetes:
-          # autodetect, enabled, or disabled per implementation semantics.
+          # autodetect: enable if a Kubernetes environment is detected (default).
+          # enabled:    always enable.
+          # disabled:   disable. Recommended when running OBI as a Collector receiver
+          #             and using k8sattributesprocessor to avoid duplicate k8s API queries.
           mode: autodetect
           cluster_name: ""
           auth:

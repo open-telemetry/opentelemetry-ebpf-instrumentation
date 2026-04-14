@@ -226,6 +226,54 @@ It includes:
 
 This section is the primary user control for defining which services get instrumented by OBI, and it supports complex selection logic through ordered rules.
 
+##### Per-workload refinement (`refine`)
+
+Include rules may carry an optional `refine` block that overrides global defaults for matched workloads.
+The `refine` block uses an explicit, closed vocabulary of overridable fields — it does not provide a generic deep-merge of the full config.
+This keeps override semantics deterministic and avoids ambiguity from partial object merges.
+
+Current overridable fields:
+
+- `exports`: override which signals (`traces`, `metrics`) are emitted for this workload.
+- `http.routes`: override HTTP route patterns and fallback policy for this workload.
+- `http.filters`: replace HTTP trace/metric filters for this workload.
+
+Example use cases:
+
+```yaml
+selection:
+  rules:
+    # Disable traces for a low-priority namespace; keep metrics.
+    - action: include
+      name: low-priority-ns
+      match:
+        kubernetes:
+          namespace_glob: ["staging-*"]
+      refine:
+        exports:
+          traces: false
+          metrics: true
+
+    # Custom HTTP routes for a service that uses path parameters.
+    - action: include
+      name: orders-service
+      match:
+        kubernetes:
+          namespace_glob: ["orders"]
+      refine:
+        http:
+          routes:
+            unmatched: wildcard
+            patterns:
+              - /orders/{id}
+              - /orders/{id}/items
+```
+
+Sampling overrides are not part of the `refine` block.
+Per-workload sampling is handled by the `tracer_provider.sampler` using the `obi_rule_based` custom sampler,
+which matches on resource attributes (such as `service.namespace` or `service.name`).
+See the [Sampling model](#sampling-model) section below.
+
 #### Sampling model
 
 Sampling remains owned by top-level OTel declarative configuration under `tracer_provider.sampler`.
@@ -317,6 +365,30 @@ The `extensions.obi.network` section defines how network observability is config
 #### `enrich` Section
 
 The `extensions.obi.enrich` section defines enrichment behavior for telemetry, including service naming policy, and general attribute enrichment rules. This section allows users to configure how OBI adds contextual information to telemetry based on various sources.
+
+##### Kubernetes enricher and Collector receiver deployments
+
+The `enrich.enrichers.kubernetes` enricher adds Kubernetes pod, namespace, and deployment metadata to telemetry.
+It is the right choice when OBI runs as a standalone daemon with no Collector in the pipeline.
+
+When running OBI as a Collector receiver, the OpenTelemetry Collector's
+[`k8sattributesprocessor`](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/k8sattributesprocessor)
+covers the same enrichment and service name derivation following OTel semantic conventions.
+Running both in the same pipeline results in duplicate Kubernetes API queries and potentially conflicting attribute values.
+
+In receiver deployments, set `enrich.enrichers.kubernetes.mode: disabled` to turn off OBI's built-in k8s enrichment
+and rely on the Collector processor instead:
+
+```yaml
+extensions:
+  obi:
+    enrich:
+      enrichers:
+        kubernetes:
+          mode: disabled   # use k8sattributesprocessor in the Collector pipeline instead
+```
+
+The default is `autodetect`, which enables the enricher when a Kubernetes environment is detected.
 
 #### `operations` Section
 

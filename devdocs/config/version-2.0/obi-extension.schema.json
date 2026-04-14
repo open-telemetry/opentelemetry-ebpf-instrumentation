@@ -169,6 +169,61 @@
         }
       }
     },
+    "SelectionRuleRefine": {
+      "type": "object",
+      "description": "Optional workload-scoped configuration overrides applied on top of global defaults when an include rule matches.\nOnly explicitly listed fields are overridable.\nOnly meaningful on include rules; ignored on exclude rules.\n",
+      "additionalProperties": false,
+      "properties": {
+        "exports": {
+          "type": "object",
+          "description": "Override which signals are emitted for matched workloads.\nIf omitted, global instrumentation enablement applies.\n",
+          "additionalProperties": false,
+          "properties": {
+            "traces": {
+              "type": "boolean",
+              "description": "Enable or disable trace emission for this workload.\nIf omitted, the global protocol trace enablement applies.\n"
+            },
+            "metrics": {
+              "type": "boolean",
+              "description": "Enable or disable metric emission for this workload.\nIf omitted, the global protocol metric enablement applies.\n"
+            }
+          }
+        },
+        "http": {
+          "type": "object",
+          "description": "HTTP-specific per-workload overrides.\nFields here take precedence over the global `instrumentation.http` values for matched workloads.\n",
+          "additionalProperties": false,
+          "properties": {
+            "routes": {
+              "type": "object",
+              "description": "Per-workload HTTP route override.\nIf omitted, global route configuration applies.\n",
+              "additionalProperties": false,
+              "properties": {
+                "unmatched": {
+                  "type": "string",
+                  "enum": ["heuristic", "wildcard", "random_hash", "disabled"],
+                  "description": "Fallback policy when no explicit route pattern matches.\nIf omitted, global `instrumentation.http.routes.unmatched` applies.\n"
+                },
+                "patterns": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Explicit route patterns for this workload.\nThese are merged with (and take precedence over) global patterns.\nIf omitted, global patterns apply.\n"
+                },
+                "ignored_patterns": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Route patterns to ignore for this workload.\nIf omitted, global ignored patterns apply.\n"
+                }
+              }
+            },
+            "filters": {
+              "$ref": "#/$defs/SignalFilters",
+              "description": "Per-workload HTTP trace and metric filters.\nThese replace (not merge with) the global HTTP filters for matched workloads.\nIf omitted, global filters apply.\n"
+            }
+          }
+        }
+      }
+    },
     "Selection": {
       "type": "object",
       "description": "Selection policy and rule list controlling which workloads are included or excluded.",
@@ -293,6 +348,10 @@
               "match": {
                 "$ref": "#/$defs/SelectionRuleMatch",
                 "description": "Rule match clause. Known predicates are lightly validated while extension predicates remain allowed.\nProperty is required and must be non-null.\n"
+              },
+              "refine": {
+                "$ref": "#/$defs/SelectionRuleRefine",
+                "description": "Optional workload-scoped configuration overrides for matched workloads.\nOnly meaningful on include rules; ignored on exclude rules.\nIf omitted, global defaults apply without modification.\n"
               }
             },
             "required": ["action", "match"]
@@ -797,7 +856,23 @@
       "properties": {
         "enrichers": {
           "type": "object",
-          "description": "Enable/disable named enrichers and set enricher options.\nIf omitted, implementation defaults are used.\n"
+          "description": "Enable/disable named enrichers and set enricher options.\nIf omitted, implementation defaults are used.\n",
+          "additionalProperties": true,
+          "properties": {
+            "kubernetes": {
+              "type": "object",
+              "description": "Kubernetes metadata enricher configuration.\nWhen running OBI as a standalone daemon this enricher provides k8s pod/namespace/deployment metadata.\nWhen running OBI as a Collector receiver, consider setting `mode: disabled` and using the\n`k8sattributesprocessor` instead to avoid duplicate k8s API queries.\nIf omitted, implementation defaults are used.\n",
+              "additionalProperties": true,
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": ["autodetect", "enabled", "disabled"],
+                  "default": "autodetect",
+                  "description": "Kubernetes enricher activation mode.\n`autodetect`: enable if a Kubernetes environment is detected (default).\n`enabled`: always enable.\n`disabled`: disable. Recommended when running as a Collector receiver and using `k8sattributesprocessor`.\nIf omitted, `autodetect` is used.\n"
+                }
+              }
+            }
+          }
         },
         "service_name": {
           "type": "object",
