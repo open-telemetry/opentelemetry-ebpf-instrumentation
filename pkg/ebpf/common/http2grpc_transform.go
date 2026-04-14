@@ -93,8 +93,6 @@ func protocolIsGRPC(activeGRPCConnections *lru.Cache[uint64, h2Connection], conn
 	}
 }
 
-var commonHDec = bhpack.NewDecoder(0, nil)
-
 func isHTTPOp(op string) bool {
 	return op == "GET" || op == "POST" || op == "PATCH" || op == "DELETE" || op == "OPTIONS" || op == "HEAD"
 }
@@ -126,6 +124,8 @@ func handleHeaderField(hf *bhpack.HeaderField) bool {
 		}
 	case "grpc-status":
 		return true
+	case ":status":
+		return true
 	}
 
 	return false
@@ -133,18 +133,17 @@ func handleHeaderField(hf *bhpack.HeaderField) bool {
 
 func knownFrameKeys(fr *http2.Framer, hf *http2.HeadersFrame) bool {
 	knownCount := 0
-	commonHDec.SetEmitFunc(func(hf bhpack.HeaderField) {
+	dec := bhpack.NewDecoder(0, nil)
+	dec.SetEmitFunc(func(hf bhpack.HeaderField) {
 		if handleHeaderField(&hf) {
 			knownCount++
 		}
 	})
-	// Lose reference to MetaHeadersFrame:
-	defer commonHDec.SetEmitFunc(func(_ bhpack.HeaderField) {})
-	defer commonHDec.Close()
+	defer dec.Close()
 
 	frag := hf.HeaderBlockFragment()
 	for {
-		if _, err := commonHDec.Write(frag); err != nil {
+		if _, err := dec.Write(frag); err != nil {
 			break
 		}
 		if hf.HeadersEnded() {
