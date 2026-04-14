@@ -86,25 +86,12 @@ __check_defined = \
 ### Development Tools #######################################################
 
 # Tools module where tool versions are defined.
-TOOLS_MOD_DIR := ./internal/tools
 TOOLS_MODFILE := -modfile=$(CURDIR)/internal/tools/go.mod
-
-# Tools directory for built tool binaries.
-TOOLS = $(CURDIR)/.tools
-
-$(TOOLS):
-	@mkdir -p $@
-$(TOOLS)/%: $(TOOLS_MOD_DIR)/go.mod | $(TOOLS)
-	cd $(TOOLS_MOD_DIR) && \
-	go build -o $@ $(PACKAGE)
 
 BPF2GO ?= go tool $(TOOLS_MODFILE) bpf2go
 
 # Required for k8s-cache unit tests
 ENVTEST_K8S_VERSION ?= 1.30.0
-
-.PHONY: tools
-tools:
 
 ### Development Tools (end) #################################################
 
@@ -468,9 +455,6 @@ run-integration-test-arm:
 	@echo "### Running integration tests"
 	go clean -testcache
 	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
-
-.PHONY: unit-test-tools
-unit-test-tools:
 
 .PHONY: unit-test-matrix-json
 unit-test-matrix-json:
