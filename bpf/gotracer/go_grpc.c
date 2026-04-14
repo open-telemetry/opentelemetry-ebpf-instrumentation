@@ -677,7 +677,7 @@ int obi_uprobe_transport_http2Client_NewStream_Returns(struct pt_regs *ctx) {
     return 0;
 }
 
-#define MAX_W_PTR_OFFSET 1024
+#define MAX_W_PTR_OFFSET 65535
 
 SEC("uprobe/grpcFramerWriteHeaders")
 int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
