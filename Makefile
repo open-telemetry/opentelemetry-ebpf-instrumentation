@@ -229,6 +229,7 @@ $(BPF_GEN_ALL):
 generate/all: export BPF_CLANG := $(CLANG)
 generate/all: export BPF_CFLAGS := $(CFLAGS)
 generate/all: export BPF2GO := $(BPF2GO)
+generate/all:
 	@echo "### Generating all eBPF files..."
 	@go generate ./...
 
