@@ -8,6 +8,7 @@ package tcmanager
 import (
 	"bytes"
 	"errors"
+	"maps"
 	"os"
 	"testing"
 
@@ -139,7 +140,11 @@ func TestNetlinkManagerNetlinkAttachType(t *testing.T) {
 func isNetlinkFilterPresent(filterName string, attachType AttachmentType, netManager *netlinkManager) (bool, error) {
 	filterCount := 0
 
-	for ifaceIndex := range netManager.interfaces {
+	netManager.mutex.Lock()
+	ifaces := maps.Clone(netManager.interfaces)
+	netManager.mutex.Unlock()
+
+	for ifaceIndex := range ifaces {
 		link, err := netlink.LinkByIndex(ifaceIndex)
 		if err != nil {
 			return false, err

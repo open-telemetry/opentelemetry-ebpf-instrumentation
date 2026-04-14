@@ -87,9 +87,11 @@ func TestNetlinkManagerAddRemove(t *testing.T) {
 			return !linked
 		}, 5*time.Second, 100*time.Millisecond)
 
-		loaded, err := isBpfProgLoaded(progName)
-		require.NoError(t, err)
-		assert.False(t, loaded)
+		assert.Eventually(t, func() bool {
+			loaded, err := isBpfProgLoaded(progName)
+			require.NoError(t, err)
+			return !loaded
+		}, 5*time.Second, 100*time.Millisecond)
 	}
 
 	test("obi_ingress", progs.Ingress, AttachmentIngress)
