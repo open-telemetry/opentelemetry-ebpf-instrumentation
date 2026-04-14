@@ -62,14 +62,15 @@ func (ic *InformersCache) Run(ctx context.Context, opts ...meta.InformerOption) 
 
 	errs := make(chan error, 1)
 	go func() {
-		if err := s.Serve(lis); err != nil {
+		if err := s.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			errs <- fmt.Errorf("failed to serve: %w", err)
 		}
 		close(errs)
 	}()
 	select {
 	case <-ctx.Done():
-		return nil
+		s.GracefulStop()
+		return <-errs
 	case err := <-errs:
 		return err
 	}
