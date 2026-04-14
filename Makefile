@@ -103,11 +103,9 @@ $(TOOLS)/bpf2go: PACKAGE=github.com/cilium/ebpf/cmd/bpf2go
 
 # Required for k8s-cache unit tests
 ENVTEST_K8S_VERSION ?= 1.30.0
-ENVTEST ?= $(TOOLS)/setup-envtest
-$(TOOLS)/setup-envtest: PACKAGE=sigs.k8s.io/controller-runtime/tools/setup-envtest
 
 .PHONY: tools
-tools: $(BPF2GO) $(ENVTEST)
+tools: $(BPF2GO)
 
 ### Development Tools (end) #################################################
 
@@ -298,14 +296,14 @@ compile-cache-for-coverage:
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
 .PHONY: test
-test: $(ENVTEST)
+test:
 	@echo "### Testing code"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: test-privileged
-test-privileged: $(ENVTEST)
+test-privileged:
 	@echo "### Testing code with privileged tests enabled"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" PRIVILEGED_TESTS=true go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: run-bpf-verifier-vm
 run-bpf-verifier-vm:
@@ -474,16 +472,16 @@ run-integration-test-arm:
 	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
 
 .PHONY: unit-test-tools
-unit-test-tools: $(ENVTEST)
+unit-test-tools:
 
 .PHONY: unit-test-matrix-json
 unit-test-matrix-json:
 	@go list ./... | go tool $(TOOLS_MODFILE) gotestsum tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
 
 .PHONY: run-unit-test-shard
-run-unit-test-shard: $(ENVTEST)
+run-unit-test-shard:
 	@echo "### Running unit test shard $(SHARD_ID)"
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" \
 	go tool $(TOOLS_MODFILE) gotestsum \
 		--jsonfile=$(TEST_OUTPUT)/unit-test-shard-$(SHARD_ID).log \
 		-- -short -race -a -coverpkg=./... \
