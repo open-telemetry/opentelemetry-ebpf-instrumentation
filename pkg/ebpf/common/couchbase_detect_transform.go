@@ -281,9 +281,7 @@ func processCouchbaseEvent(connInfo BpfConnectionInfoT, requestBuf []byte, respo
 				info.Bucket = bucketInfo.Bucket
 				info.Scope = bucketInfo.Scope
 				info.Collection = bucketInfo.Collection
-				// Bucket in cache implies SELECT_BUCKET was observed, which
-				// means the SDK negotiated collections on this connection.
-				collectionsEnabled = bucketInfo.Bucket != ""
+				collectionsEnabled = bucketInfo.Scope != "" || bucketInfo.Collection != ""
 			}
 		}
 
