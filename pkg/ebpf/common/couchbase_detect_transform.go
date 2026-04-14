@@ -32,33 +32,19 @@ type CouchbaseInfo struct {
 	IsError    bool
 }
 
-// buildCouchbaseStatement builds a Redis-style db.query.text for a KV request
-// packet: "OP key [EXTRAS...] [value]". Returns "" if the key is empty.
+// buildCouchbaseStatement builds a db.query.text string for a KV request packet.
+// See devdocs/protocols/tcp/couchbase.md for the full format specification.
 //
-// When collectionsEnabled is true, the key field is expected to carry a
-// LEB128-encoded collection ID prefix (negotiated via HELLO and resolved via
-// GET_COLLECTION_ID) and the prefix is stripped from the rendered key.
-// Even when collectionsEnabled is false, a leading null byte is stripped as a
-// best-effort fallback: it indicates the default collection (ID 0) on a
-// connection where we missed the HELLO/SELECT_BUCKET handshake (e.g. a
-// long-lived connection that was already established when OBI started).
-// Non-default collection IDs (1+) overlap with printable ASCII and cannot be
-// reliably distinguished from real key bytes without protocol state.
-//
-// Document IDs are expected to be valid UTF-8/ASCII.
-//
-// Value is appended only when non-empty, valid UTF-8, and not snappy-compressed.
-// Extras are rendered per-opcode: SET-family shows TTL (if non-zero, flags are
-// always skipped); INCR/DECR shows DELTA always and TTL if non-zero (INITIAL is
-// skipped); TOUCH/GAT shows TTL.
+// When collectionsEnabled is true, the LEB128 collection ID prefix is stripped
+// from the key. A leading null byte (default collection, ID 0) is also stripped
+// best-effort even when collectionsEnabled is false, to handle connections
+// established before OBI started monitoring.
 func buildCouchbaseStatement(pkt couchbasekv.Packet, collectionsEnabled bool) string {
 	op := pkt.Header().Opcode()
 	keyBytes := pkt.Key()
 	if collectionsEnabled {
 		keyBytes = stripLEB128Prefix(keyBytes)
 	} else if len(keyBytes) > 0 && keyBytes[0] == 0x00 {
-		// Best-effort: strip default collection ID prefix (LEB128 for 0) on
-		// connections where we missed the HELLO negotiation.
 		keyBytes = keyBytes[1:]
 	}
 	if len(keyBytes) == 0 {
@@ -87,8 +73,6 @@ func buildCouchbaseStatement(pkt couchbasekv.Packet, collectionsEnabled bool) st
 	return b.String()
 }
 
-// appendMutationExtras appends TTL (when non-zero) and value to b for
-// SET/ADD/REPLACE ops. Extras layout: 4B flags + 4B expiration.
 func appendMutationExtras(b *strings.Builder, pkt couchbasekv.Packet) {
 	if extras := pkt.Extras(); len(extras) >= 8 {
 		if ttl := binary.BigEndian.Uint32(extras[4:8]); ttl != 0 {
@@ -98,8 +82,6 @@ func appendMutationExtras(b *strings.Builder, pkt couchbasekv.Packet) {
 	appendValue(b, pkt)
 }
 
-// appendCounterExtras appends DELTA (always) and TTL (when non-zero) to b for
-// INCREMENT/DECREMENT ops. Extras layout: 8B delta + 8B initial + 4B expiration.
 func appendCounterExtras(b *strings.Builder, pkt couchbasekv.Packet) {
 	extras := pkt.Extras()
 	if len(extras) < 20 {
@@ -114,8 +96,6 @@ func appendCounterExtras(b *strings.Builder, pkt couchbasekv.Packet) {
 	}
 }
 
-// appendTouchExtras appends TTL to b for TOUCH/GAT ops.
-// Extras layout: 4B expiration.
 func appendTouchExtras(b *strings.Builder, pkt couchbasekv.Packet) {
 	if extras := pkt.Extras(); len(extras) >= 4 {
 		ttl := binary.BigEndian.Uint32(extras[0:4])
@@ -130,8 +110,6 @@ func appendUint32Tag(b *strings.Builder, name string, val uint32) {
 	b.WriteString(strconv.FormatUint(uint64(val), 10))
 }
 
-// appendValue appends the packet's value to b when it is non-empty, valid
-// UTF-8, and not snappy-compressed.
 func appendValue(b *strings.Builder, pkt couchbasekv.Packet) {
 	if val := couchbaseValueForStatement(pkt); val != "" {
 		b.WriteByte(' ')
@@ -157,10 +135,6 @@ func stripLEB128Prefix(key []byte) []byte {
 	return key
 }
 
-// couchbaseValueForStatement returns the packet's value rendered for inclusion
-// in a db.query.text statement, or "" if it should be omitted.
-// Values are omitted when snappy-compressed or not valid UTF-8. Truncated
-// values are returned as-is without a marker.
 func couchbaseValueForStatement(pkt couchbasekv.Packet) string {
 	if pkt.Header().DataType().HasSnappy() {
 		return ""
@@ -307,17 +281,8 @@ func processCouchbaseEvent(connInfo BpfConnectionInfoT, requestBuf []byte, respo
 				info.Bucket = bucketInfo.Bucket
 				info.Scope = bucketInfo.Scope
 				info.Collection = bucketInfo.Collection
-				// A cached Bucket means SELECT_BUCKET was observed on this
-				// connection. Modern SDKs (3.x+) always negotiate collections
-				// via HELLO before SELECT_BUCKET, so all KV packets carry a
-				// LEB128-encoded collection ID prefix on the key — even when
-				// using the default collection (collection ID 0).
-				//
-				// Limitation: if OBI starts monitoring a connection that was
-				// already established (missed HELLO/SELECT_BUCKET), the cache
-				// will be empty and we won't strip the prefix here. The
-				// null-byte fallback in buildCouchbaseStatement partially
-				// covers this for the default collection (ID 0).
+				// Bucket in cache implies SELECT_BUCKET was observed, which
+				// means the SDK negotiated collections on this connection.
 				collectionsEnabled = bucketInfo.Bucket != ""
 			}
 		}

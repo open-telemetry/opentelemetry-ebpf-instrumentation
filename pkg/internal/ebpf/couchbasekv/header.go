@@ -156,8 +156,6 @@ func (p Packet) Header() Header {
 }
 
 // Extras returns the extras bytes (view into original buffer).
-// The interpretation is opcode-specific (e.g. SET: 4B flags + 4B TTL;
-// INCR/DECR: 8B delta + 8B initial + 4B TTL; TOUCH/GAT: 4B TTL).
 func (p Packet) Extras() []byte {
 	start := p.framingExtrasEnd()
 	end := p.extrasEnd()

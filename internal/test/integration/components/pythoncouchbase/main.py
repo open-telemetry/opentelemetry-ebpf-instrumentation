@@ -53,14 +53,9 @@ async def query():
 async def query_default_collection():
     coll = get_default_collection()
 
-    # SET - Upsert a document into the default collection
     coll.upsert("user::2", {"name": "Bob", "age": 25})
-
-    # GET - get the document
     result = coll.get("user::2")
     print(f"GET default result: {result.content_as[dict]}")
-
-    # DELETE - Remove the document
     coll.remove("user::2")
 
     return {"status": "ok"}
