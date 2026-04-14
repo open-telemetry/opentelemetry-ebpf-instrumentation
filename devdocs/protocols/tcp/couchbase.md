@@ -183,7 +183,8 @@ OBI generates spans with the following OpenTelemetry semantic conventions:
 
 We do not have the raw query statement, since it is parsed and transformed into the KV binary format.
 We try to render the KV operation in a Redis-style textual format: `OP key [extras] [value]`.
-it is optionally added to `db.query.text` attribute (must be included in `attributes.select` to be emitted).
+It is optionally added to the `db.query.text` attribute and must be included in `attributes.select` to be emitted.
+When enabled, `db.query.text` for KV operations may include document values, which can be sensitive.
 
 **Format by opcode family:**
 
