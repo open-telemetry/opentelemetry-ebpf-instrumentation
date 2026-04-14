@@ -59,44 +59,65 @@ func buildCouchbaseStatement(pkt couchbasekv.Packet, collectionsEnabled bool) st
 	b.WriteByte(' ')
 	b.Write(keyBytes)
 
-	extras := pkt.Extras()
-
 	switch op {
 	case couchbasekv.OpcodeSet, couchbasekv.OpcodeAdd, couchbasekv.OpcodeReplace,
 		couchbasekv.OpcodeSetQ, couchbasekv.OpcodeAddQ, couchbasekv.OpcodeReplaceQ:
-		if len(extras) >= 8 {
-			if ttl := binary.BigEndian.Uint32(extras[4:8]); ttl != 0 {
-				fmt.Fprintf(&b, " TTL=%d", ttl)
-			}
-		}
-		if val := couchbaseValueForStatement(pkt); val != "" {
-			b.WriteByte(' ')
-			b.WriteString(val)
-		}
+		appendMutationExtras(&b, pkt)
 	case couchbasekv.OpcodeAppend, couchbasekv.OpcodePrepend,
 		couchbasekv.OpcodeAppendQ, couchbasekv.OpcodePrependQ:
-		if val := couchbaseValueForStatement(pkt); val != "" {
-			b.WriteByte(' ')
-			b.WriteString(val)
-		}
+		appendValue(&b, pkt)
 	case couchbasekv.OpcodeIncrement, couchbasekv.OpcodeDecrement,
 		couchbasekv.OpcodeIncrementQ, couchbasekv.OpcodeDecrementQ:
-		if len(extras) >= 20 {
-			delta := binary.BigEndian.Uint64(extras[0:8])
-			ttl := binary.BigEndian.Uint32(extras[16:20])
-			fmt.Fprintf(&b, " DELTA=%d", delta)
-			if ttl != 0 {
-				fmt.Fprintf(&b, " TTL=%d", ttl)
-			}
-		}
+		appendCounterExtras(&b, pkt)
 	case couchbasekv.OpcodeTouch, couchbasekv.OpcodeGAT, couchbasekv.OpcodeGATQ:
-		if len(extras) >= 4 {
-			ttl := binary.BigEndian.Uint32(extras[0:4])
-			fmt.Fprintf(&b, " TTL=%d", ttl)
-		}
+		appendTouchExtras(&b, pkt)
 	}
 
 	return b.String()
+}
+
+// appendMutationExtras appends TTL (when non-zero) and value to b for
+// SET/ADD/REPLACE ops. Extras layout: 4B flags + 4B expiration.
+func appendMutationExtras(b *strings.Builder, pkt couchbasekv.Packet) {
+	if extras := pkt.Extras(); len(extras) >= 8 {
+		if ttl := binary.BigEndian.Uint32(extras[4:8]); ttl != 0 {
+			fmt.Fprintf(b, " TTL=%d", ttl)
+		}
+	}
+	appendValue(b, pkt)
+}
+
+// appendCounterExtras appends DELTA (always) and TTL (when non-zero) to b for
+// INCREMENT/DECREMENT ops. Extras layout: 8B delta + 8B initial + 4B expiration.
+func appendCounterExtras(b *strings.Builder, pkt couchbasekv.Packet) {
+	extras := pkt.Extras()
+	if len(extras) < 20 {
+		return
+	}
+	delta := binary.BigEndian.Uint64(extras[0:8])
+	ttl := binary.BigEndian.Uint32(extras[16:20])
+	fmt.Fprintf(b, " DELTA=%d", delta)
+	if ttl != 0 {
+		fmt.Fprintf(b, " TTL=%d", ttl)
+	}
+}
+
+// appendTouchExtras appends TTL to b for TOUCH/GAT ops.
+// Extras layout: 4B expiration.
+func appendTouchExtras(b *strings.Builder, pkt couchbasekv.Packet) {
+	if extras := pkt.Extras(); len(extras) >= 4 {
+		ttl := binary.BigEndian.Uint32(extras[0:4])
+		fmt.Fprintf(b, " TTL=%d", ttl)
+	}
+}
+
+// appendValue appends the packet's value to b when it is non-empty, valid
+// UTF-8, and not snappy-compressed.
+func appendValue(b *strings.Builder, pkt couchbasekv.Packet) {
+	if val := couchbaseValueForStatement(pkt); val != "" {
+		b.WriteByte(' ')
+		b.WriteString(val)
+	}
 }
 
 // stripLEB128Prefix consumes the leading LEB128-encoded unsigned varint
@@ -267,10 +288,12 @@ func processCouchbaseEvent(connInfo BpfConnectionInfoT, requestBuf []byte, respo
 				info.Bucket = bucketInfo.Bucket
 				info.Scope = bucketInfo.Scope
 				info.Collection = bucketInfo.Collection
-				// Presence of a resolved Scope/Collection implies the client
-				// has negotiated collections on this connection, so KV packets
-				// carry a LEB128-encoded collection ID prefix on the key.
-				collectionsEnabled = bucketInfo.Scope != "" || bucketInfo.Collection != ""
+				// A cached Bucket means SELECT_BUCKET was observed on this
+				// connection. Modern SDKs (3.x+) always negotiate collections
+				// via HELLO before SELECT_BUCKET, so all KV packets carry a
+				// LEB128-encoded collection ID prefix on the key — even when
+				// using the default collection (collection ID 0).
+				collectionsEnabled = bucketInfo.Bucket != ""
 			}
 		}
 

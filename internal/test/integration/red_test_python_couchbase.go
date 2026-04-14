@@ -174,6 +174,59 @@ func assertCouchbaseDBQueryTextContains(t *testing.T, comm, operation, wantPrefi
 	}, testTimeout, time.Second)
 }
 
+func testREDMetricsPythonCouchbaseDefaultCollection(t *testing.T) {
+	couchbaseCommonAttributes := []attribute.KeyValue{
+		attribute.String("db.system.name", "couchbase"),
+		attribute.String("span.kind", "client"),
+		attribute.Int("server.port", 11210),
+	}
+	testCases := []TestCase{
+		{
+			Route:     "http://localhost:8381",
+			Subpath:   "couchbase-default",
+			Comm:      "python3.14",
+			Namespace: "integration-test",
+			Spans: []TestCaseSpan{
+				{
+					Name: "SET",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "SET"),
+						attribute.String("db.namespace", "test-bucket"),
+					},
+				},
+				{
+					Name: "GET",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "GET"),
+						attribute.String("db.namespace", "test-bucket"),
+					},
+				},
+				{
+					Name: "DELETE",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "DELETE"),
+						attribute.String("db.namespace", "test-bucket"),
+					},
+				},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		for i := range testCase.Spans {
+			testCase.Spans[i].Attributes = append(testCase.Spans[i].Attributes, couchbaseCommonAttributes...)
+		}
+
+		t.Run(testCase.Route, func(t *testing.T) {
+			waitForCouchbaseTestComponents(t, testCase.Route, "/"+testCase.Subpath)
+			testREDMetricsForPythonCouchbaseLibrary(t, testCase)
+			// Verify db.query.text for default collection (no GET_COLLECTION_ID
+			// negotiation — tests the Bucket-based heuristic for LEB128 stripping).
+			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "GET", "GET ", "user::2")
+			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "DELETE", "DELETE ", "user::2")
+		})
+	}
+}
+
 func testREDMetricsPythonCouchbaseError(t *testing.T) {
 	couchbaseCommonAttributes := []attribute.KeyValue{
 		attribute.String("db.system.name", "couchbase"),
