@@ -532,6 +532,75 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 		}
 
+		if span.SubType == request.HTTPSubtypeGemini && span.GenAI != nil && span.GenAI.Gemini != nil {
+			ai := span.GenAI.Gemini
+			attrs = append(attrs, semconv.GenAIProviderNameGCPGemini)
+			attrs = append(attrs, semconv.GenAIOperationNameGenerateContent)
+			if ai.Output.ResponseID != "" {
+				attrs = append(attrs, semconv.GenAIResponseID(ai.Output.ResponseID))
+			}
+			attrs = append(attrs, semconv.GenAIRequestModel(ai.Model))
+			if ai.Output.ModelVersion != "" {
+				attrs = append(attrs, semconv.GenAIResponseModel(ai.Output.ModelVersion))
+			} else {
+				attrs = append(attrs, semconv.GenAIResponseModel(ai.Model))
+			}
+			if cfg := ai.Input.GenerationConfig; cfg != nil {
+				if cfg.Temperature > 0.0 {
+					attrs = append(attrs, semconv.GenAIRequestTemperature(cfg.Temperature))
+				}
+				if cfg.TopP > 0.0 {
+					attrs = append(attrs, semconv.GenAIRequestTopP(cfg.TopP))
+				}
+				if cfg.TopK > 0 {
+					attrs = append(attrs, semconv.GenAIRequestTopK(float64(cfg.TopK)))
+				}
+				if cfg.MaxOutputTokens > 0 {
+					attrs = append(attrs, semconv.GenAIRequestMaxTokens(cfg.MaxOutputTokens))
+				}
+				if cfg.FrequencyPenalty > 0.0 {
+					attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(cfg.FrequencyPenalty))
+				}
+				if cfg.PresencePenalty > 0.0 {
+					attrs = append(attrs, semconv.GenAIRequestPresencePenalty(cfg.PresencePenalty))
+				}
+				if len(cfg.StopSequences) > 0 {
+					attrs = append(attrs, semconv.GenAIRequestStopSequences(cfg.StopSequences...))
+				}
+				if cfg.Seed != nil {
+					attrs = append(attrs, semconv.GenAIRequestSeed(*cfg.Seed))
+				}
+				if cfg.CandidateCount > 0 {
+					attrs = append(attrs, semconv.GenAIRequestChoiceCount(cfg.CandidateCount))
+				}
+			}
+			attrs = append(attrs, semconv.GenAIUsageInputTokens(ai.Output.UsageMetadata.PromptTokenCount))
+			attrs = append(attrs, semconv.GenAIUsageOutputTokens(ai.Output.UsageMetadata.CandidatesTokenCount))
+			if reasons := ai.GetFinishReasons(); len(reasons) > 0 {
+				attrs = append(attrs, semconv.GenAIResponseFinishReasons(reasons...))
+			}
+			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
+				attrs = append(attrs, semconv.GenAIInputMessagesKey.String(ai.GetInput()))
+			}
+			if _, ok := optionalAttrs[attr.GenAIOutput]; ok {
+				attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(ai.GetOutput()))
+			}
+			if _, ok := optionalAttrs[attr.GenAIInstructions]; ok {
+				if inst := ai.GetSystemInstruction(); inst != "" {
+					attrs = append(attrs, semconv.GenAISystemInstructionsKey.String(inst))
+				}
+			}
+			if _, ok := optionalAttrs[attr.GenAIMetadata]; ok {
+				if len(ai.Input.Tools) > 0 {
+					attrs = append(attrs, semconv.GenAIToolDefinitionsKey.String(string(ai.Input.Tools)))
+				}
+			}
+			if ai.Output.Error != nil && ai.Output.Error.Status != "" {
+				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Status))
+				attrs = append(attrs, semconv.ErrorMessage(ai.Output.Error.Message))
+			}
+		}
+
 		attrs = append(attrs, httpEnrichmentAttributes(span)...)
 	case request.EventTypeGRPCClient:
 		attrs = []attribute.KeyValue{
